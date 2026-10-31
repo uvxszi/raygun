@@ -30,7 +30,7 @@ Legend: 📱 Android · 🖥 Windows · ⚗ spike (time-boxed; the outcome is a 
 - M12 `@raygun/sdk` package + extension template + build tooling, hot-reload in dev
 - M13 Repository format (`index.json`), install/update/uninstall UI, per-extension settings UI
 - M14 Resolver pipeline: candidate scoring, verification, caching, automatic fallback (direct → proxied → embed)
-- M15 First-party extensions: YouTube Music metadata + stream candidates, MusicBrainz/Cover Art, LRCLIB synced lyrics
+- M15 First-party extensions: YouTube Music metadata + stream candidates (including an InnerTube direct-stream resolver, which Android needs for background YouTube audio, see M08), MusicBrainz/Cover Art, LRCLIB synced lyrics
 - M16 yt-dlp sidecar (desktop): download, verification, `music.stream` provider
 - M17 **Nuclear plugin compatibility**: `oxc` TS→CJS converter at install, `NuclearPluginAPI` shim over the host API, React/UI stubs, compatibility report per plugin; tested against several real plugins from the Nuclear registry
 - M18 Playlists, favorites, history, search across providers

@@ -182,3 +182,38 @@ async fn serves_only_allowed_artwork_names() {
     let refused = reqwest::get(proxy.artwork_url("secret.txt")).await.unwrap();
     assert_eq!(refused.status(), 404);
 }
+
+#[tokio::test]
+async fn serves_the_youtube_embed_page_on_localhost() {
+    let proxy = proxy().await;
+
+    let url = proxy.youtube_embed_url();
+    assert!(url.starts_with("http://localhost:"), "{url}");
+    let response = reqwest::get(format!("http://{}/embed/youtube", proxy.address()))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.headers()[header::CONTENT_TYPE],
+        "text/html; charset=utf-8"
+    );
+    assert!(response.headers().get("x-frame-options").is_none());
+    assert!(
+        response
+            .text()
+            .await
+            .unwrap()
+            .contains("youtube.com/iframe_api")
+    );
+}
+
+#[tokio::test]
+async fn youtube_sources_are_not_streamed() {
+    let proxy = proxy().await;
+    let url = proxy.register(&MediaSource::YouTube {
+        video_id: "M7lc1UVf-VE".into(),
+    });
+
+    assert_eq!(reqwest::get(&url).await.unwrap().status(), 404);
+}

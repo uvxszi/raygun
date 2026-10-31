@@ -1,0 +1,128 @@
+<!doctype html>
+<!--
+  Raygun's YouTube embed host (M08). Served from the loopback server and loaded by the app as
+  http://localhost:<port>/embed/youtube, so YouTube sees an ordinary embedding page (it refuses
+  literal IP origins; see docs/reference-notes.md, RiPlay).
+
+  Protocol (window.postMessage with the parent app):
+    app  -> page: { raygunCommand: true, type: "load" | "play" | "pause" | "seek" | "volume" | "stop", ... }
+    page -> app:  { raygunEmbed: true, type: "ready" | "state" | "progress" | "error", ... }
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Raygun YouTube</title>
+    <style>
+      html,
+      body,
+      #player {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: #000;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="player"></div>
+    <script>
+      'use strict';
+      var STATES = {
+        '-1': 'unstarted',
+        0: 'ended',
+        1: 'playing',
+        2: 'paused',
+        3: 'buffering',
+        5: 'cued',
+      };
+      var player = null;
+      var ready = false;
+      var pending = [];
+
+      function post(message) {
+        message.raygunEmbed = true;
+        window.parent.postMessage(message, '*');
+      }
+
+      function reportProgress() {
+        if (!ready || !player.getCurrentTime) return;
+        var duration = player.getDuration();
+        post({
+          type: 'progress',
+          positionMs: player.getCurrentTime() * 1000,
+          durationMs: duration > 0 ? duration * 1000 : null,
+        });
+      }
+
+      function handle(command) {
+        switch (command.type) {
+          case 'load': {
+            var options = { videoId: command.videoId, startSeconds: (command.startMs || 0) / 1000 };
+            player.setVolume(Math.round((command.volume == null ? 1 : command.volume) * 100));
+            if (command.autoplay) player.loadVideoById(options);
+            else player.cueVideoById(options);
+            break;
+          }
+          case 'play':
+            player.playVideo();
+            break;
+          case 'pause':
+            player.pauseVideo();
+            break;
+          case 'seek':
+            player.seekTo((command.positionMs || 0) / 1000, true);
+            setTimeout(reportProgress, 400);
+            break;
+          case 'volume':
+            player.setVolume(Math.round((command.volume == null ? 1 : command.volume) * 100));
+            break;
+          case 'stop':
+            player.stopVideo();
+            break;
+        }
+      }
+
+      window.addEventListener('message', function (event) {
+        if (event.source !== window.parent) return;
+        var command = event.data;
+        if (!command || command.raygunCommand !== true) return;
+        if (ready) handle(command);
+        else pending.push(command);
+      });
+
+      window.onYouTubeIframeAPIReady = function () {
+        player = new YT.Player('player', {
+          width: '100%',
+          height: '100%',
+          playerVars: {
+            playsinline: 1,
+            controls: 0,
+            rel: 0,
+            iv_load_policy: 3,
+            origin: window.location.origin,
+          },
+          events: {
+            onReady: function () {
+              ready = true;
+              post({ type: 'ready' });
+              pending.splice(0).forEach(handle);
+            },
+            onStateChange: function (event) {
+              post({ type: 'state', state: STATES[String(event.data)] || 'unstarted' });
+              reportProgress();
+            },
+            onError: function (event) {
+              post({ type: 'error', code: event.data });
+            },
+          },
+        });
+        setInterval(function () {
+          if (ready && player.getPlayerState && player.getPlayerState() === 1) reportProgress();
+        }, 500);
+      };
+    </script>
+    <script src="https://www.youtube.com/iframe_api"></script>
+  </body>
+</html>

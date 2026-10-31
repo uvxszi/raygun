@@ -18,6 +18,7 @@ import { useTranslation } from 'react-i18next';
 
 import { formatTime } from './formatTime';
 import { usePlayerUiStore } from './playerUiStore';
+import { useVideoSurface } from './useVideoSurface';
 import { isActive, sendControl, useNowPlaying } from './usePlayback';
 
 const DISMISS_DISTANCE = 120;
@@ -32,6 +33,8 @@ export const PlayerSheet: FC = () => {
   const closeSheet = usePlayerUiStore((state) => state.closeSheet);
   const { state, item, upNext } = useNowPlaying();
   const [scrubMs, setScrubMs] = useState<number | null>(null);
+  const isVideo = item?.source.kind === 'youTube';
+  const videoSurfaceRef = useVideoSurface(sheetOpen && isVideo);
 
   useEffect(() => {
     if (!sheetOpen) {
@@ -97,7 +100,13 @@ export const PlayerSheet: FC = () => {
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6">
-            {item?.artworkUrl ? (
+            {isVideo ? (
+              <div
+                ref={videoSurfaceRef}
+                data-testid="video-surface"
+                className="aspect-video w-full max-w-md rounded-2xl bg-black"
+              />
+            ) : item?.artworkUrl ? (
               <img
                 src={item.artworkUrl}
                 alt=""

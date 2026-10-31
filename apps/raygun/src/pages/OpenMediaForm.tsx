@@ -32,12 +32,15 @@ export const OpenMediaForm: FC = () => {
       onSubmit={onSubmit}
       className="bg-surface flex flex-col gap-3 rounded-xl px-5 py-4 text-sm"
     >
-      <h2 className="font-medium">{t('library.openTitle')}</h2>
       <input
         value={location}
         onChange={(event) => setLocation(event.target.value)}
         placeholder={t('library.openPlaceholder')}
         aria-label={t('library.openLocation')}
+        inputMode="url"
+        autoCapitalize="off"
+        autoCorrect="off"
+        spellCheck={false}
         className="bg-background placeholder:text-muted rounded-lg px-3 py-2 outline-none"
       />
       <input
@@ -45,6 +48,10 @@ export const OpenMediaForm: FC = () => {
         onChange={(event) => setReferer(event.target.value)}
         placeholder={t('library.openRefererPlaceholder')}
         aria-label={t('library.openReferer')}
+        inputMode="url"
+        autoCapitalize="off"
+        autoCorrect="off"
+        spellCheck={false}
         className="bg-background placeholder:text-muted rounded-lg px-3 py-2 outline-none"
       />
       <div className="flex gap-2">

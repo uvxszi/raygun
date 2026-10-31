@@ -1,3 +1,5 @@
+import { within } from '@testing-library/react';
+
 import { AppShellWrapper, makeItem } from '../shell/AppShell.test-wrapper';
 import { bindingsMock } from '../test/bindingsMock';
 
@@ -109,5 +111,26 @@ describe('Player', () => {
     expect(await AppShellWrapper.playerSheet.element).toHaveTextContent(
       'A network error interrupted playback',
     );
+  });
+});
+
+describe('Player with video', () => {
+  beforeEach(() => {
+    AppShellWrapper.seedCore();
+  });
+
+  it('shows a video area instead of artwork for YouTube items', async () => {
+    const video = {
+      ...makeItem('Clip'),
+      mediaKind: 'video' as const,
+      source: { kind: 'youTube' as const, videoId: 'M7lc1UVf-VE' },
+    };
+    await AppShellWrapper.mount();
+    AppShellWrapper.playing([video], 0);
+    await AppShellWrapper.miniPlayer.open();
+
+    const sheet = await AppShellWrapper.playerSheet.element;
+
+    expect(within(sheet).getByTestId('video-surface')).toBeInTheDocument();
   });
 });

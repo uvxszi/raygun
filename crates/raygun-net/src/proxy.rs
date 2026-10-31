@@ -8,7 +8,7 @@
 //! the proxy can't be used to fetch arbitrary URLs.
 //!
 //! It also serves library artwork from one folder at `/art/<name>`, limited to names the caller's
-//! validator accepts.
+//! validator accepts, and the YouTube embed host page at `/embed/youtube` (M08).
 
 use std::collections::{HashMap, VecDeque};
 use std::net::{Ipv4Addr, SocketAddr};
@@ -77,6 +77,7 @@ impl StreamProxy {
         let router = Router::new()
             .route("/stream/{token}", get(stream))
             .route("/art/{name}", get(serve_artwork))
+            .route("/embed/youtube", get(youtube_embed))
             .with_state(state);
         let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
         let address = listener.local_addr()?;
@@ -91,6 +92,12 @@ impl StreamProxy {
 
     pub fn address(&self) -> SocketAddr {
         self.address
+    }
+
+    /// URL of the YouTube embed host page. Uses the hostname `localhost` because YouTube's embed
+    /// check refuses literal IP addresses in the Referer.
+    pub fn youtube_embed_url(&self) -> String {
+        format!("http://localhost:{}/embed/youtube", self.address.port())
     }
 
     /// URL of an artwork file served from the [`StaticFiles`] folder.
@@ -131,6 +138,8 @@ async fn stream(
         Some(MediaSource::Url { url, headers }) => {
             forward(&state.client, &url, &headers, request.headers()).await
         }
+        // Played by YouTube's own player, never as a byte stream.
+        Some(MediaSource::YouTube { .. }) => StatusCode::NOT_FOUND.into_response(),
     };
     with_cors(response)
 }
@@ -157,6 +166,17 @@ async fn serve_artwork(
         _ => StatusCode::NOT_FOUND.into_response(),
     };
     with_cors(response)
+}
+
+async fn youtube_embed() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        include_str!("embed/youtube.html"),
+    )
+        .into_response()
 }
 
 async fn serve_file(path: &str, request: Request) -> Response {

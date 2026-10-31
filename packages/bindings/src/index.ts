@@ -66,7 +66,9 @@ export type AppInfo = {
 /**  An instruction for the active playback engine. */
 export type EngineCommand = { type: "load"; loadId: number; url: string; 
 /**  For native engines' media session (notification, lock screen). */
-title: string; artist: string | null; startMs: number | null; autoplay: boolean; volume: number | null } | { type: "play" } | { type: "pause" } | { type: "seek"; positionMs: number | null } | { type: "setVolume"; volume: number | null } | { type: "stop" };
+title: string; artist: string | null; startMs: number | null; autoplay: boolean; volume: number | null } | 
+/**  Plays a YouTube video in the embedded player hosted at `embed_url` (webview only). */
+{ type: "loadYouTube"; loadId: number; embedUrl: string; videoId: string; startMs: number | null; autoplay: boolean; volume: number | null } | { type: "play" } | { type: "pause" } | { type: "seek"; positionMs: number | null } | { type: "setVolume"; volume: number | null } | { type: "stop" };
 
 /**  An instruction for the playback engine running in the webview. */
 export type EngineCommandEvent = EngineCommand;
@@ -145,7 +147,9 @@ export type MediaSource =
  */
 { kind: "url"; url: string; headers: { [key in string]: string } } | 
 /**  A file on this device. */
-{ kind: "localFile"; path: string };
+{ kind: "localFile"; path: string } | 
+/**  A YouTube video, played through YouTube's embedded player (M08). */
+{ kind: "youTube"; videoId: string };
 
 export type PlayRequest = {
 	selection: PlaySelection,

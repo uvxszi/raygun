@@ -55,7 +55,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(crate::playback::PlaybackService::new(
         app.handle().clone(),
         proxy,
-        engine_target(app),
+        native_engine(app),
     ));
 
     create_main_window(app, &paths)?;
@@ -69,10 +69,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Android plays through the native Media3 engine (M06: the webview gets frozen in the background
-/// and has no media session); everything else uses the webview `<audio>` engine.
+/// Android plays streams and files through the native Media3 engine (M06: the webview gets frozen
+/// in the background and has no media session). Other platforms have no native engine.
 #[cfg(target_os = "android")]
-fn engine_target(app: &App) -> crate::playback::EngineTarget {
+fn native_engine(app: &App) -> Option<crate::playback::NativeEngineSink> {
     use raygun_model::EngineReport;
     use tauri_plugin_raygun_audio::NativeAudio;
 
@@ -95,7 +95,7 @@ fn engine_target(app: &App) -> crate::playback::EngineTarget {
     });
 
     let command_handle = app.handle().clone();
-    crate::playback::EngineTarget::Native(Box::new(move |command| {
+    Some(Box::new(move |command| {
         command_handle
             .state::<NativeAudio<tauri::Wry>>()
             .send(command)
@@ -103,8 +103,8 @@ fn engine_target(app: &App) -> crate::playback::EngineTarget {
 }
 
 #[cfg(not(target_os = "android"))]
-fn engine_target(_app: &App) -> crate::playback::EngineTarget {
-    crate::playback::EngineTarget::Webview
+fn native_engine(_app: &App) -> Option<crate::playback::NativeEngineSink> {
+    None
 }
 
 fn resolve_paths(app: &App) -> Result<Paths, Box<dyn Error>> {

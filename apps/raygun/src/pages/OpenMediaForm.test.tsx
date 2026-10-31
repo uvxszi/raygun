@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { bindingsMock, seedBindings } from '../test/bindingsMock';
 import { renderWithProviders } from '../test/renderWithProviders';
 import { OpenMediaForm } from './OpenMediaForm';
-import { toQueueItem } from './toQueueItem';
+import { parseYouTubeId, toQueueItem } from './toQueueItem';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -68,5 +68,33 @@ describe('OpenMediaForm', () => {
       [expect.objectContaining({ source: { kind: 'localFile', path: '/sdcard/Music/b.ogg' } })],
       false,
     );
+  });
+});
+
+describe('parseYouTubeId', () => {
+  it.each([
+    ['https://www.youtube.com/watch?v=M7lc1UVf-VE', 'M7lc1UVf-VE'],
+    ['https://youtu.be/M7lc1UVf-VE?t=42', 'M7lc1UVf-VE'],
+    ['https://music.youtube.com/watch?v=M7lc1UVf-VE&list=RD', 'M7lc1UVf-VE'],
+    ['https://m.youtube.com/shorts/M7lc1UVf-VE', 'M7lc1UVf-VE'],
+    ['M7lc1UVf-VE', 'M7lc1UVf-VE'],
+  ])('finds the video in %s', (input, expected) => {
+    expect(parseYouTubeId(input)).toBe(expected);
+  });
+
+  it.each([
+    'https://example.com/watch?v=M7lc1UVf-VE',
+    'https://youtu.be/short',
+    '/sdcard/Music/a.mp3',
+  ])('ignores %s', (input) => {
+    expect(parseYouTubeId(input)).toBeNull();
+  });
+
+  it('turns YouTube links into video items played by YouTube', () => {
+    expect(toQueueItem('https://youtu.be/M7lc1UVf-VE', '')).toMatchObject({
+      mediaKind: 'video',
+      artworkUrl: 'https://i.ytimg.com/vi/M7lc1UVf-VE/hqdefault.jpg',
+      source: { kind: 'youTube', videoId: 'M7lc1UVf-VE' },
+    });
   });
 });

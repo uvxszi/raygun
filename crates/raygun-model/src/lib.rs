@@ -134,6 +134,9 @@ pub enum MediaSource {
     /// A file on this device.
     #[serde(rename_all = "camelCase")]
     LocalFile { path: String },
+    /// A YouTube video, played through YouTube's embedded player (M08).
+    #[serde(rename_all = "camelCase")]
+    YouTube { video_id: String },
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -260,6 +263,16 @@ pub enum EngineCommand {
         /// For native engines' media session (notification, lock screen).
         title: String,
         artist: Option<String>,
+        start_ms: f64,
+        autoplay: bool,
+        volume: f64,
+    },
+    /// Plays a YouTube video in the embedded player hosted at `embed_url` (webview only).
+    #[serde(rename_all = "camelCase")]
+    LoadYouTube {
+        load_id: u32,
+        embed_url: String,
+        video_id: String,
         start_ms: f64,
         autoplay: bool,
         volume: f64,
