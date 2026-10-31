@@ -14,6 +14,7 @@ All-in-one multimedia app (music, video, movies/TV, anime, manga, light novels) 
 - `apps/raygun/`: React UI (`src/`) and the thin Tauri shell (`src-tauri/`, plus `gen/android`).
 - `crates/raygun-app`: service wiring + Tauri commands. `crates/raygun-model`: types shared with TS.
 - `packages/bindings`: TS generated from Rust by tauri-specta. Never edit it; run `pnpm bindings`.
+- `plugins-mobile/raygun-audio`: native Android audio engine (Media3 in a `MediaSessionService`; reports reach Rust over JNI). The app shell must depend on each mobile plugin directly, or Tauri won't include its Android module.
 
 ## Commands
 

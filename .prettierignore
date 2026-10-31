@@ -6,3 +6,5 @@ pnpm-lock.yaml
 apps/raygun/src-tauri/gen/
 packages/bindings/src/index.ts
 docs/
+**/build/
+plugins-mobile/*/android/.tauri/

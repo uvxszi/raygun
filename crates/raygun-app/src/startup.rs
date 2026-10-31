@@ -44,6 +44,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(crate::playback::PlaybackService::new(
         app.handle().clone(),
         proxy,
+        engine_target(app),
     ));
 
     create_main_window(app, &paths)?;
@@ -52,6 +53,44 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(AppPaths(paths));
     app.manage(AppDb(db));
     Ok(())
+}
+
+/// Android plays through the native Media3 engine (M06: the webview gets frozen in the background
+/// and has no media session); everything else uses the webview `<audio>` engine.
+#[cfg(target_os = "android")]
+fn engine_target(app: &App) -> crate::playback::EngineTarget {
+    use raygun_model::EngineReport;
+    use tauri_plugin_raygun_audio::NativeAudio;
+
+    // Reports arrive on the Android main thread. A single worker keeps them in order and makes
+    // sure the main thread never waits on the playback service (which may call back into Kotlin).
+    let (reports, inbox) = std::sync::mpsc::channel::<String>();
+    tauri_plugin_raygun_audio::set_report_handler(move |json| {
+        let _ = reports.send(json);
+    });
+    let worker_handle = app.handle().clone();
+    std::thread::spawn(move || {
+        for json in inbox {
+            match serde_json::from_str::<EngineReport>(&json) {
+                Ok(report) => worker_handle
+                    .state::<crate::playback::PlaybackService>()
+                    .report(report),
+                Err(error) => tracing::warn!(%error, %json, "unreadable native engine report"),
+            }
+        }
+    });
+
+    let command_handle = app.handle().clone();
+    crate::playback::EngineTarget::Native(Box::new(move |command| {
+        command_handle
+            .state::<NativeAudio<tauri::Wry>>()
+            .send(command)
+    }))
+}
+
+#[cfg(not(target_os = "android"))]
+fn engine_target(_app: &App) -> crate::playback::EngineTarget {
+    crate::playback::EngineTarget::Webview
 }
 
 fn resolve_paths(app: &App) -> Result<Paths, Box<dyn Error>> {

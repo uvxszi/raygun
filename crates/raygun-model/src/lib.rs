@@ -255,6 +255,9 @@ pub enum EngineCommand {
     Load {
         load_id: u32,
         url: String,
+        /// For native engines' media session (notification, lock screen).
+        title: String,
+        artist: Option<String>,
         start_ms: f64,
         autoplay: bool,
         volume: f64,

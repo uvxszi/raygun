@@ -16,4 +16,7 @@ tauri-build.workspace = true
 
 [dependencies]
 raygun-app.workspace = true
+# Direct dependency so tauri-build sees the plugin's Android module (Cargo `links` metadata only
+# reaches direct dependents) and includes it in the Gradle build.
+tauri-plugin-raygun-audio.workspace = true
 tauri.workspace = true

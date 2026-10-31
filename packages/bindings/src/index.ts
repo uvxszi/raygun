@@ -45,7 +45,9 @@ export type AppInfo = {
 };
 
 /**  An instruction for the active playback engine. */
-export type EngineCommand = { type: "load"; loadId: number; url: string; startMs: number | null; autoplay: boolean; volume: number | null } | { type: "play" } | { type: "pause" } | { type: "seek"; positionMs: number | null } | { type: "setVolume"; volume: number | null } | { type: "stop" };
+export type EngineCommand = { type: "load"; loadId: number; url: string; 
+/**  For native engines' media session (notification, lock screen). */
+title: string; artist: string | null; startMs: number | null; autoplay: boolean; volume: number | null } | { type: "play" } | { type: "pause" } | { type: "seek"; positionMs: number | null } | { type: "setVolume"; volume: number | null } | { type: "stop" };
 
 /**  An instruction for the playback engine running in the webview. */
 export type EngineCommandEvent = EngineCommand;

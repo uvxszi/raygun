@@ -13,10 +13,22 @@ use tauri_specta::Event;
 
 use crate::events::{EngineCommandEvent, PlaybackStateEvent, QueueEvent};
 
+/// Delivers one command to a native engine.
+pub type NativeEngineSink = Box<dyn Fn(&EngineCommand) -> Result<(), String> + Send + Sync>;
+
+/// Where engine commands go: the webview `<audio>` engine (via an event) or a native engine.
+pub enum EngineTarget {
+    #[cfg_attr(target_os = "android", allow(dead_code))]
+    Webview,
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    Native(NativeEngineSink),
+}
+
 pub struct PlaybackService {
     core: Mutex<PlaybackCore>,
     proxy: StreamProxy,
     app: AppHandle,
+    engine: EngineTarget,
 }
 
 /// Everything to emit once the core lock is released.
@@ -28,7 +40,7 @@ struct Outbox {
 }
 
 impl PlaybackService {
-    pub fn new(app: AppHandle, proxy: StreamProxy) -> Self {
+    pub fn new(app: AppHandle, proxy: StreamProxy, engine: EngineTarget) -> Self {
         let seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|elapsed| elapsed.as_nanos() as u64)
@@ -37,6 +49,7 @@ impl PlaybackService {
             core: Mutex::new(PlaybackCore::new(seed)),
             proxy,
             app,
+            engine,
         }
     }
 
@@ -96,6 +109,8 @@ impl PlaybackService {
                     outbox.engine.push(EngineCommand::Load {
                         load_id,
                         url: self.proxy.register(&item.source),
+                        title: item.title,
+                        artist: item.artist,
                         start_ms,
                         autoplay,
                         volume: core.state().volume,
@@ -111,7 +126,14 @@ impl PlaybackService {
 
     fn send(&self, outbox: Outbox) {
         for command in outbox.engine {
-            log_emit(EngineCommandEvent(command).emit(&self.app));
+            match &self.engine {
+                EngineTarget::Webview => log_emit(EngineCommandEvent(command).emit(&self.app)),
+                EngineTarget::Native(send) => {
+                    if let Err(error) = send(&command) {
+                        tracing::warn!(%error, "native engine rejected a command");
+                    }
+                }
+            }
         }
         if let Some(queue) = outbox.queue {
             log_emit(QueueEvent(queue).emit(&self.app));

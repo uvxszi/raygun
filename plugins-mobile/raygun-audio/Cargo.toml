@@ -1,0 +1,20 @@
+[package]
+name = "tauri-plugin-raygun-audio"
+description = "Native Android playback engine for Raygun (Media3 / ExoPlayer in a media session service)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+links = "tauri-plugin-raygun-audio"
+
+[dependencies]
+raygun-model.workspace = true
+tauri.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

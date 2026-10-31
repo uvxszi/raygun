@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["apps/raygun/src-tauri", "crates/*"]
+members = ["apps/raygun/src-tauri", "crates/*", "plugins-mobile/*"]
 
 [workspace.package]
 version = "0.1.0"
@@ -15,6 +15,7 @@ raygun-db = { path = "crates/raygun-db" }
 raygun-playback = { path = "crates/raygun-playback" }
 raygun-net = { path = "crates/raygun-net" }
 raygun-app = { path = "crates/raygun-app" }
+tauri-plugin-raygun-audio = { path = "plugins-mobile/raygun-audio" }
 
 tauri = { version = "2", features = [] }
 tauri-build = { version = "2", features = [] }

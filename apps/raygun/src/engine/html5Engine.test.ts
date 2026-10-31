@@ -44,6 +44,8 @@ const setup = () => {
         type: 'load',
         loadId: 7,
         url: 'http://127.0.0.1:9000/stream/abc',
+        title: 'Intro',
+        artist: null,
         startMs: overrides.startMs ?? 0,
         autoplay: overrides.autoplay ?? true,
         volume: 0.5,

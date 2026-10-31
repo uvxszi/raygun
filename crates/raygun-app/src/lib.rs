@@ -49,6 +49,7 @@ pub fn export_bindings(path: &Path) -> Result<(), String> {
 pub fn builder() -> tauri::Builder<tauri::Wry> {
     let specta = specta_builder();
     tauri::Builder::default()
+        .plugin(tauri_plugin_raygun_audio::init())
         .invoke_handler(specta.invoke_handler())
         .setup(move |app| {
             specta.mount_events(app);
