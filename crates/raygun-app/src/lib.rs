@@ -9,6 +9,7 @@ mod events;
 mod extensions;
 mod history;
 mod library;
+mod mcp;
 mod playback;
 mod resolution;
 mod resolver;
@@ -70,7 +71,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::playlist_move_item,
             commands::history_recent,
             commands::history_clear,
-            commands::collection_play
+            commands::collection_play,
+            commands::mcp_status,
+            commands::mcp_set_enabled,
+            commands::mcp_new_token
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,

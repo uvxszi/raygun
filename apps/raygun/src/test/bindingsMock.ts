@@ -120,6 +120,9 @@ export const bindingsMock = {
     historyRecent: vi.fn(),
     historyClear: vi.fn(),
     collectionPlay: vi.fn(),
+    mcpStatus: vi.fn(),
+    mcpSetEnabled: vi.fn(),
+    mcpNewToken: vi.fn(),
   },
   events: {
     engineCommandEvent: makeEvent('engineCommandEvent'),
@@ -183,6 +186,10 @@ export const seedBindings = () => {
   commands.historyRecent.mockResolvedValue(ok([]));
   commands.historyClear.mockResolvedValue(ok(null));
   commands.collectionPlay.mockResolvedValue(ok(null));
+  const mcpOff = { enabled: false, url: null, token: 'token-1', error: null };
+  commands.mcpStatus.mockResolvedValue(ok(mcpOff));
+  commands.mcpSetEnabled.mockResolvedValue(ok(mcpOff));
+  commands.mcpNewToken.mockResolvedValue(ok(mcpOff));
 };
 
 export const emitEvent = <Name extends EventName>(name: Name, payload: EventPayloads[Name]) => {

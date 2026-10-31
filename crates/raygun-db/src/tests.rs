@@ -230,3 +230,17 @@ async fn stream_candidates_and_provider_stats_round_trip() {
         ]
     );
 }
+
+#[tokio::test]
+async fn local_values_round_trip_and_never_touch_synced_settings() {
+    let dir = TempDir::new().unwrap();
+    let db = open_in(dir.path()).await;
+    assert_eq!(local_value(&db, "mcp_token").await.unwrap(), None);
+    set_local_value(&db, "mcp_token", "abc").await.unwrap();
+    set_local_value(&db, "mcp_token", "def").await.unwrap();
+    assert_eq!(
+        local_value(&db, "mcp_token").await.unwrap().as_deref(),
+        Some("def")
+    );
+    assert!(settings::load(&db).await.unwrap().is_empty());
+}

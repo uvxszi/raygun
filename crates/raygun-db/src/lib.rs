@@ -131,6 +131,24 @@ async fn load_or_create_device_id(pool: &SqlitePool) -> Result<Uuid, DbError> {
     Ok(device_id)
 }
 
+/// A device-local value (`local_meta`): never synced, for secrets and per-device switches.
+pub async fn local_value(db: &Db, key: &str) -> Result<Option<String>, DbError> {
+    read_meta(db.pool(), key).await
+}
+
+/// Stores a device-local value, replacing any earlier one.
+pub async fn set_local_value(db: &Db, key: &str, value: &str) -> Result<(), DbError> {
+    sqlx::query(
+        "INSERT INTO local_meta (key, value) VALUES (?1, ?2)
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+    )
+    .bind(key)
+    .bind(value)
+    .execute(db.pool())
+    .await?;
+    Ok(())
+}
+
 async fn read_meta(pool: &SqlitePool, key: &str) -> Result<Option<String>, DbError> {
     let row = sqlx::query("SELECT value FROM local_meta WHERE key = ?1")
         .bind(key)

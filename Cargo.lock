@@ -3192,6 +3192,7 @@ dependencies = [
  "raygun-db",
  "raygun-ext-host",
  "raygun-library",
+ "raygun-mcp",
  "raygun-model",
  "raygun-net",
  "raygun-paths",
@@ -3258,6 +3259,19 @@ dependencies = [
  "tempfile",
  "tracing",
  "walkdir",
+]
+
+[[package]]
+name = "raygun-mcp"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

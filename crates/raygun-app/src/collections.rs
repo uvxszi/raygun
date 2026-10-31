@@ -241,6 +241,22 @@ impl CollectionsService {
         Ok(())
     }
 
+    /// A song to play or queue: the library's file when it has the song, else a stream the
+    /// track came with, else a lookup for the resolver.
+    pub async fn queue_item_for(&self, track: TrackInput) -> Result<QueueItemInput, String> {
+        let saved = fields(track);
+        let key = saved.track_key.clone();
+        if let Some(row) = self
+            .local_matches(std::slice::from_ref(&key))
+            .await?
+            .remove(&key)
+        {
+            return Ok(self.app.state::<LibraryService>().queue_item(row));
+        }
+        let mut tracks = self.saved(vec![saved]).await?;
+        Ok(queue_item(tracks.remove(0)))
+    }
+
     // ---- Helpers ----
 
     async fn local_matches(&self, keys: &[String]) -> Result<HashMap<String, TrackRow>, String> {

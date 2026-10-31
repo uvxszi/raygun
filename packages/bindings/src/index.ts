@@ -95,6 +95,12 @@ export const commands = {
 	historyClear: () => typedError<null, string>(__TAURI_INVOKE("history_clear")),
 	/**  Replaces the queue with favorites, a playlist or history and starts playing. */
 	collectionPlay: (request: CollectionPlayRequest) => typedError<null, string>(__TAURI_INVOKE("collection_play", { request })),
+	/**  The MCP server's switch, address and token. */
+	mcpStatus: () => typedError<McpStatus, string>(__TAURI_INVOKE("mcp_status")),
+	/**  Turns the MCP server on or off; the choice is kept for the next start. */
+	mcpSetEnabled: (enabled: boolean) => typedError<McpStatus, string>(__TAURI_INVOKE("mcp_set_enabled", { enabled })),
+	/**  Issues a new MCP token; clients with the old one must be given the new one. */
+	mcpNewToken: () => typedError<McpStatus, string>(__TAURI_INVOKE("mcp_new_token")),
 };
 
 /** Events */
@@ -307,6 +313,17 @@ export type Lyrics = {
 	/**  Sorted by time; empty when only plain lyrics are known. */
 	synced: LyricLine[],
 	plain: string | null,
+};
+
+/**  The MCP server's switch and how to reach it. */
+export type McpStatus = {
+	enabled: boolean,
+	/**  `http://127.0.0.1:<port>/mcp` while it runs. */
+	url: string | null,
+	/**  The bearer token clients send. Device-local, never synced. */
+	token: string,
+	/**  Why it isn't running although enabled (e.g. no free port). */
+	error: string | null,
 };
 
 export type MediaKind = "audio" | "video";

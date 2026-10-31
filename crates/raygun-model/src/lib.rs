@@ -757,3 +757,18 @@ pub struct CollectionPlayRequest {
     pub start_index: Option<u32>,
     pub shuffle: bool,
 }
+
+// ---- MCP server (M19) ----
+
+/// The MCP server's switch and how to reach it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct McpStatus {
+    pub enabled: bool,
+    /// `http://127.0.0.1:<port>/mcp` while it runs.
+    pub url: Option<String>,
+    /// The bearer token clients send. Device-local, never synced.
+    pub token: String,
+    /// Why it isn't running although enabled (e.g. no free port).
+    pub error: Option<String>,
+}

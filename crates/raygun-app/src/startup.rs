@@ -70,6 +70,8 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(crate::collections::CollectionsService::new(
         app.handle().clone(),
     ));
+    let mcp = tauri::async_runtime::block_on(crate::mcp::McpService::start(app.handle().clone()))?;
+    app.manage(mcp);
 
     create_main_window(app, &paths)?;
 

@@ -15,6 +15,7 @@ raygun-net.workspace = true
 raygun-library.workspace = true
 raygun-ext-host.workspace = true
 raygun-resolver.workspace = true
+raygun-mcp.workspace = true
 reqwest.workspace = true
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 tauri-plugin-raygun-audio.workspace = true

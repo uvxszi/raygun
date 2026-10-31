@@ -193,5 +193,20 @@
     "moveDown": "Move {{title}} down",
     "remove": "Remove {{title}}",
     "onDevice": "On this device"
+  },
+  "mcp": {
+    "title": "MCP server",
+    "description": "Lets AI assistants control Raygun on this device through the Model Context Protocol.",
+    "address": "Address",
+    "token": "Token",
+    "notRunning": "Not running",
+    "copy": "Copy",
+    "copied": "Copied",
+    "copyAddress": "Copy address",
+    "copyToken": "Copy token",
+    "showToken": "Show token",
+    "hideToken": "Hide token",
+    "newToken": "New token",
+    "hint": "Clients send the token as “Authorization: Bearer …”. Only apps on this device can connect. A new token disconnects existing clients."
   }
 }

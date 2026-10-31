@@ -2,15 +2,16 @@ use std::sync::Arc;
 
 use raygun_model::{
     AppInfo, CollectionPlayRequest, EngineReport, ExtensionInfo, ExtensionRepo, HistoryEntry,
-    LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack, Lyrics, PlayRequest, PlaybackControl,
-    PlaybackState, PlaylistDetail, PlaylistSummary, QueueItemInput, QueueSnapshot, RepoCatalog,
-    SavedTrack, SearchResults, SettingChange, SettingValue, Settings, StorageInfo, StorageMode,
-    TrackInput, TrackQuery,
+    LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack, Lyrics, McpStatus, PlayRequest,
+    PlaybackControl, PlaybackState, PlaylistDetail, PlaylistSummary, QueueItemInput, QueueSnapshot,
+    RepoCatalog, SavedTrack, SearchResults, SettingChange, SettingValue, Settings, StorageInfo,
+    StorageMode, TrackInput, TrackQuery,
 };
 
 use crate::collections::CollectionsService;
 use crate::extensions::ExtensionService;
 use crate::library::LibraryService;
+use crate::mcp::McpService;
 use crate::playback::PlaybackService;
 use crate::settings;
 use crate::startup::{AppDb, AppPaths};
@@ -456,6 +457,30 @@ pub async fn history_clear(
     collections: tauri::State<'_, CollectionsService>,
 ) -> Result<(), String> {
     collections.clear_history().await
+}
+
+/// The MCP server's switch, address and token.
+#[tauri::command]
+#[specta::specta]
+pub async fn mcp_status(mcp: tauri::State<'_, McpService>) -> Result<McpStatus, String> {
+    mcp.status().await
+}
+
+/// Turns the MCP server on or off; the choice is kept for the next start.
+#[tauri::command]
+#[specta::specta]
+pub async fn mcp_set_enabled(
+    mcp: tauri::State<'_, McpService>,
+    enabled: bool,
+) -> Result<McpStatus, String> {
+    mcp.set_enabled(enabled).await
+}
+
+/// Issues a new MCP token; clients with the old one must be given the new one.
+#[tauri::command]
+#[specta::specta]
+pub async fn mcp_new_token(mcp: tauri::State<'_, McpService>) -> Result<McpStatus, String> {
+    mcp.new_token().await
 }
 
 /// Replaces the queue with favorites, a playlist or history and starts playing.
