@@ -152,6 +152,7 @@ pub struct QueueItemInput {
     pub artist: Option<String>,
     pub album: Option<String>,
     pub duration_ms: Option<u32>,
+    pub artwork_url: Option<String>,
     pub media_kind: MediaKind,
     pub source: MediaSource,
 }
@@ -164,6 +165,7 @@ pub struct QueueItem {
     pub artist: Option<String>,
     pub album: Option<String>,
     pub duration_ms: Option<u32>,
+    pub artwork_url: Option<String>,
     pub media_kind: MediaKind,
     pub source: MediaSource,
 }
@@ -298,4 +300,93 @@ pub enum EngineEvent {
     Error {
         message: String,
     },
+}
+
+// ---- Local music library (M07) ----
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryStatus {
+    /// Folders the library scans.
+    pub roots: Vec<String>,
+    pub track_count: u32,
+    pub scanning: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ScanPhase {
+    Discovering,
+    Reading,
+    Done,
+    Failed,
+}
+
+/// Progress of a library scan, pushed as `LibraryScanEvent`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryScanProgress {
+    pub phase: ScanPhase,
+    /// Audio files found under the roots.
+    pub found: u32,
+    /// New or changed files to read, and how many are done.
+    pub to_read: u32,
+    pub read: u32,
+    pub removed: u32,
+    /// Files that couldn't be read.
+    pub failed: u32,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryAlbum {
+    pub artist: String,
+    pub title: String,
+    pub year: Option<u32>,
+    pub track_count: u32,
+    pub artwork_url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryArtist {
+    pub name: String,
+    pub album_count: u32,
+    pub track_count: u32,
+    pub artwork_url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryTrack {
+    pub id: String,
+    pub title: String,
+    /// The track's own artist (may differ from the album artist on compilations).
+    pub artist: String,
+    pub album_artist: String,
+    pub album: String,
+    pub track_no: Option<u32>,
+    pub disc_no: Option<u32>,
+    pub year: Option<u32>,
+    pub duration_ms: Option<u32>,
+    pub artwork_url: Option<String>,
+}
+
+/// Which part of the library to play.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum PlaySelection {
+    Album { artist: String, album: String },
+    Artist { artist: String },
+    AllTracks,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayRequest {
+    pub selection: PlaySelection,
+    /// Track to start with; otherwise the first (or a random one when shuffling).
+    pub start_track_id: Option<String>,
+    pub shuffle: bool,
 }

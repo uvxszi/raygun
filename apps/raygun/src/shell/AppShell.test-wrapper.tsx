@@ -14,6 +14,7 @@ export const makeItem = (title: string, artist: string | null = null): QueueItem
   artist,
   album: null,
   durationMs: 180_000,
+  artworkUrl: null,
   mediaKind: 'audio',
   source: { kind: 'url', url: `https://example.com/${title}.mp3`, headers: {} },
 });

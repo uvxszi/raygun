@@ -19,7 +19,7 @@ export const BottomTabs: FC = () => {
           data-testid={`${testId}-tab`}
           className="text-muted flex flex-col items-center gap-1 py-2 text-xs"
           activeProps={{ className: 'text-primary', 'aria-current': 'page' }}
-          activeOptions={{ exact: true }}
+          activeOptions={{ exact: to === '/', includeSearch: false }}
         >
           <Icon aria-hidden size={22} />
           <span>{t(labelKey)}</span>

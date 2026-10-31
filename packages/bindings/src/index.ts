@@ -24,11 +24,30 @@ export const commands = {
 	playbackControl: (control: PlaybackControl) => __TAURI_INVOKE<void>("playback_control", { control }),
 	/**  Called by the playback engine in the webview to report what the media element did. */
 	playbackEngineReport: (report: EngineReport) => __TAURI_INVOKE<void>("playback_engine_report", { report }),
+	/**  Library folders, track count and whether a scan is running. */
+	libraryStatus: () => typedError<LibraryStatus, string>(__TAURI_INVOKE("library_status")),
+	/**  Asks for access to the device's music (Android) and scans its music folders. */
+	libraryConnectDeviceMusic: () => typedError<LibraryStatus, string>(__TAURI_INVOKE("library_connect_device_music")),
+	/**  Adds a folder to the library and scans it. */
+	libraryAddRoot: (path: string) => typedError<LibraryStatus, string>(__TAURI_INVOKE("library_add_root", { path })),
+	/**  Removes a folder from the library; its tracks disappear with the next scan (started now). */
+	libraryRemoveRoot: (path: string) => typedError<LibraryStatus, string>(__TAURI_INVOKE("library_remove_root", { path })),
+	/**  Starts an incremental rescan; progress arrives as `LibraryScanEvent`. */
+	libraryRescan: () => __TAURI_INVOKE<void>("library_rescan"),
+	/**  Albums, optionally only one artist's. */
+	libraryAlbums: (artist: string | null) => typedError<LibraryAlbum[], string>(__TAURI_INVOKE("library_albums", { artist })),
+	libraryArtists: () => typedError<LibraryArtist[], string>(__TAURI_INVOKE("library_artists")),
+	libraryAlbumTracks: (artist: string, album: string) => typedError<LibraryTrack[], string>(__TAURI_INVOKE("library_album_tracks", { artist, album })),
+	/**  All tracks in library order, a page at a time. */
+	libraryTracks: (offset: number, limit: number) => typedError<LibraryTrack[], string>(__TAURI_INVOKE("library_tracks", { offset, limit })),
+	/**  Replaces the play queue with part of the library and starts playing. */
+	libraryPlay: (request: PlayRequest) => typedError<null, string>(__TAURI_INVOKE("library_play", { request })),
 };
 
 /** Events */
 export const events = {
 	engineCommandEvent: makeEvent<EngineCommandEvent>("engine-command-event"),
+	libraryScanEvent: makeEvent<LibraryScanEvent>("library-scan-event"),
 	playbackStateEvent: makeEvent<PlaybackStateEvent>("playback-state-event"),
 	queueEvent: makeEvent<QueueEvent>("queue-event"),
 };
@@ -63,6 +82,59 @@ export type EngineReport = {
 	event: EngineEvent,
 };
 
+export type LibraryAlbum = {
+	artist: string,
+	title: string,
+	year: number | null,
+	trackCount: number,
+	artworkUrl: string | null,
+};
+
+export type LibraryArtist = {
+	name: string,
+	albumCount: number,
+	trackCount: number,
+	artworkUrl: string | null,
+};
+
+/**  Progress of a local library scan. */
+export type LibraryScanEvent = LibraryScanProgress;
+
+/**  Progress of a library scan, pushed as `LibraryScanEvent`. */
+export type LibraryScanProgress = {
+	phase: ScanPhase,
+	/**  Audio files found under the roots. */
+	found: number,
+	/**  New or changed files to read, and how many are done. */
+	toRead: number,
+	read: number,
+	removed: number,
+	/**  Files that couldn't be read. */
+	failed: number,
+	message: string | null,
+};
+
+export type LibraryStatus = {
+	/**  Folders the library scans. */
+	roots: string[],
+	trackCount: number,
+	scanning: boolean,
+};
+
+export type LibraryTrack = {
+	id: string,
+	title: string,
+	/**  The track's own artist (may differ from the album artist on compilations). */
+	artist: string,
+	albumArtist: string,
+	album: string,
+	trackNo: number | null,
+	discNo: number | null,
+	year: number | null,
+	durationMs: number | null,
+	artworkUrl: string | null,
+};
+
 export type MediaKind = "audio" | "video";
 
 /**  Where the bytes of a playable item come from. */
@@ -74,6 +146,16 @@ export type MediaSource =
 { kind: "url"; url: string; headers: { [key in string]: string } } | 
 /**  A file on this device. */
 { kind: "localFile"; path: string };
+
+export type PlayRequest = {
+	selection: PlaySelection,
+	/**  Track to start with; otherwise the first (or a random one when shuffling). */
+	startTrackId: string | null,
+	shuffle: boolean,
+};
+
+/**  Which part of the library to play. */
+export type PlaySelection = { kind: "album"; artist: string; album: string } | { kind: "artist"; artist: string } | { kind: "allTracks" };
 
 /**  A user or client request to the player. */
 export type PlaybackControl = { type: "play" } | { type: "pause" } | { type: "toggle" } | { type: "next" } | { type: "previous" } | { type: "seek"; positionMs: number | null } | { type: "setVolume"; volume: number | null } | { type: "setRepeat"; mode: RepeatMode } | { type: "setShuffle"; enabled: boolean } | { type: "playItem"; itemId: string } | { type: "remove"; itemId: string } | { type: "clear" };
@@ -105,6 +187,7 @@ export type QueueItem = {
 	artist: string | null,
 	album: string | null,
 	durationMs: number | null,
+	artworkUrl: string | null,
 	mediaKind: MediaKind,
 	source: MediaSource,
 };
@@ -115,6 +198,7 @@ export type QueueItemInput = {
 	artist: string | null,
 	album: string | null,
 	durationMs: number | null,
+	artworkUrl: string | null,
 	mediaKind: MediaKind,
 	source: MediaSource,
 };
@@ -130,6 +214,8 @@ export type QueueSnapshot = {
 };
 
 export type RepeatMode = "off" | "all" | "one";
+
+export type ScanPhase = "discovering" | "reading" | "done" | "failed";
 
 /**
  *  A change to a single setting. The tagged shape (`{ key, value }`) lets the UI send only valid

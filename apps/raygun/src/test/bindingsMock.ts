@@ -1,6 +1,8 @@
 import type {
   AppInfo,
   EngineCommand,
+  LibraryScanProgress,
+  LibraryStatus,
   PlaybackState,
   QueueSnapshot,
   Settings,
@@ -18,6 +20,7 @@ type EventPayloads = {
   engineCommandEvent: EngineCommand;
   playbackStateEvent: PlaybackState;
   queueEvent: QueueSnapshot;
+  libraryScanEvent: LibraryScanProgress;
 };
 type EventName = keyof EventPayloads;
 type Listener = (event: { payload: unknown }) => void;
@@ -65,6 +68,8 @@ export const MOBILE_STORAGE: StorageInfo = {
 
 export const DEFAULT_SETTINGS: Settings = { theme: 'system', language: 'en' };
 
+export const EMPTY_LIBRARY: LibraryStatus = { roots: [], trackCount: 0, scanning: false };
+
 export const bindingsMock = {
   commands: {
     appInfo: vi.fn(),
@@ -76,11 +81,22 @@ export const bindingsMock = {
     playbackEnqueue: vi.fn(),
     playbackControl: vi.fn(),
     playbackEngineReport: vi.fn(),
+    libraryStatus: vi.fn(),
+    libraryConnectDeviceMusic: vi.fn(),
+    libraryAddRoot: vi.fn(),
+    libraryRemoveRoot: vi.fn(),
+    libraryRescan: vi.fn(),
+    libraryAlbums: vi.fn(),
+    libraryArtists: vi.fn(),
+    libraryAlbumTracks: vi.fn(),
+    libraryTracks: vi.fn(),
+    libraryPlay: vi.fn(),
   },
   events: {
     engineCommandEvent: makeEvent('engineCommandEvent'),
     playbackStateEvent: makeEvent('playbackStateEvent'),
     queueEvent: makeEvent('queueEvent'),
+    libraryScanEvent: makeEvent('libraryScanEvent'),
   },
 };
 
@@ -96,6 +112,17 @@ export const seedBindings = () => {
   commands.playbackEnqueue.mockResolvedValue(undefined);
   commands.playbackControl.mockResolvedValue(undefined);
   commands.playbackEngineReport.mockResolvedValue(undefined);
+  const ok = <T>(data: T) => ({ status: 'ok' as const, data });
+  commands.libraryStatus.mockResolvedValue(ok(EMPTY_LIBRARY));
+  commands.libraryConnectDeviceMusic.mockResolvedValue(ok(EMPTY_LIBRARY));
+  commands.libraryAddRoot.mockResolvedValue(ok(EMPTY_LIBRARY));
+  commands.libraryRemoveRoot.mockResolvedValue(ok(EMPTY_LIBRARY));
+  commands.libraryRescan.mockResolvedValue(undefined);
+  commands.libraryAlbums.mockResolvedValue(ok([]));
+  commands.libraryArtists.mockResolvedValue(ok([]));
+  commands.libraryAlbumTracks.mockResolvedValue(ok([]));
+  commands.libraryTracks.mockResolvedValue(ok([]));
+  commands.libraryPlay.mockResolvedValue(ok(null));
 };
 
 export const emitEvent = <Name extends EventName>(name: Name, payload: EventPayloads[Name]) => {

@@ -20,7 +20,7 @@ export const SideRail: FC = () => {
           data-testid={`${testId}-rail`}
           className="text-muted hover:bg-background flex items-center gap-3 rounded-lg px-3 py-2"
           activeProps={{ className: 'text-primary bg-background', 'aria-current': 'page' }}
-          activeOptions={{ exact: true }}
+          activeOptions={{ exact: to === '/', includeSearch: false }}
         >
           <Icon aria-hidden size={20} />
           <span>{t(labelKey)}</span>

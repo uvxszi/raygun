@@ -63,9 +63,17 @@ export const MiniPlayer: FC = () => {
           }}
           className="flex min-w-0 flex-1 items-center gap-3 text-left"
         >
-          <span className="bg-background text-muted grid size-10 shrink-0 place-items-center rounded-md">
-            <Disc3 aria-hidden size={22} />
-          </span>
+          {item?.artworkUrl ? (
+            <img
+              src={item.artworkUrl}
+              alt=""
+              className="size-10 shrink-0 rounded-md object-cover"
+            />
+          ) : (
+            <span className="bg-background text-muted grid size-10 shrink-0 place-items-center rounded-md">
+              <Disc3 aria-hidden size={22} />
+            </span>
+          )}
           {item ? (
             <span className="flex min-w-0 flex-col">
               <span data-testid="mini-player-title" className="truncate text-sm font-medium">

@@ -40,7 +40,30 @@ pub struct NativeAudio<R: Runtime> {
     _runtime: std::marker::PhantomData<fn() -> R>,
 }
 
+/// Result of asking Android for access to the device's music.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryAccess {
+    pub granted: bool,
+    /// Public folders worth scanning (Music, Download).
+    pub folders: Vec<String>,
+}
+
 impl<R: Runtime> NativeAudio<R> {
+    /// Shows the system permission dialog if needed. Blocks until the user answers, so call it
+    /// from a blocking-friendly thread.
+    #[cfg(target_os = "android")]
+    pub fn request_library_access(&self) -> Result<LibraryAccess, String> {
+        self.handle
+            .run_mobile_plugin("requestLibraryAccess", ())
+            .map_err(|error| error.to_string())
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub fn request_library_access(&self) -> Result<LibraryAccess, String> {
+        Err("library access requests are only needed on Android".into())
+    }
+
     /// Forwards one engine command to the native player.
     #[cfg(target_os = "android")]
     pub fn send(&self, command: &EngineCommand) -> Result<(), String> {

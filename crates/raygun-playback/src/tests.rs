@@ -10,6 +10,7 @@ fn input(title: &str) -> QueueItemInput {
         artist: None,
         album: None,
         duration_ms: Some(180_000),
+        artwork_url: None,
         media_kind: MediaKind::Audio,
         source: MediaSource::Url {
             url: format!("https://example.com/{title}.mp3"),
@@ -418,4 +419,60 @@ fn every_load_gets_a_new_id() {
     let (second, _) = loaded(&core.next()).unwrap();
 
     assert!(second > first);
+}
+
+#[test]
+fn replace_swaps_the_queue_and_plays_the_start_item() {
+    let mut core = core_with(&["old-a", "old-b"]);
+    core.play();
+
+    let effects = core.replace(vec![input("x"), input("y"), input("z")], Some(1), false);
+
+    assert_eq!(loaded(&effects).map(|(_, title)| title), Some("y".into()));
+    assert!(effects.contains(&Effect::QueueChanged));
+    let queue = core.queue();
+    assert_eq!(queue.items.len(), 3);
+    assert_eq!(queue.order, vec![0, 1, 2]);
+    assert!(!core.state().shuffle);
+}
+
+#[test]
+fn replace_with_shuffle_starts_with_the_chosen_item() {
+    let mut core = PlaybackCore::new(3);
+    let titles: Vec<String> = (0..10).map(|index| format!("t{index}")).collect();
+
+    let effects = core.replace(
+        titles.iter().map(|title| input(title)).collect(),
+        Some(4),
+        true,
+    );
+
+    assert_eq!(loaded(&effects).map(|(_, title)| title), Some("t4".into()));
+    let queue = core.queue();
+    assert_eq!(queue.order[0], 4);
+    let mut sorted = queue.order.clone();
+    sorted.sort();
+    assert_eq!(sorted, (0..10).collect::<Vec<u32>>());
+    assert!(core.state().shuffle);
+}
+
+#[test]
+fn replace_with_shuffle_and_no_start_picks_any_item() {
+    let mut core = PlaybackCore::new(11);
+
+    let effects = core.replace(vec![input("a"), input("b"), input("c")], None, true);
+
+    assert!(loaded(&effects).is_some());
+    assert_eq!(core.queue().order.len(), 3);
+}
+
+#[test]
+fn replace_with_nothing_clears() {
+    let mut core = core_with(&["a"]);
+    core.play();
+
+    let effects = core.replace(Vec::new(), None, false);
+
+    assert!(effects.contains(&Effect::Engine(EngineCommand::Stop)));
+    assert!(core.queue().items.is_empty());
 }

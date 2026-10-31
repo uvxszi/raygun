@@ -15,3 +15,7 @@ pub struct PlaybackStateEvent(pub PlaybackState);
 /// The queue changed.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct QueueEvent(pub QueueSnapshot);
+
+/// Progress of a local library scan.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct LibraryScanEvent(pub raygun_model::LibraryScanProgress);

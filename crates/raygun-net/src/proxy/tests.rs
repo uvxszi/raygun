@@ -59,7 +59,7 @@ fn remote(origin: SocketAddr, with_referer: bool) -> MediaSource {
 }
 
 async fn proxy() -> StreamProxy {
-    StreamProxy::start(crate::http_client().unwrap())
+    StreamProxy::start(crate::http_client().unwrap(), None)
         .await
         .unwrap()
 }
@@ -157,4 +157,28 @@ async fn old_tokens_expire() {
     let response = reqwest::get(&first).await.unwrap();
 
     assert_eq!(response.status(), 404);
+}
+
+#[tokio::test]
+async fn serves_only_allowed_artwork_names() {
+    let temp = tempfile::TempDir::new().unwrap();
+    std::fs::write(temp.path().join("good.png"), b"png-bytes").unwrap();
+    std::fs::write(temp.path().join("secret.txt"), b"nope").unwrap();
+    let proxy = StreamProxy::start(
+        crate::http_client().unwrap(),
+        Some(StaticFiles {
+            dir: temp.path().to_path_buf(),
+            is_allowed: |name| name.ends_with(".png"),
+        }),
+    )
+    .await
+    .unwrap();
+
+    let good = reqwest::get(proxy.artwork_url("good.png")).await.unwrap();
+    assert_eq!(good.status(), 200);
+    assert_eq!(good.headers()[header::CONTENT_TYPE], "image/png");
+    assert_eq!(good.bytes().await.unwrap().as_ref(), b"png-bytes");
+
+    let refused = reqwest::get(proxy.artwork_url("secret.txt")).await.unwrap();
+    assert_eq!(refused.status(), 404);
 }

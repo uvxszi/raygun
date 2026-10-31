@@ -6,9 +6,13 @@
 //! `http://127.0.0.1:<port>/stream/<token>`: remote sources are fetched with their headers plus the
 //! client's `Range`, local files are served with Range support. Only registered tokens resolve, so
 //! the proxy can't be used to fetch arbitrary URLs.
+//!
+//! It also serves library artwork from one folder at `/art/<name>`, limited to names the caller's
+//! validator accepts.
 
 use std::collections::{HashMap, VecDeque};
 use std::net::{Ipv4Addr, SocketAddr};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use axum::Router;
@@ -38,10 +42,19 @@ struct Registry {
     order: VecDeque<String>,
 }
 
+/// A folder of files served at `/art/<name>`.
+#[derive(Clone)]
+pub struct StaticFiles {
+    pub dir: PathBuf,
+    /// Only names this returns true for are served (e.g. content-hash file names).
+    pub is_allowed: fn(&str) -> bool,
+}
+
 #[derive(Clone)]
 struct ProxyState {
     registry: Arc<Mutex<Registry>>,
     client: reqwest::Client,
+    artwork: Option<StaticFiles>,
 }
 
 pub struct StreamProxy {
@@ -51,14 +64,19 @@ pub struct StreamProxy {
 
 impl StreamProxy {
     /// Binds a free loopback port and serves in the background on the current Tokio runtime.
-    pub async fn start(client: reqwest::Client) -> std::io::Result<Self> {
+    pub async fn start(
+        client: reqwest::Client,
+        artwork: Option<StaticFiles>,
+    ) -> std::io::Result<Self> {
         let registry = Arc::new(Mutex::new(Registry::default()));
         let state = ProxyState {
             registry: registry.clone(),
             client,
+            artwork,
         };
         let router = Router::new()
             .route("/stream/{token}", get(stream))
+            .route("/art/{name}", get(serve_artwork))
             .with_state(state);
         let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
         let address = listener.local_addr()?;
@@ -73,6 +91,11 @@ impl StreamProxy {
 
     pub fn address(&self) -> SocketAddr {
         self.address
+    }
+
+    /// URL of an artwork file served from the [`StaticFiles`] folder.
+    pub fn artwork_url(&self, name: &str) -> String {
+        artwork_url(self.address, name)
     }
 
     /// Makes `source` playable and returns the URL to hand to the engine.
@@ -108,6 +131,30 @@ async fn stream(
         Some(MediaSource::Url { url, headers }) => {
             forward(&state.client, &url, &headers, request.headers()).await
         }
+    };
+    with_cors(response)
+}
+
+/// Builds artwork URLs without holding the proxy (e.g. from another service).
+pub fn artwork_url(address: SocketAddr, name: &str) -> String {
+    format!("http://{address}/art/{name}")
+}
+
+async fn serve_artwork(
+    State(state): State<ProxyState>,
+    Path(name): Path<String>,
+    request: Request,
+) -> Response {
+    let response = match &state.artwork {
+        Some(files) if (files.is_allowed)(&name) => {
+            let mut response = serve_file(&files.dir.join(&name).to_string_lossy(), request).await;
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("public, max-age=31536000, immutable"),
+            );
+            response
+        }
+        _ => StatusCode::NOT_FOUND.into_response(),
     };
     with_cors(response)
 }

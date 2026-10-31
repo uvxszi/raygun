@@ -1,0 +1,16 @@
+[package]
+name = "raygun-library"
+description = "Raygun local media library: folder discovery and tag/artwork reading"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+lofty = "0.25"
+walkdir = "2"
+blake3 = "1"
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

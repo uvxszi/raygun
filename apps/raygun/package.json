@@ -17,6 +17,7 @@
     "@raygun/bindings": "workspace:*",
     "@tanstack/react-query": "^5.90.0",
     "@tanstack/react-router": "^1.170.46",
+    "@tanstack/react-virtual": "^3.14.24",
     "@tauri-apps/api": "^2.8.0",
     "i18next": "^26.5.12",
     "lucide-react": "^1.66.0",

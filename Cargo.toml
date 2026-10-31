@@ -14,6 +14,7 @@ raygun-paths = { path = "crates/raygun-paths" }
 raygun-db = { path = "crates/raygun-db" }
 raygun-playback = { path = "crates/raygun-playback" }
 raygun-net = { path = "crates/raygun-net" }
+raygun-library = { path = "crates/raygun-library" }
 raygun-app = { path = "crates/raygun-app" }
 tauri-plugin-raygun-audio = { path = "plugins-mobile/raygun-audio" }
 

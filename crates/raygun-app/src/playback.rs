@@ -65,6 +65,11 @@ impl PlaybackService {
         self.run(|core| core.enqueue(items, play_now));
     }
 
+    /// Replaces the queue and starts playing (see `PlaybackCore::replace`).
+    pub fn replace(&self, items: Vec<QueueItemInput>, start_index: Option<usize>, shuffle: bool) {
+        self.run(|core| core.replace(items, start_index, shuffle));
+    }
+
     pub fn control(&self, control: PlaybackControl) {
         self.run(|core| match control {
             PlaybackControl::Play => core.play(),

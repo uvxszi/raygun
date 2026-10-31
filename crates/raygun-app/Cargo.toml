@@ -12,6 +12,7 @@ raygun-paths.workspace = true
 raygun-db.workspace = true
 raygun-playback.workspace = true
 raygun-net.workspace = true
+raygun-library.workspace = true
 tauri-plugin-raygun-audio.workspace = true
 tauri.workspace = true
 serde.workspace = true

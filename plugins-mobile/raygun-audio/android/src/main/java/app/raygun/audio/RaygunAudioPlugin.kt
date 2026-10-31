@@ -1,7 +1,10 @@
 package app.raygun.audio
 
+import android.Manifest
 import android.app.Activity
 import android.content.ComponentName
+import android.os.Build
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.C
@@ -11,10 +14,15 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import app.tauri.PermissionState
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
+import app.tauri.annotation.Permission
+import app.tauri.annotation.PermissionCallback
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
+import app.tauri.plugin.JSObject
+import org.json.JSONArray
 import app.tauri.plugin.Plugin
 import com.google.common.util.concurrent.MoreExecutors
 import org.json.JSONObject
@@ -47,7 +55,12 @@ private const val PROGRESS_INTERVAL_MS = 500L
  * commands on a Media3 player hosted by [RaygunPlaybackService] and reports back through
  * [NativeBridge], tagging every report with the load id of the command that started the track.
  */
-@TauriPlugin
+@TauriPlugin(
+    permissions = [
+        Permission(strings = [Manifest.permission.READ_MEDIA_AUDIO], alias = "audio"),
+        Permission(strings = [Manifest.permission.READ_EXTERNAL_STORAGE], alias = "storage"),
+    ],
+)
 class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     private val main = Handler(Looper.getMainLooper())
     private var controller: MediaController? = null
@@ -150,6 +163,36 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
             it.clearMediaItems()
         }
         invoke.resolve()
+    }
+
+    /**
+     * Asks for permission to read the device's music (M07) and returns the public folders the
+     * library should scan. Android 13+ uses READ_MEDIA_AUDIO; older versions READ_EXTERNAL_STORAGE.
+     */
+    @Command
+    fun requestLibraryAccess(invoke: Invoke) {
+        if (getPermissionState(libraryAlias()) == PermissionState.GRANTED) {
+            resolveLibraryAccess(invoke)
+        } else {
+            requestPermissionForAlias(libraryAlias(), invoke, "libraryAccessResult")
+        }
+    }
+
+    @PermissionCallback
+    fun libraryAccessResult(invoke: Invoke) {
+        resolveLibraryAccess(invoke)
+    }
+
+    private fun libraryAlias() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) "audio" else "storage"
+
+    private fun resolveLibraryAccess(invoke: Invoke) {
+        val folders = JSONArray()
+            .put(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC).absolutePath)
+            .put(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath)
+        val result = JSObject()
+        result.put("granted", getPermissionState(libraryAlias()) == PermissionState.GRANTED)
+        result.put("folders", folders)
+        invoke.resolve(result)
     }
 
     /** Runs [action] on the main thread once the controller is connected to the service. */

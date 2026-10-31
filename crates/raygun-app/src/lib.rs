@@ -5,6 +5,7 @@
 
 mod commands;
 mod events;
+mod library;
 mod playback;
 mod settings;
 mod startup;
@@ -26,12 +27,23 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::playback_get_queue,
             commands::playback_enqueue,
             commands::playback_control,
-            commands::playback_engine_report
+            commands::playback_engine_report,
+            commands::library_status,
+            commands::library_connect_device_music,
+            commands::library_add_root,
+            commands::library_remove_root,
+            commands::library_rescan,
+            commands::library_albums,
+            commands::library_artists,
+            commands::library_album_tracks,
+            commands::library_tracks,
+            commands::library_play
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,
             events::PlaybackStateEvent,
-            events::QueueEvent
+            events::QueueEvent,
+            events::LibraryScanEvent
         ])
 }
 

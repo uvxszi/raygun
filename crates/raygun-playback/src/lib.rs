@@ -111,6 +111,7 @@ impl PlaybackCore {
                 artist: input.artist,
                 album: input.album,
                 duration_ms: input.duration_ms,
+                artwork_url: input.artwork_url,
                 media_kind: input.media_kind,
                 source: input.source,
             });
@@ -128,6 +129,43 @@ impl PlaybackCore {
             let cursor = self.position_in_order(first_new);
             effects.extend(self.load_at(cursor, 0.0, true));
         }
+        effects
+    }
+
+    /// Replaces the whole queue and starts playing ("play this album"). With `shuffle`, the start
+    /// item plays first and the rest follow in random order; without a start item, shuffle picks
+    /// a random one.
+    pub fn replace(
+        &mut self,
+        inputs: Vec<QueueItemInput>,
+        start_index: Option<usize>,
+        shuffle: bool,
+    ) -> Vec<Effect> {
+        if inputs.is_empty() {
+            return self.clear();
+        }
+        self.items.clear();
+        self.order.clear();
+        self.cursor = None;
+        self.consecutive_errors = 0;
+        self.shuffle = false;
+        self.enqueue(inputs, false);
+
+        let count = self.items.len();
+        let start = match start_index {
+            Some(index) => index.min(count - 1),
+            None if shuffle => self.rng.below(count),
+            None => 0,
+        };
+        if shuffle {
+            let mut rest: Vec<usize> = (0..count).filter(|&index| index != start).collect();
+            self.rng.shuffle(&mut rest);
+            self.order = std::iter::once(start).chain(rest).collect();
+            self.shuffle = true;
+        }
+        let cursor = self.position_in_order(start);
+        let mut effects = vec![Effect::QueueChanged];
+        effects.extend(self.load_at(cursor, 0.0, true));
         effects
     }
 

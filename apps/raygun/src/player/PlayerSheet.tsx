@@ -97,9 +97,17 @@ export const PlayerSheet: FC = () => {
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6">
-            <div className="bg-surface text-muted grid aspect-square w-full max-w-xs place-items-center rounded-2xl">
-              <Disc3 aria-hidden size={96} />
-            </div>
+            {item?.artworkUrl ? (
+              <img
+                src={item.artworkUrl}
+                alt=""
+                className="aspect-square w-full max-w-xs rounded-2xl object-cover shadow-xl"
+              />
+            ) : (
+              <div className="bg-surface text-muted grid aspect-square w-full max-w-xs place-items-center rounded-2xl">
+                <Disc3 aria-hidden size={96} />
+              </div>
+            )}
             <div className="flex w-full max-w-md flex-col items-center gap-1 text-center">
               <p data-testid="sheet-title" className="w-full truncate text-xl font-semibold">
                 {item?.title ?? t('player.nothingPlaying')}

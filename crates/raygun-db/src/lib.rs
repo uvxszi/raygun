@@ -5,6 +5,7 @@
 //! runtime (`sqlx::query`), so building never needs a live database or offline query data.
 
 pub mod hlc;
+pub mod local_music;
 pub mod settings;
 
 use std::path::Path;

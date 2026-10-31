@@ -1,8 +1,10 @@
 use raygun_model::{
-    AppInfo, EngineReport, PlaybackControl, PlaybackState, QueueItemInput, QueueSnapshot,
-    SettingChange, Settings, StorageInfo, StorageMode,
+    AppInfo, EngineReport, LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack, PlayRequest,
+    PlaybackControl, PlaybackState, QueueItemInput, QueueSnapshot, SettingChange, Settings,
+    StorageInfo, StorageMode,
 };
 
+use crate::library::LibraryService;
 use crate::playback::PlaybackService;
 use crate::settings;
 use crate::startup::{AppDb, AppPaths};
@@ -85,6 +87,100 @@ pub fn playback_control(playback: tauri::State<'_, PlaybackService>, control: Pl
 #[specta::specta]
 pub fn playback_engine_report(playback: tauri::State<'_, PlaybackService>, report: EngineReport) {
     playback.report(report);
+}
+
+/// Library folders, track count and whether a scan is running.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_status(
+    library: tauri::State<'_, LibraryService>,
+) -> Result<LibraryStatus, String> {
+    library.status().await
+}
+
+/// Asks for access to the device's music (Android) and scans its music folders.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_connect_device_music(
+    library: tauri::State<'_, LibraryService>,
+) -> Result<LibraryStatus, String> {
+    library.connect_device_music().await
+}
+
+/// Adds a folder to the library and scans it.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_add_root(
+    library: tauri::State<'_, LibraryService>,
+    path: String,
+) -> Result<LibraryStatus, String> {
+    library.add_root(&path).await
+}
+
+/// Removes a folder from the library; its tracks disappear with the next scan (started now).
+#[tauri::command]
+#[specta::specta]
+pub async fn library_remove_root(
+    library: tauri::State<'_, LibraryService>,
+    path: String,
+) -> Result<LibraryStatus, String> {
+    library.remove_root(&path).await
+}
+
+/// Starts an incremental rescan; progress arrives as `LibraryScanEvent`.
+#[tauri::command]
+#[specta::specta]
+pub fn library_rescan(library: tauri::State<'_, LibraryService>) {
+    library.start_scan();
+}
+
+/// Albums, optionally only one artist's.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_albums(
+    library: tauri::State<'_, LibraryService>,
+    artist: Option<String>,
+) -> Result<Vec<LibraryAlbum>, String> {
+    library.albums(artist.as_deref()).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn library_artists(
+    library: tauri::State<'_, LibraryService>,
+) -> Result<Vec<LibraryArtist>, String> {
+    library.artists().await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn library_album_tracks(
+    library: tauri::State<'_, LibraryService>,
+    artist: String,
+    album: String,
+) -> Result<Vec<LibraryTrack>, String> {
+    library.album_tracks(&artist, &album).await
+}
+
+/// All tracks in library order, a page at a time.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_tracks(
+    library: tauri::State<'_, LibraryService>,
+    offset: u32,
+    limit: u32,
+) -> Result<Vec<LibraryTrack>, String> {
+    library.tracks(offset, limit).await
+}
+
+/// Replaces the play queue with part of the library and starts playing.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_play(
+    library: tauri::State<'_, LibraryService>,
+    request: PlayRequest,
+) -> Result<(), String> {
+    library.play(request).await
 }
 
 fn to_storage_info(paths: &raygun_paths::Paths) -> StorageInfo {

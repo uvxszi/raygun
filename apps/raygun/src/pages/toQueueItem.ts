@@ -20,6 +20,7 @@ export const toQueueItem = (location: string, referer: string): QueueItemInput |
     artist: null,
     album: null,
     durationMs: null,
+    artworkUrl: null,
     mediaKind: 'audio',
     source: isUrl ? { kind: 'url', url: trimmed, headers } : { kind: 'localFile', path: trimmed },
   };

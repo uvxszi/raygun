@@ -39,8 +39,19 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     let db = tauri::async_runtime::block_on(raygun_db::Db::open(&paths.db()))?;
     tracing::info!(device_id = %db.device_id(), "database ready");
 
-    let proxy =
-        tauri::async_runtime::block_on(raygun_net::StreamProxy::start(raygun_net::http_client()?))?;
+    let art_dir = paths.cache(raygun_paths::CacheKind::Images);
+    let proxy = tauri::async_runtime::block_on(raygun_net::StreamProxy::start(
+        raygun_net::http_client()?,
+        Some(raygun_net::StaticFiles {
+            dir: art_dir.clone(),
+            is_allowed: raygun_library::is_artwork_name,
+        }),
+    ))?;
+    app.manage(crate::library::LibraryService::new(
+        app.handle().clone(),
+        art_dir,
+        proxy.address(),
+    ));
     app.manage(crate::playback::PlaybackService::new(
         app.handle().clone(),
         proxy,
@@ -52,6 +63,9 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(LogGuard(guard));
     app.manage(AppPaths(paths));
     app.manage(AppDb(db));
+
+    // Pick up files added or removed while the app was closed (cheap when nothing changed).
+    app.state::<crate::library::LibraryService>().start_scan();
     Ok(())
 }
 
@@ -162,7 +176,9 @@ fn init_logging(paths: &Paths) -> Result<WorkerGuard, Box<dyn Error>> {
         .build(paths.logs())?;
     let (writer, guard) = tracing_appender::non_blocking(appender);
 
-    let filter = || EnvFilter::try_from_env("RAYGUN_LOG").unwrap_or_else(|_| "info".into());
+    // lofty warns about every MP3 without a duration header, which floods the log during scans.
+    let filter =
+        || EnvFilter::try_from_env("RAYGUN_LOG").unwrap_or_else(|_| "info,lofty=error".into());
     let file_layer = tracing_subscriber::fmt::layer()
         .with_ansi(false)
         .with_writer(writer)
