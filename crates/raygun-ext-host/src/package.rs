@@ -138,6 +138,28 @@ pub fn verify(bytes: &[u8], entry: &RepoEntry) -> Result<VerifiedPackage, Packag
     Ok(VerifiedPackage { manifest, files })
 }
 
+/// A converted Nuclear plugin (M17) as a package to install: its generated manifest and bundle.
+pub fn from_converted(manifest_json: &str, bundle: &str) -> Result<VerifiedPackage, PackageError> {
+    let manifest = Manifest::parse(manifest_json)
+        .map_err(|error| PackageError::Manifest(error.to_string()))?;
+    let files = vec![
+        (MANIFEST_FILE.to_owned(), manifest_json.as_bytes().to_vec()),
+        (manifest.entry.clone(), bundle.as_bytes().to_vec()),
+    ];
+    Ok(VerifiedPackage { manifest, files })
+}
+
+/// Checks a Nuclear plugin download against the registry's checksum, when it lists one.
+pub fn check_nuclear_download(bytes: &[u8], entry: &RepoEntry) -> Result<(), PackageError> {
+    if bytes.len() as u64 > MAX_PACKAGE_BYTES {
+        return Err(PackageError::TooLarge);
+    }
+    if !entry.sha256.is_empty() && !sha256_hex(bytes).eq_ignore_ascii_case(&entry.sha256) {
+        return Err(PackageError::Checksum);
+    }
+    Ok(())
+}
+
 /// Writes a verified package to `extensions/<id>/`, replacing any previous version. Files land in
 /// a staging folder first (ignored by discovery), so a failure leaves the old version intact.
 pub fn install(extensions_dir: &Path, package: &VerifiedPackage) -> Result<PathBuf, PackageError> {

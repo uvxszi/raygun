@@ -90,6 +90,11 @@ export const BrowseTab: FC = () => {
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="flex flex-wrap items-baseline gap-x-2">
                     <span className="font-medium">{entry.name}</span>
+                    {entry.nuclear && (
+                      <span className="bg-background text-muted rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase">
+                        {t('extensions.nuclearBadge')}
+                      </span>
+                    )}
                     <span className="text-muted text-xs">
                       {entry.state === 'updateAvailable' && entry.installedVersion
                         ? `${entry.installedVersion} → ${entry.version}`

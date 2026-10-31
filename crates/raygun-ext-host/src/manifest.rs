@@ -30,6 +30,9 @@ struct RawManifest {
     description: Option<String>,
     #[serde(default)]
     author: Option<String>,
+    /// Written by the Nuclear converter (M17): the original package and its compatibility report.
+    #[serde(default)]
+    nuclear: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -103,6 +106,8 @@ pub struct Manifest {
     pub settings: Vec<SettingDef>,
     pub description: Option<String>,
     pub author: Option<String>,
+    /// Present for converted Nuclear plugins.
+    pub nuclear: Option<serde_json::Value>,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -188,6 +193,7 @@ impl Manifest {
             settings: raw.settings,
             description: raw.description,
             author: raw.author,
+            nuclear: raw.nuclear,
         })
     }
 

@@ -496,6 +496,24 @@ pub struct ExtensionInfo {
     pub net: Vec<String>,
     pub providers: Vec<ProviderInfo>,
     pub settings: Vec<ExtensionSetting>,
+    /// For a converted Nuclear plugin (M17): what works and what doesn't.
+    pub compatibility: Option<CompatReport>,
+}
+
+/// How much of a Nuclear plugin runs in Raygun (M17).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CompatReport {
+    /// The original npm package name.
+    pub package: String,
+    /// Raygun provider kinds the plugin provides.
+    pub supported: Vec<String>,
+    /// Nuclear categories Raygun can't run (dashboard, playlists, ...).
+    pub unsupported_categories: Vec<String>,
+    /// Nuclear API domains the plugin calls that are stubs in Raygun.
+    pub stubbed_apis: Vec<String>,
+    /// UI modules it imports; they're inert in Raygun.
+    pub ui_imports: Vec<String>,
 }
 
 /// A value of an extension setting: text and select choices are strings.
@@ -586,6 +604,8 @@ pub struct CatalogEntry {
     /// Package size in bytes (packages are capped at 10 MiB).
     pub size: u32,
     pub state: CatalogState,
+    /// A Nuclear plugin, converted when installed (M17).
+    pub nuclear: bool,
     /// The version on this device (built-in or installed), if any.
     pub installed_version: Option<String>,
 }

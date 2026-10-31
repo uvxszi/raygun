@@ -562,6 +562,7 @@ fn loaded_info(extension: &JsExtension, origin: ExtensionOrigin) -> ExtensionInf
             .map(ToString::to_string)
             .collect(),
         providers: extension.providers(),
+        compatibility: manifest.nuclear.as_ref().and_then(compat_report),
         settings: manifest
             .settings
             .iter()
@@ -588,6 +589,30 @@ fn loaded_info(extension: &JsExtension, origin: ExtensionOrigin) -> ExtensionInf
     }
 }
 
+/// The report the Nuclear converter stored in the manifest (`nuclear: { package, report }`).
+fn compat_report(nuclear: &serde_json::Value) -> Option<raygun_model::CompatReport> {
+    let report = nuclear.get("report")?;
+    let list = |key: &str| -> Vec<String> {
+        report
+            .get(key)
+            .and_then(serde_json::Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    Some(raygun_model::CompatReport {
+        package: nuclear.get("package")?.as_str()?.to_owned(),
+        supported: list("supported"),
+        unsupported_categories: list("unsupportedCategories"),
+        stubbed_apis: list("stubbedApis"),
+        ui_imports: list("uiImports"),
+    })
+}
+
 fn failed_info(
     id: &str,
     name: &str,
@@ -607,6 +632,7 @@ fn failed_info(
         net: Vec::new(),
         providers: Vec::new(),
         settings: Vec::new(),
+        compatibility: None,
     }
 }
 

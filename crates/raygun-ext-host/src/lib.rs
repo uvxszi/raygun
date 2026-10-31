@@ -5,6 +5,7 @@ mod host;
 mod html;
 mod js;
 pub mod manifest;
+pub mod nuclear;
 pub mod package;
 pub mod permissions;
 pub mod repo;
@@ -12,6 +13,8 @@ mod storage;
 
 #[cfg(test)]
 mod fixture_tests;
+#[cfg(test)]
+mod nuclear_tests;
 #[cfg(test)]
 mod repo_tests;
 #[cfg(test)]

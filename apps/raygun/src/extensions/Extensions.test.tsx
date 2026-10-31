@@ -40,6 +40,7 @@ const extension = (overrides: Partial<ExtensionInfo> = {}): ExtensionInfo => ({
     { key: 'country', label: 'Country', kind: 'text', options: [], default: '', value: '' },
     { key: 'hd', label: 'HD only', kind: 'boolean', options: [], default: false, value: false },
   ],
+  compatibility: null,
   ...overrides,
 });
 
@@ -56,6 +57,7 @@ const entry = (overrides: Partial<CatalogEntry> = {}): CatalogEntry => ({
   size: 2219,
   state: 'available',
   installedVersion: null,
+  nuclear: false,
   ...overrides,
 });
 
@@ -203,6 +205,45 @@ describe('Extensions', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Update' }));
 
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('checksum');
+  });
+
+  it('marks Nuclear plugins and says their network access is detected at install', async () => {
+    commands.extensionCatalog.mockResolvedValue(
+      ok(
+        catalog([
+          entry({ id: 'nuclear.nuclear-plugin-lrclib', name: 'LRCLIB', net: [], nuclear: true }),
+        ]),
+      ),
+    );
+    await AppShellWrapper.mount('/extensions?tab=browse');
+
+    const row = await screen.findByTestId('catalog-entry');
+    expect(row).toHaveTextContent('Nuclear');
+    await userEvent.click(within(row).getByRole('button', { name: 'Install' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('converts it when installing');
+  });
+
+  it("shows a converted Nuclear plugin's compatibility report", async () => {
+    commands.extensionsList.mockResolvedValue(
+      ok([
+        extension({
+          compatibility: {
+            package: 'nuclear-plugin-sample',
+            supported: ['lyrics'],
+            unsupportedCategories: ['dashboard'],
+            stubbedApis: ['Queue'],
+            uiImports: ['react'],
+          },
+        }),
+      ]),
+    );
+    await AppShellWrapper.mount('/extensions/detail?id=dev.raygun.radio-browser');
+
+    const report = await screen.findByTestId('extension-compatibility');
+    expect(report).toHaveTextContent('Converted from the Nuclear plugin nuclear-plugin-sample.');
+    expect(report).toHaveTextContent('Not supported in Raygun: dashboard.');
+    expect(report).toHaveTextContent('unavailable, so parts of the plugin may fail: Queue.');
+    expect(report).toHaveTextContent("Its screens and widgets don't show in Raygun.");
   });
 
   it('shows a repository that failed to load', async () => {

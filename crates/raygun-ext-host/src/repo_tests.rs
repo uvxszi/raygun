@@ -45,6 +45,7 @@ fn entry_for(bytes: &[u8]) -> RepoEntry {
         package: "packages/dev.example.pkg-1.2.0.zip".into(),
         sha256: package::sha256_hex(bytes),
         size: bytes.len() as u64,
+        format: Default::default(),
     }
 }
 
@@ -226,4 +227,90 @@ fn official_repository_packages_verify() {
             package::verify(&bytes, entry).unwrap_or_else(|error| panic!("{}: {error}", entry.id));
         assert_eq!(verified.manifest.id, entry.id);
     }
+}
+
+#[test]
+fn reads_nuclears_plugin_registry_as_a_repository() {
+    let registry = json!({
+        "version": 1,
+        "plugins": [
+            { "id": "nuclear-plugin-lrclib", "name": "LRCLIB", "description": "Lyrics", "author": "nukeop",
+              "repo": "NuclearPlayer/nuclear-plugin-lrclib", "categories": ["lyrics"], "version": "0.1.0",
+              "downloadUrl": "https://github.com/NuclearPlayer/nuclear-plugin-lrclib/releases/download/v0.1.0/plugin.zip",
+              "addedAt": "2026-01-01T00:00:00Z" },
+            { "id": "nuclear-plugin-bandcamp", "name": "Bandcamp", "repo": "x/y", "category": "streaming",
+              "downloadUrl": "https://example.org/b.zip", "sha256": "AB".repeat(32), "addedAt": "2026-01-01T00:00:00Z" },
+            { "id": "nuclear-plugin-dash", "name": "Dash", "repo": "x/y", "categories": ["dashboard"],
+              "downloadUrl": "https://example.org/d.zip", "addedAt": "2026-01-01T00:00:00Z" },
+            { "id": "nuclear-plugin-nozip", "name": "No zip", "repo": "x/y", "categories": ["metadata"],
+              "addedAt": "2026-01-01T00:00:00Z" },
+        ],
+    });
+    let index = repo::parse_index(&registry.to_string()).unwrap();
+    assert_eq!(index.name, "Nuclear plugins");
+    let ids: Vec<_> = index
+        .extensions
+        .iter()
+        .map(|entry| entry.id.as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        vec![
+            "nuclear.nuclear-plugin-lrclib",
+            "nuclear.nuclear-plugin-bandcamp"
+        ],
+        "plugins Raygun can't run, or without a download, are left out"
+    );
+    let lrclib = &index.extensions[0];
+    assert_eq!(lrclib.format, repo::PackageFormat::Nuclear);
+    assert_eq!(lrclib.provides, vec!["lyrics"]);
+    assert_eq!(lrclib.version, "0.1.0");
+    assert_eq!(lrclib.sha256, "");
+    assert_eq!(lrclib.size, 0);
+    let bandcamp = &index.extensions[1];
+    assert_eq!(bandcamp.version, "0.0.0");
+    assert_eq!(bandcamp.sha256, "ab".repeat(32));
+    // Absolute download URLs stay as they are.
+    let base = "https://cdn.jsdelivr.net/gh/NuclearPlayer/plugin-registry@master/plugins.json"
+        .parse()
+        .unwrap();
+    assert_eq!(
+        repo::package_url(&base, lrclib).unwrap().as_str(),
+        "https://github.com/NuclearPlayer/nuclear-plugin-lrclib/releases/download/v0.1.0/plugin.zip"
+    );
+}
+
+#[test]
+fn nuclear_ids_match_the_converter() {
+    // Same rules as packages/nuclear-compat's slug().
+    assert_eq!(
+        repo::nuclear_extension_id("nuclear-plugin-lrclib"),
+        "nuclear.nuclear-plugin-lrclib"
+    );
+    assert_eq!(
+        repo::nuclear_extension_id("@Scope/My  Plugin!"),
+        "nuclear.scope-my-plugin"
+    );
+    assert_eq!(repo::nuclear_extension_id("???"), "nuclear.plugin");
+    assert!(crate::manifest::is_extension_id(
+        &repo::nuclear_extension_id("@Scope/My  Plugin!")
+    ));
+}
+
+#[test]
+fn nuclear_downloads_are_checked_when_the_registry_lists_a_hash() {
+    let bytes = good_package();
+    let mut entry = entry_for(&bytes);
+    entry.format = repo::PackageFormat::Nuclear;
+    assert!(package::check_nuclear_download(&bytes, &entry).is_ok());
+    entry.sha256 = "0".repeat(64);
+    assert_eq!(
+        package::check_nuclear_download(&bytes, &entry),
+        Err(PackageError::Checksum)
+    );
+    entry.sha256 = String::new();
+    assert!(
+        package::check_nuclear_download(&bytes, &entry).is_ok(),
+        "no hash listed"
+    );
 }

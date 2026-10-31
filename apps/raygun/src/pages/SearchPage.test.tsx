@@ -106,6 +106,24 @@ describe('Search', () => {
     expect(screen.getAllByTestId('online-track-row')).toHaveLength(1);
   });
 
+  it('names the extension when two sources share a name', async () => {
+    answer([
+      { provider: PROVIDER, tracks: [track('One')], error: null },
+      {
+        provider: { ...PROVIDER, id: 'nuclear.ia/search', extensionId: 'nuclear.ia' },
+        tracks: [track('Two')],
+        error: null,
+      },
+    ]);
+    await AppShellWrapper.mount('/search?q=blues');
+
+    const headings = await screen.findAllByRole('heading', { level: 2 });
+    expect(headings.map((heading) => heading.textContent)).toEqual([
+      `${PROVIDER.name} · dev.raygun.internet-archive`,
+      `${PROVIDER.name} · nuclear.ia`,
+    ]);
+  });
+
   it('says when nothing was found, or no sources exist', async () => {
     answer([{ provider: PROVIDER, tracks: [], error: null }]);
     await AppShellWrapper.mount('/search?q=zzzz');

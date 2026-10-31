@@ -86,6 +86,37 @@ export const ExtensionDetailPage: FC = () => {
           </>
         )}
       </section>
+      {info.compatibility && (
+        <section
+          data-testid="extension-compatibility"
+          className="bg-surface flex flex-col gap-2 rounded-xl px-5 py-4 text-sm"
+        >
+          <h2 className="text-muted">{t('extensions.compatibilityTitle')}</h2>
+          <p>{t('extensions.compatibilityFrom', { package: info.compatibility.package })}</p>
+          {info.compatibility.unsupportedCategories.length > 0 && (
+            <p className="text-muted">
+              {t('extensions.compatibilityCategories', {
+                list: info.compatibility.unsupportedCategories.join(', '),
+              })}
+            </p>
+          )}
+          {info.compatibility.stubbedApis.length > 0 && (
+            <p className="text-muted">
+              {t('extensions.compatibilityApis', {
+                list: info.compatibility.stubbedApis.join(', '),
+              })}
+            </p>
+          )}
+          {info.compatibility.uiImports.length > 0 && (
+            <p className="text-muted">{t('extensions.compatibilityUi')}</p>
+          )}
+          {info.compatibility.unsupportedCategories.length === 0 &&
+            info.compatibility.stubbedApis.length === 0 &&
+            info.compatibility.uiImports.length === 0 && (
+              <p className="text-muted">{t('extensions.compatibilityFull')}</p>
+            )}
+        </section>
+      )}
       {info.settings.length > 0 && <SettingsForm extensionId={info.id} settings={info.settings} />}
       {info.origin === 'installed' && (
         <div className="flex flex-col gap-2">

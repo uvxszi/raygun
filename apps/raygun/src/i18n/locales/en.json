@@ -147,6 +147,14 @@
     "providers": "Provides",
     "uninstall": "Uninstall",
     "uninstallConfirm": "Tap again to uninstall",
-    "notFound": "This extension isn't loaded."
+    "notFound": "This extension isn't loaded.",
+    "nuclearBadge": "Nuclear",
+    "nuclearNetwork": "A Nuclear plugin: Raygun converts it when installing and allows only the hosts found in its code. They're listed on the extension's page afterwards.",
+    "compatibilityTitle": "Compatibility",
+    "compatibilityFrom": "Converted from the Nuclear plugin {{package}}.",
+    "compatibilityCategories": "Not supported in Raygun: {{list}}.",
+    "compatibilityApis": "These Nuclear features are unavailable, so parts of the plugin may fail: {{list}}.",
+    "compatibilityUi": "Its screens and widgets don't show in Raygun.",
+    "compatibilityFull": "Everything this plugin provides works in Raygun."
   }
 }

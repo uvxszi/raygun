@@ -1,0 +1,24 @@
+{
+  "name": "@raygun/nuclear-compat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "description": "Runs Nuclear plugins in Raygun: a converter (TS to one script) and the NuclearPluginAPI shim.",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "lint": "eslint src test scripts",
+    "type-check": "tsc",
+    "test": "vitest --run"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2",
+    "sucrase": "^3.35.0"
+  },
+  "devDependencies": {
+    "@raygun/sdk": "workspace:*",
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.27.0",
+    "vitest": "^5.0.5"
+  }
+}

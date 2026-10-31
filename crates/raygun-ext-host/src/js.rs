@@ -118,6 +118,25 @@ impl JsExtension {
             })
             .await?;
 
+        // Scripts that finish setting up asynchronously (converted Nuclear plugins run their
+        // `onLoad`/`onEnable` that way) publish a promise; their providers count once it settles.
+        context
+            .async_with(async |ctx| -> Result<(), String> {
+                let ready: rquickjs::Value = ctx
+                    .globals()
+                    .get("__rg_ready")
+                    .map_err(|error| error.to_string())?;
+                if let Some(promise) = ready.into_promise() {
+                    promise
+                        .into_future::<()>()
+                        .await
+                        .catch(&ctx)
+                        .map_err(|error| format!("setup failed: {error}"))?;
+                }
+                Ok(())
+            })
+            .await?;
+
         Ok(Self {
             shared,
             context,

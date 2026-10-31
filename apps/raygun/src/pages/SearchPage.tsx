@@ -12,11 +12,17 @@ import { PageHeader } from './PageHeader';
 /** Wait for a pause in typing before searching, so each keystroke doesn't hit the network. */
 export const SEARCH_DEBOUNCE_MS = 400;
 
-const ProviderResults: FC<{ result: ProviderSearchResult }> = ({ result }) => {
+type ProviderResultsProps = { result: ProviderSearchResult; ambiguous: boolean };
+
+const ProviderResults: FC<ProviderResultsProps> = ({ result, ambiguous }) => {
   const { t } = useTranslation();
   return (
     <section data-testid="provider-results" className="flex flex-col gap-1">
-      <h2 className="text-muted text-sm font-medium">{result.provider.name}</h2>
+      <h2 className="text-muted text-sm font-medium">
+        {result.provider.name}
+        {/* Two sources with one name (a Nuclear plugin beside Raygun's own) need telling apart. */}
+        {ambiguous && <span className="font-normal"> · {result.provider.extensionId}</span>}
+      </h2>
       {result.error ? (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
           {t('search.providerFailed', { message: result.error })}
@@ -59,6 +65,7 @@ export const SearchPage: FC = () => {
   }, [input, q, navigate]);
 
   const results = search.data ?? [];
+  const names = results.map((result) => result.provider.name);
   const nothingFound =
     results.length > 0 && results.every((result) => !result.error && result.tracks.length === 0);
 
@@ -97,7 +104,13 @@ export const SearchPage: FC = () => {
       {nothingFound ? (
         <p className="text-muted text-sm">{t('search.noResults', { query: q })}</p>
       ) : (
-        results.map((result) => <ProviderResults key={result.provider.id} result={result} />)
+        results.map((result) => (
+          <ProviderResults
+            key={result.provider.id}
+            result={result}
+            ambiguous={names.filter((name) => name === result.provider.name).length > 1}
+          />
+        ))
       )}
     </section>
   );

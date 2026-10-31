@@ -46,9 +46,125 @@ pub struct RepoEntry {
     pub content_rating: String,
     /// The package zip, relative to the index (or absolute).
     pub package: String,
-    /// Lower-case hex SHA-256 of the package.
+    /// Lower-case hex SHA-256 of the package; may be empty for Nuclear plugins.
     pub sha256: String,
+    /// Package size in bytes; 0 when the repository doesn't say (Nuclear's registry).
     pub size: u64,
+    #[serde(default)]
+    pub format: PackageFormat,
+}
+
+/// What a package is: a Raygun extension, or a Nuclear plugin converted at install (M17).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PackageFormat {
+    #[default]
+    Raygun,
+    Nuclear,
+}
+
+/// Nuclear's plugin registry (`plugins.json`), read as a repository.
+#[derive(Debug, Deserialize)]
+struct NuclearRegistry {
+    version: u32,
+    plugins: Vec<NuclearRegistryEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NuclearRegistryEntry {
+    id: String,
+    name: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    author: Option<String>,
+    #[serde(default)]
+    category: Option<String>,
+    #[serde(default)]
+    categories: Option<Vec<String>>,
+    #[serde(default)]
+    version: Option<String>,
+    #[serde(default)]
+    download_url: Option<String>,
+    #[serde(default)]
+    sha256: Option<String>,
+}
+
+/// The Raygun id a converted Nuclear plugin gets; must match packages/nuclear-compat's `slug`.
+pub fn nuclear_extension_id(package: &str) -> String {
+    let lower = package.to_lowercase();
+    let mut slug = String::new();
+    for character in lower.trim_start_matches('@').chars() {
+        if character.is_ascii_lowercase() || character.is_ascii_digit() {
+            slug.push(character);
+        } else if !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    let slug: String = slug.trim_matches('-').chars().take(80).collect();
+    let slug = slug.trim_end_matches('-');
+    format!("nuclear.{}", if slug.is_empty() { "plugin" } else { slug })
+}
+
+/// Nuclear categories Raygun runs, as Raygun provider kinds.
+fn nuclear_kind(category: &str) -> Option<&'static str> {
+    match category {
+        "metadata" => Some("music.metadata"),
+        "streaming" => Some("music.stream"),
+        "lyrics" => Some("lyrics"),
+        _ => None,
+    }
+}
+
+fn from_nuclear(registry: NuclearRegistry) -> RepoIndex {
+    let extensions = registry
+        .plugins
+        .into_iter()
+        .filter_map(|plugin| {
+            let categories = plugin
+                .categories
+                .or_else(|| plugin.category.map(|category| vec![category]))
+                .unwrap_or_default();
+            let provides: Vec<String> = categories
+                .iter()
+                .filter_map(|category| nuclear_kind(category).map(str::to_owned))
+                .collect();
+            // Nothing Raygun can run, or nothing to download.
+            if provides.is_empty() {
+                return None;
+            }
+            let version = plugin
+                .version
+                .filter(|version| semver::Version::parse(version).is_ok())
+                .unwrap_or_else(|| "0.0.0".to_owned());
+            Some(RepoEntry {
+                id: nuclear_extension_id(&plugin.id),
+                name: plugin.name,
+                version,
+                api_version: API_VERSION,
+                description: plugin.description,
+                author: plugin.author,
+                provides,
+                permissions: RepoPermissions::default(),
+                content_rating: safe(),
+                package: plugin.download_url?,
+                sha256: plugin
+                    .sha256
+                    .filter(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+                    .unwrap_or_default()
+                    .to_ascii_lowercase(),
+                size: 0,
+                format: PackageFormat::Nuclear,
+            })
+        })
+        .collect();
+    let _ = registry.version;
+    RepoIndex {
+        format_version: INDEX_FORMAT,
+        name: "Nuclear plugins".to_owned(),
+        extensions,
+    }
 }
 
 fn safe() -> String {
@@ -88,6 +204,9 @@ pub fn check_index_url(url: &str) -> Result<Url, RepoError> {
 /// Parses an index, dropping entries this Raygun can't use (other API versions, malformed
 /// fields) rather than rejecting the whole repository.
 pub fn parse_index(json: &str) -> Result<RepoIndex, RepoError> {
+    if let Ok(registry) = serde_json::from_str::<NuclearRegistry>(json) {
+        return Ok(from_nuclear(registry));
+    }
     let mut index: RepoIndex =
         serde_json::from_str(json).map_err(|error| RepoError::Index(error.to_string()))?;
     if index.format_version != INDEX_FORMAT {

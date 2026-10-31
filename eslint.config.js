@@ -35,7 +35,7 @@ export default tseslint.config(
   },
   {
     // The raygun-ext CLI runs on Node.
-    files: ['packages/sdk/{lib,bin}/**/*.mjs'],
+    files: ['packages/sdk/{lib,bin}/**/*.mjs', 'packages/*/scripts/**/*.mjs'],
     languageOptions: { globals: globals.node },
   },
 );

@@ -108,6 +108,8 @@ export type CatalogEntry = {
 	/**  Package size in bytes (packages are capped at 10 MiB). */
 	size: number,
 	state: CatalogState,
+	/**  A Nuclear plugin, converted when installed (M17). */
+	nuclear: boolean,
 	/**  The version on this device (built-in or installed), if any. */
 	installedVersion: string | null,
 };
@@ -115,6 +117,20 @@ export type CatalogEntry = {
 export type CatalogState = "available" | "installed" | "updateAvailable" | 
 /**  This device has a newer version than the repository (a built-in or development copy). */
 "newerInstalled";
+
+/**  How much of a Nuclear plugin runs in Raygun (M17). */
+export type CompatReport = {
+	/**  The original npm package name. */
+	package: string,
+	/**  Raygun provider kinds the plugin provides. */
+	supported: string[],
+	/**  Nuclear categories Raygun can't run (dashboard, playlists, ...). */
+	unsupportedCategories: string[],
+	/**  Nuclear API domains the plugin calls that are stubs in Raygun. */
+	stubbedApis: string[],
+	/**  UI modules it imports; they're inert in Raygun. */
+	uiImports: string[],
+};
 
 /**  An instruction for the active playback engine. */
 export type EngineCommand = { type: "load"; loadId: number; url: string; 
@@ -151,6 +167,8 @@ export type ExtensionInfo = {
 	net: string[],
 	providers: ProviderInfo[],
 	settings: ExtensionSetting[],
+	/**  For a converted Nuclear plugin (M17): what works and what doesn't. */
+	compatibility: CompatReport | null,
 };
 
 /**  Where an extension was loaded from. */

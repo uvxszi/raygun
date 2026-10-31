@@ -10,3 +10,4 @@ docs/
 plugins-mobile/*/android/.tauri/
 third_party/
 repo/
+crates/raygun-ext-host/assets/

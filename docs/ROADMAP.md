@@ -32,7 +32,7 @@ Legend: 📱 Android · 🖥 Windows · ⚗ spike (time-boxed; the outcome is a 
 - M14 Resolver pipeline: candidate scoring, verification, caching, automatic fallback (direct → proxied → embed)
 - M15 First-party extensions: YouTube (official Data API with the user's key; embed streams), MusicBrainz/Cover Art, LRCLIB synced lyrics. *Decision (M15): no InnerTube direct-stream extraction in first-party code; it works around YouTube's protections and terms. Background YouTube audio on Android stays unavailable.*
 - M16 yt-dlp sidecar (desktop): download, verification, `music.stream` provider
-- M17 **Nuclear plugin compatibility**: `oxc` TS→CJS converter at install, `NuclearPluginAPI` shim over the host API, React/UI stubs, compatibility report per plugin; tested against several real plugins from the Nuclear registry
+- M17 **Nuclear plugin compatibility**: Sucrase TS→CJS converter run in QuickJS at install, `NuclearPluginAPI` shim over the host API, React/UI stubs, compatibility report per plugin; tested against several real plugins from the Nuclear registry
 - M18 Playlists, favorites, history, search across providers
 - M19 **MCP server**: rmcp streamable HTTP, token + origin auth, meta-tools generated from the service catalog, resources, stdio shim
 - M20 LAN remote: REST/SSE + paired remote web UI (QR)

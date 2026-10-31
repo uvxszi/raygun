@@ -10,8 +10,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use raygun_db::extensions::{self as store, InstallRow};
+use raygun_ext_host::nuclear;
 use raygun_ext_host::package::{self, MAX_PACKAGE_BYTES};
-use raygun_ext_host::repo::{self, RepoEntry, RepoIndex};
+use raygun_ext_host::repo::{self, PackageFormat, RepoEntry, RepoIndex};
 use raygun_ext_host::{
     ExtensionHost, ExtensionSource, HostConfig, ProviderCandidates, ResolvedStream, UserSettings,
     discover_installed,
@@ -372,11 +373,37 @@ impl ExtensionService {
         let index_url: reqwest::Url = repo.url.parse().map_err(|_| "invalid repository URL")?;
         let package_url =
             repo::package_url(&index_url, entry).map_err(|error| error.to_string())?;
-        let bytes = self
-            .download(package_url.as_str(), entry.size.min(MAX_PACKAGE_BYTES))
-            .await?;
+        let limit = if entry.size == 0 {
+            MAX_PACKAGE_BYTES
+        } else {
+            entry.size.min(MAX_PACKAGE_BYTES)
+        };
+        let bytes = self.download(package_url.as_str(), limit).await?;
 
-        let verified = package::verify(&bytes, entry).map_err(|error| error.to_string())?;
+        let verified = match entry.format {
+            PackageFormat::Raygun => {
+                package::verify(&bytes, entry).map_err(|error| error.to_string())?
+            }
+            PackageFormat::Nuclear => {
+                package::check_nuclear_download(&bytes, entry)
+                    .map_err(|error| error.to_string())?;
+                let sources = nuclear::unzip_sources(&bytes).map_err(|error| error.to_string())?;
+                let converted =
+                    tauri::async_runtime::spawn_blocking(move || nuclear::convert(&sources))
+                        .await
+                        .map_err(|error| error.to_string())??;
+                let verified = package::from_converted(&converted.manifest, &converted.bundle)
+                    .map_err(|error| error.to_string())?;
+                if verified.manifest.id != entry.id {
+                    return Err(format!(
+                        "the plugin's package name gives {} rather than {}",
+                        verified.manifest.id, entry.id
+                    ));
+                }
+                tracing::info!(extension = %entry.id, hosts = ?converted.report.hosts, "Nuclear plugin converted");
+                verified
+            }
+        };
         let extensions_dir = self.extensions_dir.clone();
         tauri::async_runtime::spawn_blocking(move || package::install(&extensions_dir, &verified))
             .await
@@ -479,6 +506,7 @@ fn catalog_entry(repo_id: &str, entry: &RepoEntry, local: Option<&String>) -> Ca
         net: entry.permissions.net.clone(),
         content_rating: entry.content_rating.clone(),
         size: u32::try_from(entry.size).unwrap_or(u32::MAX),
+        nuclear: entry.format == PackageFormat::Nuclear,
         state,
         installed_version: local.cloned(),
     }
@@ -587,6 +615,7 @@ mod tests {
             package: "a.zip".into(),
             sha256: "0".repeat(64),
             size: 1,
+            format: Default::default(),
         }
     }
 

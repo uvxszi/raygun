@@ -40,7 +40,9 @@ export const InstallSheet: FC<InstallSheetProps> = ({ entry, onClose }) => {
         </div>
         <div className="flex flex-col gap-2 text-sm">
           <h3 className="font-medium">{t('extensions.permissionsTitle')}</h3>
-          {entry.net.length > 0 ? (
+          {entry.nuclear ? (
+            <p className="text-muted">{t('extensions.nuclearNetwork')}</p>
+          ) : entry.net.length > 0 ? (
             <ul data-testid="install-permissions" className="flex flex-col gap-1">
               {entry.net.map((host) => (
                 <li key={host} className="text-muted flex items-center gap-2 break-all">
