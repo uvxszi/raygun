@@ -16,9 +16,15 @@
   "dependencies": {
     "@raygun/bindings": "workspace:*",
     "@tanstack/react-query": "^5.90.0",
+    "@tanstack/react-router": "^1.170.46",
     "@tauri-apps/api": "^2.8.0",
+    "i18next": "^26.5.12",
+    "lucide-react": "^1.66.0",
+    "motion": "^14.9.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "react-i18next": "^17.1.9",
+    "zustand": "^5.0.16"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

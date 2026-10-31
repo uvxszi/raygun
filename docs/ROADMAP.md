@@ -22,7 +22,7 @@ Legend: 📱 Android · 🖥 Windows · ⚗ spike (time-boxed; the outcome is a 
 | M06 | ⚗ **Mobile native audio**: minimal Tauri Kotlin plugin wrapping Media3 for one direct audio URL with notification + background play | Decision recorded: native audio engine on Android yes/no and its scope |
 | M07 | **Local music**: folder scan (`lofty` tags + embedded art; Android media store / SAF picker), music schema, Library → Artists/Albums/Tracks, play album/shuffle | A 5k-track folder scans and is browsable and playable |
 | M08 | ⚗ **EmbedEngine**: loopback page at `http://localhost:PORT/embed/youtube`, iframe + postMessage control, hidden/visible video, error → next candidate | A YouTube ID plays on 📱 **and** 🖥; result recorded in a decision note |
-| M09 | **OS media integration**: Android media session (per M06's outcome), SMTC on Windows, MPRIS on Linux | Lock-screen controls and hardware media keys work |
+| M09 | **OS media integration**: Android media session (per M06's outcome), SMTC on Windows, MPRIS on Linux; Android status-bar icon color follows the app theme | Lock-screen controls and hardware media keys work |
 | M10 | **CI**: GitHub Actions builds Android APK, Windows portable zip, Linux AppImage, macOS .app; leak-check job on Windows | Artifacts appear on every main-branch push |
 
 ## Phase 2 — Extension host, MCP, online music, device sync

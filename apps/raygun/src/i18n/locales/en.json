@@ -1,0 +1,58 @@
+{
+  "nav": {
+    "home": "Home",
+    "library": "Library",
+    "search": "Search",
+    "settings": "Settings",
+    "main": "Main navigation"
+  },
+  "home": {
+    "title": "Welcome to Raygun",
+    "subtitle": "Music, video, manga and novels in one place. Your library will show up here."
+  },
+  "library": {
+    "title": "Library",
+    "emptyTitle": "Your library is empty",
+    "emptyBody": "Add a music folder or install an extension to get started."
+  },
+  "search": {
+    "title": "Search",
+    "placeholder": "Search music, video, manga…",
+    "emptyBody": "Search becomes available once a source is set up."
+  },
+  "settings": {
+    "title": "Settings",
+    "appearance": "Appearance",
+    "theme": "Theme",
+    "themeSystem": "System",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeAmoled": "AMOLED",
+    "saveFailed": "Couldn't save: {{message}}",
+    "about": "About",
+    "version": "Version",
+    "platform": "Platform",
+    "arch": "Arch",
+    "build": "Build",
+    "buildDebug": "debug",
+    "buildRelease": "release",
+    "storage": "Storage",
+    "dataFolder": "Data folder",
+    "storagePortable": "Portable (next to the app)",
+    "storageInstalled": "System folders",
+    "storageMobile": "App sandbox",
+    "storageOverride": "Custom (RAYGUN_HOME)"
+  },
+  "player": {
+    "nothingPlaying": "Nothing playing",
+    "openPlayer": "Open player",
+    "closePlayer": "Close player",
+    "play": "Play",
+    "previous": "Previous",
+    "next": "Next",
+    "nowPlaying": "Now playing"
+  },
+  "common": {
+    "coreUnavailable": "Core unavailable: {{message}}"
+  }
+}
