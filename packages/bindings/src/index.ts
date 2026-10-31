@@ -46,6 +46,8 @@ export const commands = {
 	playbackReplace: (items: QueueItemInput[], startIndex: number | null) => __TAURI_INVOKE<void>("playback_replace", { items, startIndex }),
 	/**  Installed and built-in extensions, with their status and providers. */
 	extensionsList: () => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extensions_list")),
+	/**  Reloads all extensions, picking up any copied into the `extensions/` folder. */
+	extensionsReload: () => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extensions_reload")),
 	/**  Searches every online music provider at once; each answers with tracks or an error. */
 	onlineSearch: (query: string) => typedError<ProviderSearchResult[], string>(__TAURI_INVOKE("online_search", { query })),
 };
@@ -53,6 +55,7 @@ export const commands = {
 /** Events */
 export const events = {
 	engineCommandEvent: makeEvent<EngineCommandEvent>("engine-command-event"),
+	extensionsChangedEvent: makeEvent<ExtensionsChangedEvent>("extensions-changed-event"),
 	libraryScanEvent: makeEvent<LibraryScanEvent>("library-scan-event"),
 	playbackStateEvent: makeEvent<PlaybackStateEvent>("playback-state-event"),
 	queueEvent: makeEvent<QueueEvent>("queue-event"),
@@ -112,6 +115,9 @@ export type ExtensionOrigin =
 "installed";
 
 export type ExtensionStatus = "loaded" | "failed";
+
+/**  Extensions were (re)loaded; carries the new list. */
+export type ExtensionsChangedEvent = ExtensionInfo[];
 
 export type LibraryAlbum = {
 	artist: string,

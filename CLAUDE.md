@@ -15,7 +15,8 @@ All-in-one multimedia app (music, video, movies/TV, anime, manga, light novels) 
 - `crates/raygun-app`: service wiring + Tauri commands. `crates/raygun-model`: types shared with TS.
 - `packages/bindings`: TS generated from Rust by tauri-specta. Never edit it; run `pnpm bindings`.
 - `crates/raygun-ext-host`: extension host (QuickJS via rquickjs on one host thread, host API in `src/prelude.js`). `third_party/rquickjs-sys` is a vendored copy that adds Android bindings.
-- `extensions/`: first-party extensions, compiled into the app (`raygun-app/src/extensions.rs`). An installed copy in the data root's `extensions/<id>/` overrides the built-in one.
+- `extensions/`: first-party extensions (TS on `@raygun/sdk`), compiled into the app from their committed `dist/` bundle (`raygun-app/src/extensions.rs`); rebuild with `pnpm build:extensions` (a test fails when a bundle is stale). An installed copy in the data root's `extensions/<id>/` overrides the built-in one.
+- `packages/sdk`: `@raygun/sdk` (extension types/helpers, MIT) and the `raygun-ext` CLI (`init`, `build`, `dev --android`). Debug app builds poll `extensions/` and hot-reload; run `pnpm dev:android` inside an extension folder (in a Terminal-panel tab) to push every save to the emulator.
 - `plugins-mobile/raygun-audio`: native Android audio engine (Media3 in a `MediaSessionService`; reports reach Rust over JNI). The app shell must depend on each mobile plugin directly, or Tauri won't include its Android module.
 
 ## Commands

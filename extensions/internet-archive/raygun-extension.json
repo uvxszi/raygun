@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "apiVersion": 1,
   "runtime": "js",
-  "entry": "index.js",
+  "entry": "dist/index.js",
   "description": "Public-domain and Creative Commons audio from the Internet Archive.",
   "author": "Raygun",
   "provides": ["music.metadata"],

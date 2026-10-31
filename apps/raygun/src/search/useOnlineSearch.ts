@@ -1,8 +1,12 @@
-import { commands } from '@raygun/bindings';
+import { commands, events } from '@raygun/bindings';
 import type { OnlineTrack, QueueItemInput } from '@raygun/bindings';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
+
+const EXTENSIONS = ['extensions'];
+const ONLINE_SEARCH = ['onlineSearch'];
 
 /** Results stay fresh for a while, so going back to Search doesn't re-run the query. */
 const RESULTS_STALE_MS = 5 * 60_000;
@@ -10,7 +14,7 @@ const RESULTS_STALE_MS = 5 * 60_000;
 export const useOnlineSearch = (query: string) => {
   const trimmed = query.trim();
   return useQuery({
-    queryKey: ['onlineSearch', trimmed],
+    queryKey: [...ONLINE_SEARCH, trimmed],
     queryFn: () => unwrapResult(commands.onlineSearch(trimmed)),
     enabled: trimmed.length > 0,
     staleTime: RESULTS_STALE_MS,
@@ -19,9 +23,30 @@ export const useOnlineSearch = (query: string) => {
 
 export const useExtensions = () =>
   useQuery({
-    queryKey: ['extensions'],
+    queryKey: EXTENSIONS,
     queryFn: () => unwrapResult(commands.extensionsList()),
   });
+
+/**
+ * Follows extension reloads from Rust (a dev build reloads on every `raygun-ext dev` install):
+ * refreshes the list and drops search results from the old code. Mount once.
+ */
+export const useExtensionsSync = () => {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    const unlisten = events.extensionsChangedEvent.listen((event) => {
+      queryClient.setQueryData(EXTENSIONS, event.payload);
+      void queryClient.invalidateQueries({ queryKey: ONLINE_SEARCH });
+    });
+    return () => {
+      void unlisten.then((stop) => stop());
+    };
+  }, [queryClient]);
+};
+
+/** Reloads every extension; the change event then refreshes the UI. */
+export const useReloadExtensions = () =>
+  useMutation({ mutationFn: () => unwrapResult(commands.extensionsReload()) });
 
 export const toQueueItem = (track: OnlineTrack): QueueItemInput | null =>
   track.source

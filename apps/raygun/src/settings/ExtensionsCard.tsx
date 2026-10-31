@@ -1,22 +1,36 @@
+import { RefreshCw } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { useExtensions } from '../search/useOnlineSearch';
+import { useExtensions, useReloadExtensions } from '../search/useOnlineSearch';
 
 /** What's loaded, from where, and which hosts each extension may reach. */
 export const ExtensionsCard: FC = () => {
   const { t } = useTranslation();
   const extensions = useExtensions();
+  const reload = useReloadExtensions();
+  const error = extensions.error ?? reload.error;
 
   return (
     <section
       data-testid="extensions-card"
       className="bg-surface flex flex-col gap-3 rounded-xl px-5 py-4 text-sm"
     >
-      <h2 className="text-muted">{t('settings.extensions')}</h2>
-      {extensions.error && (
+      <div className="flex items-center justify-between">
+        <h2 className="text-muted">{t('settings.extensions')}</h2>
+        <button
+          type="button"
+          onClick={() => reload.mutate()}
+          disabled={reload.isPending}
+          className="text-muted flex items-center gap-1.5 text-xs disabled:opacity-50"
+        >
+          <RefreshCw aria-hidden size={14} className={reload.isPending ? 'animate-spin' : ''} />
+          {t('settings.reloadExtensions')}
+        </button>
+      </div>
+      {error && (
         <p role="alert" className="text-primary">
-          {t('common.coreUnavailable', { message: extensions.error.message })}
+          {t('common.coreUnavailable', { message: error.message })}
         </p>
       )}
       {extensions.data?.length === 0 && <p className="text-muted">{t('settings.noExtensions')}</p>}

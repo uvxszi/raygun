@@ -1,0 +1,29 @@
+{
+  "name": "@raygun/sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Types, helpers and the raygun-ext build tool for Raygun extensions.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "raygun-ext": "./bin/raygun-ext.mjs"
+  },
+  "scripts": {
+    "lint": "eslint src lib bin test",
+    "type-check": "tsc",
+    "test": "vitest --run"
+  },
+  "dependencies": {
+    "esbuild": "^0.27.0"
+  },
+  "devDependencies": {
+    "@raygun/bindings": "workspace:*",
+    "@types/node": "^24.0.0",
+    "vitest": "^5.0.5"
+  }
+}

@@ -1,28 +1,51 @@
-// Internet Archive audio search (M11): finds audio items with the advanced-search API, reads each
-// hit's file list in parallel and returns its MP3s as directly playable tracks.
-'use strict';
+// Internet Archive audio search: finds audio items with the advanced-search API, reads each hit's
+// file list in parallel and returns its MP3s as directly playable tracks.
+import { defineProvider, fetchJson, registerProvider } from '@raygun/sdk';
+import type { Track } from '@raygun/sdk';
 
 const API = 'https://archive.org';
 
-// Lucene syntax characters would turn a user's query into a malformed or different search.
-const escapeQuery = (query) => query.replace(/[+\-!(){}[\]^"~*?:\\/&|]/g, ' ').trim();
+type SearchDoc = { identifier: string; title?: string | string[]; creator?: string | string[] };
+type SearchResponse = { response?: { docs?: SearchDoc[] } };
 
-const firstString = (value) => (Array.isArray(value) ? value[0] : value) ?? null;
+type ItemFile = {
+  name: string;
+  format?: string;
+  title?: string;
+  track?: string;
+  length?: string;
+  album?: string;
+  creator?: string | string[];
+  artist?: string | string[];
+};
+type ItemMetadata = {
+  files?: ItemFile[];
+  metadata?: { title?: string | string[]; creator?: string | string[] };
+};
+
+// Lucene syntax characters would turn a user's query into a malformed or different search.
+const escapeQuery = (query: string) => query.replace(/[+\-!(){}[\]^"~*?:\\/&|]/g, ' ').trim();
+
+const firstString = (value: string | string[] | undefined): string | null =>
+  (Array.isArray(value) ? value[0] : value) ?? null;
 
 // `length` is seconds ("245.32") or a clock ("4:05", "1:02:03").
-const parseLength = (length) => {
-  if (typeof length !== 'string' || length === '') return null;
+const parseLength = (length: string | undefined): number | null => {
+  if (!length) return null;
   const seconds = length
     .split(':')
     .reduce((total, part) => total * 60 + Number.parseFloat(part), 0);
   return Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds * 1000) : null;
 };
 
-const trackNumber = (file) => Number.parseInt(String(file.track ?? '').split('/')[0], 10);
+const trackNumber = (file: ItemFile) =>
+  Number.parseInt(String(file.track ?? '').split('/')[0] ?? '', 10);
 
-const isMp3 = (file) => typeof file.format === 'string' && file.format.includes('MP3');
+const isMp3 = (file: ItemFile) => file.format?.includes('MP3') ?? false;
 
-const searchItems = async (query, rows) => {
+const encodePath = (path: string) => path.split('/').map(encodeURIComponent).join('/');
+
+const searchItems = async (query: string, rows: number): Promise<SearchDoc[]> => {
   const q = `(title:(${query}) OR creator:(${query})) AND mediatype:audio`;
   const params = [
     `q=${encodeURIComponent(q)}`,
@@ -33,18 +56,13 @@ const searchItems = async (query, rows) => {
     'sort[]=downloads+desc',
     'output=json',
   ];
-  const response = await raygun.http.fetch(`${API}/advancedsearch.php?${params.join('&')}`);
-  if (!response.ok) {
-    throw new Error(`search failed (HTTP ${response.status})`);
-  }
-  return (await response.json()).response?.docs ?? [];
+  const result = await fetchJson<SearchResponse>(`${API}/advancedsearch.php?${params.join('&')}`);
+  return result.response?.docs ?? [];
 };
 
-const itemTracks = async (doc, max) => {
+const itemTracks = async (doc: SearchDoc, max: number): Promise<Track[]> => {
   const id = doc.identifier;
-  const response = await raygun.http.fetch(`${API}/metadata/${encodeURIComponent(id)}`);
-  if (!response.ok) return [];
-  const item = await response.json();
+  const item = await fetchJson<ItemMetadata>(`${API}/metadata/${encodeURIComponent(id)}`);
   const files = (item.files ?? []).filter(isMp3);
   // Items often carry the same recording at several bitrates; prefer VBR, keep one per title.
   const preferred = files.some((file) => file.format === 'VBR MP3')
@@ -62,31 +80,33 @@ const itemTracks = async (doc, max) => {
     artworkUrl: `${API}/services/img/${encodeURIComponent(id)}`,
     source: {
       kind: 'url',
-      url: `${API}/download/${encodeURIComponent(id)}/${file.name.split('/').map(encodeURIComponent).join('/')}`,
+      url: `${API}/download/${encodeURIComponent(id)}/${encodePath(file.name)}`,
       headers: {},
     },
   }));
 };
 
-raygun.providers.register({
+const search = defineProvider({
   kind: 'music.metadata',
   id: 'search',
   name: 'Internet Archive',
 
-  async search({ query, limit = 30 }) {
-    const cleaned = escapeQuery(String(query ?? ''));
+  async search({ query, limit }) {
+    const cleaned = escapeQuery(query);
     if (cleaned === '') return { tracks: [] };
-    const rows = Math.max(1, Math.min(Number(raygun.settings.get('itemsPerSearch')) || 6, 12));
+    const rows = Math.max(1, Math.min(raygun.settings.get<number>('itemsPerSearch') ?? 6, 12));
     const docs = await searchItems(cleaned, rows);
     const perItem = Math.max(1, Math.ceil(limit / Math.max(docs.length, 1)));
     // One huge or broken item shouldn't sink the whole search.
     const settled = await Promise.allSettled(docs.map((doc) => itemTracks(doc, perItem)));
     for (const result of settled) {
       if (result.status === 'rejected') {
-        raygun.log.warn('item skipped:', result.reason);
+        raygun.log.warn('item skipped:', String(result.reason));
       }
     }
     const tracks = settled.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
     return { tracks: tracks.slice(0, limit) };
   },
 });
+
+registerProvider(search);

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use raygun_model::{
     AppInfo, EngineReport, ExtensionInfo, LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack,
     PlayRequest, PlaybackControl, PlaybackState, ProviderSearchResult, QueueItemInput,
@@ -205,16 +207,25 @@ pub async fn library_play(
 #[tauri::command]
 #[specta::specta]
 pub async fn extensions_list(
-    extensions: tauri::State<'_, ExtensionService>,
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
 ) -> Result<Vec<ExtensionInfo>, String> {
     Ok(extensions.list().await)
+}
+
+/// Reloads all extensions, picking up any copied into the `extensions/` folder.
+#[tauri::command]
+#[specta::specta]
+pub async fn extensions_reload(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+) -> Result<Vec<ExtensionInfo>, String> {
+    Ok(extensions.reload().await)
 }
 
 /// Searches every online music provider at once; each answers with tracks or an error.
 #[tauri::command]
 #[specta::specta]
 pub async fn online_search(
-    extensions: tauri::State<'_, ExtensionService>,
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
     query: String,
 ) -> Result<Vec<ProviderSearchResult>, String> {
     Ok(extensions.search(&query).await)

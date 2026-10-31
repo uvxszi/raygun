@@ -16,7 +16,8 @@
     "test": "turbo test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "bindings": "cargo run -p raygun-app --bin export-bindings"
+    "bindings": "cargo run -p raygun-app --bin export-bindings",
+    "build:extensions": "pnpm --filter \"./extensions/*\" build"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

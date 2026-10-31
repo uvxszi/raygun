@@ -3,7 +3,7 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
-import { bindingsMock } from '../test/bindingsMock';
+import { bindingsMock, emitEvent } from '../test/bindingsMock';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -152,5 +152,34 @@ describe('Settings extensions', () => {
     expect(rows[0]).toHaveTextContent('Network: archive.org, *.archive.org');
     expect(rows[1]).toHaveTextContent('installed');
     expect(within(rows[1]!).getByRole('alert')).toHaveTextContent('Failed to load: SyntaxError');
+  });
+});
+
+describe('Extension reloads', () => {
+  beforeEach(() => {
+    AppShellWrapper.seedCore();
+  });
+
+  it('reloads from Settings and follows reloads pushed from Rust', async () => {
+    const info = (name: string): ExtensionInfo => ({
+      id: 'dev.raygun.internet-archive',
+      name,
+      version: '1.0.0',
+      origin: 'installed',
+      status: 'loaded',
+      error: null,
+      provides: ['music.metadata'],
+      net: [],
+      providers: [],
+    });
+    bindingsMock.commands.extensionsList.mockResolvedValue(ok([info('Before')]));
+    await AppShellWrapper.mount('/settings');
+    expect(await screen.findByTestId('extension-row')).toHaveTextContent('Before');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
+    expect(bindingsMock.commands.extensionsReload).toHaveBeenCalled();
+
+    emitEvent('extensionsChangedEvent', [info('After')]);
+    expect(await screen.findByTestId('extension-row')).toHaveTextContent('After');
   });
 });

@@ -5,6 +5,7 @@ import type { FC } from 'react';
 import { useEngineHost } from '../engine/useEngineHost';
 import { useSyncLanguage } from '../i18n/useSyncLanguage';
 import { useLibraryScanSync } from '../library/useLibrary';
+import { useExtensionsSync } from '../search/useOnlineSearch';
 import { MiniPlayer } from '../player/MiniPlayer';
 import { PlayerSheet } from '../player/PlayerSheet';
 import { usePlaybackSync } from '../player/usePlayback';
@@ -20,6 +21,7 @@ export const AppShell: FC = () => {
   useEngineHost();
   usePlaybackSync();
   useLibraryScanSync();
+  useExtensionsSync();
 
   // Pages scroll inside <main>, not the window, so start each page at the top.
   const mainRef = useRef<HTMLElement>(null);

@@ -33,4 +33,9 @@ export default tseslint.config(
       '@typescript-eslint/consistent-type-imports': 'error',
     },
   },
+  {
+    // The raygun-ext CLI runs on Node.
+    files: ['packages/sdk/{lib,bin}/**/*.mjs'],
+    languageOptions: { globals: globals.node },
+  },
 );

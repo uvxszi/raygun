@@ -206,12 +206,22 @@ impl ExtensionHost {
         let searches = providers.into_iter().map(|provider| {
             let args = args.clone();
             async move {
+                let started = std::time::Instant::now();
                 match self.call(&provider.id, "search", args).await {
-                    Ok(value) => ProviderSearchResult {
-                        tracks: parse_tracks(value),
-                        provider,
-                        error: None,
-                    },
+                    Ok(value) => {
+                        let tracks = parse_tracks(value);
+                        tracing::info!(
+                            provider = %provider.id,
+                            tracks = tracks.len(),
+                            elapsed_ms = started.elapsed().as_millis(),
+                            "search answered"
+                        );
+                        ProviderSearchResult {
+                            tracks,
+                            provider,
+                            error: None,
+                        }
+                    }
                     Err(error) => {
                         tracing::warn!(provider = %provider.id, %error, "search failed");
                         ProviderSearchResult {

@@ -1,6 +1,7 @@
 import type {
   AppInfo,
   EngineCommand,
+  ExtensionInfo,
   LibraryScanProgress,
   LibraryStatus,
   PlaybackState,
@@ -21,6 +22,7 @@ type EventPayloads = {
   playbackStateEvent: PlaybackState;
   queueEvent: QueueSnapshot;
   libraryScanEvent: LibraryScanProgress;
+  extensionsChangedEvent: ExtensionInfo[];
 };
 type EventName = keyof EventPayloads;
 type Listener = (event: { payload: unknown }) => void;
@@ -93,6 +95,7 @@ export const bindingsMock = {
     libraryPlay: vi.fn(),
     playbackReplace: vi.fn(),
     extensionsList: vi.fn(),
+    extensionsReload: vi.fn(),
     onlineSearch: vi.fn(),
   },
   events: {
@@ -100,6 +103,7 @@ export const bindingsMock = {
     playbackStateEvent: makeEvent('playbackStateEvent'),
     queueEvent: makeEvent('queueEvent'),
     libraryScanEvent: makeEvent('libraryScanEvent'),
+    extensionsChangedEvent: makeEvent('extensionsChangedEvent'),
   },
 };
 
@@ -128,6 +132,7 @@ export const seedBindings = () => {
   commands.libraryPlay.mockResolvedValue(ok(null));
   commands.playbackReplace.mockResolvedValue(undefined);
   commands.extensionsList.mockResolvedValue(ok([]));
+  commands.extensionsReload.mockResolvedValue(ok([]));
   commands.onlineSearch.mockResolvedValue(ok([]));
 };
 

@@ -84,7 +84,8 @@
     "extensionInstalled": "installed",
     "extensionFailed": "Failed to load: {{message}}",
     "extensionNet": "Network: {{hosts}}",
-    "extensionNoNet": "No network access"
+    "extensionNoNet": "No network access",
+    "reloadExtensions": "Reload"
   },
   "player": {
     "nothingPlaying": "Nothing playing",

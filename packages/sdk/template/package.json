@@ -1,0 +1,14 @@
+{
+  "name": "__ID__",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "raygun-ext build",
+    "dev:android": "raygun-ext dev --android",
+    "type-check": "tsc"
+  },
+  "devDependencies": {
+    "@raygun/sdk": "workspace:*"
+  }
+}

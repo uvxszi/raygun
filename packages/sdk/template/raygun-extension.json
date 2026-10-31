@@ -1,0 +1,13 @@
+{
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "",
+  "provides": ["music.metadata"],
+  "permissions": { "net": ["api.example.org"] },
+  "contentRating": "safe",
+  "settings": []
+}

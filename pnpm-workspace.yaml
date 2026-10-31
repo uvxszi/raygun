@@ -9,3 +9,6 @@ minimumReleaseAgeExclude:
   - lucide-react@1.66.0
   - motion-dom@14.9.0
   - motion@14.9.0
+# esbuild's postinstall only re-checks its binary, which arrives as an optional dependency anyway.
+allowBuilds:
+  esbuild: false
