@@ -1,0 +1,15 @@
+[package]
+name = "raygun-app"
+description = "Raygun service wiring and Tauri command layer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+raygun-model.workspace = true
+tauri.workspace = true
+serde.workspace = true
+specta.workspace = true
+specta-typescript.workspace = true
+tauri-specta.workspace = true

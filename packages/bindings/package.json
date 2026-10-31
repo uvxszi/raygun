@@ -1,0 +1,16 @@
+{
+  "name": "@raygun/bindings",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "description": "TypeScript bindings generated from the Rust command layer. Do not edit; run `pnpm bindings`.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "peerDependencies": {
+    "@tauri-apps/api": "^2.8.0"
+  }
+}

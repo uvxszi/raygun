@@ -1,0 +1,24 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-background: oklch(0.16 0.02 270);
+  --color-surface: oklch(0.22 0.025 270);
+  --color-foreground: oklch(0.96 0.01 270);
+  --color-muted: oklch(0.7 0.02 270);
+  --color-primary: oklch(0.72 0.19 25);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}

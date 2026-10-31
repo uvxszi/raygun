@@ -1,0 +1,19 @@
+[package]
+name = "raygun"
+description = "Raygun multimedia app (Tauri shell)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+# The `_lib` suffix keeps the lib name distinct from the bin name (cargo#8519 on Windows).
+name = "raygun_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+raygun-app.workspace = true
+tauri.workspace = true

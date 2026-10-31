@@ -1,0 +1,11 @@
+[package]
+name = "raygun-model"
+description = "Raygun domain types shared between Rust and TypeScript"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+specta.workspace = true

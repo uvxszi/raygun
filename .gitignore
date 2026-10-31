@@ -1,0 +1,10 @@
+reference/
+node_modules/
+target/
+dist/
+.turbo/
+coverage/
+*.log
+.DS_Store
+.idea/
+raygun-data/
