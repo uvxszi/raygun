@@ -67,6 +67,9 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(std::sync::Arc::new(crate::resolver::ResolverService::new(
         app.handle().clone(),
     )));
+    app.manage(crate::collections::CollectionsService::new(
+        app.handle().clone(),
+    ));
 
     create_main_window(app, &paths)?;
 
@@ -104,17 +107,32 @@ fn native_engine(app: &App) -> Option<crate::playback::NativeEngineSink> {
     });
     let worker_handle = app.handle().clone();
     std::thread::spawn(move || {
-        let playback = worker_handle.state::<crate::playback::PlaybackService>();
         for message in inbox {
-            match message {
-                Native::Report(json) => match serde_json::from_str::<EngineReport>(&json) {
-                    Ok(report) => playback.report(report),
-                    Err(error) => tracing::warn!(%error, %json, "unreadable native engine report"),
-                },
-                Native::Control(control) => match crate::system_ui::control_from_system(&control) {
-                    Some(control) => playback.control(control),
-                    None => tracing::warn!(%control, "unknown system media control"),
-                },
+            // Looked up per message: this thread starts before the playback service is managed,
+            // and the first reports only arrive once something plays.
+            let Some(playback) = worker_handle.try_state::<crate::playback::PlaybackService>()
+            else {
+                tracing::warn!("native engine message before playback was ready");
+                continue;
+            };
+            // One bad message must not end every later report; the panic hook logs it.
+            let handled =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match message {
+                    Native::Report(json) => match serde_json::from_str::<EngineReport>(&json) {
+                        Ok(report) => playback.report(report),
+                        Err(error) => {
+                            tracing::warn!(%error, %json, "unreadable native engine report")
+                        }
+                    },
+                    Native::Control(control) => {
+                        match crate::system_ui::control_from_system(&control) {
+                            Some(control) => playback.control(control),
+                            None => tracing::warn!(%control, "unknown system media control"),
+                        }
+                    }
+                }));
+            if handled.is_err() {
+                tracing::error!("a native engine message failed; continuing with the next");
             }
         }
     });
@@ -218,6 +236,13 @@ fn init_logging(paths: &Paths) -> Result<WorkerGuard, Box<dyn Error>> {
         .with(file_layer)
         .with(stderr_layer)
         .try_init()?;
+
+    // Panics on background threads otherwise vanish (Android drops stderr), leaving only symptoms.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        tracing::error!(thread = ?std::thread::current().name(), "panic: {info}");
+        default_hook(info);
+    }));
     Ok(guard)
 }
 

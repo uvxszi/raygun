@@ -1,10 +1,12 @@
-import type { ProviderSearchResult } from '@raygun/bindings';
+import type { LibraryTrack, OnlineTrack, ProviderSearchResult } from '@raygun/bindings';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { LoaderCircle, Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { TrackRow } from '../library/TrackRow';
+import { playFromLibrary } from '../library/useLibrary';
 import { OnlineTrackRow } from '../search/OnlineTrackRow';
 import { playResults, useOnlineSearch } from '../search/useOnlineSearch';
 import { PageHeader } from './PageHeader';
@@ -45,6 +47,53 @@ const ProviderResults: FC<ProviderResultsProps> = ({ result, ambiguous }) => {
   );
 };
 
+const GroupHeading: FC<{ title: string }> = ({ title }) => (
+  <h2 className="text-muted text-sm font-medium">{title}</h2>
+);
+
+/** Local tracks matching the query; tapping one plays the library from there. */
+const LibraryResults: FC<{ tracks: LibraryTrack[] }> = ({ tracks }) => {
+  const { t } = useTranslation();
+  return (
+    <section data-testid="library-results" className="flex flex-col gap-1">
+      <GroupHeading title={t('search.yourLibrary')} />
+      <ul className="flex flex-col">
+        {tracks.map((track) => (
+          <li key={track.id}>
+            <TrackRow
+              track={track}
+              onPlay={() =>
+                void playFromLibrary({
+                  selection: { kind: 'allTracks' },
+                  startTrackId: track.id,
+                  shuffle: false,
+                })
+              }
+            />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+};
+
+/** Songs several providers found, merged in Rust. */
+const TopResults: FC<{ tracks: OnlineTrack[] }> = ({ tracks }) => {
+  const { t } = useTranslation();
+  return (
+    <section data-testid="top-results" className="flex flex-col gap-1">
+      <GroupHeading title={t('search.topResults')} />
+      <ul className="flex flex-col">
+        {tracks.map((track, index) => (
+          <li key={`${track.title}-${index}`}>
+            <OnlineTrackRow track={track} onPlay={(tapped) => void playResults(tracks, tapped)} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+};
+
 export const SearchPage: FC = () => {
   const { t } = useTranslation();
   const { q = '' } = useSearch({ from: '/search' });
@@ -64,10 +113,14 @@ export const SearchPage: FC = () => {
     return () => clearTimeout(timer);
   }, [input, q, navigate]);
 
-  const results = search.data ?? [];
+  const results = search.data?.providers ?? [];
+  const library = search.data?.library ?? [];
+  const top = search.data?.top ?? [];
   const names = results.map((result) => result.provider.name);
   const nothingFound =
-    results.length > 0 && results.every((result) => !result.error && result.tracks.length === 0);
+    library.length === 0 &&
+    results.length > 0 &&
+    results.every((result) => !result.error && result.tracks.length === 0);
 
   return (
     <section data-testid="search-page" className="flex flex-col gap-6">
@@ -98,9 +151,11 @@ export const SearchPage: FC = () => {
           {t('common.coreUnavailable', { message: search.error.message })}
         </p>
       )}
-      {search.isSuccess && results.length === 0 && (
+      {search.isSuccess && results.length === 0 && library.length === 0 && (
         <p className="text-muted text-sm">{t('search.noSources')}</p>
       )}
+      {library.length > 0 && <LibraryResults tracks={library} />}
+      {top.length > 0 && <TopResults tracks={top} />}
       {nothingFound ? (
         <p className="text-muted text-sm">{t('search.noResults', { query: q })}</p>
       ) : (

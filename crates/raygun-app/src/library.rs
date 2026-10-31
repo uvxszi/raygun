@@ -1,7 +1,7 @@
 //! Local music library (M07): incremental scans with progress events, browsing queries and
 //! turning a selection into a play queue.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -10,7 +10,7 @@ use raygun_db::local_music::{self, AlbumRow, ArtistRow, TrackRecord, TrackRow};
 use raygun_library::{FileEntry, ScannedTrack};
 use raygun_model::{
     LibraryAlbum, LibraryArtist, LibraryScanProgress, LibraryStatus, LibraryTrack, MediaKind,
-    MediaSource, PlayRequest, PlaySelection, QueueItemInput, ScanPhase,
+    MediaSource, PlayRequest, PlaySelection, QueueItemInput, ScanPhase, TrackQuery,
 };
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
@@ -113,6 +113,7 @@ impl LibraryService {
     async fn run_scan(&self) -> Result<(), String> {
         let started = std::time::Instant::now();
         let db = self.db();
+        self.fill_track_keys().await?;
         let roots: Vec<PathBuf> = local_music::roots(db)
             .await
             .map_err(to_message)?
@@ -242,7 +243,41 @@ impl LibraryService {
         }
     }
 
-    fn artwork_url(&self, art: Option<String>) -> Option<String> {
+    /// Local tracks matching every word of `query`, for search (M18).
+    pub async fn search(&self, query: &str, limit: u32) -> Result<Vec<LibraryTrack>, String> {
+        let words: Vec<String> = query.split_whitespace().map(str::to_owned).collect();
+        let rows = local_music::search(self.db(), &words, limit.into())
+            .await
+            .map_err(to_message)?;
+        Ok(rows.into_iter().map(|row| self.track(row)).collect())
+    }
+
+    /// Local tracks by track key, so saved tracks find the same song on this device (M18).
+    pub async fn matches(&self, keys: &[String]) -> Result<HashMap<String, TrackRow>, String> {
+        local_music::tracks_by_keys(self.db(), keys)
+            .await
+            .map_err(to_message)
+    }
+
+    /// Gives tracks stored before M18 their key. A no-op once every track has one.
+    async fn fill_track_keys(&self) -> Result<(), String> {
+        let keyless = local_music::keyless_tracks(self.db())
+            .await
+            .map_err(to_message)?;
+        if keyless.is_empty() {
+            return Ok(());
+        }
+        let keys: Vec<(String, String)> = keyless
+            .into_iter()
+            .map(|(id, title, artist)| (id, local_track_key(&title, artist.as_deref())))
+            .collect();
+        tracing::info!(count = keys.len(), "adding track keys to library tracks");
+        local_music::set_track_keys(self.db(), &keys)
+            .await
+            .map_err(to_message)
+    }
+
+    pub(crate) fn artwork_url(&self, art: Option<String>) -> Option<String> {
         art.map(|name| raygun_net::artwork_url(self.proxy_address, &name))
     }
 
@@ -265,7 +300,7 @@ impl LibraryService {
         }
     }
 
-    fn track(&self, row: TrackRow) -> LibraryTrack {
+    pub(crate) fn track(&self, row: TrackRow) -> LibraryTrack {
         LibraryTrack {
             id: row.id,
             title: row.title,
@@ -280,7 +315,7 @@ impl LibraryService {
         }
     }
 
-    fn queue_item(&self, row: TrackRow) -> QueueItemInput {
+    pub(crate) fn queue_item(&self, row: TrackRow) -> QueueItemInput {
         QueueItemInput {
             title: row.title,
             artist: Some(row.artist.unwrap_or(row.group_artist)),
@@ -328,8 +363,22 @@ fn read_files(files: Vec<FileEntry>, art_dir: &Path) -> (Vec<TrackRecord>, u32) 
     (records, failed)
 }
 
+/// The resolver's key for a local track, from its own artist (else the album artist).
+pub(crate) fn local_track_key(title: &str, artist: Option<&str>) -> String {
+    raygun_resolver::track_key(&TrackQuery {
+        title: title.to_owned(),
+        artist: artist.map(str::to_owned),
+        album: None,
+        duration_ms: None,
+    })
+}
+
 fn record(track: ScannedTrack) -> TrackRecord {
     TrackRecord {
+        track_key: local_track_key(
+            &track.title,
+            track.artist.as_deref().or(track.album_artist.as_deref()),
+        ),
         group_artist: track.group_artist().to_owned(),
         group_album: track.group_album().to_owned(),
         path: path_string(&track.file.path),

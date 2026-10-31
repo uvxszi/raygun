@@ -2,13 +2,15 @@ import { Link, useSearch } from '@tanstack/react-router';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { FavoritesView } from '../collections/FavoritesView';
+import { PlaylistsView } from '../collections/PlaylistsView';
 import { AlbumGrid } from '../library/AlbumGrid';
 import { ArtistList } from '../library/ArtistList';
 import { FirstRunCard } from '../library/FirstRunCard';
 import { LibraryFolders } from '../library/LibraryFolders';
 import { ScanBanner } from '../library/ScanBanner';
 import { TrackList } from '../library/TrackList';
-import { LIBRARY_VIEWS } from '../library/views';
+import { LIBRARY_VIEWS, isLocalView } from '../library/views';
 import {
   playFromLibrary,
   useAlbums,
@@ -58,41 +60,44 @@ export const LibraryPage: FC = () => {
   }
 
   const hasFolders = status.data.roots.length > 0;
+  const hasTracks = hasFolders && status.data.trackCount > 0;
+  const local = isLocalView(view);
 
   return (
     <section data-testid="library-page" className="flex flex-col gap-5">
       <PageHeader title={t('library.title')} />
       <ScanBanner />
-      {!hasFolders && <FirstRunCard />}
-      {hasFolders && status.data.trackCount === 0 && !status.data.scanning && (
+      <nav
+        className="-mx-4 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:px-0"
+        aria-label={t('library.views')}
+      >
+        {LIBRARY_VIEWS.map((option) => (
+          <Link
+            key={option}
+            to="/library"
+            search={{ view: option }}
+            data-testid={`library-view-${option}`}
+            aria-current={option === view ? 'page' : undefined}
+            className={
+              option === view
+                ? 'bg-primary text-background shrink-0 rounded-full px-4 py-1.5 text-sm font-semibold'
+                : 'bg-surface shrink-0 rounded-full px-4 py-1.5 text-sm'
+            }
+          >
+            {t(`library.view.${option}`)}
+          </Link>
+        ))}
+      </nav>
+      {view === 'playlists' && <PlaylistsView />}
+      {view === 'favorites' && <FavoritesView />}
+      {local && !hasFolders && <FirstRunCard />}
+      {local && hasFolders && status.data.trackCount === 0 && !status.data.scanning && (
         <p className="text-muted text-sm">{t('library.noTracksFound')}</p>
       )}
-      {hasFolders && status.data.trackCount > 0 && (
-        <>
-          <nav className="flex gap-2" aria-label={t('library.views')}>
-            {LIBRARY_VIEWS.map((option) => (
-              <Link
-                key={option}
-                to="/library"
-                search={{ view: option }}
-                data-testid={`library-view-${option}`}
-                aria-current={option === view ? 'page' : undefined}
-                className={
-                  option === view
-                    ? 'bg-primary text-background rounded-full px-4 py-1.5 text-sm font-semibold'
-                    : 'bg-surface rounded-full px-4 py-1.5 text-sm'
-                }
-              >
-                {t(`library.view.${option}`)}
-              </Link>
-            ))}
-          </nav>
-          {view === 'albums' && <AlbumsView />}
-          {view === 'artists' && <ArtistsView />}
-          {view === 'tracks' && <TracksView />}
-        </>
-      )}
-      {hasFolders && <LibraryFolders roots={status.data.roots} />}
+      {local && hasTracks && view === 'albums' && <AlbumsView />}
+      {local && hasTracks && view === 'artists' && <ArtistsView />}
+      {local && hasTracks && view === 'tracks' && <TracksView />}
+      {local && hasFolders && <LibraryFolders roots={status.data.roots} />}
       <details className="bg-surface rounded-xl px-5 py-3 text-sm">
         <summary className="cursor-pointer font-medium">{t('library.openTitle')}</summary>
         <div className="mt-3">

@@ -1,6 +1,6 @@
 //! Runs the playback state machine and carries out its effects: finding streams for items that
 //! need one (M14), serving sources through the stream proxy, commanding the right engine for each
-//! item and broadcasting state to every client.
+//! item, broadcasting state to every client and counting plays for history (M18).
 
 use std::sync::{Arc, Mutex};
 
@@ -14,7 +14,9 @@ use raygun_resolver::Pick;
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
+use crate::collections::CollectionsService;
 use crate::events::{EngineCommandEvent, PlaybackStateEvent, QueueEvent};
+use crate::history::PlayCounter;
 use crate::resolution::{ErrorPlan, LoadPlan, Tracker};
 use crate::resolver::ResolverService;
 
@@ -45,6 +47,7 @@ struct Inner {
     /// Engine holding the current item; play/pause/seek go here.
     active: Option<Engine>,
     tracker: Tracker,
+    plays: PlayCounter,
 }
 
 pub struct PlaybackService {
@@ -64,6 +67,8 @@ struct Outbox {
     resolve: Option<u32>,
     verified: Option<Pick>,
     failed: Option<(Pick, String)>,
+    /// The current item just counted as a play.
+    played: Option<QueueItem>,
 }
 
 impl PlaybackService {
@@ -77,6 +82,7 @@ impl PlaybackService {
                 core: PlaybackCore::new(seed),
                 active: None,
                 tracker: Tracker::default(),
+                plays: PlayCounter::default(),
             }),
             proxy,
             app,
@@ -123,6 +129,20 @@ impl PlaybackService {
             let mut inner = self.lock();
             let current = report.load_id == inner.core.load_id();
             let mut verified = None;
+            let counted = current
+                && match &report.event {
+                    EngineEvent::Progress {
+                        position_ms,
+                        duration_ms,
+                    } => inner
+                        .plays
+                        .progress(report.load_id, *position_ms, *duration_ms),
+                    EngineEvent::Ended => inner.plays.ended(report.load_id),
+                    _ => false,
+                };
+            let played = counted
+                .then(|| inner.core.current_item().cloned())
+                .flatten();
             match &report.event {
                 EngineEvent::Error { message } => {
                     tracing::info!(load_id = report.load_id, %message, "engine reported an error");
@@ -152,6 +172,7 @@ impl PlaybackService {
             let effects = inner.core.report(report);
             let mut outbox = self.resolve(&mut inner, effects);
             outbox.verified = verified;
+            outbox.played = played;
             outbox
         };
         self.send(outbox);
@@ -302,6 +323,9 @@ impl PlaybackService {
                     resolver.mark_failed(&pick, &reason).await;
                 }
             });
+        }
+        if let Some(item) = outbox.played {
+            self.app.state::<CollectionsService>().record_play(item);
         }
         if let Some(load_id) = outbox.resolve {
             self.start_resolving(load_id);

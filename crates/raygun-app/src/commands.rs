@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
 use raygun_model::{
-    AppInfo, EngineReport, ExtensionInfo, ExtensionRepo, LibraryAlbum, LibraryArtist,
-    LibraryStatus, LibraryTrack, Lyrics, PlayRequest, PlaybackControl, PlaybackState,
-    ProviderSearchResult, QueueItemInput, QueueSnapshot, RepoCatalog, SettingChange, SettingValue,
-    Settings, StorageInfo, StorageMode, TrackQuery,
+    AppInfo, CollectionPlayRequest, EngineReport, ExtensionInfo, ExtensionRepo, HistoryEntry,
+    LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack, Lyrics, PlayRequest, PlaybackControl,
+    PlaybackState, PlaylistDetail, PlaylistSummary, QueueItemInput, QueueSnapshot, RepoCatalog,
+    SavedTrack, SearchResults, SettingChange, SettingValue, Settings, StorageInfo, StorageMode,
+    TrackInput, TrackQuery,
 };
 
+use crate::collections::CollectionsService;
 use crate::extensions::ExtensionService;
 use crate::library::LibraryService;
 use crate::playback::PlaybackService;
@@ -303,14 +305,167 @@ pub async fn lyrics_get(
     extensions.lyrics(&query).await
 }
 
-/// Searches every online music provider at once; each answers with tracks or an error.
+/// Local library tracks shown above online results.
+const SEARCH_LIBRARY_LIMIT: u32 = 8;
+
+/// Searches the local library and every online music provider at once. Each provider answers
+/// with tracks or an error; songs several providers found are merged into `top`.
 #[tauri::command]
 #[specta::specta]
 pub async fn online_search(
     extensions: tauri::State<'_, Arc<ExtensionService>>,
+    library: tauri::State<'_, LibraryService>,
     query: String,
-) -> Result<Vec<ProviderSearchResult>, String> {
-    Ok(extensions.search(&query).await)
+) -> Result<SearchResults, String> {
+    let (local, providers) = futures_util::future::join(
+        library.search(&query, SEARCH_LIBRARY_LIMIT),
+        extensions.search(&query),
+    )
+    .await;
+    let library = local.unwrap_or_else(|message| {
+        tracing::warn!(%message, "library search failed");
+        Vec::new()
+    });
+    Ok(SearchResults {
+        library,
+        top: crate::search::merge_top(&providers),
+        providers,
+    })
+}
+
+/// Favorite tracks, most recently added first.
+#[tauri::command]
+#[specta::specta]
+pub async fn favorites_list(
+    collections: tauri::State<'_, CollectionsService>,
+) -> Result<Vec<SavedTrack>, String> {
+    collections.favorites().await
+}
+
+/// Whether a track (by its artist and title) is a favorite.
+#[tauri::command]
+#[specta::specta]
+pub async fn favorite_get(
+    collections: tauri::State<'_, CollectionsService>,
+    track: TrackInput,
+) -> Result<bool, String> {
+    collections.is_favorite(track).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn favorite_set(
+    collections: tauri::State<'_, CollectionsService>,
+    track: TrackInput,
+    favorite: bool,
+) -> Result<(), String> {
+    collections.set_favorite(track, favorite).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn playlists_list(
+    collections: tauri::State<'_, CollectionsService>,
+) -> Result<Vec<PlaylistSummary>, String> {
+    collections.playlists().await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn playlist_get(
+    collections: tauri::State<'_, CollectionsService>,
+    id: String,
+) -> Result<PlaylistDetail, String> {
+    collections.playlist(&id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn playlist_create(
+    collections: tauri::State<'_, CollectionsService>,
+    name: String,
+) -> Result<PlaylistSummary, String> {
+    collections.create_playlist(&name).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn playlist_rename(
+    collections: tauri::State<'_, CollectionsService>,
+    id: String,
+    name: String,
+) -> Result<(), String> {
+    collections.rename_playlist(&id, &name).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn playlist_delete(
+    collections: tauri::State<'_, CollectionsService>,
+    id: String,
+) -> Result<(), String> {
+    collections.delete_playlist(&id).await
+}
+
+/// Appends tracks to the end of a playlist.
+#[tauri::command]
+#[specta::specta]
+pub async fn playlist_add(
+    collections: tauri::State<'_, CollectionsService>,
+    id: String,
+    tracks: Vec<TrackInput>,
+) -> Result<(), String> {
+    collections.add_to_playlist(&id, tracks).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn playlist_remove_item(
+    collections: tauri::State<'_, CollectionsService>,
+    item_id: String,
+) -> Result<(), String> {
+    collections.remove_playlist_item(&item_id).await
+}
+
+/// Moves an item before another one, or to the end when `before_item_id` is null.
+#[tauri::command]
+#[specta::specta]
+pub async fn playlist_move_item(
+    collections: tauri::State<'_, CollectionsService>,
+    item_id: String,
+    before_item_id: Option<String>,
+) -> Result<(), String> {
+    collections
+        .move_playlist_item(&item_id, before_item_id.as_deref())
+        .await
+}
+
+/// The latest play of each recently played track, newest first.
+#[tauri::command]
+#[specta::specta]
+pub async fn history_recent(
+    collections: tauri::State<'_, CollectionsService>,
+    limit: u32,
+) -> Result<Vec<HistoryEntry>, String> {
+    collections.history(limit).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn history_clear(
+    collections: tauri::State<'_, CollectionsService>,
+) -> Result<(), String> {
+    collections.clear_history().await
+}
+
+/// Replaces the queue with favorites, a playlist or history and starts playing.
+#[tauri::command]
+#[specta::specta]
+pub async fn collection_play(
+    collections: tauri::State<'_, CollectionsService>,
+    request: CollectionPlayRequest,
+) -> Result<(), String> {
+    collections.play(request).await
 }
 
 fn to_storage_info(paths: &raygun_paths::Paths) -> StorageInfo {

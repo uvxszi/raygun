@@ -63,8 +63,11 @@ export const commands = {
 	extensionUninstall: (extensionId: string) => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extension_uninstall", { extensionId })),
 	/**  Saves one of an extension's settings and reloads it. */
 	extensionSettingSet: (extensionId: string, key: string, value: SettingValue) => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extension_setting_set", { extensionId, key, value })),
-	/**  Searches every online music provider at once; each answers with tracks or an error. */
-	onlineSearch: (query: string) => typedError<ProviderSearchResult[], string>(__TAURI_INVOKE("online_search", { query })),
+	/**
+	 *  Searches the local library and every online music provider at once. Each provider answers
+	 *  with tracks or an error; songs several providers found are merged into `top`.
+	 */
+	onlineSearch: (query: string) => typedError<SearchResults, string>(__TAURI_INVOKE("online_search", { query })),
 	/**  Lyrics for a track, or `null` when no provider has any. */
 	lyricsGet: (query: TrackQuery) => typedError<{
 	providerName: string,
@@ -72,6 +75,26 @@ export const commands = {
 	synced: LyricLine[],
 	plain: string | null,
 } | null, string>(__TAURI_INVOKE("lyrics_get", { query })),
+	/**  Favorite tracks, most recently added first. */
+	favoritesList: () => typedError<SavedTrack[], string>(__TAURI_INVOKE("favorites_list")),
+	/**  Whether a track (by its artist and title) is a favorite. */
+	favoriteGet: (track: TrackInput) => typedError<boolean, string>(__TAURI_INVOKE("favorite_get", { track })),
+	favoriteSet: (track: TrackInput, favorite: boolean) => typedError<null, string>(__TAURI_INVOKE("favorite_set", { track, favorite })),
+	playlistsList: () => typedError<PlaylistSummary[], string>(__TAURI_INVOKE("playlists_list")),
+	playlistGet: (id: string) => typedError<PlaylistDetail, string>(__TAURI_INVOKE("playlist_get", { id })),
+	playlistCreate: (name: string) => typedError<PlaylistSummary, string>(__TAURI_INVOKE("playlist_create", { name })),
+	playlistRename: (id: string, name: string) => typedError<null, string>(__TAURI_INVOKE("playlist_rename", { id, name })),
+	playlistDelete: (id: string) => typedError<null, string>(__TAURI_INVOKE("playlist_delete", { id })),
+	/**  Appends tracks to the end of a playlist. */
+	playlistAdd: (id: string, tracks: TrackInput[]) => typedError<null, string>(__TAURI_INVOKE("playlist_add", { id, tracks })),
+	playlistRemoveItem: (itemId: string) => typedError<null, string>(__TAURI_INVOKE("playlist_remove_item", { itemId })),
+	/**  Moves an item before another one, or to the end when `before_item_id` is null. */
+	playlistMoveItem: (itemId: string, beforeItemId: string | null) => typedError<null, string>(__TAURI_INVOKE("playlist_move_item", { itemId, beforeItemId })),
+	/**  The latest play of each recently played track, newest first. */
+	historyRecent: (limit: number) => typedError<HistoryEntry[], string>(__TAURI_INVOKE("history_recent", { limit })),
+	historyClear: () => typedError<null, string>(__TAURI_INVOKE("history_clear")),
+	/**  Replaces the queue with favorites, a playlist or history and starts playing. */
+	collectionPlay: (request: CollectionPlayRequest) => typedError<null, string>(__TAURI_INVOKE("collection_play", { request })),
 };
 
 /** Events */
@@ -117,6 +140,16 @@ export type CatalogEntry = {
 export type CatalogState = "available" | "installed" | "updateAvailable" | 
 /**  This device has a newer version than the repository (a built-in or development copy). */
 "newerInstalled";
+
+/**  Which saved tracks to play. */
+export type Collection = { kind: "favorites" } | { kind: "playlist"; id: string } | { kind: "history" };
+
+export type CollectionPlayRequest = {
+	collection: Collection,
+	/**  Track to start with; otherwise the first (or a random one when shuffling). */
+	startIndex: number | null,
+	shuffle: boolean,
+};
 
 /**  How much of a Nuclear plugin runs in Raygun (M17). */
 export type CompatReport = {
@@ -202,6 +235,12 @@ export type ExtensionStatus = "loaded" | "failed";
 
 /**  Extensions were (re)loaded; carries the new list. */
 export type ExtensionsChangedEvent = ExtensionInfo[];
+
+export type HistoryEntry = {
+	track: SavedTrack,
+	/**  Unix ms. */
+	playedAt: number | null,
+};
 
 export type LibraryAlbum = {
 	artist: string,
@@ -332,6 +371,24 @@ export type PlaybackStateEvent = PlaybackState;
 
 export type PlaybackStatus = "idle" | "loading" | "buffering" | "playing" | "paused" | "ended" | "error";
 
+export type PlaylistDetail = {
+	playlist: PlaylistSummary,
+	items: PlaylistItem[],
+};
+
+export type PlaylistItem = {
+	id: string,
+	track: SavedTrack,
+};
+
+export type PlaylistSummary = {
+	id: string,
+	name: string,
+	itemCount: number,
+	/**  Up to four distinct artworks of the first items, for the cover. */
+	artworkUrls: string[],
+};
+
 /**  A provider an extension registered, e.g. a `music.metadata` search. */
 export type ProviderInfo = {
 	/**  Unique across extensions: `<extension id>/<provider id>`. */
@@ -392,7 +449,34 @@ export type RepoCatalog = {
 	error: string | null,
 };
 
+/**
+ *  A track as saved in favorites, a playlist or history. Artwork comes from the local library when
+ *  the same song is there.
+ */
+export type SavedTrack = {
+	/**  The resolver's `artist|title` key: one favorite per key. */
+	trackKey: string,
+	title: string,
+	artist: string | null,
+	album: string | null,
+	durationMs: number | null,
+	artworkUrl: string | null,
+	/**  A portable stream (http(s) or YouTube), when the track came with one. */
+	source: MediaSource | null,
+	/**  The same song is in this device's library. */
+	local: boolean,
+};
+
 export type ScanPhase = "discovering" | "reading" | "done" | "failed";
+
+/**  Everything a search found (M18). */
+export type SearchResults = {
+	/**  Local library tracks matching every word of the query. */
+	library: LibraryTrack[],
+	/**  Tracks merged across providers, best first; empty unless two or more providers found some. */
+	top: OnlineTrack[],
+	providers: ProviderSearchResult[],
+};
 
 /**
  *  A change to a single setting. The tagged shape (`{ key, value }`) lets the UI send only valid
@@ -435,6 +519,17 @@ export type StorageMode =
 export type Theme = "system" | "light" | "dark" | 
 /**  Pure black background for OLED screens. */
 "amoled";
+
+/**  A track to save, from the player, the library or a search result. */
+export type TrackInput = {
+	title: string,
+	artist: string | null,
+	album: string | null,
+	durationMs: number | null,
+	artworkUrl: string | null,
+	/**  Local files and lookups aren't stored; the track is found again by its key. */
+	source: MediaSource | null,
+};
 
 /**  What the resolver searches for: a track's metadata. */
 export type TrackQuery = {

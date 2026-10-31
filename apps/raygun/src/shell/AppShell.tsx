@@ -2,6 +2,7 @@ import { Outlet, useRouterState } from '@tanstack/react-router';
 import { useEffect, useRef } from 'react';
 import type { FC } from 'react';
 
+import { TrackActionsSheet } from '../collections/TrackActionsSheet';
 import { useEngineHost } from '../engine/useEngineHost';
 import { useSyncLanguage } from '../i18n/useSyncLanguage';
 import { useLibraryScanSync } from '../library/useLibrary';
@@ -45,6 +46,7 @@ export const AppShell: FC = () => {
         <BottomTabs />
       </div>
       <PlayerSheet />
+      <TrackActionsSheet />
       {/* Keeps scrolled content from showing through the transparent status bar on phones. */}
       <div
         aria-hidden

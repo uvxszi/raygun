@@ -121,7 +121,9 @@ describe('Library', () => {
     const albumPage = await screen.findByTestId('album-page');
     expect(albumPage).toHaveTextContent('2026 · 2 tracks');
 
-    await userEvent.click(await within(albumPage).findByRole('button', { name: /Ray of Light/ }));
+    await userEvent.click(
+      await within(albumPage).findByRole('button', { name: /^2\s*Ray of Light/ }),
+    );
     await userEvent.click(within(albumPage).getByRole('button', { name: 'Shuffle' }));
 
     const selection = { kind: 'album', artist: 'The Raygunners', album: 'Pew Pew' };

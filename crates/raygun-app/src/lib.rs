@@ -3,13 +3,16 @@
 //! The Tauri shell in `apps/raygun/src-tauri` stays thin: it owns the config
 //! and context, and gets everything else from [`builder`].
 
+mod collections;
 mod commands;
 mod events;
 mod extensions;
+mod history;
 mod library;
 mod playback;
 mod resolution;
 mod resolver;
+mod search;
 mod settings;
 mod startup;
 mod system_ui;
@@ -53,7 +56,21 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::extension_uninstall,
             commands::extension_setting_set,
             commands::online_search,
-            commands::lyrics_get
+            commands::lyrics_get,
+            commands::favorites_list,
+            commands::favorite_get,
+            commands::favorite_set,
+            commands::playlists_list,
+            commands::playlist_get,
+            commands::playlist_create,
+            commands::playlist_rename,
+            commands::playlist_delete,
+            commands::playlist_add,
+            commands::playlist_remove_item,
+            commands::playlist_move_item,
+            commands::history_recent,
+            commands::history_clear,
+            commands::collection_play
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,

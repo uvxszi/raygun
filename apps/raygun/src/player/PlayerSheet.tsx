@@ -2,6 +2,7 @@ import type { RepeatMode } from '@raygun/bindings';
 import {
   ChevronDown,
   ImageIcon,
+  ListPlus,
   MicVocal,
   Pause,
   Play,
@@ -17,7 +18,10 @@ import { useEffect, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useTrackActionsStore } from '../collections/trackActionsStore';
+import { fromQueueItem } from '../collections/useCollections';
 import { Artwork } from '../library/Artwork';
+import { FavoriteButton } from './FavoriteButton';
 import { formatTime } from './formatTime';
 import { LyricsView } from './LyricsView';
 import { usePlayerUiStore } from './playerUiStore';
@@ -41,6 +45,7 @@ export const PlayerSheet: FC = () => {
   const [showLyrics, setShowLyrics] = useState(false);
   const isVideo = item?.source.kind === 'youTube';
   const videoSurfaceRef = useVideoSurface(sheetOpen && isVideo);
+  const openTrackActions = useTrackActionsStore((store) => store.open);
 
   useCloseOnBack(sheetOpen, closeSheet);
 
@@ -140,22 +145,37 @@ export const PlayerSheet: FC = () => {
                 iconSize={96}
               />
             )}
-            <div className="flex w-full max-w-md flex-col items-center gap-1 text-center">
-              <p data-testid="sheet-title" className="w-full truncate text-xl font-semibold">
-                {item?.title ?? t('player.nothingPlaying')}
-              </p>
-              {item?.artist && <p className="text-muted truncate">{item.artist}</p>}
-              {note && (
-                <p data-testid="sheet-source-note" className="text-muted text-xs">
-                  {note.kind === 'finding'
-                    ? t('player.findingSource')
-                    : t('player.via', { source: note.source })}
+            <div className="flex w-full max-w-md items-center gap-2">
+              {item ? <FavoriteButton item={item} /> : <span className="size-11 shrink-0" />}
+              <div className="flex min-w-0 flex-1 flex-col items-center gap-1 text-center">
+                <p data-testid="sheet-title" className="w-full truncate text-xl font-semibold">
+                  {item?.title ?? t('player.nothingPlaying')}
                 </p>
-              )}
-              {state?.status === 'error' && state.error && (
-                <p role="alert" className="text-primary text-sm wrap-anywhere">
-                  {state.error}
-                </p>
+                {item?.artist && <p className="text-muted w-full truncate">{item.artist}</p>}
+                {note && (
+                  <p data-testid="sheet-source-note" className="text-muted text-xs">
+                    {note.kind === 'finding'
+                      ? t('player.findingSource')
+                      : t('player.via', { source: note.source })}
+                  </p>
+                )}
+                {state?.status === 'error' && state.error && (
+                  <p role="alert" className="text-primary text-sm wrap-anywhere">
+                    {state.error}
+                  </p>
+                )}
+              </div>
+              {item ? (
+                <button
+                  type="button"
+                  aria-label={t('player.addToPlaylist')}
+                  onClick={() => openTrackActions(fromQueueItem(item))}
+                  className="text-muted grid size-11 shrink-0 place-items-center rounded-full"
+                >
+                  <ListPlus aria-hidden size={22} />
+                </button>
+              ) : (
+                <span className="size-11 shrink-0" />
               )}
             </div>
           </div>

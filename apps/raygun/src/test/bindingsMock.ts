@@ -106,6 +106,20 @@ export const bindingsMock = {
     extensionSettingSet: vi.fn(),
     onlineSearch: vi.fn(),
     lyricsGet: vi.fn(),
+    favoritesList: vi.fn(),
+    favoriteGet: vi.fn(),
+    favoriteSet: vi.fn(),
+    playlistsList: vi.fn(),
+    playlistGet: vi.fn(),
+    playlistCreate: vi.fn(),
+    playlistRename: vi.fn(),
+    playlistDelete: vi.fn(),
+    playlistAdd: vi.fn(),
+    playlistRemoveItem: vi.fn(),
+    playlistMoveItem: vi.fn(),
+    historyRecent: vi.fn(),
+    historyClear: vi.fn(),
+    collectionPlay: vi.fn(),
   },
   events: {
     engineCommandEvent: makeEvent('engineCommandEvent'),
@@ -149,8 +163,26 @@ export const seedBindings = () => {
   commands.extensionInstall.mockResolvedValue(ok([]));
   commands.extensionUninstall.mockResolvedValue(ok([]));
   commands.extensionSettingSet.mockResolvedValue(ok([]));
-  commands.onlineSearch.mockResolvedValue(ok([]));
+  commands.onlineSearch.mockResolvedValue(ok({ library: [], top: [], providers: [] }));
   commands.lyricsGet.mockResolvedValue(ok(null));
+  commands.favoritesList.mockResolvedValue(ok([]));
+  commands.favoriteGet.mockResolvedValue(ok(false));
+  commands.favoriteSet.mockResolvedValue(ok(null));
+  commands.playlistsList.mockResolvedValue(ok([]));
+  commands.playlistGet.mockResolvedValue(
+    ok({ playlist: { id: 'p', name: 'Playlist', itemCount: 0, artworkUrls: [] }, items: [] }),
+  );
+  commands.playlistCreate.mockResolvedValue(
+    ok({ id: 'new', name: 'New', itemCount: 0, artworkUrls: [] }),
+  );
+  commands.playlistRename.mockResolvedValue(ok(null));
+  commands.playlistDelete.mockResolvedValue(ok(null));
+  commands.playlistAdd.mockResolvedValue(ok(null));
+  commands.playlistRemoveItem.mockResolvedValue(ok(null));
+  commands.playlistMoveItem.mockResolvedValue(ok(null));
+  commands.historyRecent.mockResolvedValue(ok([]));
+  commands.historyClear.mockResolvedValue(ok(null));
+  commands.collectionPlay.mockResolvedValue(ok(null));
 };
 
 export const emitEvent = <Name extends EventName>(name: Name, payload: EventPayloads[Name]) => {

@@ -1,0 +1,96 @@
+import { Link } from '@tanstack/react-router';
+import { Plus } from 'lucide-react';
+import { useState } from 'react';
+import type { FC, FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
+
+import { PlaylistCover } from './PlaylistCover';
+import { useCreatePlaylist, usePlaylists } from './useCollections';
+
+const NewPlaylistForm: FC<{ onDone: () => void }> = ({ onDone }) => {
+  const { t } = useTranslation();
+  const create = useCreatePlaylist();
+  const [name, setName] = useState('');
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    create.mutate(name, { onSuccess: onDone });
+  };
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <input
+          // Tapping "New playlist" asked for this field; focusing it saves a tap.
+          autoFocus
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          aria-label={t('collections.playlistName')}
+          placeholder={t('collections.playlistName')}
+          className="bg-surface min-w-0 flex-1 rounded-lg px-3 py-2 text-sm outline-none"
+        />
+        <button
+          type="submit"
+          disabled={!name.trim() || create.isPending}
+          className="bg-primary text-background rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-60"
+        >
+          {t('collections.create')}
+        </button>
+        <button type="button" onClick={onDone} className="text-muted px-2 text-sm">
+          {t('collections.cancel')}
+        </button>
+      </div>
+      {create.error && (
+        <p role="alert" className="text-primary text-sm wrap-anywhere">
+          {create.error.message}
+        </p>
+      )}
+    </form>
+  );
+};
+
+export const PlaylistsView: FC = () => {
+  const { t } = useTranslation();
+  const playlists = usePlaylists();
+  const [creating, setCreating] = useState(false);
+
+  return (
+    <div data-testid="playlists-view" className="flex flex-col gap-3">
+      {creating ? (
+        <NewPlaylistForm onDone={() => setCreating(false)} />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setCreating(true)}
+          className="flex h-14 items-center gap-3 text-left text-sm font-medium"
+        >
+          <span className="bg-surface text-primary grid size-12 place-items-center rounded-lg">
+            <Plus aria-hidden size={22} />
+          </span>
+          {t('collections.newPlaylist')}
+        </button>
+      )}
+      {playlists.data?.length === 0 && (
+        <p className="text-muted text-sm">{t('collections.noPlaylists')}</p>
+      )}
+      <ul className="flex flex-col gap-1">
+        {playlists.data?.map((playlist) => (
+          <li key={playlist.id}>
+            <Link
+              to="/library/playlist"
+              search={{ id: playlist.id }}
+              data-testid="playlist-link"
+              className="flex h-16 items-center gap-3"
+            >
+              <PlaylistCover artworkUrls={playlist.artworkUrls} className="size-12 rounded-lg" />
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate text-sm font-medium">{playlist.name}</span>
+                <span className="text-muted text-xs">
+                  {t('library.trackCount', { count: playlist.itemCount })}
+                </span>
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+};

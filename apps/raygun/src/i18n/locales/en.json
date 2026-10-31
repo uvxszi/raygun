@@ -8,7 +8,11 @@
   },
   "home": {
     "title": "Welcome to Raygun",
-    "subtitle": "Music, video, manga and novels in one place. Your library will show up here."
+    "subtitle": "Music, video, manga and novels in one place.",
+    "recentlyPlayed": "Recently played",
+    "noHistory": "Songs you play show up here.",
+    "clearHistory": "Clear history",
+    "yourMusic": "Your music"
   },
   "library": {
     "title": "Library",
@@ -34,7 +38,9 @@
     "view": {
       "albums": "Albums",
       "artists": "Artists",
-      "tracks": "Tracks"
+      "tracks": "Tracks",
+      "playlists": "Playlists",
+      "favorites": "Favorites"
     },
     "artistCounts": "{{albums}} albums · {{tracks}} tracks",
     "trackCount_one": "{{count}} track",
@@ -54,7 +60,9 @@
     "noSources": "No search sources are installed.",
     "noResults": "Nothing found for “{{query}}”.",
     "providerEmpty": "No results from this source.",
-    "providerFailed": "This source failed: {{message}}"
+    "providerFailed": "This source failed: {{message}}",
+    "yourLibrary": "Your library",
+    "topResults": "Top results"
   },
   "settings": {
     "title": "Settings",
@@ -107,7 +115,10 @@
     "lyricsLoading": "Loading lyrics…",
     "lyricsNone": "No lyrics found for this track.",
     "lyricsFailed": "Couldn't load lyrics: {{message}}",
-    "lyricsFrom": "Lyrics from {{source}}"
+    "lyricsFrom": "Lyrics from {{source}}",
+    "favorite": "Add to favorites",
+    "unfavorite": "Remove from favorites",
+    "addToPlaylist": "Add to playlist"
   },
   "common": {
     "coreUnavailable": "Core unavailable: {{message}}"
@@ -156,5 +167,31 @@
     "compatibilityApis": "These Nuclear features are unavailable, so parts of the plugin may fail: {{list}}.",
     "compatibilityUi": "Its screens and widgets don't show in Raygun.",
     "compatibilityFull": "Everything this plugin provides works in Raygun."
+  },
+  "collections": {
+    "moreActions": "More for {{title}}",
+    "favorite": "Add to favorites",
+    "unfavorite": "Remove from favorites",
+    "addToPlaylist": "Add to playlist",
+    "removeFromPlaylist": "Remove from this playlist",
+    "newPlaylist": "New playlist",
+    "playlistName": "Playlist name",
+    "create": "Create",
+    "cancel": "Cancel",
+    "addedTo": "Added to {{name}}",
+    "noPlaylists": "No playlists yet. Make one to collect songs from anywhere.",
+    "noFavorites": "Tap the heart on any song to keep it here.",
+    "favorites": "Favorites",
+    "emptyPlaylist": "This playlist is empty. Add songs from Search, your library or the player.",
+    "rename": "Rename",
+    "save": "Save",
+    "delete": "Delete playlist",
+    "deleteConfirm": "Delete “{{name}}”? Its songs stay wherever they came from.",
+    "edit": "Edit",
+    "done": "Done",
+    "moveUp": "Move {{title}} up",
+    "moveDown": "Move {{title}} down",
+    "remove": "Remove {{title}}",
+    "onDevice": "On this device"
   }
 }

@@ -11,6 +11,7 @@ import { ExtensionsPage } from './pages/ExtensionsPage';
 import { ArtistPage } from './pages/ArtistPage';
 import { HomePage } from './pages/HomePage';
 import { LibraryPage } from './pages/LibraryPage';
+import { PlaylistPage } from './pages/PlaylistPage';
 import { SearchPage } from './pages/SearchPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { AppShell } from './shell/AppShell';
@@ -42,6 +43,12 @@ const routeTree = rootRoute.addChildren([
     path: '/library/artist',
     component: ArtistPage,
     validateSearch: (search: Record<string, unknown>) => ({ name: text(search.name) }),
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/library/playlist',
+    component: PlaylistPage,
+    validateSearch: (search: Record<string, unknown>) => ({ id: text(search.id) }),
   }),
   createRoute({
     getParentRoute: () => rootRoute,

@@ -660,3 +660,100 @@ pub struct ProviderSearchResult {
     pub tracks: Vec<OnlineTrack>,
     pub error: Option<String>,
 }
+
+/// Everything a search found (M18).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResults {
+    /// Local library tracks matching every word of the query.
+    pub library: Vec<LibraryTrack>,
+    /// Tracks merged across providers, best first; empty unless two or more providers found some.
+    pub top: Vec<OnlineTrack>,
+    pub providers: Vec<ProviderSearchResult>,
+}
+
+// ---- Favorites, playlists, history (M18) ----
+
+/// A track to save, from the player, the library or a search result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackInput {
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub duration_ms: Option<u32>,
+    pub artwork_url: Option<String>,
+    /// Local files and lookups aren't stored; the track is found again by its key.
+    pub source: Option<MediaSource>,
+}
+
+/// A track as saved in favorites, a playlist or history. Artwork comes from the local library when
+/// the same song is there.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedTrack {
+    /// The resolver's `artist|title` key: one favorite per key.
+    pub track_key: String,
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub duration_ms: Option<u32>,
+    pub artwork_url: Option<String>,
+    /// A portable stream (http(s) or YouTube), when the track came with one.
+    pub source: Option<MediaSource>,
+    /// The same song is in this device's library.
+    pub local: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistSummary {
+    pub id: String,
+    pub name: String,
+    pub item_count: u32,
+    /// Up to four distinct artworks of the first items, for the cover.
+    pub artwork_urls: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistItem {
+    pub id: String,
+    pub track: SavedTrack,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistDetail {
+    pub playlist: PlaylistSummary,
+    pub items: Vec<PlaylistItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryEntry {
+    pub track: SavedTrack,
+    /// Unix ms.
+    pub played_at: f64,
+}
+
+/// Which saved tracks to play.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum Collection {
+    Favorites,
+    #[serde(rename_all = "camelCase")]
+    Playlist {
+        id: String,
+    },
+    History,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectionPlayRequest {
+    pub collection: Collection,
+    /// Track to start with; otherwise the first (or a random one when shuffling).
+    pub start_index: Option<u32>,
+    pub shuffle: bool,
+}

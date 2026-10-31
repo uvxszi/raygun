@@ -1,4 +1,4 @@
-import type { OnlineTrack, ProviderSearchResult } from '@raygun/bindings';
+import type { OnlineTrack, ProviderSearchResult, SearchResults } from '@raygun/bindings';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -26,8 +26,13 @@ const track = (title: string, playable = true): OnlineTrack => ({
   source: playable ? { kind: 'url', url: `https://archive.org/${title}.mp3`, headers: {} } : null,
 });
 
-const answer = (results: ProviderSearchResult[]) =>
-  bindingsMock.commands.onlineSearch.mockResolvedValue(ok(results));
+const answer = (
+  providers: ProviderSearchResult[],
+  extra: Partial<Omit<SearchResults, 'providers'>> = {},
+) =>
+  bindingsMock.commands.onlineSearch.mockResolvedValue(
+    ok({ library: [], top: [], providers, ...extra }),
+  );
 
 describe('Search', () => {
   beforeEach(() => {
