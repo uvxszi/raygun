@@ -1,24 +1,40 @@
 import { commands } from '@raygun/bindings';
+import type { StorageMode } from '@raygun/bindings';
 import { useQuery } from '@tanstack/react-query';
-import type { FC } from 'react';
+import type { FC, ReactNode } from 'react';
+
+const STORAGE_MODE_LABELS: Record<StorageMode, string> = {
+  portable: 'Portable (next to the app)',
+  installed: 'System folders',
+  mobile: 'App sandbox',
+  override: 'Custom (RAYGUN_HOME)',
+};
+
+const InfoList: FC<{ testId: string; children: ReactNode }> = ({ testId, children }) => (
+  <dl
+    data-testid={testId}
+    className="bg-surface grid w-full max-w-md grid-cols-[auto_1fr] gap-x-6 gap-y-1 rounded-xl px-5 py-4 text-sm"
+  >
+    {children}
+  </dl>
+);
 
 export const App: FC = () => {
   const appInfo = useQuery({ queryKey: ['appInfo'], queryFn: commands.appInfo });
+  const storageInfo = useQuery({ queryKey: ['storageInfo'], queryFn: commands.storageInfo });
+  const error = appInfo.error ?? storageInfo.error;
 
   return (
     <main className="flex min-h-full flex-col items-center justify-center gap-4 p-6 pt-[max(1.5rem,env(safe-area-inset-top))]">
       <h1 className="text-primary text-4xl font-black tracking-tight">Raygun</h1>
       {appInfo.isPending && <p className="text-muted">Connecting to core…</p>}
-      {appInfo.isError && (
+      {error && (
         <p role="alert" className="text-primary">
-          Core unavailable: {String(appInfo.error)}
+          Core unavailable: {String(error)}
         </p>
       )}
       {appInfo.data && (
-        <dl
-          data-testid="app-info"
-          className="bg-surface grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 rounded-xl px-5 py-4 text-sm"
-        >
+        <InfoList testId="app-info">
           <dt className="text-muted">Version</dt>
           <dd>{appInfo.data.version}</dd>
           <dt className="text-muted">Platform</dt>
@@ -27,7 +43,17 @@ export const App: FC = () => {
           <dd>{appInfo.data.arch}</dd>
           <dt className="text-muted">Build</dt>
           <dd>{appInfo.data.debug ? 'debug' : 'release'}</dd>
-        </dl>
+        </InfoList>
+      )}
+      {storageInfo.data && (
+        <InfoList testId="storage-info">
+          <dt className="text-muted">Storage</dt>
+          <dd data-testid="storage-mode">{STORAGE_MODE_LABELS[storageInfo.data.mode]}</dd>
+          <dt className="text-muted">Data folder</dt>
+          <dd data-testid="storage-root" className="break-all">
+            {storageInfo.data.root}
+          </dd>
+        </InfoList>
       )}
     </main>
   );

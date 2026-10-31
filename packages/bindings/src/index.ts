@@ -7,6 +7,8 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 export const commands = {
 	/**  Reports build and runtime facts about the running app. */
 	appInfo: () => __TAURI_INVOKE<AppInfo>("app_info"),
+	/**  Reports where Raygun keeps its data on this device. */
+	storageInfo: () => __TAURI_INVOKE<StorageInfo>("storage_info"),
 };
 
 /* Types */
@@ -19,4 +21,23 @@ export type AppInfo = {
 	arch: string,
 	debug: boolean,
 };
+
+/**  Where Raygun keeps its data on this device. */
+export type StorageInfo = {
+	mode: StorageMode,
+	root: string,
+	logs: string,
+	webview: string,
+};
+
+/**  How the data folder was chosen (ARCHITECTURE §3). */
+export type StorageMode = 
+/**  Next to the executable (desktop default). */
+"portable" | 
+/**  OS app-data folder, chosen because the app's own folder wasn't writable. */
+"installed" | 
+/**  App sandbox on Android/iOS. */
+"mobile" | 
+/**  Set explicitly through `RAYGUN_HOME`. */
+"override";
 

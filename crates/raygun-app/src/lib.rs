@@ -4,6 +4,7 @@
 //! and context, and gets everything else from [`builder`].
 
 mod commands;
+mod startup;
 
 use std::path::Path;
 
@@ -12,8 +13,10 @@ pub const BINDINGS_PATH: &str = "packages/bindings/src/index.ts";
 
 /// Collects every command and event exposed to the UI.
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
-    tauri_specta::Builder::<tauri::Wry>::new()
-        .commands(tauri_specta::collect_commands![commands::app_info])
+    tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
+        commands::app_info,
+        commands::storage_info
+    ])
 }
 
 /// Writes the TypeScript bindings for all commands to `path`.
@@ -33,7 +36,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
         .invoke_handler(specta.invoke_handler())
         .setup(move |app| {
             specta.mount_events(app);
-            Ok(())
+            startup::init(app)
         })
 }
 

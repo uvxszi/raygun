@@ -3,17 +3,20 @@
 All-in-one multimedia app (music, video, movies/TV, anime, manga, light novels) built on Tauri v2 (Rust + React/TS). License AGPL-3.0-only. Identifier `app.raygun.player`.
 
 ## Read first
+
 - `docs/ROADMAP.md`: phases and milestones; work happens one milestone at a time.
 - `docs/phases/phase-N/MNN-*.md`: the spec for the milestone in progress. Write one before starting a milestone.
 - `docs/ARCHITECTURE.md`: read only the sections the milestone spec lists.
 - `docs/reference-notes.md`: findings from the reference repos in `reference/` (git-ignored). Check here before re-exploring a repo.
 
 ## Layout
+
 - `apps/raygun/`: React UI (`src/`) and the thin Tauri shell (`src-tauri/`, plus `gen/android`).
 - `crates/raygun-app`: service wiring + Tauri commands. `crates/raygun-model`: types shared with TS.
 - `packages/bindings`: TS generated from Rust by tauri-specta. Never edit it; run `pnpm bindings`.
 
 ## Commands
+
 ```bash
 pnpm install
 pnpm dev                 # desktop
@@ -25,7 +28,15 @@ pnpm format && cargo fmt --all
 pnpm bindings            # regenerate TS bindings after changing commands/types
 ```
 
+## Android tooling gotchas (for agents)
+
+- Run `tauri android dev|build` in a real terminal tab (Terminal panel), not a headless shell. Without a TTY, the CLI's device prompt loops forever (it once wrote a 13 GB log), and `adb shell` blocks on an open stdin pipe.
+- Only one Tauri Android command can run at a time. A stuck one shows `Blocking waiting for file lock on Android` in the next. Find leftover `tauri.js android ...` node processes and stop them.
+- Verify on the emulator with `adb install -r .../app-universal-debug.apk`, `adb shell am force-stop app.raygun.player`, a relaunch, then `adb exec-out screencap -p`. App logs: `adb shell "run-as app.raygun.player cat logs/<file>"`.
+- Env for headless runs: `ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk`, `NDK_HOME=...\Sdk\ndk\28.2.13676358`.
+
 ## Rules
+
 - Domain state and logic live in Rust services. The UI calls generated `commands.*` and holds UI-only state.
 - Platform priority: Android first (`Pixel_4` emulator), then Windows. Verify UI work on Android.
 - Desktop builds must be portable: never call OS app-dir APIs or `tauri-plugin-store`. Go through `raygun-paths` (M02).

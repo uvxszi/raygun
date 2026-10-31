@@ -1,0 +1,13 @@
+# Portable storage (ARCHITECTURE §3): every path comes from `raygun-paths`.
+# The single sanctioned call is in crates/raygun-app/src/startup.rs.
+disallowed-methods = [
+  { path = "tauri::path::PathResolver::app_data_dir", reason = "use raygun_paths::Paths (portable storage)" },
+  { path = "tauri::path::PathResolver::app_local_data_dir", reason = "use raygun_paths::Paths (portable storage)" },
+  { path = "tauri::path::PathResolver::app_config_dir", reason = "use raygun_paths::Paths (portable storage)" },
+  { path = "tauri::path::PathResolver::app_cache_dir", reason = "use raygun_paths::Paths (portable storage)" },
+  { path = "tauri::path::PathResolver::app_log_dir", reason = "use raygun_paths::Paths (portable storage)" },
+  { path = "tauri::path::PathResolver::data_dir", reason = "use raygun_paths::Paths (portable storage)" },
+  { path = "tauri::path::PathResolver::local_data_dir", reason = "use raygun_paths::Paths (portable storage)" },
+  { path = "tauri::path::PathResolver::config_dir", reason = "use raygun_paths::Paths (portable storage)" },
+  { path = "tauri::path::PathResolver::cache_dir", reason = "use raygun_paths::Paths (portable storage)" },
+]
