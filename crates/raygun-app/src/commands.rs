@@ -42,12 +42,18 @@ pub async fn settings_get(db: tauri::State<'_, AppDb>) -> Result<Settings, Strin
 #[tauri::command]
 #[specta::specta]
 pub async fn settings_update(
+    app: tauri::AppHandle,
     db: tauri::State<'_, AppDb>,
     change: SettingChange,
 ) -> Result<Settings, String> {
-    settings::update(&db.0, change)
+    let theme_changed = matches!(change, SettingChange::Theme(_));
+    let settings = settings::update(&db.0, change)
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    if theme_changed {
+        crate::system_ui::apply_theme(&app, settings.theme);
+    }
+    Ok(settings)
 }
 
 /// Current player state. Afterwards, changes arrive as `PlaybackStateEvent`.

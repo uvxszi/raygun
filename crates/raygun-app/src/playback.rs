@@ -156,6 +156,7 @@ impl PlaybackService {
                             url: self.proxy.register(source),
                             title: item.title.clone(),
                             artist: item.artist.clone(),
+                            artwork_url: item.artwork_url.clone(),
                             start_ms,
                             autoplay,
                             volume,

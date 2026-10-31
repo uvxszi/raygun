@@ -3,10 +3,13 @@ package app.raygun.audio
 import android.Manifest
 import android.app.Activity
 import android.content.ComponentName
+import android.content.res.Configuration
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -14,6 +17,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import androidx.core.view.WindowCompat
 import app.tauri.PermissionState
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -33,9 +37,15 @@ class LoadArgs {
     lateinit var url: String
     var title: String = ""
     var artist: String? = null
+    var artworkUrl: String? = null
     var startMs: Double? = null
     var autoplay: Boolean = true
     var volume: Double? = null
+}
+
+@InvokeArg
+class ThemeArgs {
+    var theme: String = "system"
 }
 
 @InvokeArg
@@ -67,6 +77,7 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     private val pending = mutableListOf<(MediaController) -> Unit>()
     private var connecting = false
     private var loadId: Int? = null
+    private var theme = "system"
 
     private val progressTicker = object : Runnable {
         override fun run() {
@@ -114,6 +125,7 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
             val metadata = MediaMetadata.Builder()
                 .setTitle(args.title)
                 .setArtist(args.artist)
+                .setArtworkUri(args.artworkUrl?.let(Uri::parse))
                 .build()
             val item = MediaItem.Builder()
                 .setUri(args.url)
@@ -193,6 +205,34 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         result.put("granted", getPermissionState(libraryAlias()) == PermissionState.GRANTED)
         result.put("folders", folders)
         invoke.resolve(result)
+    }
+
+    /**
+     * Matches the status and navigation bar icons to Raygun's theme (M09): dark icons on the light
+     * theme, light icons otherwise. "system" follows the OS night mode, re-checked on resume.
+     */
+    @Command
+    fun applyTheme(invoke: Invoke) {
+        theme = invoke.parseArgs(ThemeArgs::class.java).theme
+        main.post { applySystemBars() }
+        invoke.resolve()
+    }
+
+    override fun onResume(activity: AppCompatActivity) {
+        applySystemBars()
+    }
+
+    private fun applySystemBars() {
+        val night = (activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        val lightBackground = when (theme) {
+            "light" -> true
+            "system" -> !night
+            else -> false
+        }
+        val controller = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+        controller.isAppearanceLightStatusBars = lightBackground
+        controller.isAppearanceLightNavigationBars = lightBackground
     }
 
     /** Runs [action] on the main thread once the controller is connected to the service. */

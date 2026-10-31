@@ -66,7 +66,7 @@ export type AppInfo = {
 /**  An instruction for the active playback engine. */
 export type EngineCommand = { type: "load"; loadId: number; url: string; 
 /**  For native engines' media session (notification, lock screen). */
-title: string; artist: string | null; startMs: number | null; autoplay: boolean; volume: number | null } | 
+title: string; artist: string | null; artworkUrl: string | null; startMs: number | null; autoplay: boolean; volume: number | null } | 
 /**  Plays a YouTube video in the embedded player hosted at `embed_url` (webview only). */
 { type: "loadYouTube"; loadId: number; embedUrl: string; videoId: string; startMs: number | null; autoplay: boolean; volume: number | null } | { type: "play" } | { type: "pause" } | { type: "seek"; positionMs: number | null } | { type: "setVolume"; volume: number | null } | { type: "stop" };
 

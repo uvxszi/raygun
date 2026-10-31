@@ -18,6 +18,7 @@ import { useTranslation } from 'react-i18next';
 
 import { formatTime } from './formatTime';
 import { usePlayerUiStore } from './playerUiStore';
+import { useCloseOnBack } from './useCloseOnBack';
 import { useVideoSurface } from './useVideoSurface';
 import { isActive, sendControl, useNowPlaying } from './usePlayback';
 
@@ -35,6 +36,8 @@ export const PlayerSheet: FC = () => {
   const [scrubMs, setScrubMs] = useState<number | null>(null);
   const isVideo = item?.source.kind === 'youTube';
   const videoSurfaceRef = useVideoSurface(sheetOpen && isVideo);
+
+  useCloseOnBack(sheetOpen, closeSheet);
 
   useEffect(() => {
     if (!sheetOpen) {

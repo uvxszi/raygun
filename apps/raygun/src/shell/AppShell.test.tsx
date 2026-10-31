@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from './AppShell.test-wrapper';
@@ -45,6 +45,29 @@ describe('AppShell', () => {
 
     await AppShellWrapper.playerSheet.close();
     await AppShellWrapper.playerSheet.waitUntilClosed();
+  });
+
+  it('closes the player sheet with the system Back button and keeps the page', async () => {
+    await AppShellWrapper.mount('/library');
+    await AppShellWrapper.miniPlayer.open();
+    await AppShellWrapper.playerSheet.element;
+
+    window.history.back();
+
+    await AppShellWrapper.playerSheet.waitUntilClosed();
+    expect(await AppShellWrapper.page('library')).toBeInTheDocument();
+  });
+
+  it('removes its history entry when closed with the button', async () => {
+    await AppShellWrapper.mount();
+    await AppShellWrapper.miniPlayer.open();
+    await AppShellWrapper.playerSheet.element;
+    expect(window.history.state).toEqual({ raygunSheet: true });
+
+    await AppShellWrapper.playerSheet.close();
+    await AppShellWrapper.playerSheet.waitUntilClosed();
+
+    await waitFor(() => expect(window.history.state).not.toEqual({ raygunSheet: true }));
   });
 
   it('closes the player sheet with Escape', async () => {

@@ -9,6 +9,7 @@ mod library;
 mod playback;
 mod settings;
 mod startup;
+mod system_ui;
 
 use std::path::Path;
 

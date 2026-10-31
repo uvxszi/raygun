@@ -43,6 +43,11 @@ export const AppShell: FC = () => {
         <BottomTabs />
       </div>
       <PlayerSheet />
+      {/* Keeps scrolled content from showing through the transparent status bar on phones. */}
+      <div
+        aria-hidden
+        className="bg-background pointer-events-none fixed inset-x-0 top-0 z-40 h-[env(safe-area-inset-top)]"
+      />
     </div>
   );
 };

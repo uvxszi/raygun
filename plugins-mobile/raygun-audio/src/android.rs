@@ -24,6 +24,18 @@ pub(crate) fn send<R: Runtime>(
         .map_err(|error| error.to_string())
 }
 
+/// Called by `app.raygun.audio.NativeBridge.onControl` on the Android main thread.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_app_raygun_audio_NativeBridge_onControl(
+    mut env: JNIEnv,
+    _class: JClass,
+    control: JString,
+) {
+    if let Ok(control) = env.get_string(&control) {
+        crate::deliver_control(control.into());
+    }
+}
+
 /// Called by `app.raygun.audio.NativeBridge.onEngineEvent` on the Android main thread.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_app_raygun_audio_NativeBridge_onEngineEvent(

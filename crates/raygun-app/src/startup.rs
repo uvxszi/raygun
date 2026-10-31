@@ -66,6 +66,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
 
     // Pick up files added or removed while the app was closed (cheap when nothing changed).
     app.state::<crate::library::LibraryService>().start_scan();
+    crate::system_ui::apply_saved_theme(app.handle().clone());
     Ok(())
 }
 
@@ -76,20 +77,35 @@ fn native_engine(app: &App) -> Option<crate::playback::NativeEngineSink> {
     use raygun_model::EngineReport;
     use tauri_plugin_raygun_audio::NativeAudio;
 
-    // Reports arrive on the Android main thread. A single worker keeps them in order and makes
-    // sure the main thread never waits on the playback service (which may call back into Kotlin).
-    let (reports, inbox) = std::sync::mpsc::channel::<String>();
+    enum Native {
+        Report(String),
+        Control(String),
+    }
+
+    // Reports and controls arrive on the Android main thread. A single worker keeps them in order
+    // and makes sure the main thread never waits on the playback service (which may call back
+    // into Kotlin).
+    let (sender, inbox) = std::sync::mpsc::channel::<Native>();
+    let reports = sender.clone();
     tauri_plugin_raygun_audio::set_report_handler(move |json| {
-        let _ = reports.send(json);
+        let _ = reports.send(Native::Report(json));
+    });
+    tauri_plugin_raygun_audio::set_control_handler(move |control| {
+        let _ = sender.send(Native::Control(control));
     });
     let worker_handle = app.handle().clone();
     std::thread::spawn(move || {
-        for json in inbox {
-            match serde_json::from_str::<EngineReport>(&json) {
-                Ok(report) => worker_handle
-                    .state::<crate::playback::PlaybackService>()
-                    .report(report),
-                Err(error) => tracing::warn!(%error, %json, "unreadable native engine report"),
+        let playback = worker_handle.state::<crate::playback::PlaybackService>();
+        for message in inbox {
+            match message {
+                Native::Report(json) => match serde_json::from_str::<EngineReport>(&json) {
+                    Ok(report) => playback.report(report),
+                    Err(error) => tracing::warn!(%error, %json, "unreadable native engine report"),
+                },
+                Native::Control(control) => match crate::system_ui::control_from_system(&control) {
+                    Some(control) => playback.control(control),
+                    None => tracing::warn!(%control, "unknown system media control"),
+                },
             }
         }
     });

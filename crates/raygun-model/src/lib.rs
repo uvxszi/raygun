@@ -263,6 +263,7 @@ pub enum EngineCommand {
         /// For native engines' media session (notification, lock screen).
         title: String,
         artist: Option<String>,
+        artwork_url: Option<String>,
         start_ms: f64,
         autoplay: bool,
         volume: f64,

@@ -25,7 +25,7 @@ class RaygunPlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
-        session = MediaSession.Builder(this, player).build()
+        session = MediaSession.Builder(this, RaygunSessionPlayer(player)).build()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session

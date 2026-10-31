@@ -18,6 +18,7 @@ use tauri::plugin::{Builder, TauriPlugin};
 type ReportHandler = Box<dyn Fn(String) + Send + Sync>;
 
 static REPORT_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
+static CONTROL_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 
 /// Installs the receiver for engine reports (JSON in the `EngineReport` shape). It is called on
 /// the Android main thread, so it must hand work off rather than block. Only the first call wins.
@@ -25,10 +26,23 @@ pub fn set_report_handler(handler: impl Fn(String) + Send + Sync + 'static) {
     let _ = REPORT_HANDLER.set(Box::new(handler));
 }
 
+/// Installs the receiver for controls from the system UI or headsets ("next", "previous"). Called
+/// on the Android main thread, like the report handler. Only the first call wins.
+pub fn set_control_handler(handler: impl Fn(String) + Send + Sync + 'static) {
+    let _ = CONTROL_HANDLER.set(Box::new(handler));
+}
+
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn deliver_report(json: String) {
     if let Some(handler) = REPORT_HANDLER.get() {
         handler(json);
+    }
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn deliver_control(control: String) {
+    if let Some(handler) = CONTROL_HANDLER.get() {
+        handler(control);
     }
 }
 
@@ -57,6 +71,23 @@ impl<R: Runtime> NativeAudio<R> {
         self.handle
             .run_mobile_plugin("requestLibraryAccess", ())
             .map_err(|error| error.to_string())
+    }
+
+    /// Matches the system bars to Raygun's theme (`system`, `light`, `dark`, `amoled`).
+    #[cfg(target_os = "android")]
+    pub fn apply_theme(&self, theme: &str) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>(
+                "applyTheme",
+                serde_json::json!({ "theme": theme }),
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub fn apply_theme(&self, _theme: &str) -> Result<(), String> {
+        Ok(())
     }
 
     #[cfg(not(target_os = "android"))]

@@ -12,9 +12,21 @@ object NativeBridge {
     @JvmStatic
     external fun onEngineEvent(json: String)
 
+    /** A user request from the system UI or a headset, e.g. "next" or "previous". */
+    @JvmStatic
+    external fun onControl(control: String)
+
     fun send(json: String) {
         try {
             onEngineEvent(json)
+        } catch (error: UnsatisfiedLinkError) {
+            Log.e("RaygunAudio", "Rust engine bridge is not linked", error)
+        }
+    }
+
+    fun control(name: String) {
+        try {
+            onControl(name)
         } catch (error: UnsatisfiedLinkError) {
             Log.e("RaygunAudio", "Rust engine bridge is not linked", error)
         }
