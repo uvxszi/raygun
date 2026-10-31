@@ -1,9 +1,10 @@
 use raygun_model::{
-    AppInfo, EngineReport, LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack, PlayRequest,
-    PlaybackControl, PlaybackState, QueueItemInput, QueueSnapshot, SettingChange, Settings,
-    StorageInfo, StorageMode,
+    AppInfo, EngineReport, ExtensionInfo, LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack,
+    PlayRequest, PlaybackControl, PlaybackState, ProviderSearchResult, QueueItemInput,
+    QueueSnapshot, SettingChange, Settings, StorageInfo, StorageMode,
 };
 
+use crate::extensions::ExtensionService;
 use crate::library::LibraryService;
 use crate::playback::PlaybackService;
 use crate::settings;
@@ -79,6 +80,17 @@ pub fn playback_enqueue(
     play_now: bool,
 ) {
     playback.enqueue(items, play_now);
+}
+
+/// Replaces the queue with `items` and starts playing at `start_index` (default: the first).
+#[tauri::command]
+#[specta::specta]
+pub fn playback_replace(
+    playback: tauri::State<'_, PlaybackService>,
+    items: Vec<QueueItemInput>,
+    start_index: Option<u32>,
+) {
+    playback.replace(items, start_index.map(|index| index as usize), false);
 }
 
 /// Play, pause, skip, seek, volume, repeat, shuffle and queue edits.
@@ -187,6 +199,25 @@ pub async fn library_play(
     request: PlayRequest,
 ) -> Result<(), String> {
     library.play(request).await
+}
+
+/// Installed and built-in extensions, with their status and providers.
+#[tauri::command]
+#[specta::specta]
+pub async fn extensions_list(
+    extensions: tauri::State<'_, ExtensionService>,
+) -> Result<Vec<ExtensionInfo>, String> {
+    Ok(extensions.list().await)
+}
+
+/// Searches every online music provider at once; each answers with tracks or an error.
+#[tauri::command]
+#[specta::specta]
+pub async fn online_search(
+    extensions: tauri::State<'_, ExtensionService>,
+    query: String,
+) -> Result<Vec<ProviderSearchResult>, String> {
+    Ok(extensions.search(&query).await)
 }
 
 fn to_storage_info(paths: &raygun_paths::Paths) -> StorageInfo {

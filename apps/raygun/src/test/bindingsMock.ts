@@ -91,6 +91,9 @@ export const bindingsMock = {
     libraryAlbumTracks: vi.fn(),
     libraryTracks: vi.fn(),
     libraryPlay: vi.fn(),
+    playbackReplace: vi.fn(),
+    extensionsList: vi.fn(),
+    onlineSearch: vi.fn(),
   },
   events: {
     engineCommandEvent: makeEvent('engineCommandEvent'),
@@ -123,6 +126,9 @@ export const seedBindings = () => {
   commands.libraryAlbumTracks.mockResolvedValue(ok([]));
   commands.libraryTracks.mockResolvedValue(ok([]));
   commands.libraryPlay.mockResolvedValue(ok(null));
+  commands.playbackReplace.mockResolvedValue(undefined);
+  commands.extensionsList.mockResolvedValue(ok([]));
+  commands.onlineSearch.mockResolvedValue(ok([]));
 };
 
 export const emitEvent = <Name extends EventName>(name: Name, payload: EventPayloads[Name]) => {

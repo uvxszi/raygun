@@ -404,3 +404,73 @@ pub struct PlayRequest {
     pub start_track_id: Option<String>,
     pub shuffle: bool,
 }
+
+// ---- Extensions (ARCHITECTURE §7) ----
+
+/// Where an extension was loaded from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ExtensionOrigin {
+    /// Compiled into the app.
+    BuiltIn,
+    /// Loaded from the `extensions/` folder; overrides a built-in extension with the same id.
+    Installed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ExtensionStatus {
+    Loaded,
+    Failed,
+}
+
+/// A provider an extension registered, e.g. a `music.metadata` search.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderInfo {
+    /// Unique across extensions: `<extension id>/<provider id>`.
+    pub id: String,
+    pub extension_id: String,
+    pub kind: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionInfo {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub origin: ExtensionOrigin,
+    pub status: ExtensionStatus,
+    /// Why the extension failed to load, when it did.
+    pub error: Option<String>,
+    pub provides: Vec<String>,
+    /// Host patterns the extension may reach (`archive.org`, `*.archive.org`).
+    pub net: Vec<String>,
+    pub providers: Vec<ProviderInfo>,
+}
+
+/// A track found by an online provider.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OnlineTrack {
+    /// The provider's own id for the track, when it has one.
+    pub external_id: Option<String>,
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub duration_ms: Option<u32>,
+    pub artwork_url: Option<String>,
+    /// Directly playable source, when the provider knows one (M14 resolves the others).
+    pub source: Option<MediaSource>,
+}
+
+/// One provider's answer to an online search.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderSearchResult {
+    pub provider: ProviderInfo,
+    pub tracks: Vec<OnlineTrack>,
+    pub error: Option<String>,
+}

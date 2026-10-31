@@ -39,7 +39,13 @@ const routeTree = rootRoute.addChildren([
     component: ArtistPage,
     validateSearch: (search: Record<string, unknown>) => ({ name: text(search.name) }),
   }),
-  createRoute({ getParentRoute: () => rootRoute, path: '/search', component: SearchPage }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/search',
+    component: SearchPage,
+    validateSearch: (search: Record<string, unknown>): { q?: string } =>
+      text(search.q) ? { q: text(search.q) } : {},
+  }),
   createRoute({ getParentRoute: () => rootRoute, path: '/settings', component: SettingsPage }),
 ]);
 

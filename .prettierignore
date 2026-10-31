@@ -8,3 +8,4 @@ packages/bindings/src/index.ts
 docs/
 **/build/
 plugins-mobile/*/android/.tauri/
+third_party/

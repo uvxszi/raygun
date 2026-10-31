@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["apps/raygun/src-tauri", "crates/*", "plugins-mobile/*"]
+exclude = ["third_party"]
 
 [workspace.package]
 version = "0.1.0"
@@ -15,6 +16,7 @@ raygun-db = { path = "crates/raygun-db" }
 raygun-playback = { path = "crates/raygun-playback" }
 raygun-net = { path = "crates/raygun-net" }
 raygun-library = { path = "crates/raygun-library" }
+raygun-ext-host = { path = "crates/raygun-ext-host" }
 raygun-app = { path = "crates/raygun-app" }
 tauri-plugin-raygun-audio = { path = "plugins-mobile/raygun-audio" }
 
@@ -51,3 +53,7 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+# rquickjs-sys ships no Android bindings; see third_party/README.md.
+[patch.crates-io]
+rquickjs-sys = { path = "third_party/rquickjs-sys" }

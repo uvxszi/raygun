@@ -48,8 +48,13 @@
   },
   "search": {
     "title": "Search",
-    "placeholder": "Search music, video, manga…",
-    "emptyBody": "Search becomes available once a source is set up."
+    "placeholder": "Search songs and artists…",
+    "hint": "Search online sources such as the Internet Archive. Results play right away.",
+    "searching": "Searching…",
+    "noSources": "No search sources are installed.",
+    "noResults": "Nothing found for “{{query}}”.",
+    "providerEmpty": "No results from this source.",
+    "providerFailed": "This source failed: {{message}}"
   },
   "settings": {
     "title": "Settings",
@@ -72,7 +77,14 @@
     "storagePortable": "Portable (next to the app)",
     "storageInstalled": "System folders",
     "storageMobile": "App sandbox",
-    "storageOverride": "Custom (RAYGUN_HOME)"
+    "storageOverride": "Custom (RAYGUN_HOME)",
+    "extensions": "Extensions",
+    "noExtensions": "No extensions loaded.",
+    "extensionBuiltIn": "built-in",
+    "extensionInstalled": "installed",
+    "extensionFailed": "Failed to load: {{message}}",
+    "extensionNet": "Network: {{hosts}}",
+    "extensionNoNet": "No network access"
   },
   "player": {
     "nothingPlaying": "Nothing playing",

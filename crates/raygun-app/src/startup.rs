@@ -58,6 +58,8 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         native_engine(app),
     ));
 
+    app.manage(crate::extensions::ExtensionService::start(&paths)?);
+
     create_main_window(app, &paths)?;
 
     app.manage(LogGuard(guard));

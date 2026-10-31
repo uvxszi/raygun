@@ -13,6 +13,7 @@ raygun-db.workspace = true
 raygun-playback.workspace = true
 raygun-net.workspace = true
 raygun-library.workspace = true
+raygun-ext-host.workspace = true
 tauri-plugin-raygun-audio.workspace = true
 tauri.workspace = true
 serde.workspace = true
@@ -24,6 +25,7 @@ tauri-specta.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-appender.workspace = true
+tokio = { version = "1", features = ["sync"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 rfd.workspace = true

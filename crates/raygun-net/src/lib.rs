@@ -15,6 +15,12 @@ pub const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) 
 /// (aws-lc + platform verifier) complicates Android builds and needs extra JNI setup there; this
 /// one behaves the same on every platform.
 pub fn http_client() -> reqwest::Result<reqwest::Client> {
+    client_builder().build()
+}
+
+/// A client builder with Raygun's TLS setup and default user agent, for clients that need their
+/// own policies (extensions get one each, with a redirect policy enforcing their permissions).
+pub fn client_builder() -> reqwest::ClientBuilder {
     // Also make ring the process-wide default, so any other client (or a library building its own)
     // finds a provider. Fails harmlessly if one is already installed.
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -32,5 +38,4 @@ pub fn http_client() -> reqwest::Result<reqwest::Client> {
     reqwest::Client::builder()
         .use_preconfigured_tls(tls)
         .user_agent(DEFAULT_USER_AGENT)
-        .build()
 }

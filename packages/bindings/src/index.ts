@@ -42,6 +42,12 @@ export const commands = {
 	libraryTracks: (offset: number, limit: number) => typedError<LibraryTrack[], string>(__TAURI_INVOKE("library_tracks", { offset, limit })),
 	/**  Replaces the play queue with part of the library and starts playing. */
 	libraryPlay: (request: PlayRequest) => typedError<null, string>(__TAURI_INVOKE("library_play", { request })),
+	/**  Replaces the queue with `items` and starts playing at `start_index` (default: the first). */
+	playbackReplace: (items: QueueItemInput[], startIndex: number | null) => __TAURI_INVOKE<void>("playback_replace", { items, startIndex }),
+	/**  Installed and built-in extensions, with their status and providers. */
+	extensionsList: () => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extensions_list")),
+	/**  Searches every online music provider at once; each answers with tracks or an error. */
+	onlineSearch: (query: string) => typedError<ProviderSearchResult[], string>(__TAURI_INVOKE("online_search", { query })),
 };
 
 /** Events */
@@ -83,6 +89,29 @@ export type EngineReport = {
 	loadId: number,
 	event: EngineEvent,
 };
+
+export type ExtensionInfo = {
+	id: string,
+	name: string,
+	version: string,
+	origin: ExtensionOrigin,
+	status: ExtensionStatus,
+	/**  Why the extension failed to load, when it did. */
+	error: string | null,
+	provides: string[],
+	/**  Host patterns the extension may reach (`archive.org`, `*.archive.org`). */
+	net: string[],
+	providers: ProviderInfo[],
+};
+
+/**  Where an extension was loaded from. */
+export type ExtensionOrigin = 
+/**  Compiled into the app. */
+"builtIn" | 
+/**  Loaded from the `extensions/` folder; overrides a built-in extension with the same id. */
+"installed";
+
+export type ExtensionStatus = "loaded" | "failed";
 
 export type LibraryAlbum = {
 	artist: string,
@@ -151,6 +180,19 @@ export type MediaSource =
 /**  A YouTube video, played through YouTube's embedded player (M08). */
 { kind: "youTube"; videoId: string };
 
+/**  A track found by an online provider. */
+export type OnlineTrack = {
+	/**  The provider's own id for the track, when it has one. */
+	externalId: string | null,
+	title: string,
+	artist: string | null,
+	album: string | null,
+	durationMs: number | null,
+	artworkUrl: string | null,
+	/**  Directly playable source, when the provider knows one (M14 resolves the others). */
+	source: MediaSource | null,
+};
+
 export type PlayRequest = {
 	selection: PlaySelection,
 	/**  Track to start with; otherwise the first (or a random one when shuffling). */
@@ -181,6 +223,22 @@ export type PlaybackState = {
 export type PlaybackStateEvent = PlaybackState;
 
 export type PlaybackStatus = "idle" | "loading" | "buffering" | "playing" | "paused" | "ended" | "error";
+
+/**  A provider an extension registered, e.g. a `music.metadata` search. */
+export type ProviderInfo = {
+	/**  Unique across extensions: `<extension id>/<provider id>`. */
+	id: string,
+	extensionId: string,
+	kind: string,
+	name: string,
+};
+
+/**  One provider's answer to an online search. */
+export type ProviderSearchResult = {
+	provider: ProviderInfo,
+	tracks: OnlineTrack[],
+	error: string | null,
+};
 
 /**  The queue changed. */
 export type QueueEvent = QueueSnapshot;

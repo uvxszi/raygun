@@ -1,0 +1,156 @@
+import type { ExtensionInfo, OnlineTrack, ProviderSearchResult } from '@raygun/bindings';
+import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+
+import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
+import { bindingsMock } from '../test/bindingsMock';
+
+vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
+
+const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
+
+const PROVIDER = {
+  id: 'dev.raygun.internet-archive/search',
+  extensionId: 'dev.raygun.internet-archive',
+  kind: 'music.metadata',
+  name: 'Internet Archive',
+};
+
+const track = (title: string, playable = true): OnlineTrack => ({
+  externalId: title,
+  title,
+  artist: 'Louis Armstrong',
+  album: 'Hot Fives',
+  durationMs: 185_000,
+  artworkUrl: null,
+  source: playable ? { kind: 'url', url: `https://archive.org/${title}.mp3`, headers: {} } : null,
+});
+
+const answer = (results: ProviderSearchResult[]) =>
+  bindingsMock.commands.onlineSearch.mockResolvedValue(ok(results));
+
+describe('Search', () => {
+  beforeEach(() => {
+    AppShellWrapper.seedCore();
+  });
+
+  it('hints at online search before anything is typed', async () => {
+    await AppShellWrapper.mount('/search');
+
+    expect(await screen.findByText(/Search online sources/)).toBeInTheDocument();
+    expect(bindingsMock.commands.onlineSearch).not.toHaveBeenCalled();
+  });
+
+  it('searches once typing pauses and groups results by source', async () => {
+    answer([
+      {
+        provider: PROVIDER,
+        tracks: [track('West End Blues'), track('Potato Head Blues')],
+        error: null,
+      },
+    ]);
+    await AppShellWrapper.mount('/search');
+
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search' }), 'armstrong');
+
+    const group = await screen.findByTestId('provider-results');
+    expect(group).toHaveTextContent('Internet Archive');
+    expect(within(group).getAllByTestId('online-track-row')).toHaveLength(2);
+    expect(group).toHaveTextContent('Louis Armstrong · Hot Fives');
+    expect(bindingsMock.commands.onlineSearch).toHaveBeenCalledTimes(1);
+    expect(bindingsMock.commands.onlineSearch).toHaveBeenCalledWith('armstrong');
+  });
+
+  it('plays the playable results starting from the tapped track', async () => {
+    answer([
+      {
+        provider: PROVIDER,
+        tracks: [track('One'), track('No source', false), track('Two')],
+        error: null,
+      },
+    ]);
+    await AppShellWrapper.mount('/search?q=blues');
+
+    const rows = await screen.findAllByTestId('online-track-row');
+    expect(rows[1]).toBeDisabled();
+    await userEvent.click(rows[2]!);
+
+    const [items, start] = bindingsMock.commands.playbackReplace.mock.calls[0]!;
+    expect(items.map((item: { title: string }) => item.title)).toEqual(['One', 'Two']);
+    expect(items[0]).toMatchObject({
+      artist: 'Louis Armstrong',
+      mediaKind: 'audio',
+      source: { kind: 'url', url: 'https://archive.org/One.mp3' },
+    });
+    expect(start).toBe(1);
+  });
+
+  it('shows a failing source next to working ones', async () => {
+    answer([
+      { provider: PROVIDER, tracks: [track('One')], error: null },
+      {
+        provider: { ...PROVIDER, id: 'other/search', name: 'Other' },
+        tracks: [],
+        error: 'offline',
+      },
+    ]);
+    await AppShellWrapper.mount('/search?q=blues');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('This source failed: offline');
+    expect(screen.getAllByTestId('online-track-row')).toHaveLength(1);
+  });
+
+  it('says when nothing was found, or no sources exist', async () => {
+    answer([{ provider: PROVIDER, tracks: [], error: null }]);
+    await AppShellWrapper.mount('/search?q=zzzz');
+    expect(await screen.findByText('Nothing found for “zzzz”.')).toBeInTheDocument();
+  });
+
+  it('says when no search sources are installed', async () => {
+    answer([]);
+    await AppShellWrapper.mount('/search?q=zzzz');
+    expect(await screen.findByText('No search sources are installed.')).toBeInTheDocument();
+  });
+});
+
+describe('Settings extensions', () => {
+  const extension = (overrides: Partial<ExtensionInfo>): ExtensionInfo => ({
+    id: 'dev.raygun.internet-archive',
+    name: 'Internet Archive',
+    version: '1.0.0',
+    origin: 'builtIn',
+    status: 'loaded',
+    error: null,
+    provides: ['music.metadata'],
+    net: ['archive.org', '*.archive.org'],
+    providers: [PROVIDER],
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    AppShellWrapper.seedCore();
+  });
+
+  it('lists extensions with origin, permissions and load errors', async () => {
+    bindingsMock.commands.extensionsList.mockResolvedValue(
+      ok([
+        extension({}),
+        extension({
+          id: 'dev.example.broken',
+          name: 'Broken',
+          origin: 'installed',
+          status: 'failed',
+          error: 'SyntaxError',
+          net: [],
+        }),
+      ]),
+    );
+    await AppShellWrapper.mount('/settings');
+
+    const rows = await screen.findAllByTestId('extension-row');
+    expect(rows[0]).toHaveTextContent('Internet Archive1.0.0built-in');
+    expect(rows[0]).toHaveTextContent('Network: archive.org, *.archive.org');
+    expect(rows[1]).toHaveTextContent('installed');
+    expect(within(rows[1]!).getByRole('alert')).toHaveTextContent('Failed to load: SyntaxError');
+  });
+});

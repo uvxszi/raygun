@@ -5,6 +5,7 @@
 
 mod commands;
 mod events;
+mod extensions;
 mod library;
 mod playback;
 mod settings;
@@ -38,7 +39,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::library_artists,
             commands::library_album_tracks,
             commands::library_tracks,
-            commands::library_play
+            commands::library_play,
+            commands::playback_replace,
+            commands::extensions_list,
+            commands::online_search
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,
