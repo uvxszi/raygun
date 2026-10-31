@@ -1,4 +1,5 @@
-//! Startup sequence: resolve the data root, start logging, then create the main window.
+//! Startup sequence: resolve the data root, start logging, open the database, then create the
+//! main window.
 //!
 //! The window is created here rather than from `tauri.conf.json` (where it is marked
 //! `"create": false`) so the webview profile lands inside the data root instead of the
@@ -18,6 +19,9 @@ const LOG_FILES_KEPT: usize = 7;
 /// Resolved storage locations, available to commands as Tauri state.
 pub struct AppPaths(pub Paths);
 
+/// The open database, available to commands as Tauri state.
+pub struct AppDb(pub raygun_db::Db);
+
 /// Keeps the background log writer alive for the app's lifetime.
 struct LogGuard(#[allow(dead_code)] WorkerGuard);
 
@@ -32,10 +36,14 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         "storage resolved"
     );
 
+    let db = tauri::async_runtime::block_on(raygun_db::Db::open(&paths.db()))?;
+    tracing::info!(device_id = %db.device_id(), "database ready");
+
     create_main_window(app, &paths)?;
 
     app.manage(LogGuard(guard));
     app.manage(AppPaths(paths));
+    app.manage(AppDb(db));
     Ok(())
 }
 

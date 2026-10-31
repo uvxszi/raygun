@@ -9,7 +9,7 @@
 
   Fails when:
     - any new file, folder or registry key whose name contains "raygun" appears outside the portable folder
-    - raygun-data\logs or raygun-data\webview\EBWebView is missing next to the exe
+    - raygun-data\logs, raygun-data\raygun.db or raygun-data\webview\EBWebView is missing next to the exe
 
   Other new entries (Windows and other apps write constantly) are listed for review only.
 
@@ -98,6 +98,7 @@ $raygunAfter = Get-RaygunNamed
 
 $failures = @()
 if (-not (Test-Path (Join-Path $dataDir 'logs'))) { $failures += 'raygun-data\logs is missing' }
+if (-not (Test-Path (Join-Path $dataDir 'raygun.db'))) { $failures += 'raygun-data\raygun.db is missing' }
 if (-not (Test-Path $webviewProfile)) { $failures += 'raygun-data\webview\EBWebView is missing (webview profile went elsewhere or app failed to start)' }
 
 $leaks = @(Get-NewEntries $raygunBefore $raygunAfter)

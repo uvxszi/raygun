@@ -3,6 +3,10 @@ import type { StorageMode } from '@raygun/bindings';
 import { useQuery } from '@tanstack/react-query';
 import type { FC, ReactNode } from 'react';
 
+import { AppearanceCard } from './settings/AppearanceCard';
+import { useApplyTheme } from './settings/useApplyTheme';
+import { useSettings } from './settings/useSettings';
+
 const STORAGE_MODE_LABELS: Record<StorageMode, string> = {
   portable: 'Portable (next to the app)',
   installed: 'System folders',
@@ -22,6 +26,8 @@ const InfoList: FC<{ testId: string; children: ReactNode }> = ({ testId, childre
 export const App: FC = () => {
   const appInfo = useQuery({ queryKey: ['appInfo'], queryFn: commands.appInfo });
   const storageInfo = useQuery({ queryKey: ['storageInfo'], queryFn: commands.storageInfo });
+  const settings = useSettings();
+  useApplyTheme(settings.data?.theme);
   const error = appInfo.error ?? storageInfo.error;
 
   return (
@@ -55,6 +61,7 @@ export const App: FC = () => {
           </dd>
         </InfoList>
       )}
+      <AppearanceCard />
     </main>
   );
 };

@@ -11,6 +11,7 @@ rust-version = "1.95"
 [workspace.dependencies]
 raygun-model = { path = "crates/raygun-model" }
 raygun-paths = { path = "crates/raygun-paths" }
+raygun-db = { path = "crates/raygun-db" }
 raygun-app = { path = "crates/raygun-app" }
 
 tauri = { version = "2", features = [] }
@@ -24,6 +25,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-appender = "0.2"
 rfd = { version = "0.17", default-features = false, features = ["gtk3", "common-controls-v6"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+uuid = { version = "1", features = ["v7"] }
+thiserror = "2"
 
 [profile.release]
 codegen-units = 1

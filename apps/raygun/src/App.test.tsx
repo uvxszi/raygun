@@ -6,7 +6,12 @@ import { App } from './App';
 import { renderWithProviders } from './test/renderWithProviders';
 
 vi.mock('@raygun/bindings', () => ({
-  commands: { appInfo: vi.fn(), storageInfo: vi.fn() },
+  commands: {
+    appInfo: vi.fn(),
+    storageInfo: vi.fn(),
+    settingsGet: vi.fn(),
+    settingsUpdate: vi.fn(),
+  },
 }));
 
 const ANDROID_INFO: AppInfo = {
@@ -28,6 +33,10 @@ describe('App', () => {
   beforeEach(() => {
     vi.mocked(commands.appInfo).mockResolvedValue(ANDROID_INFO);
     vi.mocked(commands.storageInfo).mockResolvedValue(MOBILE_STORAGE);
+    vi.mocked(commands.settingsGet).mockResolvedValue({
+      status: 'ok',
+      data: { theme: 'system', language: 'en' },
+    });
   });
 
   it('shows the app info reported by the core', async () => {

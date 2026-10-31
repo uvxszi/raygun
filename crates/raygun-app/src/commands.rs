@@ -1,6 +1,7 @@
-use raygun_model::{AppInfo, StorageInfo, StorageMode};
+use raygun_model::{AppInfo, SettingChange, Settings, StorageInfo, StorageMode};
 
-use crate::startup::AppPaths;
+use crate::settings;
+use crate::startup::{AppDb, AppPaths};
 
 /// Reports build and runtime facts about the running app.
 #[tauri::command]
@@ -20,6 +21,27 @@ pub fn app_info() -> AppInfo {
 #[specta::specta]
 pub fn storage_info(paths: tauri::State<'_, AppPaths>) -> StorageInfo {
     to_storage_info(&paths.0)
+}
+
+/// Current user settings, with defaults for anything never set.
+#[tauri::command]
+#[specta::specta]
+pub async fn settings_get(db: tauri::State<'_, AppDb>) -> Result<Settings, String> {
+    settings::load(&db.0)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+/// Changes one setting and returns the updated settings.
+#[tauri::command]
+#[specta::specta]
+pub async fn settings_update(
+    db: tauri::State<'_, AppDb>,
+    change: SettingChange,
+) -> Result<Settings, String> {
+    settings::update(&db.0, change)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 fn to_storage_info(paths: &raygun_paths::Paths) -> StorageInfo {

@@ -9,6 +9,10 @@ export const commands = {
 	appInfo: () => __TAURI_INVOKE<AppInfo>("app_info"),
 	/**  Reports where Raygun keeps its data on this device. */
 	storageInfo: () => __TAURI_INVOKE<StorageInfo>("storage_info"),
+	/**  Current user settings, with defaults for anything never set. */
+	settingsGet: () => typedError<Settings, string>(__TAURI_INVOKE("settings_get")),
+	/**  Changes one setting and returns the updated settings. */
+	settingsUpdate: (change: SettingChange) => typedError<Settings, string>(__TAURI_INVOKE("settings_update", { change })),
 };
 
 /* Types */
@@ -20,6 +24,19 @@ export type AppInfo = {
 	platform: string,
 	arch: string,
 	debug: boolean,
+};
+
+/**
+ *  A change to a single setting. The tagged shape (`{ key, value }`) lets the UI send only valid
+ *  key/value pairs, and doubles as the format of a stored row.
+ */
+export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string };
+
+/**  User settings. Stored one row per field so devices can sync them field by field. */
+export type Settings = {
+	theme: Theme,
+	/**  UI language as a BCP 47 tag, e.g. `en` or `pt-BR`. */
+	language: string,
 };
 
 /**  Where Raygun keeps its data on this device. */
@@ -40,4 +57,19 @@ export type StorageMode =
 "mobile" | 
 /**  Set explicitly through `RAYGUN_HOME`. */
 "override";
+
+/**  Color theme. `System` follows the OS light/dark preference. */
+export type Theme = "system" | "light" | "dark" | 
+/**  Pure black background for OLED screens. */
+"amoled";
+
+/* Tauri Specta runtime */
+async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {
+    try {
+        return { status: "ok", data: await result };
+    } catch (e) {
+        if (e instanceof Error) throw e;
+        return { status: "error", error: e as any };
+    }
+}
 

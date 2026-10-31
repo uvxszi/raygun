@@ -4,6 +4,7 @@
 //! and context, and gets everything else from [`builder`].
 
 mod commands;
+mod settings;
 mod startup;
 
 use std::path::Path;
@@ -15,7 +16,9 @@ pub const BINDINGS_PATH: &str = "packages/bindings/src/index.ts";
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
         commands::app_info,
-        commands::storage_info
+        commands::storage_info,
+        commands::settings_get,
+        commands::settings_update
     ])
 }
 

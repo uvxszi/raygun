@@ -9,8 +9,11 @@ rust-version.workspace = true
 [dependencies]
 raygun-model.workspace = true
 raygun-paths.workspace = true
+raygun-db.workspace = true
 tauri.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
 specta.workspace = true
 specta-typescript.workspace = true
 tauri-specta.workspace = true
@@ -20,3 +23,7 @@ tracing-appender.workspace = true
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 rfd.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

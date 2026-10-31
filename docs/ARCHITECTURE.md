@@ -62,7 +62,8 @@ Raygun/                      ← the user moves/copies this folder
   Raygun(.exe|.app|.AppImage)
   raygun-data/
     raygun.db                 SQLite (WAL), all structured state
-    settings.toml             human-editable settings + secrets reference
+    settings.toml             optional device-local bootstrap overrides (read before the DB opens);
+                              user settings live in the DB so they can sync per key
     secrets.db                encrypted API keys/tokens (key derived per install)
     extensions/<id>/          installed extensions + their kv storage
     models/                   AI models (upscale .param/.bin, ONNX, OCR)

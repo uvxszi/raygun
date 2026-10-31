@@ -50,7 +50,7 @@ impl Paths {
         self.root.join("raygun.db")
     }
 
-    /// Human-editable settings.
+    /// Optional device-local bootstrap overrides, read before the database opens. User settings live in the database.
     pub fn settings(&self) -> PathBuf {
         self.root.join("settings.toml")
     }

@@ -41,3 +41,79 @@ pub struct StorageInfo {
     pub logs: String,
     pub webview: String,
 }
+
+/// Color theme. `System` follows the OS light/dark preference.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum Theme {
+    #[default]
+    System,
+    Light,
+    Dark,
+    /// Pure black background for OLED screens.
+    Amoled,
+}
+
+/// User settings. Stored one row per field so devices can sync them field by field.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Settings {
+    pub theme: Theme,
+    /// UI language as a BCP 47 tag, e.g. `en` or `pt-BR`.
+    pub language: String,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            theme: Theme::System,
+            language: "en".into(),
+        }
+    }
+}
+
+impl Settings {
+    pub fn apply(&mut self, change: SettingChange) {
+        match change {
+            SettingChange::Theme(theme) => self.theme = theme,
+            SettingChange::Language(language) => self.language = language,
+        }
+    }
+}
+
+/// A change to a single setting. The tagged shape (`{ key, value }`) lets the UI send only valid
+/// key/value pairs, and doubles as the format of a stored row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "key", content = "value", rename_all = "camelCase")]
+pub enum SettingChange {
+    Theme(Theme),
+    Language(String),
+}
+
+impl SettingChange {
+    /// Column key of the stored row.
+    pub fn key(&self) -> &'static str {
+        match self {
+            Self::Theme(_) => "theme",
+            Self::Language(_) => "language",
+        }
+    }
+
+    /// Checks values the type system can't express.
+    pub fn validate(&self) -> Result<(), String> {
+        match self {
+            Self::Theme(_) => Ok(()),
+            Self::Language(tag) => {
+                let well_formed = (2..=35).contains(&tag.len())
+                    && tag.split('-').all(|part| {
+                        !part.is_empty() && part.chars().all(|c| c.is_ascii_alphanumeric())
+                    });
+                if well_formed {
+                    Ok(())
+                } else {
+                    Err(format!("\"{tag}\" is not a valid language tag"))
+                }
+            }
+        }
+    }
+}
