@@ -344,7 +344,7 @@ fn portable(source: MediaSource) -> Option<MediaSource> {
 }
 
 /// An http(s) URL that isn't served by this device (the stream proxy, artwork server).
-fn portable_url(url: &str) -> bool {
+pub(crate) fn portable_url(url: &str) -> bool {
     let Some(rest) = url
         .strip_prefix("https://")
         .or_else(|| url.strip_prefix("http://"))

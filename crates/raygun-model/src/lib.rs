@@ -772,3 +772,29 @@ pub struct McpStatus {
     /// Why it isn't running although enabled (e.g. no free port).
     pub error: Option<String>,
 }
+
+// ---- LAN remote (M20) ----
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteDevice {
+    pub id: String,
+    pub name: String,
+    /// Unix ms.
+    pub paired_at: f64,
+}
+
+/// The LAN remote's switch, address, open pairing code and paired devices.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteStatus {
+    pub enabled: bool,
+    /// `http://<LAN IP>:<port>` while it runs.
+    pub url: Option<String>,
+    /// The address with the open pairing code, while a code is open.
+    pub pair_url: Option<String>,
+    /// `pair_url` as a QR code (SVG markup).
+    pub pair_qr_svg: Option<String>,
+    pub devices: Vec<RemoteDevice>,
+    pub error: Option<String>,
+}

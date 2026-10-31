@@ -11,6 +11,7 @@ mod history;
 mod library;
 mod mcp;
 mod playback;
+mod remote;
 mod resolution;
 mod resolver;
 mod search;
@@ -74,7 +75,11 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::collection_play,
             commands::mcp_status,
             commands::mcp_set_enabled,
-            commands::mcp_new_token
+            commands::mcp_new_token,
+            commands::remote_status,
+            commands::remote_set_enabled,
+            commands::remote_new_code,
+            commands::remote_forget_device
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,

@@ -4,8 +4,8 @@ use raygun_model::{
     AppInfo, CollectionPlayRequest, EngineReport, ExtensionInfo, ExtensionRepo, HistoryEntry,
     LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack, Lyrics, McpStatus, PlayRequest,
     PlaybackControl, PlaybackState, PlaylistDetail, PlaylistSummary, QueueItemInput, QueueSnapshot,
-    RepoCatalog, SavedTrack, SearchResults, SettingChange, SettingValue, Settings, StorageInfo,
-    StorageMode, TrackInput, TrackQuery,
+    RemoteStatus, RepoCatalog, SavedTrack, SearchResults, SettingChange, SettingValue, Settings,
+    StorageInfo, StorageMode, TrackInput, TrackQuery,
 };
 
 use crate::collections::CollectionsService;
@@ -13,6 +13,7 @@ use crate::extensions::ExtensionService;
 use crate::library::LibraryService;
 use crate::mcp::McpService;
 use crate::playback::PlaybackService;
+use crate::remote::RemoteService;
 use crate::settings;
 use crate::startup::{AppDb, AppPaths};
 
@@ -481,6 +482,44 @@ pub async fn mcp_set_enabled(
 #[specta::specta]
 pub async fn mcp_new_token(mcp: tauri::State<'_, McpService>) -> Result<McpStatus, String> {
     mcp.new_token().await
+}
+
+/// The LAN remote's switch, address, pairing code and paired devices.
+#[tauri::command]
+#[specta::specta]
+pub async fn remote_status(
+    remote: tauri::State<'_, RemoteService>,
+) -> Result<RemoteStatus, String> {
+    remote.status().await
+}
+
+/// Turns the LAN remote on (opening a pairing code) or off.
+#[tauri::command]
+#[specta::specta]
+pub async fn remote_set_enabled(
+    remote: tauri::State<'_, RemoteService>,
+    enabled: bool,
+) -> Result<RemoteStatus, String> {
+    remote.set_enabled(enabled).await
+}
+
+/// Opens a new pairing code, replacing the previous one.
+#[tauri::command]
+#[specta::specta]
+pub async fn remote_new_code(
+    remote: tauri::State<'_, RemoteService>,
+) -> Result<RemoteStatus, String> {
+    remote.new_code().await
+}
+
+/// Removes a paired device; it loses access at once.
+#[tauri::command]
+#[specta::specta]
+pub async fn remote_forget_device(
+    remote: tauri::State<'_, RemoteService>,
+    id: String,
+) -> Result<RemoteStatus, String> {
+    remote.forget(&id).await
 }
 
 /// Replaces the queue with favorites, a playlist or history and starts playing.

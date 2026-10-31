@@ -72,6 +72,9 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     ));
     let mcp = tauri::async_runtime::block_on(crate::mcp::McpService::start(app.handle().clone()))?;
     app.manage(mcp);
+    let remote =
+        tauri::async_runtime::block_on(crate::remote::RemoteService::start(app.handle().clone()))?;
+    app.manage(remote);
 
     create_main_window(app, &paths)?;
 

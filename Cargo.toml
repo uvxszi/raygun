@@ -20,6 +20,7 @@ raygun-ext-host = { path = "crates/raygun-ext-host" }
 raygun-resolver = { path = "crates/raygun-resolver" }
 raygun-app = { path = "crates/raygun-app" }
 raygun-mcp = { path = "crates/raygun-mcp" }
+raygun-remote = { path = "crates/raygun-remote" }
 tauri-plugin-raygun-audio = { path = "plugins-mobile/raygun-audio" }
 
 tauri = { version = "2", features = [] }

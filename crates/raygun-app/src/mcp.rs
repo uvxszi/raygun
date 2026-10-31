@@ -296,24 +296,9 @@ impl AppBackend {
     }
 
     fn control(&self, args: &Value) -> Result<Value, String> {
-        let action = text_arg(args, "action")?;
-        let control = match action.as_str() {
-            "play" => PlaybackControl::Play,
-            "pause" => PlaybackControl::Pause,
-            "toggle" => PlaybackControl::Toggle,
-            "next" => PlaybackControl::Next,
-            "previous" => PlaybackControl::Previous,
-            "seek" => PlaybackControl::Seek {
-                position_ms: args
-                    .get("positionMs")
-                    .and_then(Value::as_f64)
-                    .filter(|position| *position >= 0.0)
-                    .ok_or("seek needs positionMs (milliseconds, 0 or more)")?,
-            },
-            other => return Err(format!("Unknown action: {other}")),
-        };
+        let control = parse_control(args)?;
         self.playback().control(control);
-        Ok(json!({ "done": action }))
+        Ok(json!({ "done": text_arg(args, "action")? }))
     }
 
     async fn favorites(&self) -> Result<Value, String> {
@@ -539,8 +524,38 @@ fn tool_defs() -> Vec<ToolDef> {
     ]
 }
 
+/// A playback command from `{ action, positionMs?, volume?, itemId? }` (MCP and the LAN remote).
+pub(crate) fn parse_control(args: &Value) -> Result<PlaybackControl, String> {
+    let action = text_arg(args, "action")?;
+    Ok(match action.as_str() {
+        "play" => PlaybackControl::Play,
+        "pause" => PlaybackControl::Pause,
+        "toggle" => PlaybackControl::Toggle,
+        "next" => PlaybackControl::Next,
+        "previous" => PlaybackControl::Previous,
+        "seek" => PlaybackControl::Seek {
+            position_ms: args
+                .get("positionMs")
+                .and_then(Value::as_f64)
+                .filter(|position| *position >= 0.0)
+                .ok_or("seek needs positionMs (milliseconds, 0 or more)")?,
+        },
+        "volume" => PlaybackControl::SetVolume {
+            volume: args
+                .get("volume")
+                .and_then(Value::as_f64)
+                .filter(|volume| (0.0..=1.0).contains(volume))
+                .ok_or("volume needs a volume from 0 to 1")?,
+        },
+        "playItem" => PlaybackControl::PlayItem {
+            item_id: text_arg(args, "itemId")?,
+        },
+        other => return Err(format!("Unknown action: {other}")),
+    })
+}
+
 /// A required, non-empty string argument.
-fn text_arg(args: &Value, key: &str) -> Result<String, String> {
+pub(crate) fn text_arg(args: &Value, key: &str) -> Result<String, String> {
     args.get(key)
         .and_then(Value::as_str)
         .map(str::trim)
@@ -550,7 +565,7 @@ fn text_arg(args: &Value, key: &str) -> Result<String, String> {
 }
 
 /// A song from `title`, `artist` and `album` arguments.
-fn track_arg(args: &Value) -> Result<TrackInput, String> {
+pub(crate) fn track_arg(args: &Value) -> Result<TrackInput, String> {
     let optional = |key: &str| {
         args.get(key)
             .and_then(Value::as_str)
@@ -606,6 +621,40 @@ mod tests {
         );
         assert!(track_arg(&json!({ "artist": "Nina Simone" })).is_err());
         assert!(text_arg(&json!({ "query": 5 }), "query").is_err());
+    }
+
+    #[test]
+    fn controls_parse_with_their_arguments() {
+        assert_eq!(
+            parse_control(&json!({ "action": "toggle" })),
+            Ok(PlaybackControl::Toggle)
+        );
+        assert_eq!(
+            parse_control(&json!({ "action": "seek", "positionMs": 5000 })),
+            Ok(PlaybackControl::Seek {
+                position_ms: 5000.0
+            })
+        );
+        assert_eq!(
+            parse_control(&json!({ "action": "volume", "volume": 0.5 })),
+            Ok(PlaybackControl::SetVolume { volume: 0.5 })
+        );
+        assert_eq!(
+            parse_control(&json!({ "action": "playItem", "itemId": "q3" })),
+            Ok(PlaybackControl::PlayItem {
+                item_id: "q3".into()
+            })
+        );
+        for bad in [
+            json!({ "action": "seek" }),
+            json!({ "action": "seek", "positionMs": -1 }),
+            json!({ "action": "volume", "volume": 2 }),
+            json!({ "action": "playItem" }),
+            json!({ "action": "dance" }),
+            json!({}),
+        ] {
+            assert!(parse_control(&bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

@@ -123,6 +123,10 @@ export const bindingsMock = {
     mcpStatus: vi.fn(),
     mcpSetEnabled: vi.fn(),
     mcpNewToken: vi.fn(),
+    remoteStatus: vi.fn(),
+    remoteSetEnabled: vi.fn(),
+    remoteNewCode: vi.fn(),
+    remoteForgetDevice: vi.fn(),
   },
   events: {
     engineCommandEvent: makeEvent('engineCommandEvent'),
@@ -190,6 +194,18 @@ export const seedBindings = () => {
   commands.mcpStatus.mockResolvedValue(ok(mcpOff));
   commands.mcpSetEnabled.mockResolvedValue(ok(mcpOff));
   commands.mcpNewToken.mockResolvedValue(ok(mcpOff));
+  const remoteOff = {
+    enabled: false,
+    url: null,
+    pairUrl: null,
+    pairQrSvg: null,
+    devices: [],
+    error: null,
+  };
+  commands.remoteStatus.mockResolvedValue(ok(remoteOff));
+  commands.remoteSetEnabled.mockResolvedValue(ok(remoteOff));
+  commands.remoteNewCode.mockResolvedValue(ok(remoteOff));
+  commands.remoteForgetDevice.mockResolvedValue(ok(remoteOff));
 };
 
 export const emitEvent = <Name extends EventName>(name: Name, payload: EventPayloads[Name]) => {

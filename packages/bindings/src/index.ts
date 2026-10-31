@@ -101,6 +101,14 @@ export const commands = {
 	mcpSetEnabled: (enabled: boolean) => typedError<McpStatus, string>(__TAURI_INVOKE("mcp_set_enabled", { enabled })),
 	/**  Issues a new MCP token; clients with the old one must be given the new one. */
 	mcpNewToken: () => typedError<McpStatus, string>(__TAURI_INVOKE("mcp_new_token")),
+	/**  The LAN remote's switch, address, pairing code and paired devices. */
+	remoteStatus: () => typedError<RemoteStatus, string>(__TAURI_INVOKE("remote_status")),
+	/**  Turns the LAN remote on (opening a pairing code) or off. */
+	remoteSetEnabled: (enabled: boolean) => typedError<RemoteStatus, string>(__TAURI_INVOKE("remote_set_enabled", { enabled })),
+	/**  Opens a new pairing code, replacing the previous one. */
+	remoteNewCode: () => typedError<RemoteStatus, string>(__TAURI_INVOKE("remote_new_code")),
+	/**  Removes a paired device; it loses access at once. */
+	remoteForgetDevice: (id: string) => typedError<RemoteStatus, string>(__TAURI_INVOKE("remote_forget_device", { id })),
 };
 
 /** Events */
@@ -455,6 +463,26 @@ export type QueueSnapshot = {
 	 *  contents or order change, not on every track change.
 	 */
 	order: number[],
+};
+
+export type RemoteDevice = {
+	id: string,
+	name: string,
+	/**  Unix ms. */
+	pairedAt: number | null,
+};
+
+/**  The LAN remote's switch, address, open pairing code and paired devices. */
+export type RemoteStatus = {
+	enabled: boolean,
+	/**  `http://<LAN IP>:<port>` while it runs. */
+	url: string | null,
+	/**  The address with the open pairing code, while a code is open. */
+	pairUrl: string | null,
+	/**  `pair_url` as a QR code (SVG markup). */
+	pairQrSvg: string | null,
+	devices: RemoteDevice[],
+	error: string | null,
 };
 
 export type RepeatMode = "off" | "all" | "one";

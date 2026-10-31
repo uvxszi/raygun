@@ -208,5 +208,18 @@
     "hideToken": "Hide token",
     "newToken": "New token",
     "hint": "Clients send the token as “Authorization: Bearer …”. Only apps on this device can connect. A new token disconnects existing clients."
+  },
+  "remote": {
+    "title": "Remote control",
+    "description": "Control playback from a phone or computer on the same Wi-Fi, in its browser.",
+    "qrAlt": "QR code to pair a device",
+    "scan": "Scan with the other device's camera, or open this address in its browser:",
+    "codeUsed": "The pairing code was used. Make a new one to pair another device.",
+    "newCode": "New pairing code",
+    "devices": "Paired devices",
+    "noDevices": "No devices yet.",
+    "pairedOn": "Paired {{date}}",
+    "forget": "Remove {{name}}",
+    "hint": "Only paired devices can control Raygun. Traffic on your Wi-Fi isn't encrypted, so pair only on networks you trust."
   }
 }
