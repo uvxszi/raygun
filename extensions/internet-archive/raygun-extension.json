@@ -1,13 +1,13 @@
 {
   "id": "dev.raygun.internet-archive",
   "name": "Internet Archive",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "apiVersion": 1,
   "runtime": "js",
   "entry": "dist/index.js",
   "description": "Public-domain and Creative Commons audio from the Internet Archive.",
   "author": "Raygun",
-  "provides": ["music.metadata"],
+  "provides": ["music.metadata", "music.stream"],
   "permissions": { "net": ["archive.org", "*.archive.org"] },
   "contentRating": "safe",
   "settings": [{ "key": "itemsPerSearch", "type": "number", "default": 6 }]

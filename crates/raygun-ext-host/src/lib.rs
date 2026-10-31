@@ -17,7 +17,7 @@ mod tests;
 
 pub use host::{
     CallError, ExtensionFiles, ExtensionHost, ExtensionSource, HostConfig, MUSIC_METADATA,
-    UserSettings, discover_installed,
+    MUSIC_STREAM, ProviderCandidates, ResolvedStream, UserSettings, discover_installed,
 };
 pub use js::Limits;
 pub use manifest::{MANIFEST_FILE, Manifest, ManifestError};

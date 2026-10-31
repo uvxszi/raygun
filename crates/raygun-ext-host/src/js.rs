@@ -12,7 +12,9 @@ use std::time::{Duration, Instant};
 use raygun_model::ProviderInfo;
 use reqwest::Url;
 use rquickjs::prelude::Async;
-use rquickjs::{AsyncContext, AsyncRuntime, CatchResultExt, Ctx, Function, Object, Promise};
+use rquickjs::{
+    AsyncContext, AsyncRuntime, CatchResultExt, CaughtError, Ctx, Function, Object, Promise,
+};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -25,6 +27,8 @@ const PRELUDE: &str = include_str!("prelude.js");
 const MAX_REDIRECTS: usize = 10;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 pub const MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
+/// Longest single `raygun.time.sleep`: enough to pace rate-limited APIs, short of the call timeout.
+const MAX_SLEEP_MS: f64 = 10_000.0;
 
 #[derive(Debug, Clone)]
 pub struct Limits {
@@ -142,6 +146,7 @@ impl JsExtension {
         args: &serde_json::Value,
     ) -> Result<serde_json::Value, String> {
         let (provider, method, args) = (provider.to_owned(), method.to_owned(), args.to_string());
+        let label = format!("{}/{provider}.{method}", self.shared.manifest.id);
         self.shared.restart_budget();
         self.context
             .async_with(async move |ctx| {
@@ -152,15 +157,29 @@ impl JsExtension {
                 let promise: Promise = call
                     .call((provider, method, args))
                     .catch(&ctx)
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| call_error(&label, error))?;
                 let text: String = promise
                     .into_future::<String>()
                     .await
                     .catch(&ctx)
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| call_error(&label, error))?;
                 serde_json::from_str(&text).map_err(|error| error.to_string())
             })
             .await
+    }
+}
+
+/// What a failed provider call tells the user: the thrown message alone. The stack trace, which
+/// only helps the extension's author, goes to the log.
+fn call_error(label: &str, error: CaughtError<'_>) -> String {
+    let full = error.to_string();
+    tracing::debug!(call = %label, error = %full, "provider call failed");
+    match &error {
+        CaughtError::Exception(exception) => exception
+            .message()
+            .filter(|message| !message.trim().is_empty())
+            .unwrap_or(full),
+        _ => full,
     }
 }
 
@@ -238,6 +257,26 @@ fn install_natives<'js>(ctx: &Ctx<'js>, shared: Rc<Shared>) -> rquickjs::Result<
                         Ok(response) => ok(response),
                         Err(message) => err(message),
                     }
+                }
+            }),
+        )?,
+    )?;
+
+    let s = shared.clone();
+    native.set(
+        "sleep",
+        Function::new(
+            ctx.clone(),
+            Async(move |ms: f64| {
+                let s = s.clone();
+                async move {
+                    let ms = if ms.is_finite() {
+                        ms.clamp(0.0, MAX_SLEEP_MS)
+                    } else {
+                        0.0
+                    };
+                    tokio::time::sleep(Duration::from_millis(ms as u64)).await;
+                    s.restart_budget();
                 }
             }),
         )?,
@@ -385,6 +424,7 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
     let method = reqwest::Method::from_bytes(options.method.to_ascii_uppercase().as_bytes())
         .map_err(|_| format!("invalid method {:?}", options.method))?;
 
+    let host = url.host_str().unwrap_or_default().to_owned();
     let mut request = shared.client.request(method, url);
     for (name, value) in &options.headers {
         request = request.header(name, value);
@@ -392,7 +432,10 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
     if let Some(body) = options.body {
         request = request.body(body);
     }
-    let mut response = request.send().await.map_err(|error| error_chain(&error))?;
+    let mut response = request
+        .send()
+        .await
+        .map_err(|error| request_error(&host, &error))?;
 
     let status = response.status().as_u16();
     let final_url = response.url().to_string();
@@ -419,7 +462,7 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
     while let Some(chunk) = response
         .chunk()
         .await
-        .map_err(|error| error_chain(&error))?
+        .map_err(|error| request_error(&host, &error))?
     {
         if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
             return Err(format!(
@@ -436,14 +479,15 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
     })
 }
 
-/// reqwest's top-level message hides the cause ("error following redirect"); include the chain.
-fn error_chain(error: &dyn std::error::Error) -> String {
-    let mut message = error.to_string();
-    let mut source = error.source();
-    while let Some(cause) = source {
-        message.push_str(": ");
-        message.push_str(&cause.to_string());
-        source = cause.source();
+/// A short reason for a failed request. reqwest's own message repeats the whole URL; the innermost
+/// cause ("operation timed out", a denied redirect) is what the user needs.
+fn request_error(host: &str, error: &reqwest::Error) -> String {
+    if error.is_timeout() {
+        return format!("{host} didn't answer in time");
     }
-    message
+    let mut cause: &dyn std::error::Error = error;
+    while let Some(inner) = cause.source() {
+        cause = inner;
+    }
+    format!("could not reach {host}: {cause}")
 }

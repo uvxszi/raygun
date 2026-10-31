@@ -249,10 +249,11 @@ async fn registers_providers_and_calls_them_with_json() {
 #[tokio::test]
 async fn thrown_errors_become_script_errors() {
     let host = provider_host("throw new Error('boom from js');").await;
-    assert!(matches!(
+    // Users see the message alone; the stack trace only goes to the log.
+    assert_eq!(
         run(&host, json!({})).await,
-        Err(CallError::Script(message)) if message.contains("boom from js")
-    ));
+        Err(CallError::Script("boom from js".into()))
+    );
 }
 
 #[tokio::test]
@@ -596,4 +597,168 @@ async fn radio_browser_extension_finds_stations() {
         println!("{} | {:?} | {:?}", track.title, track.artist, track.album);
         assert!(matches!(&track.source, Some(MediaSource::Url { .. })));
     }
+}
+
+#[tokio::test]
+async fn stream_providers_offer_and_resolve_candidates() {
+    let host = test_host();
+    let manifest = manifest_json(json!({ "provides": ["music.stream"] }));
+    let code = r#"raygun.providers.register({ kind: 'music.stream', id: 'streams', name: 'Streams',
+      candidates: async ({ title, artist, durationMs, limit }) => ({ candidates: [
+        { id: 1, title: `${artist} - ${title}`, durationMs, quality: '320k',
+          source: { kind: 'url', url: 'https://cdn.example.org/1.mp3', headers: {} } },
+        { id: 'lazy', title, artist },
+        { id: 'local', title, source: { kind: 'localFile', path: '/etc/passwd' } },
+        { id: 'lookup', title, source: { kind: 'lookup', title, artist: null, album: null, durationMs: null } },
+        { id: 'untitled', title: ' ' },
+      ].slice(0, limit) }),
+      resolve: async ({ id }) => id === 'lazy'
+        ? { source: { kind: 'youTube', videoId: 'dQw4w9WgXcQ' }, expiresAt: 1700000000000 }
+        : { source: { kind: 'localFile', path: '/etc/passwd' } },
+    });"#;
+    host.load(vec![ExtensionSource::built_in(&[
+        ("raygun-extension.json", &manifest),
+        ("index.js", code),
+    ])])
+    .await;
+
+    let query = raygun_model::TrackQuery {
+        title: "Song".into(),
+        artist: Some("Band".into()),
+        album: None,
+        duration_ms: Some(200_000),
+    };
+    let answers = host.stream_candidates(&query, 10).await;
+    assert_eq!(answers.len(), 1);
+    let candidates = answers[0].result.as_ref().unwrap();
+    let ids: Vec<_> = candidates
+        .iter()
+        .map(|candidate| candidate.id.as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        vec!["1", "lazy"],
+        "local files, lookups and untitled entries are dropped"
+    );
+    assert_eq!(candidates[0].title, "Band - Song");
+    assert_eq!(candidates[0].duration_ms, Some(200_000));
+    assert_eq!(candidates[0].provider_name, "Streams");
+    assert_eq!(candidates[1].source, None);
+
+    let resolved = host
+        .resolve_stream("dev.raygun.test/streams", "lazy")
+        .await
+        .unwrap();
+    assert!(matches!(resolved.source, MediaSource::YouTube { .. }));
+    assert_eq!(resolved.expires_at, Some(1_700_000_000_000));
+    assert!(matches!(
+        host.resolve_stream("dev.raygun.test/streams", "other").await,
+        Err(CallError::Script(message)) if message.contains("no playable source")
+    ));
+}
+
+/// MusicBrainz finds a song with no stream; Internet Archive's `music.stream` provider offers
+/// candidates for it; the resolver ranks them:
+/// `cargo test -p raygun-ext-host -- --ignored musicbrainz_song_resolves`.
+#[tokio::test]
+#[ignore = "needs network access to musicbrainz.org and archive.org"]
+async fn musicbrainz_song_resolves_through_internet_archive() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(discover_installed(&dir)).await;
+
+    let results = host
+        .search_music("what a wonderful world armstrong", 10)
+        .await;
+    let musicbrainz = results
+        .iter()
+        .find(|result| result.provider.extension_id == "dev.raygun.musicbrainz")
+        .unwrap();
+    assert_eq!(musicbrainz.error, None);
+    let song = musicbrainz
+        .tracks
+        .iter()
+        .find(|track| track.artist.as_deref() == Some("Louis Armstrong"))
+        .expect("Louis Armstrong's recording ranks among the results");
+    assert_eq!(song.source, None, "MusicBrainz has metadata only");
+
+    // A second search right away stays within MusicBrainz's one-request-per-second limit.
+    let again = host.search_music("hello dolly armstrong", 5).await;
+    let again = again
+        .iter()
+        .find(|result| result.provider.extension_id == "dev.raygun.musicbrainz")
+        .unwrap();
+    assert_eq!(
+        again.error, None,
+        "the extension paces and retries its requests"
+    );
+    println!(
+        "song: {} | {:?} | {:?} ms",
+        song.title, song.artist, song.duration_ms
+    );
+
+    let query = raygun_model::TrackQuery {
+        title: song.title.clone(),
+        artist: song.artist.clone(),
+        album: song.album.clone(),
+        duration_ms: song.duration_ms,
+    };
+    let candidates: Vec<_> = host
+        .stream_candidates(&query, 10)
+        .await
+        .into_iter()
+        .flat_map(|answer| answer.result.unwrap_or_default())
+        .collect();
+    assert!(!candidates.is_empty());
+    let ranked = raygun_resolver::rank(&query, candidates, &raygun_resolver::History::default());
+    for scored in &ranked {
+        println!(
+            "{:>4}  {} | {:?} | {:?} ms",
+            scored.score,
+            scored.candidate.title,
+            scored.candidate.artist,
+            scored.candidate.duration_ms
+        );
+    }
+    let best = ranked.first().expect("a candidate passes the threshold");
+    assert!(
+        matches!(&best.candidate.source, Some(MediaSource::Url { url, .. }) if url.contains("archive.org/download/"))
+    );
+}
+
+#[tokio::test]
+async fn sleep_waits_without_spending_the_cpu_budget() {
+    // The test host's CPU budget is 300 ms; sleeping longer must not trip it.
+    let host = provider_host(
+        "const started = Date.now(); await raygun.time.sleep(400); await raygun.time.sleep(-5); return Date.now() - started;",
+    )
+    .await;
+    let waited = run(&host, json!({})).await.unwrap().as_f64().unwrap();
+    assert!((390.0..2_000.0).contains(&waited), "{waited}");
+}
+
+/// Multi-artist credits and decorated titles still find streams:
+/// `cargo test -p raygun-ext-host -- --ignored internet_archive_streams`.
+#[tokio::test]
+#[ignore = "needs network access to archive.org"]
+async fn internet_archive_streams_match_credited_duets() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(discover_installed(&dir)).await;
+    let query = raygun_model::TrackQuery {
+        title: "Hello Dolly (Hello Dolly)".into(),
+        artist: Some("Ella Fitzgerald & Louis Armstrong".into()),
+        album: None,
+        duration_ms: Some(148_000),
+    };
+    let candidates: Vec<_> = host
+        .stream_candidates(&query, 10)
+        .await
+        .into_iter()
+        .flat_map(|answer| answer.result.unwrap())
+        .collect();
+    for candidate in &candidates {
+        println!("{} | {:?}", candidate.title, candidate.artist);
+    }
+    assert!(!candidates.is_empty());
 }

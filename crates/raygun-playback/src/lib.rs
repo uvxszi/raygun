@@ -16,6 +16,9 @@ use crate::shuffle::XorShift;
 
 /// `previous` restarts the current track instead of going back once this far in.
 const RESTART_THRESHOLD_MS: f64 = 3_000.0;
+/// After this many failed items in a row playback stops instead of trying the rest of the queue
+/// (a long list of search results could otherwise fail through dozens of items, M14).
+const MAX_SKIPPED_ERRORS: usize = 3;
 
 /// Work the caller must do after an operation.
 #[derive(Debug, Clone, PartialEq)]
@@ -48,6 +51,8 @@ pub struct PlaybackCore {
     repeat: RepeatMode,
     shuffle: bool,
     error: Option<String>,
+    /// See [`PlaybackState::source_label`].
+    source_label: Option<String>,
     load_id: u32,
     consecutive_errors: usize,
     rng: XorShift,
@@ -67,6 +72,7 @@ impl PlaybackCore {
             repeat: RepeatMode::Off,
             shuffle: false,
             error: None,
+            source_label: None,
             load_id: 0,
             consecutive_errors: 0,
             rng: XorShift::new(seed),
@@ -83,7 +89,23 @@ impl PlaybackCore {
             repeat: self.repeat,
             shuffle: self.shuffle,
             error: self.error.clone(),
+            source_label: self.source_label.clone(),
         }
+    }
+
+    /// The id of the latest `Effect::Load`; engine reports and async resolutions must match it.
+    pub fn load_id(&self) -> u32 {
+        self.load_id
+    }
+
+    /// Records where the current load's stream came from (the resolver's pick). Ignored when a
+    /// newer load has started.
+    pub fn set_source_label(&mut self, load_id: u32, label: Option<String>) -> Vec<Effect> {
+        if load_id != self.load_id || self.cursor.is_none() || self.source_label == label {
+            return Vec::new();
+        }
+        self.source_label = label;
+        vec![Effect::StateChanged]
     }
 
     pub fn queue(&self) -> QueueSnapshot {
@@ -381,7 +403,7 @@ impl PlaybackCore {
         self.consecutive_errors += 1;
         self.status = PlaybackStatus::Error;
         self.error = Some(message);
-        if self.consecutive_errors >= self.items.len() {
+        if self.consecutive_errors >= self.items.len().min(MAX_SKIPPED_ERRORS) {
             return vec![Effect::Engine(EngineCommand::Stop), Effect::StateChanged];
         }
         let effects = self.next();
@@ -398,6 +420,7 @@ impl PlaybackCore {
         self.position_ms = 0.0;
         self.duration_ms = None;
         self.error = None;
+        self.source_label = None;
         vec![Effect::Engine(EngineCommand::Stop), Effect::StateChanged]
     }
 
@@ -406,6 +429,7 @@ impl PlaybackCore {
         self.load_id = self.load_id.wrapping_add(1);
         self.status = PlaybackStatus::Loading;
         self.position_ms = start_ms;
+        self.source_label = None;
         let item = self.items[self.order[cursor]].clone();
         self.duration_ms = item.duration_ms.map(f64::from);
         if self.consecutive_errors == 0 {

@@ -18,23 +18,23 @@ export const useOnlineSearch = (query: string) => {
   });
 };
 
-export const toQueueItem = (track: OnlineTrack): QueueItemInput | null =>
-  track.source
-    ? {
-        title: track.title,
-        artist: track.artist,
-        album: track.album,
-        durationMs: track.durationMs,
-        artworkUrl: track.artworkUrl,
-        mediaKind: track.source.kind === 'youTube' ? 'video' : 'audio',
-        source: track.source,
-      }
-    : null;
+/** A search result as a queue item. Results without a stream are found one when they play (M14). */
+export const toQueueItem = (track: OnlineTrack): QueueItemInput => ({
+  title: track.title,
+  artist: track.artist,
+  album: track.album,
+  durationMs: track.durationMs,
+  artworkUrl: track.artworkUrl,
+  mediaKind: track.source?.kind === 'youTube' ? 'video' : 'audio',
+  source: track.source ?? {
+    kind: 'lookup',
+    title: track.title,
+    artist: track.artist,
+    album: track.album,
+    durationMs: track.durationMs,
+  },
+});
 
-/** Replaces the queue with a provider's playable results, starting at `track`. */
-export const playResults = (tracks: OnlineTrack[], track: OnlineTrack) => {
-  const playable = tracks.filter((candidate) => candidate.source);
-  const items = playable.map(toQueueItem).filter((item) => item !== null);
-  const start = playable.indexOf(track);
-  return commands.playbackReplace(items, Math.max(start, 0));
-};
+/** Replaces the queue with a provider's results, starting at `track`. */
+export const playResults = (tracks: OnlineTrack[], track: OnlineTrack) =>
+  commands.playbackReplace(tracks.map(toQueueItem), Math.max(tracks.indexOf(track), 0));

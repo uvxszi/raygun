@@ -243,7 +243,9 @@ export type MediaSource =
 /**  A file on this device. */
 { kind: "localFile"; path: string } | 
 /**  A YouTube video, played through YouTube's embedded player (M08). */
-{ kind: "youTube"; videoId: string };
+{ kind: "youTube"; videoId: string } | 
+/**  No stream yet: the resolver finds one from `music.stream` providers when it plays (M14). */
+{ kind: "lookup"; title: string; artist: string | null; album: string | null; durationMs: number | null };
 
 /**  A track found by an online provider. */
 export type OnlineTrack = {
@@ -282,6 +284,8 @@ export type PlaybackState = {
 	repeat: RepeatMode,
 	shuffle: boolean,
 	error: string | null,
+	/**  Where the current item's stream came from when the resolver picked it (provider name). */
+	sourceLabel: string | null,
 };
 
 /**  The canonical player state changed. */

@@ -49,7 +49,7 @@
   "search": {
     "title": "Search",
     "placeholder": "Search songs and artists…",
-    "hint": "Search online sources such as the Internet Archive. Results play right away.",
+    "hint": "Search songs, artists and radio stations online. Results play right away.",
     "searching": "Searching…",
     "noSources": "No search sources are installed.",
     "noResults": "Nothing found for “{{query}}”.",
@@ -99,7 +99,9 @@
       "all": "Repeat all",
       "one": "Repeat one"
     },
-    "nowPlaying": "Now playing"
+    "nowPlaying": "Now playing",
+    "findingSource": "Finding a source…",
+    "via": "via {{source}}"
   },
   "common": {
     "coreUnavailable": "Core unavailable: {{message}}"

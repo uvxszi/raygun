@@ -15,7 +15,7 @@ export type MediaSource =
   | { kind: 'url'; url: string; headers: Record<string, string> }
   | { kind: 'youTube'; videoId: string };
 
-/** A track found by a provider. Without a `source` it is shown but not playable yet. */
+/** A track found by a provider. Without a `source` it plays through `music.stream` providers. */
 export type Track = {
   /** The provider's own id for the track. */
   id?: string | number;
@@ -43,7 +43,48 @@ export type MusicMetadataProvider = {
   search(args: SearchArgs): Promise<SearchResult>;
 };
 
-export type Provider = MusicMetadataProvider;
+/** The track the app wants a stream for (M14). */
+export type StreamQuery = {
+  title: string;
+  artist: string | null;
+  album: string | null;
+  durationMs: number | null;
+  limit: number;
+};
+
+/** A stream a provider can offer for a track. Without a `source`, the app calls `resolve` later. */
+export type StreamCandidate = {
+  /** Passed back to `resolve`. */
+  id: string | number;
+  /** As the source names it; the app matches it against the track. */
+  title: string;
+  artist?: string | null;
+  durationMs?: number | null;
+  /** Shown to the user, e.g. "VBR MP3". */
+  quality?: string | null;
+  source?: MediaSource | null;
+};
+
+export type ResolvedStream = {
+  source: MediaSource;
+  /** Unix milliseconds after which the URL stops working (signed URLs). */
+  expiresAt?: number | null;
+};
+
+/**
+ * Streams for tracks found elsewhere. The app asks every `music.stream` provider at once, scores
+ * the candidates against the track and plays the best, falling back to the next on failure.
+ */
+export type MusicStreamProvider = {
+  kind: 'music.stream';
+  id: string;
+  name?: string;
+  candidates(query: StreamQuery): Promise<{ candidates: StreamCandidate[] }>;
+  /** Only needed when candidates come without a `source`. */
+  resolve?(args: { id: string }): Promise<ResolvedStream>;
+};
+
+export type Provider = MusicMetadataProvider | MusicStreamProvider;
 export type ProviderKind = Provider['kind'];
 
 // ---- Host API ----
@@ -87,6 +128,10 @@ export type RaygunApi = {
   };
   html: {
     select(html: string, selector: string): HtmlElement[];
+  };
+  time: {
+    /** Waits without using CPU, e.g. to respect an API's rate limit. Capped at 10 s per call. */
+    sleep(ms: number): Promise<void>;
   };
   /** Per-extension storage, kept across app restarts and extension updates; up to 1 MiB. */
   storage: {

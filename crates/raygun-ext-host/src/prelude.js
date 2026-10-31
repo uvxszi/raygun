@@ -69,6 +69,10 @@
     html: Object.freeze({
       select: (html, selector) => select(html, selector, false),
     }),
+    // There are no timers in the runtime; this paces rate-limited APIs (at most 10 s per call).
+    time: Object.freeze({
+      sleep: (ms) => native.sleep(Number(ms) || 0),
+    }),
     storage: Object.freeze({
       get: (key) => unwrap(native.storageGet(String(key))),
       set: (key, value) => {

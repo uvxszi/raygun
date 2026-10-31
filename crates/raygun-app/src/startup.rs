@@ -64,6 +64,9 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         app.handle().clone(),
         &paths,
     )?);
+    app.manage(std::sync::Arc::new(crate::resolver::ResolverService::new(
+        app.handle().clone(),
+    )));
 
     create_main_window(app, &paths)?;
 

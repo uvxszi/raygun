@@ -1,0 +1,11 @@
+[package]
+name = "raygun-resolver"
+description = "Raygun stream resolution: matching and ranking stream candidates for a track"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+raygun-model.workspace = true
+unicode-normalization = "0.1"

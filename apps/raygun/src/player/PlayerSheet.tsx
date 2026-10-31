@@ -1,7 +1,6 @@
 import type { RepeatMode } from '@raygun/bindings';
 import {
   ChevronDown,
-  Disc3,
   Pause,
   Play,
   Repeat,
@@ -16,11 +15,12 @@ import { useEffect, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { Artwork } from '../library/Artwork';
 import { formatTime } from './formatTime';
 import { usePlayerUiStore } from './playerUiStore';
 import { useCloseOnBack } from './useCloseOnBack';
 import { useVideoSurface } from './useVideoSurface';
-import { isActive, sendControl, useNowPlaying } from './usePlayback';
+import { isActive, sendControl, sourceNote, useNowPlaying } from './usePlayback';
 
 const DISMISS_DISTANCE = 120;
 const DISMISS_VELOCITY = 500;
@@ -33,6 +33,7 @@ export const PlayerSheet: FC = () => {
   const sheetOpen = usePlayerUiStore((state) => state.sheetOpen);
   const closeSheet = usePlayerUiStore((state) => state.closeSheet);
   const { state, item, upNext } = useNowPlaying();
+  const note = sourceNote(state, item);
   const [scrubMs, setScrubMs] = useState<number | null>(null);
   const isVideo = item?.source.kind === 'youTube';
   const videoSurfaceRef = useVideoSurface(sheetOpen && isVideo);
@@ -109,24 +110,28 @@ export const PlayerSheet: FC = () => {
                 data-testid="video-surface"
                 className="aspect-video w-full max-w-md rounded-2xl bg-black"
               />
-            ) : item?.artworkUrl ? (
-              <img
-                src={item.artworkUrl}
-                alt=""
-                className="aspect-square w-full max-w-xs rounded-2xl object-cover shadow-xl"
-              />
             ) : (
-              <div className="bg-surface text-muted grid aspect-square w-full max-w-xs place-items-center rounded-2xl">
-                <Disc3 aria-hidden size={96} />
-              </div>
+              <Artwork
+                key={item?.artworkUrl ?? 'none'}
+                url={item?.artworkUrl}
+                className="w-full max-w-xs rounded-2xl shadow-xl"
+                iconSize={96}
+              />
             )}
             <div className="flex w-full max-w-md flex-col items-center gap-1 text-center">
               <p data-testid="sheet-title" className="w-full truncate text-xl font-semibold">
                 {item?.title ?? t('player.nothingPlaying')}
               </p>
               {item?.artist && <p className="text-muted truncate">{item.artist}</p>}
+              {note && (
+                <p data-testid="sheet-source-note" className="text-muted text-xs">
+                  {note.kind === 'finding'
+                    ? t('player.findingSource')
+                    : t('player.via', { source: note.source })}
+                </p>
+              )}
               {state?.status === 'error' && state.error && (
-                <p role="alert" className="text-primary text-sm">
+                <p role="alert" className="text-primary text-sm wrap-anywhere">
                   {state.error}
                 </p>
               )}

@@ -287,6 +287,37 @@ fn errors_skip_ahead_and_stop_when_everything_failed() {
 }
 
 #[test]
+fn a_long_queue_stops_after_a_few_failures_in_a_row() {
+    let mut core = core_with(&["a", "b", "c", "d", "e", "f"]);
+    core.play();
+    let fail = |core: &mut PlaybackCore| {
+        report(
+            core,
+            EngineEvent::Error {
+                message: "no source".into(),
+            },
+        )
+    };
+
+    assert_eq!(
+        loaded(&fail(&mut core)).map(|(_, title)| title),
+        Some("b".into())
+    );
+    assert_eq!(
+        loaded(&fail(&mut core)).map(|(_, title)| title),
+        Some("c".into())
+    );
+    let third = fail(&mut core);
+    assert_eq!(
+        loaded(&third),
+        None,
+        "three failures in a row stop playback"
+    );
+    assert!(third.contains(&Effect::Engine(EngineCommand::Stop)));
+    assert_eq!(core.state().status, PlaybackStatus::Error);
+}
+
+#[test]
 fn a_successful_play_resets_the_error_streak() {
     let mut core = core_with(&["a", "b", "c"]);
     core.play();

@@ -49,6 +49,7 @@ export const IDLE_STATE: PlaybackState = {
   repeat: 'off',
   shuffle: false,
   error: null,
+  sourceLabel: null,
 };
 
 export const EMPTY_QUEUE: QueueSnapshot = { items: [], order: [] };

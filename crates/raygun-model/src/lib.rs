@@ -137,6 +137,49 @@ pub enum MediaSource {
     /// A YouTube video, played through YouTube's embedded player (M08).
     #[serde(rename_all = "camelCase")]
     YouTube { video_id: String },
+    /// No stream yet: the resolver finds one from `music.stream` providers when it plays (M14).
+    #[serde(rename_all = "camelCase")]
+    Lookup {
+        title: String,
+        artist: Option<String>,
+        album: Option<String>,
+        duration_ms: Option<u32>,
+    },
+}
+
+/// What the resolver searches for: a track's metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackQuery {
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub duration_ms: Option<u32>,
+}
+
+impl TrackQuery {
+    /// The query for a queue item: its `Lookup` source, or its own metadata.
+    pub fn for_item(item: &QueueItem) -> Self {
+        match &item.source {
+            MediaSource::Lookup {
+                title,
+                artist,
+                album,
+                duration_ms,
+            } => Self {
+                title: title.clone(),
+                artist: artist.clone(),
+                album: album.clone(),
+                duration_ms: *duration_ms,
+            },
+            _ => Self {
+                title: item.title.clone(),
+                artist: item.artist.clone(),
+                album: item.album.clone(),
+                duration_ms: item.duration_ms,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -207,6 +250,8 @@ pub struct PlaybackState {
     pub repeat: RepeatMode,
     pub shuffle: bool,
     pub error: Option<String>,
+    /// Where the current item's stream came from when the resolver picked it (provider name).
+    pub source_label: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]

@@ -5,12 +5,13 @@
     {
       "id": "dev.raygun.internet-archive",
       "name": "Internet Archive",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "apiVersion": 1,
       "description": "Public-domain and Creative Commons audio from the Internet Archive.",
       "author": "Raygun",
       "provides": [
-        "music.metadata"
+        "music.metadata",
+        "music.stream"
       ],
       "permissions": {
         "net": [
@@ -20,9 +21,30 @@
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.internet-archive-1.0.0.zip",
-      "sha256": "6fae19ecb097240706667db40b53db3d498a4819259b5502f250746acada0d46",
-      "size": 2073
+      "package": "packages/dev.raygun.internet-archive-1.1.0.zip",
+      "sha256": "3aeb1469968e2dcd9c23a0957b57f90a1c87b8536a29bb10e2b021465468bf8b",
+      "size": 2736
+    },
+    {
+      "id": "dev.raygun.musicbrainz",
+      "name": "MusicBrainz",
+      "version": "1.0.1",
+      "apiVersion": 1,
+      "description": "Song search from the open MusicBrainz database. Results play through streaming extensions.",
+      "author": "Raygun",
+      "provides": [
+        "music.metadata"
+      ],
+      "permissions": {
+        "net": [
+          "musicbrainz.org"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.musicbrainz-1.0.1.zip",
+      "sha256": "b2e8e6345361f0ff5d6a66b3589cf3a5f43a69da7c3fc376b54c318fd5c8efc2",
+      "size": 1996
     },
     {
       "id": "dev.raygun.radio-browser",

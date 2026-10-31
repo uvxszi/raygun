@@ -8,6 +8,7 @@ pub mod extensions;
 pub mod hlc;
 pub mod local_music;
 pub mod settings;
+pub mod streams;
 
 use std::path::Path;
 use std::str::FromStr;

@@ -139,7 +139,10 @@ async fn stream(
             forward(&state.client, &url, &headers, request.headers()).await
         }
         // Played by YouTube's own player, never as a byte stream.
-        Some(MediaSource::YouTube { .. }) => StatusCode::NOT_FOUND.into_response(),
+        // Neither has bytes to proxy: YouTube plays in its embed, a lookup resolves first.
+        Some(MediaSource::YouTube { .. } | MediaSource::Lookup { .. }) => {
+            StatusCode::NOT_FOUND.into_response()
+        }
     };
     with_cors(response)
 }

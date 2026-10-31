@@ -3196,6 +3196,7 @@ dependencies = [
  "raygun-net",
  "raygun-paths",
  "raygun-playback",
+ "raygun-resolver",
  "reqwest",
  "rfd",
  "serde",
@@ -3232,6 +3233,7 @@ dependencies = [
  "futures-util",
  "raygun-model",
  "raygun-net",
+ "raygun-resolver",
  "reqwest",
  "rquickjs",
  "scraper",
@@ -3297,6 +3299,14 @@ version = "0.1.0"
 dependencies = [
  "raygun-model",
  "uuid",
+]
+
+[[package]]
+name = "raygun-resolver"
+version = "0.1.0"
+dependencies = [
+ "raygun-model",
+ "unicode-normalization",
 ]
 
 [[package]]

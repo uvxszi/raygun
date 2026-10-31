@@ -1,5 +1,5 @@
 import { commands, events } from '@raygun/bindings';
-import type { PlaybackControl, PlaybackState, QueueSnapshot } from '@raygun/bindings';
+import type { PlaybackControl, PlaybackState, QueueItem, QueueSnapshot } from '@raygun/bindings';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
@@ -55,3 +55,16 @@ export const sendControl = (control: PlaybackControl) => commands.playbackContro
 
 export const isActive = (state: PlaybackState | undefined) =>
   state?.status === 'playing' || state?.status === 'loading' || state?.status === 'buffering';
+
+/**
+ * Where the stream comes from: "finding" while the resolver looks for one (M14), else the
+ * provider it picked, or `null` for items that carry their own source.
+ */
+export const sourceNote = (
+  state: PlaybackState | undefined,
+  item: QueueItem | undefined,
+): { kind: 'finding' } | { kind: 'via'; source: string } | null => {
+  if (state?.sourceLabel) return { kind: 'via', source: state.sourceLabel };
+  if (item?.source.kind === 'lookup' && state?.status === 'loading') return { kind: 'finding' };
+  return null;
+};

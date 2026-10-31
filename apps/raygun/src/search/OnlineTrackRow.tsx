@@ -9,14 +9,13 @@ type OnlineTrackRowProps = {
   onPlay: (track: OnlineTrack) => void;
 };
 
-/** A search result. Tracks without a playable source are shown but can't be played yet (M14). */
+/** A search result. Tracks without a stream get one from the resolver when they play (M14). */
 export const OnlineTrackRow: FC<OnlineTrackRowProps> = ({ track, onPlay }) => (
   <button
     type="button"
     data-testid="online-track-row"
-    disabled={!track.source}
     onClick={() => onPlay(track)}
-    className="flex h-14 w-full items-center gap-3 text-left disabled:opacity-50"
+    className="flex h-14 w-full items-center gap-3 text-left"
   >
     <Artwork url={track.artworkUrl} className="size-10 shrink-0 rounded" iconSize={18} />
     <span className="flex min-w-0 flex-1 flex-col">

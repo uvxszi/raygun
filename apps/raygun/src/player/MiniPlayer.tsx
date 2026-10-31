@@ -1,12 +1,13 @@
-import { Disc3, Pause, Play } from 'lucide-react';
+import { Pause, Play } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { PanInfo } from 'motion/react';
 import { useRef } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { Artwork } from '../library/Artwork';
 import { usePlayerUiStore } from './playerUiStore';
-import { isActive, sendControl, useNowPlaying } from './usePlayback';
+import { isActive, sendControl, sourceNote, useNowPlaying } from './usePlayback';
 
 const SWIPE_UP_DISTANCE = 40;
 const SWIPE_UP_VELOCITY = 300;
@@ -19,6 +20,7 @@ export const MiniPlayer: FC = () => {
   const { t } = useTranslation();
   const openSheet = usePlayerUiStore((state) => state.openSheet);
   const { state, item } = useNowPlaying();
+  const note = sourceNote(state, item);
   const draggedRef = useRef(false);
   const progress =
     state?.durationMs && state.durationMs > 0
@@ -63,23 +65,24 @@ export const MiniPlayer: FC = () => {
           }}
           className="flex min-w-0 flex-1 items-center gap-3 text-left"
         >
-          {item?.artworkUrl ? (
-            <img
-              src={item.artworkUrl}
-              alt=""
-              className="size-10 shrink-0 rounded-md object-cover"
-            />
-          ) : (
-            <span className="bg-background text-muted grid size-10 shrink-0 place-items-center rounded-md">
-              <Disc3 aria-hidden size={22} />
-            </span>
-          )}
+          <Artwork
+            key={item?.artworkUrl ?? 'none'}
+            url={item?.artworkUrl}
+            className="size-10 shrink-0 rounded-md"
+            iconSize={22}
+          />
           {item ? (
             <span className="flex min-w-0 flex-col">
               <span data-testid="mini-player-title" className="truncate text-sm font-medium">
                 {item.title}
               </span>
-              {item.artist && <span className="text-muted truncate text-xs">{item.artist}</span>}
+              {note?.kind === 'finding' ? (
+                <span data-testid="source-note" className="text-muted truncate text-xs">
+                  {t('player.findingSource')}
+                </span>
+              ) : (
+                item.artist && <span className="text-muted truncate text-xs">{item.artist}</span>
+              )}
             </span>
           ) : (
             <span className="text-muted truncate text-sm">{t('player.nothingPlaying')}</span>

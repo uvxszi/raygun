@@ -1,19 +1,22 @@
-//! Runs the playback state machine and carries out its effects: resolving sources through the
-//! stream proxy, commanding the right engine for each item and broadcasting state to every
-//! client.
+//! Runs the playback state machine and carries out its effects: finding streams for items that
+//! need one (M14), serving sources through the stream proxy, commanding the right engine for each
+//! item and broadcasting state to every client.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use raygun_model::{
-    EngineCommand, EngineReport, MediaSource, PlaybackControl, PlaybackState, QueueItemInput,
-    QueueSnapshot,
+    EngineCommand, EngineEvent, EngineReport, MediaSource, PlaybackControl, PlaybackState,
+    QueueItem, QueueItemInput, QueueSnapshot,
 };
 use raygun_net::StreamProxy;
 use raygun_playback::{Effect, PlaybackCore};
-use tauri::AppHandle;
+use raygun_resolver::Pick;
+use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
 use crate::events::{EngineCommandEvent, PlaybackStateEvent, QueueEvent};
+use crate::resolution::{ErrorPlan, LoadPlan, Tracker};
+use crate::resolver::ResolverService;
 
 /// Delivers one command to a native engine.
 pub type NativeEngineSink = Box<dyn Fn(&EngineCommand) -> Result<(), String> + Send + Sync>;
@@ -41,6 +44,7 @@ struct Inner {
     core: PlaybackCore,
     /// Engine holding the current item; play/pause/seek go here.
     active: Option<Engine>,
+    tracker: Tracker,
 }
 
 pub struct PlaybackService {
@@ -56,6 +60,10 @@ struct Outbox {
     engine: Vec<(Engine, EngineCommand)>,
     state: Option<PlaybackState>,
     queue: Option<QueueSnapshot>,
+    /// Find a stream for this load.
+    resolve: Option<u32>,
+    verified: Option<Pick>,
+    failed: Option<(Pick, String)>,
 }
 
 impl PlaybackService {
@@ -68,6 +76,7 @@ impl PlaybackService {
             inner: Mutex::new(Inner {
                 core: PlaybackCore::new(seed),
                 active: None,
+                tracker: Tracker::default(),
             }),
             proxy,
             app,
@@ -110,10 +119,108 @@ impl PlaybackService {
     }
 
     pub fn report(&self, report: EngineReport) {
-        if let raygun_model::EngineEvent::Error { message } = &report.event {
-            tracing::info!(load_id = report.load_id, %message, "engine reported an error");
-        }
-        self.run(|core| core.report(report));
+        let outbox = {
+            let mut inner = self.lock();
+            let current = report.load_id == inner.core.load_id();
+            let mut verified = None;
+            match &report.event {
+                EngineEvent::Error { message } => {
+                    tracing::info!(load_id = report.load_id, %message, "engine reported an error");
+                    if current
+                        && let ErrorPlan::Retry { failed } =
+                            inner.tracker.engine_error(report.load_id)
+                    {
+                        // Another stream may work: try it before the core gives up on the item.
+                        let mut outbox = Outbox {
+                            resolve: Some(report.load_id),
+                            failed: failed.map(|pick| (*pick, message.clone())),
+                            ..Outbox::default()
+                        };
+                        if let Some(engine) = inner.active.take() {
+                            outbox.engine.push((engine, EngineCommand::Stop));
+                        }
+                        drop(inner);
+                        self.send(outbox);
+                        return;
+                    }
+                }
+                EngineEvent::Playing if current => {
+                    verified = inner.tracker.engine_playing(report.load_id);
+                }
+                _ => {}
+            }
+            let effects = inner.core.report(report);
+            let mut outbox = self.resolve(&mut inner, effects);
+            outbox.verified = verified;
+            outbox
+        };
+        self.send(outbox);
+    }
+
+    /// A resolution started by [`Self::start_resolving`] finished.
+    fn on_resolved(&self, load_id: u32, result: Result<Pick, String>) {
+        let outbox = {
+            let mut inner = self.lock();
+            if inner.core.load_id() != load_id {
+                return;
+            }
+            match result {
+                Ok(pick) => {
+                    let position = inner.core.state().position_ms;
+                    let Some((start_ms, autoplay)) =
+                        inner.tracker.resolved(load_id, pick.clone(), position)
+                    else {
+                        return;
+                    };
+                    let Some(item) = inner.core.current_item().cloned() else {
+                        return;
+                    };
+                    let mut outbox = Outbox::default();
+                    self.load_into(
+                        &mut inner,
+                        &mut outbox,
+                        load_id,
+                        &item,
+                        &pick.source,
+                        start_ms,
+                        autoplay,
+                    );
+                    let effects = inner
+                        .core
+                        .set_source_label(load_id, Some(pick.provider_name));
+                    let labelled = self.resolve(&mut inner, effects);
+                    outbox.state = labelled.state.or(outbox.state);
+                    outbox
+                }
+                Err(message) => {
+                    if inner.tracker.request(load_id).is_none() {
+                        return;
+                    }
+                    tracing::info!(load_id, %message, "no stream found");
+                    let effects = inner.core.report(EngineReport {
+                        load_id,
+                        event: EngineEvent::Error { message },
+                    });
+                    self.resolve(&mut inner, effects)
+                }
+            }
+        };
+        self.send(outbox);
+    }
+
+    /// Resolves a stream for `load_id` in the background, then loads it if that load is still
+    /// current.
+    fn start_resolving(&self, load_id: u32) {
+        let app = self.app.clone();
+        tauri::async_runtime::spawn(async move {
+            let playback = app.state::<PlaybackService>();
+            let Some((query, exclusions)) = playback.lock().tracker.request(load_id) else {
+                return;
+            };
+            let resolver = app.state::<Arc<ResolverService>>().inner().clone();
+            let result = resolver.resolve(&query, &exclusions).await;
+            playback.on_resolved(load_id, result);
+        });
     }
 
     fn run(&self, operation: impl FnOnce(&mut PlaybackCore) -> Vec<Effect>) {
@@ -134,36 +241,28 @@ impl PlaybackService {
                     item,
                     start_ms,
                     autoplay,
-                } => {
-                    let engine = engine_for(&item.source, self.native.is_some());
-                    tracing::debug!(load_id, title = %item.title, ?engine, "loading");
-                    if let Some(previous) = inner.active.filter(|previous| *previous != engine) {
-                        outbox.engine.push((previous, EngineCommand::Stop));
+                } => match inner.tracker.begin(load_id, &item, start_ms, autoplay) {
+                    LoadPlan::Direct => {
+                        let source = item.source.clone();
+                        self.load_into(
+                            inner,
+                            &mut outbox,
+                            load_id,
+                            &item,
+                            &source,
+                            start_ms,
+                            autoplay,
+                        );
                     }
-                    inner.active = Some(engine);
-                    let volume = inner.core.state().volume;
-                    let command = match &item.source {
-                        MediaSource::YouTube { video_id } => EngineCommand::LoadYouTube {
-                            load_id,
-                            embed_url: self.proxy.youtube_embed_url(),
-                            video_id: video_id.clone(),
-                            start_ms,
-                            autoplay,
-                            volume,
-                        },
-                        source => EngineCommand::Load {
-                            load_id,
-                            url: self.proxy.register(source),
-                            title: item.title.clone(),
-                            artist: item.artist.clone(),
-                            artwork_url: item.artwork_url.clone(),
-                            start_ms,
-                            autoplay,
-                            volume,
-                        },
-                    };
-                    outbox.engine.push((engine, command));
-                }
+                    LoadPlan::Resolve => {
+                        // Nothing to play until a stream is found; silence the previous item.
+                        tracing::debug!(load_id, title = %item.title, "finding a stream");
+                        if let Some(previous) = inner.active.take() {
+                            outbox.engine.push((previous, EngineCommand::Stop));
+                        }
+                        outbox.resolve = Some(load_id);
+                    }
+                },
                 Effect::Engine(command) => {
                     let engine = inner.active.unwrap_or(Engine::Webview);
                     outbox.engine.push((engine, command));
@@ -192,6 +291,63 @@ impl PlaybackService {
         if let Some(state) = outbox.state {
             log_emit(PlaybackStateEvent(state).emit(&self.app));
         }
+        if outbox.verified.is_some() || outbox.failed.is_some() {
+            let resolver = self.app.state::<Arc<ResolverService>>().inner().clone();
+            let (verified, failed) = (outbox.verified, outbox.failed);
+            tauri::async_runtime::spawn(async move {
+                if let Some(pick) = verified {
+                    resolver.mark_verified(&pick).await;
+                }
+                if let Some((pick, reason)) = failed {
+                    resolver.mark_failed(&pick, &reason).await;
+                }
+            });
+        }
+        if let Some(load_id) = outbox.resolve {
+            self.start_resolving(load_id);
+        }
+    }
+
+    /// Commands the right engine to load `source` for the current item.
+    #[allow(clippy::too_many_arguments)]
+    fn load_into(
+        &self,
+        inner: &mut Inner,
+        outbox: &mut Outbox,
+        load_id: u32,
+        item: &QueueItem,
+        source: &MediaSource,
+        start_ms: f64,
+        autoplay: bool,
+    ) {
+        let engine = engine_for(source, self.native.is_some());
+        tracing::debug!(load_id, title = %item.title, ?engine, "loading");
+        if let Some(previous) = inner.active.filter(|previous| *previous != engine) {
+            outbox.engine.push((previous, EngineCommand::Stop));
+        }
+        inner.active = Some(engine);
+        let volume = inner.core.state().volume;
+        let command = match source {
+            MediaSource::YouTube { video_id } => EngineCommand::LoadYouTube {
+                load_id,
+                embed_url: self.proxy.youtube_embed_url(),
+                video_id: video_id.clone(),
+                start_ms,
+                autoplay,
+                volume,
+            },
+            source => EngineCommand::Load {
+                load_id,
+                url: self.proxy.register(source),
+                title: item.title.clone(),
+                artist: item.artist.clone(),
+                artwork_url: item.artwork_url.clone(),
+                start_ms,
+                autoplay,
+                volume,
+            },
+        };
+        outbox.engine.push((engine, command));
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {

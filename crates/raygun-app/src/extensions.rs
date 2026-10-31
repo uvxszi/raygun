@@ -13,11 +13,12 @@ use raygun_db::extensions::{self as store, InstallRow};
 use raygun_ext_host::package::{self, MAX_PACKAGE_BYTES};
 use raygun_ext_host::repo::{self, RepoEntry, RepoIndex};
 use raygun_ext_host::{
-    ExtensionHost, ExtensionSource, HostConfig, UserSettings, discover_installed,
+    ExtensionHost, ExtensionSource, HostConfig, ProviderCandidates, ResolvedStream, UserSettings,
+    discover_installed,
 };
 use raygun_model::{
     CatalogEntry, CatalogState, ExtensionInfo, ExtensionOrigin, ExtensionRepo, ExtensionSetting,
-    ProviderSearchResult, RepoCatalog, SettingKind, SettingValue,
+    ProviderSearchResult, RepoCatalog, SettingKind, SettingValue, TrackQuery,
 };
 use raygun_paths::Paths;
 use tauri::{AppHandle, Manager};
@@ -28,6 +29,8 @@ use crate::events::ExtensionsChangedEvent;
 use crate::startup::AppDb;
 
 const SEARCH_LIMIT: u32 = 30;
+/// Candidates asked of each `music.stream` provider per track.
+const CANDIDATE_LIMIT: u32 = 10;
 const WATCH_INTERVAL: Duration = Duration::from_secs(1);
 const INDEX_CACHE: Duration = Duration::from_secs(10 * 60);
 const MAX_INDEX_BYTES: u64 = 2 * 1024 * 1024;
@@ -35,16 +38,28 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Extensions compiled into the app; an installed copy with the same id overrides one.
 fn built_in() -> Vec<ExtensionSource> {
-    vec![ExtensionSource::built_in(&[
-        (
-            "raygun-extension.json",
-            include_str!("../../../extensions/internet-archive/raygun-extension.json"),
-        ),
-        (
-            "dist/index.js",
-            include_str!("../../../extensions/internet-archive/dist/index.js"),
-        ),
-    ])]
+    vec![
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/internet-archive/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/internet-archive/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/musicbrainz/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/musicbrainz/dist/index.js"),
+            ),
+        ]),
+    ]
 }
 
 type Fingerprint = Vec<(PathBuf, u64, Option<SystemTime>)>;
@@ -117,6 +132,25 @@ impl ExtensionService {
         }
         let _ready = self.loading.read().await;
         self.host.search_music(query, SEARCH_LIMIT).await
+    }
+
+    /// Stream candidates for a track from every `music.stream` provider (M14).
+    pub async fn stream_candidates(&self, query: &TrackQuery) -> Vec<ProviderCandidates> {
+        let _ready = self.loading.read().await;
+        self.host.stream_candidates(query, CANDIDATE_LIMIT).await
+    }
+
+    /// The stream behind a candidate that came without one.
+    pub async fn resolve_stream(
+        &self,
+        provider_id: &str,
+        candidate_id: &str,
+    ) -> Result<ResolvedStream, String> {
+        let _ready = self.loading.read().await;
+        self.host
+            .resolve_stream(provider_id, candidate_id)
+            .await
+            .map_err(|error| error.to_string())
     }
 
     /// Reloads every extension from scratch (built-in and installed).

@@ -165,3 +165,68 @@ async fn extension_repos_settings_and_installs_round_trip() {
         .unwrap();
     assert!(extensions::installs(&db).await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn stream_candidates_and_provider_stats_round_trip() {
+    let temp = TempDir::new().unwrap();
+    let db = open_in(temp.path()).await;
+    let key = "louis armstrong|what a wonderful world";
+
+    streams::mark_failed(&db, key, "dev.a/stream", "1", "Live", "HTTP 404", 10)
+        .await
+        .unwrap();
+    streams::mark_verified(
+        &db,
+        key,
+        "dev.b/stream",
+        "2",
+        "Studio",
+        r#"{"kind":"url"}"#,
+        Some(99),
+        20,
+    )
+    .await
+    .unwrap();
+    // Verifying a candidate that failed before clears the failure.
+    streams::mark_verified(
+        &db,
+        key,
+        "dev.a/stream",
+        "1",
+        "Live",
+        r#"{"kind":"url"}"#,
+        None,
+        30,
+    )
+    .await
+    .unwrap();
+
+    let rows = streams::candidates(&db, key).await.unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].candidate_id, "1", "most recently verified first");
+    assert_eq!(rows[0].failed_at, None);
+    assert_eq!(rows[1].expires_at, Some(99));
+    assert!(
+        streams::candidates(&db, "other|key")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    let stats = streams::provider_stats(&db).await.unwrap();
+    assert_eq!(
+        stats,
+        vec![
+            streams::ProviderStats {
+                provider_id: "dev.a/stream".into(),
+                successes: 1,
+                failures: 1
+            },
+            streams::ProviderStats {
+                provider_id: "dev.b/stream".into(),
+                successes: 1,
+                failures: 0
+            },
+        ]
+    );
+}

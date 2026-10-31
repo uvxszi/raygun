@@ -45,8 +45,7 @@ const isMp3 = (file: ItemFile) => file.format?.includes('MP3') ?? false;
 
 const encodePath = (path: string) => path.split('/').map(encodeURIComponent).join('/');
 
-const searchItems = async (query: string, rows: number): Promise<SearchDoc[]> => {
-  const q = `(title:(${query}) OR creator:(${query})) AND mediatype:audio`;
+const searchDocs = async (q: string, rows: number): Promise<SearchDoc[]> => {
   const params = [
     `q=${encodeURIComponent(q)}`,
     'fl[]=identifier',
@@ -59,6 +58,18 @@ const searchItems = async (query: string, rows: number): Promise<SearchDoc[]> =>
   const result = await fetchJson<SearchResponse>(`${API}/advancedsearch.php?${params.join('&')}`);
   return result.response?.docs ?? [];
 };
+
+const searchItems = (query: string, rows: number) =>
+  searchDocs(`(title:(${query}) OR creator:(${query})) AND mediatype:audio`, rows);
+
+/** "Hello Dolly (Live) [Remastered]" -> "Hello Dolly": archive titles rarely carry the extras. */
+const bareTitle = (title: string) => title.replace(/\([^)]*\)|\[[^\]]*\]/g, ' ').trim() || title;
+
+/** "Ella Fitzgerald & Louis Armstrong" -> "Ella Fitzgerald": credits are joined many ways. */
+const mainArtist = (artist: string) =>
+  artist.split(/\s*(?:&|,|;|\/|\bfeat\.?|\bft\.?|\band\b|\bwith\b|\bx\b)\s*/i)[0]?.trim() || artist;
+
+const words = (text: string) => escapeQuery(text).toLowerCase().split(/\s+/).filter(Boolean);
 
 const itemTracks = async (doc: SearchDoc, max: number): Promise<Track[]> => {
   const id = doc.identifier;
@@ -109,4 +120,66 @@ const search = defineProvider({
   },
 });
 
+// Streams for tracks found elsewhere (M14): items by the artist that match the title, then the
+// files inside them whose title has every word of the track's title. Raygun ranks the results.
+const streams = defineProvider({
+  kind: 'music.stream',
+  id: 'stream',
+  name: 'Internet Archive',
+
+  async candidates({ title, artist, limit }) {
+    const wantedTitle = escapeQuery(bareTitle(title));
+    if (wantedTitle === '') return { candidates: [] };
+    const wantedArtist = artist ? escapeQuery(mainArtist(artist)) : '';
+    // Raygun ranks what comes back, so a looser title-only search is a safe last resort.
+    const queries = wantedArtist
+      ? [
+          `title:(${wantedTitle}) AND creator:(${wantedArtist})`,
+          `creator:(${wantedArtist}) AND (${wantedTitle})`,
+          `title:(${wantedTitle})`,
+        ]
+      : [`title:(${wantedTitle})`];
+    const lists = await Promise.allSettled(
+      queries.map((query) => searchDocs(`${query} AND mediatype:audio`, 4)),
+    );
+    const failures = lists.flatMap((list) => (list.status === 'rejected' ? [list.reason] : []));
+    // If every search failed, say why instead of claiming there's nothing.
+    if (failures.length === lists.length) throw failures[0];
+    for (const failure of failures) raygun.log.warn('stream search failed:', String(failure));
+    const docs = [
+      ...new Map(
+        lists
+          .flatMap((list) => (list.status === 'fulfilled' ? list.value : []))
+          .map((doc) => [doc.identifier, doc]),
+      ).values(),
+    ].slice(0, 6);
+
+    const wanted = words(bareTitle(title));
+    const settled = await Promise.allSettled(docs.map((doc) => itemTracks(doc, 500)));
+    for (const result of settled) {
+      if (result.status === 'rejected') raygun.log.warn('item skipped:', String(result.reason));
+    }
+    const matching = settled
+      .flatMap((result) => (result.status === 'fulfilled' ? result.value : []))
+      .filter((track) => {
+        const offered = words(track.title);
+        return wanted.every((word) => offered.includes(word));
+      });
+    raygun.log.info(
+      `stream candidates for "${title}": ${docs.length} items, ${matching.length} matching files`,
+    );
+    return {
+      candidates: matching.slice(0, limit).map((track) => ({
+        id: track.id ?? track.title,
+        title: track.title,
+        artist: track.artist ?? null,
+        durationMs: track.durationMs ?? null,
+        quality: 'MP3',
+        source: track.source ?? null,
+      })),
+    };
+  },
+});
+
 registerProvider(search);
+registerProvider(streams);

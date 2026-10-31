@@ -37,7 +37,7 @@ describe('Search', () => {
   it('hints at online search before anything is typed', async () => {
     await AppShellWrapper.mount('/search');
 
-    expect(await screen.findByText(/Search online sources/)).toBeInTheDocument();
+    expect(await screen.findByText(/Search songs, artists and radio stations/)).toBeInTheDocument();
     expect(bindingsMock.commands.onlineSearch).not.toHaveBeenCalled();
   });
 
@@ -61,7 +61,7 @@ describe('Search', () => {
     expect(bindingsMock.commands.onlineSearch).toHaveBeenCalledWith('armstrong');
   });
 
-  it('plays the playable results starting from the tapped track', async () => {
+  it('plays results from the tapped track, finding streams for those without one', async () => {
     answer([
       {
         provider: PROVIDER,
@@ -72,15 +72,21 @@ describe('Search', () => {
     await AppShellWrapper.mount('/search?q=blues');
 
     const rows = await screen.findAllByTestId('online-track-row');
-    expect(rows[1]).toBeDisabled();
-    await userEvent.click(rows[2]!);
+    await userEvent.click(rows[1]!);
 
     const [items, start] = bindingsMock.commands.playbackReplace.mock.calls[0]!;
-    expect(items.map((item: { title: string }) => item.title)).toEqual(['One', 'Two']);
+    expect(items.map((item: { title: string }) => item.title)).toEqual(['One', 'No source', 'Two']);
     expect(items[0]).toMatchObject({
       artist: 'Louis Armstrong',
       mediaKind: 'audio',
       source: { kind: 'url', url: 'https://archive.org/One.mp3' },
+    });
+    expect(items[1].source).toEqual({
+      kind: 'lookup',
+      title: 'No source',
+      artist: 'Louis Armstrong',
+      album: 'Hot Fives',
+      durationMs: 185_000,
     });
     expect(start).toBe(1);
   });

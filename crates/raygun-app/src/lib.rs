@@ -8,6 +8,8 @@ mod events;
 mod extensions;
 mod library;
 mod playback;
+mod resolution;
+mod resolver;
 mod settings;
 mod startup;
 mod system_ui;

@@ -13,8 +13,9 @@ use std::time::Duration;
 
 use raygun_model::{
     ExtensionInfo, ExtensionOrigin, ExtensionSetting, ExtensionStatus, MediaSource, OnlineTrack,
-    ProviderInfo, ProviderSearchResult, SettingKind, SettingValue,
+    ProviderInfo, ProviderSearchResult, SettingKind, SettingValue, TrackQuery,
 };
+use raygun_resolver::Candidate;
 use serde::Deserialize;
 use tokio::sync::{mpsc, oneshot};
 
@@ -23,6 +24,22 @@ use crate::manifest::{self, MANIFEST_FILE, Manifest};
 use crate::storage::KvStore;
 
 pub const MUSIC_METADATA: &str = "music.metadata";
+pub const MUSIC_STREAM: &str = "music.stream";
+
+/// One `music.stream` provider's answer: its candidates, or why it failed.
+#[derive(Debug, Clone)]
+pub struct ProviderCandidates {
+    pub provider: ProviderInfo,
+    pub result: Result<Vec<Candidate>, String>,
+}
+
+/// A stream a provider resolved a candidate to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedStream {
+    pub source: MediaSource,
+    /// Unix milliseconds after which the URL stops working (signed URLs), if the provider knows.
+    pub expires_at: Option<i64>,
+}
 
 /// The user's setting values, per extension id, then per setting key.
 pub type UserSettings = std::collections::HashMap<String, BTreeMap<String, serde_json::Value>>;
@@ -251,6 +268,60 @@ impl ExtensionHost {
             }
         });
         futures_util::future::join_all(searches).await
+    }
+
+    /// Asks every `music.stream` provider at once for candidates for `query`.
+    pub async fn stream_candidates(
+        &self,
+        query: &TrackQuery,
+        limit: u32,
+    ) -> Vec<ProviderCandidates> {
+        let providers = self.providers(MUSIC_STREAM).await;
+        let args = serde_json::json!({
+            "title": query.title,
+            "artist": query.artist,
+            "album": query.album,
+            "durationMs": query.duration_ms,
+            "limit": limit,
+        });
+        let requests = providers.into_iter().map(|provider| {
+            let args = args.clone();
+            async move {
+                let result = self
+                    .call(&provider.id, "candidates", args)
+                    .await
+                    .map(|value| parse_candidates(&provider, value))
+                    .map_err(|error| error.to_string());
+                ProviderCandidates { provider, result }
+            }
+        });
+        futures_util::future::join_all(requests).await
+    }
+
+    /// Asks a provider for the stream behind one of its candidates.
+    pub async fn resolve_stream(
+        &self,
+        provider_id: &str,
+        candidate_id: &str,
+    ) -> Result<ResolvedStream, CallError> {
+        let value = self
+            .call(
+                provider_id,
+                "resolve",
+                serde_json::json!({ "id": candidate_id }),
+            )
+            .await?;
+        let source = value
+            .get("source")
+            .cloned()
+            .and_then(|source| serde_json::from_value::<MediaSource>(source).ok())
+            .filter(allowed_source)
+            .ok_or_else(|| CallError::Script("resolve returned no playable source".to_owned()))?;
+        let expires_at = value.get("expiresAt").and_then(serde_json::Value::as_f64);
+        Ok(ResolvedStream {
+            source,
+            expires_at: expires_at.filter(|ms| ms.is_finite()).map(|ms| ms as i64),
+        })
     }
 
     async fn ask<T>(&self, request: impl FnOnce(oneshot::Sender<T>) -> Request) -> Option<T> {
@@ -541,11 +612,64 @@ fn parse_tracks(value: serde_json::Value) -> Vec<OnlineTrack> {
                 .filter(|ms| ms.is_finite() && *ms > 0.0 && *ms < f64::from(u32::MAX))
                 .map(|ms| ms as u32),
             artwork_url: track.artwork_url.filter(|url| is_web_url(url)),
-            source: track.source.filter(|source| match source {
-                MediaSource::Url { url, .. } => is_web_url(url),
-                MediaSource::YouTube { .. } => true,
-                MediaSource::LocalFile { .. } => false,
-            }),
+            source: track.source.filter(allowed_source),
+        })
+        .collect()
+}
+
+/// Sources an extension may hand out: web streams and YouTube ids, never local files or lookups.
+fn allowed_source(source: &MediaSource) -> bool {
+    match source {
+        MediaSource::Url { url, .. } => is_web_url(url),
+        MediaSource::YouTube { .. } => true,
+        MediaSource::LocalFile { .. } | MediaSource::Lookup { .. } => false,
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawCandidate {
+    id: serde_json::Value,
+    title: String,
+    #[serde(default)]
+    artist: Option<String>,
+    #[serde(default)]
+    duration_ms: Option<f64>,
+    #[serde(default)]
+    quality: Option<String>,
+    #[serde(default)]
+    source: Option<MediaSource>,
+}
+
+/// Reads `{ candidates: [...] }` like [`parse_tracks`]: malformed entries are skipped, and a
+/// candidate whose inline source isn't allowed is dropped (it would never play).
+fn parse_candidates(provider: &ProviderInfo, value: serde_json::Value) -> Vec<Candidate> {
+    let Some(candidates) = value
+        .get("candidates")
+        .and_then(serde_json::Value::as_array)
+    else {
+        return Vec::new();
+    };
+    candidates
+        .iter()
+        .filter_map(|candidate| serde_json::from_value::<RawCandidate>(candidate.clone()).ok())
+        .filter(|candidate| candidate.source.as_ref().is_none_or(allowed_source))
+        .filter(|candidate| !candidate.title.trim().is_empty())
+        .map(|candidate| Candidate {
+            provider_id: provider.id.clone(),
+            provider_name: provider.name.clone(),
+            id: match candidate.id {
+                serde_json::Value::String(id) => id,
+                other => other.to_string(),
+            },
+            title: candidate.title.trim().to_owned(),
+            artist: candidate.artist.filter(|artist| !artist.trim().is_empty()),
+            duration_ms: candidate
+                .duration_ms
+                .filter(|ms| ms.is_finite() && *ms > 0.0 && *ms < f64::from(u32::MAX))
+                .map(|ms| ms as u32),
+            quality: candidate.quality,
+            source: candidate.source,
         })
         .collect()
 }

@@ -114,6 +114,47 @@ describe('Player', () => {
   });
 });
 
+describe('Player with resolved streams', () => {
+  beforeEach(() => {
+    AppShellWrapper.seedCore();
+  });
+
+  it('says a source is being found, then where it came from', async () => {
+    const { emitEvent, IDLE_STATE } = await import('../test/bindingsMock');
+    const song = {
+      ...makeItem('What a Wonderful World', 'Louis Armstrong'),
+      source: {
+        kind: 'lookup' as const,
+        title: 'What a Wonderful World',
+        artist: 'Louis Armstrong',
+        album: null,
+        durationMs: 137_000,
+      },
+    };
+    await AppShellWrapper.mount();
+    emitEvent('queueEvent', { items: [song], order: [0] });
+    emitEvent('playbackStateEvent', { ...IDLE_STATE, status: 'loading', currentItemId: song.id });
+
+    expect(
+      await within(AppShellWrapper.miniPlayer.element).findByTestId('source-note'),
+    ).toHaveTextContent('Finding a source…');
+
+    emitEvent('playbackStateEvent', {
+      ...IDLE_STATE,
+      status: 'playing',
+      currentItemId: song.id,
+      sourceLabel: 'Internet Archive',
+    });
+    expect(
+      await within(AppShellWrapper.miniPlayer.element).findByText('Louis Armstrong'),
+    ).toBeInTheDocument();
+    await AppShellWrapper.miniPlayer.open();
+    expect(
+      await within(await AppShellWrapper.playerSheet.element).findByTestId('sheet-source-note'),
+    ).toHaveTextContent('via Internet Archive');
+  });
+});
+
 describe('Player with video', () => {
   beforeEach(() => {
     AppShellWrapper.seedCore();
