@@ -1,0 +1,15 @@
+{
+  "id": "dev.raygun.lrclib",
+  "name": "LRCLIB",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Synced lyrics from the open LRCLIB database.",
+  "author": "Raygun",
+  "provides": ["lyrics"],
+  "permissions": {
+    "net": ["lrclib.net"]
+  },
+  "contentRating": "safe"
+}

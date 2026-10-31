@@ -1,6 +1,8 @@
 import type { RepeatMode } from '@raygun/bindings';
 import {
   ChevronDown,
+  ImageIcon,
+  MicVocal,
   Pause,
   Play,
   Repeat,
@@ -17,6 +19,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
 import { formatTime } from './formatTime';
+import { LyricsView } from './LyricsView';
 import { usePlayerUiStore } from './playerUiStore';
 import { useCloseOnBack } from './useCloseOnBack';
 import { useVideoSurface } from './useVideoSurface';
@@ -35,6 +38,7 @@ export const PlayerSheet: FC = () => {
   const { state, item, upNext } = useNowPlaying();
   const note = sourceNote(state, item);
   const [scrubMs, setScrubMs] = useState<number | null>(null);
+  const [showLyrics, setShowLyrics] = useState(false);
   const isVideo = item?.source.kind === 'youTube';
   const videoSurfaceRef = useVideoSurface(sheetOpen && isVideo);
 
@@ -100,7 +104,23 @@ export const PlayerSheet: FC = () => {
               <ChevronDown aria-hidden size={28} />
             </button>
             <span aria-hidden className="bg-muted/40 h-1.5 w-10 rounded-full" />
-            <span className="size-11" />
+            {item && !isVideo ? (
+              <button
+                type="button"
+                aria-label={t(showLyrics ? 'player.showArtwork' : 'player.lyrics')}
+                aria-pressed={showLyrics}
+                onClick={() => setShowLyrics((shown) => !shown)}
+                className={`grid size-11 place-items-center rounded-full ${showLyrics ? 'text-primary' : 'text-muted'}`}
+              >
+                {showLyrics ? (
+                  <ImageIcon aria-hidden size={22} />
+                ) : (
+                  <MicVocal aria-hidden size={22} />
+                )}
+              </button>
+            ) : (
+              <span className="size-11" />
+            )}
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6">
@@ -110,6 +130,8 @@ export const PlayerSheet: FC = () => {
                 data-testid="video-surface"
                 className="aspect-video w-full max-w-md rounded-2xl bg-black"
               />
+            ) : showLyrics && item ? (
+              <LyricsView item={item} state={state} />
             ) : (
               <Artwork
                 key={item?.artworkUrl ?? 'none'}

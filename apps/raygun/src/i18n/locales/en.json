@@ -101,7 +101,13 @@
     },
     "nowPlaying": "Now playing",
     "findingSource": "Finding a source…",
-    "via": "via {{source}}"
+    "via": "via {{source}}",
+    "lyrics": "Lyrics",
+    "showArtwork": "Show artwork",
+    "lyricsLoading": "Loading lyrics…",
+    "lyricsNone": "No lyrics found for this track.",
+    "lyricsFailed": "Couldn't load lyrics: {{message}}",
+    "lyricsFrom": "Lyrics from {{source}}"
   },
   "common": {
     "coreUnavailable": "Core unavailable: {{message}}"

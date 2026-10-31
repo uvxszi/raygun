@@ -52,7 +52,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::extension_install,
             commands::extension_uninstall,
             commands::extension_setting_set,
-            commands::online_search
+            commands::online_search,
+            commands::lyrics_get
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,

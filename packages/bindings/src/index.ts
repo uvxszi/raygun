@@ -65,6 +65,13 @@ export const commands = {
 	extensionSettingSet: (extensionId: string, key: string, value: SettingValue) => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extension_setting_set", { extensionId, key, value })),
 	/**  Searches every online music provider at once; each answers with tracks or an error. */
 	onlineSearch: (query: string) => typedError<ProviderSearchResult[], string>(__TAURI_INVOKE("online_search", { query })),
+	/**  Lyrics for a track, or `null` when no provider has any. */
+	lyricsGet: (query: TrackQuery) => typedError<{
+	providerName: string,
+	/**  Sorted by time; empty when only plain lyrics are known. */
+	synced: LyricLine[],
+	plain: string | null,
+} | null, string>(__TAURI_INVOKE("lyrics_get", { query })),
 };
 
 /** Events */
@@ -229,6 +236,20 @@ export type LibraryTrack = {
 	year: number | null,
 	durationMs: number | null,
 	artworkUrl: string | null,
+};
+
+/**  One timed line of synced lyrics. */
+export type LyricLine = {
+	timeMs: number,
+	text: string,
+};
+
+/**  Lyrics for a track (M15): synced lines when a provider has them, else plain text. */
+export type Lyrics = {
+	providerName: string,
+	/**  Sorted by time; empty when only plain lyrics are known. */
+	synced: LyricLine[],
+	plain: string | null,
 };
 
 export type MediaKind = "audio" | "video";
@@ -396,6 +417,14 @@ export type StorageMode =
 export type Theme = "system" | "light" | "dark" | 
 /**  Pure black background for OLED screens. */
 "amoled";
+
+/**  What the resolver searches for: a track's metadata. */
+export type TrackQuery = {
+	title: string,
+	artist: string | null,
+	album: string | null,
+	durationMs: number | null,
+};
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

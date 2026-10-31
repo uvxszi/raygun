@@ -84,7 +84,28 @@ export type MusicStreamProvider = {
   resolve?(args: { id: string }): Promise<ResolvedStream>;
 };
 
-export type Provider = MusicMetadataProvider | MusicStreamProvider;
+export type LyricsQuery = {
+  title: string;
+  artist: string | null;
+  album: string | null;
+  durationMs: number | null;
+};
+
+export type LyricsResult = {
+  /** Timed lines; the app highlights the current one and seeks when one is tapped. */
+  synced?: { timeMs: number; text: string }[];
+  plain?: string | null;
+};
+
+/** Lyrics for the playing track. Return `null` when there are none (or the track is instrumental). */
+export type LyricsProvider = {
+  kind: 'lyrics';
+  id: string;
+  name?: string;
+  lyrics(query: LyricsQuery): Promise<LyricsResult | null>;
+};
+
+export type Provider = MusicMetadataProvider | MusicStreamProvider | LyricsProvider;
 export type ProviderKind = Provider['kind'];
 
 // ---- Host API ----

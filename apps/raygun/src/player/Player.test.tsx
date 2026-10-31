@@ -1,4 +1,5 @@
-import { within } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper, makeItem } from '../shell/AppShell.test-wrapper';
 import { bindingsMock } from '../test/bindingsMock';
@@ -173,5 +174,83 @@ describe('Player with video', () => {
     const sheet = await AppShellWrapper.playerSheet.element;
 
     expect(within(sheet).getByTestId('video-surface')).toBeInTheDocument();
+  });
+});
+
+describe('Lyrics', () => {
+  const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
+
+  beforeEach(() => {
+    AppShellWrapper.seedCore();
+  });
+
+  const openLyrics = async () => {
+    await AppShellWrapper.mount();
+    AppShellWrapper.playing(QUEUE, 0);
+    await AppShellWrapper.miniPlayer.open();
+    await userEvent.click(await screen.findByRole('button', { name: 'Lyrics' }));
+    return screen.findByTestId('lyrics-view');
+  };
+
+  it('highlights the current synced line and seeks when a line is tapped', async () => {
+    bindingsMock.commands.lyricsGet.mockResolvedValue(
+      ok({
+        providerName: 'LRCLIB',
+        synced: [
+          { timeMs: 1_000, text: 'First line' },
+          { timeMs: 60_000, text: 'Second line' },
+          { timeMs: 120_000, text: 'Third line' },
+        ],
+        plain: null,
+      }),
+    );
+    const view = await openLyrics();
+
+    // The wrapper's playing state sits at 1:05, inside the second line.
+    const current = await within(view).findByRole('button', { current: true });
+    expect(current).toHaveTextContent('Second line');
+    expect(bindingsMock.commands.lyricsGet).toHaveBeenCalledWith({
+      title: 'Intro',
+      artist: 'Raygun',
+      album: null,
+      durationMs: 180_000,
+    });
+    expect(view).toHaveTextContent('Lyrics from LRCLIB');
+
+    await userEvent.click(within(view).getByRole('button', { name: 'Third line' }));
+    expect(bindingsMock.commands.playbackControl).toHaveBeenCalledWith({
+      type: 'seek',
+      positionMs: 120_000,
+    });
+
+    // Back to the artwork.
+    await userEvent.click(screen.getByRole('button', { name: 'Show artwork' }));
+    expect(screen.queryByTestId('lyrics-view')).not.toBeInTheDocument();
+  });
+
+  it('shows plain lyrics when there are no timings', async () => {
+    bindingsMock.commands.lyricsGet.mockResolvedValue(
+      ok({
+        providerName: 'LRCLIB',
+        synced: [],
+        plain: `Verse one${String.fromCharCode(10)}Verse two`,
+      }),
+    );
+    const view = await openLyrics();
+    expect(await within(view).findByText(/Verse one/)).toBeInTheDocument();
+  });
+
+  it('says when there are no lyrics or they failed to load', async () => {
+    const view = await openLyrics();
+    expect(await within(view).findByText('No lyrics found for this track.')).toBeInTheDocument();
+  });
+
+  it('shows why lyrics failed', async () => {
+    bindingsMock.commands.lyricsGet.mockResolvedValue({
+      status: 'error',
+      error: 'LRCLIB answered HTTP 502',
+    });
+    const view = await openLyrics();
+    expect(await within(view).findByRole('alert')).toHaveTextContent('LRCLIB answered HTTP 502');
   });
 });

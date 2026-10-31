@@ -11,12 +11,14 @@ pub mod repo;
 mod storage;
 
 #[cfg(test)]
+mod fixture_tests;
+#[cfg(test)]
 mod repo_tests;
 #[cfg(test)]
 mod tests;
 
 pub use host::{
-    CallError, ExtensionFiles, ExtensionHost, ExtensionSource, HostConfig, MUSIC_METADATA,
+    CallError, ExtensionFiles, ExtensionHost, ExtensionSource, HostConfig, LYRICS, MUSIC_METADATA,
     MUSIC_STREAM, ProviderCandidates, ResolvedStream, UserSettings, discover_installed,
 };
 pub use js::Limits;

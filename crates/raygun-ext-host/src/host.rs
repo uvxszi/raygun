@@ -12,8 +12,9 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use raygun_model::{
-    ExtensionInfo, ExtensionOrigin, ExtensionSetting, ExtensionStatus, MediaSource, OnlineTrack,
-    ProviderInfo, ProviderSearchResult, SettingKind, SettingValue, TrackQuery,
+    ExtensionInfo, ExtensionOrigin, ExtensionSetting, ExtensionStatus, LyricLine, Lyrics,
+    MediaSource, OnlineTrack, ProviderInfo, ProviderSearchResult, SettingKind, SettingValue,
+    TrackQuery,
 };
 use raygun_resolver::Candidate;
 use serde::Deserialize;
@@ -25,6 +26,7 @@ use crate::storage::KvStore;
 
 pub const MUSIC_METADATA: &str = "music.metadata";
 pub const MUSIC_STREAM: &str = "music.stream";
+pub const LYRICS: &str = "lyrics";
 
 /// One `music.stream` provider's answer: its candidates, or why it failed.
 #[derive(Debug, Clone)]
@@ -296,6 +298,47 @@ impl ExtensionHost {
             }
         });
         futures_util::future::join_all(requests).await
+    }
+
+    /// Lyrics for `query` from every `lyrics` provider at once: synced lyrics beat plain ones,
+    /// then providers keep their order. `Ok(None)` when no provider has any; an error only when
+    /// every provider failed.
+    pub async fn lyrics(&self, query: &TrackQuery) -> Result<Option<Lyrics>, String> {
+        let providers = self.providers(LYRICS).await;
+        if providers.is_empty() {
+            return Ok(None);
+        }
+        let args = serde_json::json!({
+            "title": query.title,
+            "artist": query.artist,
+            "album": query.album,
+            "durationMs": query.duration_ms,
+        });
+        let requests = providers.into_iter().map(|provider| {
+            let args = args.clone();
+            async move {
+                let answer = self.call(&provider.id, "lyrics", args).await;
+                (provider, answer)
+            }
+        });
+        let answers = futures_util::future::join_all(requests).await;
+        let mut found: Vec<Lyrics> = Vec::new();
+        let mut errors = Vec::new();
+        for (provider, answer) in answers {
+            match answer {
+                Ok(value) => found.extend(parse_lyrics(&provider, &value)),
+                Err(error) => {
+                    tracing::warn!(provider = %provider.id, %error, "lyrics provider failed");
+                    errors.push(error.to_string());
+                }
+            }
+        }
+        if found.is_empty() && !errors.is_empty() {
+            return Err(errors.remove(0));
+        }
+        // Stable sort keeps provider order among equals.
+        found.sort_by_key(|lyrics| lyrics.synced.is_empty());
+        Ok(found.into_iter().next())
     }
 
     /// Asks a provider for the stream behind one of its candidates.
@@ -615,6 +658,51 @@ fn parse_tracks(value: serde_json::Value) -> Vec<OnlineTrack> {
             source: track.source.filter(allowed_source),
         })
         .collect()
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawLine {
+    time_ms: f64,
+    text: String,
+}
+
+/// Reads `{ synced?: [{ timeMs, text }], plain? }`. Lines with bad times are dropped and the rest
+/// sorted; an answer with neither synced lines nor plain text counts as "no lyrics".
+fn parse_lyrics(provider: &ProviderInfo, value: &serde_json::Value) -> Option<Lyrics> {
+    if value.is_null() {
+        return None;
+    }
+    let mut synced: Vec<LyricLine> = value
+        .get("synced")
+        .and_then(serde_json::Value::as_array)
+        .map(|lines| {
+            lines
+                .iter()
+                .filter_map(|line| serde_json::from_value::<RawLine>(line.clone()).ok())
+                .filter(|line| line.time_ms.is_finite() && line.time_ms >= 0.0)
+                .map(|line| LyricLine {
+                    time_ms: line.time_ms.min(f64::from(u32::MAX)) as u32,
+                    text: line.text.trim().to_owned(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    synced.sort_by_key(|line| line.time_ms);
+    let plain = value
+        .get("plain")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_owned);
+    if synced.iter().all(|line| line.text.is_empty()) && plain.is_none() {
+        return None;
+    }
+    Some(Lyrics {
+        provider_name: provider.name.clone(),
+        synced,
+        plain,
+    })
 }
 
 /// Sources an extension may hand out: web streams and YouTube ids, never local files or lookups.

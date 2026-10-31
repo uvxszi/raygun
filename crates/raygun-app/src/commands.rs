@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use raygun_model::{
     AppInfo, EngineReport, ExtensionInfo, ExtensionRepo, LibraryAlbum, LibraryArtist,
-    LibraryStatus, LibraryTrack, PlayRequest, PlaybackControl, PlaybackState, ProviderSearchResult,
-    QueueItemInput, QueueSnapshot, RepoCatalog, SettingChange, SettingValue, Settings, StorageInfo,
-    StorageMode,
+    LibraryStatus, LibraryTrack, Lyrics, PlayRequest, PlaybackControl, PlaybackState,
+    ProviderSearchResult, QueueItemInput, QueueSnapshot, RepoCatalog, SettingChange, SettingValue,
+    Settings, StorageInfo, StorageMode, TrackQuery,
 };
 
 use crate::extensions::ExtensionService;
@@ -291,6 +291,16 @@ pub async fn extension_setting_set(
     value: SettingValue,
 ) -> Result<Vec<ExtensionInfo>, String> {
     extensions.set_setting(&extension_id, &key, value).await
+}
+
+/// Lyrics for a track, or `null` when no provider has any.
+#[tauri::command]
+#[specta::specta]
+pub async fn lyrics_get(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    query: TrackQuery,
+) -> Result<Option<Lyrics>, String> {
+    extensions.lyrics(&query).await
 }
 
 /// Searches every online music provider at once; each answers with tracks or an error.

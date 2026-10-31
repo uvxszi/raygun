@@ -614,6 +614,24 @@ pub struct OnlineTrack {
     pub source: Option<MediaSource>,
 }
 
+/// One timed line of synced lyrics.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LyricLine {
+    pub time_ms: u32,
+    pub text: String,
+}
+
+/// Lyrics for a track (M15): synced lines when a provider has them, else plain text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Lyrics {
+    pub provider_name: String,
+    /// Sorted by time; empty when only plain lyrics are known.
+    pub synced: Vec<LyricLine>,
+    pub plain: Option<String>,
+}
+
 /// One provider's answer to an online search.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

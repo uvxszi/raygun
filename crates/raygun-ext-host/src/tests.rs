@@ -762,3 +762,90 @@ async fn internet_archive_streams_match_credited_duets() {
     }
     assert!(!candidates.is_empty());
 }
+
+#[tokio::test]
+async fn lyrics_prefer_synced_answers_and_validate_lines() {
+    let host = test_host();
+    let provider = |id: &str, body: &str| {
+        let manifest = manifest_json(json!({ "id": id, "name": id, "provides": ["lyrics"] }));
+        let code = format!(
+            "raygun.providers.register({{ kind: 'lyrics', id: 'l', name: '{id}', lyrics: async (q) => {{ {body} }} }});"
+        );
+        ExtensionSource::built_in(&[("raygun-extension.json", &manifest), ("index.js", &code)])
+    };
+    host.load(vec![
+        provider("dev.raygun.plain", "return { plain: '  Just words  ' };"),
+        provider("dev.raygun.empty", "return null;"),
+        provider(
+            "dev.raygun.synced",
+            "return { synced: [ { timeMs: 5000, text: ' second ' }, { timeMs: -1, text: 'bad' }, { timeMs: 1000, text: 'first' }, { text: 'no time' } ] };",
+        ),
+    ])
+    .await;
+    let query = raygun_model::TrackQuery {
+        title: "Song".into(),
+        artist: Some("Band".into()),
+        album: None,
+        duration_ms: Some(200_000),
+    };
+    let lyrics = host.lyrics(&query).await.unwrap().unwrap();
+    assert_eq!(lyrics.provider_name, "dev.raygun.synced");
+    let lines: Vec<_> = lyrics
+        .synced
+        .iter()
+        .map(|line| (line.time_ms, line.text.as_str()))
+        .collect();
+    assert_eq!(lines, vec![(1000, "first"), (5000, "second")]);
+
+    // Only plain text known: that's the answer. Nothing known: None. All failing: the error.
+    let host = test_host();
+    host.load(vec![provider(
+        "dev.raygun.plain",
+        "return { plain: 'Words' };",
+    )])
+    .await;
+    assert_eq!(
+        host.lyrics(&query).await.unwrap().unwrap().plain.as_deref(),
+        Some("Words")
+    );
+    let host = test_host();
+    host.load(vec![provider(
+        "dev.raygun.empty",
+        "return { synced: [], plain: ' ' };",
+    )])
+    .await;
+    assert_eq!(host.lyrics(&query).await, Ok(None));
+    let host = test_host();
+    host.load(vec![provider(
+        "dev.raygun.down",
+        "throw new Error('lyrics site is down');",
+    )])
+    .await;
+    assert_eq!(host.lyrics(&query).await, Err("lyrics site is down".into()));
+}
+
+/// LRCLIB's real service: `cargo test -p raygun-ext-host -- --ignored lrclib_live`.
+#[tokio::test]
+#[ignore = "needs network access to lrclib.net"]
+async fn lrclib_live_returns_synced_lyrics() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(discover_installed(&dir)).await;
+    let query = raygun_model::TrackQuery {
+        title: "What a Wonderful World".into(),
+        artist: Some("Louis Armstrong".into()),
+        album: None,
+        duration_ms: Some(139_000),
+    };
+    let lyrics = host
+        .lyrics(&query)
+        .await
+        .unwrap()
+        .expect("LRCLIB has this song");
+    println!(
+        "{} synced lines, first: {:?}",
+        lyrics.synced.len(),
+        lyrics.synced.first()
+    );
+    assert!(!lyrics.synced.is_empty());
+}

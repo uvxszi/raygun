@@ -26,6 +26,27 @@
       "size": 2736
     },
     {
+      "id": "dev.raygun.lrclib",
+      "name": "LRCLIB",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Synced lyrics from the open LRCLIB database.",
+      "author": "Raygun",
+      "provides": [
+        "lyrics"
+      ],
+      "permissions": {
+        "net": [
+          "lrclib.net"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.lrclib-1.0.0.zip",
+      "sha256": "e4a493dcec26526aa81a40f814a42b740fa6c19b38bc779c933fb07d11dc4348",
+      "size": 1757
+    },
+    {
       "id": "dev.raygun.musicbrainz",
       "name": "MusicBrainz",
       "version": "1.0.1",
@@ -66,6 +87,28 @@
       "package": "packages/dev.raygun.radio-browser-1.0.1.zip",
       "sha256": "da2ab6e6c7bdfa51a84ef391d47055c7f4e3e5e896cc94097f9ee6ac4548d940",
       "size": 2319
+    },
+    {
+      "id": "dev.raygun.youtube",
+      "name": "YouTube",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Music search and playback through YouTube's official API and embedded player. Needs your own YouTube Data API key.",
+      "author": "Raygun",
+      "provides": [
+        "music.metadata",
+        "music.stream"
+      ],
+      "permissions": {
+        "net": [
+          "www.googleapis.com"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.youtube-1.0.0.zip",
+      "sha256": "e030d360e935462a8c1ff2b5b4d34ca689460cef667e21e4f70506bd69425246",
+      "size": 2360
     }
   ]
 }

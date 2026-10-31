@@ -18,7 +18,7 @@ use raygun_ext_host::{
 };
 use raygun_model::{
     CatalogEntry, CatalogState, ExtensionInfo, ExtensionOrigin, ExtensionRepo, ExtensionSetting,
-    ProviderSearchResult, RepoCatalog, SettingKind, SettingValue, TrackQuery,
+    Lyrics, ProviderSearchResult, RepoCatalog, SettingKind, SettingValue, TrackQuery,
 };
 use raygun_paths::Paths;
 use tauri::{AppHandle, Manager};
@@ -57,6 +57,16 @@ fn built_in() -> Vec<ExtensionSource> {
             (
                 "dist/index.js",
                 include_str!("../../../extensions/musicbrainz/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/lrclib/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/lrclib/dist/index.js"),
             ),
         ]),
     ]
@@ -138,6 +148,12 @@ impl ExtensionService {
     pub async fn stream_candidates(&self, query: &TrackQuery) -> Vec<ProviderCandidates> {
         let _ready = self.loading.read().await;
         self.host.stream_candidates(query, CANDIDATE_LIMIT).await
+    }
+
+    /// Lyrics for a track from the `lyrics` providers (M15).
+    pub async fn lyrics(&self, query: &TrackQuery) -> Result<Option<Lyrics>, String> {
+        let _ready = self.loading.read().await;
+        self.host.lyrics(query).await
     }
 
     /// The stream behind a candidate that came without one.

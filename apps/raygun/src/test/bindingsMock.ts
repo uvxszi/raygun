@@ -105,6 +105,7 @@ export const bindingsMock = {
     extensionUninstall: vi.fn(),
     extensionSettingSet: vi.fn(),
     onlineSearch: vi.fn(),
+    lyricsGet: vi.fn(),
   },
   events: {
     engineCommandEvent: makeEvent('engineCommandEvent'),
@@ -149,6 +150,7 @@ export const seedBindings = () => {
   commands.extensionUninstall.mockResolvedValue(ok([]));
   commands.extensionSettingSet.mockResolvedValue(ok([]));
   commands.onlineSearch.mockResolvedValue(ok([]));
+  commands.lyricsGet.mockResolvedValue(ok(null));
 };
 
 export const emitEvent = <Name extends EventName>(name: Name, payload: EventPayloads[Name]) => {
