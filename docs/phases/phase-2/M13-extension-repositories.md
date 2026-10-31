@@ -108,6 +108,7 @@ packages/<id>-<version>.zip      (raygun-extension.json + the entry bundle, noth
 | Published 1.0.1 (drops duplicate streams), Browse → Refresh | "1.0.0 → 1.0.1 · Update"; after updating, version 1.0.1 installed and `DE` kept |
 | Uninstall (two taps) | Folder and storage removed; Internet Archive (built-in) unaffected |
 | Long error text | A URL in an error first ran off-screen; error messages now use `overflow-wrap: anywhere` (re-checked on the device) |
+| After pushing, Browse → Refresh | The official repository (GitHub raw) lists Internet Archive 1.0.0 (Installed) and Radio Browser 1.0.1 (Install); a package downloaded from GitHub matches its checksum |
 
 ## Decisions
 - **The repository index lists only the newest version** of each extension. Older zips stay in `packages/` so existing links keep working. Rollback is a later feature.
