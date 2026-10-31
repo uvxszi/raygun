@@ -1,20 +1,37 @@
-import { ChevronDown, Disc3, Play, SkipBack, SkipForward } from 'lucide-react';
+import type { RepeatMode } from '@raygun/bindings';
+import {
+  ChevronDown,
+  Disc3,
+  Pause,
+  Play,
+  Repeat,
+  Repeat1,
+  Shuffle,
+  SkipBack,
+  SkipForward,
+} from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import type { PanInfo } from 'motion/react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { formatTime } from './formatTime';
 import { usePlayerUiStore } from './playerUiStore';
+import { isActive, sendControl, useNowPlaying } from './usePlayback';
 
 const DISMISS_DISTANCE = 120;
 const DISMISS_VELOCITY = 500;
+
+const NEXT_REPEAT: Record<RepeatMode, RepeatMode> = { off: 'all', all: 'one', one: 'off' };
 
 /** Full-screen player. Drag down (or press Escape / the close button) to dismiss. */
 export const PlayerSheet: FC = () => {
   const { t } = useTranslation();
   const sheetOpen = usePlayerUiStore((state) => state.sheetOpen);
   const closeSheet = usePlayerUiStore((state) => state.closeSheet);
+  const { state, item, upNext } = useNowPlaying();
+  const [scrubMs, setScrubMs] = useState<number | null>(null);
 
   useEffect(() => {
     if (!sheetOpen) {
@@ -35,6 +52,17 @@ export const PlayerSheet: FC = () => {
     }
   };
 
+  const commitScrub = () => {
+    if (scrubMs !== null) {
+      void sendControl({ type: 'seek', positionMs: scrubMs });
+      setScrubMs(null);
+    }
+  };
+
+  const durationMs = state?.durationMs ?? 0;
+  const positionMs = scrubMs ?? state?.positionMs ?? 0;
+  const repeat = state?.repeat ?? 'off';
+
   return (
     <AnimatePresence>
       {sheetOpen && (
@@ -49,10 +77,11 @@ export const PlayerSheet: FC = () => {
           exit={{ y: '100%' }}
           transition={{ type: 'spring', damping: 32, stiffness: 320 }}
           drag="y"
+          dragListener={scrubMs === null}
           dragConstraints={{ top: 0, bottom: 0 }}
           dragElastic={{ top: 0, bottom: 0.7 }}
           onDragEnd={handleDragEnd}
-          className="bg-background fixed inset-0 z-50 flex flex-col px-6 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+          className="bg-background fixed inset-0 z-50 flex flex-col gap-6 px-6 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]"
         >
           <div className="flex items-center justify-between">
             <button
@@ -67,39 +96,113 @@ export const PlayerSheet: FC = () => {
             <span className="size-11" />
           </div>
 
-          <div className="flex flex-1 flex-col items-center justify-center gap-8">
-            <div className="bg-surface text-muted grid aspect-square w-full max-w-sm place-items-center rounded-2xl">
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6">
+            <div className="bg-surface text-muted grid aspect-square w-full max-w-xs place-items-center rounded-2xl">
               <Disc3 aria-hidden size={96} />
             </div>
-            <p className="text-muted text-lg">{t('player.nothingPlaying')}</p>
+            <div className="flex w-full max-w-md flex-col items-center gap-1 text-center">
+              <p data-testid="sheet-title" className="w-full truncate text-xl font-semibold">
+                {item?.title ?? t('player.nothingPlaying')}
+              </p>
+              {item?.artist && <p className="text-muted truncate">{item.artist}</p>}
+              {state?.status === 'error' && state.error && (
+                <p role="alert" className="text-primary text-sm">
+                  {state.error}
+                </p>
+              )}
+            </div>
           </div>
 
-          <div className="flex items-center justify-center gap-8">
+          <div className="mx-auto flex w-full max-w-md flex-col gap-1">
+            <input
+              type="range"
+              aria-label={t('player.seek')}
+              min={0}
+              max={Math.max(durationMs, 1)}
+              step={1000}
+              value={Math.min(positionMs, Math.max(durationMs, 1))}
+              disabled={!item || durationMs <= 0}
+              onChange={(event) => setScrubMs(Number(event.target.value))}
+              onPointerUp={commitScrub}
+              onKeyUp={commitScrub}
+              onPointerDownCapture={(event) => event.stopPropagation()}
+              className="accent-primary w-full"
+            />
+            <div className="text-muted flex justify-between text-xs tabular-nums">
+              <span data-testid="position">{formatTime(positionMs)}</span>
+              <span data-testid="duration">{formatTime(durationMs)}</span>
+            </div>
+          </div>
+
+          <div className="mx-auto flex w-full max-w-md items-center justify-between">
             <button
               type="button"
-              disabled
+              aria-label={t('player.shuffle')}
+              aria-pressed={state?.shuffle ?? false}
+              onClick={() => void sendControl({ type: 'setShuffle', enabled: !state?.shuffle })}
+              className={state?.shuffle ? 'text-primary' : 'text-muted'}
+            >
+              <Shuffle aria-hidden size={22} />
+            </button>
+            <button
+              type="button"
+              disabled={!item}
               aria-label={t('player.previous')}
-              className="text-muted disabled:opacity-50"
+              onClick={() => void sendControl({ type: 'previous' })}
+              className="disabled:opacity-40"
             >
               <SkipBack aria-hidden size={32} />
             </button>
             <button
               type="button"
-              disabled
-              aria-label={t('player.play')}
-              className="bg-primary text-background grid size-16 place-items-center rounded-full disabled:opacity-50"
+              disabled={!item}
+              aria-label={isActive(state) ? t('player.pause') : t('player.play')}
+              onClick={() => void sendControl({ type: 'toggle' })}
+              className="bg-primary text-background grid size-16 place-items-center rounded-full disabled:opacity-40"
             >
-              <Play aria-hidden size={30} />
+              {isActive(state) ? <Pause aria-hidden size={30} /> : <Play aria-hidden size={30} />}
             </button>
             <button
               type="button"
-              disabled
+              disabled={!item}
               aria-label={t('player.next')}
-              className="text-muted disabled:opacity-50"
+              onClick={() => void sendControl({ type: 'next' })}
+              className="disabled:opacity-40"
             >
               <SkipForward aria-hidden size={32} />
             </button>
+            <button
+              type="button"
+              aria-label={t(`player.repeat.${repeat}`)}
+              onClick={() => void sendControl({ type: 'setRepeat', mode: NEXT_REPEAT[repeat] })}
+              className={repeat === 'off' ? 'text-muted' : 'text-primary'}
+            >
+              {repeat === 'one' ? (
+                <Repeat1 aria-hidden size={22} />
+              ) : (
+                <Repeat aria-hidden size={22} />
+              )}
+            </button>
           </div>
+
+          {upNext.length > 0 && (
+            <section className="mx-auto flex max-h-40 w-full max-w-md flex-col gap-1 overflow-y-auto">
+              <h2 className="text-muted text-xs tracking-wide uppercase">{t('player.upNext')}</h2>
+              <ul data-testid="up-next" className="flex flex-col">
+                {upNext.map((next) => (
+                  <li key={next.id}>
+                    <button
+                      type="button"
+                      onClick={() => void sendControl({ type: 'playItem', itemId: next.id })}
+                      className="w-full truncate py-1.5 text-left text-sm"
+                    >
+                      {next.title}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
         </motion.div>
       )}
     </AnimatePresence>

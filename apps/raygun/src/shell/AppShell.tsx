@@ -1,9 +1,11 @@
 import { Outlet } from '@tanstack/react-router';
 import type { FC } from 'react';
 
+import { useEngineHost } from '../engine/useEngineHost';
 import { useSyncLanguage } from '../i18n/useSyncLanguage';
 import { MiniPlayer } from '../player/MiniPlayer';
 import { PlayerSheet } from '../player/PlayerSheet';
+import { usePlaybackSync } from '../player/usePlayback';
 import { useApplyTheme } from '../settings/useApplyTheme';
 import { useSettings } from '../settings/useSettings';
 import { BottomTabs } from './BottomTabs';
@@ -13,6 +15,8 @@ export const AppShell: FC = () => {
   const settings = useSettings();
   useApplyTheme(settings.data?.theme);
   useSyncLanguage(settings.data?.language);
+  useEngineHost();
+  usePlaybackSync();
 
   return (
     <div className="flex h-full">

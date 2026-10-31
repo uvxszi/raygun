@@ -1,0 +1,11 @@
+[package]
+name = "raygun-playback"
+description = "Raygun's playback state machine: queue, ordering, repeat/shuffle and engine protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+raygun-model.workspace = true
+uuid.workspace = true

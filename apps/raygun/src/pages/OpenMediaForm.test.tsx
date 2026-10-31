@@ -1,0 +1,72 @@
+import { screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+
+import { bindingsMock, seedBindings } from '../test/bindingsMock';
+import { renderWithProviders } from '../test/renderWithProviders';
+import { OpenMediaForm } from './OpenMediaForm';
+import { toQueueItem } from './toQueueItem';
+
+vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
+
+describe('toQueueItem', () => {
+  it('streams http(s) URLs and titles them by file name', () => {
+    expect(toQueueItem('https://cdn.example.com/music/My%20Song.mp3?sig=1', '')).toMatchObject({
+      title: 'My Song.mp3',
+      source: {
+        kind: 'url',
+        url: 'https://cdn.example.com/music/My%20Song.mp3?sig=1',
+        headers: {},
+      },
+    });
+  });
+
+  it('adds a Referer header when given', () => {
+    expect(toQueueItem('https://host/a.mp3', 'https://host/page')?.source).toEqual({
+      kind: 'url',
+      url: 'https://host/a.mp3',
+      headers: { Referer: 'https://host/page' },
+    });
+  });
+
+  it('treats anything else as a local file path', () => {
+    expect(toQueueItem('C:\\Music\\track.flac', '')).toMatchObject({
+      title: 'track.flac',
+      source: { kind: 'localFile', path: 'C:\\Music\\track.flac' },
+    });
+  });
+
+  it('ignores blank input', () => {
+    expect(toQueueItem('   ', '')).toBeNull();
+  });
+});
+
+describe('OpenMediaForm', () => {
+  beforeEach(() => {
+    seedBindings();
+  });
+
+  it('plays the entered URL immediately', async () => {
+    renderWithProviders(<OpenMediaForm />);
+
+    await userEvent.type(screen.getByLabelText('URL or file path'), 'https://host/a.mp3');
+    await userEvent.click(screen.getByRole('button', { name: 'Play' }));
+
+    expect(bindingsMock.commands.playbackEnqueue).toHaveBeenCalledWith(
+      [expect.objectContaining({ title: 'a.mp3' })],
+      true,
+    );
+    expect(screen.getByLabelText('URL or file path')).toHaveValue('');
+  });
+
+  it('can add to the queue without interrupting playback', async () => {
+    renderWithProviders(<OpenMediaForm />);
+
+    await userEvent.type(screen.getByLabelText('URL or file path'), '/sdcard/Music/b.ogg');
+    await userEvent.click(screen.getByRole('button', { name: 'Add to queue' }));
+
+    expect(bindingsMock.commands.playbackEnqueue).toHaveBeenCalledWith(
+      [expect.objectContaining({ source: { kind: 'localFile', path: '/sdcard/Music/b.ogg' } })],
+      false,
+    );
+  });
+});

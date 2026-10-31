@@ -3,14 +3,7 @@ import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from './AppShell.test-wrapper';
 
-vi.mock('@raygun/bindings', () => ({
-  commands: {
-    appInfo: vi.fn(),
-    storageInfo: vi.fn(),
-    settingsGet: vi.fn(),
-    settingsUpdate: vi.fn(),
-  },
-}));
+vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
 describe('AppShell', () => {
   beforeEach(() => {

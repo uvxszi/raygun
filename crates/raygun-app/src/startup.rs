@@ -39,6 +39,13 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     let db = tauri::async_runtime::block_on(raygun_db::Db::open(&paths.db()))?;
     tracing::info!(device_id = %db.device_id(), "database ready");
 
+    let proxy =
+        tauri::async_runtime::block_on(raygun_net::StreamProxy::start(raygun_net::http_client()?))?;
+    app.manage(crate::playback::PlaybackService::new(
+        app.handle().clone(),
+        proxy,
+    ));
+
     create_main_window(app, &paths)?;
 
     app.manage(LogGuard(guard));

@@ -1,5 +1,9 @@
-use raygun_model::{AppInfo, SettingChange, Settings, StorageInfo, StorageMode};
+use raygun_model::{
+    AppInfo, EngineReport, PlaybackControl, PlaybackState, QueueItemInput, QueueSnapshot,
+    SettingChange, Settings, StorageInfo, StorageMode,
+};
 
+use crate::playback::PlaybackService;
 use crate::settings;
 use crate::startup::{AppDb, AppPaths};
 
@@ -42,6 +46,45 @@ pub async fn settings_update(
     settings::update(&db.0, change)
         .await
         .map_err(|error| error.to_string())
+}
+
+/// Current player state. Afterwards, changes arrive as `PlaybackStateEvent`.
+#[tauri::command]
+#[specta::specta]
+pub fn playback_get_state(playback: tauri::State<'_, PlaybackService>) -> PlaybackState {
+    playback.state()
+}
+
+/// Current queue. Afterwards, changes arrive as `QueueEvent`.
+#[tauri::command]
+#[specta::specta]
+pub fn playback_get_queue(playback: tauri::State<'_, PlaybackService>) -> QueueSnapshot {
+    playback.queue()
+}
+
+/// Adds items to the queue; with `play_now` the first one starts immediately.
+#[tauri::command]
+#[specta::specta]
+pub fn playback_enqueue(
+    playback: tauri::State<'_, PlaybackService>,
+    items: Vec<QueueItemInput>,
+    play_now: bool,
+) {
+    playback.enqueue(items, play_now);
+}
+
+/// Play, pause, skip, seek, volume, repeat, shuffle and queue edits.
+#[tauri::command]
+#[specta::specta]
+pub fn playback_control(playback: tauri::State<'_, PlaybackService>, control: PlaybackControl) {
+    playback.control(control);
+}
+
+/// Called by the playback engine in the webview to report what the media element did.
+#[tauri::command]
+#[specta::specta]
+pub fn playback_engine_report(playback: tauri::State<'_, PlaybackService>, report: EngineReport) {
+    playback.report(report);
 }
 
 fn to_storage_info(paths: &raygun_paths::Paths) -> StorageInfo {

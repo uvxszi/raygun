@@ -2,6 +2,7 @@ import { Library } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { OpenMediaForm } from './OpenMediaForm';
 import { PageHeader } from './PageHeader';
 
 export const LibraryPage: FC = () => {
@@ -14,6 +15,7 @@ export const LibraryPage: FC = () => {
         <p className="font-semibold">{t('library.emptyTitle')}</p>
         <p className="text-muted text-sm">{t('library.emptyBody')}</p>
       </div>
+      <OpenMediaForm />
     </section>
   );
 };

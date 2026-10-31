@@ -38,7 +38,7 @@ pnpm bindings            # regenerate TS bindings after changing commands/types
 ## Rules
 
 - Domain state and logic live in Rust services. The UI calls generated `commands.*` and holds UI-only state.
-- Platform priority: Android first (`Pixel_4` emulator), then Windows. Verify UI work on Android.
+- Platform priority: Android only for now (`Pixel_4` emulator). Don't build or verify desktop until the user asks; keep the code cross-platform.
 - Desktop builds must be portable: never call OS app-dir APIs or `tauri-plugin-store`. Go through `raygun-paths` (M02).
 - Synced tables use UUIDv7 ids, HLC timestamps and tombstones (ARCHITECTURE §5, §10).
 - Adapted code from a reference repo keeps a header naming the source repo and its license.

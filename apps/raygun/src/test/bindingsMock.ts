@@ -1,0 +1,107 @@
+import type {
+  AppInfo,
+  EngineCommand,
+  PlaybackState,
+  QueueSnapshot,
+  Settings,
+  StorageInfo,
+} from '@raygun/bindings';
+import { act } from '@testing-library/react';
+
+/**
+ * Stand-in for `@raygun/bindings` (the Rust IPC layer). Use with
+ * `vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock)`
+ * and push Rust events into the UI with `emitEvent`.
+ */
+
+type EventPayloads = {
+  engineCommandEvent: EngineCommand;
+  playbackStateEvent: PlaybackState;
+  queueEvent: QueueSnapshot;
+};
+type EventName = keyof EventPayloads;
+type Listener = (event: { payload: unknown }) => void;
+
+const listeners = new Map<EventName, Set<Listener>>();
+
+const makeEvent = (name: EventName) => ({
+  listen: vi.fn((listener: Listener) => {
+    const set = listeners.get(name) ?? new Set<Listener>();
+    set.add(listener);
+    listeners.set(name, set);
+    return Promise.resolve(() => {
+      set.delete(listener);
+    });
+  }),
+});
+
+export const IDLE_STATE: PlaybackState = {
+  status: 'idle',
+  currentItemId: null,
+  positionMs: 0,
+  durationMs: null,
+  volume: 1,
+  repeat: 'off',
+  shuffle: false,
+  error: null,
+};
+
+export const EMPTY_QUEUE: QueueSnapshot = { items: [], order: [] };
+
+export const ANDROID_INFO: AppInfo = {
+  name: 'Raygun',
+  version: '0.1.0',
+  platform: 'android',
+  arch: 'x86_64',
+  debug: true,
+};
+
+export const MOBILE_STORAGE: StorageInfo = {
+  mode: 'mobile',
+  root: '/data/user/0/app.raygun.player',
+  logs: '/data/user/0/app.raygun.player/logs',
+  webview: '/data/user/0/app.raygun.player/webview',
+};
+
+export const DEFAULT_SETTINGS: Settings = { theme: 'system', language: 'en' };
+
+export const bindingsMock = {
+  commands: {
+    appInfo: vi.fn(),
+    storageInfo: vi.fn(),
+    settingsGet: vi.fn(),
+    settingsUpdate: vi.fn(),
+    playbackGetState: vi.fn(),
+    playbackGetQueue: vi.fn(),
+    playbackEnqueue: vi.fn(),
+    playbackControl: vi.fn(),
+    playbackEngineReport: vi.fn(),
+  },
+  events: {
+    engineCommandEvent: makeEvent('engineCommandEvent'),
+    playbackStateEvent: makeEvent('playbackStateEvent'),
+    queueEvent: makeEvent('queueEvent'),
+  },
+};
+
+/** Default answers for every command, as an idle app on Android would give. */
+export const seedBindings = () => {
+  listeners.clear();
+  const { commands } = bindingsMock;
+  commands.appInfo.mockResolvedValue(ANDROID_INFO);
+  commands.storageInfo.mockResolvedValue(MOBILE_STORAGE);
+  commands.settingsGet.mockResolvedValue({ status: 'ok', data: DEFAULT_SETTINGS });
+  commands.playbackGetState.mockResolvedValue(IDLE_STATE);
+  commands.playbackGetQueue.mockResolvedValue(EMPTY_QUEUE);
+  commands.playbackEnqueue.mockResolvedValue(undefined);
+  commands.playbackControl.mockResolvedValue(undefined);
+  commands.playbackEngineReport.mockResolvedValue(undefined);
+};
+
+export const emitEvent = <Name extends EventName>(name: Name, payload: EventPayloads[Name]) => {
+  act(() => {
+    for (const listener of listeners.get(name) ?? []) {
+      listener({ payload });
+    }
+  });
+};

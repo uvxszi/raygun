@@ -13,7 +13,14 @@
   "library": {
     "title": "Library",
     "emptyTitle": "Your library is empty",
-    "emptyBody": "Add a music folder or install an extension to get started."
+    "emptyBody": "Add a music folder or install an extension to get started.",
+    "openTitle": "Open a stream or file",
+    "openLocation": "URL or file path",
+    "openPlaceholder": "https://… or a file path",
+    "openReferer": "Referer header",
+    "openRefererPlaceholder": "Referer header (optional)",
+    "openPlay": "Play",
+    "openQueue": "Add to queue"
   },
   "search": {
     "title": "Search",
@@ -50,6 +57,15 @@
     "play": "Play",
     "previous": "Previous",
     "next": "Next",
+    "pause": "Pause",
+    "seek": "Seek",
+    "shuffle": "Shuffle",
+    "upNext": "Up next",
+    "repeat": {
+      "off": "Repeat off",
+      "all": "Repeat all",
+      "one": "Repeat one"
+    },
     "nowPlaying": "Now playing"
   },
   "common": {

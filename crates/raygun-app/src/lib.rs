@@ -4,6 +4,8 @@
 //! and context, and gets everything else from [`builder`].
 
 mod commands;
+mod events;
+mod playback;
 mod settings;
 mod startup;
 
@@ -14,12 +16,23 @@ pub const BINDINGS_PATH: &str = "packages/bindings/src/index.ts";
 
 /// Collects every command and event exposed to the UI.
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
-    tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
-        commands::app_info,
-        commands::storage_info,
-        commands::settings_get,
-        commands::settings_update
-    ])
+    tauri_specta::Builder::<tauri::Wry>::new()
+        .commands(tauri_specta::collect_commands![
+            commands::app_info,
+            commands::storage_info,
+            commands::settings_get,
+            commands::settings_update,
+            commands::playback_get_state,
+            commands::playback_get_queue,
+            commands::playback_enqueue,
+            commands::playback_control,
+            commands::playback_engine_report
+        ])
+        .events(tauri_specta::collect_events![
+            events::EngineCommandEvent,
+            events::PlaybackStateEvent,
+            events::QueueEvent
+        ])
 }
 
 /// Writes the TypeScript bindings for all commands to `path`.

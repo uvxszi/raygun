@@ -117,3 +117,182 @@ impl SettingChange {
         }
     }
 }
+
+// ---- Playback (ARCHITECTURE §6) ----
+
+/// Where the bytes of a playable item come from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum MediaSource {
+    /// A remote stream. `headers` (Referer, User-Agent, Cookie, ...) are sent by the stream proxy,
+    /// because the webview's media element can't set them itself.
+    #[serde(rename_all = "camelCase")]
+    Url {
+        url: String,
+        headers: std::collections::BTreeMap<String, String>,
+    },
+    /// A file on this device.
+    #[serde(rename_all = "camelCase")]
+    LocalFile { path: String },
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum MediaKind {
+    #[default]
+    Audio,
+    Video,
+}
+
+/// What a caller provides to add something to the queue.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueItemInput {
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub duration_ms: Option<u32>,
+    pub media_kind: MediaKind,
+    pub source: MediaSource,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueItem {
+    pub id: String,
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub duration_ms: Option<u32>,
+    pub media_kind: MediaKind,
+    pub source: MediaSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum PlaybackStatus {
+    Idle,
+    Loading,
+    Buffering,
+    Playing,
+    Paused,
+    Ended,
+    Error,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum RepeatMode {
+    #[default]
+    Off,
+    All,
+    One,
+}
+
+/// Canonical player state, owned by Rust and mirrored by every client (UI, MCP, remote).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaybackState {
+    pub status: PlaybackStatus,
+    pub current_item_id: Option<String>,
+    pub position_ms: f64,
+    pub duration_ms: Option<f64>,
+    /// 0.0 to 1.0.
+    pub volume: f64,
+    pub repeat: RepeatMode,
+    pub shuffle: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueSnapshot {
+    pub items: Vec<QueueItem>,
+    /// Indices into `items` in the order they will play (differs from `items` when shuffled).
+    /// The current item is `PlaybackState::current_item_id`; the queue is only re-sent when its
+    /// contents or order change, not on every track change.
+    pub order: Vec<u32>,
+}
+
+/// A user or client request to the player.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum PlaybackControl {
+    Play,
+    Pause,
+    Toggle,
+    Next,
+    Previous,
+    #[serde(rename_all = "camelCase")]
+    Seek {
+        position_ms: f64,
+    },
+    SetVolume {
+        volume: f64,
+    },
+    SetRepeat {
+        mode: RepeatMode,
+    },
+    SetShuffle {
+        enabled: bool,
+    },
+    #[serde(rename_all = "camelCase")]
+    PlayItem {
+        item_id: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    Remove {
+        item_id: String,
+    },
+    Clear,
+}
+
+/// An instruction for the active playback engine.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum EngineCommand {
+    #[serde(rename_all = "camelCase")]
+    Load {
+        load_id: u32,
+        url: String,
+        start_ms: f64,
+        autoplay: bool,
+        volume: f64,
+    },
+    Play,
+    Pause,
+    #[serde(rename_all = "camelCase")]
+    Seek {
+        position_ms: f64,
+    },
+    SetVolume {
+        volume: f64,
+    },
+    Stop,
+}
+
+/// What the engine observed. `load_id` ties it to a specific `Load`, so reports about a track
+/// that has already been replaced are ignored.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct EngineReport {
+    pub load_id: u32,
+    pub event: EngineEvent,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum EngineEvent {
+    #[serde(rename_all = "camelCase")]
+    Progress {
+        position_ms: f64,
+        duration_ms: Option<f64>,
+    },
+    Playing,
+    Paused,
+    Buffering,
+    Ended,
+    Error {
+        message: String,
+    },
+}

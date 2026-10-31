@@ -2,7 +2,7 @@
 
 Each phase ends with something usable. Milestones (M) are sized to fit **one focused working session**: about a day of work with a clear done-check, so no session has to hold the whole system in its head. Before a milestone starts it gets a short spec in `docs/phases/phase-N/MNN-<name>.md`. The spec covers its goal, files touched, interfaces, a done-check, and which sections of `ARCHITECTURE.md` / `reference-notes.md` are relevant, so a session loads only those.
 
-**Platform order:** Android first (verified on the `Pixel_4` emulator), Windows second. macOS, Linux and iOS are built in CI from M10 on, but are only lightly tested until later phases. Every UI milestone's done-check runs on Android before desktop.
+**Platform order:** Android first (verified on the `Pixel_4` emulator), Windows second. **Since M05, only the 📱 checks run; desktop work and checks are deferred until the user asks for them.** macOS, Linux and iOS are built in CI from M10 on, but are only lightly tested until later phases. Every UI milestone's done-check runs on Android before desktop.
 
 Legend: 📱 Android · 🖥 Windows · ⚗ spike (time-boxed; the outcome is a decision, not production code)
 

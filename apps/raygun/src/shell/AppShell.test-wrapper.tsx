@@ -1,35 +1,26 @@
-import { commands } from '@raygun/bindings';
-import type { AppInfo, Settings, StorageInfo } from '@raygun/bindings';
+import type { QueueItem } from '@raygun/bindings';
 import { RouterProvider, createMemoryHistory } from '@tanstack/react-router';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { usePlayerUiStore } from '../player/playerUiStore';
 import { createAppRouter } from '../router';
+import { EMPTY_QUEUE, IDLE_STATE, emitEvent, seedBindings } from '../test/bindingsMock';
 import { renderWithProviders } from '../test/renderWithProviders';
 
-const ANDROID_INFO: AppInfo = {
-  name: 'Raygun',
-  version: '0.1.0',
-  platform: 'android',
-  arch: 'x86_64',
-  debug: true,
-};
-
-const MOBILE_STORAGE: StorageInfo = {
-  mode: 'mobile',
-  root: '/data/user/0/app.raygun.player',
-  logs: '/data/user/0/app.raygun.player/logs',
-  webview: '/data/user/0/app.raygun.player/webview',
-};
-
-const DEFAULT_SETTINGS: Settings = { theme: 'system', language: 'en' };
+export const makeItem = (title: string, artist: string | null = null): QueueItem => ({
+  id: `id-${title}`,
+  title,
+  artist,
+  album: null,
+  durationMs: 180_000,
+  mediaKind: 'audio',
+  source: { kind: 'url', url: `https://example.com/${title}.mp3`, headers: {} },
+});
 
 export const AppShellWrapper = {
   seedCore() {
-    vi.mocked(commands.appInfo).mockResolvedValue(ANDROID_INFO);
-    vi.mocked(commands.storageInfo).mockResolvedValue(MOBILE_STORAGE);
-    vi.mocked(commands.settingsGet).mockResolvedValue({ status: 'ok', data: DEFAULT_SETTINGS });
+    seedBindings();
     usePlayerUiStore.setState({ sheetOpen: false });
   },
 
@@ -37,6 +28,22 @@ export const AppShellWrapper = {
     const router = createAppRouter(createMemoryHistory({ initialEntries: [path] }));
     renderWithProviders(<RouterProvider router={router} />);
     await screen.findByTestId('page-content');
+  },
+
+  /** Simulates Rust pushing a queue where the item at `cursor` is current. */
+  playing(items: QueueItem[], cursor: number, status: 'playing' | 'paused' = 'playing') {
+    emitEvent('queueEvent', {
+      ...EMPTY_QUEUE,
+      items,
+      order: items.map((_, index) => index),
+    });
+    emitEvent('playbackStateEvent', {
+      ...IDLE_STATE,
+      status,
+      currentItemId: items[cursor]?.id ?? null,
+      positionMs: 65_000,
+      durationMs: 180_000,
+    });
   },
 
   page(name: 'home' | 'library' | 'search' | 'settings') {
@@ -52,14 +59,30 @@ export const AppShellWrapper = {
   },
 
   miniPlayer: {
+    get element() {
+      return screen.getByTestId('mini-player');
+    },
+    get title() {
+      return screen.findByTestId('mini-player-title');
+    },
     async open() {
       await userEvent.click(screen.getByRole('button', { name: 'Open player' }));
+    },
+    async togglePlayback(label: 'Play' | 'Pause') {
+      await userEvent.click(within(this.element).getByRole('button', { name: label }));
     },
   },
 
   playerSheet: {
     get element() {
       return screen.findByRole('dialog', { name: 'Now playing' });
+    },
+    async press(label: string) {
+      const sheet = await this.element;
+      await userEvent.click(within(sheet).getByRole('button', { name: label }));
+    },
+    get upNext() {
+      return screen.findByTestId('up-next');
     },
     async close() {
       await userEvent.click(screen.getByRole('button', { name: 'Close player' }));

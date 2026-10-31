@@ -12,6 +12,8 @@ rust-version = "1.95"
 raygun-model = { path = "crates/raygun-model" }
 raygun-paths = { path = "crates/raygun-paths" }
 raygun-db = { path = "crates/raygun-db" }
+raygun-playback = { path = "crates/raygun-playback" }
+raygun-net = { path = "crates/raygun-net" }
 raygun-app = { path = "crates/raygun-app" }
 
 tauri = { version = "2", features = [] }
@@ -26,8 +28,15 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-appender = "0.2"
 rfd = { version = "0.17", default-features = false, features = ["gtk3", "common-controls-v6"] }
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
-uuid = { version = "1", features = ["v7"] }
+uuid = { version = "1", features = ["v4", "v7"] }
 thiserror = "2"
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream", "http2", "charset"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"
+tokio = { version = "1", features = ["rt", "net", "sync", "fs"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.7", features = ["fs"] }
 
 [profile.release]
 codegen-units = 1
