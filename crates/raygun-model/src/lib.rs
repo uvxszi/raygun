@@ -798,3 +798,60 @@ pub struct RemoteStatus {
     pub devices: Vec<RemoteDevice>,
     pub error: Option<String>,
 }
+
+// ---- Device sync (M21) ----
+
+/// What a user can choose to sync between devices.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SyncKind {
+    Settings,
+    Library,
+    History,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncPeerInfo {
+    pub device_id: String,
+    pub name: String,
+    /// Groups of hex from the device's key, to compare by eye.
+    pub fingerprint: String,
+    pub address: Option<String>,
+    /// Unix ms.
+    pub paired_at: f64,
+    pub last_sync_at: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncSessionInfo {
+    pub id: u32,
+    pub peer_name: String,
+    /// Unix ms.
+    pub started_at: f64,
+    pub finished: bool,
+    pub sent: u32,
+    pub received: u32,
+    /// Received rows that changed something on this device.
+    pub changed: u32,
+    pub error: Option<String>,
+    pub undone: bool,
+}
+
+/// Device sync's switch, this device's identity, an open pairing, peers and the log.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncStatus {
+    pub enabled: bool,
+    pub device_name: String,
+    pub fingerprint: String,
+    /// The text another device pastes to pair, while a pairing code is open.
+    pub pairing_text: Option<String>,
+    /// `pairing_text` as a QR code (SVG markup).
+    pub pairing_qr_svg: Option<String>,
+    pub kinds: Vec<SyncKind>,
+    pub peers: Vec<SyncPeerInfo>,
+    pub log: Vec<SyncSessionInfo>,
+    pub error: Option<String>,
+}

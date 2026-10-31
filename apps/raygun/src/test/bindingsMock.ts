@@ -23,6 +23,7 @@ type EventPayloads = {
   queueEvent: QueueSnapshot;
   libraryScanEvent: LibraryScanProgress;
   extensionsChangedEvent: ExtensionInfo[];
+  syncChangedEvent: number;
 };
 type EventName = keyof EventPayloads;
 type Listener = (event: { payload: unknown }) => void;
@@ -127,6 +128,15 @@ export const bindingsMock = {
     remoteSetEnabled: vi.fn(),
     remoteNewCode: vi.fn(),
     remoteForgetDevice: vi.fn(),
+    syncStatus: vi.fn(),
+    syncSetEnabled: vi.fn(),
+    syncOpenPairing: vi.fn(),
+    syncJoin: vi.fn(),
+    syncNow: vi.fn(),
+    syncRemovePeer: vi.fn(),
+    syncSetKinds: vi.fn(),
+    syncSetDeviceName: vi.fn(),
+    syncUndoLast: vi.fn(),
   },
   events: {
     engineCommandEvent: makeEvent('engineCommandEvent'),
@@ -134,6 +144,7 @@ export const bindingsMock = {
     queueEvent: makeEvent('queueEvent'),
     libraryScanEvent: makeEvent('libraryScanEvent'),
     extensionsChangedEvent: makeEvent('extensionsChangedEvent'),
+    syncChangedEvent: makeEvent('syncChangedEvent'),
   },
 };
 
@@ -206,6 +217,26 @@ export const seedBindings = () => {
   commands.remoteSetEnabled.mockResolvedValue(ok(remoteOff));
   commands.remoteNewCode.mockResolvedValue(ok(remoteOff));
   commands.remoteForgetDevice.mockResolvedValue(ok(remoteOff));
+  const syncOff = {
+    enabled: false,
+    deviceName: 'Android phone',
+    fingerprint: 'ab12 cd34 ef56 7890',
+    pairingText: null,
+    pairingQrSvg: null,
+    kinds: ['settings', 'library', 'history'],
+    peers: [],
+    log: [],
+    error: null,
+  };
+  commands.syncStatus.mockResolvedValue(ok(syncOff));
+  commands.syncSetEnabled.mockResolvedValue(ok(syncOff));
+  commands.syncOpenPairing.mockResolvedValue(ok(syncOff));
+  commands.syncJoin.mockResolvedValue(ok(syncOff));
+  commands.syncNow.mockResolvedValue(ok(syncOff));
+  commands.syncRemovePeer.mockResolvedValue(ok(syncOff));
+  commands.syncSetKinds.mockResolvedValue(ok(syncOff));
+  commands.syncSetDeviceName.mockResolvedValue(ok(syncOff));
+  commands.syncUndoLast.mockResolvedValue(ok(syncOff));
 };
 
 export const emitEvent = <Name extends EventName>(name: Name, payload: EventPayloads[Name]) => {

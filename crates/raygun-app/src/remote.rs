@@ -196,7 +196,7 @@ async fn save_devices(db: &raygun_db::Db, devices: &[PairedDevice]) -> Result<()
 }
 
 /// The pairing address as a QR code.
-fn qr_svg(text: &str) -> Option<String> {
+pub(crate) fn qr_svg(text: &str) -> Option<String> {
     let code = qrcode::QrCode::new(text.as_bytes()).ok()?;
     Some(
         code.render::<qrcode::render::svg::Color<'_>>()

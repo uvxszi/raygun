@@ -5,10 +5,11 @@ use raygun_model::{
     LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack, Lyrics, McpStatus, PlayRequest,
     PlaybackControl, PlaybackState, PlaylistDetail, PlaylistSummary, QueueItemInput, QueueSnapshot,
     RemoteStatus, RepoCatalog, SavedTrack, SearchResults, SettingChange, SettingValue, Settings,
-    StorageInfo, StorageMode, TrackInput, TrackQuery,
+    StorageInfo, StorageMode, SyncKind, SyncStatus, TrackInput, TrackQuery,
 };
 
 use crate::collections::CollectionsService;
+use crate::device_sync::SyncService;
 use crate::extensions::ExtensionService;
 use crate::library::LibraryService;
 use crate::mcp::McpService;
@@ -520,6 +521,83 @@ pub async fn remote_forget_device(
     id: String,
 ) -> Result<RemoteStatus, String> {
     remote.forget(&id).await
+}
+
+/// Device sync's switch, identity, open pairing, peers and log.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_status(sync: tauri::State<'_, SyncService>) -> Result<SyncStatus, String> {
+    sync.status().await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_set_enabled(
+    sync: tauri::State<'_, SyncService>,
+    enabled: bool,
+) -> Result<SyncStatus, String> {
+    sync.set_enabled(enabled).await
+}
+
+/// Opens a pairing code; the status carries the text and QR code another device needs.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_open_pairing(sync: tauri::State<'_, SyncService>) -> Result<SyncStatus, String> {
+    sync.open_pairing().await
+}
+
+/// Pairs with the device whose pairing text this is, then syncs with it.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_join(
+    sync: tauri::State<'_, SyncService>,
+    text: String,
+) -> Result<SyncStatus, String> {
+    sync.join(&text).await
+}
+
+/// Syncs with one paired device, or all of them when `device_id` is null.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_now(
+    sync: tauri::State<'_, SyncService>,
+    device_id: Option<String>,
+) -> Result<SyncStatus, String> {
+    sync.sync_now(device_id.as_deref()).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_remove_peer(
+    sync: tauri::State<'_, SyncService>,
+    device_id: String,
+) -> Result<SyncStatus, String> {
+    sync.remove_peer(&device_id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_set_kinds(
+    sync: tauri::State<'_, SyncService>,
+    kinds: Vec<SyncKind>,
+) -> Result<SyncStatus, String> {
+    sync.set_kinds(kinds).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_set_device_name(
+    sync: tauri::State<'_, SyncService>,
+    name: String,
+) -> Result<SyncStatus, String> {
+    sync.set_device_name(&name).await
+}
+
+/// Undoes the newest sync that changed something on this device.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_undo_last(sync: tauri::State<'_, SyncService>) -> Result<SyncStatus, String> {
+    sync.undo_last().await
 }
 
 /// Replaces the queue with favorites, a playlist or history and starts playing.

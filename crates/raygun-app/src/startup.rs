@@ -20,7 +20,7 @@ const LOG_FILES_KEPT: usize = 7;
 pub struct AppPaths(pub Paths);
 
 /// The open database, available to commands as Tauri state.
-pub struct AppDb(pub raygun_db::Db);
+pub struct AppDb(pub std::sync::Arc<raygun_db::Db>);
 
 /// Keeps the background log writer alive for the app's lifetime.
 struct LogGuard(#[allow(dead_code)] WorkerGuard);
@@ -39,7 +39,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     let db = tauri::async_runtime::block_on(raygun_db::Db::open(&paths.db()))?;
     tracing::info!(device_id = %db.device_id(), "database ready");
     // Before the services: some read the database from background tasks right away.
-    app.manage(AppDb(db));
+    app.manage(AppDb(std::sync::Arc::new(db)));
 
     let art_dir = paths.cache(raygun_paths::CacheKind::Images);
     let proxy = tauri::async_runtime::block_on(raygun_net::StreamProxy::start(
@@ -75,6 +75,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     let remote =
         tauri::async_runtime::block_on(crate::remote::RemoteService::start(app.handle().clone()))?;
     app.manage(remote);
+    let sync = tauri::async_runtime::block_on(crate::device_sync::SyncService::start(
+        app.handle().clone(),
+    ))?;
+    app.manage(sync);
 
     create_main_window(app, &paths)?;
 

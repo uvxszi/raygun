@@ -6,6 +6,7 @@ import type { ExtensionTab } from './extensions/tabs';
 import { isLibraryView } from './library/views';
 import type { LibraryView } from './library/views';
 import { AlbumPage } from './pages/AlbumPage';
+import { DevicesPage } from './pages/DevicesPage';
 import { ExtensionDetailPage } from './pages/ExtensionDetailPage';
 import { ExtensionsPage } from './pages/ExtensionsPage';
 import { ArtistPage } from './pages/ArtistPage';
@@ -58,6 +59,11 @@ const routeTree = rootRoute.addChildren([
       text(search.q) ? { q: text(search.q) } : {},
   }),
   createRoute({ getParentRoute: () => rootRoute, path: '/settings', component: SettingsPage }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/settings/devices',
+    component: DevicesPage,
+  }),
   createRoute({
     getParentRoute: () => rootRoute,
     path: '/extensions',

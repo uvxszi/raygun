@@ -2,6 +2,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { AppearanceCard } from '../settings/AppearanceCard';
+import { DevicesCard } from '../settings/DevicesCard';
 import { ExtensionsCard } from '../settings/ExtensionsCard';
 import { McpCard } from '../settings/McpCard';
 import { RemoteCard } from '../settings/RemoteCard';
@@ -15,6 +16,7 @@ export const SettingsPage: FC = () => {
       <PageHeader title={t('settings.title')} />
       <AppearanceCard />
       <ExtensionsCard />
+      <DevicesCard />
       <RemoteCard />
       <McpCard />
       <AboutCard />

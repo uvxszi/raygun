@@ -1,5 +1,7 @@
 package app.raygun.player
 
+import android.content.Context
+import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.view.View
 import androidx.activity.enableEdgeToEdge
@@ -7,10 +9,30 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
+  /** Lets mDNS (device sync discovery) through Android's Wi-Fi multicast filter. */
+  private var multicastLock: WifiManager.MulticastLock? = null
+
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
     resizeForKeyboard()
+  }
+
+  // Held only while Raygun is in front: it costs battery, and sync runs in the foreground (M21).
+  override fun onResume() {
+    super.onResume()
+    val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+    multicastLock =
+      wifi?.createMulticastLock("raygun-sync")?.apply {
+        setReferenceCounted(false)
+        acquire()
+      }
+  }
+
+  override fun onPause() {
+    multicastLock?.release()
+    multicastLock = null
+    super.onPause()
   }
 
   /**

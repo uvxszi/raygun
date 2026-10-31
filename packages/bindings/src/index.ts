@@ -109,6 +109,20 @@ export const commands = {
 	remoteNewCode: () => typedError<RemoteStatus, string>(__TAURI_INVOKE("remote_new_code")),
 	/**  Removes a paired device; it loses access at once. */
 	remoteForgetDevice: (id: string) => typedError<RemoteStatus, string>(__TAURI_INVOKE("remote_forget_device", { id })),
+	/**  Device sync's switch, identity, open pairing, peers and log. */
+	syncStatus: () => typedError<SyncStatus, string>(__TAURI_INVOKE("sync_status")),
+	syncSetEnabled: (enabled: boolean) => typedError<SyncStatus, string>(__TAURI_INVOKE("sync_set_enabled", { enabled })),
+	/**  Opens a pairing code; the status carries the text and QR code another device needs. */
+	syncOpenPairing: () => typedError<SyncStatus, string>(__TAURI_INVOKE("sync_open_pairing")),
+	/**  Pairs with the device whose pairing text this is, then syncs with it. */
+	syncJoin: (text: string) => typedError<SyncStatus, string>(__TAURI_INVOKE("sync_join", { text })),
+	/**  Syncs with one paired device, or all of them when `device_id` is null. */
+	syncNow: (deviceId: string | null) => typedError<SyncStatus, string>(__TAURI_INVOKE("sync_now", { deviceId })),
+	syncRemovePeer: (deviceId: string) => typedError<SyncStatus, string>(__TAURI_INVOKE("sync_remove_peer", { deviceId })),
+	syncSetKinds: (kinds: SyncKind[]) => typedError<SyncStatus, string>(__TAURI_INVOKE("sync_set_kinds", { kinds })),
+	syncSetDeviceName: (name: string) => typedError<SyncStatus, string>(__TAURI_INVOKE("sync_set_device_name", { name })),
+	/**  Undoes the newest sync that changed something on this device. */
+	syncUndoLast: () => typedError<SyncStatus, string>(__TAURI_INVOKE("sync_undo_last")),
 };
 
 /** Events */
@@ -118,6 +132,7 @@ export const events = {
 	libraryScanEvent: makeEvent<LibraryScanEvent>("library-scan-event"),
 	playbackStateEvent: makeEvent<PlaybackStateEvent>("playback-state-event"),
 	queueEvent: makeEvent<QueueEvent>("queue-event"),
+	syncChangedEvent: makeEvent<SyncChangedEvent>("sync-changed-event"),
 };
 
 /* Types */
@@ -559,6 +574,55 @@ export type StorageMode =
 "mobile" | 
 /**  Set explicitly through `RAYGUN_HOME`. */
 "override";
+
+/**
+ *  A sync with another device finished and changed rows here; carries how many. Cached
+ *  settings, favorites, playlists and history are stale.
+ */
+export type SyncChangedEvent = number;
+
+/**  What a user can choose to sync between devices. */
+export type SyncKind = "settings" | "library" | "history";
+
+export type SyncPeerInfo = {
+	deviceId: string,
+	name: string,
+	/**  Groups of hex from the device's key, to compare by eye. */
+	fingerprint: string,
+	address: string | null,
+	/**  Unix ms. */
+	pairedAt: number | null,
+	lastSyncAt: number | null,
+};
+
+export type SyncSessionInfo = {
+	id: number,
+	peerName: string,
+	/**  Unix ms. */
+	startedAt: number | null,
+	finished: boolean,
+	sent: number,
+	received: number,
+	/**  Received rows that changed something on this device. */
+	changed: number,
+	error: string | null,
+	undone: boolean,
+};
+
+/**  Device sync's switch, this device's identity, an open pairing, peers and the log. */
+export type SyncStatus = {
+	enabled: boolean,
+	deviceName: string,
+	fingerprint: string,
+	/**  The text another device pastes to pair, while a pairing code is open. */
+	pairingText: string | null,
+	/**  `pairing_text` as a QR code (SVG markup). */
+	pairingQrSvg: string | null,
+	kinds: SyncKind[],
+	peers: SyncPeerInfo[],
+	log: SyncSessionInfo[],
+	error: string | null,
+};
 
 /**  Color theme. `System` follows the OS light/dark preference. */
 export type Theme = "system" | "light" | "dark" | 

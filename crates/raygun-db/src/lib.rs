@@ -10,6 +10,7 @@ pub mod hlc;
 pub mod local_music;
 pub mod settings;
 pub mod streams;
+pub mod sync;
 
 use std::path::Path;
 use std::str::FromStr;
@@ -95,6 +96,15 @@ impl Db {
             .lock()
             .expect("hlc mutex poisoned")
             .tick(hlc::now_ms())
+    }
+
+    /// Folds in a timestamp from another device, so later local writes order after it. Returns
+    /// the clock's new value for the caller to persist with [`persist_hlc`].
+    pub(crate) fn observe(&self, remote: u64) -> u64 {
+        self.clock
+            .lock()
+            .expect("hlc mutex poisoned")
+            .observe(remote, hlc::now_ms())
     }
 }
 

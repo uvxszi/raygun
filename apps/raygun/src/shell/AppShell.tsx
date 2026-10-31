@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import type { FC } from 'react';
 
 import { TrackActionsSheet } from '../collections/TrackActionsSheet';
+import { useSyncChangedListener } from '../devices/useDeviceSync';
 import { useEngineHost } from '../engine/useEngineHost';
 import { useSyncLanguage } from '../i18n/useSyncLanguage';
 import { useLibraryScanSync } from '../library/useLibrary';
@@ -23,6 +24,7 @@ export const AppShell: FC = () => {
   usePlaybackSync();
   useLibraryScanSync();
   useExtensionsSync();
+  useSyncChangedListener();
 
   // Pages scroll inside <main>, not the window, so start each page at the top.
   const mainRef = useRef<HTMLElement>(null);

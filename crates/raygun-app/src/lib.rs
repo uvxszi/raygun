@@ -5,6 +5,7 @@
 
 mod collections;
 mod commands;
+mod device_sync;
 mod events;
 mod extensions;
 mod history;
@@ -79,14 +80,24 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::remote_status,
             commands::remote_set_enabled,
             commands::remote_new_code,
-            commands::remote_forget_device
+            commands::remote_forget_device,
+            commands::sync_status,
+            commands::sync_set_enabled,
+            commands::sync_open_pairing,
+            commands::sync_join,
+            commands::sync_now,
+            commands::sync_remove_peer,
+            commands::sync_set_kinds,
+            commands::sync_set_device_name,
+            commands::sync_undo_last
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,
             events::PlaybackStateEvent,
             events::QueueEvent,
             events::LibraryScanEvent,
-            events::ExtensionsChangedEvent
+            events::ExtensionsChangedEvent,
+            events::SyncChangedEvent
         ])
 }
 
