@@ -9,3 +9,4 @@ docs/
 **/build/
 plugins-mobile/*/android/.tauri/
 third_party/
+repo/

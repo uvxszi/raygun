@@ -48,6 +48,21 @@ export const commands = {
 	extensionsList: () => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extensions_list")),
 	/**  Reloads all extensions, picking up any copied into the `extensions/` folder. */
 	extensionsReload: () => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extensions_reload")),
+	/**  Repositories extensions can be installed from. */
+	extensionRepos: () => typedError<ExtensionRepo[], string>(__TAURI_INVOKE("extension_repos")),
+	/**  Adds a repository by its `index.json` URL, after checking the index can be read. */
+	extensionRepoAdd: (url: string) => typedError<ExtensionRepo[], string>(__TAURI_INVOKE("extension_repo_add", { url })),
+	extensionRepoRemove: (id: string) => typedError<ExtensionRepo[], string>(__TAURI_INVOKE("extension_repo_remove", { id })),
+	/**
+	 *  Every repository's extensions, marked against what this device has. Indexes are cached for a
+	 *  few minutes unless `refresh` is set.
+	 */
+	extensionCatalog: (refresh: boolean) => typedError<RepoCatalog[], string>(__TAURI_INVOKE("extension_catalog", { refresh })),
+	/**  Installs, or updates to, the version a repository lists. */
+	extensionInstall: (repoId: string, extensionId: string) => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extension_install", { repoId, extensionId })),
+	extensionUninstall: (extensionId: string) => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extension_uninstall", { extensionId })),
+	/**  Saves one of an extension's settings and reloads it. */
+	extensionSettingSet: (extensionId: string, key: string, value: SettingValue) => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extension_setting_set", { extensionId, key, value })),
 	/**  Searches every online music provider at once; each answers with tracks or an error. */
 	onlineSearch: (query: string) => typedError<ProviderSearchResult[], string>(__TAURI_INVOKE("online_search", { query })),
 };
@@ -71,6 +86,28 @@ export type AppInfo = {
 	arch: string,
 	debug: boolean,
 };
+
+/**  An extension a repository offers. */
+export type CatalogEntry = {
+	repoId: string,
+	id: string,
+	name: string,
+	version: string,
+	description: string | null,
+	author: string | null,
+	provides: string[],
+	net: string[],
+	contentRating: string,
+	/**  Package size in bytes (packages are capped at 10 MiB). */
+	size: number,
+	state: CatalogState,
+	/**  The version on this device (built-in or installed), if any. */
+	installedVersion: string | null,
+};
+
+export type CatalogState = "available" | "installed" | "updateAvailable" | 
+/**  This device has a newer version than the repository (a built-in or development copy). */
+"newerInstalled";
 
 /**  An instruction for the active playback engine. */
 export type EngineCommand = { type: "load"; loadId: number; url: string; 
@@ -97,6 +134,7 @@ export type ExtensionInfo = {
 	id: string,
 	name: string,
 	version: string,
+	description: string | null,
 	origin: ExtensionOrigin,
 	status: ExtensionStatus,
 	/**  Why the extension failed to load, when it did. */
@@ -105,6 +143,7 @@ export type ExtensionInfo = {
 	/**  Host patterns the extension may reach (`archive.org`, `*.archive.org`). */
 	net: string[],
 	providers: ProviderInfo[],
+	settings: ExtensionSetting[],
 };
 
 /**  Where an extension was loaded from. */
@@ -113,6 +152,26 @@ export type ExtensionOrigin =
 "builtIn" | 
 /**  Loaded from the `extensions/` folder; overrides a built-in extension with the same id. */
 "installed";
+
+/**  A repository of installable extensions (an `index.json` URL). */
+export type ExtensionRepo = {
+	id: string,
+	url: string,
+	/**  The index's own name, once it has been fetched. */
+	name: string,
+};
+
+/**  A setting an extension declares, with its current value. */
+export type ExtensionSetting = {
+	key: string,
+	label: string,
+	kind: SettingKind,
+	/**  The choices of a `select`. */
+	options: string[],
+	default: SettingValue | null,
+	/**  The user's value, or the default when they haven't set one. */
+	value: SettingValue | null,
+};
 
 export type ExtensionStatus = "loaded" | "failed";
 
@@ -283,6 +342,13 @@ export type QueueSnapshot = {
 
 export type RepeatMode = "off" | "all" | "one";
 
+/**  One repository's listing; a repository that couldn't be read reports why. */
+export type RepoCatalog = {
+	repo: ExtensionRepo,
+	entries: CatalogEntry[],
+	error: string | null,
+};
+
 export type ScanPhase = "discovering" | "reading" | "done" | "failed";
 
 /**
@@ -290,6 +356,11 @@ export type ScanPhase = "discovering" | "reading" | "done" | "failed";
  *  key/value pairs, and doubles as the format of a stored row.
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string };
+
+export type SettingKind = "text" | "number" | "boolean" | "select";
+
+/**  A value of an extension setting: text and select choices are strings. */
+export type SettingValue = boolean | number | null | string;
 
 /**  User settings. Stored one row per field so devices can sync them field by field. */
 export type Settings = {

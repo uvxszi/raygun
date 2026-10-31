@@ -12,17 +12,20 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use raygun_model::{
-    ExtensionInfo, ExtensionOrigin, ExtensionStatus, MediaSource, OnlineTrack, ProviderInfo,
-    ProviderSearchResult,
+    ExtensionInfo, ExtensionOrigin, ExtensionSetting, ExtensionStatus, MediaSource, OnlineTrack,
+    ProviderInfo, ProviderSearchResult, SettingKind, SettingValue,
 };
 use serde::Deserialize;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::js::{JsExtension, Limits};
-use crate::manifest::{MANIFEST_FILE, Manifest};
+use crate::manifest::{self, MANIFEST_FILE, Manifest};
 use crate::storage::KvStore;
 
 pub const MUSIC_METADATA: &str = "music.metadata";
+
+/// The user's setting values, per extension id, then per setting key.
+pub type UserSettings = std::collections::HashMap<String, BTreeMap<String, serde_json::Value>>;
 
 #[derive(Debug, Clone)]
 pub struct HostConfig {
@@ -130,6 +133,7 @@ pub enum CallError {
 enum Request {
     Load {
         sources: Vec<ExtensionSource>,
+        settings: UserSettings,
         reply: oneshot::Sender<Vec<ExtensionInfo>>,
     },
     List {
@@ -161,9 +165,22 @@ impl ExtensionHost {
     /// Replaces every loaded extension with `sources`. An installed extension overrides a
     /// built-in one with the same id. Returns what loaded (or failed), sorted by name.
     pub async fn load(&self, sources: Vec<ExtensionSource>) -> Vec<ExtensionInfo> {
-        self.ask(|reply| Request::Load { sources, reply })
-            .await
-            .unwrap_or_default()
+        self.load_with_settings(sources, UserSettings::new()).await
+    }
+
+    /// Like [`Self::load`], with the user's setting values (invalid ones are ignored).
+    pub async fn load_with_settings(
+        &self,
+        sources: Vec<ExtensionSource>,
+        settings: UserSettings,
+    ) -> Vec<ExtensionInfo> {
+        self.ask(|reply| Request::Load {
+            sources,
+            settings,
+            reply,
+        })
+        .await
+        .unwrap_or_default()
     }
 
     pub async fn list(&self) -> Vec<ExtensionInfo> {
@@ -281,8 +298,12 @@ fn run(config: HostConfig, mut receiver: mpsc::UnboundedReceiver<Request>) {
 impl HostState {
     async fn handle(&self, request: Request) {
         match request {
-            Request::Load { sources, reply } => {
-                let infos = self.load(sources).await;
+            Request::Load {
+                sources,
+                settings,
+                reply,
+            } => {
+                let infos = self.load(sources, settings).await;
                 let _ = reply.send(infos);
             }
             Request::List { reply } => {
@@ -299,7 +320,11 @@ impl HostState {
         }
     }
 
-    async fn load(&self, sources: Vec<ExtensionSource>) -> Vec<ExtensionInfo> {
+    async fn load(
+        &self,
+        sources: Vec<ExtensionSource>,
+        mut settings: UserSettings,
+    ) -> Vec<ExtensionInfo> {
         // Parse every manifest first, so installed copies can override built-in ones.
         let mut chosen: BTreeMap<String, (ExtensionSource, Manifest)> = BTreeMap::new();
         let mut infos = Vec::new();
@@ -329,7 +354,8 @@ impl HostState {
         for (id, (source, manifest)) in chosen {
             let origin = source.origin;
             let (name, version) = (manifest.name.clone(), manifest.version.to_string());
-            match self.load_one(source, manifest).await {
+            let user_settings = settings.remove(&id).unwrap_or_default();
+            match self.load_one(source, manifest, user_settings).await {
                 Ok(extension) => {
                     let info = loaded_info(&extension, origin);
                     tracing::info!(extension = %id, providers = info.providers.len(), "extension loaded");
@@ -356,7 +382,9 @@ impl HostState {
         &self,
         source: ExtensionSource,
         manifest: Manifest,
+        mut user_settings: BTreeMap<String, serde_json::Value>,
     ) -> Result<JsExtension, String> {
+        user_settings.retain(|key, value| manifest.check_setting(key, value).is_ok());
         let code = source.read(&manifest.entry)?;
         let storage = KvStore::open(
             self.config
@@ -364,13 +392,7 @@ impl HostState {
                 .as_ref()
                 .map(|dir| dir.join(&manifest.id).join("storage.json")),
         );
-        let load = JsExtension::load(
-            manifest,
-            code,
-            storage,
-            BTreeMap::new(),
-            &self.config.limits,
-        );
+        let load = JsExtension::load(manifest, code, storage, user_settings, &self.config.limits);
         tokio::time::timeout(self.config.call_timeout, load)
             .await
             .map_err(|_| "loading timed out".to_owned())?
@@ -409,10 +431,12 @@ impl HostState {
 
 fn loaded_info(extension: &JsExtension, origin: ExtensionOrigin) -> ExtensionInfo {
     let manifest = extension.manifest();
+    let values = extension.user_settings();
     ExtensionInfo {
         id: manifest.id.clone(),
         name: manifest.name.clone(),
         version: manifest.version.to_string(),
+        description: manifest.description.clone(),
         origin,
         status: ExtensionStatus::Loaded,
         error: None,
@@ -424,6 +448,29 @@ fn loaded_info(extension: &JsExtension, origin: ExtensionOrigin) -> ExtensionInf
             .map(ToString::to_string)
             .collect(),
         providers: extension.providers(),
+        settings: manifest
+            .settings
+            .iter()
+            .map(|setting| {
+                let default = setting.default.as_ref().and_then(SettingValue::from_json);
+                ExtensionSetting {
+                    key: setting.key.clone(),
+                    label: setting.label.clone().unwrap_or_else(|| setting.key.clone()),
+                    kind: match setting.kind {
+                        manifest::SettingKind::Text => SettingKind::Text,
+                        manifest::SettingKind::Number => SettingKind::Number,
+                        manifest::SettingKind::Boolean => SettingKind::Boolean,
+                        manifest::SettingKind::Select => SettingKind::Select,
+                    },
+                    options: setting.options.clone(),
+                    value: values
+                        .get(&setting.key)
+                        .and_then(SettingValue::from_json)
+                        .or_else(|| default.clone()),
+                    default,
+                }
+            })
+            .collect(),
     }
 }
 
@@ -438,12 +485,14 @@ fn failed_info(
         id: id.to_owned(),
         name: name.to_owned(),
         version: version.to_owned(),
+        description: None,
         origin,
         status: ExtensionStatus::Failed,
         error: Some(error),
         provides: Vec::new(),
         net: Vec::new(),
         providers: Vec::new(),
+        settings: Vec::new(),
     }
 }
 

@@ -96,6 +96,13 @@ export const bindingsMock = {
     playbackReplace: vi.fn(),
     extensionsList: vi.fn(),
     extensionsReload: vi.fn(),
+    extensionRepos: vi.fn(),
+    extensionRepoAdd: vi.fn(),
+    extensionRepoRemove: vi.fn(),
+    extensionCatalog: vi.fn(),
+    extensionInstall: vi.fn(),
+    extensionUninstall: vi.fn(),
+    extensionSettingSet: vi.fn(),
     onlineSearch: vi.fn(),
   },
   events: {
@@ -133,6 +140,13 @@ export const seedBindings = () => {
   commands.playbackReplace.mockResolvedValue(undefined);
   commands.extensionsList.mockResolvedValue(ok([]));
   commands.extensionsReload.mockResolvedValue(ok([]));
+  commands.extensionRepos.mockResolvedValue(ok([]));
+  commands.extensionRepoAdd.mockResolvedValue(ok([]));
+  commands.extensionRepoRemove.mockResolvedValue(ok([]));
+  commands.extensionCatalog.mockResolvedValue(ok([]));
+  commands.extensionInstall.mockResolvedValue(ok([]));
+  commands.extensionUninstall.mockResolvedValue(ok([]));
+  commands.extensionSettingSet.mockResolvedValue(ok([]));
   commands.onlineSearch.mockResolvedValue(ok([]));
 };
 

@@ -14,6 +14,8 @@ raygun-playback.workspace = true
 raygun-net.workspace = true
 raygun-library.workspace = true
 raygun-ext-host.workspace = true
+reqwest.workspace = true
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 tauri-plugin-raygun-audio.workspace = true
 tauri.workspace = true
 serde.workspace = true

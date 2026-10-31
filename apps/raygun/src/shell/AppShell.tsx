@@ -5,7 +5,7 @@ import type { FC } from 'react';
 import { useEngineHost } from '../engine/useEngineHost';
 import { useSyncLanguage } from '../i18n/useSyncLanguage';
 import { useLibraryScanSync } from '../library/useLibrary';
-import { useExtensionsSync } from '../search/useOnlineSearch';
+import { useExtensionsSync } from '../extensions/useExtensions';
 import { MiniPlayer } from '../player/MiniPlayer';
 import { PlayerSheet } from '../player/PlayerSheet';
 import { usePlaybackSync } from '../player/usePlayback';

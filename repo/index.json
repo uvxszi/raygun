@@ -1,0 +1,49 @@
+{
+  "formatVersion": 1,
+  "name": "Raygun Extensions",
+  "extensions": [
+    {
+      "id": "dev.raygun.internet-archive",
+      "name": "Internet Archive",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Public-domain and Creative Commons audio from the Internet Archive.",
+      "author": "Raygun",
+      "provides": [
+        "music.metadata"
+      ],
+      "permissions": {
+        "net": [
+          "archive.org",
+          "*.archive.org"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.internet-archive-1.0.0.zip",
+      "sha256": "6fae19ecb097240706667db40b53db3d498a4819259b5502f250746acada0d46",
+      "size": 2073
+    },
+    {
+      "id": "dev.raygun.radio-browser",
+      "name": "Radio Browser",
+      "version": "1.0.1",
+      "apiVersion": 1,
+      "description": "Live internet radio from the community-run radio-browser.info station directory.",
+      "author": "Raygun",
+      "provides": [
+        "music.metadata"
+      ],
+      "permissions": {
+        "net": [
+          "*.api.radio-browser.info"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.radio-browser-1.0.1.zip",
+      "sha256": "da2ab6e6c7bdfa51a84ef391d47055c7f4e3e5e896cc94097f9ee6ac4548d940",
+      "size": 2319
+    }
+  ]
+}

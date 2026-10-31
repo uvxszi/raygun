@@ -43,6 +43,13 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::playback_replace,
             commands::extensions_list,
             commands::extensions_reload,
+            commands::extension_repos,
+            commands::extension_repo_add,
+            commands::extension_repo_remove,
+            commands::extension_catalog,
+            commands::extension_install,
+            commands::extension_uninstall,
+            commands::extension_setting_set,
             commands::online_search
         ])
         .events(tauri_specta::collect_events![

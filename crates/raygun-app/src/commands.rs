@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use raygun_model::{
-    AppInfo, EngineReport, ExtensionInfo, LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack,
-    PlayRequest, PlaybackControl, PlaybackState, ProviderSearchResult, QueueItemInput,
-    QueueSnapshot, SettingChange, Settings, StorageInfo, StorageMode,
+    AppInfo, EngineReport, ExtensionInfo, ExtensionRepo, LibraryAlbum, LibraryArtist,
+    LibraryStatus, LibraryTrack, PlayRequest, PlaybackControl, PlaybackState, ProviderSearchResult,
+    QueueItemInput, QueueSnapshot, RepoCatalog, SettingChange, SettingValue, Settings, StorageInfo,
+    StorageMode,
 };
 
 use crate::extensions::ExtensionService;
@@ -219,6 +220,77 @@ pub async fn extensions_reload(
     extensions: tauri::State<'_, Arc<ExtensionService>>,
 ) -> Result<Vec<ExtensionInfo>, String> {
     Ok(extensions.reload().await)
+}
+
+/// Repositories extensions can be installed from.
+#[tauri::command]
+#[specta::specta]
+pub async fn extension_repos(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+) -> Result<Vec<ExtensionRepo>, String> {
+    extensions.repos().await
+}
+
+/// Adds a repository by its `index.json` URL, after checking the index can be read.
+#[tauri::command]
+#[specta::specta]
+pub async fn extension_repo_add(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    url: String,
+) -> Result<Vec<ExtensionRepo>, String> {
+    extensions.add_repo(&url).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn extension_repo_remove(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    id: String,
+) -> Result<Vec<ExtensionRepo>, String> {
+    extensions.remove_repo(&id).await
+}
+
+/// Every repository's extensions, marked against what this device has. Indexes are cached for a
+/// few minutes unless `refresh` is set.
+#[tauri::command]
+#[specta::specta]
+pub async fn extension_catalog(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    refresh: bool,
+) -> Result<Vec<RepoCatalog>, String> {
+    extensions.catalog(refresh).await
+}
+
+/// Installs, or updates to, the version a repository lists.
+#[tauri::command]
+#[specta::specta]
+pub async fn extension_install(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    repo_id: String,
+    extension_id: String,
+) -> Result<Vec<ExtensionInfo>, String> {
+    extensions.install(&repo_id, &extension_id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn extension_uninstall(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    extension_id: String,
+) -> Result<Vec<ExtensionInfo>, String> {
+    extensions.uninstall(&extension_id).await
+}
+
+/// Saves one of an extension's settings and reloads it.
+#[tauri::command]
+#[specta::specta]
+pub async fn extension_setting_set(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    extension_id: String,
+    key: String,
+    value: SettingValue,
+) -> Result<Vec<ExtensionInfo>, String> {
+    extensions.set_setting(&extension_id, &key, value).await
 }
 
 /// Searches every online music provider at once; each answers with tracks or an error.

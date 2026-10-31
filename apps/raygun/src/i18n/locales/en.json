@@ -79,13 +79,9 @@
     "storageMobile": "App sandbox",
     "storageOverride": "Custom (RAYGUN_HOME)",
     "extensions": "Extensions",
-    "noExtensions": "No extensions loaded.",
-    "extensionBuiltIn": "built-in",
-    "extensionInstalled": "installed",
-    "extensionFailed": "Failed to load: {{message}}",
-    "extensionNet": "Network: {{hosts}}",
-    "extensionNoNet": "No network access",
-    "reloadExtensions": "Reload"
+    "manageExtensions": "Manage",
+    "extensionsFailed_one": "{{count}} extension failed to load",
+    "extensionsFailed_other": "{{count}} extensions failed to load"
   },
   "player": {
     "nothingPlaying": "Nothing playing",
@@ -107,5 +103,42 @@
   },
   "common": {
     "coreUnavailable": "Core unavailable: {{message}}"
+  },
+  "extensions": {
+    "title": "Extensions",
+    "tabs": "Extension views",
+    "tab": {
+      "installed": "Installed",
+      "browse": "Browse",
+      "repos": "Repositories"
+    },
+    "reload": "Reload",
+    "refresh": "Refresh",
+    "noneInstalled": "No extensions yet.",
+    "builtIn": "built-in",
+    "installedOrigin": "installed",
+    "failed": "Failed to load: {{message}}",
+    "install": "Install",
+    "update": "Update",
+    "upToDate": "Installed",
+    "newerInstalled": "Newer version installed",
+    "noRepos": "No repositories. Add one under Repositories.",
+    "repoFailed": "Couldn't load this repository: {{message}}",
+    "repoEmpty": "This repository has no extensions for this version of Raygun.",
+    "installTitle": "Install {{name}}?",
+    "updateTitle": "Update {{name}}?",
+    "permissionsTitle": "Network access",
+    "noNetwork": "No network access",
+    "cancel": "Cancel",
+    "removeRepo": "Remove {{name}}",
+    "repoUrl": "Repository URL",
+    "repoUrlPlaceholder": "https://…/index.json",
+    "addRepo": "Add",
+    "repoHint": "Only add repositories you trust: their extensions can reach the hosts they list.",
+    "settings": "Settings",
+    "providers": "Provides",
+    "uninstall": "Uninstall",
+    "uninstallConfirm": "Tap again to uninstall",
+    "notFound": "This extension isn't loaded."
   }
 }

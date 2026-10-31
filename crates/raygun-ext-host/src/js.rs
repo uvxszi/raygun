@@ -125,6 +125,11 @@ impl JsExtension {
         &self.shared.manifest
     }
 
+    /// The user's values for this extension's settings (defaults not included).
+    pub fn user_settings(&self) -> &BTreeMap<String, serde_json::Value> {
+        &self.shared.settings
+    }
+
     pub fn providers(&self) -> Vec<ProviderInfo> {
         self.shared.providers.borrow().clone()
     }

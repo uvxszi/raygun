@@ -5,15 +5,19 @@ mod host;
 mod html;
 mod js;
 pub mod manifest;
+pub mod package;
 pub mod permissions;
+pub mod repo;
 mod storage;
 
+#[cfg(test)]
+mod repo_tests;
 #[cfg(test)]
 mod tests;
 
 pub use host::{
     CallError, ExtensionFiles, ExtensionHost, ExtensionSource, HostConfig, MUSIC_METADATA,
-    discover_installed,
+    UserSettings, discover_installed,
 };
 pub use js::Limits;
 pub use manifest::{MANIFEST_FILE, Manifest, ManifestError};

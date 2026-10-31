@@ -1,6 +1,6 @@
 //! `raygun-extension.json` (ARCHITECTURE §7.1).
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 
 use serde::Deserialize;
 
@@ -50,17 +50,43 @@ pub enum ContentRating {
     Nsfw,
 }
 
-/// A setting the extension declares; the settings UI (M13) renders these.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub enum SettingKind {
+    Text,
+    Number,
+    Boolean,
+    Select,
+}
+
+/// A setting the extension declares; the app's settings form renders these (M13).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SettingDef {
     pub key: String,
     #[serde(rename = "type")]
-    pub kind: String,
+    pub kind: SettingKind,
+    #[serde(default)]
+    pub label: Option<String>,
+    /// The choices of a `select`.
+    #[serde(default)]
+    pub options: Vec<String>,
     #[serde(default)]
     pub default: Option<serde_json::Value>,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, serde_json::Value>,
+}
+
+impl SettingDef {
+    /// Whether `value` fits this setting: the right JSON type, and one of the options for a select.
+    pub fn accepts(&self, value: &serde_json::Value) -> bool {
+        match self.kind {
+            SettingKind::Text => value.is_string(),
+            SettingKind::Number => value.as_f64().is_some_and(f64::is_finite),
+            SettingKind::Boolean => value.is_boolean(),
+            SettingKind::Select => value
+                .as_str()
+                .is_some_and(|choice| self.options.iter().any(|option| option == choice)),
+        }
+    }
 }
 
 /// A validated manifest.
@@ -99,7 +125,9 @@ pub enum ManifestError {
     Kind(String),
     #[error("invalid net permission {0:?}: use a host like api.example.org or *.example.org")]
     Net(String),
-    #[error("duplicate or empty setting key {0:?}")]
+    #[error(
+        "setting {0:?}: duplicate or empty key, a select without options, or a default of the wrong type"
+    )]
     Setting(String),
 }
 
@@ -137,11 +165,15 @@ impl Manifest {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let mut keys = HashSet::new();
-        if let Some(setting) = raw
-            .settings
-            .iter()
-            .find(|setting| setting.key.is_empty() || !keys.insert(setting.key.as_str()))
-        {
+        if let Some(setting) = raw.settings.iter().find(|setting| {
+            setting.key.is_empty()
+                || !keys.insert(setting.key.as_str())
+                || (setting.kind == SettingKind::Select && setting.options.is_empty())
+                || setting
+                    .default
+                    .as_ref()
+                    .is_some_and(|value| !setting.accepts(value))
+        }) {
             return Err(ManifestError::Setting(setting.key.clone()));
         }
         Ok(Self {
@@ -159,12 +191,26 @@ impl Manifest {
         })
     }
 
+    pub fn setting(&self, key: &str) -> Option<&SettingDef> {
+        self.settings.iter().find(|setting| setting.key == key)
+    }
+
     /// The default value of a declared setting.
     pub fn setting_default(&self, key: &str) -> Option<&serde_json::Value> {
-        self.settings
-            .iter()
-            .find(|setting| setting.key == key)
+        self.setting(key)
             .and_then(|setting| setting.default.as_ref())
+    }
+
+    /// Checks a user's value for one of this extension's settings.
+    pub fn check_setting(&self, key: &str, value: &serde_json::Value) -> Result<(), String> {
+        let setting = self
+            .setting(key)
+            .ok_or_else(|| format!("{} has no setting {key:?}", self.name))?;
+        if setting.accepts(value) {
+            Ok(())
+        } else {
+            Err(format!("{value} is not a valid value for {key:?}"))
+        }
     }
 }
 

@@ -570,3 +570,30 @@ async fn internet_archive_extension_finds_playable_tracks() {
         );
     }
 }
+
+/// Runs the Radio Browser extension against the real directory:
+/// `cargo test -p raygun-ext-host -- --ignored radio_browser`.
+#[tokio::test]
+#[ignore = "needs network access to radio-browser.info"]
+async fn radio_browser_extension_finds_stations() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    let infos = host.load(discover_installed(&dir)).await;
+    let radio = infos
+        .iter()
+        .find(|info| info.id == "dev.raygun.radio-browser")
+        .unwrap();
+    assert_eq!(radio.status, ExtensionStatus::Loaded, "{:?}", radio.error);
+
+    let results = host.search_music("jazz", 10).await;
+    let result = results
+        .iter()
+        .find(|result| result.provider.extension_id == "dev.raygun.radio-browser")
+        .unwrap();
+    assert_eq!(result.error, None);
+    assert!(!result.tracks.is_empty());
+    for track in &result.tracks {
+        println!("{} | {:?} | {:?}", track.title, track.artist, track.album);
+        assert!(matches!(&track.source, Some(MediaSource::Url { .. })));
+    }
+}

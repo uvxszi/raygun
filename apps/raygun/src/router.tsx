@@ -1,9 +1,13 @@
 import { createRootRoute, createRoute, createRouter } from '@tanstack/react-router';
 import type { RouterHistory } from '@tanstack/react-router';
 
+import { isExtensionTab } from './extensions/tabs';
+import type { ExtensionTab } from './extensions/tabs';
 import { isLibraryView } from './library/views';
 import type { LibraryView } from './library/views';
 import { AlbumPage } from './pages/AlbumPage';
+import { ExtensionDetailPage } from './pages/ExtensionDetailPage';
+import { ExtensionsPage } from './pages/ExtensionsPage';
 import { ArtistPage } from './pages/ArtistPage';
 import { HomePage } from './pages/HomePage';
 import { LibraryPage } from './pages/LibraryPage';
@@ -47,6 +51,19 @@ const routeTree = rootRoute.addChildren([
       text(search.q) ? { q: text(search.q) } : {},
   }),
   createRoute({ getParentRoute: () => rootRoute, path: '/settings', component: SettingsPage }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/extensions',
+    component: ExtensionsPage,
+    validateSearch: (search: Record<string, unknown>): { tab?: ExtensionTab } =>
+      isExtensionTab(search.tab) ? { tab: search.tab } : {},
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/extensions/detail',
+    component: ExtensionDetailPage,
+    validateSearch: (search: Record<string, unknown>) => ({ id: text(search.id) }),
+  }),
 ]);
 
 export const createAppRouter = (history?: RouterHistory) => createRouter({ routeTree, history });

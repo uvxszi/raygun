@@ -435,12 +435,13 @@ pub struct ProviderInfo {
     pub name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtensionInfo {
     pub id: String,
     pub name: String,
     pub version: String,
+    pub description: Option<String>,
     pub origin: ExtensionOrigin,
     pub status: ExtensionStatus,
     /// Why the extension failed to load, when it did.
@@ -449,6 +450,108 @@ pub struct ExtensionInfo {
     /// Host patterns the extension may reach (`archive.org`, `*.archive.org`).
     pub net: Vec<String>,
     pub providers: Vec<ProviderInfo>,
+    pub settings: Vec<ExtensionSetting>,
+}
+
+/// A value of an extension setting: text and select choices are strings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(untagged)]
+pub enum SettingValue {
+    Boolean(bool),
+    Number(f64),
+    Text(String),
+}
+
+impl SettingValue {
+    pub fn from_json(value: &serde_json::Value) -> Option<Self> {
+        match value {
+            serde_json::Value::Bool(flag) => Some(Self::Boolean(*flag)),
+            serde_json::Value::Number(number) => number.as_f64().map(Self::Number),
+            serde_json::Value::String(text) => Some(Self::Text(text.clone())),
+            _ => None,
+        }
+    }
+
+    pub fn to_json(&self) -> serde_json::Value {
+        match self {
+            Self::Boolean(flag) => serde_json::Value::Bool(*flag),
+            Self::Number(number) => serde_json::Number::from_f64(*number)
+                .map_or(serde_json::Value::Null, serde_json::Value::Number),
+            Self::Text(text) => serde_json::Value::String(text.clone()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SettingKind {
+    Text,
+    Number,
+    Boolean,
+    Select,
+}
+
+/// A setting an extension declares, with its current value.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionSetting {
+    pub key: String,
+    pub label: String,
+    pub kind: SettingKind,
+    /// The choices of a `select`.
+    pub options: Vec<String>,
+    pub default: Option<SettingValue>,
+    /// The user's value, or the default when they haven't set one.
+    pub value: Option<SettingValue>,
+}
+
+/// A repository of installable extensions (an `index.json` URL).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionRepo {
+    pub id: String,
+    pub url: String,
+    /// The index's own name, once it has been fetched.
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum CatalogState {
+    Available,
+    Installed,
+    UpdateAvailable,
+    /// This device has a newer version than the repository (a built-in or development copy).
+    NewerInstalled,
+}
+
+/// An extension a repository offers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogEntry {
+    pub repo_id: String,
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub description: Option<String>,
+    pub author: Option<String>,
+    pub provides: Vec<String>,
+    pub net: Vec<String>,
+    pub content_rating: String,
+    /// Package size in bytes (packages are capped at 10 MiB).
+    pub size: u32,
+    pub state: CatalogState,
+    /// The version on this device (built-in or installed), if any.
+    pub installed_version: Option<String>,
+}
+
+/// One repository's listing; a repository that couldn't be read reports why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoCatalog {
+    pub repo: ExtensionRepo,
+    pub entries: Vec<CatalogEntry>,
+    pub error: Option<String>,
 }
 
 /// A track found by an online provider.

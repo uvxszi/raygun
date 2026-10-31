@@ -18,7 +18,7 @@ const ProviderResults: FC<{ result: ProviderSearchResult }> = ({ result }) => {
     <section data-testid="provider-results" className="flex flex-col gap-1">
       <h2 className="text-muted text-sm font-medium">{result.provider.name}</h2>
       {result.error ? (
-        <p role="alert" className="text-primary text-sm">
+        <p role="alert" className="text-primary text-sm wrap-anywhere">
           {t('search.providerFailed', { message: result.error })}
         </p>
       ) : result.tracks.length === 0 ? (
@@ -87,7 +87,7 @@ export const SearchPage: FC = () => {
       </label>
       {!q && <p className="text-muted text-sm">{t('search.hint')}</p>}
       {search.error && (
-        <p role="alert" className="text-primary text-sm">
+        <p role="alert" className="text-primary text-sm wrap-anywhere">
           {t('common.coreUnavailable', { message: search.error.message })}
         </p>
       )}

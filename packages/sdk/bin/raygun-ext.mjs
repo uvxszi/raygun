@@ -2,11 +2,12 @@
 // raygun-ext — build Raygun extensions and install them into a running app.
 import { parseArgs } from 'node:util';
 
-import { build, dev, init } from '../lib/cli.mjs';
+import { build, dev, init, pack } from '../lib/cli.mjs';
 
 const USAGE = `Usage:
   raygun-ext init <dir> --id <reverse.dns.id> --name <name>
   raygun-ext build [dir]
+  raygun-ext pack [dir] --repo <repository folder>
   raygun-ext dev [dir] --android [--serial <device>]
   raygun-ext dev [dir] --into <extensions folder>`;
 
@@ -18,6 +19,7 @@ const { positionals, values } = parseArgs({
     android: { type: 'boolean' },
     serial: { type: 'string' },
     into: { type: 'string' },
+    repo: { type: 'string' },
     help: { type: 'boolean', short: 'h' },
   },
 });
@@ -35,6 +37,16 @@ const main = async () => {
     case 'build': {
       const { manifest, outfile, bytes } = await build(dir);
       console.log(`Built ${manifest.id} ${manifest.version} → ${outfile} (${bytes} bytes)`);
+      return;
+    }
+    case 'pack': {
+      if (!values.repo)
+        throw new Error(`pack needs --repo.
+${USAGE}`);
+      const result = await pack(dir, values.repo);
+      console.log(
+        `Packed ${result.manifest.id} ${result.manifest.version} → ${result.package} (${result.bytes} bytes); index lists ${result.index.extensions.length} extensions`,
+      );
       return;
     }
     case 'dev': {

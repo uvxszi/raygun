@@ -8,7 +8,8 @@
     "build": "raygun-ext build",
     "dev:android": "raygun-ext dev --android",
     "lint": "eslint src",
-    "type-check": "tsc"
+    "type-check": "tsc",
+    "pack:repo": "raygun-ext pack --repo ../../repo"
   },
   "devDependencies": {
     "@raygun/sdk": "workspace:*"

@@ -1,12 +1,9 @@
-import { commands, events } from '@raygun/bindings';
+import { commands } from '@raygun/bindings';
 import type { OnlineTrack, QueueItemInput } from '@raygun/bindings';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 
+import { ONLINE_SEARCH } from '../extensions/useExtensions';
 import { unwrapResult } from '../lib/commandResult';
-
-const EXTENSIONS = ['extensions'];
-const ONLINE_SEARCH = ['onlineSearch'];
 
 /** Results stay fresh for a while, so going back to Search doesn't re-run the query. */
 const RESULTS_STALE_MS = 5 * 60_000;
@@ -20,33 +17,6 @@ export const useOnlineSearch = (query: string) => {
     staleTime: RESULTS_STALE_MS,
   });
 };
-
-export const useExtensions = () =>
-  useQuery({
-    queryKey: EXTENSIONS,
-    queryFn: () => unwrapResult(commands.extensionsList()),
-  });
-
-/**
- * Follows extension reloads from Rust (a dev build reloads on every `raygun-ext dev` install):
- * refreshes the list and drops search results from the old code. Mount once.
- */
-export const useExtensionsSync = () => {
-  const queryClient = useQueryClient();
-  useEffect(() => {
-    const unlisten = events.extensionsChangedEvent.listen((event) => {
-      queryClient.setQueryData(EXTENSIONS, event.payload);
-      void queryClient.invalidateQueries({ queryKey: ONLINE_SEARCH });
-    });
-    return () => {
-      void unlisten.then((stop) => stop());
-    };
-  }, [queryClient]);
-};
-
-/** Reloads every extension; the change event then refreshes the UI. */
-export const useReloadExtensions = () =>
-  useMutation({ mutationFn: () => unwrapResult(commands.extensionsReload()) });
 
 export const toQueueItem = (track: OnlineTrack): QueueItemInput | null =>
   track.source

@@ -2,6 +2,7 @@
 // Plain ESM with JSDoc types, so it runs on Node without a build step; tsc checks it (checkJs).
 
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { watch } from 'node:fs';
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -9,6 +10,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import * as esbuild from 'esbuild';
+import { unzipSync, zipSync } from 'fflate';
 
 export const MANIFEST_FILE = 'raygun-extension.json';
 export const SOURCE_ENTRY = 'src/index.ts';
@@ -304,4 +306,116 @@ export const init = async (dir, { id, name }) => {
   }
   const manifest = await readManifest(dir);
   return manifest;
+};
+
+// ---- Repositories (M13) ----
+
+export const INDEX_FILE = 'index.json';
+const DEFAULT_REPO_NAME = 'Raygun Extensions';
+// Zip timestamps are local DOS times; a local-time date gives the same bytes on every machine.
+const PACKAGE_TIME = new Date(2000, 0, 1);
+
+/**
+ * Semver ordering (major.minor.patch, then a pre-release sorts before its release).
+ * @param {string} a
+ * @param {string} b
+ */
+export const compareVersions = (a, b) => {
+  /** @param {string} version */
+  const parse = (version) => {
+    const [core = '', pre] = version.split('+')[0]?.split(/-(.*)/s) ?? [];
+    return { parts: core.split('.').map(Number), pre };
+  };
+  const left = parse(a);
+  const right = parse(b);
+  for (let index = 0; index < 3; index += 1) {
+    const difference = (left.parts[index] ?? 0) - (right.parts[index] ?? 0);
+    if (difference !== 0) return Math.sign(difference);
+  }
+  if (left.pre === right.pre) return 0;
+  if (left.pre === undefined) return 1;
+  if (right.pre === undefined) return -1;
+  return left.pre < right.pre ? -1 : 1;
+};
+
+/**
+ * Builds an extension and adds its package to a repository folder, then rewrites the index.
+ * Packages are reproducible: the same sources give the same bytes (and checksum).
+ * @param {string} dir
+ * @param {string} repoDir
+ */
+export const pack = async (dir, repoDir) => {
+  const { manifest, outfile } = await build(dir);
+  /** @type {import('fflate').Zippable} */
+  const files = {
+    [MANIFEST_FILE]: [await readFile(join(dir, MANIFEST_FILE)), { mtime: PACKAGE_TIME }],
+    [manifest.entry]: [await readFile(outfile), { mtime: PACKAGE_TIME }],
+  };
+  const archive = zipSync(files, { level: 9, mtime: PACKAGE_TIME });
+  const name = `${manifest.id}-${manifest.version}.zip`;
+  await mkdir(join(repoDir, 'packages'), { recursive: true });
+  await writeFile(join(repoDir, 'packages', name), archive);
+  const index = await writeIndex(repoDir);
+  return { manifest, package: `packages/${name}`, bytes: archive.length, index };
+};
+
+/**
+ * Rewrites `index.json` from the packages in a repository folder, listing the newest version of
+ * each extension. Older packages stay on disk for anyone who linked them.
+ * @param {string} repoDir
+ */
+export const writeIndex = async (repoDir) => {
+  const indexPath = join(repoDir, INDEX_FILE);
+  const existing = await readFile(indexPath, 'utf8')
+    .then((text) => JSON.parse(text))
+    .catch(() => null);
+  const packagesDir = join(repoDir, 'packages');
+  const names = (await readdir(packagesDir).catch(() => [])).filter((name) =>
+    name.endsWith('.zip'),
+  );
+
+  /** @type {Map<string, Record<string, unknown> & { id: string, version: string }>} */
+  const newest = new Map();
+  for (const name of names.sort()) {
+    const bytes = await readFile(join(packagesDir, name));
+    const manifestBytes = unzipSync(bytes, { filter: (file) => file.name === MANIFEST_FILE })[
+      MANIFEST_FILE
+    ];
+    if (!manifestBytes) throw new Error(`${name} has no ${MANIFEST_FILE}`);
+    /** @type {Manifest} */
+    const manifest = JSON.parse(new TextDecoder().decode(manifestBytes));
+    const entry = {
+      id: manifest.id,
+      name: manifest.name,
+      version: manifest.version,
+      apiVersion: manifest.apiVersion,
+      description: manifest.description ?? null,
+      author: manifest.author ?? null,
+      provides: manifest.provides,
+      permissions: {
+        net: manifest.permissions?.net ?? [],
+        webview: manifest.permissions?.webview ?? false,
+      },
+      contentRating: manifest.contentRating ?? 'safe',
+      package: `packages/${name}`,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      size: bytes.length,
+    };
+    const current = newest.get(manifest.id);
+    if (!current || compareVersions(manifest.version, current.version) > 0) {
+      newest.set(manifest.id, entry);
+    }
+  }
+
+  const index = {
+    formatVersion: 1,
+    name: existing?.name ?? DEFAULT_REPO_NAME,
+    extensions: [...newest.values()].sort((a, b) => a.id.localeCompare(b.id)),
+  };
+  await writeFile(
+    indexPath,
+    `${JSON.stringify(index, null, 2)}
+`,
+  );
+  return index;
 };

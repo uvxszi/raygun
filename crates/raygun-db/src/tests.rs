@@ -95,3 +95,73 @@ async fn data_survives_moving_the_data_folder() {
         vec![("language".to_owned(), "\"ja\"".to_owned())]
     );
 }
+
+#[tokio::test]
+async fn extension_repos_settings_and_installs_round_trip() {
+    let temp = TempDir::new().unwrap();
+    let db = open_in(temp.path()).await;
+
+    // The official repository is seeded.
+    let seeded = extensions::repos(&db).await.unwrap();
+    assert_eq!(seeded.len(), 1);
+    assert!(seeded[0].url.ends_with("/repo/index.json"));
+
+    let added = extensions::add_repo(&db, "https://example.org/index.json", "Example")
+        .await
+        .unwrap();
+    assert_eq!(added.id.len(), 36);
+    extensions::rename_repo(&db, &added.id, "Renamed")
+        .await
+        .unwrap();
+    let repos = extensions::repos(&db).await.unwrap();
+    assert_eq!(repos.len(), 2);
+    assert_eq!(
+        repos[0].id, seeded[0].id,
+        "the official repository stays first"
+    );
+    assert_eq!(repos[1].name, "Renamed");
+
+    extensions::remove_repo(&db, &added.id).await.unwrap();
+    assert_eq!(extensions::repos(&db).await.unwrap().len(), 1);
+    // Adding the same URL again revives the row instead of duplicating it.
+    let revived = extensions::add_repo(&db, "https://example.org/index.json", "Example")
+        .await
+        .unwrap();
+    assert_eq!(revived.id, added.id);
+
+    extensions::put_setting(&db, "dev.example.a", "region", "\"eu\"")
+        .await
+        .unwrap();
+    extensions::put_setting(&db, "dev.example.a", "region", "\"us\"")
+        .await
+        .unwrap();
+    assert_eq!(
+        extensions::settings(&db).await.unwrap(),
+        vec![("dev.example.a".into(), "region".into(), "\"us\"".into())]
+    );
+
+    let install = extensions::InstallRow {
+        extension_id: "dev.example.a".into(),
+        repo_url: "https://example.org/index.json".into(),
+        version: "1.0.0".into(),
+        sha256: "ab".repeat(32),
+        installed_at: 1,
+    };
+    extensions::record_install(&db, &install).await.unwrap();
+    extensions::record_install(
+        &db,
+        &extensions::InstallRow {
+            version: "1.1.0".into(),
+            ..install.clone()
+        },
+    )
+    .await
+    .unwrap();
+    let installs = extensions::installs(&db).await.unwrap();
+    assert_eq!(installs.len(), 1);
+    assert_eq!(installs[0].version, "1.1.0");
+    extensions::remove_install(&db, "dev.example.a")
+        .await
+        .unwrap();
+    assert!(extensions::installs(&db).await.unwrap().is_empty());
+}

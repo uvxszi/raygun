@@ -3,7 +3,18 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { MANIFEST_FILE, build, bundle, dev, init, manifestProblems } from '../lib/cli.mjs';
+import { createHash } from 'node:crypto';
+
+import {
+  MANIFEST_FILE,
+  build,
+  bundle,
+  compareVersions,
+  dev,
+  init,
+  manifestProblems,
+  pack,
+} from '../lib/cli.mjs';
 
 const SDK_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
 const EXTENSIONS_DIR = join(SDK_DIR, '..', '..', 'extensions');
@@ -140,5 +151,49 @@ describe('raygun-ext', () => {
       await session.stop();
     }
     expect(events).not.toContain('failed');
+  });
+});
+
+describe('repositories', () => {
+  it('orders versions like semver', () => {
+    expect(compareVersions('1.10.0', '1.9.0')).toBe(1);
+    expect(compareVersions('1.0.0', '1.0.0')).toBe(0);
+    expect(compareVersions('1.0.0-beta', '1.0.0')).toBe(-1);
+    expect(compareVersions('2.0.0', '10.0.0')).toBe(-1);
+  });
+
+  it('packs reproducibly and indexes the newest version of each extension', async () => {
+    const dir = await createExtension();
+    const repo = join(work, 'repo');
+
+    const first = await pack(dir, repo);
+    const firstBytes = await readFile(join(repo, first.package));
+    const second = await pack(dir, repo);
+    expect(await readFile(join(repo, second.package))).toEqual(firstBytes);
+
+    const manifestPath = join(dir, MANIFEST_FILE);
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+    await writeFile(manifestPath, JSON.stringify({ ...manifest, version: '0.2.0' }));
+    const { index } = await pack(dir, repo);
+
+    expect((await readdir(join(repo, 'packages'))).sort()).toEqual([
+      'dev.example.test-0.1.0.zip',
+      'dev.example.test-0.2.0.zip',
+    ]);
+    expect(index.extensions).toHaveLength(1);
+    const [entry] = index.extensions;
+    const packageBytes = await readFile(join(repo, 'packages/dev.example.test-0.2.0.zip'));
+    expect(entry).toMatchObject({
+      id: 'dev.example.test',
+      version: '0.2.0',
+      apiVersion: 1,
+      package: 'packages/dev.example.test-0.2.0.zip',
+      permissions: { net: ['api.example.org'], webview: false },
+      size: packageBytes.length,
+      sha256: createHash('sha256').update(packageBytes).digest('hex'),
+    });
+    const written = JSON.parse(await readFile(join(repo, 'index.json'), 'utf8'));
+    expect(written).toEqual(index);
+    expect(written.name).toBe('Raygun Extensions');
   });
 });

@@ -17,7 +17,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "bindings": "cargo run -p raygun-app --bin export-bindings",
-    "build:extensions": "pnpm --filter \"./extensions/*\" build"
+    "build:extensions": "pnpm --filter \"./extensions/*\" build",
+    "repo:publish": "pnpm --workspace-concurrency=1 --filter \"./extensions/*\" pack:repo"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

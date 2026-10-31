@@ -38,6 +38,8 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
 
     let db = tauri::async_runtime::block_on(raygun_db::Db::open(&paths.db()))?;
     tracing::info!(device_id = %db.device_id(), "database ready");
+    // Before the services: some read the database from background tasks right away.
+    app.manage(AppDb(db));
 
     let art_dir = paths.cache(raygun_paths::CacheKind::Images);
     let proxy = tauri::async_runtime::block_on(raygun_net::StreamProxy::start(
@@ -67,7 +69,6 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
 
     app.manage(LogGuard(guard));
     app.manage(AppPaths(paths));
-    app.manage(AppDb(db));
 
     // Pick up files added or removed while the app was closed (cheap when nothing changed).
     app.state::<crate::library::LibraryService>().start_scan();
