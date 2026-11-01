@@ -1,6 +1,7 @@
-import { commands } from '@raygun/bindings';
-import type { MangaBrowseMode } from '@raygun/bindings';
+import { commands, events } from '@raygun/bindings';
+import type { MangaBrowseMode, MangaUpdateStatus } from '@raygun/bindings';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
 
@@ -89,3 +90,83 @@ export const useSetChapterRead = () =>
 /** Saves reader progress without refreshing anything; the title page refetches when shown. */
 export const saveProgress = (chapterId: string, page: number, total: number) =>
   unwrapResult(commands.mangaSetProgress(chapterId, page, total));
+
+export const useMangaUpdates = () =>
+  useQuery({
+    queryKey: [MANGA, 'updates'],
+    queryFn: () => unwrapResult(commands.mangaUpdates()),
+  });
+
+export const useMangaUpdateStatus = () =>
+  useQuery({
+    queryKey: [MANGA, 'updateStatus'],
+    queryFn: () => unwrapResult(commands.mangaUpdateStatus()),
+  });
+
+export const useUpdateLibrary = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => unwrapResult(commands.mangaUpdateLibrary()),
+    onSuccess: (status) => queryClient.setQueryData([MANGA, 'updateStatus'], status),
+  });
+};
+
+export const useMangaDownloads = () =>
+  useQuery({
+    queryKey: [MANGA, 'downloads'],
+    queryFn: () => unwrapResult(commands.mangaDownloads()),
+  });
+
+/** A mutation on the download queue; the queue and download badges refresh once it lands. */
+const useDownloadMutation = <Variables>(run: (variables: Variables) => Promise<unknown>) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: run,
+    onSettled: () => invalidateDownloads(queryClient),
+  });
+};
+
+export const useDownloadChapters = () =>
+  useDownloadMutation((chapterIds: string[]) => unwrapResult(commands.mangaDownload(chapterIds)));
+
+export const useRemoveDownloads = () =>
+  useDownloadMutation((chapterIds: string[]) =>
+    unwrapResult(commands.mangaRemoveDownloads(chapterIds)),
+  );
+
+export const useSetDownloadsPaused = () =>
+  useDownloadMutation((paused: boolean) => unwrapResult(commands.mangaSetDownloadsPaused(paused)));
+
+const invalidateDownloads = (queryClient: ReturnType<typeof useQueryClient>) =>
+  Promise.all([
+    queryClient.invalidateQueries({ queryKey: [MANGA, 'downloads'] }),
+    queryClient.invalidateQueries({ queryKey: [MANGA, 'title'] }),
+    queryClient.invalidateQueries({ queryKey: [MANGA, 'updates'] }),
+  ]);
+
+/**
+ * Follows library updates and the download queue from Rust: update progress lands in the status
+ * query, and a finished update or any queue change refreshes what shows chapters.
+ */
+export const useMangaLiveEvents = () => {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    const unlistenUpdate = events.mangaUpdateEvent.listen(({ payload }) => {
+      queryClient.setQueryData<MangaUpdateStatus>([MANGA, 'updateStatus'], payload);
+      if (!payload.running) {
+        void Promise.all([
+          queryClient.invalidateQueries({ queryKey: [MANGA, 'library'] }),
+          queryClient.invalidateQueries({ queryKey: [MANGA, 'updates'] }),
+          queryClient.invalidateQueries({ queryKey: [MANGA, 'title'] }),
+        ]);
+      }
+    });
+    const unlistenDownloads = events.mangaDownloadsEvent.listen(() => {
+      void invalidateDownloads(queryClient);
+    });
+    return () => {
+      void unlistenUpdate.then((unlisten) => unlisten());
+      void unlistenDownloads.then((unlisten) => unlisten());
+    };
+  }, [queryClient]);
+};

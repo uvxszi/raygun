@@ -1,12 +1,15 @@
 import type { MangaChapterInfo } from '@raygun/bindings';
 import { Link, useSearch } from '@tanstack/react-router';
-import { BookOpen, Check, LoaderCircle, Minus, Plus, RefreshCw } from 'lucide-react';
+import { BookOpen, Check, Download, LoaderCircle, Minus, Plus, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { DownloadButton } from '../manga/DownloadButton';
 import { MangaCover } from '../manga/MangaCover';
 import {
+  useDownloadChapters,
+  useMangaLiveEvents,
   useMangaTitle,
   useRefreshTitle,
   useSetChapterRead,
@@ -50,6 +53,7 @@ const ChapterRow: FC<{ titleId: string; chapter: MangaChapterInfo }> = ({ titleI
       >
         <Check aria-hidden size={18} />
       </button>
+      <DownloadButton chapter={chapter} />
     </div>
   );
 };
@@ -58,7 +62,9 @@ const ChapterRow: FC<{ titleId: string; chapter: MangaChapterInfo }> = ({ titleI
 export const MangaTitlePage: FC = () => {
   const { t } = useTranslation();
   const { source, id } = useSearch({ from: '/manga/title' });
+  useMangaLiveEvents();
   const title = useMangaTitle(source, id);
+  const download = useDownloadChapters();
   const refresh = useRefreshTitle();
   const setInLibrary = useSetInLibrary();
   const [expanded, setExpanded] = useState(false);
@@ -83,6 +89,11 @@ export const MangaTitlePage: FC = () => {
 
   const continueChapter = view.chapters.find((chapter) => chapter.id === view.continueChapterId);
   const started = view.chapters.some((chapter) => chapter.read || chapter.lastPage !== null);
+  // Oldest first, so the queue reads in order (the list is newest first).
+  const unreadToDownload = view.chapters
+    .filter((chapter) => !chapter.read && !chapter.download)
+    .map((chapter) => chapter.id)
+    .reverse();
 
   return (
     <section data-testid="manga-title-page" className="flex flex-col gap-5">
@@ -129,10 +140,21 @@ export const MangaTitlePage: FC = () => {
         >
           <RefreshCw aria-hidden size={18} className={refresh.isPending ? 'animate-spin' : ''} />
         </button>
+        {unreadToDownload.length > 0 && (
+          <button
+            type="button"
+            disabled={download.isPending}
+            onClick={() => download.mutate(unreadToDownload)}
+            className="bg-surface flex items-center gap-2 rounded-full px-5 py-2.5 disabled:opacity-60"
+          >
+            <Download aria-hidden size={18} />
+            {t('manga.downloadUnread', { count: unreadToDownload.length })}
+          </button>
+        )}
       </div>
-      {(refresh.error ?? setInLibrary.error) && (
+      {(refresh.error ?? setInLibrary.error ?? download.error) && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {(refresh.error ?? setInLibrary.error)?.message}
+          {(refresh.error ?? setInLibrary.error ?? download.error)?.message}
         </p>
       )}
       {view.genres.length > 0 && (

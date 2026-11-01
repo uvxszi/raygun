@@ -11,6 +11,7 @@ mod extensions;
 mod history;
 mod library;
 mod manga;
+mod manga_downloads;
 mod mcp;
 mod playback;
 mod remote;
@@ -99,7 +100,14 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::manga_chapter,
             commands::manga_set_progress,
             commands::manga_set_read,
-            commands::manga_set_reader_mode
+            commands::manga_set_reader_mode,
+            commands::manga_updates,
+            commands::manga_update_library,
+            commands::manga_update_status,
+            commands::manga_downloads,
+            commands::manga_download,
+            commands::manga_remove_downloads,
+            commands::manga_set_downloads_paused
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,
@@ -107,7 +115,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::QueueEvent,
             events::LibraryScanEvent,
             events::ExtensionsChangedEvent,
-            events::SyncChangedEvent
+            events::SyncChangedEvent,
+            events::MangaUpdateEvent,
+            events::MangaDownloadsEvent
         ])
 }
 

@@ -61,13 +61,19 @@ pub struct Settings {
     pub theme: Theme,
     /// UI language as a BCP 47 tag, e.g. `en` or `pt-BR`.
     pub language: String,
+    /// Hours between automatic manga library updates; 0 turns them off (M28).
+    pub manga_update_hours: u32,
 }
+
+/// The update intervals offered, in hours (0 = off).
+pub const MANGA_UPDATE_HOURS: [u32; 6] = [0, 6, 12, 24, 48, 168];
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             theme: Theme::System,
             language: "en".into(),
+            manga_update_hours: 12,
         }
     }
 }
@@ -77,6 +83,7 @@ impl Settings {
         match change {
             SettingChange::Theme(theme) => self.theme = theme,
             SettingChange::Language(language) => self.language = language,
+            SettingChange::MangaUpdateHours(hours) => self.manga_update_hours = hours,
         }
     }
 }
@@ -88,6 +95,7 @@ impl Settings {
 pub enum SettingChange {
     Theme(Theme),
     Language(String),
+    MangaUpdateHours(u32),
 }
 
 impl SettingChange {
@@ -96,6 +104,7 @@ impl SettingChange {
         match self {
             Self::Theme(_) => "theme",
             Self::Language(_) => "language",
+            Self::MangaUpdateHours(_) => "mangaUpdateHours",
         }
     }
 
@@ -103,6 +112,13 @@ impl SettingChange {
     pub fn validate(&self) -> Result<(), String> {
         match self {
             Self::Theme(_) => Ok(()),
+            Self::MangaUpdateHours(hours) => {
+                if MANGA_UPDATE_HOURS.contains(hours) {
+                    Ok(())
+                } else {
+                    Err(format!("{hours} hours is not an offered update interval"))
+                }
+            }
             Self::Language(tag) => {
                 let well_formed = (2..=35).contains(&tag.len())
                     && tag.split('-').all(|part| {
@@ -909,6 +925,85 @@ pub struct MangaChapterInfo {
     /// The page reached, while partly read.
     pub last_page: Option<u32>,
     pub total_pages: Option<u32>,
+    /// Set once the chapter was queued for download (M28).
+    pub download: Option<ChapterDownload>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum DownloadState {
+    Queued,
+    Downloading,
+    Done,
+    Failed,
+}
+
+impl DownloadState {
+    pub fn parse(text: &str) -> Self {
+        match text {
+            "downloading" => Self::Downloading,
+            "done" => Self::Done,
+            "failed" => Self::Failed,
+            _ => Self::Queued,
+        }
+    }
+}
+
+/// Where a chapter's download stands.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ChapterDownload {
+    pub state: DownloadState,
+    pub pages_done: u32,
+    pub pages_total: Option<u32>,
+    pub error: Option<String>,
+}
+
+/// One row of the download queue.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MangaDownloadItem {
+    pub chapter_id: String,
+    pub title_id: String,
+    pub title: String,
+    pub chapter: String,
+    pub download: ChapterDownload,
+}
+
+/// The download queue: chapters waiting, running or failed, plus how many are on the device.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MangaDownloads {
+    pub paused: bool,
+    pub items: Vec<MangaDownloadItem>,
+    pub downloaded: u32,
+}
+
+/// Progress of a library update (M28).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MangaUpdateStatus {
+    pub running: bool,
+    pub checked: u32,
+    pub total: u32,
+    pub new_chapters: u32,
+    pub failed: u32,
+    /// Unix ms of the last finished run.
+    pub last_run_at: Option<f64>,
+}
+
+/// A chapter a library update found.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MangaUpdateItem {
+    pub title_id: String,
+    pub source_id: String,
+    pub remote_id: String,
+    pub title: String,
+    pub cover_url: Option<String>,
+    pub chapter: MangaChapterInfo,
+    /// Unix ms.
+    pub found_at: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]

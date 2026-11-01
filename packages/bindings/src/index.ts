@@ -138,6 +138,21 @@ export const commands = {
 	mangaSetRead: (chapterId: string, read: boolean) => typedError<null, string>(__TAURI_INVOKE("manga_set_read", { chapterId, read })),
 	/**  Remembers how a title is read (webtoon strip or paged, left or right to left). */
 	mangaSetReaderMode: (titleId: string, mode: ReaderMode) => typedError<null, string>(__TAURI_INVOKE("manga_set_reader_mode", { titleId, mode })),
+	/**  Chapters library updates found, newest first. */
+	mangaUpdates: () => typedError<MangaUpdateItem[], string>(__TAURI_INVOKE("manga_updates")),
+	/**
+	 *  Starts a library update (also checking finished series); progress arrives as
+	 *  `MangaUpdateEvent`s.
+	 */
+	mangaUpdateLibrary: () => typedError<MangaUpdateStatus, string>(__TAURI_INVOKE("manga_update_library")),
+	mangaUpdateStatus: () => typedError<MangaUpdateStatus, string>(__TAURI_INVOKE("manga_update_status")),
+	/**  The download queue; changes arrive as `MangaDownloadsEvent`s. */
+	mangaDownloads: () => typedError<MangaDownloads, string>(__TAURI_INVOKE("manga_downloads")),
+	/**  Queues chapters for download, in the given order; failed ones are retried. */
+	mangaDownload: (chapterIds: string[]) => typedError<null, string>(__TAURI_INVOKE("manga_download", { chapterIds })),
+	/**  Cancels queued chapters and deletes downloaded ones. */
+	mangaRemoveDownloads: (chapterIds: string[]) => typedError<null, string>(__TAURI_INVOKE("manga_remove_downloads", { chapterIds })),
+	mangaSetDownloadsPaused: (paused: boolean) => typedError<null, string>(__TAURI_INVOKE("manga_set_downloads_paused", { paused })),
 };
 
 /** Events */
@@ -145,6 +160,8 @@ export const events = {
 	engineCommandEvent: makeEvent<EngineCommandEvent>("engine-command-event"),
 	extensionsChangedEvent: makeEvent<ExtensionsChangedEvent>("extensions-changed-event"),
 	libraryScanEvent: makeEvent<LibraryScanEvent>("library-scan-event"),
+	mangaDownloadsEvent: makeEvent<MangaDownloadsEvent>("manga-downloads-event"),
+	mangaUpdateEvent: makeEvent<MangaUpdateEvent>("manga-update-event"),
 	playbackStateEvent: makeEvent<PlaybackStateEvent>("playback-state-event"),
 	queueEvent: makeEvent<QueueEvent>("queue-event"),
 	syncChangedEvent: makeEvent<SyncChangedEvent>("sync-changed-event"),
@@ -185,6 +202,14 @@ export type CatalogState = "available" | "installed" | "updateAvailable" |
 /**  This device has a newer version than the repository (a built-in or development copy). */
 "newerInstalled";
 
+/**  Where a chapter's download stands. */
+export type ChapterDownload = {
+	state: DownloadState,
+	pagesDone: number,
+	pagesTotal: number | null,
+	error: string | null,
+};
+
 /**  Which saved tracks to play. */
 export type Collection = { kind: "favorites" } | { kind: "playlist"; id: string } | { kind: "history" };
 
@@ -208,6 +233,8 @@ export type CompatReport = {
 	/**  UI modules it imports; they're inert in Raygun. */
 	uiImports: string[],
 };
+
+export type DownloadState = "queued" | "downloading" | "done" | "failed";
 
 /**  An instruction for the active playback engine. */
 export type EngineCommand = { type: "load"; loadId: number; url: string; 
@@ -378,6 +405,8 @@ export type MangaChapterInfo = {
 	/**  The page reached, while partly read. */
 	lastPage: number | null,
 	totalPages: number | null,
+	/**  Set once the chapter was queued for download (M28). */
+	download: ChapterDownload | null,
 };
 
 /**  What the reader needs for one chapter. */
@@ -392,6 +421,25 @@ export type MangaChapterPages = {
 	previousChapterId: string | null,
 	nextChapterId: string | null,
 };
+
+/**  One row of the download queue. */
+export type MangaDownloadItem = {
+	chapterId: string,
+	titleId: string,
+	title: string,
+	chapter: string,
+	download: ChapterDownload,
+};
+
+/**  The download queue: chapters waiting, running or failed, plus how many are on the device. */
+export type MangaDownloads = {
+	paused: boolean,
+	items: MangaDownloadItem[],
+	downloaded: number,
+};
+
+/**  The manga download queue changed; carries the chapter id when one chapter did (else empty). */
+export type MangaDownloadsEvent = string;
 
 export type MangaLibraryEntry = {
 	titleId: string,
@@ -433,6 +481,32 @@ export type MangaTitleView = {
 	chapters: MangaChapterInfo[],
 	/**  Where "Continue" opens: the partly read chapter, else the first unread after the last read. */
 	continueChapterId: string | null,
+};
+
+/**  A manga library update made progress or finished (M28). */
+export type MangaUpdateEvent = MangaUpdateStatus;
+
+/**  A chapter a library update found. */
+export type MangaUpdateItem = {
+	titleId: string,
+	sourceId: string,
+	remoteId: string,
+	title: string,
+	coverUrl: string | null,
+	chapter: MangaChapterInfo,
+	/**  Unix ms. */
+	foundAt: number | null,
+};
+
+/**  Progress of a library update (M28). */
+export type MangaUpdateStatus = {
+	running: boolean,
+	checked: number,
+	total: number,
+	newChapters: number,
+	failed: number,
+	/**  Unix ms of the last finished run. */
+	lastRunAt: number | null,
 };
 
 /**  The MCP server's switch and how to reach it. */
@@ -648,7 +722,7 @@ export type SearchResults = {
  *  A change to a single setting. The tagged shape (`{ key, value }`) lets the UI send only valid
  *  key/value pairs, and doubles as the format of a stored row.
  */
-export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string };
+export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -660,6 +734,8 @@ export type Settings = {
 	theme: Theme,
 	/**  UI language as a BCP 47 tag, e.g. `en` or `pt-BR`. */
 	language: string,
+	/**  Hours between automatic manga library updates; 0 turns them off (M28). */
+	mangaUpdateHours: number,
 };
 
 /**  Where Raygun keeps its data on this device. */

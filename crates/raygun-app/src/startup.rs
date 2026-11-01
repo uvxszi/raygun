@@ -45,16 +45,19 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(AppDb(std::sync::Arc::new(db)));
 
     let art_dir = paths.cache(raygun_paths::CacheKind::Images);
-    let proxy = tauri::async_runtime::block_on(raygun_net::StreamProxy::start_with_cache(
+    let proxy = tauri::async_runtime::block_on(raygun_net::StreamProxy::start_with(
         raygun_net::http_client()?,
-        Some(raygun_net::StaticFiles {
-            dir: art_dir.clone(),
-            is_allowed: raygun_library::is_artwork_name,
-        }),
-        Some(raygun_net::PageCache::new(
-            paths.cache(raygun_paths::CacheKind::Pages),
-            PAGE_CACHE_BYTES,
-        )),
+        raygun_net::ProxyStorage {
+            artwork: Some(raygun_net::StaticFiles {
+                dir: art_dir.clone(),
+                is_allowed: raygun_library::is_artwork_name,
+            }),
+            pages: Some(raygun_net::PageCache::new(
+                paths.cache(raygun_paths::CacheKind::Pages),
+                PAGE_CACHE_BYTES,
+            )),
+            local: Some(paths.downloads()),
+        },
     ))?;
     app.manage(crate::library::LibraryService::new(
         app.handle().clone(),
@@ -65,6 +68,13 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         app.handle().clone(),
         proxy.images(),
     ));
+    let downloads = crate::manga_downloads::MangaDownloadService::new(
+        app.handle().clone(),
+        paths.downloads(),
+        proxy.images(),
+        raygun_net::http_client()?,
+    );
+    app.manage(downloads.clone());
     app.manage(crate::playback::PlaybackService::new(
         app.handle().clone(),
         proxy,
@@ -98,6 +108,8 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
 
     // Pick up files added or removed while the app was closed (cheap when nothing changed).
     app.state::<crate::library::LibraryService>().start_scan();
+    downloads.start();
+    app.state::<crate::manga::MangaService>().start_scheduler();
     crate::system_ui::apply_saved_theme(app.handle().clone());
     Ok(())
 }

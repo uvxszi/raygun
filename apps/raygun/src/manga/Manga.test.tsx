@@ -33,6 +33,7 @@ const chapter = (
   read: false,
   lastPage: null,
   totalPages: null,
+  download: null,
   ...extra,
 });
 

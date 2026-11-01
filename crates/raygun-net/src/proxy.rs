@@ -25,7 +25,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use raygun_model::MediaSource;
 
-use crate::page_cache::{MAX_IMAGE_BYTES, PageCache, sniff_content_type};
+use crate::images::{ImageError, fetch_image};
+use crate::page_cache::{PageCache, sniff_content_type};
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
@@ -70,6 +71,18 @@ struct ProxyState {
     client: reqwest::Client,
     artwork: Option<StaticFiles>,
     pages: Option<PageCache>,
+    local: Option<PathBuf>,
+}
+
+/// What the proxy serves from disk besides streams.
+#[derive(Clone, Default)]
+pub struct ProxyStorage {
+    /// Artwork files at `/art/<name>`.
+    pub artwork: Option<StaticFiles>,
+    /// Disk cache for `/image/<token>` (M27).
+    pub pages: Option<PageCache>,
+    /// A folder served at `/local/<path>`, e.g. downloaded chapters (M28).
+    pub local: Option<PathBuf>,
 }
 
 pub struct StreamProxy {
@@ -107,6 +120,11 @@ impl ImageLinks {
         }
         format!("http://{}/image/{token}", self.address)
     }
+
+    /// The proxy URL of a file under the [`ProxyStorage::local`] folder, by its relative path.
+    pub fn local(&self, relative: &str) -> String {
+        format!("http://{}/local/{relative}", self.address)
+    }
 }
 
 impl StreamProxy {
@@ -115,15 +133,26 @@ impl StreamProxy {
         client: reqwest::Client,
         artwork: Option<StaticFiles>,
     ) -> std::io::Result<Self> {
-        Self::start_with_cache(client, artwork, None).await
+        Self::start_with(
+            client,
+            ProxyStorage {
+                artwork,
+                ..ProxyStorage::default()
+            },
+        )
+        .await
     }
 
-    /// Like [`Self::start`], with remote images kept in `pages` (M27).
-    pub async fn start_with_cache(
+    /// Like [`Self::start`], with everything it serves from disk.
+    pub async fn start_with(
         client: reqwest::Client,
-        artwork: Option<StaticFiles>,
-        pages: Option<PageCache>,
+        storage: ProxyStorage,
     ) -> std::io::Result<Self> {
+        let ProxyStorage {
+            artwork,
+            pages,
+            local,
+        } = storage;
         let registry = Arc::new(Mutex::new(Registry::default()));
         let images = Arc::new(Mutex::new(ImageRegistry::default()));
         let state = ProxyState {
@@ -132,11 +161,13 @@ impl StreamProxy {
             client,
             artwork,
             pages,
+            local,
         };
         let router = Router::new()
             .route("/stream/{token}", get(stream))
             .route("/image/{token}", get(serve_image))
             .route("/art/{name}", get(serve_artwork))
+            .route("/local/{*path}", get(serve_local))
             .route("/embed/youtube", get(youtube_embed))
             .with_state(state);
         let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
@@ -243,6 +274,39 @@ async fn serve_artwork(
     with_cors(response)
 }
 
+/// A path under the local folder: plain segments only, nothing hidden, nothing going up.
+fn local_path(root: &std::path::Path, relative: &str) -> Option<PathBuf> {
+    let mut path = root.to_path_buf();
+    for segment in relative.split('/') {
+        let plain = !segment.is_empty()
+            && !segment.starts_with('.')
+            && segment
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'));
+        if !plain {
+            return None;
+        }
+        path.push(segment);
+    }
+    Some(path)
+}
+
+async fn serve_local(
+    State(state): State<ProxyState>,
+    Path(relative): Path<String>,
+    request: Request,
+) -> Response {
+    let path = state
+        .local
+        .as_deref()
+        .and_then(|root| local_path(root, &relative));
+    let response = match path {
+        Some(path) => serve_file(&path.to_string_lossy(), request).await,
+        None => StatusCode::NOT_FOUND.into_response(),
+    };
+    with_cors(response)
+}
+
 async fn serve_image(
     State(state): State<ProxyState>,
     Path(token): Path<String>,
@@ -286,38 +350,18 @@ async fn cached_image(
     if let Some(bytes) = cache.read(token).await {
         return image_response(bytes);
     }
-    let mut request = client.get(url);
-    for (name, value) in headers {
-        request = request.header(name, value);
-    }
-    let upstream = match request.send().await {
-        Ok(response) => response,
+    match fetch_image(client, url, headers).await {
+        Ok(image) => {
+            cache.write(token, &image.bytes).await;
+            image_response(image.bytes)
+        }
+        Err(ImageError::Status(status)) => StatusCode::from_u16(status)
+            .unwrap_or(StatusCode::BAD_GATEWAY)
+            .into_response(),
         Err(error) => {
             tracing::warn!(%error, "image request failed");
-            return (StatusCode::BAD_GATEWAY, error.to_string()).into_response();
+            (StatusCode::BAD_GATEWAY, error.to_string()).into_response()
         }
-    };
-    let status = upstream.status();
-    let is_image = upstream
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.starts_with("image/"));
-    let too_large = upstream
-        .content_length()
-        .is_some_and(|length| length > MAX_IMAGE_BYTES as u64);
-    if !status.is_success() || !is_image || too_large {
-        return StatusCode::from_u16(status.as_u16())
-            .unwrap_or(StatusCode::BAD_GATEWAY)
-            .into_response();
-    }
-    match upstream.bytes().await {
-        Ok(bytes) if bytes.len() <= MAX_IMAGE_BYTES => {
-            cache.write(token, &bytes).await;
-            image_response(bytes.to_vec())
-        }
-        Ok(_) => StatusCode::BAD_GATEWAY.into_response(),
-        Err(error) => (StatusCode::BAD_GATEWAY, error.to_string()).into_response(),
     }
 }
 

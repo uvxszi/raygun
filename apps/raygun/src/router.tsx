@@ -13,10 +13,12 @@ import { ExtensionsPage } from './pages/ExtensionsPage';
 import { ArtistPage } from './pages/ArtistPage';
 import { HomePage } from './pages/HomePage';
 import { LibraryPage } from './pages/LibraryPage';
+import { MangaDownloadsPage } from './pages/MangaDownloadsPage';
 import { MangaReaderPage } from './pages/MangaReaderPage';
 import { MangaSourcePage } from './pages/MangaSourcePage';
 import { MangaSourcesPage } from './pages/MangaSourcesPage';
 import { MangaTitlePage } from './pages/MangaTitlePage';
+import { MangaUpdatesPage } from './pages/MangaUpdatesPage';
 import { PlaylistPage } from './pages/PlaylistPage';
 import { SearchPage } from './pages/SearchPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -50,6 +52,16 @@ const routeTree = rootRoute.addChildren([
     getParentRoute: () => rootRoute,
     path: '/manga/browse',
     component: MangaSourcesPage,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/manga/updates',
+    component: MangaUpdatesPage,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/manga/downloads',
+    component: MangaDownloadsPage,
   }),
   createRoute({
     getParentRoute: () => rootRoute,

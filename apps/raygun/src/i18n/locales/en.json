@@ -94,7 +94,18 @@
     "extensions": "Extensions",
     "manageExtensions": "Manage",
     "extensionsFailed_one": "{{count}} extension failed to load",
-    "extensionsFailed_other": "{{count}} extensions failed to load"
+    "extensionsFailed_other": "{{count}} extensions failed to load",
+    "manga": "Manga",
+    "mangaUpdates": "Check the library for new chapters",
+    "mangaUpdatesHint": "Runs while the app is open. Finished and cancelled series are skipped.",
+    "updateEvery": {
+      "0": "Never",
+      "6": "Every 6 hours",
+      "12": "Every 12 hours",
+      "24": "Daily",
+      "48": "Every 2 days",
+      "168": "Weekly"
+    }
   },
   "player": {
     "nothingPlaying": "Nothing playing",
@@ -326,6 +337,37 @@
     "jumpToPage": "Jump to page",
     "backToLastPage": "Back to the last page",
     "goPreviousChapter": "Go to the previous chapter",
-    "goNextChapter": "Go to the next chapter"
+    "goNextChapter": "Go to the next chapter",
+    "libraryActions": "Manga library",
+    "updates": "Updates",
+    "downloads": "Downloads",
+    "updateLibrary": "Update library",
+    "updating": "Updating {{checked}}/{{total}}",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "lastUpdate": "Last checked {{when}}",
+    "updateFailures_one": "{{count}} title failed",
+    "updateFailures_other": "{{count}} titles failed",
+    "noUpdates": "No new chapters yet. Updates check your library titles for chapters added since you added them.",
+    "download": "Download {{name}}",
+    "retryDownload": "Retry downloading {{name}}",
+    "deleteDownload": "Delete the download of {{name}}",
+    "cancelQueued": "Cancel the queued download of {{name}}",
+    "cancelDownloading": "Downloading {{name}}, {{percent}}%. Cancel",
+    "cancelDownload": "Cancel {{name}}",
+    "downloadUnread_one": "Download {{count}} unread",
+    "downloadUnread_other": "Download {{count}} unread",
+    "pagesProgress": "{{done}} of {{total}} pages",
+    "downloadState": {
+      "queued": "Queued",
+      "downloading": "Downloading",
+      "done": "Downloaded",
+      "failed": "Failed"
+    },
+    "pauseDownloads": "Pause",
+    "resumeDownloads": "Resume",
+    "downloadedChapters_one": "{{count}} chapter on this device",
+    "downloadedChapters_other": "{{count}} chapters on this device",
+    "queueEmpty": "Nothing is downloading."
   }
 }

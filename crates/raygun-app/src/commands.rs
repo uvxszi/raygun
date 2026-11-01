@@ -3,10 +3,11 @@ use std::sync::Arc;
 use raygun_model::{
     AppInfo, CollectionPlayRequest, EngineReport, ExtensionInfo, ExtensionRepo, HistoryEntry,
     LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack, Lyrics, MangaBrowseMode,
-    MangaChapterPages, MangaLibraryEntry, MangaListingPage, MangaSource, MangaTitleView, McpStatus,
-    PlayRequest, PlaybackControl, PlaybackState, PlaylistDetail, PlaylistSummary, QueueItemInput,
-    QueueSnapshot, ReaderMode, RemoteStatus, RepoCatalog, SavedTrack, SearchResults, SettingChange,
-    SettingValue, Settings, StorageInfo, StorageMode, SyncKind, SyncStatus, TrackInput, TrackQuery,
+    MangaChapterPages, MangaLibraryEntry, MangaListingPage, MangaSource, MangaTitleView,
+    MangaUpdateItem, MangaUpdateStatus, McpStatus, PlayRequest, PlaybackControl, PlaybackState,
+    PlaylistDetail, PlaylistSummary, QueueItemInput, QueueSnapshot, ReaderMode, RemoteStatus,
+    RepoCatalog, SavedTrack, SearchResults, SettingChange, SettingValue, Settings, StorageInfo,
+    StorageMode, SyncKind, SyncStatus, TrackInput, TrackQuery,
 };
 
 use crate::collections::CollectionsService;
@@ -14,6 +15,7 @@ use crate::device_sync::SyncService;
 use crate::extensions::ExtensionService;
 use crate::library::LibraryService;
 use crate::manga::MangaService;
+use crate::manga_downloads::MangaDownloadService;
 use crate::mcp::McpService;
 use crate::playback::PlaybackService;
 use crate::remote::RemoteService;
@@ -686,6 +688,72 @@ pub async fn manga_set_reader_mode(
     mode: ReaderMode,
 ) -> Result<(), String> {
     manga.set_reader_mode(&title_id, mode).await
+}
+
+/// Chapters library updates found, newest first.
+#[tauri::command]
+#[specta::specta]
+pub async fn manga_updates(
+    manga: tauri::State<'_, MangaService>,
+) -> Result<Vec<MangaUpdateItem>, String> {
+    manga.updates().await
+}
+
+/// Starts a library update (also checking finished series); progress arrives as
+/// `MangaUpdateEvent`s.
+#[tauri::command]
+#[specta::specta]
+pub async fn manga_update_library(
+    manga: tauri::State<'_, MangaService>,
+) -> Result<MangaUpdateStatus, String> {
+    Ok(manga.start_update(true).await)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn manga_update_status(
+    manga: tauri::State<'_, MangaService>,
+) -> Result<MangaUpdateStatus, String> {
+    Ok(manga.update_status().await)
+}
+
+/// The download queue; changes arrive as `MangaDownloadsEvent`s.
+#[tauri::command]
+#[specta::specta]
+pub async fn manga_downloads(
+    downloads: tauri::State<'_, Arc<MangaDownloadService>>,
+) -> Result<raygun_model::MangaDownloads, String> {
+    downloads.queue().await
+}
+
+/// Queues chapters for download, in the given order; failed ones are retried.
+#[tauri::command]
+#[specta::specta]
+pub async fn manga_download(
+    downloads: tauri::State<'_, Arc<MangaDownloadService>>,
+    chapter_ids: Vec<String>,
+) -> Result<(), String> {
+    downloads.enqueue(&chapter_ids).await
+}
+
+/// Cancels queued chapters and deletes downloaded ones.
+#[tauri::command]
+#[specta::specta]
+pub async fn manga_remove_downloads(
+    downloads: tauri::State<'_, Arc<MangaDownloadService>>,
+    chapter_ids: Vec<String>,
+) -> Result<(), String> {
+    downloads.remove(&chapter_ids).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn manga_set_downloads_paused(
+    downloads: tauri::State<'_, Arc<MangaDownloadService>>,
+    paused: bool,
+) -> Result<(), String> {
+    downloads.set_paused(paused);
+    Ok(())
 }
 
 #[tauri::command]

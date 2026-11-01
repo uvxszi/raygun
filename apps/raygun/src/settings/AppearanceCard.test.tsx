@@ -12,7 +12,7 @@ vi.mock('@raygun/bindings', () => ({
   commands: { settingsGet: vi.fn(), settingsUpdate: vi.fn() },
 }));
 
-const DEFAULT_SETTINGS: Settings = { theme: 'system', language: 'en' };
+const DEFAULT_SETTINGS: Settings = { theme: 'system', language: 'en', mangaUpdateHours: 12 };
 
 const ThemedAppearanceCard = () => {
   const settings = useSettings();

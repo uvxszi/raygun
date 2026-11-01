@@ -25,6 +25,14 @@ pub struct LibraryScanEvent(pub raygun_model::LibraryScanProgress);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SyncChangedEvent(pub u32);
 
+/// A manga library update made progress or finished (M28).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct MangaUpdateEvent(pub raygun_model::MangaUpdateStatus);
+
+/// The manga download queue changed; carries the chapter id when one chapter did (else empty).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct MangaDownloadsEvent(pub String);
+
 /// Extensions were (re)loaded; carries the new list.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct ExtensionsChangedEvent(pub Vec<raygun_model::ExtensionInfo>);

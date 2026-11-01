@@ -17,6 +17,8 @@ tower.workspace = true
 tower-http.workspace = true
 uuid.workspace = true
 tracing.workspace = true
+thiserror.workspace = true
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 tempfile = "3"

@@ -3497,10 +3497,12 @@ name = "raygun-net"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "futures-util",
  "raygun-model",
  "reqwest",
  "rustls",
  "tempfile",
+ "thiserror 2.0.21",
  "tokio",
  "tower",
  "tower-http 0.7.1",

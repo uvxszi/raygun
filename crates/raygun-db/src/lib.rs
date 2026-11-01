@@ -8,6 +8,7 @@ pub mod collections;
 pub mod extensions;
 pub mod hlc;
 pub mod local_music;
+pub mod manga_downloads;
 pub mod settings;
 pub mod streams;
 pub mod sync;

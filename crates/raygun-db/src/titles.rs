@@ -237,14 +237,24 @@ pub async fn in_library(
         .collect())
 }
 
-/// Stores a source's unit list for a title: new units are added, known ones updated and
-/// reordered. Units the source no longer lists keep their rows and progress.
+/// A unit found by a library update, with its title (M28).
+#[derive(Debug, Clone, PartialEq)]
+pub struct UpdateRow {
+    pub title: TitleRow,
+    pub unit: UnitRow,
+    pub found_at: i64,
+}
+
+/// Stores a source's unit list for a title: new units are added (stamped `found_at = now_ms`),
+/// known ones updated and reordered. Units the source no longer lists keep their rows and
+/// progress. Returns how many units were new.
 pub async fn sync_units(
     db: &Db,
     title_id: &str,
     units: &[UnitFields],
     kind: &str,
-) -> Result<(), DbError> {
+    now_ms: i64,
+) -> Result<usize, DbError> {
     let stamp = db.tick();
     let device = db.device_id().to_string();
     let mut transaction = db.pool().begin().await?;
@@ -256,6 +266,7 @@ pub async fn sync_units(
     .bind(units.len() as i64)
     .execute(&mut *transaction)
     .await?;
+    let mut added = 0;
     for (order, unit) in units.iter().enumerate() {
         let existing: Option<String> = sqlx::query(
             "SELECT id FROM unit WHERE title_id = ?1 AND remote_id = ?2 AND deleted = 0",
@@ -265,12 +276,14 @@ pub async fn sync_units(
         .fetch_optional(&mut *transaction)
         .await?
         .map(|row| row.get("id"));
+        added += usize::from(existing.is_none());
         let id = existing.unwrap_or_else(|| Uuid::now_v7().to_string());
+        // `state_found_at` is set on insert only.
         sqlx::query(
             "INSERT INTO unit (id, title_id, kind, remote_id, remote_name, number, volume,
                  remote_scanlator, remote_date, source_order, updated_at_hlc, origin_device,
-                 deleted)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0)
+                 deleted, state_found_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, ?13)
              ON CONFLICT (id) DO UPDATE SET
                  remote_name = excluded.remote_name, number = excluded.number,
                  volume = excluded.volume, remote_scanlator = excluded.remote_scanlator,
@@ -289,12 +302,56 @@ pub async fn sync_units(
         .bind(order as i64)
         .bind(stamp as i64)
         .bind(&device)
+        .bind(now_ms)
         .execute(&mut *transaction)
         .await?;
     }
     persist_hlc(&mut *transaction, stamp).await?;
     transaction.commit().await?;
-    Ok(())
+    Ok(added)
+}
+
+/// Units of library titles of `kind` found after their title joined the library, newest first.
+pub async fn updates(db: &Db, kind: &str, limit: u32) -> Result<Vec<UpdateRow>, DbError> {
+    let rows = sqlx::query(AssertSqlSafe(format!(
+        "SELECT {TITLE_COLUMNS}, u.id AS unit_id, u.remote_id AS unit_remote_id, u.remote_name,
+             u.number, u.volume, u.remote_scanlator, u.remote_date, u.source_order,
+             u.state_found_at, p.position, p.total, p.completed_at
+         FROM unit u
+         JOIN title t ON t.id = u.title_id AND t.deleted = 0
+         LEFT JOIN unit_progress p ON p.unit_id = u.id AND p.deleted = 0
+         WHERE t.kind = ?1 AND t.user_in_library_at IS NOT NULL AND u.deleted = 0
+             AND u.state_found_at > t.user_in_library_at
+         ORDER BY u.state_found_at DESC, u.source_order
+         LIMIT ?2"
+    )))
+    .bind(kind)
+    .bind(limit)
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows
+        .iter()
+        .map(|row| UpdateRow {
+            title: title_row(row),
+            unit: UnitRow {
+                id: row.get("unit_id"),
+                title_id: row.get("id"),
+                fields: UnitFields {
+                    remote_id: row.get("unit_remote_id"),
+                    name: row.get("remote_name"),
+                    number: row.get("number"),
+                    volume: row.get("volume"),
+                    scanlator: row.get("remote_scanlator"),
+                    date: row.get("remote_date"),
+                },
+                source_order: row.get("source_order"),
+                position: row.get("position"),
+                total: row.get("total"),
+                completed_at: row.get("completed_at"),
+            },
+            found_at: row.get("state_found_at"),
+        })
+        .collect())
 }
 
 const UNIT_SELECT: &str = "SELECT u.id, u.title_id, u.remote_id, u.remote_name, u.number, u.volume,

@@ -184,6 +184,46 @@ async fn serves_only_allowed_artwork_names() {
 }
 
 #[tokio::test]
+async fn serves_local_files_by_plain_relative_paths() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let chapter = temp.path().join("manga/t1/c1");
+    std::fs::create_dir_all(&chapter).unwrap();
+    std::fs::write(chapter.join("001.png"), b"\x89PNG one").unwrap();
+    std::fs::write(temp.path().join(".secret"), b"nope").unwrap();
+    let proxy = StreamProxy::start_with(
+        crate::http_client().unwrap(),
+        ProxyStorage {
+            local: Some(temp.path().to_path_buf()),
+            ..ProxyStorage::default()
+        },
+    )
+    .await
+    .unwrap();
+    let images = proxy.images();
+
+    let page = reqwest::get(images.local("manga/t1/c1/001.png"))
+        .await
+        .unwrap();
+    assert_eq!(page.status(), 200);
+    assert_eq!(page.headers()[header::CONTENT_TYPE], "image/png");
+    assert_eq!(page.bytes().await.unwrap().as_ref(), b"\x89PNG one");
+
+    for refused in [
+        ".secret",
+        "manga/t1/c1/%2e%2e%2f%2e%2e%2fc1/001.png",
+        "manga//t1",
+        "manga/t1/c1/%2e%2e",
+    ] {
+        let response = reqwest::get(images.local(refused)).await.unwrap();
+        assert_eq!(response.status(), 404, "{refused}");
+    }
+    assert!(local_path(temp.path(), "a/../b").is_none());
+    assert!(local_path(temp.path(), "a/.b").is_none());
+    assert!(local_path(temp.path(), r"a\b").is_none());
+    assert!(local_path(temp.path(), "ok/001.png").is_some());
+}
+
+#[tokio::test]
 async fn serves_the_youtube_embed_page_on_localhost() {
     let proxy = proxy().await;
 
@@ -285,10 +325,12 @@ async fn cached_images_are_served_from_disk_after_the_first_fetch() {
     });
 
     let temp = tempfile::TempDir::new().unwrap();
-    let proxy = StreamProxy::start_with_cache(
+    let proxy = StreamProxy::start_with(
         crate::http_client().unwrap(),
-        None,
-        Some(PageCache::new(temp.path().join("pages"), 1 << 20)),
+        ProxyStorage {
+            pages: Some(PageCache::new(temp.path().join("pages"), 1 << 20)),
+            ..ProxyStorage::default()
+        },
     )
     .await
     .unwrap();
@@ -309,7 +351,11 @@ async fn cached_images_are_served_from_disk_after_the_first_fetch() {
 
     let challenge = images.link(&format!("http://{origin}/challenge"), &BTreeMap::new());
     let response = reqwest::get(&challenge).await.unwrap();
-    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.status(),
+        502,
+        "a page that isn't an image is an error"
+    );
     assert!(
         std::fs::read_dir(temp.path().join("pages"))
             .unwrap()

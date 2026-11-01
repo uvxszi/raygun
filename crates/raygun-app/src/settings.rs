@@ -86,7 +86,8 @@ mod tests {
             load(&reopened).await.unwrap(),
             Settings {
                 theme: Theme::Amoled,
-                language: "pt-BR".into()
+                language: "pt-BR".into(),
+                ..Settings::default()
             }
         );
     }
@@ -96,10 +97,29 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let db = open(&temp).await;
 
+        assert!(
+            update(&db, SettingChange::MangaUpdateHours(5))
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            update(&db, SettingChange::MangaUpdateHours(24))
+                .await
+                .unwrap()
+                .manga_update_hours,
+            24
+        );
         let result = update(&db, SettingChange::Language("not a tag!".into())).await;
 
         assert!(matches!(result, Err(SettingsError::Invalid(_))));
-        assert_eq!(load(&db).await.unwrap(), Settings::default());
+        assert_eq!(
+            load(&db).await.unwrap(),
+            Settings {
+                manga_update_hours: 24,
+                ..Settings::default()
+            },
+            "invalid values leave the stored ones alone"
+        );
     }
 
     #[tokio::test]

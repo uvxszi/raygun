@@ -84,6 +84,7 @@ async fn units_keep_progress_across_refreshes() {
         &id,
         &[chapter("c2", 2.0), chapter("c1", 1.0)],
         "chapter",
+        1,
     )
     .await
     .unwrap();
@@ -113,6 +114,7 @@ async fn units_keep_progress_across_refreshes() {
         &id,
         &[chapter("c3", 3.0), chapter("c1", 1.0)],
         "chapter",
+        1,
     )
     .await
     .unwrap();
@@ -145,6 +147,7 @@ async fn the_library_counts_unread_chapters() {
         &frieren,
         &[chapter("c2", 2.0), chapter("c1", 1.0)],
         "chapter",
+        1,
     )
     .await
     .unwrap();
@@ -172,4 +175,76 @@ async fn the_library_counts_unread_chapters() {
     assert_eq!(library(&db, "manga").await.unwrap()[1].unread, 2);
     set_in_library(&db, &berserk, None).await.unwrap();
     assert_eq!(library(&db, "manga").await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn the_feed_lists_chapters_found_after_joining_the_library() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp).await;
+    let id = upsert_title(&db, &manga("m1", "Frieren"), 1).await.unwrap();
+    // Browsed at 10 (two chapters), added at 20, updated at 30 and 40.
+    let first = sync_units(
+        &db,
+        &id,
+        &[chapter("c2", 2.0), chapter("c1", 1.0)],
+        "chapter",
+        10,
+    )
+    .await
+    .unwrap();
+    assert_eq!(first, 2);
+    set_in_library(&db, &id, Some(20)).await.unwrap();
+    assert!(updates(&db, "manga", 50).await.unwrap().is_empty());
+
+    let found = sync_units(
+        &db,
+        &id,
+        &[chapter("c3", 3.0), chapter("c2", 2.0), chapter("c1", 1.0)],
+        "chapter",
+        30,
+    )
+    .await
+    .unwrap();
+    assert_eq!(found, 1, "only c3 is new");
+    sync_units(
+        &db,
+        &id,
+        &[
+            chapter("c4", 4.0),
+            chapter("c3", 3.0),
+            chapter("c2", 2.0),
+            chapter("c1", 1.0),
+        ],
+        "chapter",
+        40,
+    )
+    .await
+    .unwrap();
+    let c3 = units(&db, &id).await.unwrap()[1].id.clone();
+    set_completed(&db, &c3, true, 41).await.unwrap();
+
+    let feed = updates(&db, "manga", 50).await.unwrap();
+    let rows: Vec<_> = feed
+        .iter()
+        .map(|row| {
+            (
+                row.unit.fields.remote_id.as_str(),
+                row.found_at,
+                row.unit.completed_at,
+            )
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        [("c4", 40, None), ("c3", 30, Some(41))],
+        "newest first, with read state"
+    );
+    assert_eq!(feed[0].title.fields.title, "Frieren");
+    assert_eq!(updates(&db, "manga", 1).await.unwrap().len(), 1);
+
+    set_in_library(&db, &id, None).await.unwrap();
+    assert!(
+        updates(&db, "manga", 50).await.unwrap().is_empty(),
+        "library titles only"
+    );
 }

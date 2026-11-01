@@ -4,6 +4,7 @@ import type {
   ExtensionInfo,
   LibraryScanProgress,
   LibraryStatus,
+  MangaUpdateStatus,
   PlaybackState,
   QueueSnapshot,
   Settings,
@@ -24,6 +25,8 @@ type EventPayloads = {
   libraryScanEvent: LibraryScanProgress;
   extensionsChangedEvent: ExtensionInfo[];
   syncChangedEvent: number;
+  mangaUpdateEvent: MangaUpdateStatus;
+  mangaDownloadsEvent: string;
 };
 type EventName = keyof EventPayloads;
 type Listener = (event: { payload: unknown }) => void;
@@ -70,7 +73,20 @@ export const MOBILE_STORAGE: StorageInfo = {
   webview: '/data/user/0/app.raygun.player/webview',
 };
 
-export const DEFAULT_SETTINGS: Settings = { theme: 'system', language: 'en' };
+export const DEFAULT_SETTINGS: Settings = {
+  theme: 'system',
+  language: 'en',
+  mangaUpdateHours: 12,
+};
+
+export const IDLE_UPDATE: MangaUpdateStatus = {
+  running: false,
+  checked: 0,
+  total: 0,
+  newChapters: 0,
+  failed: 0,
+  lastRunAt: null,
+};
 
 export const EMPTY_LIBRARY: LibraryStatus = { roots: [], trackCount: 0, scanning: false };
 
@@ -146,6 +162,13 @@ export const bindingsMock = {
     mangaSetProgress: vi.fn(),
     mangaSetRead: vi.fn(),
     mangaSetReaderMode: vi.fn(),
+    mangaUpdates: vi.fn(),
+    mangaUpdateLibrary: vi.fn(),
+    mangaUpdateStatus: vi.fn(),
+    mangaDownloads: vi.fn(),
+    mangaDownload: vi.fn(),
+    mangaRemoveDownloads: vi.fn(),
+    mangaSetDownloadsPaused: vi.fn(),
   },
   events: {
     engineCommandEvent: makeEvent('engineCommandEvent'),
@@ -154,6 +177,8 @@ export const bindingsMock = {
     libraryScanEvent: makeEvent('libraryScanEvent'),
     extensionsChangedEvent: makeEvent('extensionsChangedEvent'),
     syncChangedEvent: makeEvent('syncChangedEvent'),
+    mangaUpdateEvent: makeEvent('mangaUpdateEvent'),
+    mangaDownloadsEvent: makeEvent('mangaDownloadsEvent'),
   },
 };
 
@@ -255,6 +280,13 @@ export const seedBindings = () => {
   commands.mangaSetProgress.mockResolvedValue(ok(null));
   commands.mangaSetRead.mockResolvedValue(ok(null));
   commands.mangaSetReaderMode.mockResolvedValue(ok(null));
+  commands.mangaUpdates.mockResolvedValue(ok([]));
+  commands.mangaUpdateLibrary.mockResolvedValue(ok({ ...IDLE_UPDATE, running: true }));
+  commands.mangaUpdateStatus.mockResolvedValue(ok(IDLE_UPDATE));
+  commands.mangaDownloads.mockResolvedValue(ok({ paused: false, items: [], downloaded: 0 }));
+  commands.mangaDownload.mockResolvedValue(ok(null));
+  commands.mangaRemoveDownloads.mockResolvedValue(ok(null));
+  commands.mangaSetDownloadsPaused.mockResolvedValue(ok(null));
 };
 
 export const emitEvent = <Name extends EventName>(name: Name, payload: EventPayloads[Name]) => {
