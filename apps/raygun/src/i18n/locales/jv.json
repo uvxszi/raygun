@@ -1,0 +1,98 @@
+{
+  "ai": {
+    "cancel": "Batalke",
+    "delete": "Mbusak",
+    "edit": "Sunting",
+    "installed": "Ngetrap",
+    "name": "Jeneng",
+    "save": "Simpen"
+  },
+  "collections": {
+    "cancel": "Batalke",
+    "edit": "Sunting",
+    "save": "Simpen"
+  },
+  "devices": {
+    "kind": {
+      "history": "Sejarah",
+      "settings": "Setelan"
+    },
+    "off": "Seda",
+    "save": "Simpen"
+  },
+  "extensions": {
+    "addRepo": "Tambah",
+    "cancel": "Batalke",
+    "install": "Pasang",
+    "nsfwBadge": "18+",
+    "refresh": "Segerke",
+    "settings": "Setelan",
+    "tab": {
+      "installed": "Ngetrap"
+    },
+    "title": "Ekstensi",
+    "uninstall": "Ucul",
+    "update": "Nganyari",
+    "upToDate": "Ngetrap"
+  },
+  "library": {
+    "emptyTitle": "Koleksine sampeyan kosong",
+    "media": {
+      "manga": "Entri perpustakaan"
+    },
+    "title": "Perpustakaan"
+  },
+  "manga": {
+    "chapters_other": "{{count}} bab",
+    "downloads": "Donlot",
+    "downloadState": {
+      "done": "Diundhuh",
+      "downloading": "Ndownload"
+    },
+    "list": {
+      "search": "Golek"
+    },
+    "loading": "Ngemot…",
+    "nextChapter": "Bab sabanjure",
+    "pauseDownloads": "Jeda",
+    "resumeDownloads": "Teruske",
+    "today": "Dinten puniki",
+    "updateLibrary": "Nganyari perpustakaan",
+    "updates": "Nganyari"
+  },
+  "nav": {
+    "library": "Perpustakaan",
+    "search": "Golek",
+    "settings": "Setelan"
+  },
+  "player": {
+    "next": "Terusane",
+    "pause": "Jeda"
+  },
+  "search": {
+    "title": "Golek"
+  },
+  "settings": {
+    "about": "Babagan",
+    "appearance": "Tampilan",
+    "cancel": "Batalke",
+    "confirmRestore": "Pulihke",
+    "extensions": "Ekstensi",
+    "language": "basa",
+    "manga": "Entri perpustakaan",
+    "theme": "Tema",
+    "themeDark": "Murup",
+    "themeLight": "Mati",
+    "themeSystem": "Tumuti sistem",
+    "title": "Setelan",
+    "updateEvery": {
+      "0": "ora tau",
+      "6": "Saben 6 jam",
+      "12": "Saben 12 jam",
+      "24": "Saben dina",
+      "48": "Saben 2 dina",
+      "168": "Saben minggu"
+    },
+    "version": "Versine"
+  }
+}

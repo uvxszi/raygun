@@ -1,0 +1,164 @@
+{
+  "ai": {
+    "cancel": "Batal",
+    "delete": "Hapus",
+    "edit": "Ubah",
+    "installed": "Terpasang",
+    "name": "Nama",
+    "save": "Simpan",
+    "translators": "Penerjemah"
+  },
+  "collections": {
+    "addToPlaylist": "Tambahkan ke daftar putar",
+    "cancel": "Batal",
+    "create": "Buat",
+    "done": "Selesai",
+    "edit": "Ubah",
+    "favorite": "Tambahkan ke favorit",
+    "favorites": "Favorit",
+    "newPlaylist": "Daftar putar baru",
+    "rename": "Ubah nama",
+    "save": "Simpan",
+    "unfavorite": "Hapus dari favorit"
+  },
+  "devices": {
+    "copied": "Telah disalin",
+    "kind": {
+      "history": "Riwayat",
+      "settings": "Pengaturan"
+    },
+    "off": "Matikan",
+    "rename": "Ubah nama",
+    "save": "Simpan",
+    "syncing": "Menyinkronkan..."
+  },
+  "extensions": {
+    "addRepo": "Tambah",
+    "cancel": "Batal",
+    "install": "Pasang",
+    "nsfwBadge": "18+",
+    "refresh": "Muat ulang",
+    "settings": "Pengaturan",
+    "tab": {
+      "browse": "Jelajahi",
+      "installed": "Terpasang"
+    },
+    "title": "Ekstensi",
+    "uninstall": "Lepas",
+    "update": "Perbarui",
+    "upToDate": "Terpasang"
+  },
+  "home": {
+    "clearHistory": "Hapus riwayat"
+  },
+  "library": {
+    "addFolder": "Tambah folder",
+    "emptyTitle": "Pustaka Anda kosong",
+    "media": {
+      "manga": "Komik",
+      "music": "Musik"
+    },
+    "openPlay": "Putar",
+    "play": "Putar",
+    "shuffle": "Putar acak",
+    "title": "Pustaka",
+    "view": {
+      "albums": "Album",
+      "artists": "Artis",
+      "favorites": "Favorit",
+      "playlists": "Daftar putar",
+      "tracks": "Trek"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Tambah ke pustaka",
+    "chapters_other": "{{count}} bab",
+    "downloads": "Unduhan",
+    "downloadState": {
+      "done": "Terunduh",
+      "downloading": "Mengunduh",
+      "failed": "Gagal"
+    },
+    "inLibraryBadge": "Di pustaka",
+    "list": {
+      "latest": "Terbaru",
+      "popular": "Populer",
+      "search": "Pencarian"
+    },
+    "loading": "Memuat…",
+    "nextChapter": "Bab selanjutnya",
+    "pageAlt": "Halaman {{page}}",
+    "pauseDownloads": "Hentikan sementara",
+    "previousChapter": "Sebelumnya",
+    "readingMode": "Mode membaca",
+    "removeFromLibrary": "Di pustaka",
+    "resumeDownloads": "Lanjut",
+    "source": "Sumber",
+    "status": {
+      "cancelled": "Dibatalkan",
+      "completed": "Selesai",
+      "hiatus": "Sedang Hiatus",
+      "ongoing": "Berlanjut",
+      "publishingFinished": "Penerbitan selesai"
+    },
+    "today": "Hari Ini",
+    "updateLibrary": "Perbarui pustaka",
+    "updates": "Pembaruan",
+    "yesterday": "Kemarin"
+  },
+  "mcp": {
+    "copied": "Telah disalin",
+    "copy": "Salin"
+  },
+  "nav": {
+    "home": "Beranda",
+    "library": "Pustaka",
+    "search": "Pencarian",
+    "settings": "Pengaturan"
+  },
+  "novel": {
+    "fontSize": "Ukuran huruf"
+  },
+  "player": {
+    "addToPlaylist": "Tambahkan ke daftar putar",
+    "favorite": "Tambahkan ke favorit",
+    "next": "Selanjutnya",
+    "nowPlaying": "Now playing",
+    "pause": "Hentikan sementara",
+    "play": "Putar",
+    "previous": "Sebelumnya",
+    "seek": "Mencari",
+    "shuffle": "Putar acak",
+    "unfavorite": "Hapus dari favorit",
+    "upNext": "Selanjutnya"
+  },
+  "search": {
+    "title": "Pencarian"
+  },
+  "settings": {
+    "about": "Tentang",
+    "appearance": "Tampilan",
+    "backup": "Cadangkan",
+    "cancel": "Batal",
+    "confirmRestore": "Pulihkan",
+    "createBackup": "Buat cadangan",
+    "extensions": "Ekstensi",
+    "language": "Bahasa",
+    "manga": "Komik",
+    "storage": "Penyimpanan",
+    "theme": "Tema",
+    "themeDark": "Gelap",
+    "themeLight": "Terang",
+    "themeSystem": "Sistem",
+    "title": "Pengaturan",
+    "updateEvery": {
+      "0": "Tidak pernah",
+      "6": "Tiap 6 jam",
+      "12": "Tiap 12 jam",
+      "24": "Tiap hari",
+      "48": "Tiap 2 hari",
+      "168": "Tiap minggu"
+    },
+    "version": "Versi"
+  }
+}

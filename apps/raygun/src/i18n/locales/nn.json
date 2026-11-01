@@ -1,0 +1,110 @@
+{
+  "ai": {
+    "cancel": "Avbryt",
+    "delete": "Slett",
+    "edit": "Rediger",
+    "installed": "Installert",
+    "name": "Namn",
+    "save": "Lagra"
+  },
+  "collections": {
+    "cancel": "Avbryt",
+    "edit": "Rediger",
+    "save": "Lagra"
+  },
+  "devices": {
+    "kind": {
+      "history": "Historikk",
+      "settings": "Innstillingar"
+    },
+    "off": "Av",
+    "save": "Lagra"
+  },
+  "extensions": {
+    "addRepo": "Legg til",
+    "cancel": "Avbryt",
+    "install": "Installer",
+    "nsfwBadge": "18+",
+    "settings": "Innstillingar",
+    "tab": {
+      "browse": "Utforsk",
+      "installed": "Installert"
+    },
+    "uninstall": "Avinstaller",
+    "update": "Oppdater",
+    "upToDate": "Installert"
+  },
+  "library": {
+    "media": {
+      "manga": "Manga"
+    },
+    "openPlay": "Spel(e) av",
+    "play": "Spel(e) av",
+    "title": "Bibliotek"
+  },
+  "manga": {
+    "addToLibrary": "Legg til i bibliotek",
+    "downloads": "Nedlastingar",
+    "downloadState": {
+      "done": "Lasta ned",
+      "downloading": "Lastar ned"
+    },
+    "inLibraryBadge": "I biblioteket",
+    "list": {
+      "search": "Søk"
+    },
+    "loading": "Lastar…",
+    "nextChapter": "Neste kapittel",
+    "pauseDownloads": "Pause",
+    "removeFromLibrary": "I biblioteket",
+    "resumeDownloads": "Gjenoppta",
+    "source": "Kjelde",
+    "status": {
+      "cancelled": "Kansellert",
+      "completed": "Fullført",
+      "ongoing": "Pågåande",
+      "publishingFinished": "Ferdig publisert"
+    },
+    "today": "I dag",
+    "updateLibrary": "Oppdater bibliotek",
+    "updates": "Oppdateringar"
+  },
+  "mcp": {
+    "copy": "Kopier"
+  },
+  "nav": {
+    "home": "Heim",
+    "library": "Bibliotek",
+    "search": "Søk",
+    "settings": "Innstillingar"
+  },
+  "player": {
+    "next": "Neste",
+    "pause": "Pause",
+    "play": "Spel(e) av"
+  },
+  "search": {
+    "title": "Søk"
+  },
+  "settings": {
+    "about": "Om",
+    "appearance": "Utsjånad",
+    "cancel": "Avbryt",
+    "createBackup": "Lag reservekopi",
+    "language": "Språk",
+    "manga": "Manga",
+    "theme": "Tema",
+    "themeDark": "På",
+    "themeLight": "Av",
+    "title": "Innstillingar",
+    "updateEvery": {
+      "0": "Aldri",
+      "6": "Kvar sjette time",
+      "12": "Kvar tolvte time",
+      "24": "Dagleg",
+      "48": "Annankvar dag",
+      "168": "Kvar veke"
+    },
+    "version": "Versjon"
+  }
+}

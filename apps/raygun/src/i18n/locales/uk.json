@@ -1,0 +1,167 @@
+{
+  "ai": {
+    "cancel": "Скасувати",
+    "delete": "Видалити",
+    "edit": "Редагувати",
+    "installed": "Встановлено",
+    "name": "Назва",
+    "save": "Зберегти",
+    "translators": "Перекладачі"
+  },
+  "collections": {
+    "addToPlaylist": "Додати до плейлиста",
+    "cancel": "Скасувати",
+    "create": "Створити",
+    "done": "Готово",
+    "edit": "Редагувати",
+    "favorite": "Додати до обраного",
+    "favorites": "Вподобані",
+    "newPlaylist": "Новий плейлист",
+    "rename": "Перейменувати",
+    "save": "Зберегти",
+    "unfavorite": "Вилучити з обраного"
+  },
+  "devices": {
+    "copied": "Скопійовано",
+    "kind": {
+      "history": "Історія",
+      "settings": "Налаштування"
+    },
+    "off": "Вимкнено",
+    "rename": "Перейменувати",
+    "save": "Зберегти",
+    "syncing": "Синхронізація..."
+  },
+  "extensions": {
+    "addRepo": "Додати",
+    "cancel": "Скасувати",
+    "install": "Встановити",
+    "nsfwBadge": "18+",
+    "refresh": "Оновити",
+    "settings": "Налаштування",
+    "tab": {
+      "browse": "Огляд",
+      "installed": "Встановлено"
+    },
+    "title": "Розширення",
+    "uninstall": "Видалити",
+    "update": "Оновлення",
+    "upToDate": "Встановлено"
+  },
+  "home": {
+    "clearHistory": "Очистити історію"
+  },
+  "library": {
+    "addFolder": "Додати теку",
+    "emptyTitle": "Ваша бібліотека порожня",
+    "media": {
+      "manga": "Манґа",
+      "music": "Музика"
+    },
+    "openPlay": "Дивитися",
+    "play": "Дивитися",
+    "shuffle": "Перемішати",
+    "title": "Бібліотека",
+    "view": {
+      "albums": "Альбоми",
+      "artists": "Виконавці",
+      "favorites": "Вподобані",
+      "playlists": "Плейлисти",
+      "tracks": "Доріжки"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Додати до бібліотеки",
+    "chapters_few": "{{count}} розділів",
+    "chapters_many": "{{count}} розділів",
+    "chapters_one": "{{count}} розділ",
+    "chapters_other": "{{count}} розділів",
+    "downloads": "Завантаження",
+    "downloadState": {
+      "done": "Завантажене",
+      "downloading": "Завантажується",
+      "failed": "Провалено"
+    },
+    "inLibraryBadge": "В бібліотеці",
+    "list": {
+      "latest": "Новинки",
+      "popular": "Популярне",
+      "search": "Пошук"
+    },
+    "loading": "Завантаження…",
+    "nextChapter": "Наступний розділ",
+    "pageAlt": "Сторінка {{page}}",
+    "pauseDownloads": "Пауза",
+    "previousChapter": "попередній",
+    "readingMode": "Режим читання",
+    "removeFromLibrary": "В бібліотеці",
+    "resumeDownloads": "Продовжити",
+    "source": "Джерело",
+    "status": {
+      "cancelled": "Відмінено",
+      "completed": "Завершене",
+      "hiatus": "Заморожено",
+      "ongoing": "Онгоінг",
+      "publishingFinished": "Публікація завершена"
+    },
+    "today": "Сьогодні",
+    "updateLibrary": "Оновити бібліотеку",
+    "updates": "Нове",
+    "yesterday": "Вчора"
+  },
+  "mcp": {
+    "copied": "Скопійовано",
+    "copy": "Копіювати"
+  },
+  "nav": {
+    "home": "Головна",
+    "library": "Бібліотека",
+    "search": "Пошук",
+    "settings": "Налаштування"
+  },
+  "novel": {
+    "fontSize": "Розмір шрифту"
+  },
+  "player": {
+    "addToPlaylist": "Додати до плейлиста",
+    "favorite": "Додати до обраного",
+    "next": "Далі",
+    "nowPlaying": "Now playing",
+    "pause": "Пауза",
+    "play": "Дивитися",
+    "previous": "попередній",
+    "seek": "шукати",
+    "shuffle": "Перемішати",
+    "unfavorite": "Вилучити з обраного",
+    "upNext": "До Наступного"
+  },
+  "search": {
+    "title": "Пошук"
+  },
+  "settings": {
+    "about": "Інформація",
+    "appearance": "Вигляд",
+    "backup": "Резервне копіювання",
+    "cancel": "Скасувати",
+    "confirmRestore": "Відновити",
+    "createBackup": "Створити резервну копію",
+    "extensions": "Розширення",
+    "language": "Мова",
+    "manga": "Манґа",
+    "storage": "Зберігання",
+    "theme": "Тема",
+    "themeDark": "Темна",
+    "themeLight": "Світла",
+    "themeSystem": "Системна",
+    "title": "Налаштування",
+    "updateEvery": {
+      "0": "Ніколи",
+      "6": "Кожні 6 годин",
+      "12": "Кожні 12 годин",
+      "24": "Щодня",
+      "48": "Що 2 дні",
+      "168": "Щонеділі"
+    },
+    "version": "Версія"
+  }
+}

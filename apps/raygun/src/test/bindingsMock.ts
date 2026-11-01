@@ -80,6 +80,7 @@ export const MOBILE_STORAGE: StorageInfo = {
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   language: 'en',
+  showNsfw: false,
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,

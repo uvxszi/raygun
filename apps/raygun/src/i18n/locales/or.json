@@ -1,0 +1,101 @@
+{
+  "ai": {
+    "cancel": "ବାତିଲ୍ କରନ୍ତୁ",
+    "delete": "ଵିଲୋପ କର",
+    "name": "ନାମ",
+    "translators": "Translators"
+  },
+  "collections": {
+    "addToPlaylist": "ନାଟକ ତାଲିକାରେ ଯୋଗ କରନ୍ତୁ",
+    "cancel": "ବାତିଲ୍ କରନ୍ତୁ",
+    "done": "ହେଲା",
+    "favorite": "Add to favorites",
+    "favorites": "ମନପସନ୍ଦ",
+    "newPlaylist": "ନୂତନ ପ୍ଲେଲିଷ୍ଟ",
+    "rename": "ପୁନଃନାମକରଣ କରନ୍ତୁ"
+  },
+  "devices": {
+    "copied": "Copied",
+    "kind": {
+      "history": "ଇତିଵୃତ୍ତି",
+      "settings": "ସେଟିଂ"
+    },
+    "rename": "ପୁନଃନାମକରଣ କରନ୍ତୁ",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "cancel": "ବାତିଲ୍ କରନ୍ତୁ",
+    "settings": "ସେଟିଂ",
+    "update": "ଅଦ୍ୟତନ କରିବା"
+  },
+  "library": {
+    "addFolder": "Add folder",
+    "media": {
+      "music": "Music"
+    },
+    "openPlay": "ଚଲାଅ",
+    "play": "ଚଲାଅ",
+    "shuffle": "ଶଫଲ୍",
+    "title": "ଲାଇବ୍ରେରୀ",
+    "view": {
+      "albums": "ଆଲବମ",
+      "artists": "କଳାକାର",
+      "favorites": "ମନପସନ୍ଦ",
+      "playlists": "ପ୍ଲେ-ଲିଷ୍ଟଗୁଡ଼ିକ"
+    }
+  },
+  "manga": {
+    "downloadState": {
+      "failed": "ଵିଫଳ ହେଲା"
+    },
+    "list": {
+      "search": "ସନ୍ଧାନ"
+    },
+    "source": "ଉତ୍ସ",
+    "status": {
+      "cancelled": "Cancelled",
+      "completed": "ସାରିଛନ୍ତି",
+      "ongoing": "ଚଳିତ"
+    },
+    "today": "ଆଜି",
+    "yesterday": "Yesterday"
+  },
+  "mcp": {
+    "copied": "Copied"
+  },
+  "nav": {
+    "home": "ଗୃହ",
+    "library": "ଲାଇବ୍ରେରୀ",
+    "search": "ସନ୍ଧାନ",
+    "settings": "ସେଟିଂ"
+  },
+  "player": {
+    "addToPlaylist": "ନାଟକ ତାଲିକାରେ ଯୋଗ କରନ୍ତୁ",
+    "favorite": "Add to favorites",
+    "next": "Next",
+    "nowPlaying": "Now playing",
+    "play": "ଚଲାଅ",
+    "shuffle": "ଶଫଲ୍",
+    "upNext": "Up Next"
+  },
+  "search": {
+    "title": "ସନ୍ଧାନ"
+  },
+  "settings": {
+    "about": "ବିଷୟ",
+    "backup": "ବ୍ୟାକଅପ୍",
+    "cancel": "ବାତିଲ୍ କରନ୍ତୁ",
+    "confirmRestore": "ପୁନଃସ୍ଥାପନ କରନ୍ତୁ",
+    "language": "ଭାଷା",
+    "theme": "ପ୍ରସଙ୍ଗ",
+    "themeDark": "ଅନ୍ଧକାର",
+    "themeLight": "ଆଲୋକ",
+    "themeSystem": "ତନ୍ତ୍ର",
+    "title": "ସେଟିଂ",
+    "updateEvery": {
+      "24": "Daily",
+      "168": "Weekly"
+    },
+    "version": "ସଂସ୍କରଣ"
+  }
+}

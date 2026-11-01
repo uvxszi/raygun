@@ -6,7 +6,7 @@
 - **The groundwork for Phase 5:**
   - a place to keep API keys safely;
   - a manager for downloadable AI models;
-  - a registry of translation providers that the OCR and translation milestones (M36–M38) build on.
+  - a registry of translation providers that the OCR and translation milestones (M44–M45) build on.
 - Everything is reachable from a new Settings → AI page.
 
 ## Design
@@ -45,7 +45,7 @@
     - The base is chosen from the key: `:fx` keys use `api-free.deepl.com`.
     - Target codes are upper case, with the `EN-US` and `PT-BR` variants.
   - **Checks:** every provider must return one translation per input, else it's an error. Error messages include the provider's own error text.
-  - Batching, glossaries and chapter context are M37.
+  - Batching, glossaries and chapter context are M45.
 
 ### App wiring (`raygun-app/src/ai.rs`, `AiService`)
 - **Provider list:** device-local JSON in `local_meta` (`ai.providers`), as `{id (UUIDv7), kind, name, baseUrl?, model?}`.
@@ -70,8 +70,8 @@
   - It offers Download with a progress bar, or Delete once installed.
 
 ## Out of scope
-- Using the models: upscaling is M35 and M39. OCR models are M36, when the ONNX runtime arrives.
-- Batching and glossaries (M37). Google Translate. Syncing secrets.
+- Using the models: upscaling is M43 (in-process on Android). OCR models are M44, when the ONNX runtime arrives.
+- Batching and glossaries (M45). Google Translate. Syncing secrets.
 
 ## Done-check
 - **Rust:**

@@ -92,6 +92,9 @@ impl Catalog {
                 }
             }
         }?;
+        let show_nsfw = self.extensions().show_nsfw();
+        let mut listing = listing;
+        listing.items.retain(|item| show_nsfw || !item.nsfw);
         let ids: Vec<String> = listing.items.iter().map(|item| item.id.clone()).collect();
         let in_library = titles::in_library(&self.db(), source_id, &ids)
             .await
@@ -215,7 +218,9 @@ impl Catalog {
             .find(|source| source.id == row.fields.source_id)
             .map_or_else(|| row.fields.source_id.clone(), |source| source.name);
         let continue_chapter_id = continue_from(&units).map(|unit| unit.id.clone());
+        let hidden_nsfw = !self.extensions().show_nsfw() && is_adult(&row.fields.genres);
         Ok(MangaTitleView {
+            hidden_nsfw,
             id: row.id,
             source_id: row.fields.source_id,
             source_name,
@@ -251,8 +256,10 @@ impl Catalog {
         let entries = titles::library(&self.db(), self.kind)
             .await
             .map_err(to_message)?;
+        let show_nsfw = self.extensions().show_nsfw();
         Ok(entries
             .into_iter()
+            .filter(|entry| show_nsfw || !is_adult(&entry.title.fields.genres))
             .map(|entry| MangaLibraryEntry {
                 cover_url: entry
                     .title
@@ -337,6 +344,33 @@ impl Catalog {
     pub fn extensions(&self) -> tauri::State<'_, Arc<ExtensionService>> {
         self.app.state::<Arc<ExtensionService>>()
     }
+}
+
+/// Genres that mark a title as adult (lower case, compared whole). Sources that know better mark
+/// listings `nsfw` themselves; this catches stored titles and sources that only tag genres.
+const ADULT_GENRES: [&str; 14] = [
+    "adult",
+    "hentai",
+    "smut",
+    "erotica",
+    "erotic",
+    "pornographic",
+    "porn",
+    "18+",
+    "r18",
+    "r-18",
+    "nsfw",
+    "mature",
+    "lolicon",
+    "shotacon",
+];
+
+/// Whether a title's genres mark it as adult (M35).
+pub fn is_adult(genres: &[String]) -> bool {
+    genres.iter().any(|genre| {
+        let genre = genre.trim().to_lowercase();
+        ADULT_GENRES.contains(&genre.as_str())
+    })
 }
 
 /// Units in reading order: by chapter number when every unit has one, else the source's order
@@ -496,5 +530,14 @@ mod tests {
         let done = chapter_info(&unit("c", Some(1.0), 0, Some(19), true), &none);
         assert_eq!((done.read, done.last_page), (true, None));
         assert_eq!(done.download, None);
+    }
+
+    #[test]
+    fn adult_genres_mark_a_title() {
+        let genres = |list: &[&str]| list.iter().map(|g| (*g).to_owned()).collect::<Vec<_>>();
+        assert!(is_adult(&genres(&["Action", " Hentai "])));
+        assert!(is_adult(&genres(&["SMUT"])));
+        assert!(!is_adult(&genres(&["Ecchi", "Romance", "Adult Life"])));
+        assert!(!is_adult(&[]));
     }
 }

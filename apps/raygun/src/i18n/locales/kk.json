@@ -1,0 +1,120 @@
+{
+  "ai": {
+    "cancel": "Болдырмау",
+    "delete": "Жою",
+    "edit": "Өңдеу",
+    "installed": "Орнатылды",
+    "name": "Атауы",
+    "save": "Сақтау"
+  },
+  "collections": {
+    "cancel": "Болдырмау",
+    "edit": "Өңдеу",
+    "save": "Сақтау"
+  },
+  "devices": {
+    "kind": {
+      "history": "Тарих",
+      "settings": "Баптау"
+    },
+    "off": "Өшірулі",
+    "save": "Сақтау"
+  },
+  "extensions": {
+    "addRepo": "Қосу",
+    "cancel": "Болдырмау",
+    "install": "Орнату",
+    "nsfwBadge": "18+",
+    "refresh": "Жаңарту",
+    "settings": "Баптау",
+    "tab": {
+      "browse": "Іздеу",
+      "installed": "Орнатылды"
+    },
+    "title": "Кеңейтпе",
+    "uninstall": "Жою",
+    "update": "Жаңарту",
+    "upToDate": "Орнатылды"
+  },
+  "home": {
+    "clearHistory": "Тарихты тазалау"
+  },
+  "library": {
+    "emptyTitle": "Кітапханаңыз бос",
+    "media": {
+      "manga": "Манга"
+    },
+    "title": "Кітапхана"
+  },
+  "manga": {
+    "addToLibrary": "Кітапханаға қосу",
+    "chapters_one": "{{count}} тарау",
+    "chapters_other": "{{count}} тарау",
+    "downloads": "Жүктеулер",
+    "downloadState": {
+      "done": "Жүктелген",
+      "downloading": "Жүктелуде"
+    },
+    "inLibraryBadge": "Кітапханада",
+    "list": {
+      "latest": "Соңғы",
+      "popular": "Танымал",
+      "search": "Іздеу"
+    },
+    "loading": "Жүктелуде…",
+    "nextChapter": "Келесі тарау",
+    "pauseDownloads": "Тоқтату",
+    "readingMode": "Оқу режимі",
+    "removeFromLibrary": "Кітапханада",
+    "resumeDownloads": "Жалғастыру",
+    "status": {
+      "cancelled": "Күші жойылған",
+      "completed": "Аяқталған",
+      "hiatus": "Үзілісте",
+      "ongoing": "Шығып жатыр",
+      "publishingFinished": "Басылымы яқталды"
+    },
+    "today": "Бүгін",
+    "updateLibrary": "Кітапхананы жаңарту",
+    "updates": "Жаңартпа"
+  },
+  "mcp": {
+    "copy": "Көшіру"
+  },
+  "nav": {
+    "library": "Кітапхана",
+    "search": "Іздеу",
+    "settings": "Баптау"
+  },
+  "player": {
+    "next": "Келесі",
+    "pause": "Тоқтату"
+  },
+  "search": {
+    "title": "Іздеу"
+  },
+  "settings": {
+    "about": "Ақпарат",
+    "appearance": "Кейіп",
+    "cancel": "Болдырмау",
+    "confirmRestore": "Қалпына келтіру",
+    "createBackup": "Сақтық көшірме жасау",
+    "extensions": "Кеңейтпе",
+    "language": "Тіл",
+    "manga": "Манга",
+    "theme": "Кейіп",
+    "themeDark": "Қосулы",
+    "themeLight": "Өшірулі",
+    "themeSystem": "Жүйе бойынша",
+    "title": "Баптау",
+    "updateEvery": {
+      "0": "Ешқашан",
+      "6": "Әр 6 сағат сайын",
+      "12": "Әр 12 сағат сайын",
+      "24": "Күн сайын",
+      "48": "Әр 2 күн сайын",
+      "168": "Апта сайын"
+    },
+    "version": "Нұсқа"
+  }
+}

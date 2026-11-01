@@ -1,0 +1,96 @@
+{
+  "ai": {
+    "cancel": "ឈប់ធ្វើ",
+    "delete": "លុប",
+    "edit": "ផ្លាស់ប្ដូរ",
+    "name": "ឈ្មោះ",
+    "save": "រក្សាទុក"
+  },
+  "collections": {
+    "cancel": "ឈប់ធ្វើ",
+    "edit": "ផ្លាស់ប្ដូរ",
+    "save": "រក្សាទុក"
+  },
+  "devices": {
+    "kind": {
+      "history": "ប្រវត្តិ",
+      "settings": "ការកំណត់"
+    },
+    "off": "បិទ",
+    "save": "រក្សាទុក"
+  },
+  "extensions": {
+    "addRepo": "បញ្ចូល",
+    "cancel": "ឈប់ធ្វើ",
+    "install": "តម្លើង",
+    "refresh": "រីហ្វ្រេស",
+    "settings": "ការកំណត់",
+    "tab": {
+      "browse": "ស្វែងរក"
+    },
+    "title": "ប្រភពម៊េងហ្គា"
+  },
+  "library": {
+    "emptyTitle": "បណ្ណាល័យរបស់អ្នកទទេស្អាត",
+    "media": {
+      "manga": "បណ្តុំក្នុងបណ្ណាល័យ"
+    },
+    "title": "បណ្ណាល័យ"
+  },
+  "manga": {
+    "downloads": "ការទាញយក",
+    "downloadState": {
+      "done": "បានទាញយក"
+    },
+    "list": {
+      "search": "ស្វែងរក"
+    },
+    "loading": "កំពុងដំណើរការ…",
+    "nextChapter": "ភាគបន្ទាប់",
+    "pauseDownloads": "ផ្អាក",
+    "resumeDownloads": "បន្តវិញ",
+    "status": {
+      "cancelled": "ត្រូវបានបញ្ឈប់ការចេញផ្សាយ",
+      "completed": "បានបញ្ចប់ការចេញផ្សាយ",
+      "hiatus": "ត្រូវបានផ្អាកការចេញផ្សាយ",
+      "ongoing": "កំពុងតែចេញផ្សាយ",
+      "publishingFinished": "ចេញផ្សាយចប់ហើយ"
+    },
+    "today": "ថ្ងៃនេះ",
+    "updateLibrary": "ធ្វើបច្ចុប្បន្នភាពបណ្ណាល័យ",
+    "updates": "បច្ចុប្បន្នភាព"
+  },
+  "nav": {
+    "library": "បណ្ណាល័យ",
+    "search": "ស្វែងរក",
+    "settings": "ការកំណត់"
+  },
+  "player": {
+    "pause": "ផ្អាក"
+  },
+  "search": {
+    "title": "ស្វែងរក"
+  },
+  "settings": {
+    "about": "អំពីរ",
+    "appearance": "រូបរាង",
+    "cancel": "ឈប់ធ្វើ",
+    "confirmRestore": "restore",
+    "extensions": "ប្រភពម៊េងហ្គា",
+    "language": "ភាសា",
+    "manga": "បណ្តុំក្នុងបណ្ណាល័យ",
+    "theme": "ពណ៌",
+    "themeDark": "បើក",
+    "themeLight": "បិទ",
+    "themeSystem": "តាមទូរសព្ទ",
+    "title": "ការកំណត់",
+    "updateEvery": {
+      "0": "មិនដែល",
+      "6": "រាល់៦ម៉ោងម្ដង",
+      "12": "រាល់១២ម៉ោងម្ដង",
+      "24": "រាល់ថ្ងៃ",
+      "48": "រាល់២ថ្ងៃម្ដង",
+      "168": "រាល់សប្ដាហ៍"
+    }
+  }
+}

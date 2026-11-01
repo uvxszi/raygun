@@ -1,0 +1,159 @@
+{
+  "ai": {
+    "cancel": "Avbryt",
+    "delete": "Radera",
+    "edit": "Redigera",
+    "installed": "Installerad",
+    "name": "Namn",
+    "save": "Spara",
+    "translators": "Översättare"
+  },
+  "collections": {
+    "addToPlaylist": "Lägg till i spellista",
+    "cancel": "Avbryt",
+    "create": "Skapa",
+    "done": "Klar",
+    "edit": "Redigera",
+    "favorite": "Lägg till i favoriter",
+    "favorites": "Favoriter",
+    "newPlaylist": "Ny spellista",
+    "rename": "Byt namn",
+    "save": "Spara",
+    "unfavorite": "Ta bort från favoriter"
+  },
+  "devices": {
+    "copied": "Kopierat",
+    "kind": {
+      "history": "Historik",
+      "settings": "Inställningar"
+    },
+    "off": "Av",
+    "rename": "Byt namn",
+    "save": "Spara",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "addRepo": "Lägg till",
+    "cancel": "Avbryt",
+    "install": "Installera",
+    "nsfwBadge": "18+",
+    "refresh": "Uppdatera",
+    "settings": "Inställningar",
+    "tab": {
+      "browse": "Bläddra",
+      "installed": "Installerad"
+    },
+    "title": "Tillägg",
+    "uninstall": "Avinstallera",
+    "update": "Uppdatera",
+    "upToDate": "Installerad"
+  },
+  "home": {
+    "clearHistory": "Rensa historik"
+  },
+  "library": {
+    "addFolder": "Lägg till mapp",
+    "emptyTitle": "Ditt bibliotek är tomt",
+    "media": {
+      "manga": "Biblioteksposter",
+      "music": "Musik"
+    },
+    "openPlay": "Spela upp",
+    "play": "Spela upp",
+    "shuffle": "Blanda",
+    "title": "Bibliotek",
+    "view": {
+      "albums": "Album",
+      "artists": "Artister",
+      "favorites": "Favoriter",
+      "playlists": "Spellistor",
+      "tracks": "Spår"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Lägg till i biblioteket",
+    "chapters_one": "{{count}} kapitel",
+    "chapters_other": "{{count}} kapitel",
+    "downloads": "Nedladdningar",
+    "downloadState": {
+      "done": "Nedladdade",
+      "downloading": "Laddar ner",
+      "failed": "Misslyckades"
+    },
+    "inLibraryBadge": "I biblioteket",
+    "list": {
+      "latest": "Senaste",
+      "popular": "Populära",
+      "search": "Sök"
+    },
+    "loading": "Laddar…",
+    "nextChapter": "Nästa kapitel",
+    "pauseDownloads": "Paus",
+    "previousChapter": "Föregående",
+    "readingMode": "Läsläge",
+    "removeFromLibrary": "I biblioteket",
+    "resumeDownloads": "Återuppta",
+    "source": "Källa",
+    "status": {
+      "cancelled": "Avbruten",
+      "completed": "Färdig",
+      "hiatus": "På uppehåll",
+      "ongoing": "Pågående",
+      "publishingFinished": "Publiceringen avslutad"
+    },
+    "today": "Idag",
+    "updateLibrary": "Uppdatera biblioteket",
+    "updates": "Uppdateringar",
+    "yesterday": "Igår"
+  },
+  "mcp": {
+    "copied": "Kopierat",
+    "copy": "Kopiera"
+  },
+  "nav": {
+    "home": "Hem",
+    "library": "Bibliotek",
+    "search": "Sök",
+    "settings": "Inställningar"
+  },
+  "player": {
+    "addToPlaylist": "Lägg till i spellista",
+    "favorite": "Lägg till i favoriter",
+    "next": "Nästa",
+    "nowPlaying": "Now playing",
+    "pause": "Paus",
+    "play": "Spela upp",
+    "previous": "Föregående",
+    "shuffle": "Blanda",
+    "unfavorite": "Ta bort från favoriter",
+    "upNext": "Up Next"
+  },
+  "search": {
+    "title": "Sök"
+  },
+  "settings": {
+    "about": "Om appen",
+    "appearance": "Utseende",
+    "backup": "Säkerhetskopiering",
+    "cancel": "Avbryt",
+    "confirmRestore": "Återställ",
+    "createBackup": "Skapa säkerhetskopia",
+    "extensions": "Tillägg",
+    "language": "Språk",
+    "manga": "Biblioteksposter",
+    "theme": "Tema",
+    "themeDark": "Mörk",
+    "themeLight": "Ljus",
+    "themeSystem": "System",
+    "title": "Inställningar",
+    "updateEvery": {
+      "0": "Aldrig",
+      "6": "Var 6:e timme",
+      "12": "Var 12:e timme",
+      "24": "Dagligen",
+      "48": "Varannan dag",
+      "168": "Varje vecka"
+    },
+    "version": "Version"
+  }
+}

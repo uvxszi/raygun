@@ -2,7 +2,7 @@
 
 Each phase ends with something usable. Milestones (M) are sized to fit **one focused working session**: about a day of work with a clear done-check, so no session has to hold the whole system in its head. Before a milestone starts it gets a short spec in `docs/phases/phase-N/MNN-<name>.md`. The spec covers its goal, files touched, interfaces, a done-check, and which sections of `ARCHITECTURE.md` / `reference-notes.md` are relevant, so a session loads only those.
 
-**Platform order:** Android first (verified on the `Pixel_4` emulator), Windows second. **Since M05, only the 📱 checks run; desktop work and checks are deferred until the user asks for them.** macOS, Linux and iOS are built in CI from M10 on, but are only lightly tested until later phases. Every UI milestone's done-check runs on Android before desktop.
+**Platform order:** Android first (verified on the `Pixel_4` emulator), Windows second. **Since M05, only the 📱 checks run; desktop work and checks are deferred until the user asks for them. Since 2026-11-01: mobile only until the app is great.** macOS, Linux and iOS are built in CI from M10 on, but are only lightly tested until later phases. Every UI milestone's done-check runs on Android before desktop.
 
 Legend: 📱 Android · 🖥 Windows · ⚗ spike (time-boxed; the outcome is a decision, not production code)
 
@@ -54,35 +54,43 @@ Legend: 📱 Android · 🖥 Windows · ⚗ spike (time-boxed; the outcome is a 
 - M32 **Shosetsu compatibility**: mlua (lua52) runtime + kotlin-lib shim, Shosetsu repo support
 - M33 Local EPUB import, chapter downloads, TTS (OS voices) as a stretch goal
 
-## Phase 5 — AI enhancement
+## Phase 5 — AI groundwork
 - M34 Model manager (`models/`, checksums, licenses) + `raygun-ai` provider registry + secrets store
-- M35 Upscale v1: ncnn-vulkan CLI sidecars (desktop), priority queue with generations, enhanced-page cache, reader integration
-- M36 OCR providers (ONNX manga-ocr/Paddle via `ort`; OS OCR), bubble merging
-- M37 Translators (Claude, OpenAI-compatible/local, DeepL), chapter batching with glossary, overlay renderer
-- M38 Auto-translate on download; novel and lyrics translation with the same providers
-- M39 Upscale v2: in-process `ort`/ncnn incl. Android acceleration (NNAPI/Vulkan)
 
-## Phase 6 — Video: movies, TV, anime
-- M40 Video player UI (gestures for seek/volume/brightness, PiP, subtitles .srt/.vtt/.ass via JASSUB, audio track select, OP/ED skip)
-- M41 HLS/DASH in Html5Engine, header-injected proxy for segments
-- M42 **Stremio addons** via `stremio-core` (`Env` impl), catalogs/meta/streams/subtitles, continue watching
-- M43 `video.source` capability (CloudStream/Aniyomi-shaped: search, load, servers, resolve with streamed results)
-- M44 WebView resolver (stream sniffing + Cloudflare cookie handoff)
-- M45 **MpvEngine**: mpv on Android, libmpv child window on desktop
-- M46 Trackers: Trakt, Simkl, AniList anime; watched-bitfield per season
+## Re-plan (2026-11-01): mobile first, the user's asks, then full parity
+The user asked for: mobile only until the app is great; a **Watch** tab for movies and TV; **podcasts** in the music tab; **browsing extensions across repositories** (Raygun's official one and others), with basic essentials in the official repo; an **NSFW toggle** (off by default) that hides NSFW extensions and content; **language switching** set up for contributors, reusing the reference apps' existing translations; and **every feature the reference apps have**. The milestones below replace the old M35–M51 numbering. `docs/feature-parity.md` is the full checklist the parity milestones work through.
 
-## Phase 7 — Compatibility bridges + ecosystem
-- M47 Android `android-dex` runtime: load Mihon/Aniyomi extension APKs (Kotlin plugin, Apache-2.0 loader)
-- M48 Optional Suwayomi sidecar provider on desktop
-- M49 `ui` extension runtime (widgets, views, themes), including the UI half of Nuclear plugins
-- M50 iOS build hardening, store/sideload strategy
-- M51 Sync beyond the LAN (optional self-hosted relay or WebDAV), still end-to-end encrypted
+## Phase 6 — The user's asks
+- M35 **Content filter + languages**: Settings toggle "Show NSFW content" (off by default) hiding NSFW extensions, sources and titles (repo `contentRating`, Stremio `adult`, Shosetsu/LNReader flags, adult genres), passed to extensions so they filter too; language picker (system default + every locale present), i18n structure and contributor guide, and translations imported from the reference apps where the English text matches exactly
+- M36 **Extension browsing across repositories**: suggested repositories to add with one tap (Raygun official, Shosetsu, Nuclear plugins, Stremio addons), Browse with search and filters (kind, language, repository, content rating), repository trust note; essentials published in the official repo (MangaDex, Project Gutenberg, podcast directory, public-domain films)
+- M37 **Podcasts** in the music tab: subscriptions, RSS/Atom feeds, `podcast.directory` capability + an Apple Podcasts directory extension, episode lists, resume position, played state, new-episode refresh, episode downloads
+- M38 **Watch tab + native video player**: Media3 ExoPlayer activity in the Android plugin (gestures for seek/volume/brightness, PiP, subtitles .srt/.vtt/.ass, audio/subtitle track select, speed, resume, OP/ED skip), HLS/DASH, header injection
+- M39 **Stremio addons**: catalogs/meta/streams/subtitles over the HTTP addon protocol, Cinemeta for metadata, Watch home (popular movies and series, continue watching), title pages with seasons and episodes, watched state
+- M40 `video.source` capability (CloudStream/Aniyomi-shaped: search, load, servers streamed as they resolve) + first-party public-domain films; anime as a kind
+- M41 Video library, history, downloads, updates for followed series
+- M42 WebView resolver (stream sniffing + Cloudflare cookie handoff) for sources that need a browser
+
+## Phase 7 — AI on the phone
+- M43 Upscale: in-process ncnn (Vulkan) on Android, priority queue with generations, enhanced-page cache, reader toggle
+- M44 OCR on the phone (on-device model via `ort`), bubble merging
+- M45 Translation overlay: chapter batching with glossary through the M34 translators; auto-translate on download; novel and lyrics translation
+
+## Phase 8 — Full parity (works through `docs/feature-parity.md`)
+- M46 Library parity: categories, filters and sorting, badges, per-category settings, duplicates, source migration, global search, stats, notes, custom covers
+- M47 Reader parity: Mihon's reader settings (scale types, crop borders, split/rotate wide pages, tap-zone layouts, volume keys, background, rotation, keep screen on, e-ink flash), page actions (save, share, set as cover)
+- M48 Downloads + data parity: CBZ, Wi-Fi only, delete after reading, download ahead, auto-download new chapters, automatic backups, storage usage, cache clearing, clear database
+- M49 Security + advanced: app lock, secure screen, incognito mode, DNS over HTTPS, user agent, cookie/WebView data clearing, crash logs
+- M50 Music parity (Nuclear, RiPlay): equalizer, sleep timer, blacklist, listening stats/rewind, playlist import, discovery/new releases/moods, lyrics translation, Last.fm scrobbling, themes
+- M51 Novel parity (Shosetsu, LNReader): LNReader plugin compatibility, reader themes and CSS, custom download ranges
+- M52 Trackers: AniList, MyAnimeList, Kitsu, MangaUpdates, Trakt, Simkl (needs the user's accounts)
+- M53 Onboarding, what's new, update check, deep links, Android-dex runtime for Mihon/Aniyomi APK extensions
+- On hold: M22 device sync v2. Later, when the user asks: desktop (Windows first), iOS, sync beyond the LAN.
 
 ---
 
 ## Resolved decisions (2026-10-30)
 1. License: **AGPL-3.0-only**.
 2. Extension runtime: **QuickJS** primary, plus a Nuclear plugin compatibility layer with documented limitations (ARCHITECTURE §7.4).
-3. Platform order: **Android first** (Pixel_4 emulator), then Windows.
+3. Platform order: **Android first** (Pixel_4 emulator), then Windows. *2026-11-01: mobile only until the app is great; no desktop-only designs (CLI sidecars, libmpv windows) until then.*
 4. Identifier: **`app.raygun.player`**.
 5. New requirement: **automatic LAN device sync**, configurable and hands-off (ARCHITECTURE §10, M21–M22).

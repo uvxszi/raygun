@@ -1,0 +1,94 @@
+{
+  "ai": {
+    "cancel": "Cuir ar Ceal",
+    "delete": "Scrios",
+    "name": "Name",
+    "translators": "Translators"
+  },
+  "collections": {
+    "addToPlaylist": "Cuir le seinnliosta",
+    "cancel": "Cuir ar Ceal",
+    "done": "Déanta",
+    "favorite": "Add to favorites",
+    "favorites": "Is breá leat iad seo",
+    "newPlaylist": "Seinnliosta nua",
+    "rename": "Athainmnigh"
+  },
+  "devices": {
+    "copied": "Copied",
+    "kind": {
+      "history": "History",
+      "settings": "Settings"
+    },
+    "rename": "Athainmnigh",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "cancel": "Cuir ar Ceal",
+    "settings": "Settings",
+    "update": "Update"
+  },
+  "library": {
+    "addFolder": "Add folder",
+    "media": {
+      "music": "Music"
+    },
+    "shuffle": "Suaith",
+    "title": "Leabharlann",
+    "view": {
+      "albums": "Albaim",
+      "artists": "Ceoltóirí",
+      "favorites": "Is breá leat iad seo",
+      "playlists": "Seinnliostaí"
+    }
+  },
+  "manga": {
+    "downloadState": {
+      "failed": "Failed"
+    },
+    "list": {
+      "search": "Search"
+    },
+    "status": {
+      "cancelled": "Cancelled",
+      "completed": "Completed"
+    },
+    "today": "Today",
+    "yesterday": "Yesterday"
+  },
+  "mcp": {
+    "copied": "Copied"
+  },
+  "nav": {
+    "home": "Home",
+    "library": "Leabharlann",
+    "search": "Search",
+    "settings": "Settings"
+  },
+  "player": {
+    "addToPlaylist": "Cuir le seinnliosta",
+    "favorite": "Add to favorites",
+    "next": "Next",
+    "nowPlaying": "Now playing",
+    "shuffle": "Suaith",
+    "upNext": "Up Next"
+  },
+  "search": {
+    "title": "Search"
+  },
+  "settings": {
+    "about": "About",
+    "backup": "Backup",
+    "cancel": "Cuir ar Ceal",
+    "confirmRestore": "Athbhunaigh",
+    "theme": "Téama",
+    "themeDark": "Dark",
+    "themeLight": "Light",
+    "themeSystem": "System",
+    "title": "Settings",
+    "updateEvery": {
+      "24": "Daily",
+      "168": "Weekly"
+    }
+  }
+}

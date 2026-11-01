@@ -1,0 +1,125 @@
+{
+  "ai": {
+    "cancel": "रद्द गर्नुहोस्",
+    "delete": "हटाउनुहोस्",
+    "edit": "सम्पादन गर्नुहोस्",
+    "installed": "स्थापना गरियो",
+    "name": "नाम",
+    "save": "सेभ गर्नुहोस्"
+  },
+  "collections": {
+    "cancel": "रद्द गर्नुहोस्",
+    "create": "सिर्जना गर्नुहोस्",
+    "edit": "सम्पादन गर्नुहोस्",
+    "save": "सेभ गर्नुहोस्"
+  },
+  "devices": {
+    "kind": {
+      "history": "इतिहास",
+      "settings": "सेटिंग्स"
+    },
+    "off": "अफ",
+    "save": "सेभ गर्नुहोस्"
+  },
+  "extensions": {
+    "addRepo": "थप्नुहोस्",
+    "cancel": "रद्द गर्नुहोस्",
+    "install": "स्थापना गर्नुहोस्",
+    "nsfwBadge": "१८+",
+    "refresh": "रिफ्रेस गर्नुहोस्",
+    "settings": "सेटिंग्स",
+    "tab": {
+      "browse": "ब्राउज",
+      "installed": "स्थापना गरियो"
+    },
+    "title": "एक्सटेन्शन",
+    "uninstall": "अनइन्स्टल गर्नुहोस्",
+    "update": "अपडेट",
+    "upToDate": "स्थापना गरियो"
+  },
+  "home": {
+    "clearHistory": "इतिहास हटाउनुहोस्"
+  },
+  "library": {
+    "emptyTitle": "तपाईंको पुस्तकालय खाली छ",
+    "media": {
+      "manga": "पुस्तकालयका इन्ट्रीहरू"
+    },
+    "openPlay": "प्ले",
+    "play": "प्ले",
+    "title": "पुस्तकालय"
+  },
+  "manga": {
+    "addToLibrary": "पुस्तकालयमा राख्नुहोस्",
+    "chapters_one": "{{count}} अध्याय",
+    "chapters_other": "{{count}} अध्यायहरू",
+    "downloads": "डाउनलोड्स",
+    "downloadState": {
+      "done": "डाउनलोड गरिएको",
+      "downloading": "डाउनलोड गर्दै"
+    },
+    "inLibraryBadge": "पुस्तकालयमा छ",
+    "list": {
+      "latest": "नवीनतम",
+      "popular": "लोकप्रिय",
+      "search": "खोज्नुहोस्"
+    },
+    "loading": "लोड हुँदैछ …",
+    "nextChapter": "अर्को अध्याय",
+    "pauseDownloads": "रोक्नुहोस्",
+    "readingMode": "पढ्ने मोड",
+    "removeFromLibrary": "पुस्तकालयमा छ",
+    "resumeDownloads": "जारी राख्नुहोस्",
+    "status": {
+      "cancelled": "रद्द गरेको",
+      "completed": "समाप्त",
+      "hiatus": "अन्तरालमा छ",
+      "ongoing": "जारी छ",
+      "publishingFinished": "प्रकाशन सम्पन्न"
+    },
+    "today": "आज",
+    "updateLibrary": "पुस्तकालय अपडेट गर्नुहोस्",
+    "updates": "अपडेट्स"
+  },
+  "mcp": {
+    "copy": "प्रतिलिपि"
+  },
+  "nav": {
+    "home": "होम्",
+    "library": "पुस्तकालय",
+    "search": "खोज्नुहोस्",
+    "settings": "सेटिंग्स"
+  },
+  "player": {
+    "next": "अर्को",
+    "pause": "रोक्नुहोस्",
+    "play": "प्ले"
+  },
+  "search": {
+    "title": "खोज्नुहोस्"
+  },
+  "settings": {
+    "about": "बारेमा",
+    "appearance": "रूप",
+    "cancel": "रद्द गर्नुहोस्",
+    "confirmRestore": "रिस्टोर गर्नुहोस्",
+    "createBackup": "ब्याकअप सिर्जना गर्नुहोस्",
+    "extensions": "एक्सटेन्शन",
+    "language": "भाषा",
+    "manga": "पुस्तकालयका इन्ट्रीहरू",
+    "theme": "थीम",
+    "themeDark": "अन",
+    "themeLight": "अफ",
+    "themeSystem": "सिस्टम पालना गर्नुहोस्",
+    "title": "सेटिंग्स",
+    "updateEvery": {
+      "0": "कहिल्यै हैन",
+      "6": "प्रत्येक ६ घण्टा",
+      "12": "प्रत्येक १२ घण्टा",
+      "24": "दैनिक",
+      "48": "प्रत्येक २ दिन",
+      "168": "साप्ताहिक"
+    },
+    "version": "संस्करण"
+  }
+}

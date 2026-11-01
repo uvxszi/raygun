@@ -1,0 +1,96 @@
+{
+  "ai": {
+    "cancel": "ຍົກເລີກ",
+    "delete": "ລຶບ",
+    "edit": "ແກ້ໄຂ",
+    "name": "ຊື່",
+    "save": "ບັນທຶກ"
+  },
+  "collections": {
+    "cancel": "ຍົກເລີກ",
+    "done": "ສຳເລັດ",
+    "edit": "ແກ້ໄຂ",
+    "favorite": "ເພີ່ມເຂົ້າໃນລາຍການທີ່ມັກ",
+    "favorites": "ລາຍການທີ່ມັກ",
+    "save": "ບັນທຶກ",
+    "unfavorite": "ເອົາອອກຈາກລາຍການທີ່ມັກ"
+  },
+  "devices": {
+    "kind": {
+      "history": "ປະຫວັດ",
+      "settings": "ການຕັ້ງຄ່າ"
+    },
+    "save": "ບັນທຶກ"
+  },
+  "extensions": {
+    "addRepo": "ເພີ່ມ",
+    "cancel": "ຍົກເລີກ",
+    "nsfwBadge": "18+",
+    "settings": "ການຕັ້ງຄ່າ",
+    "title": "ສ່ວນເສີມ",
+    "update": "ອັບເດດ"
+  },
+  "home": {
+    "clearHistory": "ລ້າງປະຫວັດ"
+  },
+  "library": {
+    "media": {
+      "music": "ເພງ"
+    },
+    "openPlay": "ຫຼິ້ນ",
+    "play": "ຫຼິ້ນ",
+    "title": "ຄັງເກັບ",
+    "view": {
+      "favorites": "ລາຍການທີ່ມັກ",
+      "tracks": "ແທຣັກ"
+    }
+  },
+  "manga": {
+    "downloads": "ດາວໂຫຼດ",
+    "downloadState": {
+      "done": "ດາວໂຫຼດແລ້ວ",
+      "downloading": "ກຳລັງດາວໂຫຼດ",
+      "failed": "ບໍ່ສຳເລັດ"
+    },
+    "list": {
+      "search": "ຄົ້ນຫາ"
+    },
+    "loading": "ກຳລັງໂຫຼດ…",
+    "pauseDownloads": "ຢຸດ",
+    "previousChapter": "ກ່ອນໜ້າ",
+    "resumeDownloads": "ຫຼິ້ນຕໍ່",
+    "source": "ແຫຼ່ງວິດີໂອ",
+    "status": {
+      "completed": "ເບິ່ງຈົບແລ້ວ",
+      "ongoing": "ກຳລັງສາຍ"
+    }
+  },
+  "mcp": {
+    "copy": "ຄັດລອກ"
+  },
+  "nav": {
+    "home": "ໜ້າຫຼັກ",
+    "library": "ຄັງເກັບ",
+    "search": "ຄົ້ນຫາ",
+    "settings": "ການຕັ້ງຄ່າ"
+  },
+  "player": {
+    "favorite": "ເພີ່ມເຂົ້າໃນລາຍການທີ່ມັກ",
+    "next": "ຖັດໄປ",
+    "pause": "ຢຸດ",
+    "play": "ຫຼິ້ນ",
+    "previous": "ກ່ອນໜ້າ",
+    "unfavorite": "ເອົາອອກຈາກລາຍການທີ່ມັກ"
+  },
+  "search": {
+    "title": "ຄົ້ນຫາ"
+  },
+  "settings": {
+    "backup": "ສຳຮອງຂໍ້ມູນ",
+    "cancel": "ຍົກເລີກ",
+    "extensions": "ສ່ວນເສີມ",
+    "language": "ພາສາ",
+    "title": "ການຕັ້ງຄ່າ",
+    "version": "ເວີຊັນ"
+  }
+}

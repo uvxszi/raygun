@@ -1,0 +1,139 @@
+{
+  "ai": {
+    "cancel": "Отмени",
+    "delete": "Изтрий",
+    "edit": "Редактирай",
+    "installed": "Инсталирани",
+    "name": "Име",
+    "save": "Запази"
+  },
+  "collections": {
+    "cancel": "Отмени",
+    "create": "Създай",
+    "done": "Край",
+    "edit": "Редактирай",
+    "favorite": "Добави в любими",
+    "favorites": "Любими",
+    "save": "Запази",
+    "unfavorite": "Премахване от любими"
+  },
+  "devices": {
+    "kind": {
+      "history": "История",
+      "settings": "Настройки"
+    },
+    "off": "Не",
+    "save": "Запази"
+  },
+  "extensions": {
+    "addRepo": "Добави",
+    "cancel": "Отмени",
+    "install": "Инсталирай",
+    "nsfwBadge": "18+",
+    "refresh": "Обнови",
+    "settings": "Настройки",
+    "tab": {
+      "browse": "Търсене",
+      "installed": "Инсталирани"
+    },
+    "title": "Разширения",
+    "uninstall": "Деинсталирай",
+    "update": "Обнови",
+    "upToDate": "Инсталирани"
+  },
+  "home": {
+    "clearHistory": "Изчисти историята"
+  },
+  "library": {
+    "emptyTitle": "Библиотеката Ви е празна",
+    "media": {
+      "manga": "Манга",
+      "music": "Музика"
+    },
+    "openPlay": "Пусни",
+    "play": "Пусни",
+    "title": "Библиотека",
+    "view": {
+      "favorites": "Любими",
+      "tracks": "Потоци"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Добави към библиотеката",
+    "downloads": "Изтегляния",
+    "downloadState": {
+      "done": "Изтеглени",
+      "downloading": "Изтегля се",
+      "failed": "Неуспешен"
+    },
+    "inLibraryBadge": "В библиотеката",
+    "list": {
+      "latest": "Последни",
+      "popular": "Популярни",
+      "search": "Търсене"
+    },
+    "loading": "Зареждане…",
+    "nextChapter": "Следваща глава",
+    "pauseDownloads": "Паузирай",
+    "previousChapter": "Предишен",
+    "readingMode": "Режим на четене",
+    "removeFromLibrary": "В библиотеката",
+    "resumeDownloads": "Продължи",
+    "source": "Източник",
+    "status": {
+      "cancelled": "Отменена",
+      "completed": "Завършена",
+      "hiatus": "Прекъсната за неопределен период",
+      "ongoing": "Излизаща",
+      "publishingFinished": "Приключено издаване"
+    },
+    "today": "Днес",
+    "updateLibrary": "Обнови библиотеката",
+    "updates": "Нови глави"
+  },
+  "mcp": {
+    "copy": "Копирай"
+  },
+  "nav": {
+    "home": "Начало",
+    "library": "Библиотека",
+    "search": "Търсене",
+    "settings": "Настройки"
+  },
+  "player": {
+    "favorite": "Добави в любими",
+    "next": "Следващ",
+    "pause": "Паузирай",
+    "play": "Пусни",
+    "previous": "Предишен",
+    "unfavorite": "Премахване от любими"
+  },
+  "search": {
+    "title": "Търсене"
+  },
+  "settings": {
+    "about": "За приложението",
+    "appearance": "Облик",
+    "backup": "Архивиране",
+    "cancel": "Отмени",
+    "confirmRestore": "Възстанови",
+    "createBackup": "Създай резервно копие",
+    "extensions": "Разширения",
+    "language": "Език",
+    "manga": "Манга",
+    "theme": "Тема",
+    "themeDark": "Включено",
+    "themeLight": "Изключено",
+    "themeSystem": "Система на абонаментите",
+    "title": "Настройки",
+    "updateEvery": {
+      "0": "Никога",
+      "6": "На всеки 6 часа",
+      "12": "На всеки 12 часа",
+      "24": "Ежедневно",
+      "48": "През ден",
+      "168": "Ежеседмично"
+    },
+    "version": "Версия"
+  }
+}

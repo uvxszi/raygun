@@ -1,0 +1,164 @@
+{
+  "ai": {
+    "cancel": "إلغاء",
+    "delete": "حذف",
+    "edit": "تعديل",
+    "installed": "تم التثبيت",
+    "name": "الاسم",
+    "save": "حفظ",
+    "translators": "Translators"
+  },
+  "collections": {
+    "addToPlaylist": "إضافة إلى قائمة التشغيل",
+    "cancel": "إلغاء",
+    "create": "أنشئ",
+    "done": "تم",
+    "edit": "تعديل",
+    "favorite": "اضافة الى المفضلة",
+    "favorites": "المفضلة",
+    "newPlaylist": "قائمة تشغيل جديدة",
+    "rename": "إعادة تسمية",
+    "save": "حفظ",
+    "unfavorite": "إزالة من المفضلة"
+  },
+  "devices": {
+    "copied": "Copied",
+    "kind": {
+      "history": "السجل",
+      "settings": "اﻹعدادات"
+    },
+    "off": "إيقاف",
+    "rename": "إعادة تسمية",
+    "save": "حفظ",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "addRepo": "أضف",
+    "cancel": "إلغاء",
+    "install": "تثبيت",
+    "nsfwBadge": "18+",
+    "refresh": "تحديث",
+    "settings": "اﻹعدادات",
+    "tab": {
+      "browse": "تصفَّح",
+      "installed": "تم التثبيت",
+      "repos": "مستودعات"
+    },
+    "title": "الإضافات",
+    "uninstall": "إلغاء التثبيت",
+    "update": "حدث",
+    "upToDate": "تم التثبيت"
+  },
+  "home": {
+    "clearHistory": "مسح السجل"
+  },
+  "library": {
+    "addFolder": "Add folder",
+    "emptyTitle": "مكتبتك فارغة",
+    "media": {
+      "manga": "مانغا",
+      "music": "موسيقى"
+    },
+    "openPlay": "تشغيل",
+    "play": "تشغيل",
+    "shuffle": "ترتيب عشوائي",
+    "title": "المكتبة",
+    "view": {
+      "albums": "ألبومات",
+      "artists": "المغنيين",
+      "favorites": "المفضلة",
+      "playlists": "قوائم التشغيل",
+      "tracks": "المسارات"
+    }
+  },
+  "manga": {
+    "addToLibrary": "إضافة إلى المكتبة",
+    "downloads": "التنزيلات",
+    "downloadState": {
+      "done": "المنزَّل",
+      "downloading": "جارى التنزيل",
+      "failed": "فشل"
+    },
+    "inLibraryBadge": "في المكتبة",
+    "list": {
+      "latest": "الأحدث",
+      "popular": "شائع",
+      "search": "بحث"
+    },
+    "loading": "جار التحميل…",
+    "nextChapter": "الفصل التالي",
+    "pageAlt": "الصفحة {{page}}",
+    "pauseDownloads": "إيقاف موقت",
+    "previousChapter": "الوسائط السابقة",
+    "readingMode": "وضع القراءة",
+    "removeFromLibrary": "في المكتبة",
+    "resumeDownloads": "استئناف",
+    "source": "مصدر",
+    "status": {
+      "cancelled": "أُلغيت",
+      "completed": "تمَّت",
+      "hiatus": "منقطعة",
+      "ongoing": "مستمرَّة",
+      "publishingFinished": "مكتملة"
+    },
+    "today": "اليوم",
+    "updateLibrary": "تحديث المكتبة",
+    "updates": "التحديثات",
+    "yesterday": "البارحة"
+  },
+  "mcp": {
+    "copied": "Copied",
+    "copy": "نسخ"
+  },
+  "nav": {
+    "home": "الرئيسية",
+    "library": "المكتبة",
+    "search": "بحث",
+    "settings": "اﻹعدادات"
+  },
+  "novel": {
+    "fontSize": "حجم الخط"
+  },
+  "player": {
+    "addToPlaylist": "إضافة إلى قائمة التشغيل",
+    "favorite": "اضافة الى المفضلة",
+    "next": "التالي",
+    "nowPlaying": "Now playing",
+    "pause": "إيقاف موقت",
+    "play": "تشغيل",
+    "previous": "الوسائط السابقة",
+    "seek": "التقديم",
+    "shuffle": "ترتيب عشوائي",
+    "unfavorite": "إزالة من المفضلة",
+    "upNext": "Up Next"
+  },
+  "search": {
+    "title": "بحث"
+  },
+  "settings": {
+    "about": "حول التطبيق",
+    "appearance": "المظهر",
+    "backup": "النسخ الإحتياطي",
+    "cancel": "إلغاء",
+    "confirmRestore": "إستعادة",
+    "createBackup": "إنشاء نسخة إحتياطية",
+    "extensions": "الإضافات",
+    "language": "اللغة",
+    "manga": "مانغا",
+    "storage": "تخزين",
+    "theme": "المظهر",
+    "themeDark": "داكن",
+    "themeLight": "فاتح",
+    "themeSystem": "النظام",
+    "title": "اﻹعدادات",
+    "updateEvery": {
+      "0": "أبدًا",
+      "6": "كل ٦ ساعات",
+      "12": "كل 12 ساعة",
+      "24": "يومياً",
+      "48": "كل يومان",
+      "168": "أسبوعياً"
+    },
+    "version": "الإصدار"
+  }
+}

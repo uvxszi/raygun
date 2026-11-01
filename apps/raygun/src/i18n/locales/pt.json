@@ -1,0 +1,166 @@
+{
+  "ai": {
+    "cancel": "Cancelar",
+    "delete": "Eliminar",
+    "edit": "Editar",
+    "installed": "Instalado",
+    "name": "Nome",
+    "save": "Guardar",
+    "translators": "Tradutores"
+  },
+  "collections": {
+    "addToPlaylist": "Adicionar à playlist",
+    "cancel": "Cancelar",
+    "create": "Criar",
+    "done": "Feito",
+    "edit": "Editar",
+    "favorite": "Adicionar aos favoritos",
+    "favorites": "Favoritos",
+    "newPlaylist": "Nova playlist",
+    "rename": "Renomear",
+    "save": "Guardar",
+    "unfavorite": "Remover dos favoritos"
+  },
+  "devices": {
+    "copied": "Copiado",
+    "kind": {
+      "history": "Histórico",
+      "settings": "Definições"
+    },
+    "off": "Desligado",
+    "rename": "Renomear",
+    "save": "Guardar",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "addRepo": "Adicionar",
+    "cancel": "Cancelar",
+    "install": "Instalar",
+    "nsfwBadge": "18+",
+    "refresh": "Recarregar",
+    "settings": "Definições",
+    "tab": {
+      "browse": "Navegar",
+      "installed": "Instalado"
+    },
+    "title": "Extensões",
+    "uninstall": "Desinstalar",
+    "update": "Atualizar",
+    "upToDate": "Instalado"
+  },
+  "home": {
+    "clearHistory": "Eliminar histórico"
+  },
+  "library": {
+    "addFolder": "Adicionar pasta",
+    "emptyTitle": "A sua biblioteca está vazia",
+    "media": {
+      "manga": "Manga",
+      "music": "Música"
+    },
+    "openPlay": "Reproduzir",
+    "play": "Reproduzir",
+    "shuffle": "Aleatorizar",
+    "title": "Biblioteca",
+    "view": {
+      "albums": "Álbuns",
+      "artists": "Artistas",
+      "favorites": "Favoritos",
+      "playlists": "Playlists",
+      "tracks": "Faixas"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Adicionar à biblioteca",
+    "chapters_many": "{{count}} capítulos",
+    "chapters_one": "{{count}} capítulo",
+    "chapters_other": "{{count}} capítulos",
+    "downloads": "Transferências",
+    "downloadState": {
+      "done": "Transferido",
+      "downloading": "A transferir",
+      "failed": "Falha"
+    },
+    "inLibraryBadge": "Na biblioteca",
+    "list": {
+      "latest": "Mais recente",
+      "popular": "Famoso",
+      "search": "Pesquisar"
+    },
+    "loading": "A carregar…",
+    "nextChapter": "Capítulo seguinte",
+    "pageAlt": "Página {{page}}",
+    "pauseDownloads": "Pausar",
+    "previousChapter": "Anterior",
+    "readingMode": "Modo de leitura",
+    "removeFromLibrary": "Na biblioteca",
+    "resumeDownloads": "Resumir",
+    "source": "Fonte",
+    "status": {
+      "cancelled": "Cancelado",
+      "completed": "Completo",
+      "hiatus": "Em hiato",
+      "ongoing": "Em curso",
+      "publishingFinished": "Publicação concluída"
+    },
+    "today": "Hoje",
+    "updateLibrary": "Atualizar biblioteca",
+    "updates": "Atualizações",
+    "yesterday": "Ontem"
+  },
+  "mcp": {
+    "copied": "Copiado",
+    "copy": "Copiar"
+  },
+  "nav": {
+    "home": "Início",
+    "library": "Biblioteca",
+    "search": "Pesquisar",
+    "settings": "Definições"
+  },
+  "novel": {
+    "fontSize": "Tamanho da letra"
+  },
+  "player": {
+    "addToPlaylist": "Adicionar à playlist",
+    "favorite": "Adicionar aos favoritos",
+    "next": "Próximo",
+    "nowPlaying": "Now playing",
+    "pause": "Pausar",
+    "play": "Reproduzir",
+    "previous": "Anterior",
+    "seek": "Procurar",
+    "shuffle": "Aleatorizar",
+    "unfavorite": "Remover dos favoritos",
+    "upNext": "A seguir"
+  },
+  "search": {
+    "title": "Pesquisar"
+  },
+  "settings": {
+    "about": "Sobre",
+    "appearance": "Aparência",
+    "backup": "Backup",
+    "cancel": "Cancelar",
+    "confirmRestore": "Restaurar",
+    "createBackup": "Criar cópia de segurança",
+    "extensions": "Extensões",
+    "language": "Idioma",
+    "manga": "Manga",
+    "storage": "Armazenamento",
+    "theme": "Tema",
+    "themeDark": "Ligado",
+    "themeLight": "Desligado",
+    "themeSystem": "Seguir o do sistema",
+    "title": "Definições",
+    "updateEvery": {
+      "0": "Nunca",
+      "6": "A cada 6 horas",
+      "12": "A cada 12 horas",
+      "24": "Diariamente",
+      "48": "A cada 2 dias",
+      "168": "Semanalmente"
+    },
+    "version": "Versão"
+  }
+}

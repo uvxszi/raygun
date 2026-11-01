@@ -1,0 +1,173 @@
+{
+  "ai": {
+    "cancel": "Anuluj",
+    "delete": "Usuń",
+    "edit": "Edytuj",
+    "installed": "Zainstalowano",
+    "name": "Nazwa",
+    "save": "Zapisz",
+    "translators": "Tłumacze"
+  },
+  "collections": {
+    "addToPlaylist": "Dodaj do listy odtwarzania",
+    "cancel": "Anuluj",
+    "create": "Utwórz",
+    "delete": "Usuń listę odtwarzania",
+    "done": "Gotowe",
+    "edit": "Edytuj",
+    "favorite": "Dodaj do ulubionych",
+    "favorites": "Ulubione",
+    "newPlaylist": "Nowa playlista",
+    "rename": "Zmień nazwę",
+    "save": "Zapisz",
+    "unfavorite": "Usuń z ulubionych"
+  },
+  "devices": {
+    "copied": "Skopiowano",
+    "kind": {
+      "history": "Historia",
+      "settings": "Ogólne"
+    },
+    "off": "Wyłączone",
+    "rename": "Zmień nazwę",
+    "save": "Zapisz",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "addRepo": "Dodaj",
+    "cancel": "Anuluj",
+    "install": "Zainstaluj",
+    "nsfwBadge": "18+",
+    "nuclearBadge": "Nuclear",
+    "refresh": "Odśwież",
+    "settings": "Ogólne",
+    "tab": {
+      "browse": "Przeglądaj",
+      "installed": "Zainstalowano"
+    },
+    "title": "Rozszerzenia",
+    "uninstall": "Odinstaluj",
+    "update": "Aktualizuj",
+    "upToDate": "Zainstalowano"
+  },
+  "home": {
+    "clearHistory": "Wyczyść historię"
+  },
+  "library": {
+    "addFolder": "Dodaj folder",
+    "emptyTitle": "Twoja biblioteka jest pusta",
+    "media": {
+      "manga": "Manga",
+      "music": "Muzyka"
+    },
+    "openPlay": "Odtwórz",
+    "openQueue": "Dodaj do kolejki",
+    "play": "Odtwórz",
+    "playAll": "Odtwórz wszystkie",
+    "shuffle": "Losowo",
+    "title": "Biblioteka",
+    "view": {
+      "albums": "Albumy",
+      "artists": "Wykonawcy",
+      "favorites": "Ulubione",
+      "playlists": "Listy odtwarzania",
+      "tracks": "Utwory"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Dodaj do biblioteki",
+    "chapters_few": "{{count}} rozdziały",
+    "chapters_many": "{{count}} rozdziałów",
+    "chapters_one": "{{count}} rozdział",
+    "chapters_other": "{{count}} rozdziałów",
+    "downloads": "Pobieranie",
+    "downloadState": {
+      "done": "Pobrane",
+      "downloading": "Pobieranie",
+      "failed": "Nie powiodło się"
+    },
+    "inLibraryBadge": "W bibliotece",
+    "list": {
+      "latest": "Najnowsze",
+      "popular": "Popularne",
+      "search": "Wyszukaj"
+    },
+    "loading": "Wczytywanie…",
+    "nextChapter": "Następny rozdział",
+    "pageAlt": "Strona {{page}}",
+    "pauseDownloads": "Wstrzymaj",
+    "previousChapter": "Poprzedni",
+    "readingMode": "Tryb czytania",
+    "removeFromLibrary": "W bibliotece",
+    "resumeDownloads": "Wznów",
+    "source": "Źródło",
+    "status": {
+      "cancelled": "Anulowane",
+      "completed": "Ukończone",
+      "hiatus": "Przerwa wydawnicza",
+      "ongoing": "Nieukończone",
+      "publishingFinished": "Opublikowane w całości"
+    },
+    "today": "Dzisiaj",
+    "updateLibrary": "Aktualizuj bibliotekę",
+    "updates": "Aktualizacje",
+    "yesterday": "Wczoraj"
+  },
+  "mcp": {
+    "copied": "Skopiowano",
+    "copy": "Kopiuj"
+  },
+  "nav": {
+    "home": "Główna",
+    "library": "Biblioteka",
+    "search": "Wyszukaj",
+    "settings": "Ogólne"
+  },
+  "novel": {
+    "importing": "Importowanie..."
+  },
+  "player": {
+    "addToPlaylist": "Dodaj do listy odtwarzania",
+    "favorite": "Dodaj do ulubionych",
+    "lyrics": "Teksty",
+    "next": "Następny",
+    "nowPlaying": "Now playing",
+    "pause": "Wstrzymaj",
+    "play": "Odtwórz",
+    "previous": "Poprzedni",
+    "seek": "Szukaj",
+    "shuffle": "Losowo",
+    "unfavorite": "Usuń z ulubionych",
+    "upNext": "Następnie"
+  },
+  "search": {
+    "searching": "Wyszukiwanie...",
+    "title": "Wyszukaj"
+  },
+  "settings": {
+    "about": "O aplikacji",
+    "appearance": "Wygląd",
+    "backup": "Kopia zapasowa",
+    "cancel": "Anuluj",
+    "confirmRestore": "Przywróć",
+    "createBackup": "Utwórz kopię zapasową",
+    "extensions": "Rozszerzenia",
+    "importing": "Importowanie...",
+    "language": "Język",
+    "manga": "Manga",
+    "theme": "Motyw",
+    "themeDark": "Ciemny",
+    "themeLight": "Jasny",
+    "themeSystem": "Systemowy",
+    "title": "Ogólne",
+    "updateEvery": {
+      "0": "Nigdy",
+      "6": "Co 6 godzin",
+      "12": "Co 12 godzin",
+      "24": "Co 1 dzień",
+      "48": "Co 2 dni",
+      "168": "Co tydzień"
+    },
+    "version": "Wersja"
+  }
+}

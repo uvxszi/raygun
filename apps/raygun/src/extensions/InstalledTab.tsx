@@ -3,11 +3,13 @@ import { ChevronRight, RefreshCw } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useSettings } from '../settings/useSettings';
 import { useExtensions, useReloadExtensions } from './useExtensions';
 
 export const InstalledTab: FC = () => {
   const { t } = useTranslation();
   const extensions = useExtensions();
+  const showNsfw = useSettings().data?.showNsfw ?? false;
   const reload = useReloadExtensions();
   const error = extensions.error ?? reload.error;
 
@@ -52,7 +54,15 @@ export const InstalledTab: FC = () => {
                         : 'extensions.installedOrigin',
                     )}
                   </span>
+                  {extension.contentRating === 'nsfw' && (
+                    <span className="bg-primary/20 text-primary rounded px-1.5 text-xs font-semibold">
+                      {t('extensions.nsfwBadge')}
+                    </span>
+                  )}
                 </span>
+                {extension.contentRating === 'nsfw' && !showNsfw && (
+                  <span className="text-muted text-xs">{t('extensions.nsfwHidden')}</span>
+                )}
                 {extension.status === 'failed' ? (
                   <span role="alert" className="text-primary truncate text-xs">
                     {t('extensions.failed', { message: extension.error ?? '' })}

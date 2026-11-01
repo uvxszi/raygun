@@ -1,0 +1,138 @@
+{
+  "ai": {
+    "cancel": "Atcelt",
+    "delete": "Dzēst",
+    "edit": "Rediģēt",
+    "installed": "Instalēts",
+    "name": "Nosaukums",
+    "save": "Saglabāt"
+  },
+  "collections": {
+    "cancel": "Atcelt",
+    "create": "Izveidot",
+    "done": "Pabeigts",
+    "edit": "Rediģēt",
+    "favorites": "Iecienītākie",
+    "save": "Saglabāt"
+  },
+  "devices": {
+    "kind": {
+      "history": "Vēsture",
+      "settings": "Iestatījumi"
+    },
+    "off": "Izslēgts",
+    "save": "Saglabāt"
+  },
+  "extensions": {
+    "addRepo": "Pievienot",
+    "cancel": "Atcelt",
+    "install": "Instalēt",
+    "nsfwBadge": "18+",
+    "refresh": "Atjaunot",
+    "settings": "Iestatījumi",
+    "tab": {
+      "browse": "Pārlūkot",
+      "installed": "Instalēts"
+    },
+    "title": "Paplašinājumi",
+    "uninstall": "Atinstalēt",
+    "update": "Atjauninājums",
+    "upToDate": "Instalēts"
+  },
+  "home": {
+    "clearHistory": "Notīrīt vēsturi"
+  },
+  "library": {
+    "emptyTitle": "Jūsu bibliotēka ir tukša",
+    "media": {
+      "manga": "Bibliotēkas ieraksti",
+      "music": "Mūzika"
+    },
+    "openPlay": "Atskaņot",
+    "play": "Atskaņot",
+    "title": "Bibliotēka",
+    "view": {
+      "favorites": "Iecienītākie",
+      "tracks": "Tracks"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Pievienot bibliotēkai",
+    "chapters_one": "{{count}} nodaļa",
+    "chapters_other": "{{count}} nodaļas",
+    "chapters_zero": "{{count}} nodaļu",
+    "downloads": "Lejupieladējumi",
+    "downloadState": {
+      "done": "Lejupielādēts",
+      "downloading": "Lejupielādē",
+      "failed": "Neizdevās"
+    },
+    "inLibraryBadge": "Bibliotēkā",
+    "list": {
+      "latest": "Jaunākais",
+      "popular": "Populārs",
+      "search": "Meklēt"
+    },
+    "loading": "Ieladēšana…",
+    "nextChapter": "Nākama nodaļa",
+    "pauseDownloads": "Pārtraukt",
+    "previousChapter": "Iepriekšējais",
+    "readingMode": "Lasīšanas režīms",
+    "removeFromLibrary": "Bibliotēkā",
+    "resumeDownloads": "Turpināt",
+    "source": "Devējs",
+    "status": {
+      "cancelled": "Atcelta",
+      "completed": "Pabeigts",
+      "hiatus": "Pārtraukumā",
+      "ongoing": "Vēl turpinās",
+      "publishingFinished": "Publicēšana pabeigta"
+    },
+    "today": "Šodien",
+    "updateLibrary": "Atjaunināt bibliotēku",
+    "updates": "Atjauninājumi"
+  },
+  "mcp": {
+    "copy": "Kopēt"
+  },
+  "nav": {
+    "home": "Sākums",
+    "library": "Bibliotēka",
+    "search": "Meklēt",
+    "settings": "Iestatījumi"
+  },
+  "player": {
+    "next": "Nākamais",
+    "pause": "Pārtraukt",
+    "play": "Atskaņot",
+    "previous": "Iepriekšējais"
+  },
+  "search": {
+    "title": "Meklēt"
+  },
+  "settings": {
+    "about": "Par programmu",
+    "appearance": "Izskats",
+    "backup": "Dublējums",
+    "cancel": "Atcelt",
+    "confirmRestore": "Atjaunot",
+    "createBackup": "Izveidot dublējumu",
+    "extensions": "Paplašinājumi",
+    "language": "Valoda",
+    "manga": "Bibliotēkas ieraksti",
+    "theme": "Motīvs",
+    "themeDark": "Ieslēgts",
+    "themeLight": "Izslēgts",
+    "themeSystem": "Sekot sistēmu",
+    "title": "Iestatījumi",
+    "updateEvery": {
+      "0": "Nekad",
+      "6": "Ik pēc 6 stundām",
+      "12": "Ik pēc 12 stundām",
+      "24": "Katru dienu",
+      "48": "Ik pēc 2 dienam",
+      "168": "Katru nedēļu"
+    },
+    "version": "Versija"
+  }
+}

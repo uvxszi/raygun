@@ -1,0 +1,94 @@
+{
+  "ai": {
+    "cancel": "Tühista",
+    "delete": "Kustuta",
+    "name": "Nimi",
+    "translators": "Translators"
+  },
+  "collections": {
+    "addToPlaylist": "Lisa esitusloendisse",
+    "cancel": "Tühista",
+    "done": "Tehtud",
+    "favorite": "Add to favorites",
+    "favorites": "Lemmikud",
+    "newPlaylist": "Uus esitusloend",
+    "rename": "Nimeta ümber"
+  },
+  "devices": {
+    "copied": "Kopeeritud",
+    "kind": {
+      "history": "Ajalugu",
+      "settings": "Sätted"
+    },
+    "rename": "Nimeta ümber",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "cancel": "Tühista",
+    "settings": "Sätted",
+    "update": "Update"
+  },
+  "library": {
+    "addFolder": "Lisa kaust",
+    "media": {
+      "music": "Music"
+    },
+    "shuffle": "Juhuesitus",
+    "title": "Teek",
+    "view": {
+      "albums": "Albumid",
+      "artists": "Esitajad",
+      "favorites": "Lemmikud",
+      "playlists": "Esitusloendid"
+    }
+  },
+  "manga": {
+    "downloadState": {
+      "failed": "Failed"
+    },
+    "list": {
+      "search": "Otsing"
+    },
+    "status": {
+      "cancelled": "Cancelled",
+      "completed": "Completed"
+    },
+    "today": "Täna",
+    "yesterday": "Eile"
+  },
+  "mcp": {
+    "copied": "Kopeeritud"
+  },
+  "nav": {
+    "home": "Home",
+    "library": "Teek",
+    "search": "Otsing",
+    "settings": "Sätted"
+  },
+  "player": {
+    "addToPlaylist": "Lisa esitusloendisse",
+    "favorite": "Add to favorites",
+    "next": "Next",
+    "nowPlaying": "Now playing",
+    "shuffle": "Juhuesitus",
+    "upNext": "Up Next"
+  },
+  "search": {
+    "title": "Otsing"
+  },
+  "settings": {
+    "about": "Info",
+    "backup": "Varunda",
+    "cancel": "Tühista",
+    "confirmRestore": "Taasta",
+    "theme": "Teema",
+    "themeDark": "Tume",
+    "themeLight": "Hele",
+    "themeSystem": "Süsteem",
+    "title": "Sätted",
+    "updateEvery": {
+      "24": "Daily",
+      "168": "Weekly"
+    }
+  }
+}

@@ -1,0 +1,172 @@
+{
+  "ai": {
+    "cancel": "Abbrechen",
+    "delete": "Löschen",
+    "edit": "Bearbeiten",
+    "installed": "Installiert",
+    "name": "Name",
+    "save": "Speichern",
+    "translators": "Übersetzer"
+  },
+  "collections": {
+    "addToPlaylist": "Zur Playlist hinzufügen",
+    "cancel": "Abbrechen",
+    "create": "Erstellen",
+    "delete": "Playlist löschen",
+    "done": "Fertig",
+    "edit": "Bearbeiten",
+    "favorite": "Zu den Favoriten hinzufügen",
+    "favorites": "Favoriten",
+    "newPlaylist": "Neue Playlist",
+    "rename": "Umbenennen",
+    "save": "Speichern",
+    "unfavorite": "Aus den Favoriten entfernen"
+  },
+  "devices": {
+    "copied": "Kopiert",
+    "kind": {
+      "history": "Verlauf",
+      "settings": "Einstellungen"
+    },
+    "off": "Aus",
+    "rename": "Umbenennen",
+    "save": "Speichern",
+    "syncing": "Synchronisiere..."
+  },
+  "extensions": {
+    "addRepo": "Hinzufügen",
+    "cancel": "Abbrechen",
+    "install": "Installieren",
+    "nsfwBadge": "Ü18",
+    "nuclearBadge": "Nuclear",
+    "refresh": "Aktualisieren",
+    "settings": "Einstellungen",
+    "tab": {
+      "browse": "Stöbern",
+      "installed": "Installiert"
+    },
+    "title": "Erweiterungen",
+    "uninstall": "Deinstallieren",
+    "update": "Aktualisieren",
+    "upToDate": "Installiert"
+  },
+  "home": {
+    "clearHistory": "Verlauf löschen"
+  },
+  "library": {
+    "addFolder": "Ordner hinzufügen",
+    "emptyTitle": "Deine Bibliothek ist leer",
+    "media": {
+      "manga": "Manga",
+      "music": "Musik"
+    },
+    "openPlay": "Abspielen",
+    "openQueue": "Zur Warteschlange hinzufügen",
+    "play": "Abspielen",
+    "playAll": "Alle abspielen",
+    "shuffle": "Zufallswiedergabe",
+    "title": "Bibliothek",
+    "view": {
+      "albums": "Alben",
+      "artists": "Künstler",
+      "favorites": "Favoriten",
+      "playlists": "Playlists",
+      "tracks": "Anzahl Titel"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Zur Bibliothek hinzufügen",
+    "chapters_one": "{{count}} Kapitel",
+    "chapters_other": "{{count}} Kapitel",
+    "downloads": "Downloads",
+    "downloadState": {
+      "done": "Heruntergeladen",
+      "downloading": "Wird heruntergeladen",
+      "failed": "Fehlgeschlagen"
+    },
+    "inLibraryBadge": "In der Bibliothek",
+    "list": {
+      "latest": "Neueste",
+      "popular": "Beliebt",
+      "search": "Suchen"
+    },
+    "loading": "Lädt...",
+    "nextChapter": "Nächstes Kapitel",
+    "pageAlt": "Seite {{page}}",
+    "pauseDownloads": "Pause",
+    "previousChapter": "Vorherige",
+    "readingMode": "Lesemodus",
+    "removeFromLibrary": "In der Bibliothek",
+    "resumeDownloads": "Fortfahren",
+    "source": "Quelle",
+    "status": {
+      "cancelled": "Abgebrochen",
+      "completed": "Abgeschlossen",
+      "hiatus": "Unterbrochen",
+      "ongoing": "Fortlaufend",
+      "publishingFinished": "Veröffentlichung abgeschlossen"
+    },
+    "today": "Heute",
+    "updateLibrary": "Bibliothek aktualisieren",
+    "updates": "Aktualisierungen",
+    "yesterday": "Gestern"
+  },
+  "mcp": {
+    "copied": "Kopiert",
+    "copy": "Kopieren"
+  },
+  "nav": {
+    "home": "Startseite",
+    "library": "Bibliothek",
+    "search": "Suchen",
+    "settings": "Einstellungen"
+  },
+  "novel": {
+    "importing": "Wird importiert..."
+  },
+  "player": {
+    "addToPlaylist": "Zur Playlist hinzufügen",
+    "favorite": "Zu den Favoriten hinzufügen",
+    "lyrics": "Songtext",
+    "next": "Weiter",
+    "nowPlaying": "Now playing",
+    "pause": "Pause",
+    "play": "Abspielen",
+    "previous": "Vorherige",
+    "seek": "Vorspulen",
+    "shuffle": "Zufallswiedergabe",
+    "unfavorite": "Aus den Favoriten entfernen",
+    "upNext": "Als Nächstes"
+  },
+  "search": {
+    "searching": "Suche läuft...",
+    "title": "Suchen"
+  },
+  "settings": {
+    "about": "Über",
+    "appearance": "Erscheinungsbild",
+    "backup": "Sicherung",
+    "cancel": "Abbrechen",
+    "confirmRestore": "Wiederherstellen",
+    "createBackup": "Datensicherung erstellen",
+    "extensions": "Erweiterungen",
+    "importing": "Wird importiert...",
+    "language": "Sprache",
+    "manga": "Manga",
+    "storage": "Speicher",
+    "theme": "Thema",
+    "themeDark": "Dunkel",
+    "themeLight": "Hell",
+    "themeSystem": "System",
+    "title": "Einstellungen",
+    "updateEvery": {
+      "0": "Nie",
+      "6": "Alle 6 Stunden",
+      "12": "Alle 12 Stunden",
+      "24": "Täglich",
+      "48": "Alle 2 Tage",
+      "168": "Wöchentlich"
+    },
+    "version": "Version"
+  }
+}

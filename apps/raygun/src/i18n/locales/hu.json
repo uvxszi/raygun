@@ -1,0 +1,159 @@
+{
+  "ai": {
+    "cancel": "Mégse",
+    "delete": "Törlés",
+    "edit": "Szerkesztés",
+    "installed": "Telepítve",
+    "name": "Név",
+    "save": "Mentés",
+    "translators": "Translators"
+  },
+  "collections": {
+    "addToPlaylist": "Hozzáadás a lejátszási listához",
+    "cancel": "Mégse",
+    "create": "Létrehoz",
+    "done": "Kész",
+    "edit": "Szerkesztés",
+    "favorite": "Hozzáadás a kedvencekhez",
+    "favorites": "Kedvencek",
+    "newPlaylist": "Új lejátszási lista",
+    "rename": "Átnevez",
+    "save": "Mentés",
+    "unfavorite": "Eltávolítás kedvencekből"
+  },
+  "devices": {
+    "copied": "Másolva",
+    "kind": {
+      "history": "Előzmények",
+      "settings": "Beállítások"
+    },
+    "off": "Ki",
+    "rename": "Átnevez",
+    "save": "Mentés",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "addRepo": "Hozzáadás",
+    "cancel": "Mégse",
+    "install": "Telepítés",
+    "nsfwBadge": "18+",
+    "refresh": "Frissítés",
+    "settings": "Beállítások",
+    "tab": {
+      "browse": "Böngészés",
+      "installed": "Telepítve"
+    },
+    "title": "Bővítmények",
+    "uninstall": "Eltávolítás",
+    "update": "Frissítés",
+    "upToDate": "Telepítve"
+  },
+  "home": {
+    "clearHistory": "Előzmények törlése"
+  },
+  "library": {
+    "addFolder": "Mappa hozzáadása",
+    "emptyTitle": "A könyvtárad üres",
+    "media": {
+      "manga": "Könyvtári elemek",
+      "music": "Zene"
+    },
+    "openPlay": "Lejátszás",
+    "play": "Lejátszás",
+    "shuffle": "Véletlenszerű lejátszás",
+    "title": "Könyvtár",
+    "view": {
+      "albums": "Albumok",
+      "artists": "Előadók",
+      "favorites": "Kedvencek",
+      "playlists": "Lejátszási listák",
+      "tracks": "Zeneszámok"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Könyvtárhoz adás",
+    "chapters_one": "{{count}} fejezet",
+    "chapters_other": "{{count}} fejezet",
+    "downloads": "Letöltések",
+    "downloadState": {
+      "done": "Letöltött",
+      "downloading": "Letöltés",
+      "failed": "Sikertelen"
+    },
+    "inLibraryBadge": "Könyvtárban",
+    "list": {
+      "latest": "Legújabb",
+      "popular": "Felkapott",
+      "search": "Keresés"
+    },
+    "loading": "Betöltés…",
+    "nextChapter": "Következő fejezet",
+    "pauseDownloads": "Szüneteltetés",
+    "previousChapter": "Előző",
+    "readingMode": "Olvasási mód",
+    "removeFromLibrary": "Könyvtárban",
+    "resumeDownloads": "Folytatás",
+    "source": "Forrás",
+    "status": {
+      "cancelled": "Félbeszakított",
+      "completed": "Befejezett",
+      "hiatus": "Szünetelő",
+      "ongoing": "Folyamatban van",
+      "publishingFinished": "Publikálás befejezve"
+    },
+    "today": "Ma",
+    "updateLibrary": "Könyvtár frissítése",
+    "updates": "Frissítések",
+    "yesterday": "Tegnap"
+  },
+  "mcp": {
+    "copied": "Másolva",
+    "copy": "Másolás"
+  },
+  "nav": {
+    "home": "Kezdőlap",
+    "library": "Könyvtár",
+    "search": "Keresés",
+    "settings": "Beállítások"
+  },
+  "player": {
+    "addToPlaylist": "Hozzáadás a lejátszási listához",
+    "favorite": "Hozzáadás a kedvencekhez",
+    "next": "Következő",
+    "nowPlaying": "Now playing",
+    "pause": "Szüneteltetés",
+    "play": "Lejátszás",
+    "previous": "Előző",
+    "shuffle": "Véletlenszerű lejátszás",
+    "unfavorite": "Eltávolítás kedvencekből",
+    "upNext": "Fel Következő"
+  },
+  "search": {
+    "title": "Keresés"
+  },
+  "settings": {
+    "about": "Névjegy",
+    "appearance": "Kinézet",
+    "backup": "Biztonsági mentés",
+    "cancel": "Mégse",
+    "confirmRestore": "Visszaállítás",
+    "createBackup": "Biztonsági mentés készítése",
+    "extensions": "Bővítmények",
+    "language": "Nyelv",
+    "manga": "Könyvtári elemek",
+    "theme": "Téma",
+    "themeDark": "Sötét",
+    "themeLight": "Világos",
+    "themeSystem": "Rendszer",
+    "title": "Beállítások",
+    "updateEvery": {
+      "0": "Soha",
+      "6": "6 óránként",
+      "12": "12 óránként",
+      "24": "Naponta",
+      "48": "2 naponta",
+      "168": "Hetente"
+    },
+    "version": "Verzió"
+  }
+}

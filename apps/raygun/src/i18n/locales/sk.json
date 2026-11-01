@@ -1,0 +1,133 @@
+{
+  "ai": {
+    "cancel": "Zrušiť",
+    "delete": "Vymazať",
+    "edit": "Upraviť",
+    "installed": "Nainštalovaný",
+    "name": "Názov",
+    "save": "Uložiť"
+  },
+  "collections": {
+    "cancel": "Zrušiť",
+    "done": "Hotovo",
+    "edit": "Upraviť",
+    "save": "Uložiť"
+  },
+  "devices": {
+    "kind": {
+      "history": "História",
+      "settings": "Nastavenia"
+    },
+    "off": "Vyp.",
+    "save": "Uložiť"
+  },
+  "extensions": {
+    "addRepo": "Pridať",
+    "cancel": "Zrušiť",
+    "install": "Nainštalovať",
+    "nsfwBadge": "18+",
+    "refresh": "Obnoviť",
+    "settings": "Nastavenia",
+    "tab": {
+      "browse": "Prehľadávať",
+      "installed": "Nainštalovaný"
+    },
+    "title": "Rozšírenia",
+    "uninstall": "Odinštalovať",
+    "update": "aktualizovať",
+    "upToDate": "Nainštalovaný"
+  },
+  "home": {
+    "clearHistory": "Vymazať históriu"
+  },
+  "library": {
+    "emptyTitle": "Vaša knižnica je prázdna",
+    "media": {
+      "manga": "Záznamy v knižnici",
+      "music": "Hudba"
+    },
+    "openPlay": "Prehrať",
+    "play": "Prehrať",
+    "title": "Knižnica"
+  },
+  "manga": {
+    "addToLibrary": "Pridať do knižnice",
+    "chapters_few": "{{count}} kapitoly",
+    "chapters_many": "{{count}} kapitol",
+    "chapters_one": "{{count}} kapitola",
+    "chapters_other": "{{count}} kapitol",
+    "downloads": "Sťahovanie",
+    "downloadState": {
+      "done": "Stiahnuté",
+      "downloading": "Sťahujem",
+      "failed": "Neúspešné"
+    },
+    "inLibraryBadge": "V knižnici",
+    "list": {
+      "latest": "Najnovší",
+      "popular": "Populárne",
+      "search": "Hľadať"
+    },
+    "loading": "Načítava sa…",
+    "nextChapter": "Nasledujúca kapitola",
+    "pauseDownloads": "Pauza",
+    "previousChapter": "Predchádzajúci",
+    "readingMode": "Režim čítania",
+    "removeFromLibrary": "V knižnici",
+    "resumeDownloads": "Pokračovať",
+    "source": "Zdroj",
+    "status": {
+      "cancelled": "Zrušené",
+      "completed": "Dokončený",
+      "hiatus": "Prestávka",
+      "ongoing": "Pokračujúci",
+      "publishingFinished": "Publikovanie ukončené"
+    },
+    "today": "Dnes",
+    "updateLibrary": "Aktualizovať knižnicu",
+    "updates": "Updaty"
+  },
+  "mcp": {
+    "copy": "Kopírovať"
+  },
+  "nav": {
+    "home": "Domov",
+    "library": "Knižnica",
+    "search": "Hľadať",
+    "settings": "Nastavenia"
+  },
+  "player": {
+    "next": "Ďalej",
+    "pause": "Pauza",
+    "play": "Prehrať",
+    "previous": "Predchádzajúci"
+  },
+  "search": {
+    "title": "Hľadať"
+  },
+  "settings": {
+    "about": "O Aplikácii",
+    "appearance": "Vzhľad",
+    "backup": "Záloha",
+    "cancel": "Zrušiť",
+    "confirmRestore": "Obnoviť",
+    "createBackup": "Vytvoriť zálohu",
+    "extensions": "Rozšírenia",
+    "language": "Jazyk",
+    "manga": "Záznamy v knižnici",
+    "theme": "Téma",
+    "themeDark": "Zap.",
+    "themeLight": "Vyp.",
+    "themeSystem": "Podľa systému",
+    "title": "Nastavenia",
+    "updateEvery": {
+      "0": "Nikdy",
+      "6": "Každých 6 hodín",
+      "12": "Každých 12 hodín",
+      "24": "Raz za deň",
+      "48": "Každé 2 dni",
+      "168": "Každý týždeň"
+    },
+    "version": "Verzia"
+  }
+}

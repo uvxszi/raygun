@@ -28,6 +28,8 @@ pub struct MangaSummary {
     pub cover_url: Option<String>,
     /// Sent when the app fetches the cover (some hosts refuse bare requests).
     pub cover_headers: BTreeMap<String, String>,
+    /// Marked adult by the source; hidden while NSFW content is off (M35).
+    pub nsfw: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -165,6 +167,7 @@ fn parse_listing(value: &Value) -> MangaListing {
                         title: text(item.get("title"))?,
                         cover_url: url(item.get("coverUrl")),
                         cover_headers: headers(item.get("coverHeaders")),
+                        nsfw: item.get("nsfw").and_then(Value::as_bool).unwrap_or(false),
                     })
                 })
                 .collect()

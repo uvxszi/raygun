@@ -1,0 +1,159 @@
+{
+  "ai": {
+    "cancel": "ரத்துசெய்",
+    "delete": "நீக்கு",
+    "edit": "தொகு",
+    "installed": "நிறுவப்பட்டது",
+    "name": "பெயர்",
+    "save": "சேமி",
+    "translators": "Translators"
+  },
+  "collections": {
+    "addToPlaylist": "பாடல் பட்டியலில் சேர்க்கவும்",
+    "cancel": "ரத்துசெய்",
+    "create": "உருவாக்கு",
+    "done": "முடிந்தது",
+    "edit": "தொகு",
+    "favorite": "பிடித்தவையில் சேர்",
+    "favorites": "பிடித்தவை",
+    "newPlaylist": "புதிய இசைப்பட்டியல்",
+    "rename": "மறுபெயரிடு",
+    "save": "சேமி",
+    "unfavorite": "பிடித்தவைகளிலிருந்து அகற்று"
+  },
+  "devices": {
+    "copied": "Copied",
+    "kind": {
+      "history": "வரலாறு",
+      "settings": "அமைப்புகள்"
+    },
+    "off": "அணை",
+    "rename": "மறுபெயரிடு",
+    "save": "சேமி",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "addRepo": "கூட்டு",
+    "cancel": "ரத்துசெய்",
+    "install": "நிறுவவும்",
+    "nsfwBadge": "18+",
+    "refresh": "புதுப்பிப்பு",
+    "settings": "அமைப்புகள்",
+    "tab": {
+      "browse": "உலாவு",
+      "installed": "நிறுவப்பட்டது"
+    },
+    "title": "நீட்டிப்புகள்",
+    "uninstall": "நிறுவல் நீக்க",
+    "update": "புதுப்பிப்பு",
+    "upToDate": "நிறுவப்பட்டது"
+  },
+  "home": {
+    "clearHistory": "வரலாற்றை அழிக்கவும்"
+  },
+  "library": {
+    "addFolder": "Add folder",
+    "emptyTitle": "உங்கள் நூலகம் காலியாக உள்ளது",
+    "media": {
+      "manga": "நூலக உள்ளீடுகள்",
+      "music": "இசை"
+    },
+    "openPlay": "விளையாடுங்கள்",
+    "play": "விளையாடுங்கள்",
+    "shuffle": "சீர்குலை",
+    "title": "நூலகம்",
+    "view": {
+      "albums": "தொகுப்புகள்",
+      "artists": "கலைஞர்கள்",
+      "favorites": "பிடித்தவை",
+      "playlists": "இசைப்பட்டியல்கள்",
+      "tracks": "தடங்கள்"
+    }
+  },
+  "manga": {
+    "addToLibrary": "நூலகத்தில் சேர்க்கவும்",
+    "downloads": "பதிவிறக்கங்கள்",
+    "downloadState": {
+      "done": "பதிவிறக்கம்",
+      "downloading": "பதிவிறக்குகிறது",
+      "failed": "தோல்வி"
+    },
+    "inLibraryBadge": "நூலகத்தில்",
+    "list": {
+      "latest": "அண்மைக் கால",
+      "popular": "மக்கள்",
+      "search": "தேடல்"
+    },
+    "loading": "ஏற்றுகிறது…",
+    "nextChapter": "அடுத்த அத்தியாயம்",
+    "pauseDownloads": "இடைநிறுத்தம்",
+    "previousChapter": "முந்தைய",
+    "readingMode": "படித்தல் பயன்முறை",
+    "removeFromLibrary": "நூலகத்தில்",
+    "resumeDownloads": "மீண்டும் தொடங்குங்கள்",
+    "source": "மூலம்",
+    "status": {
+      "cancelled": "ரத்து செய்யப்பட்டது",
+      "completed": "முடிந்தது",
+      "hiatus": "இடைவெளியில்",
+      "ongoing": "நடந்து கொண்டிருக்கிறது",
+      "publishingFinished": "வெளியீடு முடிந்தது"
+    },
+    "today": "இன்று",
+    "updateLibrary": "நூலகத்தைப் புதுப்பிக்கவும்",
+    "updates": "புதுப்பிப்புகள்",
+    "yesterday": "Yesterday"
+  },
+  "mcp": {
+    "copied": "Copied",
+    "copy": "நகலெடு"
+  },
+  "nav": {
+    "home": "முகப்பு",
+    "library": "நூலகம்",
+    "search": "தேடல்",
+    "settings": "அமைப்புகள்"
+  },
+  "player": {
+    "addToPlaylist": "பாடல் பட்டியலில் சேர்க்கவும்",
+    "favorite": "பிடித்தவையில் சேர்",
+    "next": "அடுத்தது",
+    "nowPlaying": "Now playing",
+    "pause": "இடைநிறுத்தம்",
+    "play": "விளையாடுங்கள்",
+    "previous": "முந்தைய",
+    "seek": "தேடுங்கள்",
+    "shuffle": "சீர்குலை",
+    "unfavorite": "பிடித்தவைகளிலிருந்து அகற்று",
+    "upNext": "Up Next"
+  },
+  "search": {
+    "title": "தேடல்"
+  },
+  "settings": {
+    "about": "பற்றி",
+    "appearance": "தோற்றம்",
+    "backup": "காப்புப்பிரதி",
+    "cancel": "ரத்துசெய்",
+    "confirmRestore": "மீட்டமை",
+    "createBackup": "காப்புப்பிரதியை உருவாக்கவும்",
+    "extensions": "நீட்டிப்புகள்",
+    "language": "மொழி",
+    "manga": "நூலக உள்ளீடுகள்",
+    "storage": "சேமிப்பு",
+    "theme": "கருப்பொருள்",
+    "themeDark": "இருண்ட",
+    "themeLight": "ஒளி",
+    "themeSystem": "மண்டலம்",
+    "title": "அமைப்புகள்",
+    "updateEvery": {
+      "0": "ஒருபோதும்",
+      "6": "ஒவ்வொரு 6 மணி நேரமும்",
+      "12": "ஒவ்வொரு 12 மணி நேரமும்",
+      "24": "நாள்தோறும்",
+      "48": "ஒவ்வொரு 2 நாட்களுக்கும்",
+      "168": "வாராந்திர"
+    },
+    "version": "பதிப்பு"
+  }
+}

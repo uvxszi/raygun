@@ -39,6 +39,7 @@ const chapter = (
 
 const TITLE: MangaTitleView = {
   id: 't1',
+  hiddenNsfw: false,
   sourceId: SOURCE,
   sourceName: 'MangaDex',
   remoteId: 'm1',
@@ -139,6 +140,21 @@ describe('Manga', () => {
     expect(commands.mangaSetRead).toHaveBeenCalledWith('c1', false);
     await user.click(within(page).getByRole('button', { name: 'Refresh from the source' }));
     expect(commands.mangaTitle).toHaveBeenLastCalledWith(SOURCE, 'm1', true);
+  });
+
+  it('shows a notice instead of an adult title while NSFW content is off', async () => {
+    commands.mangaTitle.mockResolvedValue(ok({ ...TITLE, hiddenNsfw: true }));
+    await AppShellWrapper.mount(`/manga/title?source=${encodeURIComponent(SOURCE)}&id=m1`);
+    const page = await screen.findByTestId('manga-title-page');
+
+    expect(
+      await within(page).findByRole('heading', { name: 'This title is for adults' }),
+    ).toBeInTheDocument();
+    expect(within(page).queryByText('Frieren')).not.toBeInTheDocument();
+    expect(within(page).getByRole('link', { name: 'Open Settings' })).toHaveAttribute(
+      'href',
+      '/settings',
+    );
   });
 
   it('reads a chapter, saves progress and moves to the next one', async () => {

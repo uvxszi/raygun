@@ -1,0 +1,129 @@
+{
+  "ai": {
+    "cancel": "Atšaukti",
+    "delete": "Ištrinti",
+    "edit": "Redaguoti",
+    "installed": "Įdiegtas",
+    "name": "Vardas",
+    "save": "Išsaugoti"
+  },
+  "collections": {
+    "cancel": "Atšaukti",
+    "done": "Baigta",
+    "edit": "Redaguoti",
+    "save": "Išsaugoti"
+  },
+  "devices": {
+    "kind": {
+      "history": "Istorija",
+      "settings": "Nustatymai"
+    },
+    "off": "Išjungta",
+    "save": "Išsaugoti"
+  },
+  "extensions": {
+    "addRepo": "Pridėti",
+    "cancel": "Atšaukti",
+    "install": "Įdiegti",
+    "nsfwBadge": "18+",
+    "refresh": "Naujinti",
+    "settings": "Nustatymai",
+    "tab": {
+      "browse": "Naršyti",
+      "installed": "Įdiegtas"
+    },
+    "title": "Papildiniai",
+    "uninstall": "Šalinti",
+    "update": "Atnaujinimas",
+    "upToDate": "Įdiegtas"
+  },
+  "home": {
+    "clearHistory": "Išvalyti istoriją"
+  },
+  "library": {
+    "emptyTitle": "Jūsų biblioteka tuščia",
+    "media": {
+      "manga": "Bibliotekos įrašai"
+    },
+    "openPlay": "Paleisti",
+    "play": "Paleisti",
+    "title": "Biblioteka"
+  },
+  "manga": {
+    "addToLibrary": "Pridėti į biblioteką",
+    "chapters_few": "{{count}} skyriai",
+    "chapters_many": "{{count}} skyriai",
+    "chapters_one": "{{count}} skyrius",
+    "chapters_other": "{{count}} skyriai",
+    "downloads": "Atsiuntimai",
+    "downloadState": {
+      "done": "Atsiųsta",
+      "downloading": "Siunčiasi",
+      "failed": "Nepavyko"
+    },
+    "inLibraryBadge": "Bibliotekoje",
+    "list": {
+      "latest": "Naujausia",
+      "popular": "Populiaru",
+      "search": "Paieška"
+    },
+    "loading": "Įkeliama…",
+    "nextChapter": "Sekantis skyrius",
+    "pauseDownloads": "Pristabdyti",
+    "readingMode": "Skaitymo rėžimas",
+    "removeFromLibrary": "Bibliotekoje",
+    "resumeDownloads": "Tęsti",
+    "source": "Šaltinis",
+    "status": {
+      "cancelled": "Nebepublikuojamas",
+      "completed": "Užbaigta",
+      "hiatus": "Publikavimas pristabdytas",
+      "ongoing": "Vykdoma",
+      "publishingFinished": "Skaitinis nepublikuojamas"
+    },
+    "today": "Šiandien",
+    "updateLibrary": "Naujinti biblioteką",
+    "updates": "Naujienos"
+  },
+  "mcp": {
+    "copy": "Kopijuoti"
+  },
+  "nav": {
+    "home": "Namai",
+    "library": "Biblioteka",
+    "search": "Paieška",
+    "settings": "Nustatymai"
+  },
+  "player": {
+    "next": "Kitas",
+    "pause": "Pristabdyti",
+    "play": "Paleisti"
+  },
+  "search": {
+    "title": "Paieška"
+  },
+  "settings": {
+    "about": "Apie",
+    "appearance": "Išvaizda",
+    "cancel": "Atšaukti",
+    "confirmRestore": "Atkurti",
+    "createBackup": "Kurti atsarginę kopiją",
+    "extensions": "Papildiniai",
+    "language": "Kalba",
+    "manga": "Bibliotekos įrašai",
+    "theme": "Tema",
+    "themeDark": "Įjungta",
+    "themeLight": "Išjungta",
+    "themeSystem": "Pagal sistemą",
+    "title": "Nustatymai",
+    "updateEvery": {
+      "0": "Niekada",
+      "6": "Kas 6 valandas",
+      "12": "Kas 12 valandų",
+      "24": "Kasdien",
+      "48": "Kas 2 dienas",
+      "168": "Kas savaitę"
+    },
+    "version": "Versija"
+  }
+}

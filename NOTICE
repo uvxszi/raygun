@@ -1,0 +1,14 @@
+Raygun
+Copyright the Raygun contributors. Licensed under the GNU Affero General Public License v3.0 only.
+
+This product includes material from the following projects, licensed under the Apache License,
+Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0):
+
+- Mihon (https://github.com/mihonapp/mihon): interface translations in
+  apps/raygun/src/i18n/locales/, and designs adapted as noted in source file headers.
+- aniyomi (https://github.com/aniyomiorg/aniyomi): interface translations in
+  apps/raygun/src/i18n/locales/.
+
+It also includes interface translations from these projects, under licences compatible with the
+AGPL-3.0: Nuclear (AGPL-3.0), CloudStream, Shosetsu and RiPlay (GPL-3.0). See
+apps/raygun/src/i18n/locales/SOURCES.md for which strings came from where.

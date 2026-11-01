@@ -1,0 +1,98 @@
+{
+  "ai": {
+    "cancel": "Откажи",
+    "delete": "Избриши",
+    "edit": "Уреди",
+    "name": "Име",
+    "save": "Зачувај"
+  },
+  "collections": {
+    "cancel": "Откажи",
+    "done": "Готово",
+    "edit": "Уреди",
+    "favorite": "Додади во омилени",
+    "favorites": "Фаворити",
+    "save": "Зачувај",
+    "unfavorite": "Отстрани од омилените"
+  },
+  "devices": {
+    "kind": {
+      "history": "Историја",
+      "settings": "Поставки"
+    },
+    "off": "Исклучено",
+    "save": "Зачувај"
+  },
+  "extensions": {
+    "addRepo": "Додади",
+    "cancel": "Откажи",
+    "nsfwBadge": "18+",
+    "settings": "Поставки",
+    "title": "Екстензии",
+    "update": "Ажурирај"
+  },
+  "home": {
+    "clearHistory": "Исчисти историја"
+  },
+  "library": {
+    "media": {
+      "music": "Музика"
+    },
+    "openPlay": "Пушти",
+    "play": "Пушти",
+    "title": "Библиотека",
+    "view": {
+      "favorites": "Фаворити",
+      "tracks": "Видео резолуција и аудио јазик"
+    }
+  },
+  "manga": {
+    "downloads": "Преземања",
+    "downloadState": {
+      "done": "Преземено",
+      "downloading": "Преземање",
+      "failed": "Неуспешна верификација"
+    },
+    "list": {
+      "search": "Барај"
+    },
+    "loading": "Вчитување…",
+    "pauseDownloads": "Паузирај",
+    "previousChapter": "Претходно",
+    "resumeDownloads": "Продолжи",
+    "source": "Извор",
+    "status": {
+      "completed": "Изгледанo",
+      "ongoing": "Во тек"
+    }
+  },
+  "mcp": {
+    "copy": "Копирај"
+  },
+  "nav": {
+    "home": "Дома",
+    "library": "Библиотека",
+    "search": "Барај",
+    "settings": "Поставки"
+  },
+  "player": {
+    "favorite": "Додади во омилени",
+    "next": "Следно",
+    "pause": "Паузирај",
+    "play": "Пушти",
+    "previous": "Претходно",
+    "unfavorite": "Отстрани од омилените"
+  },
+  "search": {
+    "title": "Барај"
+  },
+  "settings": {
+    "backup": "Резервна копија",
+    "cancel": "Откажи",
+    "extensions": "Екстензии",
+    "language": "Јазик",
+    "themeLight": "Лесно",
+    "title": "Поставки",
+    "version": "Верзија"
+  }
+}

@@ -15,6 +15,7 @@ vi.mock('@raygun/bindings', () => ({
 const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   language: 'en',
+  showNsfw: false,
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,
@@ -102,5 +103,20 @@ describe('AppearanceCard', () => {
     await AppearanceCardWrapper.chooseTheme('AMOLED');
 
     expect(await AppearanceCardWrapper.error).toHaveTextContent('database is locked');
+  });
+
+  it('offers every language and saves the choice', async () => {
+    vi.mocked(commands.settingsUpdate).mockResolvedValue({
+      status: 'ok',
+      data: { ...DEFAULT_SETTINGS, language: 'de' },
+    });
+    AppearanceCardWrapper.mount();
+
+    const select = await screen.findByRole('combobox', { name: 'Language' });
+    expect(screen.getByRole('option', { name: /^System default/ })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Deutsch' })).toBeInTheDocument();
+    await userEvent.selectOptions(select, 'de');
+
+    expect(commands.settingsUpdate).toHaveBeenCalledWith({ key: 'language', value: 'de' });
   });
 });

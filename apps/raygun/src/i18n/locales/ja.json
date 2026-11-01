@@ -1,0 +1,169 @@
+{
+  "ai": {
+    "cancel": "キャンセル",
+    "delete": "削除",
+    "edit": "編集",
+    "installed": "インストール済み",
+    "name": "名前",
+    "save": "保存",
+    "translators": "翻訳者"
+  },
+  "collections": {
+    "addToPlaylist": "プレイリストに追加",
+    "cancel": "キャンセル",
+    "create": "作成",
+    "delete": "プレイリストを削除",
+    "done": "完了",
+    "edit": "編集",
+    "favorite": "お気に入りに追加",
+    "favorites": "お気に入り",
+    "newPlaylist": "新規プレイリスト",
+    "rename": "名前を変更",
+    "save": "保存",
+    "unfavorite": "お気に入りから削除"
+  },
+  "devices": {
+    "copied": "コピーしました",
+    "kind": {
+      "history": "履歴",
+      "settings": "設定"
+    },
+    "off": "オフ",
+    "rename": "名前を変更",
+    "save": "保存",
+    "syncing": "同期中..."
+  },
+  "extensions": {
+    "addRepo": "追加",
+    "cancel": "キャンセル",
+    "install": "インストール",
+    "nsfwBadge": "18 歳以上",
+    "nuclearBadge": "Nuclear",
+    "refresh": "更新",
+    "settings": "設定",
+    "tab": {
+      "browse": "ブラウズ",
+      "installed": "インストール済み"
+    },
+    "title": "拡張機能",
+    "uninstall": "アンインストール",
+    "update": "更新",
+    "upToDate": "インストール済み"
+  },
+  "home": {
+    "clearHistory": "履歴を消去"
+  },
+  "library": {
+    "addFolder": "フォルダを追加",
+    "emptyTitle": "ライブラリは空です",
+    "media": {
+      "manga": "ライブラリの項目",
+      "music": "音楽"
+    },
+    "openPlay": "再生",
+    "openQueue": "キューに追加",
+    "play": "再生",
+    "playAll": "すべて再生",
+    "shuffle": "シャッフル",
+    "title": "ライブラリ",
+    "view": {
+      "albums": "アルバム",
+      "artists": "アーティスト",
+      "favorites": "お気に入り",
+      "playlists": "プレイリスト",
+      "tracks": "トラック数"
+    }
+  },
+  "manga": {
+    "addToLibrary": "ライブラリに追加",
+    "chapters_other": "{{count}} 章",
+    "downloads": "ダウンロード",
+    "downloadState": {
+      "done": "ダウンロード済み",
+      "downloading": "ダウンロード中",
+      "failed": "失敗"
+    },
+    "inLibraryBadge": "ライブラリ内",
+    "list": {
+      "latest": "最近の更新",
+      "popular": "人気",
+      "search": "検索"
+    },
+    "loading": "読み込み中...",
+    "nextChapter": "次の章",
+    "pageAlt": "ページ {{page}}",
+    "pauseDownloads": "一時停止",
+    "previousChapter": "前へ",
+    "readingMode": "読み方",
+    "removeFromLibrary": "ライブラリ内",
+    "resumeDownloads": "再開",
+    "source": "ソース",
+    "status": {
+      "cancelled": "キャンセル済み",
+      "completed": "完結済み",
+      "hiatus": "休載中",
+      "ongoing": "連載中",
+      "publishingFinished": "完結済み"
+    },
+    "today": "今日",
+    "updateLibrary": "ライブラリを更新",
+    "updates": "アップデート",
+    "yesterday": "昨日"
+  },
+  "mcp": {
+    "copied": "コピーしました",
+    "copy": "コピー"
+  },
+  "nav": {
+    "home": "ホーム",
+    "library": "ライブラリ",
+    "search": "検索",
+    "settings": "設定"
+  },
+  "novel": {
+    "importing": "インポート中..."
+  },
+  "player": {
+    "addToPlaylist": "プレイリストに追加",
+    "favorite": "お気に入りに追加",
+    "lyrics": "歌詞",
+    "next": "次へ",
+    "nowPlaying": "Now playing",
+    "pause": "一時停止",
+    "play": "再生",
+    "previous": "前へ",
+    "shuffle": "シャッフル",
+    "unfavorite": "お気に入りから削除",
+    "upNext": "次の再生"
+  },
+  "search": {
+    "searching": "検索中...",
+    "title": "検索"
+  },
+  "settings": {
+    "about": "アプリについて",
+    "appearance": "外観",
+    "backup": "バックアップ",
+    "cancel": "キャンセル",
+    "confirmRestore": "復元",
+    "createBackup": "バックアップを作成",
+    "extensions": "拡張機能",
+    "importing": "インポート中...",
+    "language": "言語",
+    "manga": "ライブラリの項目",
+    "theme": "テーマ",
+    "themeDark": "ダーク",
+    "themeLight": "ライト",
+    "themeSystem": "システム",
+    "title": "設定",
+    "updateEvery": {
+      "0": "しない",
+      "6": "6 時間ごと",
+      "12": "12 時間ごと",
+      "24": "毎日",
+      "48": "2 日ごと",
+      "168": "毎週"
+    },
+    "version": "バージョン"
+  }
+}

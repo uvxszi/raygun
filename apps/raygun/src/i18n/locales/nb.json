@@ -1,0 +1,157 @@
+{
+  "ai": {
+    "cancel": "Avbryt",
+    "delete": "Slett",
+    "edit": "Rediger",
+    "installed": "Installert",
+    "name": "Navn",
+    "save": "Lagre",
+    "translators": "Oversettere"
+  },
+  "collections": {
+    "addToPlaylist": "Legg til spilleliste",
+    "cancel": "Avbryt",
+    "create": "Opprett",
+    "done": "Ferdig",
+    "edit": "Rediger",
+    "favorite": "Legg til i favoritter",
+    "favorites": "Favoritter",
+    "newPlaylist": "Ny spilleliste",
+    "rename": "Gi nytt navn",
+    "save": "Lagre"
+  },
+  "devices": {
+    "copied": "Kopiert",
+    "kind": {
+      "history": "Historikk",
+      "settings": "Innstillinger"
+    },
+    "off": "Av",
+    "rename": "Gi nytt navn",
+    "save": "Lagre",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "addRepo": "Legg til",
+    "cancel": "Avbryt",
+    "install": "Installer",
+    "nsfwBadge": "18+",
+    "refresh": "Gjenoppfrisk",
+    "settings": "Innstillinger",
+    "tab": {
+      "browse": "Utforsk",
+      "installed": "Installert"
+    },
+    "title": "Utvidelser",
+    "uninstall": "Avinstaller",
+    "update": "Oppdater",
+    "upToDate": "Installert"
+  },
+  "home": {
+    "clearHistory": "Slett historikk"
+  },
+  "library": {
+    "addFolder": "Legg til mappe",
+    "emptyTitle": "Biblioteket ditt er tomt",
+    "media": {
+      "manga": "Bibliotekoppføringer",
+      "music": "Music"
+    },
+    "openPlay": "Spille",
+    "play": "Spille",
+    "shuffle": "Tilfeldig rekkefølge",
+    "title": "Bibliotek",
+    "view": {
+      "albums": "Album",
+      "artists": "Artister",
+      "favorites": "Favoritter",
+      "playlists": "Spillelister",
+      "tracks": "Spor"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Legg til i bibliotek",
+    "chapters_one": "{{count}} kapittel",
+    "chapters_other": "{{count}} kapitler",
+    "downloads": "Nedlastinger",
+    "downloadState": {
+      "done": "Nedlastet",
+      "downloading": "Laster ned",
+      "failed": "Mislykket"
+    },
+    "inLibraryBadge": "I biblioteket",
+    "list": {
+      "latest": "Seneste",
+      "popular": "Populært",
+      "search": "Søk"
+    },
+    "loading": "Laster…",
+    "nextChapter": "Neste kapittel",
+    "pauseDownloads": "Pause",
+    "previousChapter": "Forrige",
+    "readingMode": "Lesemodus",
+    "removeFromLibrary": "I biblioteket",
+    "resumeDownloads": "Fortsett",
+    "source": "Kilde",
+    "status": {
+      "cancelled": "Kansellert",
+      "completed": "Fullført",
+      "hiatus": "På pause",
+      "ongoing": "Pågående",
+      "publishingFinished": "Ferdig publisert"
+    },
+    "today": "I dag",
+    "updateLibrary": "Oppdater bibliotek",
+    "updates": "Oppdateringer",
+    "yesterday": "I går"
+  },
+  "mcp": {
+    "copied": "Kopiert",
+    "copy": "Kopier"
+  },
+  "nav": {
+    "home": "Hjem",
+    "library": "Bibliotek",
+    "search": "Søk",
+    "settings": "Innstillinger"
+  },
+  "player": {
+    "addToPlaylist": "Legg til spilleliste",
+    "favorite": "Legg til i favoritter",
+    "next": "Neste",
+    "nowPlaying": "Now playing",
+    "pause": "Pause",
+    "play": "Spille",
+    "previous": "Forrige",
+    "shuffle": "Tilfeldig rekkefølge",
+    "upNext": "Neste"
+  },
+  "search": {
+    "title": "Søk"
+  },
+  "settings": {
+    "about": "Om",
+    "appearance": "Utseende",
+    "backup": "Sikkerhetskopi",
+    "cancel": "Avbryt",
+    "confirmRestore": "Gjenopprett",
+    "createBackup": "Opprett sikkerhetskopi",
+    "extensions": "Utvidelser",
+    "language": "Språk",
+    "manga": "Bibliotekoppføringer",
+    "theme": "Drakt",
+    "themeDark": "Mørkt",
+    "themeLight": "Lyst",
+    "themeSystem": "System",
+    "title": "Innstillinger",
+    "updateEvery": {
+      "0": "Aldri",
+      "6": "Hver sjette time",
+      "12": "Hver tolvte time",
+      "24": "Daglig",
+      "48": "Annenhver dag",
+      "168": "Ukentlig"
+    },
+    "version": "Versjon"
+  }
+}

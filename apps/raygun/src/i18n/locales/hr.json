@@ -1,0 +1,148 @@
+{
+  "ai": {
+    "cancel": "Prekini",
+    "delete": "Izbriši",
+    "edit": "Uredi",
+    "installed": "Instalirano",
+    "name": "Ime",
+    "save": "Spremi"
+  },
+  "collections": {
+    "cancel": "Prekini",
+    "create": "Stvori",
+    "done": "Gotovo",
+    "edit": "Uredi",
+    "favorite": "Dodaj u favorite",
+    "favorites": "Favoriti",
+    "save": "Spremi",
+    "unfavorite": "Ukloni iz favorita"
+  },
+  "devices": {
+    "kind": {
+      "history": "Povijest",
+      "settings": "Postavke"
+    },
+    "off": "Isključeno",
+    "save": "Spremi"
+  },
+  "extensions": {
+    "addRepo": "Dodaj",
+    "cancel": "Prekini",
+    "install": "Instaliraj",
+    "nsfwBadge": "18+",
+    "refresh": "Osvježi",
+    "settings": "Postavke",
+    "tab": {
+      "browse": "Pregledaj",
+      "installed": "Instalirano"
+    },
+    "title": "Proširenja",
+    "uninstall": "Deinstaliraj",
+    "update": "Aktualiziraj",
+    "upToDate": "Instalirano"
+  },
+  "home": {
+    "clearHistory": "Izbriši povijest"
+  },
+  "library": {
+    "emptyTitle": "Tvoja je biblioteka prazna",
+    "media": {
+      "manga": "Manga",
+      "music": "Glazba"
+    },
+    "openPlay": "Reproduciraj",
+    "play": "Reproduciraj",
+    "title": "Biblioteka",
+    "view": {
+      "favorites": "Favoriti",
+      "tracks": "Zapisi"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Dodaj u biblioteku",
+    "chapters_few": "{{count}} poglavlja",
+    "chapters_one": "{{count}} poglavlje",
+    "chapters_other": "{{count}} poglavlja",
+    "downloads": "Preuzimanja",
+    "downloadState": {
+      "done": "Preuzeto",
+      "downloading": "Preuzimanje",
+      "failed": "Neuspjelo"
+    },
+    "inLibraryBadge": "U biblioteci",
+    "list": {
+      "latest": "Najnoviji",
+      "popular": "Popularni",
+      "search": "Traži"
+    },
+    "loading": "Učitavanje …",
+    "nextChapter": "Sljedeće poglavlje",
+    "pageAlt": "Stranica {{page}}",
+    "pauseDownloads": "Pauziraj",
+    "previousChapter": "Prethodni",
+    "readingMode": "Modus čitanja",
+    "removeFromLibrary": "U biblioteci",
+    "resumeDownloads": "Nastavi",
+    "source": "Izvor",
+    "status": {
+      "cancelled": "Prekinuto",
+      "completed": "Završeno",
+      "hiatus": "Zaustavljeno",
+      "ongoing": "Nastavljajući",
+      "publishingFinished": "Objavljivanje završeno"
+    },
+    "today": "Danas",
+    "updateLibrary": "Aktualiziraj biblioteku",
+    "updates": "Aktualiziranja"
+  },
+  "mcp": {
+    "copy": "Kopiraj"
+  },
+  "nav": {
+    "home": "Početna stranica",
+    "library": "Biblioteka",
+    "search": "Traži",
+    "settings": "Postavke"
+  },
+  "novel": {
+    "fontSize": "Veličina fonta"
+  },
+  "player": {
+    "favorite": "Dodaj u favorite",
+    "next": "Dalje",
+    "pause": "Pauziraj",
+    "play": "Reproduciraj",
+    "previous": "Prethodni",
+    "seek": "Premotaj",
+    "unfavorite": "Ukloni iz favorita"
+  },
+  "search": {
+    "title": "Traži"
+  },
+  "settings": {
+    "about": "Informacije",
+    "appearance": "Izgled",
+    "backup": "Sigurnosna kopija",
+    "cancel": "Prekini",
+    "confirmRestore": "Obnovi",
+    "createBackup": "Stvori sigurnosnu kopiju",
+    "extensions": "Proširenja",
+    "language": "Jezik",
+    "manga": "Manga",
+    "storage": "Memorija",
+    "theme": "Tema",
+    "themeDark": "Tamna",
+    "themeLight": "Svijetla",
+    "themeSystem": "Sustav",
+    "title": "Postavke",
+    "updateEvery": {
+      "0": "Nikada",
+      "6": "Svakih 6 sati",
+      "12": "Svakih 12 sati",
+      "24": "Dnevno",
+      "48": "Svaka 2 dana",
+      "168": "Tjedno"
+    },
+    "version": "Verzija"
+  }
+}

@@ -1,0 +1,95 @@
+{
+  "ai": {
+    "cancel": "منسوخ کریں",
+    "delete": "مٹا دیں",
+    "edit": "ترتیب دیں",
+    "save": "محفوظ کریں"
+  },
+  "collections": {
+    "cancel": "منسوخ کریں",
+    "done": "ہو گیا",
+    "edit": "ترتیب دیں",
+    "favorite": "پسندیدہ میں شامل کریں",
+    "favorites": "پسندیدہ",
+    "save": "محفوظ کریں",
+    "unfavorite": "پسندیدہ سے ختم کریں"
+  },
+  "devices": {
+    "kind": {
+      "history": "تاریخ",
+      "settings": "ترتیبات"
+    },
+    "save": "محفوظ کریں"
+  },
+  "extensions": {
+    "addRepo": "جمع کریں",
+    "cancel": "منسوخ کریں",
+    "nsfwBadge": "18+",
+    "settings": "ترتیبات",
+    "title": "توسیعات",
+    "update": "اپ ڈیٹ"
+  },
+  "home": {
+    "clearHistory": "ماضی مٹا دو"
+  },
+  "library": {
+    "media": {
+      "music": "موسیقی"
+    },
+    "openPlay": "چلائیں",
+    "play": "چلائیں",
+    "title": "لائبریری",
+    "view": {
+      "favorites": "پسندیدہ",
+      "tracks": "ٹریکس"
+    }
+  },
+  "manga": {
+    "downloads": "ڈاؤن لوڈ",
+    "downloadState": {
+      "done": "ڈاؤن لوڈ کردہ ویڈیوز",
+      "downloading": "ڈاؤن لوڈ ہو رہا ہے",
+      "failed": "ناکام"
+    },
+    "list": {
+      "search": "تلاش کریں"
+    },
+    "loading": "لوڈ ہو رہا ہے…",
+    "pauseDownloads": "توقف",
+    "previousChapter": "پچھلا",
+    "resumeDownloads": "از سر نو شروع کریں",
+    "source": "Source",
+    "status": {
+      "completed": "مکمل",
+      "ongoing": "احوال"
+    }
+  },
+  "mcp": {
+    "copy": "کاپی"
+  },
+  "nav": {
+    "home": "ہوم",
+    "library": "لائبریری",
+    "search": "تلاش کریں",
+    "settings": "ترتیبات"
+  },
+  "player": {
+    "favorite": "پسندیدہ میں شامل کریں",
+    "next": "اگلے",
+    "pause": "توقف",
+    "play": "چلائیں",
+    "previous": "پچھلا",
+    "unfavorite": "پسندیدہ سے ختم کریں"
+  },
+  "search": {
+    "title": "تلاش کریں"
+  },
+  "settings": {
+    "backup": "بیک اپ",
+    "cancel": "منسوخ کریں",
+    "extensions": "توسیعات",
+    "language": "زبان",
+    "title": "ترتیبات",
+    "version": "ورژن"
+  }
+}

@@ -116,6 +116,8 @@ export type MangaSummary = {
   coverUrl?: string | null;
   /** Sent when the app fetches the cover, e.g. a User-Agent or Referer the host requires. */
   coverHeaders?: Record<string, string>;
+  /** An adult title; the app hides it while NSFW content is off. */
+  nsfw?: boolean;
 };
 
 export type MangaPage = { items: MangaSummary[]; hasNextPage: boolean };
@@ -256,6 +258,14 @@ export type RaygunApi = {
   settings: {
     /** The user's value, else the manifest default, else `null`. */
     get<T extends JsonValue = JsonValue>(key: string): T | null;
+  };
+  /** The app-wide content switch. */
+  content: {
+    /**
+     * Whether the user shows NSFW (18+) content; off by default. While it is off, leave adult
+     * results out (or mark them `nsfw`, and the app hides them).
+     */
+    showNsfw(): boolean;
   };
   providers: {
     register(provider: Provider): void;

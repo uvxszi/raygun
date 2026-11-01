@@ -1,4 +1,4 @@
-// dev.raygun.mangadex 1.0.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.mangadex 1.1.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -19,6 +19,7 @@
     "safe and suggestive": ["safe", "suggestive"],
     everything: ["safe", "suggestive", "erotica", "pornographic"]
   };
+  var ADULT = ["erotica", "pornographic"];
   var STATUSES = {
     ongoing: "ongoing",
     completed: "completed",
@@ -26,7 +27,11 @@
     cancelled: "cancelled"
   };
   var language = () => (raygun.settings.get("language") ?? "en").trim().toLowerCase() || "en";
-  var ratings = () => RATINGS[raygun.settings.get("contentRating") ?? ""] ?? RATINGS["safe and suggestive"];
+  var ratings = () => {
+    const chosen = RATINGS[raygun.settings.get("contentRating") ?? ""] ?? RATINGS["safe and suggestive"];
+    return raygun.content.showNsfw() ? chosen : chosen.filter((rating) => !ADULT.includes(rating));
+  };
+  var isAdult = (record) => ADULT.includes(record.attributes.contentRating ?? "");
   var query = (params) => params.map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`).join("&");
   var get = async (path, params) => {
     const response = await raygun.http.fetch(`${API}${path}?${query(params)}`, {
@@ -55,7 +60,8 @@
     id: record.id,
     title: titleOf(record),
     coverUrl: coverOf(record),
-    coverHeaders: HEADERS
+    coverHeaders: HEADERS,
+    nsfw: isAdult(record)
   });
   var listMangas = async (order, page, extra = []) => {
     const offset = (Math.max(page, 1) - 1) * PAGE_SIZE;
@@ -89,7 +95,11 @@
       authors: names("author"),
       artists: names("artist"),
       description: localized(data.attributes.description, language())?.trim() || null,
-      genres: (data.attributes.tags ?? []).filter((tag) => tag.attributes.group === "genre" || tag.attributes.group === "theme").map((tag) => localized(tag.attributes.name, "en")).filter((name) => Boolean(name)),
+      genres: [
+        ...(data.attributes.tags ?? []).filter((tag) => tag.attributes.group === "genre" || tag.attributes.group === "theme").map((tag) => localized(tag.attributes.name, "en")).filter((name) => Boolean(name)),
+        // The app hides titles with an adult genre while NSFW content is off.
+        ...isAdult(data) ? [data.attributes.contentRating === "erotica" ? "Erotica" : "Pornographic"] : []
+      ],
       status: STATUSES[data.attributes.status ?? ""] ?? "unknown",
       url: `https://mangadex.org/title/${data.id}`
     };

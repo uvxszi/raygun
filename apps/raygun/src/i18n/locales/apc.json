@@ -1,0 +1,96 @@
+{
+  "ai": {
+    "cancel": "كَنسِل",
+    "delete": "محي",
+    "edit": "عَدِل",
+    "name": "اسم",
+    "save": "سَيِڤ"
+  },
+  "collections": {
+    "cancel": "كَنسِل",
+    "done": "خلصت",
+    "edit": "عَدِل",
+    "favorite": "زيدو ع المفضل",
+    "favorites": "المفضلين",
+    "save": "سَيِڤ",
+    "unfavorite": "شيلو من المفضل"
+  },
+  "devices": {
+    "kind": {
+      "history": "السجل",
+      "settings": "سَتِنگز"
+    },
+    "save": "سَيِڤ"
+  },
+  "extensions": {
+    "addRepo": "زيد",
+    "cancel": "كَنسِل",
+    "nsfwBadge": "18+",
+    "settings": "سَتِنگز",
+    "title": "الإضافات",
+    "update": "جَدِد"
+  },
+  "home": {
+    "clearHistory": "محي السجل"
+  },
+  "library": {
+    "media": {
+      "music": "موسيقى"
+    },
+    "openPlay": "مشي",
+    "play": "مشي",
+    "title": "رفّ",
+    "view": {
+      "favorites": "المفضلين",
+      "tracks": "جودة وصوت"
+    }
+  },
+  "manga": {
+    "downloads": "التنزيلات",
+    "downloadState": {
+      "done": "منَزَل",
+      "downloading": "عم يتنَزَل",
+      "failed": "فشل"
+    },
+    "list": {
+      "search": "التنبيش"
+    },
+    "loading": "لودينگ…",
+    "pauseDownloads": "پوز",
+    "previousChapter": "اللي قبله",
+    "resumeDownloads": "كَمِّل",
+    "source": "مصدر",
+    "status": {
+      "completed": "مخلص",
+      "ongoing": "عم ينعرض حاليًا"
+    }
+  },
+  "mcp": {
+    "copy": "نسخ"
+  },
+  "nav": {
+    "home": "الرئيسية",
+    "library": "رفّ",
+    "search": "التنبيش",
+    "settings": "سَتِنگز"
+  },
+  "player": {
+    "favorite": "زيدو ع المفضل",
+    "next": "اللي بعده",
+    "pause": "پوز",
+    "play": "مشي",
+    "previous": "اللي قبله",
+    "unfavorite": "شيلو من المفضل"
+  },
+  "search": {
+    "title": "التنبيش"
+  },
+  "settings": {
+    "backup": "النسخ الإحتياطي",
+    "cancel": "كَنسِل",
+    "extensions": "الإضافات",
+    "language": "اللغة",
+    "title": "سَتِنگز",
+    "version": "إصدار"
+  }
+}

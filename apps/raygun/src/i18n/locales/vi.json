@@ -1,0 +1,159 @@
+{
+  "ai": {
+    "cancel": "Hủy",
+    "delete": "Xóa",
+    "edit": "Sửa",
+    "installed": "Đã cài vào máy",
+    "name": "Tên",
+    "save": "Lưu",
+    "translators": "Translators"
+  },
+  "collections": {
+    "addToPlaylist": "Thêm vào danh sách phát",
+    "cancel": "Hủy",
+    "create": "Tạo",
+    "done": "Hoàn tất",
+    "edit": "Sửa",
+    "favorite": "Thêm vào mục yêu thích",
+    "favorites": "Yêu thích",
+    "newPlaylist": "Danh sách phát mới",
+    "rename": "Đổi tên",
+    "save": "Lưu",
+    "unfavorite": "Xóa khỏi mục yêu thích"
+  },
+  "devices": {
+    "copied": "Copied",
+    "kind": {
+      "history": "Lịch sử",
+      "settings": "Cài đặt"
+    },
+    "off": "Tắt",
+    "rename": "Đổi tên",
+    "save": "Lưu",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "addRepo": "Thêm",
+    "cancel": "Hủy",
+    "install": "Cài đặt",
+    "nsfwBadge": "18+",
+    "refresh": "Làm mới",
+    "settings": "Cài đặt",
+    "tab": {
+      "browse": "Duyệt",
+      "installed": "Đã cài vào máy"
+    },
+    "title": "Phần mở rộng",
+    "uninstall": "Gỡ cài đặt",
+    "update": "Cập nhật",
+    "upToDate": "Đã cài vào máy"
+  },
+  "home": {
+    "clearHistory": "Xoá lịch sử"
+  },
+  "library": {
+    "addFolder": "Add folder",
+    "emptyTitle": "Thư viện trống",
+    "media": {
+      "manga": "Manga",
+      "music": "Nhạc"
+    },
+    "openPlay": "Phát",
+    "play": "Phát",
+    "shuffle": "Ngẫu nhiên",
+    "title": "Thư viện",
+    "view": {
+      "albums": "Album",
+      "artists": "Nghệ sĩ",
+      "favorites": "Yêu thích",
+      "playlists": "Danh sách phát",
+      "tracks": "Âm thanh & video"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Thêm vào thư viện",
+    "chapters_other": "{{count}} chương",
+    "downloads": "Tải xuống",
+    "downloadState": {
+      "done": "Đã tải xuống",
+      "downloading": "Đang tải xuống",
+      "failed": "Thất bại"
+    },
+    "inLibraryBadge": "Trong thư viện",
+    "list": {
+      "latest": "Mới nhất",
+      "popular": "Đang nổi",
+      "search": "Tìm kiếm"
+    },
+    "loading": "Đang tải…",
+    "nextChapter": "Chương sau",
+    "pauseDownloads": "Tạm dừng",
+    "previousChapter": "Trước đó",
+    "readingMode": "Kiểu đọc",
+    "removeFromLibrary": "Trong thư viện",
+    "resumeDownloads": "Tiếp tục",
+    "source": "Nguồn",
+    "status": {
+      "cancelled": "Đã hủy",
+      "completed": "Đã hoàn thành",
+      "hiatus": "Đang tạm ngưng",
+      "ongoing": "Đang phát hành",
+      "publishingFinished": "Đã hoàn thành xuất bản"
+    },
+    "today": "Hôm nay",
+    "updateLibrary": "Cập nhật thư viện",
+    "updates": "Cập nhật",
+    "yesterday": "Yesterday"
+  },
+  "mcp": {
+    "copied": "Copied",
+    "copy": "Sao chép"
+  },
+  "nav": {
+    "home": "Trang chủ",
+    "library": "Thư viện",
+    "search": "Tìm kiếm",
+    "settings": "Cài đặt"
+  },
+  "player": {
+    "addToPlaylist": "Thêm vào danh sách phát",
+    "favorite": "Thêm vào mục yêu thích",
+    "next": "Tiếp",
+    "nowPlaying": "Now playing",
+    "pause": "Tạm dừng",
+    "play": "Phát",
+    "previous": "Trước đó",
+    "shuffle": "Ngẫu nhiên",
+    "unfavorite": "Xóa khỏi mục yêu thích",
+    "upNext": "Up Next"
+  },
+  "search": {
+    "title": "Tìm kiếm"
+  },
+  "settings": {
+    "about": "Giới thiệu",
+    "appearance": "Giao diện",
+    "backup": "Sao lưu",
+    "cancel": "Hủy",
+    "confirmRestore": "Khôi phục",
+    "createBackup": "Tạo bản sao lưu",
+    "extensions": "Phần mở rộng",
+    "language": "Ngôn ngữ",
+    "manga": "Manga",
+    "storage": "Bộ nhớ",
+    "theme": "Chủ đề",
+    "themeDark": "Tối",
+    "themeLight": "Sáng",
+    "themeSystem": "Hệ thống",
+    "title": "Cài đặt",
+    "updateEvery": {
+      "0": "Không bao giờ",
+      "6": "Mỗi 6 tiếng",
+      "12": "Mỗi 12 tiếng",
+      "24": "Mỗi ngày",
+      "48": "Mỗi 2 ngày",
+      "168": "Mỗi tuần"
+    },
+    "version": "Phiên bản"
+  }
+}

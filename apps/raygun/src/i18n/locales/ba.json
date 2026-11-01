@@ -1,0 +1,94 @@
+{
+  "ai": {
+    "cancel": "Юҡҡа сығарыу",
+    "delete": "Юйырға",
+    "name": "Исем",
+    "translators": "Translators"
+  },
+  "collections": {
+    "addToPlaylist": "Плейлистҡа ҡушырға",
+    "cancel": "Юҡҡа сығарыу",
+    "done": "Әҙер",
+    "favorite": "Add to favorites",
+    "favorites": "Яратҡандар",
+    "newPlaylist": "Яңы плейлист",
+    "rename": "Исемен үҙгәртергә"
+  },
+  "devices": {
+    "copied": "Copied",
+    "kind": {
+      "history": "History",
+      "settings": "Settings"
+    },
+    "rename": "Исемен үҙгәртергә",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "cancel": "Юҡҡа сығарыу",
+    "settings": "Settings",
+    "update": "Update"
+  },
+  "library": {
+    "addFolder": "Add folder",
+    "media": {
+      "music": "Music"
+    },
+    "shuffle": "Буталарға",
+    "title": "Китапхана",
+    "view": {
+      "albums": "Альбомдар",
+      "artists": "Артисттар",
+      "favorites": "Яратҡандар",
+      "playlists": "Плейлисттар"
+    }
+  },
+  "manga": {
+    "downloadState": {
+      "failed": "Failed"
+    },
+    "list": {
+      "search": "Эҙләү"
+    },
+    "status": {
+      "cancelled": "Cancelled",
+      "completed": "Completed"
+    },
+    "today": "Бөгөн",
+    "yesterday": "Yesterday"
+  },
+  "mcp": {
+    "copied": "Copied"
+  },
+  "nav": {
+    "home": "Home",
+    "library": "Китапхана",
+    "search": "Эҙләү",
+    "settings": "Settings"
+  },
+  "player": {
+    "addToPlaylist": "Плейлистҡа ҡушырға",
+    "favorite": "Add to favorites",
+    "next": "Next",
+    "nowPlaying": "Now playing",
+    "shuffle": "Буталарға",
+    "upNext": "Up Next"
+  },
+  "search": {
+    "title": "Эҙләү"
+  },
+  "settings": {
+    "about": "Тураһында",
+    "backup": "Резерв күсермә",
+    "cancel": "Юҡҡа сығарыу",
+    "confirmRestore": "Ҡайтарыу",
+    "theme": "Тема",
+    "themeDark": "Ҡара",
+    "themeLight": "Яҡты",
+    "themeSystem": "Система",
+    "title": "Settings",
+    "updateEvery": {
+      "24": "Daily",
+      "168": "Weekly"
+    }
+  }
+}

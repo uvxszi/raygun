@@ -983,3 +983,44 @@ async fn shosetsu_official_scripts_work() {
         assert!(passage.len() > 3);
     }
 }
+
+#[tokio::test]
+async fn nsfw_switch_hides_nsfw_providers_and_reaches_extensions() {
+    let host = test_host();
+    let code = "raygun.providers.register({ kind: 'music.metadata', id: 'p', name: 'P', run: async () => raygun.content.showNsfw() });";
+    let adult = ExtensionSource::built_in(&[
+        (
+            "raygun-extension.json",
+            &manifest_json(
+                json!({ "id": "dev.raygun.adult", "name": "Adult", "contentRating": "nsfw" }),
+            ),
+        ),
+        ("index.js", code),
+    ]);
+    let infos = host
+        .load(vec![extension("dev.raygun.safe", code), adult])
+        .await;
+    let rating = |id: &str| {
+        infos
+            .iter()
+            .find(|info| info.id == id)
+            .map(|info| info.content_rating.clone())
+    };
+    assert_eq!(rating("dev.raygun.adult").as_deref(), Some("nsfw"));
+    assert_eq!(rating("dev.raygun.safe").as_deref(), Some("safe"));
+
+    let ids = |providers: Vec<raygun_model::ProviderInfo>| {
+        providers.into_iter().map(|p| p.id).collect::<Vec<_>>()
+    };
+    assert_eq!(
+        ids(host.providers("music.metadata").await),
+        ["dev.raygun.safe/p"],
+        "off by default"
+    );
+    let call = |id: &'static str| host.call(id, "run", json!({}));
+    assert_eq!(call("dev.raygun.safe/p").await.unwrap(), json!(false));
+
+    host.content().set_show_nsfw(true);
+    assert_eq!(host.providers("music.metadata").await.len(), 2);
+    assert_eq!(call("dev.raygun.safe/p").await.unwrap(), json!(true));
+}

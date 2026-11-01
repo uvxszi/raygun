@@ -1,0 +1,172 @@
+{
+  "ai": {
+    "cancel": "取消",
+    "delete": "删除",
+    "edit": "编辑",
+    "installed": "已安装",
+    "name": "名称",
+    "save": "保存",
+    "translators": "翻译人员"
+  },
+  "collections": {
+    "addToPlaylist": "添加到播放列表",
+    "cancel": "取消",
+    "create": "创建",
+    "delete": "删除播放列表",
+    "done": "完成",
+    "edit": "编辑",
+    "favorite": "添加到收藏",
+    "favorites": "收藏夹",
+    "newPlaylist": "新播放列表",
+    "rename": "重命名",
+    "save": "保存",
+    "unfavorite": "从收藏中移除"
+  },
+  "devices": {
+    "copied": "已复制",
+    "kind": {
+      "history": "历史记录",
+      "settings": "设置"
+    },
+    "off": "关闭",
+    "rename": "重命名",
+    "save": "保存",
+    "syncing": "同步中..."
+  },
+  "extensions": {
+    "addRepo": "添加",
+    "cancel": "取消",
+    "install": "安装",
+    "nsfwBadge": "18+",
+    "nuclearBadge": "Nuclear",
+    "refresh": "刷新",
+    "settings": "设置",
+    "tab": {
+      "browse": "浏览",
+      "installed": "已安装"
+    },
+    "title": "插件",
+    "uninstall": "卸载",
+    "update": "更新",
+    "upToDate": "已安装"
+  },
+  "home": {
+    "clearHistory": "清除历史记录"
+  },
+  "library": {
+    "addFolder": "新增文件夹",
+    "emptyTitle": "书架为空",
+    "media": {
+      "manga": "漫画",
+      "music": "音乐"
+    },
+    "openPlay": "播放",
+    "openQueue": "添加到队列",
+    "play": "播放",
+    "playAll": "全部播放",
+    "shuffle": "随机播放",
+    "title": "书架",
+    "view": {
+      "albums": "专辑",
+      "artists": "艺术家",
+      "favorites": "收藏夹",
+      "playlists": "播放列表",
+      "tracks": "曲目数"
+    }
+  },
+  "manga": {
+    "addToLibrary": "添加到书架",
+    "chapters_other": "共 {{count}} 章",
+    "downloads": "下载",
+    "downloadState": {
+      "done": "已下载",
+      "downloading": "下载中",
+      "failed": "失败"
+    },
+    "inLibraryBadge": "在书架中",
+    "list": {
+      "latest": "最近更新",
+      "popular": "热门",
+      "search": "搜索"
+    },
+    "loading": "加载中……",
+    "nextChapter": "下一章",
+    "pageAlt": "第 {{page}} 页",
+    "pauseDownloads": "暂停",
+    "previousChapter": "上一集",
+    "readingMode": "阅读模式",
+    "removeFromLibrary": "在书架中",
+    "resumeDownloads": "继续",
+    "source": "来源",
+    "status": {
+      "cancelled": "已中止",
+      "completed": "已完结",
+      "hiatus": "休刊中",
+      "ongoing": "连载中",
+      "publishingFinished": "出版完毕"
+    },
+    "today": "今天",
+    "updateLibrary": "更新书架",
+    "updates": "更新",
+    "yesterday": "昨天"
+  },
+  "mcp": {
+    "copied": "已复制",
+    "copy": "共存"
+  },
+  "nav": {
+    "home": "主页",
+    "library": "书架",
+    "search": "搜索",
+    "settings": "设置"
+  },
+  "novel": {
+    "fontSize": "字体大小",
+    "importing": "正在导入……"
+  },
+  "player": {
+    "addToPlaylist": "添加到播放列表",
+    "favorite": "添加到收藏",
+    "lyrics": "歌词",
+    "next": "下一步",
+    "nowPlaying": "Now playing",
+    "pause": "暂停",
+    "play": "播放",
+    "previous": "上一集",
+    "seek": "划动定位",
+    "shuffle": "随机播放",
+    "unfavorite": "从收藏中移除",
+    "upNext": "接下来播放"
+  },
+  "search": {
+    "searching": "搜索中……",
+    "title": "搜索"
+  },
+  "settings": {
+    "about": "关于",
+    "appearance": "外观",
+    "backup": "备份",
+    "cancel": "取消",
+    "confirmRestore": "还原",
+    "createBackup": "创建备份",
+    "extensions": "插件",
+    "importing": "正在导入……",
+    "language": "语言",
+    "manga": "漫画",
+    "storage": "分类存储占用",
+    "theme": "主题",
+    "themeDark": "深色",
+    "themeLight": "浅色",
+    "themeSystem": "跟随系统",
+    "title": "设置",
+    "updateEvery": {
+      "0": "关闭",
+      "6": "每 6 小时",
+      "12": "每 12 小时",
+      "24": "每天",
+      "48": "每 2 天",
+      "168": "每周"
+    },
+    "version": "版本"
+  }
+}

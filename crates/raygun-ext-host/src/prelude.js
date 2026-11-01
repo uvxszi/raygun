@@ -86,6 +86,10 @@
     settings: Object.freeze({
       get: (key) => unwrap(native.settingsGet(String(key))),
     }),
+    // The app-wide NSFW switch (off by default): filter adult results out while it is off.
+    content: Object.freeze({
+      showNsfw: () => native.showNsfw() === true,
+    }),
     providers: Object.freeze({
       register: (provider) => {
         const { kind, id, name } = provider ?? {};

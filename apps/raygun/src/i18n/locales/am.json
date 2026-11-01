@@ -1,0 +1,104 @@
+{
+  "ai": {
+    "cancel": "ሰርዝ",
+    "delete": "ደምስስ",
+    "edit": "አርትዕ",
+    "installed": "ተጭኗል",
+    "name": "ስም",
+    "save": "አስቀምጥ"
+  },
+  "collections": {
+    "cancel": "ሰርዝ",
+    "edit": "አርትዕ",
+    "save": "አስቀምጥ"
+  },
+  "devices": {
+    "kind": {
+      "history": "ታሪክ",
+      "settings": "ማስተካከያዎች"
+    },
+    "off": "መመሪያ",
+    "save": "አስቀምጥ"
+  },
+  "extensions": {
+    "addRepo": "አክል",
+    "cancel": "ሰርዝ",
+    "install": "ጫን",
+    "nsfwBadge": "18+",
+    "refresh": "አድስ",
+    "settings": "ማስተካከያዎች",
+    "tab": {
+      "installed": "ተጭኗል"
+    },
+    "title": "ኢክስቴንሽኖች",
+    "uninstall": "ማራገፍ",
+    "update": "አዘምን",
+    "upToDate": "ተጭኗል"
+  },
+  "library": {
+    "emptyTitle": "ቤተ-መጽሐፍትዎ ባዶ ነው ተከታታዮችን ከአሰሳ ወደ ቤተ-መጽሐፍትዎ ያክሉ።",
+    "media": {
+      "manga": "ማንጋ"
+    },
+    "openPlay": "አጫውት",
+    "play": "አጫውት",
+    "title": "ቤተ መጻሕፍት"
+  },
+  "manga": {
+    "downloads": "ውርዶች",
+    "downloadState": {
+      "done": "ወርዷል",
+      "downloading": "በማውረድ ላይ"
+    },
+    "list": {
+      "search": "ፈልግ"
+    },
+    "loading": "በመጫን ላይ…",
+    "nextChapter": "ቀጣይ ምዕራፍ",
+    "pauseDownloads": "ለአፍታ አቁም",
+    "readingMode": "የንባብ ሁነታ",
+    "resumeDownloads": "የራስ መግለጫ",
+    "status": {
+      "completed": "የተጠናቀቀ"
+    },
+    "updateLibrary": "ቤተ-መጽሐፍት ያዘምኑ",
+    "updates": "ዝመናዎች"
+  },
+  "mcp": {
+    "copy": "ቅዳ"
+  },
+  "nav": {
+    "home": "መነሻ",
+    "library": "ቤተ መጻሕፍት",
+    "search": "ፈልግ",
+    "settings": "ማስተካከያዎች"
+  },
+  "player": {
+    "pause": "ለአፍታ አቁም",
+    "play": "አጫውት"
+  },
+  "search": {
+    "title": "ፈልግ"
+  },
+  "settings": {
+    "about": "ስለ",
+    "cancel": "ሰርዝ",
+    "confirmRestore": "እነበረበት መልስ",
+    "createBackup": "ምትኬን ይፍጠሩ",
+    "extensions": "ኢክስቴንሽኖች",
+    "manga": "ማንጋ",
+    "theme": "ገጽታ",
+    "themeDark": "በርቷል",
+    "themeLight": "ጠፍቷል",
+    "themeSystem": "ስርዓት ይከተሉ",
+    "title": "ማስተካከያዎች",
+    "updateEvery": {
+      "0": "በጭራሽ",
+      "6": "በየ 6 ሰዓቱ",
+      "12": "በየ 12 ሰዓቱ",
+      "24": "በየቀኑ",
+      "48": "በየ 2 ቀኑ",
+      "168": "ሳምንታዊ"
+    }
+  }
+}

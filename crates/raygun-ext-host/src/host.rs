@@ -20,6 +20,7 @@ use raygun_resolver::Candidate;
 use serde::Deserialize;
 use tokio::sync::{mpsc, oneshot};
 
+use crate::content::ContentFilter;
 use crate::js::{JsExtension, Limits};
 use crate::manifest::{self, MANIFEST_FILE, Manifest, Runtime};
 use crate::shosetsu::ShosetsuExtension;
@@ -54,6 +55,8 @@ pub struct HostConfig {
     pub limits: Limits,
     /// Longest a provider call may take, waiting included.
     pub call_timeout: Duration,
+    /// The NSFW switch (M35), shared with the app.
+    pub content: ContentFilter,
 }
 
 impl Default for HostConfig {
@@ -62,6 +65,7 @@ impl Default for HostConfig {
             storage_dir: None,
             limits: Limits::default(),
             call_timeout: Duration::from_secs(30),
+            content: ContentFilter::default(),
         }
     }
 }
@@ -171,15 +175,23 @@ enum Request {
 #[derive(Clone)]
 pub struct ExtensionHost {
     requests: mpsc::UnboundedSender<Request>,
+    content: ContentFilter,
 }
 
 impl ExtensionHost {
     pub fn start(config: HostConfig) -> std::io::Result<Self> {
         let (requests, receiver) = mpsc::unbounded_channel();
+        let content = config.content.clone();
         std::thread::Builder::new()
             .name("raygun-ext".to_owned())
             .spawn(move || run(config, receiver))?;
-        Ok(Self { requests })
+        Ok(Self { requests, content })
+    }
+
+    /// The NSFW switch: off hides providers of `nsfw`-rated extensions and tells extensions to
+    /// filter their results.
+    pub fn content(&self) -> &ContentFilter {
+        &self.content
     }
 
     /// Replaces every loaded extension with `sources`. An installed extension overrides a
@@ -209,10 +221,13 @@ impl ExtensionHost {
             .unwrap_or_default()
     }
 
+    /// Providers of `kind`; those of NSFW-rated extensions only while NSFW content is shown.
     pub async fn providers(&self, kind: &str) -> Vec<ProviderInfo> {
+        let show_nsfw = self.content.show_nsfw();
         self.list()
             .await
             .into_iter()
+            .filter(|extension| show_nsfw || extension.content_rating != "nsfw")
             .flat_map(|extension| extension.providers)
             .filter(|provider| provider.kind == kind)
             .collect()
@@ -555,7 +570,14 @@ impl HostState {
                 .as_ref()
                 .map(|dir| dir.join(&manifest.id).join("storage.json")),
         );
-        let load = JsExtension::load(manifest, code, storage, user_settings, &self.config.limits);
+        let load = JsExtension::load(
+            manifest,
+            code,
+            storage,
+            user_settings,
+            &self.config.limits,
+            self.config.content.clone(),
+        );
         tokio::time::timeout(self.config.call_timeout, load)
             .await
             .map_err(|_| "loading timed out".to_owned())?
@@ -606,6 +628,7 @@ fn loaded_info(extension: &Extension, origin: ExtensionOrigin) -> ExtensionInfo 
         name: manifest.name.clone(),
         version: manifest.version.to_string(),
         description: manifest.description.clone(),
+        content_rating: manifest.content_rating.as_str().to_owned(),
         origin,
         status: ExtensionStatus::Loaded,
         error: None,
@@ -680,6 +703,7 @@ fn failed_info(
         name: name.to_owned(),
         version: version.to_owned(),
         description: None,
+        content_rating: "safe".to_owned(),
         origin,
         status: ExtensionStatus::Failed,
         error: Some(error),

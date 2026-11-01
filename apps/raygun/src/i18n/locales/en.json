@@ -123,7 +123,13 @@
     "confirmRestore": "Restore",
     "cancel": "Cancel",
     "mihonImported_one": "Imported {{count}} title with {{chapters}} chapters ({{read}} read) from Mihon.",
-    "mihonImported_other": "Imported {{count}} titles with {{chapters}} chapters ({{read}} read) from Mihon."
+    "mihonImported_other": "Imported {{count}} titles with {{chapters}} chapters ({{read}} read) from Mihon.",
+    "language": "Language",
+    "languageSystem": "System default ({{name}})",
+    "languageHint": "Translations come from the community; untranslated text stays in English.",
+    "content": "Content",
+    "showNsfw": "Show NSFW (18+) content",
+    "showNsfwHint": "Off hides adult extensions, sources and titles everywhere in the app."
   },
   "player": {
     "nothingPlaying": "Nothing playing",
@@ -201,7 +207,9 @@
     "compatibilityApis": "These Nuclear features are unavailable, so parts of the plugin may fail: {{list}}.",
     "compatibilityUi": "Its screens and widgets don't show in Raygun.",
     "compatibilityFull": "Everything this plugin provides works in Raygun.",
-    "anyWebsite": "Any public website (never this device or your local network)"
+    "anyWebsite": "Any public website (never this device or your local network)",
+    "nsfwBadge": "18+",
+    "nsfwHidden": "Hidden while NSFW content is off"
   },
   "collections": {
     "moreActions": "More for {{title}}",
@@ -387,7 +395,10 @@
     "resumeDownloads": "Resume",
     "downloadedChapters_one": "{{count}} chapter on this device",
     "downloadedChapters_other": "{{count}} chapters on this device",
-    "queueEmpty": "Nothing is downloading."
+    "queueEmpty": "Nothing is downloading.",
+    "nsfwHiddenTitle": "This title is for adults",
+    "nsfwHiddenHint": "Turn on “Show NSFW (18+) content” in Settings to see it.",
+    "openSettings": "Open Settings"
   },
   "novel": {
     "sources": "Novel sources",

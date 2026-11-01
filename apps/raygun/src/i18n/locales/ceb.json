@@ -1,0 +1,99 @@
+{
+  "ai": {
+    "cancel": "Pagkanselar",
+    "delete": "Pagtangtang",
+    "edit": "Edit",
+    "installed": "Gi-install",
+    "name": "Ngalan",
+    "save": "Tipigi"
+  },
+  "collections": {
+    "cancel": "Pagkanselar",
+    "edit": "Edit",
+    "save": "Tipigi"
+  },
+  "devices": {
+    "kind": {
+      "history": "Kasaysayan",
+      "settings": "Mga setting"
+    },
+    "off": "Off",
+    "save": "Tipigi"
+  },
+  "extensions": {
+    "addRepo": "Idugang",
+    "cancel": "Pagkanselar",
+    "install": "Pag-instalar",
+    "nsfwBadge": "18+",
+    "refresh": "I-refresh",
+    "settings": "Mga setting",
+    "tab": {
+      "installed": "Gi-install"
+    },
+    "title": "Pagpadako",
+    "uninstall": "I-uninstall",
+    "update": "Update",
+    "upToDate": "Gi-install"
+  },
+  "library": {
+    "emptyTitle": "Walay sulod ang imong library",
+    "media": {
+      "manga": "Mga entri sa basahonan"
+    },
+    "title": "Librarya"
+  },
+  "manga": {
+    "downloads": "Mga pag-download",
+    "downloadState": {
+      "done": "Gi-download",
+      "downloading": "Nag-download"
+    },
+    "list": {
+      "search": "Pangitaa"
+    },
+    "loading": "Nagproseso…",
+    "nextChapter": "Sunod nga kapitulo",
+    "pauseDownloads": "Paghunong",
+    "readingMode": "Mode sa pagbasa",
+    "resumeDownloads": "Ipadayon",
+    "today": "Karon",
+    "updateLibrary": "Pag-update sa librarya",
+    "updates": "Mga update"
+  },
+  "nav": {
+    "library": "Librarya",
+    "search": "Pangitaa",
+    "settings": "Mga setting"
+  },
+  "player": {
+    "next": "Sunod",
+    "pause": "Paghunong"
+  },
+  "search": {
+    "title": "Pangitaa"
+  },
+  "settings": {
+    "about": "Mahitungod sa",
+    "appearance": "Panagway",
+    "cancel": "Pagkanselar",
+    "confirmRestore": "Iuli",
+    "createBackup": "Paghimo og backup",
+    "extensions": "Pagpadako",
+    "language": "Pinulongan",
+    "manga": "Mga entri sa basahonan",
+    "theme": "Tema",
+    "themeDark": "Sa",
+    "themeLight": "Off",
+    "themeSystem": "Sunda ang sistema",
+    "title": "Mga setting",
+    "updateEvery": {
+      "0": "Dili gayud",
+      "6": "Kada 6 ka oras",
+      "12": "Matag 12 ka oras",
+      "24": "Adlaw-adlaw",
+      "48": "Kada 2 ka adlaw",
+      "168": "Kada semana"
+    },
+    "version": "Extension nga Bersyon"
+  }
+}

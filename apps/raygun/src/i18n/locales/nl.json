@@ -1,0 +1,159 @@
+{
+  "ai": {
+    "cancel": "Annuleren",
+    "delete": "Verwijderen",
+    "edit": "Bewerken",
+    "installed": "Geïnstalleerd",
+    "name": "Naam",
+    "save": "Opslaan",
+    "translators": "Translators"
+  },
+  "collections": {
+    "addToPlaylist": "Toevoegen aan afspeellijst",
+    "cancel": "Annuleren",
+    "create": "Aanmaken",
+    "done": "Klaar",
+    "edit": "Bewerken",
+    "favorite": "Voeg toe aan favorieten",
+    "favorites": "Favorieten",
+    "newPlaylist": "Nieuwe afspeellijst",
+    "rename": "Hernoem",
+    "save": "Opslaan",
+    "unfavorite": "Verwijder uit favorieten"
+  },
+  "devices": {
+    "copied": "Gekopieerd",
+    "kind": {
+      "history": "Geschiedenis",
+      "settings": "Instellingen"
+    },
+    "off": "Uit",
+    "rename": "Hernoem",
+    "save": "Opslaan",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "addRepo": "Toevoegen",
+    "cancel": "Annuleren",
+    "install": "Installeren",
+    "nsfwBadge": "18+",
+    "refresh": "Vernieuwen",
+    "settings": "Instellingen",
+    "tab": {
+      "browse": "Bladeren",
+      "installed": "Geïnstalleerd"
+    },
+    "title": "Extensies",
+    "uninstall": "Verwijderen",
+    "update": "Bijwerken",
+    "upToDate": "Geïnstalleerd"
+  },
+  "home": {
+    "clearHistory": "Geschiedenis wissen"
+  },
+  "library": {
+    "addFolder": "Map toevoegen",
+    "emptyTitle": "Je bibliotheek is leeg",
+    "media": {
+      "manga": "Bibliotheek",
+      "music": "Muziek"
+    },
+    "openPlay": "Speel",
+    "play": "Speel",
+    "shuffle": "Shuffle",
+    "title": "Bibliotheek",
+    "view": {
+      "albums": "Albums",
+      "artists": "Artiesten",
+      "favorites": "Favorieten",
+      "playlists": "Afspeellijsten",
+      "tracks": "Sporen"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Toevoegen aan bibliotheek",
+    "chapters_one": "{{count}} hoofdstuk",
+    "chapters_other": "{{count}} hoofdstukken",
+    "downloads": "Downloads",
+    "downloadState": {
+      "done": "Gedownload",
+      "downloading": "Aan het downloaden",
+      "failed": "Mislukt"
+    },
+    "inLibraryBadge": "In bibliotheek",
+    "list": {
+      "latest": "Nieuwste",
+      "popular": "Populair",
+      "search": "Zoeken"
+    },
+    "loading": "Laden…",
+    "nextChapter": "Volgende hoofdstuk",
+    "pauseDownloads": "Pauzeren",
+    "previousChapter": "Vorige",
+    "readingMode": "Leesmodus",
+    "removeFromLibrary": "In bibliotheek",
+    "resumeDownloads": "Hervatten",
+    "source": "Bron",
+    "status": {
+      "cancelled": "Geannuleerd",
+      "completed": "Voltooid",
+      "hiatus": "Gepauzeerd",
+      "ongoing": "Lopend",
+      "publishingFinished": "Uitgave voltooid"
+    },
+    "today": "Vandaag",
+    "updateLibrary": "Bibliotheek bijwerken",
+    "updates": "Updates",
+    "yesterday": "Gisteren"
+  },
+  "mcp": {
+    "copied": "Gekopieerd",
+    "copy": "Kopiëren"
+  },
+  "nav": {
+    "home": "Home",
+    "library": "Bibliotheek",
+    "search": "Zoeken",
+    "settings": "Instellingen"
+  },
+  "player": {
+    "addToPlaylist": "Toevoegen aan afspeellijst",
+    "favorite": "Voeg toe aan favorieten",
+    "next": "Volgende",
+    "nowPlaying": "Now playing",
+    "pause": "Pauzeren",
+    "play": "Speel",
+    "previous": "Vorige",
+    "shuffle": "Shuffle",
+    "unfavorite": "Verwijder uit favorieten",
+    "upNext": "Up Next"
+  },
+  "search": {
+    "title": "Zoeken"
+  },
+  "settings": {
+    "about": "Over",
+    "appearance": "Uiterlijk",
+    "backup": "Backup",
+    "cancel": "Annuleren",
+    "confirmRestore": "Herstellen",
+    "createBackup": "Back-up maken",
+    "extensions": "Extensies",
+    "language": "Taal",
+    "manga": "Bibliotheek",
+    "theme": "Thema",
+    "themeDark": "Aan",
+    "themeLight": "Uit",
+    "themeSystem": "Volg systeeminstelling",
+    "title": "Instellingen",
+    "updateEvery": {
+      "0": "Nooit",
+      "6": "Iedere 6 uur",
+      "12": "Iedere 12 uur",
+      "24": "Dagelijks",
+      "48": "Iedere 2 dagen",
+      "168": "Wekelijks"
+    },
+    "version": "Versie"
+  }
+}

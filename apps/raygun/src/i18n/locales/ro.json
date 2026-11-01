@@ -1,0 +1,160 @@
+{
+  "ai": {
+    "cancel": "Anulează",
+    "delete": "Șterge",
+    "edit": "Modifică",
+    "installed": "Instalată",
+    "name": "Nume",
+    "save": "Salvează",
+    "translators": "Traducători"
+  },
+  "collections": {
+    "addToPlaylist": "Adaugă la playlist",
+    "cancel": "Anulează",
+    "create": "Creați",
+    "done": "Terminat",
+    "edit": "Modifică",
+    "favorite": "Adaugă la favoriți/te",
+    "favorites": "Favoriți/te",
+    "newPlaylist": "Playlist nou",
+    "rename": "Redenumește",
+    "save": "Salvează",
+    "unfavorite": "Elimină din favoriți/te"
+  },
+  "devices": {
+    "copied": "Copiat",
+    "kind": {
+      "history": "Istoric",
+      "settings": "Setări"
+    },
+    "off": "Oprit",
+    "rename": "Redenumește",
+    "save": "Salvează",
+    "syncing": "Sincronizare..."
+  },
+  "extensions": {
+    "addRepo": "Adaugă",
+    "cancel": "Anulează",
+    "install": "Instalează",
+    "nsfwBadge": "Peste 18",
+    "refresh": "Actualizați",
+    "settings": "Setări",
+    "tab": {
+      "browse": "Caută",
+      "installed": "Instalată"
+    },
+    "title": "Extensii",
+    "uninstall": "Dezinstalează",
+    "update": "Actualizează",
+    "upToDate": "Instalată"
+  },
+  "home": {
+    "clearHistory": "Sterge istoricul"
+  },
+  "library": {
+    "addFolder": "Adaugă un dosar",
+    "emptyTitle": "Biblioteca este goală",
+    "media": {
+      "manga": "Intrări în bibliotecă",
+      "music": "Muzică"
+    },
+    "openPlay": "Începe",
+    "play": "Începe",
+    "shuffle": "Amestecă",
+    "title": "Bibliotecă",
+    "view": {
+      "albums": "Albume",
+      "artists": "Artiști",
+      "favorites": "Favoriți/te",
+      "playlists": "Playlisturi",
+      "tracks": "Piste"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Adaugă în bibliotecă",
+    "chapters_few": "{{count}} capitole",
+    "chapters_one": "{{count}} capitol",
+    "chapters_other": "{{count}} de capitole",
+    "downloads": "Descărcări",
+    "downloadState": {
+      "done": "Descărcat",
+      "downloading": "Se descarcă",
+      "failed": "Eșuat"
+    },
+    "inLibraryBadge": "În bibliotecă",
+    "list": {
+      "latest": "Cel mai recent",
+      "popular": "Populare",
+      "search": "Caută"
+    },
+    "loading": "Se încarcă…",
+    "nextChapter": "Capitolul următor",
+    "pauseDownloads": "Pauză",
+    "previousChapter": "Anterior",
+    "readingMode": "Mod citire",
+    "removeFromLibrary": "În bibliotecă",
+    "resumeDownloads": "Continuă",
+    "source": "Sursă",
+    "status": {
+      "cancelled": "Anulat",
+      "completed": "Completată",
+      "hiatus": "În hiatus",
+      "ongoing": "În desfășurare",
+      "publishingFinished": "Editare finalizată"
+    },
+    "today": "Azi",
+    "updateLibrary": "Actualizează biblioteca",
+    "updates": "Actualizări",
+    "yesterday": "Ieri"
+  },
+  "mcp": {
+    "copied": "Copiat",
+    "copy": "Copiază"
+  },
+  "nav": {
+    "home": "Prima pagină",
+    "library": "Bibliotecă",
+    "search": "Caută",
+    "settings": "Setări"
+  },
+  "player": {
+    "addToPlaylist": "Adaugă la playlist",
+    "favorite": "Adaugă la favoriți/te",
+    "next": "Următorul",
+    "nowPlaying": "Now playing",
+    "pause": "Pauză",
+    "play": "Începe",
+    "previous": "Anterior",
+    "shuffle": "Amestecă",
+    "unfavorite": "Elimină din favoriți/te",
+    "upNext": "Următorul"
+  },
+  "search": {
+    "title": "Caută"
+  },
+  "settings": {
+    "about": "Despre",
+    "appearance": "Aspect",
+    "backup": "Backup",
+    "cancel": "Anulează",
+    "confirmRestore": "Restaurează",
+    "createBackup": "Crează copie de rezervă",
+    "extensions": "Extensii",
+    "language": "Limbă",
+    "manga": "Intrări în bibliotecă",
+    "theme": "Temă",
+    "themeDark": "Pornită",
+    "themeLight": "Oprită",
+    "themeSystem": "Tema sistemului",
+    "title": "Setări",
+    "updateEvery": {
+      "0": "Niciodată",
+      "6": "La fiecare 6 ore",
+      "12": "La fiecare 12 ore",
+      "24": "Zilnic",
+      "48": "La fiecare 2 zile",
+      "168": "Săptămânal"
+    },
+    "version": "Versiune"
+  }
+}

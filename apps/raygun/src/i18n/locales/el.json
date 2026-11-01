@@ -1,0 +1,159 @@
+{
+  "ai": {
+    "cancel": "Άκυρο",
+    "delete": "Διαγραφή",
+    "edit": "Επεξεργασία",
+    "installed": "Εγκαταστημένο",
+    "name": "Όνομα",
+    "save": "Αποθήκευση",
+    "translators": "Translators"
+  },
+  "collections": {
+    "addToPlaylist": "Προσθήκη σε playlist",
+    "cancel": "Άκυρο",
+    "create": "Δημιουργία",
+    "done": "Έγινε",
+    "edit": "Επεξεργασία",
+    "favorite": "Προσθήκη στα Αγαπημένα",
+    "favorites": "Αγαπημένα",
+    "newPlaylist": "Δημιουργία νέου playlist",
+    "rename": "Μετονομασία",
+    "save": "Αποθήκευση",
+    "unfavorite": "Αφαίρεση από τα Αγαπημένα"
+  },
+  "devices": {
+    "copied": "Copied",
+    "kind": {
+      "history": "Ιστορικό",
+      "settings": "Ρυθμίσεις"
+    },
+    "off": "Απενεργοποιημένο",
+    "rename": "Μετονομασία",
+    "save": "Αποθήκευση",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "addRepo": "Προσθήκη",
+    "cancel": "Άκυρο",
+    "install": "Εγκατάσταση",
+    "nsfwBadge": "18+",
+    "refresh": "Ανανέωση",
+    "settings": "Ρυθμίσεις",
+    "tab": {
+      "browse": "Περιήγηση",
+      "installed": "Εγκαταστημένο"
+    },
+    "title": "Επεκτάσεις",
+    "uninstall": "Απεγκατάσταση",
+    "update": "Ενημέρωση",
+    "upToDate": "Εγκαταστημένο"
+  },
+  "home": {
+    "clearHistory": "Διαγραφή ιστορικού"
+  },
+  "library": {
+    "addFolder": "Add folder",
+    "emptyTitle": "Η βιβλιοθήκη σας είναι κενή",
+    "media": {
+      "manga": "Καταχωρήσεις βιβλιοθήκης",
+      "music": "Μουσική"
+    },
+    "openPlay": "Αναπαραγωγή",
+    "play": "Αναπαραγωγή",
+    "shuffle": "Τυχαία σειρά",
+    "title": "Βιβλιοθήκη",
+    "view": {
+      "albums": "Άλμπουμ",
+      "artists": "Καλλιτέχνες",
+      "favorites": "Αγαπημένα",
+      "playlists": "Λίστες",
+      "tracks": "Κομμάτια"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Προσθήκη στη βιβλιοθήκη",
+    "chapters_one": "{{count}} κεφάλαιο",
+    "chapters_other": "{{count}} κεφάλαια",
+    "downloads": "Λήψεις",
+    "downloadState": {
+      "done": "Κατεβασμένο",
+      "downloading": "Γίνεται λήψη",
+      "failed": "Απέτυχε"
+    },
+    "inLibraryBadge": "Στη βιβλιοθήκη",
+    "list": {
+      "latest": "Νεότερα",
+      "popular": "Δημοφιλή",
+      "search": "Αναζήτηση"
+    },
+    "loading": "Φόρτωση…",
+    "nextChapter": "Επόμενο κεφάλαιο",
+    "pauseDownloads": "Παύση",
+    "previousChapter": "Προηγούμενο",
+    "readingMode": "Λειτουργία ανάγνωσης",
+    "removeFromLibrary": "Στη βιβλιοθήκη",
+    "resumeDownloads": "Συνέχεια",
+    "source": "Πηγή",
+    "status": {
+      "cancelled": "Ακυρώθηκε",
+      "completed": "Ολοκληρωμένο",
+      "hiatus": "Σε αναστολή",
+      "ongoing": "Σε εξέλιξη",
+      "publishingFinished": "Η έκδοση ολοκληρώθηκε"
+    },
+    "today": "Σήμερα",
+    "updateLibrary": "Ενημέρωση βιβλιοθήκης",
+    "updates": "Ενημερώσεις",
+    "yesterday": "Yesterday"
+  },
+  "mcp": {
+    "copied": "Copied",
+    "copy": "Αντιγραφή"
+  },
+  "nav": {
+    "home": "Αρχική",
+    "library": "Βιβλιοθήκη",
+    "search": "Αναζήτηση",
+    "settings": "Ρυθμίσεις"
+  },
+  "player": {
+    "addToPlaylist": "Προσθήκη σε playlist",
+    "favorite": "Προσθήκη στα Αγαπημένα",
+    "next": "Επόμενο",
+    "nowPlaying": "Now playing",
+    "pause": "Παύση",
+    "play": "Αναπαραγωγή",
+    "previous": "Προηγούμενο",
+    "shuffle": "Τυχαία σειρά",
+    "unfavorite": "Αφαίρεση από τα Αγαπημένα",
+    "upNext": "Up Next"
+  },
+  "search": {
+    "title": "Αναζήτηση"
+  },
+  "settings": {
+    "about": "Περί",
+    "appearance": "Εμφάνιση",
+    "backup": "Αντίγραφο ασφαλείας",
+    "cancel": "Άκυρο",
+    "confirmRestore": "Επαναφορά",
+    "createBackup": "Δημιουργία αντιγράφου ασφαλείας",
+    "extensions": "Επεκτάσεις",
+    "language": "Γλώσσα",
+    "manga": "Καταχωρήσεις βιβλιοθήκης",
+    "theme": "Θέμα",
+    "themeDark": "Σκοτεινό",
+    "themeLight": "Φωτεινό",
+    "themeSystem": "Σύστημα",
+    "title": "Ρυθμίσεις",
+    "updateEvery": {
+      "0": "Ποτέ",
+      "6": "Κάθε 6 ώρες",
+      "12": "Κάθε 12 ώρες",
+      "24": "Καθημερινά",
+      "48": "Κάθε 2 ημέρες",
+      "168": "Εβδομαδιαία"
+    },
+    "version": "Έκδοση"
+  }
+}

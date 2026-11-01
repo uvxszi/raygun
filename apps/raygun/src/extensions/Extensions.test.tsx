@@ -13,6 +13,7 @@ const { commands } = bindingsMock;
 const extension = (overrides: Partial<ExtensionInfo> = {}): ExtensionInfo => ({
   id: 'dev.raygun.radio-browser',
   name: 'Radio Browser',
+  contentRating: 'safe',
   version: '1.0.0',
   description: 'Live internet radio.',
   origin: 'installed',

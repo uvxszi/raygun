@@ -1,0 +1,109 @@
+{
+  "ai": {
+    "cancel": "Kanselleer",
+    "delete": "Wis Uit",
+    "edit": "Wysig",
+    "name": "Naam",
+    "save": "Stoor",
+    "translators": "Translators"
+  },
+  "collections": {
+    "addToPlaylist": "Voeg by speellys",
+    "cancel": "Kanselleer",
+    "done": "Klaar",
+    "edit": "Wysig",
+    "favorite": "Add to favorites",
+    "favorites": "Gunstelinge",
+    "newPlaylist": "Nuwe speellys",
+    "rename": "Hernoem",
+    "save": "Stoor"
+  },
+  "devices": {
+    "copied": "Copied",
+    "kind": {
+      "history": "History",
+      "settings": "Instellings"
+    },
+    "rename": "Hernoem",
+    "save": "Stoor",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "cancel": "Kanselleer",
+    "settings": "Instellings",
+    "update": "Update"
+  },
+  "library": {
+    "addFolder": "Add folder",
+    "media": {
+      "music": "Music"
+    },
+    "openPlay": "Speel",
+    "play": "Speel",
+    "shuffle": "Shuffle",
+    "title": "Biblioteek",
+    "view": {
+      "albums": "Albums",
+      "artists": "Kunstenaars",
+      "favorites": "Gunstelinge",
+      "playlists": "Speellyste"
+    }
+  },
+  "manga": {
+    "downloads": "Aflaaie",
+    "downloadState": {
+      "done": "Afgelaai",
+      "downloading": "Laai tans af",
+      "failed": "Failed"
+    },
+    "list": {
+      "search": "Soek"
+    },
+    "loading": "Laai tans…",
+    "previousChapter": "Vorige",
+    "status": {
+      "cancelled": "Cancelled",
+      "completed": "Voltooi"
+    },
+    "today": "Vandag",
+    "yesterday": "Yesterday"
+  },
+  "mcp": {
+    "copied": "Copied",
+    "copy": "Kopieer"
+  },
+  "nav": {
+    "home": "Tuis",
+    "library": "Biblioteek",
+    "search": "Soek",
+    "settings": "Instellings"
+  },
+  "player": {
+    "addToPlaylist": "Voeg by speellys",
+    "favorite": "Add to favorites",
+    "next": "Next",
+    "nowPlaying": "Now playing",
+    "play": "Speel",
+    "previous": "Vorige",
+    "shuffle": "Shuffle",
+    "upNext": "Up Next"
+  },
+  "search": {
+    "title": "Soek"
+  },
+  "settings": {
+    "about": "Leer meer",
+    "backup": "Rugsteun",
+    "cancel": "Kanselleer",
+    "confirmRestore": "Herstel",
+    "theme": "Tema",
+    "themeDark": "Donker",
+    "themeLight": "Lig",
+    "themeSystem": "Stelsel",
+    "title": "Instellings",
+    "updateEvery": {
+      "24": "Daily",
+      "168": "Weekly"
+    }
+  }
+}

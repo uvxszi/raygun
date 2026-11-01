@@ -1,0 +1,82 @@
+{
+  "ai": {
+    "cancel": "Jooji",
+    "delete": "Tirtir",
+    "save": "Kaydi"
+  },
+  "collections": {
+    "cancel": "Jooji",
+    "done": "Dhan",
+    "save": "Kaydi"
+  },
+  "devices": {
+    "kind": {
+      "history": "Taariikhda",
+      "settings": "Habaynta"
+    },
+    "save": "Kaydi"
+  },
+  "extensions": {
+    "cancel": "Jooji",
+    "nsfwBadge": "18+",
+    "settings": "Habaynta",
+    "title": "Kordhiyeyaal",
+    "update": "Cusbooneysii"
+  },
+  "home": {
+    "clearHistory": "Masax taariikhda"
+  },
+  "library": {
+    "openPlay": "Daar",
+    "play": "Daar",
+    "title": "Kaydka",
+    "view": {
+      "tracks": "Muusik"
+    }
+  },
+  "manga": {
+    "downloads": "Soo dejinta",
+    "downloadState": {
+      "done": "La degtay",
+      "downloading": "Soo degaya"
+    },
+    "list": {
+      "search": "Raadi"
+    },
+    "loading": "Soo kacaya…",
+    "pauseDownloads": "Haki",
+    "previousChapter": "Kii hore",
+    "resumeDownloads": "Sii wado",
+    "source": "isha",
+    "status": {
+      "completed": "Dhamaystirmay",
+      "ongoing": "Socda"
+    }
+  },
+  "mcp": {
+    "copy": "Koobi/ka reeb"
+  },
+  "nav": {
+    "home": "Kadinka",
+    "library": "Kaydka",
+    "search": "Raadi",
+    "settings": "Habaynta"
+  },
+  "player": {
+    "next": "Xiga",
+    "pause": "Haki",
+    "play": "Daar",
+    "previous": "Kii hore"
+  },
+  "search": {
+    "title": "Raadi"
+  },
+  "settings": {
+    "backup": "Gurmad",
+    "cancel": "Jooji",
+    "extensions": "Kordhiyeyaal",
+    "language": "Luuqadda",
+    "title": "Habaynta",
+    "version": "Qaybtii"
+  }
+}

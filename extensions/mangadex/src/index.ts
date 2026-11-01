@@ -16,6 +16,8 @@ const RATINGS: Record<string, string[]> = {
   'safe and suggestive': ['safe', 'suggestive'],
   everything: ['safe', 'suggestive', 'erotica', 'pornographic'],
 };
+/** MangaDex's adult ratings, left out while the app's NSFW switch is off. */
+const ADULT = ['erotica', 'pornographic'];
 const STATUSES: Record<string, MangaStatus> = {
   ongoing: 'ongoing',
   completed: 'completed',
@@ -36,6 +38,7 @@ type MangaRecord = {
     altTitles?: Localized[];
     description?: Localized;
     status?: string;
+    contentRating?: string;
     tags?: { attributes: { name: Localized; group: string } }[];
   };
   relationships: Relationship[];
@@ -56,8 +59,12 @@ type Listing<T> = { data: T[]; total: number; offset: number; limit: number };
 
 const language = () =>
   (raygun.settings.get<string>('language') ?? 'en').trim().toLowerCase() || 'en';
-const ratings = () =>
-  RATINGS[raygun.settings.get<string>('contentRating') ?? ''] ?? RATINGS['safe and suggestive']!;
+const ratings = () => {
+  const chosen =
+    RATINGS[raygun.settings.get<string>('contentRating') ?? ''] ?? RATINGS['safe and suggestive']!;
+  return raygun.content.showNsfw() ? chosen : chosen.filter((rating) => !ADULT.includes(rating));
+};
+const isAdult = (record: MangaRecord) => ADULT.includes(record.attributes.contentRating ?? '');
 
 const query = (params: [string, string | number][]) =>
   params
@@ -98,6 +105,7 @@ const summary = (record: MangaRecord): MangaSummary => ({
   title: titleOf(record),
   coverUrl: coverOf(record),
   coverHeaders: HEADERS,
+  nsfw: isAdult(record),
 });
 
 const listMangas = async (
@@ -141,10 +149,16 @@ const details = async (id: string): Promise<MangaDetails> => {
     authors: names('author'),
     artists: names('artist'),
     description: localized(data.attributes.description, language())?.trim() || null,
-    genres: (data.attributes.tags ?? [])
-      .filter((tag) => tag.attributes.group === 'genre' || tag.attributes.group === 'theme')
-      .map((tag) => localized(tag.attributes.name, 'en'))
-      .filter((name): name is string => Boolean(name)),
+    genres: [
+      ...(data.attributes.tags ?? [])
+        .filter((tag) => tag.attributes.group === 'genre' || tag.attributes.group === 'theme')
+        .map((tag) => localized(tag.attributes.name, 'en'))
+        .filter((name): name is string => Boolean(name)),
+      // The app hides titles with an adult genre while NSFW content is off.
+      ...(isAdult(data)
+        ? [data.attributes.contentRating === 'erotica' ? 'Erotica' : 'Pornographic']
+        : []),
+    ],
     status: STATUSES[data.attributes.status ?? ''] ?? 'unknown',
     url: `https://mangadex.org/title/${data.id}`,
   };

@@ -1,0 +1,147 @@
+{
+  "ai": {
+    "cancel": "বাতিল কৰক",
+    "delete": "মচক",
+    "edit": "সম্পাদনা কৰক",
+    "installed": "ইন্সটল কৰা হৈছে",
+    "name": "নাম",
+    "save": "সাঁচক"
+  },
+  "collections": {
+    "cancel": "বাতিল কৰক",
+    "create": "সৃষ্টি কৰক",
+    "done": "সম্পূৰ্ণ",
+    "edit": "সম্পাদনা কৰক",
+    "favorite": "প্ৰিয় তালিকালৈ যোগ কৰক",
+    "favorites": "প্ৰিয় তালিকা",
+    "save": "সাঁচক",
+    "unfavorite": "প্ৰিয় তালিকাৰ পৰা আঁতৰ কৰক"
+  },
+  "devices": {
+    "kind": {
+      "history": "ইতিহাস",
+      "settings": "ছেটিংছ"
+    },
+    "off": "বন্ধ",
+    "save": "সাঁচক"
+  },
+  "extensions": {
+    "addRepo": "যোগ কৰক",
+    "cancel": "বাতিল কৰক",
+    "install": "ইন্সটল কৰক",
+    "nsfwBadge": "১৮+",
+    "refresh": "ৰিফ্ৰেচ কৰক",
+    "settings": "ছেটিংছ",
+    "tab": {
+      "browse": "ব্ৰাউজ",
+      "installed": "ইন্সটল কৰা হৈছে"
+    },
+    "title": "এক্সটেনশ্বনসমূহ",
+    "uninstall": "আনইন্সটল কৰক",
+    "update": "আপডেট",
+    "upToDate": "ইন্সটল কৰা হৈছে"
+  },
+  "home": {
+    "clearHistory": "ইতিহাস খালী কৰক"
+  },
+  "library": {
+    "emptyTitle": "আপোনাৰ পুথিভঁৰাল খালী",
+    "media": {
+      "manga": "মান্গা",
+      "music": "সংগীত"
+    },
+    "openPlay": "চলাওক",
+    "play": "চলাওক",
+    "title": "পুথিভঁৰাল",
+    "view": {
+      "favorites": "প্ৰিয় তালিকা",
+      "tracks": "ট্ৰেকসমূহ"
+    }
+  },
+  "manga": {
+    "addToLibrary": "পুথিভঁৰাললৈ যোগ কৰক",
+    "chapters_one": "{{count}} অধ্যায়",
+    "chapters_other": "{{count}} অধ্যায়সমূহ",
+    "downloads": "ডাউনলোড",
+    "downloadState": {
+      "done": "ডাউনলোড কৰা",
+      "downloading": "ডাউনলোড কৰি আছে",
+      "failed": "ব্যৰ্থ"
+    },
+    "inLibraryBadge": "পুথিভঁৰালত",
+    "list": {
+      "latest": "শেষতম",
+      "popular": "জনপ্ৰিয়",
+      "search": "সন্ধান কৰক"
+    },
+    "loading": "ল'ড কৰি আছে…",
+    "nextChapter": "পৰৱৰ্তী অধ্যায়",
+    "pageAlt": "পৃষ্ঠা {{page}}",
+    "pauseDownloads": "বিৰতি দিয়ক",
+    "previousChapter": "আগৰ",
+    "readingMode": "পঢ়াৰ মোড",
+    "removeFromLibrary": "পুথিভঁৰালত",
+    "resumeDownloads": "পুনৰ আৰম্ভ কৰক",
+    "source": "উত্‍স",
+    "status": {
+      "cancelled": "বাতিল কৰা হৈছে",
+      "completed": "সম্পূৰ্ণ",
+      "hiatus": "বিৰতিৰ মাজত",
+      "ongoing": "চলি থকা",
+      "publishingFinished": "প্ৰকাশ সমাপ্ত"
+    },
+    "today": "আজি",
+    "updateLibrary": "পুথিভঁৰাল আপডেট কৰক",
+    "updates": "আপডেটসমূহ"
+  },
+  "mcp": {
+    "copy": "নকল"
+  },
+  "nav": {
+    "home": "ঘৰ",
+    "library": "পুথিভঁৰাল",
+    "search": "সন্ধান কৰক",
+    "settings": "ছেটিংছ"
+  },
+  "novel": {
+    "fontSize": "ফন্টৰ আকাৰ"
+  },
+  "player": {
+    "favorite": "প্ৰিয় তালিকালৈ যোগ কৰক",
+    "next": "পৰৱৰ্তী",
+    "pause": "বিৰতি দিয়ক",
+    "play": "চলাওক",
+    "previous": "আগৰ",
+    "seek": "অনুসন্ধান",
+    "unfavorite": "প্ৰিয় তালিকাৰ পৰা আঁতৰ কৰক"
+  },
+  "search": {
+    "title": "সন্ধান কৰক"
+  },
+  "settings": {
+    "about": "সম্পৰ্কে",
+    "appearance": "ৰূপ",
+    "backup": "ব্যাকআপ",
+    "cancel": "বাতিল কৰক",
+    "confirmRestore": "পুনৰুদ্ধাৰ কৰক",
+    "createBackup": "বেকআপ সৃষ্টি কৰক",
+    "extensions": "এক্সটেনশ্বনসমূহ",
+    "language": "ভাষা",
+    "manga": "মান্গা",
+    "storage": "সঞ্চয়",
+    "theme": "থিম",
+    "themeDark": "আন্ধাৰ",
+    "themeLight": "পোহৰ",
+    "themeSystem": "চিষ্টেম",
+    "title": "ছেটিংছ",
+    "updateEvery": {
+      "0": "কেতিয়াও নহয়",
+      "6": "প্ৰতি ৬ ঘণ্টা",
+      "12": "প্ৰতি ১২ ঘণ্টা",
+      "24": "দৈনিক",
+      "48": "প্ৰতি ২ দিন",
+      "168": "সাপ্তাহিক"
+    },
+    "version": "সংস্কৰণ"
+  }
+}

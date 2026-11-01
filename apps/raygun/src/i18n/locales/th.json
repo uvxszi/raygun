@@ -1,0 +1,120 @@
+{
+  "ai": {
+    "cancel": "ยกเลิก",
+    "delete": "ลบ",
+    "edit": "แก้ไข",
+    "installed": "ติดตั้งแล้ว",
+    "name": "ชื่อ",
+    "save": "บันทึก"
+  },
+  "collections": {
+    "cancel": "ยกเลิก",
+    "create": "สร้าง",
+    "edit": "แก้ไข",
+    "save": "บันทึก"
+  },
+  "devices": {
+    "kind": {
+      "history": "ประวัติ",
+      "settings": "ตั้งค่า"
+    },
+    "off": "ปิด",
+    "save": "บันทึก"
+  },
+  "extensions": {
+    "addRepo": "เพิ่ม",
+    "cancel": "ยกเลิก",
+    "install": "ติดตั้ง",
+    "nsfwBadge": "18+",
+    "refresh": "โหลดซ้ำ",
+    "settings": "ตั้งค่า",
+    "tab": {
+      "browse": "เรียกดู",
+      "installed": "ติดตั้งแล้ว"
+    },
+    "title": "ส่วนขยาย",
+    "uninstall": "ถอนการติดตั้ง",
+    "update": "อัปเดต",
+    "upToDate": "ติดตั้งแล้ว"
+  },
+  "home": {
+    "clearHistory": "ล้างประวัติ"
+  },
+  "library": {
+    "emptyTitle": "คลังว่างเปล่า",
+    "media": {
+      "manga": "รายการคลัง"
+    },
+    "title": "คลัง"
+  },
+  "manga": {
+    "addToLibrary": "เพิ่มไปยังคลัง",
+    "chapters_other": "{{count}} ตอน",
+    "downloads": "การดาวน์โหลด",
+    "downloadState": {
+      "done": "ดาวน์โหลดไว้แล้ว",
+      "downloading": "กำลังดาวน์โหลด"
+    },
+    "inLibraryBadge": "อยู่ในคลัง",
+    "list": {
+      "latest": "ล่าสุด",
+      "popular": "ยอดนิยม",
+      "search": "ค้นหา"
+    },
+    "loading": "กำลังโหลด…",
+    "nextChapter": "ตอนถัดไป",
+    "pauseDownloads": "หยุดชั่วคราว",
+    "readingMode": "โหมดการอ่าน",
+    "removeFromLibrary": "อยู่ในคลัง",
+    "resumeDownloads": "ดำเนินการต่อ",
+    "status": {
+      "cancelled": "ถูกยกเลิก",
+      "completed": "จบแล้ว",
+      "hiatus": "อยู่ระหว่างพัก",
+      "ongoing": "ยังไม่จบ",
+      "publishingFinished": "เผยแพร่จบแล้ว"
+    },
+    "today": "วันนี้",
+    "updateLibrary": "อัปเดตคลัง",
+    "updates": "อัปเดต"
+  },
+  "mcp": {
+    "copy": "คัดลอก"
+  },
+  "nav": {
+    "library": "คลัง",
+    "search": "ค้นหา",
+    "settings": "ตั้งค่า"
+  },
+  "player": {
+    "next": "ถัดไป",
+    "pause": "หยุดชั่วคราว"
+  },
+  "search": {
+    "title": "ค้นหา"
+  },
+  "settings": {
+    "about": "เกี่ยวกับ",
+    "appearance": "ลักษณะ",
+    "cancel": "ยกเลิก",
+    "confirmRestore": "เรียกคืน",
+    "createBackup": "สำรองข้อมูล",
+    "extensions": "ส่วนขยาย",
+    "language": "ภาษา",
+    "manga": "รายการคลัง",
+    "theme": "ธีม",
+    "themeDark": "มืด",
+    "themeLight": "สว่าง",
+    "themeSystem": "ระบบ",
+    "title": "ตั้งค่า",
+    "updateEvery": {
+      "0": "ไม่เลย",
+      "6": "ทุก 6 ชั่วโมง",
+      "12": "ทุก 12 ชั่วโมง",
+      "24": "ทุกวัน",
+      "48": "ทุก 2 วัน",
+      "168": "ทุกสัปดาห์"
+    },
+    "version": "เวอร์ชัน"
+  }
+}

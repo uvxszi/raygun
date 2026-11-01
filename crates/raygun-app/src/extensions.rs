@@ -139,6 +139,10 @@ impl ExtensionService {
             .expect("a new lock is free");
         let loader = service.clone();
         tauri::async_runtime::spawn(async move {
+            match crate::settings::load(loader.db()).await {
+                Ok(settings) => loader.host.content().set_show_nsfw(settings.show_nsfw),
+                Err(error) => tracing::warn!(%error, "could not read the NSFW setting"),
+            }
             loader.load_all().await;
             drop(guard);
             if cfg!(debug_assertions) {
@@ -155,6 +159,20 @@ impl ExtensionService {
     pub async fn list(&self) -> Vec<ExtensionInfo> {
         let _ready = self.loading.read().await;
         self.host.list().await
+    }
+
+    /// Whether NSFW extensions and content are shown (M35).
+    pub fn show_nsfw(&self) -> bool {
+        self.host.content().show_nsfw()
+    }
+
+    /// Turns NSFW content on or off and tells the UI, whose source lists depend on it.
+    pub async fn set_show_nsfw(&self, show: bool) {
+        self.host.content().set_show_nsfw(show);
+        let infos = self.list().await;
+        if let Err(error) = ExtensionsChangedEvent(infos).emit(&self.app) {
+            tracing::warn!(%error, "could not announce extension changes");
+        }
     }
 
     pub async fn search(&self, query: &str) -> Vec<ProviderSearchResult> {
@@ -301,9 +319,11 @@ impl ExtensionService {
                             },
                             ..repo
                         };
+                        let show_nsfw = self.host.content().show_nsfw();
                         let entries = index
                             .extensions
                             .iter()
+                            .filter(|entry| show_nsfw || entry.content_rating != "nsfw")
                             .map(|entry| catalog_entry(&repo.id, entry, local.get(&entry.id)))
                             .collect();
                         RepoCatalog {

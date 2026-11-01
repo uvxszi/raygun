@@ -1,0 +1,107 @@
+{
+  "ai": {
+    "cancel": "Уларытыы",
+    "delete": "Сотон кэбис",
+    "edit": "Уларыт",
+    "installed": "Турда",
+    "name": "Аат",
+    "save": "Хааллар"
+  },
+  "collections": {
+    "cancel": "Уларытыы",
+    "edit": "Уларыт",
+    "save": "Хааллар"
+  },
+  "devices": {
+    "kind": {
+      "history": "История",
+      "settings": "Түстэл"
+    },
+    "off": "Илиинэн",
+    "save": "Хааллар"
+  },
+  "extensions": {
+    "addRepo": "Киллэр",
+    "cancel": "Уларытыы",
+    "install": "Туруор",
+    "nsfwBadge": "18+",
+    "refresh": "Чэбдигирт",
+    "settings": "Түстэл",
+    "tab": {
+      "browse": "Көрдөөһүн",
+      "installed": "Турда"
+    },
+    "title": "Кэҥэтии",
+    "uninstall": "Сотон кэбис",
+    "update": "Саҥардыы",
+    "upToDate": "Турда"
+  },
+  "home": {
+    "clearHistory": "Остуоруйаны сотторуу"
+  },
+  "library": {
+    "emptyTitle": "Эн бэбэлэтиэкэн кураанах. Бэбэлэтиэкэҕэ айымньыыларыы көрдөөһүнтэн эп.",
+    "media": {
+      "manga": "Маанга"
+    },
+    "title": "Бэбэлэтиэкэ"
+  },
+  "manga": {
+    "addToLibrary": "Бэбэлэтиэкэҕэ киллэрии",
+    "chapters_other": "{{count}} түһүмэх",
+    "downloads": "Хачайдаммыттар",
+    "downloadState": {
+      "downloading": "Хачайдааһын"
+    },
+    "inLibraryBadge": "Бэбэлэтиэкэҕэ",
+    "list": {
+      "latest": "Тиһэх",
+      "search": "Көрдөөһүн"
+    },
+    "loading": "Холбонуу…",
+    "nextChapter": "Аныгыскы түһүмэх",
+    "pauseDownloads": "Тохтобул",
+    "readingMode": "Ааҕы эрэһиимэ",
+    "removeFromLibrary": "Бэбэлэтиэкэҕэ",
+    "resumeDownloads": "Салҕаа",
+    "status": {
+      "completed": "Бүппүт",
+      "ongoing": "Салҕанар"
+    },
+    "updateLibrary": "Бэбэлэтиэкэ саҥардыы",
+    "updates": "Саҥардыылар"
+  },
+  "nav": {
+    "library": "Бэбэлэтиэкэ",
+    "search": "Көрдөөһүн",
+    "settings": "Түстэл"
+  },
+  "player": {
+    "pause": "Тохтобул"
+  },
+  "search": {
+    "title": "Көрдөөһүн"
+  },
+  "settings": {
+    "about": "Эбии туһунан",
+    "cancel": "Уларытыы",
+    "confirmRestore": "Чөлүгэр түһэр",
+    "createBackup": "Хаппаас куопуйаны оҥоруу",
+    "extensions": "Кэҥэтии",
+    "manga": "Маанга",
+    "theme": "Тиэмэ",
+    "themeDark": "Холбоммут",
+    "themeLight": "Араарыллыбыт",
+    "themeSystem": "Системнайы тутуһуҥ",
+    "title": "Түстэл",
+    "updateEvery": {
+      "0": "Хаһан да",
+      "6": "Алта чаас аайы",
+      "12": "Уон икки чаас аайы",
+      "24": "Күн аайы",
+      "48": "Икки күн аайы",
+      "168": "Нэдиэлэ аайы"
+    },
+    "version": "Биэрсия"
+  }
+}

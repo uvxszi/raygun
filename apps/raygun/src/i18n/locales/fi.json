@@ -1,0 +1,157 @@
+{
+  "ai": {
+    "cancel": "Peruuta",
+    "delete": "Poista",
+    "edit": "Muokkaa",
+    "installed": "Asennettu",
+    "name": "Nimi",
+    "save": "Tallenna",
+    "translators": "Kääntäjät"
+  },
+  "collections": {
+    "addToPlaylist": "Lisää soittolistaan",
+    "cancel": "Peruuta",
+    "create": "Luo",
+    "done": "Valmis",
+    "edit": "Muokkaa",
+    "favorite": "Lisää suosikkeihin",
+    "favorites": "Suosikit",
+    "newPlaylist": "Uusi soittolista",
+    "rename": "Nimeä uudelleen",
+    "save": "Tallenna"
+  },
+  "devices": {
+    "copied": "Kopioitu",
+    "kind": {
+      "history": "Historia",
+      "settings": "Asetukset"
+    },
+    "off": "Pois päältä",
+    "rename": "Nimeä uudelleen",
+    "save": "Tallenna",
+    "syncing": "Synkronoidaan..."
+  },
+  "extensions": {
+    "addRepo": "Lisää",
+    "cancel": "Peruuta",
+    "install": "Asenna",
+    "nsfwBadge": "18+",
+    "refresh": "Päivitä",
+    "settings": "Asetukset",
+    "tab": {
+      "browse": "Selaa",
+      "installed": "Asennettu"
+    },
+    "title": "Laajennukset",
+    "uninstall": "Poista asennus",
+    "update": "Päivitä",
+    "upToDate": "Asennettu"
+  },
+  "home": {
+    "clearHistory": "Tyhjennä historia"
+  },
+  "library": {
+    "addFolder": "Lisää kansio",
+    "emptyTitle": "Kirjastosi on tyhjä",
+    "media": {
+      "manga": "Manga",
+      "music": "Music"
+    },
+    "openPlay": "Toista",
+    "play": "Toista",
+    "shuffle": "Sekoita",
+    "title": "Kirjasto",
+    "view": {
+      "albums": "Albumit",
+      "artists": "Artistit",
+      "favorites": "Suosikit",
+      "playlists": "Soittolistat"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Lisää kirjastoon",
+    "downloads": "Lataukset",
+    "downloadState": {
+      "done": "Ladattu",
+      "downloading": "Ladataan",
+      "failed": "Failed"
+    },
+    "inLibraryBadge": "Kirjastossa",
+    "list": {
+      "latest": "Viimeisimmät",
+      "popular": "Suositut",
+      "search": "Haku"
+    },
+    "loading": "Ladataan…",
+    "nextChapter": "Seuraava luku",
+    "pauseDownloads": "Pysäytä",
+    "previousChapter": "Edellinen",
+    "readingMode": "Lukutila",
+    "removeFromLibrary": "Kirjastossa",
+    "resumeDownloads": "Jatka",
+    "status": {
+      "cancelled": "Peruttu",
+      "completed": "Päättynyt",
+      "hiatus": "Tauolla",
+      "ongoing": "Jatkuva",
+      "publishingFinished": "Julkaiseminen päättynyt"
+    },
+    "today": "Tänään",
+    "updateLibrary": "Päivitä kirjasto",
+    "updates": "Päivitykset",
+    "yesterday": "Eilen"
+  },
+  "mcp": {
+    "copied": "Kopioitu",
+    "copy": "Kopioi"
+  },
+  "nav": {
+    "home": "Koti",
+    "library": "Kirjasto",
+    "search": "Haku",
+    "settings": "Asetukset"
+  },
+  "novel": {
+    "fontSize": "Kirjasimen koko"
+  },
+  "player": {
+    "addToPlaylist": "Lisää soittolistaan",
+    "favorite": "Lisää suosikkeihin",
+    "next": "Seuraava",
+    "nowPlaying": "Now playing",
+    "pause": "Pysäytä",
+    "play": "Toista",
+    "previous": "Edellinen",
+    "seek": "Etsi",
+    "shuffle": "Sekoita",
+    "upNext": "Seuraavaksi"
+  },
+  "search": {
+    "title": "Haku"
+  },
+  "settings": {
+    "about": "Tietoja",
+    "appearance": "Ulkonäkö",
+    "backup": "Varmuuskopioi",
+    "cancel": "Peruuta",
+    "confirmRestore": "Palauta",
+    "createBackup": "Luo varmuuskopio",
+    "extensions": "Laajennukset",
+    "language": "Kieli",
+    "manga": "Manga",
+    "theme": "Teema",
+    "themeDark": "Päällä",
+    "themeLight": "Pois päältä",
+    "themeSystem": "Seuraa järjestelmää",
+    "title": "Asetukset",
+    "updateEvery": {
+      "0": "Ei koskaan",
+      "6": "Kuuden tunnin välein",
+      "12": "12 tunnin välein",
+      "24": "Päivittäin",
+      "48": "Kahden päivän välein",
+      "168": "Viikoittain"
+    },
+    "version": "Versio"
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "ai": {
+    "cancel": "Betal bike",
+    "delete": "Rake",
+    "edit": "Serast bike",
+    "name": "Nav"
+  },
+  "collections": {
+    "cancel": "Betal bike",
+    "edit": "Serast bike"
+  },
+  "devices": {
+    "kind": {
+      "history": "Dîrok",
+      "settings": "Miheng"
+    },
+    "off": "Girtî"
+  },
+  "extensions": {
+    "addRepo": "Nû",
+    "cancel": "Betal bike",
+    "install": "Daxîne",
+    "refresh": "Nû bike",
+    "settings": "Miheng",
+    "title": "Pêvek"
+  },
+  "library": {
+    "title": "Pirtûkxane"
+  },
+  "manga": {
+    "addToLibrary": "Têxa pirtûkxaneyê",
+    "downloads": "Daxistin",
+    "downloadState": {
+      "done": "Daxistî"
+    },
+    "list": {
+      "search": "Bigere"
+    },
+    "loading": "Tê daxistin…",
+    "nextChapter": "Beşa werê",
+    "pauseDownloads": "Bisekine",
+    "resumeDownloads": "Bidomîne",
+    "today": "Îro",
+    "updateLibrary": "Pirtûkxaneyê nû bike",
+    "updates": "Beşên Nû"
+  },
+  "nav": {
+    "library": "Pirtûkxane",
+    "search": "Bigere",
+    "settings": "Miheng"
+  },
+  "player": {
+    "next": "Pêşve",
+    "pause": "Bisekine"
+  },
+  "search": {
+    "title": "Bigere"
+  },
+  "settings": {
+    "about": "Agahî",
+    "appearance": "Rûkar",
+    "cancel": "Betal bike",
+    "confirmRestore": "Vegerîne",
+    "extensions": "Pêvek",
+    "language": "Ziman",
+    "theme": "Tema",
+    "themeDark": "Tarî",
+    "themeLight": "Ronak",
+    "themeSystem": "Pergal",
+    "title": "Miheng",
+    "updateEvery": {
+      "0": "Tu carî",
+      "6": "Her 6 saetan",
+      "12": "Her 12 saetan",
+      "24": "Rojane",
+      "48": "Her 2 rojan",
+      "168": "Heftane"
+    }
+  }
+}

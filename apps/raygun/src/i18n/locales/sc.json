@@ -1,0 +1,121 @@
+{
+  "ai": {
+    "cancel": "Annulla",
+    "delete": "Iscantzella",
+    "edit": "Modìfica",
+    "installed": "Installadas",
+    "name": "Nùmene",
+    "save": "Sarva"
+  },
+  "collections": {
+    "cancel": "Annulla",
+    "create": "Crea",
+    "edit": "Modìfica",
+    "save": "Sarva"
+  },
+  "devices": {
+    "kind": {
+      "history": "Cronologia",
+      "settings": "Impostatziones"
+    },
+    "off": "Istudadu",
+    "save": "Sarva"
+  },
+  "extensions": {
+    "addRepo": "Annanghe",
+    "cancel": "Annulla",
+    "install": "Installa",
+    "nsfwBadge": "18+",
+    "refresh": "Annoa",
+    "settings": "Impostatziones",
+    "tab": {
+      "browse": "Esplora",
+      "installed": "Installadas"
+    },
+    "title": "Estensiones",
+    "uninstall": "Disinstalla",
+    "update": "Agiorna",
+    "upToDate": "Installadas"
+  },
+  "home": {
+    "clearHistory": "Isbòida sa cronologia"
+  },
+  "library": {
+    "emptyTitle": "Sa biblioteca tua est bòida",
+    "media": {
+      "manga": "Elementos de sa biblioteca"
+    },
+    "title": "Biblioteca"
+  },
+  "manga": {
+    "addToLibrary": "Annanghe a sa biblioteca",
+    "chapters_one": "{{count}} capìtulu",
+    "chapters_other": "{{count}} capìtulos",
+    "downloads": "Iscarrigamentos",
+    "downloadState": {
+      "done": "Iscarrigados",
+      "downloading": "Iscarrighende"
+    },
+    "inLibraryBadge": "In sa biblioteca",
+    "list": {
+      "latest": "Ùrtimos",
+      "popular": "Populare",
+      "search": "Chirca"
+    },
+    "loading": "Carrighende…",
+    "nextChapter": "Capìtulu imbeniente",
+    "pauseDownloads": "Pone in pàusa",
+    "readingMode": "Modalidade de leghidura",
+    "removeFromLibrary": "In sa biblioteca",
+    "resumeDownloads": "Sighi",
+    "status": {
+      "cancelled": "Annullada",
+      "completed": "Acabadu",
+      "hiatus": "In pàusa",
+      "ongoing": "In cursu",
+      "publishingFinished": "Publicatzione acabada"
+    },
+    "today": "Oe",
+    "updateLibrary": "Agiorna sa biblioteca",
+    "updates": "Agiornamentos"
+  },
+  "mcp": {
+    "copy": "Còpia"
+  },
+  "nav": {
+    "library": "Biblioteca",
+    "search": "Chirca",
+    "settings": "Impostatziones"
+  },
+  "player": {
+    "next": "Imbeniente",
+    "pause": "Pone in pàusa"
+  },
+  "search": {
+    "title": "Chirca"
+  },
+  "settings": {
+    "about": "Informatziones",
+    "appearance": "Aparèntzia",
+    "cancel": "Annulla",
+    "confirmRestore": "Riprìstina",
+    "createBackup": "Crea una còpia de seguresa",
+    "extensions": "Estensiones",
+    "language": "Limba",
+    "manga": "Elementos de sa biblioteca",
+    "theme": "Tema",
+    "themeDark": "Allutu",
+    "themeLight": "Istudadu",
+    "themeSystem": "Sighi su sistema",
+    "title": "Impostatziones",
+    "updateEvery": {
+      "0": "Mai",
+      "6": "Cada 6 oras",
+      "12": "Cada 12 oras",
+      "24": "Cada die",
+      "48": "Cada 2 dies",
+      "168": "Cada chida"
+    },
+    "version": "Versione"
+  }
+}

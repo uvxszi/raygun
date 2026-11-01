@@ -1,0 +1,143 @@
+{
+  "ai": {
+    "cancel": "Скасаваць",
+    "delete": "Выдаліць",
+    "edit": "Рэдагаваць",
+    "installed": "Усталявана",
+    "name": "Назва",
+    "save": "Захаваць"
+  },
+  "collections": {
+    "cancel": "Скасаваць",
+    "create": "Стварыць",
+    "done": "Гатова",
+    "edit": "Рэдагаваць",
+    "favorite": "Дадаць у абранае",
+    "favorites": "Абраныя",
+    "save": "Захаваць",
+    "unfavorite": "Прыбраць з абранага"
+  },
+  "devices": {
+    "kind": {
+      "history": "Гісторыя",
+      "settings": "Налады"
+    },
+    "off": "Выключана",
+    "save": "Захаваць"
+  },
+  "extensions": {
+    "addRepo": "Дадаць",
+    "cancel": "Скасаваць",
+    "install": "Усталяваць",
+    "nsfwBadge": "18+",
+    "refresh": "Абнавіць",
+    "settings": "Налады",
+    "tab": {
+      "browse": "Агляд",
+      "installed": "Усталявана"
+    },
+    "title": "Пашырэнні",
+    "uninstall": "Дэінсталяваць",
+    "update": "Абнавіць",
+    "upToDate": "Усталявана"
+  },
+  "home": {
+    "clearHistory": "Ачысціць гісторыю"
+  },
+  "library": {
+    "emptyTitle": "Ваша бібліятэка пустая",
+    "media": {
+      "manga": "Манга",
+      "music": "Музыка"
+    },
+    "openPlay": "Прайграць",
+    "play": "Прайграць",
+    "title": "Бібліятэка",
+    "view": {
+      "favorites": "Абраныя",
+      "tracks": "Трэкі"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Дадаць у бібліятэку",
+    "chapters_few": "{{count}} раздзелы",
+    "chapters_many": "{{count}} раздзелаў",
+    "chapters_one": "{{count}} раздзел",
+    "chapters_other": "{{count}} раздзелаў",
+    "downloads": "Пампоўкі",
+    "downloadState": {
+      "done": "Спампована",
+      "downloading": "Пампуецца",
+      "failed": "Няўдала"
+    },
+    "inLibraryBadge": "У бібліятэцы",
+    "list": {
+      "latest": "Апошнія",
+      "popular": "Папулярнае",
+      "search": "Пошук"
+    },
+    "loading": "Загрузка…",
+    "nextChapter": "Наступны раздзел",
+    "pauseDownloads": "Паўза",
+    "previousChapter": "Назад",
+    "readingMode": "Рэжым чытання",
+    "removeFromLibrary": "У бібліятэцы",
+    "resumeDownloads": "Узнавіць",
+    "source": "Крыніца",
+    "status": {
+      "cancelled": "Адменена",
+      "completed": "Скончана",
+      "hiatus": "Замарожана",
+      "ongoing": "Выходзіць",
+      "publishingFinished": "Публікацыя завершана"
+    },
+    "today": "Сёння",
+    "updateLibrary": "Абнавіць бібліятэку",
+    "updates": "Новае"
+  },
+  "mcp": {
+    "copy": "Скапіяваць"
+  },
+  "nav": {
+    "home": "Дамашняя",
+    "library": "Бібліятэка",
+    "search": "Пошук",
+    "settings": "Налады"
+  },
+  "player": {
+    "favorite": "Дадаць у абранае",
+    "next": "Далей",
+    "pause": "Паўза",
+    "play": "Прайграць",
+    "previous": "Назад",
+    "unfavorite": "Прыбраць з абранага"
+  },
+  "search": {
+    "title": "Пошук"
+  },
+  "settings": {
+    "about": "Пра праграму",
+    "appearance": "Выгляд",
+    "backup": "Рэзервовае капіраванне",
+    "cancel": "Скасаваць",
+    "confirmRestore": "Аднавіць",
+    "createBackup": "Зарэзерваваць",
+    "extensions": "Пашырэнні",
+    "language": "Мова",
+    "manga": "Манга",
+    "theme": "Тэма",
+    "themeDark": "Цёмная",
+    "themeLight": "Светлая",
+    "themeSystem": "Сістэмная",
+    "title": "Налады",
+    "updateEvery": {
+      "0": "Ніколі",
+      "6": "Кожныя 6 гадзін",
+      "12": "Кожныя 12 гадзін",
+      "24": "Штодня",
+      "48": "Кожныя 2 дні",
+      "168": "Штотыдзень"
+    },
+    "version": "Версія"
+  }
+}

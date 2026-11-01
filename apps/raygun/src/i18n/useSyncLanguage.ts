@@ -1,11 +1,15 @@
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
-export const useSyncLanguage = (language: string | undefined) => {
+import { changeLanguage } from '.';
+import { resolveLanguage } from './languages';
+
+/** Keeps the UI in the language the setting asks for (`system` follows the device). */
+export const useSyncLanguage = (setting: string | undefined) => {
   const { i18n } = useTranslation();
   useEffect(() => {
-    if (language && i18n.language !== language) {
-      void i18n.changeLanguage(language);
-    }
-  }, [i18n, language]);
+    if (setting === undefined) return;
+    const tag = resolveLanguage(setting);
+    if (i18n.language !== tag) void changeLanguage(tag);
+  }, [i18n, setting]);
 };

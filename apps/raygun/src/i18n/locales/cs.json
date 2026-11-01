@@ -1,0 +1,166 @@
+{
+  "ai": {
+    "cancel": "Zrušit",
+    "delete": "Odstranit",
+    "edit": "Upravit",
+    "installed": "Nainstalováno",
+    "name": "Název",
+    "save": "Uložit",
+    "translators": "Překladatelé"
+  },
+  "collections": {
+    "addToPlaylist": "Přidat do playlistu",
+    "cancel": "Zrušit",
+    "create": "Vytvořit",
+    "done": "Hotovo",
+    "edit": "Upravit",
+    "favorite": "Přidat do oblíbených",
+    "favorites": "Oblíbené",
+    "newPlaylist": "Nový playlist",
+    "rename": "Přejmenovat",
+    "save": "Uložit",
+    "unfavorite": "Odebrat z oblíbených"
+  },
+  "devices": {
+    "copied": "Zkopírováno",
+    "kind": {
+      "history": "Historie",
+      "settings": "Nastavení"
+    },
+    "off": "Vypnuto",
+    "rename": "Přejmenovat",
+    "save": "Uložit",
+    "syncing": "Synchronizace..."
+  },
+  "extensions": {
+    "addRepo": "Přidat",
+    "cancel": "Zrušit",
+    "install": "Instalovat",
+    "nsfwBadge": "18+",
+    "refresh": "Obnovit",
+    "settings": "Nastavení",
+    "tab": {
+      "browse": "Procházet",
+      "installed": "Nainstalováno"
+    },
+    "title": "Rozšíření",
+    "uninstall": "Odinstalovat",
+    "update": "Aktualizovat",
+    "upToDate": "Nainstalováno"
+  },
+  "home": {
+    "clearHistory": "Vymazat historii"
+  },
+  "library": {
+    "addFolder": "Přidat složku",
+    "emptyTitle": "Vaše knihovna je prázdná",
+    "media": {
+      "manga": "Manga",
+      "music": "Hudba"
+    },
+    "openPlay": "Přehrát",
+    "play": "Přehrát",
+    "shuffle": "Náhodně",
+    "title": "Knihovna",
+    "view": {
+      "albums": "Alba",
+      "artists": "Interpreti",
+      "favorites": "Oblíbené",
+      "playlists": "Playlisty",
+      "tracks": "Stopy"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Přidat do knihovny",
+    "chapters_few": "{{count}} kapitoly",
+    "chapters_many": "{{count}} kapitol",
+    "chapters_one": "{{count}} kapitola",
+    "chapters_other": "{{count}} kapitol",
+    "downloads": "Stahování",
+    "downloadState": {
+      "done": "Staženo",
+      "downloading": "Stahování",
+      "failed": "Neúspěšné"
+    },
+    "inLibraryBadge": "V knihovně",
+    "list": {
+      "latest": "Nejnovější",
+      "popular": "Populární",
+      "search": "Vyhledávání"
+    },
+    "loading": "Načítání…",
+    "nextChapter": "Následující kapitola",
+    "pageAlt": "Strana {{page}}",
+    "pauseDownloads": "Pauza",
+    "previousChapter": "Minulý",
+    "readingMode": "Režim čtení",
+    "removeFromLibrary": "V knihovně",
+    "resumeDownloads": "Pokračovat",
+    "source": "Zdroj",
+    "status": {
+      "cancelled": "Zrušeno",
+      "completed": "Dokončeno",
+      "hiatus": "Má pauzu",
+      "ongoing": "Vycházející",
+      "publishingFinished": "Zveřejnění dokončeno"
+    },
+    "today": "Dnes",
+    "updateLibrary": "Aktualizovat knihovnu",
+    "updates": "Aktualizace",
+    "yesterday": "Včera"
+  },
+  "mcp": {
+    "copied": "Zkopírováno",
+    "copy": "Kopírovat"
+  },
+  "nav": {
+    "home": "Domů",
+    "library": "Knihovna",
+    "search": "Vyhledávání",
+    "settings": "Nastavení"
+  },
+  "novel": {
+    "fontSize": "Velikost písma"
+  },
+  "player": {
+    "addToPlaylist": "Přidat do playlistu",
+    "favorite": "Přidat do oblíbených",
+    "next": "Další",
+    "nowPlaying": "Now playing",
+    "pause": "Pauza",
+    "play": "Přehrát",
+    "previous": "Minulý",
+    "seek": "Vyhledat",
+    "shuffle": "Náhodně",
+    "unfavorite": "Odebrat z oblíbených",
+    "upNext": "Další"
+  },
+  "search": {
+    "title": "Vyhledávání"
+  },
+  "settings": {
+    "about": "O aplikaci",
+    "appearance": "Vzhled",
+    "backup": "Záloha",
+    "cancel": "Zrušit",
+    "confirmRestore": "Obnovit",
+    "createBackup": "Vytvořit zálohu",
+    "extensions": "Rozšíření",
+    "language": "Jazyk",
+    "manga": "Manga",
+    "theme": "Vzhled",
+    "themeDark": "Tmavý",
+    "themeLight": "Světlý",
+    "themeSystem": "Systém",
+    "title": "Nastavení",
+    "updateEvery": {
+      "0": "Nikdy",
+      "6": "Každých 6 hodiny",
+      "12": "Každých 12 hodiny",
+      "24": "Denně",
+      "48": "Každé 2 dny",
+      "168": "Týdně"
+    },
+    "version": "Verze"
+  }
+}

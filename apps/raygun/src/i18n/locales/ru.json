@@ -1,0 +1,179 @@
+{
+  "ai": {
+    "cancel": "Отмена",
+    "delete": "Удалить",
+    "downloading": "Загрузка {{name}}",
+    "edit": "Редактировать",
+    "installed": "Установлено",
+    "name": "Название",
+    "save": "Сохранить",
+    "translators": "Переводчики"
+  },
+  "collections": {
+    "addToPlaylist": "Добавить в плейлист",
+    "cancel": "Отмена",
+    "create": "Создать",
+    "delete": "Удалить плейлист",
+    "done": "Готово",
+    "edit": "Редактировать",
+    "favorite": "Добавить в Избранное",
+    "favorites": "Любимые",
+    "newPlaylist": "Новый плейлист",
+    "rename": "Переименовать",
+    "save": "Сохранить",
+    "unfavorite": "Удалить из Избранного"
+  },
+  "devices": {
+    "copied": "Скопировано",
+    "kind": {
+      "history": "История",
+      "settings": "Настройки"
+    },
+    "off": "Выключено",
+    "rename": "Переименовать",
+    "save": "Сохранить",
+    "syncing": "Синхронизация..."
+  },
+  "extensions": {
+    "addRepo": "Добавить",
+    "cancel": "Отмена",
+    "install": "Установить",
+    "nsfwBadge": "Для взрослых (18+)",
+    "nuclearBadge": "Nuclear",
+    "refresh": "Обновить",
+    "repoUrl": "URL репозитория",
+    "settings": "Настройки",
+    "tab": {
+      "browse": "Поисковик",
+      "installed": "Установлено",
+      "repos": "Репозитории"
+    },
+    "title": "Расширения",
+    "uninstall": "Удалить",
+    "update": "Обновить",
+    "upToDate": "Установлено"
+  },
+  "home": {
+    "clearHistory": "Очистить историю"
+  },
+  "library": {
+    "addFolder": "Добавить папку",
+    "emptyTitle": "Ваша библиотека пуста",
+    "media": {
+      "manga": "Манга",
+      "music": "Музыка",
+      "novel": "Новеллы"
+    },
+    "openPlay": "Воспроизвести",
+    "openQueue": "Добавить в очередь",
+    "play": "Воспроизвести",
+    "playAll": "Воспроизвести все",
+    "shuffle": "Перемешать",
+    "title": "Библиотека",
+    "view": {
+      "albums": "Альбомы",
+      "artists": "Исполнители",
+      "favorites": "Любимые",
+      "playlists": "Плейлисты",
+      "tracks": "Треки"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Добавить",
+    "chapters_few": "{{count}} главы",
+    "chapters_many": "{{count}} глав",
+    "chapters_one": "{{count}} глава",
+    "chapters_other": "{{count}} глав",
+    "downloads": "Загрузки",
+    "downloadState": {
+      "done": "Загружено",
+      "downloading": "Загружается",
+      "failed": "Неудачный"
+    },
+    "inLibraryBadge": "Добавлено",
+    "list": {
+      "latest": "Последние",
+      "popular": "Популярное",
+      "search": "Поиск"
+    },
+    "loading": "Загрузка...",
+    "nextChapter": "Следующая глава",
+    "pageAlt": "Страница {{page}}",
+    "pauseDownloads": "Пауза",
+    "previousChapter": "Предыдущее",
+    "readingMode": "Режим чтения",
+    "removeFromLibrary": "Добавлено",
+    "resumeDownloads": "Продолжить",
+    "source": "Источник",
+    "status": {
+      "cancelled": "Отменено",
+      "completed": "Завершено",
+      "hiatus": "Перерыв",
+      "ongoing": "Выпускается",
+      "publishingFinished": "Публикация завершена"
+    },
+    "today": "Сегодня",
+    "updateLibrary": "Обновить библиотеку",
+    "updates": "Обновления",
+    "yesterday": "Вчера"
+  },
+  "mcp": {
+    "copied": "Скопировано",
+    "copy": "Копировать"
+  },
+  "nav": {
+    "home": "Главная",
+    "library": "Библиотека",
+    "search": "Поиск",
+    "settings": "Настройки"
+  },
+  "novel": {
+    "fontSize": "Размер шрифта",
+    "importing": "Импортирование..."
+  },
+  "player": {
+    "addToPlaylist": "Добавить в плейлист",
+    "favorite": "Добавить в Избранное",
+    "lyrics": "Тексты песен",
+    "next": "Далее",
+    "nowPlaying": "Now playing",
+    "pause": "Пауза",
+    "play": "Воспроизвести",
+    "previous": "Предыдущее",
+    "seek": "Перемотать",
+    "shuffle": "Перемешать",
+    "unfavorite": "Удалить из Избранного",
+    "upNext": "Далее"
+  },
+  "search": {
+    "searching": "Поиск...",
+    "title": "Поиск"
+  },
+  "settings": {
+    "about": "Информация",
+    "appearance": "Оформление",
+    "backup": "Резервная копия",
+    "cancel": "Отмена",
+    "confirmRestore": "Восстановить",
+    "createBackup": "Создать резервную копию",
+    "extensions": "Расширения",
+    "importing": "Импортирование...",
+    "language": "Язык",
+    "manga": "Манга",
+    "storage": "Хранилище",
+    "theme": "Тема",
+    "themeDark": "Тёмная",
+    "themeLight": "Светлая",
+    "themeSystem": "Система",
+    "title": "Настройки",
+    "updateEvery": {
+      "0": "Никогда",
+      "6": "Каждые 6 часов",
+      "12": "Каждые 12 часов",
+      "24": "Ежедневно",
+      "48": "Каждые 2 дня",
+      "168": "Еженедельно"
+    },
+    "version": "Версия"
+  }
+}

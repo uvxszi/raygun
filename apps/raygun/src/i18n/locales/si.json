@@ -1,0 +1,94 @@
+{
+  "ai": {
+    "cancel": "අවලංගු කරන්න",
+    "delete": "මකන්න",
+    "name": "Name",
+    "translators": "Translators"
+  },
+  "collections": {
+    "addToPlaylist": "ධාවන ලැයිස්තුවට එක් කරන්න",
+    "cancel": "අවලංගු කරන්න",
+    "done": "අවසන්",
+    "favorite": "Add to favorites",
+    "favorites": "කැමති දෑ",
+    "newPlaylist": "නව ධාවන ලැයිස්තුවක්",
+    "rename": "නැවත නම් කරන්න"
+  },
+  "devices": {
+    "copied": "Copied",
+    "kind": {
+      "history": "History",
+      "settings": "Settings"
+    },
+    "rename": "නැවත නම් කරන්න",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "cancel": "අවලංගු කරන්න",
+    "settings": "Settings",
+    "update": "Update"
+  },
+  "library": {
+    "addFolder": "Add folder",
+    "media": {
+      "music": "Music"
+    },
+    "shuffle": "කලවම් කරන්න",
+    "title": "ලයිබ්‍රරිය",
+    "view": {
+      "albums": "ඇල්බම්",
+      "artists": "ගායකයන්",
+      "favorites": "කැමති දෑ",
+      "playlists": "ප්ලේලිස්ට්"
+    }
+  },
+  "manga": {
+    "downloadState": {
+      "failed": "Failed"
+    },
+    "list": {
+      "search": "Search"
+    },
+    "status": {
+      "cancelled": "Cancelled",
+      "completed": "Completed"
+    },
+    "today": "Today",
+    "yesterday": "Yesterday"
+  },
+  "mcp": {
+    "copied": "Copied"
+  },
+  "nav": {
+    "home": "Home",
+    "library": "ලයිබ්‍රරිය",
+    "search": "Search",
+    "settings": "Settings"
+  },
+  "player": {
+    "addToPlaylist": "ධාවන ලැයිස්තුවට එක් කරන්න",
+    "favorite": "Add to favorites",
+    "next": "Next",
+    "nowPlaying": "Now playing",
+    "shuffle": "කලවම් කරන්න",
+    "upNext": "Up Next"
+  },
+  "search": {
+    "title": "Search"
+  },
+  "settings": {
+    "about": "පිළිබඳ",
+    "backup": "Backup",
+    "cancel": "අවලංගු කරන්න",
+    "confirmRestore": "Restore",
+    "theme": "Theme",
+    "themeDark": "Dark",
+    "themeLight": "Light",
+    "themeSystem": "System",
+    "title": "Settings",
+    "updateEvery": {
+      "24": "Daily",
+      "168": "Weekly"
+    }
+  }
+}

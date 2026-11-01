@@ -374,6 +374,8 @@ export type ExtensionInfo = {
 	name: string,
 	version: string,
 	description: string | null,
+	/**  `safe`, `suggestive` or `nsfw`; providers of `nsfw` ones are hidden while NSFW is off. */
+	contentRating: string,
 	origin: ExtensionOrigin,
 	status: ExtensionStatus,
 	/**  Why the extension failed to load, when it did. */
@@ -595,6 +597,8 @@ export type MangaTitleView = {
 	status: string,
 	url: string | null,
 	inLibrary: boolean,
+	/**  An adult title while NSFW content is hidden: the UI shows a notice instead (M35). */
+	hiddenNsfw: boolean,
 	/**  In the source's order (usually newest first). */
 	chapters: MangaChapterInfo[],
 	/**  Where "Continue" opens: the partly read chapter, else the first unread after the last read. */
@@ -878,7 +882,7 @@ export type SearchResults = {
  *  A change to a single setting. The tagged shape (`{ key, value }`) lets the UI send only valid
  *  key/value pairs, and doubles as the format of a stored row.
  */
-export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs };
+export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -894,6 +898,8 @@ export type Settings = {
 	mangaUpdateHours: number,
 	/**  How novels are set (M31). */
 	novelReader: NovelReaderPrefs,
+	/**  Shows NSFW (18+) extensions and content; off by default (M35). */
+	showNsfw: boolean,
 };
 
 /**  Titles of one Mihon source that Raygun has no source for. */

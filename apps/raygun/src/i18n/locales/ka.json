@@ -1,0 +1,107 @@
+{
+  "ai": {
+    "cancel": "გააუქმე",
+    "delete": "წაშლა",
+    "edit": "რედაქტირება",
+    "installed": "დაისნტალირებული",
+    "name": "სახელი",
+    "save": "შენახვა"
+  },
+  "collections": {
+    "cancel": "გააუქმე",
+    "edit": "რედაქტირება",
+    "save": "შენახვა"
+  },
+  "devices": {
+    "kind": {
+      "history": "ისტორია",
+      "settings": "პარამეტრები"
+    },
+    "off": "ხელით",
+    "save": "შენახვა"
+  },
+  "extensions": {
+    "addRepo": "დამატება",
+    "cancel": "გააუქმე",
+    "install": "დაინსტალირება",
+    "nsfwBadge": "18+",
+    "refresh": "განახლება",
+    "settings": "პარამეტრები",
+    "tab": {
+      "browse": "დათვალიერება",
+      "installed": "დაისნტალირებული"
+    },
+    "title": "გავრცობები",
+    "uninstall": "წაშლა",
+    "update": "განაცლება",
+    "upToDate": "დაისნტალირებული"
+  },
+  "library": {
+    "emptyTitle": "თქვენი ბიბლიოთეკა ცარიელია",
+    "media": {
+      "manga": "ბიბლიოთეკის ჩანაწერები"
+    },
+    "title": "ბიბლიოთეკა"
+  },
+  "manga": {
+    "addToLibrary": "ბიბლიოთეკაში დამატება",
+    "downloads": "გადმოწერები",
+    "downloadState": {
+      "downloading": "იტვირთება"
+    },
+    "inLibraryBadge": "ბიბლიოთეკაშია",
+    "list": {
+      "latest": "უკანასკნელი",
+      "search": "ძებნა"
+    },
+    "loading": "იტვირთება…",
+    "nextChapter": "შემდეგი თავი",
+    "pauseDownloads": "პაუზა",
+    "readingMode": "კითხვის რეჟიმი",
+    "removeFromLibrary": "ბიბლიოთეკაშია",
+    "resumeDownloads": "გაგრძელება",
+    "status": {
+      "completed": "შესრულებულია",
+      "ongoing": "მიმდინარე"
+    },
+    "updateLibrary": "ბიბლიოთეკის განახლება",
+    "updates": "განახლებები"
+  },
+  "mcp": {
+    "copy": "კოპირება"
+  },
+  "nav": {
+    "library": "ბიბლიოთეკა",
+    "search": "ძებნა",
+    "settings": "პარამეტრები"
+  },
+  "player": {
+    "pause": "პაუზა"
+  },
+  "search": {
+    "title": "ძებნა"
+  },
+  "settings": {
+    "about": "ინფორმაცია",
+    "appearance": "გარეგნობა",
+    "cancel": "გააუქმე",
+    "confirmRestore": "აღდგენა",
+    "createBackup": "რეზერვის შექმნა",
+    "extensions": "გავრცობები",
+    "manga": "ბიბლიოთეკის ჩანაწერები",
+    "theme": "თემა",
+    "themeDark": "ჩართული",
+    "themeLight": "მსუბუქი",
+    "themeSystem": "სისტემური",
+    "title": "პარამეტრები",
+    "updateEvery": {
+      "0": "არასდროს",
+      "6": "ყოველ 6 საათში",
+      "12": "ყოველ 12 საათში",
+      "24": "ყოველდღე",
+      "48": "ყოველ 2 დღეში ერთხელ",
+      "168": "ყოველ კვირა"
+    },
+    "version": "ვერსია"
+  }
+}

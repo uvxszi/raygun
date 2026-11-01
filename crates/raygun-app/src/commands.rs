@@ -64,11 +64,18 @@ pub async fn settings_update(
     change: SettingChange,
 ) -> Result<Settings, String> {
     let theme_changed = matches!(change, SettingChange::Theme(_));
+    let nsfw_changed = matches!(change, SettingChange::ShowNsfw(_));
     let settings = settings::update(&db.0, change)
         .await
         .map_err(|error| error.to_string())?;
     if theme_changed {
         crate::system_ui::apply_theme(&app, settings.theme);
+    }
+    if nsfw_changed {
+        use tauri::Manager;
+        app.state::<Arc<ExtensionService>>()
+            .set_show_nsfw(settings.show_nsfw)
+            .await;
     }
     Ok(settings)
 }

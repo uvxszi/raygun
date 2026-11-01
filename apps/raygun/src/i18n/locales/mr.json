@@ -1,0 +1,93 @@
+{
+  "ai": {
+    "cancel": "रद्द करा",
+    "delete": "हटवा",
+    "edit": "सुधहरण",
+    "installed": "स्थापित झाले",
+    "name": "नाव",
+    "save": "जतन करा"
+  },
+  "collections": {
+    "cancel": "रद्द करा",
+    "edit": "सुधहरण",
+    "save": "जतन करा"
+  },
+  "devices": {
+    "kind": {
+      "history": "इतिहास",
+      "settings": "सेटिंग्ज"
+    },
+    "off": "बंद",
+    "save": "जतन करा"
+  },
+  "extensions": {
+    "addRepo": "जोडा",
+    "cancel": "रद्द करा",
+    "install": "स्थापित करा",
+    "refresh": "रीफ्रेश",
+    "settings": "सेटिंग्ज",
+    "tab": {
+      "installed": "स्थापित झाले"
+    },
+    "title": "एक्स्टेन्शन",
+    "uninstall": "विस्थापित करा",
+    "update": "अध्यातणीत करा",
+    "upToDate": "स्थापित झाले"
+  },
+  "library": {
+    "emptyTitle": "तुमची संग्रहालय खाली आहे",
+    "media": {
+      "manga": "लायब्ररी इंत्रिज"
+    },
+    "title": "संग्रहालय"
+  },
+  "manga": {
+    "downloads": "डाउनलोडस",
+    "downloadState": {
+      "done": "डाऊनलोड झाले",
+      "downloading": "डाउनलोड होत आहेत"
+    },
+    "list": {
+      "search": "शोध"
+    },
+    "loading": "लोड होत आहे …",
+    "nextChapter": "पुढील अध्याय",
+    "pauseDownloads": "विराम द्या",
+    "resumeDownloads": "सुरू करा",
+    "updateLibrary": "संग्रहालय अध्यातानित करा",
+    "updates": "अपडेट्स"
+  },
+  "nav": {
+    "library": "संग्रहालय",
+    "search": "शोध",
+    "settings": "सेटिंग्ज"
+  },
+  "player": {
+    "next": "पुढचं",
+    "pause": "विराम द्या"
+  },
+  "search": {
+    "title": "शोध"
+  },
+  "settings": {
+    "about": "ॲप बद्दल",
+    "appearance": "प्रदर्शन",
+    "cancel": "रद्द करा",
+    "confirmRestore": "पुनर्संचयित करा",
+    "extensions": "एक्स्टेन्शन",
+    "manga": "लायब्ररी इंत्रिज",
+    "theme": "थीम",
+    "themeDark": "डार्क",
+    "themeLight": "लाइट",
+    "themeSystem": "तंत्राचे अनुसरण करा",
+    "title": "सेटिंग्ज",
+    "updateEvery": {
+      "0": "कधीही नाही",
+      "6": "दर ६ तासाला",
+      "12": "दर १२ तासाला",
+      "24": "दररोज",
+      "48": "दर २ दिवसांत",
+      "168": "साप्ताहिक"
+    }
+  }
+}

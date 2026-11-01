@@ -1,0 +1,138 @@
+{
+  "ai": {
+    "cancel": "റദ്ദാക്കുക",
+    "delete": "ഇല്ലാതാക്കുക",
+    "edit": "തിരുത്തുക",
+    "name": "പേര്",
+    "save": "സേവ്",
+    "translators": "Translators"
+  },
+  "collections": {
+    "addToPlaylist": "പ്ലേലിസ്റ്റിൽ ചേർക്കുക",
+    "cancel": "റദ്ദാക്കുക",
+    "done": "കഴിഞ്ഞു",
+    "edit": "തിരുത്തുക",
+    "favorite": "Add to favorites",
+    "favorites": "പ്രിയപെട്ടത്",
+    "newPlaylist": "പുതിയ പ്ലേലിസ്റ്റ്",
+    "rename": "പേര് മാറ്റുക",
+    "save": "സേവ്"
+  },
+  "devices": {
+    "copied": "Copied",
+    "kind": {
+      "history": "ചരിത്രം",
+      "settings": "ക്രമീകരണങ്ങൾ"
+    },
+    "off": "ഓഫ്",
+    "rename": "പേര് മാറ്റുക",
+    "save": "സേവ്",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "addRepo": "ചേർക്കുക",
+    "cancel": "റദ്ദാക്കുക",
+    "install": "ഇൻസ്റ്റാൾ",
+    "nsfwBadge": "18+",
+    "refresh": "പുതുക്കുക",
+    "settings": "ക്രമീകരണങ്ങൾ",
+    "title": "വിപുലീകരണങ്ങൾ",
+    "uninstall": "അൺഇൻസ്റ്റാൾ",
+    "update": "അപ്ഡേറ്റ്"
+  },
+  "home": {
+    "clearHistory": "ചരിത്രം മായ്ക്കുക"
+  },
+  "library": {
+    "addFolder": "Add folder",
+    "media": {
+      "manga": "മാംഗ",
+      "music": "Music"
+    },
+    "openPlay": "പ്ലേയ്",
+    "play": "പ്ലേയ്",
+    "shuffle": "ഷഫിൾ",
+    "title": "ലൈബ്രറി",
+    "view": {
+      "albums": "ആൽബങ്ങൾ",
+      "artists": "ആർട്ടിസ്റ്റുകൾ",
+      "favorites": "പ്രിയപെട്ടത്",
+      "playlists": "പ്ലേലിസ്റ്റുകൾ",
+      "tracks": "ട്രാക്കുകൾ"
+    }
+  },
+  "manga": {
+    "chapters_one": "{{count}} അധ്യായം",
+    "chapters_other": "{{count}} അധ്യായങ്ങൾ",
+    "downloads": "ഇറക്കിവെച്ചത്",
+    "downloadState": {
+      "done": "ഡൗൺലോഡ് ചെയ്തു",
+      "downloading": "ഡൗൺലോഡ് ചെയ്യുന്നു",
+      "failed": "Failed"
+    },
+    "list": {
+      "search": "തിരയുക"
+    },
+    "loading": "ലോഡിങ്ങ്…",
+    "nextChapter": "അടുത്ത അധ്യായം",
+    "pauseDownloads": "വിരാമം",
+    "previousChapter": "മുമ്പത്തെ",
+    "resumeDownloads": "പുനരാരംഭിക്കുക",
+    "source": "സ്രോതസ്",
+    "status": {
+      "cancelled": "Cancelled",
+      "completed": "കണ്ടു തീർന്നു",
+      "ongoing": "തുടരുന്നു"
+    },
+    "today": "ഇന്ന്",
+    "updateLibrary": "ലൈബ്രറി അപ്ഡേറ്റ് ചെയ്യുക",
+    "updates": "അപ്ഡേറ്റുകൾ",
+    "yesterday": "ഇന്നലെ"
+  },
+  "mcp": {
+    "copied": "Copied",
+    "copy": "പകർത്തുക"
+  },
+  "nav": {
+    "home": "ഹോം",
+    "library": "ലൈബ്രറി",
+    "search": "തിരയുക",
+    "settings": "ക്രമീകരണങ്ങൾ"
+  },
+  "player": {
+    "addToPlaylist": "പ്ലേലിസ്റ്റിൽ ചേർക്കുക",
+    "favorite": "Add to favorites",
+    "next": "അടുത്തത്",
+    "nowPlaying": "Now playing",
+    "pause": "വിരാമം",
+    "play": "പ്ലേയ്",
+    "previous": "മുമ്പത്തെ",
+    "shuffle": "ഷഫിൾ",
+    "upNext": "Up Next"
+  },
+  "search": {
+    "title": "തിരയുക"
+  },
+  "settings": {
+    "about": "കുറിച്ച്",
+    "appearance": "വീക്ഷണം",
+    "backup": "ബാക്കപ്പ്",
+    "cancel": "റദ്ദാക്കുക",
+    "confirmRestore": "റിസ്റ്റോർ",
+    "extensions": "വിപുലീകരണങ്ങൾ",
+    "language": "ഭാഷ",
+    "manga": "മാംഗ",
+    "theme": "തീം",
+    "themeDark": "ഇരുണ്ട",
+    "themeLight": "പ്രകാശമുള്ളത്",
+    "themeSystem": "സിസ്റ്റം",
+    "title": "ക്രമീകരണങ്ങൾ",
+    "updateEvery": {
+      "6": "ഓരോ 6 മണിക്കൂറിലും",
+      "12": "ഓരോ 12 മണിക്കൂറിലും",
+      "24": "എല്ലാ ദിവസവും",
+      "48": "എല്ലാ 2 ദിവസവും",
+      "168": "ആഴ്ചയിൽ ഒരിക്കൽ"
+    }
+  }
+}

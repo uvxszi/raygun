@@ -1,0 +1,84 @@
+{
+  "ai": {
+    "cancel": "هەڵوەشاندنەوە",
+    "delete": "سڕینەوە",
+    "edit": "دەستکاری کردن",
+    "name": "ناو",
+    "save": "خەزێنە کردن"
+  },
+  "collections": {
+    "cancel": "هەڵوەشاندنەوە",
+    "edit": "دەستکاری کردن",
+    "save": "خەزێنە کردن"
+  },
+  "devices": {
+    "kind": {
+      "history": "تۆماری ڕابردوو",
+      "settings": "سازکارییەکان"
+    },
+    "off": "کوژاوە",
+    "save": "خەزێنە کردن"
+  },
+  "extensions": {
+    "addRepo": "زیادکردن",
+    "cancel": "هەڵوەشاندنەوە",
+    "install": "دامەزراندن",
+    "refresh": "فرێشکردنەوە",
+    "settings": "سازکارییەکان",
+    "title": "زیادکراوەکان"
+  },
+  "library": {
+    "emptyTitle": "تۆماری ڕابردووەکەت بەتاڵە",
+    "media": {
+      "manga": "مانگا"
+    },
+    "title": "کۆکراوەکان"
+  },
+  "manga": {
+    "addToLibrary": "کردنە ناو کۆکراوەکان",
+    "downloads": "داونلۆدەکان",
+    "downloadState": {
+      "downloading": "داونلۆدکردن"
+    },
+    "list": {
+      "search": "گەڕان"
+    },
+    "loading": "دۆخی بارکردن…",
+    "nextChapter": "چاپتەری داهاتوو",
+    "pauseDownloads": "ڕاگرتنی کاتی",
+    "readingMode": "دۆخی خوێندنەوە",
+    "resumeDownloads": "بەردەوام بوون",
+    "today": "ئەمڕۆ",
+    "updateLibrary": "نوێکردنەوەی کۆکراوەکان",
+    "updates": "نوێکارییەکان"
+  },
+  "nav": {
+    "library": "کۆکراوەکان",
+    "search": "گەڕان",
+    "settings": "سازکارییەکان"
+  },
+  "player": {
+    "next": "دواتر",
+    "pause": "ڕاگرتنی کاتی"
+  },
+  "search": {
+    "title": "گەڕان"
+  },
+  "settings": {
+    "about": "دەربارە",
+    "appearance": "شێوە",
+    "cancel": "هەڵوەشاندنەوە",
+    "confirmRestore": "گەڕاندنەوە",
+    "extensions": "زیادکراوەکان",
+    "language": "زمان",
+    "manga": "مانگا",
+    "theme": "ڕووکار",
+    "themeDark": "داگیرساو",
+    "themeLight": "کوژاوە",
+    "themeSystem": "وەک ڕووکاری سیستەم",
+    "title": "سازکارییەکان",
+    "updateEvery": {
+      "0": "هەرگیز"
+    }
+  }
+}

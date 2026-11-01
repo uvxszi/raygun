@@ -1,0 +1,154 @@
+{
+  "ai": {
+    "cancel": "Nuligi",
+    "delete": "Forigi",
+    "edit": "Redakti",
+    "installed": "Instalita",
+    "name": "Nomo",
+    "save": "Konservi",
+    "translators": "Translators"
+  },
+  "collections": {
+    "addToPlaylist": "Aldoni al ludlisto",
+    "cancel": "Nuligi",
+    "create": "Krei",
+    "done": "Fina",
+    "edit": "Redakti",
+    "favorite": "Add to favorites",
+    "favorites": "Favoratoj",
+    "newPlaylist": "Nova Ludlisto",
+    "rename": "Renomi",
+    "save": "Konservi"
+  },
+  "devices": {
+    "copied": "Copied",
+    "kind": {
+      "history": "Historio",
+      "settings": "Agordoj"
+    },
+    "off": "Malŝaltita",
+    "rename": "Renomi",
+    "save": "Konservi",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "addRepo": "Aldoni",
+    "cancel": "Nuligi",
+    "install": "Instali",
+    "nsfwBadge": "18+",
+    "refresh": "Reŝargi",
+    "settings": "Agordoj",
+    "tab": {
+      "browse": "Foliumi",
+      "installed": "Instalita"
+    },
+    "title": "Etendaĵoj",
+    "uninstall": "Malinstali",
+    "update": "Ĝisdatigi",
+    "upToDate": "Instalita"
+  },
+  "home": {
+    "clearHistory": "Viŝi historion"
+  },
+  "library": {
+    "addFolder": "Add folder",
+    "emptyTitle": "Via biblioteko malplenas",
+    "media": {
+      "manga": "Bibliotekaj elementoj",
+      "music": "Music"
+    },
+    "openPlay": "Spekti",
+    "play": "Spekti",
+    "shuffle": "Miksi",
+    "title": "Biblioteko",
+    "view": {
+      "albums": "Albumoj",
+      "artists": "Artistoj",
+      "favorites": "Favoratoj",
+      "playlists": "Ludlistoj"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Aldoni al biblioteko",
+    "chapters_one": "{{count}} ĉapitro",
+    "chapters_other": "{{count}} ĉapitroj",
+    "downloads": "Elŝutoj",
+    "downloadState": {
+      "done": "Elŝutitaj",
+      "downloading": "Elŝutata",
+      "failed": "Failed"
+    },
+    "inLibraryBadge": "En biblioteko",
+    "list": {
+      "latest": "Lastaj",
+      "popular": "Popularaj",
+      "search": "Serĉi"
+    },
+    "loading": "Ŝargado…",
+    "nextChapter": "Sekva ĉapitro",
+    "pauseDownloads": "Paŭzigi",
+    "readingMode": "Lega reĝimo",
+    "removeFromLibrary": "En biblioteko",
+    "resumeDownloads": "Daŭrigi",
+    "source": "Fonto",
+    "status": {
+      "cancelled": "Rezignita",
+      "completed": "Finitaj",
+      "hiatus": "En hiato",
+      "ongoing": "Daŭranta",
+      "publishingFinished": "Eldonado finita"
+    },
+    "today": "Hodiaŭ",
+    "updateLibrary": "Ĝisdatigi bibliotekon",
+    "updates": "Ĝisdatigoj",
+    "yesterday": "Yesterday"
+  },
+  "mcp": {
+    "copied": "Copied",
+    "copy": "Kopii"
+  },
+  "nav": {
+    "home": "Hejmo",
+    "library": "Biblioteko",
+    "search": "Serĉi",
+    "settings": "Agordoj"
+  },
+  "player": {
+    "addToPlaylist": "Aldoni al ludlisto",
+    "favorite": "Add to favorites",
+    "next": "Sekve",
+    "nowPlaying": "Now playing",
+    "pause": "Paŭzigi",
+    "play": "Spekti",
+    "shuffle": "Miksi",
+    "upNext": "Up Next"
+  },
+  "search": {
+    "title": "Serĉi"
+  },
+  "settings": {
+    "about": "Pri",
+    "appearance": "Aspekto",
+    "backup": "Rezervo",
+    "cancel": "Nuligi",
+    "confirmRestore": "Restaŭri",
+    "createBackup": "Krei savkopion",
+    "extensions": "Etendaĵoj",
+    "language": "Lingvo",
+    "manga": "Bibliotekaj elementoj",
+    "theme": "Etoso",
+    "themeDark": "Malhela",
+    "themeLight": "Hela",
+    "themeSystem": "Sistema",
+    "title": "Agordoj",
+    "updateEvery": {
+      "0": "Neniam",
+      "6": "Ĉiun 6-an horon",
+      "12": "Ĉiun 12-an horon",
+      "24": "Ĉiutage",
+      "48": "Ĉiun 2-an tagon",
+      "168": "Ĉiusemajne"
+    },
+    "version": "Versio"
+  }
+}

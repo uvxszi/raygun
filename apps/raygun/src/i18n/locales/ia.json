@@ -1,0 +1,94 @@
+{
+  "ai": {
+    "cancel": "Cancellar",
+    "delete": "Deler",
+    "name": "Nomine",
+    "translators": "Traductores"
+  },
+  "collections": {
+    "addToPlaylist": "Adder al lista de reproduction",
+    "cancel": "Cancellar",
+    "done": "Preste",
+    "favorite": "Adder a favoritos",
+    "favorites": "Favoritos",
+    "newPlaylist": "Nove lista de reproduction",
+    "rename": "Renominar"
+  },
+  "devices": {
+    "copied": "Copiate",
+    "kind": {
+      "history": "Chronologia",
+      "settings": "Parametros"
+    },
+    "rename": "Renominar",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "cancel": "Cancellar",
+    "settings": "Parametros",
+    "update": "Actualisar"
+  },
+  "library": {
+    "addFolder": "Adder un dossier",
+    "media": {
+      "music": "Music"
+    },
+    "shuffle": "Aleatori",
+    "title": "Bibliotheca",
+    "view": {
+      "albums": "Albumes",
+      "artists": "Artistas",
+      "favorites": "Favoritos",
+      "playlists": "Listas de reproduction"
+    }
+  },
+  "manga": {
+    "downloadState": {
+      "failed": "Failed"
+    },
+    "list": {
+      "search": "Cercar"
+    },
+    "status": {
+      "cancelled": "Cancelled",
+      "completed": "Completed"
+    },
+    "today": "Hodie",
+    "yesterday": "Heri"
+  },
+  "mcp": {
+    "copied": "Copiate"
+  },
+  "nav": {
+    "home": "Home",
+    "library": "Bibliotheca",
+    "search": "Cercar",
+    "settings": "Parametros"
+  },
+  "player": {
+    "addToPlaylist": "Adder al lista de reproduction",
+    "favorite": "Adder a favoritos",
+    "next": "Next",
+    "nowPlaying": "Now playing",
+    "shuffle": "Aleatori",
+    "upNext": "Up Next"
+  },
+  "search": {
+    "title": "Cercar"
+  },
+  "settings": {
+    "about": "A proposito de",
+    "backup": "Copia de securitate",
+    "cancel": "Cancellar",
+    "confirmRestore": "Restaurar",
+    "theme": "Thema",
+    "themeDark": "Obscur",
+    "themeLight": "Clar",
+    "themeSystem": "Systema",
+    "title": "Parametros",
+    "updateEvery": {
+      "24": "Daily",
+      "168": "Weekly"
+    }
+  }
+}

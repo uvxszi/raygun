@@ -1,0 +1,101 @@
+{
+  "ai": {
+    "cancel": "Ləğv et",
+    "delete": "Sil",
+    "name": "Ad",
+    "translators": "Tərcüməçilər"
+  },
+  "collections": {
+    "addToPlaylist": "Dinləmə siyahısına əlavə et",
+    "cancel": "Ləğv et",
+    "done": "Bitdi",
+    "favorite": "Sevimlilərə əlavə et",
+    "favorites": "Sevimlilər",
+    "newPlaylist": "Yeni dinləmə siyahısı",
+    "rename": "Adı dəyişdir"
+  },
+  "devices": {
+    "copied": "Köçürüldü",
+    "kind": {
+      "history": "Tarixçə",
+      "settings": "Parametrlər"
+    },
+    "rename": "Adı dəyişdir",
+    "syncing": "Sinxronlaşdırılır..."
+  },
+  "extensions": {
+    "cancel": "Ləğv et",
+    "settings": "Parametrlər",
+    "update": "Yenilə"
+  },
+  "library": {
+    "addFolder": "Qovluq əlavə et",
+    "media": {
+      "music": "Musiqi"
+    },
+    "shuffle": "Qarışdır",
+    "title": "Kitabxana",
+    "view": {
+      "albums": "Albomlar",
+      "artists": "Sənətkarlar",
+      "favorites": "Sevimlilər",
+      "playlists": "Dinləmə siyahıları"
+    }
+  },
+  "manga": {
+    "downloads": "Yükləmələr",
+    "downloadState": {
+      "done": "Yükləndi",
+      "downloading": "Yüklənir",
+      "failed": "Uğursuz oldu"
+    },
+    "list": {
+      "search": "Axtar"
+    },
+    "loading": "Yüklənir…",
+    "pauseDownloads": "Dayandır",
+    "resumeDownloads": "Davam et",
+    "status": {
+      "cancelled": "Cancelled",
+      "completed": "Tamamlandı"
+    },
+    "today": "Bu gün",
+    "yesterday": "Dünən"
+  },
+  "mcp": {
+    "copied": "Köçürüldü"
+  },
+  "nav": {
+    "home": "Ana səhifə",
+    "library": "Kitabxana",
+    "search": "Axtar",
+    "settings": "Parametrlər"
+  },
+  "player": {
+    "addToPlaylist": "Dinləmə siyahısına əlavə et",
+    "favorite": "Sevimlilərə əlavə et",
+    "next": "Next",
+    "nowPlaying": "Now playing",
+    "pause": "Dayandır",
+    "shuffle": "Qarışdır",
+    "upNext": "Növbəti"
+  },
+  "search": {
+    "title": "Axtar"
+  },
+  "settings": {
+    "about": "Haqqında",
+    "backup": "Nüsxələ",
+    "cancel": "Ləğv et",
+    "confirmRestore": "Bərpa et",
+    "theme": "Tema",
+    "themeDark": "Qaranlıq",
+    "themeLight": "İşıqlı",
+    "themeSystem": "Sistem",
+    "title": "Parametrlər",
+    "updateEvery": {
+      "24": "Daily",
+      "168": "Weekly"
+    }
+  }
+}

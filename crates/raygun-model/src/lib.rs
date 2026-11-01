@@ -65,7 +65,12 @@ pub struct Settings {
     pub manga_update_hours: u32,
     /// How novels are set (M31).
     pub novel_reader: NovelReaderPrefs,
+    /// Shows NSFW (18+) extensions and content; off by default (M35).
+    pub show_nsfw: bool,
 }
+
+/// The `language` setting that follows the device's language.
+pub const SYSTEM_LANGUAGE: &str = "system";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -122,9 +127,10 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             theme: Theme::System,
-            language: "en".into(),
+            language: SYSTEM_LANGUAGE.into(),
             manga_update_hours: 12,
             novel_reader: NovelReaderPrefs::default(),
+            show_nsfw: false,
         }
     }
 }
@@ -136,6 +142,7 @@ impl Settings {
             SettingChange::Language(language) => self.language = language,
             SettingChange::MangaUpdateHours(hours) => self.manga_update_hours = hours,
             SettingChange::NovelReader(prefs) => self.novel_reader = prefs,
+            SettingChange::ShowNsfw(show) => self.show_nsfw = show,
         }
     }
 }
@@ -149,6 +156,7 @@ pub enum SettingChange {
     Language(String),
     MangaUpdateHours(u32),
     NovelReader(NovelReaderPrefs),
+    ShowNsfw(bool),
 }
 
 impl SettingChange {
@@ -159,13 +167,14 @@ impl SettingChange {
             Self::Language(_) => "language",
             Self::MangaUpdateHours(_) => "mangaUpdateHours",
             Self::NovelReader(_) => "novelReader",
+            Self::ShowNsfw(_) => "showNsfw",
         }
     }
 
     /// Checks values the type system can't express.
     pub fn validate(&self) -> Result<(), String> {
         match self {
-            Self::Theme(_) => Ok(()),
+            Self::Theme(_) | Self::ShowNsfw(_) => Ok(()),
             Self::NovelReader(prefs) => {
                 if !(14..=30).contains(&prefs.font_size) {
                     Err(format!(
@@ -571,6 +580,8 @@ pub struct ExtensionInfo {
     pub name: String,
     pub version: String,
     pub description: Option<String>,
+    /// `safe`, `suggestive` or `nsfw`; providers of `nsfw` ones are hidden while NSFW is off.
+    pub content_rating: String,
     pub origin: ExtensionOrigin,
     pub status: ExtensionStatus,
     /// Why the extension failed to load, when it did.
@@ -1090,6 +1101,8 @@ pub struct MangaTitleView {
     pub status: String,
     pub url: Option<String>,
     pub in_library: bool,
+    /// An adult title while NSFW content is hidden: the UI shows a notice instead (M35).
+    pub hidden_nsfw: bool,
     /// In the source's order (usually newest first).
     pub chapters: Vec<MangaChapterInfo>,
     /// Where "Continue" opens: the partly read chapter, else the first unread after the last read.

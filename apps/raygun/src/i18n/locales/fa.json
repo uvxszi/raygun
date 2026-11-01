@@ -1,0 +1,153 @@
+{
+  "ai": {
+    "cancel": "لغو",
+    "delete": "پاک کردن",
+    "edit": "ویرایش",
+    "installed": "نصب شده",
+    "name": "نام",
+    "save": "ذخيره",
+    "translators": "Translators"
+  },
+  "collections": {
+    "addToPlaylist": "Add to playlist",
+    "cancel": "لغو",
+    "create": "ایجاد کردن",
+    "done": "انجام شد",
+    "edit": "ویرایش",
+    "favorite": "Add to favorites",
+    "favorites": "Favorites",
+    "newPlaylist": "لیست پخش جدید",
+    "rename": "Rename",
+    "save": "ذخيره"
+  },
+  "devices": {
+    "copied": "Copied",
+    "kind": {
+      "history": "تاریخچه",
+      "settings": "تنظیمات"
+    },
+    "off": "خاموش",
+    "rename": "Rename",
+    "save": "ذخيره",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "addRepo": "افزودن",
+    "cancel": "لغو",
+    "install": "نصب",
+    "nsfwBadge": "18+",
+    "refresh": "بازآوری‌",
+    "settings": "تنظیمات",
+    "tab": {
+      "browse": "مرور",
+      "installed": "نصب شده"
+    },
+    "title": "افزونه‌ها",
+    "uninstall": "حذف نصب",
+    "update": "آپدیت",
+    "upToDate": "نصب شده"
+  },
+  "home": {
+    "clearHistory": "پاک کردن سابقه"
+  },
+  "library": {
+    "addFolder": "Add folder",
+    "emptyTitle": "کتابخانه شما خالی است",
+    "media": {
+      "manga": "کتابخانه ورودی‌ها",
+      "music": "موسیقی"
+    },
+    "openPlay": "پخش",
+    "play": "پخش",
+    "shuffle": "Shuffle",
+    "title": "کتابخانه",
+    "view": {
+      "albums": "Albums",
+      "artists": "Artists",
+      "favorites": "Favorites",
+      "playlists": "Playlists",
+      "tracks": "قطعه‌ها"
+    }
+  },
+  "manga": {
+    "addToLibrary": "افزودن به کتابخانه",
+    "downloads": "بارگیری ها",
+    "downloadState": {
+      "done": "دانلود شد",
+      "downloading": "در حال بارگیری",
+      "failed": "با شکست مواجه شد"
+    },
+    "inLibraryBadge": "در کتابخانه",
+    "list": {
+      "latest": "جدیدترین",
+      "popular": "محبوب",
+      "search": "جست و جو"
+    },
+    "loading": "درحال بارگیری…",
+    "nextChapter": "قسمت بعد",
+    "pauseDownloads": "مکث",
+    "readingMode": "حالت خواندن",
+    "removeFromLibrary": "در کتابخانه",
+    "resumeDownloads": "ازسرگیری",
+    "source": "منبع",
+    "status": {
+      "cancelled": "لغو شد",
+      "completed": "تکمیل شده(Completed)",
+      "hiatus": "متوقف شده",
+      "ongoing": "در حال پخش",
+      "publishingFinished": "انتشار به پایان رسید"
+    },
+    "today": "امروز",
+    "updateLibrary": "آپدیت کتابخانه",
+    "updates": "به روز رسانی‌ها",
+    "yesterday": "Yesterday"
+  },
+  "mcp": {
+    "copied": "Copied",
+    "copy": "کپی"
+  },
+  "nav": {
+    "home": "خانه",
+    "library": "کتابخانه",
+    "search": "جست و جو",
+    "settings": "تنظیمات"
+  },
+  "player": {
+    "addToPlaylist": "Add to playlist",
+    "favorite": "Add to favorites",
+    "next": "بعدی",
+    "nowPlaying": "Now playing",
+    "pause": "مکث",
+    "play": "پخش",
+    "shuffle": "Shuffle",
+    "upNext": "Up Next"
+  },
+  "search": {
+    "title": "جست و جو"
+  },
+  "settings": {
+    "about": "درباره",
+    "appearance": "ظاهر",
+    "backup": "پشتیبانی",
+    "cancel": "لغو",
+    "confirmRestore": "بازیابی",
+    "createBackup": "تهیه نسخه پشتیبان",
+    "extensions": "افزونه‌ها",
+    "language": "زبان",
+    "manga": "کتابخانه ورودی‌ها",
+    "theme": "تم",
+    "themeDark": "روشن",
+    "themeLight": "خاموش",
+    "themeSystem": "تم پیش‌فرض سیستم",
+    "title": "تنظیمات",
+    "updateEvery": {
+      "0": "هرگز",
+      "6": "هر ۶ ساعت یکبار",
+      "12": "هر ۱۲ ساعت یکبار",
+      "24": "هر ۲۴ ساعت یکبار",
+      "48": "هر ۴۸ ساعت یکبار",
+      "168": "هفتگی"
+    },
+    "version": "نسخه"
+  }
+}

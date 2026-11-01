@@ -1,0 +1,119 @@
+{
+  "ai": {
+    "cancel": "लुम्पतु",
+    "delete": "नाशयतु",
+    "edit": "सम्पादयतु",
+    "installed": "प्रतिष्ठापितम्",
+    "name": "नाम",
+    "save": "रक्षतु"
+  },
+  "collections": {
+    "cancel": "लुम्पतु",
+    "edit": "सम्पादयतु",
+    "save": "रक्षतु"
+  },
+  "devices": {
+    "kind": {
+      "history": "चरित्रम्",
+      "settings": "समायोजनानि"
+    },
+    "off": "अशक्तं कुरु",
+    "save": "रक्षतु"
+  },
+  "extensions": {
+    "addRepo": "योजयतु",
+    "cancel": "लुम्पतु",
+    "install": "प्रतिष्ठापयतु",
+    "nsfwBadge": "१८+",
+    "refresh": "नवीकरोतु",
+    "settings": "समायोजनानि",
+    "tab": {
+      "browse": "गवेषयतु",
+      "installed": "प्रतिष्ठापितम्"
+    },
+    "title": "विस्ताराः",
+    "uninstall": "निष्कासयतु",
+    "update": "नवीकरोतु",
+    "upToDate": "प्रतिष्ठापितम्"
+  },
+  "home": {
+    "clearHistory": "चरित्रं मार्जयतु"
+  },
+  "library": {
+    "emptyTitle": "तव ग्रन्थालयः रिक्तम् अस्ति",
+    "media": {
+      "manga": "ग्रन्थालय-प्रविष्ट्यः"
+    },
+    "title": "ग्रन्थालयः"
+  },
+  "manga": {
+    "addToLibrary": "ग्रन्थालये योजयतु",
+    "chapters_one": "{{count}} अध्यायः",
+    "chapters_other": "{{count}} अध्यायाः",
+    "downloads": "अवारोपितानि",
+    "downloadState": {
+      "done": "अवारोपितम्",
+      "downloading": "अवतारयति"
+    },
+    "inLibraryBadge": "ग्रन्थालये",
+    "list": {
+      "latest": "नविष्ठम्",
+      "search": "अन्वेषणम्"
+    },
+    "loading": "आरोपयति…",
+    "nextChapter": "अग्रिमः अध्यायः",
+    "pauseDownloads": "विरामयतु",
+    "readingMode": "पठनदशा",
+    "removeFromLibrary": "ग्रन्थालये",
+    "resumeDownloads": "अनुवर्तताम्",
+    "status": {
+      "cancelled": "अलोप्यत",
+      "completed": "समापितम्",
+      "hiatus": "भग्नम्",
+      "ongoing": "चलत्",
+      "publishingFinished": "प्रकाशनं समाप्तम्"
+    },
+    "today": "अद्य",
+    "updateLibrary": "ग्रन्थालयं नवीकरोतु",
+    "updates": "नवीकरणानि"
+  },
+  "mcp": {
+    "copy": "प्रतिलेखं करोतु"
+  },
+  "nav": {
+    "library": "ग्रन्थालयः",
+    "search": "अन्वेषणम्",
+    "settings": "समायोजनानि"
+  },
+  "player": {
+    "next": "अग्रिमम्",
+    "pause": "विरामयतु"
+  },
+  "search": {
+    "title": "अन्वेषणम्"
+  },
+  "settings": {
+    "about": "स्वसमाचारः",
+    "appearance": "रूपम्",
+    "cancel": "लुम्पतु",
+    "confirmRestore": "समाददातु",
+    "createBackup": "प्रतिलेखनं निर्मातु",
+    "extensions": "विस्ताराः",
+    "language": "भाषा",
+    "manga": "ग्रन्थालय-प्रविष्ट्यः",
+    "theme": "दृश्यशैली",
+    "themeDark": "सशक्तं कुरु",
+    "themeLight": "अशक्तं कुरु",
+    "themeSystem": "संविधाम् अनुसरतु",
+    "title": "समायोजनानि",
+    "updateEvery": {
+      "0": "न कदापि",
+      "6": "प्रतिषष्ठघण्टा",
+      "12": "प्रतिद्वादशघण्टा",
+      "24": "प्रतिदिनम्",
+      "48": "प्रतिदिनद्वयम्",
+      "168": "प्रतिसप्ताहिकम्"
+    },
+    "version": "संस्करणम्"
+  }
+}

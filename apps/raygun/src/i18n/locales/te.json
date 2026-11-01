@@ -1,0 +1,126 @@
+{
+  "ai": {
+    "cancel": "రద్దు చెయ్యుము",
+    "delete": "తొలగించుము",
+    "edit": "సవరించుము",
+    "name": "పేరు",
+    "save": "భద్రపరుచుము",
+    "translators": "Translators"
+  },
+  "collections": {
+    "addToPlaylist": "పాటల జాబితా లోకి చేర్చు",
+    "cancel": "రద్దు చెయ్యుము",
+    "done": "పూర్తి చేయి",
+    "edit": "సవరించుము",
+    "favorite": "Add to favorites",
+    "favorites": "నచ్చిన పాటలు",
+    "newPlaylist": "కొత్త పాటల జాబితా",
+    "rename": "పేరు మార్చు",
+    "save": "భద్రపరుచుము"
+  },
+  "devices": {
+    "copied": "Copied",
+    "kind": {
+      "history": "చరిత్ర",
+      "settings": "అమరికలు"
+    },
+    "off": "ఆఫ్",
+    "rename": "పేరు మార్చు",
+    "save": "భద్రపరుచుము",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "addRepo": "జోడించుము",
+    "cancel": "రద్దు చెయ్యుము",
+    "install": "ప్రతిష్ఠాపించుము",
+    "refresh": "నవీకరించుము",
+    "settings": "అమరికలు",
+    "tab": {
+      "browse": "విహరించండి"
+    },
+    "title": "పొడిగింపులు",
+    "update": "Update"
+  },
+  "library": {
+    "addFolder": "Add folder",
+    "emptyTitle": "మీ గ్రంథాలయము ఖాళీగా ఉన్నది",
+    "media": {
+      "manga": "లైబ్రరీ ఎంట్రీలు",
+      "music": "Music"
+    },
+    "shuffle": "పాటలు వరుస మార్చి ప్లే చేయి",
+    "title": "గ్రంథాలయము",
+    "view": {
+      "albums": "ఆల్బమ్‌లు",
+      "artists": "గాయకులు",
+      "favorites": "నచ్చిన పాటలు",
+      "playlists": "ప్లేలిస్ట్ లు"
+    }
+  },
+  "manga": {
+    "downloads": "దిగుమతులు",
+    "downloadState": {
+      "done": "డౌన్లోడ్ అయినవి",
+      "failed": "Failed"
+    },
+    "list": {
+      "latest": "తాజా",
+      "search": "వెతకండి"
+    },
+    "loading": "లోడ్ అవుతుంది…",
+    "nextChapter": "తదుపరి అధ్యాయము",
+    "pauseDownloads": "తాత్కాలికముగా నిలిపి వేయుము",
+    "resumeDownloads": "పునఃప్రారంభించుము",
+    "status": {
+      "cancelled": "Cancelled",
+      "completed": "పూర్తయింది",
+      "ongoing": "కొనసాగుతున్నది"
+    },
+    "today": "Today",
+    "updateLibrary": "గ్రంథాలయాన్ని నవీకరించుము",
+    "updates": "నవీకరణలు",
+    "yesterday": "Yesterday"
+  },
+  "mcp": {
+    "copied": "Copied"
+  },
+  "nav": {
+    "home": "Home",
+    "library": "గ్రంథాలయము",
+    "search": "వెతకండి",
+    "settings": "అమరికలు"
+  },
+  "player": {
+    "addToPlaylist": "పాటల జాబితా లోకి చేర్చు",
+    "favorite": "Add to favorites",
+    "next": "Next",
+    "nowPlaying": "Now playing",
+    "pause": "తాత్కాలికముగా నిలిపి వేయుము",
+    "shuffle": "పాటలు వరుస మార్చి ప్లే చేయి",
+    "upNext": "Up Next"
+  },
+  "search": {
+    "title": "వెతకండి"
+  },
+  "settings": {
+    "about": "గురించి",
+    "appearance": "రూపము",
+    "backup": "Backup",
+    "cancel": "రద్దు చెయ్యుము",
+    "confirmRestore": "పునఃస్థాపనను చేయుము",
+    "extensions": "పొడిగింపులు",
+    "language": "భాష",
+    "manga": "లైబ్రరీ ఎంట్రీలు",
+    "theme": "వీక్షణము",
+    "themeDark": "ప్రారంభించుము",
+    "themeLight": "ఆపుము",
+    "themeSystem": "పరికరమును అనుసరించుము",
+    "title": "అమరికలు",
+    "updateEvery": {
+      "0": "ఎప్పుడూ వద్దు",
+      "24": "Daily",
+      "168": "Weekly"
+    },
+    "version": "సంస్కరణ"
+  }
+}

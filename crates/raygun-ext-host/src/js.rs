@@ -18,6 +18,7 @@ use rquickjs::{
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::content::ContentFilter;
 use crate::html;
 use crate::manifest::{Manifest, is_provider_id};
 use crate::permissions::NetPolicy;
@@ -59,6 +60,7 @@ struct Shared {
     providers: RefCell<Vec<ProviderInfo>>,
     deadline: Rc<Cell<Instant>>,
     cpu_budget: Duration,
+    content: ContentFilter,
 }
 
 impl Shared {
@@ -82,6 +84,7 @@ impl JsExtension {
         storage: KvStore,
         settings: BTreeMap<String, serde_json::Value>,
         limits: &Limits,
+        content: ContentFilter,
     ) -> Result<Self, String> {
         let policy = Arc::new(manifest.net.clone());
         let client = extension_client(policy.clone()).map_err(|error| error.to_string())?;
@@ -95,6 +98,7 @@ impl JsExtension {
             providers: RefCell::new(Vec::new()),
             deadline: deadline.clone(),
             cpu_budget: limits.cpu_budget,
+            content,
         });
 
         let runtime = AsyncRuntime::new().map_err(|error| error.to_string())?;
@@ -363,6 +367,12 @@ fn install_natives<'js>(ctx: &Ctx<'js>, shared: Rc<Shared>) -> rquickjs::Result<
                 .unwrap_or_default();
             ok(value)
         })?,
+    )?;
+
+    let s = shared.clone();
+    native.set(
+        "showNsfw",
+        Function::new(ctx.clone(), move || s.content.show_nsfw())?,
     )?;
 
     let s = shared;

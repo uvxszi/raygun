@@ -1,0 +1,178 @@
+{
+  "ai": {
+    "cancel": "Cancelar",
+    "delete": "Eliminar",
+    "downloading": "Descargando {{name}}",
+    "edit": "Editar",
+    "installed": "Instalado",
+    "name": "Nombre",
+    "save": "Guardar",
+    "translators": "Traductores"
+  },
+  "collections": {
+    "addToPlaylist": "Añadir a la lista de reproducción",
+    "cancel": "Cancelar",
+    "create": "Crear",
+    "delete": "Eliminar lista de reproducción",
+    "done": "Hecho",
+    "edit": "Editar",
+    "favorite": "Añadir a favoritos",
+    "favorites": "Favoritos",
+    "newPlaylist": "Nueva lista de reproducción",
+    "rename": "Renombrar",
+    "save": "Guardar",
+    "unfavorite": "Eliminar de favoritos"
+  },
+  "devices": {
+    "copied": "Copiado",
+    "kind": {
+      "history": "Historial",
+      "settings": "Configuración"
+    },
+    "off": "No",
+    "rename": "Renombrar",
+    "save": "Guardar",
+    "syncing": "Sincronizando..."
+  },
+  "extensions": {
+    "addRepo": "Añadir",
+    "cancel": "Cancelar",
+    "install": "Instalar",
+    "nsfwBadge": "18+",
+    "nuclearBadge": "Nuclear",
+    "refresh": "Actualizar",
+    "repoUrl": "URL del repositorio",
+    "settings": "Configuración",
+    "tab": {
+      "browse": "Explorar",
+      "installed": "Instalado",
+      "repos": "Repositorios"
+    },
+    "title": "Extensiones",
+    "uninstall": "Desinstalar",
+    "update": "Actualizar",
+    "upToDate": "Instalado"
+  },
+  "home": {
+    "clearHistory": "Borrar historial"
+  },
+  "library": {
+    "addFolder": "Añadir carpeta",
+    "emptyTitle": "Tu biblioteca está vacía",
+    "media": {
+      "manga": "Manga",
+      "music": "Música",
+      "novel": "Novelas"
+    },
+    "openPlay": "Reproducir",
+    "openQueue": "Añadir a la cola",
+    "play": "Reproducir",
+    "playAll": "Reproducir todo",
+    "shuffle": "Aleatorio",
+    "title": "Biblioteca",
+    "view": {
+      "albums": "Álbumes",
+      "artists": "Artistas",
+      "favorites": "Favoritos",
+      "playlists": "Listas de reproducción",
+      "tracks": "Número de canciones"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Añadir a la biblioteca",
+    "chapters_many": "{{count}} capítulos",
+    "chapters_one": "{{count}} capítulo",
+    "chapters_other": "{{count}} capítulos",
+    "downloads": "Descargas",
+    "downloadState": {
+      "done": "Descargados",
+      "downloading": "Descargando",
+      "failed": "Falló"
+    },
+    "inLibraryBadge": "En biblioteca",
+    "list": {
+      "latest": "Recientes",
+      "popular": "Populares",
+      "search": "Buscar"
+    },
+    "loading": "Cargando...",
+    "nextChapter": "Capítulo siguiente",
+    "pageAlt": "Página {{page}}",
+    "pauseDownloads": "Pausar",
+    "previousChapter": "Anterior",
+    "readingMode": "Modo de lectura",
+    "removeFromLibrary": "En biblioteca",
+    "resumeDownloads": "Reanudar",
+    "source": "Fuente",
+    "status": {
+      "cancelled": "Cancelada",
+      "completed": "Completados",
+      "hiatus": "En pausa",
+      "ongoing": "En publicación",
+      "publishingFinished": "Publicación finalizada"
+    },
+    "today": "Hoy",
+    "updateLibrary": "Actualizar biblioteca",
+    "updates": "Actualizaciones",
+    "yesterday": "Ayer"
+  },
+  "mcp": {
+    "copied": "Copiado",
+    "copy": "Copiar"
+  },
+  "nav": {
+    "home": "Inicio",
+    "library": "Biblioteca",
+    "search": "Buscar",
+    "settings": "Configuración"
+  },
+  "novel": {
+    "fontSize": "Tamaño de fuente",
+    "importing": "Importando..."
+  },
+  "player": {
+    "addToPlaylist": "Añadir a la lista de reproducción",
+    "favorite": "Añadir a favoritos",
+    "lyrics": "Letras",
+    "next": "Siguiente",
+    "nowPlaying": "Reproduciendo",
+    "pause": "Pausar",
+    "play": "Reproducir",
+    "previous": "Anterior",
+    "seek": "Buscar",
+    "shuffle": "Aleatorio",
+    "unfavorite": "Eliminar de favoritos",
+    "upNext": "A continuación"
+  },
+  "search": {
+    "searching": "Buscando...",
+    "title": "Buscar"
+  },
+  "settings": {
+    "about": "Acerca de",
+    "appearance": "Apariencia",
+    "backup": "Backup",
+    "cancel": "Cancelar",
+    "confirmRestore": "Restaurar",
+    "createBackup": "Crear una copia de seguridad",
+    "extensions": "Extensiones",
+    "importing": "Importando...",
+    "language": "Idioma",
+    "manga": "Manga",
+    "storage": "Almacenamiento",
+    "theme": "Esquema de colores",
+    "themeDark": "Oscuro",
+    "themeLight": "Claro",
+    "themeSystem": "Del sistema",
+    "title": "Configuración",
+    "updateEvery": {
+      "0": "Nunca",
+      "6": "Cada 6 horas",
+      "12": "Cada 12 horas",
+      "24": "Diarias",
+      "48": "Cada 2 días",
+      "168": "Semanales"
+    },
+    "version": "Versión"
+  }
+}

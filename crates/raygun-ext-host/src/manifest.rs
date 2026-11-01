@@ -53,6 +53,16 @@ pub enum ContentRating {
     Nsfw,
 }
 
+impl ContentRating {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Safe => "safe",
+            Self::Suggestive => "suggestive",
+            Self::Nsfw => "nsfw",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SettingKind {

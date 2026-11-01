@@ -157,6 +157,7 @@ describe('Manga updates and downloads', () => {
     const user = userEvent.setup();
     const title: MangaTitleView = {
       id: 't1',
+      hiddenNsfw: false,
       sourceId: SOURCE,
       sourceName: 'MangaDex',
       remoteId: 'm1',

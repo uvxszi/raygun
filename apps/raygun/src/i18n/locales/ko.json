@@ -1,0 +1,159 @@
+{
+  "ai": {
+    "cancel": "취소",
+    "delete": "삭제",
+    "edit": "편집",
+    "installed": "설치됨",
+    "name": "이름",
+    "save": "저장",
+    "translators": "번역가들"
+  },
+  "collections": {
+    "addToPlaylist": "재생목록에 추가",
+    "cancel": "취소",
+    "create": "생성",
+    "done": "완료",
+    "edit": "편집",
+    "favorite": "즐겨찾기에 추가",
+    "favorites": "즐겨찾기",
+    "newPlaylist": "새 재생목록",
+    "rename": "이름 바꾸기",
+    "save": "저장",
+    "unfavorite": "즐겨찾기에서 제거"
+  },
+  "devices": {
+    "copied": "복사됨",
+    "kind": {
+      "history": "기록",
+      "settings": "설정"
+    },
+    "off": "비활성화",
+    "rename": "이름 바꾸기",
+    "save": "저장",
+    "syncing": "동기화 중..."
+  },
+  "extensions": {
+    "addRepo": "추가",
+    "cancel": "취소",
+    "install": "설치",
+    "nsfwBadge": "18+",
+    "refresh": "새로고침",
+    "settings": "설정",
+    "tab": {
+      "browse": "찾아보기",
+      "installed": "설치됨"
+    },
+    "title": "확장 앱",
+    "uninstall": "삭제",
+    "update": "업데이트",
+    "upToDate": "설치됨"
+  },
+  "home": {
+    "clearHistory": "내역 삭제"
+  },
+  "library": {
+    "addFolder": "폴더 추가",
+    "emptyTitle": "서재가 비어있습니다",
+    "media": {
+      "manga": "서재 항목",
+      "music": "음악"
+    },
+    "openPlay": "재생",
+    "play": "재생",
+    "shuffle": "셔플",
+    "title": "서재",
+    "view": {
+      "albums": "앨범",
+      "artists": "아티스트",
+      "favorites": "즐겨찾기",
+      "playlists": "재생목록",
+      "tracks": "트랙"
+    }
+  },
+  "manga": {
+    "addToLibrary": "서재에 추가",
+    "chapters_other": "총 {{count}}화",
+    "downloads": "다운로드",
+    "downloadState": {
+      "done": "다운로드함",
+      "downloading": "다운로드 중",
+      "failed": "실패"
+    },
+    "inLibraryBadge": "서재에 추가됨",
+    "list": {
+      "latest": "최신",
+      "popular": "인기",
+      "search": "검색"
+    },
+    "loading": "불러오는 중…",
+    "nextChapter": "다음 화",
+    "pauseDownloads": "일시중지",
+    "previousChapter": "이전",
+    "readingMode": "읽기 모드",
+    "removeFromLibrary": "서재에 추가됨",
+    "resumeDownloads": "계속",
+    "source": "소스",
+    "status": {
+      "cancelled": "중단",
+      "completed": "완결",
+      "hiatus": "휴재 중",
+      "ongoing": "연재 중",
+      "publishingFinished": "출판 완료"
+    },
+    "today": "오늘",
+    "updateLibrary": "서재 업데이트",
+    "updates": "업데이트",
+    "yesterday": "어제"
+  },
+  "mcp": {
+    "copied": "복사됨",
+    "copy": "복사"
+  },
+  "nav": {
+    "home": "홈",
+    "library": "서재",
+    "search": "검색",
+    "settings": "설정"
+  },
+  "player": {
+    "addToPlaylist": "재생목록에 추가",
+    "favorite": "즐겨찾기에 추가",
+    "next": "다음",
+    "nowPlaying": "Now playing",
+    "pause": "일시중지",
+    "play": "재생",
+    "previous": "이전",
+    "shuffle": "셔플",
+    "unfavorite": "즐겨찾기에서 제거",
+    "upNext": "다음"
+  },
+  "search": {
+    "title": "검색"
+  },
+  "settings": {
+    "about": "정보",
+    "appearance": "모양",
+    "backup": "백업",
+    "cancel": "취소",
+    "confirmRestore": "복원",
+    "createBackup": "백업 생성",
+    "extensions": "확장 앱",
+    "language": "언어",
+    "manga": "서재 항목",
+    "storage": "저장공간",
+    "theme": "테마",
+    "themeDark": "다크",
+    "themeLight": "라이트",
+    "themeSystem": "시스템",
+    "title": "설정",
+    "updateEvery": {
+      "0": "끄기",
+      "6": "6시간",
+      "12": "12시간",
+      "24": "1일",
+      "48": "2일",
+      "168": "1주"
+    },
+    "version": "버전"
+  }
+}

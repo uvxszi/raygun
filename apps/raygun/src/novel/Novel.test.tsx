@@ -118,6 +118,7 @@ describe('Novels', () => {
   it('shows a novel with reading percentages and download controls', async () => {
     const title: MangaTitleView = {
       id: 't1',
+      hiddenNsfw: false,
       sourceId: SOURCE,
       sourceName: 'Project Gutenberg',
       remoteId: '84',

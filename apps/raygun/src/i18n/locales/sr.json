@@ -1,0 +1,162 @@
+{
+  "ai": {
+    "cancel": "Откажи",
+    "delete": "Обриши",
+    "edit": "Уреди",
+    "installed": "Инсталирано",
+    "name": "Име",
+    "save": "Сачувај",
+    "translators": "Prevodioca"
+  },
+  "collections": {
+    "addToPlaylist": "Dodaj na plejlistu",
+    "cancel": "Откажи",
+    "create": "Створи",
+    "done": "Gotovo",
+    "edit": "Уреди",
+    "favorite": "Dodaj u omiljeno",
+    "favorites": "Omiljeno",
+    "newPlaylist": "Nova plejlista",
+    "rename": "Preimenuj",
+    "save": "Сачувај"
+  },
+  "devices": {
+    "copied": "Kopirano",
+    "kind": {
+      "history": "Историја",
+      "settings": "Подешавања"
+    },
+    "off": "Искључено",
+    "rename": "Preimenuj",
+    "save": "Сачувај",
+    "syncing": "Sinhronizovanje..."
+  },
+  "extensions": {
+    "addRepo": "Додај",
+    "cancel": "Откажи",
+    "install": "Инсталирај",
+    "nsfwBadge": "18+",
+    "refresh": "Освежи",
+    "settings": "Подешавања",
+    "tab": {
+      "browse": "Претражи",
+      "installed": "Инсталирано"
+    },
+    "title": "Додаци",
+    "uninstall": "Обриши",
+    "update": "Ажурирај",
+    "upToDate": "Инсталирано"
+  },
+  "home": {
+    "clearHistory": "Избриши историју"
+  },
+  "library": {
+    "addFolder": "Dodaj fasciklu",
+    "emptyTitle": "Ваша колекција је празна",
+    "media": {
+      "manga": "Наслови колекције",
+      "music": "Music"
+    },
+    "openPlay": "Пуштај",
+    "play": "Пуштај",
+    "shuffle": "Nasumično",
+    "title": "Колекција",
+    "view": {
+      "albums": "Albumi",
+      "artists": "Izvođači",
+      "favorites": "Omiljeno",
+      "playlists": "Plejliste"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Додати у колекцију",
+    "chapters_few": "{{count}} поглавља",
+    "chapters_one": "{{count}} поглавље",
+    "chapters_other": "{{count}} поглавља",
+    "downloads": "Преузимања",
+    "downloadState": {
+      "done": "Преузето",
+      "downloading": "Преузима се",
+      "failed": "Failed"
+    },
+    "inLibraryBadge": "У колекцији",
+    "list": {
+      "latest": "Најновије",
+      "popular": "Популарно",
+      "search": "Претражи"
+    },
+    "loading": "Учитавање…",
+    "nextChapter": "Наредно поглавље",
+    "pageAlt": "Страница {{page}}",
+    "pauseDownloads": "Паузирај",
+    "previousChapter": "Претходни",
+    "readingMode": "Начин читања",
+    "removeFromLibrary": "У колекцији",
+    "resumeDownloads": "Настави",
+    "status": {
+      "cancelled": "Отказано",
+      "completed": "Завршено",
+      "hiatus": "На паузи",
+      "ongoing": "У току",
+      "publishingFinished": "Издавање завршено"
+    },
+    "today": "Данас",
+    "updateLibrary": "Ажурирај колекцију",
+    "updates": "Ново",
+    "yesterday": "Juče"
+  },
+  "mcp": {
+    "copied": "Kopirano",
+    "copy": "Копирај"
+  },
+  "nav": {
+    "home": "Početna",
+    "library": "Колекција",
+    "search": "Претражи",
+    "settings": "Подешавања"
+  },
+  "novel": {
+    "fontSize": "Величина фонта"
+  },
+  "player": {
+    "addToPlaylist": "Dodaj na plejlistu",
+    "favorite": "Dodaj u omiljeno",
+    "next": "Следеће",
+    "nowPlaying": "Now playing",
+    "pause": "Паузирај",
+    "play": "Пуштај",
+    "previous": "Претходни",
+    "seek": "Тражење",
+    "shuffle": "Nasumično",
+    "upNext": "Sledeće"
+  },
+  "search": {
+    "title": "Претражи"
+  },
+  "settings": {
+    "about": "O апликацији",
+    "appearance": "Изглед",
+    "backup": "Rezervna kopija",
+    "cancel": "Откажи",
+    "confirmRestore": "Врати",
+    "createBackup": "Направи резервну копију",
+    "extensions": "Додаци",
+    "language": "Језик",
+    "manga": "Наслови колекције",
+    "storage": "Складиште",
+    "theme": "Тема",
+    "themeDark": "Тамна",
+    "themeLight": "Светла",
+    "themeSystem": "По систему",
+    "title": "Подешавања",
+    "updateEvery": {
+      "0": "Никада",
+      "6": "Шесточасовно",
+      "12": "Дванаесточасовно",
+      "24": "Дневно",
+      "48": "Свака 2 дана",
+      "168": "Недељно"
+    },
+    "version": "Верзија"
+  }
+}

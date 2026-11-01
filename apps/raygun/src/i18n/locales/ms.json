@@ -1,0 +1,139 @@
+{
+  "ai": {
+    "cancel": "Batal",
+    "delete": "Padam",
+    "edit": "Sunting",
+    "installed": "Dipasang",
+    "name": "Nama",
+    "save": "Simpan"
+  },
+  "collections": {
+    "cancel": "Batal",
+    "create": "Buat",
+    "done": "Tamat",
+    "edit": "Sunting",
+    "favorite": "Tambah ke kegemaran",
+    "favorites": "Kegemaran",
+    "save": "Simpan",
+    "unfavorite": "Alih keluar dari Kegemaran"
+  },
+  "devices": {
+    "kind": {
+      "history": "Sejarah",
+      "settings": "Tetapan"
+    },
+    "off": "Mati",
+    "save": "Simpan"
+  },
+  "extensions": {
+    "addRepo": "Tambah",
+    "cancel": "Batal",
+    "install": "Pasang",
+    "nsfwBadge": "18+",
+    "refresh": "Segar semula",
+    "settings": "Tetapan",
+    "tab": {
+      "browse": "Semak imbas",
+      "installed": "Dipasang"
+    },
+    "title": "Sambungan",
+    "uninstall": "Nyahpasang",
+    "update": "Kemas kini",
+    "upToDate": "Dipasang"
+  },
+  "home": {
+    "clearHistory": "Padamkan sejarah"
+  },
+  "library": {
+    "emptyTitle": "Pustaka kosong",
+    "media": {
+      "manga": "Komik",
+      "music": "Musik"
+    },
+    "openPlay": "Pasang",
+    "play": "Pasang",
+    "title": "Pustaka",
+    "view": {
+      "favorites": "Kegemaran"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Tambah ke Pustaka",
+    "chapters_other": "Jumlah bab: {{count}}",
+    "downloads": "Muat turun",
+    "downloadState": {
+      "done": "Dimuat turun",
+      "downloading": "Memuat turun",
+      "failed": "Gagal"
+    },
+    "inLibraryBadge": "Dalam Pustaka",
+    "list": {
+      "latest": "Terkini",
+      "popular": "Popular",
+      "search": "Carian"
+    },
+    "loading": "Muat…",
+    "nextChapter": "Bab seterusnya",
+    "pauseDownloads": "Jeda",
+    "previousChapter": "Sebelum",
+    "readingMode": "Mod membaca",
+    "removeFromLibrary": "Dalam Pustaka",
+    "resumeDownloads": "Sambung",
+    "source": "Sumber",
+    "status": {
+      "cancelled": "Dibatalkan",
+      "completed": "Selesai",
+      "hiatus": "Dalam hiatus",
+      "ongoing": "Berterusan",
+      "publishingFinished": "Penerbitan selesai"
+    },
+    "today": "Hari ini",
+    "updateLibrary": "Kemas kini pustaka",
+    "updates": "Kemas kini"
+  },
+  "mcp": {
+    "copy": "Salin"
+  },
+  "nav": {
+    "home": "Halaman Utama",
+    "library": "Pustaka",
+    "search": "Carian",
+    "settings": "Tetapan"
+  },
+  "player": {
+    "favorite": "Tambah ke kegemaran",
+    "next": "Seterusnya",
+    "pause": "Jeda",
+    "play": "Pasang",
+    "previous": "Sebelum",
+    "unfavorite": "Alih keluar dari Kegemaran"
+  },
+  "search": {
+    "title": "Carian"
+  },
+  "settings": {
+    "about": "Tentang",
+    "appearance": "Penampilan",
+    "backup": "Sandaran",
+    "cancel": "Batal",
+    "confirmRestore": "Kembalikan ke asal",
+    "createBackup": "Buat sandaran",
+    "extensions": "Sambungan",
+    "language": "Bahasa",
+    "manga": "Komik",
+    "theme": "Tema",
+    "themeDark": "Gelap",
+    "themeLight": "Terang",
+    "themeSystem": "Sistem",
+    "title": "Tetapan",
+    "updateEvery": {
+      "0": "Tidak akan",
+      "6": "Setiap 6 jam",
+      "12": "Setiap 12 jam",
+      "24": "Setiap hari",
+      "48": "Setiap 2 hari",
+      "168": "Setiap minggu"
+    },
+    "version": "Versi"
+  }
+}

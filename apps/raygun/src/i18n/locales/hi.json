@@ -1,0 +1,156 @@
+{
+  "ai": {
+    "cancel": "रद्द करें",
+    "delete": "हटाये",
+    "edit": "संपादित करें",
+    "installed": "स्थापित",
+    "name": "नाम",
+    "save": "संरक्षित करे",
+    "translators": "Translators"
+  },
+  "collections": {
+    "addToPlaylist": "प्‍लेलिस्‍ट में जोड़ें",
+    "cancel": "रद्द करें",
+    "create": "बनाएँ",
+    "done": "हो गया",
+    "edit": "संपादित करें",
+    "favorite": "Add to favorites",
+    "favorites": "पसंदीदा",
+    "newPlaylist": "नई प्लेलिस्ट",
+    "rename": "नाम बदलें",
+    "save": "संरक्षित करे"
+  },
+  "devices": {
+    "copied": "कॉपी किया गया!",
+    "kind": {
+      "history": "इतिहास",
+      "settings": "सेटिंग्स"
+    },
+    "off": "बंद",
+    "rename": "नाम बदलें",
+    "save": "संरक्षित करे",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "addRepo": "जोड़े",
+    "cancel": "रद्द करें",
+    "install": "स्थापित करें",
+    "nsfwBadge": "18+",
+    "refresh": "रीफ़्रेश करें",
+    "settings": "सेटिंग्स",
+    "tab": {
+      "browse": "ब्राउज",
+      "installed": "स्थापित"
+    },
+    "title": "विस्तार",
+    "uninstall": "स्थापना रद्द करें",
+    "update": "अद्यतन",
+    "upToDate": "स्थापित"
+  },
+  "home": {
+    "clearHistory": "इतिहास मिटा दें"
+  },
+  "library": {
+    "addFolder": "फोल्डर जोड़ें",
+    "emptyTitle": "आपका पुस्तकालय खाली है़ें। स्रोतों से अपने पुस्तकालय में श्रृंखला जोड़ें",
+    "media": {
+      "manga": "Manga",
+      "music": "संगीत"
+    },
+    "openPlay": "चलाएं",
+    "play": "चलाएं",
+    "shuffle": "शफल करें",
+    "title": "पुस्तकालय",
+    "view": {
+      "albums": "एल्बम्स",
+      "artists": "कलाकार",
+      "favorites": "पसंदीदा",
+      "playlists": "प्लेलिस्ट"
+    }
+  },
+  "manga": {
+    "addToLibrary": "पुस्तकालय में जोड़ें",
+    "chapters_one": "{{count}} अध्याय",
+    "chapters_other": "{{count}} अध्याय",
+    "downloads": "डाउनलोड",
+    "downloadState": {
+      "done": "डाउनलोड किए गए",
+      "downloading": "डाउनलोड कर रहा है",
+      "failed": "विफ़ल"
+    },
+    "inLibraryBadge": "पुस्तकालय में",
+    "list": {
+      "latest": "नवीनतम",
+      "popular": "लोकप्रिय",
+      "search": "खोज"
+    },
+    "loading": "लोड हो रहा है…",
+    "nextChapter": "अगला अध्याय",
+    "pauseDownloads": "ठहराव",
+    "previousChapter": "पिछला",
+    "readingMode": "पढ़न मोड",
+    "removeFromLibrary": "पुस्तकालय में",
+    "resumeDownloads": "दुबारा आरम्भ करना",
+    "source": "सोर्स",
+    "status": {
+      "cancelled": "रद्द किया गया",
+      "completed": "समाप्त",
+      "hiatus": "अंतराल पर है",
+      "ongoing": "चल रही है",
+      "publishingFinished": "प्रकाशन समाप्त"
+    },
+    "today": "आज",
+    "updateLibrary": "पुस्तकालय अपडेट करें",
+    "updates": "नए अपडेट",
+    "yesterday": "कल"
+  },
+  "mcp": {
+    "copied": "कॉपी किया गया!",
+    "copy": "नकल"
+  },
+  "nav": {
+    "home": "होम",
+    "library": "पुस्तकालय",
+    "search": "खोज",
+    "settings": "सेटिंग्स"
+  },
+  "player": {
+    "addToPlaylist": "प्‍लेलिस्‍ट में जोड़ें",
+    "favorite": "Add to favorites",
+    "next": "अगला",
+    "nowPlaying": "Now playing",
+    "pause": "ठहराव",
+    "play": "चलाएं",
+    "previous": "पिछला",
+    "shuffle": "शफल करें",
+    "upNext": "Up Next"
+  },
+  "search": {
+    "title": "खोज"
+  },
+  "settings": {
+    "about": "संबंध में",
+    "appearance": "रूप",
+    "backup": "बैकअप",
+    "cancel": "रद्द करें",
+    "confirmRestore": "पुनःस्थापन करे",
+    "createBackup": "बैकअप बनाये",
+    "extensions": "विस्तार",
+    "language": "भाषा",
+    "manga": "Manga",
+    "theme": "थीम",
+    "themeDark": "चालू करे",
+    "themeLight": "बंद",
+    "themeSystem": "सिस्टम का पालन करें",
+    "title": "सेटिंग्स",
+    "updateEvery": {
+      "0": "कभी नहीँ",
+      "6": "हर ६ घंटे",
+      "12": "हर १२ घंटे",
+      "24": "हर रोज़",
+      "48": "हर २ दिन",
+      "168": "साप्ताहिक"
+    },
+    "version": "संस्करण"
+  }
+}

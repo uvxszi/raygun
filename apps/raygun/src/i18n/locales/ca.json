@@ -1,0 +1,160 @@
+{
+  "ai": {
+    "cancel": "Cancel·la",
+    "delete": "Suprimeix",
+    "edit": "Edita",
+    "installed": "Instal·lades",
+    "name": "Nom",
+    "save": "Desa",
+    "translators": "Traductors"
+  },
+  "collections": {
+    "addToPlaylist": "Afegeix a la llista de reproducció",
+    "cancel": "Cancel·la",
+    "create": "Crea",
+    "done": "Fet",
+    "edit": "Edita",
+    "favorite": "Afegir als favorits",
+    "favorites": "Preferits",
+    "newPlaylist": "Nova llista de reproducció",
+    "rename": "Reanomena",
+    "save": "Desa",
+    "unfavorite": "Eliminar dels favorits"
+  },
+  "devices": {
+    "copied": "Copiat",
+    "kind": {
+      "history": "Historial",
+      "settings": "Configuració"
+    },
+    "off": "Desactivat",
+    "rename": "Reanomena",
+    "save": "Desa",
+    "syncing": "Sincronitzant..."
+  },
+  "extensions": {
+    "addRepo": "Afegeix",
+    "cancel": "Cancel·la",
+    "install": "Instal·la",
+    "nsfwBadge": "+18",
+    "refresh": "Actualitza",
+    "settings": "Configuració",
+    "tab": {
+      "browse": "Explora",
+      "installed": "Instal·lades"
+    },
+    "title": "Extensions",
+    "uninstall": "Desinstal·la",
+    "update": "Actualitza",
+    "upToDate": "Instal·lades"
+  },
+  "home": {
+    "clearHistory": "Suprimeix l’historial"
+  },
+  "library": {
+    "addFolder": "Afegeix carpeta",
+    "emptyTitle": "La vostra biblioteca és buida",
+    "media": {
+      "manga": "Elements de la biblioteca",
+      "music": "Music"
+    },
+    "openPlay": "Iniciar",
+    "play": "Iniciar",
+    "shuffle": "Aleatori",
+    "title": "Biblioteca",
+    "view": {
+      "albums": "Àlbums",
+      "artists": "Artistes",
+      "favorites": "Preferits",
+      "playlists": "Llistes de reproducció"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Afegeix a la biblioteca",
+    "chapters_many": "{{count}} de capítols",
+    "chapters_one": "{{count}} capítol",
+    "chapters_other": "{{count}} capítols",
+    "downloads": "Baixades",
+    "downloadState": {
+      "done": "Baixats",
+      "downloading": "S’està baixant",
+      "failed": "Failed"
+    },
+    "inLibraryBadge": "A la biblioteca",
+    "list": {
+      "latest": "Recents",
+      "popular": "Populars",
+      "search": "Cerca"
+    },
+    "loading": "S’està carregant…",
+    "nextChapter": "Capítol següent",
+    "pauseDownloads": "Pausa",
+    "previousChapter": "Anterior",
+    "readingMode": "Mode de lectura",
+    "removeFromLibrary": "A la biblioteca",
+    "resumeDownloads": "Reprèn",
+    "source": "Font",
+    "status": {
+      "cancelled": "Cancel·lada",
+      "completed": "Completats",
+      "hiatus": "En pausa",
+      "ongoing": "En curs",
+      "publishingFinished": "Publicació finalitzada"
+    },
+    "today": "Avui",
+    "updateLibrary": "Actualitza la biblioteca",
+    "updates": "Novetats",
+    "yesterday": "Ahir"
+  },
+  "mcp": {
+    "copied": "Copiat",
+    "copy": "Copia"
+  },
+  "nav": {
+    "home": "Inici",
+    "library": "Biblioteca",
+    "search": "Cerca",
+    "settings": "Configuració"
+  },
+  "player": {
+    "addToPlaylist": "Afegeix a la llista de reproducció",
+    "favorite": "Afegir als favorits",
+    "next": "Següent",
+    "nowPlaying": "Now playing",
+    "pause": "Pausa",
+    "play": "Iniciar",
+    "previous": "Anterior",
+    "shuffle": "Aleatori",
+    "unfavorite": "Eliminar dels favorits",
+    "upNext": "Amunt següent"
+  },
+  "search": {
+    "title": "Cerca"
+  },
+  "settings": {
+    "about": "Quant a",
+    "appearance": "Aparença",
+    "backup": "Còpia de seguretat",
+    "cancel": "Cancel·la",
+    "confirmRestore": "Restaura",
+    "createBackup": "Crea una còpia de seguretat",
+    "extensions": "Extensions",
+    "language": "Llengua",
+    "manga": "Elements de la biblioteca",
+    "storage": "Emmagatzematge",
+    "theme": "Tema",
+    "themeDark": "Fosc",
+    "themeLight": "Clar",
+    "themeSystem": "Sistema",
+    "title": "Configuració",
+    "updateEvery": {
+      "0": "Mai",
+      "6": "Cada 6 hores",
+      "12": "Cada 12 hores",
+      "24": "Cada dia",
+      "48": "Cada 2 dies",
+      "168": "Cada setmana"
+    },
+    "version": "Versió"
+  }
+}

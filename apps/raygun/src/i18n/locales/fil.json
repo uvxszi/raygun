@@ -1,0 +1,163 @@
+{
+  "ai": {
+    "cancel": "Kanselahin",
+    "delete": "Burahin",
+    "edit": "Isaayos",
+    "installed": "Naka-install",
+    "name": "Pangalan",
+    "save": "I-save",
+    "translators": "Translators"
+  },
+  "collections": {
+    "addToPlaylist": "I-dagdag sa playlist",
+    "cancel": "Kanselahin",
+    "create": "Lumikha",
+    "done": "I-tapos",
+    "edit": "Isaayos",
+    "favorite": "Idagdag sa mga paborito <3",
+    "favorites": "Mga paborito <3",
+    "newPlaylist": "Bagong playlist",
+    "rename": "Baguhin ang Pangalan",
+    "save": "I-save",
+    "unfavorite": "Alisin sa mga paborito </3"
+  },
+  "devices": {
+    "copied": "Kinopya",
+    "kind": {
+      "history": "Kasaysayan",
+      "settings": "Mga Setting"
+    },
+    "off": "Naka-off",
+    "rename": "Baguhin ang Pangalan",
+    "save": "I-save",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "addRepo": "Magdagdag",
+    "cancel": "Kanselahin",
+    "install": "I-install",
+    "nsfwBadge": "18+",
+    "refresh": "I-refresh",
+    "settings": "Mga Setting",
+    "tab": {
+      "browse": "Maghanap",
+      "installed": "Naka-install"
+    },
+    "title": "Mga Extension",
+    "uninstall": "I-uninstall",
+    "update": "I-update",
+    "upToDate": "Naka-install"
+  },
+  "home": {
+    "clearHistory": "Linisin ang kasaysayan"
+  },
+  "library": {
+    "addFolder": "Magdagdag ng folder",
+    "emptyTitle": "Walang laman ang iyong aklatan",
+    "media": {
+      "manga": "Mga nilalaman ng aklatan",
+      "music": "Music"
+    },
+    "openPlay": "I-Play",
+    "play": "I-Play",
+    "shuffle": "I-Shuffle",
+    "title": "Aklatan",
+    "view": {
+      "albums": "Mga Album",
+      "artists": "Mga Artista",
+      "favorites": "Mga paborito <3",
+      "playlists": "Mga playlist"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Idagdag sa Aklatan",
+    "chapters_one": "{{count}} kabanata",
+    "chapters_other": "{{count}} na mga kabanata",
+    "downloads": "Pag-download",
+    "downloadState": {
+      "done": "Na-download",
+      "downloading": "Dina-download",
+      "failed": "Failed"
+    },
+    "inLibraryBadge": "Nasa Aklatan",
+    "list": {
+      "latest": "Pinakabago",
+      "popular": "Sikat",
+      "search": "Maghanap"
+    },
+    "loading": "Naglo-load…",
+    "nextChapter": "Susunod na kabanata",
+    "pageAlt": "Pahina {{page}}",
+    "pauseDownloads": "I-pause",
+    "previousChapter": "Nakaraan",
+    "readingMode": "Pagbasa",
+    "removeFromLibrary": "Nasa Aklatan",
+    "resumeDownloads": "Ipagpatuloy",
+    "status": {
+      "cancelled": "Kinansela",
+      "completed": "Kumpleto",
+      "hiatus": "Naka-hiatus",
+      "ongoing": "Patuloy",
+      "publishingFinished": "Tapos na ang paglalathala"
+    },
+    "today": "Ngayon",
+    "updateLibrary": "I-update ang Aklatan",
+    "updates": "Bago",
+    "yesterday": "Kahapon"
+  },
+  "mcp": {
+    "copied": "Kinopya",
+    "copy": "Kopyahin"
+  },
+  "nav": {
+    "home": "Bahay",
+    "library": "Aklatan",
+    "search": "Maghanap",
+    "settings": "Mga Setting"
+  },
+  "novel": {
+    "fontSize": "Laki ng font"
+  },
+  "player": {
+    "addToPlaylist": "I-dagdag sa playlist",
+    "favorite": "Idagdag sa mga paborito <3",
+    "next": "Susunod",
+    "nowPlaying": "Now playing",
+    "pause": "I-pause",
+    "play": "I-Play",
+    "previous": "Nakaraan",
+    "seek": "I-seek",
+    "shuffle": "I-Shuffle",
+    "unfavorite": "Alisin sa mga paborito </3",
+    "upNext": "Ang Susunod"
+  },
+  "search": {
+    "title": "Maghanap"
+  },
+  "settings": {
+    "about": "Patungkol",
+    "appearance": "Hitsura",
+    "backup": "Ang Backup",
+    "cancel": "Kanselahin",
+    "confirmRestore": "I-restore",
+    "createBackup": "Gumawa ng backup",
+    "extensions": "Mga Extension",
+    "language": "Wika",
+    "manga": "Mga nilalaman ng aklatan",
+    "storage": "Espasyo",
+    "theme": "Tema",
+    "themeDark": "Madilim",
+    "themeLight": "Maliwanag",
+    "themeSystem": "Sistema",
+    "title": "Mga Setting",
+    "updateEvery": {
+      "0": "Hindi",
+      "6": "Kada 6 na oras",
+      "12": "Kada 12 oras",
+      "24": "Araw-araw",
+      "48": "Kada 2 araw",
+      "168": "Linggo-linggo"
+    },
+    "version": "Bersyon"
+  }
+}

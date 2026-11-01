@@ -1,0 +1,154 @@
+{
+  "ai": {
+    "cancel": "Cancelar",
+    "delete": "Eliminar",
+    "edit": "Editar",
+    "installed": "Instaladas",
+    "name": "Nome",
+    "save": "Gardar",
+    "translators": "Traductores"
+  },
+  "collections": {
+    "addToPlaylist": "Engadir á lista de reprodución",
+    "cancel": "Cancelar",
+    "create": "Crear",
+    "done": "Feito",
+    "edit": "Editar",
+    "favorite": "Engadir a favoritos",
+    "favorites": "Favoritos",
+    "newPlaylist": "Nova lista de reprodución",
+    "rename": "Renomear",
+    "save": "Gardar"
+  },
+  "devices": {
+    "copied": "Copiada",
+    "kind": {
+      "history": "Historial",
+      "settings": "Axustes"
+    },
+    "off": "Desactivado",
+    "rename": "Renomear",
+    "save": "Gardar",
+    "syncing": "Sincronizando..."
+  },
+  "extensions": {
+    "addRepo": "Engadir",
+    "cancel": "Cancelar",
+    "install": "Instalar",
+    "nsfwBadge": "+18",
+    "refresh": "Recargar",
+    "settings": "Axustes",
+    "tab": {
+      "browse": "Explorar",
+      "installed": "Instaladas"
+    },
+    "title": "Extensións",
+    "uninstall": "Desinstalar",
+    "update": "Actualizar",
+    "upToDate": "Instaladas"
+  },
+  "home": {
+    "clearHistory": "Eliminar o historial"
+  },
+  "library": {
+    "addFolder": "Engadir cartafol",
+    "emptyTitle": "A túa biblioteca está vacía",
+    "media": {
+      "manga": "Elementos da biblioteca",
+      "music": "Música"
+    },
+    "openPlay": "Reproducir",
+    "play": "Reproducir",
+    "shuffle": "Ao Chou",
+    "title": "Biblioteca",
+    "view": {
+      "albums": "Álbums",
+      "artists": "Artistas",
+      "favorites": "Favoritos",
+      "playlists": "Listas de reprodución"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Engadir á biblioteca",
+    "chapters_one": "{{count}} capítulo",
+    "chapters_other": "{{count}} capítulos",
+    "downloads": "Descargas",
+    "downloadState": {
+      "done": "Descargados",
+      "downloading": "Descargando",
+      "failed": "Errou"
+    },
+    "inLibraryBadge": "Na biblioteca",
+    "list": {
+      "latest": "Máis recente",
+      "popular": "Popular",
+      "search": "Procurar"
+    },
+    "loading": "Cargando…",
+    "nextChapter": "Capítulo seguinte",
+    "pauseDownloads": "Pausar",
+    "readingMode": "Modo de lectura",
+    "removeFromLibrary": "Na biblioteca",
+    "resumeDownloads": "Continuar",
+    "source": "Fonte",
+    "status": {
+      "cancelled": "Cancelada",
+      "completed": "Completado",
+      "hiatus": "En pausa",
+      "ongoing": "En curso",
+      "publishingFinished": "Publicación rematada"
+    },
+    "today": "Hoxe",
+    "updateLibrary": "Actualizar biblioteca",
+    "updates": "Actualizacións",
+    "yesterday": "Onte"
+  },
+  "mcp": {
+    "copied": "Copiada",
+    "copy": "Copiar"
+  },
+  "nav": {
+    "home": "Inicio",
+    "library": "Biblioteca",
+    "search": "Procurar",
+    "settings": "Axustes"
+  },
+  "player": {
+    "addToPlaylist": "Engadir á lista de reprodución",
+    "favorite": "Engadir a favoritos",
+    "next": "Seguinte",
+    "nowPlaying": "Now playing",
+    "pause": "Pausar",
+    "play": "Reproducir",
+    "shuffle": "Ao Chou",
+    "upNext": "O seguinte"
+  },
+  "search": {
+    "title": "Procurar"
+  },
+  "settings": {
+    "about": "Acerca de",
+    "appearance": "Aparencia",
+    "backup": "Copia de seguranza",
+    "cancel": "Cancelar",
+    "confirmRestore": "Restaurar",
+    "createBackup": "Crear unha copia de seguridade",
+    "extensions": "Extensións",
+    "language": "Idioma",
+    "manga": "Elementos da biblioteca",
+    "theme": "Tema",
+    "themeDark": "Activado",
+    "themeLight": "Desactivado",
+    "themeSystem": "Utilizar o do sistema",
+    "title": "Axustes",
+    "updateEvery": {
+      "0": "Nunca",
+      "6": "Cada 6 horas",
+      "12": "Cada 12 horas",
+      "24": "Diariamente",
+      "48": "Cada 2 días",
+      "168": "Semanalmente"
+    },
+    "version": "Versión"
+  }
+}

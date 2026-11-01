@@ -1,0 +1,140 @@
+{
+  "ai": {
+    "cancel": "Anulo",
+    "delete": "Fshije",
+    "edit": "Redakto",
+    "installed": "Instaluar",
+    "name": "Emri",
+    "save": "Ruaj"
+  },
+  "collections": {
+    "cancel": "Anulo",
+    "done": "U krye",
+    "edit": "Redakto",
+    "favorite": "Shto te të preferuarat",
+    "favorites": "Të preferuarat",
+    "save": "Ruaj",
+    "unfavorite": "Hiqe nga të preferuarat"
+  },
+  "devices": {
+    "kind": {
+      "history": "Historia",
+      "settings": "Cilësimet"
+    },
+    "off": "Fikur",
+    "save": "Ruaj"
+  },
+  "extensions": {
+    "addRepo": "Shtoni",
+    "cancel": "Anulo",
+    "install": "Instaloni",
+    "nsfwBadge": "18+",
+    "refresh": "Rifresko",
+    "settings": "Cilësimet",
+    "tab": {
+      "browse": "Shfletoni",
+      "installed": "Instaluar"
+    },
+    "title": "Shtesa",
+    "uninstall": "Çinstaloni",
+    "update": "Përditëso",
+    "upToDate": "Instaluar"
+  },
+  "home": {
+    "clearHistory": "Pastro historinë"
+  },
+  "library": {
+    "emptyTitle": "Biblioteka juaj është bosh",
+    "media": {
+      "manga": "Elementet e bibliotekës",
+      "music": "Muzikë"
+    },
+    "openPlay": "Luaj",
+    "play": "Luaj",
+    "title": "Libraria",
+    "view": {
+      "favorites": "Të preferuarat",
+      "tracks": "Gjurmë"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Shto në bibliotekë",
+    "chapters_one": "{{count}} kapitull",
+    "chapters_other": "{{count}} kapituj",
+    "downloads": "Shkarkimet",
+    "downloadState": {
+      "done": "Shkarkuar",
+      "downloading": "Po shkarkohet",
+      "failed": "Dështoi"
+    },
+    "inLibraryBadge": "Në bibliotekë",
+    "list": {
+      "latest": "Të fundit",
+      "popular": "Popullor",
+      "search": "Kërko"
+    },
+    "loading": "Po ngarkohet…",
+    "nextChapter": "Kapitulli tjetër",
+    "pauseDownloads": "Ndalo",
+    "previousChapter": "E mëparshme",
+    "readingMode": "Modaliteti i leximit",
+    "removeFromLibrary": "Në bibliotekë",
+    "resumeDownloads": "Rifillo",
+    "source": "Burimi",
+    "status": {
+      "cancelled": "Anuluar",
+      "completed": "E përfunduar",
+      "hiatus": "Në pauzë",
+      "ongoing": "Në vazhdim",
+      "publishingFinished": "Botim i përfunduar"
+    },
+    "today": "Sot",
+    "updateLibrary": "Përditëso bibliotekën",
+    "updates": "Përditësimet"
+  },
+  "mcp": {
+    "copy": "Kopjo"
+  },
+  "nav": {
+    "home": "Kryefaqja",
+    "library": "Libraria",
+    "search": "Kërko",
+    "settings": "Cilësimet"
+  },
+  "player": {
+    "favorite": "Shto te të preferuarat",
+    "next": "Tjetra",
+    "pause": "Ndalo",
+    "play": "Luaj",
+    "previous": "E mëparshme",
+    "unfavorite": "Hiqe nga të preferuarat"
+  },
+  "search": {
+    "title": "Kërko"
+  },
+  "settings": {
+    "about": "Rreth",
+    "appearance": "Paraqitja",
+    "backup": "Kopja rezervë",
+    "cancel": "Anulo",
+    "confirmRestore": "Rivendos",
+    "createBackup": "Krijo kopje rezervë",
+    "extensions": "Shtesa",
+    "language": "Gjuha",
+    "manga": "Elementet e bibliotekës",
+    "theme": "Tema",
+    "themeDark": "Errët",
+    "themeLight": "Ndrçim",
+    "themeSystem": "Ndiq Sistemin",
+    "title": "Cilësimet",
+    "updateEvery": {
+      "0": "Kurrë",
+      "6": "Çdo 6 orë",
+      "12": "Çdo 12 orë",
+      "24": "Ditore",
+      "48": "Çdo 2 ditë",
+      "168": "Javore"
+    },
+    "version": "Versioni"
+  }
+}

@@ -1,0 +1,157 @@
+{
+  "ai": {
+    "cancel": "বাতিল",
+    "delete": "মুছুন",
+    "edit": "সম্পাদন করুন",
+    "installed": "ইনস্টল করা",
+    "name": "নাম",
+    "save": "সংরক্ষণ করুন",
+    "translators": "Translators"
+  },
+  "collections": {
+    "addToPlaylist": "প্লে-লিস্টে রাখুন",
+    "cancel": "বাতিল",
+    "create": "তৈরি",
+    "done": "সম্পন্ন",
+    "edit": "সম্পাদন করুন",
+    "favorite": "প্রিয় তালিকায় যোগ করুন",
+    "favorites": "প্রিয় তালিকা",
+    "newPlaylist": "নতুন প্লে-লিস্ট",
+    "rename": "নতুন নাম দিন",
+    "save": "সংরক্ষণ করুন",
+    "unfavorite": "প্রিয় তালিকা থেকে সরান"
+  },
+  "devices": {
+    "copied": "কপি হয়েছে",
+    "kind": {
+      "history": "ইতিহাস",
+      "settings": "সেটিংস"
+    },
+    "off": "বন্ধ",
+    "rename": "নতুন নাম দিন",
+    "save": "সংরক্ষণ করুন",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "addRepo": "যোগ করুন",
+    "cancel": "বাতিল",
+    "install": "ইন্সটল করুন",
+    "nsfwBadge": "১৮+",
+    "refresh": "রিফ্রেশ",
+    "settings": "সেটিংস",
+    "tab": {
+      "browse": "অনুসন্ধান",
+      "installed": "ইনস্টল করা"
+    },
+    "title": "এক্সটেনশন",
+    "uninstall": "আন ইন্সটল",
+    "update": "হালনাগাদ",
+    "upToDate": "ইনস্টল করা"
+  },
+  "home": {
+    "clearHistory": "ইতিহাস সাফ করুন"
+  },
+  "library": {
+    "addFolder": "ফোল্ডার যোগ করুন",
+    "emptyTitle": "আপনার সংগ্রহশালা খালি",
+    "media": {
+      "manga": "পুস্তক সংগ্রহ",
+      "music": "সঙ্গীত"
+    },
+    "openPlay": "প্লে",
+    "play": "প্লে",
+    "shuffle": "এলোমেলো বাজান",
+    "title": "লাইব্রেরি",
+    "view": {
+      "albums": "এলবামস",
+      "artists": "শিল্পী",
+      "favorites": "প্রিয় তালিকা",
+      "playlists": "প্লে-লিস্ট গুলো",
+      "tracks": "ট্র্যাকসমূহ"
+    }
+  },
+  "manga": {
+    "addToLibrary": "লাইব্রেরিতে যুক্ত করুন",
+    "downloads": "ডাউনলোডস",
+    "downloadState": {
+      "done": "ডাউনলোড হয়েছে",
+      "downloading": "ডাউনলোড হচ্ছে",
+      "failed": "ব্যর্থ হয়েছে"
+    },
+    "inLibraryBadge": "লাইব্রেরিতে আছে",
+    "list": {
+      "latest": "লেটেস্ট",
+      "popular": "জনপ্রিয়",
+      "search": "খুঁজুন"
+    },
+    "loading": "লোড হচ্ছে…",
+    "nextChapter": "পরবর্তী আধ্যায়",
+    "pauseDownloads": "বিরতি দিন",
+    "previousChapter": "পূর্ববর্তী",
+    "readingMode": "পঠন ধরন",
+    "removeFromLibrary": "লাইব্রেরিতে আছে",
+    "resumeDownloads": "রিজিউম",
+    "source": "উৎস",
+    "status": {
+      "cancelled": "বাতিল করা হয়েছে",
+      "completed": "সম্পন্ন",
+      "hiatus": "বিরতিতে রয়েছে",
+      "ongoing": "চলমান",
+      "publishingFinished": "সম্পূর্ণ প্রকাশিত"
+    },
+    "today": "সম্প্রতি",
+    "updateLibrary": "লাইব্রেরি আপডেট",
+    "updates": "আপডেট",
+    "yesterday": "গতকাল"
+  },
+  "mcp": {
+    "copied": "কপি হয়েছে",
+    "copy": "অনুলিপি"
+  },
+  "nav": {
+    "home": "হোম",
+    "library": "লাইব্রেরি",
+    "search": "খুঁজুন",
+    "settings": "সেটিংস"
+  },
+  "player": {
+    "addToPlaylist": "প্লে-লিস্টে রাখুন",
+    "favorite": "প্রিয় তালিকায় যোগ করুন",
+    "next": "পরবর্তী",
+    "nowPlaying": "Now playing",
+    "pause": "বিরতি দিন",
+    "play": "প্লে",
+    "previous": "পূর্ববর্তী",
+    "shuffle": "এলোমেলো বাজান",
+    "unfavorite": "প্রিয় তালিকা থেকে সরান",
+    "upNext": "Up Next"
+  },
+  "search": {
+    "title": "খুঁজুন"
+  },
+  "settings": {
+    "about": "সম্বন্ধে",
+    "appearance": "দৃশ্য",
+    "backup": "বেকাপ",
+    "cancel": "বাতিল",
+    "confirmRestore": "পুনরুদ্ধার করুন",
+    "createBackup": "ব্যাকআপ তৈরী করুন",
+    "extensions": "এক্সটেনশন",
+    "language": "ভাষা",
+    "manga": "পুস্তক সংগ্রহ",
+    "theme": "থিম",
+    "themeDark": "ডার্ক",
+    "themeLight": "লাইট",
+    "themeSystem": "সিস্টেম",
+    "title": "সেটিংস",
+    "updateEvery": {
+      "0": "কখনই না",
+      "6": "প্রতি ৬ ঘন্টায়",
+      "12": "প্রতি ১২ ঘন্টায়",
+      "24": "প্রতিদিন",
+      "48": "প্রতি ২ দিন",
+      "168": "সাপ্তাহিক"
+    },
+    "version": "সংস্করণ"
+  }
+}

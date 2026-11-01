@@ -1,0 +1,156 @@
+{
+  "ai": {
+    "cancel": "ביטול",
+    "delete": "מחיקה",
+    "edit": "עריכה",
+    "installed": "הותקן",
+    "name": "שם",
+    "save": "שמור",
+    "translators": "Translators"
+  },
+  "collections": {
+    "addToPlaylist": "הוספה לרשימת השמעה",
+    "cancel": "ביטול",
+    "done": "סוים",
+    "edit": "עריכה",
+    "favorite": "הוסף למועדפים",
+    "favorites": "מועדפים",
+    "newPlaylist": "רשימת השמעה חדשה",
+    "rename": "שנה שם",
+    "save": "שמור",
+    "unfavorite": "הסר מהמועדפים"
+  },
+  "devices": {
+    "copied": "הועתק",
+    "kind": {
+      "history": "היסטוריה",
+      "settings": "הגדרות"
+    },
+    "off": "כבוי",
+    "rename": "שנה שם",
+    "save": "שמור",
+    "syncing": "Syncing..."
+  },
+  "extensions": {
+    "addRepo": "הוספה",
+    "cancel": "ביטול",
+    "install": "התקן",
+    "nsfwBadge": "18+",
+    "refresh": "רענון",
+    "settings": "הגדרות",
+    "tab": {
+      "browse": "דפדפן",
+      "installed": "הותקן"
+    },
+    "title": "תוספים",
+    "uninstall": "הסר התקנה",
+    "update": "עדכון",
+    "upToDate": "הותקן"
+  },
+  "home": {
+    "clearHistory": "נקה היסטוריה"
+  },
+  "library": {
+    "addFolder": "הוספת תיקייה",
+    "emptyTitle": "הספרייה שלך ריקה",
+    "media": {
+      "manga": "מנגה",
+      "music": "מוזיקה"
+    },
+    "openPlay": "נגן",
+    "play": "נגן",
+    "shuffle": "ערבוב",
+    "title": "ספרייה",
+    "view": {
+      "albums": "אלבומים",
+      "artists": "אומנים",
+      "favorites": "מועדפים",
+      "playlists": "רשימות השמעה",
+      "tracks": "מסלולים"
+    }
+  },
+  "manga": {
+    "addToLibrary": "הוסף לספרייה",
+    "downloads": "הורדות",
+    "downloadState": {
+      "done": "בהורדות",
+      "downloading": "מוריד",
+      "failed": "נכשל"
+    },
+    "inLibraryBadge": "בתוך הספרייה",
+    "list": {
+      "latest": "המאוחר ביותר",
+      "popular": "פופולרי",
+      "search": "חיפוש"
+    },
+    "loading": "טוען…",
+    "nextChapter": "הפרק הבא",
+    "pauseDownloads": "השהיה",
+    "previousChapter": "קודם",
+    "readingMode": "מצב קריאה",
+    "removeFromLibrary": "בתוך הספרייה",
+    "resumeDownloads": "המשך",
+    "source": "מקור",
+    "status": {
+      "cancelled": "בוטל/ה",
+      "completed": "הושלם",
+      "hiatus": "בהפסקה",
+      "ongoing": "נמשך",
+      "publishingFinished": "הפרסום הסתיים"
+    },
+    "today": "היום",
+    "updateLibrary": "עדכון הספרייה",
+    "updates": "עדכונים",
+    "yesterday": "אתמול"
+  },
+  "mcp": {
+    "copied": "הועתק",
+    "copy": "הוספה כעותק"
+  },
+  "nav": {
+    "home": "בית",
+    "library": "ספרייה",
+    "search": "חיפוש",
+    "settings": "הגדרות"
+  },
+  "player": {
+    "addToPlaylist": "הוספה לרשימת השמעה",
+    "favorite": "הוסף למועדפים",
+    "next": "הבא",
+    "nowPlaying": "Now playing",
+    "pause": "השהיה",
+    "play": "נגן",
+    "previous": "קודם",
+    "shuffle": "ערבוב",
+    "unfavorite": "הסר מהמועדפים",
+    "upNext": "Up Next"
+  },
+  "search": {
+    "title": "חיפוש"
+  },
+  "settings": {
+    "about": "אודות",
+    "appearance": "מראה",
+    "backup": "גיבוי",
+    "cancel": "ביטול",
+    "confirmRestore": "שיחזור",
+    "createBackup": "צור גיבוי",
+    "extensions": "תוספים",
+    "language": "שפה",
+    "manga": "מנגה",
+    "theme": "ערכת נושא",
+    "themeDark": "פעיל",
+    "themeLight": "כבוי",
+    "themeSystem": "עקוב אחר המערכת",
+    "title": "הגדרות",
+    "updateEvery": {
+      "0": "לעולם לא",
+      "6": "כל 6 שעות",
+      "12": "כל 12 שעות",
+      "24": "פעם ביום",
+      "48": "פעם ביומיים",
+      "168": "פעם בשבוע"
+    },
+    "version": "גרסה"
+  }
+}

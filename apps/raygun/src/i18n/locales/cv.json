@@ -1,0 +1,117 @@
+{
+  "ai": {
+    "cancel": "Пӑрахӑҫла",
+    "delete": "Катерт",
+    "edit": "Улӑштар",
+    "installed": "Лартнӑ",
+    "name": "Йат",
+    "save": "Упра"
+  },
+  "collections": {
+    "cancel": "Пӑрахӑҫла",
+    "create": "Ту",
+    "edit": "Улӑштар",
+    "save": "Упра"
+  },
+  "devices": {
+    "kind": {
+      "history": "Кун-ҫул",
+      "settings": "Ӗнерӳсем"
+    },
+    "off": "Сӳнтернӗ",
+    "save": "Упра"
+  },
+  "extensions": {
+    "addRepo": "Хуш",
+    "cancel": "Пӑрахӑҫла",
+    "install": "Ларт",
+    "nsfwBadge": "18+",
+    "refresh": "Ҫӗнет",
+    "settings": "Ӗнерӳсем",
+    "tab": {
+      "browse": "Шырав",
+      "installed": "Лартнӑ"
+    },
+    "title": "Хушмасем",
+    "uninstall": "Катерт",
+    "update": "Ҫӗнет",
+    "upToDate": "Лартнӑ"
+  },
+  "home": {
+    "clearHistory": "Кун-ҫул тасат"
+  },
+  "library": {
+    "emptyTitle": "Санӑн вулавӑш пушӑ",
+    "media": {
+      "manga": "Вулавӑшри хайлавсем"
+    },
+    "title": "Вулавӑш"
+  },
+  "manga": {
+    "addToLibrary": "Вулавӑша хуш",
+    "chapters_one": "{{count}} сыпӑк",
+    "chapters_other": "{{count}} сыпӑк",
+    "downloads": "Тийевсем",
+    "downloadState": {
+      "done": "Тийесе илнӗ",
+      "downloading": "Тийесе илӗнет"
+    },
+    "inLibraryBadge": "Вулавăшра",
+    "list": {
+      "latest": "Юлашки",
+      "search": "Шыра"
+    },
+    "loading": "Тийени…",
+    "nextChapter": "Хыҫҫӑнхи сыпӑк",
+    "pauseDownloads": "Чар",
+    "readingMode": "Вулав тытӑмӗ",
+    "removeFromLibrary": "Вулавăшра",
+    "resumeDownloads": "Малалла",
+    "status": {
+      "completed": "Вӗҫленӗ",
+      "ongoing": "Тухакан"
+    },
+    "today": "Пайан",
+    "updateLibrary": "Вулавӑша ҫӗнет",
+    "updates": "Ҫӗнӗлӗх"
+  },
+  "mcp": {
+    "copy": "Ӑтавла"
+  },
+  "nav": {
+    "library": "Вулавӑш",
+    "search": "Шыра",
+    "settings": "Ӗнерӳсем"
+  },
+  "player": {
+    "next": "Малалла",
+    "pause": "Чар"
+  },
+  "search": {
+    "title": "Шыра"
+  },
+  "settings": {
+    "about": "Ап ҫинчен",
+    "appearance": "Кӑтартӑну",
+    "cancel": "Пӑрахӑҫла",
+    "confirmRestore": "Тавӑр",
+    "createBackup": "Йантӑлав ту",
+    "extensions": "Хушмасем",
+    "language": "Чӗлхе",
+    "manga": "Вулавӑшри хайлавсем",
+    "theme": "Темӗ",
+    "themeDark": "Тӗттӗм",
+    "themeLight": "Ҫутӑ",
+    "themeSystem": "Ҫиҫтемри пекех",
+    "title": "Ӗнерӳсем",
+    "updateEvery": {
+      "0": "Нихӑҫан",
+      "6": "Кашни 6 сехет",
+      "12": "Кашни 12 сехет",
+      "24": "Кашни кун",
+      "48": "Кашни 2 кун",
+      "168": "Кашни ерне"
+    },
+    "version": "Верҫҫи"
+  }
+}

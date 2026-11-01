@@ -1,0 +1,115 @@
+{
+  "ai": {
+    "cancel": "ರದ್ದುಮಾಡಿ",
+    "delete": "ತೆಗೆದು ಹಾಕು",
+    "edit": "ತಿದ್ದು",
+    "installed": "ಇನ್ಸ್ಟಾಲ್ಲ್ಡ್",
+    "name": "ಹೆಸರು",
+    "save": "ಉಳಿಸಿ"
+  },
+  "collections": {
+    "cancel": "ರದ್ದುಮಾಡಿ",
+    "edit": "ತಿದ್ದು",
+    "save": "ಉಳಿಸಿ"
+  },
+  "devices": {
+    "kind": {
+      "history": "ಇತಿಹಾಸ",
+      "settings": "ಸಂಯೋಜನೆಗಳು"
+    },
+    "off": "ಆಫ",
+    "save": "ಉಳಿಸಿ"
+  },
+  "extensions": {
+    "addRepo": "ಸೇರಿಸಿ",
+    "cancel": "ರದ್ದುಮಾಡಿ",
+    "install": "ಇನ್ಸ್ಟಾಲ್",
+    "nsfwBadge": "18+",
+    "refresh": "ರಿಫ್ರೆಶ್ ಮಾಡಿ",
+    "settings": "ಸಂಯೋಜನೆಗಳು",
+    "tab": {
+      "browse": "ಬ್ರೌಸ್",
+      "installed": "ಇನ್ಸ್ಟಾಲ್ಲ್ಡ್"
+    },
+    "title": "ವಿಸ್ತರಣೆಗಳು",
+    "uninstall": "ಅನ್ಇನ್ಸ್ಟಾಲ್",
+    "update": "ನವೀಕರಿಸಿ",
+    "upToDate": "ಇನ್ಸ್ಟಾಲ್ಲ್ಡ್"
+  },
+  "home": {
+    "clearHistory": "ಇತಿಹಾಸವನ್ನು ತೆರವುಗೊಳಿಸಿ"
+  },
+  "library": {
+    "emptyTitle": "ನಿಮ್ಮ ಲೈಬ್ರರಿ ಖಾಲಿಯಾಗಿದೆ, ಯಾವುದೇ ಮೂಲದಿಂದ ನಿಮ್ಮ ಲೈಬ್ರರಿಗೆ ಸರಣಿಯನ್ನು ಸೇರಿಸಿ.",
+    "media": {
+      "manga": "ಮಾಂಗಾ"
+    },
+    "openPlay": "ಪ್ಲೇ",
+    "play": "ಪ್ಲೇ",
+    "title": "ಗ್ರಂಥಾಲಯ"
+  },
+  "manga": {
+    "addToLibrary": "ಗ್ರಂಥಾಲಯಕ್ಕೆ ಸೇರಿಸಿ",
+    "downloads": "ಡೌನ್ಲೋಡ್ ಸಂಯೋಜನೆಗಳು",
+    "downloadState": {
+      "done": "ಡೌನ್‌ಲೋಡ್ ಮಾಡಲಾಗಿದೆ",
+      "downloading": "ಡೌನ್‌ಲೋಡ್ ಮಾಡಲಾಗುತ್ತಿದೆ"
+    },
+    "inLibraryBadge": "ಗ್ರಂಥಾಲಯದಲ್ಲಿರುವ",
+    "list": {
+      "latest": "ಹೊಸದಾದ",
+      "search": "ಹುಡುಕಿ"
+    },
+    "loading": "ಲೋಡ್ ಮಾಡಲಾಗುತ್ತಿದೆ…",
+    "nextChapter": "ಮುಂದಿನ ಅಧ್ಯಾಯ",
+    "pauseDownloads": "ವಿರಾಮ",
+    "readingMode": "ಓದುವ ಮೊಡ್",
+    "removeFromLibrary": "ಗ್ರಂಥಾಲಯದಲ್ಲಿರುವ",
+    "resumeDownloads": "ಪುನರಾರಂಭಿಸು",
+    "status": {
+      "completed": "ಪೂರ್ಣಗೊಂಡಿದೆ",
+      "ongoing": "ಪ್ರಗತಿಯಲ್ಲಿರುವ"
+    },
+    "updateLibrary": "ಗ್ರಂಥಾಲಯ ನವೀಕರಿಸಿ",
+    "updates": "ನವೀಕರಣಗಳು"
+  },
+  "mcp": {
+    "copy": "ನಕಲಿಸಿ"
+  },
+  "nav": {
+    "home": "ಹೋಂ",
+    "library": "ಗ್ರಂಥಾಲಯ",
+    "search": "ಹುಡುಕಿ",
+    "settings": "ಸಂಯೋಜನೆಗಳು"
+  },
+  "player": {
+    "next": "ಮುಂದಿನ",
+    "pause": "ವಿರಾಮ",
+    "play": "ಪ್ಲೇ"
+  },
+  "search": {
+    "title": "ಹುಡುಕಿ"
+  },
+  "settings": {
+    "about": "ಅಪ್ಲಿಕೇಶನ್ ಬಗ್ಗೆ",
+    "cancel": "ರದ್ದುಮಾಡಿ",
+    "confirmRestore": "ಮರುಸ್ಥಾಪಿಸಿ",
+    "createBackup": "ಬ್ಯಾಕಪ್ ರಚಿಸಿ",
+    "extensions": "ವಿಸ್ತರಣೆಗಳು",
+    "manga": "ಮಾಂಗಾ",
+    "theme": "ಜನರಲ್ ಸೆಲೆಕ್ಷನ್",
+    "themeDark": "ಆನ್",
+    "themeLight": "ಆಫ",
+    "themeSystem": "ಸಿಸ್ಟಮ್ ಅನುಕರಿಸಿ",
+    "title": "ಸಂಯೋಜನೆಗಳು",
+    "updateEvery": {
+      "0": "ಎಂದಿಗೂ ಇಲ್ಲ",
+      "6": "ಪ್ರತಿ 6 ಗಂಟೆಗಳಿಗೊಮ್ಮೆ",
+      "12": "ಪ್ರತಿ 12 ಗಂಟೆಗಳಿಗೊಮ್ಮೆ",
+      "24": "ಪ್ರತಿದಿನ",
+      "48": "ಪ್ರತಿ 2 ದಿನಗಳಿಗೊಮ್ಮೆ",
+      "168": "ವಾರಕ್ಕೊಮ್ಮೆ"
+    },
+    "version": "ಆವೃತ್ತಿ"
+  }
+}

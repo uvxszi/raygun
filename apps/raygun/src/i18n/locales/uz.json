@@ -1,0 +1,98 @@
+{
+  "ai": {
+    "cancel": "Bekor qilish",
+    "delete": "Õchirish",
+    "edit": "Õzgartirish",
+    "installed": "O'rnatildi",
+    "name": "Name",
+    "save": "Saqlash"
+  },
+  "collections": {
+    "cancel": "Bekor qilish",
+    "edit": "Õzgartirish",
+    "save": "Saqlash"
+  },
+  "devices": {
+    "kind": {
+      "history": "Tarix",
+      "settings": "Sozlamalar"
+    },
+    "off": "Oʻchiq",
+    "save": "Saqlash"
+  },
+  "extensions": {
+    "addRepo": "Qõshish",
+    "cancel": "Bekor qilish",
+    "install": "O'rnatish",
+    "nsfwBadge": "18+",
+    "refresh": "Yangilash",
+    "settings": "Sozlamalar",
+    "tab": {
+      "installed": "O'rnatildi"
+    },
+    "title": "Qo'shimchalar",
+    "uninstall": "O'chirish",
+    "update": "Yangilash",
+    "upToDate": "O'rnatildi"
+  },
+  "library": {
+    "emptyTitle": "Sizning kutubxonangiz bo'sh",
+    "media": {
+      "manga": "Kutubxona yozuvlari"
+    },
+    "title": "Kutubxona"
+  },
+  "manga": {
+    "downloads": "Yuklamalar",
+    "downloadState": {
+      "done": "Yuklangan",
+      "downloading": "Yuklanmoqda"
+    },
+    "list": {
+      "search": "Qidirish"
+    },
+    "loading": "Yuklanmoqda…",
+    "nextChapter": "Keyingi bob",
+    "pauseDownloads": "Pauza",
+    "readingMode": "O'qish rejimi",
+    "resumeDownloads": "Davom ettirish",
+    "today": "Bugun",
+    "updateLibrary": "Bibliotekani yangilash",
+    "updates": "Yangilanishlar"
+  },
+  "nav": {
+    "library": "Kutubxona",
+    "search": "Qidirish",
+    "settings": "Sozlamalar"
+  },
+  "player": {
+    "next": "Keyingi",
+    "pause": "Pauza"
+  },
+  "search": {
+    "title": "Qidirish"
+  },
+  "settings": {
+    "about": "Ma'lumot",
+    "appearance": "Ko'rsatish",
+    "cancel": "Bekor qilish",
+    "confirmRestore": "Tiklash",
+    "extensions": "Qo'shimchalar",
+    "language": "Til",
+    "manga": "Kutubxona yozuvlari",
+    "theme": "Mavzu",
+    "themeDark": "Yoniq",
+    "themeLight": "O'chiq",
+    "themeSystem": "Tizimdagidek",
+    "title": "Sozlamalar",
+    "updateEvery": {
+      "0": "Hech qachon",
+      "6": "Har 6 soatda",
+      "12": "Har 12 soatda",
+      "24": "Har kun",
+      "48": "Har 2 kunda",
+      "168": "Har hafta"
+    },
+    "version": "Versiya"
+  }
+}

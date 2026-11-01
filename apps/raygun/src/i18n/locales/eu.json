@@ -1,0 +1,146 @@
+{
+  "ai": {
+    "cancel": "Ezeztatu",
+    "delete": "Ezabatu",
+    "edit": "Editatu",
+    "installed": "Instalatuak",
+    "name": "Izena",
+    "save": "Gorde",
+    "translators": "Itzultzaileak"
+  },
+  "collections": {
+    "addToPlaylist": "Zerrendara gehitu",
+    "cancel": "Ezeztatu",
+    "done": "Egina",
+    "edit": "Editatu",
+    "favorite": "Gogokoenetara gehitu",
+    "favorites": "Gustokoenak",
+    "newPlaylist": "Zerrenda berria",
+    "rename": "Izena aldatu",
+    "save": "Gorde"
+  },
+  "devices": {
+    "copied": "Kopiatua",
+    "kind": {
+      "history": "Historiala",
+      "settings": "Ezarpenak"
+    },
+    "off": "Itzali",
+    "rename": "Izena aldatu",
+    "save": "Gorde",
+    "syncing": "Sinkronizatzen..."
+  },
+  "extensions": {
+    "addRepo": "Gehitu",
+    "cancel": "Ezeztatu",
+    "install": "Instalatu",
+    "nsfwBadge": "18+",
+    "refresh": "Freskatu",
+    "settings": "Ezarpenak",
+    "tab": {
+      "browse": "Arakatu",
+      "installed": "Instalatuak"
+    },
+    "title": "Luzapenak",
+    "uninstall": "Desinstalatu",
+    "update": "Eguneratu",
+    "upToDate": "Instalatuak"
+  },
+  "home": {
+    "clearHistory": "Garbitu historia"
+  },
+  "library": {
+    "addFolder": "Karpeta gehitu",
+    "emptyTitle": "Zure liburutegia hutsik dago",
+    "media": {
+      "manga": "Manga",
+      "music": "Music"
+    },
+    "shuffle": "Aleatorioa",
+    "title": "Liburutegia",
+    "view": {
+      "albums": "Albumak",
+      "artists": "Artistak",
+      "favorites": "Gustokoenak",
+      "playlists": "Zerrendak"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Gehitu liburutegira",
+    "downloads": "Deskargak",
+    "downloadState": {
+      "done": "Deskargatuak",
+      "downloading": "Deskargatzen",
+      "failed": "Failed"
+    },
+    "inLibraryBadge": "Liburutegian",
+    "list": {
+      "latest": "Azkenak",
+      "search": "Bilatu"
+    },
+    "loading": "Kargatzen…",
+    "nextChapter": "Hurrengo kapitulua",
+    "pauseDownloads": "Pausatu",
+    "readingMode": "Irakurketa modua",
+    "removeFromLibrary": "Liburutegian",
+    "resumeDownloads": "Jarraitu",
+    "status": {
+      "cancelled": "Bertan behera utzia",
+      "completed": "Bukatua",
+      "hiatus": "Etenaldian",
+      "ongoing": "Argitaratzen",
+      "publishingFinished": "Argitarapena amaitua"
+    },
+    "today": "Gaur",
+    "updateLibrary": "Eguneratu liburutegia",
+    "updates": "Eguneraketak",
+    "yesterday": "Atzo"
+  },
+  "mcp": {
+    "copied": "Kopiatua",
+    "copy": "Kopiatu"
+  },
+  "nav": {
+    "home": "Hasiera",
+    "library": "Liburutegia",
+    "search": "Bilatu",
+    "settings": "Ezarpenak"
+  },
+  "player": {
+    "addToPlaylist": "Zerrendara gehitu",
+    "favorite": "Gogokoenetara gehitu",
+    "next": "Hurrengoa",
+    "nowPlaying": "Now playing",
+    "pause": "Pausatu",
+    "shuffle": "Aleatorioa",
+    "upNext": "Up Next"
+  },
+  "search": {
+    "title": "Bilatu"
+  },
+  "settings": {
+    "about": "Honi buruz",
+    "appearance": "Itxura",
+    "backup": "Babeskopia",
+    "cancel": "Ezeztatu",
+    "confirmRestore": "Berrezarri",
+    "createBackup": "Sortu babeskopia",
+    "extensions": "Luzapenak",
+    "language": "Hizkuntza",
+    "manga": "Manga",
+    "theme": "Gaia",
+    "themeDark": "Piztu",
+    "themeLight": "Itzali",
+    "themeSystem": "Sistemarena erabili",
+    "title": "Ezarpenak",
+    "updateEvery": {
+      "0": "Inoiz ere ez",
+      "6": "6 orduro",
+      "12": "12 orduro",
+      "24": "Egunero",
+      "48": "2 egunean behin",
+      "168": "Astero"
+    },
+    "version": "Bertsioa"
+  }
+}

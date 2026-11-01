@@ -1,0 +1,165 @@
+{
+  "ai": {
+    "cancel": "İptal et",
+    "delete": "Sil",
+    "edit": "Düzenle",
+    "installed": "Yüklendi",
+    "name": "Ad",
+    "save": "Kaydet",
+    "translators": "Çevirmenler"
+  },
+  "collections": {
+    "addToPlaylist": "Oynatma listesine ekle",
+    "cancel": "İptal et",
+    "create": "Oluştur",
+    "done": "Bitti",
+    "edit": "Düzenle",
+    "favorite": "Favorilere ekle",
+    "favorites": "Favoriler",
+    "newPlaylist": "Yeni oynatma listesi",
+    "rename": "Yeniden adlandır",
+    "save": "Kaydet",
+    "unfavorite": "Favorilerden çıkar"
+  },
+  "devices": {
+    "copied": "Kopyalandı",
+    "kind": {
+      "history": "Geçmiş",
+      "settings": "Ayarlar"
+    },
+    "off": "Kapalı",
+    "rename": "Yeniden adlandır",
+    "save": "Kaydet",
+    "syncing": "Senkronize ediliyor..."
+  },
+  "extensions": {
+    "addRepo": "Ekle",
+    "cancel": "İptal et",
+    "install": "Yükle",
+    "nsfwBadge": "18+",
+    "refresh": "Yenile",
+    "settings": "Ayarlar",
+    "tab": {
+      "browse": "Göz At",
+      "installed": "Yüklendi"
+    },
+    "title": "Uzantılar",
+    "uninstall": "Kaldır",
+    "update": "Güncelle",
+    "upToDate": "Yüklendi"
+  },
+  "home": {
+    "clearHistory": "Geçmişi temizle"
+  },
+  "library": {
+    "addFolder": "Klasör ekle",
+    "emptyTitle": "Kitaplığınız boş",
+    "media": {
+      "manga": "Manga",
+      "music": "Müzik"
+    },
+    "openPlay": "Oynat",
+    "play": "Oynat",
+    "shuffle": "Karıştır",
+    "title": "Kitaplık",
+    "view": {
+      "albums": "Albümler",
+      "artists": "Sanatçılar",
+      "favorites": "Favoriler",
+      "playlists": "Oynatma listeleri",
+      "tracks": "Parçalar"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Kitaplığa ekle",
+    "chapters_one": "{{count}} bölüm",
+    "chapters_other": "{{count}} bölüm",
+    "downloads": "İndirmeler",
+    "downloadState": {
+      "done": "İndirilen",
+      "downloading": "İndiriliyor",
+      "failed": "Başarısız"
+    },
+    "inLibraryBadge": "Kitaplıkta",
+    "list": {
+      "latest": "En son",
+      "popular": "Popüler",
+      "search": "Ara"
+    },
+    "loading": "Yükleniyor…",
+    "nextChapter": "Sonraki bölüm",
+    "pageAlt": "Sayfa {{page}}",
+    "pauseDownloads": "Duraklat",
+    "previousChapter": "Önceki",
+    "readingMode": "Okuma modu",
+    "removeFromLibrary": "Kitaplıkta",
+    "resumeDownloads": "Devam Et",
+    "source": "Kaynak",
+    "status": {
+      "cancelled": "İptal edildi",
+      "completed": "Tamamlandı",
+      "hiatus": "Molada",
+      "ongoing": "Devam ediyor",
+      "publishingFinished": "Yayımı tamamlandı"
+    },
+    "today": "Bugün",
+    "updateLibrary": "Kitaplığı güncelle",
+    "updates": "Güncellemeler",
+    "yesterday": "Dün"
+  },
+  "mcp": {
+    "copied": "Kopyalandı",
+    "copy": "Kopyala"
+  },
+  "nav": {
+    "home": "Ana sayfa",
+    "library": "Kitaplık",
+    "search": "Ara",
+    "settings": "Ayarlar"
+  },
+  "novel": {
+    "fontSize": "Yazı tipi boyutu"
+  },
+  "player": {
+    "addToPlaylist": "Oynatma listesine ekle",
+    "favorite": "Favorilere ekle",
+    "next": "Sonraki",
+    "nowPlaying": "Şimdi oynatılıyor",
+    "pause": "Duraklat",
+    "play": "Oynat",
+    "previous": "Önceki",
+    "seek": "Kaydır",
+    "shuffle": "Karıştır",
+    "unfavorite": "Favorilerden çıkar",
+    "upNext": "Sıradaki"
+  },
+  "search": {
+    "title": "Ara"
+  },
+  "settings": {
+    "about": "Hakkında",
+    "appearance": "Görünüm",
+    "backup": "Yedek",
+    "cancel": "İptal et",
+    "confirmRestore": "Geri yükle",
+    "createBackup": "Yedek oluştur",
+    "extensions": "Uzantılar",
+    "language": "Dil",
+    "manga": "Manga",
+    "storage": "Depolama",
+    "theme": "Tema",
+    "themeDark": "Koyu",
+    "themeLight": "Açık",
+    "themeSystem": "Sistem",
+    "title": "Ayarlar",
+    "updateEvery": {
+      "0": "Asla",
+      "6": "6 saatte bir",
+      "12": "12 saatte bir",
+      "24": "Günlük",
+      "48": "2 günde bir",
+      "168": "Haftalık"
+    },
+    "version": "Sürüm"
+  }
+}

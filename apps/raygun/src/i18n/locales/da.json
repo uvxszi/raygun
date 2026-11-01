@@ -1,0 +1,138 @@
+{
+  "ai": {
+    "cancel": "Afbryd",
+    "delete": "Slet",
+    "edit": "Rediger",
+    "installed": "Installeret",
+    "name": "Navn",
+    "save": "Gem",
+    "translators": "Oversættere"
+  },
+  "collections": {
+    "addToPlaylist": "Føj til playliste",
+    "cancel": "Afbryd",
+    "create": "Opret",
+    "done": "Færdig",
+    "edit": "Rediger",
+    "favorite": "Føj til favoritter",
+    "favorites": "Favoritter",
+    "newPlaylist": "Ny playliste",
+    "rename": "Omdøb",
+    "save": "Gem"
+  },
+  "devices": {
+    "copied": "Kopieret",
+    "kind": {
+      "history": "Historik",
+      "settings": "Indstillinger"
+    },
+    "off": "Fra",
+    "rename": "Omdøb",
+    "save": "Gem",
+    "syncing": "Synkroniserer..."
+  },
+  "extensions": {
+    "addRepo": "Tilføj",
+    "cancel": "Afbryd",
+    "install": "Installer",
+    "nsfwBadge": "18+",
+    "refresh": "Genindlæs",
+    "settings": "Indstillinger",
+    "tab": {
+      "installed": "Installeret"
+    },
+    "title": "Udvidelser",
+    "uninstall": "Afinstallér",
+    "update": "Opdater",
+    "upToDate": "Installeret"
+  },
+  "library": {
+    "addFolder": "Tilføj mappe",
+    "emptyTitle": "Dit bibliotek er tomt",
+    "media": {
+      "manga": "Biblioteksposter",
+      "music": "Music"
+    },
+    "shuffle": "Bland",
+    "title": "Bibliotek",
+    "view": {
+      "albums": "Album",
+      "artists": "Kunstnere",
+      "favorites": "Favoritter",
+      "playlists": "Playlister"
+    }
+  },
+  "manga": {
+    "addToLibrary": "Tilføj til bibliotek",
+    "downloads": "Downloads",
+    "downloadState": {
+      "done": "Nedhentet",
+      "downloading": "Henter ned",
+      "failed": "Failed"
+    },
+    "inLibraryBadge": "I Biblioteket",
+    "list": {
+      "search": "Søg"
+    },
+    "loading": "Loader…",
+    "nextChapter": "Næste kapitel",
+    "pauseDownloads": "Pause",
+    "readingMode": "Læsetilstand",
+    "removeFromLibrary": "I Biblioteket",
+    "resumeDownloads": "Fortsæt",
+    "status": {
+      "cancelled": "Cancelled",
+      "completed": "Completed"
+    },
+    "today": "I dag",
+    "updateLibrary": "Opdater bibliotek",
+    "updates": "Opdateringer",
+    "yesterday": "I går"
+  },
+  "mcp": {
+    "copied": "Kopieret"
+  },
+  "nav": {
+    "home": "Hjem",
+    "library": "Bibliotek",
+    "search": "Søg",
+    "settings": "Indstillinger"
+  },
+  "player": {
+    "addToPlaylist": "Føj til playliste",
+    "favorite": "Føj til favoritter",
+    "next": "Næste",
+    "nowPlaying": "Now playing",
+    "pause": "Pause",
+    "shuffle": "Bland",
+    "upNext": "Den Næste"
+  },
+  "search": {
+    "title": "Søg"
+  },
+  "settings": {
+    "about": "Om",
+    "appearance": "Udseende",
+    "backup": "Sikkerhedskopi",
+    "cancel": "Afbryd",
+    "confirmRestore": "Gendan",
+    "createBackup": "Opret sikkerhedskopi",
+    "extensions": "Udvidelser",
+    "language": "Sprog",
+    "manga": "Biblioteksposter",
+    "theme": "Tema",
+    "themeDark": "Til",
+    "themeLight": "Fra",
+    "themeSystem": "Følg system",
+    "title": "Indstillinger",
+    "updateEvery": {
+      "0": "Aldrig",
+      "6": "Hver 6. time",
+      "12": "Hver 12. time",
+      "24": "Dagligt",
+      "48": "Hver anden dag",
+      "168": "Ugentligt"
+    },
+    "version": "Version"
+  }
+}
