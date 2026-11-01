@@ -11,6 +11,15 @@
         android:maxSdkVersion="32" />
 
     <application>
+        <!-- The video player (M38): landscape, resizable for picture-in-picture. -->
+        <activity
+            android:name="app.raygun.audio.VideoPlayerActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:resizeableActivity="true"
+            android:supportsPictureInPicture="true"
+            android:theme="@style/Theme.AppCompat.NoActionBar" />
         <service
             android:name="app.raygun.audio.RaygunPlaybackService"
             android:exported="true"

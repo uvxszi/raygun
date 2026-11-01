@@ -1440,3 +1440,47 @@ pub struct PodcastSearchResult {
     pub description: Option<String>,
     pub subscribed: bool,
 }
+
+// ---- Watch: video playback (M38) ----
+
+/// A subtitle file the player can load next to a video.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoSubtitle {
+    pub url: String,
+    pub lang: Option<String>,
+    pub label: Option<String>,
+    /// `srt`, `vtt`, `ass` or `ttml`; guessed from the URL when missing.
+    pub format: Option<String>,
+}
+
+/// What to play in the video player.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoRequest {
+    /// Stable id of the content, for resuming (`url:<address>` for links).
+    pub key: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub poster: Option<String>,
+    pub url: String,
+    /// Sent with every request (Referer, User-Agent...).
+    pub headers: std::collections::BTreeMap<String, String>,
+    /// `hls` or `dash` when the URL doesn't say.
+    pub format: Option<String>,
+    pub subtitles: Vec<VideoSubtitle>,
+}
+
+/// Something started and not finished.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ContinueWatching {
+    pub key: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub poster: Option<String>,
+    pub position_ms: f64,
+    pub duration_ms: Option<f64>,
+    /// Unix ms.
+    pub updated_at: f64,
+}

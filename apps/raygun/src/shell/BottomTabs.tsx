@@ -10,7 +10,7 @@ export const BottomTabs: FC = () => {
     <nav
       aria-label={t('nav.main')}
       data-testid="bottom-tabs"
-      className="bg-surface border-background grid grid-cols-4 border-t pb-[env(safe-area-inset-bottom)] lg:hidden"
+      className="bg-surface border-background grid grid-flow-col auto-cols-fr border-t pb-[env(safe-area-inset-bottom)] lg:hidden"
     >
       {NAV_ITEMS.map(({ to, labelKey, icon: Icon, testId }) => (
         <Link

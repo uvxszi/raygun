@@ -32,6 +32,7 @@ type EventPayloads = {
   ttsEvent: TtsUpdate;
   aiModelEvent: AiModelProgress;
   podcastsChangedEvent: string;
+  watchChangedEvent: string;
 };
 type EventName = keyof EventPayloads;
 type Listener = (event: { payload: unknown }) => void;
@@ -220,6 +221,11 @@ export const bindingsMock = {
     podcastSetPlayed: vi.fn(),
     podcastDownload: vi.fn(),
     podcastRemoveDownload: vi.fn(),
+    videoPlay: vi.fn(),
+    videoPlayLink: vi.fn(),
+    videoContinueWatching: vi.fn(),
+    videoResume: vi.fn(),
+    videoRemove: vi.fn(),
   },
   events: {
     engineCommandEvent: makeEvent('engineCommandEvent'),
@@ -233,6 +239,7 @@ export const bindingsMock = {
     ttsEvent: makeEvent('ttsEvent'),
     aiModelEvent: makeEvent('aiModelEvent'),
     podcastsChangedEvent: makeEvent('podcastsChangedEvent'),
+    watchChangedEvent: makeEvent('watchChangedEvent'),
   },
 };
 
@@ -378,6 +385,11 @@ export const seedBindings = () => {
   commands.podcastSetPlayed.mockResolvedValue(ok(null));
   commands.podcastDownload.mockResolvedValue(ok(null));
   commands.podcastRemoveDownload.mockResolvedValue(ok(null));
+  commands.videoPlay.mockResolvedValue(ok(null));
+  commands.videoPlayLink.mockResolvedValue(ok(null));
+  commands.videoContinueWatching.mockResolvedValue(ok([]));
+  commands.videoResume.mockResolvedValue(ok(null));
+  commands.videoRemove.mockResolvedValue(ok(null));
 };
 
 export const emitEvent = <Name extends EventName>(name: Name, payload: EventPayloads[Name]) => {

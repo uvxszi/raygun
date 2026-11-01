@@ -101,10 +101,10 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 ## Watch: movies, TV, anime (CloudStream, aniyomi, Stremio)
 | Feature | From | Status |
 |---|---|---|
-| **Watch tab**, home with catalog rows | CloudStream, Stremio | 🔜 M38, M39 |
-| Native player: gestures (seek/volume/brightness), double-tap skip, PiP, speed, orientation, resume | aniyomi, CloudStream | 🔜 M38 |
-| Subtitles (.srt/.vtt/.ass), preferred languages, audio track selection | aniyomi, CloudStream | 🔜 M38 |
-| HLS/DASH, header injection | CloudStream | 🔜 M38 |
+| **Watch tab**, home with catalog rows | CloudStream, Stremio | ✅ M38 (tab) / 🔜 catalogs |
+| Native player: gestures (seek/volume/brightness), double-tap skip, PiP, speed, orientation, resume | aniyomi, CloudStream | ✅ M38 |
+| Subtitles (.srt/.vtt/.ass), preferred languages, audio track selection | aniyomi, CloudStream | ✅ M38 (preferred languages later) |
+| HLS/DASH, header injection | CloudStream | ✅ M38 |
 | Intro/outro skip (chapters, AniSkip) | aniyomi | 🔜 M38 (chapters), ⏸ AniSkip (needs a tracker) |
 | Mark seen at a percentage, preserve position | aniyomi | 🔜 M41 |
 | Stremio catalogs, metadata, streams, subtitles | Stremio | 🔜 M39 |

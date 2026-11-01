@@ -134,6 +134,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     downloads.start();
     podcasts.start();
     crate::tts::install(app.handle());
+    crate::video::install(app.handle());
     app.state::<crate::manga::MangaService>().start_scheduler();
     crate::system_ui::apply_saved_theme(app.handle().clone());
     Ok(())

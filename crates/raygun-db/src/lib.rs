@@ -15,6 +15,7 @@ pub mod settings;
 pub mod streams;
 pub mod sync;
 pub mod titles;
+pub mod video;
 
 use std::path::Path;
 use std::str::FromStr;

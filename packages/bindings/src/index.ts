@@ -221,6 +221,15 @@ export const commands = {
 	/**  Downloads an episode in the background; progress arrives as `PodcastsChangedEvent`s. */
 	podcastDownload: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("podcast_download", { episodeId })),
 	podcastRemoveDownload: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("podcast_remove_download", { episodeId })),
+	/**  Plays a video in the player, resuming where it was left. */
+	videoPlay: (request: VideoRequest) => typedError<null, string>(__TAURI_INVOKE("video_play", { request })),
+	/**  Plays a video link (with an optional subtitle file). */
+	videoPlayLink: (url: string, title: string | null, subtitleUrl: string | null) => typedError<null, string>(__TAURI_INVOKE("video_play_link", { url, title, subtitleUrl })),
+	/**  Videos started and not finished, most recent first. */
+	videoContinueWatching: () => typedError<ContinueWatching[], string>(__TAURI_INVOKE("video_continue_watching")),
+	/**  Plays a "continue watching" entry again. */
+	videoResume: (key: string) => typedError<null, string>(__TAURI_INVOKE("video_resume", { key })),
+	videoRemove: (key: string) => typedError<null, string>(__TAURI_INVOKE("video_remove", { key })),
 };
 
 /** Events */
@@ -236,6 +245,7 @@ export const events = {
 	queueEvent: makeEvent<QueueEvent>("queue-event"),
 	syncChangedEvent: makeEvent<SyncChangedEvent>("sync-changed-event"),
 	ttsEvent: makeEvent<TtsEvent>("tts-event"),
+	watchChangedEvent: makeEvent<WatchChangedEvent>("watch-changed-event"),
 };
 
 /* Types */
@@ -370,6 +380,18 @@ export type CompatReport = {
 	stubbedApis: string[],
 	/**  UI modules it imports; they're inert in Raygun. */
 	uiImports: string[],
+};
+
+/**  Something started and not finished. */
+export type ContinueWatching = {
+	key: string,
+	title: string,
+	subtitle: string | null,
+	poster: string | null,
+	positionMs: number | null,
+	durationMs: number | null,
+	/**  Unix ms. */
+	updatedAt: number | null,
 };
 
 export type DownloadState = "queued" | "downloading" | "done" | "failed";
@@ -1127,6 +1149,36 @@ export type TtsUpdate = {
 	state: TtsState,
 	paragraph: number,
 };
+
+/**  What to play in the video player. */
+export type VideoRequest = {
+	/**  Stable id of the content, for resuming (`url:<address>` for links). */
+	key: string,
+	title: string,
+	subtitle: string | null,
+	poster: string | null,
+	url: string,
+	/**  Sent with every request (Referer, User-Agent...). */
+	headers: { [key in string]: string },
+	/**  `hls` or `dash` when the URL doesn't say. */
+	format: string | null,
+	subtitles: VideoSubtitle[],
+};
+
+/**  A subtitle file the player can load next to a video. */
+export type VideoSubtitle = {
+	url: string,
+	lang: string | null,
+	label: string | null,
+	/**  `srt`, `vtt`, `ass` or `ttml`; guessed from the URL when missing. */
+	format: string | null,
+};
+
+/**
+ *  Watching progress changed (the player closed or finished something); carries the content key
+ *  (M38).
+ */
+export type WatchChangedEvent = string;
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

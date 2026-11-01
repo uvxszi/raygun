@@ -4,7 +4,8 @@
     "library": "Library",
     "search": "Search",
     "settings": "Settings",
-    "main": "Main navigation"
+    "main": "Main navigation",
+    "watch": "Watch"
   },
   "home": {
     "title": "Welcome to Raygun",
@@ -540,5 +541,16 @@
     "downloaded": "Downloaded",
     "removeDownload": "Delete download",
     "downloadFailed": "Download failed: {{message}}"
+  },
+  "watch": {
+    "title": "Watch",
+    "continue": "Continue watching",
+    "removeContinue": "Remove {{title}} from Continue watching",
+    "playLink": "Play a video link",
+    "playLinkHint": "MP4, MKV, HLS (.m3u8) and DASH (.mpd) links play in the built-in player, with an optional subtitle file.",
+    "videoUrl": "Video address",
+    "subtitleUrl": "Subtitle address",
+    "subtitlePlaceholder": "Subtitles (optional): https://…/subs.srt",
+    "play": "Play"
   }
 }

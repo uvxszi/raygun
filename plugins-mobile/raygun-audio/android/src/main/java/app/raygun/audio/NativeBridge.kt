@@ -20,6 +20,18 @@ object NativeBridge {
     @JvmStatic
     external fun onTts(json: String)
 
+    /** Video player progress (M38). */
+    @JvmStatic
+    external fun onVideo(json: String)
+
+    fun video(json: String) {
+        try {
+            onVideo(json)
+        } catch (error: UnsatisfiedLinkError) {
+            Log.e("RaygunAudio", "Rust engine bridge is not linked", error)
+        }
+    }
+
     fun tts(json: String) {
         try {
             onTts(json)

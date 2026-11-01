@@ -30,6 +30,7 @@ mod settings;
 mod startup;
 mod system_ui;
 mod tts;
+mod video;
 
 use std::path::Path;
 
@@ -153,7 +154,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::podcast_play,
             commands::podcast_set_played,
             commands::podcast_download,
-            commands::podcast_remove_download
+            commands::podcast_remove_download,
+            commands::video_play,
+            commands::video_play_link,
+            commands::video_continue_watching,
+            commands::video_resume,
+            commands::video_remove
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,
@@ -166,7 +172,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::MangaDownloadsEvent,
             events::TtsEvent,
             events::AiModelEvent,
-            events::PodcastsChangedEvent
+            events::PodcastsChangedEvent,
+            events::WatchChangedEvent
         ])
 }
 

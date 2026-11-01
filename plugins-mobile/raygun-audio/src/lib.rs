@@ -20,6 +20,20 @@ type ReportHandler = Box<dyn Fn(String) + Send + Sync>;
 static REPORT_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 static CONTROL_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 static TTS_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
+static VIDEO_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
+
+/// Installs the receiver for video player reports (`{"id", "state", "positionMs", "durationMs"}`
+/// JSON, M38). Called on the Android main thread. Only the first call wins.
+pub fn set_video_handler(handler: impl Fn(String) + Send + Sync + 'static) {
+    let _ = VIDEO_HANDLER.set(Box::new(handler));
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn deliver_video(json: String) {
+    if let Some(handler) = VIDEO_HANDLER.get() {
+        handler(json);
+    }
+}
 
 /// Installs the receiver for text-to-speech progress (`{"state", "paragraph"}` JSON, M33).
 /// Called on the Android main thread, like the report handler. Only the first call wins.
@@ -159,6 +173,20 @@ impl<R: Runtime> NativeAudio<R> {
     #[cfg(not(target_os = "android"))]
     pub fn tts_stop(&self) -> Result<(), String> {
         Ok(())
+    }
+
+    /// Opens the native video player with a request (url, title, headers, subtitles, startMs, id).
+    #[cfg(target_os = "android")]
+    pub fn video_open(&self, request: &serde_json::Value) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>("videoOpen", request.clone())
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub fn video_open(&self, _request: &serde_json::Value) -> Result<(), String> {
+        Err("the video player is only available on Android for now".into())
     }
 
     /// Forwards one engine command to the native player.

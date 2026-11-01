@@ -248,6 +248,17 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
      * Matches the status and navigation bar icons to Raygun's theme (M09): dark icons on the light
      * theme, light icons otherwise. "system" follows the OS night mode, re-checked on resume.
      */
+    /** Opens the video player (M38) with a request: url, title, headers, subtitles, startMs, id. */
+    @Command
+    fun videoOpen(invoke: Invoke) {
+        val request = invoke.getArgs().toString()
+        activity.startActivity(
+            android.content.Intent(activity, VideoPlayerActivity::class.java)
+                .putExtra(VideoPlayerActivity.EXTRA_REQUEST, request),
+        )
+        invoke.resolve()
+    }
+
     @Command
     fun applyTheme(invoke: Invoke) {
         theme = invoke.parseArgs(ThemeArgs::class.java).theme

@@ -1178,3 +1178,50 @@ pub async fn podcast_remove_download(
 ) -> Result<(), String> {
     podcasts.remove_download(&episode_id).await
 }
+
+// ---- Watch (M38) ----
+
+/// Plays a video in the player, resuming where it was left.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_play(
+    app: tauri::AppHandle,
+    request: raygun_model::VideoRequest,
+) -> Result<(), String> {
+    crate::video::play(&app, request).await
+}
+
+/// Plays a video link (with an optional subtitle file).
+#[tauri::command]
+#[specta::specta]
+pub async fn video_play_link(
+    app: tauri::AppHandle,
+    url: String,
+    title: Option<String>,
+    subtitle_url: Option<String>,
+) -> Result<(), String> {
+    let request = crate::video::link_request(&url, title.as_deref(), subtitle_url.as_deref());
+    crate::video::play(&app, request).await
+}
+
+/// Videos started and not finished, most recent first.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_continue_watching(
+    app: tauri::AppHandle,
+) -> Result<Vec<raygun_model::ContinueWatching>, String> {
+    crate::video::continue_watching(&app).await
+}
+
+/// Plays a "continue watching" entry again.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_resume(app: tauri::AppHandle, key: String) -> Result<(), String> {
+    crate::video::resume(&app, &key).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn video_remove(app: tauri::AppHandle, key: String) -> Result<(), String> {
+    crate::video::remove(&app, &key).await
+}

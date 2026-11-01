@@ -9,6 +9,7 @@ import type { LibraryView } from './library/views';
 import { AlbumPage } from './pages/AlbumPage';
 import { AiPage } from './pages/AiPage';
 import { PodcastPage } from './pages/PodcastPage';
+import { WatchPage } from './pages/WatchPage';
 import { DevicesPage } from './pages/DevicesPage';
 import { ExtensionDetailPage } from './pages/ExtensionDetailPage';
 import { ExtensionsPage } from './pages/ExtensionsPage';
@@ -168,6 +169,7 @@ const routeTree = rootRoute.addChildren([
     component: DevicesPage,
   }),
   createRoute({ getParentRoute: () => rootRoute, path: '/settings/ai', component: AiPage }),
+  createRoute({ getParentRoute: () => rootRoute, path: '/watch', component: WatchPage }),
   createRoute({
     getParentRoute: () => rootRoute,
     path: '/podcast',
