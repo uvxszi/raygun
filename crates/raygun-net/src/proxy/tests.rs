@@ -217,3 +217,40 @@ async fn youtube_sources_are_not_streamed() {
 
     assert_eq!(reqwest::get(&url).await.unwrap().status(), 404);
 }
+
+#[tokio::test]
+async fn images_get_stable_links_with_their_headers() {
+    let origin = start_origin().await;
+    let proxy = proxy().await;
+    let images = proxy.images();
+    let url = format!("http://{origin}/song.mp3");
+    let referer = BTreeMap::from([("Referer".to_owned(), REQUIRED_REFERER.to_owned())]);
+
+    let link = images.link(&url, &referer);
+    assert_eq!(images.link(&url, &referer), link, "one image, one link");
+    assert_ne!(
+        images.link(&url, &BTreeMap::new()),
+        link,
+        "headers are part of the link"
+    );
+
+    let response = reqwest::get(&link).await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.headers()[header::CACHE_CONTROL],
+        "public, max-age=86400"
+    );
+    assert_eq!(response.bytes().await.unwrap().as_ref(), SONG);
+
+    let refused = reqwest::get(images.link(&url, &BTreeMap::new()))
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), 403);
+    assert!(
+        refused.headers().get(header::CACHE_CONTROL).is_none(),
+        "failures aren't cached"
+    );
+
+    let unknown = format!("http://{}/image/0000000000000000", proxy.address());
+    assert_eq!(reqwest::get(unknown).await.unwrap().status(), 404);
+}

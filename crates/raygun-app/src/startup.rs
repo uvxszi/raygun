@@ -54,6 +54,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         art_dir,
         proxy.address(),
     ));
+    app.manage(crate::manga::MangaService::new(
+        app.handle().clone(),
+        proxy.images(),
+    ));
     app.manage(crate::playback::PlaybackService::new(
         app.handle().clone(),
         proxy,

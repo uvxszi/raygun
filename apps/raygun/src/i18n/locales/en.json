@@ -50,7 +50,12 @@
     "shuffle": "Shuffle",
     "scanDiscovering": "Looking for music…",
     "scanReading": "Reading {{read}} of {{total}}…",
-    "scanFailed": "Scan failed: {{message}}"
+    "scanFailed": "Scan failed: {{message}}",
+    "media": {
+      "label": "What to show",
+      "music": "Music",
+      "manga": "Manga"
+    }
   },
   "search": {
     "title": "Search",
@@ -264,5 +269,53 @@
     "sessionSummary": "{{sent}} sent · {{received}} received · {{changed}} changed here",
     "syncing": "Syncing…",
     "undone": "undone"
+  },
+  "manga": {
+    "browseSources": "Browse sources",
+    "emptyLibrary": "No manga yet. Browse a source and add titles to your library.",
+    "sources": "Manga sources",
+    "noSources": "No manga sources are installed.",
+    "getSources": "Get extensions",
+    "source": "Source",
+    "search": "Search this source",
+    "searchPlaceholder": "Search titles…",
+    "lists": "Lists",
+    "list": {
+      "popular": "Popular",
+      "latest": "Latest",
+      "search": "Search"
+    },
+    "loading": "Loading…",
+    "nothingFound": "Nothing found.",
+    "loadMore": "Load more",
+    "inLibraryBadge": "In library",
+    "unread_one": "{{count}} unread chapter",
+    "unread_other": "{{count}} unread chapters",
+    "status": {
+      "ongoing": "Ongoing",
+      "completed": "Completed",
+      "hiatus": "On hiatus",
+      "cancelled": "Cancelled",
+      "publishingFinished": "Publishing finished",
+      "unknown": "Status unknown"
+    },
+    "start": "Start reading",
+    "continue": "Continue: {{name}}",
+    "addToLibrary": "Add to library",
+    "removeFromLibrary": "In library",
+    "refresh": "Refresh from the source",
+    "chapters_one": "{{count}} chapter",
+    "chapters_other": "{{count}} chapters",
+    "noChapters": "This source has no chapters for this title in your language.",
+    "markRead": "Mark {{name}} read",
+    "markUnread": "Mark {{name}} unread",
+    "pageOf": "Page {{page}} of {{total}}",
+    "closeReader": "Close reader",
+    "toggleControls": "Show or hide controls",
+    "pageAlt": "Page {{page}}",
+    "endOf": "End of {{name}}",
+    "previousChapter": "Previous",
+    "nextChapter": "Next chapter",
+    "backToLibrary": "Back to library"
   }
 }

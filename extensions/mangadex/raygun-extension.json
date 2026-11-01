@@ -1,0 +1,36 @@
+{
+  "id": "dev.raygun.mangadex",
+  "name": "MangaDex",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Manga from MangaDex, the scanlation library run by its community. Covers and pages load through Raygun.",
+  "author": "Raygun",
+  "provides": ["manga.source"],
+  "permissions": {
+    "net": ["api.mangadex.org"]
+  },
+  "contentRating": "suggestive",
+  "settings": [
+    {
+      "key": "language",
+      "type": "text",
+      "label": "Chapter language (code, e.g. en, es-la, pt-br)",
+      "default": "en"
+    },
+    {
+      "key": "contentRating",
+      "type": "select",
+      "label": "Content shown",
+      "options": ["safe", "safe and suggestive", "everything"],
+      "default": "safe and suggestive"
+    },
+    {
+      "key": "dataSaver",
+      "type": "boolean",
+      "label": "Data saver (smaller page images)",
+      "default": false
+    }
+  ]
+}

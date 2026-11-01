@@ -1,0 +1,185 @@
+import type { MangaChapterInfo, MangaChapterPages, MangaTitleView } from '@raygun/bindings';
+import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+
+import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
+import { bindingsMock } from '../test/bindingsMock';
+
+vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
+
+const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
+const { commands } = bindingsMock;
+const SOURCE = 'dev.raygun.mangadex/mangadex';
+
+const card = (id: string, title: string, inLibrary = false) => ({
+  sourceId: SOURCE,
+  id,
+  title,
+  coverUrl: `http://127.0.0.1:1/image/${id}`,
+  inLibrary,
+});
+
+const chapter = (
+  id: string,
+  name: string,
+  extra: Partial<MangaChapterInfo> = {},
+): MangaChapterInfo => ({
+  id,
+  name,
+  number: null,
+  volume: null,
+  scanlator: 'Group',
+  dateUpload: null,
+  read: false,
+  lastPage: null,
+  totalPages: null,
+  ...extra,
+});
+
+const TITLE: MangaTitleView = {
+  id: 't1',
+  sourceId: SOURCE,
+  sourceName: 'MangaDex',
+  remoteId: 'm1',
+  title: 'Frieren',
+  coverUrl: null,
+  authors: ['Yamada'],
+  artists: ['Abe'],
+  description: 'An elf mage outlives her party.',
+  genres: ['Fantasy'],
+  status: 'ongoing',
+  url: null,
+  inLibrary: false,
+  chapters: [chapter('c2', 'Chapter 2'), chapter('c1', 'Chapter 1', { read: true })],
+  continueChapterId: 'c2',
+};
+
+describe('Manga', () => {
+  beforeEach(() => {
+    AppShellWrapper.seedCore();
+    commands.mangaSources.mockResolvedValue(
+      ok([{ id: SOURCE, name: 'MangaDex', extensionId: 'dev.raygun.mangadex' }]),
+    );
+  });
+
+  it('switches the library to manga and lists titles with unread counts', async () => {
+    const user = userEvent.setup();
+    commands.mangaLibrary.mockResolvedValue(
+      ok([
+        {
+          titleId: 't1',
+          sourceId: SOURCE,
+          remoteId: 'm1',
+          title: 'Frieren',
+          coverUrl: null,
+          chapters: 10,
+          unread: 3,
+        },
+      ]),
+    );
+    await AppShellWrapper.mount('/library');
+    await user.click(await screen.findByTestId('library-media-manga'));
+
+    const library = await screen.findByTestId('manga-library');
+    expect(await within(library).findByTestId('manga-card')).toHaveTextContent('Frieren');
+    expect(within(library).getByLabelText('3 unread chapters')).toBeInTheDocument();
+    expect(within(library).getByRole('link', { name: 'Browse sources' })).toHaveAttribute(
+      'href',
+      '/manga/browse',
+    );
+  });
+
+  it('browses a source, loads more and searches', async () => {
+    const user = userEvent.setup();
+    commands.mangaBrowse.mockImplementation(
+      (_source: string, mode: string, query: string | null, page: number) =>
+        Promise.resolve(
+          ok(
+            mode === 'search'
+              ? { items: [card('s1', `Found ${query}`)], hasNextPage: false }
+              : { items: [card(`p${page}`, `Popular ${page}`, page === 1)], hasNextPage: page < 2 },
+          ),
+        ),
+    );
+    await AppShellWrapper.mount(`/manga/source?id=${encodeURIComponent(SOURCE)}`);
+    const page = await screen.findByTestId('manga-source-page');
+    expect(await within(page).findByRole('heading', { name: 'MangaDex' })).toBeInTheDocument();
+    const first = await within(page).findByTestId('manga-card');
+    expect(first).toHaveTextContent('In library');
+    expect(first).toHaveTextContent('Popular 1');
+
+    await user.click(within(page).getByRole('button', { name: 'Load more' }));
+    expect(await within(page).findByText('Popular 2')).toBeInTheDocument();
+    expect(within(page).queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+
+    await user.type(within(page).getByLabelText('Search this source'), 'frieren{Enter}');
+    expect(await within(page).findByText('Found frieren')).toBeInTheDocument();
+    expect(commands.mangaBrowse).toHaveBeenLastCalledWith(SOURCE, 'search', 'frieren', 1);
+  });
+
+  it('shows a title, adds it to the library and marks chapters read', async () => {
+    const user = userEvent.setup();
+    commands.mangaTitle.mockResolvedValue(ok(TITLE));
+    await AppShellWrapper.mount(`/manga/title?source=${encodeURIComponent(SOURCE)}&id=m1`);
+    const page = await screen.findByTestId('manga-title-page');
+
+    expect(await within(page).findByRole('heading', { name: 'Frieren' })).toBeInTheDocument();
+    expect(within(page).getByText('Yamada, Abe')).toBeInTheDocument();
+    expect(within(page).getByText('Ongoing · MangaDex')).toBeInTheDocument();
+    expect(within(page).getByRole('link', { name: /Continue: Chapter 2/ })).toHaveAttribute(
+      'href',
+      '/manga/read?title=t1&chapter=c2',
+    );
+    expect(within(page).getAllByTestId('chapter-row')).toHaveLength(2);
+
+    await user.click(within(page).getByRole('button', { name: 'Add to library' }));
+    expect(commands.mangaSetInLibrary).toHaveBeenCalledWith('t1', true);
+    await user.click(within(page).getByRole('button', { name: 'Mark Chapter 1 unread' }));
+    expect(commands.mangaSetRead).toHaveBeenCalledWith('c1', false);
+    await user.click(within(page).getByRole('button', { name: 'Refresh from the source' }));
+    expect(commands.mangaTitle).toHaveBeenLastCalledWith(SOURCE, 'm1', true);
+  });
+
+  it('reads a chapter, saves progress and moves to the next one', async () => {
+    const user = userEvent.setup();
+    type Entries = { isIntersecting: boolean; target: Element }[];
+    const observer: { notify?: (entries: Entries) => void } = {};
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        constructor(callback: (entries: Entries) => void) {
+          observer.notify = callback;
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const pages = (chapterId: string): MangaChapterPages => ({
+      titleId: 't1',
+      title: 'Frieren',
+      chapter: chapter(chapterId, chapterId === 'c1' ? 'Chapter 1' : 'Chapter 2'),
+      pages: ['http://img/1', 'http://img/2', 'http://img/3'].map((url) => `${url}-${chapterId}`),
+      previousChapterId: chapterId === 'c2' ? 'c1' : null,
+      nextChapterId: chapterId === 'c1' ? 'c2' : null,
+    });
+    commands.mangaChapter.mockImplementation((_title: string, chapterId: string) =>
+      Promise.resolve(ok(pages(chapterId))),
+    );
+    await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
+
+    const reader = await screen.findByTestId('manga-reader');
+    const images = await within(reader).findAllByTestId('manga-page');
+    expect(images).toHaveLength(3);
+    expect(screen.queryByTestId('bottom-tabs')).not.toBeInTheDocument();
+    expect(within(reader).getByTestId('page-indicator')).toHaveTextContent('Page 1 of 3');
+
+    observer.notify?.([{ isIntersecting: true, target: images[2] as Element }]);
+    expect(await within(reader).findByText('Page 3 of 3')).toBeInTheDocument();
+    await vi.waitFor(() => expect(commands.mangaSetProgress).toHaveBeenCalledWith('c1', 2, 3));
+
+    await user.click(within(reader).getByRole('button', { name: 'Next chapter' }));
+    expect(await within(reader).findByText('Chapter 2')).toBeInTheDocument();
+    expect(commands.mangaChapter).toHaveBeenLastCalledWith('t1', 'c2');
+    vi.unstubAllGlobals();
+  });
+});

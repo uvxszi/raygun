@@ -288,6 +288,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
 
+  extensions/mangadex:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
   extensions/musicbrainz:
     devDependencies:
       '@raygun/sdk':

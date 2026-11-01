@@ -1,4 +1,5 @@
 import { createRootRoute, createRoute, createRouter } from '@tanstack/react-router';
+import type { MangaBrowseMode } from '@raygun/bindings';
 import type { RouterHistory } from '@tanstack/react-router';
 
 import { isExtensionTab } from './extensions/tabs';
@@ -12,6 +13,10 @@ import { ExtensionsPage } from './pages/ExtensionsPage';
 import { ArtistPage } from './pages/ArtistPage';
 import { HomePage } from './pages/HomePage';
 import { LibraryPage } from './pages/LibraryPage';
+import { MangaReaderPage } from './pages/MangaReaderPage';
+import { MangaSourcePage } from './pages/MangaSourcePage';
+import { MangaSourcesPage } from './pages/MangaSourcesPage';
+import { MangaTitlePage } from './pages/MangaTitlePage';
 import { PlaylistPage } from './pages/PlaylistPage';
 import { SearchPage } from './pages/SearchPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -21,14 +26,60 @@ const rootRoute = createRootRoute({ component: AppShell });
 
 const text = (value: unknown) => (typeof value === 'string' ? value : '');
 
+/** Library shows music unless `media=manga`. */
+export type LibraryMedia = 'manga';
+
+const MANGA_MODES: MangaBrowseMode[] = ['popular', 'latest', 'search'];
+const isMangaMode = (value: unknown): value is MangaBrowseMode =>
+  typeof value === 'string' && (MANGA_MODES as string[]).includes(value);
+
 const routeTree = rootRoute.addChildren([
   createRoute({ getParentRoute: () => rootRoute, path: '/', component: HomePage }),
   createRoute({
     getParentRoute: () => rootRoute,
     path: '/library',
     component: LibraryPage,
-    validateSearch: (search: Record<string, unknown>): { view?: LibraryView } =>
-      isLibraryView(search.view) ? { view: search.view } : {},
+    validateSearch: (
+      search: Record<string, unknown>,
+    ): { view?: LibraryView; media?: LibraryMedia } => ({
+      ...(isLibraryView(search.view) ? { view: search.view } : {}),
+      ...(search.media === 'manga' ? { media: 'manga' as const } : {}),
+    }),
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/manga/browse',
+    component: MangaSourcesPage,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/manga/source',
+    component: MangaSourcePage,
+    validateSearch: (
+      search: Record<string, unknown>,
+    ): { id: string; mode?: MangaBrowseMode; q?: string } => ({
+      id: text(search.id),
+      ...(isMangaMode(search.mode) ? { mode: search.mode } : {}),
+      ...(text(search.q) ? { q: text(search.q) } : {}),
+    }),
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/manga/title',
+    component: MangaTitlePage,
+    validateSearch: (search: Record<string, unknown>) => ({
+      source: text(search.source),
+      id: text(search.id),
+    }),
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/manga/read',
+    component: MangaReaderPage,
+    validateSearch: (search: Record<string, unknown>) => ({
+      title: text(search.title),
+      chapter: text(search.chapter),
+    }),
   }),
   createRoute({
     getParentRoute: () => rootRoute,

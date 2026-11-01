@@ -123,6 +123,19 @@ export const commands = {
 	syncSetDeviceName: (name: string) => typedError<SyncStatus, string>(__TAURI_INVOKE("sync_set_device_name", { name })),
 	/**  Undoes the newest sync that changed something on this device. */
 	syncUndoLast: () => typedError<SyncStatus, string>(__TAURI_INVOKE("sync_undo_last")),
+	/**  Installed manga sources (`manga.source` providers). */
+	mangaSources: () => typedError<MangaSource[], string>(__TAURI_INVOKE("manga_sources")),
+	/**  A page of a source's popular, latest or search results. */
+	mangaBrowse: (sourceId: string, mode: MangaBrowseMode, query: string | null, page: number) => typedError<MangaListingPage, string>(__TAURI_INVOKE("manga_browse", { sourceId, mode, query, page })),
+	/**  A title with its chapters; `refresh` asks the source again instead of using stored data. */
+	mangaTitle: (sourceId: string, mangaId: string, refresh: boolean) => typedError<MangaTitleView, string>(__TAURI_INVOKE("manga_title", { sourceId, mangaId, refresh })),
+	mangaSetInLibrary: (titleId: string, inLibrary: boolean) => typedError<null, string>(__TAURI_INVOKE("manga_set_in_library", { titleId, inLibrary })),
+	mangaLibrary: () => typedError<MangaLibraryEntry[], string>(__TAURI_INVOKE("manga_library")),
+	/**  A chapter's pages and its neighbours, for the reader. */
+	mangaChapter: (titleId: string, chapterId: string) => typedError<MangaChapterPages, string>(__TAURI_INVOKE("manga_chapter", { titleId, chapterId })),
+	/**  The page reached in a chapter; reaching the last page marks it read. */
+	mangaSetProgress: (chapterId: string, page: number, total: number) => typedError<null, string>(__TAURI_INVOKE("manga_set_progress", { chapterId, page, total })),
+	mangaSetRead: (chapterId: string, read: boolean) => typedError<null, string>(__TAURI_INVOKE("manga_set_read", { chapterId, read })),
 };
 
 /** Events */
@@ -336,6 +349,87 @@ export type Lyrics = {
 	/**  Sorted by time; empty when only plain lyrics are known. */
 	synced: LyricLine[],
 	plain: string | null,
+};
+
+export type MangaBrowseMode = "popular" | "latest" | "search";
+
+/**  A title in a source's catalogue. */
+export type MangaCard = {
+	sourceId: string,
+	/**  The source's id for the title. */
+	id: string,
+	title: string,
+	/**  Through the local image proxy. */
+	coverUrl: string | null,
+	inLibrary: boolean,
+};
+
+export type MangaChapterInfo = {
+	id: string,
+	name: string,
+	number: number | null,
+	volume: string | null,
+	scanlator: string | null,
+	/**  Unix ms. */
+	dateUpload: number | null,
+	read: boolean,
+	/**  The page reached, while partly read. */
+	lastPage: number | null,
+	totalPages: number | null,
+};
+
+/**  What the reader needs for one chapter. */
+export type MangaChapterPages = {
+	titleId: string,
+	title: string,
+	chapter: MangaChapterInfo,
+	/**  Through the local image proxy, in reading order. */
+	pages: string[],
+	/**  The chapter before and after this one in reading order. */
+	previousChapterId: string | null,
+	nextChapterId: string | null,
+};
+
+export type MangaLibraryEntry = {
+	titleId: string,
+	sourceId: string,
+	remoteId: string,
+	title: string,
+	coverUrl: string | null,
+	chapters: number,
+	unread: number,
+};
+
+export type MangaListingPage = {
+	items: MangaCard[],
+	hasNextPage: boolean,
+};
+
+export type MangaSource = {
+	/**  `<extension>/<provider>`. */
+	id: string,
+	name: string,
+	extensionId: string,
+};
+
+export type MangaTitleView = {
+	id: string,
+	sourceId: string,
+	sourceName: string,
+	remoteId: string,
+	title: string,
+	coverUrl: string | null,
+	authors: string[],
+	artists: string[],
+	description: string | null,
+	genres: string[],
+	status: string,
+	url: string | null,
+	inLibrary: boolean,
+	/**  In the source's order (usually newest first). */
+	chapters: MangaChapterInfo[],
+	/**  Where "Continue" opens: the partly read chapter, else the first unread after the last read. */
+	continueChapterId: string | null,
 };
 
 /**  The MCP server's switch and how to reach it. */

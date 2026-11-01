@@ -11,6 +11,7 @@ pub mod local_music;
 pub mod settings;
 pub mod streams;
 pub mod sync;
+pub mod titles;
 
 use std::path::Path;
 use std::str::FromStr;

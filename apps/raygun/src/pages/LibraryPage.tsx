@@ -3,6 +3,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { FavoritesView } from '../collections/FavoritesView';
+import { MangaLibraryView } from '../manga/MangaLibraryView';
 import { PlaylistsView } from '../collections/PlaylistsView';
 import { AlbumGrid } from '../library/AlbumGrid';
 import { ArtistList } from '../library/ArtistList';
@@ -50,10 +51,42 @@ const TracksView: FC = () => {
   );
 };
 
+/** Music or manga: the library's top-level choice. */
+const MediaSwitch: FC<{ media: 'music' | 'manga' }> = ({ media }) => {
+  const { t } = useTranslation();
+  const option = (value: 'music' | 'manga') => (
+    <Link
+      to="/library"
+      search={value === 'manga' ? { media: 'manga' } : {}}
+      data-testid={`library-media-${value}`}
+      aria-current={media === value ? 'page' : undefined}
+      className={`flex-1 rounded-lg py-1.5 text-center text-sm ${media === value ? 'bg-background font-semibold' : 'text-muted'}`}
+    >
+      {t(`library.media.${value}`)}
+    </Link>
+  );
+  return (
+    <nav aria-label={t('library.media.label')} className="bg-surface flex gap-1 rounded-xl p-1">
+      {option('music')}
+      {option('manga')}
+    </nav>
+  );
+};
+
 export const LibraryPage: FC = () => {
   const { t } = useTranslation();
-  const { view = 'albums' } = useSearch({ from: '/library' });
+  const { view = 'albums', media } = useSearch({ from: '/library' });
   const status = useLibraryStatus();
+
+  if (media === 'manga') {
+    return (
+      <section data-testid="library-page" className="flex flex-col gap-5">
+        <PageHeader title={t('library.title')} />
+        <MediaSwitch media="manga" />
+        <MangaLibraryView />
+      </section>
+    );
+  }
 
   if (!status.data) {
     return <section data-testid="library-page" />;
@@ -66,6 +99,7 @@ export const LibraryPage: FC = () => {
   return (
     <section data-testid="library-page" className="flex flex-col gap-5">
       <PageHeader title={t('library.title')} />
+      <MediaSwitch media="music" />
       <ScanBanner />
       <nav
         className="-mx-4 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:px-0"

@@ -346,3 +346,152 @@ fn fixture_helpers_decode_queries() {
     assert_eq!(params["track_name"], "Hello, Dolly");
     assert_eq!(params["artist_name"], "A B");
 }
+
+#[tokio::test]
+async fn mangadex_lists_titles_chapters_and_pages() {
+    let manga = |id: &str, title: serde_json::Value, alt: serde_json::Value| {
+        json!({
+            "id": id,
+            "attributes": {
+                "title": title, "altTitles": alt,
+                "description": { "en": "  An elf mage outlives her party.  " },
+                "status": "ongoing",
+                "tags": [
+                    { "attributes": { "name": { "en": "Fantasy" }, "group": "genre" } },
+                    { "attributes": { "name": { "en": "Long Strip" }, "group": "format" } },
+                ],
+            },
+            "relationships": [
+                { "id": "c1", "type": "cover_art", "attributes": { "fileName": "cover.jpg" } },
+                { "id": "a1", "type": "author", "attributes": { "name": "Yamada" } },
+                { "id": "a2", "type": "artist", "attributes": { "name": "Abe" } },
+            ],
+        })
+    };
+    let app = Router::new()
+        .route(
+            "/manga",
+            get(move |uri: Uri| async move {
+                let params = query_params(&uri);
+                let searched = params.get("title").cloned();
+                assert_eq!(params.get("availableTranslatedLanguage%5B%5D").map(String::as_str), Some("en"));
+                let items = match searched.as_deref() {
+                    Some("nothing") => vec![],
+                    _ => vec![
+                        manga("m1", json!({ "ja-ro": "Sousou no Frieren" }), json!([{ "en": "Frieren" }])),
+                        manga("m2", json!({ "en": "Plain English" }), json!([])),
+                    ],
+                };
+                let offset: usize = params.get("offset").and_then(|offset| offset.parse().ok()).unwrap_or(0);
+                json_response(StatusCode::OK, json!({ "result": "ok", "data": items, "total": if items.is_empty() { 0 } else { 30 }, "offset": offset, "limit": 24 }))
+            }),
+        )
+        .route(
+            "/manga/m1",
+            get(move || async move {
+                json_response(StatusCode::OK, json!({ "result": "ok", "data": manga("m1", json!({ "ja-ro": "Sousou no Frieren" }), json!([{ "en": "Frieren" }])) }))
+            }),
+        )
+        .route(
+            "/manga/m1/feed",
+            get(|| async {
+                let chapter = |id: &str, number: Option<&str>, pages: u32, external: Option<&str>| {
+                    json!({
+                        "id": id,
+                        "attributes": { "volume": "1", "chapter": number, "title": if id == "ch2" { "The Journey" } else { "" },
+                                        "publishAt": "2024-01-02T00:00:00+00:00", "pages": pages, "externalUrl": external },
+                        "relationships": [{ "id": "g", "type": "scanlation_group", "attributes": { "name": "Group" } }],
+                    })
+                };
+                json_response(StatusCode::OK, json!({
+                    "result": "ok", "total": 4, "offset": 0, "limit": 500,
+                    "data": [
+                        chapter("ch2", Some("2"), 18, None),
+                        chapter("ch1", Some("1"), 20, None),
+                        chapter("ext", Some("3"), 0, Some("https://mangaplus.example/3")),
+                        chapter("one", None, 12, None),
+                    ],
+                }))
+            }),
+        )
+        .route(
+            "/at-home/server/ch1",
+            get(|| async {
+                json_response(StatusCode::OK, json!({
+                    "result": "ok", "baseUrl": "https://node.mangadex.network",
+                    "chapter": { "hash": "abc", "data": ["1.png", "2.png"], "dataSaver": ["1.jpg", "2.jpg"] },
+                }))
+            }),
+        );
+    let address = serve(app);
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(vec![patched_extension(
+        "mangadex",
+        "https://api.mangadex.org",
+        address,
+    )])
+    .await;
+    let provider = "dev.raygun.mangadex/mangadex";
+    assert_eq!(host.providers(crate::manga::MANGA_SOURCE).await.len(), 1);
+
+    let popular = host
+        .manga_list(provider, crate::manga::MangaList::Popular, 1)
+        .await
+        .unwrap();
+    assert!(popular.has_next_page, "2 of 30 shown");
+    assert_eq!(
+        popular.items[0].title, "Frieren",
+        "the English alternative title wins"
+    );
+    assert_eq!(popular.items[1].title, "Plain English");
+    assert_eq!(
+        popular.items[0].cover_url.as_deref(),
+        Some("https://uploads.mangadex.org/covers/m1/cover.jpg.512.jpg")
+    );
+    assert!(
+        popular.items[0].cover_headers["User-Agent"].starts_with("Raygun/"),
+        "MangaDex challenges browser-like clients, covers included"
+    );
+    let none = host.manga_search(provider, "nothing", 2).await.unwrap();
+    assert!(none.items.is_empty() && !none.has_next_page);
+
+    let details = host.manga_details(provider, "m1").await.unwrap();
+    assert_eq!(details.authors, ["Yamada"]);
+    assert_eq!(details.artists, ["Abe"]);
+    assert_eq!(details.genres, ["Fantasy"], "format tags aren't genres");
+    assert_eq!(
+        details.description.as_deref(),
+        Some("An elf mage outlives her party.")
+    );
+    assert_eq!(details.status, "ongoing");
+
+    let chapters = host.manga_chapters(provider, "m1").await.unwrap();
+    let names: Vec<_> = chapters
+        .iter()
+        .map(|chapter| chapter.name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        ["Chapter 2: The Journey", "Chapter 1", "Oneshot"],
+        "external chapters are left out"
+    );
+    assert_eq!(chapters[1].number, Some(1.0));
+    assert_eq!(chapters[2].number, None);
+    assert_eq!(chapters[0].scanlator.as_deref(), Some("Group"));
+    assert_eq!(chapters[0].date_upload, Some(1_704_153_600_000));
+
+    let pages = host.manga_pages(provider, "ch1").await.unwrap();
+    let urls: Vec<_> = pages.iter().map(|page| page.url.as_str()).collect();
+    assert!(
+        pages
+            .iter()
+            .all(|page| page.headers["User-Agent"].starts_with("Raygun/"))
+    );
+    assert_eq!(
+        urls,
+        [
+            "https://node.mangadex.network/data/abc/1.png",
+            "https://node.mangadex.network/data/abc/2.png"
+        ]
+    );
+}

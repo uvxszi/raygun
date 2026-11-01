@@ -2,16 +2,18 @@ use std::sync::Arc;
 
 use raygun_model::{
     AppInfo, CollectionPlayRequest, EngineReport, ExtensionInfo, ExtensionRepo, HistoryEntry,
-    LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack, Lyrics, McpStatus, PlayRequest,
-    PlaybackControl, PlaybackState, PlaylistDetail, PlaylistSummary, QueueItemInput, QueueSnapshot,
-    RemoteStatus, RepoCatalog, SavedTrack, SearchResults, SettingChange, SettingValue, Settings,
-    StorageInfo, StorageMode, SyncKind, SyncStatus, TrackInput, TrackQuery,
+    LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack, Lyrics, MangaBrowseMode,
+    MangaChapterPages, MangaLibraryEntry, MangaListingPage, MangaSource, MangaTitleView, McpStatus,
+    PlayRequest, PlaybackControl, PlaybackState, PlaylistDetail, PlaylistSummary, QueueItemInput,
+    QueueSnapshot, RemoteStatus, RepoCatalog, SavedTrack, SearchResults, SettingChange,
+    SettingValue, Settings, StorageInfo, StorageMode, SyncKind, SyncStatus, TrackInput, TrackQuery,
 };
 
 use crate::collections::CollectionsService;
 use crate::device_sync::SyncService;
 use crate::extensions::ExtensionService;
 use crate::library::LibraryService;
+use crate::manga::MangaService;
 use crate::mcp::McpService;
 use crate::playback::PlaybackService;
 use crate::remote::RemoteService;
@@ -598,6 +600,91 @@ pub async fn sync_set_device_name(
 #[specta::specta]
 pub async fn sync_undo_last(sync: tauri::State<'_, SyncService>) -> Result<SyncStatus, String> {
     sync.undo_last().await
+}
+
+/// Installed manga sources (`manga.source` providers).
+#[tauri::command]
+#[specta::specta]
+pub async fn manga_sources(
+    manga: tauri::State<'_, MangaService>,
+) -> Result<Vec<MangaSource>, String> {
+    Ok(manga.sources().await)
+}
+
+/// A page of a source's popular, latest or search results.
+#[tauri::command]
+#[specta::specta]
+pub async fn manga_browse(
+    manga: tauri::State<'_, MangaService>,
+    source_id: String,
+    mode: MangaBrowseMode,
+    query: Option<String>,
+    page: u32,
+) -> Result<MangaListingPage, String> {
+    manga.browse(&source_id, mode, query.as_deref(), page).await
+}
+
+/// A title with its chapters; `refresh` asks the source again instead of using stored data.
+#[tauri::command]
+#[specta::specta]
+pub async fn manga_title(
+    manga: tauri::State<'_, MangaService>,
+    source_id: String,
+    manga_id: String,
+    refresh: bool,
+) -> Result<MangaTitleView, String> {
+    manga.title(&source_id, &manga_id, refresh).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn manga_set_in_library(
+    manga: tauri::State<'_, MangaService>,
+    title_id: String,
+    in_library: bool,
+) -> Result<(), String> {
+    manga.set_in_library(&title_id, in_library).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn manga_library(
+    manga: tauri::State<'_, MangaService>,
+) -> Result<Vec<MangaLibraryEntry>, String> {
+    manga.library().await
+}
+
+/// A chapter's pages and its neighbours, for the reader.
+#[tauri::command]
+#[specta::specta]
+pub async fn manga_chapter(
+    manga: tauri::State<'_, MangaService>,
+    title_id: String,
+    chapter_id: String,
+) -> Result<MangaChapterPages, String> {
+    manga.chapter(&title_id, &chapter_id).await
+}
+
+/// The page reached in a chapter; reaching the last page marks it read.
+#[tauri::command]
+#[specta::specta]
+pub async fn manga_set_progress(
+    manga: tauri::State<'_, MangaService>,
+    chapter_id: String,
+    page: u32,
+    total: u32,
+) -> Result<(), String> {
+    manga.set_progress(&chapter_id, page, total).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn manga_set_read(
+    manga: tauri::State<'_, MangaService>,
+    chapter_id: String,
+    read: bool,
+) -> Result<(), String> {
+    manga.set_read(&chapter_id, read).await
 }
 
 /// Replaces the queue with favorites, a playlist or history and starts playing.

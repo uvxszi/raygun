@@ -105,7 +105,71 @@ export type LyricsProvider = {
   lyrics(query: LyricsQuery): Promise<LyricsResult | null>;
 };
 
-export type Provider = MusicMetadataProvider | MusicStreamProvider | LyricsProvider;
+// ---- Manga (M24) ----
+
+/** A title in a catalogue list. */
+export type MangaSummary = {
+  /** The source's own id, passed back to `details` and `chapters`. */
+  id: string;
+  title: string;
+  /** http(s) only. */
+  coverUrl?: string | null;
+  /** Sent when the app fetches the cover, e.g. a User-Agent or Referer the host requires. */
+  coverHeaders?: Record<string, string>;
+};
+
+export type MangaPage = { items: MangaSummary[]; hasNextPage: boolean };
+
+export type MangaStatus =
+  'ongoing' | 'completed' | 'hiatus' | 'cancelled' | 'publishingFinished' | 'unknown';
+
+export type MangaDetails = {
+  id?: string;
+  title: string;
+  coverUrl?: string | null;
+  coverHeaders?: Record<string, string>;
+  authors?: string[];
+  artists?: string[];
+  description?: string | null;
+  genres?: string[];
+  status?: MangaStatus;
+  /** The title's page on the source's website. */
+  url?: string | null;
+};
+
+export type MangaChapter = {
+  /** Passed back to `pages`. */
+  id: string;
+  /** Defaults to "Chapter <number>". */
+  name?: string | null;
+  number?: number | null;
+  volume?: string | null;
+  scanlator?: string | null;
+  /** Unix milliseconds. */
+  dateUpload?: number | null;
+};
+
+/** One page image; `headers` (e.g. Referer) are sent when the app fetches it. */
+export type PageImage = string | { url: string; headers?: Record<string, string> };
+
+/**
+ * A manga catalogue (Mihon-shaped). List chapters in the source's order, usually newest first;
+ * the app reads by chapter number.
+ */
+export type MangaSourceProvider = {
+  kind: 'manga.source';
+  id: string;
+  name?: string;
+  popular(args: { page: number }): Promise<MangaPage>;
+  latest?(args: { page: number }): Promise<MangaPage>;
+  search(args: { query: string; page: number }): Promise<MangaPage>;
+  details(args: { id: string }): Promise<MangaDetails>;
+  chapters(args: { id: string }): Promise<{ chapters: MangaChapter[] }>;
+  pages(args: { chapterId: string }): Promise<{ pages: PageImage[] }>;
+};
+
+export type Provider =
+  MusicMetadataProvider | MusicStreamProvider | LyricsProvider | MangaSourceProvider;
 export type ProviderKind = Provider['kind'];
 
 // ---- Host API ----

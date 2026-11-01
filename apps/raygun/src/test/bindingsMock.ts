@@ -137,6 +137,14 @@ export const bindingsMock = {
     syncSetKinds: vi.fn(),
     syncSetDeviceName: vi.fn(),
     syncUndoLast: vi.fn(),
+    mangaSources: vi.fn(),
+    mangaBrowse: vi.fn(),
+    mangaTitle: vi.fn(),
+    mangaSetInLibrary: vi.fn(),
+    mangaLibrary: vi.fn(),
+    mangaChapter: vi.fn(),
+    mangaSetProgress: vi.fn(),
+    mangaSetRead: vi.fn(),
   },
   events: {
     engineCommandEvent: makeEvent('engineCommandEvent'),
@@ -237,6 +245,14 @@ export const seedBindings = () => {
   commands.syncSetKinds.mockResolvedValue(ok(syncOff));
   commands.syncSetDeviceName.mockResolvedValue(ok(syncOff));
   commands.syncUndoLast.mockResolvedValue(ok(syncOff));
+  commands.mangaSources.mockResolvedValue(ok([]));
+  commands.mangaBrowse.mockResolvedValue(ok({ items: [], hasNextPage: false }));
+  commands.mangaTitle.mockResolvedValue(ok(null));
+  commands.mangaSetInLibrary.mockResolvedValue(ok(null));
+  commands.mangaLibrary.mockResolvedValue(ok([]));
+  commands.mangaChapter.mockResolvedValue(ok(null));
+  commands.mangaSetProgress.mockResolvedValue(ok(null));
+  commands.mangaSetRead.mockResolvedValue(ok(null));
 };
 
 export const emitEvent = <Name extends EventName>(name: Name, payload: EventPayloads[Name]) => {

@@ -37,11 +37,11 @@ Legend: 📱 Android · 🖥 Windows · ⚗ spike (time-boxed; the outcome is a 
 - M19 **MCP server**: rmcp streamable HTTP, token + origin auth, meta-tools generated from the service catalog, resources, stdio shim
 - M20 LAN remote: REST/SSE + paired remote web UI (QR)
 - M21 **Device sync v1**: mDNS discovery (+ Android MulticastLock), QR/code pairing with Ed25519 keys, encrypted peer channel, HLC change log + per-field merge, Settings → Devices (toggles, log, undo)
-- M22 **Device sync v2**: automatic triggers (start, network change, debounced local changes), Android WorkManager background sync on Wi-Fi, optional on-demand file transfer for downloads
+- M22 *(on hold by the user's call, 2026-10-31)* **Device sync v2**: automatic triggers (start, network change, debounced local changes), Android WorkManager background sync on Wi-Fi, optional on-demand file transfer for downloads
 - M23 Lyrics view with synced scrolling; Furigana/romaji via a lyrics post-processor (kuromoji-style tokenizer)
 
 ## Phase 3 — Manga
-- M24 Episodic library schema (title/unit/progress/category/external_id), library service, sync rules for these tables
+- M24 Episodic library schema (title/unit/progress/category/external_id), library service, sync rules for these tables *(built together with M25 and MangaDex from M26 as the "manga foundation" slice; categories and sync rules later)*
 - M25 `manga.source` capability + SDK types (Mihon-shaped: popular/latest/search+filters/details/chapters/pages)
 - M26 First-party sources: MangaDex, local CBZ/folder, Komga/Kavita
 - M27 Reader: paged (LTR/RTL), webtoon, spreads, zoom, tap zones, prefetch, page cache

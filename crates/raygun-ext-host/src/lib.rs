@@ -4,6 +4,7 @@
 mod host;
 mod html;
 mod js;
+pub mod manga;
 pub mod manifest;
 pub mod nuclear;
 pub mod package;

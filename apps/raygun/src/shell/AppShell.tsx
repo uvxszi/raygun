@@ -29,6 +29,10 @@ export const AppShell: FC = () => {
   // Pages scroll inside <main>, not the window, so start each page at the top.
   const mainRef = useRef<HTMLElement>(null);
   const href = useRouterState({ select: (state) => state.location.href });
+  // The manga reader takes the whole screen.
+  const immersive = useRouterState({
+    select: (state) => state.location.pathname === '/manga/read',
+  });
   useEffect(() => {
     mainRef.current?.scrollTo?.(0, 0);
   }, [href]);
@@ -44,8 +48,8 @@ export const AppShell: FC = () => {
         >
           <Outlet />
         </main>
-        <MiniPlayer />
-        <BottomTabs />
+        {!immersive && <MiniPlayer />}
+        {!immersive && <BottomTabs />}
       </div>
       <PlayerSheet />
       <TrackActionsSheet />

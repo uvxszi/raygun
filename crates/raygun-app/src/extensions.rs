@@ -70,6 +70,16 @@ fn built_in() -> Vec<ExtensionSource> {
                 include_str!("../../../extensions/lrclib/dist/index.js"),
             ),
         ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/mangadex/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/mangadex/dist/index.js"),
+            ),
+        ]),
     ]
 }
 
@@ -152,6 +162,11 @@ impl ExtensionService {
     }
 
     /// Lyrics for a track from the `lyrics` providers (M15).
+    /// The host once any (re)load finished; keep the guard while calling it.
+    pub async fn ready(&self) -> (tokio::sync::RwLockReadGuard<'_, ()>, &ExtensionHost) {
+        (self.loading.read().await, &self.host)
+    }
+
     pub async fn lyrics(&self, query: &TrackQuery) -> Result<Option<Lyrics>, String> {
         let _ready = self.loading.read().await;
         self.host.lyrics(query).await

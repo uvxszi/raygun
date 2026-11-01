@@ -855,3 +855,106 @@ pub struct SyncStatus {
     pub log: Vec<SyncSessionInfo>,
     pub error: Option<String>,
 }
+
+// ---- Manga (M24) ----
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MangaSource {
+    /// `<extension>/<provider>`.
+    pub id: String,
+    pub name: String,
+    pub extension_id: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum MangaBrowseMode {
+    Popular,
+    Latest,
+    Search,
+}
+
+/// A title in a source's catalogue.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MangaCard {
+    pub source_id: String,
+    /// The source's id for the title.
+    pub id: String,
+    pub title: String,
+    /// Through the local image proxy.
+    pub cover_url: Option<String>,
+    pub in_library: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MangaListingPage {
+    pub items: Vec<MangaCard>,
+    pub has_next_page: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MangaChapterInfo {
+    pub id: String,
+    pub name: String,
+    pub number: Option<f64>,
+    pub volume: Option<String>,
+    pub scanlator: Option<String>,
+    /// Unix ms.
+    pub date_upload: Option<f64>,
+    pub read: bool,
+    /// The page reached, while partly read.
+    pub last_page: Option<u32>,
+    pub total_pages: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MangaTitleView {
+    pub id: String,
+    pub source_id: String,
+    pub source_name: String,
+    pub remote_id: String,
+    pub title: String,
+    pub cover_url: Option<String>,
+    pub authors: Vec<String>,
+    pub artists: Vec<String>,
+    pub description: Option<String>,
+    pub genres: Vec<String>,
+    pub status: String,
+    pub url: Option<String>,
+    pub in_library: bool,
+    /// In the source's order (usually newest first).
+    pub chapters: Vec<MangaChapterInfo>,
+    /// Where "Continue" opens: the partly read chapter, else the first unread after the last read.
+    pub continue_chapter_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MangaLibraryEntry {
+    pub title_id: String,
+    pub source_id: String,
+    pub remote_id: String,
+    pub title: String,
+    pub cover_url: Option<String>,
+    pub chapters: u32,
+    pub unread: u32,
+}
+
+/// What the reader needs for one chapter.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MangaChapterPages {
+    pub title_id: String,
+    pub title: String,
+    pub chapter: MangaChapterInfo,
+    /// Through the local image proxy, in reading order.
+    pub pages: Vec<String>,
+    /// The chapter before and after this one in reading order.
+    pub previous_chapter_id: Option<String>,
+    pub next_chapter_id: Option<String>,
+}

@@ -8,9 +8,11 @@
 //! the proxy can't be used to fetch arbitrary URLs.
 //!
 //! It also serves library artwork from one folder at `/art/<name>`, limited to names the caller's
-//! validator accepts, and the YouTube embed host page at `/embed/youtube` (M08).
+//! validator accepts, the YouTube embed host page at `/embed/youtube` (M08), and remote images
+//! (manga covers and pages, M24) at `/image/<token>`.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::hash::{Hash, Hasher};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -27,6 +29,8 @@ use tower_http::services::ServeFile;
 
 /// Older tokens are forgotten beyond this many registrations.
 const MAX_REGISTERED: usize = 64;
+/// Image links remembered (a few library pages of covers plus several chapters of pages).
+const MAX_IMAGES: usize = 4096;
 
 const FORWARDED_RESPONSE_HEADERS: [header::HeaderName; 5] = [
     header::CONTENT_TYPE,
@@ -50,9 +54,17 @@ pub struct StaticFiles {
     pub is_allowed: fn(&str) -> bool,
 }
 
+/// Remote images by a stable token, so one image always has one URL and the webview caches it.
+#[derive(Default)]
+struct ImageRegistry {
+    images: HashMap<String, (String, BTreeMap<String, String>)>,
+    order: VecDeque<String>,
+}
+
 #[derive(Clone)]
 struct ProxyState {
     registry: Arc<Mutex<Registry>>,
+    images: Arc<Mutex<ImageRegistry>>,
     client: reqwest::Client,
     artwork: Option<StaticFiles>,
 }
@@ -60,6 +72,38 @@ struct ProxyState {
 pub struct StreamProxy {
     address: SocketAddr,
     registry: Arc<Mutex<Registry>>,
+    images: ImageLinks,
+}
+
+/// Hands out proxy URLs for remote images. Cheap to clone and share between services.
+#[derive(Clone)]
+pub struct ImageLinks {
+    address: SocketAddr,
+    registry: Arc<Mutex<ImageRegistry>>,
+}
+
+impl ImageLinks {
+    /// The proxy URL for `url`, fetched with `headers` (e.g. a Referer the host requires).
+    pub fn link(&self, url: &str, headers: &BTreeMap<String, String>) -> String {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        url.hash(&mut hasher);
+        headers.hash(&mut hasher);
+        let token = format!("{:016x}", hasher.finish());
+        let mut registry = self.registry.lock().expect("image registry poisoned");
+        if registry
+            .images
+            .insert(token.clone(), (url.to_owned(), headers.clone()))
+            .is_none()
+        {
+            registry.order.push_back(token.clone());
+            while registry.order.len() > MAX_IMAGES {
+                if let Some(expired) = registry.order.pop_front() {
+                    registry.images.remove(&expired);
+                }
+            }
+        }
+        format!("http://{}/image/{token}", self.address)
+    }
 }
 
 impl StreamProxy {
@@ -69,13 +113,16 @@ impl StreamProxy {
         artwork: Option<StaticFiles>,
     ) -> std::io::Result<Self> {
         let registry = Arc::new(Mutex::new(Registry::default()));
+        let images = Arc::new(Mutex::new(ImageRegistry::default()));
         let state = ProxyState {
             registry: registry.clone(),
+            images: images.clone(),
             client,
             artwork,
         };
         let router = Router::new()
             .route("/stream/{token}", get(stream))
+            .route("/image/{token}", get(serve_image))
             .route("/art/{name}", get(serve_artwork))
             .route("/embed/youtube", get(youtube_embed))
             .with_state(state);
@@ -87,7 +134,19 @@ impl StreamProxy {
             }
         });
         tracing::info!(%address, "stream proxy listening");
-        Ok(Self { address, registry })
+        Ok(Self {
+            address,
+            registry,
+            images: ImageLinks {
+                address,
+                registry: images,
+            },
+        })
+    }
+
+    /// The handle other services use to link remote images through this proxy.
+    pub fn images(&self) -> ImageLinks {
+        self.images.clone()
     }
 
     pub fn address(&self) -> SocketAddr {
@@ -167,6 +226,34 @@ async fn serve_artwork(
             response
         }
         _ => StatusCode::NOT_FOUND.into_response(),
+    };
+    with_cors(response)
+}
+
+async fn serve_image(
+    State(state): State<ProxyState>,
+    Path(token): Path<String>,
+    request: Request,
+) -> Response {
+    let image = state
+        .images
+        .lock()
+        .expect("image registry poisoned")
+        .images
+        .get(&token)
+        .cloned();
+    let response = match image {
+        None => StatusCode::NOT_FOUND.into_response(),
+        Some((url, headers)) => {
+            let mut response = forward(&state.client, &url, &headers, request.headers()).await;
+            if response.status().is_success() {
+                response.headers_mut().insert(
+                    header::CACHE_CONTROL,
+                    HeaderValue::from_static("public, max-age=86400"),
+                );
+            }
+            response
+        }
     };
     with_cors(response)
 }

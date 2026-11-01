@@ -10,6 +10,7 @@ mod events;
 mod extensions;
 mod history;
 mod library;
+mod manga;
 mod mcp;
 mod playback;
 mod remote;
@@ -89,7 +90,15 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::sync_remove_peer,
             commands::sync_set_kinds,
             commands::sync_set_device_name,
-            commands::sync_undo_last
+            commands::sync_undo_last,
+            commands::manga_sources,
+            commands::manga_browse,
+            commands::manga_title,
+            commands::manga_set_in_library,
+            commands::manga_library,
+            commands::manga_chapter,
+            commands::manga_set_progress,
+            commands::manga_set_read
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,
