@@ -38,19 +38,19 @@ export const LOCAL_EPUB = 'local.epub';
 
 export const ROUTES = {
   manga: {
-    browse: '/manga/browse',
+    browse: '/browse',
     source: '/manga/source',
     title: '/manga/title',
     read: '/manga/read',
   },
   novel: {
-    browse: '/novel/browse',
+    browse: '/browse',
     source: '/novel/source',
     title: '/novel/title',
     read: '/novel/read',
   },
   video: {
-    browse: '/watch',
+    browse: '/browse',
     source: '/watch/source',
     title: '/watch/video',
     read: '/watch/video',

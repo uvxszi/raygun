@@ -33,7 +33,6 @@
     "syncing": "Syncing..."
   },
   "extensions": {
-    "addRepo": "যোগ করুন",
     "cancel": "বাতিল",
     "install": "ইন্সটল করুন",
     "nsfwBadge": "১৮+",
@@ -138,7 +137,6 @@
     "createBackup": "ব্যাকআপ তৈরী করুন",
     "extensions": "এক্সটেনশন",
     "language": "ভাষা",
-    "manga": "পুস্তক সংগ্রহ",
     "theme": "থিম",
     "themeDark": "ডার্ক",
     "themeLight": "লাইট",

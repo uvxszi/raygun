@@ -8,7 +8,38 @@
   --color-surface: oklch(0.22 0.025 270);
   --color-foreground: oklch(0.96 0.01 270);
   --color-muted: oklch(0.7 0.02 270);
-  --color-primary: oklch(0.72 0.19 25);
+  --color-primary: var(--accent-on-dark);
+}
+
+/* The accent (Settings → Appearance): each has a shade for dark and one for light themes, so
+   text and icons in it stay readable on either. */
+:root {
+  --accent-on-dark: oklch(0.72 0.19 25);
+  --accent-on-light: oklch(0.58 0.2 25);
+}
+:root[data-accent='orange'] {
+  --accent-on-dark: oklch(0.8 0.16 60);
+  --accent-on-light: oklch(0.6 0.17 50);
+}
+:root[data-accent='green'] {
+  --accent-on-dark: oklch(0.8 0.17 150);
+  --accent-on-light: oklch(0.55 0.15 150);
+}
+:root[data-accent='teal'] {
+  --accent-on-dark: oklch(0.8 0.12 190);
+  --accent-on-light: oklch(0.55 0.1 195);
+}
+:root[data-accent='blue'] {
+  --accent-on-dark: oklch(0.74 0.15 255);
+  --accent-on-light: oklch(0.55 0.2 260);
+}
+:root[data-accent='purple'] {
+  --accent-on-dark: oklch(0.74 0.16 300);
+  --accent-on-light: oklch(0.55 0.22 300);
+}
+:root[data-accent='pink'] {
+  --accent-on-dark: oklch(0.77 0.17 355);
+  --accent-on-light: oklch(0.6 0.22 355);
 }
 
 @layer base {
@@ -17,7 +48,7 @@
     --color-surface: oklch(0.93 0.01 270);
     --color-foreground: oklch(0.2 0.02 270);
     --color-muted: oklch(0.45 0.02 270);
-    --color-primary: oklch(0.58 0.2 25);
+    --color-primary: var(--accent-on-light);
     color-scheme: light;
   }
 
@@ -32,7 +63,7 @@
       --color-surface: oklch(0.93 0.01 270);
       --color-foreground: oklch(0.2 0.02 270);
       --color-muted: oklch(0.45 0.02 270);
-      --color-primary: oklch(0.58 0.2 25);
+      --color-primary: var(--accent-on-light);
       color-scheme: light;
     }
   }

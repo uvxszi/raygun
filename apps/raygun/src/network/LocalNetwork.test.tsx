@@ -28,11 +28,14 @@ const REMOTE_ON: RemoteStatus = {
 const addAddonByAddress = async (user: ReturnType<typeof userEvent.setup>, address: string) => {
   await AppShellWrapper.mount('/watch/addons');
   const page = await screen.findByTestId('watch-addons-page');
+  // The top bar's "+" opens the address sheet.
+  await user.click(within(page).getByRole('button', { name: 'Add an addon by its address' }));
+  const sheet = await within(page).findByRole('dialog', { name: 'Add an addon by its address' });
   await user.type(
-    within(page).getByRole('textbox', { name: 'Add an addon by its address' }),
+    within(sheet).getByRole('textbox', { name: 'Add an addon by its address' }),
     address,
   );
-  await user.click(within(page).getByRole('button', { name: 'Add' }));
+  await user.click(within(sheet).getByRole('button', { name: 'Add' }));
   return page;
 };
 
@@ -55,7 +58,7 @@ describe('Local network access (Android 17)', () => {
     await user.click(within(sheet).getByRole('button', { name: 'Continue' }));
     expect(commands.localNetworkRequest).toHaveBeenCalled();
     expect(commands.stremioAdd).toHaveBeenCalledWith(LAN_ADDON);
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Local network access' })).not.toBeInTheDocument();
   });
 
   it('says what to allow when access is denied, and adds nothing', async () => {
@@ -72,7 +75,7 @@ describe('Local network access (Android 17)', () => {
     expect(commands.stremioAdd).not.toHaveBeenCalled();
 
     await user.click(within(sheet).getByRole('button', { name: 'Not now' }));
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Local network access' })).not.toBeInTheDocument();
     expect(commands.stremioAdd).not.toHaveBeenCalled();
   });
 
@@ -93,7 +96,7 @@ describe('Local network access (Android 17)', () => {
     await user.click(within(sheet).getByRole('button', { name: 'Open settings' }));
     expect(commands.localNetworkOpenSettings).toHaveBeenCalled();
     expect(commands.localNetworkRequest).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Local network access' })).not.toBeInTheDocument();
     expect(commands.stremioAdd).not.toHaveBeenCalled();
   });
 
@@ -103,7 +106,7 @@ describe('Local network access (Android 17)', () => {
 
     expect(commands.localNetworkAccess).toHaveBeenCalledWith('addon.example');
     expect(commands.stremioAdd).toHaveBeenCalledWith('addon.example');
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Local network access' })).not.toBeInTheDocument();
   });
 
   it('turns the LAN remote on only with access, and says why not', async () => {
@@ -111,7 +114,7 @@ describe('Local network access (Android 17)', () => {
     commands.localNetworkAccess.mockResolvedValue(ok(ASK));
     commands.localNetworkRequest.mockResolvedValueOnce(ok(DENIED));
     commands.remoteSetEnabled.mockResolvedValue(ok(REMOTE_ON));
-    await AppShellWrapper.mount('/settings');
+    await AppShellWrapper.mount('/settings/connections');
     const card = await screen.findByTestId('remote-card');
 
     await user.click(await within(card).findByRole('switch', { name: 'Remote control' }));
@@ -134,7 +137,7 @@ describe('Local network access (Android 17)', () => {
   it('turns the remote off without asking', async () => {
     const user = userEvent.setup();
     commands.remoteStatus.mockResolvedValue(ok(REMOTE_ON));
-    await AppShellWrapper.mount('/settings');
+    await AppShellWrapper.mount('/settings/connections');
     const card = await screen.findByTestId('remote-card');
 
     await user.click(await within(card).findByRole('switch', { name: 'Remote control' }));

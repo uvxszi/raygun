@@ -1,9 +1,7 @@
-import { createRootRoute, createRoute, createRouter } from '@tanstack/react-router';
+import { createRootRoute, createRoute, createRouter, redirect } from '@tanstack/react-router';
 import type { MangaBrowseMode } from '@raygun/bindings';
 import type { RouterHistory } from '@tanstack/react-router';
 
-import { isExtensionTab } from './extensions/tabs';
-import type { ExtensionTab } from './extensions/tabs';
 import { isLibraryView } from './library/views';
 import type { LibraryView } from './library/views';
 import { AlbumPage } from './pages/AlbumPage';
@@ -12,27 +10,32 @@ import { CategoriesPage } from './pages/CategoriesPage';
 import { PodcastPage } from './pages/PodcastPage';
 import { WatchAddonsPage } from './pages/WatchAddonsPage';
 import { WatchCatalogPage } from './pages/WatchCatalogPage';
-import { WatchPage } from './pages/WatchPage';
+import { AboutPage } from './pages/AboutPage';
+import { BrowsePage } from './pages/BrowsePage';
+import type { BrowseSection, ExtensionList } from './pages/BrowsePage';
+import { MorePage } from './pages/MorePage';
+import { ReposPage } from './pages/ReposPage';
+import { StremioAddonPage } from './pages/StremioAddonPage';
 import { WatchTitlePage } from './pages/WatchTitlePage';
 import { VideoTitlePage } from './pages/VideoTitlePage';
 import { isSearchType } from './search/searchTypes';
 import type { SearchType } from './search/searchTypes';
 import { DevicesPage } from './pages/DevicesPage';
 import { ExtensionDetailPage } from './pages/ExtensionDetailPage';
-import { ExtensionsPage } from './pages/ExtensionsPage';
 import { ArtistPage } from './pages/ArtistPage';
 import { HomePage } from './pages/HomePage';
 import { LibraryPage } from './pages/LibraryPage';
 import { MangaDownloadsPage } from './pages/MangaDownloadsPage';
 import { MangaReaderPage } from './pages/MangaReaderPage';
 import { MangaSourcePage, NovelSourcePage, VideoSourcePage } from './pages/MangaSourcePage';
-import { MangaSourcesPage, NovelSourcesPage } from './pages/MangaSourcesPage';
 import { MangaTitlePage, NovelTitlePage } from './pages/MangaTitlePage';
 import { MangaUpdatesPage } from './pages/MangaUpdatesPage';
 import { NovelReaderPage } from './pages/NovelReaderPage';
 import { PlaylistPage } from './pages/PlaylistPage';
 import { SearchPage } from './pages/SearchPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { SETTINGS_SECTIONS } from './settings/sections';
+import { SettingsSectionPage } from './pages/SettingsSectionPage';
 import { AppShell } from './shell/AppShell';
 
 const rootRoute = createRootRoute({ component: AppShell });
@@ -65,10 +68,13 @@ const routeTree = rootRoute.addChildren([
       ...(search.view === 'podcasts' ? { media: 'podcast' as const } : {}),
     }),
   }),
+  // The source lists moved into Browse (M42.1).
   createRoute({
     getParentRoute: () => rootRoute,
     path: '/manga/browse',
-    component: MangaSourcesPage,
+    beforeLoad: () => {
+      throw redirect({ to: '/browse', replace: true });
+    },
   }),
   createRoute({
     getParentRoute: () => rootRoute,
@@ -110,10 +116,13 @@ const routeTree = rootRoute.addChildren([
       chapter: text(search.chapter),
     }),
   }),
+  // The source lists moved into Browse (M42.1).
   createRoute({
     getParentRoute: () => rootRoute,
     path: '/novel/browse',
-    component: NovelSourcesPage,
+    beforeLoad: () => {
+      throw redirect({ to: '/browse', replace: true });
+    },
   }),
   createRoute({
     getParentRoute: () => rootRoute,
@@ -176,13 +185,47 @@ const routeTree = rootRoute.addChildren([
     }),
   }),
   createRoute({ getParentRoute: () => rootRoute, path: '/settings', component: SettingsPage }),
+  ...SETTINGS_SECTIONS.map((section) =>
+    createRoute({
+      getParentRoute: () => rootRoute,
+      path: `/settings/${section.id}`,
+      component: SettingsSectionPage,
+    }),
+  ),
   createRoute({
     getParentRoute: () => rootRoute,
     path: '/settings/devices',
     component: DevicesPage,
   }),
   createRoute({ getParentRoute: () => rootRoute, path: '/settings/ai', component: AiPage }),
-  createRoute({ getParentRoute: () => rootRoute, path: '/watch', component: WatchPage }),
+  // Watch was a tab until M42.1; what it held now lives in Library → Videos and Browse.
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/watch',
+    beforeLoad: () => {
+      throw redirect({ to: '/library', search: { media: 'video' }, replace: true });
+    },
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/watch/addon',
+    component: StremioAddonPage,
+    validateSearch: (search: Record<string, unknown>) => ({ id: text(search.id) }),
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/browse',
+    component: BrowsePage,
+    validateSearch: (
+      search: Record<string, unknown>,
+    ): { tab?: BrowseSection; list?: ExtensionList } => ({
+      ...(search.tab === 'extensions' ? { tab: 'extensions' as const } : {}),
+      ...(search.list === 'available' ? { list: 'available' as const } : {}),
+    }),
+  }),
+  createRoute({ getParentRoute: () => rootRoute, path: '/more', component: MorePage }),
+  createRoute({ getParentRoute: () => rootRoute, path: '/about', component: AboutPage }),
+  createRoute({ getParentRoute: () => rootRoute, path: '/extensions/repos', component: ReposPage }),
   createRoute({
     getParentRoute: () => rootRoute,
     path: '/watch/title',
@@ -245,12 +288,22 @@ const routeTree = rootRoute.addChildren([
     component: PodcastPage,
     validateSearch: (search: Record<string, unknown>) => ({ id: text(search.id) }),
   }),
+  // Extensions moved into Browse (installed, available) and their own screen (repositories).
   createRoute({
     getParentRoute: () => rootRoute,
     path: '/extensions',
-    component: ExtensionsPage,
-    validateSearch: (search: Record<string, unknown>): { tab?: ExtensionTab } =>
-      isExtensionTab(search.tab) ? { tab: search.tab } : {},
+    beforeLoad: ({ search }: { search: Record<string, unknown> }) => {
+      throw search.tab === 'repos'
+        ? redirect({ to: '/extensions/repos', replace: true })
+        : redirect({
+            to: '/browse',
+            search: {
+              tab: 'extensions',
+              ...(search.tab === 'browse' ? { list: 'available' } : {}),
+            },
+            replace: true,
+          });
+    },
   }),
   createRoute({
     getParentRoute: () => rootRoute,

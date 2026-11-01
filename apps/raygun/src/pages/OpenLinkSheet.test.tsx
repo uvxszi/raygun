@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 
 import { bindingsMock, seedBindings } from '../test/bindingsMock';
 import { renderWithProviders } from '../test/renderWithProviders';
-import { OpenMediaForm } from './OpenMediaForm';
+import { OpenLinkSheet } from './OpenLinkSheet';
 import { parseYouTubeId, toQueueItem } from './toQueueItem';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
@@ -40,13 +40,14 @@ describe('toQueueItem', () => {
   });
 });
 
-describe('OpenMediaForm', () => {
+describe('OpenLinkSheet as audio', () => {
   beforeEach(() => {
     seedBindings();
   });
 
-  it('plays the entered URL immediately', async () => {
-    renderWithProviders(<OpenMediaForm />);
+  it('plays the entered URL immediately and closes', async () => {
+    const onClose = vi.fn();
+    renderWithProviders(<OpenLinkSheet initialKind="audio" onClose={onClose} />);
 
     await userEvent.type(screen.getByLabelText('URL or file path'), 'https://host/a.mp3');
     await userEvent.click(screen.getByRole('button', { name: 'Play' }));
@@ -55,11 +56,11 @@ describe('OpenMediaForm', () => {
       [expect.objectContaining({ title: 'a.mp3' })],
       true,
     );
-    expect(screen.getByLabelText('URL or file path')).toHaveValue('');
+    expect(onClose).toHaveBeenCalled();
   });
 
   it('can add to the queue without interrupting playback', async () => {
-    renderWithProviders(<OpenMediaForm />);
+    renderWithProviders(<OpenLinkSheet initialKind="audio" onClose={() => {}} />);
 
     await userEvent.type(screen.getByLabelText('URL or file path'), '/sdcard/Music/b.ogg');
     await userEvent.click(screen.getByRole('button', { name: 'Add to queue' }));

@@ -93,10 +93,7 @@ describe('Manga', () => {
     const library = await screen.findByTestId('manga-library');
     expect(await within(library).findByTestId('manga-card')).toHaveTextContent('Frieren');
     expect(within(library).getByLabelText('3 unread chapters')).toBeInTheDocument();
-    expect(within(library).getByRole('link', { name: 'Browse sources' })).toHaveAttribute(
-      'href',
-      '/manga/browse',
-    );
+    expect(screen.getByTestId('nav-browse-tab')).toHaveAttribute('href', '/browse');
   });
 
   it('browses a source, loads more and searches', async () => {
@@ -134,12 +131,9 @@ describe('Manga', () => {
     const page = await screen.findByTestId('manga-title-page');
 
     expect(await within(page).findByRole('heading', { name: 'Frieren' })).toBeInTheDocument();
-    expect(within(page).getByText('Yamada, Abe')).toBeInTheDocument();
-    expect(within(page).getByText('Ongoing · MangaDex')).toBeInTheDocument();
-    expect(within(page).getByRole('link', { name: /Continue: Chapter 2/ })).toHaveAttribute(
-      'href',
-      '/manga/read?title=t1&chapter=c2',
-    );
+    expect(within(page).getByText('Yamada, Abe · Ongoing · MangaDex')).toBeInTheDocument();
+    // The floating button picks up where reading stopped.
+    expect(within(page).getByRole('button', { name: /Continue: Chapter 2/ })).toBeInTheDocument();
     expect(within(page).getAllByTestId('chapter-row')).toHaveLength(2);
 
     await user.click(within(page).getByRole('button', { name: 'Add to library' }));

@@ -32,7 +32,6 @@
     "syncing": "Syncing..."
   },
   "extensions": {
-    "addRepo": "افزودن",
     "cancel": "لغو",
     "install": "نصب",
     "nsfwBadge": "18+",
@@ -134,7 +133,6 @@
     "createBackup": "تهیه نسخه پشتیبان",
     "extensions": "افزونه‌ها",
     "language": "زبان",
-    "manga": "کتابخانه ورودی‌ها",
     "theme": "تم",
     "themeDark": "روشن",
     "themeLight": "خاموش",

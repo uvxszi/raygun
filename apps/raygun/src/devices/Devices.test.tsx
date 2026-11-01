@@ -39,7 +39,7 @@ describe('Devices', () => {
   it('turns sync on from Settings and shows this device', async () => {
     const user = userEvent.setup();
     commands.syncSetEnabled.mockResolvedValue(ok(ON));
-    await AppShellWrapper.mount('/settings');
+    await AppShellWrapper.mount('/settings/connections');
     expect(await screen.findByTestId('devices-card')).toHaveTextContent('Off');
     await user.click(screen.getByTestId('devices-card'));
 

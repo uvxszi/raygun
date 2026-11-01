@@ -1,4 +1,4 @@
-import { Outlet, useRouterState } from '@tanstack/react-router';
+import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { useEffect, useRef } from 'react';
 import type { FC } from 'react';
 
@@ -16,9 +16,24 @@ import { useSettings } from '../settings/useSettings';
 import { BottomTabs } from './BottomTabs';
 import { SideRail } from './SideRail';
 
+/** Opens the start screen chosen in Settings, once, when the app starts on Home. */
+const useStartScreen = (screen: 'home' | 'library' | 'browse' | undefined) => {
+  const navigate = useNavigate();
+  const done = useRef(false);
+  const path = useRouterState({ select: (state) => state.location.pathname });
+  useEffect(() => {
+    if (done.current || !screen) return;
+    done.current = true;
+    if (screen !== 'home' && path === '/') {
+      void navigate({ to: screen === 'library' ? '/library' : '/browse', replace: true });
+    }
+  }, [screen, path, navigate]);
+};
+
 export const AppShell: FC = () => {
   const settings = useSettings();
-  useApplyTheme(settings.data?.theme);
+  useApplyTheme(settings.data?.theme, settings.data?.accent);
+  useStartScreen(settings.data?.startScreen);
   useSyncLanguage(settings.data?.language);
   useEngineHost();
   usePlaybackSync();
@@ -44,7 +59,7 @@ export const AppShell: FC = () => {
         <main
           ref={mainRef}
           data-testid="page-content"
-          className="flex-1 overflow-y-auto px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-6 lg:px-10 lg:pt-8"
+          className="flex-1 overflow-y-auto px-4 pt-[env(safe-area-inset-top)] pb-4 lg:px-10"
         >
           <Outlet />
         </main>

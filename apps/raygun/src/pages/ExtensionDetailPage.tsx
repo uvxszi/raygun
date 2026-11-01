@@ -37,7 +37,7 @@ export const ExtensionDetailPage: FC = () => {
       onSuccess: (extensions) => {
         // A built-in copy may take its place; otherwise go back to the list.
         if (!extensions.some((other) => other.id === info.id)) {
-          void navigate({ to: '/extensions', search: { tab: 'installed' }, replace: true });
+          void navigate({ to: '/browse', search: { tab: 'extensions' }, replace: true });
         }
         setConfirming(false);
       },
@@ -47,7 +47,7 @@ export const ExtensionDetailPage: FC = () => {
   return (
     <section data-testid="extension-detail-page" className="flex max-w-2xl flex-col gap-4">
       <div className="flex flex-col gap-1">
-        <PageHeader title={info.name} />
+        <PageHeader back fallback="/browse" title={info.name} />
         <p className="text-muted text-sm">
           {[
             info.version,

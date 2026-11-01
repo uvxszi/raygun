@@ -5,20 +5,27 @@
     "search": "Search",
     "settings": "Settings",
     "main": "Main navigation",
-    "watch": "Watch"
+    "browse": "Browse",
+    "more": "More",
+    "back": "Back",
+    "moreActions": "More options",
+    "closeSearch": "Close search",
+    "clearSearch": "Clear search"
   },
   "home": {
-    "title": "Welcome to Raygun",
-    "subtitle": "Music, video, manga and novels in one place.",
     "recentlyPlayed": "Recently played",
     "noHistory": "Songs you play show up here.",
     "clearHistory": "Clear history",
-    "yourMusic": "Your music"
+    "yourMusic": "Your music",
+    "heading": "Home",
+    "continueReading": "Continue reading",
+    "startTitle": "Nothing to pick up yet",
+    "startBody": "Find films, series, manga and novels in Browse, or add your own music in the Library. What you start shows up here."
   },
   "library": {
     "title": "Library",
     "emptyTitle": "Your library is empty",
-    "openTitle": "Open a stream or file",
+    "openTitle": "Open link or file",
     "openLocation": "URL or file path",
     "openPlaceholder": "https://… or a file path",
     "openReferer": "Referer header",
@@ -97,7 +104,7 @@
       "name": "Category name",
       "newName": "New category name",
       "newPlaceholder": "New category, e.g. Reading",
-      "add": "Add",
+      "add": "New category",
       "save": "Save",
       "cancel": "Cancel",
       "rename": "Rename {{name}}",
@@ -109,10 +116,20 @@
     },
     "videos": {
       "empty": "Videos you watch show up here.",
-      "openWatch": "Open Watch",
+      "openWatch": "Browse sources",
       "watched": "Watched",
-      "remove": "Remove {{title}}"
-    }
+      "remove": "Remove {{title}}",
+      "history": "Watched"
+    },
+    "openKind": "What to open",
+    "openAs": {
+      "video": "Video",
+      "audio": "Audio"
+    },
+    "openAudioHint": "Plays in the music player. Add a Referer if the site needs one.",
+    "manageFolders": "Manage folders",
+    "folderHint": "A folder on this device, like /sdcard/Music. Raygun reads it and keeps watching for new files.",
+    "noFolders": "No music folders yet."
   },
   "search": {
     "title": "Search",
@@ -204,7 +221,6 @@
     "manageExtensions": "Manage",
     "extensionsFailed_one": "{{count}} extension failed to load",
     "extensionsFailed_other": "{{count}} extensions failed to load",
-    "manga": "Manga",
     "mangaUpdates": "Check the library for new chapters",
     "mangaUpdatesHint": "Runs while the app is open. Finished and cancelled series are skipped.",
     "updateEvery": {
@@ -238,11 +254,104 @@
     "content": "Content",
     "showNsfw": "Show NSFW (18+) content",
     "showNsfwHint": "Off hides adult extensions, sources and titles everywhere in the app.",
-    "playback": "Playback",
     "videoQuality": "Preferred video quality",
     "videoQualityHighest": "Highest available",
     "videoQualityUpTo": "Up to {{height}}p",
-    "videoQualityHint": "Video sources offer the link closest to this quality first, at or below it when they can."
+    "videoQualityHint": "Video sources offer the link closest to this quality first, at or below it when they can.",
+    "section": {
+      "appearance": {
+        "title": "Appearance",
+        "summary": "Theme, colour, language, start screen"
+      },
+      "library": {
+        "title": "Library",
+        "summary": "Covers, badges, updates, categories, music folders"
+      },
+      "reader": {
+        "title": "Reader",
+        "summary": "Novel text, page layout, reading aloud"
+      },
+      "player": {
+        "title": "Player",
+        "summary": "Video quality, resuming, watched point, subtitles"
+      },
+      "browse": {
+        "title": "Browse",
+        "summary": "Adult content, extensions, repositories, addons"
+      },
+      "data": {
+        "title": "Data and backup",
+        "summary": "Back up and restore, import from Mihon"
+      },
+      "connections": {
+        "title": "Connections",
+        "summary": "Devices, remote control, AI and assistants"
+      }
+    },
+    "display": "Display",
+    "accent": "Accent colour",
+    "accents": {
+      "red": "Red",
+      "orange": "Orange",
+      "green": "Green",
+      "teal": "Teal",
+      "blue": "Blue",
+      "purple": "Purple",
+      "pink": "Pink"
+    },
+    "startScreen": "Start screen",
+    "startScreenHint": "Where Raygun opens.",
+    "navLabels": "Navigation bar labels",
+    "navLabelsAlways": "Always show",
+    "navLabelsSelected": "Only on the selected tab",
+    "gridColumns": "Covers per row",
+    "gridColumnsAuto": "Automatic (fits the screen)",
+    "coverStyle": "Titles on covers",
+    "coverCompact": "Compact",
+    "coverCompactHint": "The title sits over the bottom of the cover.",
+    "coverComfortable": "Comfortable",
+    "coverComfortableHint": "The title sits under the cover.",
+    "unreadBadges": "Unread badges",
+    "unreadBadgesHint": "Show how many chapters are left on each cover.",
+    "downloadBadges": "Downloaded badges",
+    "downloadBadgesHint": "Show how many chapters are saved offline.",
+    "libraryUpdates": "Updates",
+    "musicFolders": "Music folders",
+    "musicFoldersHint": "Folders on this device that Raygun reads for your music library.",
+    "novelReader": "Novels",
+    "fontSize": "Text size",
+    "lineSpacing": "Line spacing",
+    "font": "Typeface",
+    "fontSerif": "Serif",
+    "fontSans": "Sans serif",
+    "pageWidth": "Text width",
+    "widthNarrow": "Narrow",
+    "widthNarrowHint": "Shorter lines, easier to follow.",
+    "widthWide": "Wide",
+    "widthWideHint": "Uses the whole screen.",
+    "paged": "Turn pages",
+    "pagedHint": "Swipe sideways through pages instead of scrolling one long column.",
+    "readAloud": "Reading aloud",
+    "speechRate": "Speaking speed",
+    "speechRateHint": "How fast chapters are read aloud.",
+    "videoPlayback": "Video",
+    "resumeVideos": "Resume where you left off",
+    "resumeVideosHint": "Off starts every video from the beginning.",
+    "watchedPercent": "Counts as watched at",
+    "watchedPercentHint": "Past this point a video or episode is marked watched and leaves Continue watching.",
+    "seekSeconds": "Double-tap to skip",
+    "seekSecondsHint": "How far a double tap on either side of the player jumps.",
+    "seconds_one": "{{count}} second",
+    "seconds_other": "{{count}} seconds",
+    "subtitles": "Subtitles",
+    "autoSubtitles": "Turn on subtitles",
+    "autoSubtitlesHint": "Picks subtitles in your language when a video has them.",
+    "subtitleLanguage": "Subtitle language",
+    "subtitleLanguageHint": "Listed first when choosing streams, and turned on with the setting above.",
+    "subtitleLanguageApp": "Same as the app",
+    "sources": "Sources",
+    "otherDevices": "Other devices",
+    "assistants": "AI and assistants"
   },
   "player": {
     "nothingPlaying": "Nothing playing",
@@ -305,7 +414,7 @@
     "removeRepo": "Remove {{name}}",
     "repoUrl": "Repository URL",
     "repoUrlPlaceholder": "https://…/index.json",
-    "addRepo": "Add",
+    "addRepo": "Add repository",
     "repoHint": "Only add repositories you trust: their extensions can reach the hosts they list.",
     "settings": "Settings",
     "providers": "Provides",
@@ -550,7 +659,14 @@
     "queueEmpty": "Nothing is downloading.",
     "nsfwHiddenTitle": "This title is for adults",
     "nsfwHiddenHint": "Turn on “Show NSFW (18+) content” in Settings to see it.",
-    "openSettings": "Open Settings"
+    "openSettings": "Open Settings",
+    "inLibrary": "In library",
+    "allDownloaded": "Downloaded",
+    "openInBrowser": "WebView",
+    "resume": "Resume",
+    "downloadedCount_one": "{{count}} chapter downloaded",
+    "downloadedCount_other": "{{count}} chapters downloaded",
+    "downloadAction": "Download"
   },
   "novel": {
     "sources": "Novel sources",
@@ -650,7 +766,7 @@
     "opening": "Opening",
     "feedUrl": "Feed address",
     "feedPlaceholder": "Or paste an RSS feed address",
-    "openFeed": "Open",
+    "openFeed": "Add by feed address",
     "subscribe": "Subscribe",
     "subscribed": "Subscribed",
     "episodes_one": "{{count}} episode",
@@ -751,6 +867,36 @@
     },
     "refresh": "Refresh",
     "noEpisodes": "This title has no episodes.",
-    "hiddenNsfw": "This title is for adults. Turn on “Show NSFW (18+) content” in Settings to see it."
+    "hiddenNsfw": "This title is for adults. Turn on “Show NSFW (18+) content” in Settings to see it.",
+    "openInBrowser": "Open in browser",
+    "start": "Start"
+  },
+  "browse": {
+    "title": "Browse",
+    "sources": "Sources",
+    "repos": "Extension repositories",
+    "latestOf": "Latest from {{name}}",
+    "stremioAddon": "Stremio addon",
+    "kind": {
+      "video": "Movies & series"
+    },
+    "noSources": "No sources yet. Add extensions in the Extensions tab, or Stremio addons from the menu."
+  },
+  "more": {
+    "updates": "Updates",
+    "updatesHint": "New chapters found in your library",
+    "downloads": "Downloads",
+    "downloadsHint": "Chapters saved for offline reading",
+    "categories": "Categories",
+    "categoriesHint": "Group your manga and novels",
+    "addonsHint": "Catalogues, streams and subtitles for movies and series",
+    "reposHint": "Where extensions come from",
+    "ai": "AI",
+    "aiHint": "Translators and on-device models",
+    "devices": "Devices",
+    "devicesHint": "Pair and sync with your other devices",
+    "settingsHint": "Appearance, library, reader, player and more",
+    "about": "About",
+    "aboutHint": "Version and where Raygun keeps its data"
   }
 }

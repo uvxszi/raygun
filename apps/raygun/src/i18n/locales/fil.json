@@ -33,7 +33,6 @@
     "syncing": "Syncing..."
   },
   "extensions": {
-    "addRepo": "Magdagdag",
     "cancel": "Kanselahin",
     "install": "I-install",
     "nsfwBadge": "18+",
@@ -143,7 +142,6 @@
     "createBackup": "Gumawa ng backup",
     "extensions": "Mga Extension",
     "language": "Wika",
-    "manga": "Mga nilalaman ng aklatan",
     "storage": "Espasyo",
     "theme": "Tema",
     "themeDark": "Madilim",

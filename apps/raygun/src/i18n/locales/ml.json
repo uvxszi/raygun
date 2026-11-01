@@ -30,7 +30,6 @@
     "syncing": "Syncing..."
   },
   "extensions": {
-    "addRepo": "ചേർക്കുക",
     "cancel": "റദ്ദാക്കുക",
     "install": "ഇൻസ്റ്റാൾ",
     "nsfwBadge": "18+",
@@ -121,7 +120,6 @@
     "confirmRestore": "റിസ്റ്റോർ",
     "extensions": "വിപുലീകരണങ്ങൾ",
     "language": "ഭാഷ",
-    "manga": "മാംഗ",
     "theme": "തീം",
     "themeDark": "ഇരുണ്ട",
     "themeLight": "പ്രകാശമുള്ളത്",

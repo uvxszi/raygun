@@ -33,7 +33,6 @@
     "syncing": "Senkronize ediliyor..."
   },
   "extensions": {
-    "addRepo": "Ekle",
     "cancel": "İptal et",
     "install": "Yükle",
     "nsfwBadge": "18+",
@@ -145,7 +144,6 @@
     "createBackup": "Yedek oluştur",
     "extensions": "Uzantılar",
     "language": "Dil",
-    "manga": "Manga",
     "storage": "Depolama",
     "theme": "Tema",
     "themeDark": "Koyu",

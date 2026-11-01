@@ -33,7 +33,6 @@
     "syncing": "Syncing..."
   },
   "extensions": {
-    "addRepo": "Toevoegen",
     "cancel": "Annuleren",
     "install": "Installeren",
     "nsfwBadge": "18+",
@@ -140,7 +139,6 @@
     "createBackup": "Back-up maken",
     "extensions": "Extensies",
     "language": "Taal",
-    "manga": "Bibliotheek",
     "theme": "Thema",
     "themeDark": "Aan",
     "themeLight": "Uit",

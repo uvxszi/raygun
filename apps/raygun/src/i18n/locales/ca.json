@@ -33,7 +33,6 @@
     "syncing": "Sincronitzant..."
   },
   "extensions": {
-    "addRepo": "Afegeix",
     "cancel": "Cancel·la",
     "install": "Instal·la",
     "nsfwBadge": "+18",
@@ -140,7 +139,6 @@
     "createBackup": "Crea una còpia de seguretat",
     "extensions": "Extensions",
     "language": "Llengua",
-    "manga": "Elements de la biblioteca",
     "storage": "Emmagatzematge",
     "theme": "Tema",
     "themeDark": "Fosc",

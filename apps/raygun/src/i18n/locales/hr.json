@@ -26,7 +26,6 @@
     "save": "Spremi"
   },
   "extensions": {
-    "addRepo": "Dodaj",
     "cancel": "Prekini",
     "install": "Instaliraj",
     "nsfwBadge": "18+",
@@ -128,7 +127,6 @@
     "createBackup": "Stvori sigurnosnu kopiju",
     "extensions": "Proširenja",
     "language": "Jezik",
-    "manga": "Manga",
     "storage": "Memorija",
     "theme": "Tema",
     "themeDark": "Tamna",

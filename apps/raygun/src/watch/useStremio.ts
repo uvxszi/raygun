@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
+import { useSettings } from '../settings/useSettings';
 
 const STREMIO = ['stremio'];
 
@@ -71,12 +72,13 @@ export const useStremioStreams = (kind: string, videoId: string | null) =>
     staleTime: 5 * 60 * 1000,
   });
 
-/** Plays a stream, with subtitles in the app's language first. */
+/** Plays a stream, with subtitles in the subtitle language (Settings → Player) first. */
 export const useStremioPlay = () => {
   const { i18n } = useTranslation();
+  const subtitleLanguage = useSettings().data?.subtitleLanguage || i18n.language;
   return useMutation({
     mutationFn: (request: StremioPlayRequest) =>
-      unwrapResult(commands.stremioPlay(request, i18n.language)),
+      unwrapResult(commands.stremioPlay(request, subtitleLanguage)),
   });
 };
 

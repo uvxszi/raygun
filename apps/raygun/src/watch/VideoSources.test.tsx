@@ -108,7 +108,7 @@ describe('Video sources in Watch', () => {
     commands.videoSources.mockResolvedValue(ok([SOURCE]));
   });
 
-  it('shows a source row on Watch and opens a series with seasons', async () => {
+  it('lists the source in Browse and opens a series with seasons', async () => {
     const user = userEvent.setup();
     commands.videoBrowse.mockResolvedValue(
       ok({
@@ -125,12 +125,15 @@ describe('Video sources in Watch', () => {
       }),
     );
     commands.videoTitle.mockResolvedValue(ok(SERIES));
-    await AppShellWrapper.mount('/watch');
+    await AppShellWrapper.mount('/browse');
 
-    const row = await screen.findByRole('region', { name: 'Popular · Archive Films' });
+    // Video sources are listed in Browse under Movies & series, with a Latest shortcut.
+    const section = await screen.findByRole('region', { name: 'Movies & series' });
+    expect(within(section).getByRole('link', { name: 'Latest from Archive Films' })).toBeVisible();
+    await user.click(within(section).getByRole('link', { name: 'Archive Films' }));
+    const source = await screen.findByTestId('manga-source-page');
     expect(commands.videoBrowse).toHaveBeenCalledWith(SOURCE.id, 'popular', null, 1);
-    expect(within(row).getByRole('link', { name: 'See all of Archive Films' })).toBeVisible();
-    await user.click(await within(row).findByRole('link', { name: 'Flash Gordon' }));
+    await user.click(await within(source).findByRole('link', { name: /Flash Gordon/ }));
 
     const page = await screen.findByTestId('video-title-page');
     expect(commands.videoTitle).toHaveBeenCalledWith(SOURCE.id, 'serial', false);
@@ -209,12 +212,10 @@ describe('Video sources in Watch', () => {
 
   it('sets the preferred video quality', async () => {
     const user = userEvent.setup();
-    await AppShellWrapper.mount('/settings');
-    const card = await screen.findByTestId('playback-settings-card');
-    await user.selectOptions(
-      within(card).getByRole('combobox', { name: 'Preferred video quality' }),
-      'Up to 720p',
-    );
+    await AppShellWrapper.mount('/settings/player');
+    await user.click(await screen.findByRole('button', { name: /Preferred video quality/ }));
+    const sheet = await screen.findByRole('dialog', { name: 'Preferred video quality' });
+    await user.click(within(sheet).getByRole('radio', { name: 'Up to 720p' }));
     expect(commands.settingsUpdate).toHaveBeenCalledWith({
       key: 'preferredVideoQuality',
       value: 720,

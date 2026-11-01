@@ -33,7 +33,6 @@
     "syncing": "Syncing..."
   },
   "extensions": {
-    "addRepo": "أضف",
     "cancel": "إلغاء",
     "install": "تثبيت",
     "nsfwBadge": "18+",
@@ -144,7 +143,6 @@
     "createBackup": "إنشاء نسخة إحتياطية",
     "extensions": "الإضافات",
     "language": "اللغة",
-    "manga": "مانغا",
     "storage": "تخزين",
     "theme": "المظهر",
     "themeDark": "داكن",

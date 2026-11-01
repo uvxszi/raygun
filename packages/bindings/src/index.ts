@@ -314,6 +314,8 @@ export const events = {
 };
 
 /* Types */
+export type Accent = "red" | "orange" | "green" | "teal" | "blue" | "purple" | "pink";
+
 export type AiModel = {
 	id: string,
 	name: string,
@@ -459,6 +461,8 @@ export type ContinueWatching = {
 	updatedAt: number | null,
 	watched: boolean,
 };
+
+export type CoverStyle = "compact" | "comfortable";
 
 export type DownloadState = "queued" | "downloading" | "done" | "failed";
 
@@ -832,6 +836,8 @@ export type MihonImport = {
 	skipped: SkippedSource[],
 };
 
+export type NavLabels = "always" | "selected";
+
 /**  What the novel reader needs for one chapter. */
 export type NovelChapter = {
 	titleId: string,
@@ -1106,7 +1112,7 @@ export type SearchResults = {
  *  A change to a single setting. The tagged shape (`{ key, value }`) lets the UI send only valid
  *  key/value pairs, and doubles as the format of a stored row.
  */
-export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "preferredVideoQuality"; value: number | null };
+export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -1126,6 +1132,30 @@ export type Settings = {
 	showNsfw: boolean,
 	/**  The video height links are picked by (M42); `None` picks the highest. */
 	preferredVideoQuality: number | null,
+	/**  The colour of buttons, tabs and highlights (M42.1). */
+	accent: Accent,
+	/**  The screen the app opens on. */
+	startScreen: StartScreen,
+	/**  Navigation bar labels: on every tab, or on the selected one only. */
+	navLabels: NavLabels,
+	/**  Covers per row in library and browse grids; 0 fits them to the screen. */
+	gridColumns: number,
+	/**  Titles over covers (compact, as in Mihon) or under them (comfortable). */
+	coverStyle: CoverStyle,
+	/**  The unread count on library covers. */
+	unreadBadges: boolean,
+	/**  The downloaded count on library covers. */
+	downloadBadges: boolean,
+	/**  Videos pick up where they were left. */
+	resumeVideos: boolean,
+	/**  Share of a video, in percent, after which it counts as watched. */
+	watchedPercent: number,
+	/**  Seconds a double tap or the skip buttons jump in the video player. */
+	seekSeconds: number,
+	/**  Subtitles turn on by themselves when a video has them in the subtitle language. */
+	autoSubtitles: boolean,
+	/**  Subtitles' language as a BCP 47 tag; empty follows the app's language. */
+	subtitleLanguage: string,
 };
 
 /**  Titles of one Mihon source that Raygun has no source for. */
@@ -1148,6 +1178,8 @@ export type SourceSearchResult = {
 	hasNextPage: boolean,
 	error: string | null,
 };
+
+export type StartScreen = "home" | "library" | "browse";
 
 /**  Where Raygun keeps its data on this device. */
 export type StorageInfo = {

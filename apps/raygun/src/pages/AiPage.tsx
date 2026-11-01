@@ -273,7 +273,7 @@ export const AiPage: FC = () => {
 
   return (
     <section data-testid="ai-page" className="flex max-w-2xl flex-col gap-4">
-      <PageHeader title={t('ai.title')} />
+      <PageHeader back fallback="/more" title={t('ai.title')} />
       <section className={CARD} aria-labelledby="ai-translators">
         <h2 id="ai-translators" className="text-muted">
           {t('ai.translators')}

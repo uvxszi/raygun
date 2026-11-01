@@ -32,7 +32,6 @@
     "syncing": "Syncing..."
   },
   "extensions": {
-    "addRepo": "הוספה",
     "cancel": "ביטול",
     "install": "התקן",
     "nsfwBadge": "18+",
@@ -137,7 +136,6 @@
     "createBackup": "צור גיבוי",
     "extensions": "תוספים",
     "language": "שפה",
-    "manga": "מנגה",
     "theme": "ערכת נושא",
     "themeDark": "פעיל",
     "themeLight": "כבוי",

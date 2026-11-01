@@ -30,7 +30,6 @@
     "syncing": "Syncing..."
   },
   "extensions": {
-    "addRepo": "జోడించుము",
     "cancel": "రద్దు చెయ్యుము",
     "install": "ప్రతిష్ఠాపించుము",
     "refresh": "నవీకరించుము",
@@ -110,7 +109,6 @@
     "confirmRestore": "పునఃస్థాపనను చేయుము",
     "extensions": "పొడిగింపులు",
     "language": "భాష",
-    "manga": "లైబ్రరీ ఎంట్రీలు",
     "theme": "వీక్షణము",
     "themeDark": "ప్రారంభించుము",
     "themeLight": "ఆపుము",

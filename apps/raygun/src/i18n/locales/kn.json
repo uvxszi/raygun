@@ -21,7 +21,6 @@
     "save": "ಉಳಿಸಿ"
   },
   "extensions": {
-    "addRepo": "ಸೇರಿಸಿ",
     "cancel": "ರದ್ದುಮಾಡಿ",
     "install": "ಇನ್ಸ್ಟಾಲ್",
     "nsfwBadge": "18+",
@@ -96,7 +95,6 @@
     "confirmRestore": "ಮರುಸ್ಥಾಪಿಸಿ",
     "createBackup": "ಬ್ಯಾಕಪ್ ರಚಿಸಿ",
     "extensions": "ವಿಸ್ತರಣೆಗಳು",
-    "manga": "ಮಾಂಗಾ",
     "theme": "ಜನರಲ್ ಸೆಲೆಕ್ಷನ್",
     "themeDark": "ಆನ್",
     "themeLight": "ಆಫ",

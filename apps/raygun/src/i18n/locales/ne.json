@@ -22,7 +22,6 @@
     "save": "सेभ गर्नुहोस्"
   },
   "extensions": {
-    "addRepo": "थप्नुहोस्",
     "cancel": "रद्द गर्नुहोस्",
     "install": "स्थापना गर्नुहोस्",
     "nsfwBadge": "१८+",
@@ -106,7 +105,6 @@
     "createBackup": "ब्याकअप सिर्जना गर्नुहोस्",
     "extensions": "एक्सटेन्शन",
     "language": "भाषा",
-    "manga": "पुस्तकालयका इन्ट्रीहरू",
     "theme": "थीम",
     "themeDark": "अन",
     "themeLight": "अफ",

@@ -1,19 +1,21 @@
 import { commands } from '@raygun/bindings';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { BookPlus } from 'lucide-react';
 import { useRef } from 'react';
-import type { ChangeEvent, FC } from 'react';
+import type { ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
 import { readAsBase64 } from '../lib/readFile';
 import { NOVEL } from './useNovel';
 
-/** Imports an EPUB from the device into the novel library and opens it. */
-export const ImportEpubButton: FC<{ className: string }> = ({ className }) => {
+/**
+ * Imports an EPUB from the device into the novel library and opens it. `pick` opens the file
+ * chooser; render `input` once (it's hidden).
+ */
+export const useImportEpub = () => {
   const { t } = useTranslation();
-  const input = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const importBook = useMutation({
@@ -31,30 +33,18 @@ export const ImportEpubButton: FC<{ className: string }> = ({ className }) => {
     if (file) importBook.mutate(file);
   };
 
-  return (
-    <>
-      <button
-        type="button"
-        disabled={importBook.isPending}
-        onClick={() => input.current?.click()}
-        className={`${className} disabled:opacity-60`}
-      >
-        <BookPlus aria-hidden size={16} className="text-primary" />
-        {t(importBook.isPending ? 'novel.importing' : 'novel.importEpub')}
-      </button>
+  return {
+    pick: () => inputRef.current?.click(),
+    importBook,
+    input: (
       <input
-        ref={input}
+        ref={inputRef}
         type="file"
         accept=".epub,application/epub+zip"
         aria-label={t('novel.epubFile')}
         onChange={onPick}
         className="hidden"
       />
-      {importBook.error && (
-        <p role="alert" className="text-primary w-full text-sm wrap-anywhere">
-          {importBook.error.message}
-        </p>
-      )}
-    </>
-  );
+    ),
+  };
 };

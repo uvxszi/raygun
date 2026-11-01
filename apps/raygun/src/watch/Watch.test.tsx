@@ -24,32 +24,37 @@ describe('Watch tab', () => {
     AppShellWrapper.seedCore();
   });
 
-  it('is in the navigation and plays a link with subtitles', async () => {
+  it('lives in Library → Videos and plays a link with subtitles from the menu', async () => {
     const user = userEvent.setup();
-    await AppShellWrapper.mount('/');
-    await user.click(await screen.findByTestId('nav-watch-tab'));
-    const page = await screen.findByTestId('watch-page');
+    await AppShellWrapper.mount('/library');
+    await user.click(await screen.findByTestId('library-media-video'));
+    const videos = await screen.findByTestId('videos-library');
 
+    await user.click(within(videos).getByRole('button', { name: 'More options' }));
+    await user.click(within(videos).getByRole('menuitem', { name: 'Open link or file' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Open link or file' });
+    expect(within(sheet).getByRole('radio', { name: 'Video' })).toBeChecked();
     await user.type(
-      within(page).getByRole('textbox', { name: 'Video address' }),
+      within(sheet).getByRole('textbox', { name: 'Video address' }),
       'https://cdn.example/show.m3u8',
     );
     await user.type(
-      within(page).getByRole('textbox', { name: 'Subtitle address' }),
+      within(sheet).getByRole('textbox', { name: 'Subtitle address' }),
       'https://cdn.example/show.srt',
     );
-    await user.click(within(page).getByRole('button', { name: 'Play' }));
+    await user.click(within(sheet).getByRole('button', { name: 'Play' }));
     expect(commands.videoPlayLink).toHaveBeenCalledWith(
       'https://cdn.example/show.m3u8',
       null,
       'https://cdn.example/show.srt',
     );
+    await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
   it('continues, removes and refreshes unfinished videos', async () => {
     const user = userEvent.setup();
     commands.videoContinueWatching.mockResolvedValue(ok([FILM]));
-    await AppShellWrapper.mount('/watch');
+    await AppShellWrapper.mount('/library?media=video');
     const item = await screen.findByRole('listitem', { name: 'A Film' });
 
     await user.click(within(item).getByRole('button', { name: /^A Film/ }));

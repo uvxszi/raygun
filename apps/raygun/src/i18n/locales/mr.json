@@ -21,7 +21,6 @@
     "save": "जतन करा"
   },
   "extensions": {
-    "addRepo": "जोडा",
     "cancel": "रद्द करा",
     "install": "स्थापित करा",
     "refresh": "रीफ्रेश",
@@ -75,7 +74,6 @@
     "cancel": "रद्द करा",
     "confirmRestore": "पुनर्संचयित करा",
     "extensions": "एक्स्टेन्शन",
-    "manga": "लायब्ररी इंत्रिज",
     "theme": "थीम",
     "themeDark": "डार्क",
     "themeLight": "लाइट",

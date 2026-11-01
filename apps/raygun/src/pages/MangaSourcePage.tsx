@@ -38,7 +38,7 @@ export const MangaSourcePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) =
 
   return (
     <section data-testid="manga-source-page" className="flex flex-col gap-4">
-      <PageHeader title={source?.name ?? t('manga.source')} />
+      <PageHeader back fallback="/browse" title={source?.name ?? t('manga.source')} />
       <form onSubmit={submit} className="bg-surface flex items-center gap-3 rounded-xl px-4 py-3">
         <Search aria-hidden size={20} className="text-muted" />
         <input

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { Sheet } from '../shell/Sheet';
 import { PlaylistCover } from './PlaylistCover';
 import { useCreatePlaylist, usePlaylists } from './useCollections';
 
@@ -16,34 +17,33 @@ const NewPlaylistForm: FC<{ onDone: () => void }> = ({ onDone }) => {
     create.mutate(name, { onSuccess: onDone });
   };
   return (
-    <form onSubmit={submit} className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <input
-          // Tapping "New playlist" asked for this field; focusing it saves a tap.
-          autoFocus
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          aria-label={t('collections.playlistName')}
-          placeholder={t('collections.playlistName')}
-          className="bg-surface min-w-0 flex-1 rounded-lg px-3 py-2 text-sm outline-none"
-        />
-        <button
-          type="submit"
-          disabled={!name.trim() || create.isPending}
-          className="bg-primary text-background rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-60"
-        >
-          {t('collections.create')}
-        </button>
-        <button type="button" onClick={onDone} className="text-muted px-2 text-sm">
-          {t('collections.cancel')}
-        </button>
-      </div>
-      {create.error && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {create.error.message}
-        </p>
-      )}
-    </form>
+    <Sheet title={t('collections.newPlaylist')} onClose={onDone}>
+      <form onSubmit={submit} className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3">
+          <input
+            // Tapping "New playlist" asked for this field; focusing it saves a tap.
+            autoFocus
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            aria-label={t('collections.playlistName')}
+            placeholder={t('collections.playlistName')}
+            className="bg-background placeholder:text-muted rounded-xl px-4 py-3 text-sm outline-none"
+          />
+          <button
+            type="submit"
+            disabled={!name.trim() || create.isPending}
+            className="bg-primary text-background self-end rounded-full px-5 py-2.5 text-sm font-semibold disabled:opacity-60"
+          >
+            {t('collections.create')}
+          </button>
+        </div>
+        {create.error && (
+          <p role="alert" className="text-primary text-sm wrap-anywhere">
+            {create.error.message}
+          </p>
+        )}
+      </form>
+    </Sheet>
   );
 };
 
@@ -54,9 +54,8 @@ export const PlaylistsView: FC = () => {
 
   return (
     <div data-testid="playlists-view" className="flex flex-col gap-3">
-      {creating ? (
-        <NewPlaylistForm onDone={() => setCreating(false)} />
-      ) : (
+      {creating && <NewPlaylistForm onDone={() => setCreating(false)} />}
+      {
         <button
           type="button"
           onClick={() => setCreating(true)}
@@ -67,7 +66,7 @@ export const PlaylistsView: FC = () => {
           </span>
           {t('collections.newPlaylist')}
         </button>
-      )}
+      }
       {playlists.data?.length === 0 && (
         <p className="text-muted text-sm">{t('collections.noPlaylists')}</p>
       )}

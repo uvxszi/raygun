@@ -33,7 +33,6 @@
     "syncing": "Syncing..."
   },
   "extensions": {
-    "addRepo": "Thêm",
     "cancel": "Hủy",
     "install": "Cài đặt",
     "nsfwBadge": "18+",
@@ -139,7 +138,6 @@
     "createBackup": "Tạo bản sao lưu",
     "extensions": "Phần mở rộng",
     "language": "Ngôn ngữ",
-    "manga": "Manga",
     "storage": "Bộ nhớ",
     "theme": "Chủ đề",
     "themeDark": "Tối",

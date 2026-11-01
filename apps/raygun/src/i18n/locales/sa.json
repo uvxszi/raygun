@@ -21,7 +21,6 @@
     "save": "रक्षतु"
   },
   "extensions": {
-    "addRepo": "योजयतु",
     "cancel": "लुम्पतु",
     "install": "प्रतिष्ठापयतु",
     "nsfwBadge": "१८+",
@@ -100,7 +99,6 @@
     "createBackup": "प्रतिलेखनं निर्मातु",
     "extensions": "विस्ताराः",
     "language": "भाषा",
-    "manga": "ग्रन्थालय-प्रविष्ट्यः",
     "theme": "दृश्यशैली",
     "themeDark": "सशक्तं कुरु",
     "themeLight": "अशक्तं कुरु",

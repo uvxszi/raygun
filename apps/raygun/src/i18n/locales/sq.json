@@ -25,7 +25,6 @@
     "save": "Ruaj"
   },
   "extensions": {
-    "addRepo": "Shtoni",
     "cancel": "Anulo",
     "install": "Instaloni",
     "nsfwBadge": "18+",
@@ -121,7 +120,6 @@
     "createBackup": "Krijo kopje rezervë",
     "extensions": "Shtesa",
     "language": "Gjuha",
-    "manga": "Elementet e bibliotekës",
     "theme": "Tema",
     "themeDark": "Errët",
     "themeLight": "Ndrçim",

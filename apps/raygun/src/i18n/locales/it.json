@@ -34,7 +34,6 @@
     "syncing": "Sincronizzazione..."
   },
   "extensions": {
-    "addRepo": "Aggiungi",
     "cancel": "Annulla",
     "install": "Installa",
     "nsfwBadge": "Per maggiorenni",
@@ -154,7 +153,6 @@
     "extensions": "Estensioni",
     "importing": "Importazione in corso...",
     "language": "Lingua",
-    "manga": "Manga",
     "storage": "Memoria",
     "theme": "Tema",
     "themeDark": "Scuro",

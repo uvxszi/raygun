@@ -136,8 +136,9 @@ describe('Player with resolved streams', () => {
     emitEvent('queueEvent', { items: [song], order: [0] });
     emitEvent('playbackStateEvent', { ...IDLE_STATE, status: 'loading', currentItemId: song.id });
 
+    // The bar shows up with the queue, then says it's finding a source.
     expect(
-      await within(AppShellWrapper.miniPlayer.element).findByTestId('source-note'),
+      await within(await screen.findByTestId('mini-player')).findByTestId('source-note'),
     ).toHaveTextContent('Finding a source…');
 
     emitEvent('playbackStateEvent', {

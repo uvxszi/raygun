@@ -24,7 +24,6 @@
     "save": "Saglabāt"
   },
   "extensions": {
-    "addRepo": "Pievienot",
     "cancel": "Atcelt",
     "install": "Instalēt",
     "nsfwBadge": "18+",
@@ -119,7 +118,6 @@
     "createBackup": "Izveidot dublējumu",
     "extensions": "Paplašinājumi",
     "language": "Valoda",
-    "manga": "Bibliotēkas ieraksti",
     "theme": "Motīvs",
     "themeDark": "Ieslēgts",
     "themeLight": "Izslēgts",

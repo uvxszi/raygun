@@ -20,7 +20,7 @@ describe('Backup card', () => {
     const file = { name: NAME, sizeBytes: 4096, createdAt: Date.UTC(2026, 9, 31, 12) };
     commands.backupList.mockResolvedValue(ok([file]));
     commands.backupRestore.mockResolvedValue(ok({ kind: 'raygun', received: 40, changed: 3 }));
-    await AppShellWrapper.mount('/settings');
+    await AppShellWrapper.mount('/settings/data');
     const card = await screen.findByTestId('backup-card');
 
     await user.click(within(card).getByRole('button', { name: 'Create backup' }));
@@ -53,7 +53,7 @@ describe('Backup card', () => {
         },
       }),
     );
-    await AppShellWrapper.mount('/settings');
+    await AppShellWrapper.mount('/settings/data');
     const card = await screen.findByTestId('backup-card');
 
     const picked = new File([new Uint8Array([0x1f, 0x8b, 1, 2])], 'mihon.tachibk');

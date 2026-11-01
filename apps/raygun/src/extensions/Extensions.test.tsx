@@ -85,14 +85,15 @@ describe('Extensions', () => {
         extension({ id: 'dev.example.broken', name: 'Broken', status: 'failed', error: 'x' }),
       ]),
     );
-    await AppShellWrapper.mount('/settings');
+    await AppShellWrapper.mount('/settings/browse');
 
     const card = await screen.findByTestId('extensions-card');
     expect(card).toHaveTextContent('Internet Archive, Broken');
     expect(within(card).getByRole('alert')).toHaveTextContent('1 extension failed to load');
 
     await userEvent.click(card);
-    expect(await screen.findByTestId('extensions-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('browse-page')).toBeInTheDocument();
+    expect(screen.getByTestId('browse-tab-extensions')).toHaveAttribute('aria-current', 'page');
   });
 
   it('lists installed extensions and opens one with its permissions and settings', async () => {
@@ -289,10 +290,17 @@ describe('Extensions', () => {
     await AppShellWrapper.mount('/extensions?tab=repos');
 
     expect(await screen.findByTestId('repo-row')).toHaveTextContent(REPO.url);
-    await userEvent.type(screen.getByLabelText('Repository URL'), 'http://example.org/index.json');
-    await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+    // Adding is the top bar's "+", which opens a sheet.
+    await userEvent.click(screen.getByRole('button', { name: 'Add repository' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Add repository' });
+    await userEvent.type(
+      within(sheet).getByLabelText('Repository URL'),
+      'http://example.org/index.json',
+    );
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Add repository' }));
     expect(commands.extensionRepoAdd).toHaveBeenCalledWith('http://example.org/index.json');
-    expect(await screen.findByRole('alert')).toHaveTextContent('use https');
+    expect(await within(sheet).findByRole('alert')).toHaveTextContent('use https');
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
 
     await userEvent.click(screen.getByRole('button', { name: 'Remove Raygun Extensions' }));
     expect(commands.extensionRepoRemove).toHaveBeenCalledWith('repo-1');

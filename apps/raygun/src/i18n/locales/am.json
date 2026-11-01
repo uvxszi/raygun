@@ -21,7 +21,6 @@
     "save": "አስቀምጥ"
   },
   "extensions": {
-    "addRepo": "አክል",
     "cancel": "ሰርዝ",
     "install": "ጫን",
     "nsfwBadge": "18+",
@@ -86,7 +85,6 @@
     "confirmRestore": "እነበረበት መልስ",
     "createBackup": "ምትኬን ይፍጠሩ",
     "extensions": "ኢክስቴንሽኖች",
-    "manga": "ማንጋ",
     "theme": "ገጽታ",
     "themeDark": "በርቷል",
     "themeLight": "ጠፍቷል",

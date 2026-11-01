@@ -21,7 +21,6 @@
     "save": "Simpen"
   },
   "extensions": {
-    "addRepo": "Tambah",
     "cancel": "Batalke",
     "install": "Pasang",
     "nsfwBadge": "18+",
@@ -79,7 +78,6 @@
     "confirmRestore": "Pulihke",
     "extensions": "Ekstensi",
     "language": "basa",
-    "manga": "Entri perpustakaan",
     "theme": "Tema",
     "themeDark": "Murup",
     "themeLight": "Mati",

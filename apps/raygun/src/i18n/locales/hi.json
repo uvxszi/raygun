@@ -32,7 +32,6 @@
     "syncing": "Syncing..."
   },
   "extensions": {
-    "addRepo": "जोड़े",
     "cancel": "रद्द करें",
     "install": "स्थापित करें",
     "nsfwBadge": "18+",
@@ -137,7 +136,6 @@
     "createBackup": "बैकअप बनाये",
     "extensions": "विस्तार",
     "language": "भाषा",
-    "manga": "Manga",
     "theme": "थीम",
     "themeDark": "चालू करे",
     "themeLight": "बंद",

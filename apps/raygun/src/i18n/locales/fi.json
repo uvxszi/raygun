@@ -32,7 +32,6 @@
     "syncing": "Synkronoidaan..."
   },
   "extensions": {
-    "addRepo": "Lisää",
     "cancel": "Peruuta",
     "install": "Asenna",
     "nsfwBadge": "18+",
@@ -138,7 +137,6 @@
     "createBackup": "Luo varmuuskopio",
     "extensions": "Laajennukset",
     "language": "Kieli",
-    "manga": "Manga",
     "theme": "Teema",
     "themeDark": "Päällä",
     "themeLight": "Pois päältä",

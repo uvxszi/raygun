@@ -3,7 +3,55 @@ import { useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { Sheet } from '../shell/Sheet';
 import { useAddRepo, useRemoveRepo, useRepos, useSuggestedRepos } from './useExtensions';
+
+/** Adding a repository by its address, from the top bar's "+". */
+export const AddRepoSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
+  const { t } = useTranslation();
+  const addRepo = useAddRepo();
+  const [url, setUrl] = useState('');
+
+  const onSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    if (url.trim()) {
+      addRepo.mutate(url.trim(), { onSuccess: onClose });
+    }
+  };
+
+  return (
+    <Sheet title={t('extensions.addRepo')} onClose={onClose}>
+      <form onSubmit={onSubmit} className="flex flex-col gap-3 text-sm">
+        <input
+          type="url"
+          inputMode="url"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          autoFocus
+          value={url}
+          onChange={(event) => setUrl(event.target.value)}
+          placeholder={t('extensions.repoUrlPlaceholder')}
+          aria-label={t('extensions.repoUrl')}
+          className="bg-background placeholder:text-muted rounded-xl px-4 py-3 outline-none"
+        />
+        <p className="text-muted text-xs">{t('extensions.repoHint')}</p>
+        {addRepo.error && (
+          <p role="alert" className="text-primary wrap-anywhere">
+            {addRepo.error.message}
+          </p>
+        )}
+        <button
+          type="submit"
+          disabled={!url.trim() || addRepo.isPending}
+          className="bg-primary text-background self-end rounded-full px-5 py-2.5 font-semibold disabled:opacity-50"
+        >
+          {t('extensions.addRepo')}
+        </button>
+      </form>
+    </Sheet>
+  );
+};
 
 export const ReposTab: FC = () => {
   const { t } = useTranslation();
@@ -11,14 +59,6 @@ export const ReposTab: FC = () => {
   const addRepo = useAddRepo();
   const removeRepo = useRemoveRepo();
   const suggested = useSuggestedRepos();
-  const [url, setUrl] = useState('');
-
-  const onSubmit = (event: FormEvent) => {
-    event.preventDefault();
-    if (url.trim()) {
-      addRepo.mutate(url.trim(), { onSuccess: () => setUrl('') });
-    }
-  };
 
   return (
     <div data-testid="repos-tab" className="flex flex-col gap-4 text-sm">
@@ -80,35 +120,11 @@ export const ReposTab: FC = () => {
           <p className="text-muted text-xs">{t('extensions.thirdPartyNote')}</p>
         </section>
       )}
-      <form onSubmit={onSubmit} className="flex flex-col gap-2">
-        <div className="flex gap-2">
-          <input
-            type="url"
-            inputMode="url"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            value={url}
-            onChange={(event) => setUrl(event.target.value)}
-            placeholder={t('extensions.repoUrlPlaceholder')}
-            aria-label={t('extensions.repoUrl')}
-            className="bg-surface placeholder:text-muted min-w-0 flex-1 rounded-lg px-3 py-2 outline-none"
-          />
-          <button
-            type="submit"
-            disabled={!url.trim() || addRepo.isPending}
-            className="bg-surface rounded-lg px-4 py-2 disabled:opacity-40"
-          >
-            {t('extensions.addRepo')}
-          </button>
-        </div>
-        <p className="text-muted text-xs">{t('extensions.repoHint')}</p>
-        {(addRepo.error ?? removeRepo.error) && (
-          <p role="alert" className="text-primary wrap-anywhere">
-            {(addRepo.error ?? removeRepo.error)?.message}
-          </p>
-        )}
-      </form>
+      {(addRepo.error ?? removeRepo.error) && (
+        <p role="alert" className="text-primary wrap-anywhere">
+          {(addRepo.error ?? removeRepo.error)?.message}
+        </p>
+      )}
     </div>
   );
 };

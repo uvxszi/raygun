@@ -21,7 +21,6 @@
     "save": "Lagra"
   },
   "extensions": {
-    "addRepo": "Legg til",
     "cancel": "Avbryt",
     "install": "Installer",
     "nsfwBadge": "18+",
@@ -92,7 +91,6 @@
     "cancel": "Avbryt",
     "createBackup": "Lag reservekopi",
     "language": "Språk",
-    "manga": "Manga",
     "theme": "Tema",
     "themeDark": "På",
     "themeLight": "Av",

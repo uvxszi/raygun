@@ -13,8 +13,8 @@ const SWIPE_UP_DISTANCE = 40;
 const SWIPE_UP_VELOCITY = 300;
 
 /**
- * Compact player bar above the bottom tabs (docked at the bottom on wide screens).
- * Tap or swipe up opens the full player sheet.
+ * Compact player bar above the bottom tabs (docked at the bottom on wide screens), shown while
+ * something is queued. Tap or swipe up opens the full player sheet.
  */
 export const MiniPlayer: FC = () => {
   const { t } = useTranslation();
@@ -32,6 +32,11 @@ export const MiniPlayer: FC = () => {
       openSheet();
     }
   };
+
+  // Like every reference player: no bar while nothing is queued.
+  if (!item) {
+    return null;
+  }
 
   return (
     <motion.div

@@ -32,7 +32,6 @@
     "syncing": "Sincronizando..."
   },
   "extensions": {
-    "addRepo": "Engadir",
     "cancel": "Cancelar",
     "install": "Instalar",
     "nsfwBadge": "+18",
@@ -135,7 +134,6 @@
     "createBackup": "Crear unha copia de seguridade",
     "extensions": "Extensións",
     "language": "Idioma",
-    "manga": "Elementos da biblioteca",
     "theme": "Tema",
     "themeDark": "Activado",
     "themeLight": "Desactivado",

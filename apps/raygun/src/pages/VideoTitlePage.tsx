@@ -1,10 +1,12 @@
 import type { VideoEpisodeView, VideoTitleView } from '@raygun/bindings';
 import { useSearch } from '@tanstack/react-router';
-import { Check, Eye, EyeOff, LoaderCircle, Play, RefreshCw } from 'lucide-react';
+import { Check, ExternalLink, Eye, EyeOff, LoaderCircle, RefreshCw } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { ResumeFab, TitleHero } from '../shell/TitleHero';
+import { TopBar, TopBarAction } from '../shell/TopBar';
 import { ServerPicker } from '../watch/ServerPicker';
 import type { ServerTarget } from '../watch/ServerPicker';
 import { StremioPoster } from '../watch/StremioRow';
@@ -144,9 +146,38 @@ export const VideoTitlePage: FC = () => {
   const [expanded, setExpanded] = useState(false);
   const view = title.data;
 
+  const top = (
+    <TopBar
+      back
+      fallback="/browse"
+      plainTitle
+      title={view?.sourceName ?? ''}
+      actions={
+        view && (
+          <>
+            <TopBarAction
+              label={t('watch.refresh')}
+              icon={RefreshCw}
+              disabled={refresh.isPending}
+              onClick={() => refresh.mutate({ sourceId: view.sourceId, remoteId: view.remoteId })}
+            />
+            {view.url && (
+              <TopBarAction
+                label={t('watch.openInBrowser')}
+                icon={ExternalLink}
+                onClick={() => window.open(view.url ?? '', '_blank', 'noopener')}
+              />
+            )}
+          </>
+        )
+      }
+    />
+  );
+
   if (title.error && !view) {
     return (
       <section data-testid="video-title-page">
+        {top}
         <p role="alert" className="text-primary text-sm wrap-anywhere">
           {title.error.message}
         </p>
@@ -155,14 +186,19 @@ export const VideoTitlePage: FC = () => {
   }
   if (!view) {
     return (
-      <section data-testid="video-title-page" className="grid place-items-center py-12">
-        <LoaderCircle aria-label={t('watch.loading')} className="text-muted animate-spin" />
+      <section data-testid="video-title-page">
+        {top}
+        <LoaderCircle
+          aria-label={t('watch.loading')}
+          className="text-muted mx-auto my-12 animate-spin"
+        />
       </section>
     );
   }
   if (view.hiddenNsfw) {
     return (
       <section data-testid="video-title-page">
+        {top}
         <p className="text-muted text-sm">{t('watch.hiddenNsfw')}</p>
       </section>
     );
@@ -177,41 +213,26 @@ export const VideoTitlePage: FC = () => {
       heading: isMovie(view) ? view.title : `${view.title} · ${episodeLabel(episode)}`,
     });
   const movie = isMovie(view) ? view.episodes[0]! : null;
-  const facts = [
-    view.mediaType && t(`watch.mediaType.${view.mediaType}`),
-    view.year,
-    view.sourceName,
-  ].filter(Boolean);
+  // The floating button plays the movie, or the first episode not yet watched.
+  const next = movie ?? view.episodes.find((episode) => !episode.watched) ?? view.episodes[0];
 
   return (
-    <section data-testid="video-title-page" className="flex flex-col gap-5">
-      <header className="flex gap-4">
-        <StremioPoster url={view.coverUrl} className="w-28 shrink-0 shadow-lg sm:w-36" />
-        <div className="flex min-w-0 flex-col gap-2">
-          <h1 className="text-xl font-bold tracking-tight wrap-anywhere">{view.title}</h1>
-          <p className="text-muted text-sm">{facts.join(' · ')}</p>
-          {view.genres.length > 0 && (
-            <ul aria-label={t('watch.genres')} className="flex flex-wrap gap-1.5">
-              {view.genres.slice(0, 6).map((genre) => (
-                <li key={genre} className="bg-surface rounded-full px-2.5 py-0.5 text-xs">
-                  {genre}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </header>
-      <div className="flex flex-wrap items-center gap-2">
+    <section data-testid="video-title-page" className="flex min-h-full flex-col gap-5">
+      {top}
+      <TitleHero
+        art={view.coverUrl}
+        cover={<StremioPoster url={view.coverUrl} className="w-full shadow-lg" />}
+        title={view.title}
+        facts={[
+          view.mediaType && t(`watch.mediaType.${view.mediaType}`),
+          view.year,
+          view.sourceName,
+        ]}
+        genres={view.genres}
+        genresLabel={t('watch.genres')}
+      >
         {movie && (
-          <>
-            <button
-              type="button"
-              onClick={() => pick(movie)}
-              className="bg-primary text-background flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold"
-            >
-              <Play aria-hidden size={16} />
-              {t((movie.positionMs ?? 0) > 0 ? 'watch.resume' : 'watch.play')}
-            </button>
+          <div className="flex flex-col gap-3">
             <button
               type="button"
               aria-pressed={movie.watched}
@@ -222,30 +243,21 @@ export const VideoTitlePage: FC = () => {
                   watched: !movie.watched,
                 })
               }
-              className="bg-surface flex items-center gap-2 rounded-full px-4 py-2 text-sm"
+              className="bg-surface/80 flex w-fit items-center gap-2 rounded-full px-4 py-2 text-sm"
             >
               {movie.watched ? <EyeOff aria-hidden size={16} /> : <Eye aria-hidden size={16} />}
               {t(movie.watched ? 'watch.watched' : 'watch.markWatchedShort')}
             </button>
-          </>
+            <Progress episode={movie} />
+          </div>
         )}
-        <button
-          type="button"
-          aria-label={t('watch.refresh')}
-          disabled={refresh.isPending}
-          onClick={() => refresh.mutate({ sourceId: view.sourceId, remoteId: view.remoteId })}
-          className="bg-surface grid size-9 place-items-center rounded-full disabled:opacity-60"
-        >
-          <RefreshCw aria-hidden size={16} className={refresh.isPending ? 'animate-spin' : ''} />
-        </button>
-      </div>
-      {movie && <Progress episode={movie} />}
+      </TitleHero>
       {view.description && (
         <button
           type="button"
           aria-expanded={expanded}
           onClick={() => setExpanded(!expanded)}
-          className={`text-left text-sm whitespace-pre-line ${expanded ? '' : 'line-clamp-4'}`}
+          className={`text-left text-sm leading-relaxed whitespace-pre-line ${expanded ? '' : 'line-clamp-4'}`}
         >
           {view.description}
         </button>
@@ -273,6 +285,14 @@ export const VideoTitlePage: FC = () => {
       )}
       {!movie && view.episodes.length > 0 && <Episodes view={view} onPick={pick} />}
       {view.episodes.length === 0 && <p className="text-muted text-sm">{t('watch.noEpisodes')}</p>}
+      {next && (
+        <ResumeFab
+          label={t(
+            (next.positionMs ?? 0) > 0 ? 'watch.resume' : movie ? 'watch.play' : 'watch.start',
+          )}
+          onClick={() => pick(next)}
+        />
+      )}
       {picking && <ServerPicker target={picking} onClose={() => setPicking(null)} />}
     </section>
   );

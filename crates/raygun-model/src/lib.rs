@@ -69,7 +69,72 @@ pub struct Settings {
     pub show_nsfw: bool,
     /// The video height links are picked by (M42); `None` picks the highest.
     pub preferred_video_quality: Option<u32>,
+    /// The colour of buttons, tabs and highlights (M42.1).
+    pub accent: Accent,
+    /// The screen the app opens on.
+    pub start_screen: StartScreen,
+    /// Navigation bar labels: on every tab, or on the selected one only.
+    pub nav_labels: NavLabels,
+    /// Covers per row in library and browse grids; 0 fits them to the screen.
+    pub grid_columns: u32,
+    /// Titles over covers (compact, as in Mihon) or under them (comfortable).
+    pub cover_style: CoverStyle,
+    /// The unread count on library covers.
+    pub unread_badges: bool,
+    /// The downloaded count on library covers.
+    pub download_badges: bool,
+    /// Videos pick up where they were left.
+    pub resume_videos: bool,
+    /// Share of a video, in percent, after which it counts as watched.
+    pub watched_percent: u32,
+    /// Seconds a double tap or the skip buttons jump in the video player.
+    pub seek_seconds: u32,
+    /// Subtitles turn on by themselves when a video has them in the subtitle language.
+    pub auto_subtitles: bool,
+    /// Subtitles' language as a BCP 47 tag; empty follows the app's language.
+    pub subtitle_language: String,
 }
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum Accent {
+    #[default]
+    Red,
+    Orange,
+    Green,
+    Teal,
+    Blue,
+    Purple,
+    Pink,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum StartScreen {
+    #[default]
+    Home,
+    Library,
+    Browse,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum NavLabels {
+    #[default]
+    Always,
+    Selected,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum CoverStyle {
+    #[default]
+    Compact,
+    Comfortable,
+}
+
+/// The double-tap seek steps offered, in seconds.
+pub const SEEK_SECONDS: [u32; 5] = [5, 10, 15, 30, 60];
 
 /// The `language` setting that follows the device's language.
 pub const SYSTEM_LANGUAGE: &str = "system";
@@ -137,6 +202,18 @@ impl Default for Settings {
             novel_reader: NovelReaderPrefs::default(),
             show_nsfw: false,
             preferred_video_quality: None,
+            accent: Accent::Red,
+            start_screen: StartScreen::Home,
+            nav_labels: NavLabels::Always,
+            grid_columns: 0,
+            cover_style: CoverStyle::Compact,
+            unread_badges: true,
+            download_badges: true,
+            resume_videos: true,
+            watched_percent: 90,
+            seek_seconds: 10,
+            auto_subtitles: false,
+            subtitle_language: String::new(),
         }
     }
 }
@@ -150,6 +227,18 @@ impl Settings {
             SettingChange::NovelReader(prefs) => self.novel_reader = prefs,
             SettingChange::ShowNsfw(show) => self.show_nsfw = show,
             SettingChange::PreferredVideoQuality(height) => self.preferred_video_quality = height,
+            SettingChange::Accent(accent) => self.accent = accent,
+            SettingChange::StartScreen(screen) => self.start_screen = screen,
+            SettingChange::NavLabels(labels) => self.nav_labels = labels,
+            SettingChange::GridColumns(columns) => self.grid_columns = columns,
+            SettingChange::CoverStyle(style) => self.cover_style = style,
+            SettingChange::UnreadBadges(show) => self.unread_badges = show,
+            SettingChange::DownloadBadges(show) => self.download_badges = show,
+            SettingChange::ResumeVideos(resume) => self.resume_videos = resume,
+            SettingChange::WatchedPercent(percent) => self.watched_percent = percent,
+            SettingChange::SeekSeconds(seconds) => self.seek_seconds = seconds,
+            SettingChange::AutoSubtitles(on) => self.auto_subtitles = on,
+            SettingChange::SubtitleLanguage(tag) => self.subtitle_language = tag,
         }
     }
 }
@@ -165,6 +254,18 @@ pub enum SettingChange {
     NovelReader(NovelReaderPrefs),
     ShowNsfw(bool),
     PreferredVideoQuality(Option<u32>),
+    Accent(Accent),
+    StartScreen(StartScreen),
+    NavLabels(NavLabels),
+    GridColumns(u32),
+    CoverStyle(CoverStyle),
+    UnreadBadges(bool),
+    DownloadBadges(bool),
+    ResumeVideos(bool),
+    WatchedPercent(u32),
+    SeekSeconds(u32),
+    AutoSubtitles(bool),
+    SubtitleLanguage(String),
 }
 
 impl SettingChange {
@@ -177,13 +278,58 @@ impl SettingChange {
             Self::NovelReader(_) => "novelReader",
             Self::ShowNsfw(_) => "showNsfw",
             Self::PreferredVideoQuality(_) => "preferredVideoQuality",
+            Self::Accent(_) => "accent",
+            Self::StartScreen(_) => "startScreen",
+            Self::NavLabels(_) => "navLabels",
+            Self::GridColumns(_) => "gridColumns",
+            Self::CoverStyle(_) => "coverStyle",
+            Self::UnreadBadges(_) => "unreadBadges",
+            Self::DownloadBadges(_) => "downloadBadges",
+            Self::ResumeVideos(_) => "resumeVideos",
+            Self::WatchedPercent(_) => "watchedPercent",
+            Self::SeekSeconds(_) => "seekSeconds",
+            Self::AutoSubtitles(_) => "autoSubtitles",
+            Self::SubtitleLanguage(_) => "subtitleLanguage",
         }
     }
 
     /// Checks values the type system can't express.
     pub fn validate(&self) -> Result<(), String> {
         match self {
-            Self::Theme(_) | Self::ShowNsfw(_) | Self::PreferredVideoQuality(None) => Ok(()),
+            Self::Theme(_)
+            | Self::ShowNsfw(_)
+            | Self::PreferredVideoQuality(None)
+            | Self::Accent(_)
+            | Self::StartScreen(_)
+            | Self::NavLabels(_)
+            | Self::CoverStyle(_)
+            | Self::UnreadBadges(_)
+            | Self::DownloadBadges(_)
+            | Self::ResumeVideos(_)
+            | Self::AutoSubtitles(_) => Ok(()),
+            Self::GridColumns(columns) => {
+                if *columns == 0 || (2..=6).contains(columns) {
+                    Ok(())
+                } else {
+                    Err(format!("{columns} covers per row isn't offered"))
+                }
+            }
+            Self::WatchedPercent(percent) => {
+                if (50..=100).contains(percent) && percent % 5 == 0 {
+                    Ok(())
+                } else {
+                    Err(format!("{percent}% isn't an offered watched point"))
+                }
+            }
+            Self::SeekSeconds(seconds) => {
+                if SEEK_SECONDS.contains(seconds) {
+                    Ok(())
+                } else {
+                    Err(format!("{seconds} s isn't an offered seek step"))
+                }
+            }
+            Self::SubtitleLanguage(tag) if tag.is_empty() => Ok(()),
+            Self::SubtitleLanguage(tag) => language_tag(tag),
             Self::PreferredVideoQuality(Some(height)) => {
                 if VIDEO_QUALITIES.contains(height) {
                     Ok(())
@@ -212,18 +358,21 @@ impl SettingChange {
                     Err(format!("{hours} hours is not an offered update interval"))
                 }
             }
-            Self::Language(tag) => {
-                let well_formed = (2..=35).contains(&tag.len())
-                    && tag.split('-').all(|part| {
-                        !part.is_empty() && part.chars().all(|c| c.is_ascii_alphanumeric())
-                    });
-                if well_formed {
-                    Ok(())
-                } else {
-                    Err(format!("\"{tag}\" is not a valid language tag"))
-                }
-            }
+            Self::Language(tag) => language_tag(tag),
         }
+    }
+}
+
+/// Checks a BCP 47-shaped language tag (`en`, `pt-BR`, `system`).
+fn language_tag(tag: &str) -> Result<(), String> {
+    let well_formed = (2..=35).contains(&tag.len())
+        && tag
+            .split('-')
+            .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_alphanumeric()));
+    if well_formed {
+        Ok(())
+    } else {
+        Err(format!("\"{tag}\" is not a valid language tag"))
     }
 }
 

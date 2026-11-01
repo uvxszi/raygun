@@ -26,7 +26,6 @@
     "save": "সাঁচক"
   },
   "extensions": {
-    "addRepo": "যোগ কৰক",
     "cancel": "বাতিল কৰক",
     "install": "ইন্সটল কৰক",
     "nsfwBadge": "১৮+",
@@ -127,7 +126,6 @@
     "createBackup": "বেকআপ সৃষ্টি কৰক",
     "extensions": "এক্সটেনশ্বনসমূহ",
     "language": "ভাষা",
-    "manga": "মান্গা",
     "storage": "সঞ্চয়",
     "theme": "থিম",
     "themeDark": "আন্ধাৰ",

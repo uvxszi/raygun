@@ -47,11 +47,11 @@ export const AppShellWrapper = {
     });
   },
 
-  page(name: 'home' | 'library' | 'search' | 'settings') {
+  page(name: 'home' | 'library' | 'search' | 'settings' | 'browse' | 'more') {
     return screen.findByTestId(`${name}-page`);
   },
 
-  async tapTab(name: 'home' | 'library' | 'search' | 'settings') {
+  async tapTab(name: 'home' | 'library' | 'browse' | 'search' | 'more') {
     await userEvent.click(screen.getByTestId(`nav-${name}-tab`));
   },
 
@@ -67,7 +67,8 @@ export const AppShellWrapper = {
       return screen.findByTestId('mini-player-title');
     },
     async open() {
-      await userEvent.click(screen.getByRole('button', { name: 'Open player' }));
+      // The bar appears once the queue has loaded with something in it.
+      await userEvent.click(await screen.findByRole('button', { name: 'Open player' }));
     },
     async togglePlayback(label: 'Play' | 'Pause') {
       await userEvent.click(within(this.element).getByRole('button', { name: label }));

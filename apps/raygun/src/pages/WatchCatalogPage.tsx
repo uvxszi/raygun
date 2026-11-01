@@ -28,12 +28,12 @@ export const WatchCatalogPage: FC = () => {
 
   return (
     <section data-testid="watch-catalog-page" className="flex flex-col gap-4">
-      <div>
-        <PageHeader
-          title={first ? `${first.name} · ${t(`watch.kind.${type}`, { defaultValue: type })}` : ''}
-        />
-        {first && <p className="text-muted text-sm">{first.addonName}</p>}
-      </div>
+      <PageHeader
+        back
+        fallback="/browse"
+        title={first ? `${first.name} · ${t(`watch.kind.${type}`, { defaultValue: type })}` : ''}
+        subtitle={first?.addonName}
+      />
       {first && first.genres.length > 0 && (
         <div
           role="tablist"

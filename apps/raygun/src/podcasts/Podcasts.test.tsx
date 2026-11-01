@@ -79,11 +79,10 @@ describe('Podcasts', () => {
       within(view).getByText('Subscribe to shows to see their new episodes here.'),
     ).toBeInTheDocument();
 
-    await user.type(
-      within(view).getByRole('searchbox', { name: 'Search podcasts' }),
-      'example{Enter}',
-    );
-    expect(commands.podcastSearch).toHaveBeenCalledWith('example');
+    // Searching the directory is the top bar's search.
+    await user.click(within(view).getByRole('button', { name: 'Search podcasts' }));
+    await user.type(within(view).getByRole('searchbox', { name: /Search podcasts/ }), 'example');
+    await vi.waitFor(() => expect(commands.podcastSearch).toHaveBeenCalledWith('example'));
     await user.click(await within(view).findByRole('button', { name: /The Example Show/ }));
 
     expect(commands.podcastOpenFeed).toHaveBeenCalledWith(SHOW.feedUrl);

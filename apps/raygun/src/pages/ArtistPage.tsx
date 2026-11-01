@@ -3,6 +3,8 @@ import { Play, Shuffle } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { TopBar } from '../shell/TopBar';
+
 import { AlbumGrid } from '../library/AlbumGrid';
 import { playFromLibrary, useAlbums } from '../library/useLibrary';
 
@@ -14,6 +16,7 @@ export const ArtistPage: FC = () => {
 
   return (
     <section data-testid="artist-page" className="flex flex-col gap-5">
+      <TopBar back fallback="/library" plainTitle title={t('library.view.artists')} />
       <h1 className="text-2xl font-bold tracking-tight">{name}</h1>
       <div className="flex gap-3">
         <button

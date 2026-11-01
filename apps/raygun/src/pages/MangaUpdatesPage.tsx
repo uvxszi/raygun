@@ -1,4 +1,5 @@
 import { Link } from '@tanstack/react-router';
+import { RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -6,8 +7,13 @@ import { useTranslation } from 'react-i18next';
 import { DownloadButton } from '../manga/DownloadButton';
 import { DAY_MS, dayStart, groupByDay } from '../manga/groupByDay';
 import { MangaCover } from '../manga/MangaCover';
-import { UpdateLibraryButton } from '../manga/UpdateLibraryButton';
-import { useMangaLiveEvents, useMangaUpdateStatus, useMangaUpdates } from '../manga/useManga';
+import {
+  useMangaLiveEvents,
+  useMangaUpdateStatus,
+  useMangaUpdates,
+  useUpdateLibrary,
+} from '../manga/useManga';
+import { TopBarAction } from '../shell/TopBar';
 import { PageHeader } from './PageHeader';
 
 /** Chapters that library updates found, by day. */
@@ -22,16 +28,35 @@ export const MangaUpdatesPage: FC = () => {
     if (day === today - DAY_MS) return t('manga.yesterday');
     return new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' }).format(day);
   };
+  const update = useUpdateLibrary();
+  const running = status.data?.running ?? false;
   const lastRun = status.data?.lastRunAt;
   const finished = status.data && !status.data.running && lastRun ? status.data : null;
 
   return (
     <section data-testid="manga-updates-page" className="flex flex-col gap-4">
-      <PageHeader title={t('manga.updates')} />
+      <PageHeader
+        back
+        fallback="/more"
+        title={t('manga.updates')}
+        actions={
+          <TopBarAction
+            label={t('manga.updateLibrary')}
+            icon={RefreshCw}
+            disabled={running || update.isPending}
+            onClick={() => update.mutate()}
+          />
+        }
+      />
       <div className="flex flex-wrap items-center gap-3">
-        <UpdateLibraryButton />
+        {running && status.data && (
+          <p role="status" className="text-muted flex items-center gap-2 text-sm">
+            <RefreshCw aria-hidden size={14} className="text-primary animate-spin" />
+            {t('manga.updating', { checked: status.data.checked, total: status.data.total })}
+          </p>
+        )}
         {finished?.lastRunAt && (
-          <p className="text-muted text-xs">
+          <p className="text-muted text-sm italic">
             {t('manga.lastUpdate', {
               when: new Intl.DateTimeFormat(i18n.language, {
                 dateStyle: 'medium',

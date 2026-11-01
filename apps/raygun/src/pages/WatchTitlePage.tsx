@@ -1,10 +1,12 @@
 import type { StremioMeta, StremioVideo } from '@raygun/bindings';
 import { useSearch } from '@tanstack/react-router';
-import { Check, Eye, EyeOff, Film, LoaderCircle, Play } from 'lucide-react';
+import { Check, Eye, EyeOff, Film, LoaderCircle } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { ResumeFab, TitleHero } from '../shell/TitleHero';
+import { TopBar } from '../shell/TopBar';
 import { StreamPicker } from '../watch/StreamPicker';
 import type { StreamTarget } from '../watch/StreamPicker';
 import { StremioPoster } from '../watch/StremioRow';
@@ -143,9 +145,12 @@ export const WatchTitlePage: FC = () => {
   const [expanded, setExpanded] = useState(false);
   const view = meta.data;
 
+  const top = <TopBar back fallback="/browse" plainTitle title={view?.addonName ?? ''} />;
+
   if (meta.error && !view) {
     return (
       <section data-testid="watch-title-page">
+        {top}
         <p role="alert" className="text-primary text-sm wrap-anywhere">
           {meta.error.message}
         </p>
@@ -154,8 +159,12 @@ export const WatchTitlePage: FC = () => {
   }
   if (!view) {
     return (
-      <section data-testid="watch-title-page" className="grid place-items-center py-12">
-        <LoaderCircle aria-label={t('watch.loading')} className="text-muted animate-spin" />
+      <section data-testid="watch-title-page">
+        {top}
+        <LoaderCircle
+          aria-label={t('watch.loading')}
+          className="text-muted mx-auto my-12 animate-spin"
+        />
       </section>
     );
   }
@@ -167,90 +176,82 @@ export const WatchTitlePage: FC = () => {
     subtitle: view.releaseInfo,
     poster: view.background ?? view.poster,
   };
+  const episodeTarget = (video: StremioVideo): StreamTarget => ({
+    kind: view.kind,
+    videoId: video.id,
+    title: view.name,
+    subtitle: episodeLabel(video),
+    poster: video.thumbnail ?? view.poster,
+  });
   const hasEpisodes = view.videos.length > 0;
-  const facts = [view.releaseInfo, view.runtime, view.rating && `★ ${view.rating}`].filter(Boolean);
   const trailerId = view.trailerYtIds[0];
+  // The floating button plays the movie, or the first episode not yet watched.
+  const nextVideo = hasEpisodes
+    ? (view.videos.find((video) => !video.watched && (video.season ?? 0) > 0) ?? view.videos[0])
+    : null;
+  const resumable = nextVideo ? (nextVideo.positionMs ?? 0) > 0 : (view.positionMs ?? 0) > 0;
 
   return (
-    <section data-testid="watch-title-page" className="flex flex-col gap-5">
-      {view.background && (
-        <img
-          src={view.background}
-          alt=""
-          className="-mx-4 -mt-4 aspect-video w-[calc(100%+2rem)] max-w-none object-cover opacity-80 lg:mx-0 lg:mt-0 lg:w-full lg:rounded-xl"
-        />
-      )}
-      <header className="flex gap-4">
-        <StremioPoster url={view.poster} className="w-28 shrink-0 shadow-lg sm:w-36" />
-        <div className="flex min-w-0 flex-col gap-2">
-          <h1 className="text-xl font-bold tracking-tight wrap-anywhere">{view.name}</h1>
-          {facts.length > 0 && <p className="text-muted text-sm">{facts.join(' · ')}</p>}
-          {view.genres.length > 0 && (
-            <ul aria-label={t('watch.genres')} className="flex flex-wrap gap-1.5">
-              {view.genres.slice(0, 6).map((genre) => (
-                <li key={genre} className="bg-surface rounded-full px-2.5 py-0.5 text-xs">
-                  {genre}
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="text-muted text-xs">{t('watch.from', { addon: view.addonName })}</p>
-        </div>
-      </header>
-      <div className="flex flex-wrap items-center gap-2">
-        {!hasEpisodes && (
-          <>
-            <button
-              type="button"
-              onClick={() => setPicking(ownTarget)}
-              className="bg-primary text-background flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold"
-            >
-              <Play aria-hidden size={16} />
-              {t((view.positionMs ?? 0) > 0 ? 'watch.resume' : 'watch.play')}
-            </button>
+    <section data-testid="watch-title-page" className="flex min-h-full flex-col gap-5">
+      {top}
+      <TitleHero
+        art={view.poster}
+        backdrop={view.background}
+        cover={<StremioPoster url={view.poster} className="w-full shadow-lg" />}
+        title={view.name}
+        facts={[view.releaseInfo, view.runtime, view.rating && `★ ${view.rating}`]}
+        genres={view.genres}
+        genresLabel={t('watch.genres')}
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          {!hasEpisodes && (
             <button
               type="button"
               aria-pressed={view.watched}
               onClick={() => setWatched.mutate({ ...ownTarget, watched: !view.watched })}
-              className="bg-surface flex items-center gap-2 rounded-full px-4 py-2 text-sm"
+              className="bg-surface/80 flex items-center gap-2 rounded-full px-4 py-2 text-sm"
             >
               {view.watched ? <EyeOff aria-hidden size={16} /> : <Eye aria-hidden size={16} />}
               {t(view.watched ? 'watch.watched' : 'watch.markWatchedShort')}
             </button>
-          </>
+          )}
+          {trailerId && (
+            <button
+              type="button"
+              disabled={trailer.isPending}
+              onClick={() =>
+                trailer.mutate({
+                  ...ownTarget,
+                  subtitle: t('watch.trailer'),
+                  stream: {
+                    kind: 'youTube',
+                    name: null,
+                    description: null,
+                    target: trailerId,
+                    headers: {},
+                    subtitles: [],
+                  },
+                })
+              }
+              className="bg-surface/80 flex items-center gap-2 rounded-full px-4 py-2 text-sm disabled:opacity-60"
+            >
+              <Film aria-hidden size={16} />
+              {t('watch.trailer')}
+            </button>
+          )}
+        </div>
+        {!hasEpisodes && (
+          <div className="mt-3">
+            <Progress position={view.positionMs} duration={view.durationMs} />
+          </div>
         )}
-        {trailerId && (
-          <button
-            type="button"
-            disabled={trailer.isPending}
-            onClick={() =>
-              trailer.mutate({
-                ...ownTarget,
-                subtitle: t('watch.trailer'),
-                stream: {
-                  kind: 'youTube',
-                  name: null,
-                  description: null,
-                  target: trailerId,
-                  headers: {},
-                  subtitles: [],
-                },
-              })
-            }
-            className="bg-surface flex items-center gap-2 rounded-full px-4 py-2 text-sm disabled:opacity-60"
-          >
-            <Film aria-hidden size={16} />
-            {t('watch.trailer')}
-          </button>
-        )}
-      </div>
-      {!hasEpisodes && <Progress position={view.positionMs} duration={view.durationMs} />}
+      </TitleHero>
       {view.description && (
         <button
           type="button"
           aria-expanded={expanded}
           onClick={() => setExpanded(!expanded)}
-          className={`text-left text-sm ${expanded ? '' : 'line-clamp-4'}`}
+          className={`text-left text-sm leading-relaxed ${expanded ? '' : 'line-clamp-4'}`}
         >
           {view.description}
         </button>
@@ -277,6 +278,10 @@ export const WatchTitlePage: FC = () => {
         </p>
       )}
       {hasEpisodes && <Episodes meta={view} onPick={setPicking} />}
+      <ResumeFab
+        label={t(resumable ? 'watch.resume' : hasEpisodes ? 'watch.start' : 'watch.play')}
+        onClick={() => setPicking(nextVideo ? episodeTarget(nextVideo) : ownTarget)}
+      />
       {picking && <StreamPicker target={picking} onClose={() => setPicking(null)} />}
     </section>
   );

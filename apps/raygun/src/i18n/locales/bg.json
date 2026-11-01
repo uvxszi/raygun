@@ -26,7 +26,6 @@
     "save": "Запази"
   },
   "extensions": {
-    "addRepo": "Добави",
     "cancel": "Отмени",
     "install": "Инсталирай",
     "nsfwBadge": "18+",
@@ -120,7 +119,6 @@
     "createBackup": "Създай резервно копие",
     "extensions": "Разширения",
     "language": "Език",
-    "manga": "Манга",
     "theme": "Тема",
     "themeDark": "Включено",
     "themeLight": "Изключено",

@@ -1,27 +1,16 @@
 import { commands, events } from '@raygun/bindings';
 import type { VideoSourcePlay } from '@raygun/bindings';
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
 
 const VIDEO = 'video';
-const STALE_MS = 10 * 60 * 1000;
 
 export const useVideoSources = () =>
   useQuery({
     queryKey: [VIDEO, 'sources'],
     queryFn: () => unwrapResult(commands.videoSources()),
-  });
-
-/** The first popular page of every video source, for the Watch home. */
-export const useVideoSourceRows = (sourceIds: string[]) =>
-  useQueries({
-    queries: sourceIds.map((sourceId) => ({
-      queryKey: [VIDEO, 'browse', sourceId, 'popular', '', 'first'],
-      queryFn: () => unwrapResult(commands.videoBrowse(sourceId, 'popular', null, 1)),
-      staleTime: STALE_MS,
-    })),
   });
 
 /** A title's page; progress on it follows the player. */

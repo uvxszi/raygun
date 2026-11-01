@@ -32,7 +32,6 @@
     "syncing": "Sinhronizovanje..."
   },
   "extensions": {
-    "addRepo": "Додај",
     "cancel": "Откажи",
     "install": "Инсталирај",
     "nsfwBadge": "18+",
@@ -142,7 +141,6 @@
     "createBackup": "Направи резервну копију",
     "extensions": "Додаци",
     "language": "Језик",
-    "manga": "Наслови колекције",
     "storage": "Складиште",
     "theme": "Тема",
     "themeDark": "Тамна",

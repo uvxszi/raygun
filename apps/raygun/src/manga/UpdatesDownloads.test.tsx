@@ -84,9 +84,12 @@ describe('Manga updates and downloads', () => {
 
     await user.click(within(page).getByRole('button', { name: 'Update library' }));
     expect(commands.mangaUpdateLibrary).toHaveBeenCalled();
-    expect(await within(page).findByRole('button', { name: 'Updating 0/0' })).toBeDisabled();
+    await vi.waitFor(() =>
+      expect(within(page).getByRole('button', { name: 'Update library' })).toBeDisabled(),
+    );
+    expect(within(page).getByRole('status')).toHaveTextContent('Updating 0/0');
     emitEvent('mangaUpdateEvent', { ...IDLE_UPDATE, running: true, checked: 1, total: 4 });
-    expect(await within(page).findByRole('button', { name: 'Updating 1/4' })).toBeInTheDocument();
+    expect(await within(page).findByText('Updating 1/4')).toBeInTheDocument();
 
     commands.mangaUpdates.mockClear();
     emitEvent('mangaUpdateEvent', {
@@ -202,19 +205,21 @@ describe('Manga updates and downloads', () => {
     expect(commands.mangaDownload).toHaveBeenLastCalledWith(['c4', 'c5']);
   });
 
-  it('links updates and downloads from the manga library', async () => {
+  it('offers updates, downloads and a library update from the manga library menu', async () => {
+    const user = userEvent.setup();
     commands.mangaLibrary.mockResolvedValue(ok([]));
     await AppShellWrapper.mount('/library?media=manga');
     const library = await screen.findByTestId('manga-library');
-    expect(await within(library).findByRole('link', { name: 'Updates' })).toHaveAttribute(
-      'href',
-      '/manga/updates',
-    );
-    expect(within(library).getByRole('link', { name: 'Downloads' })).toHaveAttribute(
-      'href',
-      '/manga/downloads',
-    );
-    expect(within(library).getByRole('button', { name: 'Update library' })).toBeInTheDocument();
+    await user.click(within(library).getByRole('button', { name: 'More options' }));
+    const menu = within(library).getByRole('menu');
+    expect(within(menu).getByRole('menuitem', { name: 'Updates' })).toBeInTheDocument();
+    expect(within(menu).getByRole('menuitem', { name: 'Downloads' })).toBeInTheDocument();
+    await user.click(within(menu).getByRole('menuitem', { name: 'Update library' }));
+    expect(commands.mangaUpdateLibrary).toHaveBeenCalled();
+
+    await user.click(within(library).getByRole('button', { name: 'More options' }));
+    await user.click(within(library).getByRole('menuitem', { name: 'Updates' }));
+    expect(await screen.findByTestId('manga-updates-page')).toBeInTheDocument();
   });
 
   it('sets how often the library is checked', async () => {
@@ -224,11 +229,12 @@ describe('Manga updates and downloads', () => {
         ok({ theme: 'system', language: 'en', mangaUpdateHours: change.value as number }),
       ),
     );
-    await AppShellWrapper.mount('/settings');
-    const card = await screen.findByTestId('manga-settings-card');
-    const select = within(card).getByLabelText('Check the library for new chapters');
-    expect(select).toHaveValue('12');
-    await user.selectOptions(select, 'Daily');
+    await AppShellWrapper.mount('/settings/library');
+    const row = await screen.findByRole('button', { name: /Check the library for new chapters/ });
+    expect(row).toHaveTextContent('Every 12 hours');
+    await user.click(row);
+    const sheet = await screen.findByRole('dialog', { name: 'Check the library for new chapters' });
+    await user.click(within(sheet).getByRole('radio', { name: 'Daily' }));
     expect(commands.settingsUpdate).toHaveBeenCalledWith({ key: 'mangaUpdateHours', value: 24 });
   });
 });

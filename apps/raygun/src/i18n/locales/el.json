@@ -33,7 +33,6 @@
     "syncing": "Syncing..."
   },
   "extensions": {
-    "addRepo": "Προσθήκη",
     "cancel": "Άκυρο",
     "install": "Εγκατάσταση",
     "nsfwBadge": "18+",
@@ -140,7 +139,6 @@
     "createBackup": "Δημιουργία αντιγράφου ασφαλείας",
     "extensions": "Επεκτάσεις",
     "language": "Γλώσσα",
-    "manga": "Καταχωρήσεις βιβλιοθήκης",
     "theme": "Θέμα",
     "themeDark": "Σκοτεινό",
     "themeLight": "Φωτεινό",

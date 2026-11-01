@@ -22,7 +22,6 @@
     "save": "Išsaugoti"
   },
   "extensions": {
-    "addRepo": "Pridėti",
     "cancel": "Atšaukti",
     "install": "Įdiegti",
     "nsfwBadge": "18+",
@@ -110,7 +109,6 @@
     "createBackup": "Kurti atsarginę kopiją",
     "extensions": "Papildiniai",
     "language": "Kalba",
-    "manga": "Bibliotekos įrašai",
     "theme": "Tema",
     "themeDark": "Įjungta",
     "themeLight": "Išjungta",

@@ -112,15 +112,12 @@ describe('Novels', () => {
     const library = await screen.findByTestId('novel-library');
     const card = await within(library).findByTestId('manga-card');
     expect(card.getAttribute('href')).toMatch(/^\/novel\/title\?source=dev\.raygun\.gutenberg/);
-    expect(within(library).getByRole('link', { name: 'Browse sources' })).toHaveAttribute(
-      'href',
-      '/novel/browse',
-    );
-    expect(within(library).getByRole('link', { name: 'Downloads' })).toHaveAttribute(
-      'href',
-      '/manga/downloads',
-    );
-    expect(within(library).queryByRole('link', { name: 'Updates' })).not.toBeInTheDocument();
+    // Library actions are in the top bar's menu: no Updates for novels (they don't update).
+    await user.click(within(library).getByRole('button', { name: 'More options' }));
+    const menu = within(library).getByRole('menu');
+    expect(within(menu).getByRole('menuitem', { name: 'Downloads' })).toBeInTheDocument();
+    expect(within(menu).getByRole('menuitem', { name: 'Import EPUB' })).toBeInTheDocument();
+    expect(within(menu).queryByRole('menuitem', { name: 'Updates' })).not.toBeInTheDocument();
   });
 
   it('shows a novel with reading percentages and download controls', async () => {
@@ -149,10 +146,9 @@ describe('Novels', () => {
     await AppShellWrapper.mount(`/novel/title?source=${encodeURIComponent(SOURCE)}&id=84`);
     const page = await screen.findByTestId('manga-title-page');
 
-    expect(await within(page).findByRole('link', { name: /Continue: Letter 2/ })).toHaveAttribute(
-      'href',
-      '/novel/read?title=t1&chapter=c2',
-    );
+    expect(
+      await within(page).findByRole('button', { name: /Continue: Letter 2/ }),
+    ).toBeInTheDocument();
     expect(within(page).getByText('45% read')).toBeInTheDocument();
     expect(within(page).getByRole('button', { name: 'Download 1 unread' })).toBeInTheDocument();
     await userEvent.click(within(page).getByRole('button', { name: 'Download Letter 2' }));

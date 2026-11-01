@@ -22,7 +22,6 @@
     "save": "သိမ်းမည်"
   },
   "extensions": {
-    "addRepo": "ထည့်ပါ",
     "cancel": "မလုပ်ဆောင်ပါ",
     "install": "ထည့်သွင်းရန်",
     "nsfwBadge": "၁၈+",
@@ -100,7 +99,6 @@
     "confirmRestore": "ပြန်ထားမည်",
     "extensions": "ချိတ်ဆက်မှုများ",
     "language": "ဘာသာစကားဘေ့ခ််ပြသမည်",
-    "manga": "စာအုပ်စင်",
     "theme": "ပုံစံအဆင့်",
     "themeDark": "အမှောင်",
     "themeLight": "အလင်း",

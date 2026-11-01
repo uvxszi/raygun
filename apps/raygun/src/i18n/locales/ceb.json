@@ -21,7 +21,6 @@
     "save": "Tipigi"
   },
   "extensions": {
-    "addRepo": "Idugang",
     "cancel": "Pagkanselar",
     "install": "Pag-instalar",
     "nsfwBadge": "18+",
@@ -80,7 +79,6 @@
     "createBackup": "Paghimo og backup",
     "extensions": "Pagpadako",
     "language": "Pinulongan",
-    "manga": "Mga entri sa basahonan",
     "theme": "Tema",
     "themeDark": "Sa",
     "themeLight": "Off",

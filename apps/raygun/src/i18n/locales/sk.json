@@ -22,7 +22,6 @@
     "save": "Uložiť"
   },
   "extensions": {
-    "addRepo": "Pridať",
     "cancel": "Zrušiť",
     "install": "Nainštalovať",
     "nsfwBadge": "18+",
@@ -114,7 +113,6 @@
     "createBackup": "Vytvoriť zálohu",
     "extensions": "Rozšírenia",
     "language": "Jazyk",
-    "manga": "Záznamy v knižnici",
     "theme": "Téma",
     "themeDark": "Zap.",
     "themeLight": "Vyp.",

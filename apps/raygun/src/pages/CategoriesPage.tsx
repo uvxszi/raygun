@@ -12,6 +12,8 @@ import {
   useRenameCategory,
   useReorderCategories,
 } from '../manga/useCategories';
+import { Sheet } from '../shell/Sheet';
+import { TopBarAction } from '../shell/TopBar';
 import { PageHeader } from './PageHeader';
 
 const ICON =
@@ -27,12 +29,20 @@ export const CategoriesPage: FC = () => {
   const remove = useDeleteCategory(medium);
   const reorder = useReorderCategories(medium);
   const [name, setName] = useState('');
+  const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
   const list = categories.data ?? [];
 
   const onCreate = (event: FormEvent) => {
     event.preventDefault();
-    if (name.trim()) create.mutate(name.trim(), { onSuccess: () => setName('') });
+    if (name.trim()) {
+      create.mutate(name.trim(), {
+        onSuccess: () => {
+          setName('');
+          setCreating(false);
+        },
+      });
+    }
   };
   const onRename = (event: FormEvent) => {
     event.preventDefault();
@@ -54,9 +64,18 @@ export const CategoriesPage: FC = () => {
   return (
     <section data-testid="categories-page" className="flex max-w-2xl flex-col gap-4">
       <PageHeader
+        back
+        fallback="/library"
         title={t(
           medium === 'novel' ? 'library.categories.novelTitle' : 'library.categories.mangaTitle',
         )}
+        actions={
+          <TopBarAction
+            label={t('library.categories.add')}
+            icon={Plus}
+            onClick={() => setCreating(true)}
+          />
+        }
       />
       <p className="text-muted text-sm">{t('library.categories.hint')}</p>
       {list.length === 0 && categories.data && (
@@ -128,28 +147,38 @@ export const CategoriesPage: FC = () => {
           </li>
         ))}
       </ul>
-      <form onSubmit={onCreate} className="flex gap-2">
-        <input
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder={t('library.categories.newPlaceholder')}
-          aria-label={t('library.categories.newName')}
-          maxLength={40}
-          className="bg-surface placeholder:text-muted min-w-0 flex-1 rounded-lg px-3 py-2 text-sm outline-none"
-        />
-        <button
-          type="submit"
-          disabled={!name.trim() || create.isPending}
-          className="bg-primary text-background flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-60"
-        >
-          <Plus aria-hidden size={16} />
-          {t('library.categories.add')}
-        </button>
-      </form>
-      {error && (
+      {error && !creating && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
           {error.message}
         </p>
+      )}
+      {creating && (
+        <Sheet title={t('library.categories.add')} onClose={() => setCreating(false)}>
+          <form onSubmit={onCreate} className="flex flex-col gap-3 text-sm">
+            <input
+              autoFocus
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder={t('library.categories.newPlaceholder')}
+              aria-label={t('library.categories.newName')}
+              maxLength={40}
+              className="bg-background placeholder:text-muted rounded-xl px-4 py-3 outline-none"
+            />
+            {create.error && (
+              <p role="alert" className="text-primary wrap-anywhere">
+                {create.error.message}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={!name.trim() || create.isPending}
+              className="bg-primary text-background flex items-center gap-1.5 self-end rounded-full px-5 py-2.5 font-semibold disabled:opacity-60"
+            >
+              <Plus aria-hidden size={16} />
+              {t('library.categories.add')}
+            </button>
+          </form>
+        </Sheet>
       )}
     </section>
   );

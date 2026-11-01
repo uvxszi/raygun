@@ -1,11 +1,13 @@
 import type { MangaChapterInfo } from '@raygun/bindings';
-import { Link, useSearch } from '@tanstack/react-router';
-import { BookOpen, Check, Download, LoaderCircle, Minus, Plus, RefreshCw } from 'lucide-react';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { BookOpen, Check, Download, Globe, Heart, LoaderCircle, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { CategoryPicker } from '../manga/CategoryPicker';
+import { ResumeFab, TitleHero } from '../shell/TitleHero';
+import { TopBar, TopBarAction } from '../shell/TopBar';
 import { DownloadButton } from '../manga/DownloadButton';
 import { MangaCover } from '../manga/MangaCover';
 import { LOCAL_EPUB, ROUTES } from '../manga/medium';
@@ -82,11 +84,31 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
   const refresh = useRefreshTitle(medium);
   const setInLibrary = useSetInLibrary(medium);
   const [expanded, setExpanded] = useState(false);
+  const navigate = useNavigate();
   const view = refresh.data && refresh.data.remoteId === id ? refresh.data : title.data;
+  const top = (
+    <TopBar
+      back
+      fallback="/library"
+      plainTitle
+      title={view?.sourceName ?? ''}
+      actions={
+        view && (
+          <TopBarAction
+            label={t('manga.refresh')}
+            icon={RefreshCw}
+            disabled={refresh.isPending}
+            onClick={() => refresh.mutate({ sourceId: source, mangaId: id })}
+          />
+        )
+      }
+    />
+  );
 
   if (title.error && !view) {
     return (
       <section data-testid="manga-title-page">
+        {top}
         <p role="alert" className="text-primary text-sm wrap-anywhere">
           {title.error.message}
         </p>
@@ -95,8 +117,12 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
   }
   if (!view) {
     return (
-      <section data-testid="manga-title-page" className="grid place-items-center py-12">
-        <LoaderCircle aria-label={t('manga.loading')} className="text-muted animate-spin" />
+      <section data-testid="manga-title-page">
+        {top}
+        <LoaderCircle
+          aria-label={t('manga.loading')}
+          className="text-muted mx-auto my-12 animate-spin"
+        />
       </section>
     );
   }
@@ -130,83 +156,70 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
     .reverse();
 
   return (
-    <section data-testid="manga-title-page" className="flex flex-col gap-5">
-      <header className="flex gap-4">
-        <MangaCover url={view.coverUrl} className="w-28 shrink-0 rounded-lg shadow-lg sm:w-40" />
-        <div className="flex min-w-0 flex-col gap-1">
-          <h1 className="text-xl font-bold tracking-tight wrap-anywhere">{view.title}</h1>
-          {view.authors.length > 0 && (
-            <p className="text-muted text-sm">
-              {[...new Set([...view.authors, ...view.artists])].join(', ')}
-            </p>
-          )}
-          <p className="text-muted text-xs">
-            {[t(`manga.status.${view.status}`), view.sourceName].join(' · ')}
-          </p>
-        </div>
-      </header>
-      <div className="flex flex-wrap gap-3">
-        {continueChapter && (
-          <Link
-            to={ROUTES[medium].read}
-            search={{ title: view.id, chapter: continueChapter.id }}
-            className="bg-primary text-background flex items-center gap-2 rounded-full px-5 py-2.5 font-semibold"
-          >
-            <BookOpen aria-hidden size={18} />
-            {started ? t('manga.continue', { name: continueChapter.name }) : t('manga.start')}
-          </Link>
-        )}
-        <button
-          type="button"
-          disabled={setInLibrary.isPending}
-          onClick={() => setInLibrary.mutate({ titleId: view.id, inLibrary: !view.inLibrary })}
-          className="bg-surface flex items-center gap-2 rounded-full px-5 py-2.5 disabled:opacity-60"
-        >
-          {view.inLibrary ? <Minus aria-hidden size={18} /> : <Plus aria-hidden size={18} />}
-          {t(view.inLibrary ? 'manga.removeFromLibrary' : 'manga.addToLibrary')}
-        </button>
-        <button
-          type="button"
-          aria-label={t('manga.refresh')}
-          disabled={refresh.isPending}
-          onClick={() => refresh.mutate({ sourceId: source, mangaId: id })}
-          className="text-muted grid size-11 place-items-center rounded-full"
-        >
-          <RefreshCw aria-hidden size={18} className={refresh.isPending ? 'animate-spin' : ''} />
-        </button>
-        {unreadToDownload.length > 0 && (
+    <section data-testid="manga-title-page" className="flex min-h-full flex-col gap-5">
+      {top}
+      <TitleHero
+        art={view.coverUrl}
+        cover={<MangaCover url={view.coverUrl} className="w-full rounded-xl shadow-lg" />}
+        title={view.title}
+        genres={view.genres}
+        facts={[
+          [...new Set([...view.authors, ...view.artists])].join(', '),
+          t(`manga.status.${view.status}`),
+          view.sourceName,
+        ]}
+      >
+        <div className="flex gap-2">
           <button
             type="button"
-            disabled={download.isPending}
-            onClick={() => download.mutate(unreadToDownload)}
-            className="bg-surface flex items-center gap-2 rounded-full px-5 py-2.5 disabled:opacity-60"
+            aria-pressed={view.inLibrary}
+            disabled={setInLibrary.isPending}
+            onClick={() => setInLibrary.mutate({ titleId: view.id, inLibrary: !view.inLibrary })}
+            className={`flex flex-1 flex-col items-center gap-1 rounded-xl px-2 py-2 text-xs font-medium disabled:opacity-60 ${view.inLibrary ? 'text-primary' : ''}`}
           >
-            <Download aria-hidden size={18} />
-            {t('manga.downloadUnread', { count: unreadToDownload.length })}
+            <Heart aria-hidden size={22} fill={view.inLibrary ? 'currentColor' : 'none'} />
+            {t(view.inLibrary ? 'manga.inLibrary' : 'manga.addToLibrary')}
           </button>
-        )}
-      </div>
+          {downloadable && (
+            <button
+              type="button"
+              disabled={download.isPending || unreadToDownload.length === 0}
+              onClick={() => download.mutate(unreadToDownload)}
+              className="flex flex-1 flex-col items-center gap-1 rounded-xl px-2 py-2 text-xs font-medium disabled:opacity-60"
+            >
+              <Download aria-hidden size={22} />
+              {unreadToDownload.length > 0
+                ? t('manga.downloadUnread', { count: unreadToDownload.length })
+                : view.chapters.length > 0 && view.chapters.every((chapter) => chapter.download)
+                  ? t('manga.allDownloaded')
+                  : t('manga.downloadAction')}
+            </button>
+          )}
+          {view.url && (
+            <a
+              href={view.url}
+              target="_blank"
+              rel="noopener"
+              className="flex flex-1 flex-col items-center gap-1 rounded-xl px-2 py-2 text-xs font-medium disabled:opacity-60"
+            >
+              <Globe aria-hidden size={22} />
+              {t('manga.openInBrowser')}
+            </a>
+          )}
+        </div>
+      </TitleHero>
       {view.inLibrary && <CategoryPicker medium={medium} titleId={view.id} />}
       {(refresh.error ?? setInLibrary.error ?? download.error) && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
           {(refresh.error ?? setInLibrary.error ?? download.error)?.message}
         </p>
       )}
-      {view.genres.length > 0 && (
-        <ul className="flex flex-wrap gap-1.5">
-          {view.genres.map((genre) => (
-            <li key={genre} className="bg-surface rounded-full px-3 py-1 text-xs">
-              {genre}
-            </li>
-          ))}
-        </ul>
-      )}
       {view.description && (
         <button
           type="button"
           onClick={() => setExpanded((open) => !open)}
           aria-expanded={expanded}
-          className={`text-muted text-left text-sm whitespace-pre-line ${expanded ? '' : 'line-clamp-4'}`}
+          className={`text-left text-sm leading-relaxed whitespace-pre-line ${expanded ? '' : 'line-clamp-4'}`}
         >
           {view.description}
         </button>
@@ -230,6 +243,18 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
           </ul>
         )}
       </div>
+      {continueChapter && (
+        <ResumeFab
+          icon={BookOpen}
+          label={started ? t('manga.continue', { name: continueChapter.name }) : t('manga.start')}
+          onClick={() =>
+            void navigate({
+              to: ROUTES[medium].read,
+              search: { title: view.id, chapter: continueChapter.id },
+            })
+          }
+        />
+      )}
     </section>
   );
 };

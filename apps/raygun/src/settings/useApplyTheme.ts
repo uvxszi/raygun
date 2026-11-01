@@ -1,7 +1,8 @@
-import type { Theme } from '@raygun/bindings';
+import type { Accent, Theme } from '@raygun/bindings';
 import { useEffect } from 'react';
 
-export const useApplyTheme = (theme: Theme | undefined) => {
+/** Puts the theme and accent on the page; "system" follows the device's light or dark mode. */
+export const useApplyTheme = (theme: Theme | undefined, accent: Accent | undefined = 'red') => {
   useEffect(() => {
     const root = document.documentElement;
     if (!theme || theme === 'system') {
@@ -10,4 +11,12 @@ export const useApplyTheme = (theme: Theme | undefined) => {
       root.dataset.theme = theme;
     }
   }, [theme]);
+  useEffect(() => {
+    const root = document.documentElement;
+    if (!accent || accent === 'red') {
+      delete root.dataset.accent;
+    } else {
+      root.dataset.accent = accent;
+    }
+  }, [accent]);
 };

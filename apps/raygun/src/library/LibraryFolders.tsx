@@ -1,21 +1,21 @@
 import { commands } from '@raygun/bindings';
-import { RefreshCw, X } from 'lucide-react';
+import { FolderPlus, RefreshCw, X } from 'lucide-react';
+import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { AddFolderForm } from './AddFolderForm';
+import { AddFolderSheet } from './AddFolderForm';
 import { useRemoveRoot } from './useLibrary';
 
-/** Folder management, tucked away below the library. */
+/** The music folders Raygun reads, with rescan and add (Settings → Library). */
 export const LibraryFolders: FC<{ roots: string[] }> = ({ roots }) => {
   const { t } = useTranslation();
   const removeRoot = useRemoveRoot();
+  const [adding, setAdding] = useState(false);
   return (
-    <details className="bg-surface rounded-xl px-5 py-3 text-sm">
-      <summary className="cursor-pointer font-medium">
-        {t('library.folders', { count: roots.length })}
-      </summary>
-      <ul className="mt-3 flex flex-col gap-1">
+    <div data-testid="library-folders" className="flex flex-col gap-2 text-sm">
+      {roots.length === 0 && <p className="text-muted">{t('library.noFolders')}</p>}
+      <ul className="flex flex-col gap-1">
         {roots.map((root) => (
           <li key={root} className="flex items-center gap-2">
             <span className="min-w-0 flex-1 truncate">{root}</span>
@@ -30,17 +30,26 @@ export const LibraryFolders: FC<{ roots: string[] }> = ({ roots }) => {
           </li>
         ))}
       </ul>
-      <div className="mt-3 flex flex-col gap-3">
+      <div className="flex flex-wrap gap-2">
         <button
           type="button"
+          onClick={() => setAdding(true)}
+          className="bg-background flex items-center gap-2 rounded-full px-4 py-2"
+        >
+          <FolderPlus aria-hidden size={16} />
+          {t('library.addFolder')}
+        </button>
+        <button
+          type="button"
+          disabled={roots.length === 0}
           onClick={() => void commands.libraryRescan()}
-          className="bg-background flex w-fit items-center gap-2 rounded-lg px-4 py-2"
+          className="bg-background flex items-center gap-2 rounded-full px-4 py-2 disabled:opacity-50"
         >
           <RefreshCw aria-hidden size={16} />
           {t('library.rescan')}
         </button>
-        <AddFolderForm />
       </div>
-    </details>
+      {adding && <AddFolderSheet onClose={() => setAdding(false)} />}
+    </div>
   );
 };

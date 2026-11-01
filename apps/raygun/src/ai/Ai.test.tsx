@@ -41,10 +41,10 @@ describe('AI settings', () => {
   it('summarises translators and models on the settings page', async () => {
     commands.aiProviders.mockResolvedValue(ok([CLAUDE]));
     commands.aiModels.mockResolvedValue([{ ...MODEL, installed: true }]);
-    await AppShellWrapper.mount('/settings');
+    await AppShellWrapper.mount('/settings/connections');
     const card = await screen.findByTestId('ai-card');
     expect(await within(card).findByText('1 translator · 1 models installed')).toBeInTheDocument();
-    expect(card).toHaveAttribute('href', '/settings/ai');
+    expect(card.closest('a')).toHaveAttribute('href', '/settings/ai');
   });
 
   it('lists translators with their key hints and tests one', async () => {

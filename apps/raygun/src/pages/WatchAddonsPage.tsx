@@ -5,6 +5,8 @@ import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useLocalNetworkGate } from '../network/useLocalNetworkGate';
+import { Sheet } from '../shell/Sheet';
+import { TopBarAction } from '../shell/TopBar';
 import {
   useAddAddon,
   useRemoveAddon,
@@ -69,7 +71,7 @@ const AddonItem: FC<{ addon: StremioAddon }> = ({ addon }) => {
   );
 };
 
-/** Stremio addons: what's installed, well-known ones, and adding one by its address. */
+/** Stremio addons: what's installed, well-known ones, and "+" to add one by its address. */
 export const WatchAddonsPage: FC = () => {
   const { t } = useTranslation();
   const addons = useStremioAddons();
@@ -77,6 +79,7 @@ export const WatchAddonsPage: FC = () => {
   const add = useAddAddon();
   const localNetwork = useLocalNetworkGate('addon');
   const [url, setUrl] = useState('');
+  const [addingByUrl, setAddingByUrl] = useState(false);
   const missing = (suggestions.data ?? []).filter((suggestion) => !suggestion.added);
 
   const onAdd = (event: FormEvent) => {
@@ -84,56 +87,38 @@ export const WatchAddonsPage: FC = () => {
     const address = url.trim();
     if (address) {
       // An addon on the user's network needs Android 17's local network access first.
-      void localNetwork.guard(address, () => add.mutate(address, { onSuccess: () => setUrl('') }));
+      void localNetwork.guard(address, () =>
+        add.mutate(address, {
+          onSuccess: () => {
+            setUrl('');
+            setAddingByUrl(false);
+          },
+        }),
+      );
     }
   };
   const adding = add.isPending || localNetwork.checking;
 
   return (
     <section data-testid="watch-addons-page" className="flex flex-col gap-5">
-      <div className="flex flex-col gap-1">
-        <PageHeader title={t('watch.addons')} />
-        <p className="text-muted text-sm">{t('watch.addonsHint')}</p>
-      </div>
-      <form
-        onSubmit={onAdd}
-        className="bg-surface flex flex-col gap-2 rounded-xl px-5 py-4 text-sm"
-      >
-        <label htmlFor="addon-url" className="font-semibold">
-          {t('watch.addAddon')}
-        </label>
-        <div className="flex gap-2">
-          <input
-            id="addon-url"
-            type="text"
-            inputMode="url"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            value={url}
-            onChange={(event) => setUrl(event.target.value)}
-            placeholder="https://…/manifest.json"
-            className="bg-background min-w-0 flex-1 rounded-lg px-3 py-2 outline-none"
+      <PageHeader
+        back
+        fallback="/browse"
+        title={t('watch.addons')}
+        actions={
+          <TopBarAction
+            label={t('watch.addAddon')}
+            icon={Plus}
+            onClick={() => setAddingByUrl(true)}
           />
-          <button
-            type="submit"
-            disabled={!url.trim() || adding}
-            className="bg-primary text-background flex items-center gap-1.5 rounded-full px-4 py-2 font-semibold disabled:opacity-60"
-          >
-            {adding ? (
-              <LoaderCircle aria-hidden size={16} className="animate-spin" />
-            ) : (
-              <Plus aria-hidden size={16} />
-            )}
-            {t('watch.add')}
-          </button>
-        </div>
-        {add.error && (
-          <p role="alert" className="text-primary text-xs wrap-anywhere">
-            {add.error.message}
-          </p>
-        )}
-      </form>
+        }
+      />
+      <p className="text-muted text-sm">{t('watch.addonsHint')}</p>
+      {add.error && !addingByUrl && (
+        <p role="alert" className="text-primary text-sm wrap-anywhere">
+          {add.error.message}
+        </p>
+      )}
       {addons.error && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
           {addons.error.message}
@@ -185,6 +170,42 @@ export const WatchAddonsPage: FC = () => {
             ))}
           </ul>
         </section>
+      )}
+      {addingByUrl && (
+        <Sheet title={t('watch.addAddon')} onClose={() => setAddingByUrl(false)}>
+          <form onSubmit={onAdd} className="flex flex-col gap-3 text-sm">
+            <input
+              type="text"
+              inputMode="url"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              autoFocus
+              value={url}
+              onChange={(event) => setUrl(event.target.value)}
+              placeholder="https://…/manifest.json"
+              aria-label={t('watch.addAddon')}
+              className="bg-background placeholder:text-muted rounded-xl px-4 py-3 outline-none"
+            />
+            {add.error && (
+              <p role="alert" className="text-primary text-xs wrap-anywhere">
+                {add.error.message}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={!url.trim() || adding}
+              className="bg-primary text-background flex items-center gap-1.5 self-end rounded-full px-5 py-2.5 font-semibold disabled:opacity-60"
+            >
+              {adding ? (
+                <LoaderCircle aria-hidden size={16} className="animate-spin" />
+              ) : (
+                <Plus aria-hidden size={16} />
+              )}
+              {t('watch.add')}
+            </button>
+          </form>
+        </Sheet>
       )}
       {localNetwork.sheet}
     </section>

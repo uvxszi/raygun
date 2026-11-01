@@ -129,7 +129,12 @@ describe('Stremio addons in Watch', () => {
         },
       ]),
     );
-    await AppShellWrapper.mount('/watch');
+    commands.stremioAddons.mockResolvedValue(ok([ADDON]));
+    await AppShellWrapper.mount('/');
+    // Addons with catalogues are sources in Browse; each opens its catalogue rows.
+    await user.click(screen.getByTestId('nav-browse-tab'));
+    await user.click(await screen.findByRole('link', { name: 'Cinemeta' }));
+    await screen.findByTestId('stremio-addon-page');
 
     const row = await screen.findByRole('region', { name: 'Popular · Series' });
     await user.click(within(row).getByRole('link', { name: 'Breaking Bad' }));
@@ -252,8 +257,9 @@ describe('Stremio addons in Watch', () => {
         },
       ]),
     );
-    await AppShellWrapper.mount('/watch');
-    await user.click(await screen.findByRole('link', { name: 'Addons' }));
+    await AppShellWrapper.mount('/browse');
+    await user.click(await screen.findByRole('button', { name: 'More options' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Addons' }));
     const page = await screen.findByTestId('watch-addons-page');
 
     const installed = await within(page).findByRole('listitem', { name: 'Cinemeta' });
@@ -266,13 +272,16 @@ describe('Stremio addons in Watch', () => {
     );
 
     commands.stremioAdd.mockResolvedValue({ status: 'error', error: 'The addon answered 404' });
+    await user.click(within(page).getByRole('button', { name: 'Add an addon by its address' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Add an addon by its address' });
     await user.type(
-      within(page).getByRole('textbox', { name: 'Add an addon by its address' }),
+      within(sheet).getByRole('textbox', { name: 'Add an addon by its address' }),
       'addon.example',
     );
-    await user.click(within(page).getByRole('button', { name: 'Add' }));
+    await user.click(within(sheet).getByRole('button', { name: 'Add' }));
     expect(commands.stremioAdd).toHaveBeenLastCalledWith('addon.example');
-    expect(await within(page).findByRole('alert')).toHaveTextContent('The addon answered 404');
+    expect(await within(sheet).findByRole('alert')).toHaveTextContent('The addon answered 404');
+    await user.click(within(sheet).getByRole('button', { name: 'Close' }));
 
     await user.click(within(installed).getByRole('button', { name: 'Remove Cinemeta' }));
     expect(commands.stremioRemove).toHaveBeenCalledWith('cinemeta');

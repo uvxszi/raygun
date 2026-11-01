@@ -33,7 +33,6 @@
     "syncing": "Syncing..."
   },
   "extensions": {
-    "addRepo": "Lägg till",
     "cancel": "Avbryt",
     "install": "Installera",
     "nsfwBadge": "18+",
@@ -140,7 +139,6 @@
     "createBackup": "Skapa säkerhetskopia",
     "extensions": "Tillägg",
     "language": "Språk",
-    "manga": "Biblioteksposter",
     "theme": "Tema",
     "themeDark": "Mörk",
     "themeLight": "Ljus",

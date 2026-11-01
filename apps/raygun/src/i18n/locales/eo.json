@@ -32,7 +32,6 @@
     "syncing": "Syncing..."
   },
   "extensions": {
-    "addRepo": "Aldoni",
     "cancel": "Nuligi",
     "install": "Instali",
     "nsfwBadge": "18+",
@@ -135,7 +134,6 @@
     "createBackup": "Krei savkopion",
     "extensions": "Etendaĵoj",
     "language": "Lingvo",
-    "manga": "Bibliotekaj elementoj",
     "theme": "Etoso",
     "themeDark": "Malhela",
     "themeLight": "Hela",

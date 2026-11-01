@@ -1,5 +1,6 @@
-import type { FC } from 'react';
+import type { ComponentProps, FC } from 'react';
 
-export const PageHeader: FC<{ title: string }> = ({ title }) => (
-  <h1 className="text-2xl font-bold tracking-tight lg:text-3xl">{title}</h1>
-);
+import { TopBar } from '../shell/TopBar';
+
+/** A screen's title: the top app bar (kept for screens that need nothing more than a title). */
+export const PageHeader: FC<ComponentProps<typeof TopBar>> = (props) => <TopBar {...props} />;

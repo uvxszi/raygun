@@ -1,5 +1,6 @@
+import type { MangaLibraryEntry } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
-import { Heart } from 'lucide-react';
+import { Compass, Heart, Library, Search } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -12,6 +13,12 @@ import {
   useHistory,
   usePlaylists,
 } from '../collections/useCollections';
+import { MangaCover } from '../manga/MangaCover';
+import { ROUTES } from '../manga/medium';
+import { useMangaLibrary } from '../manga/useManga';
+import { TopBar, TopBarAction } from '../shell/TopBar';
+import { ContinueWatchingRow } from '../watch/ContinueWatchingRow';
+import { useContinueWatching } from '../watch/useWatch';
 
 /** Playlists shown as shortcuts next to Favorites. */
 const HOME_PLAYLISTS = 5;
@@ -53,7 +60,7 @@ const RecentlyPlayed: FC = () => {
   const { t } = useTranslation();
   const history = useHistory(HOME_HISTORY_LIMIT);
   const clear = useClearHistory();
-  if (!history.data) {
+  if (!history.data?.length) {
     return null;
   }
   return (
@@ -95,16 +102,101 @@ const RecentlyPlayed: FC = () => {
   );
 };
 
-export const HomePage: FC = () => {
+/** Most titles in Continue reading. */
+const CONTINUE_READING = 12;
+
+/** Manga and novels read lately, newest first (Mihon's History, as a row). */
+const ContinueReading: FC = () => {
+  const { t } = useTranslation();
+  const manga = useMangaLibrary('manga');
+  const novels = useMangaLibrary('novel');
+  const entries: (MangaLibraryEntry & { medium: 'manga' | 'novel' })[] = [
+    ...(manga.data ?? []).map((entry) => ({ ...entry, medium: 'manga' as const })),
+    ...(novels.data ?? []).map((entry) => ({ ...entry, medium: 'novel' as const })),
+  ]
+    .filter((entry) => entry.lastReadAt !== null)
+    .sort((a, b) => (b.lastReadAt ?? 0) - (a.lastReadAt ?? 0))
+    .slice(0, CONTINUE_READING);
+  if (entries.length === 0) return null;
+  return (
+    <section aria-labelledby="continue-reading" className="flex flex-col gap-2">
+      <h2 id="continue-reading" className="text-lg font-semibold">
+        {t('home.continueReading')}
+      </h2>
+      <ul className="-mx-4 flex gap-3 overflow-x-auto px-4 lg:mx-0 lg:px-0">
+        {entries.map((entry) => (
+          <li key={entry.titleId} className="w-28 shrink-0">
+            <Link
+              to={ROUTES[entry.medium].title}
+              search={{ source: entry.sourceId, id: entry.remoteId }}
+              aria-label={entry.title}
+              className="flex flex-col gap-1.5"
+            >
+              <span className="relative">
+                <MangaCover url={entry.coverUrl} className="w-full rounded-xl" />
+                {entry.unread > 0 && (
+                  <span className="bg-primary text-background absolute top-1.5 left-1.5 rounded-md px-1.5 text-xs font-bold">
+                    {entry.unread}
+                  </span>
+                )}
+              </span>
+              <span className="line-clamp-2 text-sm font-medium">{entry.title}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+};
+
+/** Shown while there's nothing to continue: where to start. */
+const GetStarted: FC = () => {
   const { t } = useTranslation();
   return (
-    <section data-testid="home-page" className="flex flex-col gap-6">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-primary text-3xl font-black tracking-tight lg:text-4xl">
-          {t('home.title')}
-        </h1>
-        <p className="text-muted max-w-prose">{t('home.subtitle')}</p>
+    <section className="bg-surface flex flex-col gap-3 rounded-3xl px-5 py-6">
+      <h2 className="text-lg font-semibold">{t('home.startTitle')}</h2>
+      <p className="text-muted text-sm">{t('home.startBody')}</p>
+      <div className="flex flex-wrap gap-2">
+        <Link
+          to="/browse"
+          className="bg-primary text-background flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold"
+        >
+          <Compass aria-hidden size={16} />
+          {t('browse.title')}
+        </Link>
+        <Link
+          to="/library"
+          className="bg-background flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium"
+        >
+          <Library aria-hidden size={16} />
+          {t('library.title')}
+        </Link>
       </div>
+    </section>
+  );
+};
+
+/** Home: picking up where you left off, in everything. */
+export const HomePage: FC = () => {
+  const { t } = useTranslation();
+  const watching = useContinueWatching();
+  const history = useHistory(HOME_HISTORY_LIMIT);
+  const manga = useMangaLibrary('manga');
+  const novels = useMangaLibrary('novel');
+  const nothingYet =
+    watching.data?.length === 0 &&
+    history.data?.length === 0 &&
+    !manga.data?.some((entry) => entry.lastReadAt !== null) &&
+    !novels.data?.some((entry) => entry.lastReadAt !== null);
+  return (
+    <section data-testid="home-page" className="flex flex-col gap-7">
+      <TopBar
+        title={t('home.heading')}
+        actions={<TopBarAction label={t('search.title')} icon={Search} to="/search" />}
+      />
+      {nothingYet && <GetStarted />}
+      <ContinueWatchingRow />
+      <ContinueReading />
       <YourMusic />
       <RecentlyPlayed />
     </section>

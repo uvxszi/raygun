@@ -33,7 +33,6 @@
     "syncing": "Sincronizare..."
   },
   "extensions": {
-    "addRepo": "Adaugă",
     "cancel": "Anulează",
     "install": "Instalează",
     "nsfwBadge": "Peste 18",
@@ -141,7 +140,6 @@
     "createBackup": "Crează copie de rezervă",
     "extensions": "Extensii",
     "language": "Limbă",
-    "manga": "Intrări în bibliotecă",
     "theme": "Temă",
     "themeDark": "Pornită",
     "themeLight": "Oprită",

@@ -21,7 +21,6 @@
     "save": "შენახვა"
   },
   "extensions": {
-    "addRepo": "დამატება",
     "cancel": "გააუქმე",
     "install": "დაინსტალირება",
     "nsfwBadge": "18+",
@@ -88,7 +87,6 @@
     "confirmRestore": "აღდგენა",
     "createBackup": "რეზერვის შექმნა",
     "extensions": "გავრცობები",
-    "manga": "ბიბლიოთეკის ჩანაწერები",
     "theme": "თემა",
     "themeDark": "ჩართული",
     "themeLight": "მსუბუქი",

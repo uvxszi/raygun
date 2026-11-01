@@ -1,8 +1,12 @@
 import { Link, useNavigate } from '@tanstack/react-router';
-import { LoaderCircle, RefreshCw, Search } from 'lucide-react';
-import { useState } from 'react';
+import { LoaderCircle, Rss, RefreshCw, Search } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+
+import { LibraryTop } from '../library/LibraryTop';
+import { Sheet } from '../shell/Sheet';
+import { TopBarAction } from '../shell/TopBar';
 
 import { EpisodeItem } from './EpisodeItem';
 import { PodcastArt } from './PodcastArt';
@@ -26,9 +30,16 @@ export const PodcastsView: FC = () => {
   const latest = useLatestEpisodes();
   const refreshAll = useRefreshAll();
   const openFeed = useOpenFeed();
+  const [searching, setSearching] = useState(false);
   const [draft, setDraft] = useState('');
   const [query, setQuery] = useState('');
+  const [addingFeed, setAddingFeed] = useState(false);
   const [feedUrl, setFeedUrl] = useState('');
+  // Searches the directory once typing pauses, like the Search tab.
+  useEffect(() => {
+    const timer = setTimeout(() => setQuery(draft.trim()), 400);
+    return () => clearTimeout(timer);
+  }, [draft]);
   const search = usePodcastSearch(query);
   const top = useTopPodcasts(query === '');
   const [opening, setOpening] = useState<string | null>(null);
@@ -40,10 +51,6 @@ export const PodcastsView: FC = () => {
       onSettled: () => setOpening(null),
     });
   };
-  const onSearch = (event: FormEvent) => {
-    event.preventDefault();
-    setQuery(draft.trim());
-  };
   const onAddFeed = (event: FormEvent) => {
     event.preventDefault();
     if (feedUrl.trim()) open(feedUrl.trim());
@@ -53,25 +60,56 @@ export const PodcastsView: FC = () => {
 
   return (
     <div data-testid="podcasts-view" className="flex flex-col gap-5">
+      <LibraryTop
+        media="podcast"
+        search={
+          searching
+            ? {
+                value: draft,
+                onChange: setDraft,
+                placeholder: t('podcasts.searchPlaceholder'),
+                onClose: () => {
+                  setSearching(false);
+                  setDraft('');
+                },
+              }
+            : null
+        }
+        actions={
+          <>
+            {!searching && (
+              <TopBarAction
+                label={t('podcasts.search')}
+                icon={Search}
+                onClick={() => setSearching(true)}
+              />
+            )}
+            {hasSubscriptions && (
+              <TopBarAction
+                label={t('podcasts.refresh')}
+                icon={RefreshCw}
+                disabled={refreshAll.isPending}
+                onClick={() => refreshAll.mutate(undefined)}
+              />
+            )}
+          </>
+        }
+        menu={[{ label: t('podcasts.openFeed'), icon: Rss, onSelect: () => setAddingFeed(true) }]}
+      />
       {hasSubscriptions && (
         <section aria-labelledby="podcast-subscriptions" className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <h2 id="podcast-subscriptions" className="font-semibold">
               {t('podcasts.subscriptions')}
             </h2>
-            <button
-              type="button"
-              onClick={() => refreshAll.mutate(undefined)}
-              disabled={refreshAll.isPending}
-              className="text-muted flex items-center gap-1.5 text-sm disabled:opacity-60"
-            >
+            {refreshAll.isPending && (
               <RefreshCw
-                aria-hidden
+                role="status"
+                aria-label={t('podcasts.refresh')}
                 size={14}
-                className={refreshAll.isPending ? 'animate-spin' : ''}
+                className="text-muted animate-spin"
               />
-              {t('podcasts.refresh')}
-            </button>
+            )}
           </div>
           <ul className="-mx-4 flex gap-3 overflow-x-auto px-4 lg:mx-0 lg:px-0">
             {subscriptions.data?.map((podcast) => (
@@ -114,23 +152,6 @@ export const PodcastsView: FC = () => {
         {!hasSubscriptions && subscriptions.data && (
           <p className="text-muted text-sm">{t('podcasts.empty')}</p>
         )}
-        <form
-          onSubmit={onSearch}
-          className="bg-surface flex items-center gap-2 rounded-lg px-3 py-2"
-        >
-          <Search aria-hidden size={16} className="text-muted" />
-          <input
-            type="search"
-            value={draft}
-            onChange={(event) => {
-              setDraft(event.target.value);
-              if (!event.target.value) setQuery('');
-            }}
-            placeholder={t('podcasts.searchPlaceholder')}
-            aria-label={t('podcasts.search')}
-            className="placeholder:text-muted min-w-0 flex-1 bg-transparent text-sm outline-none"
-          />
-        </form>
         <h3 className="text-muted text-sm">
           {query ? t('podcasts.resultsFor', { query }) : t('podcasts.topShows')}
         </h3>
@@ -146,33 +167,43 @@ export const PodcastsView: FC = () => {
           <p className="text-muted text-sm">{t('podcasts.noResults')}</p>
         )}
         {results.data && results.data.length > 0 && <PodcastResultList results={results.data} />}
-        <form onSubmit={onAddFeed} className="flex gap-2">
-          <input
-            type="url"
-            inputMode="url"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            value={feedUrl}
-            onChange={(event) => setFeedUrl(event.target.value)}
-            placeholder={t('podcasts.feedPlaceholder')}
-            aria-label={t('podcasts.feedUrl')}
-            className="bg-surface placeholder:text-muted min-w-0 flex-1 rounded-lg px-3 py-2 text-sm outline-none"
-          />
-          <button
-            type="submit"
-            disabled={!feedUrl.trim() || opening !== null}
-            className="bg-surface rounded-lg px-4 py-2 text-sm disabled:opacity-40"
-          >
-            {t('podcasts.openFeed')}
-          </button>
-        </form>
-        {openFeed.error && (
+        {openFeed.error && !addingFeed && (
           <p role="alert" className="text-primary text-sm wrap-anywhere">
             {openFeed.error.message}
           </p>
         )}
       </section>
+      {addingFeed && (
+        <Sheet title={t('podcasts.openFeed')} onClose={() => setAddingFeed(false)}>
+          <form onSubmit={onAddFeed} className="flex flex-col gap-3 text-sm">
+            <input
+              type="url"
+              inputMode="url"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              autoFocus
+              value={feedUrl}
+              onChange={(event) => setFeedUrl(event.target.value)}
+              placeholder={t('podcasts.feedPlaceholder')}
+              aria-label={t('podcasts.feedUrl')}
+              className="bg-background placeholder:text-muted rounded-xl px-4 py-3 outline-none"
+            />
+            {openFeed.error && (
+              <p role="alert" className="text-primary wrap-anywhere">
+                {openFeed.error.message}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={!feedUrl.trim() || opening !== null}
+              className="bg-primary text-background self-end rounded-full px-5 py-2.5 font-semibold disabled:opacity-50"
+            >
+              {t('podcasts.openFeed')}
+            </button>
+          </form>
+        </Sheet>
+      )}
     </div>
   );
 };

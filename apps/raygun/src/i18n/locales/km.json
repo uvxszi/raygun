@@ -20,7 +20,6 @@
     "save": "រក្សាទុក"
   },
   "extensions": {
-    "addRepo": "បញ្ចូល",
     "cancel": "ឈប់ធ្វើ",
     "install": "តម្លើង",
     "refresh": "រីហ្វ្រេស",
@@ -78,7 +77,6 @@
     "confirmRestore": "restore",
     "extensions": "ប្រភពម៊េងហ្គា",
     "language": "ភាសា",
-    "manga": "បណ្តុំក្នុងបណ្ណាល័យ",
     "theme": "ពណ៌",
     "themeDark": "បើក",
     "themeLight": "បិទ",

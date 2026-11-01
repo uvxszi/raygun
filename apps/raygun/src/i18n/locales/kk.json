@@ -21,7 +21,6 @@
     "save": "Сақтау"
   },
   "extensions": {
-    "addRepo": "Қосу",
     "cancel": "Болдырмау",
     "install": "Орнату",
     "nsfwBadge": "18+",
@@ -101,7 +100,6 @@
     "createBackup": "Сақтық көшірме жасау",
     "extensions": "Кеңейтпе",
     "language": "Тіл",
-    "manga": "Манга",
     "theme": "Кейіп",
     "themeDark": "Қосулы",
     "themeLight": "Өшірулі",

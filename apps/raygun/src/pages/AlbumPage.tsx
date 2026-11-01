@@ -3,6 +3,8 @@ import { Play, Shuffle } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { TopBar } from '../shell/TopBar';
+
 import { Artwork } from '../library/Artwork';
 import { TrackRow } from '../library/TrackRow';
 import { playFromLibrary, useAlbumTracks } from '../library/useLibrary';
@@ -16,6 +18,7 @@ export const AlbumPage: FC = () => {
 
   return (
     <section data-testid="album-page" className="flex flex-col gap-5">
+      <TopBar back fallback="/library" plainTitle title={artist} />
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end">
         <Artwork
           url={tracks.data?.find((track) => track.artworkUrl)?.artworkUrl}

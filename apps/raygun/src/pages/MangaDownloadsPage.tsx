@@ -86,7 +86,7 @@ export const MangaDownloadsPage: FC = () => {
 
   return (
     <section data-testid="manga-downloads-page" className="flex flex-col gap-4">
-      <PageHeader title={t('manga.downloads')} />
+      <PageHeader back fallback="/more" title={t('manga.downloads')} />
       {downloads.error && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
           {downloads.error.message}

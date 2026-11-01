@@ -20,7 +20,7 @@ describe('Content card', () => {
       status: 'ok',
       data: { ...settings.data, showNsfw: true },
     });
-    await AppShellWrapper.mount('/settings');
+    await AppShellWrapper.mount('/settings/browse');
 
     const toggle = await screen.findByRole('switch', { name: 'Show NSFW (18+) content' });
     expect(toggle).toHaveAttribute('aria-checked', 'false');

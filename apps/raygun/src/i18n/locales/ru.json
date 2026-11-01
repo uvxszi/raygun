@@ -35,7 +35,6 @@
     "syncing": "Синхронизация..."
   },
   "extensions": {
-    "addRepo": "Добавить",
     "cancel": "Отмена",
     "install": "Установить",
     "nsfwBadge": "Для взрослых (18+)",
@@ -159,7 +158,6 @@
     "extensions": "Расширения",
     "importing": "Импортирование...",
     "language": "Язык",
-    "manga": "Манга",
     "storage": "Хранилище",
     "theme": "Тема",
     "themeDark": "Тёмная",

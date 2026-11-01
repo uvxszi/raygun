@@ -22,7 +22,6 @@
     "save": "บันทึก"
   },
   "extensions": {
-    "addRepo": "เพิ่ม",
     "cancel": "ยกเลิก",
     "install": "ติดตั้ง",
     "nsfwBadge": "18+",
@@ -101,7 +100,6 @@
     "createBackup": "สำรองข้อมูล",
     "extensions": "ส่วนขยาย",
     "language": "ภาษา",
-    "manga": "รายการคลัง",
     "theme": "ธีม",
     "themeDark": "มืด",
     "themeLight": "สว่าง",

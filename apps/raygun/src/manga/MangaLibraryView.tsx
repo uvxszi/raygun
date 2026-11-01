@@ -1,28 +1,41 @@
 import { Link } from '@tanstack/react-router';
-import { Bell, Compass, Download, FolderCog } from 'lucide-react';
+import {
+  Bell,
+  BookPlus,
+  Compass,
+  Download,
+  FolderCog,
+  ListFilter,
+  RefreshCw,
+  Search,
+} from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { ImportEpubButton } from '../novel/ImportEpubButton';
-import { LibraryControls } from './LibraryControls';
+import { LibraryTop } from '../library/LibraryTop';
+import { useImportEpub } from '../novel/useImportEpub';
+import { TopBarAction } from '../shell/TopBar';
+import { LibraryFilterSheet } from './LibraryFilterSheet';
 import {
   ALL_CATEGORIES,
   UNCATEGORIZED,
   applyLibraryFilter,
+  isFiltering,
   libraryTags,
   loadFilter,
   saveFilter,
 } from './libraryFilters';
 import type { LibraryFilter } from './libraryFilters';
 import { MangaGrid } from './MangaGrid';
-import { ROUTES } from './medium';
 import type { ReadingMedium } from './medium';
-import { UpdateLibraryButton } from './UpdateLibraryButton';
 import { useCategories } from './useCategories';
-import { useMangaLibrary, useMangaLiveEvents } from './useManga';
-
-const CHIP = 'bg-surface flex items-center gap-2 rounded-full px-4 py-2 text-sm';
+import {
+  useMangaLibrary,
+  useMangaLiveEvents,
+  useMangaUpdateStatus,
+  useUpdateLibrary,
+} from './useManga';
 
 /**
  * Library → Manga or Novels: the titles you added, by category (Mihon-style tabs), with search,
@@ -36,6 +49,12 @@ export const MangaLibraryView: FC<{ medium?: ReadingMedium }> = ({ medium = 'man
   const [category, setCategory] = useState(ALL_CATEGORIES);
   const [filter, setFilter] = useState<LibraryFilter>(() => loadFilter(medium));
   useEffect(() => saveFilter(medium, filter), [medium, filter]);
+  const [searching, setSearching] = useState(filter.query !== '');
+  const [filtering, setFiltering] = useState(false);
+  const updateStatus = useMangaUpdateStatus();
+  const updateLibrary = useUpdateLibrary();
+  const updating = updateStatus.data?.running ?? false;
+  const epub = useImportEpub();
 
   const entries = library.data;
   const shown = useMemo(
@@ -52,7 +71,7 @@ export const MangaLibraryView: FC<{ medium?: ReadingMedium }> = ({ medium = 'man
       role="tab"
       aria-selected={category === id}
       onClick={() => setCategory(id)}
-      className={`shrink-0 border-b-2 px-3 py-2 text-sm ${category === id ? 'border-primary font-semibold' : 'text-muted border-transparent'}`}
+      className={`shrink-0 border-b-2 px-3 py-2 text-sm ${category === id ? 'border-primary text-primary font-semibold' : 'text-muted border-transparent'}`}
     >
       {label} <span className="text-muted text-xs">{count}</span>
     </button>
@@ -60,36 +79,103 @@ export const MangaLibraryView: FC<{ medium?: ReadingMedium }> = ({ medium = 'man
 
   return (
     <div data-testid={`${medium}-library`} className="flex flex-col gap-4">
-      <nav aria-label={t('manga.libraryActions')} className="flex flex-wrap gap-2">
-        <Link to={ROUTES[medium].browse} className={CHIP}>
-          <Compass aria-hidden size={16} className="text-primary" />
-          {t('manga.browseSources')}
-        </Link>
-        {medium === 'manga' && (
-          <Link to="/manga/updates" className={CHIP}>
-            <Bell aria-hidden size={16} className="text-primary" />
-            {t('manga.updates')}
-          </Link>
-        )}
-        <Link to="/manga/downloads" className={CHIP}>
-          <Download aria-hidden size={16} className="text-primary" />
-          {t('manga.downloads')}
-        </Link>
-        {medium === 'manga' ? <UpdateLibraryButton /> : <ImportEpubButton className={CHIP} />}
-        <Link to="/library/categories" search={{ medium }} className={CHIP}>
-          <FolderCog aria-hidden size={16} className="text-primary" />
-          {t('library.categories.edit')}
-        </Link>
-      </nav>
+      <LibraryTop
+        media={medium}
+        search={
+          searching
+            ? {
+                value: filter.query,
+                onChange: (query) => setFilter({ ...filter, query }),
+                placeholder: t('library.filter.searchPlaceholder'),
+                onClose: () => {
+                  setSearching(false);
+                  setFilter({ ...filter, query: '' });
+                },
+              }
+            : null
+        }
+        actions={
+          <>
+            {!searching && (
+              <TopBarAction
+                label={t('library.filter.search')}
+                icon={Search}
+                onClick={() => setSearching(true)}
+              />
+            )}
+            <TopBarAction
+              label={t('library.filter.open')}
+              icon={ListFilter}
+              pressed={isFiltering(filter)}
+              onClick={() => setFiltering(true)}
+            />
+          </>
+        }
+        menu={[
+          ...(medium === 'manga'
+            ? [
+                {
+                  label: updating
+                    ? t('manga.updating', {
+                        checked: updateStatus.data?.checked ?? 0,
+                        total: updateStatus.data?.total ?? 0,
+                      })
+                    : t('manga.updateLibrary'),
+                  icon: RefreshCw,
+                  onSelect: () => {
+                    if (!updating) updateLibrary.mutate();
+                  },
+                },
+                { label: t('manga.updates'), icon: Bell, to: '/manga/updates' },
+              ]
+            : [{ label: t('novel.importEpub'), icon: BookPlus, onSelect: epub.pick }]),
+          { label: t('manga.downloads'), icon: Download, to: '/manga/downloads' },
+          {
+            label: t('library.categories.edit'),
+            icon: FolderCog,
+            to: '/library/categories',
+            search: { medium },
+          },
+        ]}
+      />
+      {epub.input}
+      {updating && updateStatus.data && (
+        <p role="status" className="text-muted flex items-center gap-2 text-sm">
+          <RefreshCw aria-hidden size={14} className="text-primary animate-spin" />
+          {t('manga.updating', {
+            checked: updateStatus.data.checked,
+            total: updateStatus.data.total,
+          })}
+        </p>
+      )}
+      {epub.importBook.isPending && (
+        <p role="status" className="text-muted text-sm">
+          {t('novel.importing')}
+        </p>
+      )}
+      {epub.importBook.error && (
+        <p role="alert" className="text-primary text-sm wrap-anywhere">
+          {epub.importBook.error.message}
+        </p>
+      )}
       {library.error && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
           {library.error.message}
         </p>
       )}
       {entries?.length === 0 && (
-        <p className="text-muted text-sm">
-          {t(medium === 'novel' ? 'novel.emptyLibrary' : 'manga.emptyLibrary')}
-        </p>
+        <div className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+          <p className="text-muted text-sm">
+            {t(medium === 'novel' ? 'novel.emptyLibrary' : 'manga.emptyLibrary')}
+          </p>
+          <Link
+            to="/browse"
+            className="bg-primary text-background flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold"
+          >
+            <Compass aria-hidden size={16} />
+            {t('manga.browseSources')}
+          </Link>
+        </div>
       )}
       {entries && entries.length > 0 && (
         <>
@@ -115,7 +201,6 @@ export const MangaLibraryView: FC<{ medium?: ReadingMedium }> = ({ medium = 'man
                 )}
             </div>
           )}
-          <LibraryControls filter={filter} tags={tags} onChange={setFilter} />
           {shown.length === 0 ? (
             <p className="text-muted text-sm">{t('library.filter.noMatches')}</p>
           ) : (
@@ -127,10 +212,19 @@ export const MangaLibraryView: FC<{ medium?: ReadingMedium }> = ({ medium = 'man
                 title: entry.title,
                 coverUrl: entry.coverUrl,
                 unread: entry.unread,
+                downloaded: entry.downloaded,
               }))}
             />
           )}
         </>
+      )}
+      {filtering && (
+        <LibraryFilterSheet
+          filter={filter}
+          tags={tags}
+          onChange={setFilter}
+          onClose={() => setFiltering(false)}
+        />
       )}
     </div>
   );

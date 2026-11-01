@@ -31,7 +31,6 @@
     "syncing": "Sinkronizatzen..."
   },
   "extensions": {
-    "addRepo": "Gehitu",
     "cancel": "Ezeztatu",
     "install": "Instalatu",
     "nsfwBadge": "18+",
@@ -127,7 +126,6 @@
     "createBackup": "Sortu babeskopia",
     "extensions": "Luzapenak",
     "language": "Hizkuntza",
-    "manga": "Manga",
     "theme": "Gaia",
     "themeDark": "Piztu",
     "themeLight": "Itzali",

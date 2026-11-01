@@ -1,14 +1,16 @@
 import { commands } from '@raygun/bindings';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Check, Clapperboard, X } from 'lucide-react';
+import { Check, Clapperboard, Compass, Puzzle, X } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { LibraryTop } from '../library/LibraryTop';
 import { unwrapResult } from '../lib/commandResult';
+import { ContinueWatchingRow } from './ContinueWatchingRow';
 import { useContinueWatching, useRemoveContinue, useResumeVideo } from './useWatch';
 
-/** Library → Videos: everything watched or started, newest first. */
+/** Library → Videos: what you're watching, then everything watched or started, newest first. */
 export const VideosLibraryView: FC = () => {
   const { t } = useTranslation();
   // Keeps the list current while the player reports progress.
@@ -21,14 +23,29 @@ export const VideosLibraryView: FC = () => {
   const remove = useRemoveContinue();
 
   return (
-    <div data-testid="videos-library" className="flex flex-col gap-3">
+    <div data-testid="videos-library" className="flex flex-col gap-5">
+      <LibraryTop
+        media="video"
+        menu={[
+          { label: t('browse.title'), icon: Compass, to: '/browse' },
+          { label: t('watch.addons'), icon: Puzzle, to: '/watch/addons' },
+        ]}
+      />
+      <ContinueWatchingRow />
       {history.data?.length === 0 && (
-        <p className="text-muted text-sm">
-          {t('library.videos.empty')}{' '}
-          <Link to="/watch" className="text-primary">
+        <div className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+          <p className="text-muted text-sm">{t('library.videos.empty')}</p>
+          <Link
+            to="/browse"
+            className="bg-primary text-background flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold"
+          >
+            <Compass aria-hidden size={16} />
             {t('library.videos.openWatch')}
           </Link>
-        </p>
+        </div>
+      )}
+      {(history.data?.length ?? 0) > 0 && (
+        <h2 className="text-lg font-semibold">{t('library.videos.history')}</h2>
       )}
       <ul className="bg-surface flex flex-col rounded-xl">
         {history.data?.map((item) => {

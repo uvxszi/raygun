@@ -18,8 +18,8 @@ export const SideRail: FC = () => {
           key={to}
           to={to}
           data-testid={`${testId}-rail`}
-          className="text-muted hover:bg-background flex items-center gap-3 rounded-lg px-3 py-2"
-          activeProps={{ className: 'text-primary bg-background', 'aria-current': 'page' }}
+          className="text-muted hover:bg-background flex items-center gap-3 rounded-full px-4 py-2.5 font-medium"
+          activeProps={{ className: 'text-primary bg-primary/15', 'aria-current': 'page' }}
           activeOptions={{ exact: to === '/', includeSearch: false }}
         >
           <Icon aria-hidden size={20} />

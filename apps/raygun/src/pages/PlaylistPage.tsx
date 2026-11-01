@@ -5,6 +5,8 @@ import { useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { TopBar } from '../shell/TopBar';
+
 import { PlayButtons } from '../collections/PlayButtons';
 import { PlaylistCover } from '../collections/PlaylistCover';
 import { SavedTrackRow } from '../collections/SavedTrackRow';
@@ -161,6 +163,7 @@ export const PlaylistPage: FC = () => {
 
   return (
     <section data-testid="playlist-page" className="flex flex-col gap-5">
+      <TopBar back fallback="/library" plainTitle title={t('library.view.playlists')} />
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end">
         <PlaylistCover
           artworkUrls={detail.playlist.artworkUrls}

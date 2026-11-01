@@ -44,7 +44,7 @@ import org.json.JSONObject
 import kotlin.math.abs
 
 private const val REPORT_INTERVAL_MS = 5_000L
-private const val SEEK_STEP_MS = 10_000L
+private const val DEFAULT_SEEK_STEP_MS = 10_000L
 private const val DEFAULT_USER_AGENT =
     "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36"
 
@@ -66,6 +66,8 @@ class VideoPlayerActivity : AppCompatActivity() {
     private var ended = false
     /** After a decoder fails mid-playback, software decoders are tried first. */
     private var softwareFirst = false
+    /** How far a double tap or the skip buttons jump (Settings → Player). */
+    private var seekStepMs = DEFAULT_SEEK_STEP_MS
     private val codecSelector = MediaCodecSelector { mimeType, secure, tunneling ->
         val decoders = MediaCodecUtil.getDecoderInfos(mimeType, secure, tunneling)
         if (softwareFirst) decoders.sortedBy { if (it.softwareOnly) 0 else 1 } else decoders
@@ -83,6 +85,7 @@ class VideoPlayerActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val request = JSONObject(intent.getStringExtra(EXTRA_REQUEST) ?: "{}")
+        seekStepMs = request.optLong("seekStepMs", DEFAULT_SEEK_STEP_MS).coerceIn(1_000L, 300_000L)
         videoId = request.optString("id")
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -107,9 +110,20 @@ class VideoPlayerActivity : AppCompatActivity() {
             .setMediaCodecSelector(codecSelector)
         player = ExoPlayer.Builder(this, renderers)
             .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http)))
-            .setSeekBackIncrementMs(SEEK_STEP_MS)
-            .setSeekForwardIncrementMs(SEEK_STEP_MS)
+            .setSeekBackIncrementMs(seekStepMs)
+            .setSeekForwardIncrementMs(seekStepMs)
             .build()
+        // Subtitles turn on by themselves in the chosen language (blank: the device's).
+        if (request.has("autoSubtitleLanguage") && !request.isNull("autoSubtitleLanguage")) {
+            val language = request.optString("autoSubtitleLanguage").ifBlank {
+                java.util.Locale.getDefault().language
+            }
+            player.trackSelectionParameters = player.trackSelectionParameters
+                .buildUpon()
+                .setPreferredTextLanguage(language)
+                .setSelectUndeterminedTextLanguage(true)
+                .build()
+        }
 
         val subtitles = mutableListOf<MediaItem.SubtitleConfiguration>()
         request.optJSONArray("subtitles")?.let { list ->
@@ -228,11 +242,11 @@ class VideoPlayerActivity : AppCompatActivity() {
             when {
                 event.x < width / 3f -> {
                     player.seekBack()
-                    showHint("« ${SEEK_STEP_MS / 1000}s")
+                    showHint("« ${seekStepMs / 1000}s")
                 }
                 event.x > width * 2 / 3f -> {
                     player.seekForward()
-                    showHint("${SEEK_STEP_MS / 1000}s »")
+                    showHint("${seekStepMs / 1000}s »")
                 }
                 else -> if (player.isPlaying) player.pause() else player.play()
             }

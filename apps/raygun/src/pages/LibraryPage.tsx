@@ -1,4 +1,7 @@
+import { commands } from '@raygun/bindings';
 import { Link, useSearch } from '@tanstack/react-router';
+import { FolderCog, FolderPlus, FolderSearch, RefreshCw } from 'lucide-react';
+import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -10,20 +13,20 @@ import { VideosLibraryView } from '../watch/VideosLibraryView';
 import { AlbumGrid } from '../library/AlbumGrid';
 import { ArtistList } from '../library/ArtistList';
 import { FirstRunCard } from '../library/FirstRunCard';
-import { LibraryFolders } from '../library/LibraryFolders';
+import { AddFolderSheet } from '../library/AddFolderForm';
+import { LibraryTop } from '../library/LibraryTop';
 import { ScanBanner } from '../library/ScanBanner';
 import { TrackList } from '../library/TrackList';
 import { LIBRARY_VIEWS, isLocalView } from '../library/views';
+import type { LibraryView } from '../library/views';
 import {
   playFromLibrary,
   useAlbums,
   useAllTracks,
   useArtists,
+  useConnectDeviceMusic,
   useLibraryStatus,
 } from '../library/useLibrary';
-import type { LibraryMedia } from '../router';
-import { OpenMediaForm } from './OpenMediaForm';
-import { PageHeader } from './PageHeader';
 
 const AlbumsView: FC = () => {
   const albums = useAlbums();
@@ -54,66 +57,39 @@ const TracksView: FC = () => {
   );
 };
 
-type Media = 'music' | LibraryMedia;
-
-/** Music, manga or novels: the library's top-level choice. */
-const MEDIA: Media[] = ['music', 'podcast', 'manga', 'novel', 'video'];
-
-/** The kinds of media the library holds, as a row of tabs. */
-const MediaSwitch: FC<{ media: Media }> = ({ media }) => {
+/** Library → Music: albums, artists, tracks, playlists and favorites. */
+const MusicLibrary: FC<{ view: LibraryView }> = ({ view }) => {
   const { t } = useTranslation();
-  return (
-    <nav
-      aria-label={t('library.media.label')}
-      className="bg-surface flex gap-1 overflow-x-auto rounded-xl p-1"
-    >
-      {MEDIA.map((value) => (
-        <Link
-          key={value}
-          to="/library"
-          search={value === 'music' ? {} : { media: value }}
-          data-testid={`library-media-${value}`}
-          aria-current={media === value ? 'page' : undefined}
-          className={`min-w-fit flex-1 rounded-lg px-3 py-1.5 text-center text-sm ${media === value ? 'bg-background font-semibold' : 'text-muted'}`}
-        >
-          {t(`library.media.${value}`)}
-        </Link>
-      ))}
-    </nav>
-  );
-};
-
-export const LibraryPage: FC = () => {
-  const { t } = useTranslation();
-  const { view = 'albums', media } = useSearch({ from: '/library' });
   const status = useLibraryStatus();
-
-  if (media) {
-    return (
-      <section data-testid="library-page" className="flex flex-col gap-5">
-        <PageHeader title={t('library.title')} />
-        <MediaSwitch media={media} />
-        {(media === 'manga' || media === 'novel') && (
-          <MangaLibraryView key={media} medium={media} />
-        )}
-        {media === 'podcast' && <PodcastsView />}
-        {media === 'video' && <VideosLibraryView />}
-      </section>
-    );
-  }
-
-  if (!status.data) {
-    return <section data-testid="library-page" />;
-  }
-
-  const hasFolders = status.data.roots.length > 0;
-  const hasTracks = hasFolders && status.data.trackCount > 0;
+  const connect = useConnectDeviceMusic();
+  const [adding, setAdding] = useState(false);
   const local = isLocalView(view);
+  const hasFolders = (status.data?.roots.length ?? 0) > 0;
+  const hasTracks = hasFolders && (status.data?.trackCount ?? 0) > 0;
 
   return (
-    <section data-testid="library-page" className="flex flex-col gap-5">
-      <PageHeader title={t('library.title')} />
-      <MediaSwitch media="music" />
+    <>
+      <LibraryTop
+        media="music"
+        menu={[
+          {
+            label: t('library.findDeviceMusic'),
+            icon: FolderSearch,
+            onSelect: () => connect.mutate(),
+          },
+          { label: t('library.addFolder'), icon: FolderPlus, onSelect: () => setAdding(true) },
+          ...(hasFolders
+            ? [
+                {
+                  label: t('library.rescan'),
+                  icon: RefreshCw,
+                  onSelect: () => void commands.libraryRescan(),
+                },
+              ]
+            : []),
+          { label: t('library.manageFolders'), icon: FolderCog, to: '/settings/library' },
+        ]}
+      />
       <ScanBanner />
       <nav
         className="-mx-4 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:px-0"
@@ -124,11 +100,12 @@ export const LibraryPage: FC = () => {
             key={option}
             to="/library"
             search={{ view: option }}
+            replace
             data-testid={`library-view-${option}`}
             aria-current={option === view ? 'page' : undefined}
             className={
               option === view
-                ? 'bg-primary text-background shrink-0 rounded-full px-4 py-1.5 text-sm font-semibold'
+                ? 'bg-primary/20 text-primary shrink-0 rounded-full px-4 py-1.5 text-sm font-semibold'
                 : 'bg-surface shrink-0 rounded-full px-4 py-1.5 text-sm'
             }
           >
@@ -136,22 +113,34 @@ export const LibraryPage: FC = () => {
           </Link>
         ))}
       </nav>
+      {connect.isError && (
+        <p role="alert" className="text-primary text-sm">
+          {connect.error.message}
+        </p>
+      )}
       {view === 'playlists' && <PlaylistsView />}
       {view === 'favorites' && <FavoritesView />}
-      {local && !hasFolders && <FirstRunCard />}
-      {local && hasFolders && status.data.trackCount === 0 && !status.data.scanning && (
+      {local && status.data && !hasFolders && <FirstRunCard />}
+      {local && hasFolders && status.data?.trackCount === 0 && !status.data.scanning && (
         <p className="text-muted text-sm">{t('library.noTracksFound')}</p>
       )}
       {local && hasTracks && view === 'albums' && <AlbumsView />}
       {local && hasTracks && view === 'artists' && <ArtistsView />}
       {local && hasTracks && view === 'tracks' && <TracksView />}
-      {local && hasFolders && <LibraryFolders roots={status.data.roots} />}
-      <details className="bg-surface rounded-xl px-5 py-3 text-sm">
-        <summary className="cursor-pointer font-medium">{t('library.openTitle')}</summary>
-        <div className="mt-3">
-          <OpenMediaForm />
-        </div>
-      </details>
+      {adding && <AddFolderSheet onClose={() => setAdding(false)} />}
+    </>
+  );
+};
+
+/** The library: what you have, by kind of media (one top bar, one row of media tabs). */
+export const LibraryPage: FC = () => {
+  const { view = 'albums', media } = useSearch({ from: '/library' });
+  return (
+    <section data-testid="library-page" className="flex flex-col gap-4">
+      {!media && <MusicLibrary view={view} />}
+      {(media === 'manga' || media === 'novel') && <MangaLibraryView key={media} medium={media} />}
+      {media === 'podcast' && <PodcastsView />}
+      {media === 'video' && <VideosLibraryView />}
     </section>
   );
 };

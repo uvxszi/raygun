@@ -33,7 +33,6 @@
     "syncing": "동기화 중..."
   },
   "extensions": {
-    "addRepo": "추가",
     "cancel": "취소",
     "install": "설치",
     "nsfwBadge": "18+",
@@ -139,7 +138,6 @@
     "createBackup": "백업 생성",
     "extensions": "확장 앱",
     "language": "언어",
-    "manga": "서재 항목",
     "storage": "저장공간",
     "theme": "테마",
     "themeDark": "다크",

@@ -33,7 +33,6 @@
     "syncing": "Syncing..."
   },
   "extensions": {
-    "addRepo": "கூட்டு",
     "cancel": "ரத்துசெய்",
     "install": "நிறுவவும்",
     "nsfwBadge": "18+",
@@ -139,7 +138,6 @@
     "createBackup": "காப்புப்பிரதியை உருவாக்கவும்",
     "extensions": "நீட்டிப்புகள்",
     "language": "மொழி",
-    "manga": "நூலக உள்ளீடுகள்",
     "storage": "சேமிப்பு",
     "theme": "கருப்பொருள்",
     "themeDark": "இருண்ட",

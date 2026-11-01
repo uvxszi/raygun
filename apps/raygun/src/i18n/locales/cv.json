@@ -22,7 +22,6 @@
     "save": "Упра"
   },
   "extensions": {
-    "addRepo": "Хуш",
     "cancel": "Пӑрахӑҫла",
     "install": "Ларт",
     "nsfwBadge": "18+",
@@ -98,7 +97,6 @@
     "createBackup": "Йантӑлав ту",
     "extensions": "Хушмасем",
     "language": "Чӗлхе",
-    "manga": "Вулавӑшри хайлавсем",
     "theme": "Темӗ",
     "themeDark": "Тӗттӗм",
     "themeLight": "Ҫутӑ",

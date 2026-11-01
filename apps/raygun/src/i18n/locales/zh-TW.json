@@ -33,7 +33,6 @@
     "syncing": "Syncing..."
   },
   "extensions": {
-    "addRepo": "新增",
     "cancel": "取消",
     "install": "安裝",
     "nsfwBadge": "18+",
@@ -139,7 +138,6 @@
     "createBackup": "建立備份",
     "extensions": "擴充套件",
     "language": "語言",
-    "manga": "藏書",
     "storage": "存儲",
     "theme": "主題",
     "themeDark": "深色",

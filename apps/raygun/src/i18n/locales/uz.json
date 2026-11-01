@@ -21,7 +21,6 @@
     "save": "Saqlash"
   },
   "extensions": {
-    "addRepo": "Qõshish",
     "cancel": "Bekor qilish",
     "install": "O'rnatish",
     "nsfwBadge": "18+",
@@ -79,7 +78,6 @@
     "confirmRestore": "Tiklash",
     "extensions": "Qo'shimchalar",
     "language": "Til",
-    "manga": "Kutubxona yozuvlari",
     "theme": "Mavzu",
     "themeDark": "Yoniq",
     "themeLight": "O'chiq",

@@ -137,6 +137,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn display_and_player_settings_keep_to_what_is_offered() {
+        let temp = TempDir::new().unwrap();
+        let db = open(&temp).await;
+        for bad in [
+            SettingChange::GridColumns(1),
+            SettingChange::GridColumns(9),
+            SettingChange::WatchedPercent(42),
+            SettingChange::WatchedPercent(92),
+            SettingChange::SeekSeconds(7),
+            SettingChange::SubtitleLanguage("not a tag!".into()),
+        ] {
+            assert!(update(&db, bad.clone()).await.is_err(), "{bad:?}");
+        }
+        update(&db, SettingChange::Accent(raygun_model::Accent::Teal))
+            .await
+            .unwrap();
+        update(&db, SettingChange::GridColumns(4)).await.unwrap();
+        update(&db, SettingChange::WatchedPercent(85))
+            .await
+            .unwrap();
+        update(&db, SettingChange::SeekSeconds(30)).await.unwrap();
+        update(&db, SettingChange::SubtitleLanguage("pt-BR".into()))
+            .await
+            .unwrap();
+        let saved = update(&db, SettingChange::SubtitleLanguage(String::new()))
+            .await
+            .unwrap();
+        assert_eq!(
+            (
+                saved.accent,
+                saved.grid_columns,
+                saved.watched_percent,
+                saved.seek_seconds
+            ),
+            (raygun_model::Accent::Teal, 4, 85, 30)
+        );
+        assert_eq!(
+            saved.subtitle_language, "",
+            "empty follows the app's language"
+        );
+        assert!(saved.resume_videos && !saved.auto_subtitles, "defaults");
+    }
+
+    #[tokio::test]
     async fn unreadable_rows_fall_back_to_defaults() {
         let temp = TempDir::new().unwrap();
         let db = open(&temp).await;

@@ -12,8 +12,36 @@ use crate::events::WatchChangedEvent;
 use crate::playback::PlaybackService;
 use crate::startup::AppDb;
 
-/// Past this share a video counts as watched.
-const WATCHED_SHARE: f64 = 0.9;
+/// The player settings video playback follows (Settings → Player, M42.1).
+struct PlayerPrefs {
+    resume: bool,
+    /// Past this share a video counts as watched.
+    watched_share: f64,
+    seek_ms: u32,
+    /// The subtitle language to turn on by itself; `Some("")` follows the device's language.
+    auto_subtitles: Option<String>,
+}
+
+async fn player_prefs(db: &raygun_db::Db) -> PlayerPrefs {
+    let settings = crate::settings::load(db).await.unwrap_or_default();
+    // The app's language, unless it follows the device (the player knows the device's).
+    let app_language = match settings.language.as_str() {
+        raygun_model::SYSTEM_LANGUAGE => String::new(),
+        tag => tag.to_owned(),
+    };
+    PlayerPrefs {
+        resume: settings.resume_videos,
+        watched_share: f64::from(settings.watched_percent) / 100.0,
+        seek_ms: settings.seek_seconds * 1000,
+        auto_subtitles: settings.auto_subtitles.then(|| {
+            if settings.subtitle_language.is_empty() {
+                app_language
+            } else {
+                settings.subtitle_language.clone()
+            }
+        }),
+    }
+}
 
 /// A report from the player.
 #[derive(Debug, serde::Deserialize)]
@@ -32,15 +60,17 @@ pub async fn play(app: &AppHandle, request: VideoRequest) -> Result<(), String> 
         return Err("Only web addresses can be played".into());
     }
     let db = app.state::<AppDb>().0.clone();
+    let prefs = player_prefs(&db).await;
     let saved = store::progress(&db, &request.key)
         .await
         .map_err(|error| error.to_string())?;
     let start_ms = saved
+        .filter(|_| prefs.resume)
         .filter(|progress| progress.watched_at.is_none())
         .filter(|progress| {
-            progress
-                .duration_ms
-                .is_none_or(|duration| (progress.position_ms as f64) < duration as f64 * 0.95)
+            progress.duration_ms.is_none_or(|duration| {
+                (progress.position_ms as f64) < duration as f64 * prefs.watched_share
+            })
         })
         .map_or(0, |progress| progress.position_ms);
     let entry = VideoEntry {
@@ -65,6 +95,8 @@ pub async fn play(app: &AppHandle, request: VideoRequest) -> Result<(), String> 
         "format": request.format,
         "subtitles": proxied_subtitles(app, &request.subtitles),
         "startMs": start_ms,
+        "seekStepMs": prefs.seek_ms,
+        "autoSubtitleLanguage": prefs.auto_subtitles,
     });
     open_player(app, &payload)
 }
@@ -134,9 +166,10 @@ async fn record(app: &AppHandle, report: PlayerReport) {
         tracing::warn!(key = %report.id, %error, "video playback failed");
     }
     let duration = report.duration_ms.filter(|duration| *duration > 0.0);
-    let watched = report.state == "ended"
-        || duration.is_some_and(|duration| report.position_ms >= duration * WATCHED_SHARE);
     let db = app.state::<AppDb>().0.clone();
+    let watched_share = player_prefs(&db).await.watched_share;
+    let watched = report.state == "ended"
+        || duration.is_some_and(|duration| report.position_ms >= duration * watched_share);
     // A failed load reports position 0; don't let it wipe saved progress.
     if report.state == "error" && report.position_ms <= 0.0 {
         return;

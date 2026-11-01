@@ -21,7 +21,6 @@
     "save": "Хааллар"
   },
   "extensions": {
-    "addRepo": "Киллэр",
     "cancel": "Уларытыы",
     "install": "Туруор",
     "nsfwBadge": "18+",
@@ -88,7 +87,6 @@
     "confirmRestore": "Чөлүгэр түһэр",
     "createBackup": "Хаппаас куопуйаны оҥоруу",
     "extensions": "Кэҥэтии",
-    "manga": "Маанга",
     "theme": "Тиэмэ",
     "themeDark": "Холбоммут",
     "themeLight": "Араарыллыбыт",

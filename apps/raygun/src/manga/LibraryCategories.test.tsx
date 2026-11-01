@@ -108,10 +108,14 @@ describe('Library categories and filters', () => {
     await user.selectOptions(within(library).getByRole('combobox', { name: 'Sort by' }), 'unread');
     await user.click(within(library).getByRole('button', { name: 'Ascending' }));
     expect(shownTitles(library)).toEqual(['Chainsaw Man', 'Frieren', 'Berserk']);
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }));
 
-    await user.type(within(library).getByRole('searchbox', { name: 'Search the library' }), 'fri');
+    // Searching is the top bar's: the title turns into a search field.
+    await user.click(within(library).getByRole('button', { name: 'Search the library' }));
+
+    await user.type(within(library).getByRole('searchbox', { name: /Search your library/ }), 'fri');
     expect(shownTitles(library)).toEqual(['Frieren']);
-    await user.type(within(library).getByRole('searchbox', { name: 'Search the library' }), 'zzz');
+    await user.type(within(library).getByRole('searchbox', { name: /Search your library/ }), 'zzz');
     expect(within(library).getByText('Nothing in the library matches.')).toBeInTheDocument();
   });
 
@@ -121,8 +125,10 @@ describe('Library categories and filters', () => {
     const page = await screen.findByTestId('categories-page');
     await within(page).findByRole('listitem', { name: 'Reading' });
 
-    await user.type(within(page).getByRole('textbox', { name: 'New category name' }), 'Done');
-    await user.click(within(page).getByRole('button', { name: 'Add' }));
+    await user.click(within(page).getByRole('button', { name: 'New category' }));
+    const sheet = await screen.findByRole('dialog', { name: 'New category' });
+    await user.type(within(sheet).getByRole('textbox', { name: 'New category name' }), 'Done');
+    await user.click(within(sheet).getByRole('button', { name: 'New category' }));
     expect(commands.libraryCategoryCreate).toHaveBeenCalledWith('manga', 'Done');
 
     await user.click(within(page).getByRole('button', { name: 'Move Later up' }));

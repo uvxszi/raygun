@@ -26,7 +26,6 @@
     "save": "Simpan"
   },
   "extensions": {
-    "addRepo": "Tambah",
     "cancel": "Batal",
     "install": "Pasang",
     "nsfwBadge": "18+",
@@ -120,7 +119,6 @@
     "createBackup": "Buat sandaran",
     "extensions": "Sambungan",
     "language": "Bahasa",
-    "manga": "Komik",
     "theme": "Tema",
     "themeDark": "Gelap",
     "themeLight": "Terang",

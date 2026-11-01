@@ -34,7 +34,6 @@
     "syncing": "同期中..."
   },
   "extensions": {
-    "addRepo": "追加",
     "cancel": "キャンセル",
     "install": "インストール",
     "nsfwBadge": "18 歳以上",
@@ -150,7 +149,6 @@
     "extensions": "拡張機能",
     "importing": "インポート中...",
     "language": "言語",
-    "manga": "ライブラリの項目",
     "theme": "テーマ",
     "themeDark": "ダーク",
     "themeLight": "ライト",

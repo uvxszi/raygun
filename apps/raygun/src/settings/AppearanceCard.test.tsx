@@ -1,6 +1,6 @@
 import { commands } from '@raygun/bindings';
 import type { Settings } from '@raygun/bindings';
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithProviders } from '../test/renderWithProviders';
@@ -17,6 +17,18 @@ const DEFAULT_SETTINGS: Settings = {
   language: 'en',
   showNsfw: false,
   preferredVideoQuality: null,
+  accent: 'red',
+  startScreen: 'home',
+  navLabels: 'always',
+  gridColumns: 0,
+  coverStyle: 'compact',
+  unreadBadges: true,
+  downloadBadges: true,
+  resumeVideos: true,
+  watchedPercent: 90,
+  seekSeconds: 10,
+  autoSubtitles: false,
+  subtitleLanguage: '',
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,
@@ -113,10 +125,11 @@ describe('AppearanceCard', () => {
     });
     AppearanceCardWrapper.mount();
 
-    const select = await screen.findByRole('combobox', { name: 'Language' });
-    expect(screen.getByRole('option', { name: /^System default/ })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Deutsch' })).toBeInTheDocument();
-    await userEvent.selectOptions(select, 'de');
+    await userEvent.click(await screen.findByRole('button', { name: /^Language/ }));
+    const sheet = await screen.findByRole('dialog', { name: 'Language' });
+    expect(within(sheet).getByRole('radio', { name: /^System default/ })).not.toBeChecked();
+    expect(within(sheet).getByRole('radio', { name: 'English' })).toBeChecked();
+    await userEvent.click(within(sheet).getByRole('radio', { name: 'Deutsch' }));
 
     expect(commands.settingsUpdate).toHaveBeenCalledWith({ key: 'language', value: 'de' });
   });

@@ -34,7 +34,6 @@
     "syncing": "同步中..."
   },
   "extensions": {
-    "addRepo": "添加",
     "cancel": "取消",
     "install": "安装",
     "nsfwBadge": "18+",
@@ -152,7 +151,6 @@
     "extensions": "插件",
     "importing": "正在导入……",
     "language": "语言",
-    "manga": "漫画",
     "storage": "分类存储占用",
     "theme": "主题",
     "themeDark": "深色",

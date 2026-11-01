@@ -22,7 +22,6 @@
     "save": "Sarva"
   },
   "extensions": {
-    "addRepo": "Annanghe",
     "cancel": "Annulla",
     "install": "Installa",
     "nsfwBadge": "18+",
@@ -102,7 +101,6 @@
     "createBackup": "Crea una còpia de seguresa",
     "extensions": "Estensiones",
     "language": "Limba",
-    "manga": "Elementos de sa biblioteca",
     "theme": "Tema",
     "themeDark": "Allutu",
     "themeLight": "Istudadu",
