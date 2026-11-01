@@ -306,6 +306,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
 
+  extensions/podcast-directory:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
   extensions/radio-browser:
     devDependencies:
       '@raygun/sdk':

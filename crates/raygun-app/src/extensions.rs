@@ -45,6 +45,16 @@ fn built_in() -> Vec<ExtensionSource> {
         ExtensionSource::built_in(&[
             (
                 "raygun-extension.json",
+                include_str!("../../../extensions/podcast-directory/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/podcast-directory/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
                 include_str!("../../../extensions/internet-archive/raygun-extension.json"),
             ),
             (

@@ -1360,3 +1360,83 @@ pub struct AiModelProgress {
     pub total_bytes: f64,
     pub error: Option<String>,
 }
+
+// ---- Podcasts (M37) ----
+
+/// A podcast in lists: subscriptions and directory results opened in the app.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PodcastSummary {
+    pub id: String,
+    pub feed_url: String,
+    pub title: String,
+    pub author: Option<String>,
+    pub artwork_url: Option<String>,
+    pub episodes: u32,
+    pub unplayed: u32,
+    /// Unix ms of the newest episode.
+    pub latest_published_at: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum EpisodeDownloadState {
+    Downloading,
+    Done,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct EpisodeDownload {
+    pub state: EpisodeDownloadState,
+    pub received_bytes: f64,
+    pub total_bytes: Option<f64>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PodcastEpisode {
+    pub id: String,
+    pub podcast_id: String,
+    pub podcast_title: String,
+    pub title: String,
+    pub description: Option<String>,
+    /// Unix ms.
+    pub published_at: Option<f64>,
+    pub duration_ms: Option<f64>,
+    /// Where listening stopped (0 when played or not started).
+    pub position_ms: f64,
+    pub played: bool,
+    pub artwork_url: Option<String>,
+    pub video: bool,
+    pub download: Option<EpisodeDownload>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PodcastView {
+    pub id: String,
+    pub feed_url: String,
+    pub title: String,
+    pub author: Option<String>,
+    pub description: Option<String>,
+    pub artwork_url: Option<String>,
+    pub link: Option<String>,
+    pub subscribed: bool,
+    /// Newest first.
+    pub episodes: Vec<PodcastEpisode>,
+}
+
+/// A podcast a directory found.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PodcastSearchResult {
+    pub title: String,
+    pub author: Option<String>,
+    pub feed_url: String,
+    pub artwork_url: Option<String>,
+    pub description: Option<String>,
+    pub subscribed: bool,
+}

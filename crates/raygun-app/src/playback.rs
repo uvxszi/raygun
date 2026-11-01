@@ -69,6 +69,8 @@ struct Outbox {
     failed: Option<(Pick, String)>,
     /// The current item just counted as a play.
     played: Option<QueueItem>,
+    /// The current item when `state` changed, for followers like podcasts (M37).
+    current: Option<QueueItem>,
 }
 
 impl PlaybackService {
@@ -105,6 +107,11 @@ impl PlaybackService {
     /// Replaces the queue and starts playing (see `PlaybackCore::replace`).
     pub fn replace(&self, items: Vec<QueueItemInput>, start_index: Option<usize>, shuffle: bool) {
         self.run(|core| core.replace(items, start_index, shuffle));
+    }
+
+    /// Replaces the queue and starts its first item at `start_ms` (a podcast episode resuming).
+    pub fn replace_from(&self, items: Vec<QueueItemInput>, start_ms: f64) {
+        self.run(|core| core.replace_at(items, Some(0), false, start_ms));
     }
 
     pub fn control(&self, control: PlaybackControl) {
@@ -211,6 +218,7 @@ impl PlaybackService {
                         .set_source_label(load_id, Some(pick.provider_name));
                     let labelled = self.resolve(&mut inner, effects);
                     outbox.state = labelled.state.or(outbox.state);
+                    outbox.current = labelled.current.or(outbox.current);
                     outbox
                 }
                 Err(message) => {
@@ -288,7 +296,10 @@ impl PlaybackService {
                     let engine = inner.active.unwrap_or(Engine::Webview);
                     outbox.engine.push((engine, command));
                 }
-                Effect::StateChanged => outbox.state = Some(inner.core.state()),
+                Effect::StateChanged => {
+                    outbox.state = Some(inner.core.state());
+                    outbox.current = inner.core.current_item().cloned();
+                }
                 Effect::QueueChanged => outbox.queue = Some(inner.core.queue()),
             }
         }
@@ -310,6 +321,12 @@ impl PlaybackService {
             log_emit(QueueEvent(queue).emit(&self.app));
         }
         if let Some(state) = outbox.state {
+            if let Some(podcasts) = self
+                .app
+                .try_state::<std::sync::Arc<crate::podcasts::PodcastService>>()
+            {
+                podcasts.on_playback(&state, outbox.current.as_ref());
+            }
             log_emit(PlaybackStateEvent(state).emit(&self.app));
         }
         if outbox.verified.is_some() || outbox.failed.is_some() {

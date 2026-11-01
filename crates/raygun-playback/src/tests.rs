@@ -507,3 +507,23 @@ fn replace_with_nothing_clears() {
     assert!(effects.contains(&Effect::Engine(EngineCommand::Stop)));
     assert!(core.queue().items.is_empty());
 }
+
+#[test]
+fn replace_at_starts_where_listening_stopped() {
+    let mut core = core_with(&["old"]);
+    let effects = core.replace_at(vec![input("episode")], Some(0), false, 90_000.0);
+    let start = effects.iter().find_map(|effect| match effect {
+        Effect::Load { start_ms, item, .. } => Some((item.title.clone(), *start_ms)),
+        _ => None,
+    });
+    assert_eq!(start, Some(("episode".to_owned(), 90_000.0)));
+    assert_eq!(core.state().position_ms, 90_000.0);
+    assert_eq!(current_title(&core).as_deref(), Some("episode"));
+
+    let effects = core.replace_at(vec![input("again")], Some(0), false, -5.0);
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Load { start_ms, .. } if *start_ms == 0.0))
+    );
+}

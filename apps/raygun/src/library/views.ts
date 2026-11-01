@@ -1,8 +1,9 @@
-export type LibraryView = 'playlists' | 'favorites' | 'albums' | 'artists' | 'tracks';
+export type LibraryView = 'playlists' | 'favorites' | 'podcasts' | 'albums' | 'artists' | 'tracks';
 
 export const LIBRARY_VIEWS: LibraryView[] = [
   'playlists',
   'favorites',
+  'podcasts',
   'albums',
   'artists',
   'tracks',

@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { FavoritesView } from '../collections/FavoritesView';
 import { MangaLibraryView } from '../manga/MangaLibraryView';
 import { PlaylistsView } from '../collections/PlaylistsView';
+import { PodcastsView } from '../podcasts/PodcastsView';
 import { AlbumGrid } from '../library/AlbumGrid';
 import { ArtistList } from '../library/ArtistList';
 import { FirstRunCard } from '../library/FirstRunCard';
@@ -127,6 +128,7 @@ export const LibraryPage: FC = () => {
       </nav>
       {view === 'playlists' && <PlaylistsView />}
       {view === 'favorites' && <FavoritesView />}
+      {view === 'podcasts' && <PodcastsView />}
       {local && !hasFolders && <FirstRunCard />}
       {local && hasFolders && status.data.trackCount === 0 && !status.data.scanning && (
         <p className="text-muted text-sm">{t('library.noTracksFound')}</p>

@@ -48,7 +48,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Playlists, favorites, history | Nuclear, RiPlay | ✅ M18 |
 | Synced lyrics, furigana/romaji | Nuclear | ✅ M23 |
 | Internet radio | — | ✅ (Radio Browser) |
-| **Podcasts**: search, subscribe, episodes, resume, downloads | RiPlay | 🔜 M37 |
+| **Podcasts**: search, subscribe, episodes, resume, downloads | RiPlay | ✅ M37 |
 | Equalizer | RiPlay | 🔜 M50 |
 | Sleep timer | RiPlay | 🔜 M50 |
 | Blacklist (artists/tracks) | RiPlay | 🔜 M50 |

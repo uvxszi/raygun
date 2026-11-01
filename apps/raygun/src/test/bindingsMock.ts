@@ -31,6 +31,7 @@ type EventPayloads = {
   mangaDownloadsEvent: string;
   ttsEvent: TtsUpdate;
   aiModelEvent: AiModelProgress;
+  podcastsChangedEvent: string;
 };
 type EventName = keyof EventPayloads;
 type Listener = (event: { payload: unknown }) => void;
@@ -207,6 +208,18 @@ export const bindingsMock = {
     aiModels: vi.fn(),
     aiModelDownload: vi.fn(),
     aiModelDelete: vi.fn(),
+    podcastSubscriptions: vi.fn(),
+    podcastLatest: vi.fn(),
+    podcastOpenFeed: vi.fn(),
+    podcastGet: vi.fn(),
+    podcastSetSubscribed: vi.fn(),
+    podcastRefreshAll: vi.fn(),
+    podcastSearch: vi.fn(),
+    podcastTop: vi.fn(),
+    podcastPlay: vi.fn(),
+    podcastSetPlayed: vi.fn(),
+    podcastDownload: vi.fn(),
+    podcastRemoveDownload: vi.fn(),
   },
   events: {
     engineCommandEvent: makeEvent('engineCommandEvent'),
@@ -219,6 +232,7 @@ export const bindingsMock = {
     mangaDownloadsEvent: makeEvent('mangaDownloadsEvent'),
     ttsEvent: makeEvent('ttsEvent'),
     aiModelEvent: makeEvent('aiModelEvent'),
+    podcastsChangedEvent: makeEvent('podcastsChangedEvent'),
   },
 };
 
@@ -354,6 +368,16 @@ export const seedBindings = () => {
   commands.aiModels.mockResolvedValue([]);
   commands.aiModelDownload.mockResolvedValue(ok(null));
   commands.aiModelDelete.mockResolvedValue(ok(null));
+  commands.podcastSubscriptions.mockResolvedValue(ok([]));
+  commands.podcastLatest.mockResolvedValue(ok([]));
+  commands.podcastSearch.mockResolvedValue(ok([]));
+  commands.podcastTop.mockResolvedValue(ok([]));
+  commands.podcastRefreshAll.mockResolvedValue(ok(0));
+  commands.podcastSetSubscribed.mockResolvedValue(ok(null));
+  commands.podcastPlay.mockResolvedValue(ok(null));
+  commands.podcastSetPlayed.mockResolvedValue(ok(null));
+  commands.podcastDownload.mockResolvedValue(ok(null));
+  commands.podcastRemoveDownload.mockResolvedValue(ok(null));
 };
 
 export const emitEvent = <Name extends EventName>(name: Name, payload: EventPayloads[Name]) => {

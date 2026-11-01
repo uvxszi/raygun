@@ -194,12 +194,35 @@ export type NovelSourceProvider = {
   passage(args: { chapterId: string }): Promise<Passage>;
 };
 
+// ---- Podcasts (M37) ----
+
+/** A podcast a directory found; the app reads the feed itself. */
+export type PodcastResult = {
+  title: string;
+  author?: string | null;
+  /** The RSS/Atom feed, http(s) only. */
+  feedUrl: string;
+  /** Square artwork, http(s) only. */
+  artworkUrl?: string | null;
+  description?: string | null;
+};
+
+export type PodcastDirectoryProvider = {
+  kind: 'podcast.directory';
+  id: string;
+  name?: string;
+  search(args: { query: string; limit: number }): Promise<PodcastResult[]>;
+  /** Popular podcasts, shown before the user searches. */
+  top?(args: { limit: number }): Promise<PodcastResult[]>;
+};
+
 export type Provider =
   | MusicMetadataProvider
   | MusicStreamProvider
   | LyricsProvider
   | MangaSourceProvider
-  | NovelSourceProvider;
+  | NovelSourceProvider
+  | PodcastDirectoryProvider;
 export type ProviderKind = Provider['kind'];
 
 // ---- Host API ----

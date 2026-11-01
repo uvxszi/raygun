@@ -3507,11 +3507,13 @@ name = "raygun-app"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "chrono",
  "ego-tree",
  "flate2",
  "futures-util",
  "prost",
  "qrcode",
+ "quick-xml",
  "raygun-ai",
  "raygun-db",
  "raygun-ext-host",

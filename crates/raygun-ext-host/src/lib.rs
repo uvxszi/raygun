@@ -11,6 +11,7 @@ pub mod novel;
 pub mod nuclear;
 pub mod package;
 pub mod permissions;
+pub mod podcast;
 pub mod repo;
 pub mod shosetsu;
 mod storage;

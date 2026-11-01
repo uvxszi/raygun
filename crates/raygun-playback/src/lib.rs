@@ -163,6 +163,17 @@ impl PlaybackCore {
         start_index: Option<usize>,
         shuffle: bool,
     ) -> Vec<Effect> {
+        self.replace_at(inputs, start_index, shuffle, 0.0)
+    }
+
+    /// Like [`Self::replace`], starting the first item at `start_ms` (resuming an episode, M37).
+    pub fn replace_at(
+        &mut self,
+        inputs: Vec<QueueItemInput>,
+        start_index: Option<usize>,
+        shuffle: bool,
+        start_ms: f64,
+    ) -> Vec<Effect> {
         if inputs.is_empty() {
             return self.clear();
         }
@@ -187,7 +198,7 @@ impl PlaybackCore {
         }
         let cursor = self.position_in_order(start);
         let mut effects = vec![Effect::QueueChanged];
-        effects.extend(self.load_at(cursor, 0.0, true));
+        effects.extend(self.load_at(cursor, start_ms.max(0.0), true));
         effects
     }
 

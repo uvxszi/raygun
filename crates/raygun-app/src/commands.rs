@@ -1065,3 +1065,116 @@ pub async fn ai_model_download(ai: tauri::State<'_, AiService>, id: String) -> R
 pub async fn ai_model_delete(ai: tauri::State<'_, AiService>, id: String) -> Result<(), String> {
     ai.delete_model(&id).await
 }
+
+// ---- Podcasts (M37) ----
+
+type Podcasts<'a> = tauri::State<'a, Arc<crate::podcasts::PodcastService>>;
+
+/// Subscribed podcasts, most recently updated first.
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_subscriptions(
+    podcasts: Podcasts<'_>,
+) -> Result<Vec<raygun_model::PodcastSummary>, String> {
+    podcasts.subscriptions().await
+}
+
+/// The newest episodes across subscriptions.
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_latest(
+    podcasts: Podcasts<'_>,
+    limit: u32,
+) -> Result<Vec<raygun_model::PodcastEpisode>, String> {
+    podcasts.latest(limit).await
+}
+
+/// Opens a podcast by its feed address (from the directory or typed), without subscribing.
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_open_feed(
+    podcasts: Podcasts<'_>,
+    feed_url: String,
+) -> Result<raygun_model::PodcastView, String> {
+    podcasts.open_feed(&feed_url).await
+}
+
+/// A stored podcast and its episodes; `refresh` reads the feed again first.
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_get(
+    podcasts: Podcasts<'_>,
+    id: String,
+    refresh: bool,
+) -> Result<raygun_model::PodcastView, String> {
+    podcasts.podcast(&id, refresh).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_set_subscribed(
+    podcasts: Podcasts<'_>,
+    id: String,
+    subscribed: bool,
+) -> Result<(), String> {
+    podcasts.set_subscribed(&id, subscribed).await
+}
+
+/// Reads every subscription's feed again; returns how many episodes were new.
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_refresh_all(podcasts: Podcasts<'_>) -> Result<u32, String> {
+    podcasts.refresh_all().await
+}
+
+/// Searches the podcast directories.
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_search(
+    podcasts: Podcasts<'_>,
+    query: String,
+) -> Result<Vec<raygun_model::PodcastSearchResult>, String> {
+    podcasts.search(&query).await
+}
+
+/// Popular podcasts from the directories.
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_top(
+    podcasts: Podcasts<'_>,
+) -> Result<Vec<raygun_model::PodcastSearchResult>, String> {
+    podcasts.top().await
+}
+
+/// Plays an episode, resuming where listening stopped.
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_play(podcasts: Podcasts<'_>, episode_id: String) -> Result<(), String> {
+    podcasts.play(&episode_id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_set_played(
+    podcasts: Podcasts<'_>,
+    episode_id: String,
+    played: bool,
+) -> Result<(), String> {
+    podcasts.set_played(&episode_id, played).await
+}
+
+/// Downloads an episode in the background; progress arrives as `PodcastsChangedEvent`s.
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_download(podcasts: Podcasts<'_>, episode_id: String) -> Result<(), String> {
+    podcasts.download(&episode_id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_remove_download(
+    podcasts: Podcasts<'_>,
+    episode_id: String,
+) -> Result<(), String> {
+    podcasts.remove_download(&episode_id).await
+}

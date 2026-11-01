@@ -20,6 +20,8 @@ mod mcp;
 mod mihon;
 mod novel;
 mod playback;
+mod podcast_feed;
+mod podcasts;
 mod remote;
 mod resolution;
 mod resolver;
@@ -139,7 +141,19 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::ai_provider_test,
             commands::ai_models,
             commands::ai_model_download,
-            commands::ai_model_delete
+            commands::ai_model_delete,
+            commands::podcast_subscriptions,
+            commands::podcast_latest,
+            commands::podcast_open_feed,
+            commands::podcast_get,
+            commands::podcast_set_subscribed,
+            commands::podcast_refresh_all,
+            commands::podcast_search,
+            commands::podcast_top,
+            commands::podcast_play,
+            commands::podcast_set_played,
+            commands::podcast_download,
+            commands::podcast_remove_download
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,
@@ -151,7 +165,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::MangaUpdateEvent,
             events::MangaDownloadsEvent,
             events::TtsEvent,
-            events::AiModelEvent
+            events::AiModelEvent,
+            events::PodcastsChangedEvent
         ])
 }
 

@@ -42,6 +42,8 @@ zip = { version = "9", default-features = false, features = ["deflate-flate2-zli
 base64 = "0.22"
 uuid.workspace = true
 prost = { version = "0.13", default-features = false, features = ["derive", "std"] }
+quick-xml = "0.42"
+chrono = { version = "0.4", default-features = false, features = ["std", "alloc"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 rfd.workspace = true

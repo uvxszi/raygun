@@ -200,6 +200,27 @@ export const commands = {
 	/**  Downloads and installs a model; progress arrives as `AiModelEvent`s. */
 	aiModelDownload: (id: string) => typedError<null, string>(__TAURI_INVOKE("ai_model_download", { id })),
 	aiModelDelete: (id: string) => typedError<null, string>(__TAURI_INVOKE("ai_model_delete", { id })),
+	/**  Subscribed podcasts, most recently updated first. */
+	podcastSubscriptions: () => typedError<PodcastSummary[], string>(__TAURI_INVOKE("podcast_subscriptions")),
+	/**  The newest episodes across subscriptions. */
+	podcastLatest: (limit: number) => typedError<PodcastEpisode[], string>(__TAURI_INVOKE("podcast_latest", { limit })),
+	/**  Opens a podcast by its feed address (from the directory or typed), without subscribing. */
+	podcastOpenFeed: (feedUrl: string) => typedError<PodcastView, string>(__TAURI_INVOKE("podcast_open_feed", { feedUrl })),
+	/**  A stored podcast and its episodes; `refresh` reads the feed again first. */
+	podcastGet: (id: string, refresh: boolean) => typedError<PodcastView, string>(__TAURI_INVOKE("podcast_get", { id, refresh })),
+	podcastSetSubscribed: (id: string, subscribed: boolean) => typedError<null, string>(__TAURI_INVOKE("podcast_set_subscribed", { id, subscribed })),
+	/**  Reads every subscription's feed again; returns how many episodes were new. */
+	podcastRefreshAll: () => typedError<number, string>(__TAURI_INVOKE("podcast_refresh_all")),
+	/**  Searches the podcast directories. */
+	podcastSearch: (query: string) => typedError<PodcastSearchResult[], string>(__TAURI_INVOKE("podcast_search", { query })),
+	/**  Popular podcasts from the directories. */
+	podcastTop: () => typedError<PodcastSearchResult[], string>(__TAURI_INVOKE("podcast_top")),
+	/**  Plays an episode, resuming where listening stopped. */
+	podcastPlay: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("podcast_play", { episodeId })),
+	podcastSetPlayed: (episodeId: string, played: boolean) => typedError<null, string>(__TAURI_INVOKE("podcast_set_played", { episodeId, played })),
+	/**  Downloads an episode in the background; progress arrives as `PodcastsChangedEvent`s. */
+	podcastDownload: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("podcast_download", { episodeId })),
+	podcastRemoveDownload: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("podcast_remove_download", { episodeId })),
 };
 
 /** Events */
@@ -211,6 +232,7 @@ export const events = {
 	mangaDownloadsEvent: makeEvent<MangaDownloadsEvent>("manga-downloads-event"),
 	mangaUpdateEvent: makeEvent<MangaUpdateEvent>("manga-update-event"),
 	playbackStateEvent: makeEvent<PlaybackStateEvent>("playback-state-event"),
+	podcastsChangedEvent: makeEvent<PodcastsChangedEvent>("podcasts-changed-event"),
 	queueEvent: makeEvent<QueueEvent>("queue-event"),
 	syncChangedEvent: makeEvent<SyncChangedEvent>("sync-changed-event"),
 	ttsEvent: makeEvent<TtsEvent>("tts-event"),
@@ -372,6 +394,15 @@ export type EngineReport = {
 	loadId: number,
 	event: EngineEvent,
 };
+
+export type EpisodeDownload = {
+	state: EpisodeDownloadState,
+	receivedBytes: number | null,
+	totalBytes: number | null,
+	error: string | null,
+};
+
+export type EpisodeDownloadState = "downloading" | "done" | "failed";
 
 export type ExtensionInfo = {
 	id: string,
@@ -763,6 +794,65 @@ export type PlaylistSummary = {
 	/**  Up to four distinct artworks of the first items, for the cover. */
 	artworkUrls: string[],
 };
+
+export type PodcastEpisode = {
+	id: string,
+	podcastId: string,
+	podcastTitle: string,
+	title: string,
+	description: string | null,
+	/**  Unix ms. */
+	publishedAt: number | null,
+	durationMs: number | null,
+	/**  Where listening stopped (0 when played or not started). */
+	positionMs: number | null,
+	played: boolean,
+	artworkUrl: string | null,
+	video: boolean,
+	download: EpisodeDownload | null,
+};
+
+/**  A podcast a directory found. */
+export type PodcastSearchResult = {
+	title: string,
+	author: string | null,
+	feedUrl: string,
+	artworkUrl: string | null,
+	description: string | null,
+	subscribed: boolean,
+};
+
+/**  A podcast in lists: subscriptions and directory results opened in the app. */
+export type PodcastSummary = {
+	id: string,
+	feedUrl: string,
+	title: string,
+	author: string | null,
+	artworkUrl: string | null,
+	episodes: number,
+	unplayed: number,
+	/**  Unix ms of the newest episode. */
+	latestPublishedAt: number | null,
+};
+
+export type PodcastView = {
+	id: string,
+	feedUrl: string,
+	title: string,
+	author: string | null,
+	description: string | null,
+	artworkUrl: string | null,
+	link: string | null,
+	subscribed: boolean,
+	/**  Newest first. */
+	episodes: PodcastEpisode[],
+};
+
+/**
+ *  Podcast data changed (a refresh found episodes, a download moved on); carries the podcast id,
+ *  or an empty string when several changed (M37).
+ */
+export type PodcastsChangedEvent = string;
 
 /**  A provider an extension registered, e.g. a `music.metadata` search. */
 export type ProviderInfo = {

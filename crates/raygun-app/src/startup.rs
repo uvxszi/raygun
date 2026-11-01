@@ -80,6 +80,13 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         raygun_net::http_client()?,
     );
     app.manage(downloads.clone());
+    let podcasts = std::sync::Arc::new(crate::podcasts::PodcastService::new(
+        app.handle().clone(),
+        raygun_net::http_client()?,
+        proxy.images(),
+        paths.downloads(),
+    ));
+    app.manage(podcasts.clone());
     let ai = tauri::async_runtime::block_on(crate::ai::AiService::open(
         app.handle().clone(),
         paths.secrets(),
@@ -125,6 +132,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     // Pick up files added or removed while the app was closed (cheap when nothing changed).
     app.state::<crate::library::LibraryService>().start_scan();
     downloads.start();
+    podcasts.start();
     crate::tts::install(app.handle());
     app.state::<crate::manga::MangaService>().start_scheduler();
     crate::system_ui::apply_saved_theme(app.handle().clone());
