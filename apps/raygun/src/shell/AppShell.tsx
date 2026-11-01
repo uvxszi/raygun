@@ -13,6 +13,7 @@ import { PlayerSheet } from '../player/PlayerSheet';
 import { usePlaybackSync } from '../player/usePlayback';
 import { useApplyTheme } from '../settings/useApplyTheme';
 import { useSettings } from '../settings/useSettings';
+import { usePlayerLabels } from '../watch/usePlayerLabels';
 import { BottomTabs } from './BottomTabs';
 import { SideRail } from './SideRail';
 
@@ -40,6 +41,7 @@ export const AppShell: FC = () => {
   useLibraryScanSync();
   useExtensionsSync();
   useSyncChangedListener();
+  usePlayerLabels();
 
   // Pages scroll inside <main>, not the window, so start each page at the top.
   const mainRef = useRef<HTMLElement>(null);

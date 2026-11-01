@@ -95,6 +95,7 @@ const stream = (kind: StremioStream['kind'], name: string, target: string): Stre
   target,
   headers: {},
   subtitles: [],
+  bingeGroup: null,
 });
 
 const ADDON: StremioAddon = {
@@ -156,7 +157,16 @@ describe('Stremio addons in Watch', () => {
     ).toHaveAttribute('aria-pressed', 'true');
 
     const second = within(page).getByRole('listitem', { name: 'S1 E2 · Episode 2' });
+    // A tap watches: the player opens and finds the best stream itself (M44).
     await user.click(within(second).getByRole('button', { name: /^2\. Episode 2/ }));
+    expect(commands.stremioWatch).toHaveBeenCalledWith('series', 'tt0903747', 'tt0903747:1:2');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    // A long press picks the stream.
+    await user.pointer({
+      keys: '[MouseRight]',
+      target: within(second).getByRole('button', { name: /^2\. Episode 2/ }),
+    });
     const picker = await screen.findByRole('dialog', { name: 'Streams' });
     expect(commands.stremioStreams).toHaveBeenCalledWith('series', 'tt0903747:1:2');
     expect(within(picker).getByRole('button', { name: /Torrent 1080p/ })).toBeDisabled();
@@ -214,7 +224,10 @@ describe('Stremio addons in Watch', () => {
     );
 
     await user.click(within(page).getByRole('button', { name: 'Play' }));
-    const picker = await screen.findByRole('dialog', { name: 'Streams' });
+    expect(commands.stremioWatch).toHaveBeenCalledWith('movie', 'tt0133093', null);
+
+    await user.click(within(page).getByRole('button', { name: 'Download The Matrix' }));
+    const picker = await screen.findByRole('dialog', { name: 'Choose what to download' });
     expect(await within(picker).findByText(/None of your addons has a stream/)).toBeInTheDocument();
     await user.click(within(picker).getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

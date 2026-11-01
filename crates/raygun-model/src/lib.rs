@@ -93,6 +93,10 @@ pub struct Settings {
     pub auto_subtitles: bool,
     /// Subtitles' language as a BCP 47 tag; empty follows the app's language.
     pub subtitle_language: String,
+    /// The next episode plays by itself at the end of one (M44).
+    pub autoplay_next: bool,
+    /// Seconds before the end the next-episode prompt shows; 0 shows it at the end only (M44).
+    pub next_prompt_seconds: u32,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -135,6 +139,9 @@ pub enum CoverStyle {
 
 /// The double-tap seek steps offered, in seconds.
 pub const SEEK_SECONDS: [u32; 5] = [5, 10, 15, 30, 60];
+
+/// When the next-episode prompt can show, in seconds before the end (0: at the end).
+pub const NEXT_PROMPT_SECONDS: [u32; 5] = [0, 5, 10, 15, 30];
 
 /// The `language` setting that follows the device's language.
 pub const SYSTEM_LANGUAGE: &str = "system";
@@ -214,6 +221,8 @@ impl Default for Settings {
             seek_seconds: 10,
             auto_subtitles: false,
             subtitle_language: String::new(),
+            autoplay_next: true,
+            next_prompt_seconds: 10,
         }
     }
 }
@@ -239,6 +248,8 @@ impl Settings {
             SettingChange::SeekSeconds(seconds) => self.seek_seconds = seconds,
             SettingChange::AutoSubtitles(on) => self.auto_subtitles = on,
             SettingChange::SubtitleLanguage(tag) => self.subtitle_language = tag,
+            SettingChange::AutoplayNext(on) => self.autoplay_next = on,
+            SettingChange::NextPromptSeconds(seconds) => self.next_prompt_seconds = seconds,
         }
     }
 }
@@ -266,6 +277,8 @@ pub enum SettingChange {
     SeekSeconds(u32),
     AutoSubtitles(bool),
     SubtitleLanguage(String),
+    AutoplayNext(bool),
+    NextPromptSeconds(u32),
 }
 
 impl SettingChange {
@@ -290,6 +303,8 @@ impl SettingChange {
             Self::SeekSeconds(_) => "seekSeconds",
             Self::AutoSubtitles(_) => "autoSubtitles",
             Self::SubtitleLanguage(_) => "subtitleLanguage",
+            Self::AutoplayNext(_) => "autoplayNext",
+            Self::NextPromptSeconds(_) => "nextPromptSeconds",
         }
     }
 
@@ -306,7 +321,15 @@ impl SettingChange {
             | Self::UnreadBadges(_)
             | Self::DownloadBadges(_)
             | Self::ResumeVideos(_)
-            | Self::AutoSubtitles(_) => Ok(()),
+            | Self::AutoSubtitles(_)
+            | Self::AutoplayNext(_) => Ok(()),
+            Self::NextPromptSeconds(seconds) => {
+                if NEXT_PROMPT_SECONDS.contains(seconds) {
+                    Ok(())
+                } else {
+                    Err(format!("{seconds} s isn't an offered prompt time"))
+                }
+            }
             Self::GridColumns(columns) => {
                 if *columns == 0 || (2..=6).contains(columns) {
                     Ok(())
@@ -1861,6 +1884,8 @@ pub struct StremioStream {
     pub target: String,
     pub headers: std::collections::BTreeMap<String, String>,
     pub subtitles: Vec<VideoSubtitle>,
+    /// Streams of one release across episodes (Stremio's `bingeGroup`), for binge watching.
+    pub binge_group: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]

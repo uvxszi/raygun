@@ -226,6 +226,21 @@ impl<R: Runtime> NativeAudio<R> {
         Err("the video player is only available on Android for now".into())
     }
 
+    /// Sends an update to the open video player (M44): `{"type": "load" | "episodes" | "sources" |
+    /// "loading" | "error", ...}`. Ignored when no player is open.
+    #[cfg(target_os = "android")]
+    pub fn video_update(&self, update: &serde_json::Value) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>("videoUpdate", update.clone())
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub fn video_update(&self, _update: &serde_json::Value) -> Result<(), String> {
+        Err("the video player is only available on Android for now".into())
+    }
+
     /// Forwards one engine command to the native player.
     #[cfg(target_os = "android")]
     pub fn send(&self, command: &EngineCommand) -> Result<(), String> {

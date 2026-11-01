@@ -310,6 +310,17 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
     }
 
+    /**
+     * Sends an update to the open video player (M44): a video to `load`, the session's `episodes`
+     * and `sources`, or a `loading`/`error` message. Dropped when no player is open: the user
+     * closed it, which ended the session.
+     */
+    @Command
+    fun videoUpdate(invoke: Invoke) {
+        VideoPlayerActivity.deliver(invoke.getArgs().toString())
+        invoke.resolve()
+    }
+
     @Command
     fun applyTheme(invoke: Invoke) {
         theme = invoke.parseArgs(ThemeArgs::class.java).theme

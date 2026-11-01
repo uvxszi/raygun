@@ -131,6 +131,20 @@ export const useRemoveVideoDownload = () =>
 export const useSetVideoDownloadsPaused = () =>
   useDownloadMutation((paused: boolean) => unwrapResult(commands.videoDownloadsSetPaused(paused)));
 
+/** Watches a video source's title from an episode (or its first unwatched one): M44 sessions. */
+export const useWatchSourceTitle = () =>
+  useMutation({
+    mutationFn: ({ titleId, episodeId }: { titleId: string; episodeId: string | null }) =>
+      unwrapResult(commands.videoSourceWatch(titleId, episodeId)),
+  });
+
+/** Watches a Stremio movie or series from a video (or its first unwatched one). */
+export const useWatchStremio = () =>
+  useMutation({
+    mutationFn: ({ kind, id, videoId }: { kind: string; id: string; videoId: string | null }) =>
+      unwrapResult(commands.stremioWatch(kind, id, videoId)),
+  });
+
 export const usePlayVideoDownload = () =>
   useMutation({ mutationFn: (id: string) => unwrapResult(commands.videoDownloadPlay(id)) });
 

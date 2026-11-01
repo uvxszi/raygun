@@ -1610,6 +1610,51 @@ pub async fn video_set_episode_watched(
     sources.set_watched(&title_id, &episode_id, watched).await
 }
 
+// ---- Playback sessions (M44) ----
+
+type Sessions<'a> = tauri::State<'a, crate::video_session::VideoSessions>;
+
+/// Watches a video source's stored title: the player opens at once on `episode_id` (the source's
+/// id; the first unwatched when none) and plays the best link as it resolves.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_source_watch(
+    sessions: Sessions<'_>,
+    title_id: String,
+    episode_id: Option<String>,
+) -> Result<(), String> {
+    let origin = crate::video_session::Origin::Source { title_id };
+    sessions.start(origin, episode_id).await
+}
+
+/// Watches a Stremio movie or series from `video_id` (the first unwatched episode when none).
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_watch(
+    sessions: Sessions<'_>,
+    kind: String,
+    id: String,
+    video_id: Option<String>,
+) -> Result<(), String> {
+    let origin = crate::video_session::Origin::Stremio { kind, id };
+    sessions.start(origin, video_id).await
+}
+
+/// The video player's words in the app's language (episodes, sources, next episode...).
+#[tauri::command]
+#[specta::specta]
+pub fn video_set_player_labels(
+    sessions: Sessions<'_>,
+    labels: std::collections::HashMap<String, String>,
+) {
+    sessions.set_labels(
+        labels
+            .into_iter()
+            .map(|(key, text)| (key, serde_json::Value::String(text)))
+            .collect(),
+    );
+}
+
 // ---- Video library, updates and downloads (M43) ----
 
 type VideoDownloadsState<'a> = tauri::State<'a, Arc<crate::video_downloads::VideoDownloadService>>;

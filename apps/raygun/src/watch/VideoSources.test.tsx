@@ -181,7 +181,10 @@ describe('Video sources in Watch', () => {
     const page = await screen.findByTestId('video-title-page');
     expect(within(page).getByText('Movie · 1938 · Archive Films')).toBeInTheDocument();
 
+    // Play watches through a session; choosing a link is the top bar's Choose a source.
     await user.click(within(page).getByRole('button', { name: 'Play' }));
+    expect(commands.videoSourceWatch).toHaveBeenCalledWith('title-2', 'chaplin/chaplin.mpeg');
+    await user.click(within(page).getByRole('button', { name: 'Choose a source' }));
     const picker = await screen.findByRole('dialog', { name: 'Servers' });
     expect(commands.videoServers).toHaveBeenCalledWith(SOURCE.id, 'chaplin/chaplin.mpeg');
     expect(commands.videoLinks).toHaveBeenCalledWith(SOURCE.id, 'broken');
@@ -212,6 +215,24 @@ describe('Video sources in Watch', () => {
       link: link('720p', 720, true),
     });
     await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('turns autoplay off, sets the next-episode prompt and names the player in the app language', async () => {
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/settings/player');
+    await user.click(
+      await screen.findByRole('switch', { name: /Play the next episode automatically/ }),
+    );
+    expect(commands.settingsUpdate).toHaveBeenCalledWith({ key: 'autoplayNext', value: false });
+
+    await user.click(screen.getByRole('button', { name: /Next-episode prompt/ }));
+    const sheet = await screen.findByRole('dialog', { name: 'Next-episode prompt' });
+    await user.click(within(sheet).getByRole('radio', { name: 'At the end' }));
+    expect(commands.settingsUpdate).toHaveBeenCalledWith({ key: 'nextPromptSeconds', value: 0 });
+
+    expect(commands.videoSetPlayerLabels).toHaveBeenCalledWith(
+      expect.objectContaining({ episodes: 'Episodes', nextIn: 'Next episode in {n} s' }),
+    );
   });
 
   it('sets the preferred video quality', async () => {

@@ -74,6 +74,9 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         proxy.images(),
         paths.downloads(),
     ));
+    app.manage(crate::video_session::VideoSessions::new(
+        app.handle().clone(),
+    ));
     app.manage(crate::video_sources::VideoSourceService::new(
         app.handle().clone(),
         proxy.images(),

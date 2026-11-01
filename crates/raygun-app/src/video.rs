@@ -1,7 +1,8 @@
 //! Watching video (M38): the native player on Android (Media3, in the audio plugin) and the
 //! progress it reports, for resuming and "continue watching". Elsewhere video isn't available yet.
 //! Progress also goes to the library's episodes, and finished downloads play instead of the
-//! stream (M43).
+//! stream (M43). Episodes of a title play through a session (M44, `video_session`), which loads
+//! videos into the open player and answers its requests.
 
 use raygun_db::video::{self as store, VideoEntry};
 use raygun_model::{ContinueWatching, PlaybackControl, VideoRequest, VideoSubtitle};
@@ -13,6 +14,7 @@ use crate::catalog::now_ms;
 use crate::events::WatchChangedEvent;
 use crate::playback::PlaybackService;
 use crate::startup::AppDb;
+use crate::video_session::{EpisodeRef, VideoSessions};
 
 /// The player settings video playback follows (Settings → Player, M42.1).
 struct PlayerPrefs {
@@ -22,6 +24,10 @@ struct PlayerPrefs {
     seek_ms: u32,
     /// The subtitle language to turn on by itself; `Some("")` follows the device's language.
     auto_subtitles: Option<String>,
+    /// The next episode plays by itself (M44).
+    autoplay: bool,
+    /// When the next-episode prompt shows, before the end.
+    next_prompt_ms: u32,
 }
 
 async fn player_prefs(db: &raygun_db::Db) -> PlayerPrefs {
@@ -35,6 +41,8 @@ async fn player_prefs(db: &raygun_db::Db) -> PlayerPrefs {
         resume: settings.resume_videos,
         watched_share: f64::from(settings.watched_percent) / 100.0,
         seek_ms: settings.seek_seconds * 1000,
+        autoplay: settings.autoplay_next,
+        next_prompt_ms: settings.next_prompt_seconds * 1000,
         auto_subtitles: settings.auto_subtitles.then(|| {
             if settings.subtitle_language.is_empty() {
                 app_language
@@ -57,7 +65,23 @@ struct PlayerReport {
 }
 
 /// Plays `request` in the video player, resuming where it was left (from the start once watched).
+/// A session that was playing ends.
 pub async fn play(app: &AppHandle, request: VideoRequest) -> Result<(), String> {
+    app.state::<VideoSessions>().end();
+    let mut payload = prepare(app, &request, None, None).await?;
+    payload["labels"] = app.state::<VideoSessions>().labels();
+    open_player(app, &payload)
+}
+
+/// The player's request for a video: where to start (saved progress unless `start_at`), after
+/// recording that it started. `resume` replaces the request saved for resuming (a session saves
+/// an episode reference). A finished download plays instead of the stream.
+pub async fn prepare(
+    app: &AppHandle,
+    request: &VideoRequest,
+    resume: Option<String>,
+    start_at: Option<i64>,
+) -> Result<serde_json::Value, String> {
     if !request.url.starts_with("https://") && !request.url.starts_with("http://") {
         return Err("Only web addresses can be played".into());
     }
@@ -66,7 +90,7 @@ pub async fn play(app: &AppHandle, request: VideoRequest) -> Result<(), String> 
     let saved = store::progress(&db, &request.key)
         .await
         .map_err(|error| error.to_string())?;
-    let start_ms = saved
+    let resumed = saved
         .filter(|_| prefs.resume)
         .filter(|progress| progress.watched_at.is_none())
         .filter(|progress| {
@@ -75,12 +99,16 @@ pub async fn play(app: &AppHandle, request: VideoRequest) -> Result<(), String> 
             })
         })
         .map_or(0, |progress| progress.position_ms);
+    let start_ms = start_at.unwrap_or(resumed);
     let entry = VideoEntry {
         key: request.key.clone(),
         title: request.title.clone(),
         subtitle: request.subtitle.clone(),
         poster: request.poster.clone(),
-        request: serde_json::to_string(&request).map_err(|error| error.to_string())?,
+        request: match resume {
+            Some(resume) => resume,
+            None => serde_json::to_string(&request).map_err(|error| error.to_string())?,
+        },
     };
     store::started(&db, &entry, now_ms())
         .await
@@ -104,7 +132,7 @@ pub async fn play(app: &AppHandle, request: VideoRequest) -> Result<(), String> 
     // Music and video don't play over each other.
     app.state::<PlaybackService>()
         .control(PlaybackControl::Pause);
-    let payload = serde_json::json!({
+    Ok(serde_json::json!({
         "id": request.key,
         "url": url,
         "title": request.title,
@@ -115,8 +143,39 @@ pub async fn play(app: &AppHandle, request: VideoRequest) -> Result<(), String> 
         "startMs": start_ms,
         "seekStepMs": prefs.seek_ms,
         "autoSubtitleLanguage": prefs.auto_subtitles,
-    });
-    open_player(app, &payload)
+    }))
+}
+
+/// What opens the player for a session before any video is known (M44): it shows the title and
+/// a spinner until the first `load`.
+pub async fn session_shell(app: &AppHandle, title: &str, subtitle: &str) -> serde_json::Value {
+    let db = app.state::<AppDb>().0.clone();
+    let prefs = player_prefs(&db).await;
+    app.state::<PlaybackService>()
+        .control(PlaybackControl::Pause);
+    serde_json::json!({
+        "session": true,
+        "id": "",
+        "title": title,
+        "subtitle": subtitle,
+        "seekStepMs": prefs.seek_ms,
+        "autoSubtitleLanguage": prefs.auto_subtitles,
+        "autoplay": prefs.autoplay,
+        "nextPromptMs": prefs.next_prompt_ms,
+        "labels": app.state::<VideoSessions>().labels(),
+    })
+}
+
+/// The language subtitles are fetched in first: the subtitle language, else the app's.
+pub async fn subtitle_language(db: &raygun_db::Db) -> String {
+    let settings = crate::settings::load(db).await.unwrap_or_default();
+    if !settings.subtitle_language.is_empty() {
+        settings.subtitle_language
+    } else if settings.language != raygun_model::SYSTEM_LANGUAGE {
+        settings.language
+    } else {
+        String::new()
+    }
 }
 
 /// Marks something watched or not, in the progress store and on its library episode.
@@ -163,7 +222,7 @@ fn subtitle_format(url: &str) -> Option<String> {
 }
 
 #[cfg(target_os = "android")]
-fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), String> {
+pub fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), String> {
     let player = app
         .try_state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
         .ok_or_else(|| "The video player isn't available".to_owned())?;
@@ -171,21 +230,56 @@ fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), Strin
 }
 
 #[cfg(not(target_os = "android"))]
-fn open_player(_app: &AppHandle, _payload: &serde_json::Value) -> Result<(), String> {
+pub fn open_player(_app: &AppHandle, _payload: &serde_json::Value) -> Result<(), String> {
+    Err("Video playback is only available on Android for now".into())
+}
+
+/// Sends an update to the open player (M44); nothing happens when none is open.
+#[cfg(target_os = "android")]
+pub fn update_player(app: &AppHandle, update: &serde_json::Value) -> Result<(), String> {
+    let player = app
+        .try_state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+        .ok_or_else(|| "The video player isn't available".to_owned())?;
+    player.video_update(update)
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn update_player(_app: &AppHandle, _update: &serde_json::Value) -> Result<(), String> {
     Err("Video playback is only available on Android for now".into())
 }
 
 /// The player's reports become saved progress and `WatchChangedEvent`s.
 pub fn install(app: &AppHandle) {
+    // Reports are handled one at a time, in order: two at once (the end of a video sends several)
+    // would race on the same rows.
+    let (sender, mut reports) = tokio::sync::mpsc::unbounded_channel::<String>();
     let app = app.clone();
-    tauri_plugin_raygun_audio::set_video_handler(move |json| {
-        let Ok(report) = serde_json::from_str::<PlayerReport>(&json) else {
-            tracing::warn!(%json, "unreadable video player report");
-            return;
-        };
-        let app = app.clone();
-        tauri::async_runtime::spawn(async move { record(&app, report).await });
+    tauri::async_runtime::spawn(async move {
+        while let Some(json) = reports.recv().await {
+            handle_report(&app, &json).await;
+        }
     });
+    tauri_plugin_raygun_audio::set_video_handler(move |json| {
+        let _ = sender.send(json);
+    });
+}
+
+async fn handle_report(app: &AppHandle, json: &str) {
+    let Ok(raw) = serde_json::from_str::<serde_json::Value>(json) else {
+        tracing::warn!(%json, "unreadable video player report");
+        return;
+    };
+    // Requests (next episode, another source...) are the session's business.
+    if raw.get("state").and_then(serde_json::Value::as_str) == Some("request") {
+        app.state::<VideoSessions>().on_report(&raw).await;
+        return;
+    }
+    let Ok(report) = serde_json::from_value::<PlayerReport>(raw.clone()) else {
+        tracing::warn!(%raw, "unreadable video player report");
+        return;
+    };
+    record(app, report).await;
+    app.state::<VideoSessions>().on_report(&raw).await;
 }
 
 async fn record(app: &AppHandle, report: PlayerReport) {
@@ -221,7 +315,10 @@ async fn record(app: &AppHandle, report: PlayerReport) {
     {
         tracing::warn!(%error, "could not save the episode's progress");
     }
-    if matches!(report.state.as_str(), "closed" | "ended") || watched {
+    if watched {
+        app.state::<VideoSessions>().on_watched(&report.id).await;
+    }
+    if matches!(report.state.as_str(), "closed" | "ended" | "switched") || watched {
         let _ = WatchChangedEvent(report.id).emit(app);
     }
 }
@@ -258,13 +355,20 @@ fn to_view(rows: Vec<store::VideoProgress>) -> Vec<ContinueWatching> {
         .collect()
 }
 
-/// Plays a "continue watching" entry again with the request it was first played with.
+/// Plays a "continue watching" entry again: an episode reference through a session (fresh links,
+/// the last source first), else the request it was first played with.
 pub async fn resume(app: &AppHandle, key: &str) -> Result<(), String> {
     let db = app.state::<AppDb>().0.clone();
     let saved = store::progress(&db, key)
         .await
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "This was removed".to_owned())?;
+    if let Ok(episode) = serde_json::from_str::<EpisodeRef>(&saved.entry.request) {
+        return app
+            .state::<VideoSessions>()
+            .start(episode.origin, Some(episode.episode))
+            .await;
+    }
     let request: VideoRequest = serde_json::from_str(&saved.entry.request)
         .map_err(|_| "Open this from its page to choose a stream".to_owned())?;
     play(app, request).await

@@ -462,6 +462,8 @@ pub struct Stream {
     pub target: String,
     pub headers: BTreeMap<String, String>,
     pub subtitles: Vec<Subtitle>,
+    /// `behaviorHints.bingeGroup`: streams of one release across episodes, for binge watching.
+    pub binge_group: Option<String>,
 }
 
 /// Headers a stream may ask for; others (Host, Range...) are the player's business.
@@ -503,6 +505,7 @@ pub fn parse_streams(value: &Value) -> Vec<Stream> {
                 description: text(stream.get("description")).or_else(|| text(stream.get("title"))),
                 headers: request_headers(stream),
                 subtitles: parse_subtitles(stream),
+                binge_group: text(stream.pointer("/behaviorHints/bingeGroup")),
                 target,
             })
         })

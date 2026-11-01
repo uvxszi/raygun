@@ -140,18 +140,7 @@ impl VideoSourceService {
     /// What the player gets for a link of a stored episode (also what a download saves).
     pub async fn request(&self, request: VideoSourcePlay) -> Result<VideoRequest, String> {
         let (row, unit, single) = self.episode(&request.title_id, &request.episode_id).await?;
-        let link = request.link;
-        Ok(VideoRequest {
-            key: content_key(&row.fields.source_id, &unit.fields.remote_id),
-            subtitle: episode_subtitle(&row, &unit, single),
-            title: row.fields.title,
-            // The source's own address: a proxy link wouldn't outlive the app.
-            poster: row.fields.cover,
-            url: link.url,
-            headers: link.headers,
-            format: link.format,
-            subtitles: link.subtitles,
-        })
+        Ok(link_request(&row, &unit, single, request.link))
     }
 
     /// Saves a title to the video library (M43) or takes it out; episodes watched before it was
@@ -218,6 +207,39 @@ impl VideoSourceService {
 /// The key watching progress is kept under for a source's episode.
 pub fn content_key(source_id: &str, episode_remote_id: &str) -> String {
     format!("source:{source_id}:{episode_remote_id}")
+}
+
+/// What a session's player and episode list call an episode: its subtitle, else its name.
+pub(crate) fn episode_label(row: &TitleRow, unit: &UnitRow, single: bool) -> String {
+    episode_subtitle(row, unit, single)
+        .filter(|_| !single)
+        .unwrap_or_else(|| {
+            if single {
+                row.fields.title.clone()
+            } else {
+                unit.fields.name.clone()
+            }
+        })
+}
+
+/// The player's request for a link of a stored episode.
+pub(crate) fn link_request(
+    row: &TitleRow,
+    unit: &UnitRow,
+    single: bool,
+    link: VideoLinkView,
+) -> VideoRequest {
+    VideoRequest {
+        key: content_key(&row.fields.source_id, &unit.fields.remote_id),
+        subtitle: episode_subtitle(row, unit, single),
+        title: row.fields.title.clone(),
+        // The source's own address: a proxy link wouldn't outlive the app.
+        poster: row.fields.cover.clone(),
+        url: link.url,
+        headers: link.headers,
+        format: link.format,
+        subtitles: link.subtitles,
+    }
 }
 
 /// "S1 E2 · Name", "E2 · Name", the name alone, or a movie's year.

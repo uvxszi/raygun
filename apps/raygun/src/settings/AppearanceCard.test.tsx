@@ -29,6 +29,8 @@ const DEFAULT_SETTINGS: Settings = {
   seekSeconds: 10,
   autoSubtitles: false,
   subtitleLanguage: '',
+  autoplayNext: true,
+  nextPromptSeconds: 10,
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,

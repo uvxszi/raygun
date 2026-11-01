@@ -35,6 +35,7 @@ mod tts;
 mod video;
 mod video_downloads;
 mod video_library;
+mod video_session;
 mod video_sources;
 
 use std::path::Path;
@@ -208,7 +209,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::video_download_retry,
             commands::video_download_remove,
             commands::video_download_play,
-            commands::video_downloads_set_paused
+            commands::video_downloads_set_paused,
+            commands::video_source_watch,
+            commands::stremio_watch,
+            commands::video_set_player_labels
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,

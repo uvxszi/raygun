@@ -363,7 +363,15 @@
     "subtitleLanguageApp": "Same as the app",
     "sources": "Sources",
     "otherDevices": "Other devices",
-    "assistants": "AI and assistants"
+    "assistants": "AI and assistants",
+    "episodes": "Episodes",
+    "autoplayNext": "Play the next episode automatically",
+    "autoplayNextHint": "When an episode ends, the next one starts in the same player.",
+    "nextPrompt": "Next-episode prompt",
+    "nextPromptHint": "When the Next episode button shows before an episode ends.",
+    "nextPromptAtEnd": "At the end",
+    "nextPromptBefore_one": "{{count}} second before the end",
+    "nextPromptBefore_other": "{{count}} seconds before the end"
   },
   "player": {
     "nothingPlaying": "Nothing playing",
@@ -919,7 +927,8 @@
     "unwatched_one": "{{count}} unwatched episode",
     "unwatched_other": "{{count}} unwatched episodes",
     "paused": "Paused",
-    "savedCopy": "Saved in your library"
+    "savedCopy": "Saved in your library",
+    "chooseSource": "Choose a source"
   },
   "browse": {
     "title": "Browse",
@@ -955,5 +964,23 @@
   },
   "downloads": {
     "videos": "Videos"
+  },
+  "videoPlayer": {
+    "episodes": "Episodes",
+    "sources": "Sources",
+    "cancel": "Cancel",
+    "nextEpisode": "Next episode",
+    "nextIn": "Next episode in {{seconds}} s",
+    "autoplayOn": "Autoplay: on",
+    "autoplayOff": "Autoplay: off",
+    "findingSource": "Finding a source…",
+    "tryingNext": "That source failed. Trying the next one…",
+    "noSourceWorked": "No source could play this. Pick another in Sources.",
+    "resolving": "finding links…",
+    "failed": "failed",
+    "empty": "no videos",
+    "downloaded": "Downloaded",
+    "onDevice": "On this device",
+    "addons": "Addons"
   }
 }

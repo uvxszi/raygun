@@ -237,10 +237,9 @@ describe('Video library', () => {
     await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 
     // From the play picker, each link has its own download button.
+    // Play watches through a session: the player finds the link itself (M44).
     await user.click(within(page).getByRole('button', { name: 'Play' }));
-    const servers = await screen.findByRole('dialog', { name: 'Servers' });
-    await user.click(await within(servers).findByRole('button', { name: 'Download 720p' }));
-    expect(commands.videoSourceDownload).toHaveBeenCalledTimes(2);
+    expect(commands.videoSourceWatch).toHaveBeenCalledWith('title-film', 'chaplin/film.mp4');
   });
 
   it('takes a Stremio series out of the library and downloads a stream', async () => {
@@ -275,9 +274,9 @@ describe('Video library', () => {
         name: 'Delete the download of S1 E1 · Episode 1',
       }),
     ).toBeInTheDocument();
-    // A downloaded episode plays from the device, with no stream to pick.
+    // Tapping an episode watches it through a session, which plays a download from the device.
     await user.click(within(page).getByRole('button', { name: /^1\. Episode 1/ }));
-    expect(commands.videoDownloadPlay).toHaveBeenCalledWith('tt0903747:1:1');
+    expect(commands.stremioWatch).toHaveBeenCalledWith('series', 'tt0903747', 'tt0903747:1:1');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
     await user.click(within(page).getByRole('button', { name: 'Download S1 E2 · Episode 2' }));

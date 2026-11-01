@@ -27,6 +27,7 @@ use crate::local_network::{self, LocalNetwork};
 use crate::playback::PlaybackService;
 use crate::startup::AppDb;
 use crate::video_library::{self, STREMIO_SOURCE};
+use crate::video_session;
 
 /// Manifests older than this are fetched again.
 const MANIFEST_MAX_AGE_MS: i64 = 24 * 60 * 60 * 1000;
@@ -559,35 +560,74 @@ impl StremioService {
             .state::<LocalNetwork>()
             .check(&stream.target, local_network::VIDEOS_DENIED)
             .await?;
-        let mut subtitles: Vec<VideoSubtitle> = stream.subtitles.clone();
         let found = self
             .subtitles(&request.kind, &request.video_id, language)
             .await;
-        subtitles.extend(found.into_iter().map(|subtitle| VideoSubtitle {
-            url: subtitle.url,
-            label: subtitle.lang.clone(),
-            lang: subtitle.lang,
-            format: None,
-        }));
-        subtitles.truncate(MAX_SUBTITLES);
-        let lower = stream.target.to_lowercase();
-        let format = if lower.contains(".m3u8") {
-            Some("hls".to_owned())
-        } else if lower.contains(".mpd") {
-            Some("dash".to_owned())
-        } else {
-            None
-        };
-        Ok(VideoRequest {
-            key: content_key(&request.kind, &request.video_id),
-            title: request.title.clone(),
-            subtitle: request.subtitle.clone(),
-            poster: request.poster.clone(),
-            url: stream.target.clone(),
-            headers: stream.headers.clone(),
-            format,
-            subtitles,
-        })
+        Ok(direct_request(request, &addon_subtitles(found)))
+    }
+
+    /// Every direct stream of a movie or episode as player requests, grouped by addon, each with
+    /// the subtitle addons' tracks (asked once). Playback sessions pick from these (M44).
+    pub async fn playable(
+        &self,
+        target: &StremioPlayTarget,
+        language: &str,
+    ) -> Result<Vec<video_session::Group>, String> {
+        let (groups, found) = futures_util::future::join(
+            self.streams(&target.kind, &target.video_id),
+            self.subtitles(&target.kind, &target.video_id, language),
+        )
+        .await;
+        let extra = addon_subtitles(found);
+        let network = self.app.state::<LocalNetwork>();
+        let mut playable = Vec::new();
+        for group in groups? {
+            let mut links = Vec::new();
+            for stream in group.streams {
+                if stream.kind != StremioStreamKind::Direct {
+                    continue;
+                }
+                let label = [stream.name.clone(), stream.description.clone()]
+                    .into_iter()
+                    .flatten()
+                    .map(|text| text.replace('\n', " "))
+                    .collect::<Vec<_>>()
+                    .join(" · ");
+                let binge_group = stream.binge_group.clone();
+                let blocked = network
+                    .check(&stream.target, local_network::VIDEOS_DENIED)
+                    .await
+                    .err();
+                let request = direct_request(
+                    &StremioPlayRequest {
+                        kind: target.kind.clone(),
+                        video_id: target.video_id.clone(),
+                        title: target.title.clone(),
+                        subtitle: target.subtitle.clone(),
+                        poster: target.poster.clone(),
+                        stream,
+                    },
+                    &extra,
+                );
+                links.push(video_session::Link {
+                    label: if label.is_empty() {
+                        group.addon_name.clone()
+                    } else {
+                        label
+                    },
+                    tag: binge_group,
+                    failed: blocked,
+                    request,
+                });
+            }
+            playable.push(video_session::Group::finished(
+                group.addon_id,
+                group.addon_name,
+                links,
+                group.error,
+            ));
+        }
+        Ok(playable)
     }
 
     /// Marks a movie or episode watched or not.
@@ -802,6 +842,55 @@ async fn stored_meta(db: &raygun_db::Db, row: &TitleRow) -> Result<protocol::Met
     })
 }
 
+/// What a session plays for a Stremio movie or episode: the ids and what the player shows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StremioPlayTarget {
+    pub kind: String,
+    pub video_id: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub poster: Option<String>,
+}
+
+/// The subtitle addons' tracks as player subtitles.
+fn addon_subtitles(found: Vec<protocol::Subtitle>) -> Vec<VideoSubtitle> {
+    found
+        .into_iter()
+        .map(|subtitle| VideoSubtitle {
+            url: subtitle.url,
+            label: subtitle.lang.clone(),
+            lang: subtitle.lang,
+            format: None,
+        })
+        .collect()
+}
+
+/// A direct stream as a player request: its own subtitles first, then `extra`.
+fn direct_request(request: &StremioPlayRequest, extra: &[VideoSubtitle]) -> VideoRequest {
+    let stream = &request.stream;
+    let mut subtitles: Vec<VideoSubtitle> = stream.subtitles.clone();
+    subtitles.extend(extra.iter().cloned());
+    subtitles.truncate(MAX_SUBTITLES);
+    let lower = stream.target.to_lowercase();
+    let format = if lower.contains(".m3u8") {
+        Some("hls".to_owned())
+    } else if lower.contains(".mpd") {
+        Some("dash".to_owned())
+    } else {
+        None
+    };
+    VideoRequest {
+        key: content_key(&request.kind, &request.video_id),
+        title: request.title.clone(),
+        subtitle: request.subtitle.clone(),
+        poster: request.poster.clone(),
+        url: stream.target.clone(),
+        headers: stream.headers.clone(),
+        format,
+        subtitles,
+    }
+}
+
 /// A Stremio title's `remote_id` in the title store.
 fn library_id(kind: &str, id: &str) -> String {
     format!("{kind}:{id}")
@@ -834,7 +923,7 @@ fn release_year(text: &str) -> Option<i32> {
 }
 
 /// A release date (`2008-01-20T12:00:00.000Z` or `2008-01-20`) as Unix ms.
-fn release_ms(text: &str) -> Option<i64> {
+pub(crate) fn release_ms(text: &str) -> Option<i64> {
     chrono::DateTime::parse_from_rfc3339(text)
         .map(|date| date.timestamp_millis())
         .ok()
@@ -877,6 +966,7 @@ fn stream_view(stream: protocol::Stream) -> StremioStream {
         description: stream.description,
         target: stream.target,
         headers: stream.headers,
+        binge_group: stream.binge_group,
         subtitles: stream
             .subtitles
             .into_iter()

@@ -31,6 +31,8 @@ import type { SettingsSection } from '../settings/sections';
 const UPDATE_HOURS = [0, 6, 12, 24, 48, 168];
 const QUALITIES = [1080, 720, 480, 360];
 const SEEK_SECONDS = [5, 10, 15, 30, 60];
+/** Matches `NEXT_PROMPT_SECONDS` in raygun-model (0: at the end). */
+const NEXT_PROMPT_SECONDS = [0, 5, 10, 15, 30];
 
 const useSetting = () => {
   const settings = useSettings();
@@ -264,6 +266,29 @@ const PlayerSettings: FC = () => {
             label: t('settings.seconds', { count: seconds }),
           }))}
           onChange={(value) => update.mutate({ key: 'seekSeconds', value })}
+        />
+      </PrefGroup>
+      <PrefGroup title={t('settings.episodes')}>
+        <PrefSwitch
+          title={t('settings.autoplayNext')}
+          summary={t('settings.autoplayNextHint')}
+          checked={data.autoplayNext}
+          disabled={busy}
+          onChange={(value) => update.mutate({ key: 'autoplayNext', value })}
+        />
+        <PrefChoice<number>
+          title={t('settings.nextPrompt')}
+          summary={t('settings.nextPromptHint')}
+          value={data.nextPromptSeconds}
+          disabled={busy}
+          options={NEXT_PROMPT_SECONDS.map((seconds) => ({
+            value: seconds,
+            label:
+              seconds === 0
+                ? t('settings.nextPromptAtEnd')
+                : t('settings.nextPromptBefore', { count: seconds }),
+          }))}
+          onChange={(value) => update.mutate({ key: 'nextPromptSeconds', value })}
         />
       </PrefGroup>
       <PrefGroup title={t('settings.subtitles')}>

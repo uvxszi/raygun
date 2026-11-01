@@ -321,6 +321,15 @@ export const commands = {
 	/**  Plays a download (from the device once it's finished). */
 	videoDownloadPlay: (id: string) => typedError<null, string>(__TAURI_INVOKE("video_download_play", { id })),
 	videoDownloadsSetPaused: (paused: boolean) => typedError<null, string>(__TAURI_INVOKE("video_downloads_set_paused", { paused })),
+	/**
+	 *  Watches a video source's stored title: the player opens at once on `episode_id` (the source's
+	 *  id; the first unwatched when none) and plays the best link as it resolves.
+	 */
+	videoSourceWatch: (titleId: string, episodeId: string | null) => typedError<null, string>(__TAURI_INVOKE("video_source_watch", { titleId, episodeId })),
+	/**  Watches a Stremio movie or series from `video_id` (the first unwatched episode when none). */
+	stremioWatch: (kind: string, id: string, videoId: string | null) => typedError<null, string>(__TAURI_INVOKE("stremio_watch", { kind, id, videoId })),
+	/**  The video player's words in the app's language (episodes, sources, next episode...). */
+	videoSetPlayerLabels: (labels: { [key in string]: string }) => __TAURI_INVOKE<void>("video_set_player_labels", { labels }),
 };
 
 /** Events */
@@ -1139,7 +1148,7 @@ export type SearchResults = {
  *  A change to a single setting. The tagged shape (`{ key, value }`) lets the UI send only valid
  *  key/value pairs, and doubles as the format of a stored row.
  */
-export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string };
+export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -1183,6 +1192,10 @@ export type Settings = {
 	autoSubtitles: boolean,
 	/**  Subtitles' language as a BCP 47 tag; empty follows the app's language. */
 	subtitleLanguage: string,
+	/**  The next episode plays by itself at the end of one (M44). */
+	autoplayNext: boolean,
+	/**  Seconds before the end the next-episode prompt shows; 0 shows it at the end only (M44). */
+	nextPromptSeconds: number,
 };
 
 /**  Titles of one Mihon source that Raygun has no source for. */
@@ -1319,6 +1332,8 @@ export type StremioStream = {
 	target: string,
 	headers: { [key in string]: string },
 	subtitles: VideoSubtitle[],
+	/**  Streams of one release across episodes (Stremio's `bingeGroup`), for binge watching. */
+	bingeGroup: string | null,
 };
 
 export type StremioStreamGroup = {

@@ -1,8 +1,8 @@
 import type { VideoDownloadItem, VideoEpisodeView, VideoTitleView } from '@raygun/bindings';
 import { useSearch } from '@tanstack/react-router';
-import { Check, ExternalLink, Eye, EyeOff, LoaderCircle, RefreshCw } from 'lucide-react';
+import { Check, ExternalLink, Eye, EyeOff, ListVideo, LoaderCircle, RefreshCw } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import type { FC } from 'react';
+import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { CategoryPicker } from '../manga/CategoryPicker';
@@ -17,8 +17,8 @@ import { episodeLabel } from '../watch/episodeLabel';
 import {
   sourceKey,
   useDownloadsByKey,
-  usePlayVideoDownload,
   useSetVideoInLibrary,
+  useWatchSourceTitle,
 } from '../watch/useVideoLibrary';
 import {
   useRefreshVideoTitle,
@@ -48,7 +48,7 @@ const isMovie = (view: VideoTitleView) =>
 const Episodes: FC<{
   view: VideoTitleView;
   downloads: Map<string, VideoDownloadItem>;
-  onPick: (episode: VideoEpisodeView, intent: PickIntent) => void;
+  onPick: (episode: VideoEpisodeView, intent: PickIntent | 'watch') => void;
 }> = ({ view, downloads, onPick }) => {
   const { t } = useTranslation();
   const setWatched = useSetEpisodeWatched();
@@ -98,7 +98,12 @@ const Episodes: FC<{
             <li key={episode.id} aria-label={label} className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => onPick(episode, 'play')}
+                onClick={() => onPick(episode, 'watch')}
+                onContextMenu={(event) => {
+                  // A long press chooses the link (Aniyomi's episode options).
+                  event.preventDefault();
+                  onPick(episode, 'play');
+                }}
                 className="bg-surface flex min-w-0 flex-1 flex-col gap-1.5 rounded-xl px-4 py-3 text-left"
               >
                 <span
@@ -153,12 +158,12 @@ export const VideoTitlePage: FC = () => {
   const setWatched = useSetEpisodeWatched();
   const setInLibrary = useSetVideoInLibrary();
   const downloads = useDownloadsByKey();
-  const playDownload = usePlayVideoDownload();
+  const watch = useWatchSourceTitle();
   const [picking, setPicking] = useState<{ target: ServerTarget; intent: PickIntent } | null>(null);
   const [expanded, setExpanded] = useState(false);
   const view = title.data;
 
-  const top = (
+  const header = (choose?: ReactNode) => (
     <TopBar
       back
       fallback="/browse"
@@ -167,6 +172,7 @@ export const VideoTitlePage: FC = () => {
       actions={
         view && (
           <>
+            {choose}
             <TopBarAction
               label={t('watch.refresh')}
               icon={RefreshCw}
@@ -185,6 +191,7 @@ export const VideoTitlePage: FC = () => {
       }
     />
   );
+  const top = header();
 
   if (title.error && !view) {
     return (
@@ -216,10 +223,11 @@ export const VideoTitlePage: FC = () => {
     );
   }
 
-  const pick = (episode: VideoEpisodeView, intent: PickIntent = 'play') => {
-    const saved = downloads.get(sourceKey(view.sourceId, episode.remoteId));
-    if (intent === 'play' && saved?.state === 'done') {
-      playDownload.mutate(saved.id);
+  // Watching opens the player at once and plays the best link (M44); choosing a link is the
+  // picker's job.
+  const pick = (episode: VideoEpisodeView, intent: PickIntent | 'watch' = 'watch') => {
+    if (intent === 'watch') {
+      watch.mutate({ titleId: view.id, episodeId: episode.remoteId });
       return;
     }
     setPicking({
@@ -239,7 +247,15 @@ export const VideoTitlePage: FC = () => {
 
   return (
     <section data-testid="video-title-page" className="flex min-h-full flex-col gap-5">
-      {top}
+      {header(
+        next && (
+          <TopBarAction
+            label={t('watch.chooseSource')}
+            icon={ListVideo}
+            onClick={() => pick(next, 'play')}
+          />
+        ),
+      )}
       <TitleHero
         art={view.coverUrl}
         cover={<StremioPoster url={view.coverUrl} className="w-full shadow-lg" />}
@@ -317,9 +333,9 @@ export const VideoTitlePage: FC = () => {
           )}
         </dl>
       )}
-      {(refresh.error ?? setWatched.error ?? setInLibrary.error ?? playDownload.error) && (
+      {(refresh.error ?? setWatched.error ?? setInLibrary.error ?? watch.error) && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {(refresh.error ?? setWatched.error ?? setInLibrary.error ?? playDownload.error)?.message}
+          {(refresh.error ?? setWatched.error ?? setInLibrary.error ?? watch.error)?.message}
         </p>
       )}
       {!movie && view.episodes.length > 0 && (

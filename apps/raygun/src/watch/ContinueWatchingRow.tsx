@@ -1,5 +1,5 @@
 import type { ContinueWatching } from '@raygun/bindings';
-import { Clapperboard, Play, X } from 'lucide-react';
+import { Play, X } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -18,9 +18,8 @@ const Poster: FC<{ url: string | null }> = ({ url }) => {
       className="bg-surface aspect-video w-full object-cover"
     />
   ) : (
-    <span aria-hidden className="bg-surface text-muted grid aspect-video w-full place-items-center">
-      <Clapperboard size={28} />
-    </span>
+    // The card's play button sits in the middle, so the placeholder stays plain.
+    <span aria-hidden className="bg-surface block aspect-video w-full" />
   );
 };
 

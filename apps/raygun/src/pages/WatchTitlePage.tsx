@@ -1,13 +1,13 @@
 import type { StremioMeta, StremioVideo, VideoDownloadItem } from '@raygun/bindings';
 import { useSearch } from '@tanstack/react-router';
-import { Check, Eye, EyeOff, Film, LoaderCircle } from 'lucide-react';
+import { Check, Eye, EyeOff, Film, ListVideo, LoaderCircle } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { CategoryPicker } from '../manga/CategoryPicker';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
-import { TopBar } from '../shell/TopBar';
+import { TopBar, TopBarAction } from '../shell/TopBar';
 import { LibraryPill } from '../watch/LibraryPill';
 import type { PickIntent } from '../watch/ServerPicker';
 import { StreamPicker } from '../watch/StreamPicker';
@@ -18,8 +18,8 @@ import { useSetWatched, useStremioMeta, useStremioPlay } from '../watch/useStrem
 import {
   stremioKey,
   useDownloadsByKey,
-  usePlayVideoDownload,
   useSetStremioInLibrary,
+  useWatchStremio,
 } from '../watch/useVideoLibrary';
 
 /** "S1 E2 · Pilot", or the title alone when it isn't numbered. */
@@ -52,7 +52,7 @@ const useSeasons = (videos: StremioVideo[]) =>
 const Episodes: FC<{
   meta: StremioMeta;
   downloads: Map<string, VideoDownloadItem>;
-  onPick: (target: StreamTarget, intent: PickIntent) => void;
+  onPick: (target: StreamTarget, intent: PickIntent | 'watch') => void;
 }> = ({ meta, downloads, onPick }) => {
   const { t } = useTranslation();
   const { seasons, first } = useSeasons(meta.videos);
@@ -104,7 +104,12 @@ const Episodes: FC<{
             <li key={video.id} aria-label={label} className="flex gap-3">
               <button
                 type="button"
-                onClick={() => onPick(target, 'play')}
+                onClick={() => onPick(target, 'watch')}
+                onContextMenu={(event) => {
+                  // A long press chooses the stream.
+                  event.preventDefault();
+                  onPick(target, 'play');
+                }}
                 className="flex min-w-0 flex-1 gap-3 text-left"
               >
                 <span className="relative w-32 shrink-0 overflow-hidden rounded-lg">
@@ -172,15 +177,19 @@ export const WatchTitlePage: FC = () => {
   const trailer = useStremioPlay();
   const setInLibrary = useSetStremioInLibrary();
   const downloads = useDownloadsByKey();
-  const playDownload = usePlayVideoDownload();
+  const watch = useWatchStremio();
   const [picking, setPicking] = useState<{ target: StreamTarget; intent: PickIntent } | null>(null);
-  // A downloaded movie or episode plays from the device, with no stream to pick.
-  const pick = (target: StreamTarget, intent: PickIntent = 'play') => {
-    const saved = downloads.get(stremioKey(target.kind, target.videoId));
-    if (intent === 'play' && saved?.state === 'done') {
-      playDownload.mutate(saved.id);
-    } else {
+  // Watching opens the player at once with the best stream (M44); a long press picks one.
+  const pick = (target: StreamTarget, intent: PickIntent | 'watch' = 'watch') => {
+    if (intent !== 'watch') {
       setPicking({ target, intent });
+    } else if (meta.data) {
+      const movie = target.videoId === meta.data.id;
+      watch.mutate({
+        kind: meta.data.kind,
+        id: meta.data.id,
+        videoId: movie ? null : target.videoId,
+      });
     }
   };
   const [expanded, setExpanded] = useState(false);
@@ -244,7 +253,19 @@ export const WatchTitlePage: FC = () => {
 
   return (
     <section data-testid="watch-title-page" className="flex min-h-full flex-col gap-5">
-      {top}
+      <TopBar
+        back
+        fallback="/browse"
+        plainTitle
+        title={view.addonName || t('watch.savedCopy')}
+        actions={
+          <TopBarAction
+            label={t('watch.chooseSource')}
+            icon={ListVideo}
+            onClick={() => pick(nextVideo ? episodeTarget(nextVideo) : ownTarget, 'play')}
+          />
+        }
+      />
       <TitleHero
         art={view.poster}
         backdrop={view.background}
@@ -310,6 +331,7 @@ export const WatchTitlePage: FC = () => {
                     target: trailerId,
                     headers: {},
                     subtitles: [],
+                    bingeGroup: null,
                   },
                 })
               }
@@ -353,9 +375,9 @@ export const WatchTitlePage: FC = () => {
           )}
         </dl>
       )}
-      {(trailer.error ?? setWatched.error ?? setInLibrary.error ?? playDownload.error) && (
+      {(trailer.error ?? setWatched.error ?? setInLibrary.error ?? watch.error) && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {(trailer.error ?? setWatched.error ?? setInLibrary.error ?? playDownload.error)?.message}
+          {(trailer.error ?? setWatched.error ?? setInLibrary.error ?? watch.error)?.message}
         </p>
       )}
       {hasEpisodes && <Episodes meta={view} downloads={downloads} onPick={pick} />}

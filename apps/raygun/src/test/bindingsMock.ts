@@ -97,6 +97,8 @@ export const DEFAULT_SETTINGS: Settings = {
   seekSeconds: 10,
   autoSubtitles: false,
   subtitleLanguage: '',
+  autoplayNext: true,
+  nextPromptSeconds: 10,
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,
@@ -266,6 +268,9 @@ export const bindingsMock = {
     videoDownloadRemove: vi.fn(),
     videoDownloadPlay: vi.fn(),
     videoDownloadsSetPaused: vi.fn(),
+    videoSourceWatch: vi.fn(),
+    stremioWatch: vi.fn(),
+    videoSetPlayerLabels: vi.fn(),
     stremioAddons: vi.fn(),
     stremioSuggestions: vi.fn(),
     stremioAdd: vi.fn(),
@@ -475,6 +480,9 @@ export const seedBindings = () => {
   commands.videoDownloadRemove.mockResolvedValue(ok(null));
   commands.videoDownloadPlay.mockResolvedValue(ok(null));
   commands.videoDownloadsSetPaused.mockResolvedValue(ok(null));
+  commands.videoSourceWatch.mockResolvedValue(ok(null));
+  commands.stremioWatch.mockResolvedValue(ok(null));
+  commands.videoSetPlayerLabels.mockResolvedValue(undefined);
   commands.stremioAddons.mockResolvedValue(ok([]));
   commands.stremioSuggestions.mockResolvedValue(ok([]));
   commands.stremioAdd.mockResolvedValue(ok(null));
