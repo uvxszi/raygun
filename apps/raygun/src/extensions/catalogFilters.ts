@@ -47,7 +47,10 @@ const matches = (entry: CatalogEntry, filter: CatalogFilter) => {
     return false;
   }
   if (filter.kind && !kindsOf(entry).includes(filter.kind)) return false;
-  if (filter.lang && entry.lang !== filter.lang) return false;
+  // Entries without a language (or with many) serve every language.
+  if (filter.lang && entry.lang && entry.lang !== 'multi' && entry.lang !== filter.lang) {
+    return false;
+  }
   return true;
 };
 

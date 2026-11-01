@@ -37,3 +37,19 @@
 - 📱 **On the emulator:**
   - Repositories shows the suggestions with the official one added; adding Shosetsu works;
   - Browse filters the combined catalog: Novels, then a language, then search.
+
+## Decisions
+- **Suggestions are a short built-in list,** not fetched. The ecosystems Raygun can run are a deliberate set, and a remote list would be one more thing to trust.
+- **The language filter keeps language-free entries:** entries with no language or `multi` (Gutenberg, MangaDex) stay visible under any language. They serve every language, and hiding them made "English" drop Project Gutenberg.
+- **Filtering happens in the UI:** the catalog is already loaded and small (hundreds of entries), so filtering needs no round trip.
+
+## Verification (2026-11-01, Pixel_4 emulator)
+- **Checks:** all pass. `cargo test --workspace`, clippy, `pnpm lint`, `pnpm type-check` and `pnpm test` (220 app tests).
+- **Suggestions:** the Repositories tab listed the three suggestions, with Raygun Extensions marked "Added".
+  - Adding Shosetsu took one tap, and its row switched to "Added".
+  - Removing it again brought the suggestion back. The emulator was left with only the official repository.
+- **Browse:**
+  - It showed the search box, kind chips (All, Music, Manga, Novels, Lyrics) and the language and repository pickers.
+  - The official repository, read from GitHub, now lists Project Gutenberg 1.0.0 and MangaDex 1.1.0 alongside the music extensions.
+  - Shosetsu scripts show their language by its own name (English, 日本語, Русский).
+  - Novels + English narrowed the list to English novel sources. Lyrics + English showed "No extensions match".

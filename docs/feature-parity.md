@@ -30,7 +30,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 |---|---|---|
 | Install/update/uninstall, per-extension settings | all | ✅ M13 |
 | Several repositories ("extension stores"), add by URL | Mihon, CloudStream, Shosetsu | ✅ M13 |
-| Suggested repositories, browse with search and filters (kind, language, repository, rating) | Mihon, CloudStream | 🔜 M36 |
+| Suggested repositories, browse with search and filters (kind, language, repository, rating) | Mihon, CloudStream | ✅ M36 |
 | Hide NSFW extensions; content rating shown | Mihon | ✅ M35 |
 | Nuclear plugins | Nuclear | ✅ M17 |
 | Shosetsu Lua scripts | Shosetsu | ✅ M32 |
