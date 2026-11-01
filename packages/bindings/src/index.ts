@@ -249,6 +249,26 @@ export const commands = {
 	catalogGlobalSearch: (medium: string, query: string) => typedError<SourceSearchResult[], string>(__TAURI_INVOKE("catalog_global_search", { medium, query })),
 	/**  Tracks in the device's library matching `query` (title, artist or album). */
 	librarySearch: (query: string) => typedError<LibraryTrack[], string>(__TAURI_INVOKE("library_search", { query })),
+	stremioAddons: () => typedError<StremioAddon[], string>(__TAURI_INVOKE("stremio_addons")),
+	/**  Well-known addons to add with one tap, marked when already added. */
+	stremioSuggestions: () => typedError<StremioSuggestion[], string>(__TAURI_INVOKE("stremio_suggestions")),
+	/**  Adds an addon by its address (`.../manifest.json`, `stremio://...` or a bare host). */
+	stremioAdd: (url: string) => typedError<StremioAddon, string>(__TAURI_INVOKE("stremio_add", { url })),
+	stremioRemove: (id: string) => typedError<null, string>(__TAURI_INVOKE("stremio_remove", { id })),
+	/**  The Watch home: the first page of every browsable catalog. */
+	stremioHome: () => typedError<StremioCatalogRow[], string>(__TAURI_INVOKE("stremio_home")),
+	/**  One catalog's page, optionally for a genre, `skip` items in. */
+	stremioCatalog: (addonId: string, kind: string, catalogId: string, genre: string | null, skip: number) => typedError<StremioCatalogRow, string>(__TAURI_INVOKE("stremio_catalog", { addonId, kind, catalogId, genre, skip })),
+	/**  Every searchable catalog's results for `query`. */
+	stremioSearch: (query: string) => typedError<StremioCatalogRow[], string>(__TAURI_INVOKE("stremio_search", { query })),
+	/**  A title's details, seasons and episodes, with watching progress. */
+	stremioMeta: (kind: string, id: string) => typedError<StremioMeta, string>(__TAURI_INVOKE("stremio_meta", { kind, id })),
+	/**  Streams for a movie or an episode, grouped by addon. */
+	stremioStreams: (kind: string, videoId: string) => typedError<StremioStreamGroup[], string>(__TAURI_INVOKE("stremio_streams", { kind, videoId })),
+	/**  Plays a stream; `language` puts its subtitles first. */
+	stremioPlay: (request: StremioPlayRequest, language: string) => typedError<null, string>(__TAURI_INVOKE("stremio_play", { request, language })),
+	/**  Marks a movie or episode watched (or not). */
+	stremioSetWatched: (kind: string, videoId: string, title: string, subtitle: string | null, poster: string | null, watched: boolean) => typedError<null, string>(__TAURI_INVOKE("stremio_set_watched", { kind, videoId, title, subtitle, poster, watched })),
 };
 
 /** Events */
@@ -1104,6 +1124,133 @@ export type StorageMode =
 "mobile" | 
 /**  Set explicitly through `RAYGUN_HOME`. */
 "override";
+
+export type StremioAddon = {
+	id: string,
+	url: string,
+	name: string,
+	description: string | null,
+	logo: string | null,
+	version: string,
+	/**  `catalog`, `meta`, `stream`, `subtitles`... */
+	resources: string[],
+	types: string[],
+	catalogs: number,
+	adult: boolean,
+	/**  Why its manifest couldn't be read, when it couldn't. */
+	error: string | null,
+};
+
+/**  One catalog's first page on the Watch home, in search, or a catalog page. */
+export type StremioCatalogRow = {
+	addonId: string,
+	addonName: string,
+	kind: string,
+	catalogId: string,
+	name: string,
+	items: StremioItem[],
+	/**  Genre choices the catalog takes. */
+	genres: string[],
+	hasMore: boolean,
+	error: string | null,
+};
+
+/**  A movie, series or channel in a catalog. */
+export type StremioItem = {
+	/**  `movie`, `series`, `channel`, `tv`... */
+	kind: string,
+	id: string,
+	name: string,
+	poster: string | null,
+	/**  `poster`, `landscape` or `square`. */
+	posterShape: string,
+	releaseInfo: string | null,
+	rating: string | null,
+};
+
+export type StremioMeta = {
+	kind: string,
+	id: string,
+	name: string,
+	poster: string | null,
+	background: string | null,
+	logo: string | null,
+	description: string | null,
+	genres: string[],
+	releaseInfo: string | null,
+	runtime: string | null,
+	rating: string | null,
+	cast: string[],
+	director: string[],
+	trailerYtIds: string[],
+	/**  Episodes, by season and number; empty for a movie. */
+	videos: StremioVideo[],
+	/**  For a movie: where watching stopped. */
+	positionMs: number | null,
+	durationMs: number | null,
+	watched: boolean,
+	addonName: string,
+};
+
+/**  What to play: a stream of a movie or episode, with what the player shows. */
+export type StremioPlayRequest = {
+	kind: string,
+	/**  The movie's id, or the episode's (`tt0903747:1:2`). */
+	videoId: string,
+	title: string,
+	subtitle: string | null,
+	poster: string | null,
+	stream: StremioStream,
+};
+
+export type StremioStream = {
+	kind: StremioStreamKind,
+	name: string | null,
+	description: string | null,
+	/**  URL, YouTube id, external URL or info hash, by `kind`. */
+	target: string,
+	headers: { [key in string]: string },
+	subtitles: VideoSubtitle[],
+};
+
+export type StremioStreamGroup = {
+	addonId: string,
+	addonName: string,
+	streams: StremioStream[],
+	error: string | null,
+};
+
+export type StremioStreamKind = 
+/**  Plays in Raygun's player. */
+"direct" | 
+/**  Plays in the embedded YouTube player. */
+"youTube" | 
+/**  Opens outside Raygun. */
+"external" | 
+/**  Needs a torrent engine (not supported yet). */
+"torrent";
+
+/**  A well-known addon offered with one tap. */
+export type StremioSuggestion = {
+	url: string,
+	name: string,
+	description: string,
+	added: boolean,
+};
+
+export type StremioVideo = {
+	/**  The id streams are asked for (`tt0903747:1:2`). */
+	id: string,
+	title: string,
+	season: number | null,
+	episode: number | null,
+	released: string | null,
+	thumbnail: string | null,
+	overview: string | null,
+	positionMs: number | null,
+	durationMs: number | null,
+	watched: boolean,
+};
 
 /**  A well-known repository the Repositories tab offers to add with one tap (M36). */
 export type SuggestedRepo = {

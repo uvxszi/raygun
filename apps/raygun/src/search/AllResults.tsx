@@ -8,6 +8,7 @@ import { usePodcastSearch } from '../podcasts/usePodcasts';
 import { SourceRow } from './CatalogSearch';
 import { LibraryMatches } from './LibraryMatches';
 import { MusicResults } from './MusicResults';
+import { VideoResults } from './VideoResults';
 import type { SearchType } from './searchTypes';
 import { useGlobalSearch } from './useCatalogSearch';
 
@@ -91,6 +92,9 @@ export const AllResults: FC<{ query: string; onType: (type: SearchType) => void 
       </Section>
       <Section title={t('library.media.podcast')} onMore={() => onType('podcast')}>
         <PodcastPreview query={query} />
+      </Section>
+      <Section title={t('search.type.video')} onMore={() => onType('video')}>
+        <VideoResults query={query} limit={2} />
       </Section>
       <Section title={t('library.media.manga')} onMore={() => onType('manga')}>
         <CatalogPreview medium="manga" query={query} />

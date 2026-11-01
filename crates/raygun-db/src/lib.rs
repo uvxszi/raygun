@@ -14,6 +14,7 @@ pub mod manga_downloads;
 pub mod podcasts;
 pub mod settings;
 pub mod streams;
+pub mod stremio;
 pub mod sync;
 pub mod titles;
 pub mod video;

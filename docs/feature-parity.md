@@ -34,7 +34,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Hide NSFW extensions; content rating shown | Mihon | ✅ M35 |
 | Nuclear plugins | Nuclear | ✅ M17 |
 | Shosetsu Lua scripts | Shosetsu | ✅ M32 |
-| Stremio addons | Stremio | 🔜 M41 |
+| Stremio addons | Stremio | ✅ M41 |
 | LNReader JS plugins | LNReader | 🔜 M53 |
 | Mihon/Aniyomi APK extensions | Mihon, aniyomi | 🔜 M55 (Android dex runtime) |
 | CloudStream `.cs3` plugins | CloudStream | ✖ dex plus a large Kotlin API surface; `video.source` covers the use |
@@ -101,13 +101,13 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 ## Watch: movies, TV, anime (CloudStream, aniyomi, Stremio)
 | Feature | From | Status |
 |---|---|---|
-| **Watch tab**, home with catalog rows | CloudStream, Stremio | ✅ M38 (tab) / 🔜 catalogs |
+| **Watch tab**, home with catalog rows | CloudStream, Stremio | ✅ M38 (tab), M41 (catalogs) |
 | Native player: gestures (seek/volume/brightness), double-tap skip, PiP, speed, orientation, resume | aniyomi, CloudStream | ✅ M38 |
 | Subtitles (.srt/.vtt/.ass), preferred languages, audio track selection | aniyomi, CloudStream | ✅ M38 (preferred languages later) |
 | HLS/DASH, header injection | CloudStream | ✅ M38 |
 | Intro/outro skip (chapters, AniSkip) | aniyomi | 🔜 M38 (chapters), ⏸ AniSkip (needs a tracker) |
 | Mark seen at a percentage, preserve position | aniyomi | 🔜 M43 |
-| Stremio catalogs, metadata, streams, subtitles | Stremio | 🔜 M41 |
+| Stremio catalogs, metadata, streams, subtitles | Stremio | ✅ M41 (torrent streams not yet) |
 | Video sources with servers streamed as they resolve | CloudStream, aniyomi | 🔜 M42 |
 | Source priority, quality profiles, failed/empty hosters | CloudStream, aniyomi | 🔜 M42 |
 | Video library, history, continue watching, upcoming episodes | aniyomi, CloudStream | 🔜 M43 |

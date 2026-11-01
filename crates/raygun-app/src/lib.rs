@@ -28,6 +28,7 @@ mod resolver;
 mod search;
 mod settings;
 mod startup;
+mod stremio;
 mod system_ui;
 mod tts;
 mod video;
@@ -170,7 +171,18 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::catalog_filters,
             commands::catalog_search,
             commands::catalog_global_search,
-            commands::library_search
+            commands::library_search,
+            commands::stremio_addons,
+            commands::stremio_suggestions,
+            commands::stremio_add,
+            commands::stremio_remove,
+            commands::stremio_home,
+            commands::stremio_catalog,
+            commands::stremio_search,
+            commands::stremio_meta,
+            commands::stremio_streams,
+            commands::stremio_play,
+            commands::stremio_set_watched
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,

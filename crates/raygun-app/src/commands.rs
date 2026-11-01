@@ -1367,3 +1367,125 @@ pub async fn library_search(
 ) -> Result<Vec<LibraryTrack>, String> {
     library.search(&query, 50).await
 }
+
+// ---- Stremio addons (M41) ----
+
+type Stremio<'a> = tauri::State<'a, Arc<crate::stremio::StremioService>>;
+
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_addons(
+    stremio: Stremio<'_>,
+) -> Result<Vec<raygun_model::StremioAddon>, String> {
+    stremio.addons().await
+}
+
+/// Well-known addons to add with one tap, marked when already added.
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_suggestions(
+    stremio: Stremio<'_>,
+) -> Result<Vec<raygun_model::StremioSuggestion>, String> {
+    stremio.suggestions().await
+}
+
+/// Adds an addon by its address (`.../manifest.json`, `stremio://...` or a bare host).
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_add(
+    stremio: Stremio<'_>,
+    url: String,
+) -> Result<raygun_model::StremioAddon, String> {
+    stremio.add(&url).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_remove(stremio: Stremio<'_>, id: String) -> Result<(), String> {
+    stremio.remove(&id).await
+}
+
+/// The Watch home: the first page of every browsable catalog.
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_home(
+    stremio: Stremio<'_>,
+) -> Result<Vec<raygun_model::StremioCatalogRow>, String> {
+    stremio.home().await
+}
+
+/// One catalog's page, optionally for a genre, `skip` items in.
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_catalog(
+    stremio: Stremio<'_>,
+    addon_id: String,
+    kind: String,
+    catalog_id: String,
+    genre: Option<String>,
+    skip: u32,
+) -> Result<raygun_model::StremioCatalogRow, String> {
+    stremio
+        .catalog(&addon_id, &kind, &catalog_id, genre.as_deref(), skip)
+        .await
+}
+
+/// Every searchable catalog's results for `query`.
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_search(
+    stremio: Stremio<'_>,
+    query: String,
+) -> Result<Vec<raygun_model::StremioCatalogRow>, String> {
+    stremio.search(&query).await
+}
+
+/// A title's details, seasons and episodes, with watching progress.
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_meta(
+    stremio: Stremio<'_>,
+    kind: String,
+    id: String,
+) -> Result<raygun_model::StremioMeta, String> {
+    stremio.meta(&kind, &id).await
+}
+
+/// Streams for a movie or an episode, grouped by addon.
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_streams(
+    stremio: Stremio<'_>,
+    kind: String,
+    video_id: String,
+) -> Result<Vec<raygun_model::StremioStreamGroup>, String> {
+    stremio.streams(&kind, &video_id).await
+}
+
+/// Plays a stream; `language` puts its subtitles first.
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_play(
+    stremio: Stremio<'_>,
+    request: raygun_model::StremioPlayRequest,
+    language: String,
+) -> Result<(), String> {
+    stremio.play(request, &language).await
+}
+
+/// Marks a movie or episode watched (or not).
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_set_watched(
+    stremio: Stremio<'_>,
+    kind: String,
+    video_id: String,
+    title: String,
+    subtitle: Option<String>,
+    poster: Option<String>,
+    watched: bool,
+) -> Result<(), String> {
+    stremio
+        .set_watched(&kind, &video_id, &title, subtitle, poster, watched)
+        .await
+}

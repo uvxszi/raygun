@@ -8,14 +8,16 @@
 //! the proxy can't be used to fetch arbitrary URLs.
 //!
 //! It also serves library artwork from one folder at `/art/<name>`, limited to names the caller's
-//! validator accepts, the YouTube embed host page at `/embed/youtube` (M08), and remote images
-//! (manga covers and pages, M24) at `/image/<token>`.
+//! validator accepts, the YouTube embed host page at `/embed/youtube` (M08), remote images
+//! (manga covers and pages, M24) at `/image/<token>`, and subtitle files for the video player
+//! (M41) at `/subtitle/<token>`.
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use axum::Router;
 use axum::body::Body;
@@ -23,6 +25,7 @@ use axum::extract::{Path, Request, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use futures_util::StreamExt;
 use raygun_model::MediaSource;
 
 use crate::images::{ImageError, fetch_image};
@@ -34,6 +37,14 @@ use tower_http::services::ServeFile;
 const MAX_REGISTERED: usize = 64;
 /// Image links remembered (a few library pages of covers plus several chapters of pages).
 const MAX_IMAGES: usize = 4096;
+/// Longest a subtitle file may take to arrive, and its biggest size.
+const SUBTITLE_TIMEOUT: Duration = Duration::from_secs(20);
+const MAX_SUBTITLE_BYTES: usize = 5 * 1024 * 1024;
+/// Served in place of a subtitle file that can't be fetched: an empty track. The video player
+/// gives up on the whole video when any file it was handed fails.
+const EMPTY_SUBTITLES: &str = "WEBVTT
+
+";
 
 const FORWARDED_RESPONSE_HEADERS: [header::HeaderName; 5] = [
     header::CONTENT_TYPE,
@@ -101,6 +112,20 @@ pub struct ImageLinks {
 impl ImageLinks {
     /// The proxy URL for `url`, fetched with `headers` (e.g. a Referer the host requires).
     pub fn link(&self, url: &str, headers: &BTreeMap<String, String>) -> String {
+        format!("http://{}/image/{}", self.address, self.token(url, headers))
+    }
+
+    /// The proxy URL of a subtitle file, which never fails: a file that can't be fetched comes
+    /// back as an empty track.
+    pub fn subtitle(&self, url: &str, headers: &BTreeMap<String, String>) -> String {
+        format!(
+            "http://{}/subtitle/{}",
+            self.address,
+            self.token(url, headers)
+        )
+    }
+
+    fn token(&self, url: &str, headers: &BTreeMap<String, String>) -> String {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         url.hash(&mut hasher);
         headers.hash(&mut hasher);
@@ -118,7 +143,7 @@ impl ImageLinks {
                 }
             }
         }
-        format!("http://{}/image/{token}", self.address)
+        token
     }
 
     /// The proxy URL of a file under the [`ProxyStorage::local`] folder, by its relative path.
@@ -166,6 +191,7 @@ impl StreamProxy {
         let router = Router::new()
             .route("/stream/{token}", get(stream))
             .route("/image/{token}", get(serve_image))
+            .route("/subtitle/{token}", get(serve_subtitle))
             .route("/art/{name}", get(serve_artwork))
             .route("/local/{*path}", get(serve_local))
             .route("/embed/youtube", get(youtube_embed))
@@ -337,6 +363,69 @@ async fn serve_image(
         }
     };
     with_cors(response)
+}
+
+async fn serve_subtitle(State(state): State<ProxyState>, Path(token): Path<String>) -> Response {
+    let link = state
+        .images
+        .lock()
+        .expect("image registry poisoned")
+        .images
+        .get(&token)
+        .cloned();
+    let Some((url, headers)) = link else {
+        return with_cors(StatusCode::NOT_FOUND.into_response());
+    };
+    let body = match fetch_subtitle(&state.client, &url, &headers).await {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            tracing::warn!(%error, "subtitle request failed");
+            EMPTY_SUBTITLES.as_bytes().to_vec()
+        }
+    };
+    with_cors(
+        (
+            [
+                (header::CONTENT_TYPE, "text/plain; charset=utf-8"),
+                (header::CACHE_CONTROL, "no-store"),
+            ],
+            body,
+        )
+            .into_response(),
+    )
+}
+
+async fn fetch_subtitle(
+    client: &reqwest::Client,
+    url: &str,
+    headers: &BTreeMap<String, String>,
+) -> Result<Vec<u8>, String> {
+    let mut request = client.get(url).timeout(SUBTITLE_TIMEOUT);
+    for (name, value) in headers {
+        request = request.header(name, value);
+    }
+    let response = request.send().await.map_err(|error| error.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("the host answered {}", response.status()));
+    }
+    let html = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|kind| kind.starts_with("text/html"));
+    if html {
+        return Err("the host sent a web page".into());
+    }
+    let mut bytes = Vec::new();
+    let mut body = response.bytes_stream();
+    while let Some(chunk) = body.next().await {
+        let chunk = chunk.map_err(|error| error.to_string())?;
+        if bytes.len() + chunk.len() > MAX_SUBTITLE_BYTES {
+            return Err("the file is too large".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
 }
 
 /// Serves an image from the page cache, or fetches it whole, stores it and serves it.

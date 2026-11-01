@@ -2,7 +2,8 @@
 //! progress it reports, for resuming and "continue watching". Elsewhere video isn't available yet.
 
 use raygun_db::video::{self as store, VideoEntry};
-use raygun_model::{ContinueWatching, PlaybackControl, VideoRequest};
+use raygun_model::{ContinueWatching, PlaybackControl, VideoRequest, VideoSubtitle};
+use raygun_net::ImageLinks;
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
@@ -62,10 +63,44 @@ pub async fn play(app: &AppHandle, request: VideoRequest) -> Result<(), String> 
         "subtitle": request.subtitle,
         "headers": request.headers,
         "format": request.format,
-        "subtitles": request.subtitles,
+        "subtitles": proxied_subtitles(app, &request.subtitles),
         "startMs": start_ms,
     });
     open_player(app, &payload)
+}
+
+/// Subtitle files through the stream proxy, which serves an empty track for one that can't be
+/// fetched (the player would give up on the whole video) and lets release builds load plain-HTTP
+/// ones. The proxied URL has no extension, so the format is guessed from the original first.
+fn proxied_subtitles(app: &AppHandle, subtitles: &[VideoSubtitle]) -> Vec<VideoSubtitle> {
+    let Some(links) = app.try_state::<ImageLinks>() else {
+        return subtitles.to_vec();
+    };
+    subtitles
+        .iter()
+        .filter(|subtitle| {
+            subtitle.url.starts_with("https://") || subtitle.url.starts_with("http://")
+        })
+        .map(|subtitle| VideoSubtitle {
+            url: links.subtitle(&subtitle.url, &Default::default()),
+            format: subtitle
+                .format
+                .clone()
+                .or_else(|| subtitle_format(&subtitle.url)),
+            ..subtitle.clone()
+        })
+        .collect()
+}
+
+/// `srt`, `vtt`, `ass`... from a subtitle URL's file extension, when it has a known one.
+fn subtitle_format(url: &str) -> Option<String> {
+    let path = url.split(['?', '#']).next().unwrap_or_default();
+    let name = path.rsplit('/').next().unwrap_or_default();
+    let (_, extension) = name.rsplit_once('.')?;
+    let extension = extension.to_ascii_lowercase();
+    ["srt", "vtt", "webvtt", "ass", "ssa", "ttml", "dfxp"]
+        .contains(&extension.as_str())
+        .then_some(extension)
 }
 
 #[cfg(target_os = "android")]
@@ -162,8 +197,8 @@ pub async fn resume(app: &AppHandle, key: &str) -> Result<(), String> {
         .await
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "This was removed".to_owned())?;
-    let request: VideoRequest =
-        serde_json::from_str(&saved.entry.request).map_err(|error| error.to_string())?;
+    let request: VideoRequest = serde_json::from_str(&saved.entry.request)
+        .map_err(|_| "Open this from its page to choose a stream".to_owned())?;
     play(app, request).await
 }
 
@@ -239,5 +274,20 @@ mod tests {
         assert_eq!(mp4.title, "A film");
         assert_eq!(mp4.format, None);
         assert_eq!(mp4.subtitles[0].url, "https://cdn.example/film.srt");
+    }
+
+    #[test]
+    fn subtitle_formats_from_urls() {
+        let format = |url| subtitle_format(url);
+        assert_eq!(
+            format("https://cdn.example/a/film.SRT?t=1").as_deref(),
+            Some("srt")
+        );
+        assert_eq!(
+            format("https://cdn.example/subs.vtt#x").as_deref(),
+            Some("vtt")
+        );
+        assert_eq!(format("https://subs.example/en/download/file/123"), None);
+        assert_eq!(format("https://cdn.example.com/"), None);
     }
 }

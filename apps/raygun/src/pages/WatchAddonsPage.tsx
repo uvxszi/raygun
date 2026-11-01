@@ -1,0 +1,186 @@
+import type { StremioAddon } from '@raygun/bindings';
+import { Check, LoaderCircle, Plus, Puzzle, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import type { FC, FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
+
+import {
+  useAddAddon,
+  useRemoveAddon,
+  useStremioAddons,
+  useStremioSuggestions,
+} from '../watch/useStremio';
+import { PageHeader } from './PageHeader';
+
+const AddonLogo: FC<{ url: string | null }> = ({ url }) =>
+  url ? (
+    <img src={url} alt="" loading="lazy" className="size-10 shrink-0 rounded-lg object-contain" />
+  ) : (
+    <span
+      aria-hidden
+      className="bg-background text-muted grid size-10 shrink-0 place-items-center rounded-lg"
+    >
+      <Puzzle size={20} />
+    </span>
+  );
+
+const AddonItem: FC<{ addon: StremioAddon }> = ({ addon }) => {
+  const { t } = useTranslation();
+  const remove = useRemoveAddon();
+  const serves = addon.resources.map((resource) =>
+    t(`watch.resource.${resource}`, { defaultValue: resource }),
+  );
+  return (
+    <li aria-label={addon.name} className="bg-surface flex items-start gap-3 rounded-xl px-4 py-3">
+      <AddonLogo url={addon.logo} />
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="font-medium wrap-anywhere">
+          {addon.name}
+          {addon.version && <span className="text-muted text-xs"> {addon.version}</span>}
+        </span>
+        {addon.error ? (
+          <span className="text-primary text-xs wrap-anywhere">
+            {t('watch.addonFailed', { message: addon.error })}
+          </span>
+        ) : (
+          <>
+            {addon.description && (
+              <span className="text-muted line-clamp-2 text-xs">{addon.description}</span>
+            )}
+            {serves.length > 0 && (
+              <span className="text-muted text-xs">
+                {t('watch.addonServes', { list: serves.join(', ') })}
+              </span>
+            )}
+          </>
+        )}
+      </div>
+      <button
+        type="button"
+        aria-label={t('watch.removeAddon', { name: addon.name })}
+        disabled={remove.isPending}
+        onClick={() => remove.mutate(addon.id)}
+        className="text-muted grid size-9 shrink-0 place-items-center rounded-full disabled:opacity-50"
+      >
+        <Trash2 aria-hidden size={18} />
+      </button>
+    </li>
+  );
+};
+
+/** Stremio addons: what's installed, well-known ones, and adding one by its address. */
+export const WatchAddonsPage: FC = () => {
+  const { t } = useTranslation();
+  const addons = useStremioAddons();
+  const suggestions = useStremioSuggestions();
+  const add = useAddAddon();
+  const [url, setUrl] = useState('');
+  const missing = (suggestions.data ?? []).filter((suggestion) => !suggestion.added);
+
+  const onAdd = (event: FormEvent) => {
+    event.preventDefault();
+    if (url.trim()) {
+      add.mutate(url.trim(), { onSuccess: () => setUrl('') });
+    }
+  };
+
+  return (
+    <section data-testid="watch-addons-page" className="flex flex-col gap-5">
+      <div className="flex flex-col gap-1">
+        <PageHeader title={t('watch.addons')} />
+        <p className="text-muted text-sm">{t('watch.addonsHint')}</p>
+      </div>
+      <form
+        onSubmit={onAdd}
+        className="bg-surface flex flex-col gap-2 rounded-xl px-5 py-4 text-sm"
+      >
+        <label htmlFor="addon-url" className="font-semibold">
+          {t('watch.addAddon')}
+        </label>
+        <div className="flex gap-2">
+          <input
+            id="addon-url"
+            type="text"
+            inputMode="url"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            value={url}
+            onChange={(event) => setUrl(event.target.value)}
+            placeholder="https://…/manifest.json"
+            className="bg-background min-w-0 flex-1 rounded-lg px-3 py-2 outline-none"
+          />
+          <button
+            type="submit"
+            disabled={!url.trim() || add.isPending}
+            className="bg-primary text-background flex items-center gap-1.5 rounded-full px-4 py-2 font-semibold disabled:opacity-60"
+          >
+            {add.isPending ? (
+              <LoaderCircle aria-hidden size={16} className="animate-spin" />
+            ) : (
+              <Plus aria-hidden size={16} />
+            )}
+            {t('watch.add')}
+          </button>
+        </div>
+        {add.error && (
+          <p role="alert" className="text-primary text-xs wrap-anywhere">
+            {add.error.message}
+          </p>
+        )}
+      </form>
+      {addons.error && (
+        <p role="alert" className="text-primary text-sm wrap-anywhere">
+          {addons.error.message}
+        </p>
+      )}
+      {addons.isPending && (
+        <LoaderCircle aria-label={t('watch.loading')} className="text-muted mx-auto animate-spin" />
+      )}
+      {addons.data && addons.data.length === 0 && (
+        <p className="text-muted text-sm">{t('watch.noAddons')}</p>
+      )}
+      {addons.data && addons.data.length > 0 && (
+        <ul aria-label={t('watch.installedAddons')} className="flex flex-col gap-2">
+          {addons.data.map((addon) => (
+            <AddonItem key={addon.id} addon={addon} />
+          ))}
+        </ul>
+      )}
+      {missing.length > 0 && (
+        <section aria-labelledby="addon-suggestions" className="flex flex-col gap-2">
+          <h2 id="addon-suggestions" className="font-semibold">
+            {t('watch.suggestedAddons')}
+          </h2>
+          <ul className="flex flex-col gap-2">
+            {missing.map((suggestion) => (
+              <li
+                key={suggestion.url}
+                aria-label={suggestion.name}
+                className="bg-surface flex items-center gap-3 rounded-xl px-4 py-3"
+              >
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="font-medium">{suggestion.name}</span>
+                  <span className="text-muted text-xs">{suggestion.description}</span>
+                </div>
+                <button
+                  type="button"
+                  aria-label={t('watch.addNamed', { name: suggestion.name })}
+                  disabled={add.isPending}
+                  onClick={() => add.mutate(suggestion.url)}
+                  className="bg-primary text-background grid size-9 shrink-0 place-items-center rounded-full disabled:opacity-60"
+                >
+                  {suggestion.added ? (
+                    <Check aria-hidden size={16} />
+                  ) : (
+                    <Plus aria-hidden size={16} />
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </section>
+  );
+};

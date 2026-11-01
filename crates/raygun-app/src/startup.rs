@@ -59,6 +59,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
             local: Some(paths.downloads()),
         },
     ))?;
+    app.manage(proxy.images());
     app.manage(crate::library::LibraryService::new(
         app.handle().clone(),
         art_dir,
@@ -87,6 +88,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         paths.downloads(),
     ));
     app.manage(podcasts.clone());
+    app.manage(std::sync::Arc::new(crate::stremio::StremioService::new(
+        app.handle().clone(),
+        raygun_net::http_client()?,
+    )));
     let ai = tauri::async_runtime::block_on(crate::ai::AiService::open(
         app.handle().clone(),
         paths.secrets(),

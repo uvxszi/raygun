@@ -1561,3 +1561,153 @@ pub struct SourceSearchResult {
     pub has_next_page: bool,
     pub error: Option<String>,
 }
+
+// ---- Stremio addons (M41) ----
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StremioAddon {
+    pub id: String,
+    pub url: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub logo: Option<String>,
+    pub version: String,
+    /// `catalog`, `meta`, `stream`, `subtitles`...
+    pub resources: Vec<String>,
+    pub types: Vec<String>,
+    pub catalogs: u32,
+    pub adult: bool,
+    /// Why its manifest couldn't be read, when it couldn't.
+    pub error: Option<String>,
+}
+
+/// A well-known addon offered with one tap.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StremioSuggestion {
+    pub url: String,
+    pub name: String,
+    pub description: String,
+    pub added: bool,
+}
+
+/// A movie, series or channel in a catalog.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StremioItem {
+    /// `movie`, `series`, `channel`, `tv`...
+    pub kind: String,
+    pub id: String,
+    pub name: String,
+    pub poster: Option<String>,
+    /// `poster`, `landscape` or `square`.
+    pub poster_shape: String,
+    pub release_info: Option<String>,
+    pub rating: Option<String>,
+}
+
+/// One catalog's first page on the Watch home, in search, or a catalog page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StremioCatalogRow {
+    pub addon_id: String,
+    pub addon_name: String,
+    pub kind: String,
+    pub catalog_id: String,
+    pub name: String,
+    pub items: Vec<StremioItem>,
+    /// Genre choices the catalog takes.
+    pub genres: Vec<String>,
+    pub has_more: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StremioVideo {
+    /// The id streams are asked for (`tt0903747:1:2`).
+    pub id: String,
+    pub title: String,
+    pub season: Option<u32>,
+    pub episode: Option<u32>,
+    pub released: Option<String>,
+    pub thumbnail: Option<String>,
+    pub overview: Option<String>,
+    pub position_ms: f64,
+    pub duration_ms: Option<f64>,
+    pub watched: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StremioMeta {
+    pub kind: String,
+    pub id: String,
+    pub name: String,
+    pub poster: Option<String>,
+    pub background: Option<String>,
+    pub logo: Option<String>,
+    pub description: Option<String>,
+    pub genres: Vec<String>,
+    pub release_info: Option<String>,
+    pub runtime: Option<String>,
+    pub rating: Option<String>,
+    pub cast: Vec<String>,
+    pub director: Vec<String>,
+    pub trailer_yt_ids: Vec<String>,
+    /// Episodes, by season and number; empty for a movie.
+    pub videos: Vec<StremioVideo>,
+    /// For a movie: where watching stopped.
+    pub position_ms: f64,
+    pub duration_ms: Option<f64>,
+    pub watched: bool,
+    pub addon_name: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum StremioStreamKind {
+    /// Plays in Raygun's player.
+    Direct,
+    /// Plays in the embedded YouTube player.
+    YouTube,
+    /// Opens outside Raygun.
+    External,
+    /// Needs a torrent engine (not supported yet).
+    Torrent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StremioStream {
+    pub kind: StremioStreamKind,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    /// URL, YouTube id, external URL or info hash, by `kind`.
+    pub target: String,
+    pub headers: std::collections::BTreeMap<String, String>,
+    pub subtitles: Vec<VideoSubtitle>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StremioStreamGroup {
+    pub addon_id: String,
+    pub addon_name: String,
+    pub streams: Vec<StremioStream>,
+    pub error: Option<String>,
+}
+
+/// What to play: a stream of a movie or episode, with what the player shows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StremioPlayRequest {
+    pub kind: String,
+    /// The movie's id, or the episode's (`tt0903747:1:2`).
+    pub video_id: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub poster: Option<String>,
+    pub stream: StremioStream,
+}

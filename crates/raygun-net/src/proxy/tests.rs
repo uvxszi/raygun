@@ -364,3 +364,29 @@ async fn cached_images_are_served_from_disk_after_the_first_fetch() {
         "only the image was stored"
     );
 }
+
+#[tokio::test]
+async fn subtitles_never_fail() {
+    let origin = start_origin().await;
+    let proxy = proxy().await;
+    let links = proxy.images();
+    let url = format!("http://{origin}/song.mp3");
+    let referer = BTreeMap::from([("Referer".to_owned(), REQUIRED_REFERER.to_owned())]);
+
+    let served = reqwest::get(links.subtitle(&url, &referer)).await.unwrap();
+    assert_eq!(served.status(), 200);
+    assert_eq!(served.bytes().await.unwrap().as_ref(), SONG);
+
+    // Refused by the host (no Referer) and missing: both an empty track.
+    for link in [
+        links.subtitle(&url, &BTreeMap::new()),
+        links.subtitle(&format!("http://{origin}/missing.srt"), &BTreeMap::new()),
+    ] {
+        let response = reqwest::get(link).await.unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.text().await.unwrap(), EMPTY_SUBTITLES);
+    }
+
+    let unknown = format!("http://{}/subtitle/0000000000000000", proxy.address());
+    assert_eq!(reqwest::get(unknown).await.unwrap().status(), 404);
+}

@@ -233,6 +233,17 @@ export const bindingsMock = {
     libraryCategoryReorder: vi.fn(),
     librarySetTitleCategories: vi.fn(),
     videoHistory: vi.fn(),
+    stremioAddons: vi.fn(),
+    stremioSuggestions: vi.fn(),
+    stremioAdd: vi.fn(),
+    stremioRemove: vi.fn(),
+    stremioHome: vi.fn(),
+    stremioCatalog: vi.fn(),
+    stremioSearch: vi.fn(),
+    stremioMeta: vi.fn(),
+    stremioStreams: vi.fn(),
+    stremioPlay: vi.fn(),
+    stremioSetWatched: vi.fn(),
     catalogFilters: vi.fn(),
     catalogSearch: vi.fn(),
     catalogGlobalSearch: vi.fn(),
@@ -408,6 +419,17 @@ export const seedBindings = () => {
   commands.libraryCategoryReorder.mockResolvedValue(ok(null));
   commands.librarySetTitleCategories.mockResolvedValue(ok(null));
   commands.videoHistory.mockResolvedValue(ok([]));
+  commands.stremioAddons.mockResolvedValue(ok([]));
+  commands.stremioSuggestions.mockResolvedValue(ok([]));
+  commands.stremioAdd.mockResolvedValue(ok(null));
+  commands.stremioRemove.mockResolvedValue(ok(null));
+  commands.stremioHome.mockResolvedValue(ok([]));
+  commands.stremioCatalog.mockResolvedValue({ status: 'error', error: 'not mocked' });
+  commands.stremioSearch.mockResolvedValue(ok([]));
+  commands.stremioMeta.mockResolvedValue({ status: 'error', error: 'not mocked' });
+  commands.stremioStreams.mockResolvedValue(ok([]));
+  commands.stremioPlay.mockResolvedValue(ok(null));
+  commands.stremioSetWatched.mockResolvedValue(ok(null));
   commands.catalogFilters.mockResolvedValue(ok([]));
   commands.catalogSearch.mockResolvedValue(ok({ items: [], hasNextPage: false }));
   commands.catalogGlobalSearch.mockResolvedValue(ok([]));

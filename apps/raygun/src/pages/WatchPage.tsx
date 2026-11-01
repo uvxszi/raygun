@@ -1,4 +1,5 @@
-import { Clapperboard, Play, X } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
+import { Clapperboard, LoaderCircle, Play, Puzzle, X } from 'lucide-react';
 import { useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -9,6 +10,8 @@ import {
   useRemoveContinue,
   useResumeVideo,
 } from '../watch/useWatch';
+import { StremioRow } from '../watch/StremioRow';
+import { useStremioHome } from '../watch/useStremio';
 import { PageHeader } from './PageHeader';
 
 const Poster: FC<{ url: string | null }> = ({ url }) =>
@@ -20,13 +23,14 @@ const Poster: FC<{ url: string | null }> = ({ url }) =>
     </span>
   );
 
-/** The Watch tab: continue watching and playing links; catalogs arrive with M39. */
+/** The Watch tab: continue watching, catalogs from Stremio addons, and playing links. */
 export const WatchPage: FC = () => {
   const { t } = useTranslation();
   const continuing = useContinueWatching();
   const resume = useResumeVideo();
   const remove = useRemoveContinue();
   const playLink = usePlayLink();
+  const home = useStremioHome();
   const [url, setUrl] = useState('');
   const [subtitleUrl, setSubtitleUrl] = useState('');
 
@@ -40,7 +44,16 @@ export const WatchPage: FC = () => {
 
   return (
     <section data-testid="watch-page" className="flex flex-col gap-5">
-      <PageHeader title={t('watch.title')} />
+      <div className="flex items-center justify-between gap-3">
+        <PageHeader title={t('watch.title')} />
+        <Link
+          to="/watch/addons"
+          className="bg-surface flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm"
+        >
+          <Puzzle aria-hidden size={16} />
+          {t('watch.addons')}
+        </Link>
+      </div>
       {(continuing.data?.length ?? 0) > 0 && (
         <section aria-labelledby="watch-continue" className="flex flex-col gap-2">
           <h2 id="watch-continue" className="font-semibold">
@@ -92,6 +105,25 @@ export const WatchPage: FC = () => {
           </ul>
         </section>
       )}
+      {home.isPending && (
+        <LoaderCircle aria-label={t('watch.loading')} className="text-muted mx-auto animate-spin" />
+      )}
+      {home.error && (
+        <p role="alert" className="text-primary text-sm wrap-anywhere">
+          {home.error.message}
+        </p>
+      )}
+      {home.data?.length === 0 && (
+        <p className="text-muted text-sm">
+          {t('watch.noCatalogs')}{' '}
+          <Link to="/watch/addons" className="text-primary">
+            {t('watch.addSomeAddons')}
+          </Link>
+        </p>
+      )}
+      {home.data?.map((row) => (
+        <StremioRow key={`${row.addonId}-${row.kind}-${row.catalogId}`} row={row} />
+      ))}
       <section
         aria-labelledby="watch-link"
         className="bg-surface flex flex-col gap-2 rounded-xl px-5 py-4 text-sm"

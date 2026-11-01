@@ -12,6 +12,7 @@ import { CatalogSearch } from '../search/CatalogSearch';
 import { LibraryMatches } from '../search/LibraryMatches';
 import { MusicResults } from '../search/MusicResults';
 import { SEARCH_TYPES } from '../search/searchTypes';
+import { VideoResults } from '../search/VideoResults';
 import type { SearchType } from '../search/searchTypes';
 import { PageHeader } from './PageHeader';
 
@@ -110,6 +111,7 @@ export const SearchPage: FC = () => {
       {q && type === 'all' && <AllResults query={q} onType={setType} />}
       {q && type === 'music' && <MusicResults query={q} />}
       {q && type === 'podcast' && <PodcastSearch query={q} />}
+      {q && type === 'video' && <VideoResults query={q} />}
       {q && type === 'library' && <LibraryMatches query={q} />}
       {(type === 'manga' || type === 'novel') && (
         <CatalogSearch key={type} medium={type} query={q} />

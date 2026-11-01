@@ -132,15 +132,17 @@
       "podcast": "Podcasts",
       "manga": "Manga",
       "novel": "Novels",
-      "library": "Your library"
+      "library": "Your library",
+      "video": "Movies & series"
     },
     "placeholderFor": {
-      "all": "Search music, podcasts, manga, novels…",
+      "all": "Search music, podcasts, films, manga, novels…",
       "music": "Songs, artists, albums",
       "podcast": "Podcasts by name or topic",
       "manga": "Manga titles",
       "novel": "Novel titles",
-      "library": "Things you already have"
+      "library": "Things you already have",
+      "video": "Movies and series"
     },
     "hintFor": {
       "all": "Search every kind of media at once, or pick one above.",
@@ -148,7 +150,8 @@
       "podcast": "Search the podcast directories.",
       "manga": "Search every manga source.",
       "novel": "Search every novel source.",
-      "library": "Search your music, manga, novels, podcasts and videos."
+      "library": "Search your music, manga, novels, podcasts and videos.",
+      "video": "Search the catalogs of your Stremio addons."
     },
     "inYourLibrary": "In your library",
     "seeAll": "See all",
@@ -653,6 +656,61 @@
     "videoUrl": "Video address",
     "subtitleUrl": "Subtitle address",
     "subtitlePlaceholder": "Subtitles (optional): https://…/subs.srt",
-    "play": "Play"
+    "play": "Play",
+    "addons": "Addons",
+    "addonsHint": "Stremio addons add catalogs, details, streams and subtitles to Watch. Raygun plays what they link to; it doesn't host anything.",
+    "addAddon": "Add an addon by its address",
+    "add": "Add",
+    "addNamed": "Add {{name}}",
+    "installedAddons": "Installed addons",
+    "suggestedAddons": "Suggested",
+    "noAddons": "No addons yet. Add one below or by its address.",
+    "removeAddon": "Remove {{name}}",
+    "addonFailed": "Couldn't load it: {{message}}",
+    "addonServes": "Provides: {{list}}",
+    "resource": {
+      "catalog": "catalogs",
+      "meta": "details",
+      "stream": "streams",
+      "subtitles": "subtitles",
+      "addon_catalog": "addon lists"
+    },
+    "kind": {
+      "movie": "Movies",
+      "series": "Series",
+      "channel": "Channels",
+      "tv": "TV",
+      "anime": "Anime"
+    },
+    "seeAllOf": "See all of {{name}}",
+    "catalogFailed": "This catalog failed: {{message}}",
+    "catalogEmpty": "Nothing here.",
+    "noCatalogs": "No catalogs to show.",
+    "addSomeAddons": "Add addons",
+    "allGenres": "All",
+    "genres": "Genres",
+    "loading": "Loading…",
+    "from": "From {{addon}}",
+    "resume": "Resume",
+    "watched": "Watched",
+    "markWatchedShort": "Mark watched",
+    "markWatched": "Mark {{title}} watched",
+    "markUnwatched": "Mark {{title}} unwatched",
+    "trailer": "Trailer",
+    "director": "Director",
+    "cast": "Cast",
+    "episodes": "Episodes",
+    "seasons": "Seasons",
+    "season": "Season {{number}}",
+    "specials": "Specials",
+    "streams": "Streams",
+    "close": "Close",
+    "findingStreams": "Finding streams…",
+    "noStreams": "None of your addons has a stream for this. Addons that provide streams can be added in Addons.",
+    "streamsFailed": "This addon failed: {{message}}",
+    "unsupported": {
+      "external": "Opens outside Raygun",
+      "torrent": "Torrent streams aren't supported"
+    }
   }
 }

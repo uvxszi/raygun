@@ -158,6 +158,29 @@ pub async fn continue_watching(db: &Db, limit: u32) -> Result<Vec<VideoProgress>
     Ok(rows.iter().map(progress_row).collect())
 }
 
+/// Progress for every key starting with `prefix` (a series' episodes, M41).
+pub async fn progress_with_prefix(db: &Db, prefix: &str) -> Result<Vec<VideoProgress>, DbError> {
+    // `!` escapes LIKE's wildcards in the prefix.
+    let escaped = prefix
+        .replace('!', "!!")
+        .replace('%', "!%")
+        .replace('_', "!_");
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT {COLUMNS} FROM video_progress
+         WHERE deleted = 0 AND key LIKE ?1 ESCAPE '!'"
+    )))
+    .bind(format!("{escaped}%"))
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows.iter().map(progress_row).collect())
+}
+
+/// Marks something watched or not, recording it first if it was never played.
+pub async fn mark(db: &Db, entry: &VideoEntry, watched: bool, now_ms: i64) -> Result<(), DbError> {
+    started(db, entry, now_ms).await?;
+    set_watched(db, &entry.key, watched.then_some(now_ms)).await
+}
+
 /// Everything watched or started, most recent first (the Videos library, M39).
 pub async fn history(db: &Db, limit: u32) -> Result<Vec<VideoProgress>, DbError> {
     let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
@@ -232,6 +255,25 @@ mod tests {
         let done = progress(&db, "url:a").await.unwrap().unwrap();
         assert_eq!((done.position_ms, done.watched_at), (0, Some(4)));
         assert!(continue_watching(&db, 10).await.unwrap().is_empty());
+
+        mark(&db, &entry("stremio:series:tt1:1:1"), true, 9)
+            .await
+            .unwrap();
+        mark(&db, &entry("stremio:series:tt1:1:2"), false, 9)
+            .await
+            .unwrap();
+        mark(&db, &entry("stremio:series:tt10:1:1"), true, 9)
+            .await
+            .unwrap();
+        let episodes = progress_with_prefix(&db, "stremio:series:tt1:")
+            .await
+            .unwrap();
+        assert_eq!(episodes.len(), 2, "tt10 doesn't match tt1:");
+        assert!(
+            episodes
+                .iter()
+                .any(|row| row.entry.key.ends_with(":1:1") && row.watched_at == Some(9))
+        );
 
         set_watched(&db, "url:a", None).await.unwrap();
         remove(&db, "url:a").await.unwrap();

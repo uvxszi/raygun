@@ -10,7 +10,10 @@ import { AlbumPage } from './pages/AlbumPage';
 import { AiPage } from './pages/AiPage';
 import { CategoriesPage } from './pages/CategoriesPage';
 import { PodcastPage } from './pages/PodcastPage';
+import { WatchAddonsPage } from './pages/WatchAddonsPage';
+import { WatchCatalogPage } from './pages/WatchCatalogPage';
 import { WatchPage } from './pages/WatchPage';
+import { WatchTitlePage } from './pages/WatchTitlePage';
 import { isSearchType } from './search/searchTypes';
 import type { SearchType } from './search/searchTypes';
 import { DevicesPage } from './pages/DevicesPage';
@@ -179,6 +182,33 @@ const routeTree = rootRoute.addChildren([
   }),
   createRoute({ getParentRoute: () => rootRoute, path: '/settings/ai', component: AiPage }),
   createRoute({ getParentRoute: () => rootRoute, path: '/watch', component: WatchPage }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/watch/title',
+    component: WatchTitlePage,
+    validateSearch: (search: Record<string, unknown>) => ({
+      type: text(search.type),
+      id: text(search.id),
+    }),
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/watch/catalog',
+    component: WatchCatalogPage,
+    validateSearch: (
+      search: Record<string, unknown>,
+    ): { addon: string; type: string; catalog: string; genre?: string } => ({
+      addon: text(search.addon),
+      type: text(search.type),
+      catalog: text(search.catalog),
+      ...(text(search.genre) ? { genre: text(search.genre) } : {}),
+    }),
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/watch/addons',
+    component: WatchAddonsPage,
+  }),
   createRoute({
     getParentRoute: () => rootRoute,
     path: '/library/categories',
