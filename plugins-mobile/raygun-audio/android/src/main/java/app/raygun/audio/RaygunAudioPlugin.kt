@@ -3,12 +3,14 @@ package app.raygun.audio
 import android.Manifest
 import android.app.Activity
 import android.content.ComponentName
+import android.content.Intent
 import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -81,6 +83,7 @@ private const val PROGRESS_INTERVAL_MS = 500L
     permissions = [
         Permission(strings = [Manifest.permission.READ_MEDIA_AUDIO], alias = "audio"),
         Permission(strings = [Manifest.permission.READ_EXTERNAL_STORAGE], alias = "storage"),
+        Permission(strings = [Manifest.permission.ACCESS_LOCAL_NETWORK], alias = "localNetwork"),
     ],
 )
 class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
@@ -220,6 +223,54 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve(result)
     }
 
+    /**
+     * Android 17's local network permission: whether the system restricts the local network for
+     * Raygun (Android 17+ with target SDK 37+), and the permission's state. `blocked` means
+     * Android won't ask again, so only the app's settings can allow it.
+     */
+    @Command
+    fun localNetworkState(invoke: Invoke) {
+        invoke.resolve(localNetworkAccess())
+    }
+
+    /** Shows the system dialog for local network access unless it is granted or not needed. */
+    @Command
+    fun requestLocalNetwork(invoke: Invoke) {
+        if (!localNetworkEnforced() || getPermissionState("localNetwork") == PermissionState.GRANTED) {
+            invoke.resolve(localNetworkAccess())
+        } else {
+            requestPermissionForAlias("localNetwork", invoke, "localNetworkResult")
+        }
+    }
+
+    @PermissionCallback
+    fun localNetworkResult(invoke: Invoke) {
+        invoke.resolve(localNetworkAccess())
+    }
+
+    private fun localNetworkEnforced() =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.CINNAMON_BUN &&
+            activity.applicationInfo.targetSdkVersion >= Build.VERSION_CODES.CINNAMON_BUN
+
+    private fun localNetworkAccess(): JSObject {
+        val enforced = localNetworkEnforced()
+        val state = getPermissionState("localNetwork")
+        val result = JSObject()
+        result.put("enforced", enforced)
+        result.put("granted", !enforced || state == PermissionState.GRANTED)
+        result.put("blocked", enforced && state == PermissionState.DENIED)
+        return result
+    }
+
+    /** Opens Raygun's page in the system settings, where a permission can be allowed by hand. */
+    @Command
+    fun openAppSettings(invoke: Invoke) {
+        activity.startActivity(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", activity.packageName, null)),
+        )
+        invoke.resolve()
+    }
+
     /** Whether the phone can read aloud (starts its text-to-speech engine the first time). */
     @Command
     fun ttsAvailable(invoke: Invoke) {
@@ -253,7 +304,7 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     fun videoOpen(invoke: Invoke) {
         val request = invoke.getArgs().toString()
         activity.startActivity(
-            android.content.Intent(activity, VideoPlayerActivity::class.java)
+            Intent(activity, VideoPlayerActivity::class.java)
                 .putExtra(VideoPlayerActivity.EXTRA_REQUEST, request),
         )
         invoke.resolve()

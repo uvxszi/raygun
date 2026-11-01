@@ -17,6 +17,7 @@ use crate::collections::CollectionsService;
 use crate::device_sync::SyncService;
 use crate::extensions::ExtensionService;
 use crate::library::LibraryService;
+use crate::local_network::LocalNetwork;
 use crate::manga::MangaService;
 use crate::manga_downloads::MangaDownloadService;
 use crate::mcp::McpService;
@@ -1488,4 +1489,36 @@ pub async fn stremio_set_watched(
     stremio
         .set_watched(&kind, &video_id, &title, subtitle, poster, watched)
         .await
+}
+
+// ---- Local network access (Android 17) ----
+
+/// Android 17's local network permission for reaching `address` (an addon's URL), or for devices
+/// on the network reaching the LAN remote when there is none.
+#[tauri::command]
+#[specta::specta]
+pub async fn local_network_access(
+    local_network: tauri::State<'_, LocalNetwork>,
+    address: Option<String>,
+) -> Result<raygun_model::LocalNetworkAccess, String> {
+    local_network.access(address.as_deref()).await
+}
+
+/// Shows Android's dialog for local network access, unless it's granted or not needed.
+#[tauri::command]
+#[specta::specta]
+pub async fn local_network_request(
+    local_network: tauri::State<'_, LocalNetwork>,
+) -> Result<raygun_model::LocalNetworkAccess, String> {
+    local_network.request().await
+}
+
+/// Opens Raygun's page in Android's settings, where a permission it stopped asking for can be
+/// allowed.
+#[tauri::command]
+#[specta::specta]
+pub async fn local_network_open_settings(
+    local_network: tauri::State<'_, LocalNetwork>,
+) -> Result<(), String> {
+    local_network.open_settings().await
 }

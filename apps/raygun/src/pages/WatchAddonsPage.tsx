@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useLocalNetworkGate } from '../network/useLocalNetworkGate';
 import {
   useAddAddon,
   useRemoveAddon,
@@ -74,15 +75,19 @@ export const WatchAddonsPage: FC = () => {
   const addons = useStremioAddons();
   const suggestions = useStremioSuggestions();
   const add = useAddAddon();
+  const localNetwork = useLocalNetworkGate('addon');
   const [url, setUrl] = useState('');
   const missing = (suggestions.data ?? []).filter((suggestion) => !suggestion.added);
 
   const onAdd = (event: FormEvent) => {
     event.preventDefault();
-    if (url.trim()) {
-      add.mutate(url.trim(), { onSuccess: () => setUrl('') });
+    const address = url.trim();
+    if (address) {
+      // An addon on the user's network needs Android 17's local network access first.
+      void localNetwork.guard(address, () => add.mutate(address, { onSuccess: () => setUrl('') }));
     }
   };
+  const adding = add.isPending || localNetwork.checking;
 
   return (
     <section data-testid="watch-addons-page" className="flex flex-col gap-5">
@@ -112,10 +117,10 @@ export const WatchAddonsPage: FC = () => {
           />
           <button
             type="submit"
-            disabled={!url.trim() || add.isPending}
+            disabled={!url.trim() || adding}
             className="bg-primary text-background flex items-center gap-1.5 rounded-full px-4 py-2 font-semibold disabled:opacity-60"
           >
-            {add.isPending ? (
+            {adding ? (
               <LoaderCircle aria-hidden size={16} className="animate-spin" />
             ) : (
               <Plus aria-hidden size={16} />
@@ -181,6 +186,7 @@ export const WatchAddonsPage: FC = () => {
           </ul>
         </section>
       )}
+      {localNetwork.sheet}
     </section>
   );
 };

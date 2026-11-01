@@ -1711,3 +1711,18 @@ pub struct StremioPlayRequest {
     pub poster: Option<String>,
     pub stream: StremioStream,
 }
+
+// ---- Local network access (Android 17) ----
+
+/// Android 17's local network permission, for one connection: reaching an addon on the user's
+/// network, or (with no address) devices on the network reaching the LAN remote.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalNetworkAccess {
+    /// The system restricts the local network for Raygun and the connection goes there.
+    pub needed: bool,
+    pub granted: bool,
+    /// Denied for good when Android was last asked: it won't ask again, so only Raygun's app
+    /// settings can allow it. Settings can change that since, so this is a hint until the next ask.
+    pub blocked: bool,
+}

@@ -396,6 +396,21 @@
     "forget": "Remove {{name}}",
     "hint": "Only paired devices can control Raygun. Traffic on your Wi-Fi isn't encrypted, so pair only on networks you trust."
   },
+  "localNetwork": {
+    "title": "Local network access",
+    "why": {
+      "addon": "This addon is on your network. Android asks before an app connects to devices on your Wi-Fi, so it will ask Raygun's permission to reach \"nearby devices\".",
+      "remote": "Phones and computers on your Wi-Fi connect to the remote. Android asks before an app lets devices on your network in, so it will ask Raygun's permission to reach \"nearby devices\"."
+    },
+    "denied": {
+      "addon": "Allow local network access to reach addons on your network.",
+      "remote": "Allow local network access so devices on your network can reach the remote."
+    },
+    "settingsHint": "Android won't ask again. In Raygun's app settings, open Permissions, then Nearby devices, and choose Allow.",
+    "allow": "Continue",
+    "openSettings": "Open settings",
+    "notNow": "Not now"
+  },
   "devices": {
     "title": "Devices",
     "sync": "Device sync",

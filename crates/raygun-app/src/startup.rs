@@ -88,6 +88,9 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         paths.downloads(),
     ));
     app.manage(podcasts.clone());
+    app.manage(crate::local_network::LocalNetwork::new(
+        app.handle().clone(),
+    ));
     app.manage(std::sync::Arc::new(crate::stremio::StremioService::new(
         app.handle().clone(),
         raygun_net::http_client()?,

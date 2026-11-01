@@ -98,7 +98,44 @@ pub struct LibraryAccess {
     pub folders: Vec<String>,
 }
 
+/// Android 17's local network permission, as the system reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LocalNetworkState {
+    /// The system restricts the local network for the app (Android 17+, target SDK 37+).
+    pub enforced: bool,
+    /// Granted, or not needed.
+    pub granted: bool,
+    /// Denied for good: only the app's settings can allow it now.
+    pub blocked: bool,
+}
+
 impl<R: Runtime> NativeAudio<R> {
+    /// Whether the app may reach the local network. Blocks briefly on the main thread.
+    #[cfg(target_os = "android")]
+    pub fn local_network_state(&self) -> Result<LocalNetworkState, String> {
+        self.handle
+            .run_mobile_plugin("localNetworkState", ())
+            .map_err(|error| error.to_string())
+    }
+
+    /// Shows the system dialog for local network access if needed. Blocks until the user answers,
+    /// so call it from a blocking-friendly thread.
+    #[cfg(target_os = "android")]
+    pub fn request_local_network(&self) -> Result<LocalNetworkState, String> {
+        self.handle
+            .run_mobile_plugin("requestLocalNetwork", ())
+            .map_err(|error| error.to_string())
+    }
+
+    /// Opens the app's page in the system settings.
+    #[cfg(target_os = "android")]
+    pub fn open_app_settings(&self) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>("openAppSettings", ())
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
     /// Shows the system permission dialog if needed. Blocks until the user answers, so call it
     /// from a blocking-friendly thread.
     #[cfg(target_os = "android")]

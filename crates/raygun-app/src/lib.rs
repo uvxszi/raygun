@@ -14,6 +14,7 @@ mod events;
 mod extensions;
 mod history;
 mod library;
+mod local_network;
 mod manga;
 mod manga_downloads;
 mod mcp;
@@ -182,7 +183,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::stremio_meta,
             commands::stremio_streams,
             commands::stremio_play,
-            commands::stremio_set_watched
+            commands::stremio_set_watched,
+            commands::local_network_access,
+            commands::local_network_request,
+            commands::local_network_open_settings
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,

@@ -269,6 +269,18 @@ export const commands = {
 	stremioPlay: (request: StremioPlayRequest, language: string) => typedError<null, string>(__TAURI_INVOKE("stremio_play", { request, language })),
 	/**  Marks a movie or episode watched (or not). */
 	stremioSetWatched: (kind: string, videoId: string, title: string, subtitle: string | null, poster: string | null, watched: boolean) => typedError<null, string>(__TAURI_INVOKE("stremio_set_watched", { kind, videoId, title, subtitle, poster, watched })),
+	/**
+	 *  Android 17's local network permission for reaching `address` (an addon's URL), or for devices
+	 *  on the network reaching the LAN remote when there is none.
+	 */
+	localNetworkAccess: (address: string | null) => typedError<LocalNetworkAccess, string>(__TAURI_INVOKE("local_network_access", { address })),
+	/**  Shows Android's dialog for local network access, unless it's granted or not needed. */
+	localNetworkRequest: () => typedError<LocalNetworkAccess, string>(__TAURI_INVOKE("local_network_request")),
+	/**
+	 *  Opens Raygun's page in Android's settings, where a permission it stopped asking for can be
+	 *  allowed.
+	 */
+	localNetworkOpenSettings: () => typedError<null, string>(__TAURI_INVOKE("local_network_open_settings")),
 };
 
 /** Events */
@@ -595,6 +607,21 @@ export type LibraryTrack = {
 	year: number | null,
 	durationMs: number | null,
 	artworkUrl: string | null,
+};
+
+/**
+ *  Android 17's local network permission, for one connection: reaching an addon on the user's
+ *  network, or (with no address) devices on the network reaching the LAN remote.
+ */
+export type LocalNetworkAccess = {
+	/**  The system restricts the local network for Raygun and the connection goes there. */
+	needed: boolean,
+	granted: boolean,
+	/**
+	 *  Denied for good when Android was last asked: it won't ask again, so only Raygun's app
+	 *  settings can allow it. Settings can change that since, so this is a hint until the next ask.
+	 */
+	blocked: boolean,
 };
 
 /**  One timed line of synced lyrics. */

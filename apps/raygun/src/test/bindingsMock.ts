@@ -244,6 +244,9 @@ export const bindingsMock = {
     stremioStreams: vi.fn(),
     stremioPlay: vi.fn(),
     stremioSetWatched: vi.fn(),
+    localNetworkAccess: vi.fn(),
+    localNetworkRequest: vi.fn(),
+    localNetworkOpenSettings: vi.fn(),
     catalogFilters: vi.fn(),
     catalogSearch: vi.fn(),
     catalogGlobalSearch: vi.fn(),
@@ -430,6 +433,11 @@ export const seedBindings = () => {
   commands.stremioStreams.mockResolvedValue(ok([]));
   commands.stremioPlay.mockResolvedValue(ok(null));
   commands.stremioSetWatched.mockResolvedValue(ok(null));
+  // Other platforms and public addresses: nothing to ask.
+  const open = { needed: false, granted: true, blocked: false };
+  commands.localNetworkAccess.mockResolvedValue(ok(open));
+  commands.localNetworkRequest.mockResolvedValue(ok(open));
+  commands.localNetworkOpenSettings.mockResolvedValue(ok(null));
   commands.catalogFilters.mockResolvedValue(ok([]));
   commands.catalogSearch.mockResolvedValue(ok({ items: [], hasNextPage: false }));
   commands.catalogGlobalSearch.mockResolvedValue(ok([]));

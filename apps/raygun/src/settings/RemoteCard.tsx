@@ -6,6 +6,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
+import { useLocalNetworkGate } from '../network/useLocalNetworkGate';
 
 const REMOTE = ['remote'];
 
@@ -37,6 +38,7 @@ export const RemoteCard: FC = () => {
   );
   const newCode = useRemoteChange(() => unwrapResult(commands.remoteNewCode()));
   const forget = useRemoteChange((id: string) => unwrapResult(commands.remoteForgetDevice(id)));
+  const localNetwork = useLocalNetworkGate('remote');
 
   const data = status.data;
   const error = status.error ?? setEnabled.error ?? newCode.error ?? forget.error;
@@ -59,8 +61,13 @@ export const RemoteCard: FC = () => {
           role="switch"
           aria-checked={data?.enabled ?? false}
           aria-labelledby="remote-title"
-          disabled={!data || setEnabled.isPending}
-          onClick={() => data && setEnabled.mutate(!data.enabled)}
+          disabled={!data || setEnabled.isPending || localNetwork.checking}
+          onClick={() => {
+            if (!data) return;
+            // Devices on the network reach the remote only with Android 17's local network access.
+            if (data.enabled) setEnabled.mutate(false);
+            else void localNetwork.guard(null, () => setEnabled.mutate(true));
+          }}
           className={`relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-60 ${data?.enabled ? 'bg-primary' : 'bg-background'}`}
         >
           <span
@@ -134,6 +141,7 @@ export const RemoteCard: FC = () => {
           {data?.error ?? error?.message}
         </p>
       )}
+      {localNetwork.sheet}
     </section>
   );
 };

@@ -21,6 +21,7 @@ use tauri::{AppHandle, Manager};
 use self::protocol::{Catalog, Manifest, MetaPreview, StreamSource};
 use crate::catalog::now_ms;
 use crate::extensions::ExtensionService;
+use crate::local_network::{self, LocalNetwork};
 use crate::playback::PlaybackService;
 use crate::startup::AppDb;
 
@@ -469,6 +470,10 @@ impl StremioService {
         let stream = &request.stream;
         match stream.kind {
             StremioStreamKind::Direct => {
+                self.app
+                    .state::<LocalNetwork>()
+                    .check(&stream.target, local_network::VIDEOS_DENIED)
+                    .await?;
                 let mut subtitles: Vec<VideoSubtitle> = stream.subtitles.clone();
                 let found = self
                     .subtitles(&request.kind, &request.video_id, language)
@@ -549,6 +554,11 @@ impl StremioService {
     // ---- HTTP ----
 
     async fn get_json(&self, url: &str) -> Result<Value, String> {
+        // Without Android 17's local network permission, an addon on the LAN would time out.
+        self.app
+            .state::<LocalNetwork>()
+            .check(url, local_network::ADDONS_DENIED)
+            .await?;
         let response = self
             .client
             .get(url)

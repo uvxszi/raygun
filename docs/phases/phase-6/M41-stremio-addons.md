@@ -75,7 +75,7 @@
 - **Manifests refresh lazily:** when an addon list is needed and its cached manifest is older than a day. An unreachable addon keeps working from its cached manifest.
 - **Requests to addons** time out after 20 s and stop reading after 8 MB; the home shows at most 24 catalogs. A failed request says why (its innermost cause, e.g. "operation timed out"), not reqwest's generic "error sending request".
 - **Search rows** are labelled by kind ("Movies", "Series") and addon: an addon's search catalog keeps its browse name ("Popular"), which says nothing about the results.
-- **Android 17 local network protection:** with target SDK 37, apps can't connect to private (RFC 1918) addresses without the new local-network permission, which Raygun doesn't request yet. Addons on the LAN (self-hosted, `http://192.168.…`) can't be reached for now; public and loopback addresses work. The emulator check therefore reaches the PC's test addon through `adb reverse tcp:7010 tcp:7010` and `http://127.0.0.1:7010`, not 10.0.2.2.
+- **Android 17 local network protection** (fixed in M41.1, which requests `ACCESS_LOCAL_NETWORK`): with target SDK 37, apps can't connect to private (RFC 1918) addresses without the new local-network permission, which Raygun didn't request yet. Addons on the LAN (self-hosted, `http://192.168.…`) can't be reached for now; public and loopback addresses work. The emulator check therefore reaches the PC's test addon through `adb reverse tcp:7010 tcp:7010` and `http://127.0.0.1:7010`, not 10.0.2.2.
 
 ## Verification
 - **Checks:** `cargo test --workspace`, `cargo clippy --workspace --all-targets -D warnings`, `pnpm lint`, `pnpm type-check` and `pnpm test` all pass. New tests:

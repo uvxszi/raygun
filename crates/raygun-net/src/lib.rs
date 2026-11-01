@@ -1,6 +1,8 @@
-//! Raygun networking (ARCHITECTURE §12): the shared HTTP client and the loopback stream proxy.
+//! Raygun networking (ARCHITECTURE §12): the shared HTTP client, the loopback stream proxy, and
+//! which hosts are on the local network (Android 17's local network protection).
 
 pub mod images;
+pub mod local_network;
 pub mod page_cache;
 mod proxy;
 

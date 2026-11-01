@@ -3,6 +3,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Device sync finds paired devices with mDNS, which Android filters unless a lock is held. -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <!-- Android 17 (target SDK 37): addons and streams on the user's network, and the LAN remote.
+         Asked for at runtime by the raygun-audio plugin, only when one of those is used. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />

@@ -11,6 +11,7 @@ use tauri::{AppHandle, Manager};
 use crate::collections::{CollectionsService, portable_url};
 use crate::extensions::ExtensionService;
 use crate::library::LibraryService;
+use crate::local_network::{LocalNetwork, REMOTE_DENIED};
 use crate::mcp::{parse_control, track_arg};
 use crate::playback::PlaybackService;
 use crate::startup::AppDb;
@@ -54,7 +55,7 @@ impl RemoteService {
 
     pub async fn status(&self) -> Result<RemoteStatus, String> {
         let enabled = self.enabled().await?;
-        let (url, error) = {
+        let (url, mut error) = {
             let state = self.lock();
             let url = state
                 .running
@@ -65,6 +66,11 @@ impl RemoteService {
                 });
             (url, state.error.clone())
         };
+        // Left on while Android 17's local network permission was taken back: only this device
+        // can reach it.
+        if url.is_some() && error.is_none() && !self.local_network().allowed().await {
+            error = Some(REMOTE_DENIED.to_owned());
+        }
         let pairing = self.pairing.lock().expect("pairing poisoned");
         let pair_url = url
             .as_ref()
@@ -88,8 +94,12 @@ impl RemoteService {
         })
     }
 
-    /// Turning the remote on opens a pairing code right away, so the QR code shows.
+    /// Turning the remote on opens a pairing code right away, so the QR code shows. On Android 17
+    /// it needs local network access first, or no other device could reach it.
     pub async fn set_enabled(&self, enabled: bool) -> Result<RemoteStatus, String> {
+        if enabled && !self.local_network().allowed().await {
+            return Err(REMOTE_DENIED.into());
+        }
         raygun_db::set_local_value(
             self.db(),
             ENABLED_KEY,
@@ -181,6 +191,10 @@ impl RemoteService {
 
     fn db(&self) -> &raygun_db::Db {
         &self.app.state::<AppDb>().inner().0
+    }
+
+    fn local_network(&self) -> tauri::State<'_, LocalNetwork> {
+        self.app.state::<LocalNetwork>()
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, ServerState> {
