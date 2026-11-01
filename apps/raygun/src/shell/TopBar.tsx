@@ -48,7 +48,7 @@ export const TopBar: FC<TopBarProps> = ({
   return (
     <header
       data-testid="top-bar"
-      className="bg-background sticky top-[env(safe-area-inset-top)] z-30 -mx-4 mb-1 flex min-h-14 items-center gap-1 px-2 lg:-mx-10 lg:px-6"
+      className="bg-background sticky top-0 z-30 -mx-4 mb-1 flex min-h-14 items-center gap-1 px-2 lg:-mx-10 lg:px-6"
     >
       {search ? (
         <>

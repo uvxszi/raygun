@@ -1119,3 +1119,14 @@ async fn video_sources_list_episodes_and_resolve_servers_one_by_one() {
     assert_eq!(slow.unwrap()[0].format.as_deref(), Some("hls"));
     assert!(broken.unwrap_err().contains("host is down"));
 }
+
+#[test]
+fn settings_without_labels_read_as_words() {
+    assert_eq!(crate::host::key_label("itemsPerSearch"), "Items per search");
+    assert_eq!(
+        crate::host::key_label("items_per_search"),
+        "Items per search"
+    );
+    assert_eq!(crate::host::key_label("apiKey"), "Api key");
+    assert_eq!(crate::host::key_label("quality"), "Quality");
+}

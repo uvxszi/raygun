@@ -1,31 +1,20 @@
 import { Link } from '@tanstack/react-router';
-import { ChevronRight, RefreshCw } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useSettings } from '../settings/useSettings';
-import { useExtensions, useReloadExtensions } from './useExtensions';
+import { LetterAvatar } from '../shell/LetterAvatar';
+import { useExtensions } from './useExtensions';
 
 export const InstalledTab: FC = () => {
   const { t } = useTranslation();
   const extensions = useExtensions();
   const showNsfw = useSettings().data?.showNsfw ?? false;
-  const reload = useReloadExtensions();
-  const error = extensions.error ?? reload.error;
+  const error = extensions.error;
 
   return (
     <div data-testid="installed-tab" className="flex flex-col gap-3">
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={() => reload.mutate()}
-          disabled={reload.isPending}
-          className="text-muted flex items-center gap-1.5 text-sm disabled:opacity-50"
-        >
-          <RefreshCw aria-hidden size={14} className={reload.isPending ? 'animate-spin' : ''} />
-          {t('extensions.reload')}
-        </button>
-      </div>
       {error && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
           {t('common.coreUnavailable', { message: error.message })}
@@ -34,20 +23,21 @@ export const InstalledTab: FC = () => {
       {extensions.data?.length === 0 && (
         <p className="text-muted text-sm">{t('extensions.noneInstalled')}</p>
       )}
-      <ul className="bg-surface flex flex-col rounded-xl">
+      <ul className="flex flex-col">
         {extensions.data?.map((extension) => (
           <li key={`${extension.origin}-${extension.id}`}>
             <Link
               to="/extensions/detail"
               search={{ id: extension.id }}
               data-testid="extension-row"
-              className="flex items-center gap-3 px-4 py-3"
+              className="hover:bg-surface flex items-center gap-4 rounded-xl px-1 py-2.5"
             >
-              <span className="flex min-w-0 flex-1 flex-col">
+              <LetterAvatar name={extension.name} />
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="flex flex-wrap items-baseline gap-x-2">
                   <span className="font-medium">{extension.name}</span>
                   <span className="text-muted text-xs">{extension.version}</span>
-                  <span className="text-muted text-xs">
+                  <span className="bg-surface text-muted rounded px-1.5 text-[10px] font-semibold tracking-wide uppercase">
                     {t(
                       extension.origin === 'builtIn'
                         ? 'extensions.builtIn'

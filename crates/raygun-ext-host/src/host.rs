@@ -648,7 +648,10 @@ fn loaded_info(extension: &Extension, origin: ExtensionOrigin) -> ExtensionInfo 
                 let default = setting.default.as_ref().and_then(SettingValue::from_json);
                 ExtensionSetting {
                     key: setting.key.clone(),
-                    label: setting.label.clone().unwrap_or_else(|| setting.key.clone()),
+                    label: setting
+                        .label
+                        .clone()
+                        .unwrap_or_else(|| key_label(&setting.key)),
                     kind: match setting.kind {
                         manifest::SettingKind::Text => SettingKind::Text,
                         manifest::SettingKind::Number => SettingKind::Number,
@@ -865,4 +868,28 @@ fn parse_candidates(provider: &ProviderInfo, value: serde_json::Value) -> Vec<Ca
             source: candidate.source,
         })
         .collect()
+}
+
+/// A label for a setting that has none: `itemsPerSearch` and `items_per_search` read as
+/// "Items per search".
+pub(crate) fn key_label(key: &str) -> String {
+    let mut words = String::new();
+    let mut previous_lower = false;
+    for character in key.chars() {
+        if character == '_' || character == '-' {
+            words.push(' ');
+            previous_lower = false;
+            continue;
+        }
+        if character.is_uppercase() && previous_lower {
+            words.push(' ');
+        }
+        previous_lower = character.is_lowercase() || character.is_ascii_digit();
+        words.extend(character.to_lowercase());
+    }
+    let mut chars = words.trim().chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
 }

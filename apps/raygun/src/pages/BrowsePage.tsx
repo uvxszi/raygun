@@ -1,13 +1,14 @@
 import type { MangaSource } from '@raygun/bindings';
 import { Link, useSearch } from '@tanstack/react-router';
-import { Package, Puzzle, Search } from 'lucide-react';
+import { Package, Puzzle, RefreshCw, Search } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { BrowseTab as AvailableExtensions } from '../extensions/BrowseTab';
 import { InstalledTab } from '../extensions/InstalledTab';
-import { useExtensions } from '../extensions/useExtensions';
+import { useExtensions, useRefreshCatalog, useReloadExtensions } from '../extensions/useExtensions';
 import { useMangaSources } from '../manga/useManga';
+import { LetterAvatar } from '../shell/LetterAvatar';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { Tabs } from '../shell/Tabs';
 import { TopBar, TopBarAction } from '../shell/TopBar';
@@ -28,18 +29,6 @@ type SourceRow = {
   latest?: { to: string; search: Record<string, unknown> };
 };
 
-const Initial: FC<{ name: string; logo?: string | null }> = ({ name, logo }) =>
-  logo ? (
-    <img src={logo} alt="" className="bg-surface size-10 shrink-0 rounded-xl object-contain" />
-  ) : (
-    <span
-      aria-hidden
-      className="bg-primary/15 text-primary grid size-10 shrink-0 place-items-center rounded-xl text-base font-semibold"
-    >
-      {name.slice(0, 1).toUpperCase()}
-    </span>
-  );
-
 const SourceSection: FC<{ title: string; rows: SourceRow[] }> = ({ title, rows }) => {
   const { t } = useTranslation();
   if (rows.length === 0) return null;
@@ -55,7 +44,7 @@ const SourceSection: FC<{ title: string; rows: SourceRow[] }> = ({ title, rows }
               aria-label={row.name}
               className="hover:bg-surface flex min-w-0 flex-1 items-center gap-4 rounded-xl px-1 py-2.5"
             >
-              <Initial name={row.name} logo={row.logo} />
+              <LetterAvatar name={row.name} logo={row.logo} />
               <span className="flex min-w-0 flex-col">
                 <span className="truncate font-medium">{row.name}</span>
                 <span className="text-muted truncate text-xs">{row.detail}</span>
@@ -139,6 +128,8 @@ const SourcesList: FC = () => {
 export const BrowsePage: FC = () => {
   const { t } = useTranslation();
   const { tab = 'sources', list = 'installed' } = useSearch({ from: '/browse' });
+  const reload = useReloadExtensions();
+  const refresh = useRefreshCatalog();
 
   return (
     <section data-testid="browse-page" className="flex flex-col gap-3">
@@ -146,6 +137,22 @@ export const BrowsePage: FC = () => {
         title={t('browse.title')}
         actions={
           <>
+            {tab === 'extensions' && list === 'installed' && (
+              <TopBarAction
+                label={t('extensions.reload')}
+                icon={RefreshCw}
+                disabled={reload.isPending}
+                onClick={() => reload.mutate()}
+              />
+            )}
+            {tab === 'extensions' && list === 'available' && (
+              <TopBarAction
+                label={t('extensions.refresh')}
+                icon={RefreshCw}
+                disabled={refresh.isPending}
+                onClick={() => refresh.mutate()}
+              />
+            )}
             <TopBarAction label={t('search.title')} icon={Search} to="/search" />
             <OverflowMenu
               items={[
@@ -176,6 +183,11 @@ export const BrowsePage: FC = () => {
           },
         ]}
       />
+      {(reload.error ?? refresh.error) && (
+        <p role="alert" className="text-primary text-sm wrap-anywhere">
+          {(reload.error ?? refresh.error)?.message}
+        </p>
+      )}
       {tab === 'sources' && <SourcesList />}
       {tab === 'extensions' && (
         <div className="flex flex-col gap-4">

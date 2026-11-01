@@ -275,7 +275,10 @@ describe('Manga', () => {
     await within(reader).findAllByTestId('manga-page');
     expect(within(reader).queryByTestId('paged-reader')).not.toBeInTheDocument();
 
-    await user.selectOptions(within(reader).getByLabelText('Reading mode'), 'pagedLtr');
+    await user.click(within(reader).getByRole('button', { name: 'Reading mode' }));
+    const modes = await screen.findByRole('dialog', { name: 'Reading mode' });
+    expect(within(modes).getByRole('radio', { name: 'Vertical strip' })).toBeChecked();
+    await user.click(within(modes).getByRole('radio', { name: 'Paged, left to right' }));
     expect(commands.mangaSetReaderMode).toHaveBeenCalledWith('t1', 'pagedLtr');
     expect(within(reader).getByTestId('paged-reader')).toBeInTheDocument();
   });

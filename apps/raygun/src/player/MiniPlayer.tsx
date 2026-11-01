@@ -52,7 +52,7 @@ export const MiniPlayer: FC = () => {
         draggedRef.current = true;
       }}
       onDragEnd={handleDragEnd}
-      className="bg-surface border-background relative border-t"
+      className="bg-surface relative mx-2 mb-2 overflow-hidden rounded-2xl shadow-lg shadow-black/15 lg:mx-4"
     >
       <div
         aria-hidden

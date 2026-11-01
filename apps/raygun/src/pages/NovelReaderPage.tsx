@@ -145,7 +145,7 @@ const Choice: FC<{ pressed: boolean; onClick: () => void; children: ReactNode }>
     type="button"
     aria-pressed={pressed}
     onClick={onClick}
-    className={`flex-1 rounded-lg px-3 py-2 text-sm ${pressed ? 'bg-primary text-background font-semibold' : 'bg-background'}`}
+    className={`flex-1 rounded-lg px-3 py-2 text-sm ${pressed ? 'bg-primary/20 text-primary font-semibold' : 'bg-background'}`}
   >
     {children}
   </button>
@@ -797,25 +797,25 @@ export const NovelReaderPage: FC = () => {
       className="bg-background text-foreground -mx-4 flex min-h-dvh flex-col lg:-mx-10"
     >
       {chrome && (
-        <header className="bg-background/90 fixed inset-x-0 top-0 z-30 flex items-center gap-2 px-2 pt-[env(safe-area-inset-top)] backdrop-blur">
+        <header className="bg-surface/95 fixed inset-x-0 top-0 z-30 flex min-h-16 items-center gap-1 px-1 pt-[env(safe-area-inset-top)] shadow-md backdrop-blur">
           <button
             type="button"
             aria-label={t('manga.closeReader')}
             onClick={() => router.history.back()}
-            className="grid size-11 shrink-0 place-items-center"
+            className="hover:bg-background grid size-11 shrink-0 place-items-center rounded-full"
           >
             <ArrowLeft aria-hidden size={22} />
           </button>
-          <span className="flex min-w-0 flex-1 flex-col py-2">
-            <span className="truncate text-sm font-semibold">{data?.title}</span>
-            <span className="text-muted truncate text-xs">{data?.chapter.name}</span>
+          <span className="flex min-w-0 flex-1 flex-col px-1 py-2">
+            <span className="truncate text-base font-semibold">{data?.title}</span>
+            <span className="text-muted truncate text-sm">{data?.chapter.name}</span>
           </span>
           <button
             type="button"
             aria-label={t('novel.textSettings')}
             aria-expanded={panel}
             onClick={() => setPanel((open) => !open)}
-            className="grid size-11 shrink-0 place-items-center"
+            className={`grid size-11 shrink-0 place-items-center rounded-full ${panel ? 'bg-primary/20 text-primary' : 'hover:bg-background'}`}
           >
             <Type aria-hidden size={20} />
           </button>
@@ -860,7 +860,7 @@ export const NovelReaderPage: FC = () => {
         <div
           role="toolbar"
           aria-label={t('novel.speechControls')}
-          className={`bg-surface/95 fixed inset-x-0 z-30 mx-auto flex w-fit flex-wrap items-center justify-center gap-1 rounded-3xl px-2 py-1 shadow-lg backdrop-blur ${chrome ? 'bottom-20' : 'bottom-4'}`}
+          className={`bg-surface/95 fixed inset-x-0 z-30 mx-auto flex w-fit flex-wrap items-center justify-center gap-1 rounded-3xl px-2 py-1 shadow-lg backdrop-blur ${chrome ? 'bottom-24' : 'bottom-4'}`}
         >
           <p className="text-muted w-full px-2 pt-1 text-center text-xs">
             {t('novel.readAloudHint')}
@@ -900,44 +900,46 @@ export const NovelReaderPage: FC = () => {
         </div>
       )}
       {chrome && data && (
-        <footer className="bg-background/90 fixed inset-x-0 bottom-0 z-30 flex items-center gap-3 px-3 pt-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] backdrop-blur">
+        <footer className="fixed inset-x-0 bottom-0 z-30 flex items-center gap-2 px-3 pt-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
           <button
             type="button"
             aria-label={t('manga.goPreviousChapter')}
             disabled={!data.previousChapterId}
             onClick={() => go(data.previousChapterId)}
-            className="grid size-10 place-items-center rounded-full disabled:opacity-30"
+            className="bg-surface/95 grid size-12 shrink-0 place-items-center rounded-full shadow-md backdrop-blur disabled:opacity-40"
           >
             <ChevronLeft aria-hidden size={22} />
           </button>
-          <div className="flex flex-1 flex-col gap-1">
-            <div className="bg-surface h-1 overflow-hidden rounded-full">
-              <div
-                className="bg-primary h-full"
-                style={{ width: `${Math.round(progress.fraction * 100)}%` }}
-              />
+          <div className="bg-surface/95 flex min-w-0 flex-1 items-center gap-2 rounded-full px-4 py-2.5 shadow-md backdrop-blur">
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <div className="bg-surface h-1 overflow-hidden rounded-full">
+                <div
+                  className="bg-primary h-full"
+                  style={{ width: `${Math.round(progress.fraction * 100)}%` }}
+                />
+              </div>
+              <span data-testid="novel-progress" className="text-muted text-center text-xs">
+                {progress.label}
+              </span>
             </div>
-            <span data-testid="novel-progress" className="text-muted text-center text-xs">
-              {progress.label}
-            </span>
+            {speechAvailable.data && (
+              <button
+                type="button"
+                aria-label={t(reading ? 'novel.stopReading' : 'novel.readAloud')}
+                aria-pressed={reading}
+                onClick={toggleReading}
+                className={`grid size-10 shrink-0 place-items-center rounded-full ${reading ? 'bg-primary text-background' : 'hover:bg-background'}`}
+              >
+                {reading ? <Square aria-hidden size={18} /> : <Volume2 aria-hidden size={20} />}
+              </button>
+            )}
           </div>
-          {speechAvailable.data && (
-            <button
-              type="button"
-              aria-label={t(reading ? 'novel.stopReading' : 'novel.readAloud')}
-              aria-pressed={reading}
-              onClick={toggleReading}
-              className={`grid size-10 place-items-center rounded-full ${reading ? 'bg-primary text-background' : ''}`}
-            >
-              {reading ? <Square aria-hidden size={18} /> : <Volume2 aria-hidden size={20} />}
-            </button>
-          )}
           <button
             type="button"
             aria-label={t('manga.goNextChapter')}
             disabled={!data.nextChapterId}
             onClick={() => go(data.nextChapterId)}
-            className="grid size-10 place-items-center rounded-full disabled:opacity-30"
+            className="bg-surface/95 grid size-12 shrink-0 place-items-center rounded-full shadow-md backdrop-blur disabled:opacity-40"
           >
             <ChevronRight aria-hidden size={22} />
           </button>

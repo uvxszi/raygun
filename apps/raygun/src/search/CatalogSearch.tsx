@@ -77,7 +77,7 @@ const SourceSearch: FC<{ medium: Medium; sourceId: string; query: string }> = ({
           type="button"
           aria-expanded={open}
           onClick={() => setOpen(!open)}
-          className={`flex w-fit items-center gap-2 rounded-full px-4 py-2 text-sm ${open || active ? 'bg-primary text-background font-semibold' : 'bg-surface'}`}
+          className={`flex w-fit items-center gap-2 rounded-full px-4 py-2 text-sm ${open || active ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
         >
           <SlidersHorizontal aria-hidden size={16} />
           {active > 0 ? t('search.filters.active', { count: active }) : t('search.filters.title')}

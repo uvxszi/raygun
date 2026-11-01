@@ -97,8 +97,18 @@ export const PlayerSheet: FC = () => {
           dragConstraints={{ top: 0, bottom: 0 }}
           dragElastic={{ top: 0, bottom: 0.7 }}
           onDragEnd={handleDragEnd}
-          className="bg-background fixed inset-0 z-50 flex flex-col gap-6 px-6 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+          className="bg-background fixed inset-0 isolate z-50 flex flex-col gap-6 overflow-hidden px-6 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]"
         >
+          {item?.artworkUrl && !isVideo && (
+            <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
+              <img
+                src={item.artworkUrl}
+                alt=""
+                className="size-full scale-125 object-cover opacity-45 blur-3xl"
+              />
+              <div className="from-background/30 via-background/60 to-background absolute inset-0 bg-gradient-to-b" />
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <button
               type="button"
@@ -145,13 +155,14 @@ export const PlayerSheet: FC = () => {
                 iconSize={96}
               />
             )}
-            <div className="flex w-full max-w-md items-center gap-2">
-              {item ? <FavoriteButton item={item} /> : <span className="size-11 shrink-0" />}
-              <div className="flex min-w-0 flex-1 flex-col items-center gap-1 text-center">
-                <p data-testid="sheet-title" className="w-full truncate text-xl font-semibold">
+            <div className="flex w-full max-w-md items-center gap-1">
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <p data-testid="sheet-title" className="w-full truncate text-2xl font-bold">
                   {item?.title ?? t('player.nothingPlaying')}
                 </p>
-                {item?.artist && <p className="text-muted w-full truncate">{item.artist}</p>}
+                {item?.artist && (
+                  <p className="text-muted w-full truncate text-lg">{item.artist}</p>
+                )}
                 {note && (
                   <p data-testid="sheet-source-note" className="text-muted text-xs">
                     {note.kind === 'finding'
@@ -165,6 +176,7 @@ export const PlayerSheet: FC = () => {
                   </p>
                 )}
               </div>
+              {item && <FavoriteButton item={item} />}
               {item ? (
                 <button
                   type="button"
@@ -225,9 +237,13 @@ export const PlayerSheet: FC = () => {
               disabled={!item}
               aria-label={isActive(state) ? t('player.pause') : t('player.play')}
               onClick={() => void sendControl({ type: 'toggle' })}
-              className="bg-primary text-background grid size-16 place-items-center rounded-full disabled:opacity-40"
+              className="bg-primary text-background grid size-18 place-items-center rounded-3xl shadow-lg shadow-black/20 disabled:opacity-40"
             >
-              {isActive(state) ? <Pause aria-hidden size={30} /> : <Play aria-hidden size={30} />}
+              {isActive(state) ? (
+                <Pause aria-hidden size={32} fill="currentColor" />
+              ) : (
+                <Play aria-hidden size={32} fill="currentColor" />
+              )}
             </button>
             <button
               type="button"
@@ -253,17 +269,30 @@ export const PlayerSheet: FC = () => {
           </div>
 
           {upNext.length > 0 && (
-            <section className="mx-auto flex max-h-40 w-full max-w-md flex-col gap-1 overflow-y-auto">
-              <h2 className="text-muted text-xs tracking-wide uppercase">{t('player.upNext')}</h2>
+            <section className="mx-auto flex max-h-44 w-full max-w-md flex-col gap-1 overflow-y-auto">
+              <h2 className="text-muted text-xs font-semibold tracking-wide uppercase">
+                {t('player.upNext')}
+              </h2>
               <ul data-testid="up-next" className="flex flex-col">
                 {upNext.map((next) => (
                   <li key={next.id}>
                     <button
                       type="button"
+                      aria-label={next.title}
                       onClick={() => void sendControl({ type: 'playItem', itemId: next.id })}
-                      className="w-full truncate py-1.5 text-left text-sm"
+                      className="hover:bg-surface/60 flex w-full items-center gap-3 rounded-lg py-1.5 text-left"
                     >
-                      {next.title}
+                      <Artwork
+                        url={next.artworkUrl}
+                        className="size-10 shrink-0 rounded-md"
+                        iconSize={18}
+                      />
+                      <span className="flex min-w-0 flex-col">
+                        <span className="truncate text-sm font-medium">{next.title}</span>
+                        {next.artist && (
+                          <span className="text-muted truncate text-xs">{next.artist}</span>
+                        )}
+                      </span>
                     </button>
                   </li>
                 ))}

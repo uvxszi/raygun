@@ -1,11 +1,11 @@
 import { commands } from '@raygun/bindings';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
 import { Check, Clapperboard, Compass, Puzzle, X } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { LibraryTop } from '../library/LibraryTop';
+import { EmptyState } from '../shell/EmptyState';
 import { unwrapResult } from '../lib/commandResult';
 import { ContinueWatchingRow } from './ContinueWatchingRow';
 import { useContinueWatching, useRemoveContinue, useResumeVideo } from './useWatch';
@@ -33,16 +33,12 @@ export const VideosLibraryView: FC = () => {
       />
       <ContinueWatchingRow />
       {history.data?.length === 0 && (
-        <div className="flex flex-col items-center gap-3 px-6 py-12 text-center">
-          <p className="text-muted text-sm">{t('library.videos.empty')}</p>
-          <Link
-            to="/browse"
-            className="bg-primary text-background flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold"
-          >
-            <Compass aria-hidden size={16} />
-            {t('library.videos.openWatch')}
-          </Link>
-        </div>
+        <EmptyState
+          icon={Clapperboard}
+          title={t('library.videos.emptyTitle')}
+          body={t('library.videos.empty')}
+          action={{ label: t('library.videos.openWatch'), icon: Compass, to: '/browse' }}
+        />
       )}
       {(history.data?.length ?? 0) > 0 && (
         <h2 className="text-lg font-semibold">{t('library.videos.history')}</h2>

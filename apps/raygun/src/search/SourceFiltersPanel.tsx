@@ -77,7 +77,7 @@ const TagsFilter: FC<{
               onClick={() => onChange(nextTagValues(values, filter.key, option.value))}
               className={`flex items-center gap-1 rounded-full px-3 py-1 text-sm ${
                 state === 'include'
-                  ? 'bg-primary text-background font-semibold'
+                  ? 'bg-primary/20 text-primary font-semibold'
                   : state === 'exclude'
                     ? 'bg-foreground text-background line-through'
                     : 'bg-background'

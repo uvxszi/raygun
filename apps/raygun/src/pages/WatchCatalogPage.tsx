@@ -47,7 +47,7 @@ export const WatchCatalogPage: FC = () => {
               role="tab"
               aria-selected={option === genre}
               onClick={() => setGenre(option)}
-              className={`shrink-0 rounded-full px-4 py-1.5 text-sm ${option === genre ? 'bg-primary text-background font-semibold' : 'bg-surface'}`}
+              className={`shrink-0 rounded-full px-4 py-1.5 text-sm ${option === genre ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
             >
               {option || t('watch.allGenres')}
             </button>

@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import { RefreshCw } from 'lucide-react';
+import { BellDot, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -13,6 +13,7 @@ import {
   useMangaUpdates,
   useUpdateLibrary,
 } from '../manga/useManga';
+import { EmptyState } from '../shell/EmptyState';
 import { TopBarAction } from '../shell/TopBar';
 import { PageHeader } from './PageHeader';
 
@@ -72,7 +73,9 @@ export const MangaUpdatesPage: FC = () => {
           {updates.error.message}
         </p>
       )}
-      {updates.data?.length === 0 && <p className="text-muted text-sm">{t('manga.noUpdates')}</p>}
+      {updates.data?.length === 0 && (
+        <EmptyState icon={BellDot} title={t('manga.noUpdates')} body={t('manga.noUpdatesHint')} />
+      )}
       {updates.data &&
         groupByDay(updates.data).map((group) => (
           <section key={group.day} className="flex flex-col gap-1">

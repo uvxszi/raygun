@@ -202,7 +202,10 @@ async fn installs_updates_and_uninstalls_with_settings() {
         json!(["us", 5])
     );
     let region = &infos[0].settings[0];
-    assert_eq!(region.label, "region");
+    assert_eq!(
+        region.label, "Region",
+        "a setting without a label reads as words"
+    );
     assert_eq!(region.options, vec!["eu", "us"]);
     assert_eq!(region.value, Some(SettingValue::Text("us".into())));
     assert_eq!(infos[0].settings[1].value, Some(SettingValue::Number(5.0)));

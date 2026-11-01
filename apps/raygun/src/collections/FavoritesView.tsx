@@ -1,6 +1,8 @@
+import { Heart } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { EmptyState } from '../shell/EmptyState';
 import { PlayButtons } from './PlayButtons';
 import { SavedTrackRow } from './SavedTrackRow';
 import { playCollection, useFavorites } from './useCollections';
@@ -12,7 +14,13 @@ export const FavoritesView: FC = () => {
     return null;
   }
   if (favorites.data.length === 0) {
-    return <p className="text-muted text-sm">{t('collections.noFavorites')}</p>;
+    return (
+      <EmptyState
+        icon={Heart}
+        title={t('collections.noFavoritesTitle')}
+        body={t('collections.noFavorites')}
+      />
+    );
   }
   return (
     <div data-testid="favorites-view" className="flex flex-col gap-3">

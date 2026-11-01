@@ -1,5 +1,5 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { Globe } from 'lucide-react';
+import { Blocks, Globe } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -8,6 +8,7 @@ import { hostLabel } from '../extensions/hostLabel';
 
 import { SettingsForm } from '../extensions/SettingsForm';
 import { useExtension, useUninstallExtension } from '../extensions/useExtensions';
+import { LetterAvatar } from '../shell/LetterAvatar';
 import { PageHeader } from './PageHeader';
 
 export const ExtensionDetailPage: FC = () => {
@@ -46,46 +47,60 @@ export const ExtensionDetailPage: FC = () => {
 
   return (
     <section data-testid="extension-detail-page" className="flex max-w-2xl flex-col gap-4">
-      <div className="flex flex-col gap-1">
-        <PageHeader back fallback="/browse" title={info.name} />
-        <p className="text-muted text-sm">
-          {[
-            info.version,
-            t(info.origin === 'builtIn' ? 'extensions.builtIn' : 'extensions.installedOrigin'),
-          ].join(' · ')}
-        </p>
-        {info.description && <p className="text-sm">{info.description}</p>}
-      </div>
+      <PageHeader back fallback="/browse" plainTitle title={t('extensions.title')} />
+      <header className="flex items-center gap-4">
+        <LetterAvatar name={info.name} size="lg" />
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <h1 className="text-xl font-bold tracking-tight wrap-anywhere">{info.name}</h1>
+          <p className="text-muted text-sm">
+            {[
+              info.version,
+              t(info.origin === 'builtIn' ? 'extensions.builtIn' : 'extensions.installedOrigin'),
+            ].join(' · ')}
+          </p>
+        </div>
+      </header>
+      {info.description && <p className="text-sm leading-relaxed">{info.description}</p>}
       {info.status === 'failed' && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
           {t('extensions.failed', { message: info.error ?? '' })}
         </p>
       )}
-      <section className="bg-surface flex flex-col gap-2 rounded-xl px-5 py-4 text-sm">
-        <h2 className="text-muted">{t('extensions.permissionsTitle')}</h2>
+      {info.providers.length > 0 && (
+        <section aria-labelledby="extension-provides" className="flex flex-col gap-1 text-sm">
+          <h2 id="extension-provides" className="text-primary px-1 pt-2 font-semibold">
+            {t('extensions.providers')}
+          </h2>
+          <ul className="flex flex-col">
+            {info.providers.map((provider) => (
+              <li key={provider.id} className="flex items-center gap-3 px-1 py-2">
+                <Blocks aria-hidden size={18} className="text-muted shrink-0" />
+                <span className="flex min-w-0 flex-col">
+                  <span className="font-medium">{provider.name}</span>
+                  <span className="text-muted text-xs">
+                    {t(`extensions.capability.${provider.kind}`, { defaultValue: provider.kind })}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      <section aria-labelledby="extension-network" className="flex flex-col gap-1 text-sm">
+        <h2 id="extension-network" className="text-primary px-1 pt-2 font-semibold">
+          {t('extensions.permissionsTitle')}
+        </h2>
         {info.net.length > 0 ? (
-          <ul data-testid="extension-permissions" className="flex flex-col gap-1">
+          <ul data-testid="extension-permissions" className="flex flex-col">
             {info.net.map((host) => (
-              <li key={host} className="flex items-center gap-2 wrap-anywhere">
-                <Globe aria-hidden size={14} className="text-muted shrink-0" />
+              <li key={host} className="flex items-center gap-3 px-1 py-2 wrap-anywhere">
+                <Globe aria-hidden size={18} className="text-muted shrink-0" />
                 {hostLabel(host, t)}
               </li>
             ))}
           </ul>
         ) : (
-          <p>{t('extensions.noNetwork')}</p>
-        )}
-        {info.providers.length > 0 && (
-          <>
-            <h2 className="text-muted mt-2">{t('extensions.providers')}</h2>
-            <ul className="flex flex-col gap-1">
-              {info.providers.map((provider) => (
-                <li key={provider.id}>
-                  {provider.name} <span className="text-muted text-xs">{provider.kind}</span>
-                </li>
-              ))}
-            </ul>
-          </>
+          <p className="text-muted px-1">{t('extensions.noNetwork')}</p>
         )}
       </section>
       {info.compatibility && (
@@ -126,7 +141,7 @@ export const ExtensionDetailPage: FC = () => {
             type="button"
             onClick={onUninstall}
             disabled={uninstall.isPending}
-            className="bg-surface text-primary self-start rounded-full px-5 py-2 text-sm font-semibold disabled:opacity-50"
+            className="border-primary text-primary self-start rounded-full border px-5 py-2 text-sm font-semibold disabled:opacity-50"
           >
             {t(confirming ? 'extensions.uninstallConfirm' : 'extensions.uninstall')}
           </button>

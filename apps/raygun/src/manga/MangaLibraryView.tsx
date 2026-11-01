@@ -1,7 +1,8 @@
-import { Link } from '@tanstack/react-router';
 import {
   Bell,
+  BookImage,
   BookPlus,
+  BookText,
   Compass,
   Download,
   FolderCog,
@@ -14,6 +15,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { LibraryTop } from '../library/LibraryTop';
+import { EmptyState } from '../shell/EmptyState';
 import { useImportEpub } from '../novel/useImportEpub';
 import { TopBarAction } from '../shell/TopBar';
 import { LibraryFilterSheet } from './LibraryFilterSheet';
@@ -164,18 +166,12 @@ export const MangaLibraryView: FC<{ medium?: ReadingMedium }> = ({ medium = 'man
         </p>
       )}
       {entries?.length === 0 && (
-        <div className="flex flex-col items-center gap-3 px-6 py-12 text-center">
-          <p className="text-muted text-sm">
-            {t(medium === 'novel' ? 'novel.emptyLibrary' : 'manga.emptyLibrary')}
-          </p>
-          <Link
-            to="/browse"
-            className="bg-primary text-background flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold"
-          >
-            <Compass aria-hidden size={16} />
-            {t('manga.browseSources')}
-          </Link>
-        </div>
+        <EmptyState
+          icon={medium === 'novel' ? BookText : BookImage}
+          title={t(medium === 'novel' ? 'novel.emptyTitle' : 'manga.emptyTitle')}
+          body={t(medium === 'novel' ? 'novel.emptyLibrary' : 'manga.emptyLibrary')}
+          action={{ label: t('manga.browseSources'), icon: Compass, to: '/browse' }}
+        />
       )}
       {entries && entries.length > 0 && (
         <>

@@ -113,7 +113,9 @@ export const MusicResults: FC<{ query: string; compact?: boolean }> = ({ query, 
     if (first) return <ProviderResults result={first} ambiguous={false} limit={5} />;
     return search.isSuccess ? (
       <p className="text-muted text-sm">{t('search.noResults', { query })}</p>
-    ) : null;
+    ) : (
+      <p className="text-muted text-sm">{t('search.searching')}</p>
+    );
   }
   return (
     <div className="flex flex-col gap-6">

@@ -14,7 +14,6 @@ import { MusicResults } from '../search/MusicResults';
 import { SEARCH_TYPES } from '../search/searchTypes';
 import { VideoResults } from '../search/VideoResults';
 import type { SearchType } from '../search/searchTypes';
-import { PageHeader } from './PageHeader';
 
 /** Wait for a pause in typing before searching, so each keystroke doesn't hit the network. */
 export const SEARCH_DEBOUNCE_MS = 400;
@@ -67,28 +66,30 @@ export const SearchPage: FC = () => {
   const needsQuery = type !== 'manga' && type !== 'novel' && type !== 'video';
 
   return (
-    <section data-testid="search-page" className="flex flex-col gap-5">
-      <PageHeader title={t('search.title')} />
-      <label className="bg-surface flex items-center gap-3 rounded-xl px-4 py-3">
-        <Search aria-hidden size={20} className="text-muted" />
-        <input
-          type="search"
-          enterKeyHint="search"
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          placeholder={t(`search.placeholderFor.${type}`)}
-          aria-label={t('search.title')}
-          className="placeholder:text-muted w-full bg-transparent outline-none"
-        />
-        {fetching && q && (
-          <LoaderCircle
-            aria-label={t('search.searching')}
-            role="status"
-            size={20}
-            className="text-muted shrink-0 animate-spin"
+    <section data-testid="search-page" className="flex flex-col gap-4">
+      <header className="bg-background sticky top-0 z-30 -mx-4 flex min-h-16 items-center px-3 py-2 lg:-mx-10 lg:px-8">
+        <h1 className="sr-only">{t('search.title')}</h1>
+        <label className="bg-surface flex min-w-0 flex-1 items-center gap-3 rounded-full px-5 py-3">
+          <Search aria-hidden size={20} className="text-muted shrink-0" />
+          <input
+            type="search"
+            enterKeyHint="search"
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            placeholder={t(`search.placeholderFor.${type}`)}
+            aria-label={t('search.title')}
+            className="placeholder:text-muted min-w-0 flex-1 bg-transparent outline-none"
           />
-        )}
-      </label>
+          {fetching && q && (
+            <LoaderCircle
+              aria-label={t('search.searching')}
+              role="status"
+              size={20}
+              className="text-muted shrink-0 animate-spin"
+            />
+          )}
+        </label>
+      </header>
       <div
         role="tablist"
         aria-label={t('search.typeLabel')}
@@ -101,7 +102,7 @@ export const SearchPage: FC = () => {
             role="tab"
             aria-selected={type === option}
             onClick={() => setType(option)}
-            className={`shrink-0 rounded-full px-4 py-1.5 text-sm ${type === option ? 'bg-primary text-background font-semibold' : 'bg-surface'}`}
+            className={`shrink-0 rounded-full px-4 py-1.5 text-sm ${type === option ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
           >
             {t(`search.type.${option}`)}
           </button>

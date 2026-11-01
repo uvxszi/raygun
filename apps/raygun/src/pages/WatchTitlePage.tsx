@@ -71,7 +71,7 @@ const Episodes: FC<{ meta: StremioMeta; onPick: (target: StreamTarget) => void }
               role="tab"
               aria-selected={number === shown}
               onClick={() => setSeason(number)}
-              className={`shrink-0 rounded-full px-4 py-1.5 text-sm ${number === shown ? 'bg-primary text-background font-semibold' : 'bg-surface'}`}
+              className={`shrink-0 rounded-full px-4 py-1.5 text-sm ${number === shown ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
             >
               {number === 0 ? t('watch.specials') : t('watch.season', { number })}
             </button>

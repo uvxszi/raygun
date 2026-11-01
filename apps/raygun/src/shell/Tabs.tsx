@@ -18,7 +18,7 @@ export const Tabs: FC<{ label: string; items: TabItem[]; active: string }> = ({
 }) => (
   <nav
     aria-label={label}
-    className="border-surface -mx-4 flex overflow-x-auto border-b px-2 lg:-mx-10 lg:px-6"
+    className="border-surface -mx-4 -mt-3 flex overflow-x-auto border-b px-2 lg:-mx-10 lg:px-6"
   >
     {items.map((item) => {
       const current = item.id === active;

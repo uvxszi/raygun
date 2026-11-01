@@ -2,12 +2,22 @@ import { commands } from '@raygun/bindings';
 import type { MangaChapterPages, ReaderMode } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useRouter, useSearch } from '@tanstack/react-router';
-import { ArrowLeft, ChevronLeft, ChevronRight, LoaderCircle } from 'lucide-react';
+import {
+  ArrowLeft,
+  BookOpen,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  LoaderCircle,
+  SkipBack,
+  SkipForward,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { FC, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
+import { Sheet } from '../shell/Sheet';
 import { MANGA, saveProgress, useMangaChapter } from '../manga/useManga';
 
 /** Progress is saved this long after reading stops, and right away on the last page. */
@@ -321,39 +331,38 @@ export const MangaReaderPage: FC = () => {
     void navigate({ search: { title, chapter: chapterId } });
   };
 
+  const [choosingMode, setChoosingMode] = useState(false);
   const changeMode = (next: ReaderMode) => {
     setModeOverride(next);
+    setChoosingMode(false);
     if (data) void commands.mangaSetReaderMode(data.titleId, next);
   };
 
   return (
     <section data-testid="manga-reader" className="-mx-4 flex flex-col bg-black lg:-mx-10">
       {chrome && (
-        <header className="bg-background/90 fixed inset-x-0 top-0 z-30 flex items-center gap-2 px-2 pt-[env(safe-area-inset-top)] backdrop-blur">
+        <header className="bg-surface/95 fixed inset-x-0 top-0 z-30 flex min-h-16 items-center gap-1 px-1 pt-[env(safe-area-inset-top)] shadow-md backdrop-blur">
           <button
             type="button"
             aria-label={t('manga.closeReader')}
             onClick={() => router.history.back()}
-            className="grid size-11 shrink-0 place-items-center"
+            className="hover:bg-background grid size-11 shrink-0 place-items-center rounded-full"
           >
             <ArrowLeft aria-hidden size={22} />
           </button>
-          <span className="flex min-w-0 flex-1 flex-col py-2">
-            <span className="truncate text-sm font-semibold">{data?.title}</span>
-            <span className="text-muted truncate text-xs">{data?.chapter.name}</span>
+          <span className="flex min-w-0 flex-1 flex-col px-1 py-2">
+            <span className="truncate text-base font-semibold">{data?.title}</span>
+            <span className="text-muted truncate text-sm">{data?.chapter.name}</span>
           </span>
-          <select
+          <button
+            type="button"
             aria-label={t('manga.readingMode')}
-            value={mode}
-            onChange={(event) => changeMode(event.target.value as ReaderMode)}
-            className="bg-surface shrink-0 rounded-lg px-2 py-1.5 text-xs"
+            aria-haspopup="dialog"
+            onClick={() => setChoosingMode(true)}
+            className="hover:bg-background grid size-11 shrink-0 place-items-center rounded-full"
           >
-            {MODES.map((option) => (
-              <option key={option} value={option}>
-                {t(`manga.mode.${option}`)}
-              </option>
-            ))}
-          </select>
+            <BookOpen aria-hidden size={22} />
+          </button>
         </header>
       )}
       {loaded.error && (
@@ -388,43 +397,71 @@ export const MangaReaderPage: FC = () => {
         />
       )}
       {data && chrome && total > 0 && (
-        <footer className="bg-background/90 fixed inset-x-0 bottom-0 z-30 flex items-center gap-3 px-3 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] backdrop-blur">
+        <footer className="fixed inset-x-0 bottom-0 z-30 flex items-center gap-2 px-3 pt-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
           <button
             type="button"
             aria-label={t('manga.goPreviousChapter')}
             disabled={!data.previousChapterId}
             onClick={() => goTo(data.previousChapterId)}
-            className="grid size-9 shrink-0 place-items-center disabled:opacity-30"
+            className="bg-surface/95 grid size-12 shrink-0 place-items-center rounded-full shadow-md backdrop-blur disabled:opacity-40"
           >
-            <ChevronLeft aria-hidden size={20} />
+            <SkipBack aria-hidden size={20} />
           </button>
-          <input
-            type="range"
-            aria-label={t('manga.jumpToPage')}
-            min={0}
-            max={total - 1}
-            value={page}
-            dir={mode === 'pagedRtl' ? 'rtl' : 'ltr'}
-            onChange={(event) => {
-              const target = Number(event.target.value);
-              setCurrent(target);
-              setJumpTo(target);
-            }}
-            className="accent-primary min-w-0 flex-1"
-          />
-          <span data-testid="page-indicator" className="shrink-0 text-xs tabular-nums">
-            {t('manga.pageOf', { page: page + 1, total })}
-          </span>
+          <div className="bg-surface/95 flex min-w-0 flex-1 items-center gap-3 rounded-full px-4 py-3 shadow-md backdrop-blur">
+            <input
+              type="range"
+              aria-label={t('manga.jumpToPage')}
+              min={0}
+              max={total - 1}
+              value={page}
+              dir={mode === 'pagedRtl' ? 'rtl' : 'ltr'}
+              onChange={(event) => {
+                const target = Number(event.target.value);
+                setCurrent(target);
+                setJumpTo(target);
+              }}
+              className="accent-primary min-w-0 flex-1"
+            />
+            <span
+              data-testid="page-indicator"
+              className="shrink-0 text-sm font-medium tabular-nums"
+            >
+              {t('manga.pageOf', { page: page + 1, total })}
+            </span>
+          </div>
           <button
             type="button"
             aria-label={t('manga.goNextChapter')}
             disabled={!data.nextChapterId}
             onClick={() => goTo(data.nextChapterId)}
-            className="grid size-9 shrink-0 place-items-center disabled:opacity-30"
+            className="bg-surface/95 grid size-12 shrink-0 place-items-center rounded-full shadow-md backdrop-blur disabled:opacity-40"
           >
-            <ChevronRight aria-hidden size={20} />
+            <SkipForward aria-hidden size={20} />
           </button>
         </footer>
+      )}
+      {choosingMode && (
+        <Sheet title={t('manga.readingMode')} onClose={() => setChoosingMode(false)}>
+          <div
+            role="radiogroup"
+            aria-label={t('manga.readingMode')}
+            className="-mx-2 flex flex-col"
+          >
+            {MODES.map((option) => (
+              <button
+                key={option}
+                type="button"
+                role="radio"
+                aria-checked={mode === option}
+                onClick={() => changeMode(option)}
+                className="hover:bg-background flex items-center gap-4 rounded-xl px-3 py-3 text-left"
+              >
+                <span className="flex-1">{t(`manga.mode.${option}`)}</span>
+                {mode === option && <Check aria-hidden size={20} className="text-primary" />}
+              </button>
+            ))}
+          </div>
+        </Sheet>
       )}
     </section>
   );

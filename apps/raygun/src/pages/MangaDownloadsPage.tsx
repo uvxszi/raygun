@@ -1,5 +1,5 @@
 import type { MangaDownloadItem } from '@raygun/bindings';
-import { CircleAlert, Pause, Play, RotateCw, X } from 'lucide-react';
+import { CircleAlert, Download, Pause, Play, RotateCw, X } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -10,6 +10,7 @@ import {
   useRemoveDownloads,
   useSetDownloadsPaused,
 } from '../manga/useManga';
+import { EmptyState } from '../shell/EmptyState';
 import { PageHeader } from './PageHeader';
 
 const DownloadRow: FC<{ item: MangaDownloadItem }> = ({ item }) => {
@@ -110,12 +111,18 @@ export const MangaDownloadsPage: FC = () => {
                 {t(queue.paused ? 'manga.resumeDownloads' : 'manga.pauseDownloads')}
               </button>
             )}
-            <p className="text-muted text-xs">
-              {t('manga.downloadedChapters', { count: queue.downloaded })}
-            </p>
+            {(queue.downloaded > 0 || queue.items.length > 0) && (
+              <p className="text-muted text-xs">
+                {t('manga.downloadedChapters', { count: queue.downloaded })}
+              </p>
+            )}
           </div>
           {queue.items.length === 0 ? (
-            <p className="text-muted text-sm">{t('manga.queueEmpty')}</p>
+            <EmptyState
+              icon={Download}
+              title={t('manga.queueEmpty')}
+              body={t('manga.queueEmptyHint')}
+            />
           ) : (
             <ul className="flex flex-col gap-2">
               {queue.items.map((item) => (

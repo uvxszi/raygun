@@ -79,7 +79,7 @@ const Episodes: FC<{ view: VideoTitleView; onPick: (episode: VideoEpisodeView) =
               role="tab"
               aria-selected={value === shown}
               onClick={() => setSeason(value)}
-              className={`shrink-0 rounded-full px-4 py-1.5 text-sm ${value === shown ? 'bg-primary text-background font-semibold' : 'bg-surface'}`}
+              className={`shrink-0 rounded-full px-4 py-1.5 text-sm ${value === shown ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
             >
               {value === null || value === 0
                 ? t('watch.specials')

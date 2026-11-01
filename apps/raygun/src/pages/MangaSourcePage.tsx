@@ -63,7 +63,7 @@ export const MangaSourcePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) =
             }}
             className={
               mode === list
-                ? 'bg-primary text-background rounded-full px-4 py-1.5 text-sm font-semibold'
+                ? 'bg-primary/20 text-primary rounded-full px-4 py-1.5 text-sm font-semibold'
                 : 'bg-surface rounded-full px-4 py-1.5 text-sm'
             }
           >

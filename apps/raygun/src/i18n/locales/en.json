@@ -119,7 +119,8 @@
       "openWatch": "Browse sources",
       "watched": "Watched",
       "remove": "Remove {{title}}",
-      "history": "Watched"
+      "history": "Watched",
+      "emptyTitle": "Nothing watched yet"
     },
     "openKind": "What to open",
     "openAs": {
@@ -455,7 +456,16 @@
     "repoAdded": "Added",
     "add": "Add",
     "addNamedRepo": "Add {{name}}",
-    "thirdPartyNote": "Raygun doesn’t review extensions from other repositories. Every extension runs sandboxed, with only the network access it shows before you install it."
+    "thirdPartyNote": "Raygun doesn’t review extensions from other repositories. Every extension runs sandboxed, with only the network access it shows before you install it.",
+    "capability": {
+      "music.metadata": "Song search",
+      "music.stream": "Streams for songs found elsewhere",
+      "lyrics": "Lyrics",
+      "manga.source": "Manga source",
+      "novel.source": "Novel source",
+      "video.source": "Movies and series source",
+      "podcast.directory": "Podcast directory"
+    }
   },
   "collections": {
     "moreActions": "More for {{title}}",
@@ -481,7 +491,8 @@
     "moveUp": "Move {{title}} up",
     "moveDown": "Move {{title}} down",
     "remove": "Remove {{title}}",
-    "onDevice": "On this device"
+    "onDevice": "On this device",
+    "noFavoritesTitle": "No favorites yet"
   },
   "mcp": {
     "title": "MCP server",
@@ -666,7 +677,10 @@
     "resume": "Resume",
     "downloadedCount_one": "{{count}} chapter downloaded",
     "downloadedCount_other": "{{count}} chapters downloaded",
-    "downloadAction": "Download"
+    "downloadAction": "Download",
+    "emptyTitle": "No manga yet",
+    "queueEmptyHint": "Download chapters from a title to read them offline.",
+    "noUpdatesHint": "New chapters from titles in your library show up here after an update."
   },
   "novel": {
     "sources": "Novel sources",
@@ -697,7 +711,8 @@
     "previousParagraph": "Read from the previous paragraph",
     "replayParagraph": "Read this paragraph again",
     "nextParagraph": "Skip to the next paragraph",
-    "readAloudHint": "Hold a paragraph to read aloud from there"
+    "readAloudHint": "Hold a paragraph to read aloud from there",
+    "emptyTitle": "No novels yet"
   },
   "ai": {
     "title": "AI",

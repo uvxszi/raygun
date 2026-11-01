@@ -185,14 +185,29 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
               type="button"
               disabled={download.isPending || unreadToDownload.length === 0}
               onClick={() => download.mutate(unreadToDownload)}
+              aria-label={
+                unreadToDownload.length > 0
+                  ? t('manga.downloadUnread', { count: unreadToDownload.length })
+                  : undefined
+              }
               className="flex flex-1 flex-col items-center gap-1 rounded-xl px-2 py-2 text-xs font-medium disabled:opacity-60"
             >
-              <Download aria-hidden size={22} />
-              {unreadToDownload.length > 0
-                ? t('manga.downloadUnread', { count: unreadToDownload.length })
-                : view.chapters.length > 0 && view.chapters.every((chapter) => chapter.download)
-                  ? t('manga.allDownloaded')
-                  : t('manga.downloadAction')}
+              <span className="relative">
+                <Download aria-hidden size={22} />
+                {unreadToDownload.length > 0 && (
+                  <span
+                    aria-hidden
+                    className="bg-primary text-background absolute -top-2 -right-3 min-w-5 rounded-full px-1 text-center text-[10px] leading-4 font-bold"
+                  >
+                    {unreadToDownload.length}
+                  </span>
+                )}
+              </span>
+              {view.chapters.length > 0 &&
+              unreadToDownload.length === 0 &&
+              view.chapters.every((chapter) => chapter.download)
+                ? t('manga.allDownloaded')
+                : t('manga.downloadAction')}
             </button>
           )}
           {view.url && (

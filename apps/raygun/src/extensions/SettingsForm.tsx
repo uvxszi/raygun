@@ -90,11 +90,8 @@ export const SettingsForm: FC<{ extensionId: string; settings: ExtensionSetting[
   const save = useSetExtensionSetting();
 
   return (
-    <section
-      data-testid="extension-settings"
-      className="bg-surface flex flex-col gap-4 rounded-xl px-5 py-4 text-sm"
-    >
-      <h2 className="text-muted">{t('extensions.settings')}</h2>
+    <section data-testid="extension-settings" className="flex flex-col gap-4 text-sm">
+      <h2 className="text-primary px-1 pt-2 font-semibold">{t('extensions.settings')}</h2>
       {settings.map((setting) => (
         <div
           key={setting.key}
