@@ -185,10 +185,24 @@ export const commands = {
 	 */
 	ttsSpeak: (paragraphs: TtsParagraph[], rate: number | null) => typedError<null, string>(__TAURI_INVOKE("tts_speak", { paragraphs, rate })),
 	ttsStop: () => typedError<null, string>(__TAURI_INVOKE("tts_stop")),
+	/**  Configured translators (keys are shown only as a hint). */
+	aiProviders: () => typedError<AiProvider[], string>(__TAURI_INVOKE("ai_providers")),
+	/**  Adds (no id) or changes a translator. A `null` key keeps the stored key; `""` removes it. */
+	aiProviderSave: (input: AiProviderInput) => typedError<AiProvider, string>(__TAURI_INVOKE("ai_provider_save", { input })),
+	/**  Removes a translator and its key. */
+	aiProviderDelete: (id: string) => typedError<null, string>(__TAURI_INVOKE("ai_provider_delete", { id })),
+	/**  Translates a sample sentence with the translator and returns the translation. */
+	aiProviderTest: (id: string) => typedError<string, string>(__TAURI_INVOKE("ai_provider_test", { id })),
+	/**  Models the model manager offers, and which are installed. */
+	aiModels: () => __TAURI_INVOKE<AiModel[]>("ai_models"),
+	/**  Downloads and installs a model; progress arrives as `AiModelEvent`s. */
+	aiModelDownload: (id: string) => typedError<null, string>(__TAURI_INVOKE("ai_model_download", { id })),
+	aiModelDelete: (id: string) => typedError<null, string>(__TAURI_INVOKE("ai_model_delete", { id })),
 };
 
 /** Events */
 export const events = {
+	aiModelEvent: makeEvent<AiModelEvent>("ai-model-event"),
 	engineCommandEvent: makeEvent<EngineCommandEvent>("engine-command-event"),
 	extensionsChangedEvent: makeEvent<ExtensionsChangedEvent>("extensions-changed-event"),
 	libraryScanEvent: makeEvent<LibraryScanEvent>("library-scan-event"),
@@ -201,6 +215,58 @@ export const events = {
 };
 
 /* Types */
+export type AiModel = {
+	id: string,
+	name: string,
+	kind: string,
+	description: string,
+	license: string,
+	licenseUrl: string,
+	sourceUrl: string,
+	sizeBytes: number | null,
+	installed: boolean,
+	/**  Bytes received while a download is running. */
+	downloading: number | null,
+};
+
+/**  A model download's progress (M34). */
+export type AiModelEvent = AiModelProgress;
+
+export type AiModelProgress = {
+	id: string,
+	state: AiModelState,
+	receivedBytes: number | null,
+	totalBytes: number | null,
+	error: string | null,
+};
+
+export type AiModelState = "downloading" | "installed" | "failed";
+
+/**  A configured translator. Its key stays in the secrets store; only a hint is shown. */
+export type AiProvider = {
+	id: string,
+	kind: AiProviderKind,
+	name: string,
+	baseUrl: string | null,
+	model: string | null,
+	hasKey: boolean,
+	/**  The key's last four characters. */
+	keyHint: string | null,
+};
+
+/**  A provider to add (no `id`) or change. */
+export type AiProviderInput = {
+	id: string | null,
+	kind: AiProviderKind,
+	name: string,
+	baseUrl: string | null,
+	model: string | null,
+	/**  `null` keeps the stored key; an empty string removes it. */
+	key: string | null,
+};
+
+export type AiProviderKind = "claude" | "openAiCompatible" | "deepl";
+
 /**  Build and runtime facts about the running app. */
 export type AppInfo = {
 	name: string,

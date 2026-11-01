@@ -1,0 +1,25 @@
+[package]
+name = "raygun-ai"
+description = "Raygun AI subsystem: secrets store, model manager and translation providers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+reqwest = { workspace = true, features = ["json"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tokio = { version = "1", features = ["fs", "io-util"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+getrandom = "0.3"
+sha2 = "0.11"
+
+[dev-dependencies]
+tempfile = "3"
+raygun-net.workspace = true
+axum.workspace = true
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "macros"] }

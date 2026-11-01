@@ -3484,6 +3484,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "raygun-ai"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "chacha20poly1305",
+ "futures-util",
+ "getrandom 0.3.4",
+ "raygun-net",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "raygun-app"
 version = "0.1.0"
 dependencies = [
@@ -3493,6 +3512,7 @@ dependencies = [
  "futures-util",
  "prost",
  "qrcode",
+ "raygun-ai",
  "raygun-db",
  "raygun-ext-host",
  "raygun-library",
@@ -3521,6 +3541,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "url",
+ "uuid",
  "zip",
 ]
 

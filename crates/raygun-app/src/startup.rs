@@ -80,6 +80,13 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         raygun_net::http_client()?,
     );
     app.manage(downloads.clone());
+    let ai = tauri::async_runtime::block_on(crate::ai::AiService::open(
+        app.handle().clone(),
+        paths.secrets(),
+        paths.models(),
+        raygun_net::http_client()?,
+    ))?;
+    app.manage(ai);
     app.manage(crate::backup::BackupService::new(
         app.handle().clone(),
         paths.root().join("backups"),

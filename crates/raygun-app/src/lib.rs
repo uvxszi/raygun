@@ -3,6 +3,7 @@
 //! The Tauri shell in `apps/raygun/src-tauri` stays thin: it owns the config
 //! and context, and gets everything else from [`builder`].
 
+mod ai;
 mod backup;
 mod catalog;
 mod collections;
@@ -130,7 +131,14 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::novel_import_epub,
             commands::tts_available,
             commands::tts_speak,
-            commands::tts_stop
+            commands::tts_stop,
+            commands::ai_providers,
+            commands::ai_provider_save,
+            commands::ai_provider_delete,
+            commands::ai_provider_test,
+            commands::ai_models,
+            commands::ai_model_download,
+            commands::ai_model_delete
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,
@@ -141,7 +149,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::SyncChangedEvent,
             events::MangaUpdateEvent,
             events::MangaDownloadsEvent,
-            events::TtsEvent
+            events::TtsEvent,
+            events::AiModelEvent
         ])
 }
 

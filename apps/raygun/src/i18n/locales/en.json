@@ -419,5 +419,55 @@
     "replayParagraph": "Read this paragraph again",
     "nextParagraph": "Skip to the next paragraph",
     "readAloudHint": "Hold a paragraph to read aloud from there"
+  },
+  "ai": {
+    "title": "AI",
+    "manage": "Manage",
+    "summary_one": "{{count}} translator · {{models}} models installed",
+    "summary_other": "{{count}} translators · {{models}} models installed",
+    "translators": "Translators",
+    "translatorsHint": "Used to translate manga, novels and lyrics. Keys are stored encrypted on this device and never synced.",
+    "noTranslators": "No translators yet.",
+    "addTranslator": "Add translator",
+    "translatorForm": "Translator settings",
+    "kindLabel": "Service",
+    "kind": {
+      "claude": "Claude",
+      "openAiCompatible": "OpenAI-compatible / local",
+      "deepl": "DeepL"
+    },
+    "name": "Name",
+    "apiKey": "API key",
+    "apiKeyOptional": "API key (optional for local servers)",
+    "pasteKey": "Paste your key",
+    "savedKey": "Saved key ••••{{hint}} (leave empty to keep)",
+    "removeKey": "Remove the saved key",
+    "baseUrl": "Server address",
+    "basePlaceholder": {
+      "claude": "https://api.anthropic.com",
+      "openAiCompatible": "http://localhost:11434/v1",
+      "deepl": "Chosen from the key"
+    },
+    "model": "Model",
+    "modelPlaceholder": {
+      "claude": "claude-sonnet-5-5",
+      "openAiCompatible": "e.g. qwen3:8b",
+      "deepl": ""
+    },
+    "save": "Save",
+    "cancel": "Cancel",
+    "keyHint": "key ••••{{hint}}",
+    "noKey": "no key",
+    "test": "Test: translate a sample into Japanese",
+    "testResult": "Works: {{text}}",
+    "edit": "Edit",
+    "delete": "Delete",
+    "models": "Models",
+    "modelsHint": "Image upscalers for the manga reader. Files are checked after downloading.",
+    "megabytes": "{{size}} MB",
+    "installed": "Installed",
+    "downloadModel": "Download {{name}}",
+    "deleteModel": "Delete {{name}}",
+    "downloading": "Downloading {{name}}"
   }
 }

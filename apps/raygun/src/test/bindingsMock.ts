@@ -1,4 +1,5 @@
 import type {
+  AiModelProgress,
   AppInfo,
   EngineCommand,
   ExtensionInfo,
@@ -29,6 +30,7 @@ type EventPayloads = {
   mangaUpdateEvent: MangaUpdateStatus;
   mangaDownloadsEvent: string;
   ttsEvent: TtsUpdate;
+  aiModelEvent: AiModelProgress;
 };
 type EventName = keyof EventPayloads;
 type Listener = (event: { payload: unknown }) => void;
@@ -196,6 +198,13 @@ export const bindingsMock = {
     ttsAvailable: vi.fn(),
     ttsSpeak: vi.fn(),
     ttsStop: vi.fn(),
+    aiProviders: vi.fn(),
+    aiProviderSave: vi.fn(),
+    aiProviderDelete: vi.fn(),
+    aiProviderTest: vi.fn(),
+    aiModels: vi.fn(),
+    aiModelDownload: vi.fn(),
+    aiModelDelete: vi.fn(),
   },
   events: {
     engineCommandEvent: makeEvent('engineCommandEvent'),
@@ -207,6 +216,7 @@ export const bindingsMock = {
     mangaUpdateEvent: makeEvent('mangaUpdateEvent'),
     mangaDownloadsEvent: makeEvent('mangaDownloadsEvent'),
     ttsEvent: makeEvent('ttsEvent'),
+    aiModelEvent: makeEvent('aiModelEvent'),
   },
 };
 
@@ -334,6 +344,13 @@ export const seedBindings = () => {
   commands.ttsAvailable.mockResolvedValue(ok(false));
   commands.ttsSpeak.mockResolvedValue(ok(null));
   commands.ttsStop.mockResolvedValue(ok(null));
+  commands.aiProviders.mockResolvedValue(ok([]));
+  commands.aiProviderSave.mockResolvedValue(ok(null));
+  commands.aiProviderDelete.mockResolvedValue(ok(null));
+  commands.aiProviderTest.mockResolvedValue(ok(''));
+  commands.aiModels.mockResolvedValue([]);
+  commands.aiModelDownload.mockResolvedValue(ok(null));
+  commands.aiModelDelete.mockResolvedValue(ok(null));
 };
 
 export const emitEvent = <Name extends EventName>(name: Name, payload: EventPayloads[Name]) => {

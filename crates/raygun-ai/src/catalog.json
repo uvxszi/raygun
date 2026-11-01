@@ -1,0 +1,94 @@
+[
+  {
+    "id": "realcugan-up2x-conservative",
+    "name": "Real-CUGAN 2× (conservative)",
+    "kind": "upscale",
+    "description": "Doubles manga and anime images while keeping the original texture; the safest choice.",
+    "license": "MIT",
+    "licenseUrl": "https://github.com/nihui/realcugan-ncnn-vulkan/blob/master/LICENSE",
+    "sourceUrl": "https://github.com/nihui/realcugan-ncnn-vulkan",
+    "files": [
+      {
+        "name": "up2x-conservative.param",
+        "url": "https://raw.githubusercontent.com/nihui/realcugan-ncnn-vulkan/395302c5c70f1bff604c974e92e0a87e45c9f9ee/models/models-se/up2x-conservative.param",
+        "sha256": "4b3b5c5710ad1d00503c8243417aa75f13fe497723e8b4952e8b1abfc08f9b84",
+        "size": 4761
+      },
+      {
+        "name": "up2x-conservative.bin",
+        "url": "https://raw.githubusercontent.com/nihui/realcugan-ncnn-vulkan/395302c5c70f1bff604c974e92e0a87e45c9f9ee/models/models-se/up2x-conservative.bin",
+        "sha256": "91c72c136e7ff8556323d4449c5ceeff22d9829bf8463a01137cadb8d59b84a0",
+        "size": 2573648
+      }
+    ]
+  },
+  {
+    "id": "realcugan-up2x-denoise3x",
+    "name": "Real-CUGAN 2× (strong denoise)",
+    "kind": "upscale",
+    "description": "Doubles images and removes heavy JPEG noise; good for low-quality scans.",
+    "license": "MIT",
+    "licenseUrl": "https://github.com/nihui/realcugan-ncnn-vulkan/blob/master/LICENSE",
+    "sourceUrl": "https://github.com/nihui/realcugan-ncnn-vulkan",
+    "files": [
+      {
+        "name": "up2x-denoise3x.param",
+        "url": "https://raw.githubusercontent.com/nihui/realcugan-ncnn-vulkan/395302c5c70f1bff604c974e92e0a87e45c9f9ee/models/models-se/up2x-denoise3x.param",
+        "sha256": "4b3b5c5710ad1d00503c8243417aa75f13fe497723e8b4952e8b1abfc08f9b84",
+        "size": 4761
+      },
+      {
+        "name": "up2x-denoise3x.bin",
+        "url": "https://raw.githubusercontent.com/nihui/realcugan-ncnn-vulkan/395302c5c70f1bff604c974e92e0a87e45c9f9ee/models/models-se/up2x-denoise3x.bin",
+        "sha256": "610ebae63f388fe6f39615cc5f4eaeb038d5aa6ba8b299ba3b989f7f7a1a280a",
+        "size": 2573648
+      }
+    ]
+  },
+  {
+    "id": "realcugan-up4x-conservative",
+    "name": "Real-CUGAN 4× (conservative)",
+    "kind": "upscale",
+    "description": "Quadruples small images; slower, for low-resolution pages.",
+    "license": "MIT",
+    "licenseUrl": "https://github.com/nihui/realcugan-ncnn-vulkan/blob/master/LICENSE",
+    "sourceUrl": "https://github.com/nihui/realcugan-ncnn-vulkan",
+    "files": [
+      {
+        "name": "up4x-conservative.param",
+        "url": "https://raw.githubusercontent.com/nihui/realcugan-ncnn-vulkan/395302c5c70f1bff604c974e92e0a87e45c9f9ee/models/models-se/up4x-conservative.param",
+        "sha256": "ffbcdc7ef979e13f4d0b61542d32e88ec6316e4962535f851a9ddfccc4cad4c1",
+        "size": 5018
+      },
+      {
+        "name": "up4x-conservative.bin",
+        "url": "https://raw.githubusercontent.com/nihui/realcugan-ncnn-vulkan/395302c5c70f1bff604c974e92e0a87e45c9f9ee/models/models-se/up4x-conservative.bin",
+        "sha256": "1ffde324bf3444adade3e70ff4ff4eac7a4bfbf4c01b5aab4563a89e5cec16da",
+        "size": 2818348
+      }
+    ]
+  },
+  {
+    "id": "waifu2x-cunet-noise1-scale2",
+    "name": "waifu2x CUnet 2× (light denoise)",
+    "kind": "upscale",
+    "description": "The classic anime-art upscaler, doubling images with light noise reduction.",
+    "license": "MIT",
+    "licenseUrl": "https://github.com/nihui/waifu2x-ncnn-vulkan/blob/master/LICENSE",
+    "sourceUrl": "https://github.com/nihui/waifu2x-ncnn-vulkan",
+    "files": [
+      {
+        "name": "noise1_scale2.0x_model.param",
+        "url": "https://raw.githubusercontent.com/nihui/waifu2x-ncnn-vulkan/64914665c45893135c9e50c1c296170a121b9f77/models/models-cunet/noise1_scale2.0x_model.param",
+        "sha256": "ccc3b2f1c9fad829ecdda40cac8dc853fcddf14917170efba888b256fbf9074a",
+        "size": 7249
+      },
+      {
+        "name": "noise1_scale2.0x_model.bin",
+        "url": "https://raw.githubusercontent.com/nihui/waifu2x-ncnn-vulkan/64914665c45893135c9e50c1c296170a121b9f77/models/models-cunet/noise1_scale2.0x_model.bin",
+        "sha256": "862c0e40f3df956ff57bd4d168c85dea5d375b614077fdddd3ac8cfdb9a686da",
+        "size": 2776400
+      }
+    ]
+  }
+]

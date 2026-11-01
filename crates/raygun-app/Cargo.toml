@@ -18,6 +18,7 @@ raygun-resolver.workspace = true
 raygun-mcp.workspace = true
 raygun-remote.workspace = true
 raygun-sync.workspace = true
+raygun-ai.workspace = true
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 reqwest.workspace = true
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
@@ -39,6 +40,7 @@ ego-tree = "0.10"
 url = "2"
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 base64 = "0.22"
+uuid.workspace = true
 prost = { version = "0.13", default-features = false, features = ["derive", "std"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

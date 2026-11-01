@@ -15,6 +15,7 @@ raygun-paths = { path = "crates/raygun-paths" }
 raygun-db = { path = "crates/raygun-db" }
 raygun-playback = { path = "crates/raygun-playback" }
 raygun-net = { path = "crates/raygun-net" }
+raygun-ai = { path = "crates/raygun-ai" }
 raygun-library = { path = "crates/raygun-library" }
 raygun-ext-host = { path = "crates/raygun-ext-host" }
 raygun-resolver = { path = "crates/raygun-resolver" }

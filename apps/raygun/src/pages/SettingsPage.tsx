@@ -1,6 +1,7 @@
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { AiCard } from '../settings/AiCard';
 import { AppearanceCard } from '../settings/AppearanceCard';
 import { BackupCard } from '../settings/BackupCard';
 import { DevicesCard } from '../settings/DevicesCard';
@@ -19,6 +20,7 @@ export const SettingsPage: FC = () => {
       <AppearanceCard />
       <MangaCard />
       <ExtensionsCard />
+      <AiCard />
       <BackupCard />
       <DevicesCard />
       <RemoteCard />

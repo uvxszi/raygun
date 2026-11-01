@@ -1263,3 +1263,74 @@ pub struct TtsUpdate {
     pub state: TtsState,
     pub paragraph: u32,
 }
+
+// ---- AI: translators and models (M34) ----
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum AiProviderKind {
+    Claude,
+    OpenAiCompatible,
+    Deepl,
+}
+
+/// A configured translator. Its key stays in the secrets store; only a hint is shown.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AiProvider {
+    pub id: String,
+    pub kind: AiProviderKind,
+    pub name: String,
+    pub base_url: Option<String>,
+    pub model: Option<String>,
+    pub has_key: bool,
+    /// The key's last four characters.
+    pub key_hint: Option<String>,
+}
+
+/// A provider to add (no `id`) or change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AiProviderInput {
+    pub id: Option<String>,
+    pub kind: AiProviderKind,
+    pub name: String,
+    pub base_url: Option<String>,
+    pub model: Option<String>,
+    /// `null` keeps the stored key; an empty string removes it.
+    pub key: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AiModel {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    pub description: String,
+    pub license: String,
+    pub license_url: String,
+    pub source_url: String,
+    pub size_bytes: f64,
+    pub installed: bool,
+    /// Bytes received while a download is running.
+    pub downloading: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum AiModelState {
+    Downloading,
+    Installed,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AiModelProgress {
+    pub id: String,
+    pub state: AiModelState,
+    pub received_bytes: f64,
+    pub total_bytes: f64,
+    pub error: Option<String>,
+}

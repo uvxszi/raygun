@@ -1,15 +1,17 @@
 use std::sync::Arc;
 
 use raygun_model::{
-    AppInfo, BackupFile, BackupOutcome, CollectionPlayRequest, EngineReport, ExtensionInfo,
-    ExtensionRepo, HistoryEntry, ImportedBook, LibraryAlbum, LibraryArtist, LibraryStatus,
-    LibraryTrack, Lyrics, MangaBrowseMode, MangaChapterPages, MangaLibraryEntry, MangaListingPage,
-    MangaSource, MangaTitleView, MangaUpdateItem, MangaUpdateStatus, McpStatus, NovelChapter,
-    PlayRequest, PlaybackControl, PlaybackState, PlaylistDetail, PlaylistSummary, QueueItemInput,
-    QueueSnapshot, ReaderMode, RemoteStatus, RepoCatalog, SavedTrack, SearchResults, SettingChange,
-    SettingValue, Settings, StorageInfo, StorageMode, SyncKind, SyncStatus, TrackInput, TrackQuery,
+    AiModel, AiProvider, AiProviderInput, AppInfo, BackupFile, BackupOutcome,
+    CollectionPlayRequest, EngineReport, ExtensionInfo, ExtensionRepo, HistoryEntry, ImportedBook,
+    LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack, Lyrics, MangaBrowseMode,
+    MangaChapterPages, MangaLibraryEntry, MangaListingPage, MangaSource, MangaTitleView,
+    MangaUpdateItem, MangaUpdateStatus, McpStatus, NovelChapter, PlayRequest, PlaybackControl,
+    PlaybackState, PlaylistDetail, PlaylistSummary, QueueItemInput, QueueSnapshot, ReaderMode,
+    RemoteStatus, RepoCatalog, SavedTrack, SearchResults, SettingChange, SettingValue, Settings,
+    StorageInfo, StorageMode, SyncKind, SyncStatus, TrackInput, TrackQuery,
 };
 
+use crate::ai::AiService;
 use crate::backup::BackupService;
 use crate::collections::CollectionsService;
 use crate::device_sync::SyncService;
@@ -990,4 +992,60 @@ pub async fn tts_speak(
 #[specta::specta]
 pub async fn tts_stop(app: tauri::AppHandle) -> Result<(), String> {
     crate::tts::stop(&app).await
+}
+
+// ---- AI (M34) ----
+
+/// Configured translators (keys are shown only as a hint).
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_providers(ai: tauri::State<'_, AiService>) -> Result<Vec<AiProvider>, String> {
+    ai.providers().await
+}
+
+/// Adds (no id) or changes a translator. A `null` key keeps the stored key; `""` removes it.
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_provider_save(
+    ai: tauri::State<'_, AiService>,
+    input: AiProviderInput,
+) -> Result<AiProvider, String> {
+    ai.save_provider(input).await
+}
+
+/// Removes a translator and its key.
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_provider_delete(ai: tauri::State<'_, AiService>, id: String) -> Result<(), String> {
+    ai.delete_provider(&id).await
+}
+
+/// Translates a sample sentence with the translator and returns the translation.
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_provider_test(
+    ai: tauri::State<'_, AiService>,
+    id: String,
+) -> Result<String, String> {
+    ai.test_provider(&id).await
+}
+
+/// Models the model manager offers, and which are installed.
+#[tauri::command]
+#[specta::specta]
+pub fn ai_models(ai: tauri::State<'_, AiService>) -> Vec<AiModel> {
+    ai.models()
+}
+
+/// Downloads and installs a model; progress arrives as `AiModelEvent`s.
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_model_download(ai: tauri::State<'_, AiService>, id: String) -> Result<(), String> {
+    ai.download_model(&id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_model_delete(ai: tauri::State<'_, AiService>, id: String) -> Result<(), String> {
+    ai.delete_model(&id).await
 }
