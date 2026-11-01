@@ -321,7 +321,7 @@ pub async fn undo(db: &Db, session_id: i64) -> Result<usize, DbError> {
     Ok(restored)
 }
 
-fn is_newer(incoming: &Value, existing: &Value) -> bool {
+pub(crate) fn is_newer(incoming: &Value, existing: &Value) -> bool {
     let stamp = |row: &Value| {
         (
             row.get("updated_at_hlc")
@@ -333,7 +333,7 @@ fn is_newer(incoming: &Value, existing: &Value) -> bool {
     stamp(incoming) > stamp(existing)
 }
 
-async fn read_row(
+pub(crate) async fn read_row(
     executor: impl sqlx::SqliteExecutor<'_>,
     spec: &TableSpec,
     key: &str,
@@ -358,7 +358,7 @@ async fn read_row(
         .and_then(|json| serde_json::from_str(&json).ok()))
 }
 
-async fn write_row(
+pub(crate) async fn write_row(
     transaction: &mut Transaction<'_, Sqlite>,
     spec: &TableSpec,
     row: &Value,
@@ -410,7 +410,7 @@ async fn save_undo(
     Ok(())
 }
 
-fn text_field(row: &Value, field: &str) -> Option<String> {
+pub(crate) fn text_field(row: &Value, field: &str) -> Option<String> {
     match row.get(field)? {
         Value::String(text) => Some(text.clone()),
         Value::Number(number) => Some(number.to_string()),

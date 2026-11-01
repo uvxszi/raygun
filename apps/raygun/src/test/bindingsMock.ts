@@ -169,6 +169,11 @@ export const bindingsMock = {
     mangaDownload: vi.fn(),
     mangaRemoveDownloads: vi.fn(),
     mangaSetDownloadsPaused: vi.fn(),
+    backupCreate: vi.fn(),
+    backupList: vi.fn(),
+    backupRestore: vi.fn(),
+    backupDelete: vi.fn(),
+    backupImport: vi.fn(),
   },
   events: {
     engineCommandEvent: makeEvent('engineCommandEvent'),
@@ -287,6 +292,13 @@ export const seedBindings = () => {
   commands.mangaDownload.mockResolvedValue(ok(null));
   commands.mangaRemoveDownloads.mockResolvedValue(ok(null));
   commands.mangaSetDownloadsPaused.mockResolvedValue(ok(null));
+  commands.backupCreate.mockResolvedValue(
+    ok({ name: 'raygun-20261031-120000.raygunbk', sizeBytes: 2048, createdAt: 0 }),
+  );
+  commands.backupList.mockResolvedValue(ok([]));
+  commands.backupRestore.mockResolvedValue(ok({ kind: 'raygun', received: 0, changed: 0 }));
+  commands.backupDelete.mockResolvedValue(ok(null));
+  commands.backupImport.mockResolvedValue(ok({ kind: 'raygun', received: 0, changed: 0 }));
 };
 
 export const emitEvent = <Name extends EventName>(name: Name, payload: EventPayloads[Name]) => {

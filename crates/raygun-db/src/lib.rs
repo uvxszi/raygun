@@ -4,6 +4,7 @@
 //! sync needs: a stable per-device id and a persisted hybrid logical clock. Queries are checked at
 //! runtime (`sqlx::query`), so building never needs a live database or offline query data.
 
+pub mod backup;
 pub mod collections;
 pub mod extensions;
 pub mod hlc;

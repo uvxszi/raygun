@@ -75,6 +75,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         raygun_net::http_client()?,
     );
     app.manage(downloads.clone());
+    app.manage(crate::backup::BackupService::new(
+        app.handle().clone(),
+        paths.root().join("backups"),
+    ));
     app.manage(crate::playback::PlaybackService::new(
         app.handle().clone(),
         proxy,

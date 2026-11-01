@@ -105,7 +105,24 @@
       "24": "Daily",
       "48": "Every 2 days",
       "168": "Weekly"
-    }
+    },
+    "backup": "Backup",
+    "backupHint": "Saves settings, favorites, playlists, history, your manga library and reading progress. Restoring merges: newer changes win.",
+    "createBackup": "Create backup",
+    "importBackup": "Import file",
+    "backupFile": "Backup file (Raygun or Mihon)",
+    "importing": "Importing…",
+    "backupCreated": "Saved {{name}}",
+    "backupRestored_one": "Restored. {{count}} item changed.",
+    "backupRestored_other": "Restored. {{count}} items changed.",
+    "mihonSkipped": "Skipped, no matching source: {{sources}}",
+    "backupSize": "{{size}} KB",
+    "restoreBackup": "Restore the backup from {{date}}",
+    "deleteBackup": "Delete the backup from {{date}}",
+    "confirmRestore": "Restore",
+    "cancel": "Cancel",
+    "mihonImported_one": "Imported {{count}} title with {{chapters}} chapters ({{read}} read) from Mihon.",
+    "mihonImported_other": "Imported {{count}} titles with {{chapters}} chapters ({{read}} read) from Mihon."
   },
   "player": {
     "nothingPlaying": "Nothing playing",

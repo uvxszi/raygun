@@ -3,6 +3,7 @@
 //! The Tauri shell in `apps/raygun/src-tauri` stays thin: it owns the config
 //! and context, and gets everything else from [`builder`].
 
+mod backup;
 mod collections;
 mod commands;
 mod device_sync;
@@ -13,6 +14,7 @@ mod library;
 mod manga;
 mod manga_downloads;
 mod mcp;
+mod mihon;
 mod playback;
 mod remote;
 mod resolution;
@@ -107,7 +109,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::manga_downloads,
             commands::manga_download,
             commands::manga_remove_downloads,
-            commands::manga_set_downloads_paused
+            commands::manga_set_downloads_paused,
+            commands::backup_create,
+            commands::backup_list,
+            commands::backup_restore,
+            commands::backup_delete,
+            commands::backup_import
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,

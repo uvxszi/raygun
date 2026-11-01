@@ -153,6 +153,15 @@ export const commands = {
 	/**  Cancels queued chapters and deletes downloaded ones. */
 	mangaRemoveDownloads: (chapterIds: string[]) => typedError<null, string>(__TAURI_INVOKE("manga_remove_downloads", { chapterIds })),
 	mangaSetDownloadsPaused: (paused: boolean) => typedError<null, string>(__TAURI_INVOKE("manga_set_downloads_paused", { paused })),
+	/**  Writes a backup of settings, collections, history, the manga library and progress. */
+	backupCreate: () => typedError<BackupFile, string>(__TAURI_INVOKE("backup_create")),
+	/**  Backups kept on this device, newest first. */
+	backupList: () => typedError<BackupFile[], string>(__TAURI_INVOKE("backup_list")),
+	/**  Merges a kept backup into the current data (newer rows win). */
+	backupRestore: (name: string) => typedError<BackupOutcome, string>(__TAURI_INVOKE("backup_restore", { name })),
+	backupDelete: (name: string) => typedError<null, string>(__TAURI_INVOKE("backup_delete", { name })),
+	/**  Restores a Raygun backup or imports a Mihon backup from a picked file (base64 contents). */
+	backupImport: (contents: string) => typedError<BackupOutcome, string>(__TAURI_INVOKE("backup_import", { contents })),
 };
 
 /** Events */
@@ -177,6 +186,19 @@ export type AppInfo = {
 	arch: string,
 	debug: boolean,
 };
+
+/**  A backup file kept on this device. */
+export type BackupFile = {
+	name: string,
+	sizeBytes: number | null,
+	/**  Unix ms. */
+	createdAt: number | null,
+};
+
+/**  The outcome of restoring or importing a backup. */
+export type BackupOutcome = 
+/**  A Raygun backup: rows read and rows that changed here. */
+{ kind: "raygun"; received: number; changed: number } | { kind: "mihon"; summary: MihonImport };
 
 /**  An extension a repository offers. */
 export type CatalogEntry = {
@@ -536,6 +558,15 @@ export type MediaSource =
 /**  No stream yet: the resolver finds one from `music.stream` providers when it plays (M14). */
 { kind: "lookup"; title: string; artist: string | null; album: string | null; durationMs: number | null };
 
+/**  What a Mihon backup import brought in. */
+export type MihonImport = {
+	titles: number,
+	libraryTitles: number,
+	chapters: number,
+	readChapters: number,
+	skipped: SkippedSource[],
+};
+
 /**  A track found by an online provider. */
 export type OnlineTrack = {
 	/**  The provider's own id for the track, when it has one. */
@@ -736,6 +767,12 @@ export type Settings = {
 	language: string,
 	/**  Hours between automatic manga library updates; 0 turns them off (M28). */
 	mangaUpdateHours: number,
+};
+
+/**  Titles of one Mihon source that Raygun has no source for. */
+export type SkippedSource = {
+	name: string,
+	titles: number,
 };
 
 /**  Where Raygun keeps its data on this device. */

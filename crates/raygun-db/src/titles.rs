@@ -167,6 +167,16 @@ pub async fn set_in_library(db: &Db, id: &str, added_at: Option<i64>) -> Result<
     Ok(())
 }
 
+/// Forgets when a title was last fetched, so the next view fetches it from its source (titles
+/// that came from an import carry less than the source has).
+pub async fn mark_stale(db: &Db, id: &str) -> Result<(), DbError> {
+    sqlx::query("UPDATE title SET state_refreshed_at = NULL WHERE id = ?1")
+        .bind(id)
+        .execute(db.pool())
+        .await?;
+    Ok(())
+}
+
 /// Remembers how the user reads a title.
 pub async fn set_reader_mode(db: &Db, id: &str, mode: &str) -> Result<(), DbError> {
     let stamp = db.tick();

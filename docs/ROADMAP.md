@@ -46,7 +46,7 @@ Legend: 📱 Android · 🖥 Windows · ⚗ spike (time-boxed; the outcome is a 
 - M26 First-party sources: MangaDex, local CBZ/folder, Komga/Kavita
 - M27 Reader: paged (LTR/RTL), webtoon, spreads, zoom, tap zones, prefetch, page cache
 - M28 Library updates job (fetch intervals), updates feed, downloads queue
-- M29 Trackers: AniList, MyAnimeList (OAuth via loopback/deep link), sync of progress
+- M29 Trackers: AniList, MyAnimeList (OAuth via loopback/deep link), sync of progress *(waits for the user's tracker accounts; M30 went first)*
 - M30 Backup/restore (own format) + **Mihon backup import**
 
 ## Phase 4 — Light novels

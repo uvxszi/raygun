@@ -2,6 +2,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { AppearanceCard } from '../settings/AppearanceCard';
+import { BackupCard } from '../settings/BackupCard';
 import { DevicesCard } from '../settings/DevicesCard';
 import { ExtensionsCard } from '../settings/ExtensionsCard';
 import { MangaCard } from '../settings/MangaCard';
@@ -18,6 +19,7 @@ export const SettingsPage: FC = () => {
       <AppearanceCard />
       <MangaCard />
       <ExtensionsCard />
+      <BackupCard />
       <DevicesCard />
       <RemoteCard />
       <McpCard />

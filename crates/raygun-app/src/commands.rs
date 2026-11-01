@@ -1,15 +1,16 @@
 use std::sync::Arc;
 
 use raygun_model::{
-    AppInfo, CollectionPlayRequest, EngineReport, ExtensionInfo, ExtensionRepo, HistoryEntry,
-    LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack, Lyrics, MangaBrowseMode,
-    MangaChapterPages, MangaLibraryEntry, MangaListingPage, MangaSource, MangaTitleView,
-    MangaUpdateItem, MangaUpdateStatus, McpStatus, PlayRequest, PlaybackControl, PlaybackState,
-    PlaylistDetail, PlaylistSummary, QueueItemInput, QueueSnapshot, ReaderMode, RemoteStatus,
-    RepoCatalog, SavedTrack, SearchResults, SettingChange, SettingValue, Settings, StorageInfo,
-    StorageMode, SyncKind, SyncStatus, TrackInput, TrackQuery,
+    AppInfo, BackupFile, BackupOutcome, CollectionPlayRequest, EngineReport, ExtensionInfo,
+    ExtensionRepo, HistoryEntry, LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack, Lyrics,
+    MangaBrowseMode, MangaChapterPages, MangaLibraryEntry, MangaListingPage, MangaSource,
+    MangaTitleView, MangaUpdateItem, MangaUpdateStatus, McpStatus, PlayRequest, PlaybackControl,
+    PlaybackState, PlaylistDetail, PlaylistSummary, QueueItemInput, QueueSnapshot, ReaderMode,
+    RemoteStatus, RepoCatalog, SavedTrack, SearchResults, SettingChange, SettingValue, Settings,
+    StorageInfo, StorageMode, SyncKind, SyncStatus, TrackInput, TrackQuery,
 };
 
+use crate::backup::BackupService;
 use crate::collections::CollectionsService;
 use crate::device_sync::SyncService;
 use crate::extensions::ExtensionService;
@@ -817,4 +818,49 @@ mod tests {
         assert_eq!(info.logs, root.join("logs").display().to_string());
         assert_eq!(info.webview, root.join("webview").display().to_string());
     }
+}
+
+/// Writes a backup of settings, collections, history, the manga library and progress.
+#[tauri::command]
+#[specta::specta]
+pub async fn backup_create(backups: tauri::State<'_, BackupService>) -> Result<BackupFile, String> {
+    backups.create().await
+}
+
+/// Backups kept on this device, newest first.
+#[tauri::command]
+#[specta::specta]
+pub async fn backup_list(
+    backups: tauri::State<'_, BackupService>,
+) -> Result<Vec<BackupFile>, String> {
+    backups.list().await
+}
+
+/// Merges a kept backup into the current data (newer rows win).
+#[tauri::command]
+#[specta::specta]
+pub async fn backup_restore(
+    backups: tauri::State<'_, BackupService>,
+    name: String,
+) -> Result<BackupOutcome, String> {
+    backups.restore(&name).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn backup_delete(
+    backups: tauri::State<'_, BackupService>,
+    name: String,
+) -> Result<(), String> {
+    backups.delete(&name).await
+}
+
+/// Restores a Raygun backup or imports a Mihon backup from a picked file (base64 contents).
+#[tauri::command]
+#[specta::specta]
+pub async fn backup_import(
+    backups: tauri::State<'_, BackupService>,
+    contents: String,
+) -> Result<BackupOutcome, String> {
+    backups.import(&contents).await
 }

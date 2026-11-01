@@ -1084,3 +1084,48 @@ pub struct MangaChapterPages {
     pub previous_chapter_id: Option<String>,
     pub next_chapter_id: Option<String>,
 }
+
+// ---- Backups (M30) ----
+
+/// A backup file kept on this device.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupFile {
+    pub name: String,
+    pub size_bytes: f64,
+    /// Unix ms.
+    pub created_at: f64,
+}
+
+/// Titles of one Mihon source that Raygun has no source for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SkippedSource {
+    pub name: String,
+    pub titles: u32,
+}
+
+/// What a Mihon backup import brought in.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MihonImport {
+    pub titles: u32,
+    pub library_titles: u32,
+    pub chapters: u32,
+    pub read_chapters: u32,
+    pub skipped: Vec<SkippedSource>,
+}
+
+/// The outcome of restoring or importing a backup.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum BackupOutcome {
+    /// A Raygun backup: rows read and rows that changed here.
+    Raygun {
+        received: u32,
+        changed: u32,
+    },
+    Mihon {
+        summary: MihonImport,
+    },
+}
