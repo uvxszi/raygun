@@ -24,6 +24,8 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use raygun_model::MediaSource;
+
+use crate::page_cache::{MAX_IMAGE_BYTES, PageCache, sniff_content_type};
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
@@ -67,6 +69,7 @@ struct ProxyState {
     images: Arc<Mutex<ImageRegistry>>,
     client: reqwest::Client,
     artwork: Option<StaticFiles>,
+    pages: Option<PageCache>,
 }
 
 pub struct StreamProxy {
@@ -112,6 +115,15 @@ impl StreamProxy {
         client: reqwest::Client,
         artwork: Option<StaticFiles>,
     ) -> std::io::Result<Self> {
+        Self::start_with_cache(client, artwork, None).await
+    }
+
+    /// Like [`Self::start`], with remote images kept in `pages` (M27).
+    pub async fn start_with_cache(
+        client: reqwest::Client,
+        artwork: Option<StaticFiles>,
+        pages: Option<PageCache>,
+    ) -> std::io::Result<Self> {
         let registry = Arc::new(Mutex::new(Registry::default()));
         let images = Arc::new(Mutex::new(ImageRegistry::default()));
         let state = ProxyState {
@@ -119,6 +131,7 @@ impl StreamProxy {
             images: images.clone(),
             client,
             artwork,
+            pages,
         };
         let router = Router::new()
             .route("/stream/{token}", get(stream))
@@ -244,6 +257,10 @@ async fn serve_image(
         .cloned();
     let response = match image {
         None => StatusCode::NOT_FOUND.into_response(),
+        Some((url, headers)) if state.pages.is_some() => {
+            let cache = state.pages.as_ref().expect("checked above");
+            cached_image(cache, &state.client, &token, &url, &headers).await
+        }
         Some((url, headers)) => {
             let mut response = forward(&state.client, &url, &headers, request.headers()).await;
             if response.status().is_success() {
@@ -256,6 +273,63 @@ async fn serve_image(
         }
     };
     with_cors(response)
+}
+
+/// Serves an image from the page cache, or fetches it whole, stores it and serves it.
+async fn cached_image(
+    cache: &PageCache,
+    client: &reqwest::Client,
+    token: &str,
+    url: &str,
+    headers: &BTreeMap<String, String>,
+) -> Response {
+    if let Some(bytes) = cache.read(token).await {
+        return image_response(bytes);
+    }
+    let mut request = client.get(url);
+    for (name, value) in headers {
+        request = request.header(name, value);
+    }
+    let upstream = match request.send().await {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::warn!(%error, "image request failed");
+            return (StatusCode::BAD_GATEWAY, error.to_string()).into_response();
+        }
+    };
+    let status = upstream.status();
+    let is_image = upstream
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("image/"));
+    let too_large = upstream
+        .content_length()
+        .is_some_and(|length| length > MAX_IMAGE_BYTES as u64);
+    if !status.is_success() || !is_image || too_large {
+        return StatusCode::from_u16(status.as_u16())
+            .unwrap_or(StatusCode::BAD_GATEWAY)
+            .into_response();
+    }
+    match upstream.bytes().await {
+        Ok(bytes) if bytes.len() <= MAX_IMAGE_BYTES => {
+            cache.write(token, &bytes).await;
+            image_response(bytes.to_vec())
+        }
+        Ok(_) => StatusCode::BAD_GATEWAY.into_response(),
+        Err(error) => (StatusCode::BAD_GATEWAY, error.to_string()).into_response(),
+    }
+}
+
+fn image_response(bytes: Vec<u8>) -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, sniff_content_type(&bytes)),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        bytes,
+    )
+        .into_response()
 }
 
 async fn youtube_embed() -> Response {

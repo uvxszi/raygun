@@ -945,12 +945,43 @@ pub struct MangaLibraryEntry {
     pub unread: u32,
 }
 
+/// How a title is read (M27).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ReaderMode {
+    /// One continuous vertical strip.
+    Webtoon,
+    /// One page at a time, left to right.
+    PagedLtr,
+    /// One page at a time, right to left (most manga).
+    PagedRtl,
+}
+
+impl ReaderMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Webtoon => "webtoon",
+            Self::PagedLtr => "pagedLtr",
+            Self::PagedRtl => "pagedRtl",
+        }
+    }
+
+    pub fn parse(text: &str) -> Self {
+        match text {
+            "pagedLtr" => Self::PagedLtr,
+            "pagedRtl" => Self::PagedRtl,
+            _ => Self::Webtoon,
+        }
+    }
+}
+
 /// What the reader needs for one chapter.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct MangaChapterPages {
     pub title_id: String,
     pub title: String,
+    pub reader_mode: ReaderMode,
     pub chapter: MangaChapterInfo,
     /// Through the local image proxy, in reading order.
     pub pages: Vec<String>,

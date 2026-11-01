@@ -254,3 +254,67 @@ async fn images_get_stable_links_with_their_headers() {
     let unknown = format!("http://{}/image/0000000000000000", proxy.address());
     assert_eq!(reqwest::get(unknown).await.unwrap().status(), 404);
 }
+
+#[tokio::test]
+async fn cached_images_are_served_from_disk_after_the_first_fetch() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static HITS: AtomicUsize = AtomicUsize::new(0);
+    async fn page() -> Response {
+        HITS.fetch_add(1, Ordering::SeqCst);
+        Response::builder()
+            .header(header::CONTENT_TYPE, "image/png")
+            .body(Body::from(&b"\x89PNG page"[..]))
+            .unwrap()
+    }
+    async fn html() -> Response {
+        Response::builder()
+            .header(header::CONTENT_TYPE, "text/html")
+            .body(Body::from("<html>challenge</html>"))
+            .unwrap()
+    }
+    let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let origin = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let app = Router::new()
+            .route("/page.png", get(page))
+            .route("/challenge", get(html));
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let temp = tempfile::TempDir::new().unwrap();
+    let proxy = StreamProxy::start_with_cache(
+        crate::http_client().unwrap(),
+        None,
+        Some(PageCache::new(temp.path().join("pages"), 1 << 20)),
+    )
+    .await
+    .unwrap();
+    let images = proxy.images();
+    let link = images.link(&format!("http://{origin}/page.png"), &BTreeMap::new());
+
+    for _ in 0..2 {
+        let response = reqwest::get(&link).await.unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "image/png");
+        assert_eq!(response.bytes().await.unwrap().as_ref(), b"\x89PNG page");
+    }
+    assert_eq!(
+        HITS.load(Ordering::SeqCst),
+        1,
+        "the second answer came from disk"
+    );
+
+    let challenge = images.link(&format!("http://{origin}/challenge"), &BTreeMap::new());
+    let response = reqwest::get(&challenge).await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert!(
+        std::fs::read_dir(temp.path().join("pages"))
+            .unwrap()
+            .count()
+            == 1,
+        "only the image was stored"
+    );
+}

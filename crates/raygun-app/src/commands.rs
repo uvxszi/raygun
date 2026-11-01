@@ -5,7 +5,7 @@ use raygun_model::{
     LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack, Lyrics, MangaBrowseMode,
     MangaChapterPages, MangaLibraryEntry, MangaListingPage, MangaSource, MangaTitleView, McpStatus,
     PlayRequest, PlaybackControl, PlaybackState, PlaylistDetail, PlaylistSummary, QueueItemInput,
-    QueueSnapshot, RemoteStatus, RepoCatalog, SavedTrack, SearchResults, SettingChange,
+    QueueSnapshot, ReaderMode, RemoteStatus, RepoCatalog, SavedTrack, SearchResults, SettingChange,
     SettingValue, Settings, StorageInfo, StorageMode, SyncKind, SyncStatus, TrackInput, TrackQuery,
 };
 
@@ -675,6 +675,17 @@ pub async fn manga_set_progress(
     total: u32,
 ) -> Result<(), String> {
     manga.set_progress(&chapter_id, page, total).await
+}
+
+/// Remembers how a title is read (webtoon strip or paged, left or right to left).
+#[tauri::command]
+#[specta::specta]
+pub async fn manga_set_reader_mode(
+    manga: tauri::State<'_, MangaService>,
+    title_id: String,
+    mode: ReaderMode,
+) -> Result<(), String> {
+    manga.set_reader_mode(&title_id, mode).await
 }
 
 #[tauri::command]

@@ -136,6 +136,8 @@ export const commands = {
 	/**  The page reached in a chapter; reaching the last page marks it read. */
 	mangaSetProgress: (chapterId: string, page: number, total: number) => typedError<null, string>(__TAURI_INVOKE("manga_set_progress", { chapterId, page, total })),
 	mangaSetRead: (chapterId: string, read: boolean) => typedError<null, string>(__TAURI_INVOKE("manga_set_read", { chapterId, read })),
+	/**  Remembers how a title is read (webtoon strip or paged, left or right to left). */
+	mangaSetReaderMode: (titleId: string, mode: ReaderMode) => typedError<null, string>(__TAURI_INVOKE("manga_set_reader_mode", { titleId, mode })),
 };
 
 /** Events */
@@ -382,6 +384,7 @@ export type MangaChapterInfo = {
 export type MangaChapterPages = {
 	titleId: string,
 	title: string,
+	readerMode: ReaderMode,
 	chapter: MangaChapterInfo,
 	/**  Through the local image proxy, in reading order. */
 	pages: string[],
@@ -573,6 +576,15 @@ export type QueueSnapshot = {
 	 */
 	order: number[],
 };
+
+/**  How a title is read (M27). */
+export type ReaderMode = 
+/**  One continuous vertical strip. */
+"webtoon" | 
+/**  One page at a time, left to right. */
+"pagedLtr" | 
+/**  One page at a time, right to left (most manga). */
+"pagedRtl";
 
 export type RemoteDevice = {
 	id: string,

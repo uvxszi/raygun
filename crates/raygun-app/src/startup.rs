@@ -22,6 +22,9 @@ pub struct AppPaths(pub Paths);
 /// The open database, available to commands as Tauri state.
 pub struct AppDb(pub std::sync::Arc<raygun_db::Db>);
 
+/// Manga pages and covers kept on disk (M27).
+const PAGE_CACHE_BYTES: u64 = 512 * 1024 * 1024;
+
 /// Keeps the background log writer alive for the app's lifetime.
 struct LogGuard(#[allow(dead_code)] WorkerGuard);
 
@@ -42,12 +45,16 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(AppDb(std::sync::Arc::new(db)));
 
     let art_dir = paths.cache(raygun_paths::CacheKind::Images);
-    let proxy = tauri::async_runtime::block_on(raygun_net::StreamProxy::start(
+    let proxy = tauri::async_runtime::block_on(raygun_net::StreamProxy::start_with_cache(
         raygun_net::http_client()?,
         Some(raygun_net::StaticFiles {
             dir: art_dir.clone(),
             is_allowed: raygun_library::is_artwork_name,
         }),
+        Some(raygun_net::PageCache::new(
+            paths.cache(raygun_paths::CacheKind::Pages),
+            PAGE_CACHE_BYTES,
+        )),
     ))?;
     app.manage(crate::library::LibraryService::new(
         app.handle().clone(),

@@ -33,6 +33,8 @@ pub struct TitleRow {
     pub fields: TitleFields,
     pub in_library_at: Option<i64>,
     pub refreshed_at: Option<i64>,
+    /// `webtoon`, `pagedLtr` or `pagedRtl` (M27).
+    pub reader_mode: String,
 }
 
 /// A library title with its reading state.
@@ -68,7 +70,7 @@ pub struct UnitRow {
 const TITLE_COLUMNS: &str = "t.id, t.kind, t.source_id, t.remote_id, t.remote_title, t.remote_cover, \
      t.remote_cover_headers, \
      t.remote_authors, t.remote_artists, t.remote_description, t.remote_genres, t.remote_status, \
-     t.remote_url, t.user_in_library_at, t.state_refreshed_at";
+     t.remote_url, t.user_in_library_at, t.state_refreshed_at, t.user_reader_mode";
 
 /// Stores what a source said about a title (inserting it on first sight) and returns its id.
 pub async fn upsert_title(db: &Db, fields: &TitleFields, now_ms: i64) -> Result<String, DbError> {
@@ -156,6 +158,25 @@ pub async fn set_in_library(db: &Db, id: &str, added_at: Option<i64>) -> Result<
     )
     .bind(id)
     .bind(added_at)
+    .bind(stamp as i64)
+    .bind(db.device_id().to_string())
+    .execute(&mut *transaction)
+    .await?;
+    persist_hlc(&mut *transaction, stamp).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+/// Remembers how the user reads a title.
+pub async fn set_reader_mode(db: &Db, id: &str, mode: &str) -> Result<(), DbError> {
+    let stamp = db.tick();
+    let mut transaction = db.pool().begin().await?;
+    sqlx::query(
+        "UPDATE title SET user_reader_mode = ?2, updated_at_hlc = ?3, origin_device = ?4
+         WHERE id = ?1 AND deleted = 0",
+    )
+    .bind(id)
+    .bind(mode)
     .bind(stamp as i64)
     .bind(db.device_id().to_string())
     .execute(&mut *transaction)
@@ -389,6 +410,7 @@ fn title_row(row: &SqliteRow) -> TitleRow {
         },
         in_library_at: row.get("user_in_library_at"),
         refreshed_at: row.get("state_refreshed_at"),
+        reader_mode: row.get("user_reader_mode"),
     }
 }
 

@@ -1,9 +1,11 @@
 //! Raygun networking (ARCHITECTURE §12): the shared HTTP client and the loopback stream proxy.
 
+pub mod page_cache;
 mod proxy;
 
 use std::sync::Arc;
 
+pub use page_cache::PageCache;
 pub use proxy::{ImageLinks, StaticFiles, StreamProxy, artwork_url};
 
 /// Sent unless a source supplies its own `User-Agent`; many hosts reject unknown clients.

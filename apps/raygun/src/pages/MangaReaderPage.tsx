@@ -1,16 +1,256 @@
+import { commands } from '@raygun/bindings';
+import type { MangaChapterPages, ReaderMode } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useRouter, useSearch } from '@tanstack/react-router';
 import { ArrowLeft, ChevronLeft, ChevronRight, LoaderCircle } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import type { FC } from 'react';
+import type { FC, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { unwrapResult } from '../lib/commandResult';
 import { MANGA, saveProgress, useMangaChapter } from '../manga/useManga';
 
-/** Progress is saved this long after scrolling stops, and right away on the last page. */
+/** Progress is saved this long after reading stops, and right away on the last page. */
 const SAVE_DELAY_MS = 800;
+/** Pages after the current one that start loading ahead. */
+const PRELOAD_AHEAD = 3;
+/** How close to the end the next chapter is fetched. */
+const NEXT_CHAPTER_LEAD = 3;
+/** A second tap within this long is a double tap (zoom), not a page turn. */
+const DOUBLE_TAP_MS = 250;
+/** Horizontal movement that counts as a swipe. */
+const SWIPE_PX = 50;
+const MODES: ReaderMode[] = ['webtoon', 'pagedRtl', 'pagedLtr'];
 
-/** A vertical strip of a chapter's pages (M24; the paged reader comes in M27). */
+const preload = (urls: string[]) => {
+  for (const url of urls) {
+    const image = new Image();
+    image.src = url;
+  }
+};
+
+type EndCardProps = { data: MangaChapterPages; onGo: (chapterId: string | null) => void };
+
+const EndCard: FC<EndCardProps> = ({ data, onGo }) => {
+  const { t } = useTranslation();
+  return (
+    <div className="text-foreground flex flex-col items-center gap-3 px-4 py-10">
+      <p className="text-muted text-sm">{t('manga.endOf', { name: data.chapter.name })}</p>
+      <div className="flex gap-3">
+        {data.previousChapterId && (
+          <button
+            type="button"
+            onClick={() => onGo(data.previousChapterId)}
+            className="bg-surface flex items-center gap-1 rounded-full px-4 py-2 text-sm"
+          >
+            <ChevronLeft aria-hidden size={16} />
+            {t('manga.previousChapter')}
+          </button>
+        )}
+        {data.nextChapterId ? (
+          <button
+            type="button"
+            onClick={() => onGo(data.nextChapterId)}
+            className="bg-primary text-background flex items-center gap-1 rounded-full px-5 py-2 text-sm font-semibold"
+          >
+            {t('manga.nextChapter')}
+            <ChevronRight aria-hidden size={16} />
+          </button>
+        ) : (
+          <Link
+            to="/library"
+            search={{ media: 'manga' }}
+            className="bg-surface rounded-full px-4 py-2 text-sm"
+          >
+            {t('manga.backToLibrary')}
+          </Link>
+        )}
+      </div>
+    </div>
+  );
+};
+
+type ViewProps = {
+  data: MangaChapterPages;
+  current: number;
+  onCurrent: (page: number) => void;
+  onToggleChrome: () => void;
+  onGo: (chapterId: string | null) => void;
+};
+
+/** One continuous strip; the page most in view is the current one. */
+const WebtoonView: FC<ViewProps & { jumpTo: number | null }> = ({
+  data,
+  onCurrent,
+  onToggleChrome,
+  onGo,
+  jumpTo,
+}) => {
+  const { t } = useTranslation();
+  const pages = useRef<(HTMLImageElement | null)[]>([]);
+
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting)
+            onCurrent(Number((entry.target as HTMLElement).dataset.index ?? 0));
+        }
+      },
+      { threshold: 0.5 },
+    );
+    for (const page of pages.current) {
+      if (page) observer.observe(page);
+    }
+    return () => observer.disconnect();
+  }, [data, onCurrent]);
+
+  useEffect(() => {
+    if (jumpTo !== null) pages.current[jumpTo]?.scrollIntoView?.();
+  }, [jumpTo]);
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={t('manga.toggleControls')}
+        onClick={onToggleChrome}
+        className="flex flex-col"
+      >
+        {data.pages.map((url, index) => (
+          <img
+            key={url}
+            ref={(element) => {
+              pages.current[index] = element;
+            }}
+            data-index={index}
+            data-testid="manga-page"
+            src={url}
+            alt={t('manga.pageAlt', { page: index + 1 })}
+            loading={index < 3 ? 'eager' : 'lazy'}
+            decoding="async"
+            className="min-h-[60vh] w-full bg-neutral-900 object-contain"
+            onLoad={(event) => event.currentTarget.classList.remove('min-h-[60vh]')}
+          />
+        ))}
+      </button>
+      <EndCard data={data} onGo={onGo} />
+    </>
+  );
+};
+
+/** One page at a time with tap zones, swipes, arrow keys and double-tap zoom. */
+const PagedView: FC<ViewProps & { rtl: boolean }> = ({
+  data,
+  current,
+  onCurrent,
+  onToggleChrome,
+  onGo,
+  rtl,
+}) => {
+  const { t } = useTranslation();
+  const total = data.pages.length;
+  const [zoomed, setZoomed] = useState(false);
+  const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const swipeStart = useRef<number | null>(null);
+  const swiped = useRef(false);
+
+  // Index `total` is the end card after the last page.
+  const step = (delta: number) => {
+    setZoomed(false);
+    onCurrent(Math.min(Math.max(current + delta, 0), total));
+  };
+  const forward = () => step(1);
+  const back = () => step(-1);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowRight') (rtl ? back : forward)();
+      if (event.key === 'ArrowLeft') (rtl ? forward : back)();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  useEffect(
+    () => () => {
+      if (tapTimer.current) clearTimeout(tapTimer.current);
+    },
+    [],
+  );
+
+  const onTap = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (swiped.current) {
+      swiped.current = false;
+      return;
+    }
+    const box = event.currentTarget.getBoundingClientRect();
+    const fraction = box.width > 0 ? (event.clientX - box.left) / box.width : 0.5;
+    if (tapTimer.current) clearTimeout(tapTimer.current);
+    tapTimer.current = setTimeout(() => {
+      tapTimer.current = null;
+      if (zoomed || (fraction > 1 / 3 && fraction < 2 / 3)) onToggleChrome();
+      else if (fraction <= 1 / 3) (rtl ? forward : back)();
+      else (rtl ? back : forward)();
+    }, DOUBLE_TAP_MS);
+  };
+
+  const onDoubleTap = () => {
+    if (tapTimer.current) clearTimeout(tapTimer.current);
+    tapTimer.current = null;
+    setZoomed((on) => !on);
+  };
+
+  const onPointerDown = (event: ReactPointerEvent) => {
+    swipeStart.current = zoomed ? null : event.clientX;
+  };
+  const onPointerUp = (event: ReactPointerEvent) => {
+    if (swipeStart.current === null) return;
+    const moved = event.clientX - swipeStart.current;
+    swipeStart.current = null;
+    if (Math.abs(moved) < SWIPE_PX) return;
+    swiped.current = true;
+    // Swiping toward the reading direction's start turns forward.
+    if (moved < 0 !== rtl) forward();
+    else back();
+  };
+
+  if (current >= total) {
+    return (
+      <div className="flex min-h-[80vh] flex-col justify-center">
+        <EndCard data={data} onGo={onGo} />
+        <button type="button" onClick={back} className="text-muted self-center py-4 text-sm">
+          {t('manga.backToLastPage')}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      data-testid="paged-reader"
+      onClick={onTap}
+      onDoubleClick={onDoubleTap}
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      className={`h-[100dvh] w-full select-none ${zoomed ? 'block overflow-auto' : 'flex items-center justify-center overflow-hidden'}`}
+    >
+      <img
+        key={data.pages[current]}
+        data-testid="manga-page"
+        src={data.pages[current]}
+        alt={t('manga.pageAlt', { page: current + 1 })}
+        draggable={false}
+        // Zoomed: twice the screen width at its own aspect ratio, panned by scrolling.
+        className={zoomed ? 'h-auto max-w-none' : 'max-h-full max-w-full object-contain'}
+        style={zoomed ? { width: '200%' } : undefined}
+      />
+    </div>
+  );
+};
+
+/** The manga reader: webtoon strip or paged, left or right to left (M27). */
 export const MangaReaderPage: FC = () => {
   const { t } = useTranslation();
   const { title, chapter } = useSearch({ from: '/manga/read' });
@@ -20,45 +260,50 @@ export const MangaReaderPage: FC = () => {
   const loaded = useMangaChapter(title, chapter);
   const [current, setCurrent] = useState(0);
   const [chrome, setChrome] = useState(true);
-  const pages = useRef<(HTMLImageElement | null)[]>([]);
+  const [modeOverride, setModeOverride] = useState<ReaderMode | null>(null);
+  const [jumpTo, setJumpTo] = useState<number | null>(null);
   const data = loaded.data;
   const total = data?.pages.length ?? 0;
-
-  // Which page is on screen: the one most visible.
-  useEffect(() => {
-    if (!data || typeof IntersectionObserver === 'undefined') return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            setCurrent(Number((entry.target as HTMLElement).dataset.index ?? 0));
-          }
-        }
-      },
-      { threshold: 0.5 },
-    );
-    for (const page of pages.current) {
-      if (page) observer.observe(page);
-    }
-    return () => observer.disconnect();
-  }, [data]);
+  const mode = modeOverride ?? data?.readerMode ?? 'webtoon';
+  const page = Math.min(current, Math.max(total - 1, 0));
 
   // Resume where this chapter was left.
+  const resumed = useRef<string | null>(null);
   useEffect(() => {
-    const resume = data?.chapter.lastPage;
-    if (resume) pages.current[resume]?.scrollIntoView?.();
+    if (!data || resumed.current === data.chapter.id) return;
+    resumed.current = data.chapter.id;
+    const resume = data.chapter.lastPage ?? 0;
+    setCurrent(resume);
+    setJumpTo(resume || null);
   }, [data]);
 
   useEffect(() => {
     if (!data || total === 0) return;
-    const save = () => void saveProgress(data.chapter.id, current, total);
-    if (current >= total - 1) {
+    const save = () => void saveProgress(data.chapter.id, page, total);
+    if (page >= total - 1) {
       save();
       return;
     }
     const timer = setTimeout(save, SAVE_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [current, data, total]);
+  }, [page, data, total]);
+
+  // Load ahead: the next few pages, and near the end the next chapter.
+  useEffect(() => {
+    if (!data) return;
+    preload(data.pages.slice(page + 1, page + 1 + PRELOAD_AHEAD));
+    const next = data.nextChapterId;
+    if (next && page >= total - NEXT_CHAPTER_LEAD) {
+      void queryClient
+        .fetchQuery({
+          queryKey: [MANGA, 'chapter', title, next],
+          queryFn: () => unwrapResult(commands.mangaChapter(title, next)),
+          staleTime: 60_000,
+        })
+        .then((upcoming) => preload(upcoming.pages.slice(0, PRELOAD_AHEAD)))
+        .catch(() => undefined);
+    }
+  }, [data, page, total, title, queryClient]);
 
   // The title page and library show read state; refresh them when leaving the reader.
   useEffect(
@@ -72,7 +317,13 @@ export const MangaReaderPage: FC = () => {
   const goTo = (chapterId: string | null) => {
     if (!chapterId) return;
     setCurrent(0);
+    setJumpTo(null);
     void navigate({ search: { title, chapter: chapterId } });
+  };
+
+  const changeMode = (next: ReaderMode) => {
+    setModeOverride(next);
+    if (data) void commands.mangaSetReaderMode(data.titleId, next);
   };
 
   return (
@@ -83,14 +334,26 @@ export const MangaReaderPage: FC = () => {
             type="button"
             aria-label={t('manga.closeReader')}
             onClick={() => router.history.back()}
-            className="grid size-11 place-items-center"
+            className="grid size-11 shrink-0 place-items-center"
           >
             <ArrowLeft aria-hidden size={22} />
           </button>
-          <span className="flex min-w-0 flex-col py-2">
+          <span className="flex min-w-0 flex-1 flex-col py-2">
             <span className="truncate text-sm font-semibold">{data?.title}</span>
             <span className="text-muted truncate text-xs">{data?.chapter.name}</span>
           </span>
+          <select
+            aria-label={t('manga.readingMode')}
+            value={mode}
+            onChange={(event) => changeMode(event.target.value as ReaderMode)}
+            className="bg-surface shrink-0 rounded-lg px-2 py-1.5 text-xs"
+          >
+            {MODES.map((option) => (
+              <option key={option} value={option}>
+                {t(`manga.mode.${option}`)}
+              </option>
+            ))}
+          </select>
         </header>
       )}
       {loaded.error && (
@@ -104,73 +367,64 @@ export const MangaReaderPage: FC = () => {
           className="text-muted m-auto mt-32 animate-spin"
         />
       )}
-      {data && (
-        <>
+      {data && mode === 'webtoon' && (
+        <WebtoonView
+          data={data}
+          current={current}
+          onCurrent={setCurrent}
+          onToggleChrome={() => setChrome((shown) => !shown)}
+          onGo={goTo}
+          jumpTo={jumpTo}
+        />
+      )}
+      {data && mode !== 'webtoon' && (
+        <PagedView
+          data={data}
+          current={current}
+          onCurrent={setCurrent}
+          onToggleChrome={() => setChrome((shown) => !shown)}
+          onGo={goTo}
+          rtl={mode === 'pagedRtl'}
+        />
+      )}
+      {data && chrome && total > 0 && (
+        <footer className="bg-background/90 fixed inset-x-0 bottom-0 z-30 flex items-center gap-3 px-3 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] backdrop-blur">
           <button
             type="button"
-            aria-label={t('manga.toggleControls')}
-            onClick={() => setChrome((shown) => !shown)}
-            className="flex flex-col"
+            aria-label={t('manga.goPreviousChapter')}
+            disabled={!data.previousChapterId}
+            onClick={() => goTo(data.previousChapterId)}
+            className="grid size-9 shrink-0 place-items-center disabled:opacity-30"
           >
-            {data.pages.map((url, index) => (
-              <img
-                key={url}
-                ref={(element) => {
-                  pages.current[index] = element;
-                }}
-                data-index={index}
-                data-testid="manga-page"
-                src={url}
-                alt={t('manga.pageAlt', { page: index + 1 })}
-                loading={index < 3 ? 'eager' : 'lazy'}
-                decoding="async"
-                className="min-h-[60vh] w-full bg-neutral-900 object-contain"
-                onLoad={(event) => event.currentTarget.classList.remove('min-h-[60vh]')}
-              />
-            ))}
+            <ChevronLeft aria-hidden size={20} />
           </button>
-          <div className="text-foreground flex flex-col items-center gap-3 px-4 py-10">
-            <p className="text-muted text-sm">{t('manga.endOf', { name: data.chapter.name })}</p>
-            <div className="flex gap-3">
-              {data.previousChapterId && (
-                <button
-                  type="button"
-                  onClick={() => goTo(data.previousChapterId)}
-                  className="bg-surface flex items-center gap-1 rounded-full px-4 py-2 text-sm"
-                >
-                  <ChevronLeft aria-hidden size={16} />
-                  {t('manga.previousChapter')}
-                </button>
-              )}
-              {data.nextChapterId ? (
-                <button
-                  type="button"
-                  onClick={() => goTo(data.nextChapterId)}
-                  className="bg-primary text-background flex items-center gap-1 rounded-full px-5 py-2 text-sm font-semibold"
-                >
-                  {t('manga.nextChapter')}
-                  <ChevronRight aria-hidden size={16} />
-                </button>
-              ) : (
-                <Link
-                  to="/library"
-                  search={{ media: 'manga' }}
-                  className="bg-surface rounded-full px-4 py-2 text-sm"
-                >
-                  {t('manga.backToLibrary')}
-                </Link>
-              )}
-            </div>
-          </div>
-          {chrome && total > 0 && (
-            <p
-              data-testid="page-indicator"
-              className="bg-background/80 fixed right-3 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-30 rounded-full px-3 py-1 text-xs tabular-nums"
-            >
-              {t('manga.pageOf', { page: Math.min(current + 1, total), total })}
-            </p>
-          )}
-        </>
+          <input
+            type="range"
+            aria-label={t('manga.jumpToPage')}
+            min={0}
+            max={total - 1}
+            value={page}
+            dir={mode === 'pagedRtl' ? 'rtl' : 'ltr'}
+            onChange={(event) => {
+              const target = Number(event.target.value);
+              setCurrent(target);
+              setJumpTo(target);
+            }}
+            className="accent-primary min-w-0 flex-1"
+          />
+          <span data-testid="page-indicator" className="shrink-0 text-xs tabular-nums">
+            {t('manga.pageOf', { page: page + 1, total })}
+          </span>
+          <button
+            type="button"
+            aria-label={t('manga.goNextChapter')}
+            disabled={!data.nextChapterId}
+            onClick={() => goTo(data.nextChapterId)}
+            className="grid size-9 shrink-0 place-items-center disabled:opacity-30"
+          >
+            <ChevronRight aria-hidden size={20} />
+          </button>
+        </footer>
       )}
     </section>
   );

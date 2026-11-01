@@ -1,5 +1,5 @@
 import type { MangaChapterInfo, MangaChapterPages, MangaTitleView } from '@raygun/bindings';
-import { screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
@@ -157,6 +157,7 @@ describe('Manga', () => {
     const pages = (chapterId: string): MangaChapterPages => ({
       titleId: 't1',
       title: 'Frieren',
+      readerMode: 'webtoon',
       chapter: chapter(chapterId, chapterId === 'c1' ? 'Chapter 1' : 'Chapter 2'),
       pages: ['http://img/1', 'http://img/2', 'http://img/3'].map((url) => `${url}-${chapterId}`),
       previousChapterId: chapterId === 'c2' ? 'c1' : null,
@@ -181,5 +182,82 @@ describe('Manga', () => {
     expect(await within(reader).findByText('Chapter 2')).toBeInTheDocument();
     expect(commands.mangaChapter).toHaveBeenLastCalledWith('t1', 'c2');
     vi.unstubAllGlobals();
+  });
+
+  it('reads right to left with tap zones, the slider and an end card', async () => {
+    const user = userEvent.setup();
+    const pages = (chapterId: string): MangaChapterPages => ({
+      titleId: 't1',
+      title: 'Frieren',
+      readerMode: 'pagedRtl',
+      chapter: chapter(chapterId, chapterId === 'c1' ? 'Chapter 1' : 'Chapter 2'),
+      pages: [1, 2, 3, 4, 5].map((n) => `http://img/${chapterId}-${n}`),
+      previousChapterId: null,
+      nextChapterId: chapterId === 'c1' ? 'c2' : null,
+    });
+    commands.mangaChapter.mockImplementation((_title: string, chapterId: string) =>
+      Promise.resolve(ok(pages(chapterId))),
+    );
+    await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('manga-reader');
+    const surface = await within(reader).findByTestId('paged-reader');
+    vi.spyOn(surface, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      top: 0,
+      right: 300,
+      bottom: 600,
+      width: 300,
+      height: 600,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    const tapAt = (clientX: number) =>
+      user.pointer({ keys: '[MouseLeft]', target: surface, coords: { clientX, clientY: 300 } });
+    const indicator = () => within(reader).getByTestId('page-indicator');
+
+    expect(indicator()).toHaveTextContent('Page 1 of 5');
+    // Right to left: the left third turns forward, the right third back.
+    await tapAt(30);
+    await vi.waitFor(() => expect(indicator()).toHaveTextContent('Page 2 of 5'));
+    await tapAt(280);
+    await vi.waitFor(() => expect(indicator()).toHaveTextContent('Page 1 of 5'));
+
+    // The slider jumps, and is mirrored for right to left.
+    const slider = within(reader).getByRole('slider', { name: 'Jump to page' });
+    expect(slider).toHaveAttribute('dir', 'rtl');
+    fireEvent.change(slider, { target: { value: '4' } });
+    expect(indicator()).toHaveTextContent('Page 5 of 5');
+    await vi.waitFor(() => expect(commands.mangaSetProgress).toHaveBeenCalledWith('c1', 4, 5));
+    // Near the end, the next chapter is fetched ahead.
+    await vi.waitFor(() => expect(commands.mangaChapter).toHaveBeenCalledWith('t1', 'c2'));
+
+    await tapAt(30);
+    expect(await within(reader).findByText('End of Chapter 1')).toBeInTheDocument();
+    await user.click(within(reader).getByRole('button', { name: 'Next chapter' }));
+    expect(await within(reader).findByText('Chapter 2')).toBeInTheDocument();
+  });
+
+  it('remembers the reading mode picked in the reader', async () => {
+    const user = userEvent.setup();
+    commands.mangaChapter.mockResolvedValue(
+      ok({
+        titleId: 't1',
+        title: 'Frieren',
+        readerMode: 'webtoon',
+        chapter: chapter('c1', 'Chapter 1'),
+        pages: ['http://img/1', 'http://img/2'],
+        previousChapterId: null,
+        nextChapterId: null,
+      }),
+    );
+    await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('manga-reader');
+    await within(reader).findAllByTestId('manga-page');
+    expect(within(reader).queryByTestId('paged-reader')).not.toBeInTheDocument();
+
+    await user.selectOptions(within(reader).getByLabelText('Reading mode'), 'pagedLtr');
+    expect(commands.mangaSetReaderMode).toHaveBeenCalledWith('t1', 'pagedLtr');
+    expect(within(reader).getByTestId('paged-reader')).toBeInTheDocument();
   });
 });

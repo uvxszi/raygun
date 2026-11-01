@@ -7,7 +7,7 @@ use raygun_db::titles::{self, TitleFields, TitleRow, UnitFields, UnitRow};
 use raygun_ext_host::manga::{MANGA_SOURCE, MangaList};
 use raygun_model::{
     MangaBrowseMode, MangaCard, MangaChapterInfo, MangaChapterPages, MangaLibraryEntry,
-    MangaListingPage, MangaSource, MangaTitleView,
+    MangaListingPage, MangaSource, MangaTitleView, ReaderMode,
 };
 use raygun_net::ImageLinks;
 use tauri::{AppHandle, Manager};
@@ -256,6 +256,7 @@ impl MangaService {
                 .await?
         };
         Ok(MangaChapterPages {
+            reader_mode: ReaderMode::parse(&title.reader_mode),
             title_id: title.id,
             title: title.fields.title,
             chapter: chapter_info(unit),
@@ -268,6 +269,12 @@ impl MangaService {
                 .map(|previous| order[previous].id.clone()),
             next_chapter_id: order.get(index + 1).map(|next| next.id.clone()),
         })
+    }
+
+    pub async fn set_reader_mode(&self, title_id: &str, mode: ReaderMode) -> Result<(), String> {
+        titles::set_reader_mode(&self.db(), title_id, mode.as_str())
+            .await
+            .map_err(to_message)
     }
 
     pub async fn set_progress(&self, unit_id: &str, page: u32, total: u32) -> Result<(), String> {

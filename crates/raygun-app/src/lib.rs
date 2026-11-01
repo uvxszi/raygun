@@ -98,7 +98,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::manga_library,
             commands::manga_chapter,
             commands::manga_set_progress,
-            commands::manga_set_read
+            commands::manga_set_read,
+            commands::manga_set_reader_mode
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,

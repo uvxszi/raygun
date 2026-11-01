@@ -56,6 +56,13 @@ async fn refreshing_a_title_keeps_the_users_choices() {
         Some(5),
         "refresh never touches user_* columns"
     );
+    assert_eq!(stored.reader_mode, "webtoon");
+    set_reader_mode(&db, &id, "pagedRtl").await.unwrap();
+    upsert_title(&db, &renamed, 10).await.unwrap();
+    assert_eq!(
+        title(&db, &id).await.unwrap().unwrap().reader_mode,
+        "pagedRtl"
+    );
     assert_eq!(stored.refreshed_at, Some(9));
     assert_eq!(
         find_title(&db, "dev.raygun.mangadex/mangadex", "m1")

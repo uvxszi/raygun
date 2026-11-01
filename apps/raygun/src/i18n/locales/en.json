@@ -316,6 +316,16 @@
     "endOf": "End of {{name}}",
     "previousChapter": "Previous",
     "nextChapter": "Next chapter",
-    "backToLibrary": "Back to library"
+    "backToLibrary": "Back to library",
+    "readingMode": "Reading mode",
+    "mode": {
+      "webtoon": "Vertical strip",
+      "pagedRtl": "Paged, right to left",
+      "pagedLtr": "Paged, left to right"
+    },
+    "jumpToPage": "Jump to page",
+    "backToLastPage": "Back to the last page",
+    "goPreviousChapter": "Go to the previous chapter",
+    "goNextChapter": "Go to the next chapter"
   }
 }

@@ -145,6 +145,7 @@ export const bindingsMock = {
     mangaChapter: vi.fn(),
     mangaSetProgress: vi.fn(),
     mangaSetRead: vi.fn(),
+    mangaSetReaderMode: vi.fn(),
   },
   events: {
     engineCommandEvent: makeEvent('engineCommandEvent'),
@@ -253,6 +254,7 @@ export const seedBindings = () => {
   commands.mangaChapter.mockResolvedValue(ok(null));
   commands.mangaSetProgress.mockResolvedValue(ok(null));
   commands.mangaSetRead.mockResolvedValue(ok(null));
+  commands.mangaSetReaderMode.mockResolvedValue(ok(null));
 };
 
 export const emitEvent = <Name extends EventName>(name: Name, payload: EventPayloads[Name]) => {
