@@ -230,6 +230,17 @@ export const commands = {
 	/**  Plays a "continue watching" entry again. */
 	videoResume: (key: string) => typedError<null, string>(__TAURI_INVOKE("video_resume", { key })),
 	videoRemove: (key: string) => typedError<null, string>(__TAURI_INVOKE("video_remove", { key })),
+	/**  Everything watched or started, most recent first (the Videos library). */
+	videoHistory: () => typedError<ContinueWatching[], string>(__TAURI_INVOKE("video_history")),
+	libraryCategories: (medium: string) => typedError<LibraryCategory[], string>(__TAURI_INVOKE("library_categories", { medium })),
+	libraryCategoryCreate: (medium: string, name: string) => typedError<null, string>(__TAURI_INVOKE("library_category_create", { medium, name })),
+	libraryCategoryRename: (medium: string, id: string, name: string) => typedError<null, string>(__TAURI_INVOKE("library_category_rename", { medium, id, name })),
+	/**  Removes a category; its titles stay in the library. */
+	libraryCategoryDelete: (medium: string, id: string) => typedError<null, string>(__TAURI_INVOKE("library_category_delete", { medium, id })),
+	/**  Puts the categories in the order of `ids`. */
+	libraryCategoryReorder: (medium: string, ids: string[]) => typedError<null, string>(__TAURI_INVOKE("library_category_reorder", { medium, ids })),
+	/**  Makes `category_ids` exactly the title's categories. */
+	librarySetTitleCategories: (medium: string, titleId: string, categoryIds: string[]) => typedError<null, string>(__TAURI_INVOKE("library_set_title_categories", { medium, titleId, categoryIds })),
 };
 
 /** Events */
@@ -392,6 +403,7 @@ export type ContinueWatching = {
 	durationMs: number | null,
 	/**  Unix ms. */
 	updatedAt: number | null,
+	watched: boolean,
 };
 
 export type DownloadState = "queued" | "downloading" | "done" | "failed";
@@ -503,6 +515,12 @@ export type LibraryArtist = {
 	albumCount: number,
 	trackCount: number,
 	artworkUrl: string | null,
+};
+
+/**  A user-named shelf in the manga or novel library (M39). */
+export type LibraryCategory = {
+	id: string,
+	name: string,
 };
 
 /**  Progress of a local library scan. */
@@ -626,6 +644,19 @@ export type MangaLibraryEntry = {
 	coverUrl: string | null,
 	chapters: number,
 	unread: number,
+	/**  For filters and tags (M39). */
+	genres: string[],
+	status: string,
+	/**  Unix ms the title joined the library. */
+	addedAt: number | null,
+	/**  Unix ms of the last reading progress. */
+	lastReadAt: number | null,
+	/**  Unix ms of the newest chapter. */
+	latestChapterAt: number | null,
+	/**  Some chapter has progress. */
+	started: boolean,
+	downloaded: number,
+	categoryIds: string[],
 };
 
 export type MangaListingPage = {

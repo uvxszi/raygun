@@ -159,7 +159,14 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::video_play_link,
             commands::video_continue_watching,
             commands::video_resume,
-            commands::video_remove
+            commands::video_remove,
+            commands::video_history,
+            commands::library_categories,
+            commands::library_category_create,
+            commands::library_category_rename,
+            commands::library_category_delete,
+            commands::library_category_reorder,
+            commands::library_set_title_categories
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,

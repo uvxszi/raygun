@@ -1225,3 +1225,95 @@ pub async fn video_resume(app: tauri::AppHandle, key: String) -> Result<(), Stri
 pub async fn video_remove(app: tauri::AppHandle, key: String) -> Result<(), String> {
     crate::video::remove(&app, &key).await
 }
+
+// ---- Library categories (M39) ----
+
+/// The manga or novel catalog for `medium` (`manga` or `novel`).
+fn catalog_for<'a>(
+    app: &'a tauri::AppHandle,
+    medium: &str,
+) -> Result<&'a crate::catalog::Catalog, String> {
+    use tauri::Manager;
+    match medium {
+        "manga" => Ok(app.state::<MangaService>().inner().catalog()),
+        "novel" => Ok(app.state::<NovelService>().inner().catalog()),
+        _ => Err(format!("unknown library {medium:?}")),
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn library_categories(
+    app: tauri::AppHandle,
+    medium: String,
+) -> Result<Vec<raygun_model::LibraryCategory>, String> {
+    catalog_for(&app, &medium)?.categories().await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn library_category_create(
+    app: tauri::AppHandle,
+    medium: String,
+    name: String,
+) -> Result<(), String> {
+    catalog_for(&app, &medium)?.create_category(&name).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn library_category_rename(
+    app: tauri::AppHandle,
+    medium: String,
+    id: String,
+    name: String,
+) -> Result<(), String> {
+    catalog_for(&app, &medium)?
+        .rename_category(&id, &name)
+        .await
+}
+
+/// Removes a category; its titles stay in the library.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_category_delete(
+    app: tauri::AppHandle,
+    medium: String,
+    id: String,
+) -> Result<(), String> {
+    catalog_for(&app, &medium)?.delete_category(&id).await
+}
+
+/// Puts the categories in the order of `ids`.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_category_reorder(
+    app: tauri::AppHandle,
+    medium: String,
+    ids: Vec<String>,
+) -> Result<(), String> {
+    catalog_for(&app, &medium)?.reorder_categories(&ids).await
+}
+
+/// Makes `category_ids` exactly the title's categories.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_set_title_categories(
+    app: tauri::AppHandle,
+    medium: String,
+    title_id: String,
+    category_ids: Vec<String>,
+) -> Result<(), String> {
+    catalog_for(&app, &medium)?
+        .set_title_categories(&title_id, &category_ids)
+        .await
+}
+
+/// Everything watched or started, most recent first (the Videos library).
+#[tauri::command]
+#[specta::specta]
+pub async fn video_history(
+    app: tauri::AppHandle,
+) -> Result<Vec<raygun_model::ContinueWatching>, String> {
+    crate::video::history(&app).await
+}

@@ -57,7 +57,61 @@
       "label": "What to show",
       "music": "Music",
       "manga": "Manga",
-      "novel": "Novels"
+      "novel": "Novels",
+      "podcast": "Podcasts",
+      "video": "Videos"
+    },
+    "filter": {
+      "search": "Search the library",
+      "searchPlaceholder": "Search your library…",
+      "open": "Filter and sort",
+      "panel": "Filters",
+      "show": "Show only",
+      "unread": "Unread",
+      "started": "Started",
+      "downloaded": "Downloaded",
+      "completed": "Completed",
+      "sortBy": "Sort by",
+      "ascending": "Ascending",
+      "descending": "Descending",
+      "tags": "Tags",
+      "reset": "Clear filters",
+      "noMatches": "Nothing in the library matches."
+    },
+    "sort": {
+      "title": "Title",
+      "lastRead": "Last read",
+      "latestChapter": "Latest chapter",
+      "unread": "Unread count",
+      "added": "Date added"
+    },
+    "categories": {
+      "title": "Categories",
+      "all": "All",
+      "uncategorized": "Uncategorized",
+      "edit": "Edit categories",
+      "mangaTitle": "Manga categories",
+      "novelTitle": "Novel categories",
+      "hint": "Categories group your library into tabs. A title can be in several, or none.",
+      "empty": "No categories yet.",
+      "name": "Category name",
+      "newName": "New category name",
+      "newPlaceholder": "New category, e.g. Reading",
+      "add": "Add",
+      "save": "Save",
+      "cancel": "Cancel",
+      "rename": "Rename {{name}}",
+      "delete": "Delete {{name}}",
+      "moveUp": "Move {{name}} up",
+      "moveDown": "Move {{name}} down",
+      "choose": "Add to categories",
+      "noneYet": "Make categories to sort your library into tabs."
+    },
+    "videos": {
+      "empty": "Videos you watch show up here.",
+      "openWatch": "Open Watch",
+      "watched": "Watched",
+      "remove": "Remove {{title}}"
     }
   },
   "search": {

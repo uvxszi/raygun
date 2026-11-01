@@ -8,8 +8,8 @@ use std::sync::Arc;
 use raygun_db::titles::{self, TitleFields, TitleRow, UnitFields, UnitRow};
 use raygun_ext_host::manga::MangaList;
 use raygun_model::{
-    ChapterDownload, MangaBrowseMode, MangaCard, MangaChapterInfo, MangaLibraryEntry,
-    MangaListingPage, MangaSource, MangaTitleView,
+    ChapterDownload, LibraryCategory, MangaBrowseMode, MangaCard, MangaChapterInfo,
+    MangaLibraryEntry, MangaListingPage, MangaSource, MangaTitleView,
 };
 use raygun_net::ImageLinks;
 use tauri::{AppHandle, Manager};
@@ -257,10 +257,23 @@ impl Catalog {
             .await
             .map_err(to_message)?;
         let show_nsfw = self.extensions().show_nsfw();
+        let mut memberships = raygun_db::categories::memberships(&self.db(), self.kind)
+            .await
+            .map_err(to_message)?;
         Ok(entries
             .into_iter()
             .filter(|entry| show_nsfw || !is_adult(&entry.title.fields.genres))
             .map(|entry| MangaLibraryEntry {
+                category_ids: memberships.remove(&entry.title.id).unwrap_or_default(),
+                genres: entry.title.fields.genres.clone(),
+                status: entry.title.fields.status.clone(),
+                added_at: entry.title.in_library_at.unwrap_or(0) as f64,
+                last_read_at: entry
+                    .last_read_hlc
+                    .map(|stamp| raygun_db::hlc::physical_ms(stamp as u64) as f64),
+                latest_chapter_at: entry.latest_unit_at.map(|ms| ms as f64),
+                started: entry.started > 0,
+                downloaded: entry.downloaded as u32,
                 cover_url: entry
                     .title
                     .fields
@@ -275,6 +288,53 @@ impl Catalog {
                 unread: entry.unread as u32,
             })
             .collect())
+    }
+
+    // ---- Categories (M39) ----
+
+    pub async fn categories(&self) -> Result<Vec<LibraryCategory>, String> {
+        Ok(raygun_db::categories::list(&self.db(), self.kind)
+            .await
+            .map_err(to_message)?
+            .into_iter()
+            .map(|category| LibraryCategory {
+                id: category.id,
+                name: category.name,
+            })
+            .collect())
+    }
+
+    pub async fn create_category(&self, name: &str) -> Result<(), String> {
+        let name = category_name(name)?;
+        raygun_db::categories::create(&self.db(), self.kind, &name)
+            .await
+            .map(|_| ())
+            .map_err(to_message)
+    }
+
+    pub async fn rename_category(&self, id: &str, name: &str) -> Result<(), String> {
+        let name = category_name(name)?;
+        raygun_db::categories::rename(&self.db(), id, &name)
+            .await
+            .map_err(to_message)
+    }
+
+    pub async fn delete_category(&self, id: &str) -> Result<(), String> {
+        raygun_db::categories::delete(&self.db(), id)
+            .await
+            .map_err(to_message)
+    }
+
+    pub async fn reorder_categories(&self, ids: &[String]) -> Result<(), String> {
+        raygun_db::categories::reorder(&self.db(), self.kind, ids)
+            .await
+            .map_err(to_message)
+    }
+
+    pub async fn set_title_categories(&self, title_id: &str, ids: &[String]) -> Result<(), String> {
+        raygun_db::categories::set_title_categories(&self.db(), title_id, ids)
+            .await
+            .map_err(to_message)
     }
 
     /// A chapter of a stored title and its neighbours in reading order.
@@ -344,6 +404,15 @@ impl Catalog {
     pub fn extensions(&self) -> tauri::State<'_, Arc<ExtensionService>> {
         self.app.state::<Arc<ExtensionService>>()
     }
+}
+
+/// A category name as typed: trimmed, not empty, at most 40 characters.
+fn category_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Give the category a name".into());
+    }
+    Ok(name.chars().take(40).collect())
 }
 
 /// Genres that mark a title as adult (lower case, compared whole). Sources that know better mark

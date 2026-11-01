@@ -65,25 +65,27 @@ The user asked for: mobile only until the app is great; a **Watch** tab for movi
 - M36 **Extension browsing across repositories**: suggested repositories to add with one tap (Raygun official, Shosetsu, Nuclear plugins, Stremio addons), Browse with search and filters (kind, language, repository, content rating), repository trust note; essentials published in the official repo (MangaDex, Project Gutenberg, podcast directory, public-domain films)
 - M37 **Podcasts** in the music tab: subscriptions, RSS/Atom feeds, `podcast.directory` capability + an Apple Podcasts directory extension, episode lists, resume position, played state, new-episode refresh, episode downloads
 - M38 **Watch tab + native video player**: Media3 ExoPlayer activity in the Android plugin (gestures for seek/volume/brightness, PiP, subtitles .srt/.vtt/.ass, audio/subtitle track select, speed, resume, OP/ED skip), HLS/DASH, header injection
-- M39 **Stremio addons**: catalogs/meta/streams/subtitles over the HTTP addon protocol, Cinemeta for metadata, Watch home (popular movies and series, continue watching), title pages with seasons and episodes, watched state
-- M40 `video.source` capability (CloudStream/Aniyomi-shaped: search, load, servers streamed as they resolve) + first-party public-domain films; anime as a kind
-- M41 Video library, history, downloads, updates for followed series
-- M42 WebView resolver (stream sniffing + Cloudflare cookie handoff) for sources that need a browser
+- M39 **Library by media type and category** (asked for 2026-11-01): Music, Podcasts, Manga, Novels, Videos; Mihon-style categories; search, filters, sort and genre tags
+- M40 **Search across media**: All or one type (music, podcasts, manga, novels, videos, your library), source filters and genre tags (include/exclude), sources that declare filters
+- M41 **Stremio addons**: catalogs/meta/streams/subtitles over the HTTP addon protocol, Cinemeta for metadata, Watch home (popular movies and series, continue watching), title pages with seasons and episodes, watched state
+- M42 `video.source` capability (CloudStream/Aniyomi-shaped: search, load, servers streamed as they resolve) + first-party public-domain films; anime as a kind
+- M43 Video library, downloads, updates for followed series
+- M44 WebView resolver (stream sniffing + Cloudflare cookie handoff) for sources that need a browser
 
 ## Phase 7 — AI on the phone
-- M43 Upscale: in-process ncnn (Vulkan) on Android, priority queue with generations, enhanced-page cache, reader toggle
-- M44 OCR on the phone (on-device model via `ort`), bubble merging
-- M45 Translation overlay: chapter batching with glossary through the M34 translators; auto-translate on download; novel and lyrics translation
+- M45 Upscale: in-process ncnn (Vulkan) on Android, priority queue with generations, enhanced-page cache, reader toggle
+- M46 OCR on the phone (on-device model via `ort`), bubble merging
+- M47 Translation overlay: chapter batching with glossary through the M34 translators; auto-translate on download; novel and lyrics translation
 
 ## Phase 8 — Full parity (works through `docs/feature-parity.md`)
-- M46 Library parity: categories, filters and sorting, badges, per-category settings, duplicates, source migration, global search, stats, notes, custom covers
-- M47 Reader parity: Mihon's reader settings (scale types, crop borders, split/rotate wide pages, tap-zone layouts, volume keys, background, rotation, keep screen on, e-ink flash), page actions (save, share, set as cover)
-- M48 Downloads + data parity: CBZ, Wi-Fi only, delete after reading, download ahead, auto-download new chapters, automatic backups, storage usage, cache clearing, clear database
-- M49 Security + advanced: app lock, secure screen, incognito mode, DNS over HTTPS, user agent, cookie/WebView data clearing, crash logs
-- M50 Music parity (Nuclear, RiPlay): equalizer, sleep timer, blacklist, listening stats/rewind, playlist import, discovery/new releases/moods, lyrics translation, Last.fm scrobbling, themes
-- M51 Novel parity (Shosetsu, LNReader): LNReader plugin compatibility, reader themes and CSS, custom download ranges
-- M52 Trackers: AniList, MyAnimeList, Kitsu, MangaUpdates, Trakt, Simkl (needs the user's accounts)
-- M53 Onboarding, what's new, update check, deep links, Android-dex runtime for Mihon/Aniyomi APK extensions
+- M48 Library parity: categories, filters and sorting, badges, per-category settings, duplicates, source migration, global search, stats, notes, custom covers
+- M49 Reader parity: Mihon's reader settings (scale types, crop borders, split/rotate wide pages, tap-zone layouts, volume keys, background, rotation, keep screen on, e-ink flash), page actions (save, share, set as cover)
+- M50 Downloads + data parity: CBZ, Wi-Fi only, delete after reading, download ahead, auto-download new chapters, automatic backups, storage usage, cache clearing, clear database
+- M51 Security + advanced: app lock, secure screen, incognito mode, DNS over HTTPS, user agent, cookie/WebView data clearing, crash logs
+- M52 Music parity (Nuclear, RiPlay): equalizer, sleep timer, blacklist, listening stats/rewind, playlist import, discovery/new releases/moods, lyrics translation, Last.fm scrobbling, themes
+- M53 Novel parity (Shosetsu, LNReader): LNReader plugin compatibility, reader themes and CSS, custom download ranges
+- M54 Trackers: AniList, MyAnimeList, Kitsu, MangaUpdates, Trakt, Simkl (needs the user's accounts)
+- M55 Onboarding, what's new, update check, deep links, Android-dex runtime for Mihon/Aniyomi APK extensions
 - On hold: M22 device sync v2. Later, when the user asks: desktop (Windows first), iOS, sync beyond the LAN.
 
 ---

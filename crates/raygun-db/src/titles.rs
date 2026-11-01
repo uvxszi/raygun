@@ -43,6 +43,14 @@ pub struct LibraryTitle {
     pub title: TitleRow,
     pub units: i64,
     pub unread: i64,
+    /// Units with any progress (M39 filters).
+    pub started: i64,
+    /// Downloaded units.
+    pub downloaded: i64,
+    /// HLC of the latest progress write: when reading last happened.
+    pub last_read_hlc: Option<i64>,
+    /// The newest unit's date (its upload date, else when it was found).
+    pub latest_unit_at: Option<i64>,
 }
 
 /// What a source says about a unit.
@@ -203,7 +211,17 @@ pub async fn library(db: &Db, kind: &str) -> Result<Vec<LibraryTitle>, DbError> 
              (SELECT COUNT(*) FROM unit u WHERE u.title_id = t.id AND u.deleted = 0) AS units,
              (SELECT COUNT(*) FROM unit u
               LEFT JOIN unit_progress p ON p.unit_id = u.id AND p.deleted = 0
-              WHERE u.title_id = t.id AND u.deleted = 0 AND p.completed_at IS NULL) AS unread
+              WHERE u.title_id = t.id AND u.deleted = 0 AND p.completed_at IS NULL) AS unread,
+             (SELECT COUNT(*) FROM unit u
+              JOIN unit_progress p ON p.unit_id = u.id AND p.deleted = 0
+              WHERE u.title_id = t.id AND u.deleted = 0) AS started,
+             (SELECT COUNT(*) FROM local_manga_download d
+              WHERE d.title_id = t.id AND d.state = 'done') AS downloaded,
+             (SELECT MAX(p.updated_at_hlc) FROM unit u
+              JOIN unit_progress p ON p.unit_id = u.id AND p.deleted = 0
+              WHERE u.title_id = t.id AND u.deleted = 0) AS last_read,
+             (SELECT MAX(COALESCE(u.remote_date, u.state_found_at)) FROM unit u
+              WHERE u.title_id = t.id AND u.deleted = 0) AS latest_unit
          FROM title t
          WHERE t.kind = ?1 AND t.user_in_library_at IS NOT NULL AND t.deleted = 0
          ORDER BY t.remote_title COLLATE NOCASE"
@@ -217,6 +235,10 @@ pub async fn library(db: &Db, kind: &str) -> Result<Vec<LibraryTitle>, DbError> 
             title: title_row(row),
             units: row.get("units"),
             unread: row.get("unread"),
+            started: row.get("started"),
+            downloaded: row.get("downloaded"),
+            last_read_hlc: row.get("last_read"),
+            latest_unit_at: row.get("latest_unit"),
         })
         .collect())
 }

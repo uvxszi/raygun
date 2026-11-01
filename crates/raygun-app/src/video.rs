@@ -128,8 +128,20 @@ pub async fn continue_watching(app: &AppHandle) -> Result<Vec<ContinueWatching>,
     let rows = store::continue_watching(&db, 30)
         .await
         .map_err(|error| error.to_string())?;
-    Ok(rows
-        .into_iter()
+    Ok(to_view(rows))
+}
+
+/// Everything watched or started, most recent first.
+pub async fn history(app: &AppHandle) -> Result<Vec<ContinueWatching>, String> {
+    let db = app.state::<AppDb>().0.clone();
+    let rows = store::history(&db, 200)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(to_view(rows))
+}
+
+fn to_view(rows: Vec<store::VideoProgress>) -> Vec<ContinueWatching> {
+    rows.into_iter()
         .map(|row| ContinueWatching {
             key: row.entry.key,
             title: row.entry.title,
@@ -138,8 +150,9 @@ pub async fn continue_watching(app: &AppHandle) -> Result<Vec<ContinueWatching>,
             position_ms: row.position_ms as f64,
             duration_ms: row.duration_ms.map(|ms| ms as f64),
             updated_at: row.updated_at as f64,
+            watched: row.watched_at.is_some(),
         })
-        .collect())
+        .collect()
 }
 
 /// Plays a "continue watching" entry again with the request it was first played with.

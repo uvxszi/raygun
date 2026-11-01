@@ -226,6 +226,13 @@ export const bindingsMock = {
     videoContinueWatching: vi.fn(),
     videoResume: vi.fn(),
     videoRemove: vi.fn(),
+    libraryCategories: vi.fn(),
+    libraryCategoryCreate: vi.fn(),
+    libraryCategoryRename: vi.fn(),
+    libraryCategoryDelete: vi.fn(),
+    libraryCategoryReorder: vi.fn(),
+    librarySetTitleCategories: vi.fn(),
+    videoHistory: vi.fn(),
   },
   events: {
     engineCommandEvent: makeEvent('engineCommandEvent'),
@@ -390,6 +397,13 @@ export const seedBindings = () => {
   commands.videoContinueWatching.mockResolvedValue(ok([]));
   commands.videoResume.mockResolvedValue(ok(null));
   commands.videoRemove.mockResolvedValue(ok(null));
+  commands.libraryCategories.mockResolvedValue(ok([]));
+  commands.libraryCategoryCreate.mockResolvedValue(ok(null));
+  commands.libraryCategoryRename.mockResolvedValue(ok(null));
+  commands.libraryCategoryDelete.mockResolvedValue(ok(null));
+  commands.libraryCategoryReorder.mockResolvedValue(ok(null));
+  commands.librarySetTitleCategories.mockResolvedValue(ok(null));
+  commands.videoHistory.mockResolvedValue(ok([]));
 };
 
 export const emitEvent = <Name extends EventName>(name: Name, payload: EventPayloads[Name]) => {

@@ -72,7 +72,7 @@ describe('Podcasts', () => {
     commands.podcastOpenFeed.mockResolvedValue(ok(SHOW));
     await AppShellWrapper.mount('/library');
 
-    await user.click(await screen.findByTestId('library-view-podcasts'));
+    await user.click(await screen.findByTestId('library-media-podcast'));
     const view = await screen.findByTestId('podcasts-view');
     expect(await within(view).findByText('Top Show')).toBeInTheDocument();
     expect(

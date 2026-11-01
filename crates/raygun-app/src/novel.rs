@@ -34,6 +34,11 @@ pub struct NovelService {
 }
 
 impl NovelService {
+    /// The shared catalog behind this library (categories, M39).
+    pub fn catalog(&self) -> &Catalog {
+        &self.catalog
+    }
+
     pub fn new(app: AppHandle, images: ImageLinks, downloads_dir: PathBuf) -> Self {
         Self {
             catalog: Catalog::new(app.clone(), images, KIND, NOVEL_SOURCE),

@@ -8,6 +8,7 @@ import { isLibraryView } from './library/views';
 import type { LibraryView } from './library/views';
 import { AlbumPage } from './pages/AlbumPage';
 import { AiPage } from './pages/AiPage';
+import { CategoriesPage } from './pages/CategoriesPage';
 import { PodcastPage } from './pages/PodcastPage';
 import { WatchPage } from './pages/WatchPage';
 import { DevicesPage } from './pages/DevicesPage';
@@ -35,7 +36,9 @@ const text = (value: unknown) =>
   typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '';
 
 /** Library shows music unless `media` is `manga` or `novel`. */
-export type LibraryMedia = 'manga' | 'novel';
+export type LibraryMedia = 'podcast' | 'manga' | 'novel' | 'video';
+const isLibraryMedia = (value: unknown): value is LibraryMedia =>
+  value === 'podcast' || value === 'manga' || value === 'novel' || value === 'video';
 
 const MANGA_MODES: MangaBrowseMode[] = ['popular', 'latest', 'search'];
 const isMangaMode = (value: unknown): value is MangaBrowseMode =>
@@ -51,7 +54,9 @@ const routeTree = rootRoute.addChildren([
       search: Record<string, unknown>,
     ): { view?: LibraryView; media?: LibraryMedia } => ({
       ...(isLibraryView(search.view) ? { view: search.view } : {}),
-      ...(search.media === 'manga' || search.media === 'novel' ? { media: search.media } : {}),
+      ...(isLibraryMedia(search.media) ? { media: search.media } : {}),
+      // Podcasts used to be a music view.
+      ...(search.view === 'podcasts' ? { media: 'podcast' as const } : {}),
     }),
   }),
   createRoute({
@@ -170,6 +175,14 @@ const routeTree = rootRoute.addChildren([
   }),
   createRoute({ getParentRoute: () => rootRoute, path: '/settings/ai', component: AiPage }),
   createRoute({ getParentRoute: () => rootRoute, path: '/watch', component: WatchPage }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/library/categories',
+    component: CategoriesPage,
+    validateSearch: (search: Record<string, unknown>): { medium: 'manga' | 'novel' } => ({
+      medium: search.medium === 'novel' ? 'novel' : 'manga',
+    }),
+  }),
   createRoute({
     getParentRoute: () => rootRoute,
     path: '/podcast',

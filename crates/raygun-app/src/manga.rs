@@ -39,6 +39,11 @@ pub struct MangaService {
 }
 
 impl MangaService {
+    /// The shared catalog behind this library (categories, M39).
+    pub fn catalog(&self) -> &Catalog {
+        &self.catalog
+    }
+
     pub fn new(app: AppHandle, images: ImageLinks) -> Self {
         Self {
             catalog: Catalog::new(app.clone(), images, KIND, MANGA_SOURCE),

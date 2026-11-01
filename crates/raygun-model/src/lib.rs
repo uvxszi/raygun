@@ -1122,7 +1122,7 @@ pub struct MangaTitleView {
     pub continue_chapter_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct MangaLibraryEntry {
     pub title_id: String,
@@ -1132,6 +1132,27 @@ pub struct MangaLibraryEntry {
     pub cover_url: Option<String>,
     pub chapters: u32,
     pub unread: u32,
+    /// For filters and tags (M39).
+    pub genres: Vec<String>,
+    pub status: String,
+    /// Unix ms the title joined the library.
+    pub added_at: f64,
+    /// Unix ms of the last reading progress.
+    pub last_read_at: Option<f64>,
+    /// Unix ms of the newest chapter.
+    pub latest_chapter_at: Option<f64>,
+    /// Some chapter has progress.
+    pub started: bool,
+    pub downloaded: u32,
+    pub category_ids: Vec<String>,
+}
+
+/// A user-named shelf in the manga or novel library (M39).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryCategory {
+    pub id: String,
+    pub name: String,
 }
 
 /// How a title is read (M27).
@@ -1483,4 +1504,5 @@ pub struct ContinueWatching {
     pub duration_ms: Option<f64>,
     /// Unix ms.
     pub updated_at: f64,
+    pub watched: bool,
 }

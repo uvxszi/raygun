@@ -158,6 +158,19 @@ pub async fn continue_watching(db: &Db, limit: u32) -> Result<Vec<VideoProgress>
     Ok(rows.iter().map(progress_row).collect())
 }
 
+/// Everything watched or started, most recent first (the Videos library, M39).
+pub async fn history(db: &Db, limit: u32) -> Result<Vec<VideoProgress>, DbError> {
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT {COLUMNS} FROM video_progress
+         WHERE deleted = 0 AND (user_watched_at IS NOT NULL OR position_ms > 0)
+         ORDER BY updated_at DESC LIMIT ?1"
+    )))
+    .bind(i64::from(limit))
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows.iter().map(progress_row).collect())
+}
+
 /// Forgets an entry (a tombstone, so sync can carry the removal later).
 pub async fn remove(db: &Db, key: &str) -> Result<(), DbError> {
     let stamp = db.tick();

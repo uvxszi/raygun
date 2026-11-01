@@ -6,6 +6,7 @@ import { FavoritesView } from '../collections/FavoritesView';
 import { MangaLibraryView } from '../manga/MangaLibraryView';
 import { PlaylistsView } from '../collections/PlaylistsView';
 import { PodcastsView } from '../podcasts/PodcastsView';
+import { VideosLibraryView } from '../watch/VideosLibraryView';
 import { AlbumGrid } from '../library/AlbumGrid';
 import { ArtistList } from '../library/ArtistList';
 import { FirstRunCard } from '../library/FirstRunCard';
@@ -20,6 +21,7 @@ import {
   useArtists,
   useLibraryStatus,
 } from '../library/useLibrary';
+import type { LibraryMedia } from '../router';
 import { OpenMediaForm } from './OpenMediaForm';
 import { PageHeader } from './PageHeader';
 
@@ -52,27 +54,31 @@ const TracksView: FC = () => {
   );
 };
 
-type Media = 'music' | 'manga' | 'novel';
+type Media = 'music' | LibraryMedia;
 
 /** Music, manga or novels: the library's top-level choice. */
+const MEDIA: Media[] = ['music', 'podcast', 'manga', 'novel', 'video'];
+
+/** The kinds of media the library holds, as a row of tabs. */
 const MediaSwitch: FC<{ media: Media }> = ({ media }) => {
   const { t } = useTranslation();
-  const option = (value: Media) => (
-    <Link
-      to="/library"
-      search={value === 'music' ? {} : { media: value }}
-      data-testid={`library-media-${value}`}
-      aria-current={media === value ? 'page' : undefined}
-      className={`flex-1 rounded-lg py-1.5 text-center text-sm ${media === value ? 'bg-background font-semibold' : 'text-muted'}`}
-    >
-      {t(`library.media.${value}`)}
-    </Link>
-  );
   return (
-    <nav aria-label={t('library.media.label')} className="bg-surface flex gap-1 rounded-xl p-1">
-      {option('music')}
-      {option('manga')}
-      {option('novel')}
+    <nav
+      aria-label={t('library.media.label')}
+      className="bg-surface flex gap-1 overflow-x-auto rounded-xl p-1"
+    >
+      {MEDIA.map((value) => (
+        <Link
+          key={value}
+          to="/library"
+          search={value === 'music' ? {} : { media: value }}
+          data-testid={`library-media-${value}`}
+          aria-current={media === value ? 'page' : undefined}
+          className={`min-w-fit flex-1 rounded-lg px-3 py-1.5 text-center text-sm ${media === value ? 'bg-background font-semibold' : 'text-muted'}`}
+        >
+          {t(`library.media.${value}`)}
+        </Link>
+      ))}
     </nav>
   );
 };
@@ -82,12 +88,16 @@ export const LibraryPage: FC = () => {
   const { view = 'albums', media } = useSearch({ from: '/library' });
   const status = useLibraryStatus();
 
-  if (media === 'manga' || media === 'novel') {
+  if (media) {
     return (
       <section data-testid="library-page" className="flex flex-col gap-5">
         <PageHeader title={t('library.title')} />
         <MediaSwitch media={media} />
-        <MangaLibraryView key={media} medium={media} />
+        {(media === 'manga' || media === 'novel') && (
+          <MangaLibraryView key={media} medium={media} />
+        )}
+        {media === 'podcast' && <PodcastsView />}
+        {media === 'video' && <VideosLibraryView />}
       </section>
     );
   }
@@ -128,7 +138,6 @@ export const LibraryPage: FC = () => {
       </nav>
       {view === 'playlists' && <PlaylistsView />}
       {view === 'favorites' && <FavoritesView />}
-      {view === 'podcasts' && <PodcastsView />}
       {local && !hasFolders && <FirstRunCard />}
       {local && hasFolders && status.data.trackCount === 0 && !status.data.scanning && (
         <p className="text-muted text-sm">{t('library.noTracksFound')}</p>

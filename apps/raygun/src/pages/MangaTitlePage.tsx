@@ -5,6 +5,7 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { CategoryPicker } from '../manga/CategoryPicker';
 import { DownloadButton } from '../manga/DownloadButton';
 import { MangaCover } from '../manga/MangaCover';
 import { LOCAL_EPUB, ROUTES } from '../manga/medium';
@@ -185,6 +186,7 @@ export const MangaTitlePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) =>
           </button>
         )}
       </div>
+      {view.inLibrary && <CategoryPicker medium={medium} titleId={view.id} />}
       {(refresh.error ?? setInLibrary.error ?? download.error) && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
           {(refresh.error ?? setInLibrary.error ?? download.error)?.message}
