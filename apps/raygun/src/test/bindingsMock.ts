@@ -129,6 +129,7 @@ export const bindingsMock = {
     extensionsReload: vi.fn(),
     extensionRepos: vi.fn(),
     extensionRepoAdd: vi.fn(),
+    extensionSuggestedRepos: vi.fn(),
     extensionRepoRemove: vi.fn(),
     extensionCatalog: vi.fn(),
     extensionInstall: vi.fn(),
@@ -249,6 +250,7 @@ export const seedBindings = () => {
   commands.extensionsReload.mockResolvedValue(ok([]));
   commands.extensionRepos.mockResolvedValue(ok([]));
   commands.extensionRepoAdd.mockResolvedValue(ok([]));
+  commands.extensionSuggestedRepos.mockResolvedValue(ok([]));
   commands.extensionRepoRemove.mockResolvedValue(ok([]));
   commands.extensionCatalog.mockResolvedValue(ok([]));
   commands.extensionInstall.mockResolvedValue(ok([]));

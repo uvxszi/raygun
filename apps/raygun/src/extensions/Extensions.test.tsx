@@ -55,6 +55,7 @@ const entry = (overrides: Partial<CatalogEntry> = {}): CatalogEntry => ({
   provides: ['music.metadata'],
   net: ['*.api.radio-browser.info'],
   contentRating: 'safe',
+  lang: null,
   size: 2219,
   state: 'available',
   installedVersion: null,
@@ -307,5 +308,84 @@ describe('Extensions', () => {
 
     emitEvent('extensionsChangedEvent', [extension({ name: 'After' })]);
     expect(await screen.findByTestId('extension-row')).toHaveTextContent('After');
+  });
+
+  it('filters the catalog by text, kind, language and repository', async () => {
+    const user = userEvent.setup();
+    const shosetsu = { id: 'repo-2', url: 'https://example.org/s/index.json', name: 'Shosetsu' };
+    commands.extensionCatalog.mockResolvedValue(
+      ok([
+        ...catalog([
+          entry(),
+          entry({ id: 'dev.raygun.md', name: 'MangaDex', provides: ['manga.source'] }),
+        ]),
+        {
+          repo: shosetsu,
+          error: null,
+          entries: [
+            entry({
+              repoId: 'repo-2',
+              id: 's.en',
+              name: 'NovelFull',
+              provides: ['novel.source'],
+              lang: 'en',
+            }),
+            entry({
+              repoId: 'repo-2',
+              id: 's.ja',
+              name: 'Kakuyomu',
+              provides: ['novel.source'],
+              lang: 'ja',
+            }),
+          ],
+        },
+      ]),
+    );
+    await AppShellWrapper.mount('/extensions?tab=browse');
+    const names = async () =>
+      (await screen.findAllByTestId('catalog-entry')).map(
+        (row) => within(row).getByText(/^\S/, { selector: '.font-medium' }).textContent,
+      );
+    expect(await names()).toEqual(['Radio Browser', 'MangaDex', 'NovelFull', 'Kakuyomu']);
+
+    const kinds = screen.getByRole('group', { name: 'Show' });
+    await user.click(within(kinds).getByRole('button', { name: 'Novels' }));
+    expect(await names()).toEqual(['NovelFull', 'Kakuyomu']);
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Language' }), 'ja');
+    expect(await names()).toEqual(['Kakuyomu']);
+
+    await user.click(within(kinds).getByRole('button', { name: 'All' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Language' }), '');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Repository' }), 'repo-1');
+    expect(await names()).toEqual(['Radio Browser', 'MangaDex']);
+    await user.type(screen.getByRole('searchbox', { name: 'Search extensions' }), 'manga');
+    expect(await names()).toEqual(['MangaDex']);
+    await user.type(screen.getByRole('searchbox', { name: 'Search extensions' }), 'zzz');
+    expect(await screen.findByText('No extensions match.')).toBeInTheDocument();
+  });
+
+  it('adds a suggested repository with one tap', async () => {
+    const user = userEvent.setup();
+    commands.extensionSuggestedRepos.mockResolvedValue(
+      ok([
+        { url: REPO.url, name: 'Raygun Extensions', description: 'Official.', added: true },
+        {
+          url: 'https://example.org/s/index.json',
+          name: 'Shosetsu extensions',
+          description: 'Novel sources.',
+          added: false,
+        },
+      ]),
+    );
+    await AppShellWrapper.mount('/extensions?tab=repos');
+
+    const official = await screen.findByRole('listitem', { name: 'Raygun Extensions' });
+    expect(within(official).getByText('Added')).toBeInTheDocument();
+    const shosetsu = screen.getByRole('listitem', { name: 'Shosetsu extensions' });
+    await user.click(within(shosetsu).getByRole('button', { name: 'Add Shosetsu extensions' }));
+    expect(commands.extensionRepoAdd).toHaveBeenCalledWith('https://example.org/s/index.json');
+    expect(
+      screen.getByText(/doesn’t review extensions from other repositories/),
+    ).toBeInTheDocument();
   });
 });

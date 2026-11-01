@@ -50,6 +50,8 @@ export const commands = {
 	extensionsReload: () => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extensions_reload")),
 	/**  Repositories extensions can be installed from. */
 	extensionRepos: () => typedError<ExtensionRepo[], string>(__TAURI_INVOKE("extension_repos")),
+	/**  Well-known repositories to add with one tap, marked when already added. */
+	extensionSuggestedRepos: () => typedError<SuggestedRepo[], string>(__TAURI_INVOKE("extension_suggested_repos")),
 	/**  Adds a repository by its `index.json` URL, after checking the index can be read. */
 	extensionRepoAdd: (url: string) => typedError<ExtensionRepo[], string>(__TAURI_INVOKE("extension_repo_add", { url })),
 	extensionRepoRemove: (id: string) => typedError<ExtensionRepo[], string>(__TAURI_INVOKE("extension_repo_remove", { id })),
@@ -301,6 +303,8 @@ export type CatalogEntry = {
 	provides: string[],
 	net: string[],
 	contentRating: string,
+	/**  The content's language (`en`, `multi`), when the repository says. */
+	lang: string | null,
 	/**  Package size in bytes (packages are capped at 10 MiB). */
 	size: number,
 	state: CatalogState,
@@ -926,6 +930,15 @@ export type StorageMode =
 "mobile" | 
 /**  Set explicitly through `RAYGUN_HOME`. */
 "override";
+
+/**  A well-known repository the Repositories tab offers to add with one tap (M36). */
+export type SuggestedRepo = {
+	url: string,
+	name: string,
+	description: string,
+	/**  Already one of this device's repositories. */
+	added: boolean,
+};
 
 /**
  *  A sync with another device finished and changed rows here; carries how many. Cached

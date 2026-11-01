@@ -56,6 +56,9 @@ pub struct RepoEntry {
     pub permissions: RepoPermissions,
     #[serde(default = "safe")]
     pub content_rating: String,
+    /// The content's language (`en`, `ja`, `multi`), when the extension serves one (M36).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lang: Option<String>,
     /// The package zip, relative to the index (or absolute).
     pub package: String,
     /// Lower-case hex SHA-256 of the package; may be empty for Nuclear plugins.
@@ -158,6 +161,7 @@ fn from_shosetsu(index: ShosetsuIndex) -> RepoIndex {
                     webview: false,
                 },
                 content_rating: "suggestive".to_owned(),
+                lang: Some(script.lang.clone()),
                 package: format!("src/{}/{}.lua", script.lang, script.file_name),
                 sha256: script.md5.to_ascii_lowercase(),
                 size: 0,
@@ -258,6 +262,7 @@ fn from_nuclear(registry: NuclearRegistry) -> RepoIndex {
                 provides,
                 permissions: RepoPermissions::default(),
                 content_rating: safe(),
+                lang: None,
                 package: plugin.download_url?,
                 sha256: plugin
                     .sha256

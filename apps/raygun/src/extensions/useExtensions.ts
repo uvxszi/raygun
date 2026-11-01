@@ -9,6 +9,7 @@ export const EXTENSIONS = ['extensions'];
 export const ONLINE_SEARCH = ['onlineSearch'];
 const CATALOG = ['extensionCatalog'];
 const REPOS = ['extensionRepos'];
+const SUGGESTED = ['extensionSuggestedRepos'];
 
 export const useExtensions = () =>
   useQuery({
@@ -117,6 +118,7 @@ export const useAddRepo = () => {
     onSuccess: (repos) => {
       queryClient.setQueryData(REPOS, repos);
       void queryClient.invalidateQueries({ queryKey: CATALOG });
+      void queryClient.invalidateQueries({ queryKey: SUGGESTED });
     },
   });
 };
@@ -128,6 +130,14 @@ export const useRemoveRepo = () => {
     onSuccess: (repos) => {
       queryClient.setQueryData(REPOS, repos);
       void queryClient.invalidateQueries({ queryKey: CATALOG });
+      void queryClient.invalidateQueries({ queryKey: SUGGESTED });
     },
   });
 };
+
+/** Well-known repositories to add with one tap (M36). */
+export const useSuggestedRepos = () =>
+  useQuery({
+    queryKey: SUGGESTED,
+    queryFn: () => unwrapResult(commands.extensionSuggestedRepos()),
+  });

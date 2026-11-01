@@ -663,6 +663,17 @@ pub struct ExtensionSetting {
     pub value: Option<SettingValue>,
 }
 
+/// A well-known repository the Repositories tab offers to add with one tap (M36).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SuggestedRepo {
+    pub url: String,
+    pub name: String,
+    pub description: String,
+    /// Already one of this device's repositories.
+    pub added: bool,
+}
+
 /// A repository of installable extensions (an `index.json` URL).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -696,6 +707,8 @@ pub struct CatalogEntry {
     pub provides: Vec<String>,
     pub net: Vec<String>,
     pub content_rating: String,
+    /// The content's language (`en`, `multi`), when the repository says.
+    pub lang: Option<String>,
     /// Package size in bytes (packages are capped at 10 MiB).
     pub size: u32,
     pub state: CatalogState,

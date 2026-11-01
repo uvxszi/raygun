@@ -251,6 +251,15 @@ pub async fn extension_repos(
     extensions.repos().await
 }
 
+/// Well-known repositories to add with one tap, marked when already added.
+#[tauri::command]
+#[specta::specta]
+pub async fn extension_suggested_repos(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+) -> Result<Vec<raygun_model::SuggestedRepo>, String> {
+    extensions.suggested_repos().await
+}
+
 /// Adds a repository by its `index.json` URL, after checking the index can be read.
 #[tauri::command]
 #[specta::specta]

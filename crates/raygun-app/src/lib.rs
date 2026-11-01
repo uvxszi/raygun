@@ -61,6 +61,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::extensions_list,
             commands::extensions_reload,
             commands::extension_repos,
+            commands::extension_suggested_repos,
             commands::extension_repo_add,
             commands::extension_repo_remove,
             commands::extension_catalog,

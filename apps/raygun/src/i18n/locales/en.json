@@ -209,7 +209,31 @@
     "compatibilityFull": "Everything this plugin provides works in Raygun.",
     "anyWebsite": "Any public website (never this device or your local network)",
     "nsfwBadge": "18+",
-    "nsfwHidden": "Hidden while NSFW content is off"
+    "nsfwHidden": "Hidden while NSFW content is off",
+    "search": "Search extensions",
+    "searchPlaceholder": "Search extensions…",
+    "kindFilter": "Show",
+    "kind": {
+      "all": "All",
+      "music": "Music",
+      "manga": "Manga",
+      "novel": "Novels",
+      "video": "Video",
+      "podcast": "Podcasts",
+      "lyrics": "Lyrics",
+      "other": "Other"
+    },
+    "languageFilter": "Language",
+    "anyLanguage": "Any language",
+    "multiLanguage": "Many languages",
+    "repoFilter": "Repository",
+    "allRepos": "All repositories",
+    "noMatches": "No extensions match.",
+    "suggestedRepos": "Suggested repositories",
+    "repoAdded": "Added",
+    "add": "Add",
+    "addNamedRepo": "Add {{name}}",
+    "thirdPartyNote": "Raygun doesn’t review extensions from other repositories. Every extension runs sandboxed, with only the network access it shows before you install it."
   },
   "collections": {
     "moreActions": "More for {{title}}",

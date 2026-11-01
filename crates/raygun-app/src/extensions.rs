@@ -20,7 +20,8 @@ use raygun_ext_host::{
 };
 use raygun_model::{
     CatalogEntry, CatalogState, ExtensionInfo, ExtensionOrigin, ExtensionRepo, ExtensionSetting,
-    Lyrics, ProviderSearchResult, RepoCatalog, SettingKind, SettingValue, TrackQuery,
+    Lyrics, ProviderSearchResult, RepoCatalog, SettingKind, SettingValue, SuggestedRepo,
+    TrackQuery,
 };
 use raygun_paths::Paths;
 use tauri::{AppHandle, Manager};
@@ -295,6 +296,20 @@ impl ExtensionService {
     }
 
     /// Every repository's extensions, marked against what this device has.
+    /// Well-known repositories, marked when this device already has them (M36).
+    pub async fn suggested_repos(&self) -> Result<Vec<SuggestedRepo>, String> {
+        let repos = self.repos().await?;
+        Ok(SUGGESTED_REPOS
+            .iter()
+            .map(|(url, name, description)| SuggestedRepo {
+                added: repos.iter().any(|repo| same_url(&repo.url, url)),
+                url: (*url).to_owned(),
+                name: (*name).to_owned(),
+                description: (*description).to_owned(),
+            })
+            .collect())
+    }
+
     pub async fn catalog(&self, refresh: bool) -> Result<Vec<RepoCatalog>, String> {
         let repos = self.repos().await?;
         let local: HashMap<String, String> = self
@@ -560,6 +575,32 @@ fn to_repo(row: store::RepoRow) -> ExtensionRepo {
     }
 }
 
+/// Repositories offered with one tap: Raygun's own and the ecosystems Raygun can run.
+const SUGGESTED_REPOS: [(&str, &str, &str); 3] = [
+    (
+        "https://raw.githubusercontent.com/uvxszi/raygun/main/repo/index.json",
+        "Raygun Extensions",
+        "Raygun's official extensions: music, manga, novels, lyrics and more.",
+    ),
+    (
+        "https://gitlab.com/shosetsuorg/extensions/-/raw/dev/index.json",
+        "Shosetsu extensions",
+        "Hundreds of light-novel sources made for Shosetsu, run by Raygun's Shosetsu runtime.",
+    ),
+    (
+        "https://cdn.jsdelivr.net/gh/NuclearPlayer/plugin-registry@master/plugins.json",
+        "Nuclear plugins",
+        "Music plugins from the Nuclear player, converted when installed.",
+    ),
+];
+
+/// Whether two repository URLs point at the same index (case and a trailing slash aside).
+fn same_url(a: &str, b: &str) -> bool {
+    a.trim()
+        .trim_end_matches('/')
+        .eq_ignore_ascii_case(b.trim().trim_end_matches('/'))
+}
+
 fn catalog_entry(repo_id: &str, entry: &RepoEntry, local: Option<&String>) -> CatalogEntry {
     let state = match local {
         None => CatalogState::Available,
@@ -579,6 +620,7 @@ fn catalog_entry(repo_id: &str, entry: &RepoEntry, local: Option<&String>) -> Ca
         provides: entry.provides.clone(),
         net: entry.permissions.net.clone(),
         content_rating: entry.content_rating.clone(),
+        lang: entry.lang.clone(),
         size: u32::try_from(entry.size).unwrap_or(u32::MAX),
         nuclear: entry.format == PackageFormat::Nuclear,
         state,
@@ -686,11 +728,29 @@ mod tests {
             provides: vec![],
             permissions: Default::default(),
             content_rating: "safe".into(),
+            lang: None,
             package: "a.zip".into(),
             sha256: "0".repeat(64),
             size: 1,
             format: Default::default(),
         }
+    }
+
+    #[test]
+    fn suggested_repos_match_added_urls() {
+        assert!(same_url(
+            "https://Example.com/index.json/",
+            "https://example.com/index.json"
+        ));
+        assert!(!same_url(
+            "https://a.example/index.json",
+            "https://b.example/index.json"
+        ));
+        assert!(
+            SUGGESTED_REPOS
+                .iter()
+                .all(|(url, _, _)| url.starts_with("https://"))
+        );
     }
 
     #[test]
