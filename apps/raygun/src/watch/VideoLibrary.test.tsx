@@ -179,6 +179,9 @@ describe('Video library', () => {
     for (const name of ['Updates', 'Downloads', 'History', 'Edit categories']) {
       expect(within(menu).getByRole('menuitem', { name })).toBeInTheDocument();
     }
+    // The library is what you have: finding more happens in Search.
+    expect(within(menu).queryByRole('menuitem', { name: 'Browse' })).not.toBeInTheDocument();
+    expect(within(menu).queryByRole('menuitem', { name: 'Addons' })).not.toBeInTheDocument();
     await user.click(within(menu).getByRole('menuitem', { name: 'Update library' }));
     expect(commands.mangaUpdateLibrary).toHaveBeenCalled();
 
@@ -187,6 +190,15 @@ describe('Video library', () => {
     const sheet = await screen.findByRole('dialog', { name: 'Filters' });
     expect(within(sheet).getByRole('button', { name: 'Unwatched' })).toBeInTheDocument();
     expect(within(sheet).getByRole('option', { name: 'Last watched' })).toBeInTheDocument();
+  });
+
+  it('sends an empty video library to Search for videos', async () => {
+    await AppShellWrapper.mount('/library?media=video');
+    const library = await screen.findByTestId('video-library');
+    expect(await within(library).findByRole('link', { name: 'Find in Search' })).toHaveAttribute(
+      'href',
+      '/search?type=video',
+    );
   });
 
   it('saves a source title and downloads a link from the server picker', async () => {

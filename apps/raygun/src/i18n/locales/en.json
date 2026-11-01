@@ -20,7 +20,7 @@
     "heading": "Home",
     "continueReading": "Continue reading",
     "startTitle": "Nothing to pick up yet",
-    "startBody": "Find films, series, manga and novels in Browse, or add your own music in the Library. What you start shows up here."
+    "startBody": "Find films, series, manga, novels, podcasts and music in Search, or add your own music in the Library. What you start shows up here."
   },
   "library": {
     "title": "Library",
@@ -125,7 +125,6 @@
     },
     "videos": {
       "empty": "Save movies and series from their pages to keep them here, with new episodes as they come out.",
-      "openWatch": "Browse sources",
       "watched": "Watched",
       "remove": "Remove {{title}}",
       "history": "History",
@@ -141,7 +140,8 @@
     "openAudioHint": "Plays in the music player. Add a Referer if the site needs one.",
     "manageFolders": "Manage folders",
     "folderHint": "A folder on this device, like /sdcard/Music. Raygun reads it and keeps watching for new files.",
-    "noFolders": "No music folders yet."
+    "noFolders": "No music folders yet.",
+    "findInSearch": "Find in Search"
   },
   "search": {
     "title": "Search",
@@ -592,8 +592,7 @@
     "undone": "undone"
   },
   "manga": {
-    "browseSources": "Browse sources",
-    "emptyLibrary": "No manga yet. Browse a source and add titles to your library.",
+    "emptyLibrary": "No manga yet. Find titles in Search and add them to your library.",
     "sources": "Manga sources",
     "noSources": "No manga sources are installed.",
     "getSources": "Get extensions",
@@ -697,7 +696,7 @@
   "novel": {
     "sources": "Novel sources",
     "noSources": "No novel sources are installed.",
-    "emptyLibrary": "No novels yet. Browse a source and add books to your library.",
+    "emptyLibrary": "No novels yet. Find books in Search and add them to your library.",
     "percentRead": "{{percent}}% read",
     "percent": "{{percent}}%",
     "pageOf": "Page {{page}} of {{total}}",
@@ -782,11 +781,7 @@
     "unplayed_one": "{{count}} new",
     "unplayed_other": "{{count}} new",
     "newEpisodes": "New episodes",
-    "discover": "Find podcasts",
-    "empty": "Subscribe to shows to see their new episodes here.",
-    "search": "Search podcasts",
-    "searchPlaceholder": "Search podcasts…",
-    "resultsFor": "Results for “{{query}}”",
+    "empty": "Find shows in Search and subscribe; their new episodes show up here.",
     "topShows": "Top shows",
     "noResults": "No podcasts found.",
     "loading": "Loading",
@@ -809,7 +804,9 @@
     "download": "Download episode",
     "downloaded": "Downloaded",
     "removeDownload": "Delete download",
-    "downloadFailed": "Download failed: {{message}}"
+    "downloadFailed": "Download failed: {{message}}",
+    "emptyTitle": "No podcasts yet",
+    "filterPlaceholder": "Search your podcasts…"
   },
   "watch": {
     "title": "Watch",

@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useIsFetching } from '@tanstack/react-query';
 
 import { PodcastResultList } from '../podcasts/PodcastResultList';
-import { usePodcastSearch } from '../podcasts/usePodcasts';
+import { usePodcastSearch, useTopPodcasts } from '../podcasts/usePodcasts';
 import { AllResults } from '../search/AllResults';
 import { CatalogSearch } from '../search/CatalogSearch';
 import { LibraryMatches } from '../search/LibraryMatches';
@@ -18,17 +18,23 @@ import type { SearchType } from '../search/searchTypes';
 /** Wait for a pause in typing before searching, so each keystroke doesn't hit the network. */
 export const SEARCH_DEBOUNCE_MS = 400;
 
+/** Podcasts: the directory's results, or its top shows before anything is typed. */
 const PodcastSearch: FC<{ query: string }> = ({ query }) => {
   const { t } = useTranslation();
-  const search = usePodcastSearch(query);
+  const found = usePodcastSearch(query);
+  const top = useTopPodcasts(query === '');
+  const search = query ? found : top;
   return (
     <div data-testid="podcast-search" className="flex flex-col gap-3">
+      {!query && <h2 className="font-semibold">{t('podcasts.topShows')}</h2>}
       {search.error && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
           {search.error.message}
         </p>
       )}
-      {search.data?.length === 0 && <p className="text-muted text-sm">{t('podcasts.noResults')}</p>}
+      {search.data?.length === 0 && query && (
+        <p className="text-muted text-sm">{t('podcasts.noResults')}</p>
+      )}
       {search.data && search.data.length > 0 && <PodcastResultList results={search.data} />}
     </div>
   );
@@ -62,8 +68,8 @@ export const SearchPage: FC = () => {
       search: { q: q || undefined, type: next === 'all' ? undefined : next },
       replace: true,
     });
-  // Manga, novel and video sources can browse with filters alone, without typing.
-  const needsQuery = type !== 'manga' && type !== 'novel' && type !== 'video';
+  // Manga, novel and video sources browse with filters alone, and podcasts show top shows.
+  const needsQuery = type !== 'manga' && type !== 'novel' && type !== 'video' && type !== 'podcast';
 
   return (
     <section data-testid="search-page" className="flex flex-col gap-4">
@@ -111,7 +117,7 @@ export const SearchPage: FC = () => {
       {!q && needsQuery && <p className="text-muted text-sm">{t(`search.hintFor.${type}`)}</p>}
       {q && type === 'all' && <AllResults query={q} onType={setType} />}
       {q && type === 'music' && <MusicResults query={q} />}
-      {q && type === 'podcast' && <PodcastSearch query={q} />}
+      {type === 'podcast' && <PodcastSearch query={q} />}
       {type === 'video' && (
         <>
           {q && <VideoResults query={q} />}

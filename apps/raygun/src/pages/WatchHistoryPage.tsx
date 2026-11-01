@@ -1,6 +1,6 @@
 import { commands } from '@raygun/bindings';
 import { useQuery } from '@tanstack/react-query';
-import { Check, Clapperboard, Compass, X } from 'lucide-react';
+import { Check, Clapperboard, Search, X } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -29,7 +29,12 @@ export const WatchHistoryPage: FC = () => {
           icon={Clapperboard}
           title={t('library.videos.historyEmptyTitle')}
           body={t('library.videos.historyEmpty')}
-          action={{ label: t('library.videos.openWatch'), icon: Compass, to: '/browse' }}
+          action={{
+            label: t('library.findInSearch'),
+            icon: Search,
+            to: '/search',
+            search: { type: 'video' },
+          }}
         />
       )}
       <ul className="bg-surface flex flex-col rounded-xl empty:hidden">

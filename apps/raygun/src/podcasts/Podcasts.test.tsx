@@ -43,7 +43,7 @@ describe('Podcasts', () => {
     AppShellWrapper.seedCore();
   });
 
-  it('lives in the music library and finds shows to open', async () => {
+  it('keeps only followed shows in the library and finds new ones in Search', async () => {
     const user = userEvent.setup();
     commands.podcastTop.mockResolvedValue(
       ok([
@@ -74,16 +74,16 @@ describe('Podcasts', () => {
 
     await user.click(await screen.findByTestId('library-media-podcast'));
     const view = await screen.findByTestId('podcasts-view');
-    expect(await within(view).findByText('Top Show')).toBeInTheDocument();
-    expect(
-      within(view).getByText('Subscribe to shows to see their new episodes here.'),
-    ).toBeInTheDocument();
+    // The library holds what you follow; discovering shows is Search's job.
+    expect(await within(view).findByText('No podcasts yet')).toBeInTheDocument();
+    expect(commands.podcastTop).not.toHaveBeenCalled();
+    await user.click(within(view).getByRole('link', { name: 'Find in Search' }));
 
-    // Searching the directory is the top bar's search.
-    await user.click(within(view).getByRole('button', { name: 'Search podcasts' }));
-    await user.type(within(view).getByRole('searchbox', { name: /Search podcasts/ }), 'example');
+    const search = await screen.findByTestId('search-page');
+    expect(await within(search).findByText('Top Show')).toBeInTheDocument();
+    await user.type(within(search).getByRole('searchbox', { name: 'Search' }), 'example');
     await vi.waitFor(() => expect(commands.podcastSearch).toHaveBeenCalledWith('example'));
-    await user.click(await within(view).findByRole('button', { name: /The Example Show/ }));
+    await user.click(await within(search).findByRole('button', { name: /The Example Show/ }));
 
     expect(commands.podcastOpenFeed).toHaveBeenCalledWith(SHOW.feedUrl);
     const page = await screen.findByTestId('podcast-page');

@@ -4,12 +4,10 @@ import {
   BookPlus,
   BookText,
   Clapperboard,
-  Compass,
   Download,
   FolderCog,
   History,
   ListFilter,
-  Puzzle,
   RefreshCw,
   Search,
 } from 'lucide-react';
@@ -130,12 +128,6 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
       to: '/library/categories',
       search: { medium },
     },
-    ...(video
-      ? [
-          { label: t('browse.title'), icon: Compass, to: '/browse' },
-          { label: t('watch.addons'), icon: Puzzle, to: '/watch/addons' },
-        ]
-      : []),
   ];
   const empty = EMPTY[medium];
 
@@ -206,7 +198,12 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
           icon={empty.icon}
           title={t(empty.title)}
           body={t(empty.body)}
-          action={{ label: t('manga.browseSources'), icon: Compass, to: '/browse' }}
+          action={{
+            label: t('library.findInSearch'),
+            icon: Search,
+            to: '/search',
+            search: { type: medium },
+          }}
         />
       )}
       {entries && entries.length > 0 && (

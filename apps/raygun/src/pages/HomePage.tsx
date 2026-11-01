@@ -1,6 +1,6 @@
 import type { MangaLibraryEntry } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
-import { Compass, Heart, Library, Search } from 'lucide-react';
+import { Heart, Library, Search } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -158,11 +158,11 @@ const GetStarted: FC = () => {
       <p className="text-muted text-sm">{t('home.startBody')}</p>
       <div className="flex flex-wrap gap-2">
         <Link
-          to="/browse"
+          to="/search"
           className="bg-primary text-background flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold"
         >
-          <Compass aria-hidden size={16} />
-          {t('browse.title')}
+          <Search aria-hidden size={16} />
+          {t('search.title')}
         </Link>
         <Link
           to="/library"

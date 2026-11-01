@@ -156,3 +156,16 @@
 - **Seen but not caused by M43:**
   - one Internet Archive listing (CUKESIM's New Job!) has no playable file, an existing quirk of the extension's listing;
   - a first test MP4 was High 4:4:4, which the emulator can't decode (regenerated as 4:2:0).
+
+## Follow-up: the library holds only your content
+- **The ask** (after M43): "you shouldnt be able to browse in your library, thats your library, you should only be able to find content in the search tab".
+- **Library changes:**
+  - The Videos menu lost Browse and Addons.
+  - Empty states for manga, novels, videos, podcasts and History link to Search filtered to that type ("Find in Search").
+  - Library → Podcasts shows only followed shows and their new episodes. Its search narrows those; adding a show by feed address stays in the menu, as it adds your own feed.
+- **Search** now opens Podcasts with the directory's top shows before anything is typed (moved from the library). Home's start prompt points to Search.
+- **Browse** keeps the source and extension lists. Mihon and CloudStream keep discovery outside the library the same way (`docs/research/`).
+- **Verified:**
+  - all app tests pass, with new tests for the video library menu and the podcast flow;
+  - 📱 on the emulator, Library → Podcasts shows "No podcasts yet" with Find in Search, which opens Search → Podcasts with top shows;
+  - the Videos menu lists Update library, Updates, Downloads, History, Edit categories and Open link or file.

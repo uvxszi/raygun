@@ -1,27 +1,31 @@
 import { Link, useNavigate } from '@tanstack/react-router';
-import { LoaderCircle, Rss, RefreshCw, Search } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Podcast, RefreshCw, Rss, Search } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { LibraryTop } from '../library/LibraryTop';
+import { EmptyState } from '../shell/EmptyState';
 import { Sheet } from '../shell/Sheet';
 import { TopBarAction } from '../shell/TopBar';
 
 import { EpisodeItem } from './EpisodeItem';
 import { PodcastArt } from './PodcastArt';
-import { PodcastResultList } from './PodcastResultList';
 import {
   useLatestEpisodes,
   useOpenFeed,
   usePodcastEvents,
-  usePodcastSearch,
   useRefreshAll,
   useSubscriptions,
-  useTopPodcasts,
 } from './usePodcasts';
 
-/** Library → Music → Podcasts: subscriptions, new episodes and finding new shows. */
+const matches = (text: string, query: string) =>
+  text.toLocaleLowerCase().includes(query.toLocaleLowerCase());
+
+/**
+ * Library → Podcasts: the shows you follow and their new episodes. Finding shows happens in
+ * Search; the library's search only narrows what you follow.
+ */
 export const PodcastsView: FC = () => {
   const { t } = useTranslation();
   usePodcastEvents();
@@ -31,31 +35,34 @@ export const PodcastsView: FC = () => {
   const refreshAll = useRefreshAll();
   const openFeed = useOpenFeed();
   const [searching, setSearching] = useState(false);
-  const [draft, setDraft] = useState('');
   const [query, setQuery] = useState('');
   const [addingFeed, setAddingFeed] = useState(false);
   const [feedUrl, setFeedUrl] = useState('');
-  // Searches the directory once typing pauses, like the Search tab.
-  useEffect(() => {
-    const timer = setTimeout(() => setQuery(draft.trim()), 400);
-    return () => clearTimeout(timer);
-  }, [draft]);
-  const search = usePodcastSearch(query);
-  const top = useTopPodcasts(query === '');
-  const [opening, setOpening] = useState<string | null>(null);
 
-  const open = (url: string) => {
-    setOpening(url);
-    openFeed.mutate(url, {
-      onSuccess: (view) => void navigate({ to: '/podcast', search: { id: view.id } }),
-      onSettled: () => setOpening(null),
-    });
-  };
+  const filter = query.trim();
+  const shows = useMemo(
+    () =>
+      (subscriptions.data ?? []).filter(
+        (podcast) =>
+          !filter || matches(podcast.title, filter) || matches(podcast.author ?? '', filter),
+      ),
+    [subscriptions.data, filter],
+  );
+  const episodes = useMemo(
+    () =>
+      (latest.data ?? []).filter(
+        (episode) =>
+          !filter || matches(episode.title, filter) || matches(episode.podcastTitle, filter),
+      ),
+    [latest.data, filter],
+  );
   const onAddFeed = (event: FormEvent) => {
     event.preventDefault();
-    if (feedUrl.trim()) open(feedUrl.trim());
+    if (!feedUrl.trim()) return;
+    openFeed.mutate(feedUrl.trim(), {
+      onSuccess: (view) => void navigate({ to: '/podcast', search: { id: view.id } }),
+    });
   };
-  const results = query ? search : top;
   const hasSubscriptions = (subscriptions.data?.length ?? 0) > 0;
 
   return (
@@ -65,38 +72,54 @@ export const PodcastsView: FC = () => {
         search={
           searching
             ? {
-                value: draft,
-                onChange: setDraft,
-                placeholder: t('podcasts.searchPlaceholder'),
+                value: query,
+                onChange: setQuery,
+                placeholder: t('podcasts.filterPlaceholder'),
                 onClose: () => {
                   setSearching(false);
-                  setDraft('');
+                  setQuery('');
                 },
               }
             : null
         }
         actions={
-          <>
-            {!searching && (
-              <TopBarAction
-                label={t('podcasts.search')}
-                icon={Search}
-                onClick={() => setSearching(true)}
-              />
-            )}
-            {hasSubscriptions && (
+          hasSubscriptions && (
+            <>
+              {!searching && (
+                <TopBarAction
+                  label={t('library.filter.search')}
+                  icon={Search}
+                  onClick={() => setSearching(true)}
+                />
+              )}
               <TopBarAction
                 label={t('podcasts.refresh')}
                 icon={RefreshCw}
                 disabled={refreshAll.isPending}
                 onClick={() => refreshAll.mutate(undefined)}
               />
-            )}
-          </>
+            </>
+          )
         }
         menu={[{ label: t('podcasts.openFeed'), icon: Rss, onSelect: () => setAddingFeed(true) }]}
       />
-      {hasSubscriptions && (
+      {subscriptions.data?.length === 0 && (
+        <EmptyState
+          icon={Podcast}
+          title={t('podcasts.emptyTitle')}
+          body={t('podcasts.empty')}
+          action={{
+            label: t('library.findInSearch'),
+            icon: Search,
+            to: '/search',
+            search: { type: 'podcast' },
+          }}
+        />
+      )}
+      {hasSubscriptions && filter && shows.length === 0 && episodes.length === 0 && (
+        <p className="text-muted text-sm">{t('library.filter.noMatches')}</p>
+      )}
+      {shows.length > 0 && (
         <section aria-labelledby="podcast-subscriptions" className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <h2 id="podcast-subscriptions" className="font-semibold">
@@ -112,7 +135,7 @@ export const PodcastsView: FC = () => {
             )}
           </div>
           <ul className="-mx-4 flex gap-3 overflow-x-auto px-4 lg:mx-0 lg:px-0">
-            {subscriptions.data?.map((podcast) => (
+            {shows.map((podcast) => (
               <li key={podcast.id} className="w-28 shrink-0">
                 <Link
                   to="/podcast"
@@ -133,46 +156,18 @@ export const PodcastsView: FC = () => {
           </ul>
         </section>
       )}
-      {hasSubscriptions && (latest.data?.length ?? 0) > 0 && (
+      {hasSubscriptions && episodes.length > 0 && (
         <section aria-labelledby="podcast-latest" className="flex flex-col gap-2">
           <h2 id="podcast-latest" className="font-semibold">
             {t('podcasts.newEpisodes')}
           </h2>
           <ul className="bg-surface flex flex-col gap-4 rounded-xl px-4 py-3">
-            {latest.data?.map((episode) => (
+            {episodes.map((episode) => (
               <EpisodeItem key={episode.id} episode={episode} showPodcast />
             ))}
           </ul>
         </section>
       )}
-      <section aria-labelledby="podcast-discover" className="flex flex-col gap-2">
-        <h2 id="podcast-discover" className="font-semibold">
-          {t('podcasts.discover')}
-        </h2>
-        {!hasSubscriptions && subscriptions.data && (
-          <p className="text-muted text-sm">{t('podcasts.empty')}</p>
-        )}
-        <h3 className="text-muted text-sm">
-          {query ? t('podcasts.resultsFor', { query }) : t('podcasts.topShows')}
-        </h3>
-        {results.isFetching && !results.data && (
-          <LoaderCircle aria-label={t('podcasts.loading')} className="text-muted animate-spin" />
-        )}
-        {results.error && (
-          <p role="alert" className="text-primary text-sm wrap-anywhere">
-            {results.error.message}
-          </p>
-        )}
-        {results.data?.length === 0 && query && (
-          <p className="text-muted text-sm">{t('podcasts.noResults')}</p>
-        )}
-        {results.data && results.data.length > 0 && <PodcastResultList results={results.data} />}
-        {openFeed.error && !addingFeed && (
-          <p role="alert" className="text-primary text-sm wrap-anywhere">
-            {openFeed.error.message}
-          </p>
-        )}
-      </section>
       {addingFeed && (
         <Sheet title={t('podcasts.openFeed')} onClose={() => setAddingFeed(false)}>
           <form onSubmit={onAddFeed} className="flex flex-col gap-3 text-sm">
@@ -196,7 +191,7 @@ export const PodcastsView: FC = () => {
             )}
             <button
               type="submit"
-              disabled={!feedUrl.trim() || opening !== null}
+              disabled={!feedUrl.trim() || openFeed.isPending}
               className="bg-primary text-background self-end rounded-full px-5 py-2.5 font-semibold disabled:opacity-50"
             >
               {t('podcasts.openFeed')}
