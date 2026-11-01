@@ -3,6 +3,8 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { MangaCover } from './MangaCover';
+import { ROUTES } from './medium';
+import type { Medium } from './medium';
 
 export type MangaGridItem = {
   sourceId: string;
@@ -15,14 +17,17 @@ export type MangaGridItem = {
 };
 
 /** Covers in a responsive grid, each opening its title page. */
-export const MangaGrid: FC<{ items: MangaGridItem[] }> = ({ items }) => {
+export const MangaGrid: FC<{ items: MangaGridItem[]; medium?: Medium }> = ({
+  items,
+  medium = 'manga',
+}) => {
   const { t } = useTranslation();
   return (
     <ul className="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6">
       {items.map((item) => (
         <li key={`${item.sourceId}:${item.id}`}>
           <Link
-            to="/manga/title"
+            to={ROUTES[medium].title}
             search={{ source: item.sourceId, id: item.id }}
             data-testid="manga-card"
             className="flex flex-col gap-1"

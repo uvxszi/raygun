@@ -4,6 +4,7 @@
 //! and context, and gets everything else from [`builder`].
 
 mod backup;
+mod catalog;
 mod collections;
 mod commands;
 mod device_sync;
@@ -15,6 +16,7 @@ mod manga;
 mod manga_downloads;
 mod mcp;
 mod mihon;
+mod novel;
 mod playback;
 mod remote;
 mod resolution;
@@ -114,7 +116,15 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::backup_list,
             commands::backup_restore,
             commands::backup_delete,
-            commands::backup_import
+            commands::backup_import,
+            commands::novel_sources,
+            commands::novel_browse,
+            commands::novel_title,
+            commands::novel_set_in_library,
+            commands::novel_library,
+            commands::novel_chapter,
+            commands::novel_set_progress,
+            commands::novel_set_read
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,

@@ -7,6 +7,8 @@ import { useTranslation } from 'react-i18next';
 
 import { DownloadButton } from '../manga/DownloadButton';
 import { MangaCover } from '../manga/MangaCover';
+import { ROUTES } from '../manga/medium';
+import type { Medium } from '../manga/medium';
 import {
   useDownloadChapters,
   useMangaLiveEvents,
@@ -16,31 +18,41 @@ import {
   useSetInLibrary,
 } from '../manga/useManga';
 
-const ChapterRow: FC<{ titleId: string; chapter: MangaChapterInfo }> = ({ titleId, chapter }) => {
+/** Where a partly read chapter stands: a page for manga, a share of the text for novels. */
+const progressLabel = (
+  chapter: MangaChapterInfo,
+  medium: Medium,
+  t: (key: string, options?: Record<string, unknown>) => string,
+) => {
+  if (chapter.lastPage === null || !chapter.totalPages) return null;
+  return medium === 'novel'
+    ? t('novel.percentRead', {
+        percent: Math.min(99, Math.round((chapter.lastPage / chapter.totalPages) * 100)),
+      })
+    : t('manga.pageOf', { page: chapter.lastPage + 1, total: chapter.totalPages });
+};
+
+const ChapterRow: FC<{ titleId: string; chapter: MangaChapterInfo; medium: Medium }> = ({
+  titleId,
+  chapter,
+  medium,
+}) => {
   const { t, i18n } = useTranslation();
-  const setRead = useSetChapterRead();
+  const setRead = useSetChapterRead(medium);
   const date = chapter.dateUpload
     ? new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' }).format(chapter.dateUpload)
     : null;
   return (
     <div className="flex items-center gap-2">
       <Link
-        to="/manga/read"
+        to={ROUTES[medium].read}
         search={{ title: titleId, chapter: chapter.id }}
         data-testid="chapter-row"
         className={`flex min-w-0 flex-1 flex-col py-2 ${chapter.read ? 'opacity-50' : ''}`}
       >
         <span className="truncate text-sm font-medium">{chapter.name}</span>
         <span className="text-muted truncate text-xs">
-          {[
-            date,
-            chapter.scanlator,
-            chapter.lastPage !== null && chapter.totalPages
-              ? t('manga.pageOf', { page: chapter.lastPage + 1, total: chapter.totalPages })
-              : null,
-          ]
-            .filter(Boolean)
-            .join(' · ')}
+          {[date, chapter.scanlator, progressLabel(chapter, medium, t)].filter(Boolean).join(' · ')}
         </span>
       </Link>
       <button
@@ -53,20 +65,20 @@ const ChapterRow: FC<{ titleId: string; chapter: MangaChapterInfo }> = ({ titleI
       >
         <Check aria-hidden size={18} />
       </button>
-      <DownloadButton chapter={chapter} />
+      {medium === 'manga' && <DownloadButton chapter={chapter} />}
     </div>
   );
 };
 
 /** A title: details, library button, continue reading and chapters. */
-export const MangaTitlePage: FC = () => {
+export const MangaTitlePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) => {
   const { t } = useTranslation();
-  const { source, id } = useSearch({ from: '/manga/title' });
+  const { source = '', id = '' }: { source?: string; id?: string } = useSearch({ strict: false });
   useMangaLiveEvents();
-  const title = useMangaTitle(source, id);
+  const title = useMangaTitle(source, id, medium);
   const download = useDownloadChapters();
-  const refresh = useRefreshTitle();
-  const setInLibrary = useSetInLibrary();
+  const refresh = useRefreshTitle(medium);
+  const setInLibrary = useSetInLibrary(medium);
   const [expanded, setExpanded] = useState(false);
   const view = refresh.data && refresh.data.remoteId === id ? refresh.data : title.data;
 
@@ -91,7 +103,7 @@ export const MangaTitlePage: FC = () => {
   const started = view.chapters.some((chapter) => chapter.read || chapter.lastPage !== null);
   // Oldest first, so the queue reads in order (the list is newest first).
   const unreadToDownload = view.chapters
-    .filter((chapter) => !chapter.read && !chapter.download)
+    .filter((chapter) => medium === 'manga' && !chapter.read && !chapter.download)
     .map((chapter) => chapter.id)
     .reverse();
 
@@ -114,7 +126,7 @@ export const MangaTitlePage: FC = () => {
       <div className="flex flex-wrap gap-3">
         {continueChapter && (
           <Link
-            to="/manga/read"
+            to={ROUTES[medium].read}
             search={{ title: view.id, chapter: continueChapter.id }}
             className="bg-primary text-background flex items-center gap-2 rounded-full px-5 py-2.5 font-semibold"
           >
@@ -184,7 +196,7 @@ export const MangaTitlePage: FC = () => {
           <ul className="flex flex-col">
             {view.chapters.map((chapter) => (
               <li key={chapter.id}>
-                <ChapterRow titleId={view.id} chapter={chapter} />
+                <ChapterRow titleId={view.id} chapter={chapter} medium={medium} />
               </li>
             ))}
           </ul>
@@ -193,3 +205,5 @@ export const MangaTitlePage: FC = () => {
     </section>
   );
 };
+
+export const NovelTitlePage: FC = () => <MangaTitlePage medium="novel" />;

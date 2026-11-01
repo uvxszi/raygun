@@ -849,3 +849,37 @@ async fn lrclib_live_returns_synced_lyrics() {
     );
     assert!(!lyrics.synced.is_empty());
 }
+
+/// `cargo test -p raygun-ext-host -- --ignored gutenberg`.
+#[tokio::test]
+#[ignore = "needs network access to gutenberg.org"]
+async fn gutenberg_extension_reads_a_real_book() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    let infos = host.load(discover_installed(&dir)).await;
+    let gutenberg = infos
+        .iter()
+        .find(|info| info.id == "dev.raygun.gutenberg")
+        .unwrap();
+    assert_eq!(
+        gutenberg.status,
+        ExtensionStatus::Loaded,
+        "{:?}",
+        gutenberg.error
+    );
+    let provider = "dev.raygun.gutenberg/gutenberg";
+
+    let found = host
+        .manga_search(provider, "frankenstein", 1)
+        .await
+        .unwrap();
+    assert!(found.items.iter().any(|item| item.id == "84"), "{found:?}");
+    let chapters = host.manga_chapters(provider, "84").await.unwrap();
+    assert!(chapters.len() >= 20, "{chapters:?}");
+    assert!(
+        chapters.iter().any(|chapter| chapter.name == "Letter 1"),
+        "{chapters:?}"
+    );
+    let passage = host.novel_passage(provider, &chapters[0].id).await.unwrap();
+    assert!(passage.len() > 5, "{passage:?}");
+}

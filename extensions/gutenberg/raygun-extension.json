@@ -1,0 +1,15 @@
+{
+  "id": "dev.raygun.gutenberg",
+  "name": "Project Gutenberg",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Over 70,000 free public-domain books from Project Gutenberg, split into chapters to read like a novel.",
+  "author": "Raygun",
+  "provides": ["novel.source"],
+  "permissions": {
+    "net": ["www.gutenberg.org", "gutenberg.org"]
+  },
+  "contentRating": "safe"
+}

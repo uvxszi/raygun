@@ -162,6 +162,19 @@ export const commands = {
 	backupDelete: (name: string) => typedError<null, string>(__TAURI_INVOKE("backup_delete", { name })),
 	/**  Restores a Raygun backup or imports a Mihon backup from a picked file (base64 contents). */
 	backupImport: (contents: string) => typedError<BackupOutcome, string>(__TAURI_INVOKE("backup_import", { contents })),
+	/**  Installed novel sources (`novel.source` providers). */
+	novelSources: () => typedError<MangaSource[], string>(__TAURI_INVOKE("novel_sources")),
+	/**  A page of a novel source's catalogue: popular, latest, or search results. */
+	novelBrowse: (sourceId: string, mode: MangaBrowseMode, query: string | null, page: number) => typedError<MangaListingPage, string>(__TAURI_INVOKE("novel_browse", { sourceId, mode, query, page })),
+	/**  A novel with its chapters; `refresh` fetches it from the source again. */
+	novelTitle: (sourceId: string, novelId: string, refresh: boolean) => typedError<MangaTitleView, string>(__TAURI_INVOKE("novel_title", { sourceId, novelId, refresh })),
+	novelSetInLibrary: (titleId: string, inLibrary: boolean) => typedError<null, string>(__TAURI_INVOKE("novel_set_in_library", { titleId, inLibrary })),
+	novelLibrary: () => typedError<MangaLibraryEntry[], string>(__TAURI_INVOKE("novel_library")),
+	/**  One chapter's text as blocks, with its neighbours. */
+	novelChapter: (titleId: string, chapterId: string) => typedError<NovelChapter, string>(__TAURI_INVOKE("novel_chapter", { titleId, chapterId })),
+	/**  Saves the character offset reached in a chapter of `total` characters. */
+	novelSetProgress: (chapterId: string, offset: number, total: number) => typedError<null, string>(__TAURI_INVOKE("novel_set_progress", { chapterId, offset, total })),
+	novelSetRead: (chapterId: string, read: boolean) => typedError<null, string>(__TAURI_INVOKE("novel_set_read", { chapterId, read })),
 };
 
 /** Events */
@@ -567,6 +580,33 @@ export type MihonImport = {
 	skipped: SkippedSource[],
 };
 
+/**  What the novel reader needs for one chapter. */
+export type NovelChapter = {
+	titleId: string,
+	title: string,
+	/**  `lastPage` and `totalPages` hold the character offset and length while partly read. */
+	chapter: MangaChapterInfo,
+	blocks: TextBlock[],
+	previousChapterId: string | null,
+	nextChapterId: string | null,
+};
+
+export type NovelFont = "serif" | "sans";
+
+/**  The novel reader's typography and layout. */
+export type NovelReaderPrefs = {
+	/**  CSS pixels, 14–30. */
+	fontSize: number,
+	/**  Line height in tenths, 12–22 (1.2–2.2). */
+	lineSpacing: number,
+	font: NovelFont,
+	width: NovelWidth,
+	/**  Pages turned sideways instead of one scrolling column. */
+	paged: boolean,
+};
+
+export type NovelWidth = "narrow" | "wide";
+
 /**  A track found by an online provider. */
 export type OnlineTrack = {
 	/**  The provider's own id for the track, when it has one. */
@@ -753,7 +793,7 @@ export type SearchResults = {
  *  A change to a single setting. The tagged shape (`{ key, value }`) lets the UI send only valid
  *  key/value pairs, and doubles as the format of a stored row.
  */
-export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number };
+export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -767,6 +807,8 @@ export type Settings = {
 	language: string,
 	/**  Hours between automatic manga library updates; 0 turns them off (M28). */
 	mangaUpdateHours: number,
+	/**  How novels are set (M31). */
+	novelReader: NovelReaderPrefs,
 };
 
 /**  Titles of one Mihon source that Raygun has no source for. */
@@ -842,6 +884,11 @@ export type SyncStatus = {
 	log: SyncSessionInfo[],
 	error: string | null,
 };
+
+/**  One block of a novel chapter: text structure only, never source HTML. */
+export type TextBlock = { kind: "paragraph"; text: string } | { kind: "heading"; text: string } | { kind: "separator" } | 
+/**  Through the local image proxy. */
+{ kind: "image"; url: string };
 
 /**  Color theme. `System` follows the OS light/dark preference. */
 export type Theme = "system" | "light" | "dark" | 

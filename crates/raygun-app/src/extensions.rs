@@ -80,6 +80,16 @@ fn built_in() -> Vec<ExtensionSource> {
                 include_str!("../../../extensions/mangadex/dist/index.js"),
             ),
         ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/gutenberg/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/gutenberg/dist/index.js"),
+            ),
+        ]),
     ]
 }
 

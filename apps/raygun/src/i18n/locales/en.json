@@ -54,7 +54,8 @@
     "media": {
       "label": "What to show",
       "music": "Music",
-      "manga": "Manga"
+      "manga": "Manga",
+      "novel": "Novels"
     }
   },
   "search": {
@@ -386,5 +387,25 @@
     "downloadedChapters_one": "{{count}} chapter on this device",
     "downloadedChapters_other": "{{count}} chapters on this device",
     "queueEmpty": "Nothing is downloading."
+  },
+  "novel": {
+    "sources": "Novel sources",
+    "noSources": "No novel sources are installed.",
+    "emptyLibrary": "No novels yet. Browse a source and add books to your library.",
+    "percentRead": "{{percent}}% read",
+    "percent": "{{percent}}%",
+    "pageOf": "Page {{page}} of {{total}}",
+    "textSettings": "Text settings",
+    "fontSize": "Font size",
+    "lineSpacing": "Line spacing",
+    "less": "Less: {{label}}",
+    "more": "More: {{label}}",
+    "serif": "Serif",
+    "sans": "Sans",
+    "narrow": "Narrow",
+    "wide": "Wide",
+    "scroll": "Scroll",
+    "paged": "Pages",
+    "backToBook": "Back to the book"
   }
 }

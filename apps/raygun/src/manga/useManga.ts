@@ -4,6 +4,8 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useEffect } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
+import { catalogCommands } from './medium';
+import type { Medium } from './medium';
 
 /** Every manga query lives under this key. */
 export const MANGA = 'manga';
@@ -11,18 +13,23 @@ export const MANGA = 'manga';
 /** Catalogue pages stay fresh for a while, so going back to a source doesn't refetch. */
 const CATALOGUE_STALE_MS = 5 * 60_000;
 
-export const useMangaSources = () =>
+export const useMangaSources = (medium: Medium = 'manga') =>
   useQuery({
-    queryKey: [MANGA, 'sources'],
-    queryFn: () => unwrapResult(commands.mangaSources()),
+    queryKey: [medium, 'sources'],
+    queryFn: () => unwrapResult(catalogCommands(medium).sources()),
   });
 
-export const useMangaBrowse = (sourceId: string, mode: MangaBrowseMode, query: string) =>
+export const useMangaBrowse = (
+  sourceId: string,
+  mode: MangaBrowseMode,
+  query: string,
+  medium: Medium = 'manga',
+) =>
   useInfiniteQuery({
-    queryKey: [MANGA, 'browse', sourceId, mode, query],
+    queryKey: [medium, 'browse', sourceId, mode, query],
     queryFn: ({ pageParam }) =>
       unwrapResult(
-        commands.mangaBrowse(sourceId, mode, mode === 'search' ? query : null, pageParam),
+        catalogCommands(medium).browse(sourceId, mode, mode === 'search' ? query : null, pageParam),
       ),
     initialPageParam: 1,
     getNextPageParam: (last, pages) => (last.hasNextPage ? pages.length + 1 : undefined),
@@ -30,17 +37,17 @@ export const useMangaBrowse = (sourceId: string, mode: MangaBrowseMode, query: s
     staleTime: CATALOGUE_STALE_MS,
   });
 
-export const useMangaTitle = (sourceId: string, mangaId: string) =>
+export const useMangaTitle = (sourceId: string, mangaId: string, medium: Medium = 'manga') =>
   useQuery({
-    queryKey: [MANGA, 'title', sourceId, mangaId],
-    queryFn: () => unwrapResult(commands.mangaTitle(sourceId, mangaId, false)),
+    queryKey: [medium, 'title', sourceId, mangaId],
+    queryFn: () => unwrapResult(catalogCommands(medium).title(sourceId, mangaId, false)),
     enabled: Boolean(sourceId && mangaId),
   });
 
-export const useMangaLibrary = () =>
+export const useMangaLibrary = (medium: Medium = 'manga') =>
   useQuery({
-    queryKey: [MANGA, 'library'],
-    queryFn: () => unwrapResult(commands.mangaLibrary()),
+    queryKey: [medium, 'library'],
+    queryFn: () => unwrapResult(catalogCommands(medium).library()),
   });
 
 export const useMangaChapter = (titleId: string, chapterId: string) =>
@@ -53,38 +60,41 @@ export const useMangaChapter = (titleId: string, chapterId: string) =>
     gcTime: 60_000,
   });
 
-/** A mutation that refreshes manga titles, the library and browse badges once it lands. */
-const useMangaMutation = <Variables, Result>(run: (variables: Variables) => Promise<Result>) => {
+/** A mutation that refreshes titles, the library and browse badges of a medium once it lands. */
+const useMangaMutation = <Variables, Result>(
+  medium: Medium,
+  run: (variables: Variables) => Promise<Result>,
+) => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: run,
     onSettled: () =>
       Promise.all([
-        queryClient.invalidateQueries({ queryKey: [MANGA, 'title'] }),
-        queryClient.invalidateQueries({ queryKey: [MANGA, 'library'] }),
-        queryClient.invalidateQueries({ queryKey: [MANGA, 'browse'] }),
+        queryClient.invalidateQueries({ queryKey: [medium, 'title'] }),
+        queryClient.invalidateQueries({ queryKey: [medium, 'library'] }),
+        queryClient.invalidateQueries({ queryKey: [medium, 'browse'] }),
       ]),
   });
 };
 
-export const useRefreshTitle = () => {
+export const useRefreshTitle = (medium: Medium = 'manga') => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ sourceId, mangaId }: { sourceId: string; mangaId: string }) =>
-      unwrapResult(commands.mangaTitle(sourceId, mangaId, true)),
+      unwrapResult(catalogCommands(medium).title(sourceId, mangaId, true)),
     onSuccess: (view) =>
-      queryClient.setQueryData([MANGA, 'title', view.sourceId, view.remoteId], view),
+      queryClient.setQueryData([medium, 'title', view.sourceId, view.remoteId], view),
   });
 };
 
-export const useSetInLibrary = () =>
-  useMangaMutation(({ titleId, inLibrary }: { titleId: string; inLibrary: boolean }) =>
-    unwrapResult(commands.mangaSetInLibrary(titleId, inLibrary)),
+export const useSetInLibrary = (medium: Medium = 'manga') =>
+  useMangaMutation(medium, ({ titleId, inLibrary }: { titleId: string; inLibrary: boolean }) =>
+    unwrapResult(catalogCommands(medium).setInLibrary(titleId, inLibrary)),
   );
 
-export const useSetChapterRead = () =>
-  useMangaMutation(({ chapterId, read }: { chapterId: string; read: boolean }) =>
-    unwrapResult(commands.mangaSetRead(chapterId, read)),
+export const useSetChapterRead = (medium: Medium = 'manga') =>
+  useMangaMutation(medium, ({ chapterId, read }: { chapterId: string; read: boolean }) =>
+    unwrapResult(catalogCommands(medium).setRead(chapterId, read)),
   );
 
 /** Saves reader progress without refreshing anything; the title page refetches when shown. */

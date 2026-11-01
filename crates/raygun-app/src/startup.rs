@@ -68,6 +68,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         app.handle().clone(),
         proxy.images(),
     ));
+    app.manage(crate::novel::NovelService::new(
+        app.handle().clone(),
+        proxy.images(),
+    ));
     let downloads = crate::manga_downloads::MangaDownloadService::new(
         app.handle().clone(),
         paths.downloads(),

@@ -6,6 +6,7 @@ mod html;
 mod js;
 pub mod manga;
 pub mod manifest;
+pub mod novel;
 pub mod nuclear;
 pub mod package;
 pub mod permissions;

@@ -6,28 +6,32 @@ import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { MangaGrid } from '../manga/MangaGrid';
+import { ROUTES } from '../manga/medium';
+import type { Medium } from '../manga/medium';
 import { useMangaBrowse, useMangaSources } from '../manga/useManga';
 import { PageHeader } from './PageHeader';
 
 const LISTS: MangaBrowseMode[] = ['popular', 'latest'];
 
+type SourceSearch = { id?: string; mode?: MangaBrowseMode; q?: string };
+
 /** One source's catalogue: popular, latest or search results. */
-export const MangaSourcePage: FC = () => {
+export const MangaSourcePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) => {
   const { t } = useTranslation();
-  const { id, mode = 'popular', q = '' } = useSearch({ from: '/manga/source' });
-  const navigate = useNavigate({ from: '/manga/source' });
-  const sources = useMangaSources();
+  const search: SourceSearch = useSearch({ strict: false });
+  const { id = '', mode = 'popular', q = '' } = search;
+  const navigate = useNavigate();
+  const sources = useMangaSources(medium);
   const source = sources.data?.find((candidate) => candidate.id === id);
-  const browse = useMangaBrowse(id, mode, q);
+  const browse = useMangaBrowse(id, mode, q, medium);
   const [input, setInput] = useState(q);
+  const show = (next: SourceSearch) =>
+    void navigate({ to: ROUTES[medium].source, search: { id, ...next }, replace: true });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const query = input.trim();
-    void navigate({
-      search: query ? { id, mode: 'search', q: query } : { id, mode: 'popular' },
-      replace: true,
-    });
+    show(query ? { mode: 'search', q: query } : { mode: 'popular' });
   };
 
   const items = browse.data?.pages.flatMap((page) => page.items) ?? [];
@@ -55,7 +59,7 @@ export const MangaSourcePage: FC = () => {
             aria-pressed={mode === list}
             onClick={() => {
               setInput('');
-              void navigate({ search: { id, mode: list }, replace: true });
+              show({ mode: list });
             }}
             className={
               mode === list
@@ -81,7 +85,7 @@ export const MangaSourcePage: FC = () => {
       {browse.isSuccess && items.length === 0 && (
         <p className="text-muted text-sm">{t('manga.nothingFound')}</p>
       )}
-      <MangaGrid items={items} />
+      <MangaGrid items={items} medium={medium} />
       {browse.hasNextPage && (
         <button
           type="button"
@@ -98,3 +102,5 @@ export const MangaSourcePage: FC = () => {
     </section>
   );
 };
+
+export const NovelSourcePage: FC = () => <MangaSourcePage medium="novel" />;

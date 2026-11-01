@@ -4,10 +4,10 @@ use raygun_model::{
     AppInfo, BackupFile, BackupOutcome, CollectionPlayRequest, EngineReport, ExtensionInfo,
     ExtensionRepo, HistoryEntry, LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack, Lyrics,
     MangaBrowseMode, MangaChapterPages, MangaLibraryEntry, MangaListingPage, MangaSource,
-    MangaTitleView, MangaUpdateItem, MangaUpdateStatus, McpStatus, PlayRequest, PlaybackControl,
-    PlaybackState, PlaylistDetail, PlaylistSummary, QueueItemInput, QueueSnapshot, ReaderMode,
-    RemoteStatus, RepoCatalog, SavedTrack, SearchResults, SettingChange, SettingValue, Settings,
-    StorageInfo, StorageMode, SyncKind, SyncStatus, TrackInput, TrackQuery,
+    MangaTitleView, MangaUpdateItem, MangaUpdateStatus, McpStatus, NovelChapter, PlayRequest,
+    PlaybackControl, PlaybackState, PlaylistDetail, PlaylistSummary, QueueItemInput, QueueSnapshot,
+    ReaderMode, RemoteStatus, RepoCatalog, SavedTrack, SearchResults, SettingChange, SettingValue,
+    Settings, StorageInfo, StorageMode, SyncKind, SyncStatus, TrackInput, TrackQuery,
 };
 
 use crate::backup::BackupService;
@@ -18,6 +18,7 @@ use crate::library::LibraryService;
 use crate::manga::MangaService;
 use crate::manga_downloads::MangaDownloadService;
 use crate::mcp::McpService;
+use crate::novel::NovelService;
 use crate::playback::PlaybackService;
 use crate::remote::RemoteService;
 use crate::settings;
@@ -863,4 +864,91 @@ pub async fn backup_import(
     contents: String,
 ) -> Result<BackupOutcome, String> {
     backups.import(&contents).await
+}
+
+/// Installed novel sources (`novel.source` providers).
+#[tauri::command]
+#[specta::specta]
+pub async fn novel_sources(
+    novels: tauri::State<'_, NovelService>,
+) -> Result<Vec<MangaSource>, String> {
+    Ok(novels.sources().await)
+}
+
+/// A page of a novel source's catalogue: popular, latest, or search results.
+#[tauri::command]
+#[specta::specta]
+pub async fn novel_browse(
+    novels: tauri::State<'_, NovelService>,
+    source_id: String,
+    mode: MangaBrowseMode,
+    query: Option<String>,
+    page: u32,
+) -> Result<MangaListingPage, String> {
+    novels
+        .browse(&source_id, mode, query.as_deref(), page)
+        .await
+}
+
+/// A novel with its chapters; `refresh` fetches it from the source again.
+#[tauri::command]
+#[specta::specta]
+pub async fn novel_title(
+    novels: tauri::State<'_, NovelService>,
+    source_id: String,
+    novel_id: String,
+    refresh: bool,
+) -> Result<MangaTitleView, String> {
+    novels.title(&source_id, &novel_id, refresh).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn novel_set_in_library(
+    novels: tauri::State<'_, NovelService>,
+    title_id: String,
+    in_library: bool,
+) -> Result<(), String> {
+    novels.set_in_library(&title_id, in_library).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn novel_library(
+    novels: tauri::State<'_, NovelService>,
+) -> Result<Vec<MangaLibraryEntry>, String> {
+    novels.library().await
+}
+
+/// One chapter's text as blocks, with its neighbours.
+#[tauri::command]
+#[specta::specta]
+pub async fn novel_chapter(
+    novels: tauri::State<'_, NovelService>,
+    title_id: String,
+    chapter_id: String,
+) -> Result<NovelChapter, String> {
+    novels.chapter(&title_id, &chapter_id).await
+}
+
+/// Saves the character offset reached in a chapter of `total` characters.
+#[tauri::command]
+#[specta::specta]
+pub async fn novel_set_progress(
+    novels: tauri::State<'_, NovelService>,
+    chapter_id: String,
+    offset: u32,
+    total: u32,
+) -> Result<(), String> {
+    novels.set_progress(&chapter_id, offset, total).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn novel_set_read(
+    novels: tauri::State<'_, NovelService>,
+    chapter_id: String,
+    read: bool,
+) -> Result<(), String> {
+    novels.set_read(&chapter_id, read).await
 }

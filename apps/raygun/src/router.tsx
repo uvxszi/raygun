@@ -15,10 +15,11 @@ import { HomePage } from './pages/HomePage';
 import { LibraryPage } from './pages/LibraryPage';
 import { MangaDownloadsPage } from './pages/MangaDownloadsPage';
 import { MangaReaderPage } from './pages/MangaReaderPage';
-import { MangaSourcePage } from './pages/MangaSourcePage';
-import { MangaSourcesPage } from './pages/MangaSourcesPage';
-import { MangaTitlePage } from './pages/MangaTitlePage';
+import { MangaSourcePage, NovelSourcePage } from './pages/MangaSourcePage';
+import { MangaSourcesPage, NovelSourcesPage } from './pages/MangaSourcesPage';
+import { MangaTitlePage, NovelTitlePage } from './pages/MangaTitlePage';
 import { MangaUpdatesPage } from './pages/MangaUpdatesPage';
+import { NovelReaderPage } from './pages/NovelReaderPage';
 import { PlaylistPage } from './pages/PlaylistPage';
 import { SearchPage } from './pages/SearchPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -26,10 +27,12 @@ import { AppShell } from './shell/AppShell';
 
 const rootRoute = createRootRoute({ component: AppShell });
 
-const text = (value: unknown) => (typeof value === 'string' ? value : '');
+// Search values that look like numbers (a book id such as 84) arrive parsed; ids stay text.
+const text = (value: unknown) =>
+  typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '';
 
-/** Library shows music unless `media=manga`. */
-export type LibraryMedia = 'manga';
+/** Library shows music unless `media` is `manga` or `novel`. */
+export type LibraryMedia = 'manga' | 'novel';
 
 const MANGA_MODES: MangaBrowseMode[] = ['popular', 'latest', 'search'];
 const isMangaMode = (value: unknown): value is MangaBrowseMode =>
@@ -45,7 +48,7 @@ const routeTree = rootRoute.addChildren([
       search: Record<string, unknown>,
     ): { view?: LibraryView; media?: LibraryMedia } => ({
       ...(isLibraryView(search.view) ? { view: search.view } : {}),
-      ...(search.media === 'manga' ? { media: 'manga' as const } : {}),
+      ...(search.media === 'manga' || search.media === 'novel' ? { media: search.media } : {}),
     }),
   }),
   createRoute({
@@ -88,6 +91,41 @@ const routeTree = rootRoute.addChildren([
     getParentRoute: () => rootRoute,
     path: '/manga/read',
     component: MangaReaderPage,
+    validateSearch: (search: Record<string, unknown>) => ({
+      title: text(search.title),
+      chapter: text(search.chapter),
+    }),
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/novel/browse',
+    component: NovelSourcesPage,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/novel/source',
+    component: NovelSourcePage,
+    validateSearch: (
+      search: Record<string, unknown>,
+    ): { id: string; mode?: MangaBrowseMode; q?: string } => ({
+      id: text(search.id),
+      ...(isMangaMode(search.mode) ? { mode: search.mode } : {}),
+      ...(text(search.q) ? { q: text(search.q) } : {}),
+    }),
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/novel/title',
+    component: NovelTitlePage,
+    validateSearch: (search: Record<string, unknown>) => ({
+      source: text(search.source),
+      id: text(search.id),
+    }),
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/novel/read',
+    component: NovelReaderPage,
     validateSearch: (search: Record<string, unknown>) => ({
       title: text(search.title),
       chapter: text(search.chapter),

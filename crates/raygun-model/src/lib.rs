@@ -63,6 +63,48 @@ pub struct Settings {
     pub language: String,
     /// Hours between automatic manga library updates; 0 turns them off (M28).
     pub manga_update_hours: u32,
+    /// How novels are set (M31).
+    pub novel_reader: NovelReaderPrefs,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum NovelFont {
+    Serif,
+    Sans,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum NovelWidth {
+    Narrow,
+    Wide,
+}
+
+/// The novel reader's typography and layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NovelReaderPrefs {
+    /// CSS pixels, 14–30.
+    pub font_size: u32,
+    /// Line height in tenths, 12–22 (1.2–2.2).
+    pub line_spacing: u32,
+    pub font: NovelFont,
+    pub width: NovelWidth,
+    /// Pages turned sideways instead of one scrolling column.
+    pub paged: bool,
+}
+
+impl Default for NovelReaderPrefs {
+    fn default() -> Self {
+        Self {
+            font_size: 18,
+            line_spacing: 16,
+            font: NovelFont::Serif,
+            width: NovelWidth::Narrow,
+            paged: false,
+        }
+    }
 }
 
 /// The update intervals offered, in hours (0 = off).
@@ -74,6 +116,7 @@ impl Default for Settings {
             theme: Theme::System,
             language: "en".into(),
             manga_update_hours: 12,
+            novel_reader: NovelReaderPrefs::default(),
         }
     }
 }
@@ -84,6 +127,7 @@ impl Settings {
             SettingChange::Theme(theme) => self.theme = theme,
             SettingChange::Language(language) => self.language = language,
             SettingChange::MangaUpdateHours(hours) => self.manga_update_hours = hours,
+            SettingChange::NovelReader(prefs) => self.novel_reader = prefs,
         }
     }
 }
@@ -96,6 +140,7 @@ pub enum SettingChange {
     Theme(Theme),
     Language(String),
     MangaUpdateHours(u32),
+    NovelReader(NovelReaderPrefs),
 }
 
 impl SettingChange {
@@ -105,6 +150,7 @@ impl SettingChange {
             Self::Theme(_) => "theme",
             Self::Language(_) => "language",
             Self::MangaUpdateHours(_) => "mangaUpdateHours",
+            Self::NovelReader(_) => "novelReader",
         }
     }
 
@@ -112,6 +158,18 @@ impl SettingChange {
     pub fn validate(&self) -> Result<(), String> {
         match self {
             Self::Theme(_) => Ok(()),
+            Self::NovelReader(prefs) => {
+                if !(14..=30).contains(&prefs.font_size) {
+                    Err(format!(
+                        "{} px is outside the font sizes offered",
+                        prefs.font_size
+                    ))
+                } else if !(12..=22).contains(&prefs.line_spacing) {
+                    Err("That line spacing isn't offered".into())
+                } else {
+                    Ok(())
+                }
+            }
             Self::MangaUpdateHours(hours) => {
                 if MANGA_UPDATE_HOURS.contains(hours) {
                     Ok(())
@@ -1128,4 +1186,36 @@ pub enum BackupOutcome {
     Mihon {
         summary: MihonImport,
     },
+}
+
+// ---- Novels (M31) ----
+
+/// One block of a novel chapter: text structure only, never source HTML.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum TextBlock {
+    Paragraph {
+        text: String,
+    },
+    Heading {
+        text: String,
+    },
+    Separator,
+    /// Through the local image proxy.
+    Image {
+        url: String,
+    },
+}
+
+/// What the novel reader needs for one chapter.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NovelChapter {
+    pub title_id: String,
+    pub title: String,
+    /// `lastPage` and `totalPages` hold the character offset and length while partly read.
+    pub chapter: MangaChapterInfo,
+    pub blocks: Vec<TextBlock>,
+    pub previous_chapter_id: Option<String>,
+    pub next_chapter_id: Option<String>,
 }

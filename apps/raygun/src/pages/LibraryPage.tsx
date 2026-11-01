@@ -51,13 +51,15 @@ const TracksView: FC = () => {
   );
 };
 
-/** Music or manga: the library's top-level choice. */
-const MediaSwitch: FC<{ media: 'music' | 'manga' }> = ({ media }) => {
+type Media = 'music' | 'manga' | 'novel';
+
+/** Music, manga or novels: the library's top-level choice. */
+const MediaSwitch: FC<{ media: Media }> = ({ media }) => {
   const { t } = useTranslation();
-  const option = (value: 'music' | 'manga') => (
+  const option = (value: Media) => (
     <Link
       to="/library"
-      search={value === 'manga' ? { media: 'manga' } : {}}
+      search={value === 'music' ? {} : { media: value }}
       data-testid={`library-media-${value}`}
       aria-current={media === value ? 'page' : undefined}
       className={`flex-1 rounded-lg py-1.5 text-center text-sm ${media === value ? 'bg-background font-semibold' : 'text-muted'}`}
@@ -69,6 +71,7 @@ const MediaSwitch: FC<{ media: 'music' | 'manga' }> = ({ media }) => {
     <nav aria-label={t('library.media.label')} className="bg-surface flex gap-1 rounded-xl p-1">
       {option('music')}
       {option('manga')}
+      {option('novel')}
     </nav>
   );
 };
@@ -78,12 +81,12 @@ export const LibraryPage: FC = () => {
   const { view = 'albums', media } = useSearch({ from: '/library' });
   const status = useLibraryStatus();
 
-  if (media === 'manga') {
+  if (media === 'manga' || media === 'novel') {
     return (
       <section data-testid="library-page" className="flex flex-col gap-5">
         <PageHeader title={t('library.title')} />
-        <MediaSwitch media="manga" />
-        <MangaLibraryView />
+        <MediaSwitch media={media} />
+        <MangaLibraryView key={media} medium={media} />
       </section>
     );
   }

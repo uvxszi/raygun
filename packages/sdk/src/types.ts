@@ -168,8 +168,36 @@ export type MangaSourceProvider = {
   pages(args: { chapterId: string }): Promise<{ pages: PageImage[] }>;
 };
 
+// ---- Novels (M31) ----
+
+/**
+ * A chapter's text. Prefer `html`: the app keeps paragraphs, headings, rules and images (resolved
+ * against `baseUrl`) and drops everything else. `text` is split into paragraphs at blank lines.
+ */
+export type Passage = { html?: string; text?: string; baseUrl?: string };
+
+/**
+ * A novel catalogue: the calls and shapes of `manga.source`, with `passage` in place of `pages`.
+ * List chapters in reading order or newest first; the app reads by chapter number.
+ */
+export type NovelSourceProvider = {
+  kind: 'novel.source';
+  id: string;
+  name?: string;
+  popular(args: { page: number }): Promise<MangaPage>;
+  latest?(args: { page: number }): Promise<MangaPage>;
+  search(args: { query: string; page: number }): Promise<MangaPage>;
+  details(args: { id: string }): Promise<MangaDetails>;
+  chapters(args: { id: string }): Promise<{ chapters: MangaChapter[] }>;
+  passage(args: { chapterId: string }): Promise<Passage>;
+};
+
 export type Provider =
-  MusicMetadataProvider | MusicStreamProvider | LyricsProvider | MangaSourceProvider;
+  | MusicMetadataProvider
+  | MusicStreamProvider
+  | LyricsProvider
+  | MangaSourceProvider
+  | NovelSourceProvider;
 export type ProviderKind = Provider['kind'];
 
 // ---- Host API ----

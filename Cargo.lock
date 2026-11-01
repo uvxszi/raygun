@@ -3475,6 +3475,7 @@ name = "raygun-ext-host"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "ego-tree",
  "futures-util",
  "raygun-model",
  "raygun-net",

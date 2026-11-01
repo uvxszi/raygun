@@ -77,6 +77,7 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   language: 'en',
   mangaUpdateHours: 12,
+  novelReader: { fontSize: 18, lineSpacing: 16, font: 'serif', width: 'narrow', paged: false },
 };
 
 export const IDLE_UPDATE: MangaUpdateStatus = {
@@ -174,6 +175,14 @@ export const bindingsMock = {
     backupRestore: vi.fn(),
     backupDelete: vi.fn(),
     backupImport: vi.fn(),
+    novelSources: vi.fn(),
+    novelBrowse: vi.fn(),
+    novelTitle: vi.fn(),
+    novelSetInLibrary: vi.fn(),
+    novelLibrary: vi.fn(),
+    novelChapter: vi.fn(),
+    novelSetProgress: vi.fn(),
+    novelSetRead: vi.fn(),
   },
   events: {
     engineCommandEvent: makeEvent('engineCommandEvent'),
@@ -299,6 +308,14 @@ export const seedBindings = () => {
   commands.backupRestore.mockResolvedValue(ok({ kind: 'raygun', received: 0, changed: 0 }));
   commands.backupDelete.mockResolvedValue(ok(null));
   commands.backupImport.mockResolvedValue(ok({ kind: 'raygun', received: 0, changed: 0 }));
+  commands.novelSources.mockResolvedValue(ok([]));
+  commands.novelBrowse.mockResolvedValue(ok({ items: [], hasNextPage: false }));
+  commands.novelTitle.mockResolvedValue(ok(null));
+  commands.novelSetInLibrary.mockResolvedValue(ok(null));
+  commands.novelLibrary.mockResolvedValue(ok([]));
+  commands.novelChapter.mockResolvedValue(ok(null));
+  commands.novelSetProgress.mockResolvedValue(ok(null));
+  commands.novelSetRead.mockResolvedValue(ok(null));
 };
 
 export const emitEvent = <Name extends EventName>(name: Name, payload: EventPayloads[Name]) => {
