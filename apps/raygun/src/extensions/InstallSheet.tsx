@@ -3,6 +3,8 @@ import { Globe, LoaderCircle } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { hostLabel } from './hostLabel';
+
 import { useInstallExtension } from './useExtensions';
 
 type InstallSheetProps = {
@@ -45,9 +47,9 @@ export const InstallSheet: FC<InstallSheetProps> = ({ entry, onClose }) => {
           ) : entry.net.length > 0 ? (
             <ul data-testid="install-permissions" className="flex flex-col gap-1">
               {entry.net.map((host) => (
-                <li key={host} className="text-muted flex items-center gap-2 break-all">
+                <li key={host} className="text-muted flex items-center gap-2 wrap-anywhere">
                   <Globe aria-hidden size={14} className="shrink-0" />
-                  {host}
+                  {hostLabel(host, t)}
                 </li>
               ))}
             </ul>

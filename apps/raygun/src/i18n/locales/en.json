@@ -200,7 +200,8 @@
     "compatibilityCategories": "Not supported in Raygun: {{list}}.",
     "compatibilityApis": "These Nuclear features are unavailable, so parts of the plugin may fail: {{list}}.",
     "compatibilityUi": "Its screens and widgets don't show in Raygun.",
-    "compatibilityFull": "Everything this plugin provides works in Raygun."
+    "compatibilityFull": "Everything this plugin provides works in Raygun.",
+    "anyWebsite": "Any public website (never this device or your local network)"
   },
   "collections": {
     "moreActions": "More for {{title}}",

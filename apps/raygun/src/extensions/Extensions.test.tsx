@@ -186,6 +186,29 @@ describe('Extensions', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it('says a Shosetsu script may reach any public website', async () => {
+    commands.extensionCatalog.mockResolvedValue(
+      ok(
+        catalog([
+          entry({
+            id: 'shosetsu.en.novelfull',
+            name: 'NovelFull',
+            provides: ['novel.source'],
+            net: ['*'],
+          }),
+        ]),
+      ),
+    );
+    await AppShellWrapper.mount('/extensions?tab=browse');
+
+    const [novelFull] = await screen.findAllByTestId('catalog-entry');
+    await userEvent.click(within(novelFull!).getByRole('button', { name: 'Install' }));
+    const dialog = screen.getByRole('dialog', { name: 'Install NovelFull?' });
+    expect(within(dialog).getByTestId('install-permissions')).toHaveTextContent(
+      'Any public website (never this device or your local network)',
+    );
+  });
+
   it('shows updates and install failures', async () => {
     commands.extensionCatalog.mockResolvedValue(
       ok(

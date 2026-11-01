@@ -11,6 +11,7 @@ pub mod nuclear;
 pub mod package;
 pub mod permissions;
 pub mod repo;
+pub mod shosetsu;
 mod storage;
 
 #[cfg(test)]

@@ -883,3 +883,103 @@ async fn gutenberg_extension_reads_a_real_book() {
     let passage = host.novel_passage(provider, &chapters[0].id).await.unwrap();
     assert!(passage.len() > 5, "{passage:?}");
 }
+
+/// `cargo test -p raygun-ext-host -- --ignored shosetsu_official`: installs scripts from
+/// Shosetsu's official repository as the app does, then reads a listing, a novel and a chapter.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs network access to gitlab.com and the novel sites"]
+async fn shosetsu_official_scripts_work() {
+    use crate::shosetsu::package as shosetsu_package;
+    const INDEX: &str = "https://gitlab.com/shosetsuorg/extensions/-/raw/dev/index.json";
+    let client = raygun_net::http_client().unwrap();
+    let download = |url: reqwest::Url| {
+        let client = client.clone();
+        async move {
+            client
+                .get(url)
+                .send()
+                .await
+                .unwrap()
+                .bytes()
+                .await
+                .unwrap()
+                .to_vec()
+        }
+    };
+    let index_url = reqwest::Url::parse(INDEX).unwrap();
+    let index =
+        crate::repo::parse_index(&String::from_utf8(download(index_url.clone()).await).unwrap())
+            .unwrap();
+    assert!(index.extensions.len() > 20, "{}", index.extensions.len());
+
+    let temp = tempfile::TempDir::new().unwrap();
+    let wanted =
+        std::env::var("SHOSETSU_SCRIPTS").unwrap_or_else(|_| "shosetsu.en.novelfull".into());
+    for id in wanted.split(',') {
+        let entry = index
+            .extensions
+            .iter()
+            .find(|entry| entry.id == id)
+            .unwrap();
+        let bytes = download(crate::repo::package_url(&index_url, entry).unwrap()).await;
+        let script = shosetsu_package::verify_script(&bytes, entry).unwrap();
+        let mut queue = shosetsu_package::dependencies(&script);
+        let mut libraries: Vec<(String, String)> = Vec::new();
+        while let Some(name) = queue.pop() {
+            if libraries.iter().any(|(known, _)| *known == name) {
+                continue;
+            }
+            let bytes = download(index_url.join(&format!("lib/{name}.lua")).unwrap()).await;
+            let code = shosetsu_package::verify_library(&name, &bytes, &index).unwrap();
+            queue.extend(shosetsu_package::dependencies(&code));
+            libraries.push((name, code));
+        }
+        let package = shosetsu_package::package(entry, script, libraries).unwrap();
+        crate::package::install(temp.path(), &package).unwrap();
+    }
+
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    let infos = host.load(discover_installed(temp.path())).await;
+    for info in &infos {
+        assert_eq!(
+            info.status,
+            ExtensionStatus::Loaded,
+            "{}: {:?}",
+            info.id,
+            info.error
+        );
+        let provider = format!("{}/novel", info.id);
+        let popular = host
+            .manga_list(&provider, crate::manga::MangaList::Popular, 1)
+            .await
+            .unwrap_or_else(|error| panic!("{}: {error}", info.id));
+        eprintln!(
+            "{}: {} novels, first {:?}",
+            info.id,
+            popular.items.len(),
+            popular.items.first().map(|item| &item.title)
+        );
+        assert!(!popular.items.is_empty(), "{}", info.id);
+        let novel = &popular.items[0];
+        let details = host.manga_details(&provider, &novel.id).await.unwrap();
+        let chapters = host.manga_chapters(&provider, &novel.id).await.unwrap();
+        eprintln!(
+            "  {}: {} chapters, status {}, genres {:?}",
+            details.title,
+            chapters.len(),
+            details.status,
+            details.genres
+        );
+        assert!(!chapters.is_empty());
+        let passage = host
+            .novel_passage(&provider, &chapters[0].id)
+            .await
+            .unwrap();
+        eprintln!(
+            "  first chapter: {} blocks, starts {:?}",
+            passage.len(),
+            passage.first()
+        );
+        assert!(passage.len() > 3);
+    }
+}

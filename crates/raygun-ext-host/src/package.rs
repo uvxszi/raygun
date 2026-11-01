@@ -149,6 +149,24 @@ pub fn from_converted(manifest_json: &str, bundle: &str) -> Result<VerifiedPacka
     Ok(VerifiedPackage { manifest, files })
 }
 
+/// A package built at install from a generated manifest and its files (Shosetsu scripts, M32).
+pub fn from_files(
+    manifest_json: &str,
+    files: Vec<(String, Vec<u8>)>,
+) -> Result<VerifiedPackage, PackageError> {
+    let manifest = Manifest::parse(manifest_json)
+        .map_err(|error| PackageError::Manifest(error.to_string()))?;
+    let mut all = vec![(MANIFEST_FILE.to_owned(), manifest_json.as_bytes().to_vec())];
+    all.extend(files);
+    if !all.iter().any(|(name, _)| *name == manifest.entry) {
+        return Err(PackageError::NoEntry(manifest.entry));
+    }
+    Ok(VerifiedPackage {
+        manifest,
+        files: all,
+    })
+}
+
 /// Checks a Nuclear plugin download against the registry's checksum, when it lists one.
 pub fn check_nuclear_download(bytes: &[u8], entry: &RepoEntry) -> Result<(), PackageError> {
     if bytes.len() as u64 > MAX_PACKAGE_BYTES {

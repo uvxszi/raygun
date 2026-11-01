@@ -13,6 +13,7 @@ use raygun_db::extensions::{self as store, InstallRow};
 use raygun_ext_host::nuclear;
 use raygun_ext_host::package::{self, MAX_PACKAGE_BYTES};
 use raygun_ext_host::repo::{self, PackageFormat, RepoEntry, RepoIndex};
+use raygun_ext_host::shosetsu;
 use raygun_ext_host::{
     ExtensionHost, ExtensionSource, HostConfig, ProviderCandidates, ResolvedStream, UserSettings,
     discover_installed,
@@ -427,6 +428,34 @@ impl ExtensionService {
                 }
                 tracing::info!(extension = %entry.id, hosts = ?converted.report.hosts, "Nuclear plugin converted");
                 verified
+            }
+            PackageFormat::Shosetsu => {
+                let script = shosetsu::package::verify_script(&bytes, entry)
+                    .map_err(|error| error.to_string())?;
+                // The libraries it needs, and theirs, each checked against the index.
+                let mut queue = shosetsu::package::dependencies(&script);
+                let mut libraries: Vec<(String, String)> = Vec::new();
+                while let Some(name) = queue.pop() {
+                    if libraries.iter().any(|(known, _)| *known == name) {
+                        continue;
+                    }
+                    if libraries.len() >= shosetsu::package::MAX_LIBRARIES
+                        || !shosetsu::package::is_library_name(&name)
+                    {
+                        return Err(format!("{} needs an unusable library {name}", entry.name));
+                    }
+                    let url = index_url
+                        .join(&format!("lib/{name}.lua"))
+                        .map_err(|error| error.to_string())?;
+                    let bytes = self.download(url.as_str(), MAX_PACKAGE_BYTES).await?;
+                    let code = shosetsu::package::verify_library(&name, &bytes, &index)
+                        .map_err(|error| format!("library {name}: {error}"))?;
+                    queue.extend(shosetsu::package::dependencies(&code));
+                    libraries.push((name, code));
+                }
+                tracing::info!(extension = %entry.id, libraries = libraries.len(), "Shosetsu script fetched");
+                shosetsu::package::package(entry, script, libraries)
+                    .map_err(|error| error.to_string())?
             }
         };
         let extensions_dir = self.extensions_dir.clone();

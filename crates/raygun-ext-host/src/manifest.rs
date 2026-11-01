@@ -92,10 +92,19 @@ impl SettingDef {
     }
 }
 
+/// What runs the extension's entry file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Runtime {
+    Js,
+    /// A Shosetsu Lua script converted at install (M32).
+    Shosetsu,
+}
+
 /// A validated manifest.
 #[derive(Debug, Clone)]
 pub struct Manifest {
     pub id: String,
+    pub runtime: Runtime,
     pub name: String,
     pub version: semver::Version,
     pub entry: String,
@@ -152,10 +161,12 @@ impl Manifest {
         if raw.api_version != API_VERSION {
             return Err(ManifestError::ApiVersion(raw.api_version));
         }
-        if raw.runtime != "js" {
-            return Err(ManifestError::Runtime(raw.runtime));
-        }
-        if !is_safe_entry(&raw.entry) {
+        let runtime = match raw.runtime.as_str() {
+            "js" => Runtime::Js,
+            "shosetsu" => Runtime::Shosetsu,
+            _ => return Err(ManifestError::Runtime(raw.runtime)),
+        };
+        if !is_safe_entry(&raw.entry, runtime) {
             return Err(ManifestError::Entry(raw.entry));
         }
         if let Some(kind) = raw.provides.iter().find(|kind| !is_kind(kind)) {
@@ -166,7 +177,12 @@ impl Manifest {
             .net
             .iter()
             .map(|pattern| {
-                HostPattern::parse(pattern).ok_or_else(|| ManifestError::Net(pattern.clone()))
+                HostPattern::parse(pattern)
+                    // Any-host access is for Shosetsu scripts only.
+                    .filter(|parsed| {
+                        *parsed != HostPattern::AnyPublic || runtime == Runtime::Shosetsu
+                    })
+                    .ok_or_else(|| ManifestError::Net(pattern.clone()))
             })
             .collect::<Result<Vec<_>, _>>()?;
         let mut keys = HashSet::new();
@@ -183,6 +199,7 @@ impl Manifest {
         }
         Ok(Self {
             id: raw.id,
+            runtime,
             name,
             version,
             entry: raw.entry,
@@ -246,8 +263,12 @@ fn is_label(label: &str, extra: &[u8]) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || extra.contains(b))
 }
 
-fn is_safe_entry(entry: &str) -> bool {
-    entry.ends_with(".js")
+fn is_safe_entry(entry: &str, runtime: Runtime) -> bool {
+    let extension = match runtime {
+        Runtime::Js => ".js",
+        Runtime::Shosetsu => ".lua",
+    };
+    entry.ends_with(extension)
         && !entry.contains('\\')
         && !entry.contains(':')
         && entry

@@ -21,7 +21,8 @@ use serde::Deserialize;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::js::{JsExtension, Limits};
-use crate::manifest::{self, MANIFEST_FILE, Manifest};
+use crate::manifest::{self, MANIFEST_FILE, Manifest, Runtime};
+use crate::shosetsu::ShosetsuExtension;
 use crate::storage::KvStore;
 
 pub const MUSIC_METADATA: &str = "music.metadata";
@@ -98,7 +99,7 @@ impl ExtensionSource {
         }
     }
 
-    fn read(&self, path: &str) -> Result<String, String> {
+    pub(crate) fn read(&self, path: &str) -> Result<String, String> {
         match &self.files {
             ExtensionFiles::Memory(files) => files
                 .get(path)
@@ -375,7 +376,48 @@ impl ExtensionHost {
 }
 
 struct Loaded {
-    extension: Rc<JsExtension>,
+    extension: Rc<Extension>,
+}
+
+/// A loaded extension: JavaScript, or a Shosetsu script (M32).
+enum Extension {
+    Js(JsExtension),
+    Shosetsu(Box<ShosetsuExtension>),
+}
+
+impl Extension {
+    fn manifest(&self) -> &Manifest {
+        match self {
+            Self::Js(extension) => extension.manifest(),
+            Self::Shosetsu(extension) => extension.manifest(),
+        }
+    }
+
+    fn user_settings(&self) -> &BTreeMap<String, serde_json::Value> {
+        match self {
+            Self::Js(extension) => extension.user_settings(),
+            Self::Shosetsu(extension) => extension.user_settings(),
+        }
+    }
+
+    fn providers(&self) -> Vec<ProviderInfo> {
+        match self {
+            Self::Js(extension) => extension.providers(),
+            Self::Shosetsu(extension) => extension.providers(),
+        }
+    }
+
+    async fn call(
+        &self,
+        local_id: &str,
+        method: &str,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        match self {
+            Self::Js(extension) => extension.call(local_id, method, args).await,
+            Self::Shosetsu(extension) => extension.call(local_id, method, args).await,
+        }
+    }
 }
 
 struct HostState {
@@ -497,7 +539,14 @@ impl HostState {
         source: ExtensionSource,
         manifest: Manifest,
         mut user_settings: BTreeMap<String, serde_json::Value>,
-    ) -> Result<JsExtension, String> {
+    ) -> Result<Extension, String> {
+        if manifest.runtime == Runtime::Shosetsu {
+            let load = ShosetsuExtension::load(manifest, source);
+            return tokio::time::timeout(self.config.call_timeout, load)
+                .await
+                .map_err(|_| "loading timed out".to_owned())?
+                .map(|extension| Extension::Shosetsu(Box::new(extension)));
+        }
         user_settings.retain(|key, value| manifest.check_setting(key, value).is_ok());
         let code = source.read(&manifest.entry)?;
         let storage = KvStore::open(
@@ -510,6 +559,7 @@ impl HostState {
         tokio::time::timeout(self.config.call_timeout, load)
             .await
             .map_err(|_| "loading timed out".to_owned())?
+            .map(Extension::Js)
     }
 
     async fn call(
@@ -533,17 +583,22 @@ impl HostState {
         {
             return Err(unknown());
         }
-        tokio::time::timeout(
-            self.config.call_timeout,
-            extension.call(local_id, method, args),
-        )
-        .await
-        .map_err(|_| CallError::Timeout(provider.to_owned()))?
-        .map_err(CallError::Script)
+        // Shosetsu scripts block on each request and may page through long chapter lists.
+        let timeout = match extension.as_ref() {
+            Extension::Js(_) => self.config.call_timeout,
+            Extension::Shosetsu(_) => self
+                .config
+                .call_timeout
+                .max(crate::shosetsu::runtime::CALL_BUDGET + Duration::from_secs(5)),
+        };
+        tokio::time::timeout(timeout, extension.call(local_id, method, args))
+            .await
+            .map_err(|_| CallError::Timeout(provider.to_owned()))?
+            .map_err(CallError::Script)
     }
 }
 
-fn loaded_info(extension: &JsExtension, origin: ExtensionOrigin) -> ExtensionInfo {
+fn loaded_info(extension: &Extension, origin: ExtensionOrigin) -> ExtensionInfo {
     let manifest = extension.manifest();
     let values = extension.user_settings();
     ExtensionInfo {
