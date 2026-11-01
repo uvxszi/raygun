@@ -65,7 +65,7 @@ describe('Favorites and playlists', () => {
         providers: [{ provider: PROVIDER, tracks: [online], error: null }],
       }),
     );
-    await AppShellWrapper.mount('/search?q=feeling+good');
+    await AppShellWrapper.mount('/search?type=music&q=feeling+good');
 
     await userEvent.click(await screen.findByRole('button', { name: 'More for Feeling Good' }));
     const sheet = await screen.findByRole('dialog', { name: 'Feeling Good' });
@@ -96,7 +96,7 @@ describe('Favorites and playlists', () => {
     commands.playlistCreate.mockResolvedValue(
       ok({ id: 'p9', name: 'Road trip', itemCount: 0, artworkUrls: [] }),
     );
-    await AppShellWrapper.mount('/search?q=feeling+good');
+    await AppShellWrapper.mount('/search?type=music&q=feeling+good');
 
     await userEvent.click(await screen.findByRole('button', { name: 'More for Feeling Good' }));
     const sheet = await screen.findByRole('dialog');
@@ -226,9 +226,9 @@ describe('Search across sources', () => {
         providers: [{ provider: PROVIDER, tracks: [online], error: null }],
       }),
     );
-    await AppShellWrapper.mount('/search?q=feeling+good');
+    await AppShellWrapper.mount('/search?type=music&q=feeling+good');
 
-    const headings = await screen.findAllByRole('heading', { level: 2 });
+    const headings = await screen.findAllByRole('heading', { level: 3 });
     expect(headings.map((heading) => heading.textContent)).toEqual([
       'Your library',
       'Top results',

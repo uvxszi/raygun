@@ -1,7 +1,15 @@
 // MangaDex (M24): popular, latest and search from the public API, details with cover and authors,
 // the chapter feed in the chosen language, and page images from MangaDex@Home servers.
 import { defineProvider, registerProvider } from '@raygun/sdk';
-import type { MangaChapter, MangaDetails, MangaPage, MangaStatus, MangaSummary } from '@raygun/sdk';
+import type {
+  FilterValues,
+  MangaChapter,
+  MangaDetails,
+  MangaPage,
+  MangaStatus,
+  MangaSummary,
+  SourceFilter,
+} from '@raygun/sdk';
 
 const API = 'https://api.mangadex.org';
 // MangaDex answers browser-like clients with a bot challenge; it wants apps to say who they are.
@@ -215,6 +223,103 @@ const pages = async (chapterId: string) => {
   }));
 };
 
+// ---- Search filters (M40) ----
+
+const SORTS: Record<string, [string, string]> = {
+  relevance: ['relevance', 'desc'],
+  popular: ['followedCount', 'desc'],
+  latest: ['latestUploadedChapter', 'desc'],
+  rating: ['rating', 'desc'],
+  newest: ['createdAt', 'desc'],
+  title: ['title', 'asc'],
+};
+type TagRecord = { id: string; attributes: { name: Localized; group: string } };
+/** MangaDex's tags change rarely; they're fetched once per session. */
+let tagCache: SourceFilter | null = null;
+
+const tagFilter = async (): Promise<SourceFilter> => {
+  if (tagCache) return tagCache;
+  const result = await get<{ data: TagRecord[] }>('/manga/tag', []);
+  const groupOrder = ['genre', 'theme', 'format', 'content'];
+  const options = result.data
+    .map((tag) => ({
+      value: tag.id,
+      label: localized(tag.attributes.name, 'en') ?? tag.id,
+      group: tag.attributes.group,
+    }))
+    // Content tags (gore, sexual violence) are adult-leaning; leave them out unless NSFW is on.
+    .filter((tag) => tag.group !== 'content' || raygun.content.showNsfw())
+    .sort(
+      (a, b) =>
+        groupOrder.indexOf(a.group) - groupOrder.indexOf(b.group) || a.label.localeCompare(b.label),
+    )
+    .map(({ value, label }) => ({ value, label }));
+  tagCache = { kind: 'tags', key: 'tags', label: 'Tags', options };
+  return tagCache;
+};
+
+const filters = async (): Promise<SourceFilter[]> => [
+  {
+    kind: 'select',
+    key: 'sort',
+    label: 'Sort by',
+    default: 'relevance',
+    options: [
+      { value: 'relevance', label: 'Best match' },
+      { value: 'popular', label: 'Most followed' },
+      { value: 'latest', label: 'Latest upload' },
+      { value: 'rating', label: 'Top rated' },
+      { value: 'newest', label: 'Recently added' },
+      { value: 'title', label: 'Title' },
+    ],
+  },
+  {
+    kind: 'select',
+    key: 'status',
+    label: 'Status',
+    default: 'any',
+    options: [
+      { value: 'any', label: 'Any' },
+      { value: 'ongoing', label: 'Ongoing' },
+      { value: 'completed', label: 'Completed' },
+      { value: 'hiatus', label: 'Hiatus' },
+      { value: 'cancelled', label: 'Cancelled' },
+    ],
+  },
+  {
+    kind: 'select',
+    key: 'demographic',
+    label: 'Demographic',
+    default: 'any',
+    options: [
+      { value: 'any', label: 'Any' },
+      { value: 'shounen', label: 'Shounen' },
+      { value: 'shoujo', label: 'Shoujo' },
+      { value: 'seinen', label: 'Seinen' },
+      { value: 'josei', label: 'Josei' },
+    ],
+  },
+  await tagFilter(),
+];
+
+const search = (text: string, page: number, chosen: FilterValues = {}) => {
+  const extra: [string, string][] = [];
+  if (text.trim()) extra.push(['title', text.trim()]);
+  const status = chosen.status;
+  if (typeof status === 'string' && status !== 'any') extra.push(['status[]', status]);
+  const demographic = chosen.demographic;
+  if (typeof demographic === 'string' && demographic !== 'any') {
+    extra.push(['publicationDemographic[]', demographic]);
+  }
+  const tags = chosen.tags;
+  if (tags && typeof tags === 'object') {
+    for (const id of tags.include) extra.push(['includedTags[]', id]);
+    for (const id of tags.exclude) extra.push(['excludedTags[]', id]);
+  }
+  const sort = typeof chosen.sort === 'string' ? chosen.sort : '';
+  return listMangas(SORTS[sort] ?? SORTS[text.trim() ? 'relevance' : 'popular']!, page, extra);
+};
+
 registerProvider(
   defineProvider({
     kind: 'manga.source',
@@ -222,7 +327,8 @@ registerProvider(
     name: 'MangaDex',
     popular: ({ page }) => listMangas(['followedCount', 'desc'], page),
     latest: ({ page }) => listMangas(['latestUploadedChapter', 'desc'], page),
-    search: ({ query: text, page }) => listMangas(['relevance', 'desc'], page, [['title', text]]),
+    search: ({ query: text, page, filters: chosen }) => search(text, page, chosen),
+    filters,
     details: ({ id }) => details(id),
     chapters: async ({ id }) => ({ chapters: await chapters(id) }),
     pages: async ({ chapterId }) => ({ pages: await pages(chapterId) }),

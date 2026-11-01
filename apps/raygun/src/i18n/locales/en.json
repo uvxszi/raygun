@@ -124,7 +124,55 @@
     "providerEmpty": "No results from this source.",
     "providerFailed": "This source failed: {{message}}",
     "yourLibrary": "Your library",
-    "topResults": "Top results"
+    "topResults": "Top results",
+    "typeLabel": "Search in",
+    "type": {
+      "all": "All",
+      "music": "Music",
+      "podcast": "Podcasts",
+      "manga": "Manga",
+      "novel": "Novels",
+      "library": "Your library"
+    },
+    "placeholderFor": {
+      "all": "Search music, podcasts, manga, novels…",
+      "music": "Songs, artists, albums",
+      "podcast": "Podcasts by name or topic",
+      "manga": "Manga titles",
+      "novel": "Novel titles",
+      "library": "Things you already have"
+    },
+    "hintFor": {
+      "all": "Search every kind of media at once, or pick one above.",
+      "music": "Search your library and every music source.",
+      "podcast": "Search the podcast directories.",
+      "manga": "Search every manga source.",
+      "novel": "Search every novel source.",
+      "library": "Search your music, manga, novels, podcasts and videos."
+    },
+    "inYourLibrary": "In your library",
+    "seeAll": "See all",
+    "more": "More",
+    "source": "Source",
+    "allSources": "All sources",
+    "noCatalogSources": "No sources installed. Add some in Extensions.",
+    "typeToSearch": "Type something to search for.",
+    "libraryNothing": "Nothing in your library matches “{{query}}”.",
+    "filters": {
+      "title": "Filters",
+      "active_one": "{{count}} filter",
+      "active_other": "{{count}} filters",
+      "reset": "Clear filters",
+      "tagsHint": "tap once to include, twice to exclude",
+      "findTag": "Find a tag…",
+      "findTagIn": "Find a tag in {{label}}",
+      "typeOrFilter": "Type a title, or choose filters to browse.",
+      "tag": {
+        "none": "not used",
+        "include": "included",
+        "exclude": "excluded"
+      }
+    }
   },
   "settings": {
     "title": "Settings",

@@ -2,14 +2,15 @@
 //! their chapters, the library of one kind, read state and progress, and reading order. Each
 //! medium's service wraps a `Catalog` and adds what reading it takes (pages or text).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use raygun_db::titles::{self, TitleFields, TitleRow, UnitFields, UnitRow};
 use raygun_ext_host::manga::MangaList;
 use raygun_model::{
-    ChapterDownload, LibraryCategory, MangaBrowseMode, MangaCard, MangaChapterInfo,
-    MangaLibraryEntry, MangaListingPage, MangaSource, MangaTitleView,
+    ChapterDownload, FilterValue, LibraryCategory, MangaBrowseMode, MangaCard, MangaChapterInfo,
+    MangaLibraryEntry, MangaListingPage, MangaSource, MangaTitleView, SourceFilter,
+    SourceSearchResult,
 };
 use raygun_net::ImageLinks;
 use tauri::{AppHandle, Manager};
@@ -92,8 +93,16 @@ impl Catalog {
                 }
             }
         }?;
+        self.listing_page(source_id, listing).await
+    }
+
+    /// A source's listing as cards: adult items dropped while NSFW is off, library titles marked.
+    async fn listing_page(
+        &self,
+        source_id: &str,
+        mut listing: raygun_ext_host::manga::MangaListing,
+    ) -> Result<MangaListingPage, String> {
         let show_nsfw = self.extensions().show_nsfw();
-        let mut listing = listing;
         listing.items.retain(|item| show_nsfw || !item.nsfw);
         let ids: Vec<String> = listing.items.iter().map(|item| item.id.clone()).collect();
         let in_library = titles::in_library(&self.db(), source_id, &ids)
@@ -116,6 +125,75 @@ impl Catalog {
                 .collect(),
             has_next_page: listing.has_next_page,
         })
+    }
+
+    // ---- Search with filters, and across sources (M40) ----
+
+    /// The filters a source offers for its search.
+    pub async fn filters(&self, source_id: &str) -> Result<Vec<SourceFilter>, String> {
+        let extensions = self.extensions();
+        let (_ready, host) = extensions.ready().await;
+        host.manga_filters(source_id).await
+    }
+
+    /// A source search with its filters; the query may be empty when filters are set.
+    pub async fn search(
+        &self,
+        source_id: &str,
+        query: &str,
+        page: u32,
+        filters: &BTreeMap<String, FilterValue>,
+    ) -> Result<MangaListingPage, String> {
+        let query = query.trim();
+        if query.is_empty() && filters.is_empty() {
+            return Err("Type something to search for".into());
+        }
+        let listing = {
+            let extensions = self.extensions();
+            let (_ready, host) = extensions.ready().await;
+            host.manga_search_filtered(source_id, query, page.max(1), filters)
+                .await
+        }?;
+        self.listing_page(source_id, listing).await
+    }
+
+    /// The first page of every source's results for `query`, sources in parallel (Mihon's global
+    /// search). A source that fails reports its error and the others still show.
+    pub async fn global_search(&self, query: &str) -> Result<Vec<SourceSearchResult>, String> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let sources = self.sources().await;
+        let searches = sources.into_iter().map(|source| async move {
+            let result = {
+                let extensions = self.extensions();
+                let (_ready, host) = extensions.ready().await;
+                host.manga_search(&source.id, query, 1).await
+            };
+            let page = match result {
+                Ok(listing) => self.listing_page(&source.id, listing).await,
+                Err(error) => Err(error),
+            };
+            match page {
+                Ok(page) => SourceSearchResult {
+                    source,
+                    items: page.items,
+                    has_next_page: page.has_next_page,
+                    error: None,
+                },
+                Err(error) => SourceSearchResult {
+                    source,
+                    items: Vec::new(),
+                    has_next_page: false,
+                    error: Some(error),
+                },
+            }
+        });
+        let mut results = futures_util::future::join_all(searches).await;
+        // Sources with results first, then empty ones, then failures.
+        results.sort_by_key(|result| (result.error.is_some(), result.items.is_empty()));
+        Ok(results)
     }
 
     /// A stored title, fetched first when `refresh` is set or it never was; fetching stores it,

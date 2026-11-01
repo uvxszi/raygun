@@ -241,6 +241,14 @@ export const commands = {
 	libraryCategoryReorder: (medium: string, ids: string[]) => typedError<null, string>(__TAURI_INVOKE("library_category_reorder", { medium, ids })),
 	/**  Makes `category_ids` exactly the title's categories. */
 	librarySetTitleCategories: (medium: string, titleId: string, categoryIds: string[]) => typedError<null, string>(__TAURI_INVOKE("library_set_title_categories", { medium, titleId, categoryIds })),
+	/**  The filters a manga or novel source offers for its search. */
+	catalogFilters: (medium: string, sourceId: string) => typedError<SourceFilter[], string>(__TAURI_INVOKE("catalog_filters", { medium, sourceId })),
+	/**  Searches one source with its filters; the query may be empty when filters are set. */
+	catalogSearch: (medium: string, sourceId: string, query: string, page: number, filters: { [key in string]: FilterValue }) => typedError<MangaListingPage, string>(__TAURI_INVOKE("catalog_search", { medium, sourceId, query, page, filters })),
+	/**  The first page of every manga or novel source's results for `query`. */
+	catalogGlobalSearch: (medium: string, query: string) => typedError<SourceSearchResult[], string>(__TAURI_INVOKE("catalog_global_search", { medium, query })),
+	/**  Tracks in the device's library matching `query` (title, artist or album). */
+	librarySearch: (query: string) => typedError<LibraryTrack[], string>(__TAURI_INVOKE("library_search", { query })),
 };
 
 /** Events */
@@ -489,6 +497,14 @@ export type ExtensionStatus = "loaded" | "failed";
 
 /**  Extensions were (re)loaded; carries the new list. */
 export type ExtensionsChangedEvent = ExtensionInfo[];
+
+export type FilterOption = {
+	value: string,
+	label: string,
+};
+
+/**  A filter's chosen value, keyed by the filter's `key`. */
+export type FilterValue = boolean | string | { include: string[]; exclude: string[] };
 
 export type HistoryEntry = {
 	track: SavedTrack,
@@ -1053,6 +1069,21 @@ export type Settings = {
 export type SkippedSource = {
 	name: string,
 	titles: number,
+};
+
+/**  A filter a source offers for its search (Mihon's `FilterList`, simplified). */
+export type SourceFilter = 
+/**  Pick one option. */
+{ kind: "select"; key: string; label: string; options: FilterOption[]; default: string | null } | 
+/**  Tags to include or exclude (three-state chips). */
+{ kind: "tags"; key: string; label: string; options: FilterOption[] } | { kind: "toggle"; key: string; label: string; default: boolean };
+
+/**  One source's first page of results in a search across sources. */
+export type SourceSearchResult = {
+	source: MangaSource,
+	items: MangaCard[],
+	hasNextPage: boolean,
+	error: string | null,
 };
 
 /**  Where Raygun keeps its data on this device. */

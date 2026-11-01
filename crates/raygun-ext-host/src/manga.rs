@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 
+use raygun_model::{FilterOption, FilterValue, SourceFilter};
 use serde_json::Value;
 
 use crate::ExtensionHost;
@@ -111,6 +112,44 @@ impl ExtensionHost {
             .await
             .map_err(|error| error.to_string())?;
         Ok(parse_listing(&value))
+    }
+
+    /// A search with the source's own filters (M40); an empty query is fine when filters are set.
+    pub async fn manga_search_filtered(
+        &self,
+        provider: &str,
+        query: &str,
+        page: u32,
+        filters: &BTreeMap<String, FilterValue>,
+    ) -> Result<MangaListing, String> {
+        let value = self
+            .call(
+                provider,
+                "search",
+                serde_json::json!({ "query": query, "page": page, "filters": filters }),
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(parse_listing(&value))
+    }
+
+    /// The filters a source offers for its search; none when it declares none. A source that has
+    /// filters but couldn't list them (a network error) is an error, so the app can ask again.
+    pub async fn manga_filters(&self, provider: &str) -> Result<Vec<SourceFilter>, String> {
+        match self.call(provider, "filters", serde_json::json!({})).await {
+            Ok(value) => Ok(parse_filters(&value)),
+            Err(error) => {
+                let message = error.to_string();
+                if message.contains("has no method filters")
+                    || message.contains("isn't a novel source call")
+                {
+                    Ok(Vec::new())
+                } else {
+                    tracing::warn!(%provider, %message, "source filters failed");
+                    Err(message)
+                }
+            }
+        }
     }
 
     pub async fn manga_details(&self, provider: &str, id: &str) -> Result<MangaDetails, String> {
@@ -266,6 +305,78 @@ pub fn format_number(number: f64) -> String {
     }
 }
 
+/// Most filters a source may declare, and most options in one.
+const MAX_FILTERS: usize = 20;
+const MAX_OPTIONS: usize = 500;
+const MAX_LABEL: usize = 80;
+
+fn label(value: Option<&Value>) -> Option<String> {
+    text(value).map(|label| label.chars().take(MAX_LABEL).collect())
+}
+
+/// Filters as a source declared them, checked: known kinds, keys, labels, bounded option lists.
+pub fn parse_filters(value: &Value) -> Vec<SourceFilter> {
+    let options = |item: &Value| -> Vec<FilterOption> {
+        item.get("options")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|option| {
+                Some(FilterOption {
+                    value: text(option.get("value"))?,
+                    label: label(option.get("label")).or_else(|| text(option.get("value")))?,
+                })
+            })
+            .take(MAX_OPTIONS)
+            .collect()
+    };
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let key = text(item.get("key")).filter(|key| {
+                key.len() <= 40
+                    && key
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            })?;
+            let label = label(item.get("label")).unwrap_or_else(|| key.clone());
+            match item.get("kind").and_then(Value::as_str)? {
+                "select" => {
+                    let options = options(item);
+                    let default = text(item.get("default"))
+                        .filter(|default| options.iter().any(|option| &option.value == default));
+                    (!options.is_empty()).then_some(SourceFilter::Select {
+                        key,
+                        label,
+                        options,
+                        default,
+                    })
+                }
+                "tags" => {
+                    let options = options(item);
+                    (!options.is_empty()).then_some(SourceFilter::Tags {
+                        key,
+                        label,
+                        options,
+                    })
+                }
+                "toggle" => Some(SourceFilter::Toggle {
+                    key,
+                    label,
+                    default: item
+                        .get("default")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                }),
+                _ => None,
+            }
+        })
+        .take(MAX_FILTERS)
+        .collect()
+}
+
 fn id(value: &Value) -> Option<String> {
     match value {
         Value::String(text) if !text.trim().is_empty() => Some(text.trim().to_owned()),
@@ -384,5 +495,31 @@ mod tests {
             pages[1].headers,
             BTreeMap::from([("Referer".to_owned(), "https://site/".to_owned())])
         );
+    }
+
+    #[test]
+    fn filters_are_checked() {
+        let filters = parse_filters(&json!([
+            { "kind": "select", "key": "status", "label": "Status", "default": "any",
+              "options": [{ "value": "any", "label": "Any" }, { "value": "ongoing", "label": "Ongoing" }] },
+            { "kind": "tags", "key": "genres", "label": "Genres",
+              "options": [{ "value": "t1", "label": "Action" }, { "label": "No value" }] },
+            { "kind": "toggle", "key": "hasChapters", "label": "Has chapters", "default": true },
+            { "kind": "select", "key": "empty", "options": [] },
+            { "kind": "slider", "key": "unknown" },
+            { "kind": "toggle", "key": "bad key!" },
+        ]));
+        assert_eq!(filters.len(), 3);
+        assert!(matches!(
+            &filters[0],
+            SourceFilter::Select { default: Some(default), options, .. }
+                if default == "any" && options.len() == 2
+        ));
+        assert!(matches!(&filters[1], SourceFilter::Tags { options, .. } if options.len() == 1));
+        assert!(matches!(
+            &filters[2],
+            SourceFilter::Toggle { default: true, .. }
+        ));
+        assert!(parse_filters(&json!({ "not": "a list" })).is_empty());
     }
 }

@@ -1,105 +1,46 @@
-import type { LibraryTrack, OnlineTrack, ProviderSearchResult } from '@raygun/bindings';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { LoaderCircle, Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useIsFetching } from '@tanstack/react-query';
 
-import { TrackRow } from '../library/TrackRow';
-import { playFromLibrary } from '../library/useLibrary';
-import { OnlineTrackRow } from '../search/OnlineTrackRow';
-import { playResults, useOnlineSearch } from '../search/useOnlineSearch';
+import { PodcastResultList } from '../podcasts/PodcastResultList';
+import { usePodcastSearch } from '../podcasts/usePodcasts';
+import { AllResults } from '../search/AllResults';
+import { CatalogSearch } from '../search/CatalogSearch';
+import { LibraryMatches } from '../search/LibraryMatches';
+import { MusicResults } from '../search/MusicResults';
+import { SEARCH_TYPES } from '../search/searchTypes';
+import type { SearchType } from '../search/searchTypes';
 import { PageHeader } from './PageHeader';
 
 /** Wait for a pause in typing before searching, so each keystroke doesn't hit the network. */
 export const SEARCH_DEBOUNCE_MS = 400;
 
-type ProviderResultsProps = { result: ProviderSearchResult; ambiguous: boolean };
-
-const ProviderResults: FC<ProviderResultsProps> = ({ result, ambiguous }) => {
+const PodcastSearch: FC<{ query: string }> = ({ query }) => {
   const { t } = useTranslation();
+  const search = usePodcastSearch(query);
   return (
-    <section data-testid="provider-results" className="flex flex-col gap-1">
-      <h2 className="text-muted text-sm font-medium">
-        {result.provider.name}
-        {/* Two sources with one name (a Nuclear plugin beside Raygun's own) need telling apart. */}
-        {ambiguous && <span className="font-normal"> · {result.provider.extensionId}</span>}
-      </h2>
-      {result.error ? (
+    <div data-testid="podcast-search" className="flex flex-col gap-3">
+      {search.error && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {t('search.providerFailed', { message: result.error })}
+          {search.error.message}
         </p>
-      ) : result.tracks.length === 0 ? (
-        <p className="text-muted text-sm">{t('search.providerEmpty')}</p>
-      ) : (
-        <ul className="flex flex-col">
-          {result.tracks.map((track, index) => (
-            <li key={`${track.externalId ?? track.title}-${index}`}>
-              <OnlineTrackRow
-                track={track}
-                onPlay={(tapped) => void playResults(result.tracks, tapped)}
-              />
-            </li>
-          ))}
-        </ul>
       )}
-    </section>
+      {search.data?.length === 0 && <p className="text-muted text-sm">{t('podcasts.noResults')}</p>}
+      {search.data && search.data.length > 0 && <PodcastResultList results={search.data} />}
+    </div>
   );
 };
 
-const GroupHeading: FC<{ title: string }> = ({ title }) => (
-  <h2 className="text-muted text-sm font-medium">{title}</h2>
-);
-
-/** Local tracks matching the query; tapping one plays the library from there. */
-const LibraryResults: FC<{ tracks: LibraryTrack[] }> = ({ tracks }) => {
-  const { t } = useTranslation();
-  return (
-    <section data-testid="library-results" className="flex flex-col gap-1">
-      <GroupHeading title={t('search.yourLibrary')} />
-      <ul className="flex flex-col">
-        {tracks.map((track) => (
-          <li key={track.id}>
-            <TrackRow
-              track={track}
-              onPlay={() =>
-                void playFromLibrary({
-                  selection: { kind: 'allTracks' },
-                  startTrackId: track.id,
-                  shuffle: false,
-                })
-              }
-            />
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-};
-
-/** Songs several providers found, merged in Rust. */
-const TopResults: FC<{ tracks: OnlineTrack[] }> = ({ tracks }) => {
-  const { t } = useTranslation();
-  return (
-    <section data-testid="top-results" className="flex flex-col gap-1">
-      <GroupHeading title={t('search.topResults')} />
-      <ul className="flex flex-col">
-        {tracks.map((track, index) => (
-          <li key={`${track.title}-${index}`}>
-            <OnlineTrackRow track={track} onPlay={(tapped) => void playResults(tracks, tapped)} />
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-};
-
+/** Search: everything at once, or one kind of media (with its sources' filters and tags). */
 export const SearchPage: FC = () => {
   const { t } = useTranslation();
-  const { q = '' } = useSearch({ from: '/search' });
+  const { q = '', type = 'all' } = useSearch({ from: '/search' });
   const navigate = useNavigate({ from: '/search' });
   const [input, setInput] = useState(q);
-  const search = useOnlineSearch(q);
+  const fetching = useIsFetching() > 0;
 
   // The query lives in the URL, so Back to this page shows the same results.
   useEffect(() => {
@@ -108,22 +49,24 @@ export const SearchPage: FC = () => {
     }
     const timer = setTimeout(() => {
       const next = input.trim();
-      void navigate({ search: next ? { q: next } : {}, replace: true });
+      void navigate({
+        search: { q: next || undefined, type: type === 'all' ? undefined : type },
+        replace: true,
+      });
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [input, q, navigate]);
+  }, [input, q, type, navigate]);
 
-  const results = search.data?.providers ?? [];
-  const library = search.data?.library ?? [];
-  const top = search.data?.top ?? [];
-  const names = results.map((result) => result.provider.name);
-  const nothingFound =
-    library.length === 0 &&
-    results.length > 0 &&
-    results.every((result) => !result.error && result.tracks.length === 0);
+  const setType = (next: SearchType) =>
+    void navigate({
+      search: { q: q || undefined, type: next === 'all' ? undefined : next },
+      replace: true,
+    });
+  // Manga and novel sources can browse with filters alone, without typing.
+  const needsQuery = type !== 'manga' && type !== 'novel';
 
   return (
-    <section data-testid="search-page" className="flex flex-col gap-6">
+    <section data-testid="search-page" className="flex flex-col gap-5">
       <PageHeader title={t('search.title')} />
       <label className="bg-surface flex items-center gap-3 rounded-xl px-4 py-3">
         <Search aria-hidden size={20} className="text-muted" />
@@ -132,11 +75,11 @@ export const SearchPage: FC = () => {
           enterKeyHint="search"
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder={t('search.placeholder')}
+          placeholder={t(`search.placeholderFor.${type}`)}
           aria-label={t('search.title')}
           className="placeholder:text-muted w-full bg-transparent outline-none"
         />
-        {search.isFetching && (
+        {fetching && q && (
           <LoaderCircle
             aria-label={t('search.searching')}
             role="status"
@@ -145,27 +88,31 @@ export const SearchPage: FC = () => {
           />
         )}
       </label>
-      {!q && <p className="text-muted text-sm">{t('search.hint')}</p>}
-      {search.error && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {t('common.coreUnavailable', { message: search.error.message })}
-        </p>
-      )}
-      {search.isSuccess && results.length === 0 && library.length === 0 && (
-        <p className="text-muted text-sm">{t('search.noSources')}</p>
-      )}
-      {library.length > 0 && <LibraryResults tracks={library} />}
-      {top.length > 0 && <TopResults tracks={top} />}
-      {nothingFound ? (
-        <p className="text-muted text-sm">{t('search.noResults', { query: q })}</p>
-      ) : (
-        results.map((result) => (
-          <ProviderResults
-            key={result.provider.id}
-            result={result}
-            ambiguous={names.filter((name) => name === result.provider.name).length > 1}
-          />
-        ))
+      <div
+        role="tablist"
+        aria-label={t('search.typeLabel')}
+        className="-mx-4 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:px-0"
+      >
+        {SEARCH_TYPES.map((option) => (
+          <button
+            key={option}
+            type="button"
+            role="tab"
+            aria-selected={type === option}
+            onClick={() => setType(option)}
+            className={`shrink-0 rounded-full px-4 py-1.5 text-sm ${type === option ? 'bg-primary text-background font-semibold' : 'bg-surface'}`}
+          >
+            {t(`search.type.${option}`)}
+          </button>
+        ))}
+      </div>
+      {!q && needsQuery && <p className="text-muted text-sm">{t(`search.hintFor.${type}`)}</p>}
+      {q && type === 'all' && <AllResults query={q} onType={setType} />}
+      {q && type === 'music' && <MusicResults query={q} />}
+      {q && type === 'podcast' && <PodcastSearch query={q} />}
+      {q && type === 'library' && <LibraryMatches query={q} />}
+      {(type === 'manga' || type === 'novel') && (
+        <CatalogSearch key={type} medium={type} query={q} />
       )}
     </section>
   );

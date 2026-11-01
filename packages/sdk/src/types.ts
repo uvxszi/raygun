@@ -158,13 +158,35 @@ export type PageImage = string | { url: string; headers?: Record<string, string>
  * A manga catalogue (Mihon-shaped). List chapters in the source's order, usually newest first;
  * the app reads by chapter number.
  */
+// ---- Source filters (M40) ----
+
+export type FilterOption = { value: string; label: string };
+
+/** A filter a source offers for its search; the app draws them and passes the choices back. */
+export type SourceFilter =
+  | { kind: 'select'; key: string; label: string; options: FilterOption[]; default?: string }
+  /** Tags the user can include or exclude. */
+  | { kind: 'tags'; key: string; label: string; options: FilterOption[] }
+  | { kind: 'toggle'; key: string; label: string; default?: boolean };
+
+/** The user's choices, by filter key; only filters the user changed are present. */
+export type FilterValues = Record<
+  string,
+  string | boolean | { include: string[]; exclude: string[] }
+>;
+
+/** What `search` receives; `query` may be empty when filters are set. */
+export type CatalogSearchArgs = { query: string; page: number; filters?: FilterValues };
+
 export type MangaSourceProvider = {
   kind: 'manga.source';
   id: string;
   name?: string;
   popular(args: { page: number }): Promise<MangaPage>;
   latest?(args: { page: number }): Promise<MangaPage>;
-  search(args: { query: string; page: number }): Promise<MangaPage>;
+  search(args: CatalogSearchArgs): Promise<MangaPage>;
+  /** The filters `search` understands (M40). */
+  filters?(): Promise<SourceFilter[]>;
   details(args: { id: string }): Promise<MangaDetails>;
   chapters(args: { id: string }): Promise<{ chapters: MangaChapter[] }>;
   pages(args: { chapterId: string }): Promise<{ pages: PageImage[] }>;
@@ -188,7 +210,8 @@ export type NovelSourceProvider = {
   name?: string;
   popular(args: { page: number }): Promise<MangaPage>;
   latest?(args: { page: number }): Promise<MangaPage>;
-  search(args: { query: string; page: number }): Promise<MangaPage>;
+  search(args: CatalogSearchArgs): Promise<MangaPage>;
+  filters?(): Promise<SourceFilter[]>;
   details(args: { id: string }): Promise<MangaDetails>;
   chapters(args: { id: string }): Promise<{ chapters: MangaChapter[] }>;
   passage(args: { chapterId: string }): Promise<Passage>;

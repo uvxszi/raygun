@@ -233,6 +233,10 @@ export const bindingsMock = {
     libraryCategoryReorder: vi.fn(),
     librarySetTitleCategories: vi.fn(),
     videoHistory: vi.fn(),
+    catalogFilters: vi.fn(),
+    catalogSearch: vi.fn(),
+    catalogGlobalSearch: vi.fn(),
+    librarySearch: vi.fn(),
   },
   events: {
     engineCommandEvent: makeEvent('engineCommandEvent'),
@@ -404,6 +408,10 @@ export const seedBindings = () => {
   commands.libraryCategoryReorder.mockResolvedValue(ok(null));
   commands.librarySetTitleCategories.mockResolvedValue(ok(null));
   commands.videoHistory.mockResolvedValue(ok([]));
+  commands.catalogFilters.mockResolvedValue(ok([]));
+  commands.catalogSearch.mockResolvedValue(ok({ items: [], hasNextPage: false }));
+  commands.catalogGlobalSearch.mockResolvedValue(ok([]));
+  commands.librarySearch.mockResolvedValue(ok([]));
 };
 
 export const emitEvent = <Name extends EventName>(name: Name, payload: EventPayloads[Name]) => {

@@ -65,7 +65,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 ## Manga (Mihon, aniyomi, TachiyomiAT, mihon_img_upscale)
 | Feature | From | Status |
 |---|---|---|
-| Sources: popular/latest/search with filters, global search | Mihon | ✅ M25 / 🔜 M48 global search |
+| Sources: popular/latest/search with filters, global search | Mihon | ✅ M25, M40 (filters, global search) |
 | Library with in-library toggle | Mihon | ✅ M24 |
 | Categories, per-category sort/filter/display, default category | Mihon | ✅ M39 (categories) / 🔜 M48 (per-category settings) |
 | Library filters (downloaded, unread, started, completed, tracked), sort, badges, display modes | Mihon | ✅ M39 (filters, sort, tags) / 🔜 M48 (display modes) |

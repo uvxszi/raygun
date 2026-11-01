@@ -166,7 +166,11 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::library_category_rename,
             commands::library_category_delete,
             commands::library_category_reorder,
-            commands::library_set_title_categories
+            commands::library_set_title_categories,
+            commands::catalog_filters,
+            commands::catalog_search,
+            commands::catalog_global_search,
+            commands::library_search
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,

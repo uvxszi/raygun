@@ -1024,3 +1024,33 @@ async fn nsfw_switch_hides_nsfw_providers_and_reaches_extensions() {
     assert_eq!(host.providers("music.metadata").await.len(), 2);
     assert_eq!(call("dev.raygun.safe/p").await.unwrap(), json!(true));
 }
+
+/// `cargo test -p raygun-ext-host -- --ignored mangadex_filters`.
+#[tokio::test]
+#[ignore = "needs network access to api.mangadex.org"]
+async fn mangadex_filters_live() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(discover_installed(&dir)).await;
+    let provider = "dev.raygun.mangadex/mangadex";
+    let raw = host.call(provider, "filters", json!({})).await;
+    println!(
+        "raw: {:?}",
+        raw.as_ref()
+            .map(|value| value.to_string().chars().take(300).collect::<String>())
+    );
+    let filters = host.manga_filters(provider).await.unwrap();
+    println!("{} filters", filters.len());
+    assert!(filters.len() >= 4, "sort, status, demographic and tags");
+    let mut chosen = std::collections::BTreeMap::new();
+    chosen.insert(
+        "status".to_owned(),
+        raygun_model::FilterValue::Select("completed".into()),
+    );
+    let listing = host
+        .manga_search_filtered(provider, "", 1, &chosen)
+        .await
+        .unwrap();
+    println!("{} completed titles", listing.items.len());
+    assert!(!listing.items.is_empty());
+}

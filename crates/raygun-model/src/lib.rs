@@ -1506,3 +1506,58 @@ pub struct ContinueWatching {
     pub updated_at: f64,
     pub watched: bool,
 }
+
+// ---- Search across sources and source filters (M40) ----
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FilterOption {
+    pub value: String,
+    pub label: String,
+}
+
+/// A filter a source offers for its search (Mihon's `FilterList`, simplified).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum SourceFilter {
+    /// Pick one option.
+    Select {
+        key: String,
+        label: String,
+        options: Vec<FilterOption>,
+        default: Option<String>,
+    },
+    /// Tags to include or exclude (three-state chips).
+    Tags {
+        key: String,
+        label: String,
+        options: Vec<FilterOption>,
+    },
+    Toggle {
+        key: String,
+        label: String,
+        default: bool,
+    },
+}
+
+/// A filter's chosen value, keyed by the filter's `key`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(untagged)]
+pub enum FilterValue {
+    Toggle(bool),
+    Select(String),
+    Tags {
+        include: Vec<String>,
+        exclude: Vec<String>,
+    },
+}
+
+/// One source's first page of results in a search across sources.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceSearchResult {
+    pub source: MangaSource,
+    pub items: Vec<MangaCard>,
+    pub has_next_page: bool,
+    pub error: Option<String>,
+}

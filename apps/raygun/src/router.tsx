@@ -11,6 +11,8 @@ import { AiPage } from './pages/AiPage';
 import { CategoriesPage } from './pages/CategoriesPage';
 import { PodcastPage } from './pages/PodcastPage';
 import { WatchPage } from './pages/WatchPage';
+import { isSearchType } from './search/searchTypes';
+import type { SearchType } from './search/searchTypes';
 import { DevicesPage } from './pages/DevicesPage';
 import { ExtensionDetailPage } from './pages/ExtensionDetailPage';
 import { ExtensionsPage } from './pages/ExtensionsPage';
@@ -164,8 +166,10 @@ const routeTree = rootRoute.addChildren([
     getParentRoute: () => rootRoute,
     path: '/search',
     component: SearchPage,
-    validateSearch: (search: Record<string, unknown>): { q?: string } =>
-      text(search.q) ? { q: text(search.q) } : {},
+    validateSearch: (search: Record<string, unknown>): { q?: string; type?: SearchType } => ({
+      ...(text(search.q) ? { q: text(search.q) } : {}),
+      ...(isSearchType(search.type) && search.type !== 'all' ? { type: search.type } : {}),
+    }),
   }),
   createRoute({ getParentRoute: () => rootRoute, path: '/settings', component: SettingsPage }),
   createRoute({

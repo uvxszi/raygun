@@ -1317,3 +1317,53 @@ pub async fn video_history(
 ) -> Result<Vec<raygun_model::ContinueWatching>, String> {
     crate::video::history(&app).await
 }
+
+// ---- Search with filters and across sources (M40) ----
+
+/// The filters a manga or novel source offers for its search.
+#[tauri::command]
+#[specta::specta]
+pub async fn catalog_filters(
+    app: tauri::AppHandle,
+    medium: String,
+    source_id: String,
+) -> Result<Vec<raygun_model::SourceFilter>, String> {
+    catalog_for(&app, &medium)?.filters(&source_id).await
+}
+
+/// Searches one source with its filters; the query may be empty when filters are set.
+#[tauri::command]
+#[specta::specta]
+pub async fn catalog_search(
+    app: tauri::AppHandle,
+    medium: String,
+    source_id: String,
+    query: String,
+    page: u32,
+    filters: std::collections::BTreeMap<String, raygun_model::FilterValue>,
+) -> Result<MangaListingPage, String> {
+    catalog_for(&app, &medium)?
+        .search(&source_id, &query, page, &filters)
+        .await
+}
+
+/// The first page of every manga or novel source's results for `query`.
+#[tauri::command]
+#[specta::specta]
+pub async fn catalog_global_search(
+    app: tauri::AppHandle,
+    medium: String,
+    query: String,
+) -> Result<Vec<raygun_model::SourceSearchResult>, String> {
+    catalog_for(&app, &medium)?.global_search(&query).await
+}
+
+/// Tracks in the device's library matching `query` (title, artist or album).
+#[tauri::command]
+#[specta::specta]
+pub async fn library_search(
+    library: tauri::State<'_, LibraryService>,
+    query: String,
+) -> Result<Vec<LibraryTrack>, String> {
+    library.search(&query, 50).await
+}

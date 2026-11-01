@@ -1,4 +1,4 @@
-// dev.raygun.mangadex 1.1.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.mangadex 1.2.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -144,6 +144,89 @@
       headers: HEADERS
     }));
   };
+  var SORTS = {
+    relevance: ["relevance", "desc"],
+    popular: ["followedCount", "desc"],
+    latest: ["latestUploadedChapter", "desc"],
+    rating: ["rating", "desc"],
+    newest: ["createdAt", "desc"],
+    title: ["title", "asc"]
+  };
+  var tagCache = null;
+  var tagFilter = async () => {
+    if (tagCache) return tagCache;
+    const result = await get("/manga/tag", []);
+    const groupOrder = ["genre", "theme", "format", "content"];
+    const options = result.data.map((tag) => ({
+      value: tag.id,
+      label: localized(tag.attributes.name, "en") ?? tag.id,
+      group: tag.attributes.group
+    })).filter((tag) => tag.group !== "content" || raygun.content.showNsfw()).sort(
+      (a, b) => groupOrder.indexOf(a.group) - groupOrder.indexOf(b.group) || a.label.localeCompare(b.label)
+    ).map(({ value, label }) => ({ value, label }));
+    tagCache = { kind: "tags", key: "tags", label: "Tags", options };
+    return tagCache;
+  };
+  var filters = async () => [
+    {
+      kind: "select",
+      key: "sort",
+      label: "Sort by",
+      default: "relevance",
+      options: [
+        { value: "relevance", label: "Best match" },
+        { value: "popular", label: "Most followed" },
+        { value: "latest", label: "Latest upload" },
+        { value: "rating", label: "Top rated" },
+        { value: "newest", label: "Recently added" },
+        { value: "title", label: "Title" }
+      ]
+    },
+    {
+      kind: "select",
+      key: "status",
+      label: "Status",
+      default: "any",
+      options: [
+        { value: "any", label: "Any" },
+        { value: "ongoing", label: "Ongoing" },
+        { value: "completed", label: "Completed" },
+        { value: "hiatus", label: "Hiatus" },
+        { value: "cancelled", label: "Cancelled" }
+      ]
+    },
+    {
+      kind: "select",
+      key: "demographic",
+      label: "Demographic",
+      default: "any",
+      options: [
+        { value: "any", label: "Any" },
+        { value: "shounen", label: "Shounen" },
+        { value: "shoujo", label: "Shoujo" },
+        { value: "seinen", label: "Seinen" },
+        { value: "josei", label: "Josei" }
+      ]
+    },
+    await tagFilter()
+  ];
+  var search = (text, page, chosen = {}) => {
+    const extra = [];
+    if (text.trim()) extra.push(["title", text.trim()]);
+    const status = chosen.status;
+    if (typeof status === "string" && status !== "any") extra.push(["status[]", status]);
+    const demographic = chosen.demographic;
+    if (typeof demographic === "string" && demographic !== "any") {
+      extra.push(["publicationDemographic[]", demographic]);
+    }
+    const tags = chosen.tags;
+    if (tags && typeof tags === "object") {
+      for (const id of tags.include) extra.push(["includedTags[]", id]);
+      for (const id of tags.exclude) extra.push(["excludedTags[]", id]);
+    }
+    const sort = typeof chosen.sort === "string" ? chosen.sort : "";
+    return listMangas(SORTS[sort] ?? SORTS[text.trim() ? "relevance" : "popular"], page, extra);
+  };
   registerProvider(
     defineProvider({
       kind: "manga.source",
@@ -151,7 +234,8 @@
       name: "MangaDex",
       popular: ({ page }) => listMangas(["followedCount", "desc"], page),
       latest: ({ page }) => listMangas(["latestUploadedChapter", "desc"], page),
-      search: ({ query: text, page }) => listMangas(["relevance", "desc"], page, [["title", text]]),
+      search: ({ query: text, page, filters: chosen }) => search(text, page, chosen),
+      filters,
       details: ({ id }) => details(id),
       chapters: async ({ id }) => ({ chapters: await chapters(id) }),
       pages: async ({ chapterId }) => ({ pages: await pages(chapterId) })

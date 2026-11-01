@@ -42,7 +42,9 @@ describe('Search', () => {
   it('hints at online search before anything is typed', async () => {
     await AppShellWrapper.mount('/search');
 
-    expect(await screen.findByText(/Search songs, artists and radio stations/)).toBeInTheDocument();
+    expect(
+      await screen.findByText('Search every kind of media at once, or pick one above.'),
+    ).toBeInTheDocument();
     expect(bindingsMock.commands.onlineSearch).not.toHaveBeenCalled();
   });
 
@@ -54,7 +56,7 @@ describe('Search', () => {
         error: null,
       },
     ]);
-    await AppShellWrapper.mount('/search');
+    await AppShellWrapper.mount('/search?type=music');
 
     await userEvent.type(screen.getByRole('searchbox', { name: 'Search' }), 'armstrong');
 
@@ -74,7 +76,7 @@ describe('Search', () => {
         error: null,
       },
     ]);
-    await AppShellWrapper.mount('/search?q=blues');
+    await AppShellWrapper.mount('/search?type=music&q=blues');
 
     const rows = await screen.findAllByTestId('online-track-row');
     await userEvent.click(rows[1]!);
@@ -105,7 +107,7 @@ describe('Search', () => {
         error: 'offline',
       },
     ]);
-    await AppShellWrapper.mount('/search?q=blues');
+    await AppShellWrapper.mount('/search?type=music&q=blues');
 
     expect(await screen.findByRole('alert')).toHaveTextContent('This source failed: offline');
     expect(screen.getAllByTestId('online-track-row')).toHaveLength(1);
@@ -120,9 +122,9 @@ describe('Search', () => {
         error: null,
       },
     ]);
-    await AppShellWrapper.mount('/search?q=blues');
+    await AppShellWrapper.mount('/search?type=music&q=blues');
 
-    const headings = await screen.findAllByRole('heading', { level: 2 });
+    const headings = await screen.findAllByRole('heading', { level: 3 });
     expect(headings.map((heading) => heading.textContent)).toEqual([
       `${PROVIDER.name} · dev.raygun.internet-archive`,
       `${PROVIDER.name} · nuclear.ia`,
@@ -131,13 +133,13 @@ describe('Search', () => {
 
   it('says when nothing was found, or no sources exist', async () => {
     answer([{ provider: PROVIDER, tracks: [], error: null }]);
-    await AppShellWrapper.mount('/search?q=zzzz');
+    await AppShellWrapper.mount('/search?type=music&q=zzzz');
     expect(await screen.findByText('Nothing found for “zzzz”.')).toBeInTheDocument();
   });
 
   it('says when no search sources are installed', async () => {
     answer([]);
-    await AppShellWrapper.mount('/search?q=zzzz');
+    await AppShellWrapper.mount('/search?type=music&q=zzzz');
     expect(await screen.findByText('No search sources are installed.')).toBeInTheDocument();
   });
 });
