@@ -211,18 +211,23 @@ pub async fn set_reader_mode(db: &Db, id: &str, mode: &str) -> Result<(), DbErro
     Ok(())
 }
 
-/// Library titles of `kind`, alphabetically, with chapter and unread counts.
+/// Library titles of `kind`, alphabetically, with chapter and unread counts (units dated in the
+/// future, announced episodes, aren't unread yet).
 pub async fn library(db: &Db, kind: &str) -> Result<Vec<LibraryTitle>, DbError> {
     let rows = sqlx::query(AssertSqlSafe(format!(
         "SELECT {TITLE_COLUMNS},
              (SELECT COUNT(*) FROM unit u WHERE u.title_id = t.id AND u.deleted = 0) AS units,
              (SELECT COUNT(*) FROM unit u
               LEFT JOIN unit_progress p ON p.unit_id = u.id AND p.deleted = 0
-              WHERE u.title_id = t.id AND u.deleted = 0 AND p.completed_at IS NULL) AS unread,
+              WHERE u.title_id = t.id AND u.deleted = 0 AND p.completed_at IS NULL
+                  AND (u.remote_date IS NULL
+                      OR u.remote_date <= CAST(strftime('%s', 'now') AS INTEGER) * 1000)) AS unread,
              (SELECT COUNT(*) FROM unit u
               JOIN unit_progress p ON p.unit_id = u.id AND p.deleted = 0
               WHERE u.title_id = t.id AND u.deleted = 0) AS started,
              (SELECT COUNT(*) FROM local_manga_download d
+              WHERE d.title_id = t.id AND d.state = 'done')
+             + (SELECT COUNT(*) FROM local_video_download d
               WHERE d.title_id = t.id AND d.state = 'done') AS downloaded,
              (SELECT MAX(p.updated_at_hlc) FROM unit u
               JOIN unit_progress p ON p.unit_id = u.id AND p.deleted = 0
@@ -350,16 +355,19 @@ pub async fn sync_units(
     Ok(added)
 }
 
+/// Units of library titles with their title and progress; callers add the conditions.
+const LIBRARY_UNIT_SELECT: &str = "u.id AS unit_id, u.remote_id AS unit_remote_id, u.remote_name,
+         u.number, u.volume, u.remote_scanlator, u.remote_date, u.source_order,
+         u.state_found_at, p.position, p.total, p.completed_at
+     FROM unit u
+     JOIN title t ON t.id = u.title_id AND t.deleted = 0
+     LEFT JOIN unit_progress p ON p.unit_id = u.id AND p.deleted = 0
+     WHERE t.kind = ?1 AND t.user_in_library_at IS NOT NULL AND u.deleted = 0";
+
 /// Units of library titles of `kind` found after their title joined the library, newest first.
 pub async fn updates(db: &Db, kind: &str, limit: u32) -> Result<Vec<UpdateRow>, DbError> {
     let rows = sqlx::query(AssertSqlSafe(format!(
-        "SELECT {TITLE_COLUMNS}, u.id AS unit_id, u.remote_id AS unit_remote_id, u.remote_name,
-             u.number, u.volume, u.remote_scanlator, u.remote_date, u.source_order,
-             u.state_found_at, p.position, p.total, p.completed_at
-         FROM unit u
-         JOIN title t ON t.id = u.title_id AND t.deleted = 0
-         LEFT JOIN unit_progress p ON p.unit_id = u.id AND p.deleted = 0
-         WHERE t.kind = ?1 AND t.user_in_library_at IS NOT NULL AND u.deleted = 0
+        "SELECT {TITLE_COLUMNS}, {LIBRARY_UNIT_SELECT}
              AND u.state_found_at > t.user_in_library_at
          ORDER BY u.state_found_at DESC, u.source_order
          LIMIT ?2"
@@ -368,29 +376,52 @@ pub async fn updates(db: &Db, kind: &str, limit: u32) -> Result<Vec<UpdateRow>, 
     .bind(limit)
     .fetch_all(db.pool())
     .await?;
-    Ok(rows
-        .iter()
-        .map(|row| UpdateRow {
-            title: title_row(row),
-            unit: UnitRow {
-                id: row.get("unit_id"),
-                title_id: row.get("id"),
-                fields: UnitFields {
-                    remote_id: row.get("unit_remote_id"),
-                    name: row.get("remote_name"),
-                    number: row.get("number"),
-                    volume: row.get("volume"),
-                    scanlator: row.get("remote_scanlator"),
-                    date: row.get("remote_date"),
-                },
-                source_order: row.get("source_order"),
-                position: row.get("position"),
-                total: row.get("total"),
-                completed_at: row.get("completed_at"),
+    Ok(rows.iter().map(update_row).collect())
+}
+
+/// Units of library titles of `kind` dated after `now_ms` (announced episodes, M43), soonest
+/// first.
+pub async fn upcoming(
+    db: &Db,
+    kind: &str,
+    now_ms: i64,
+    limit: u32,
+) -> Result<Vec<UpdateRow>, DbError> {
+    let rows = sqlx::query(AssertSqlSafe(format!(
+        "SELECT {TITLE_COLUMNS}, {LIBRARY_UNIT_SELECT}
+             AND u.remote_date > ?2
+         ORDER BY u.remote_date, t.remote_title COLLATE NOCASE, u.source_order
+         LIMIT ?3"
+    )))
+    .bind(kind)
+    .bind(now_ms)
+    .bind(limit)
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows.iter().map(update_row).collect())
+}
+
+fn update_row(row: &SqliteRow) -> UpdateRow {
+    UpdateRow {
+        title: title_row(row),
+        unit: UnitRow {
+            id: row.get("unit_id"),
+            title_id: row.get("id"),
+            fields: UnitFields {
+                remote_id: row.get("unit_remote_id"),
+                name: row.get("remote_name"),
+                number: row.get("number"),
+                volume: row.get("volume"),
+                scanlator: row.get("remote_scanlator"),
+                date: row.get("remote_date"),
             },
-            found_at: row.get("state_found_at"),
-        })
-        .collect())
+            source_order: row.get("source_order"),
+            position: row.get("position"),
+            total: row.get("total"),
+            completed_at: row.get("completed_at"),
+        },
+        found_at: row.get("state_found_at"),
+    }
 }
 
 const UNIT_SELECT: &str = "SELECT u.id, u.title_id, u.remote_id, u.remote_name, u.number, u.volume,
@@ -403,6 +434,24 @@ pub async fn units(db: &Db, title_id: &str) -> Result<Vec<UnitRow>, DbError> {
         "{UNIT_SELECT} WHERE u.title_id = ?1 AND u.deleted = 0 ORDER BY u.source_order, u.id"
     )))
     .bind(title_id)
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows.iter().map(unit_row).collect())
+}
+
+/// The units a source lists under `remote_id`, across that source's titles (M43: a progress key
+/// names an episode by its source and id, not by its title).
+pub async fn find_units(
+    db: &Db,
+    source_id: &str,
+    remote_id: &str,
+) -> Result<Vec<UnitRow>, DbError> {
+    let rows = sqlx::query(AssertSqlSafe(format!(
+        "{UNIT_SELECT} JOIN title t ON t.id = u.title_id AND t.deleted = 0
+         WHERE t.source_id = ?1 AND u.remote_id = ?2 AND u.deleted = 0"
+    )))
+    .bind(source_id)
+    .bind(remote_id)
     .fetch_all(db.pool())
     .await?;
     Ok(rows.iter().map(unit_row).collect())
@@ -444,6 +493,41 @@ pub async fn set_progress(
     .bind(position)
     .bind(total)
     .bind(completed.then_some(now_ms))
+    .bind(stamp as i64)
+    .bind(db.device_id().to_string())
+    .execute(&mut *transaction)
+    .await?;
+    persist_hlc(&mut *transaction, stamp).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+/// Records how far a video unit was watched (M43), in milliseconds. `watched` completes it (and
+/// rewinds it, as the player does); like reading, it isn't un-completed by watching again.
+pub async fn set_watch_progress(
+    db: &Db,
+    unit_id: &str,
+    position_ms: i64,
+    duration_ms: Option<i64>,
+    watched: bool,
+    now_ms: i64,
+) -> Result<(), DbError> {
+    let stamp = db.tick();
+    let mut transaction = db.pool().begin().await?;
+    sqlx::query(
+        "INSERT INTO unit_progress (unit_id, position, total, completed_at, updated_at_hlc,
+             origin_device, deleted)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)
+         ON CONFLICT (unit_id) DO UPDATE SET
+             position = excluded.position, total = COALESCE(excluded.total, total),
+             completed_at = COALESCE(completed_at, excluded.completed_at),
+             updated_at_hlc = excluded.updated_at_hlc, origin_device = excluded.origin_device,
+             deleted = 0",
+    )
+    .bind(unit_id)
+    .bind(if watched { 0 } else { position_ms.max(0) })
+    .bind(duration_ms)
+    .bind(watched.then_some(now_ms))
     .bind(stamp as i64)
     .bind(db.device_id().to_string())
     .execute(&mut *transaction)

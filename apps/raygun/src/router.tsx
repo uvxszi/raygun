@@ -3,6 +3,7 @@ import type { MangaBrowseMode } from '@raygun/bindings';
 import type { RouterHistory } from '@tanstack/react-router';
 
 import { isLibraryView } from './library/views';
+import type { Medium } from './manga/medium';
 import type { LibraryView } from './library/views';
 import { AlbumPage } from './pages/AlbumPage';
 import { AiPage } from './pages/AiPage';
@@ -16,6 +17,7 @@ import type { BrowseSection, ExtensionList } from './pages/BrowsePage';
 import { MorePage } from './pages/MorePage';
 import { ReposPage } from './pages/ReposPage';
 import { StremioAddonPage } from './pages/StremioAddonPage';
+import { WatchHistoryPage } from './pages/WatchHistoryPage';
 import { WatchTitlePage } from './pages/WatchTitlePage';
 import { VideoTitlePage } from './pages/VideoTitlePage';
 import { isSearchType } from './search/searchTypes';
@@ -25,11 +27,13 @@ import { ExtensionDetailPage } from './pages/ExtensionDetailPage';
 import { ArtistPage } from './pages/ArtistPage';
 import { HomePage } from './pages/HomePage';
 import { LibraryPage } from './pages/LibraryPage';
-import { MangaDownloadsPage } from './pages/MangaDownloadsPage';
+import { DownloadsPage } from './pages/DownloadsPage';
+import type { DownloadsTab } from './pages/DownloadsPage';
 import { MangaReaderPage } from './pages/MangaReaderPage';
 import { MangaSourcePage, NovelSourcePage, VideoSourcePage } from './pages/MangaSourcePage';
 import { MangaTitlePage, NovelTitlePage } from './pages/MangaTitlePage';
-import { MangaUpdatesPage } from './pages/MangaUpdatesPage';
+import { UpdatesPage } from './pages/UpdatesPage';
+import type { UpdatesTab } from './pages/UpdatesPage';
 import { NovelReaderPage } from './pages/NovelReaderPage';
 import { PlaylistPage } from './pages/PlaylistPage';
 import { SearchPage } from './pages/SearchPage';
@@ -76,15 +80,34 @@ const routeTree = rootRoute.addChildren([
       throw redirect({ to: '/browse', replace: true });
     },
   }),
+  // Updates and downloads cover chapters and videos (M43).
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/updates',
+    component: UpdatesPage,
+    validateSearch: (search: Record<string, unknown>): { tab?: UpdatesTab } =>
+      search.tab === 'episodes' ? { tab: 'episodes' } : {},
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/downloads',
+    component: DownloadsPage,
+    validateSearch: (search: Record<string, unknown>): { tab?: DownloadsTab } =>
+      search.tab === 'videos' ? { tab: 'videos' } : {},
+  }),
   createRoute({
     getParentRoute: () => rootRoute,
     path: '/manga/updates',
-    component: MangaUpdatesPage,
+    beforeLoad: () => {
+      throw redirect({ to: '/updates', replace: true });
+    },
   }),
   createRoute({
     getParentRoute: () => rootRoute,
     path: '/manga/downloads',
-    component: MangaDownloadsPage,
+    beforeLoad: () => {
+      throw redirect({ to: '/downloads', replace: true });
+    },
   }),
   createRoute({
     getParentRoute: () => rootRoute,
@@ -255,6 +278,11 @@ const routeTree = rootRoute.addChildren([
   }),
   createRoute({
     getParentRoute: () => rootRoute,
+    path: '/watch/history',
+    component: WatchHistoryPage,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
     path: '/watch/video',
     component: VideoTitlePage,
     validateSearch: (search: Record<string, unknown>) => ({
@@ -278,8 +306,8 @@ const routeTree = rootRoute.addChildren([
     getParentRoute: () => rootRoute,
     path: '/library/categories',
     component: CategoriesPage,
-    validateSearch: (search: Record<string, unknown>): { medium: 'manga' | 'novel' } => ({
-      medium: search.medium === 'novel' ? 'novel' : 'manga',
+    validateSearch: (search: Record<string, unknown>): { medium: Medium } => ({
+      medium: search.medium === 'novel' || search.medium === 'video' ? search.medium : 'manga',
     }),
   }),
   createRoute({

@@ -1,0 +1,158 @@
+# M43 — Video library, downloads and updates for followed series
+
+**Relevant docs:**
+- M24/M28 (title storage, library updates, chapter downloads), M38 (player, progress), M39 (categories, filters), M41 (Stremio), M42 (video sources), M42.1 (UI shell);
+- `docs/feature-parity.md` (Watch: "Video library, history, continue watching, upcoming episodes", "Video downloads").
+
+## Goal
+- **A video library** like Aniyomi's anime library: save movies and series from any video source or Stremio addon. Each saved title has categories, filters, search, an unwatched count and a downloaded count.
+- **Updates for followed series:** the library update finds new episodes (Aniyomi's Updates), and episodes announced for later show as upcoming (CloudStream).
+- **Downloads:** save an episode or film to the device and watch it offline (Aniyomi and CloudStream downloads): plain video files and HLS streams.
+
+## Design
+- **One title store for everything:** video titles live in the `title`/`unit` tables (kind `video`), like manga and novels.
+  - **Source titles:** `source_id` is the source, units are its episodes (already so since M42).
+  - **Stremio titles:** saving one stores it with `source_id` `stremio` and `remote_id` `<type>:<id>` (e.g. `series:tt0903747`).
+    - Units are the meta's videos: id, title, season as volume, episode as number, release date.
+    - A movie is one unit, its own id.
+    - Details: poster as cover, description, genres, cast and director as authors and artists, year, and status from the release range ("2008–2013" completed, "2019–" ongoing).
+- **Watched state mirrors into unit progress:**
+  - Each video progress write (player reports, marks) also writes the matching unit's progress: position in ms, total = duration, completed once watched.
+  - Library counts (unwatched, started, last watched) and sorting then work as for manga.
+  - Keys map to units: `source:<sourceId>:<episodeId>` and `stremio:<type>:<videoId>` (the unit with that remote id, in that source's titles).
+- **Library update:** the existing update (manual or scheduled by the same setting, renamed "Check the library for new chapters and episodes") now also refreshes video titles.
+  - **Source titles** go through `Catalog::fetch_title`.
+  - **Stremio titles** go through `StremioService` (meta fetched again, units synced).
+  - New units are what the Updates feed shows.
+  - Scheduled runs skip finished series.
+  - **Upcoming:** episodes of library series whose release date is still ahead, soonest first.
+- **Downloads** (`VideoDownloadService`, device-local `local_video_download`):
+  - **The queue:** one video at a time; pause, resume, retry, cancel and delete; interrupted downloads resume on the next start; progress reported by events.
+  - **What's saved:** files land in `downloads/video/<id>/`.
+    - **Plain files** download with Range resume.
+    - **HLS:**
+      - the master playlist's variant follows the preferred quality setting;
+      - segments download four at a time, with AES-128 keys and init maps saved alongside;
+      - a local `index.m3u8` points at the saved files;
+      - live streams and DASH can't be downloaded and say so.
+    - **Subtitles:** up to 8 tracks, in the subtitle language first.
+  - **Playback:** `video::play` checks for a finished download under the same progress key and plays it through the stream proxy's `/local/` route, with the local subtitles. Continue watching and offline playback use it automatically.
+  - **Starting one:** a download button on each link in the server picker (video sources) and each direct stream in the stream picker (Stremio).
+- **UI:**
+  - **Library → Videos:**
+    - Continue watching, then the saved titles as a grid with category tabs, search, filters and sort;
+    - the menu offers Update library, Updates, Downloads, History, Categories, Browse and Addons;
+    - History (everything watched) moves to its own screen.
+  - **Title screens** (source and Stremio): an Add to library action; episodes show a downloaded mark.
+  - **Downloads** (More → Downloads): tabs Chapters / Videos. Videos lists each download with progress, pause or resume, cancel, delete and play.
+  - **Updates** (More → Updates): tabs Chapters / Episodes. Episodes lists new episodes by day, then Upcoming.
+  - **Categories:** a Videos set (from the library menu).
+
+## Out of scope
+- Downloading DASH, live streams and torrents.
+- Background downloads with the app closed (an Android foreground service), as for chapters.
+- Trackers (AniList/MAL) for anime: M54.
+
+## Done-check
+- **Rust:**
+  - the unit lookup for progress keys and progress mirroring;
+  - Stremio titles saved, with episodes as units, and refreshed;
+  - the library update covering video titles;
+  - upcoming episodes;
+  - the download store (queue, states, resume after restart);
+  - HLS playlist parsing (variant choice, key and map rewriting, live rejected) and local rewriting;
+  - plain-file download with resume against a local server;
+  - play using a finished download.
+- **Vitest:**
+  - the video library grid and its menu;
+  - Add to library on both title screens;
+  - download buttons in the pickers;
+  - the Downloads and Updates tabs.
+- 📱 **On the emulator:**
+  - save an Internet Archive film and a Cinemeta series to the library; both show in Library → Videos;
+  - download the film (MP4) and an HLS episode (local test addon);
+  - play both offline (airplane mode);
+  - mark episodes watched and see the unwatched count change;
+  - an update run finds a new episode from the test addon;
+  - clean up afterwards.
+
+## Decisions
+- **Progress stays keyed; episodes mirror it.**
+  - `video_progress` (by progress key) is still what resuming and Continue watching read.
+  - Every write to it (player reports, marks) also writes the matching episode's `unit_progress` (`video_library.rs`), so the library's unwatched, started and last-watched values come from the same queries as manga.
+  - Saving a title copies earlier progress onto its episodes.
+- **Stremio titles are stored only once saved.** Browsing an addon stores nothing.
+  - Saving stores the meta as a title (`stremio`, `<type>:<id>`) with its videos as units.
+  - Opening a saved title refreshes its units.
+  - A saved title opens from storage when no addon answers (offline, or the addon is down). Its top bar then reads "Saved in your library".
+- **Announced episodes aren't unwatched.** Units dated in the future are left out of the unwatched count and listed under Upcoming instead.
+- **One update for everything.** "Update library" (manual or scheduled) checks manga and saved videos. Status and progress are shared, so the Updates screen has one refresh action above its Chapters and Episodes tabs.
+- **Episodes tab layout:** Upcoming is a strip of cards at the top (soonest first, with "Tomorrow" or the date), then new episodes by day. The spec had Upcoming last, but a long feed would hide it there.
+- **Downloads keep their link.**
+  - A row stores the request it was queued with (URL, headers, subtitles) under its progress key.
+  - Retry and resume reuse that link: no source or addon is asked again.
+  - Links that expire fail and say so; picking a link again re-queues it.
+- **Download formats:**
+  - **Plain files** resume with `Range`. A server that ignores ranges restarts the file. A 416 on a complete partial file finishes it.
+  - **HLS:**
+    - The variant follows the preferred quality, as links do.
+    - Separate audio renditions get their own playlist and a local master.
+    - AES-128 keys, init maps and byte ranges are saved as files; segments download four at a time and skip files already on disk.
+    - SAMPLE-AES, live playlists and DASH are refused with a message.
+  - **Subtitles:** up to 8 saved, the subtitle language (or app language) first. Their paths are relative, because the proxy's port changes each run.
+- **Downloaded items play from the device everywhere.**
+  - `video::play` swaps in the local copy for any request under the same key: Continue watching, title pages and the Downloads tab.
+  - On title pages, tapping a downloaded episode or film plays it directly instead of opening the server or stream picker.
+- **Routes:** Updates and Downloads moved to `/updates` and `/downloads` with tabs; `/manga/updates` and `/manga/downloads` redirect. History is `/watch/history`.
+- **Fixed on the way:** day headings used `today ± 24 h`, which is wrong on daylight-saving days (this run fell on one). They now step calendar days.
+- **Not done:**
+  - background downloads with the app closed;
+  - DASH;
+  - download options in Settings (concurrency, Wi-Fi only);
+  - novels in the library update (only manga and videos are checked, as before).
+
+## Verification
+- **Checks:** `cargo test --workspace`, `cargo clippy --workspace --all-targets -D warnings`, `pnpm lint`, `pnpm type-check` and `pnpm test` (263 app tests) all pass.
+  - **New Rust tests:**
+    - progress keys to episodes, watch progress and unwatched counts;
+    - upcoming, and announced episodes not counted;
+    - the download store (queue, retry, resume after restart);
+    - HLS planning (variant choice, audio renditions, key, map and byte-range rewriting, live and SAMPLE-AES refused);
+    - the downloader against a local server (MP4 resumed with `Range`, a finished partial file, an encrypted HLS stream and a second run fetching only playlists, pause, DASH);
+    - Stremio release status and year;
+    - a saved title rebuilt from storage.
+  - **New Vitest:** `watch/VideoLibrary.test.tsx`:
+    - the video library grid, its links, menu and video wording;
+    - Add to library and download from both title screens and pickers;
+    - a downloaded episode playing directly;
+    - the Videos downloads tab (progress, pause, retry, cancel, play, events);
+    - Updates → Episodes with Upcoming.
+- 📱 **Pixel_4 emulator (Android 17), debug build.** A local test addon was used through `adb reverse`: a generated series with an AES-128 HLS episode in 360p/720p, an MP4 episode, an episode announced for Nov 8 and one that appears later.
+  - **Saving and downloading:**
+    - Saving the series showed "In library" and categories.
+    - Downloading episode 1 saved the 720p variant, its key, six segments and the subtitle.
+    - Episode 2 saved as an MP4.
+    - Library → Videos showed the series with its unwatched and downloaded badges.
+  - **Offline (airplane mode, addon stopped):**
+    - Downloads → Videos played episode 1, decrypted, with the saved English track listed.
+    - It played to the end, and unwatched went from 3 to 2.
+    - Continue watching resumed His Girl Friday from where it stopped.
+    - The saved series opened from storage, and tapping downloaded episode 2 played it with no picker.
+  - **Library update:** with episode 4 added to the addon, Update library found it (unwatched 2 → 3). Updates → Episodes listed it under Today, with episode 3 under Upcoming (Nov 7 in the emulator's time zone).
+  - **Internet Archive:**
+    - Saved His Girl Friday and downloaded its 383 MB MP4 with live progress (12% · 44 MB of 383 MB).
+    - Pause, then resume, continued from 44 MB rather than restarting.
+    - The finished film played offline.
+  - **Fixed after the first pass:**
+    - future episodes counted as unwatched;
+    - small files reading "0 MB";
+    - the manga placeholder on video covers;
+    - More's hints mentioning chapters only;
+    - Play on a title page needing the network for a downloaded film.
+  - **Clean-up:** app data cleared and the port forward removed afterwards.
+- **Not seen on the device:**
+  - Continue watching's placeholder when its poster can't load offline;
+  - the "Saved in your library" top-bar label (both added after the last build).
+- **Seen but not caused by M43:**
+  - one Internet Archive listing (CUKESIM's New Job!) has no playable file, an existing quirk of the extension's listing;
+  - a first test MP4 was High 4:4:4, which the emulator can't decode (regenerated as 4:2:0).

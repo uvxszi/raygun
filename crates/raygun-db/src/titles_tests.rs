@@ -250,3 +250,129 @@ async fn the_feed_lists_chapters_found_after_joining_the_library() {
         "library titles only"
     );
 }
+
+fn series(remote_id: &str) -> TitleFields {
+    TitleFields {
+        kind: "video".into(),
+        source_id: "stremio".into(),
+        remote_id: remote_id.into(),
+        title: "Breaking Bad".into(),
+        media_type: Some("series".into()),
+        year: Some(2008),
+        ..manga(remote_id, "Breaking Bad")
+    }
+}
+
+fn episode(remote_id: &str, number: f64, date: Option<i64>) -> UnitFields {
+    UnitFields {
+        remote_id: remote_id.into(),
+        name: format!("Episode {number}"),
+        number: Some(number),
+        volume: Some("1".into()),
+        scanlator: None,
+        date,
+    }
+}
+
+#[tokio::test]
+async fn episodes_are_found_by_source_and_id_and_count_as_watched() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp).await;
+    let id = upsert_title(&db, &series("series:tt1"), 1).await.unwrap();
+    sync_units(
+        &db,
+        &id,
+        &[
+            episode("tt1:1:1", 1.0, Some(5)),
+            episode("tt1:1:2", 2.0, Some(6)),
+        ],
+        "episode",
+        1,
+    )
+    .await
+    .unwrap();
+    set_in_library(&db, &id, Some(2)).await.unwrap();
+    assert!(
+        find_units(&db, "other", "tt1:1:1")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let found = find_units(&db, "stremio", "tt1:1:1").await.unwrap();
+    assert_eq!(found.len(), 1);
+    let unit_id = found[0].id.clone();
+
+    set_watch_progress(&db, &unit_id, 60_000, Some(2_400_000), false, 3)
+        .await
+        .unwrap();
+    let library_row = &library(&db, "video").await.unwrap()[0];
+    assert_eq!(
+        (library_row.unread, library_row.started),
+        (2, 1),
+        "started, not watched"
+    );
+    let half = unit(&db, &unit_id).await.unwrap().unwrap();
+    assert_eq!((half.position, half.total), (Some(60_000), Some(2_400_000)));
+
+    set_watch_progress(&db, &unit_id, 2_300_000, None, true, 4)
+        .await
+        .unwrap();
+    set_watch_progress(&db, &unit_id, 1_000, None, false, 5)
+        .await
+        .unwrap();
+    let watched = unit(&db, &unit_id).await.unwrap().unwrap();
+    assert_eq!(
+        watched.completed_at,
+        Some(4),
+        "watching again keeps it watched"
+    );
+    assert_eq!(library(&db, "video").await.unwrap()[0].unread, 1);
+}
+
+#[tokio::test]
+async fn upcoming_lists_future_episodes_of_library_series_soonest_first() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp).await;
+    let id = upsert_title(&db, &series("series:tt2"), 1).await.unwrap();
+    sync_units(
+        &db,
+        &id,
+        &[
+            episode("e1", 1.0, Some(100)),
+            episode("e3", 3.0, Some(300)),
+            episode("e2", 2.0, Some(200)),
+            episode("e4", 4.0, None),
+        ],
+        "episode",
+        1,
+    )
+    .await
+    .unwrap();
+    assert!(
+        upcoming(&db, "video", 150, 10).await.unwrap().is_empty(),
+        "library only"
+    );
+    set_in_library(&db, &id, Some(2)).await.unwrap();
+    let soon: Vec<_> = upcoming(&db, "video", 150, 10)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| row.unit.fields.remote_id)
+        .collect();
+    assert_eq!(soon, ["e2", "e3"]);
+    assert!(upcoming(&db, "manga", 150, 10).await.unwrap().is_empty());
+
+    // An episode announced for a later date (in 2096) isn't unwatched yet.
+    assert_eq!(library(&db, "video").await.unwrap()[0].unread, 4);
+    sync_units(
+        &db,
+        &id,
+        &[episode("e5", 5.0, Some(4_000_000_000_000))],
+        "episode",
+        3,
+    )
+    .await
+    .unwrap();
+    let entry = &library(&db, "video").await.unwrap()[0];
+    assert_eq!((entry.units, entry.unread), (5, 4));
+}

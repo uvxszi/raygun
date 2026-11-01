@@ -66,9 +66,7 @@ export const CategoriesPage: FC = () => {
       <PageHeader
         back
         fallback="/library"
-        title={t(
-          medium === 'novel' ? 'library.categories.novelTitle' : 'library.categories.mangaTitle',
-        )}
+        title={t(`library.categories.${medium}Title`)}
         actions={
           <TopBarAction
             label={t('library.categories.add')}

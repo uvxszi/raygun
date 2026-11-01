@@ -54,6 +54,7 @@ const SERIES: VideoTitleView = {
       positionMs: 0,
       durationMs: null,
       watched: true,
+      downloaded: false,
     },
     {
       id: 'u2',
@@ -65,6 +66,7 @@ const SERIES: VideoTitleView = {
       positionMs: 60_000,
       durationMs: 1_200_000,
       watched: false,
+      downloaded: false,
     },
     {
       id: 'u3',
@@ -76,6 +78,7 @@ const SERIES: VideoTitleView = {
       positionMs: 0,
       durationMs: null,
       watched: false,
+      downloaded: false,
     },
   ],
 };
@@ -98,6 +101,7 @@ const FILM: VideoTitleView = {
       positionMs: 0,
       durationMs: null,
       watched: false,
+      downloaded: false,
     },
   ],
 };
@@ -198,7 +202,7 @@ describe('Video sources in Watch', () => {
     expect(slow).toHaveAttribute('data-state', 'resolving');
 
     finishSlow(ok([link('1080p', 1080, true)]));
-    expect(await within(slow).findByRole('button', { name: /1080p/ })).toBeVisible();
+    expect(await within(slow).findByRole('button', { name: /^1080p/ })).toBeVisible();
     expect(slow).toHaveAttribute('data-state', 'ready');
 
     await user.click(within(fast).getByRole('button', { name: /720p.*Preferred/ }));

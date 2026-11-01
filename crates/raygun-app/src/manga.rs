@@ -20,6 +20,9 @@ use tauri_specta::Event;
 use crate::catalog::{Catalog, chapter_info, now_ms, to_message};
 use crate::events::MangaUpdateEvent;
 use crate::manga_downloads::MangaDownloadService;
+use crate::stremio::StremioService;
+use crate::video_library;
+use crate::video_sources::VideoSourceService;
 
 const KIND: &str = "manga";
 /// Titles refreshed at once during a library update.
@@ -204,7 +207,13 @@ impl MangaService {
     async fn run_update(&self, manual: bool) -> Result<(), String> {
         let started = std::time::Instant::now();
         let db = self.db();
-        let library = titles::library(&db, KIND).await.map_err(to_message)?;
+        let mut library = titles::library(&db, KIND).await.map_err(to_message)?;
+        // Followed series and saved movies too (M43).
+        library.extend(
+            titles::library(&db, video_library::KIND)
+                .await
+                .map_err(to_message)?,
+        );
         let due: Vec<TitleRow> = library
             .into_iter()
             .map(|entry| entry.title)
@@ -224,14 +233,11 @@ impl MangaService {
 
         let mut results = stream::iter(due)
             .map(|title| async move {
-                let result = self
-                    .catalog
-                    .fetch_title(&title.fields.source_id, &title.fields.remote_id)
-                    .await;
+                let result = self.refresh_title(&title).await;
                 if let Err(message) = &result {
                     tracing::warn!(title = %title.fields.title, %message, "title update failed");
                 }
-                result.map(|(_, added)| added)
+                result
             })
             .buffer_unordered(UPDATE_CONCURRENCY);
         while let Some(result) = results.next().await {
@@ -264,6 +270,20 @@ impl MangaService {
             "library update finished"
         );
         Ok(())
+    }
+
+    /// Fetches a library title again, through its own catalogue (videos through video sources or
+    /// Stremio); returns how many chapters or episodes were new.
+    async fn refresh_title(&self, title: &TitleRow) -> Result<usize, String> {
+        let (source_id, remote_id) = (&title.fields.source_id, &title.fields.remote_id);
+        if title.fields.kind != video_library::KIND {
+            return Ok(self.catalog.fetch_title(source_id, remote_id).await?.1);
+        }
+        if source_id == video_library::STREMIO_SOURCE {
+            return self.app.state::<Arc<StremioService>>().refresh(title).await;
+        }
+        let sources = self.app.state::<VideoSourceService>();
+        Ok(sources.catalog().fetch_title(source_id, remote_id).await?.1)
     }
 
     /// Runs scheduled library updates while the app is open, per the `mangaUpdateHours` setting.

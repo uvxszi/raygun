@@ -1,9 +1,11 @@
 import type { StremioStream } from '@raygun/bindings';
-import { LoaderCircle, Play, X } from 'lucide-react';
+import { Download, LoaderCircle, Play, X } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import type { PickIntent } from './ServerPicker';
 import { useStremioPlay, useStremioStreams } from './useStremio';
+import { useDownloadStremio } from './useVideoLibrary';
 
 /** What is being played, as the player shows it. */
 export type StreamTarget = {
@@ -12,24 +14,44 @@ export type StreamTarget = {
   title: string;
   subtitle: string | null;
   poster: string | null;
+  /** The saved title, so a download counts toward it in the library. */
+  titleId?: string | null;
 };
+
+/** Only direct streams that aren't DASH can be saved. */
+const savable = (stream: StremioStream) =>
+  stream.kind === 'direct' && !stream.target.toLowerCase().includes('.mpd');
 
 const playable = (stream: StremioStream) => stream.kind === 'direct' || stream.kind === 'youTube';
 
-/** Streams for a movie or episode from every addon; picking one plays it. */
-export const StreamPicker: FC<{ target: StreamTarget; onClose: () => void }> = ({
-  target,
-  onClose,
-}) => {
+/**
+ * Streams for a movie or episode from every addon; picking one plays it, and direct ones download
+ * from their own button. Opened to download, picking a stream saves it.
+ */
+export const StreamPicker: FC<{
+  target: StreamTarget;
+  intent?: PickIntent;
+  onClose: () => void;
+}> = ({ target, intent = 'play', onClose }) => {
   const { t } = useTranslation();
   const groups = useStremioStreams(target.kind, target.videoId);
   const play = useStremioPlay();
+  const download = useDownloadStremio();
   const withStreams = (groups.data ?? []).filter(
     (group) => group.streams.length > 0 || group.error,
   );
+  const { titleId = null, ...request } = target;
+  const busy = play.isPending || download.isPending;
+  const error = play.error ?? download.error;
 
+  const save = (stream: StremioStream) =>
+    download.mutate({ request: { ...request, stream }, titleId }, { onSuccess: onClose });
   const pick = (stream: StremioStream) =>
-    play.mutate({ ...target, stream }, { onSuccess: onClose });
+    intent === 'download'
+      ? save(stream)
+      : play.mutate({ ...request, stream }, { onSuccess: onClose });
+  const usable = (stream: StremioStream) =>
+    intent === 'download' ? savable(stream) : playable(stream);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
@@ -42,7 +64,7 @@ export const StreamPicker: FC<{ target: StreamTarget; onClose: () => void }> = (
         <div className="flex items-start justify-between gap-3 px-5">
           <div className="min-w-0">
             <h2 id="streams-title" className="text-lg font-semibold">
-              {t('watch.streams')}
+              {t(intent === 'download' ? 'watch.downloadTitle' : 'watch.streams')}
             </h2>
             <p className="text-muted line-clamp-1 text-sm">
               {[target.title, target.subtitle].filter(Boolean).join(' · ')}
@@ -89,12 +111,12 @@ export const StreamPicker: FC<{ target: StreamTarget; onClose: () => void }> = (
               )}
               <ul className="flex flex-col gap-2">
                 {group.streams.map((stream, index) => (
-                  <li key={`${stream.target}-${index}`}>
+                  <li key={`${stream.target}-${index}`} className="flex items-stretch gap-2">
                     <button
                       type="button"
-                      disabled={!playable(stream) || play.isPending}
+                      disabled={!usable(stream) || busy}
                       onClick={() => pick(stream)}
-                      className="bg-background flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left disabled:opacity-60"
+                      className="bg-background flex min-w-0 flex-1 items-center gap-3 rounded-xl px-4 py-3 text-left disabled:opacity-60"
                     >
                       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                         <span className="text-sm font-medium whitespace-pre-line">
@@ -110,17 +132,38 @@ export const StreamPicker: FC<{ target: StreamTarget; onClose: () => void }> = (
                             {t(`watch.unsupported.${stream.kind}`)}
                           </span>
                         )}
+                        {intent === 'download' && playable(stream) && !savable(stream) && (
+                          <span className="text-muted text-xs">{t('watch.cantDownload')}</span>
+                        )}
                       </span>
-                      {playable(stream) && <Play aria-hidden size={18} className="shrink-0" />}
+                      {usable(stream) &&
+                        (intent === 'download' ? (
+                          <Download aria-hidden size={18} className="shrink-0" />
+                        ) : (
+                          <Play aria-hidden size={18} className="shrink-0" />
+                        ))}
                     </button>
+                    {intent === 'play' && savable(stream) && (
+                      <button
+                        type="button"
+                        aria-label={t('watch.downloadLink', {
+                          name: stream.name ?? group.addonName,
+                        })}
+                        disabled={busy}
+                        onClick={() => save(stream)}
+                        className="bg-background text-muted grid w-12 shrink-0 place-items-center rounded-xl disabled:opacity-60"
+                      >
+                        <Download aria-hidden size={18} />
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
             </section>
           ))}
-          {play.error && (
+          {error && (
             <p role="alert" className="text-primary text-sm wrap-anywhere">
-              {play.error.message}
+              {error.message}
             </p>
           )}
         </div>

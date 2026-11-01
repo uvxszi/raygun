@@ -3,10 +3,13 @@ import {
   BookImage,
   BookPlus,
   BookText,
+  Clapperboard,
   Compass,
   Download,
   FolderCog,
+  History,
   ListFilter,
+  Puzzle,
   RefreshCw,
   Search,
 } from 'lucide-react';
@@ -18,6 +21,9 @@ import { LibraryTop } from '../library/LibraryTop';
 import { EmptyState } from '../shell/EmptyState';
 import { useImportEpub } from '../novel/useImportEpub';
 import { TopBarAction } from '../shell/TopBar';
+import type { OverflowItem } from '../shell/OverflowMenu';
+import { ContinueWatchingRow } from '../watch/ContinueWatchingRow';
+import { videoTitleLink } from '../watch/useVideoLibrary';
 import { LibraryFilterSheet } from './LibraryFilterSheet';
 import {
   ALL_CATEGORIES,
@@ -30,7 +36,7 @@ import {
 } from './libraryFilters';
 import type { LibraryFilter } from './libraryFilters';
 import { MangaGrid } from './MangaGrid';
-import type { ReadingMedium } from './medium';
+import type { Medium } from './medium';
 import { useCategories } from './useCategories';
 import {
   useMangaLibrary,
@@ -39,11 +45,18 @@ import {
   useUpdateLibrary,
 } from './useManga';
 
+const EMPTY = {
+  manga: { icon: BookImage, title: 'manga.emptyTitle', body: 'manga.emptyLibrary' },
+  novel: { icon: BookText, title: 'novel.emptyTitle', body: 'novel.emptyLibrary' },
+  video: { icon: Clapperboard, title: 'library.videos.emptyTitle', body: 'library.videos.empty' },
+} as const;
+
 /**
- * Library → Manga or Novels: the titles you added, by category (Mihon-style tabs), with search,
- * filters, sort and genre tags.
+ * Library → Manga, Novels or Videos: the titles you added, by category (Mihon-style tabs), with
+ * search, filters, sort and genre tags. Videos start with Continue watching (Aniyomi's anime
+ * library with CloudStream's resume row).
  */
-export const MangaLibraryView: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga' }) => {
+export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) => {
   const { t } = useTranslation();
   useMangaLiveEvents();
   const library = useMangaLibrary(medium);
@@ -79,6 +92,53 @@ export const MangaLibraryView: FC<{ medium?: ReadingMedium }> = ({ medium = 'man
     </button>
   );
 
+  const update: OverflowItem = {
+    label: updating
+      ? t('manga.updating', {
+          checked: updateStatus.data?.checked ?? 0,
+          total: updateStatus.data?.total ?? 0,
+        })
+      : t('manga.updateLibrary'),
+    icon: RefreshCw,
+    onSelect: () => {
+      if (!updating) updateLibrary.mutate();
+    },
+  };
+  const video = medium === 'video';
+  const menu: OverflowItem[] = [
+    ...(medium === 'novel'
+      ? [{ label: t('novel.importEpub'), icon: BookPlus, onSelect: epub.pick }]
+      : [
+          update,
+          {
+            label: t('manga.updates'),
+            icon: Bell,
+            to: '/updates',
+            ...(video ? { search: { tab: 'episodes' } } : {}),
+          },
+        ]),
+    {
+      label: t('manga.downloads'),
+      icon: Download,
+      to: '/downloads',
+      ...(video ? { search: { tab: 'videos' } } : {}),
+    },
+    ...(video ? [{ label: t('library.videos.history'), icon: History, to: '/watch/history' }] : []),
+    {
+      label: t('library.categories.edit'),
+      icon: FolderCog,
+      to: '/library/categories',
+      search: { medium },
+    },
+    ...(video
+      ? [
+          { label: t('browse.title'), icon: Compass, to: '/browse' },
+          { label: t('watch.addons'), icon: Puzzle, to: '/watch/addons' },
+        ]
+      : []),
+  ];
+  const empty = EMPTY[medium];
+
   return (
     <div data-testid={`${medium}-library`} className="flex flex-col gap-4">
       <LibraryTop
@@ -113,32 +173,7 @@ export const MangaLibraryView: FC<{ medium?: ReadingMedium }> = ({ medium = 'man
             />
           </>
         }
-        menu={[
-          ...(medium === 'manga'
-            ? [
-                {
-                  label: updating
-                    ? t('manga.updating', {
-                        checked: updateStatus.data?.checked ?? 0,
-                        total: updateStatus.data?.total ?? 0,
-                      })
-                    : t('manga.updateLibrary'),
-                  icon: RefreshCw,
-                  onSelect: () => {
-                    if (!updating) updateLibrary.mutate();
-                  },
-                },
-                { label: t('manga.updates'), icon: Bell, to: '/manga/updates' },
-              ]
-            : [{ label: t('novel.importEpub'), icon: BookPlus, onSelect: epub.pick }]),
-          { label: t('manga.downloads'), icon: Download, to: '/manga/downloads' },
-          {
-            label: t('library.categories.edit'),
-            icon: FolderCog,
-            to: '/library/categories',
-            search: { medium },
-          },
-        ]}
+        menu={menu}
       />
       {epub.input}
       {updating && updateStatus.data && (
@@ -165,11 +200,12 @@ export const MangaLibraryView: FC<{ medium?: ReadingMedium }> = ({ medium = 'man
           {library.error.message}
         </p>
       )}
+      {video && <ContinueWatchingRow />}
       {entries?.length === 0 && (
         <EmptyState
-          icon={medium === 'novel' ? BookText : BookImage}
-          title={t(medium === 'novel' ? 'novel.emptyTitle' : 'manga.emptyTitle')}
-          body={t(medium === 'novel' ? 'novel.emptyLibrary' : 'manga.emptyLibrary')}
+          icon={empty.icon}
+          title={t(empty.title)}
+          body={t(empty.body)}
           action={{ label: t('manga.browseSources'), icon: Compass, to: '/browse' }}
         />
       )}
@@ -209,6 +245,7 @@ export const MangaLibraryView: FC<{ medium?: ReadingMedium }> = ({ medium = 'man
                 coverUrl: entry.coverUrl,
                 unread: entry.unread,
                 downloaded: entry.downloaded,
+                ...(video ? { link: videoTitleLink(entry.sourceId, entry.remoteId) } : {}),
               }))}
             />
           )}
@@ -218,6 +255,7 @@ export const MangaLibraryView: FC<{ medium?: ReadingMedium }> = ({ medium = 'man
         <LibraryFilterSheet
           filter={filter}
           tags={tags}
+          medium={medium}
           onChange={setFilter}
           onClose={() => setFiltering(false)}
         />

@@ -28,7 +28,7 @@ describe('Watch tab', () => {
     const user = userEvent.setup();
     await AppShellWrapper.mount('/library');
     await user.click(await screen.findByTestId('library-media-video'));
-    const videos = await screen.findByTestId('videos-library');
+    const videos = await screen.findByTestId('video-library');
 
     await user.click(within(videos).getByRole('button', { name: 'More options' }));
     await user.click(within(videos).getByRole('menuitem', { name: 'Open link or file' }));

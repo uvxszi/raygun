@@ -4,15 +4,12 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { ReadingMedium } from './medium';
+import type { Medium } from './medium';
 import { useCategories, useSetTitleCategories } from './useCategories';
 import { useMangaLibrary } from './useManga';
 
 /** On a library title's page: choose which categories it's in. */
-export const CategoryPicker: FC<{ medium: ReadingMedium; titleId: string }> = ({
-  medium,
-  titleId,
-}) => {
+export const CategoryPicker: FC<{ medium: Medium; titleId: string }> = ({ medium, titleId }) => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const categories = useCategories(medium);

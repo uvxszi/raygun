@@ -83,14 +83,22 @@
       "descending": "Descending",
       "tags": "Tags",
       "reset": "Clear filters",
-      "noMatches": "Nothing in the library matches."
+      "noMatches": "Nothing in the library matches.",
+      "video": {
+        "unread": "Unwatched"
+      }
     },
     "sort": {
       "title": "Title",
       "lastRead": "Last read",
       "latestChapter": "Latest chapter",
       "unread": "Unread count",
-      "added": "Date added"
+      "added": "Date added",
+      "video": {
+        "lastRead": "Last watched",
+        "latestChapter": "Latest episode",
+        "unread": "Unwatched count"
+      }
     },
     "categories": {
       "title": "Categories",
@@ -112,15 +120,18 @@
       "moveUp": "Move {{name}} up",
       "moveDown": "Move {{name}} down",
       "choose": "Add to categories",
-      "noneYet": "Make categories to sort your library into tabs."
+      "noneYet": "Make categories to sort your library into tabs.",
+      "videoTitle": "Video categories"
     },
     "videos": {
-      "empty": "Videos you watch show up here.",
+      "empty": "Save movies and series from their pages to keep them here, with new episodes as they come out.",
       "openWatch": "Browse sources",
       "watched": "Watched",
       "remove": "Remove {{title}}",
-      "history": "Watched",
-      "emptyTitle": "Nothing watched yet"
+      "history": "History",
+      "emptyTitle": "No saved videos yet",
+      "historyEmptyTitle": "Nothing watched yet",
+      "historyEmpty": "Videos you watch show up here."
     },
     "openKind": "What to open",
     "openAs": {
@@ -222,8 +233,8 @@
     "manageExtensions": "Manage",
     "extensionsFailed_one": "{{count}} extension failed to load",
     "extensionsFailed_other": "{{count}} extensions failed to load",
-    "mangaUpdates": "Check the library for new chapters",
-    "mangaUpdatesHint": "Runs while the app is open. Finished and cancelled series are skipped.",
+    "mangaUpdates": "Check the library for new chapters and episodes",
+    "mangaUpdatesHint": "Runs while the app is open. Finished series and films are skipped.",
     "updateEvery": {
       "0": "Never",
       "6": "Every 6 hours",
@@ -680,7 +691,8 @@
     "downloadAction": "Download",
     "emptyTitle": "No manga yet",
     "queueEmptyHint": "Download chapters from a title to read them offline.",
-    "noUpdatesHint": "New chapters from titles in your library show up here after an update."
+    "noUpdatesHint": "New chapters from titles in your library show up here after an update.",
+    "tomorrow": "Tomorrow"
   },
   "novel": {
     "sources": "Novel sources",
@@ -884,7 +896,33 @@
     "noEpisodes": "This title has no episodes.",
     "hiddenNsfw": "This title is for adults. Turn on “Show NSFW (18+) content” in Settings to see it.",
     "openInBrowser": "Open in browser",
-    "start": "Start"
+    "start": "Start",
+    "upcoming": "Upcoming",
+    "noEpisodeUpdates": "No new episodes yet",
+    "noEpisodeUpdatesHint": "Save series to the library; updates find their new episodes and what's coming up.",
+    "downloaded": "Downloaded",
+    "downloadEpisode": "Download {{name}}",
+    "downloadLink": "Download {{name}}",
+    "downloadTitle": "Choose what to download",
+    "cantDownload": "This stream can't be downloaded",
+    "deleteDownload": "Delete the download of {{name}}",
+    "cancelQueued": "Cancel the queued download of {{name}}",
+    "cancelDownloading": "Downloading {{name}}, {{percent}}%. Cancel",
+    "cancelDownload": "Cancel the download of {{name}}",
+    "retryDownload": "Retry downloading {{name}}",
+    "playDownload": "Play {{name}}",
+    "onDevice": "On this device · {{size}}",
+    "sizeOf": "{{done}} of {{total}}",
+    "noDownloads": "No videos downloaded",
+    "noDownloadsHint": "Download a film or an episode from its page to watch it without a connection.",
+    "savedVideos_one": "{{count}} video on this device · {{size}}",
+    "savedVideos_other": "{{count}} videos on this device · {{size}}",
+    "downloading": "Downloading",
+    "onThisDevice": "On this device",
+    "unwatched_one": "{{count}} unwatched episode",
+    "unwatched_other": "{{count}} unwatched episodes",
+    "paused": "Paused",
+    "savedCopy": "Saved in your library"
   },
   "browse": {
     "title": "Browse",
@@ -899,11 +937,11 @@
   },
   "more": {
     "updates": "Updates",
-    "updatesHint": "New chapters found in your library",
+    "updatesHint": "New chapters and episodes in your library",
     "downloads": "Downloads",
-    "downloadsHint": "Chapters saved for offline reading",
+    "downloadsHint": "Chapters and videos saved to this device",
     "categories": "Categories",
-    "categoriesHint": "Group your manga and novels",
+    "categoriesHint": "Group your manga, novels and videos",
     "addonsHint": "Catalogues, streams and subtitles for movies and series",
     "reposHint": "Where extensions come from",
     "ai": "AI",
@@ -913,5 +951,12 @@
     "settingsHint": "Appearance, library, reader, player and more",
     "about": "About",
     "aboutHint": "Version and where Raygun keeps its data"
+  },
+  "updates": {
+    "chapters": "Chapters",
+    "episodes": "Episodes"
+  },
+  "downloads": {
+    "videos": "Videos"
   }
 }

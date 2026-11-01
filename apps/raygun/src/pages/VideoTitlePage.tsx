@@ -1,15 +1,25 @@
-import type { VideoEpisodeView, VideoTitleView } from '@raygun/bindings';
+import type { VideoDownloadItem, VideoEpisodeView, VideoTitleView } from '@raygun/bindings';
 import { useSearch } from '@tanstack/react-router';
 import { Check, ExternalLink, Eye, EyeOff, LoaderCircle, RefreshCw } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { CategoryPicker } from '../manga/CategoryPicker';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
+import { LibraryPill } from '../watch/LibraryPill';
 import { ServerPicker } from '../watch/ServerPicker';
-import type { ServerTarget } from '../watch/ServerPicker';
+import type { PickIntent, ServerTarget } from '../watch/ServerPicker';
 import { StremioPoster } from '../watch/StremioRow';
+import { VideoDownloadControl } from '../watch/VideoDownloadControl';
+import { episodeLabel } from '../watch/episodeLabel';
+import {
+  sourceKey,
+  useDownloadsByKey,
+  usePlayVideoDownload,
+  useSetVideoInLibrary,
+} from '../watch/useVideoLibrary';
 import {
   useRefreshVideoTitle,
   useSetEpisodeWatched,
@@ -17,14 +27,6 @@ import {
 } from '../watch/useVideoSources';
 
 const number = (value: number) => (Number.isInteger(value) ? String(value) : value.toFixed(1));
-
-/** "S1 E2 · Name", "E2 · Name" or the name alone. */
-const episodeLabel = (episode: VideoEpisodeView) =>
-  episode.season !== null && episode.number !== null
-    ? `S${number(episode.season)} E${number(episode.number)} · ${episode.name}`
-    : episode.number !== null && !episode.name.endsWith(` ${number(episode.number)}`)
-      ? `E${number(episode.number)} · ${episode.name}`
-      : episode.name;
 
 const Progress: FC<{ episode: VideoEpisodeView }> = ({ episode }) => {
   const position = episode.positionMs ?? 0;
@@ -43,10 +45,11 @@ const Progress: FC<{ episode: VideoEpisodeView }> = ({ episode }) => {
 const isMovie = (view: VideoTitleView) =>
   view.episodes.length === 1 && view.episodes[0]!.season === null;
 
-const Episodes: FC<{ view: VideoTitleView; onPick: (episode: VideoEpisodeView) => void }> = ({
-  view,
-  onPick,
-}) => {
+const Episodes: FC<{
+  view: VideoTitleView;
+  downloads: Map<string, VideoDownloadItem>;
+  onPick: (episode: VideoEpisodeView, intent: PickIntent) => void;
+}> = ({ view, downloads, onPick }) => {
   const { t } = useTranslation();
   const setWatched = useSetEpisodeWatched();
   const seasons = useMemo(
@@ -95,7 +98,7 @@ const Episodes: FC<{ view: VideoTitleView; onPick: (episode: VideoEpisodeView) =
             <li key={episode.id} aria-label={label} className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => onPick(episode)}
+                onClick={() => onPick(episode, 'play')}
                 className="bg-surface flex min-w-0 flex-1 flex-col gap-1.5 rounded-xl px-4 py-3 text-left"
               >
                 <span
@@ -110,6 +113,12 @@ const Episodes: FC<{ view: VideoTitleView; onPick: (episode: VideoEpisodeView) =
                 )}
                 <Progress episode={episode} />
               </button>
+              <VideoDownloadControl
+                item={downloads.get(sourceKey(view.sourceId, episode.remoteId))}
+                downloaded={episode.downloaded}
+                name={label}
+                onDownload={() => onPick(episode, 'download')}
+              />
               <button
                 type="button"
                 aria-pressed={episode.watched}
@@ -142,7 +151,10 @@ export const VideoTitlePage: FC = () => {
   const title = useVideoTitle(source, id);
   const refresh = useRefreshVideoTitle();
   const setWatched = useSetEpisodeWatched();
-  const [picking, setPicking] = useState<ServerTarget | null>(null);
+  const setInLibrary = useSetVideoInLibrary();
+  const downloads = useDownloadsByKey();
+  const playDownload = usePlayVideoDownload();
+  const [picking, setPicking] = useState<{ target: ServerTarget; intent: PickIntent } | null>(null);
   const [expanded, setExpanded] = useState(false);
   const view = title.data;
 
@@ -204,14 +216,23 @@ export const VideoTitlePage: FC = () => {
     );
   }
 
-  const pick = (episode: VideoEpisodeView) =>
+  const pick = (episode: VideoEpisodeView, intent: PickIntent = 'play') => {
+    const saved = downloads.get(sourceKey(view.sourceId, episode.remoteId));
+    if (intent === 'play' && saved?.state === 'done') {
+      playDownload.mutate(saved.id);
+      return;
+    }
     setPicking({
-      sourceId: view.sourceId,
-      titleId: view.id,
-      episodeId: episode.id,
-      remoteId: episode.remoteId,
-      heading: isMovie(view) ? view.title : `${view.title} · ${episodeLabel(episode)}`,
+      target: {
+        sourceId: view.sourceId,
+        titleId: view.id,
+        episodeId: episode.id,
+        remoteId: episode.remoteId,
+        heading: isMovie(view) ? view.title : `${view.title} · ${episodeLabel(episode)}`,
+      },
+      intent,
     });
+  };
   const movie = isMovie(view) ? view.episodes[0]! : null;
   // The floating button plays the movie, or the first episode not yet watched.
   const next = movie ?? view.episodes.find((episode) => !episode.watched) ?? view.episodes[0];
@@ -231,27 +252,45 @@ export const VideoTitlePage: FC = () => {
         genres={view.genres}
         genresLabel={t('watch.genres')}
       >
-        {movie && (
-          <div className="flex flex-col gap-3">
-            <button
-              type="button"
-              aria-pressed={movie.watched}
-              onClick={() =>
-                setWatched.mutate({
-                  titleId: view.id,
-                  episodeId: movie.id,
-                  watched: !movie.watched,
-                })
-              }
-              className="bg-surface/80 flex w-fit items-center gap-2 rounded-full px-4 py-2 text-sm"
-            >
-              {movie.watched ? <EyeOff aria-hidden size={16} /> : <Eye aria-hidden size={16} />}
-              {t(movie.watched ? 'watch.watched' : 'watch.markWatchedShort')}
-            </button>
-            <Progress episode={movie} />
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <LibraryPill
+              inLibrary={view.inLibrary}
+              busy={setInLibrary.isPending}
+              onToggle={() => setInLibrary.mutate({ titleId: view.id, inLibrary: !view.inLibrary })}
+            />
+            {movie && (
+              <button
+                type="button"
+                aria-pressed={movie.watched}
+                onClick={() =>
+                  setWatched.mutate({
+                    titleId: view.id,
+                    episodeId: movie.id,
+                    watched: !movie.watched,
+                  })
+                }
+                className="bg-surface/80 flex w-fit items-center gap-2 rounded-full px-4 py-2 text-sm"
+              >
+                {movie.watched ? <EyeOff aria-hidden size={16} /> : <Eye aria-hidden size={16} />}
+                {t(movie.watched ? 'watch.watched' : 'watch.markWatchedShort')}
+              </button>
+            )}
+            {movie && (
+              <span className="bg-surface/80 rounded-full">
+                <VideoDownloadControl
+                  item={downloads.get(sourceKey(view.sourceId, movie.remoteId))}
+                  downloaded={movie.downloaded}
+                  name={view.title}
+                  onDownload={() => pick(movie, 'download')}
+                />
+              </span>
+            )}
           </div>
-        )}
+          {movie && <Progress episode={movie} />}
+        </div>
       </TitleHero>
+      {view.inLibrary && <CategoryPicker medium="video" titleId={view.id} />}
       {view.description && (
         <button
           type="button"
@@ -278,12 +317,14 @@ export const VideoTitlePage: FC = () => {
           )}
         </dl>
       )}
-      {(refresh.error ?? setWatched.error) && (
+      {(refresh.error ?? setWatched.error ?? setInLibrary.error ?? playDownload.error) && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {(refresh.error ?? setWatched.error)?.message}
+          {(refresh.error ?? setWatched.error ?? setInLibrary.error ?? playDownload.error)?.message}
         </p>
       )}
-      {!movie && view.episodes.length > 0 && <Episodes view={view} onPick={pick} />}
+      {!movie && view.episodes.length > 0 && (
+        <Episodes view={view} downloads={downloads} onPick={pick} />
+      )}
       {view.episodes.length === 0 && <p className="text-muted text-sm">{t('watch.noEpisodes')}</p>}
       {next && (
         <ResumeFab
@@ -293,7 +334,13 @@ export const VideoTitlePage: FC = () => {
           onClick={() => pick(next)}
         />
       )}
-      {picking && <ServerPicker target={picking} onClose={() => setPicking(null)} />}
+      {picking && (
+        <ServerPicker
+          target={picking.target}
+          intent={picking.intent}
+          onClose={() => setPicking(null)}
+        />
+      )}
     </section>
   );
 };

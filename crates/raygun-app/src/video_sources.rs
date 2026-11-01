@@ -12,7 +12,7 @@ use raygun_model::{
 use raygun_net::ImageLinks;
 use tauri::AppHandle;
 
-use crate::catalog::{Catalog, is_adult, now_ms, to_message};
+use crate::catalog::{Catalog, is_adult, to_message};
 
 /// `title.kind` of video titles.
 const KIND: &str = "video";
@@ -62,11 +62,16 @@ impl VideoSourceService {
             .find(|source| source.id == row.fields.source_id)
             .map_or_else(|| row.fields.source_id.clone(), |source| source.name);
         let hidden_nsfw = !self.catalog.extensions().show_nsfw() && is_adult(&row.fields.genres);
+        let keys: Vec<String> = units
+            .iter()
+            .map(|unit| content_key(&row.fields.source_id, &unit.fields.remote_id))
+            .collect();
+        let downloaded = crate::video_library::downloaded_keys(&db, &keys).await?;
         let fields = row.fields;
         Ok(VideoTitleView {
             episodes: units
                 .iter()
-                .map(|unit| episode_view(&fields.source_id, unit, &progress))
+                .map(|unit| episode_view(&fields.source_id, unit, &progress, &downloaded))
                 .collect(),
             hidden_nsfw,
             id: row.id,
@@ -128,9 +133,15 @@ impl VideoSourceService {
 
     /// Plays a link of a stored episode, resuming where it was left.
     pub async fn play(&self, request: VideoSourcePlay) -> Result<(), String> {
+        let video = self.request(request).await?;
+        crate::video::play(self.catalog.app(), video).await
+    }
+
+    /// What the player gets for a link of a stored episode (also what a download saves).
+    pub async fn request(&self, request: VideoSourcePlay) -> Result<VideoRequest, String> {
         let (row, unit, single) = self.episode(&request.title_id, &request.episode_id).await?;
         let link = request.link;
-        let video = VideoRequest {
+        Ok(VideoRequest {
             key: content_key(&row.fields.source_id, &unit.fields.remote_id),
             subtitle: episode_subtitle(&row, &unit, single),
             title: row.fields.title,
@@ -140,8 +151,21 @@ impl VideoSourceService {
             headers: link.headers,
             format: link.format,
             subtitles: link.subtitles,
-        };
-        crate::video::play(self.catalog.app(), video).await
+        })
+    }
+
+    /// Saves a title to the video library (M43) or takes it out; episodes watched before it was
+    /// saved count as watched.
+    pub async fn set_in_library(&self, title_id: &str, in_library: bool) -> Result<(), String> {
+        self.catalog.set_in_library(title_id, in_library).await?;
+        let db = self.catalog.db();
+        if let (true, Some(row)) = (
+            in_library,
+            titles::title(&db, title_id).await.map_err(to_message)?,
+        ) {
+            crate::video_library::backfill(&db, &row).await?;
+        }
+        Ok(())
     }
 
     /// Marks a stored episode watched or not.
@@ -160,9 +184,7 @@ impl VideoSourceService {
             // Nothing was played, so there's no link to replay.
             request: "{}".into(),
         };
-        progress_store::mark(&self.catalog.db(), &entry, watched, now_ms())
-            .await
-            .map_err(to_message)
+        crate::video::mark(&self.catalog.db(), &entry, watched).await
     }
 
     /// A stored title and one of its episodes, and whether it's the only one (a movie).
@@ -220,7 +242,7 @@ fn episode_subtitle(row: &TitleRow, unit: &UnitRow, single: bool) -> Option<Stri
 }
 
 /// A video episode's season, kept as its volume.
-fn season(unit: &UnitRow) -> Option<f64> {
+pub(crate) fn season(unit: &UnitRow) -> Option<f64> {
     unit.fields
         .volume
         .as_deref()
@@ -228,7 +250,12 @@ fn season(unit: &UnitRow) -> Option<f64> {
         .filter(|season| season.is_finite())
 }
 
-fn episode_view(source_id: &str, unit: &UnitRow, progress: &[VideoProgress]) -> VideoEpisodeView {
+fn episode_view(
+    source_id: &str,
+    unit: &UnitRow,
+    progress: &[VideoProgress],
+    downloaded: &std::collections::HashSet<String>,
+) -> VideoEpisodeView {
     let key = content_key(source_id, &unit.fields.remote_id);
     let saved = progress.iter().find(|row| row.entry.key == key);
     VideoEpisodeView {
@@ -241,6 +268,7 @@ fn episode_view(source_id: &str, unit: &UnitRow, progress: &[VideoProgress]) -> 
         position_ms: saved.map_or(0.0, |row| row.position_ms as f64),
         duration_ms: saved.and_then(|row| row.duration_ms).map(|ms| ms as f64),
         watched: saved.is_some_and(|row| row.watched_at.is_some()),
+        downloaded: downloaded.contains(&key),
     }
 }
 

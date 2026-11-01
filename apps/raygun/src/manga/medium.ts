@@ -33,6 +33,10 @@ export const catalogCommands = (medium: ReadingMedium) =>
         setRead: commands.mangaSetRead,
       };
 
+/** The library list of a medium (videos: movies and series from sources and Stremio, M43). */
+export const libraryCommand = (medium: Medium) =>
+  medium === 'video' ? commands.videoLibrary : catalogCommands(medium).library;
+
 /** The source id of imported EPUB books. */
 export const LOCAL_EPUB = 'local.epub';
 

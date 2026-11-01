@@ -73,7 +73,7 @@ describe('Manga updates and downloads', () => {
       ]),
     );
     await AppShellWrapper.mount('/manga/updates');
-    const page = await screen.findByTestId('manga-updates-page');
+    const page = await screen.findByTestId('updates-page');
 
     expect(await within(page).findByRole('heading', { name: 'Today' })).toBeInTheDocument();
     expect(within(page).getByRole('heading', { name: 'Yesterday' })).toBeInTheDocument();
@@ -129,7 +129,7 @@ describe('Manga updates and downloads', () => {
       }),
     );
     await AppShellWrapper.mount('/manga/downloads');
-    const page = await screen.findByTestId('manga-downloads-page');
+    const page = await screen.findByTestId('downloads-page');
 
     const rows = await within(page).findAllByTestId('download-row');
     const [running, failed] = [0, 1].map((index) => {
@@ -219,7 +219,7 @@ describe('Manga updates and downloads', () => {
 
     await user.click(within(library).getByRole('button', { name: 'More options' }));
     await user.click(within(library).getByRole('menuitem', { name: 'Updates' }));
-    expect(await screen.findByTestId('manga-updates-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('updates-page')).toBeInTheDocument();
   });
 
   it('sets how often the library is checked', async () => {
@@ -233,7 +233,9 @@ describe('Manga updates and downloads', () => {
     const row = await screen.findByRole('button', { name: /Check the library for new chapters/ });
     expect(row).toHaveTextContent('Every 12 hours');
     await user.click(row);
-    const sheet = await screen.findByRole('dialog', { name: 'Check the library for new chapters' });
+    const sheet = await screen.findByRole('dialog', {
+      name: 'Check the library for new chapters and episodes',
+    });
     await user.click(within(sheet).getByRole('radio', { name: 'Daily' }));
     expect(commands.settingsUpdate).toHaveBeenCalledWith({ key: 'mangaUpdateHours', value: 24 });
   });

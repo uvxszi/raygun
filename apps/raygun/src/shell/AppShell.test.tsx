@@ -42,7 +42,7 @@ describe('AppShell', () => {
 
   it('sends the old Watch address to Library → Videos', async () => {
     await AppShellWrapper.mount('/watch');
-    expect(await screen.findByTestId('videos-library')).toBeInTheDocument();
+    expect(await screen.findByTestId('video-library')).toBeInTheDocument();
     expect(screen.getByTestId('library-media-video')).toHaveAttribute('aria-current', 'page');
   });
 

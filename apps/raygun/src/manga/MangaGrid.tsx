@@ -16,6 +16,8 @@ export type MangaGridItem = {
   inLibrary?: boolean;
   unread?: number;
   downloaded?: number;
+  /** Where it opens, when not the medium's title page (Stremio titles in the video library). */
+  link?: { to: string; search: Record<string, string> };
 };
 
 /** Covers per row (Settings → Library); 0 fits them to the screen. */
@@ -46,13 +48,13 @@ export const MangaGrid: FC<{ items: MangaGridItem[]; medium?: Medium }> = ({
       {items.map((item) => (
         <li key={`${item.sourceId}:${item.id}`}>
           <Link
-            to={ROUTES[medium].title}
-            search={{ source: item.sourceId, id: item.id }}
+            to={item.link?.to ?? ROUTES[medium].title}
+            search={item.link?.search ?? { source: item.sourceId, id: item.id }}
             data-testid="manga-card"
             className="flex flex-col gap-1"
           >
             <span className="relative overflow-hidden rounded-xl">
-              <MangaCover url={item.coverUrl} className="w-full" />
+              <MangaCover url={item.coverUrl} video={medium === 'video'} className="w-full" />
               <span className="absolute top-1.5 left-1.5 flex gap-1">
                 {item.inLibrary && (
                   <span className="bg-primary text-background rounded-md px-1.5 py-0.5 text-[10px] font-bold">
@@ -61,7 +63,9 @@ export const MangaGrid: FC<{ items: MangaGridItem[]; medium?: Medium }> = ({
                 )}
                 {unreadBadges && item.unread ? (
                   <span
-                    aria-label={t('manga.unread', { count: item.unread })}
+                    aria-label={t(medium === 'video' ? 'watch.unwatched' : 'manga.unread', {
+                      count: item.unread,
+                    })}
                     className="bg-primary text-background rounded-md px-1.5 text-xs font-bold"
                   >
                     {item.unread}

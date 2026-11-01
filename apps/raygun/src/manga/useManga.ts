@@ -4,7 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useEffect } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
-import { browseCommands, catalogCommands } from './medium';
+import { browseCommands, catalogCommands, libraryCommand } from './medium';
 import type { Medium, ReadingMedium } from './medium';
 
 /** Every manga query lives under this key. */
@@ -44,10 +44,10 @@ export const useMangaTitle = (sourceId: string, mangaId: string, medium: Reading
     enabled: Boolean(sourceId && mangaId),
   });
 
-export const useMangaLibrary = (medium: ReadingMedium = 'manga') =>
+export const useMangaLibrary = (medium: Medium = 'manga') =>
   useQuery({
     queryKey: [medium, 'library'],
-    queryFn: () => unwrapResult(catalogCommands(medium).library()),
+    queryFn: () => unwrapResult(libraryCommand(medium)()),
   });
 
 export const useMangaChapter = (titleId: string, chapterId: string) =>
@@ -170,6 +170,10 @@ export const useMangaLiveEvents = () => {
           queryClient.invalidateQueries({ queryKey: [MANGA, 'library'] }),
           queryClient.invalidateQueries({ queryKey: [MANGA, 'updates'] }),
           queryClient.invalidateQueries({ queryKey: [MANGA, 'title'] }),
+          // The update covers saved movies and series too (M43).
+          queryClient.invalidateQueries({ queryKey: ['video', 'library'] }),
+          queryClient.invalidateQueries({ queryKey: ['video', 'updates'] }),
+          queryClient.invalidateQueries({ queryKey: ['video', 'upcoming'] }),
         ]);
       }
     });

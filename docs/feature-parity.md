@@ -106,12 +106,12 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Subtitles (.srt/.vtt/.ass), preferred languages, audio track selection | aniyomi, CloudStream | ✅ M38 (preferred languages later) |
 | HLS/DASH, header injection | CloudStream | ✅ M38 |
 | Intro/outro skip (chapters, AniSkip) | aniyomi | 🔜 M38 (chapters), ⏸ AniSkip (needs a tracker) |
-| Mark seen at a percentage, preserve position | aniyomi | 🔜 M43 |
+| Mark seen at a percentage, preserve position | aniyomi | ✅ M42.1 (watched point setting), M43 (counts on library episodes) |
 | Stremio catalogs, metadata, streams, subtitles | Stremio | ✅ M41 (torrent streams not yet) |
 | Video sources with servers streamed as they resolve | CloudStream, aniyomi | ✅ M42 (`video.source`, Internet Archive films) |
 | Source priority, quality profiles, failed/empty hosters | CloudStream, aniyomi | ✅ M42 (preferred quality, failed/empty servers) / 🔜 priority across sources |
-| Video library, history, continue watching, upcoming episodes | aniyomi, CloudStream | 🔜 M43 |
-| Video downloads | aniyomi, CloudStream | 🔜 M43 |
+| Video library, history, continue watching, upcoming episodes | aniyomi, CloudStream | ✅ M43 (sources and Stremio titles, categories, filters, updates, upcoming) |
+| Video downloads | aniyomi, CloudStream | ✅ M43 (plain files with resume, HLS with AES-128; DASH not yet; foreground only) |
 | WebView resolver | CloudStream | 🔜 M44 |
 | Torrent streaming (TorrServer) | aniyomi | ✖ for now (legal risk; not in first-party code) |
 | External player | aniyomi | 🔜 M38 |

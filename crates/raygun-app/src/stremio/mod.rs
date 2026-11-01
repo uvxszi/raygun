@@ -1,5 +1,6 @@
 //! Stremio addons in the Watch tab (M41): catalogs, metadata, streams and subtitles from addons
-//! speaking Stremio's HTTP protocol (`protocol`), played in Raygun's own player.
+//! speaking Stremio's HTTP protocol (`protocol`), played in Raygun's own player. Titles saved to
+//! the video library are stored with their episodes and refreshed by library updates (M43).
 
 pub mod protocol;
 
@@ -9,6 +10,7 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use futures_util::future::join_all;
 use raygun_db::stremio::{self as store, AddonRow};
+use raygun_db::titles::{self, TitleFields, TitleRow, UnitFields};
 use raygun_db::video::{self as progress_store, VideoEntry};
 use raygun_model::{
     MediaKind, MediaSource, QueueItemInput, StremioAddon, StremioCatalogRow, StremioItem,
@@ -24,6 +26,7 @@ use crate::extensions::ExtensionService;
 use crate::local_network::{self, LocalNetwork};
 use crate::playback::PlaybackService;
 use crate::startup::AppDb;
+use crate::video_library::{self, STREMIO_SOURCE};
 
 /// Manifests older than this are fetched again.
 const MANIFEST_MAX_AGE_MS: i64 = 24 * 60 * 60 * 1000;
@@ -321,8 +324,40 @@ impl StremioService {
 
     // ---- Titles ----
 
-    /// A title's details from the first addon that has them, with watching progress.
+    /// A title's details from the first addon that has them, with watching progress. A title in
+    /// the library gets its stored episodes brought up to date on the way, and opens from what's
+    /// stored when no addon answers (offline, or the addon is down).
     pub async fn meta(&self, kind: &str, id: &str) -> Result<StremioMeta, String> {
+        let db = self.db();
+        let stored = titles::find_title(&db, STREMIO_SOURCE, &library_id(kind, id))
+            .await
+            .map_err(to_message)?;
+        let (meta, addon_name) = match self.fetch_meta(kind, id).await {
+            Ok(found) => found,
+            Err(error) => match stored.filter(|row| row.in_library_at.is_some()) {
+                Some(row) => {
+                    tracing::info!(%error, "showing a saved title as stored");
+                    let meta = stored_meta(&db, &row).await?;
+                    return self.meta_view(meta, "", Some(&row)).await;
+                }
+                None => return Err(error),
+            },
+        };
+        let stored = match stored {
+            Some(row) if row.in_library_at.is_some() => match self.store(&meta).await {
+                Ok((row, _)) => Some(row),
+                Err(error) => {
+                    tracing::warn!(%error, "could not store a library title's episodes");
+                    Some(row)
+                }
+            },
+            other => other,
+        };
+        self.meta_view(meta, &addon_name, stored.as_ref()).await
+    }
+
+    /// A title's details as the first addon serving them has them, and that addon's name.
+    async fn fetch_meta(&self, kind: &str, id: &str) -> Result<(protocol::Meta, String), String> {
         let loaded = self.loaded().await?;
         let mut last_error = None;
         for addon in &loaded {
@@ -336,7 +371,7 @@ impl StremioService {
             match self.get_json(&url).await {
                 Ok(value) => {
                     if let Some(meta) = protocol::parse_meta(&value, kind) {
-                        return self.meta_view(meta, &manifest.name).await;
+                        return Ok((meta, manifest.name.clone()));
                     }
                 }
                 Err(error) => last_error = Some(error),
@@ -349,6 +384,7 @@ impl StremioService {
         &self,
         meta: protocol::Meta,
         addon_name: &str,
+        stored: Option<&TitleRow>,
     ) -> Result<StremioMeta, String> {
         let db = self.db();
         let kind = meta.preview.kind.clone();
@@ -364,16 +400,25 @@ impl StremioService {
         }
         let find = |key: &str| progress.iter().find(|row| row.entry.key == key);
         let own = find(&own_key);
+        let keys: Vec<String> = meta
+            .videos
+            .iter()
+            .map(|video| content_key(&kind, &video.id))
+            .chain([own_key.clone()])
+            .collect();
+        let downloaded = video_library::downloaded_keys(&db, &keys).await?;
         Ok(StremioMeta {
             videos: meta
                 .videos
                 .into_iter()
                 .map(|video| {
-                    let saved = find(&content_key(&kind, &video.id));
+                    let key = content_key(&kind, &video.id);
+                    let saved = find(&key);
                     StremioVideo {
                         position_ms: saved.map_or(0.0, |row| row.position_ms as f64),
                         duration_ms: saved.and_then(|row| row.duration_ms).map(|ms| ms as f64),
                         watched: saved.is_some_and(|row| row.watched_at.is_some()),
+                        downloaded: downloaded.contains(&key),
                         id: video.id,
                         title: video.title,
                         season: video.season,
@@ -387,6 +432,9 @@ impl StremioService {
             position_ms: own.map_or(0.0, |row| row.position_ms as f64),
             duration_ms: own.and_then(|row| row.duration_ms).map(|ms| ms as f64),
             watched: own.is_some_and(|row| row.watched_at.is_some()),
+            downloaded: downloaded.contains(&own_key),
+            in_library: stored.is_some_and(|row| row.in_library_at.is_some()),
+            title_id: stored.map(|row| row.id.clone()),
             kind,
             id: meta.preview.id,
             name: meta.preview.name,
@@ -470,39 +518,7 @@ impl StremioService {
         let stream = &request.stream;
         match stream.kind {
             StremioStreamKind::Direct => {
-                self.app
-                    .state::<LocalNetwork>()
-                    .check(&stream.target, local_network::VIDEOS_DENIED)
-                    .await?;
-                let mut subtitles: Vec<VideoSubtitle> = stream.subtitles.clone();
-                let found = self
-                    .subtitles(&request.kind, &request.video_id, language)
-                    .await;
-                subtitles.extend(found.into_iter().map(|subtitle| VideoSubtitle {
-                    url: subtitle.url,
-                    label: subtitle.lang.clone(),
-                    lang: subtitle.lang,
-                    format: None,
-                }));
-                subtitles.truncate(MAX_SUBTITLES);
-                let lower = stream.target.to_lowercase();
-                let format = if lower.contains(".m3u8") {
-                    Some("hls".to_owned())
-                } else if lower.contains(".mpd") {
-                    Some("dash".to_owned())
-                } else {
-                    None
-                };
-                let video = VideoRequest {
-                    key: content_key(&request.kind, &request.video_id),
-                    title: request.title.clone(),
-                    subtitle: request.subtitle.clone(),
-                    poster: request.poster.clone(),
-                    url: stream.target.clone(),
-                    headers: stream.headers.clone(),
-                    format,
-                    subtitles,
-                };
+                let video = self.request(&request, language).await?;
                 crate::video::play(&self.app, video).await
             }
             StremioStreamKind::YouTube => {
@@ -528,6 +544,52 @@ impl StremioService {
         }
     }
 
+    /// What the player gets for a direct stream, with the subtitle addons' tracks (`language`
+    /// first). Also what a download saves.
+    pub async fn request(
+        &self,
+        request: &StremioPlayRequest,
+        language: &str,
+    ) -> Result<VideoRequest, String> {
+        let stream = &request.stream;
+        if stream.kind != StremioStreamKind::Direct {
+            return Err("Only direct streams can be played or saved here".into());
+        }
+        self.app
+            .state::<LocalNetwork>()
+            .check(&stream.target, local_network::VIDEOS_DENIED)
+            .await?;
+        let mut subtitles: Vec<VideoSubtitle> = stream.subtitles.clone();
+        let found = self
+            .subtitles(&request.kind, &request.video_id, language)
+            .await;
+        subtitles.extend(found.into_iter().map(|subtitle| VideoSubtitle {
+            url: subtitle.url,
+            label: subtitle.lang.clone(),
+            lang: subtitle.lang,
+            format: None,
+        }));
+        subtitles.truncate(MAX_SUBTITLES);
+        let lower = stream.target.to_lowercase();
+        let format = if lower.contains(".m3u8") {
+            Some("hls".to_owned())
+        } else if lower.contains(".mpd") {
+            Some("dash".to_owned())
+        } else {
+            None
+        };
+        Ok(VideoRequest {
+            key: content_key(&request.kind, &request.video_id),
+            title: request.title.clone(),
+            subtitle: request.subtitle.clone(),
+            poster: request.poster.clone(),
+            url: stream.target.clone(),
+            headers: stream.headers.clone(),
+            format,
+            subtitles,
+        })
+    }
+
     /// Marks a movie or episode watched or not.
     pub async fn set_watched(
         &self,
@@ -546,9 +608,105 @@ impl StremioService {
             // Nothing was played, so there's no stream to replay.
             request: "{}".into(),
         };
-        progress_store::mark(&self.db(), &entry, watched, now_ms())
+        crate::video::mark(&self.db(), &entry, watched).await
+    }
+
+    // ---- Library (M43) ----
+
+    /// Saves a movie or series to the video library, with its episodes, or takes it out.
+    /// Episodes watched before it was saved count as watched.
+    pub async fn set_in_library(
+        &self,
+        kind: &str,
+        id: &str,
+        in_library: bool,
+    ) -> Result<(), String> {
+        let db = self.db();
+        if !in_library {
+            let stored = titles::find_title(&db, STREMIO_SOURCE, &library_id(kind, id))
+                .await
+                .map_err(to_message)?;
+            if let Some(row) = stored {
+                titles::set_in_library(&db, &row.id, None)
+                    .await
+                    .map_err(to_message)?;
+            }
+            return Ok(());
+        }
+        let (meta, _) = self.fetch_meta(kind, id).await?;
+        let (row, _) = self.store(&meta).await?;
+        titles::set_in_library(&db, &row.id, Some(now_ms()))
             .await
-            .map_err(to_message)
+            .map_err(to_message)?;
+        video_library::backfill(&db, &row).await
+    }
+
+    /// Fetches a library title's details again and stores its episodes; returns how many are new.
+    pub async fn refresh(&self, title: &TitleRow) -> Result<usize, String> {
+        let (kind, id) = video_library::stremio_id(title)
+            .ok_or_else(|| "This isn't a title from an addon".to_owned())?;
+        let (meta, _) = self.fetch_meta(kind, id).await?;
+        Ok(self.store(&meta).await?.1)
+    }
+
+    /// Stores a title and its episodes (a movie is one episode, its own id); returns it and how
+    /// many episodes were new.
+    async fn store(&self, meta: &protocol::Meta) -> Result<(TitleRow, usize), String> {
+        let db = self.db();
+        let preview = &meta.preview;
+        let release = preview.release_info.as_deref();
+        let id = titles::upsert_title(
+            &db,
+            &TitleFields {
+                kind: video_library::KIND.into(),
+                source_id: STREMIO_SOURCE.into(),
+                remote_id: library_id(&preview.kind, &preview.id),
+                title: preview.name.clone(),
+                cover: preview.poster.clone(),
+                cover_headers: Default::default(),
+                authors: meta.cast.clone(),
+                artists: meta.director.clone(),
+                description: meta.description.clone(),
+                genres: meta.genres.clone(),
+                status: release_status(&preview.kind, release).into(),
+                url: None,
+                media_type: Some(media_type(&preview.kind).into()),
+                year: release.and_then(release_year),
+            },
+            now_ms(),
+        )
+        .await
+        .map_err(to_message)?;
+        let units: Vec<UnitFields> = if meta.videos.is_empty() {
+            vec![UnitFields {
+                remote_id: preview.id.clone(),
+                name: preview.name.clone(),
+                number: None,
+                volume: None,
+                scanlator: None,
+                date: None,
+            }]
+        } else {
+            meta.videos
+                .iter()
+                .map(|video| UnitFields {
+                    remote_id: video.id.clone(),
+                    name: video.title.clone(),
+                    number: video.episode.map(f64::from),
+                    volume: video.season.map(|season| season.to_string()),
+                    scanlator: None,
+                    date: video.released.as_deref().and_then(release_ms),
+                })
+                .collect()
+        };
+        let added = titles::sync_units(&db, &id, &units, "episode", now_ms())
+            .await
+            .map_err(to_message)?;
+        let row = titles::title(&db, &id)
+            .await
+            .map_err(to_message)?
+            .ok_or_else(|| "The title went missing".to_owned())?;
+        Ok((row, added))
     }
 
     // ---- HTTP ----
@@ -589,6 +747,110 @@ impl StremioService {
 /// The key watching progress is kept under for a movie or episode.
 pub fn content_key(kind: &str, video_id: &str) -> String {
     format!("stremio:{kind}:{video_id}")
+}
+
+/// A saved title as an addon would describe it, from the title store: its details and episodes
+/// (a movie's one unit is itself).
+async fn stored_meta(db: &raygun_db::Db, row: &TitleRow) -> Result<protocol::Meta, String> {
+    let (kind, id) = video_library::stremio_id(row)
+        .ok_or_else(|| "This isn't a title from an addon".to_owned())?;
+    let units = titles::units(db, &row.id).await.map_err(to_message)?;
+    let movie = units.len() == 1 && units[0].fields.remote_id == id;
+    let fields = &row.fields;
+    Ok(protocol::Meta {
+        preview: MetaPreview {
+            kind: kind.to_owned(),
+            id: id.to_owned(),
+            name: fields.title.clone(),
+            poster: fields.cover.clone(),
+            poster_shape: "poster".into(),
+            release_info: fields.year.map(|year| year.to_string()),
+            rating: None,
+        },
+        background: None,
+        logo: None,
+        description: fields.description.clone(),
+        genres: fields.genres.clone(),
+        runtime: None,
+        cast: fields.authors.clone(),
+        director: fields.artists.clone(),
+        trailer_yt_ids: Vec::new(),
+        videos: if movie {
+            Vec::new()
+        } else {
+            units
+                .into_iter()
+                .map(|unit| protocol::Video {
+                    season: unit
+                        .fields
+                        .volume
+                        .as_deref()
+                        .and_then(|season| season.parse().ok()),
+                    episode: unit.fields.number.map(|number| number as u32),
+                    released: unit
+                        .fields
+                        .date
+                        .and_then(chrono::DateTime::from_timestamp_millis)
+                        .map(|date| date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
+                    id: unit.fields.remote_id,
+                    title: unit.fields.name,
+                    thumbnail: None,
+                    overview: None,
+                })
+                .collect()
+        },
+    })
+}
+
+/// A Stremio title's `remote_id` in the title store.
+fn library_id(kind: &str, id: &str) -> String {
+    format!("{kind}:{id}")
+}
+
+/// A title's status from its type and release range: "2008–2013" ended, "2019–" still
+/// running.
+fn release_status(kind: &str, release_info: Option<&str>) -> &'static str {
+    if kind == "movie" {
+        return "completed";
+    }
+    let Some(range) = release_info.map(str::trim) else {
+        return "unknown";
+    };
+    match range.split_once(['–', '-']) {
+        Some((_, end)) if end.trim().is_empty() => "ongoing",
+        Some((_, end)) if release_year(end).is_some() => "completed",
+        // A single year: a miniseries, or a show that started this year.
+        _ => "unknown",
+    }
+}
+
+/// The first four-digit year in a release range.
+fn release_year(text: &str) -> Option<i32> {
+    let characters: Vec<char> = text.chars().collect();
+    characters
+        .windows(4)
+        .find(|window| window.iter().all(char::is_ascii_digit))
+        .and_then(|window| window.iter().collect::<String>().parse().ok())
+}
+
+/// A release date (`2008-01-20T12:00:00.000Z` or `2008-01-20`) as Unix ms.
+fn release_ms(text: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(text)
+        .map(|date| date.timestamp_millis())
+        .ok()
+        .or_else(|| {
+            let day = chrono::NaiveDate::parse_from_str(text.get(..10)?, "%Y-%m-%d").ok()?;
+            Some(day.and_hms_opt(0, 0, 0)?.and_utc().timestamp_millis())
+        })
+}
+
+/// The title store's media type for a Stremio type.
+fn media_type(kind: &str) -> &'static str {
+    match kind {
+        "movie" => "movie",
+        "series" => "series",
+        _ => "other",
+    }
 }
 
 fn item(preview: MetaPreview) -> StremioItem {
@@ -640,4 +902,91 @@ fn root_cause(error: &(dyn std::error::Error + 'static)) -> String {
 
 fn to_message(error: impl std::fmt::Display) -> String {
     error.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn saved_titles_open_from_storage() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = raygun_db::Db::open(&temp.path().join("raygun.db"))
+            .await
+            .unwrap();
+        let fields = |remote_id: &str| TitleFields {
+            kind: video_library::KIND.into(),
+            source_id: STREMIO_SOURCE.into(),
+            remote_id: remote_id.into(),
+            title: "Saved".into(),
+            cover: None,
+            cover_headers: Default::default(),
+            authors: vec!["Actor".into()],
+            artists: vec![],
+            description: None,
+            genres: vec![],
+            status: "ongoing".into(),
+            url: None,
+            media_type: None,
+            year: Some(2008),
+        };
+        let unit = |remote_id: &str, number: Option<f64>, season: Option<&str>| UnitFields {
+            remote_id: remote_id.into(),
+            name: "Pilot".into(),
+            number,
+            volume: season.map(str::to_owned),
+            scanlator: None,
+            date: Some(86_400_000),
+        };
+        let stored = |remote_id: &'static str, units: Vec<UnitFields>| {
+            let db = &db;
+            async move {
+                let id = titles::upsert_title(db, &fields(remote_id), 1)
+                    .await
+                    .unwrap();
+                titles::sync_units(db, &id, &units, "episode", 1)
+                    .await
+                    .unwrap();
+                let row = titles::title(db, &id).await.unwrap().unwrap();
+                stored_meta(db, &row).await.unwrap()
+            }
+        };
+
+        let series = stored("series:tt1", vec![unit("tt1:1:1", Some(1.0), Some("1"))]).await;
+        assert_eq!(
+            (series.preview.kind.as_str(), series.preview.id.as_str()),
+            ("series", "tt1")
+        );
+        assert_eq!(series.preview.release_info.as_deref(), Some("2008"));
+        assert_eq!(series.cast, ["Actor"]);
+        assert_eq!(
+            series.videos,
+            [protocol::Video {
+                id: "tt1:1:1".into(),
+                title: "Pilot".into(),
+                season: Some(1),
+                episode: Some(1),
+                released: Some("1970-01-02T00:00:00.000Z".into()),
+                thumbnail: None,
+                overview: None,
+            }]
+        );
+        let movie = stored("movie:tt2", vec![unit("tt2", None, None)]).await;
+        assert!(movie.videos.is_empty(), "a movie is its own one unit");
+    }
+
+    #[test]
+    fn release_ranges_give_status_and_year() {
+        assert_eq!(release_status("movie", Some("1994")), "completed");
+        assert_eq!(release_status("series", Some("2008–2013")), "completed");
+        assert_eq!(release_status("series", Some("2019–")), "ongoing");
+        assert_eq!(release_status("series", Some("2019-")), "ongoing");
+        assert_eq!(release_status("series", Some("2024")), "unknown");
+        assert_eq!(release_status("series", None), "unknown");
+        assert_eq!(release_year("2008–2013"), Some(2008));
+        assert_eq!(release_year("n/a"), None);
+        assert_eq!(release_ms("1970-01-02T00:00:00.000Z"), Some(86_400_000));
+        assert_eq!(release_ms("1970-01-02"), Some(86_400_000));
+        assert_eq!(release_ms("soon"), None);
+    }
 }

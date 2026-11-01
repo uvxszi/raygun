@@ -1,5 +1,7 @@
 //! Watching video (M38): the native player on Android (Media3, in the audio plugin) and the
 //! progress it reports, for resuming and "continue watching". Elsewhere video isn't available yet.
+//! Progress also goes to the library's episodes, and finished downloads play instead of the
+//! stream (M43).
 
 use raygun_db::video::{self as store, VideoEntry};
 use raygun_model::{ContinueWatching, PlaybackControl, VideoRequest, VideoSubtitle};
@@ -83,22 +85,47 @@ pub async fn play(app: &AppHandle, request: VideoRequest) -> Result<(), String> 
     store::started(&db, &entry, now_ms())
         .await
         .map_err(|error| error.to_string())?;
+    // A finished download plays from the device, with its saved subtitles.
+    let (url, headers, format, subtitles) =
+        match crate::video_downloads::offline(app, &request.key).await {
+            Some(offline) => (
+                offline.url,
+                Default::default(),
+                offline.format,
+                offline.subtitles,
+            ),
+            None => (
+                request.url.clone(),
+                request.headers.clone(),
+                request.format.clone(),
+                proxied_subtitles(app, &request.subtitles),
+            ),
+        };
     // Music and video don't play over each other.
     app.state::<PlaybackService>()
         .control(PlaybackControl::Pause);
     let payload = serde_json::json!({
         "id": request.key,
-        "url": request.url,
+        "url": url,
         "title": request.title,
         "subtitle": request.subtitle,
-        "headers": request.headers,
-        "format": request.format,
-        "subtitles": proxied_subtitles(app, &request.subtitles),
+        "headers": headers,
+        "format": format,
+        "subtitles": subtitles,
         "startMs": start_ms,
         "seekStepMs": prefs.seek_ms,
         "autoSubtitleLanguage": prefs.auto_subtitles,
     });
     open_player(app, &payload)
+}
+
+/// Marks something watched or not, in the progress store and on its library episode.
+pub async fn mark(db: &raygun_db::Db, entry: &VideoEntry, watched: bool) -> Result<(), String> {
+    let now = now_ms();
+    store::mark(db, entry, watched, now)
+        .await
+        .map_err(|error| error.to_string())?;
+    crate::video_library::mirror_mark(db, &entry.key, watched, now).await
 }
 
 /// Subtitle files through the stream proxy, which serves an empty track for one that can't be
@@ -174,17 +201,25 @@ async fn record(app: &AppHandle, report: PlayerReport) {
     if report.state == "error" && report.position_ms <= 0.0 {
         return;
     }
-    if let Err(error) = store::set_progress(
+    let now = now_ms();
+    let position_ms = report.position_ms as i64;
+    let duration_ms = duration.map(|duration| duration as i64);
+    if let Err(error) =
+        store::set_progress(&db, &report.id, position_ms, duration_ms, watched, now).await
+    {
+        tracing::warn!(%error, "could not save watching progress");
+    }
+    if let Err(error) = crate::video_library::mirror_progress(
         &db,
         &report.id,
-        report.position_ms as i64,
-        duration.map(|duration| duration as i64),
+        position_ms,
+        duration_ms,
         watched,
-        now_ms(),
+        now,
     )
     .await
     {
-        tracing::warn!(%error, "could not save watching progress");
+        tracing::warn!(%error, "could not save the episode's progress");
     }
     if matches!(report.state.as_str(), "closed" | "ended") || watched {
         let _ = WatchChangedEvent(report.id).emit(app);

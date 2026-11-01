@@ -3,15 +3,13 @@ import { CircleAlert, Download, Pause, Play, RotateCw, X } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { EmptyState } from '../shell/EmptyState';
 import {
   useDownloadChapters,
   useMangaDownloads,
-  useMangaLiveEvents,
   useRemoveDownloads,
   useSetDownloadsPaused,
-} from '../manga/useManga';
-import { EmptyState } from '../shell/EmptyState';
-import { PageHeader } from './PageHeader';
+} from './useManga';
 
 const DownloadRow: FC<{ item: MangaDownloadItem }> = ({ item }) => {
   const { t } = useTranslation();
@@ -77,17 +75,15 @@ const DownloadRow: FC<{ item: MangaDownloadItem }> = ({ item }) => {
   );
 };
 
-/** The download queue: chapters waiting, downloading or failed. */
-export const MangaDownloadsPage: FC = () => {
+/** Downloads → Chapters: the queue of chapters waiting, downloading or failed. */
+export const ChapterDownloads: FC = () => {
   const { t } = useTranslation();
-  useMangaLiveEvents();
   const downloads = useMangaDownloads();
   const setPaused = useSetDownloadsPaused();
   const queue = downloads.data;
 
   return (
-    <section data-testid="manga-downloads-page" className="flex flex-col gap-4">
-      <PageHeader back fallback="/more" title={t('manga.downloads')} />
+    <div data-testid="chapter-downloads" className="flex flex-col gap-4">
       {downloads.error && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
           {downloads.error.message}
@@ -132,6 +128,6 @@ export const MangaDownloadsPage: FC = () => {
           )}
         </>
       )}
-    </section>
+    </div>
   );
 };

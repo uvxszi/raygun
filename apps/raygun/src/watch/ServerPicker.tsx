@@ -1,9 +1,13 @@
 import type { VideoLinkView, VideoServerView } from '@raygun/bindings';
-import { CircleAlert, LoaderCircle, Play, Star, X } from 'lucide-react';
+import { CircleAlert, Download, LoaderCircle, Play, Star, X } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useDownloadSourceVideo } from './useVideoLibrary';
 import { useVideoLinks, useVideoServers, useVideoSourcePlay } from './useVideoSources';
+
+/** Play a link, or save it to the device (M43). */
+export type PickIntent = 'play' | 'download';
 
 /** The episode being played, as the player shows it. */
 export type ServerTarget = {
@@ -20,21 +24,26 @@ type ServerState = 'ready' | 'resolving' | 'empty' | 'failed';
 /** Resolved servers first, then the ones still resolving; empty and failed ones last. */
 const ORDER: ServerState[] = ['ready', 'resolving', 'empty', 'failed'];
 
+/** DASH can play but not be saved. */
+const savable = (link: VideoLinkView) => link.format !== 'dash' && !link.url.includes('.mpd');
+
 const LinkList: FC<{
   links: VideoLinkView[];
+  intent: PickIntent;
   onPlay: (link: VideoLinkView) => void;
+  onDownload: (link: VideoLinkView) => void;
   busy: boolean;
-}> = ({ links, onPlay, busy }) => {
+}> = ({ links, intent, onPlay, onDownload, busy }) => {
   const { t } = useTranslation();
   return (
     <ul className="flex flex-col gap-2">
       {links.map((link) => (
-        <li key={link.url}>
+        <li key={link.url} className="flex items-stretch gap-2">
           <button
             type="button"
-            disabled={busy}
-            onClick={() => onPlay(link)}
-            className="bg-background flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left disabled:opacity-60"
+            disabled={busy || (intent === 'download' && !savable(link))}
+            onClick={() => (intent === 'download' ? onDownload(link) : onPlay(link))}
+            className="bg-background flex min-w-0 flex-1 items-center gap-3 rounded-xl px-4 py-3 text-left disabled:opacity-60"
           >
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
               <span className="text-sm font-medium wrap-anywhere">
@@ -45,6 +54,9 @@ const LinkList: FC<{
                   {t('watch.subtitleCount', { count: link.subtitles.length })}
                 </span>
               )}
+              {intent === 'download' && !savable(link) && (
+                <span className="text-muted text-xs">{t('watch.cantDownload')}</span>
+              )}
             </span>
             {link.preferred && (
               <span className="text-primary flex items-center gap-1 text-xs font-semibold">
@@ -52,8 +64,23 @@ const LinkList: FC<{
                 {t('watch.preferred')}
               </span>
             )}
-            <Play aria-hidden size={18} className="shrink-0" />
+            {intent === 'download' ? (
+              <Download aria-hidden size={18} className="shrink-0" />
+            ) : (
+              <Play aria-hidden size={18} className="shrink-0" />
+            )}
           </button>
+          {intent === 'play' && savable(link) && (
+            <button
+              type="button"
+              aria-label={t('watch.downloadLink', { name: link.label ?? t('watch.video') })}
+              disabled={busy}
+              onClick={() => onDownload(link)}
+              className="bg-background text-muted grid w-12 shrink-0 place-items-center rounded-xl disabled:opacity-60"
+            >
+              <Download aria-hidden size={18} />
+            </button>
+          )}
         </li>
       ))}
     </ul>
@@ -64,9 +91,11 @@ const LinkList: FC<{
 const ServerItem: FC<{
   sourceId: string;
   server: VideoServerView;
+  intent: PickIntent;
   onPlay: (link: VideoLinkView) => void;
+  onDownload: (link: VideoLinkView) => void;
   busy: boolean;
-}> = ({ sourceId, server, onPlay, busy }) => {
+}> = ({ sourceId, server, intent, onPlay, onDownload, busy }) => {
   const { t } = useTranslation();
   const links = useVideoLinks(sourceId, server.id, server.links === null);
   const list = server.links ?? links.data;
@@ -102,25 +131,44 @@ const ServerItem: FC<{
           {t('watch.serverFailed', { message: links.error?.message ?? '' })}
         </p>
       )}
-      {list && list.length > 0 && <LinkList links={list} onPlay={onPlay} busy={busy} />}
+      {list && list.length > 0 && (
+        <LinkList
+          links={list}
+          intent={intent}
+          onPlay={onPlay}
+          onDownload={onDownload}
+          busy={busy}
+        />
+      )}
     </li>
   );
 };
 
-/** An episode's servers, each resolving on its own and showing its links as they arrive. */
-export const ServerPicker: FC<{ target: ServerTarget; onClose: () => void }> = ({
-  target,
-  onClose,
-}) => {
+/**
+ * An episode's servers, each resolving on its own and showing its links as they arrive. Each link
+ * plays, or downloads from its own button; opened to download, picking a link saves it.
+ */
+export const ServerPicker: FC<{
+  target: ServerTarget;
+  intent?: PickIntent;
+  onClose: () => void;
+}> = ({ target, intent = 'play', onClose }) => {
   const { t } = useTranslation();
   const servers = useVideoServers(target.sourceId, target.remoteId);
   const play = useVideoSourcePlay();
+  const download = useDownloadSourceVideo();
 
   const onPlay = (link: VideoLinkView) =>
     play.mutate(
       { titleId: target.titleId, episodeId: target.episodeId, link },
       { onSuccess: onClose },
     );
+  const onDownload = (link: VideoLinkView) =>
+    download.mutate(
+      { titleId: target.titleId, episodeId: target.episodeId, link },
+      { onSuccess: onClose },
+    );
+  const error = play.error ?? download.error;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
@@ -133,7 +181,7 @@ export const ServerPicker: FC<{ target: ServerTarget; onClose: () => void }> = (
         <div className="flex items-start justify-between gap-3 px-5">
           <div className="min-w-0">
             <h2 id="servers-title" className="text-lg font-semibold">
-              {t('watch.servers')}
+              {t(intent === 'download' ? 'watch.downloadTitle' : 'watch.servers')}
             </h2>
             <p className="text-muted line-clamp-1 text-sm">{target.heading}</p>
           </div>
@@ -169,15 +217,17 @@ export const ServerPicker: FC<{ target: ServerTarget; onClose: () => void }> = (
                   key={server.id}
                   sourceId={target.sourceId}
                   server={server}
+                  intent={intent}
                   onPlay={onPlay}
-                  busy={play.isPending}
+                  onDownload={onDownload}
+                  busy={play.isPending || download.isPending}
                 />
               ))}
             </ul>
           )}
-          {play.error && (
+          {error && (
             <p role="alert" className="text-primary text-sm wrap-anywhere">
-              {play.error.message}
+              {error.message}
             </p>
           )}
         </div>

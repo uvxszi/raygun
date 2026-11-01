@@ -49,6 +49,7 @@ const episode = (season: number, number: number, extra: Partial<StremioVideo> = 
   positionMs: 0,
   durationMs: null,
   watched: false,
+  downloaded: false,
   ...extra,
 });
 
@@ -71,7 +72,10 @@ const SERIES: StremioMeta = {
   positionMs: 0,
   durationMs: null,
   watched: false,
+  downloaded: false,
   addonName: 'Cinemeta',
+  inLibrary: false,
+  titleId: null,
 };
 
 const MOVIE: StremioMeta = {
@@ -158,7 +162,7 @@ describe('Stremio addons in Watch', () => {
     expect(within(picker).getByRole('button', { name: /Torrent 1080p/ })).toBeDisabled();
     expect(within(picker).getByText("Torrent streams aren't supported")).toBeInTheDocument();
 
-    await user.click(within(picker).getByRole('button', { name: /HLS 720p/ }));
+    await user.click(within(picker).getByRole('button', { name: /^HLS 720p/ }));
     expect(commands.stremioPlay).toHaveBeenCalledWith(
       {
         kind: 'series',

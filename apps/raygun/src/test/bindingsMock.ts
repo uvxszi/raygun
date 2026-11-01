@@ -33,6 +33,7 @@ type EventPayloads = {
   aiModelEvent: AiModelProgress;
   podcastsChangedEvent: string;
   watchChangedEvent: string;
+  videoDownloadsEvent: string;
 };
 type EventName = keyof EventPayloads;
 type Listener = (event: { payload: unknown }) => void;
@@ -253,6 +254,18 @@ export const bindingsMock = {
     videoLinks: vi.fn(),
     videoSourcePlay: vi.fn(),
     videoSetEpisodeWatched: vi.fn(),
+    videoSetInLibrary: vi.fn(),
+    videoLibrary: vi.fn(),
+    videoUpdates: vi.fn(),
+    videoUpcoming: vi.fn(),
+    stremioSetInLibrary: vi.fn(),
+    videoDownloads: vi.fn(),
+    videoSourceDownload: vi.fn(),
+    stremioDownload: vi.fn(),
+    videoDownloadRetry: vi.fn(),
+    videoDownloadRemove: vi.fn(),
+    videoDownloadPlay: vi.fn(),
+    videoDownloadsSetPaused: vi.fn(),
     stremioAddons: vi.fn(),
     stremioSuggestions: vi.fn(),
     stremioAdd: vi.fn(),
@@ -285,6 +298,7 @@ export const bindingsMock = {
     aiModelEvent: makeEvent('aiModelEvent'),
     podcastsChangedEvent: makeEvent('podcastsChangedEvent'),
     watchChangedEvent: makeEvent('watchChangedEvent'),
+    videoDownloadsEvent: makeEvent('videoDownloadsEvent'),
   },
 };
 
@@ -449,6 +463,18 @@ export const seedBindings = () => {
   commands.videoLinks.mockResolvedValue(ok([]));
   commands.videoSourcePlay.mockResolvedValue(ok(null));
   commands.videoSetEpisodeWatched.mockResolvedValue(ok(null));
+  commands.videoSetInLibrary.mockResolvedValue(ok(null));
+  commands.videoLibrary.mockResolvedValue(ok([]));
+  commands.videoUpdates.mockResolvedValue(ok([]));
+  commands.videoUpcoming.mockResolvedValue(ok([]));
+  commands.stremioSetInLibrary.mockResolvedValue(ok(null));
+  commands.videoDownloads.mockResolvedValue(ok({ paused: false, items: [] }));
+  commands.videoSourceDownload.mockResolvedValue(ok(null));
+  commands.stremioDownload.mockResolvedValue(ok(null));
+  commands.videoDownloadRetry.mockResolvedValue(ok(null));
+  commands.videoDownloadRemove.mockResolvedValue(ok(null));
+  commands.videoDownloadPlay.mockResolvedValue(ok(null));
+  commands.videoDownloadsSetPaused.mockResolvedValue(ok(null));
   commands.stremioAddons.mockResolvedValue(ok([]));
   commands.stremioSuggestions.mockResolvedValue(ok([]));
   commands.stremioAdd.mockResolvedValue(ok(null));

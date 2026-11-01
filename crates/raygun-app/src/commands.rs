@@ -1609,3 +1609,134 @@ pub async fn video_set_episode_watched(
 ) -> Result<(), String> {
     sources.set_watched(&title_id, &episode_id, watched).await
 }
+
+// ---- Video library, updates and downloads (M43) ----
+
+type VideoDownloadsState<'a> = tauri::State<'a, Arc<crate::video_downloads::VideoDownloadService>>;
+
+/// Saves a video source's title to the library (or takes it out).
+#[tauri::command]
+#[specta::specta]
+pub async fn video_set_in_library(
+    sources: VideoSources<'_>,
+    title_id: String,
+    in_library: bool,
+) -> Result<(), String> {
+    sources.set_in_library(&title_id, in_library).await
+}
+
+/// Saved movies and series, from video sources and Stremio addons, with watched counts.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_library(sources: VideoSources<'_>) -> Result<Vec<MangaLibraryEntry>, String> {
+    sources.catalog().library().await
+}
+
+/// Episodes library updates found, newest first.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_updates(
+    db: tauri::State<'_, AppDb>,
+    images: tauri::State<'_, raygun_net::ImageLinks>,
+) -> Result<Vec<raygun_model::VideoUpdateItem>, String> {
+    crate::video_library::updates(&db.0, &images).await
+}
+
+/// Episodes of library series that aren't out yet, soonest first.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_upcoming(
+    db: tauri::State<'_, AppDb>,
+    images: tauri::State<'_, raygun_net::ImageLinks>,
+) -> Result<Vec<raygun_model::VideoUpdateItem>, String> {
+    crate::video_library::upcoming(&db.0, &images, crate::catalog::now_ms()).await
+}
+
+/// Saves a movie or series from Stremio addons to the library, with its episodes (or takes it
+/// out).
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_set_in_library(
+    stremio: Stremio<'_>,
+    kind: String,
+    id: String,
+    in_library: bool,
+) -> Result<(), String> {
+    stremio.set_in_library(&kind, &id, in_library).await
+}
+
+/// Every video download, newest first; changes arrive as `VideoDownloadsEvent`s.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_downloads(
+    downloads: VideoDownloadsState<'_>,
+) -> Result<raygun_model::VideoDownloads, String> {
+    downloads.list().await
+}
+
+/// Downloads a link of a stored episode.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_source_download(
+    sources: VideoSources<'_>,
+    downloads: VideoDownloadsState<'_>,
+    request: raygun_model::VideoSourcePlay,
+) -> Result<(), String> {
+    let title_id = request.title_id.clone();
+    let video = sources.request(request).await?;
+    downloads.enqueue(video, Some(title_id)).await
+}
+
+/// Downloads a direct stream of a movie or episode, with subtitles (`language` first).
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_download(
+    stremio: Stremio<'_>,
+    downloads: VideoDownloadsState<'_>,
+    request: raygun_model::StremioPlayRequest,
+    language: String,
+    title_id: Option<String>,
+) -> Result<(), String> {
+    let video = stremio.request(&request, &language).await?;
+    downloads.enqueue(video, title_id).await
+}
+
+/// Tries a failed download again, keeping what it saved.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_download_retry(
+    downloads: VideoDownloadsState<'_>,
+    id: String,
+) -> Result<(), String> {
+    downloads.retry(&id).await
+}
+
+/// Cancels a download or deletes a downloaded video.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_download_remove(
+    downloads: VideoDownloadsState<'_>,
+    id: String,
+) -> Result<(), String> {
+    downloads.remove(&id).await
+}
+
+/// Plays a download (from the device once it's finished).
+#[tauri::command]
+#[specta::specta]
+pub async fn video_download_play(
+    downloads: VideoDownloadsState<'_>,
+    id: String,
+) -> Result<(), String> {
+    downloads.play(&id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn video_downloads_set_paused(
+    downloads: VideoDownloadsState<'_>,
+    paused: bool,
+) -> Result<(), String> {
+    downloads.set_paused(paused);
+    Ok(())
+}

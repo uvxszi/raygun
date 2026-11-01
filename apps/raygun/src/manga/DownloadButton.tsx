@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useDownloadChapters, useRemoveDownloads } from './useManga';
 
 /** Progress as a ring around the button's middle. */
-const ProgressRing: FC<{ fraction: number }> = ({ fraction }) => {
+export const ProgressRing: FC<{ fraction: number }> = ({ fraction }) => {
   const radius = 9;
   const circumference = 2 * Math.PI * radius;
   return (

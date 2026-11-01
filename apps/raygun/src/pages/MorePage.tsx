@@ -46,9 +46,9 @@ const Row: FC<{ row: MoreRow }> = ({ row }) => (
 export const MorePage: FC = () => {
   const { t } = useTranslation();
   const activity: MoreRow[] = [
-    { to: '/manga/updates', icon: BellDot, label: t('more.updates'), hint: t('more.updatesHint') },
+    { to: '/updates', icon: BellDot, label: t('more.updates'), hint: t('more.updatesHint') },
     {
-      to: '/manga/downloads',
+      to: '/downloads',
       icon: Download,
       label: t('more.downloads'),
       hint: t('more.downloadsHint'),

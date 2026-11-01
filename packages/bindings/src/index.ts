@@ -295,6 +295,32 @@ export const commands = {
 	videoSourcePlay: (request: VideoSourcePlay) => typedError<null, string>(__TAURI_INVOKE("video_source_play", { request })),
 	/**  Marks a stored episode watched (or not). */
 	videoSetEpisodeWatched: (titleId: string, episodeId: string, watched: boolean) => typedError<null, string>(__TAURI_INVOKE("video_set_episode_watched", { titleId, episodeId, watched })),
+	/**  Saves a video source's title to the library (or takes it out). */
+	videoSetInLibrary: (titleId: string, inLibrary: boolean) => typedError<null, string>(__TAURI_INVOKE("video_set_in_library", { titleId, inLibrary })),
+	/**  Saved movies and series, from video sources and Stremio addons, with watched counts. */
+	videoLibrary: () => typedError<MangaLibraryEntry[], string>(__TAURI_INVOKE("video_library")),
+	/**  Episodes library updates found, newest first. */
+	videoUpdates: () => typedError<VideoUpdateItem[], string>(__TAURI_INVOKE("video_updates")),
+	/**  Episodes of library series that aren't out yet, soonest first. */
+	videoUpcoming: () => typedError<VideoUpdateItem[], string>(__TAURI_INVOKE("video_upcoming")),
+	/**
+	 *  Saves a movie or series from Stremio addons to the library, with its episodes (or takes it
+	 *  out).
+	 */
+	stremioSetInLibrary: (kind: string, id: string, inLibrary: boolean) => typedError<null, string>(__TAURI_INVOKE("stremio_set_in_library", { kind, id, inLibrary })),
+	/**  Every video download, newest first; changes arrive as `VideoDownloadsEvent`s. */
+	videoDownloads: () => typedError<VideoDownloads, string>(__TAURI_INVOKE("video_downloads")),
+	/**  Downloads a link of a stored episode. */
+	videoSourceDownload: (request: VideoSourcePlay) => typedError<null, string>(__TAURI_INVOKE("video_source_download", { request })),
+	/**  Downloads a direct stream of a movie or episode, with subtitles (`language` first). */
+	stremioDownload: (request: StremioPlayRequest, language: string, titleId: string | null) => typedError<null, string>(__TAURI_INVOKE("stremio_download", { request, language, titleId })),
+	/**  Tries a failed download again, keeping what it saved. */
+	videoDownloadRetry: (id: string) => typedError<null, string>(__TAURI_INVOKE("video_download_retry", { id })),
+	/**  Cancels a download or deletes a downloaded video. */
+	videoDownloadRemove: (id: string) => typedError<null, string>(__TAURI_INVOKE("video_download_remove", { id })),
+	/**  Plays a download (from the device once it's finished). */
+	videoDownloadPlay: (id: string) => typedError<null, string>(__TAURI_INVOKE("video_download_play", { id })),
+	videoDownloadsSetPaused: (paused: boolean) => typedError<null, string>(__TAURI_INVOKE("video_downloads_set_paused", { paused })),
 };
 
 /** Events */
@@ -310,6 +336,7 @@ export const events = {
 	queueEvent: makeEvent<QueueEvent>("queue-event"),
 	syncChangedEvent: makeEvent<SyncChangedEvent>("sync-changed-event"),
 	ttsEvent: makeEvent<TtsEvent>("tts-event"),
+	videoDownloadsEvent: makeEvent<VideoDownloadsEvent>("video-downloads-event"),
 	watchChangedEvent: makeEvent<WatchChangedEvent>("watch-changed-event"),
 };
 
@@ -1264,7 +1291,13 @@ export type StremioMeta = {
 	positionMs: number | null,
 	durationMs: number | null,
 	watched: boolean,
+	/**  For a movie: saved on the device (M43). */
+	downloaded: boolean,
 	addonName: string,
+	/**  Saved in the video library (M43). */
+	inLibrary: boolean,
+	/**  The stored title, once it was saved. */
+	titleId: string | null,
 };
 
 /**  What to play: a stream of a movie or episode, with what the player shows. */
@@ -1325,6 +1358,8 @@ export type StremioVideo = {
 	positionMs: number | null,
 	durationMs: number | null,
 	watched: boolean,
+	/**  Saved on the device (M43). */
+	downloaded: boolean,
 };
 
 /**  A well-known repository the Repositories tab offers to add with one tap (M36). */
@@ -1434,6 +1469,33 @@ export type TtsUpdate = {
 	paragraph: number,
 };
 
+/**  One video download. */
+export type VideoDownloadItem = {
+	id: string,
+	/**  The progress key it plays under. */
+	key: string,
+	titleId: string | null,
+	title: string,
+	subtitle: string | null,
+	poster: string | null,
+	state: DownloadState,
+	doneBytes: number | null,
+	totalBytes: number | null,
+	/**  HLS segments. */
+	doneParts: number,
+	totalParts: number | null,
+	error: string | null,
+};
+
+/**  The video downloads, newest first. */
+export type VideoDownloads = {
+	paused: boolean,
+	items: VideoDownloadItem[],
+};
+
+/**  The video downloads changed; carries the download's id when one did (else empty) (M43). */
+export type VideoDownloadsEvent = string;
+
 export type VideoEpisodeView = {
 	/**  The stored episode's id. */
 	id: string,
@@ -1447,6 +1509,8 @@ export type VideoEpisodeView = {
 	positionMs: number | null,
 	durationMs: number | null,
 	watched: boolean,
+	/**  Saved on the device (M43). */
+	downloaded: boolean,
 };
 
 export type VideoLinkView = {
@@ -1524,6 +1588,29 @@ export type VideoTitleView = {
 	hiddenNsfw: boolean,
 	/**  In the source's order; a movie has one. */
 	episodes: VideoEpisodeView[],
+};
+
+/**  An episode of a library title: new from a library update, or announced for later. */
+export type VideoUpdateItem = {
+	titleId: string,
+	/**  A video source, or `stremio` (then `remote_id` is `<type>:<id>`). */
+	sourceId: string,
+	remoteId: string,
+	title: string,
+	coverUrl: string | null,
+	/**  The stored episode's id. */
+	episodeId: string,
+	/**  The source's id for it (Stremio: the video id). */
+	episodeRemoteId: string,
+	name: string,
+	season: number | null,
+	number: number | null,
+	/**  Release date, Unix ms. */
+	date: number | null,
+	/**  When a library update found it, Unix ms. */
+	foundAt: number | null,
+	watched: boolean,
+	downloaded: boolean,
 };
 
 /**

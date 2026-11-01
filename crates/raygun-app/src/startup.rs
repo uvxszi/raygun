@@ -85,6 +85,17 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         raygun_net::http_client()?,
     );
     app.manage(downloads.clone());
+    let video_downloads = crate::video_downloads::VideoDownloadService::new(
+        app.handle().clone(),
+        paths.downloads(),
+        proxy.images(),
+        // No overall timeout (films are large), but a stalled connection gives up.
+        raygun_net::client_builder()
+            .connect_timeout(std::time::Duration::from_secs(20))
+            .read_timeout(std::time::Duration::from_secs(45))
+            .build()?,
+    );
+    app.manage(video_downloads.clone());
     let podcasts = std::sync::Arc::new(crate::podcasts::PodcastService::new(
         app.handle().clone(),
         raygun_net::http_client()?,
@@ -144,6 +155,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     // Pick up files added or removed while the app was closed (cheap when nothing changed).
     app.state::<crate::library::LibraryService>().start_scan();
     downloads.start();
+    video_downloads.start();
     podcasts.start();
     crate::tts::install(app.handle());
     crate::video::install(app.handle());

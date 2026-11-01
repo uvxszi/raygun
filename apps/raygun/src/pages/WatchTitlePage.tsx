@@ -1,16 +1,26 @@
-import type { StremioMeta, StremioVideo } from '@raygun/bindings';
+import type { StremioMeta, StremioVideo, VideoDownloadItem } from '@raygun/bindings';
 import { useSearch } from '@tanstack/react-router';
 import { Check, Eye, EyeOff, Film, LoaderCircle } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { CategoryPicker } from '../manga/CategoryPicker';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar } from '../shell/TopBar';
+import { LibraryPill } from '../watch/LibraryPill';
+import type { PickIntent } from '../watch/ServerPicker';
 import { StreamPicker } from '../watch/StreamPicker';
 import type { StreamTarget } from '../watch/StreamPicker';
 import { StremioPoster } from '../watch/StremioRow';
+import { VideoDownloadControl } from '../watch/VideoDownloadControl';
 import { useSetWatched, useStremioMeta, useStremioPlay } from '../watch/useStremio';
+import {
+  stremioKey,
+  useDownloadsByKey,
+  usePlayVideoDownload,
+  useSetStremioInLibrary,
+} from '../watch/useVideoLibrary';
 
 /** "S1 E2 · Pilot", or the title alone when it isn't numbered. */
 const episodeLabel = (video: StremioVideo) =>
@@ -39,10 +49,11 @@ const useSeasons = (videos: StremioVideo[]) =>
     return { seasons, first: next?.season ?? seasons[0] ?? 0 };
   }, [videos]);
 
-const Episodes: FC<{ meta: StremioMeta; onPick: (target: StreamTarget) => void }> = ({
-  meta,
-  onPick,
-}) => {
+const Episodes: FC<{
+  meta: StremioMeta;
+  downloads: Map<string, VideoDownloadItem>;
+  onPick: (target: StreamTarget, intent: PickIntent) => void;
+}> = ({ meta, downloads, onPick }) => {
   const { t } = useTranslation();
   const { seasons, first } = useSeasons(meta.videos);
   const [season, setSeason] = useState<number | null>(null);
@@ -87,12 +98,13 @@ const Episodes: FC<{ meta: StremioMeta; onPick: (target: StreamTarget) => void }
             title: meta.name,
             subtitle: label,
             poster: video.thumbnail ?? meta.poster,
+            titleId: meta.titleId,
           };
           return (
             <li key={video.id} aria-label={label} className="flex gap-3">
               <button
                 type="button"
-                onClick={() => onPick(target)}
+                onClick={() => onPick(target, 'play')}
                 className="flex min-w-0 flex-1 gap-3 text-left"
               >
                 <span className="relative w-32 shrink-0 overflow-hidden rounded-lg">
@@ -115,13 +127,30 @@ const Episodes: FC<{ meta: StremioMeta; onPick: (target: StreamTarget) => void }
                   )}
                 </span>
               </button>
+              <span className="self-center">
+                <VideoDownloadControl
+                  item={downloads.get(stremioKey(meta.kind, video.id))}
+                  downloaded={video.downloaded}
+                  name={label}
+                  onDownload={() => onPick(target, 'download')}
+                />
+              </span>
               <button
                 type="button"
                 aria-pressed={video.watched}
                 aria-label={t(video.watched ? 'watch.markUnwatched' : 'watch.markWatched', {
                   title: label,
                 })}
-                onClick={() => setWatched.mutate({ ...target, watched: !video.watched })}
+                onClick={() =>
+                  setWatched.mutate({
+                    kind: target.kind,
+                    videoId: target.videoId,
+                    title: target.title,
+                    subtitle: target.subtitle,
+                    poster: target.poster,
+                    watched: !video.watched,
+                  })
+                }
                 className={`grid size-9 shrink-0 place-items-center self-center rounded-full ${video.watched ? 'bg-primary text-background' : 'bg-surface text-muted'}`}
               >
                 <Check aria-hidden size={16} />
@@ -141,11 +170,31 @@ export const WatchTitlePage: FC = () => {
   const meta = useStremioMeta(type, id);
   const setWatched = useSetWatched();
   const trailer = useStremioPlay();
-  const [picking, setPicking] = useState<StreamTarget | null>(null);
+  const setInLibrary = useSetStremioInLibrary();
+  const downloads = useDownloadsByKey();
+  const playDownload = usePlayVideoDownload();
+  const [picking, setPicking] = useState<{ target: StreamTarget; intent: PickIntent } | null>(null);
+  // A downloaded movie or episode plays from the device, with no stream to pick.
+  const pick = (target: StreamTarget, intent: PickIntent = 'play') => {
+    const saved = downloads.get(stremioKey(target.kind, target.videoId));
+    if (intent === 'play' && saved?.state === 'done') {
+      playDownload.mutate(saved.id);
+    } else {
+      setPicking({ target, intent });
+    }
+  };
   const [expanded, setExpanded] = useState(false);
   const view = meta.data;
 
-  const top = <TopBar back fallback="/browse" plainTitle title={view?.addonName ?? ''} />;
+  // A saved title opened from storage (no addon answered) has no addon to name.
+  const top = (
+    <TopBar
+      back
+      fallback="/browse"
+      plainTitle
+      title={view ? view.addonName || t('watch.savedCopy') : ''}
+    />
+  );
 
   if (meta.error && !view) {
     return (
@@ -175,6 +224,7 @@ export const WatchTitlePage: FC = () => {
     title: view.name,
     subtitle: view.releaseInfo,
     poster: view.background ?? view.poster,
+    titleId: view.titleId,
   };
   const episodeTarget = (video: StremioVideo): StreamTarget => ({
     kind: view.kind,
@@ -182,6 +232,7 @@ export const WatchTitlePage: FC = () => {
     title: view.name,
     subtitle: episodeLabel(video),
     poster: video.thumbnail ?? view.poster,
+    titleId: view.titleId,
   });
   const hasEpisodes = view.videos.length > 0;
   const trailerId = view.trailerYtIds[0];
@@ -204,16 +255,42 @@ export const WatchTitlePage: FC = () => {
         genresLabel={t('watch.genres')}
       >
         <div className="flex flex-wrap items-center gap-2">
+          <LibraryPill
+            inLibrary={view.inLibrary}
+            busy={setInLibrary.isPending}
+            onToggle={() =>
+              setInLibrary.mutate({ kind: view.kind, id: view.id, inLibrary: !view.inLibrary })
+            }
+          />
           {!hasEpisodes && (
             <button
               type="button"
               aria-pressed={view.watched}
-              onClick={() => setWatched.mutate({ ...ownTarget, watched: !view.watched })}
+              onClick={() =>
+                setWatched.mutate({
+                  kind: view.kind,
+                  videoId: view.id,
+                  title: view.name,
+                  subtitle: view.releaseInfo,
+                  poster: ownTarget.poster,
+                  watched: !view.watched,
+                })
+              }
               className="bg-surface/80 flex items-center gap-2 rounded-full px-4 py-2 text-sm"
             >
               {view.watched ? <EyeOff aria-hidden size={16} /> : <Eye aria-hidden size={16} />}
               {t(view.watched ? 'watch.watched' : 'watch.markWatchedShort')}
             </button>
+          )}
+          {!hasEpisodes && (
+            <span className="bg-surface/80 rounded-full">
+              <VideoDownloadControl
+                item={downloads.get(stremioKey(view.kind, view.id))}
+                downloaded={view.downloaded}
+                name={view.name}
+                onDownload={() => pick(ownTarget, 'download')}
+              />
+            </span>
           )}
           {trailerId && (
             <button
@@ -221,7 +298,10 @@ export const WatchTitlePage: FC = () => {
               disabled={trailer.isPending}
               onClick={() =>
                 trailer.mutate({
-                  ...ownTarget,
+                  kind: ownTarget.kind,
+                  videoId: ownTarget.videoId,
+                  title: ownTarget.title,
+                  poster: ownTarget.poster,
                   subtitle: t('watch.trailer'),
                   stream: {
                     kind: 'youTube',
@@ -246,6 +326,7 @@ export const WatchTitlePage: FC = () => {
           </div>
         )}
       </TitleHero>
+      {view.inLibrary && view.titleId && <CategoryPicker medium="video" titleId={view.titleId} />}
       {view.description && (
         <button
           type="button"
@@ -272,17 +353,23 @@ export const WatchTitlePage: FC = () => {
           )}
         </dl>
       )}
-      {(trailer.error ?? setWatched.error) && (
+      {(trailer.error ?? setWatched.error ?? setInLibrary.error ?? playDownload.error) && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {(trailer.error ?? setWatched.error)?.message}
+          {(trailer.error ?? setWatched.error ?? setInLibrary.error ?? playDownload.error)?.message}
         </p>
       )}
-      {hasEpisodes && <Episodes meta={view} onPick={setPicking} />}
+      {hasEpisodes && <Episodes meta={view} downloads={downloads} onPick={pick} />}
       <ResumeFab
         label={t(resumable ? 'watch.resume' : hasEpisodes ? 'watch.start' : 'watch.play')}
-        onClick={() => setPicking(nextVideo ? episodeTarget(nextVideo) : ownTarget)}
+        onClick={() => pick(nextVideo ? episodeTarget(nextVideo) : ownTarget)}
       />
-      {picking && <StreamPicker target={picking} onClose={() => setPicking(null)} />}
+      {picking && (
+        <StreamPicker
+          target={picking.target}
+          intent={picking.intent}
+          onClose={() => setPicking(null)}
+        />
+      )}
     </section>
   );
 };

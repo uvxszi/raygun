@@ -1,18 +1,28 @@
 import type { ContinueWatching } from '@raygun/bindings';
 import { Clapperboard, Play, X } from 'lucide-react';
+import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useContinueWatching, useRemoveContinue, useResumeVideo } from './useWatch';
 
-const Poster: FC<{ url: string | null }> = ({ url }) =>
-  url ? (
-    <img src={url} alt="" loading="lazy" className="bg-surface aspect-video w-full object-cover" />
+/** The poster, or a placeholder when there's none or it can't load (offline). */
+const Poster: FC<{ url: string | null }> = ({ url }) => {
+  const [failed, setFailed] = useState(false);
+  return url && !failed ? (
+    <img
+      src={url}
+      alt=""
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className="bg-surface aspect-video w-full object-cover"
+    />
   ) : (
     <span aria-hidden className="bg-surface text-muted grid aspect-video w-full place-items-center">
       <Clapperboard size={28} />
     </span>
   );
+};
 
 const Card: FC<{ item: ContinueWatching }> = ({ item }) => {
   const { t } = useTranslation();

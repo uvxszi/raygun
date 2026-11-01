@@ -1802,6 +1802,8 @@ pub struct StremioVideo {
     pub position_ms: f64,
     pub duration_ms: Option<f64>,
     pub watched: bool,
+    /// Saved on the device (M43).
+    pub downloaded: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
@@ -1827,7 +1829,13 @@ pub struct StremioMeta {
     pub position_ms: f64,
     pub duration_ms: Option<f64>,
     pub watched: bool,
+    /// For a movie: saved on the device (M43).
+    pub downloaded: bool,
     pub addon_name: String,
+    /// Saved in the video library (M43).
+    pub in_library: bool,
+    /// The stored title, once it was saved.
+    pub title_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -1937,6 +1945,8 @@ pub struct VideoEpisodeView {
     pub position_ms: f64,
     pub duration_ms: Option<f64>,
     pub watched: bool,
+    /// Saved on the device (M43).
+    pub downloaded: bool,
 }
 
 /// A server (hoster) for an episode; `links` when the source resolved it already.
@@ -1970,4 +1980,59 @@ pub struct VideoSourcePlay {
     pub title_id: String,
     pub episode_id: String,
     pub link: VideoLinkView,
+}
+
+// ---- Video library, updates and downloads (M43) ----
+
+/// An episode of a library title: new from a library update, or announced for later.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoUpdateItem {
+    pub title_id: String,
+    /// A video source, or `stremio` (then `remote_id` is `<type>:<id>`).
+    pub source_id: String,
+    pub remote_id: String,
+    pub title: String,
+    pub cover_url: Option<String>,
+    /// The stored episode's id.
+    pub episode_id: String,
+    /// The source's id for it (Stremio: the video id).
+    pub episode_remote_id: String,
+    pub name: String,
+    pub season: Option<f64>,
+    pub number: Option<f64>,
+    /// Release date, Unix ms.
+    pub date: Option<f64>,
+    /// When a library update found it, Unix ms.
+    pub found_at: f64,
+    pub watched: bool,
+    pub downloaded: bool,
+}
+
+/// One video download.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoDownloadItem {
+    pub id: String,
+    /// The progress key it plays under.
+    pub key: String,
+    pub title_id: Option<String>,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub poster: Option<String>,
+    pub state: DownloadState,
+    pub done_bytes: f64,
+    pub total_bytes: Option<f64>,
+    /// HLS segments.
+    pub done_parts: u32,
+    pub total_parts: Option<u32>,
+    pub error: Option<String>,
+}
+
+/// The video downloads, newest first.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoDownloads {
+    pub paused: bool,
+    pub items: Vec<VideoDownloadItem>,
 }

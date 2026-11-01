@@ -5,21 +5,32 @@ import { useTranslation } from 'react-i18next';
 import { Sheet } from '../shell/Sheet';
 import { DEFAULT_FILTER, LIBRARY_SORTS, isFiltering } from './libraryFilters';
 import type { LibraryFilter, LibrarySort } from './libraryFilters';
+import type { Medium } from './medium';
 
 const TOGGLES = ['unread', 'started', 'downloaded', 'completed'] as const;
 
 const chip = (selected: boolean) =>
   `shrink-0 rounded-full px-3 py-1.5 text-sm ${selected ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`;
 
-/** Filters, sort and genre tags for the manga and novel libraries, in a sheet (Mihon's). */
+/** Words that read differently for videos ("Unwatched", "Last watched", "Latest episode"). */
+const VIDEO_WORDS = new Set(['unread', 'lastRead', 'latestChapter']);
+
+/** Filters, sort and genre tags for the manga, novel and video libraries, in a sheet (Mihon's). */
 export const LibraryFilterSheet: FC<{
   filter: LibraryFilter;
   tags: string[];
+  medium?: Medium;
   onChange: (filter: LibraryFilter) => void;
   onClose: () => void;
-}> = ({ filter, tags, onChange, onClose }) => {
+}> = ({ filter, tags, medium = 'manga', onChange, onClose }) => {
   const { t } = useTranslation();
   const active = isFiltering(filter);
+  const word = (group: 'filter' | 'sort', key: string) =>
+    t(
+      medium === 'video' && VIDEO_WORDS.has(key)
+        ? `library.${group}.video.${key}`
+        : `library.${group}.${key}`,
+    );
 
   const toggleTag = (tag: string) =>
     onChange({
@@ -43,7 +54,7 @@ export const LibraryFilterSheet: FC<{
                 onClick={() => onChange({ ...filter, [key]: !filter[key] })}
                 className={chip(filter[key]).replace('bg-surface', 'bg-background')}
               >
-                {t(`library.filter.${key}`)}
+                {word('filter', key)}
               </button>
             ))}
           </div>
@@ -58,7 +69,7 @@ export const LibraryFilterSheet: FC<{
             >
               {LIBRARY_SORTS.map((sort) => (
                 <option key={sort} value={sort}>
-                  {t(`library.sort.${sort}`)}
+                  {word('sort', sort)}
                 </option>
               ))}
             </select>

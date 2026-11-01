@@ -33,6 +33,8 @@ mod stremio;
 mod system_ui;
 mod tts;
 mod video;
+mod video_downloads;
+mod video_library;
 mod video_sources;
 
 use std::path::Path;
@@ -194,7 +196,19 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::video_servers,
             commands::video_links,
             commands::video_source_play,
-            commands::video_set_episode_watched
+            commands::video_set_episode_watched,
+            commands::video_set_in_library,
+            commands::video_library,
+            commands::video_updates,
+            commands::video_upcoming,
+            commands::stremio_set_in_library,
+            commands::video_downloads,
+            commands::video_source_download,
+            commands::stremio_download,
+            commands::video_download_retry,
+            commands::video_download_remove,
+            commands::video_download_play,
+            commands::video_downloads_set_paused
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,
@@ -208,7 +222,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::TtsEvent,
             events::AiModelEvent,
             events::PodcastsChangedEvent,
-            events::WatchChangedEvent
+            events::WatchChangedEvent,
+            events::VideoDownloadsEvent
         ])
 }
 
