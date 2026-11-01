@@ -4,23 +4,25 @@ Every user-facing feature of the reference apps in `reference/`, grouped by area
 
 Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's accounts · ✖ won't do (reason given)
 
+**Full gap lists:** this table keeps one row per feature family. The per-app research (2026-11-01) in `docs/research/` lists every screen, setting and behaviour the reference apps have that Raygun lacks, with file paths: `mihon.md`, `aniyomi.md`, `cloudstream.md`, `stremio.md`, `shosetsu.md`, `music.md`. The milestones M44–M54 in `docs/ROADMAP.md` work through them.
+
 ## App-wide
 | Feature | From | Status |
 |---|---|---|
 | Themes (system/light/dark/pure black) | Mihon, Nuclear | ✅ M04 |
 | App language picker, community translations | Mihon, Nuclear | ✅ M35 |
 | NSFW / content-warning filter (safe, mixed, 18+), applied to installed extensions too | Mihon | ✅ M35 (one switch) |
-| Date/time format, relative timestamps | Mihon | 🔜 M51 |
+| Date/time format, relative timestamps | Mihon | 🔜 M54 |
 | Tablet / side-rail layout | Mihon, Nuclear | ✅ M04 |
-| Onboarding guide, what's new, update check | Mihon, Nuclear, CloudStream | 🔜 M55 |
-| App lock (biometric), lock when idle, secure screen, hide notification content | Mihon | 🔜 M51 |
-| Incognito mode (no history) | Mihon | 🔜 M51 |
+| Onboarding guide, what's new, update check | Mihon, Nuclear, CloudStream | 🔜 M60 |
+| App lock (biometric), lock when idle, secure screen, hide notification content | Mihon | 🔜 M54 |
+| Incognito mode (no history) | Mihon | 🔜 M48 (history) / M54 |
 | Backup/restore (own format), Mihon backup import | Mihon | ✅ M30 |
-| Automatic backups on a schedule, backup location | Mihon | 🔜 M50 |
-| Storage usage, clear caches, clear database of non-library entries | Mihon | 🔜 M50 |
-| DNS over HTTPS, custom user agent, clear cookies/WebView data | Mihon | 🔜 M51 |
-| Crash logs, verbose logging, debug info | Mihon, Nuclear (logs view) | 🔜 M51 |
-| Searchable settings | Mihon | 🔜 M51 |
+| Automatic backups on a schedule, backup location | Mihon | 🔜 M54 |
+| Storage usage, clear caches, clear database of non-library entries | Mihon | 🔜 M49 (downloads) / M54 |
+| DNS over HTTPS, custom user agent, clear cookies/WebView data | Mihon | 🔜 M54 |
+| Crash logs, verbose logging, debug info | Mihon, Nuclear (logs view) | 🔜 M54 |
+| Searchable settings | Mihon | 🔜 M54 |
 | MCP server, LAN remote | Nuclear | ✅ M19, M20 |
 | Device sync | — | ⏸ M22 |
 | Keyboard shortcuts | Nuclear | ✖ desktop only, later |
@@ -35,8 +37,8 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Nuclear plugins | Nuclear | ✅ M17 |
 | Shosetsu Lua scripts | Shosetsu | ✅ M32 |
 | Stremio addons | Stremio | ✅ M41 |
-| LNReader JS plugins | LNReader | 🔜 M53 |
-| Mihon/Aniyomi APK extensions | Mihon, aniyomi | 🔜 M55 (Android dex runtime) |
+| LNReader JS plugins | LNReader | 🔜 M51 |
+| Mihon/Aniyomi APK extensions | Mihon, aniyomi | 🔜 M60 (Android dex runtime) |
 | CloudStream `.cs3` plugins | CloudStream | ✖ dex plus a large Kotlin API surface; `video.source` covers the use |
 | Extension hot reload for developers | — | ✅ M12 |
 
@@ -46,7 +48,8 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Local library (artists/albums/tracks), online search, streaming providers with fallback | Nuclear, RiPlay | ✅ M07, M14 |
 | Queue, repeat/shuffle, media session, lock-screen controls | all | ✅ M05, M09 |
 | Playlists, favorites, history | Nuclear, RiPlay | ✅ M18 |
-| Synced lyrics, furigana/romaji | Nuclear | ✅ M23 |
+| Synced lyrics | Nuclear | ✅ M15 |
+| Furigana/romaji, word-by-word sync, lyrics offset and sources | Nuclear, RiPlay | 🔜 M52 (was marked done; never built) |
 | Internet radio | — | ✅ (Radio Browser) |
 | **Podcasts**: search, subscribe, episodes, resume, downloads | RiPlay | ✅ M37 |
 | Equalizer | RiPlay | 🔜 M52 |
@@ -55,9 +58,9 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Listening stats, "Rewind" yearly recap | RiPlay | 🔜 M52 |
 | Playlist import (from URLs/files) | Nuclear | 🔜 M52 |
 | Dashboard/discovery: new releases, moods, quick picks | Nuclear, RiPlay | 🔜 M52 |
-| Lyrics translation | RiPlay | 🔜 M47 |
-| Last.fm scrobbling | RiPlay | ⏸ M54 (account) |
-| WebDAV database backup | RiPlay | 🔜 M50 |
+| Lyrics translation | RiPlay | 🔜 M58 |
+| Last.fm scrobbling | RiPlay | 🔜 M52 (own tokens) / ⏸ M59 (accounts) |
+| WebDAV database backup | RiPlay | 🔜 M54 |
 | Themes marketplace | Nuclear | 🔜 M52 |
 | Cast (Chromecast) | RiPlay, CloudStream | 🔜 M52 |
 | MPD server | Nuclear | ✖ desktop only, later |
@@ -67,25 +70,26 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 |---|---|---|
 | Sources: popular/latest/search with filters, global search | Mihon | ✅ M25, M40 (filters, global search) |
 | Library with in-library toggle | Mihon | ✅ M24 |
-| Categories, per-category sort/filter/display, default category | Mihon | ✅ M39 (categories) / 🔜 M48 (per-category settings) |
-| Library filters (downloaded, unread, started, completed, tracked), sort, badges, display modes | Mihon | ✅ M39 (filters, sort, tags) / 🔜 M48 (display modes) |
-| Duplicate detection, migration to another source | Mihon | 🔜 M48 |
-| Title notes, custom cover, edit info | Mihon | 🔜 M48 |
-| Stats | Mihon | 🔜 M48 |
-| Reader: paged LTR/RTL, vertical, webtoon, spreads, zoom, tap zones, prefetch | Mihon | ✅ M27 |
-| Reader settings: scale types, zoom start, crop borders, split/rotate wide pages, tap-zone layouts and invert, volume keys, background colour, rotation lock, keep screen on, page number, e-ink flash, double-tap zoom, side padding, chapter transitions, skip read/filtered/duplicate chapters | Mihon | 🔜 M49 |
-| Page actions: save, share, set as cover | Mihon | 🔜 M49 |
-| Per-series reading mode and orientation | Mihon | ✅ M27 (mode) / 🔜 M49 (orientation) |
+| Categories, per-category sort/filter/display, default category | Mihon | ✅ M39 (categories) / 🔜 M46 (per-category settings) |
+| Library filters (downloaded, unread, started, completed, tracked), sort, badges, display modes | Mihon | ✅ M39 (filters, sort, tags) / 🔜 M46 (display modes, tri-state, selection) |
+| Duplicate detection, migration to another source | Mihon | 🔜 M46 (duplicates) / M53 (migration) |
+| Title notes, custom cover, edit info | Mihon | 🔜 M47 |
+| Stats | Mihon | 🔜 M54 |
+| Reader: paged LTR/RTL, webtoon, zoom, tap zones, prefetch | Mihon | ✅ M27 |
+| Reader: vertical paged, continuous vertical, two-page spreads | Mihon | 🔜 M50 (was marked done; M27 left them out) |
+| Reader settings: scale types, zoom start, crop borders, split/rotate wide pages, tap-zone layouts and invert, volume keys, background colour, rotation lock, keep screen on, page number, e-ink flash, double-tap zoom, side padding, chapter transitions, skip read/filtered/duplicate chapters | Mihon | 🔜 M50 |
+| Page actions: save, share, set as cover | Mihon | 🔜 M50 |
+| Per-series reading mode and orientation | Mihon | ✅ M27 (mode) / 🔜 M50 (orientation) |
 | Updates feed, library update schedule | Mihon | ✅ M28 |
-| Update restrictions (Wi-Fi, charging), skip completed/unread/unstarted, smart update | Mihon | 🔜 M50 |
+| Update restrictions (Wi-Fi, charging), skip completed/unread/unstarted, smart update | Mihon | 🔜 M48 |
 | Downloads queue | Mihon | ✅ M28 |
-| CBZ, Wi-Fi only, delete after reading, download ahead, auto-download new chapters, concurrency | Mihon | 🔜 M50 |
-| Chapter swipe actions, scanlator filter, bookmarks | Mihon | 🔜 M49 |
-| Trackers (AniList, MAL, Kitsu, MangaUpdates, Bangumi, Shikimori, Komga/Kavita) | Mihon | ⏸ M54 (accounts) |
-| Local source (CBZ/folders) | Mihon | 🔜 M48 |
-| AI upscaling | mihon_img_upscale | 🔜 M45 |
-| OCR + translation overlay, auto-translate downloads | TachiyomiAT | 🔜 M46, M47 |
-| WebView (open in browser, Cloudflare) | Mihon | 🔜 M44 |
+| CBZ, Wi-Fi only, delete after reading, download ahead, auto-download new chapters, concurrency | Mihon | 🔜 M49 |
+| Chapter swipe actions, scanlator filter, bookmarks | Mihon | 🔜 M47 |
+| Trackers (AniList, MAL, Kitsu, MangaUpdates, Bangumi, Shikimori, Komga/Kavita) | Mihon | ⏸ M59 (accounts) |
+| Local source (CBZ/folders) | Mihon | 🔜 M46 |
+| AI upscaling | mihon_img_upscale | 🔜 M56 |
+| OCR + translation overlay, auto-translate downloads | TachiyomiAT | 🔜 M57, M58 |
+| WebView (open in browser, Cloudflare) | Mihon | 🔜 M55 |
 
 ## Novels (Shosetsu, LNReader)
 | Feature | From | Status |
@@ -93,10 +97,10 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Sources, library, reader (reflow, typography, scroll/paged) | Shosetsu | ✅ M31 |
 | Shosetsu repositories | Shosetsu | ✅ M32 |
 | EPUB import, chapter downloads, text-to-speech | Shosetsu, LNReader | ✅ M33 |
-| Reader themes, custom CSS editor | Shosetsu | 🔜 M53 |
-| Custom download ranges | Shosetsu | 🔜 M53 |
-| Novel translation | — | 🔜 M47 |
-| LNReader plugins | LNReader | 🔜 M53 |
+| Reader themes, custom CSS editor | Shosetsu | 🔜 M51 |
+| Custom download ranges | Shosetsu | 🔜 M47 |
+| Novel translation | — | 🔜 M58 |
+| LNReader plugins | LNReader | 🔜 M51 |
 
 ## Watch: movies, TV, anime (CloudStream, aniyomi, Stremio)
 | Feature | From | Status |
@@ -105,16 +109,27 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Native player: gestures (seek/volume/brightness), double-tap skip, PiP, speed, orientation, resume | aniyomi, CloudStream | ✅ M38 |
 | Subtitles (.srt/.vtt/.ass), preferred languages, audio track selection | aniyomi, CloudStream | ✅ M38 (preferred languages later) |
 | HLS/DASH, header injection | CloudStream | ✅ M38 |
-| Intro/outro skip (chapters, AniSkip) | aniyomi | 🔜 M38 (chapters), ⏸ AniSkip (needs a tracker) |
+| Intro/outro skip (chapters, AniSkip) | aniyomi | 🔜 M45 (chapters, skip button, AniSkip by AniList id) |
 | Mark seen at a percentage, preserve position | aniyomi | ✅ M42.1 (watched point setting), M43 (counts on library episodes) |
 | Stremio catalogs, metadata, streams, subtitles | Stremio | ✅ M41 (torrent streams not yet) |
 | Video sources with servers streamed as they resolve | CloudStream, aniyomi | ✅ M42 (`video.source`, Internet Archive films) |
-| Source priority, quality profiles, failed/empty hosters | CloudStream, aniyomi | ✅ M42 (preferred quality, failed/empty servers) / 🔜 priority across sources |
+| Source priority, quality profiles, failed/empty hosters | CloudStream, aniyomi | ✅ M42 (preferred quality, failed/empty servers) / 🔜 M44 (fallback, last server), M45 (profiles) |
 | Video library, history, continue watching, upcoming episodes | aniyomi, CloudStream | ✅ M43 (sources and Stremio titles, categories, filters, updates, upcoming) |
 | Video downloads | aniyomi, CloudStream | ✅ M43 (plain files with resume, HLS with AES-128; DASH not yet; foreground only) |
-| WebView resolver | CloudStream | 🔜 M44 |
+| Play at once with automatic fallback; sources switched inside the player | aniyomi, CloudStream | 🔜 M44 |
+| Previous/next episode, autoplay next with a countdown, episode list in the player | aniyomi, CloudStream, Stremio | 🔜 M44 |
+| Continue watching moves on to the next episode; last stream per series | Stremio | 🔜 M44 |
+| Custom player overlay: lock, aspect, rotation, speed presets, brightness/volume bars and boost, horizontal seek, configurable double-tap | aniyomi, CloudStream | 🔜 M45 |
+| Subtitle styling, delay, second track, local files; audio and subtitle language lists; tracks and speed remembered per title | aniyomi, Stremio | 🔜 M45 |
+| PiP actions, sleep timer, screenshots, decoder switch | aniyomi | 🔜 M45 |
+| Watch-status lists (Watching, Plan to watch, Completed, On hold, Dropped), favorites | CloudStream | 🔜 M46 |
+| Episode filters, sort, bookmarks, fillers, selection and bulk actions | aniyomi | 🔜 M47 |
+| New-episode notifications, per-title toggle, calendar | CloudStream, Stremio | 🔜 M48 |
+| Background downloads with notifications, parallel, Wi-Fi only, auto-download, delete after watching | aniyomi, CloudStream | 🔜 M49 |
+| Discover with every addon filter, search history, source home pages | Stremio, CloudStream | 🔜 M53 |
+| WebView resolver | CloudStream | 🔜 M55 |
 | Torrent streaming (TorrServer) | aniyomi | ✖ for now (legal risk; not in first-party code) |
-| External player | aniyomi | 🔜 M38 |
+| External player | aniyomi | 🔜 M45 |
 | mpv scripts, custom Lua buttons, decoder tweaks | aniyomi | ✖ ExoPlayer instead of mpv on Android |
 | Chromecast | CloudStream | 🔜 M52 |
-| Trakt, Simkl, AniList, MAL | CloudStream, aniyomi | ⏸ M54 (accounts) |
+| Trakt, Simkl, AniList, MAL | CloudStream, aniyomi | ⏸ M59 (accounts) |
