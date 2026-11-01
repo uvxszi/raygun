@@ -51,7 +51,7 @@ export const AppShellWrapper = {
     return screen.findByTestId(`${name}-page`);
   },
 
-  async tapTab(name: 'home' | 'library' | 'browse' | 'search' | 'more') {
+  async tapTab(name: 'home' | 'library' | 'browse' | 'more') {
     await userEvent.click(screen.getByTestId(`nav-${name}-tab`));
   },
 

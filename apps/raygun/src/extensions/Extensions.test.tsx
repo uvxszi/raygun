@@ -311,7 +311,8 @@ describe('Extensions', () => {
     await AppShellWrapper.mount('/extensions');
     expect(await screen.findByTestId('extension-row')).toHaveTextContent('Before');
 
-    await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
+    await userEvent.click(screen.getByRole('button', { name: 'More options' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Reload' }));
     expect(commands.extensionsReload).toHaveBeenCalled();
 
     emitEvent('extensionsChangedEvent', [extension({ name: 'After' })]);

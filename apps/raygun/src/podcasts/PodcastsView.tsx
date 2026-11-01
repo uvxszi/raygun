@@ -111,8 +111,8 @@ export const PodcastsView: FC = () => {
           action={{
             label: t('library.findInSearch'),
             icon: Search,
-            to: '/search',
-            search: { type: 'podcast' },
+            to: '/browse',
+            search: { tab: 'search', type: 'podcast' },
           }}
         />
       )}

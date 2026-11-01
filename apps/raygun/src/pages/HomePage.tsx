@@ -158,7 +158,8 @@ const GetStarted: FC = () => {
       <p className="text-muted text-sm">{t('home.startBody')}</p>
       <div className="flex flex-wrap gap-2">
         <Link
-          to="/search"
+          to="/browse"
+          search={{ tab: 'search' }}
           className="bg-primary text-background flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold"
         >
           <Search aria-hidden size={16} />
@@ -192,7 +193,14 @@ export const HomePage: FC = () => {
     <section data-testid="home-page" className="flex flex-col gap-7">
       <TopBar
         title={t('home.heading')}
-        actions={<TopBarAction label={t('search.title')} icon={Search} to="/search" />}
+        actions={
+          <TopBarAction
+            label={t('search.title')}
+            icon={Search}
+            to="/browse"
+            search={{ tab: 'search' }}
+          />
+        }
       />
       {nothingYet && <GetStarted />}
       <ContinueWatchingRow />

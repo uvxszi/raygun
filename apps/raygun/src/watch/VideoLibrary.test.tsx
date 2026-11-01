@@ -192,12 +192,12 @@ describe('Video library', () => {
     expect(within(sheet).getByRole('option', { name: 'Last watched' })).toBeInTheDocument();
   });
 
-  it('sends an empty video library to Search for videos', async () => {
+  it('sends an empty video library to Browse → Search for videos', async () => {
     await AppShellWrapper.mount('/library?media=video');
     const library = await screen.findByTestId('video-library');
-    expect(await within(library).findByRole('link', { name: 'Find in Search' })).toHaveAttribute(
+    expect(await within(library).findByRole('link', { name: 'Find in Browse' })).toHaveAttribute(
       'href',
-      '/search?type=video',
+      '/browse?tab=search&type=video',
     );
   });
 

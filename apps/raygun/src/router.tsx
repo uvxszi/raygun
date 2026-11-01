@@ -36,7 +36,6 @@ import { UpdatesPage } from './pages/UpdatesPage';
 import type { UpdatesTab } from './pages/UpdatesPage';
 import { NovelReaderPage } from './pages/NovelReaderPage';
 import { PlaylistPage } from './pages/PlaylistPage';
-import { SearchPage } from './pages/SearchPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SETTINGS_SECTIONS } from './settings/sections';
 import { SettingsSectionPage } from './pages/SettingsSectionPage';
@@ -201,11 +200,18 @@ const routeTree = rootRoute.addChildren([
   createRoute({
     getParentRoute: () => rootRoute,
     path: '/search',
-    component: SearchPage,
-    validateSearch: (search: Record<string, unknown>): { q?: string; type?: SearchType } => ({
-      ...(text(search.q) ? { q: text(search.q) } : {}),
-      ...(isSearchType(search.type) && search.type !== 'all' ? { type: search.type } : {}),
-    }),
+    // Search lives in Browse now: old links land on its Search tab.
+    beforeLoad: ({ search }: { search: Record<string, unknown> }) => {
+      throw redirect({
+        to: '/browse',
+        search: {
+          tab: 'search',
+          ...(text(search.q) ? { q: text(search.q) } : {}),
+          ...(isSearchType(search.type) && search.type !== 'all' ? { type: search.type } : {}),
+        },
+        replace: true,
+      });
+    },
   }),
   createRoute({ getParentRoute: () => rootRoute, path: '/settings', component: SettingsPage }),
   ...SETTINGS_SECTIONS.map((section) =>
@@ -241,9 +247,11 @@ const routeTree = rootRoute.addChildren([
     component: BrowsePage,
     validateSearch: (
       search: Record<string, unknown>,
-    ): { tab?: BrowseSection; list?: ExtensionList } => ({
-      ...(search.tab === 'extensions' ? { tab: 'extensions' as const } : {}),
+    ): { tab?: BrowseSection; list?: ExtensionList; q?: string; type?: SearchType } => ({
+      ...(search.tab === 'extensions' || search.tab === 'search' ? { tab: search.tab } : {}),
       ...(search.list === 'available' ? { list: 'available' as const } : {}),
+      ...(text(search.q) ? { q: text(search.q) } : {}),
+      ...(isSearchType(search.type) && search.type !== 'all' ? { type: search.type } : {}),
     }),
   }),
   createRoute({ getParentRoute: () => rootRoute, path: '/more', component: MorePage }),

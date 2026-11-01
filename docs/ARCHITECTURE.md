@@ -18,7 +18,7 @@ Settled decisions: license **AGPL-3.0-only** (so code from Nuclear, and from GPL
 
 ```
 ┌──────────────────────────── React UI (webview) ────────────────────────────┐
-│ Routes: Home · Library · Browse · Search · Player · Reader · Settings       │
+│ Routes: Home · Library · Browse (with Search) · Player · Reader · Settings  │
 │ Playback engines living in the DOM:  Html5Engine  ·  EmbedEngine (YT iframe)│
 │ TanStack Query over typed commands · Zustand for UI-only state              │
 └──────────────▲─────────────────────────────────────────────▲───────────────┘
@@ -269,7 +269,7 @@ Goal: "set it and forget it". Paired devices on the same network sync automatica
 ## 11. UI (requirement 2)
 
 - **Stack** (matches Nuclear so its patterns transfer): React 19, TypeScript strict, Vite, Tailwind v4, TanStack Router + Query + Virtual, Zustand for UI-only state, `motion` + `@use-gesture/react`, Lucide, Sonner, Zod, Vitest + RTL, Storybook.
-- **Mobile-first shell:** bottom tab bar (Home · Library · Browse · Search · More), a persistent mini-player that swipes up into a full-screen player sheet (swipe down to close, horizontal swipe to skip), pull-to-refresh, long-press context sheets, and safe-area insets.
+- **Mobile-first shell:** bottom tab bar (Home · Library · Browse · More; Browse also searches), a persistent mini-player that swipes up into a full-screen player sheet (swipe down to close, horizontal swipe to skip), pull-to-refresh, long-press context sheets, and safe-area insets.
 - **Wide layouts:** at ≥ 1024 px the tab bar becomes a side rail, the player sheet becomes a docked bar plus an expandable panel, and lists become grids. Keyboard shortcuts and hover states are enabled when a pointer is detected.
 - **Readers:** manga (paged LTR/RTL, vertical webtoon, double-page spreads, tap zones, pinch zoom) and novel (reflowable text, typography controls, scroll or paginated) share prefetch and progress hooks.
 - **Theming:** CSS variables with light/dark plus AMOLED; user themes come later through UI extensions.

@@ -32,8 +32,8 @@ export const WatchHistoryPage: FC = () => {
           action={{
             label: t('library.findInSearch'),
             icon: Search,
-            to: '/search',
-            search: { type: 'video' },
+            to: '/browse',
+            search: { tab: 'search', type: 'video' },
           }}
         />
       )}

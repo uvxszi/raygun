@@ -1,6 +1,8 @@
 import type { MangaSource } from '@raygun/bindings';
-import { Link, useSearch } from '@tanstack/react-router';
-import { Package, Puzzle, RefreshCw, Search } from 'lucide-react';
+import { useIsFetching } from '@tanstack/react-query';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { LoaderCircle, Package, Puzzle, RefreshCw, Search } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -11,11 +13,12 @@ import { useMangaSources } from '../manga/useManga';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { Tabs } from '../shell/Tabs';
-import { TopBar, TopBarAction } from '../shell/TopBar';
+import { SearchPanel } from '../search/SearchPanel';
+import type { SearchType } from '../search/searchTypes';
 import { useStremioAddons } from '../watch/useStremio';
 import { useVideoSources } from '../watch/useVideoSources';
 
-export type BrowseSection = 'sources' | 'extensions';
+export type BrowseSection = 'search' | 'sources' | 'extensions';
 export type ExtensionList = 'installed' | 'available';
 
 type SourceRow = {
@@ -124,49 +127,112 @@ const SourcesList: FC = () => {
   );
 };
 
-/** Browse: catalogues to explore and the extensions that provide them. */
+/** Wait for a pause in typing before searching, so each keystroke doesn't hit the network. */
+export const SEARCH_DEBOUNCE_MS = 400;
+
+/**
+ * Browse: where content is found (Mihon's Browse with CloudStream's search). The search bar is the
+ * header; under it Search (every kind of media, or one with its sources' filters), Sources (the
+ * catalogues by kind) and Extensions. Typing switches to Search. The library never browses.
+ */
 export const BrowsePage: FC = () => {
   const { t } = useTranslation();
-  const { tab = 'sources', list = 'installed' } = useSearch({ from: '/browse' });
+  const current = useSearch({ from: '/browse' });
+  const { tab = 'sources', list = 'installed', q = '', type = 'all' } = current;
+  const navigate = useNavigate({ from: '/browse' });
   const reload = useReloadExtensions();
   const refresh = useRefreshCatalog();
+  const fetching = useIsFetching() > 0;
+  const [input, setInput] = useState(q);
+
+  // The query lives in the URL, so Back to this page shows the same results.
+  useEffect(() => {
+    if (input.trim() === q) return;
+    const timer = setTimeout(() => {
+      const next = input.trim();
+      void navigate({ search: { ...current, q: next || undefined }, replace: true });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [input, q, current, navigate]);
+
+  const onInput = (value: string) => {
+    setInput(value);
+    // Typing searches: the Search tab shows the results.
+    if (value.trim() && tab !== 'search') {
+      void navigate({ search: { ...current, tab: 'search' }, replace: true });
+    }
+  };
+  const setType = (next: SearchType) =>
+    void navigate({
+      search: { ...current, tab: 'search', type: next === 'all' ? undefined : next },
+      replace: true,
+    });
+  const searchParams = {
+    tab: 'search',
+    ...(q ? { q } : {}),
+    ...(type === 'all' ? {} : { type }),
+  };
 
   return (
     <section data-testid="browse-page" className="flex flex-col gap-3">
-      <TopBar
-        title={t('browse.title')}
-        actions={
-          <>
-            {tab === 'extensions' && list === 'installed' && (
-              <TopBarAction
-                label={t('extensions.reload')}
-                icon={RefreshCw}
-                disabled={reload.isPending}
-                onClick={() => reload.mutate()}
-              />
-            )}
-            {tab === 'extensions' && list === 'available' && (
-              <TopBarAction
-                label={t('extensions.refresh')}
-                icon={RefreshCw}
-                disabled={refresh.isPending}
-                onClick={() => refresh.mutate()}
-              />
-            )}
-            <TopBarAction label={t('search.title')} icon={Search} to="/search" />
-            <OverflowMenu
-              items={[
-                { label: t('watch.addons'), icon: Puzzle, to: '/watch/addons' },
-                { label: t('browse.repos'), icon: Package, to: '/extensions/repos' },
-              ]}
+      <header className="bg-background sticky top-0 z-30 -mx-4 flex min-h-16 items-center gap-1 px-3 py-2 lg:-mx-10 lg:px-8">
+        <h1 className="sr-only">{t('browse.title')}</h1>
+        <label className="bg-surface flex min-w-0 flex-1 items-center gap-3 rounded-full px-5 py-3">
+          <Search aria-hidden size={20} className="text-muted shrink-0" />
+          <input
+            type="search"
+            enterKeyHint="search"
+            value={input}
+            onChange={(event) => onInput(event.target.value)}
+            placeholder={t(`search.placeholderFor.${type}`)}
+            aria-label={t('search.title')}
+            className="placeholder:text-muted min-w-0 flex-1 bg-transparent outline-none"
+          />
+          {fetching && q && tab === 'search' && (
+            <LoaderCircle
+              aria-label={t('search.searching')}
+              role="status"
+              size={20}
+              className="text-muted shrink-0 animate-spin"
             />
-          </>
-        }
-      />
+          )}
+        </label>
+        <OverflowMenu
+          items={[
+            ...(tab === 'extensions' && list === 'installed'
+              ? [
+                  {
+                    label: t('extensions.reload'),
+                    icon: RefreshCw,
+                    onSelect: () => reload.mutate(),
+                  },
+                ]
+              : []),
+            ...(tab === 'extensions' && list === 'available'
+              ? [
+                  {
+                    label: t('extensions.refresh'),
+                    icon: RefreshCw,
+                    onSelect: () => refresh.mutate(),
+                  },
+                ]
+              : []),
+            { label: t('watch.addons'), icon: Puzzle, to: '/watch/addons' },
+            { label: t('browse.repos'), icon: Package, to: '/extensions/repos' },
+          ]}
+        />
+      </header>
       <Tabs
         label={t('browse.title')}
         active={tab}
         items={[
+          {
+            id: 'search',
+            label: t('search.title'),
+            to: '/browse',
+            search: searchParams,
+            testId: 'browse-tab-search',
+          },
           {
             id: 'sources',
             label: t('browse.sources'),
@@ -188,6 +254,13 @@ export const BrowsePage: FC = () => {
           {(reload.error ?? refresh.error)?.message}
         </p>
       )}
+      {(reload.isPending || refresh.isPending) && (
+        <p role="status" className="text-muted flex items-center gap-2 text-sm">
+          <RefreshCw aria-hidden size={14} className="text-primary animate-spin" />
+          {t(reload.isPending ? 'extensions.reload' : 'extensions.refresh')}
+        </p>
+      )}
+      {tab === 'search' && <SearchPanel query={q} type={type} onType={setType} />}
       {tab === 'sources' && <SourcesList />}
       {tab === 'extensions' && (
         <div className="flex flex-col gap-4">

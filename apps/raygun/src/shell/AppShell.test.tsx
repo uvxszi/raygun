@@ -23,16 +23,10 @@ describe('AppShell', () => {
     expect(await AppShellWrapper.miniPlayer.title).toHaveTextContent('Intro');
   });
 
-  it('has Home, Library, Browse, Search and More, and Watch lives in the library', async () => {
+  it('has Home, Library, Browse and More, with search inside Browse', async () => {
     await AppShellWrapper.mount();
     const tabs = within(screen.getByTestId('bottom-tabs')).getAllByRole('link');
-    expect(tabs.map((tab) => tab.textContent)).toEqual([
-      'Home',
-      'Library',
-      'Browse',
-      'Search',
-      'More',
-    ]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['Home', 'Library', 'Browse', 'More']);
 
     await AppShellWrapper.tapTab('browse');
     expect(await AppShellWrapper.page('browse')).toBeInTheDocument();
@@ -53,8 +47,25 @@ describe('AppShell', () => {
     expect(await screen.findByText('Your library is empty')).toBeInTheDocument();
     expect(AppShellWrapper.activeTab).toHaveTextContent('Library');
 
-    await AppShellWrapper.tapTab('search');
-    expect(await AppShellWrapper.page('search')).toBeInTheDocument();
+    // Browse is where content is found: its header is the search bar.
+    await AppShellWrapper.tapTab('browse');
+    const browse = await AppShellWrapper.page('browse');
+    await userEvent.type(within(browse).getByRole('searchbox', { name: 'Search' }), 'blues');
+    expect(await within(browse).findByTestId('search-page')).toBeInTheDocument();
+    expect(within(browse).getByRole('link', { name: 'Search' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
+  it('sends old Search addresses to Browse → Search', async () => {
+    await AppShellWrapper.mount('/search?type=manga&q=frieren');
+    const browse = await AppShellWrapper.page('browse');
+    expect(within(browse).getByRole('searchbox', { name: 'Search' })).toHaveValue('frieren');
+    expect(within(browse).getByRole('tab', { name: 'Manga' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
   });
 
   it('lists settings by category and shows the platform in About', async () => {

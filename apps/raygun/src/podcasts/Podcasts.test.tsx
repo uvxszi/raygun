@@ -43,7 +43,7 @@ describe('Podcasts', () => {
     AppShellWrapper.seedCore();
   });
 
-  it('keeps only followed shows in the library and finds new ones in Search', async () => {
+  it('keeps only followed shows in the library and finds new ones in Browse', async () => {
     const user = userEvent.setup();
     commands.podcastTop.mockResolvedValue(
       ok([
@@ -77,11 +77,12 @@ describe('Podcasts', () => {
     // The library holds what you follow; discovering shows is Search's job.
     expect(await within(view).findByText('No podcasts yet')).toBeInTheDocument();
     expect(commands.podcastTop).not.toHaveBeenCalled();
-    await user.click(within(view).getByRole('link', { name: 'Find in Search' }));
+    await user.click(within(view).getByRole('link', { name: 'Find in Browse' }));
 
-    const search = await screen.findByTestId('search-page');
+    const browse = await screen.findByTestId('browse-page');
+    const search = within(browse).getByTestId('search-page');
     expect(await within(search).findByText('Top Show')).toBeInTheDocument();
-    await user.type(within(search).getByRole('searchbox', { name: 'Search' }), 'example');
+    await user.type(within(browse).getByRole('searchbox', { name: 'Search' }), 'example');
     await vi.waitFor(() => expect(commands.podcastSearch).toHaveBeenCalledWith('example'));
     await user.click(await within(search).findByRole('button', { name: /The Example Show/ }));
 

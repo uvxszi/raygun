@@ -201,8 +201,8 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
           action={{
             label: t('library.findInSearch'),
             icon: Search,
-            to: '/search',
-            search: { type: medium },
+            to: '/browse',
+            search: { tab: 'search', type: medium },
           }}
         />
       )}
