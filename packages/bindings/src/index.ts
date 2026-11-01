@@ -175,6 +175,16 @@ export const commands = {
 	/**  Saves the character offset reached in a chapter of `total` characters. */
 	novelSetProgress: (chapterId: string, offset: number, total: number) => typedError<null, string>(__TAURI_INVOKE("novel_set_progress", { chapterId, offset, total })),
 	novelSetRead: (chapterId: string, read: boolean) => typedError<null, string>(__TAURI_INVOKE("novel_set_read", { chapterId, read })),
+	/**  Imports an EPUB (its contents as base64) into the novel library; returns its source and id. */
+	novelImportEpub: (contents: string) => typedError<ImportedBook, string>(__TAURI_INVOKE("novel_import_epub", { contents })),
+	/**  Whether the device can read text aloud. */
+	ttsAvailable: () => typedError<boolean, string>(__TAURI_INVOKE("tts_available")),
+	/**
+	 *  Reads the paragraphs aloud in order, replacing anything being read; `rate` 1 is normal.
+	 *  Progress arrives as `TtsEvent`s.
+	 */
+	ttsSpeak: (paragraphs: TtsParagraph[], rate: number | null) => typedError<null, string>(__TAURI_INVOKE("tts_speak", { paragraphs, rate })),
+	ttsStop: () => typedError<null, string>(__TAURI_INVOKE("tts_stop")),
 };
 
 /** Events */
@@ -187,6 +197,7 @@ export const events = {
 	playbackStateEvent: makeEvent<PlaybackStateEvent>("playback-state-event"),
 	queueEvent: makeEvent<QueueEvent>("queue-event"),
 	syncChangedEvent: makeEvent<SyncChangedEvent>("sync-changed-event"),
+	ttsEvent: makeEvent<TtsEvent>("tts-event"),
 };
 
 /* Types */
@@ -346,6 +357,12 @@ export type HistoryEntry = {
 	track: SavedTrack,
 	/**  Unix ms. */
 	playedAt: number | null,
+};
+
+/**  Where an imported book can be opened (M33). */
+export type ImportedBook = {
+	sourceId: string,
+	novelId: string,
 };
 
 export type LibraryAlbum = {
@@ -603,6 +620,8 @@ export type NovelReaderPrefs = {
 	width: NovelWidth,
 	/**  Pages turned sideways instead of one scrolling column. */
 	paged: boolean,
+	/**  Reading-aloud speed in tenths, 5–20 (0.5×–2×). */
+	ttsRate?: number,
 };
 
 export type NovelWidth = "narrow" | "wide";
@@ -912,6 +931,26 @@ export type TrackQuery = {
 	artist: string | null,
 	album: string | null,
 	durationMs: number | null,
+};
+
+/**  Progress reading a chapter aloud (M33). */
+export type TtsEvent = TtsUpdate;
+
+/**  One paragraph to read aloud; `id` is the block's index in the chapter. */
+export type TtsParagraph = {
+	id: number,
+	text: string,
+};
+
+export type TtsState = 
+/**  Reading the paragraph. */
+"speaking" | 
+/**  Finished everything that was queued. */
+"ended" | "error";
+
+export type TtsUpdate = {
+	state: TtsState,
+	paragraph: number,
 };
 
 /* Tauri Specta runtime */

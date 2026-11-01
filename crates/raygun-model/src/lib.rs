@@ -93,6 +93,13 @@ pub struct NovelReaderPrefs {
     pub width: NovelWidth,
     /// Pages turned sideways instead of one scrolling column.
     pub paged: bool,
+    /// Reading-aloud speed in tenths, 5–20 (0.5×–2×).
+    #[serde(default = "normal_rate")]
+    pub tts_rate: u32,
+}
+
+fn normal_rate() -> u32 {
+    10
 }
 
 impl Default for NovelReaderPrefs {
@@ -103,6 +110,7 @@ impl Default for NovelReaderPrefs {
             font: NovelFont::Serif,
             width: NovelWidth::Narrow,
             paged: false,
+            tts_rate: 10,
         }
     }
 }
@@ -166,6 +174,8 @@ impl SettingChange {
                     ))
                 } else if !(12..=22).contains(&prefs.line_spacing) {
                     Err("That line spacing isn't offered".into())
+                } else if !(5..=20).contains(&prefs.tts_rate) {
+                    Err("That reading speed isn't offered".into())
                 } else {
                     Ok(())
                 }
@@ -1218,4 +1228,38 @@ pub struct NovelChapter {
     pub blocks: Vec<TextBlock>,
     pub previous_chapter_id: Option<String>,
     pub next_chapter_id: Option<String>,
+}
+
+/// Where an imported book can be opened (M33).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedBook {
+    pub source_id: String,
+    pub novel_id: String,
+}
+
+// ---- Reading aloud (M33) ----
+
+/// One paragraph to read aloud; `id` is the block's index in the chapter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct TtsParagraph {
+    pub id: u32,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TtsState {
+    /// Reading the paragraph.
+    Speaking,
+    /// Finished everything that was queued.
+    Ended,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TtsUpdate {
+    pub state: TtsState,
+    pub paragraph: u32,
 }

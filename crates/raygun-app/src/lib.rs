@@ -8,6 +8,7 @@ mod catalog;
 mod collections;
 mod commands;
 mod device_sync;
+mod epub;
 mod events;
 mod extensions;
 mod history;
@@ -25,6 +26,7 @@ mod search;
 mod settings;
 mod startup;
 mod system_ui;
+mod tts;
 
 use std::path::Path;
 
@@ -124,7 +126,11 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::novel_library,
             commands::novel_chapter,
             commands::novel_set_progress,
-            commands::novel_set_read
+            commands::novel_set_read,
+            commands::novel_import_epub,
+            commands::tts_available,
+            commands::tts_speak,
+            commands::tts_stop
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,
@@ -134,7 +140,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::ExtensionsChangedEvent,
             events::SyncChangedEvent,
             events::MangaUpdateEvent,
-            events::MangaDownloadsEvent
+            events::MangaDownloadsEvent,
+            events::TtsEvent
         ])
 }
 

@@ -3,6 +3,7 @@
 //! blocks here (paragraphs, headings, separators, images).
 
 use scraper::{Html, Node};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::ExtensionHost;
@@ -14,9 +15,9 @@ const MAX_BLOCKS: usize = 20_000;
 const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
 
 /// Elements dropped with everything inside them.
-const SKIPPED: [&str; 14] = [
+const SKIPPED: [&str; 17] = [
     "script", "style", "noscript", "iframe", "object", "embed", "svg", "head", "template", "form",
-    "button", "select", "textarea", "canvas",
+    "button", "select", "textarea", "canvas", "title", "link", "meta",
 ];
 /// Elements that start and end a paragraph.
 const BLOCKS: [&str; 26] = [
@@ -48,7 +49,8 @@ const BLOCKS: [&str; 26] = [
     "html",
 ];
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "camelCase")]
 pub enum PassageBlock {
     Paragraph(String),
     Heading(String),

@@ -44,6 +44,18 @@ class LoadArgs {
 }
 
 @InvokeArg
+class SpeechItem {
+    var id: String = ""
+    var text: String = ""
+}
+
+@InvokeArg
+class SpeakArgs {
+    var items: List<SpeechItem> = emptyList()
+    var rate: Double = 1.0
+}
+
+@InvokeArg
 class ThemeArgs {
     var theme: String = "system"
 }
@@ -78,6 +90,7 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     private var connecting = false
     private var loadId: Int? = null
     private var theme = "system"
+    private val speech by lazy { Speech(activity.applicationContext) }
 
     private val progressTicker = object : Runnable {
         override fun run() {
@@ -205,6 +218,30 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         result.put("granted", getPermissionState(libraryAlias()) == PermissionState.GRANTED)
         result.put("folders", folders)
         invoke.resolve(result)
+    }
+
+    /** Whether the phone can read aloud (starts its text-to-speech engine the first time). */
+    @Command
+    fun ttsAvailable(invoke: Invoke) {
+        speech.whenReady { available -> invoke.resolve(JSObject().put("available", available)) }
+    }
+
+    @Command
+    fun ttsSpeak(invoke: Invoke) {
+        val args = invoke.parseArgs(SpeakArgs::class.java)
+        speech.whenReady { available ->
+            if (available && speech.speak(args.items.map { it.id to it.text }, args.rate.toFloat())) {
+                invoke.resolve()
+            } else {
+                invoke.reject("Text-to-speech isn't available")
+            }
+        }
+    }
+
+    @Command
+    fun ttsStop(invoke: Invoke) {
+        main.post { speech.stop() }
+        invoke.resolve()
     }
 
     /**

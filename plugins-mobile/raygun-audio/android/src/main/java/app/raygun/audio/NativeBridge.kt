@@ -16,6 +16,18 @@ object NativeBridge {
     @JvmStatic
     external fun onControl(control: String)
 
+    /** Text-to-speech progress (M33). */
+    @JvmStatic
+    external fun onTts(json: String)
+
+    fun tts(json: String) {
+        try {
+            onTts(json)
+        } catch (error: UnsatisfiedLinkError) {
+            Log.e("RaygunAudio", "Rust engine bridge is not linked", error)
+        }
+    }
+
     fun send(json: String) {
         try {
             onEngineEvent(json)

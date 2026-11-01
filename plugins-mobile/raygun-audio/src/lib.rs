@@ -19,6 +19,27 @@ type ReportHandler = Box<dyn Fn(String) + Send + Sync>;
 
 static REPORT_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 static CONTROL_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
+static TTS_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
+
+/// Installs the receiver for text-to-speech progress (`{"state", "paragraph"}` JSON, M33).
+/// Called on the Android main thread, like the report handler. Only the first call wins.
+pub fn set_tts_handler(handler: impl Fn(String) + Send + Sync + 'static) {
+    let _ = TTS_HANDLER.set(Box::new(handler));
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn deliver_tts(json: String) {
+    if let Some(handler) = TTS_HANDLER.get() {
+        handler(json);
+    }
+}
+
+/// One piece of text to read aloud; `id` comes back in progress reports.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SpeechItem {
+    pub id: String,
+    pub text: String,
+}
 
 /// Installs the receiver for engine reports (JSON in the `EngineReport` shape). It is called on
 /// the Android main thread, so it must hand work off rather than block. Only the first call wins.
@@ -93,6 +114,51 @@ impl<R: Runtime> NativeAudio<R> {
     #[cfg(not(target_os = "android"))]
     pub fn request_library_access(&self) -> Result<LibraryAccess, String> {
         Err("library access requests are only needed on Android".into())
+    }
+
+    /// Whether the phone can read aloud. Blocks while the engine starts.
+    #[cfg(target_os = "android")]
+    pub fn tts_available(&self) -> bool {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>("ttsAvailable", ())
+            .ok()
+            .and_then(|answer| answer.get("available").and_then(serde_json::Value::as_bool))
+            .unwrap_or(false)
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub fn tts_available(&self) -> bool {
+        false
+    }
+
+    /// Replaces what is being read with `items`, at `rate` (1 = normal).
+    #[cfg(target_os = "android")]
+    pub fn tts_speak(&self, items: &[SpeechItem], rate: f64) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>(
+                "ttsSpeak",
+                serde_json::json!({ "items": items, "rate": rate }),
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub fn tts_speak(&self, _items: &[SpeechItem], _rate: f64) -> Result<(), String> {
+        Err("text-to-speech is only available on Android".into())
+    }
+
+    #[cfg(target_os = "android")]
+    pub fn tts_stop(&self) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>("ttsStop", ())
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub fn tts_stop(&self) -> Result<(), String> {
+        Ok(())
     }
 
     /// Forwards one engine command to the native player.

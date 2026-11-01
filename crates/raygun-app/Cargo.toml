@@ -34,6 +34,10 @@ tracing-subscriber.workspace = true
 tracing-appender.workspace = true
 tokio = { version = "1", features = ["sync", "time", "fs", "rt"] }
 flate2 = "1"
+scraper = "0.24"
+ego-tree = "0.10"
+url = "2"
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 base64 = "0.22"
 prost = { version = "0.13", default-features = false, features = ["derive", "std"] }
 

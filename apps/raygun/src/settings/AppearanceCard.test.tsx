@@ -16,7 +16,14 @@ const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   language: 'en',
   mangaUpdateHours: 12,
-  novelReader: { fontSize: 18, lineSpacing: 16, font: 'serif', width: 'narrow', paged: false },
+  novelReader: {
+    fontSize: 18,
+    lineSpacing: 16,
+    font: 'serif',
+    width: 'narrow',
+    paged: false,
+    ttsRate: 10,
+  },
 };
 
 const ThemedAppearanceCard = () => {

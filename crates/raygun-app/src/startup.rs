@@ -71,6 +71,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(crate::novel::NovelService::new(
         app.handle().clone(),
         proxy.images(),
+        paths.downloads(),
     ));
     let downloads = crate::manga_downloads::MangaDownloadService::new(
         app.handle().clone(),
@@ -117,6 +118,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     // Pick up files added or removed while the app was closed (cheap when nothing changed).
     app.state::<crate::library::LibraryService>().start_scan();
     downloads.start();
+    crate::tts::install(app.handle());
     app.state::<crate::manga::MangaService>().start_scheduler();
     crate::system_ui::apply_saved_theme(app.handle().clone());
     Ok(())

@@ -3,6 +3,7 @@ import { Bell, Compass, Download } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { ImportEpubButton } from '../novel/ImportEpubButton';
 import { MangaGrid } from './MangaGrid';
 import { ROUTES } from './medium';
 import type { Medium } from './medium';
@@ -25,18 +26,16 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
           {t('manga.browseSources')}
         </Link>
         {medium === 'manga' && (
-          <>
-            <Link to="/manga/updates" className={CHIP}>
-              <Bell aria-hidden size={16} className="text-primary" />
-              {t('manga.updates')}
-            </Link>
-            <Link to="/manga/downloads" className={CHIP}>
-              <Download aria-hidden size={16} className="text-primary" />
-              {t('manga.downloads')}
-            </Link>
-            <UpdateLibraryButton />
-          </>
+          <Link to="/manga/updates" className={CHIP}>
+            <Bell aria-hidden size={16} className="text-primary" />
+            {t('manga.updates')}
+          </Link>
         )}
+        <Link to="/manga/downloads" className={CHIP}>
+          <Download aria-hidden size={16} className="text-primary" />
+          {t('manga.downloads')}
+        </Link>
+        {medium === 'manga' ? <UpdateLibraryButton /> : <ImportEpubButton className={CHIP} />}
       </nav>
       {library.error && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">

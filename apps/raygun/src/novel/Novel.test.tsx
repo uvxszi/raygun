@@ -3,7 +3,7 @@ import { act, fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
-import { DEFAULT_SETTINGS, bindingsMock } from '../test/bindingsMock';
+import { DEFAULT_SETTINGS, bindingsMock, emitEvent } from '../test/bindingsMock';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -108,10 +108,14 @@ describe('Novels', () => {
       'href',
       '/novel/browse',
     );
-    expect(within(library).queryByRole('link', { name: 'Downloads' })).not.toBeInTheDocument();
+    expect(within(library).getByRole('link', { name: 'Downloads' })).toHaveAttribute(
+      'href',
+      '/manga/downloads',
+    );
+    expect(within(library).queryByRole('link', { name: 'Updates' })).not.toBeInTheDocument();
   });
 
-  it('shows a novel without download controls and with reading percentages', async () => {
+  it('shows a novel with reading percentages and download controls', async () => {
     const title: MangaTitleView = {
       id: 't1',
       sourceId: SOURCE,
@@ -141,8 +145,109 @@ describe('Novels', () => {
       '/novel/read?title=t1&chapter=c2',
     );
     expect(within(page).getByText('45% read')).toBeInTheDocument();
-    expect(within(page).queryByRole('button', { name: /^Download/ })).not.toBeInTheDocument();
+    expect(within(page).getByRole('button', { name: 'Download 1 unread' })).toBeInTheDocument();
+    await userEvent.click(within(page).getByRole('button', { name: 'Download Letter 2' }));
     expect(commands.novelTitle).toHaveBeenCalledWith(SOURCE, '84', false);
+    expect(commands.mangaDownload).toHaveBeenCalledWith(['c2']);
+  });
+
+  it('offers no downloads for an imported book', async () => {
+    commands.novelTitle.mockResolvedValue(
+      ok({
+        id: 'b1',
+        sourceId: 'local.epub',
+        sourceName: 'local.epub',
+        remoteId: 'abc',
+        title: 'My Book',
+        coverUrl: null,
+        authors: [],
+        artists: [],
+        description: null,
+        genres: [],
+        status: 'completed',
+        url: null,
+        inLibrary: true,
+        chapters: [chapterInfo('k1', 'One')],
+        continueChapterId: 'k1',
+      }),
+    );
+    await AppShellWrapper.mount('/novel/title?source=local.epub&id=abc');
+    const page = await screen.findByTestId('manga-title-page');
+    expect(await within(page).findByText('One')).toBeInTheDocument();
+    expect(within(page).queryByRole('button', { name: /^Download/ })).not.toBeInTheDocument();
+  });
+
+  it('imports an EPUB from the novel library and opens it', async () => {
+    const user = userEvent.setup();
+    commands.novelImportEpub.mockResolvedValue(ok({ sourceId: 'local.epub', novelId: 'abc' }));
+    commands.novelTitle.mockResolvedValue(ok(null));
+    await AppShellWrapper.mount('/library?media=novel');
+    const library = await screen.findByTestId('novel-library');
+
+    const book = new File([new Uint8Array([0x50, 0x4b, 3, 4])], 'book.epub');
+    await user.upload(within(library).getByLabelText('EPUB book file'), book);
+    await vi.waitFor(() => expect(commands.novelImportEpub).toHaveBeenCalledWith('UEsDBA=='));
+    await vi.waitFor(() =>
+      expect(commands.novelTitle).toHaveBeenCalledWith('local.epub', 'abc', false),
+    );
+  });
+
+  it('reads a chapter aloud from the paragraph on screen and highlights it', async () => {
+    const user = userEvent.setup();
+    commands.ttsAvailable.mockResolvedValue(ok(true));
+    commands.novelChapter.mockResolvedValue(
+      ok({ ...CHAPTER, chapter: chapterInfo('c1', 'Letter 1') }),
+    );
+    await AppShellWrapper.mount('/novel/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('novel-reader');
+    await within(reader).findByText('It was a dreary night of Nov');
+    FakeObserver.instances.at(-1)!.show([within(reader).getByText('It was a dreary night of Nov')]);
+
+    await user.click(await within(reader).findByRole('button', { name: 'Read aloud' }));
+    expect(commands.ttsSpeak).toHaveBeenCalledWith(
+      [
+        { id: 1, text: 'It was a dreary night of Nov' },
+        { id: 3, text: 'ember. Rain fell on the panes.' },
+      ],
+      1,
+    );
+    emitEvent('ttsEvent', { state: 'speaking', paragraph: 3 });
+    expect(within(reader).getByText('ember. Rain fell on the panes.')).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+    // While reading, a tapped paragraph is read next; the toolbar steps and replays.
+    commands.ttsSpeak.mockClear();
+    await user.click(within(reader).getByText('It was a dreary night of Nov'));
+    expect(commands.ttsSpeak).toHaveBeenLastCalledWith(
+      [
+        { id: 1, text: 'It was a dreary night of Nov' },
+        { id: 3, text: 'ember. Rain fell on the panes.' },
+      ],
+      1,
+    );
+    await user.click(within(reader).getByRole('button', { name: 'Skip to the next paragraph' }));
+    expect(commands.ttsSpeak).toHaveBeenLastCalledWith(
+      [{ id: 3, text: 'ember. Rain fell on the panes.' }],
+      1,
+    );
+    await user.click(within(reader).getByRole('button', { name: 'Read this paragraph again' }));
+    expect(commands.ttsSpeak).toHaveBeenLastCalledWith(
+      [{ id: 3, text: 'ember. Rain fell on the panes.' }],
+      1,
+    );
+    await user.click(
+      within(reader).getByRole('button', { name: 'Read from the previous paragraph' }),
+    );
+    expect(commands.ttsSpeak.mock.lastCall?.[0][0]).toEqual({
+      id: 1,
+      text: 'It was a dreary night of Nov',
+    });
+    await user.click(within(reader).getAllByRole('button', { name: 'Stop reading aloud' })[0]!);
+    expect(commands.ttsStop).toHaveBeenCalled();
+    expect(within(reader).getByText('ember. Rain fell on the panes.')).not.toHaveAttribute(
+      'aria-current',
+    );
   });
 
   it('reads a chapter: resumes, saves progress, finishes and moves on', async () => {
@@ -180,6 +285,29 @@ describe('Novels', () => {
     await user.click(within(reader).getByRole('button', { name: 'Next chapter' }));
     expect(await within(reader).findByText('Letter 2')).toBeInTheDocument();
     expect(commands.novelChapter).toHaveBeenLastCalledWith('t1', 'c2');
+  });
+
+  it('reads aloud from a paragraph held down', async () => {
+    commands.ttsAvailable.mockResolvedValue(ok(true));
+    commands.novelChapter.mockResolvedValue(
+      ok({ ...CHAPTER, chapter: chapterInfo('c1', 'Letter 1') }),
+    );
+    await AppShellWrapper.mount('/novel/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('novel-reader');
+    const paragraph = await within(reader).findByText('ember. Rain fell on the panes.');
+    await within(reader).findByRole('button', { name: 'Read aloud' });
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    fireEvent.pointerDown(paragraph, { clientX: 10, clientY: 10 });
+    await act(() => vi.advanceTimersByTimeAsync(600));
+    fireEvent.pointerUp(paragraph);
+    vi.useRealTimers();
+    expect(commands.ttsSpeak).toHaveBeenCalledWith(
+      [{ id: 3, text: 'ember. Rain fell on the panes.' }],
+      1,
+    );
+    expect(paragraph).toHaveAttribute('aria-current', 'true');
+    expect(within(reader).getByRole('toolbar', { name: 'Reading aloud' })).toBeInTheDocument();
   });
 
   it('changes the text settings', async () => {

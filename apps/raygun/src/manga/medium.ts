@@ -23,6 +23,9 @@ export const catalogCommands = (medium: Medium) =>
         setRead: commands.mangaSetRead,
       };
 
+/** The source id of imported EPUB books. */
+export const LOCAL_EPUB = 'local.epub';
+
 export const ROUTES = {
   manga: {
     browse: '/manga/browse',

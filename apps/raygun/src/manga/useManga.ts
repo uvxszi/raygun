@@ -152,6 +152,8 @@ const invalidateDownloads = (queryClient: ReturnType<typeof useQueryClient>) =>
     queryClient.invalidateQueries({ queryKey: [MANGA, 'downloads'] }),
     queryClient.invalidateQueries({ queryKey: [MANGA, 'title'] }),
     queryClient.invalidateQueries({ queryKey: [MANGA, 'updates'] }),
+    // Novel chapters share the download queue.
+    queryClient.invalidateQueries({ queryKey: ['novel', 'title'] }),
   ]);
 
 /**

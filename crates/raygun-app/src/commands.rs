@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use raygun_model::{
     AppInfo, BackupFile, BackupOutcome, CollectionPlayRequest, EngineReport, ExtensionInfo,
-    ExtensionRepo, HistoryEntry, LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack, Lyrics,
-    MangaBrowseMode, MangaChapterPages, MangaLibraryEntry, MangaListingPage, MangaSource,
-    MangaTitleView, MangaUpdateItem, MangaUpdateStatus, McpStatus, NovelChapter, PlayRequest,
-    PlaybackControl, PlaybackState, PlaylistDetail, PlaylistSummary, QueueItemInput, QueueSnapshot,
-    ReaderMode, RemoteStatus, RepoCatalog, SavedTrack, SearchResults, SettingChange, SettingValue,
-    Settings, StorageInfo, StorageMode, SyncKind, SyncStatus, TrackInput, TrackQuery,
+    ExtensionRepo, HistoryEntry, ImportedBook, LibraryAlbum, LibraryArtist, LibraryStatus,
+    LibraryTrack, Lyrics, MangaBrowseMode, MangaChapterPages, MangaLibraryEntry, MangaListingPage,
+    MangaSource, MangaTitleView, MangaUpdateItem, MangaUpdateStatus, McpStatus, NovelChapter,
+    PlayRequest, PlaybackControl, PlaybackState, PlaylistDetail, PlaylistSummary, QueueItemInput,
+    QueueSnapshot, ReaderMode, RemoteStatus, RepoCatalog, SavedTrack, SearchResults, SettingChange,
+    SettingValue, Settings, StorageInfo, StorageMode, SyncKind, SyncStatus, TrackInput, TrackQuery,
 };
 
 use crate::backup::BackupService;
@@ -951,4 +951,43 @@ pub async fn novel_set_read(
     read: bool,
 ) -> Result<(), String> {
     novels.set_read(&chapter_id, read).await
+}
+
+/// Imports an EPUB (its contents as base64) into the novel library; returns its source and id.
+#[tauri::command]
+#[specta::specta]
+pub async fn novel_import_epub(
+    novels: tauri::State<'_, NovelService>,
+    contents: String,
+) -> Result<ImportedBook, String> {
+    let (source_id, novel_id) = novels.import_epub(&contents).await?;
+    Ok(ImportedBook {
+        source_id,
+        novel_id,
+    })
+}
+
+/// Whether the device can read text aloud.
+#[tauri::command]
+#[specta::specta]
+pub async fn tts_available(app: tauri::AppHandle) -> Result<bool, String> {
+    Ok(crate::tts::available(&app).await)
+}
+
+/// Reads the paragraphs aloud in order, replacing anything being read; `rate` 1 is normal.
+/// Progress arrives as `TtsEvent`s.
+#[tauri::command]
+#[specta::specta]
+pub async fn tts_speak(
+    app: tauri::AppHandle,
+    paragraphs: Vec<raygun_model::TtsParagraph>,
+    rate: f64,
+) -> Result<(), String> {
+    crate::tts::speak(&app, paragraphs, rate).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn tts_stop(app: tauri::AppHandle) -> Result<(), String> {
+    crate::tts::stop(&app).await
 }

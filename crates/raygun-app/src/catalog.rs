@@ -35,6 +35,8 @@ pub struct ChapterContext {
 }
 
 const UNIT_KIND: &str = "chapter";
+/// Prefix of stored covers that are files under the downloads folder.
+pub const LOCAL_PREFIX: &str = "local:";
 
 impl Catalog {
     pub fn new(
@@ -104,7 +106,7 @@ impl Catalog {
                     cover_url: item
                         .cover_url
                         .as_deref()
-                        .map(|url| self.images.link(url, &item.cover_headers)),
+                        .map(|url| self.cover(url, &item.cover_headers)),
                     id: item.id,
                     title: item.title,
                 })
@@ -223,7 +225,7 @@ impl Catalog {
                 .fields
                 .cover
                 .as_deref()
-                .map(|url| self.images.link(url, &row.fields.cover_headers)),
+                .map(|url| self.cover(url, &row.fields.cover_headers)),
             authors: row.fields.authors,
             artists: row.fields.artists,
             description: row.fields.description,
@@ -257,7 +259,7 @@ impl Catalog {
                     .fields
                     .cover
                     .as_deref()
-                    .map(|url| self.images.link(url, &entry.title.fields.cover_headers)),
+                    .map(|url| self.cover(url, &entry.title.fields.cover_headers)),
                 title_id: entry.title.id,
                 source_id: entry.title.fields.source_id,
                 remote_id: entry.title.fields.remote_id,
@@ -317,6 +319,15 @@ impl Catalog {
         titles::set_completed(&self.db(), unit_id, read, now_ms())
             .await
             .map_err(to_message)
+    }
+
+    /// A cover's proxy URL: `local:<path>` covers (imported books) are files under the downloads
+    /// folder; others are fetched with their headers.
+    pub fn cover(&self, url: &str, headers: &std::collections::BTreeMap<String, String>) -> String {
+        match url.strip_prefix(LOCAL_PREFIX) {
+            Some(path) => self.images.local(path),
+            None => self.images.link(url, headers),
+        }
     }
 
     pub fn db(&self) -> Arc<raygun_db::Db> {

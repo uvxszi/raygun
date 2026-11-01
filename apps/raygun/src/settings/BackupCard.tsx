@@ -7,20 +7,9 @@ import type { ChangeEvent, FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
+import { readAsBase64 } from '../lib/readFile';
 
 const BACKUPS = ['backups'];
-
-/** A picked file's contents as base64 (without the data URL prefix). */
-const readAsBase64 = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const url = String(reader.result);
-      resolve(url.slice(url.indexOf(',') + 1));
-    };
-    reader.onerror = () => reject(reader.error ?? new Error('read failed'));
-    reader.readAsDataURL(file);
-  });
 
 const Outcome: FC<{ outcome: BackupOutcome }> = ({ outcome }) => {
   const { t } = useTranslation();

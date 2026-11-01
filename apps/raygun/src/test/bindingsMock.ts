@@ -5,6 +5,7 @@ import type {
   LibraryScanProgress,
   LibraryStatus,
   MangaUpdateStatus,
+  TtsUpdate,
   PlaybackState,
   QueueSnapshot,
   Settings,
@@ -27,6 +28,7 @@ type EventPayloads = {
   syncChangedEvent: number;
   mangaUpdateEvent: MangaUpdateStatus;
   mangaDownloadsEvent: string;
+  ttsEvent: TtsUpdate;
 };
 type EventName = keyof EventPayloads;
 type Listener = (event: { payload: unknown }) => void;
@@ -77,7 +79,14 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   language: 'en',
   mangaUpdateHours: 12,
-  novelReader: { fontSize: 18, lineSpacing: 16, font: 'serif', width: 'narrow', paged: false },
+  novelReader: {
+    fontSize: 18,
+    lineSpacing: 16,
+    font: 'serif',
+    width: 'narrow',
+    paged: false,
+    ttsRate: 10,
+  },
 };
 
 export const IDLE_UPDATE: MangaUpdateStatus = {
@@ -183,6 +192,10 @@ export const bindingsMock = {
     novelChapter: vi.fn(),
     novelSetProgress: vi.fn(),
     novelSetRead: vi.fn(),
+    novelImportEpub: vi.fn(),
+    ttsAvailable: vi.fn(),
+    ttsSpeak: vi.fn(),
+    ttsStop: vi.fn(),
   },
   events: {
     engineCommandEvent: makeEvent('engineCommandEvent'),
@@ -193,6 +206,7 @@ export const bindingsMock = {
     syncChangedEvent: makeEvent('syncChangedEvent'),
     mangaUpdateEvent: makeEvent('mangaUpdateEvent'),
     mangaDownloadsEvent: makeEvent('mangaDownloadsEvent'),
+    ttsEvent: makeEvent('ttsEvent'),
   },
 };
 
@@ -316,6 +330,10 @@ export const seedBindings = () => {
   commands.novelChapter.mockResolvedValue(ok(null));
   commands.novelSetProgress.mockResolvedValue(ok(null));
   commands.novelSetRead.mockResolvedValue(ok(null));
+  commands.novelImportEpub.mockResolvedValue(ok({ sourceId: 'local.epub', novelId: 'abc' }));
+  commands.ttsAvailable.mockResolvedValue(ok(false));
+  commands.ttsSpeak.mockResolvedValue(ok(null));
+  commands.ttsStop.mockResolvedValue(ok(null));
 };
 
 export const emitEvent = <Name extends EventName>(name: Name, payload: EventPayloads[Name]) => {

@@ -1,5 +1,6 @@
+import { commands, events } from '@raygun/bindings';
 import type { NovelChapter, NovelReaderPrefs, TextBlock } from '@raygun/bindings';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useRouter, useSearch } from '@tanstack/react-router';
 import {
   ArrowLeft,
@@ -8,18 +9,25 @@ import {
   LoaderCircle,
   Minus,
   Plus,
+  RotateCcw,
+  SkipBack,
+  SkipForward,
+  Square,
   Type,
+  Volume2,
 } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { FC, KeyboardEvent, MouseEvent, ReactNode, TouchEvent } from 'react';
+import type { FC, KeyboardEvent, MouseEvent, PointerEvent, ReactNode, TouchEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { unwrapResult } from '../lib/commandResult';
 import {
   DEFAULT_PREFS,
   NOVEL,
   blockAt,
   novelChapterQuery,
   saveNovelProgress,
+  speechParagraphs,
   textOffsets,
   useNovelChapter,
 } from '../novel/useNovel';
@@ -30,6 +38,10 @@ const SAVE_DELAY_MS = 800;
 /** Past this share of a chapter, the next one is fetched ahead. */
 const PREFETCH_AT = 0.6;
 const SWIPE_PX = 50;
+/** Holding a paragraph this long reads aloud from it. */
+const LONG_PRESS_MS = 500;
+/** A press that moves farther than this is a scroll, not a long press. */
+const PRESS_SLOP_PX = 10;
 /** Side margin of a page in paged mode. */
 const PAGE_PADDING = 20;
 
@@ -41,13 +53,21 @@ const FONTS: Record<NovelReaderPrefs['font'], string> = {
 const Block: FC<{
   block: TextBlock;
   index: number;
+  active: boolean;
   register: (index: number, element: HTMLElement | null) => void;
-}> = ({ block, index, register }) => {
+}> = ({ block, index, active, register }) => {
   const ref = (element: HTMLElement | null) => register(index, element);
+  // The paragraph being read aloud.
+  const highlight = active ? 'bg-primary/15 -mx-1 rounded px-1' : '';
   switch (block.kind) {
     case 'heading':
       return (
-        <h2 ref={ref} data-block={index} className="mt-[1.2em] mb-[0.8em] text-[1.3em] font-bold">
+        <h2
+          ref={ref}
+          data-block={index}
+          aria-current={active || undefined}
+          className={`mt-[1.2em] mb-[0.8em] text-[1.3em] font-bold ${highlight}`}
+        >
           {block.text}
         </h2>
       );
@@ -66,7 +86,12 @@ const Block: FC<{
       );
     default:
       return (
-        <p ref={ref} data-block={index} className="mb-[0.9em]">
+        <p
+          ref={ref}
+          data-block={index}
+          aria-current={active || undefined}
+          className={`mb-[0.9em] ${highlight}`}
+        >
           {block.text}
         </p>
       );
@@ -170,6 +195,14 @@ const PrefsPanel: FC<{ prefs: NovelReaderPrefs; onChange: (prefs: NovelReaderPre
           {t('novel.wide')}
         </Choice>
       </div>
+      <Stepper
+        label={t('novel.speed')}
+        value={`${((prefs.ttsRate ?? 10) / 10).toFixed(1)}×`}
+        onLess={() => set({ ttsRate: (prefs.ttsRate ?? 10) - 2 })}
+        onMore={() => set({ ttsRate: (prefs.ttsRate ?? 10) + 2 })}
+        lessDisabled={(prefs.ttsRate ?? 10) <= 6}
+        moreDisabled={(prefs.ttsRate ?? 10) >= 20}
+      />
       <div className="flex gap-2">
         <Choice pressed={!prefs.paged} onClick={() => set({ paged: false })}>
           {t('novel.scroll')}
@@ -191,7 +224,24 @@ const ChapterView: FC<{
   onNext: () => void;
   onPrevious: () => void;
   onProgress: (fraction: number, label: string) => void;
-}> = ({ data, prefs, chrome, onToggleChrome, onNext, onPrevious, onProgress }) => {
+  /** The block reading is at (where reading aloud starts). */
+  onBlock: (index: number) => void;
+  /** The block being read aloud. */
+  speaking: number | null;
+  /** Reads aloud from a block (a long press, or a tap while reading). */
+  onSpeakFrom?: (index: number) => void;
+}> = ({
+  data,
+  prefs,
+  chrome,
+  onToggleChrome,
+  onNext,
+  onPrevious,
+  onProgress,
+  onBlock,
+  speaking,
+  onSpeakFrom,
+}) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { starts, total } = useMemo(() => textOffsets(data.blocks), [data.blocks]);
@@ -241,6 +291,7 @@ const ChapterView: FC<{
   const report = useCallback(
     (index: number, label?: string) => {
       currentBlock.current = index;
+      onBlock(index);
       const offset = starts[index] ?? 0;
       const fraction = offset / total;
       onProgress(fraction, label ?? t('novel.percent', { percent: Math.round(fraction * 100) }));
@@ -252,7 +303,17 @@ const ChapterView: FC<{
       clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => remember(offset), SAVE_DELAY_MS);
     },
-    [data.nextChapterId, data.titleId, onProgress, queryClient, remember, starts, t, total],
+    [
+      data.nextChapterId,
+      data.titleId,
+      onBlock,
+      onProgress,
+      queryClient,
+      remember,
+      starts,
+      t,
+      total,
+    ],
   );
 
   const finish = useCallback(() => {
@@ -366,6 +427,29 @@ const ChapterView: FC<{
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefs.paged, prefs.fontSize, prefs.lineSpacing, prefs.font, chapterId]);
 
+  // Keeps the paragraph being read aloud in view.
+  useEffect(() => {
+    if (speaking === null) return;
+    const element = refs.current[speaking];
+    if (!element) return;
+    if (!prefs.paged) {
+      // Only when it's off screen (or under the bars), so reading along isn't jumpy. Smooth
+      // scrolling is skipped: Android's WebView drops it inside the app's scrolling container.
+      const box = element.getBoundingClientRect();
+      const hidden = box.top < 80 || box.top > window.innerHeight - 200;
+      if (hidden) element.scrollIntoView?.({ block: 'start' });
+      return;
+    }
+    const container = pagesRef.current;
+    const width = pageWidth();
+    if (!container || width === 0) return;
+    const left = container.getBoundingClientRect().left - container.scrollLeft;
+    const target = Math.floor((element.getBoundingClientRect().left - left) / width);
+    if (target !== page) showPage(target);
+    // Only a new paragraph moves the view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [speaking]);
+
   const forward = () => {
     if (page < pageCount - 1) {
       showPage(page + 1);
@@ -376,7 +460,75 @@ const ChapterView: FC<{
   };
   const back = () => (page <= 0 ? onPrevious() : showPage(page - 1));
 
+  // ---- Choosing where reading aloud starts ----
+  const press = useRef<{ x: number; y: number; timer: ReturnType<typeof setTimeout> } | null>(null);
+  /** Set after a long press, so the click that ends it does nothing else. */
+  const longPressed = useRef(false);
+
+  const blockOf = (target: EventTarget | null) => {
+    const element = (target as HTMLElement | null)?.closest?.('[data-block]');
+    const index = element ? Number((element as HTMLElement).dataset.block) : NaN;
+    const block = data.blocks[index];
+    return block && (block.kind === 'paragraph' || block.kind === 'heading') ? index : null;
+  };
+
+  const cancelPress = () => {
+    if (press.current) clearTimeout(press.current.timer);
+    press.current = null;
+  };
+
+  const pressHandlers = onSpeakFrom
+    ? {
+        onPointerDown: (event: PointerEvent<HTMLElement>) => {
+          cancelPress();
+          const index = blockOf(event.target);
+          if (index === null) return;
+          press.current = {
+            x: event.clientX,
+            y: event.clientY,
+            timer: setTimeout(() => {
+              press.current = null;
+              longPressed.current = true;
+              onSpeakFrom(index);
+            }, LONG_PRESS_MS),
+          };
+        },
+        onPointerMove: (event: PointerEvent<HTMLElement>) => {
+          const start = press.current;
+          if (
+            start &&
+            Math.hypot(event.clientX - start.x, event.clientY - start.y) > PRESS_SLOP_PX
+          ) {
+            cancelPress();
+          }
+        },
+        onPointerUp: cancelPress,
+        onPointerCancel: cancelPress,
+        // The system menu a long press opens on text would cover the reader.
+        onContextMenu: (event: MouseEvent<HTMLElement>) => event.preventDefault(),
+      }
+    : {};
+
+  useEffect(() => () => cancelPress(), []);
+
+  /** Swallows the click ending a long press; while reading, a tapped paragraph is read next. */
+  const handledTap = (event: MouseEvent<HTMLElement>) => {
+    if (longPressed.current) {
+      longPressed.current = false;
+      return true;
+    }
+    if (speaking !== null && onSpeakFrom) {
+      const index = blockOf(event.target);
+      if (index !== null) {
+        onSpeakFrom(index);
+        return true;
+      }
+    }
+    return false;
+  };
+
   const onPageClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (handledTap(event)) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const x = (event.clientX - rect.left) / Math.max(rect.width, 1);
     if (x < 1 / 3) back();
@@ -426,7 +578,13 @@ const ChapterView: FC<{
     </div>
   );
   const blocks = data.blocks.map((block, index) => (
-    <Block key={index} block={block} index={index} register={register} />
+    <Block
+      key={index}
+      block={block}
+      index={index}
+      active={index === speaking}
+      register={register}
+    />
   ));
 
   if (prefs.paged) {
@@ -440,7 +598,8 @@ const ChapterView: FC<{
         onKeyDown={onKey}
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
-        className={`h-dvh overflow-hidden outline-none ${chrome ? 'pt-16 pb-16' : 'pt-6 pb-6'}`}
+        {...pressHandlers}
+        className={`h-dvh overflow-hidden outline-none select-none [-webkit-touch-callout:none] ${chrome ? 'pt-16 pb-16' : 'pt-6 pb-6'}`}
       >
         <div
           style={{
@@ -462,8 +621,11 @@ const ChapterView: FC<{
     <div
       data-testid="novel-scroll"
       role="presentation"
-      onClick={onToggleChrome}
-      className="px-5 pt-20 pb-24"
+      onClick={(event) => {
+        if (!handledTap(event)) onToggleChrome();
+      }}
+      {...pressHandlers}
+      className="px-5 pt-20 pb-24 select-none [-webkit-touch-callout:none]"
     >
       <article
         style={textStyle}
@@ -490,6 +652,134 @@ export const NovelReaderPage: FC = () => {
   const [panel, setPanel] = useState(false);
   const [progress, setProgress] = useState({ fraction: 0, label: '' });
   const data = loaded.data;
+
+  // ---- Reading aloud ----
+  const speechAvailable = useQuery({
+    queryKey: ['tts', 'available'],
+    queryFn: () => unwrapResult(commands.ttsAvailable()),
+    staleTime: Infinity,
+  });
+  const [reading, setReading] = useState(false);
+  const [speaking, setSpeaking] = useState<number | null>(null);
+  const position = useRef(0);
+  const readingRef = useRef(false);
+  const dataRef = useRef(data);
+  const rate = prefs.ttsRate ?? 10;
+  const rateRef = useRef(rate);
+  /** Set when a chapter ended aloud: the next one starts reading once it loads. */
+  const continueAloud = useRef(false);
+  useEffect(() => {
+    dataRef.current = data;
+    rateRef.current = rate;
+  });
+
+  const speakFrom = useCallback((chapter: NovelChapter, first: number) => {
+    const paragraphs = speechParagraphs(chapter.blocks, first);
+    if (paragraphs.length === 0) return;
+    void unwrapResult(commands.ttsSpeak(paragraphs, rateRef.current / 10)).catch(() => {
+      readingRef.current = false;
+      setReading(false);
+      setSpeaking(null);
+    });
+  }, []);
+
+  const stopReading = useCallback(() => {
+    readingRef.current = false;
+    continueAloud.current = false;
+    setReading(false);
+    setSpeaking(null);
+    void commands.ttsStop();
+  }, []);
+
+  const toggleReading = () => {
+    if (!data) return;
+    if (readingRef.current) {
+      stopReading();
+      return;
+    }
+    readingRef.current = true;
+    setReading(true);
+    speakFrom(data, position.current);
+  };
+
+  /** Reads aloud from a block: a chosen paragraph, or a step back or forward. */
+  const readFrom = useCallback(
+    (index: number) => {
+      const chapter = dataRef.current;
+      if (!chapter) return;
+      readingRef.current = true;
+      continueAloud.current = false;
+      setReading(true);
+      setSpeaking(index);
+      position.current = index;
+      speakFrom(chapter, index);
+    },
+    [speakFrom],
+  );
+
+  /** The paragraph `step` places from the one being read (or the one on screen). */
+  const stepTo = (step: number) => {
+    if (!data) return;
+    const ids = speechParagraphs(data.blocks, 0).map((paragraph) => paragraph.id);
+    const current = speaking ?? position.current;
+    const at = Math.max(
+      ids.findIndex((id) => id >= current),
+      0,
+    );
+    const target = ids[Math.min(Math.max(at + step, 0), ids.length - 1)];
+    if (target !== undefined) readFrom(target);
+  };
+
+  useEffect(() => {
+    const unlisten = events.ttsEvent.listen(({ payload }) => {
+      if (!readingRef.current) return;
+      if (payload.state === 'speaking') {
+        setSpeaking(payload.paragraph);
+        position.current = payload.paragraph;
+      } else if (payload.state === 'ended') {
+        const next = dataRef.current?.nextChapterId;
+        if (next) {
+          continueAloud.current = true;
+          setSpeaking(null);
+          void navigate({ search: { title, chapter: next }, replace: true });
+        } else {
+          stopReading();
+        }
+      } else {
+        stopReading();
+      }
+    });
+    return () => {
+      void unlisten.then((stop) => stop());
+    };
+  }, [navigate, stopReading, title]);
+
+  // The next chapter keeps reading aloud from its start.
+  useEffect(() => {
+    if (data && continueAloud.current && readingRef.current) {
+      continueAloud.current = false;
+      position.current = 0;
+      speakFrom(data, 0);
+    }
+  }, [data, speakFrom]);
+
+  // A new speed applies from the paragraph being read.
+  useEffect(() => {
+    const chapter = dataRef.current;
+    if (readingRef.current && chapter) speakFrom(chapter, position.current);
+  }, [rate, speakFrom]);
+
+  // Leaving the reader stops speech.
+  useEffect(
+    () => () => {
+      if (readingRef.current) void commands.ttsStop();
+    },
+    [],
+  );
+
+  const onBlock = useCallback((index: number) => {
+    if (!readingRef.current) position.current = index;
+  }, []);
 
   const go = (chapterId: string | null) => {
     setPanel(false);
@@ -561,7 +851,53 @@ export const NovelReaderPage: FC = () => {
           onNext={() => go(data.nextChapterId)}
           onPrevious={() => data.previousChapterId && go(data.previousChapterId)}
           onProgress={onProgress}
+          onBlock={onBlock}
+          speaking={speaking}
+          onSpeakFrom={speechAvailable.data ? readFrom : undefined}
         />
+      )}
+      {data && reading && (
+        <div
+          role="toolbar"
+          aria-label={t('novel.speechControls')}
+          className={`bg-surface/95 fixed inset-x-0 z-30 mx-auto flex w-fit flex-wrap items-center justify-center gap-1 rounded-3xl px-2 py-1 shadow-lg backdrop-blur ${chrome ? 'bottom-20' : 'bottom-4'}`}
+        >
+          <p className="text-muted w-full px-2 pt-1 text-center text-xs">
+            {t('novel.readAloudHint')}
+          </p>
+          <button
+            type="button"
+            aria-label={t('novel.previousParagraph')}
+            onClick={() => stepTo(-1)}
+            className="grid size-10 place-items-center rounded-full"
+          >
+            <SkipBack aria-hidden size={18} />
+          </button>
+          <button
+            type="button"
+            aria-label={t('novel.replayParagraph')}
+            onClick={() => stepTo(0)}
+            className="grid size-10 place-items-center rounded-full"
+          >
+            <RotateCcw aria-hidden size={18} />
+          </button>
+          <button
+            type="button"
+            aria-label={t('novel.nextParagraph')}
+            onClick={() => stepTo(1)}
+            className="grid size-10 place-items-center rounded-full"
+          >
+            <SkipForward aria-hidden size={18} />
+          </button>
+          <button
+            type="button"
+            aria-label={t('novel.stopReading')}
+            onClick={stopReading}
+            className="bg-primary text-background grid size-10 place-items-center rounded-full"
+          >
+            <Square aria-hidden size={16} />
+          </button>
+        </div>
       )}
       {chrome && data && (
         <footer className="bg-background/90 fixed inset-x-0 bottom-0 z-30 flex items-center gap-3 px-3 pt-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] backdrop-blur">
@@ -585,6 +921,17 @@ export const NovelReaderPage: FC = () => {
               {progress.label}
             </span>
           </div>
+          {speechAvailable.data && (
+            <button
+              type="button"
+              aria-label={t(reading ? 'novel.stopReading' : 'novel.readAloud')}
+              aria-pressed={reading}
+              onClick={toggleReading}
+              className={`grid size-10 place-items-center rounded-full ${reading ? 'bg-primary text-background' : ''}`}
+            >
+              {reading ? <Square aria-hidden size={18} /> : <Volume2 aria-hidden size={20} />}
+            </button>
+          )}
           <button
             type="button"
             aria-label={t('manga.goNextChapter')}

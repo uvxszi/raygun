@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use raygun_db::manga_downloads::{self, DownloadRow};
 use raygun_db::titles;
+use raygun_ext_host::novel::PassageBlock;
 use raygun_model::{ChapterDownload, DownloadState, MangaDownloadItem, MangaDownloads};
 use raygun_net::ImageLinks;
 use raygun_net::images::{DownloadError, RemoteImage, download_images, downloaded_pages};
@@ -22,12 +23,15 @@ use crate::startup::AppDb;
 
 /// Pages fetched at once; sources such as MangaDex limit how fast one client may go.
 const PAGE_CONCURRENCY: usize = 2;
-/// Folder under the downloads root, also the first segment of `/local` URLs.
+/// Folders under the downloads root; `manga` is also the first segment of page URLs.
 const FOLDER: &str = "manga";
+const NOVEL_FOLDER: &str = "novel";
+/// A downloaded novel chapter's blocks, in its folder.
+const PASSAGE_FILE: &str = "passage.json";
 
 pub struct MangaDownloadService {
     app: AppHandle,
-    /// `downloads/manga`.
+    /// The downloads folder.
     root: PathBuf,
     images: ImageLinks,
     client: reqwest::Client,
@@ -46,7 +50,7 @@ impl MangaDownloadService {
     ) -> Arc<Self> {
         Arc::new(Self {
             app,
-            root: downloads.join(FOLDER),
+            root: downloads,
             images,
             client,
             wake: Notify::new(),
@@ -102,10 +106,9 @@ impl MangaDownloadService {
             .lock()
             .expect("cancel set poisoned")
             .remove(&unit_id);
-        let dir = self.chapter_dir(&row.title_id, &unit_id);
         let outcome = match result {
             _ if cancelled => {
-                let _ = tokio::fs::remove_dir_all(&dir).await;
+                self.delete_files(&row.title_id, &unit_id).await;
                 Ok(())
             }
             Ok(pages) => {
@@ -141,6 +144,11 @@ impl MangaDownloadService {
             .await
             .map_err(failed)?
             .ok_or_else(|| Failure::Error("The chapter is no longer stored".into()))?;
+        if title.fields.kind == "novel" {
+            return self
+                .fetch_passage(row, &title.fields.source_id, &unit.fields.remote_id)
+                .await;
+        }
         let pages = {
             let extensions = self.app.state::<Arc<ExtensionService>>();
             let (_ready, host) = extensions.ready().await;
@@ -206,6 +214,82 @@ impl MangaDownloadService {
         }
     }
 
+    /// Downloads a novel chapter's text: its blocks, written through a `.part` folder.
+    async fn fetch_passage(
+        &self,
+        row: &DownloadRow,
+        source_id: &str,
+        remote_id: &str,
+    ) -> Result<usize, Failure> {
+        if source_id == crate::novel::LOCAL_EPUB {
+            return Err(Failure::Error("This book is already on the device".into()));
+        }
+        let failed = |error: raygun_db::DbError| Failure::Error(error.to_string());
+        manga_downloads::set_progress(&self.db(), &row.unit_id, 0, 1)
+            .await
+            .map_err(failed)?;
+        self.changed(&row.unit_id);
+        let passage = {
+            let extensions = self.app.state::<Arc<ExtensionService>>();
+            let (_ready, host) = extensions.ready().await;
+            host.novel_passage(source_id, remote_id)
+                .await
+                .map_err(Failure::Error)?
+        };
+        if self.is_cancelled(&row.unit_id) {
+            return Err(Failure::Stopped);
+        }
+        let json =
+            serde_json::to_vec(&passage).map_err(|error| Failure::Error(error.to_string()))?;
+        let dir = self.novel_dir(&row.title_id, &row.unit_id);
+        let partial = dir.with_extension("part");
+        let io = |error: std::io::Error| Failure::Error(error.to_string());
+        let _ = tokio::fs::remove_dir_all(&partial).await;
+        tokio::fs::create_dir_all(&partial).await.map_err(io)?;
+        tokio::fs::write(partial.join(PASSAGE_FILE), json)
+            .await
+            .map_err(io)?;
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+        tokio::fs::rename(&partial, &dir).await.map_err(io)?;
+        Ok(1)
+    }
+
+    /// A downloaded novel chapter's blocks, or None when it isn't on the device.
+    pub async fn local_passage(
+        &self,
+        title_id: &str,
+        chapter_id: &str,
+    ) -> Option<Vec<PassageBlock>> {
+        let db = self.db();
+        let row = manga_downloads::get(&db, chapter_id).await.ok()??;
+        if row.state != manga_downloads::DONE {
+            return None;
+        }
+        let file = self.novel_dir(title_id, chapter_id).join(PASSAGE_FILE);
+        match tokio::fs::read(&file).await {
+            Ok(bytes) => serde_json::from_slice(&bytes).ok(),
+            Err(_) => {
+                tracing::info!(chapter = chapter_id, "downloaded chapter is gone from disk");
+                let _ = manga_downloads::remove(&db, chapter_id).await;
+                None
+            }
+        }
+    }
+
+    /// Removes a chapter's downloaded files, manga or novel.
+    async fn delete_files(&self, title_id: &str, unit_id: &str) {
+        for dir in [
+            self.chapter_dir(title_id, unit_id),
+            self.novel_dir(title_id, unit_id),
+        ] {
+            if tokio::fs::try_exists(&dir).await.unwrap_or(false)
+                && let Err(error) = tokio::fs::remove_dir_all(&dir).await
+            {
+                tracing::warn!(%error, "could not delete a downloaded chapter");
+            }
+        }
+    }
+
     /// Queues chapters (any already queued or downloaded are left alone; failed ones retry).
     pub async fn enqueue(&self, chapter_ids: &[String]) -> Result<(), String> {
         let db = self.db();
@@ -239,12 +323,7 @@ impl MangaDownloadService {
                     .insert(id.clone());
             }
             manga_downloads::remove(&db, id).await.map_err(to_message)?;
-            let dir = self.chapter_dir(&row.title_id, id);
-            if tokio::fs::try_exists(&dir).await.unwrap_or(false)
-                && let Err(error) = tokio::fs::remove_dir_all(&dir).await
-            {
-                tracing::warn!(%error, "could not delete a downloaded chapter");
-            }
+            self.delete_files(&row.title_id, id).await;
         }
         self.changed("");
         Ok(())
@@ -332,7 +411,11 @@ impl MangaDownloadService {
     }
 
     fn chapter_dir(&self, title_id: &str, unit_id: &str) -> PathBuf {
-        self.root.join(title_id).join(unit_id)
+        self.root.join(FOLDER).join(title_id).join(unit_id)
+    }
+
+    fn novel_dir(&self, title_id: &str, unit_id: &str) -> PathBuf {
+        self.root.join(NOVEL_FOLDER).join(title_id).join(unit_id)
     }
 
     fn changed(&self, unit_id: &str) {

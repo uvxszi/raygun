@@ -407,6 +407,17 @@
     "wide": "Wide",
     "scroll": "Scroll",
     "paged": "Pages",
-    "backToBook": "Back to the book"
+    "backToBook": "Back to the book",
+    "importEpub": "Import EPUB",
+    "importing": "Importing…",
+    "epubFile": "EPUB book file",
+    "readAloud": "Read aloud",
+    "stopReading": "Stop reading aloud",
+    "speed": "Reading speed",
+    "speechControls": "Reading aloud",
+    "previousParagraph": "Read from the previous paragraph",
+    "replayParagraph": "Read this paragraph again",
+    "nextParagraph": "Skip to the next paragraph",
+    "readAloudHint": "Hold a paragraph to read aloud from there"
   }
 }

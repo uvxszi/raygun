@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 
 import { DownloadButton } from '../manga/DownloadButton';
 import { MangaCover } from '../manga/MangaCover';
-import { ROUTES } from '../manga/medium';
+import { LOCAL_EPUB, ROUTES } from '../manga/medium';
 import type { Medium } from '../manga/medium';
 import {
   useDownloadChapters,
@@ -32,11 +32,12 @@ const progressLabel = (
     : t('manga.pageOf', { page: chapter.lastPage + 1, total: chapter.totalPages });
 };
 
-const ChapterRow: FC<{ titleId: string; chapter: MangaChapterInfo; medium: Medium }> = ({
-  titleId,
-  chapter,
-  medium,
-}) => {
+const ChapterRow: FC<{
+  titleId: string;
+  chapter: MangaChapterInfo;
+  medium: Medium;
+  downloadable: boolean;
+}> = ({ titleId, chapter, medium, downloadable }) => {
   const { t, i18n } = useTranslation();
   const setRead = useSetChapterRead(medium);
   const date = chapter.dateUpload
@@ -65,7 +66,7 @@ const ChapterRow: FC<{ titleId: string; chapter: MangaChapterInfo; medium: Mediu
       >
         <Check aria-hidden size={18} />
       </button>
-      {medium === 'manga' && <DownloadButton chapter={chapter} />}
+      {downloadable && <DownloadButton chapter={chapter} />}
     </div>
   );
 };
@@ -101,9 +102,11 @@ export const MangaTitlePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) =>
 
   const continueChapter = view.chapters.find((chapter) => chapter.id === view.continueChapterId);
   const started = view.chapters.some((chapter) => chapter.read || chapter.lastPage !== null);
+  // Imported books are already on the device.
+  const downloadable = view.sourceId !== LOCAL_EPUB;
   // Oldest first, so the queue reads in order (the list is newest first).
   const unreadToDownload = view.chapters
-    .filter((chapter) => medium === 'manga' && !chapter.read && !chapter.download)
+    .filter((chapter) => downloadable && !chapter.read && !chapter.download)
     .map((chapter) => chapter.id)
     .reverse();
 
@@ -196,7 +199,12 @@ export const MangaTitlePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) =>
           <ul className="flex flex-col">
             {view.chapters.map((chapter) => (
               <li key={chapter.id}>
-                <ChapterRow titleId={view.id} chapter={chapter} medium={medium} />
+                <ChapterRow
+                  titleId={view.id}
+                  chapter={chapter}
+                  medium={medium}
+                  downloadable={downloadable}
+                />
               </li>
             ))}
           </ul>

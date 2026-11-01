@@ -12,6 +12,7 @@ export const DEFAULT_PREFS: NovelReaderPrefs = {
   font: 'serif',
   width: 'narrow',
   paged: false,
+  ttsRate: 10,
 };
 
 export const novelChapterQuery = (titleId: string, chapterId: string) => ({
@@ -50,3 +51,11 @@ export const blockAt = (starts: number[], offset: number) => {
   });
   return index;
 };
+
+/** The paragraphs of a chapter from `first` on, as speech gets them (block index and text). */
+export const speechParagraphs = (blocks: TextBlock[], first: number) =>
+  blocks.flatMap((block, index) =>
+    index >= first && (block.kind === 'paragraph' || block.kind === 'heading')
+      ? [{ id: index, text: block.text }]
+      : [],
+  );
