@@ -19,6 +19,8 @@ const STATUSES: [&str; 6] = [
     "publishingFinished",
     "unknown",
 ];
+/// Kinds of video a source may report (M42); anything else is left out.
+const MEDIA_TYPES: [&str; 4] = ["movie", "series", "anime", "other"];
 /// Headers a source may not set on image requests.
 const FORBIDDEN_HEADERS: [&str; 4] = ["host", "content-length", "connection", "transfer-encoding"];
 
@@ -52,6 +54,10 @@ pub struct MangaDetails {
     pub status: String,
     /// The title's page on the source's website.
     pub url: Option<String>,
+    /// Video sources (M42): `movie`, `series`, `anime` or `other`.
+    pub media_type: Option<String>,
+    /// Video sources (M42): the release year.
+    pub year: Option<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -169,7 +175,7 @@ impl ExtensionHost {
             .call(provider, "chapters", serde_json::json!({ "id": id }))
             .await
             .map_err(|error| error.to_string())?;
-        Ok(parse_chapters(&value))
+        Ok(parse_units(&value, "chapters", "Chapter"))
     }
 
     pub async fn manga_pages(
@@ -235,18 +241,37 @@ fn parse_details(value: &Value, requested: &str) -> Option<MangaDetails> {
         title: text(value.get("title"))?,
         cover_url: url(value.get("coverUrl")),
         cover_headers: headers(value.get("coverHeaders")),
-        authors: texts(value.get("authors")),
-        artists: texts(value.get("artists")),
+        // A video source's cast and directors take the authors' and artists' places.
+        authors: or_else(texts(value.get("authors")), || texts(value.get("cast"))),
+        artists: or_else(texts(value.get("artists")), || {
+            texts(value.get("directors"))
+        }),
         description: text(value.get("description")),
         genres: texts(value.get("genres")),
         status: status.to_owned(),
         url: url(value.get("url")),
+        media_type: value
+            .get("type")
+            .and_then(Value::as_str)
+            .filter(|kind| MEDIA_TYPES.contains(kind))
+            .map(str::to_owned),
+        year: value
+            .get("year")
+            .and_then(Value::as_i64)
+            .filter(|year| (1800..=2200).contains(year))
+            .map(|year| year as i32),
     })
 }
 
-fn parse_chapters(value: &Value) -> Vec<MangaChapter> {
+fn or_else(first: Vec<String>, second: impl FnOnce() -> Vec<String>) -> Vec<String> {
+    if first.is_empty() { second() } else { first }
+}
+
+/// A source's chapters or episodes (under `key`); unnamed ones are called "<noun> <number>". A
+/// video episode's `season` is kept as its volume.
+pub(crate) fn parse_units(value: &Value, key: &str, noun: &str) -> Vec<MangaChapter> {
     value
-        .get("chapters")
+        .get(key)
         .and_then(Value::as_array)
         .map(|chapters| {
             chapters
@@ -257,13 +282,19 @@ fn parse_chapters(value: &Value) -> Vec<MangaChapter> {
                         .and_then(Value::as_f64)
                         .filter(|n| n.is_finite());
                     let name = text(chapter.get("name")).or_else(|| {
-                        number.map(|number| format!("Chapter {}", format_number(number)))
+                        number.map(|number| format!("{noun} {}", format_number(number)))
                     })?;
                     Some(MangaChapter {
                         id: id(chapter.get("id")?)?,
                         name,
                         number,
-                        volume: chapter.get("volume").and_then(id),
+                        volume: chapter.get("volume").and_then(id).or_else(|| {
+                            chapter
+                                .get("season")
+                                .and_then(Value::as_f64)
+                                .filter(|season| season.is_finite() && *season >= 0.0)
+                                .map(format_number)
+                        }),
                         scanlator: text(chapter.get("scanlator")),
                         date_upload: chapter
                             .get("dateUpload")
@@ -377,7 +408,7 @@ pub fn parse_filters(value: &Value) -> Vec<SourceFilter> {
         .collect()
 }
 
-fn id(value: &Value) -> Option<String> {
+pub(crate) fn id(value: &Value) -> Option<String> {
     match value {
         Value::String(text) if !text.trim().is_empty() => Some(text.trim().to_owned()),
         Value::Number(number) => Some(number.to_string()),
@@ -385,7 +416,7 @@ fn id(value: &Value) -> Option<String> {
     }
 }
 
-fn text(value: Option<&Value>) -> Option<String> {
+pub(crate) fn text(value: Option<&Value>) -> Option<String> {
     value
         .and_then(Value::as_str)
         .map(str::trim)
@@ -400,11 +431,11 @@ fn texts(value: Option<&Value>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn url(value: Option<&Value>) -> Option<String> {
+pub(crate) fn url(value: Option<&Value>) -> Option<String> {
     text(value).filter(|url| url.starts_with("https://") || url.starts_with("http://"))
 }
 
-fn headers(value: Option<&Value>) -> BTreeMap<String, String> {
+pub(crate) fn headers(value: Option<&Value>) -> BTreeMap<String, String> {
     value
         .and_then(Value::as_object)
         .map(|map| {
@@ -465,13 +496,17 @@ mod tests {
 
     #[test]
     fn chapters_get_names_from_numbers_when_missing() {
-        let chapters = parse_chapters(&json!({
-            "chapters": [
-                { "id": "c1", "number": 12, "dateUpload": 1700000000000.0, "volume": 2 },
-                { "id": "c2", "name": "Extra", "number": null, "scanlator": "Group" },
-                { "id": "c3" },
-            ]
-        }));
+        let chapters = parse_units(
+            &json!({
+                "chapters": [
+                    { "id": "c1", "number": 12, "dateUpload": 1700000000000.0, "volume": 2 },
+                    { "id": "c2", "name": "Extra", "number": null, "scanlator": "Group" },
+                    { "id": "c3" },
+                ]
+            }),
+            "chapters",
+            "Chapter",
+        );
         assert_eq!(chapters.len(), 2);
         assert_eq!(chapters[0].name, "Chapter 12");
         assert_eq!(chapters[0].volume.as_deref(), Some("2"));

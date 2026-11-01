@@ -623,3 +623,132 @@ async fn gutenberg_lists_books_splits_chapters_and_reads_passages() {
         "the book is downloaded once for its chapters and passages"
     );
 }
+
+#[tokio::test]
+async fn internet_archive_films_browse_details_episodes_and_videos() {
+    let app = Router::new()
+        .route(
+            "/advancedsearch.php",
+            get(|uri: Uri| async move {
+                let params = query_params(&uri);
+                assert_eq!(params["rows"], "30");
+                let q = &params["q"];
+                let docs = if q.contains("Film_Noir") {
+                    json!([{ "identifier": "noir", "title": "Detour" }])
+                } else {
+                    json!([
+                        { "identifier": "chaplin", "title": "Charlie Chaplin Festival" },
+                        { "identifier": "serial", "title": ["Flash Gordon", "alt"] },
+                    ])
+                };
+                json_response(StatusCode::OK, json!({ "response": { "numFound": 45, "docs": docs } }))
+            }),
+        )
+        .route(
+            "/metadata/chaplin",
+            get(|| async {
+                json_response(StatusCode::OK, json!({
+                    "metadata": {
+                        "title": "Charlie Chaplin Festival", "date": "1938", "creator": "Charles Chaplin",
+                        "subject": "comedy; silent", "description": "Four shorts.<br>See <a href=\"x\">IMDb</a> &amp; more.",
+                    },
+                    "files": [
+                        { "name": "chaplin.mpeg", "format": "MPEG2", "source": "original", "height": "480" },
+                        { "name": "chaplin.mp4", "format": "h.264", "source": "derivative", "original": "chaplin.mpeg", "height": "480" },
+                        { "name": "chaplin_512kb.mp4", "format": "512Kb MPEG4", "source": "derivative", "original": "chaplin.mpeg", "height": "240" },
+                        { "name": "chaplin.ogv", "format": "Ogg Video", "source": "derivative", "original": "chaplin.mpeg", "height": "304" },
+                        { "name": "chaplin.asr.srt", "format": "SubRip", "source": "original" },
+                    ],
+                }))
+            }),
+        )
+        .route(
+            "/metadata/serial",
+            get(|| async {
+                json_response(StatusCode::OK, json!({
+                    "metadata": { "title": "Flash Gordon" },
+                    "files": [
+                        { "name": "ch 2.mp4", "format": "MPEG4", "source": "original", "title": "Chapter 2" },
+                        { "name": "ch 1.mp4", "format": "MPEG4", "source": "original", "title": "Chapter 1" },
+                    ],
+                }))
+            }),
+        );
+    let address = serve(app);
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(vec![patched_extension(
+        "internet-archive",
+        "https://archive.org",
+        address,
+    )])
+    .await;
+    let provider = "dev.raygun.internet-archive/films";
+    assert_eq!(host.providers(crate::video::VIDEO_SOURCE).await.len(), 1);
+
+    let popular = host
+        .manga_list(provider, crate::manga::MangaList::Popular, 1)
+        .await
+        .unwrap();
+    assert!(popular.has_next_page, "30 of 45 shown");
+    assert_eq!(popular.items[1].title, "Flash Gordon");
+    assert_eq!(
+        popular.items[0].cover_url.as_deref(),
+        Some(format!("http://{address}/services/img/chaplin").as_str())
+    );
+    let mut filters = std::collections::BTreeMap::new();
+    filters.insert(
+        "collection".to_owned(),
+        raygun_model::FilterValue::Select("Film_Noir".into()),
+    );
+    let noir = host
+        .manga_search_filtered(provider, "", 2, &filters)
+        .await
+        .unwrap();
+    assert_eq!(noir.items[0].title, "Detour");
+    assert!(!noir.has_next_page, "page 2 of 45 at 30 a page is the last");
+    assert_eq!(host.manga_filters(provider).await.unwrap().len(), 2);
+
+    let details = host.manga_details(provider, "chaplin").await.unwrap();
+    assert_eq!(
+        (details.media_type.as_deref(), details.year),
+        (Some("movie"), Some(1938))
+    );
+    assert_eq!(
+        details.artists,
+        ["Charles Chaplin"],
+        "creators are directors"
+    );
+    assert_eq!(details.genres, ["comedy", "silent"]);
+    assert_eq!(
+        details.description.as_deref(),
+        Some("Four shorts.\nSee IMDb & more."),
+        "HTML becomes text"
+    );
+
+    let film = host.video_episodes(provider, "chaplin").await.unwrap();
+    assert_eq!(film.len(), 1);
+    assert_eq!(
+        (film[0].id.as_str(), film[0].name.as_str()),
+        ("chaplin/chaplin.mpeg", "Film")
+    );
+    let serial = host.video_episodes(provider, "serial").await.unwrap();
+    let names: Vec<_> = serial.iter().map(|episode| episode.name.as_str()).collect();
+    assert_eq!(names, ["Chapter 1", "Chapter 2"], "in file order");
+
+    let servers = host.video_servers(provider, &film[0].id).await.unwrap();
+    assert_eq!(servers.len(), 1);
+    let videos = servers[0].videos.as_ref().expect("resolved at once");
+    let qualities: Vec<_> = videos.iter().map(|video| video.quality).collect();
+    assert_eq!(qualities, [Some(480), Some(240)], "MP4s only, best first");
+    assert_eq!(
+        videos[0].url,
+        format!("http://{address}/download/chaplin/chaplin.mp4")
+    );
+    assert_eq!(videos[0].label.as_deref(), Some("480p · h.264"));
+    assert_eq!(
+        videos[0].subtitles[0].label.as_deref(),
+        Some("Automatic (English)")
+    );
+    let again = host.video_links(provider, &film[0].id).await.unwrap();
+    assert_eq!(again.len(), 2);
+}

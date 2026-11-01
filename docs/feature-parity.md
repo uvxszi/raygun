@@ -108,8 +108,8 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Intro/outro skip (chapters, AniSkip) | aniyomi | 🔜 M38 (chapters), ⏸ AniSkip (needs a tracker) |
 | Mark seen at a percentage, preserve position | aniyomi | 🔜 M43 |
 | Stremio catalogs, metadata, streams, subtitles | Stremio | ✅ M41 (torrent streams not yet) |
-| Video sources with servers streamed as they resolve | CloudStream, aniyomi | 🔜 M42 |
-| Source priority, quality profiles, failed/empty hosters | CloudStream, aniyomi | 🔜 M42 |
+| Video sources with servers streamed as they resolve | CloudStream, aniyomi | ✅ M42 (`video.source`, Internet Archive films) |
+| Source priority, quality profiles, failed/empty hosters | CloudStream, aniyomi | ✅ M42 (preferred quality, failed/empty servers) / 🔜 priority across sources |
 | Video library, history, continue watching, upcoming episodes | aniyomi, CloudStream | 🔜 M43 |
 | Video downloads | aniyomi, CloudStream | 🔜 M43 |
 | WebView resolver | CloudStream | 🔜 M44 |

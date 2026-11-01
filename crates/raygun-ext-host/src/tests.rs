@@ -1054,3 +1054,68 @@ async fn mangadex_filters_live() {
     println!("{} completed titles", listing.items.len());
     assert!(!listing.items.is_empty());
 }
+
+#[tokio::test]
+async fn video_sources_list_episodes_and_resolve_servers_one_by_one() {
+    let host = test_host();
+    let code = r#"
+        raygun.providers.register({
+          kind: 'video.source', id: 'v', name: 'Films',
+          popular: async () => ({ items: [{ id: 'show', title: 'Show' }], hasNextPage: false }),
+          search: async () => ({ items: [], hasNextPage: false }),
+          details: async () => ({ title: 'Show', type: 'series', year: 1999, cast: ['A'], directors: ['B'] }),
+          episodes: async () => ({ episodes: [
+            { id: 'e1', season: 1, number: 1 }, { id: 'e2', season: 1, number: 2, name: 'Two' },
+          ] }),
+          servers: async ({ episodeId }) => ({ servers: [
+            { id: `${episodeId}:fast`, name: 'Fast', videos: [{ url: 'https://cdn.example/a.mp4', quality: 720 }] },
+            { id: `${episodeId}:slow`, name: 'Slow' },
+            { id: `${episodeId}:broken`, name: 'Broken' },
+          ] }),
+          videos: async ({ serverId }) => {
+            if (serverId.endsWith(':broken')) throw new Error('host is down');
+            return { videos: [{ url: 'https://cdn.example/b.m3u8', format: 'hls', quality: 1080 }] };
+          },
+        });
+    "#;
+    let source = ExtensionSource::built_in(&[
+        (
+            "raygun-extension.json",
+            &manifest_json(json!({ "id": "dev.raygun.films", "provides": ["video.source"] })),
+        ),
+        ("index.js", code),
+    ]);
+    let infos = host.load(vec![source]).await;
+    assert_eq!(
+        infos[0].status,
+        ExtensionStatus::Loaded,
+        "{:?}",
+        infos[0].error
+    );
+    let provider = "dev.raygun.films/v";
+    assert_eq!(host.providers(crate::video::VIDEO_SOURCE).await.len(), 1);
+
+    let details = host.manga_details(provider, "show").await.unwrap();
+    assert_eq!(
+        (details.media_type.as_deref(), details.year),
+        (Some("series"), Some(1999))
+    );
+    assert_eq!(
+        (details.authors, details.artists),
+        (vec!["A".to_owned()], vec!["B".to_owned()])
+    );
+    let episodes = host.video_episodes(provider, "show").await.unwrap();
+    assert_eq!(episodes[0].name, "Episode 1");
+    assert_eq!(episodes[1].volume.as_deref(), Some("1"));
+
+    let servers = host.video_servers(provider, "e1").await.unwrap();
+    assert_eq!(servers.len(), 3);
+    assert_eq!(servers[0].videos.as_ref().unwrap()[0].quality, Some(720));
+    let (slow, broken) = futures_util::future::join(
+        host.video_links(provider, &servers[1].id),
+        host.video_links(provider, &servers[2].id),
+    )
+    .await;
+    assert_eq!(slow.unwrap()[0].format.as_deref(), Some("hls"));
+    assert!(broken.unwrap_err().contains("host is down"));
+}

@@ -17,7 +17,7 @@ import {
 import type { LibraryFilter } from './libraryFilters';
 import { MangaGrid } from './MangaGrid';
 import { ROUTES } from './medium';
-import type { Medium } from './medium';
+import type { ReadingMedium } from './medium';
 import { UpdateLibraryButton } from './UpdateLibraryButton';
 import { useCategories } from './useCategories';
 import { useMangaLibrary, useMangaLiveEvents } from './useManga';
@@ -28,7 +28,7 @@ const CHIP = 'bg-surface flex items-center gap-2 rounded-full px-4 py-2 text-sm'
  * Library → Manga or Novels: the titles you added, by category (Mihon-style tabs), with search,
  * filters, sort and genre tags.
  */
-export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) => {
+export const MangaLibraryView: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga' }) => {
   const { t } = useTranslation();
   useMangaLiveEvents();
   const library = useMangaLibrary(medium);

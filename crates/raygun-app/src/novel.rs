@@ -131,6 +131,8 @@ impl NovelService {
                 genres: book.genres.clone(),
                 status: "completed".into(),
                 url: None,
+                media_type: None,
+                year: None,
             },
             now,
         )

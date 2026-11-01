@@ -1,10 +1,20 @@
 import { commands } from '@raygun/bindings';
 
-/** What a catalogue page shows: manga (images) or novels (text). They share browsing and titles. */
-export type Medium = 'manga' | 'novel';
+/** What a catalogue page shows: manga (images), novels (text) or videos (M42). They share
+ * sources, browsing and search; manga and novels also share titles and reading. */
+export type Medium = 'manga' | 'novel' | 'video';
 
-/** The catalogue commands of each medium; both take and return the same shapes. */
-export const catalogCommands = (medium: Medium) =>
+/** The media read page by page, with a library of their own. */
+export type ReadingMedium = 'manga' | 'novel';
+
+/** The sources and browsing commands of each medium. */
+export const browseCommands = (medium: Medium) =>
+  medium === 'video'
+    ? { sources: commands.videoSources, browse: commands.videoBrowse }
+    : catalogCommands(medium);
+
+/** The catalogue commands of a reading medium; both take and return the same shapes. */
+export const catalogCommands = (medium: ReadingMedium) =>
   medium === 'novel'
     ? {
         sources: commands.novelSources,
@@ -38,5 +48,11 @@ export const ROUTES = {
     source: '/novel/source',
     title: '/novel/title',
     read: '/novel/read',
+  },
+  video: {
+    browse: '/watch',
+    source: '/watch/source',
+    title: '/watch/video',
+    read: '/watch/video',
   },
 } as const;

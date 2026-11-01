@@ -4,8 +4,8 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useEffect } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
-import { catalogCommands } from './medium';
-import type { Medium } from './medium';
+import { browseCommands, catalogCommands } from './medium';
+import type { Medium, ReadingMedium } from './medium';
 
 /** Every manga query lives under this key. */
 export const MANGA = 'manga';
@@ -16,7 +16,7 @@ const CATALOGUE_STALE_MS = 5 * 60_000;
 export const useMangaSources = (medium: Medium = 'manga') =>
   useQuery({
     queryKey: [medium, 'sources'],
-    queryFn: () => unwrapResult(catalogCommands(medium).sources()),
+    queryFn: () => unwrapResult(browseCommands(medium).sources()),
   });
 
 export const useMangaBrowse = (
@@ -29,7 +29,7 @@ export const useMangaBrowse = (
     queryKey: [medium, 'browse', sourceId, mode, query],
     queryFn: ({ pageParam }) =>
       unwrapResult(
-        catalogCommands(medium).browse(sourceId, mode, mode === 'search' ? query : null, pageParam),
+        browseCommands(medium).browse(sourceId, mode, mode === 'search' ? query : null, pageParam),
       ),
     initialPageParam: 1,
     getNextPageParam: (last, pages) => (last.hasNextPage ? pages.length + 1 : undefined),
@@ -37,14 +37,14 @@ export const useMangaBrowse = (
     staleTime: CATALOGUE_STALE_MS,
   });
 
-export const useMangaTitle = (sourceId: string, mangaId: string, medium: Medium = 'manga') =>
+export const useMangaTitle = (sourceId: string, mangaId: string, medium: ReadingMedium = 'manga') =>
   useQuery({
     queryKey: [medium, 'title', sourceId, mangaId],
     queryFn: () => unwrapResult(catalogCommands(medium).title(sourceId, mangaId, false)),
     enabled: Boolean(sourceId && mangaId),
   });
 
-export const useMangaLibrary = (medium: Medium = 'manga') =>
+export const useMangaLibrary = (medium: ReadingMedium = 'manga') =>
   useQuery({
     queryKey: [medium, 'library'],
     queryFn: () => unwrapResult(catalogCommands(medium).library()),
@@ -62,7 +62,7 @@ export const useMangaChapter = (titleId: string, chapterId: string) =>
 
 /** A mutation that refreshes titles, the library and browse badges of a medium once it lands. */
 const useMangaMutation = <Variables, Result>(
-  medium: Medium,
+  medium: ReadingMedium,
   run: (variables: Variables) => Promise<Result>,
 ) => {
   const queryClient = useQueryClient();
@@ -77,7 +77,7 @@ const useMangaMutation = <Variables, Result>(
   });
 };
 
-export const useRefreshTitle = (medium: Medium = 'manga') => {
+export const useRefreshTitle = (medium: ReadingMedium = 'manga') => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ sourceId, mangaId }: { sourceId: string; mangaId: string }) =>
@@ -87,12 +87,12 @@ export const useRefreshTitle = (medium: Medium = 'manga') => {
   });
 };
 
-export const useSetInLibrary = (medium: Medium = 'manga') =>
+export const useSetInLibrary = (medium: ReadingMedium = 'manga') =>
   useMangaMutation(medium, ({ titleId, inLibrary }: { titleId: string; inLibrary: boolean }) =>
     unwrapResult(catalogCommands(medium).setInLibrary(titleId, inLibrary)),
   );
 
-export const useSetChapterRead = (medium: Medium = 'manga') =>
+export const useSetChapterRead = (medium: ReadingMedium = 'manga') =>
   useMangaMutation(medium, ({ chapterId, read }: { chapterId: string; read: boolean }) =>
     unwrapResult(catalogCommands(medium).setRead(chapterId, read)),
   );

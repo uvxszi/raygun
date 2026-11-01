@@ -63,8 +63,8 @@ export const SearchPage: FC = () => {
       search: { q: q || undefined, type: next === 'all' ? undefined : next },
       replace: true,
     });
-  // Manga and novel sources can browse with filters alone, without typing.
-  const needsQuery = type !== 'manga' && type !== 'novel';
+  // Manga, novel and video sources can browse with filters alone, without typing.
+  const needsQuery = type !== 'manga' && type !== 'novel' && type !== 'video';
 
   return (
     <section data-testid="search-page" className="flex flex-col gap-5">
@@ -111,7 +111,15 @@ export const SearchPage: FC = () => {
       {q && type === 'all' && <AllResults query={q} onType={setType} />}
       {q && type === 'music' && <MusicResults query={q} />}
       {q && type === 'podcast' && <PodcastSearch query={q} />}
-      {q && type === 'video' && <VideoResults query={q} />}
+      {type === 'video' && (
+        <>
+          {q && <VideoResults query={q} />}
+          <section aria-label={t('search.fromSources')} className="flex flex-col gap-3">
+            <h2 className="font-semibold">{t('search.fromSources')}</h2>
+            <CatalogSearch key="video" medium="video" query={q} />
+          </section>
+        </>
+      )}
       {q && type === 'library' && <LibraryMatches query={q} />}
       {(type === 'manga' || type === 'novel') && (
         <CatalogSearch key={type} medium={type} query={q} />

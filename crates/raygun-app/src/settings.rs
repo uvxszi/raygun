@@ -123,6 +123,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn video_quality_is_one_offered_or_the_highest() {
+        let temp = TempDir::new().unwrap();
+        let db = open(&temp).await;
+        let quality = |height| SettingChange::PreferredVideoQuality(height);
+
+        assert!(update(&db, quality(Some(900))).await.is_err());
+        let capped = update(&db, quality(Some(720))).await.unwrap();
+        assert_eq!(capped.preferred_video_quality, Some(720));
+        let highest = update(&db, quality(None)).await.unwrap();
+        assert_eq!(highest.preferred_video_quality, None, "back to the highest");
+        assert_eq!(load(&db).await.unwrap().preferred_video_quality, None);
+    }
+
+    #[tokio::test]
     async fn unreadable_rows_fall_back_to_defaults() {
         let temp = TempDir::new().unwrap();
         let db = open(&temp).await;

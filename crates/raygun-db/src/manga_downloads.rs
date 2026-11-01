@@ -242,6 +242,8 @@ mod tests {
                 genres: vec![],
                 status: "ongoing".into(),
                 url: None,
+                media_type: None,
+                year: None,
             },
             1,
         )

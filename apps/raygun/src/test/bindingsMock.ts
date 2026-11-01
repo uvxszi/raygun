@@ -83,6 +83,7 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   language: 'en',
   showNsfw: false,
+  preferredVideoQuality: null,
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,
@@ -233,6 +234,13 @@ export const bindingsMock = {
     libraryCategoryReorder: vi.fn(),
     librarySetTitleCategories: vi.fn(),
     videoHistory: vi.fn(),
+    videoSources: vi.fn(),
+    videoBrowse: vi.fn(),
+    videoTitle: vi.fn(),
+    videoServers: vi.fn(),
+    videoLinks: vi.fn(),
+    videoSourcePlay: vi.fn(),
+    videoSetEpisodeWatched: vi.fn(),
     stremioAddons: vi.fn(),
     stremioSuggestions: vi.fn(),
     stremioAdd: vi.fn(),
@@ -422,6 +430,13 @@ export const seedBindings = () => {
   commands.libraryCategoryReorder.mockResolvedValue(ok(null));
   commands.librarySetTitleCategories.mockResolvedValue(ok(null));
   commands.videoHistory.mockResolvedValue(ok([]));
+  commands.videoSources.mockResolvedValue(ok([]));
+  commands.videoBrowse.mockResolvedValue(ok({ items: [], hasNextPage: false }));
+  commands.videoTitle.mockResolvedValue({ status: 'error', error: 'not mocked' });
+  commands.videoServers.mockResolvedValue(ok([]));
+  commands.videoLinks.mockResolvedValue(ok([]));
+  commands.videoSourcePlay.mockResolvedValue(ok(null));
+  commands.videoSetEpisodeWatched.mockResolvedValue(ok(null));
   commands.stremioAddons.mockResolvedValue(ok([]));
   commands.stremioSuggestions.mockResolvedValue(ok([]));
   commands.stremioAdd.mockResolvedValue(ok(null));

@@ -213,6 +213,8 @@ async fn store_title(
             genres: manga.genre.clone(),
             status: status(manga.status).into(),
             url: None,
+            media_type: None,
+            year: None,
         },
         now_ms,
     )

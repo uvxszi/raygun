@@ -33,6 +33,7 @@ mod stremio;
 mod system_ui;
 mod tts;
 mod video;
+mod video_sources;
 
 use std::path::Path;
 
@@ -186,7 +187,14 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::stremio_set_watched,
             commands::local_network_access,
             commands::local_network_request,
-            commands::local_network_open_settings
+            commands::local_network_open_settings,
+            commands::video_sources,
+            commands::video_browse,
+            commands::video_title,
+            commands::video_servers,
+            commands::video_links,
+            commands::video_source_play,
+            commands::video_set_episode_watched
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,

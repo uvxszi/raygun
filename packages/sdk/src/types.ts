@@ -239,13 +239,76 @@ export type PodcastDirectoryProvider = {
   top?(args: { limit: number }): Promise<PodcastResult[]>;
 };
 
+// ---- Video (M42) ----
+
+export type VideoType = 'movie' | 'series' | 'anime' | 'other';
+
+/** A title's details: the fields of `MangaDetails` (authors and artists unused) and these. */
+export type VideoDetails = Omit<MangaDetails, 'authors' | 'artists' | 'status'> & {
+  type?: VideoType;
+  year?: number | null;
+  cast?: string[];
+  directors?: string[];
+  status?: MangaStatus;
+};
+
+export type VideoEpisode = {
+  /** Passed back to `servers`. */
+  id: string;
+  /** Defaults to "Episode <number>". A movie's single episode can be named "Film". */
+  name?: string | null;
+  number?: number | null;
+  season?: number | null;
+  /** Unix milliseconds. */
+  dateUpload?: number | null;
+};
+
+export type VideoSubtitle = { url: string; lang?: string; label?: string };
+
+/** One playable link; `headers` (e.g. Referer) are sent with every request the player makes. */
+export type Video = {
+  /** http(s) only. */
+  url: string;
+  /** "1080p", "Dub", ...; defaults to the quality. */
+  label?: string;
+  /** Height in pixels; the app orders links by the user's preferred quality. */
+  quality?: number;
+  headers?: Record<string, string>;
+  /** Streaming manifests; leave it out for a plain video file. */
+  format?: 'hls' | 'dash' | 'progressive';
+  subtitles?: VideoSubtitle[];
+};
+
+/** A server (hoster) for an episode. Include `videos` when they cost nothing to resolve. */
+export type VideoServer = { id: string; name?: string; videos?: Video[] };
+
+/**
+ * A video catalogue (aniyomi-shaped): the catalogue calls of `manga.source`, then an episode's
+ * servers, each resolved on its own with `videos`, so slow or broken hosts don't hold up the rest.
+ */
+export type VideoSourceProvider = {
+  kind: 'video.source';
+  id: string;
+  name?: string;
+  popular(args: { page: number }): Promise<MangaPage>;
+  latest?(args: { page: number }): Promise<MangaPage>;
+  search(args: CatalogSearchArgs): Promise<MangaPage>;
+  filters?(): Promise<SourceFilter[]>;
+  details(args: { id: string }): Promise<VideoDetails>;
+  /** Episodes in order; a movie has one. */
+  episodes(args: { id: string }): Promise<{ episodes: VideoEpisode[] }>;
+  servers(args: { episodeId: string }): Promise<{ servers: VideoServer[] }>;
+  videos(args: { serverId: string }): Promise<{ videos: Video[] }>;
+};
+
 export type Provider =
   | MusicMetadataProvider
   | MusicStreamProvider
   | LyricsProvider
   | MangaSourceProvider
   | NovelSourceProvider
-  | PodcastDirectoryProvider;
+  | PodcastDirectoryProvider
+  | VideoSourceProvider;
 export type ProviderKind = Provider['kind'];
 
 // ---- Host API ----

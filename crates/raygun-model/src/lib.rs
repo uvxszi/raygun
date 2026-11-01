@@ -67,6 +67,8 @@ pub struct Settings {
     pub novel_reader: NovelReaderPrefs,
     /// Shows NSFW (18+) extensions and content; off by default (M35).
     pub show_nsfw: bool,
+    /// The video height links are picked by (M42); `None` picks the highest.
+    pub preferred_video_quality: Option<u32>,
 }
 
 /// The `language` setting that follows the device's language.
@@ -123,6 +125,9 @@ impl Default for NovelReaderPrefs {
 /// The update intervals offered, in hours (0 = off).
 pub const MANGA_UPDATE_HOURS: [u32; 6] = [0, 6, 12, 24, 48, 168];
 
+/// The preferred video qualities offered, as heights in pixels (M42).
+pub const VIDEO_QUALITIES: [u32; 4] = [1080, 720, 480, 360];
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -131,6 +136,7 @@ impl Default for Settings {
             manga_update_hours: 12,
             novel_reader: NovelReaderPrefs::default(),
             show_nsfw: false,
+            preferred_video_quality: None,
         }
     }
 }
@@ -143,6 +149,7 @@ impl Settings {
             SettingChange::MangaUpdateHours(hours) => self.manga_update_hours = hours,
             SettingChange::NovelReader(prefs) => self.novel_reader = prefs,
             SettingChange::ShowNsfw(show) => self.show_nsfw = show,
+            SettingChange::PreferredVideoQuality(height) => self.preferred_video_quality = height,
         }
     }
 }
@@ -157,6 +164,7 @@ pub enum SettingChange {
     MangaUpdateHours(u32),
     NovelReader(NovelReaderPrefs),
     ShowNsfw(bool),
+    PreferredVideoQuality(Option<u32>),
 }
 
 impl SettingChange {
@@ -168,13 +176,21 @@ impl SettingChange {
             Self::MangaUpdateHours(_) => "mangaUpdateHours",
             Self::NovelReader(_) => "novelReader",
             Self::ShowNsfw(_) => "showNsfw",
+            Self::PreferredVideoQuality(_) => "preferredVideoQuality",
         }
     }
 
     /// Checks values the type system can't express.
     pub fn validate(&self) -> Result<(), String> {
         match self {
-            Self::Theme(_) | Self::ShowNsfw(_) => Ok(()),
+            Self::Theme(_) | Self::ShowNsfw(_) | Self::PreferredVideoQuality(None) => Ok(()),
+            Self::PreferredVideoQuality(Some(height)) => {
+                if VIDEO_QUALITIES.contains(height) {
+                    Ok(())
+                } else {
+                    Err(format!("{height}p is not an offered video quality"))
+                }
+            }
             Self::NovelReader(prefs) => {
                 if !(14..=30).contains(&prefs.font_size) {
                     Err(format!(
@@ -1725,4 +1741,84 @@ pub struct LocalNetworkAccess {
     /// Denied for good when Android was last asked: it won't ask again, so only Raygun's app
     /// settings can allow it. Settings can change that since, so this is a hint until the next ask.
     pub blocked: bool,
+}
+
+// ---- Video sources (M42) ----
+
+/// A video source's title page.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoTitleView {
+    /// The stored title's id.
+    pub id: String,
+    pub source_id: String,
+    pub source_name: String,
+    pub remote_id: String,
+    pub title: String,
+    pub cover_url: Option<String>,
+    /// `movie`, `series`, `anime` or `other`.
+    pub media_type: Option<String>,
+    pub year: Option<i32>,
+    pub description: Option<String>,
+    pub genres: Vec<String>,
+    pub cast: Vec<String>,
+    pub directors: Vec<String>,
+    pub status: String,
+    /// The title's page on the source's website.
+    pub url: Option<String>,
+    pub in_library: bool,
+    /// Adult content while NSFW is off: the page shows a notice instead.
+    pub hidden_nsfw: bool,
+    /// In the source's order; a movie has one.
+    pub episodes: Vec<VideoEpisodeView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoEpisodeView {
+    /// The stored episode's id.
+    pub id: String,
+    /// The source's id for it, passed to `video_servers`.
+    pub remote_id: String,
+    pub name: String,
+    pub number: Option<f64>,
+    pub season: Option<f64>,
+    /// Unix ms.
+    pub date: Option<f64>,
+    pub position_ms: f64,
+    pub duration_ms: Option<f64>,
+    pub watched: bool,
+}
+
+/// A server (hoster) for an episode; `links` when the source resolved it already.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoServerView {
+    pub id: String,
+    pub name: String,
+    pub links: Option<Vec<VideoLinkView>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoLinkView {
+    pub url: String,
+    pub label: Option<String>,
+    /// Height in pixels.
+    pub quality: Option<u32>,
+    pub headers: std::collections::BTreeMap<String, String>,
+    /// `hls` or `dash`; none for a plain video file.
+    pub format: Option<String>,
+    pub subtitles: Vec<VideoSubtitle>,
+    /// The link the preferred quality picks (the first of its server).
+    pub preferred: bool,
+}
+
+/// Plays a link of a stored episode.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoSourcePlay {
+    pub title_id: String,
+    pub episode_id: String,
+    pub link: VideoLinkView,
 }

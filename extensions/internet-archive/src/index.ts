@@ -1,7 +1,9 @@
 // Internet Archive audio search: finds audio items with the advanced-search API, reads each hit's
-// file list in parallel and returns its MP3s as directly playable tracks.
+// file list in parallel and returns its MP3s as directly playable tracks. Films are in `films.ts`.
 import { defineProvider, fetchJson, registerProvider } from '@raygun/sdk';
 import type { Track } from '@raygun/sdk';
+
+import { films } from './films';
 
 const API = 'https://archive.org';
 
@@ -183,3 +185,4 @@ const streams = defineProvider({
 
 registerProvider(search);
 registerProvider(streams);
+registerProvider(films);

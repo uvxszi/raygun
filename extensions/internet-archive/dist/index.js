@@ -1,4 +1,4 @@
-// dev.raygun.internet-archive 1.1.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.internet-archive 1.2.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -14,10 +14,167 @@
     return response.json();
   };
 
-  // src/index.ts
+  // src/films.ts
   var API = "https://archive.org";
+  var ROWS = 30;
+  var COLLECTIONS = [
+    { value: "feature_films", label: "Feature films" },
+    { value: "animationandcartoons", label: "Animation and cartoons" },
+    { value: "silent_films", label: "Silent films" },
+    { value: "Film_Noir", label: "Film noir" },
+    { value: "SciFi_Horror", label: "Sci-fi and horror" },
+    { value: "Comedy_Films", label: "Comedy films" },
+    { value: "classic_tv", label: "Classic TV" }
+  ];
+  var SORTS = [
+    { value: "downloads desc", label: "Most viewed" },
+    { value: "addeddate desc", label: "Recently added" },
+    { value: "titleSorter asc", label: "Title" }
+  ];
   var escapeQuery = (query) => query.replace(/[+\-!(){}[\]^"~*?:\\/&|]/g, " ").trim();
   var firstString = (value) => (Array.isArray(value) ? value[0] : value) ?? null;
+  var encodePath = (path) => path.split("/").map(encodeURIComponent).join("/");
+  var cover = (identifier) => `${API}/services/img/${encodeURIComponent(identifier)}`;
+  var plainText = (html) => html.replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n\n").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/\n{3,}/g, "\n\n").trim();
+  var pick = (filters2, key, options) => {
+    const value = filters2?.[key];
+    return typeof value === "string" && options.some((option) => option.value === value) ? value : options[0].value;
+  };
+  var searchPage = async (q, sort, page) => {
+    const params = [
+      `q=${encodeURIComponent(q)}`,
+      "fl[]=identifier",
+      "fl[]=title",
+      `rows=${ROWS}`,
+      `page=${Math.max(1, page)}`,
+      `sort[]=${encodeURIComponent(sort)}`,
+      "output=json"
+    ];
+    const result = await fetchJson(`${API}/advancedsearch.php?${params.join("&")}`);
+    const docs = result.response?.docs ?? [];
+    return {
+      items: docs.map((doc) => ({
+        id: doc.identifier,
+        title: firstString(doc.title) ?? doc.identifier,
+        coverUrl: cover(doc.identifier)
+      })),
+      hasNextPage: page * ROWS < (result.response?.numFound ?? 0)
+    };
+  };
+  var inCollection = (collection) => `collection:(${collection}) AND mediatype:(movies)`;
+  var items = /* @__PURE__ */ new Map();
+  var metadata = (identifier) => {
+    let item = items.get(identifier);
+    if (!item) {
+      item = fetchJson(`${API}/metadata/${encodeURIComponent(identifier)}`);
+      item.catch(() => items.delete(identifier));
+      items.set(identifier, item);
+      if (items.size > 20) items.delete(items.keys().next().value);
+    }
+    return item;
+  };
+  var isPlayable = (file) => /\.(mp4|m4v)$/i.test(file.name) && /h\.264|mpeg4|mpeg-4/i.test(file.format ?? "");
+  var episodeFiles = (item) => {
+    const groups = /* @__PURE__ */ new Map();
+    for (const file of item.files ?? []) {
+      if (!isPlayable(file)) continue;
+      const key = file.source === "derivative" && file.original ? file.original : file.name;
+      groups.set(key, [...groups.get(key) ?? [], file]);
+    }
+    return new Map([...groups].sort(([a], [b]) => a.localeCompare(b, "en", { numeric: true })));
+  };
+  var baseName = (name) => name.replace(/\.[^./]+$/, "");
+  var subtitlesFor = (identifier, item, original) => {
+    const base = baseName(original);
+    return (item.files ?? []).filter((file) => /\.(srt|vtt)$/i.test(file.name) && file.name.startsWith(base)).map((file) => ({
+      url: `${API}/download/${encodeURIComponent(identifier)}/${encodePath(file.name)}`,
+      // `.asr.srt` files are the archive's automatic transcripts.
+      label: /\.asr\.(srt|vtt)$/i.test(file.name) ? "Automatic (English)" : "Subtitles",
+      lang: "en"
+    }));
+  };
+  var splitEpisode = (episodeId) => {
+    const slash = episodeId.indexOf("/");
+    return slash < 0 ? { identifier: episodeId, original: null } : { identifier: episodeId.slice(0, slash), original: episodeId.slice(slash + 1) };
+  };
+  var resolveServer = async (episodeId) => {
+    const { identifier, original } = splitEpisode(episodeId);
+    const item = await metadata(identifier);
+    const groups = episodeFiles(item);
+    const key = original ?? [...groups.keys()][0] ?? "";
+    const subtitles = subtitlesFor(identifier, item, key);
+    const videos = (groups.get(key) ?? []).map((file) => {
+      const height = Number.parseInt(file.height ?? "", 10);
+      const known = Number.isFinite(height) && height > 0;
+      return {
+        url: `${API}/download/${encodeURIComponent(identifier)}/${encodePath(file.name)}`,
+        label: known ? `${height}p · ${file.format}` : file.format,
+        quality: known ? height : void 0,
+        subtitles
+      };
+    }).sort((a, b) => (b.quality ?? 0) - (a.quality ?? 0));
+    return { id: episodeId, name: "Internet Archive", videos };
+  };
+  var filters = [
+    { kind: "select", key: "collection", label: "Collection", options: COLLECTIONS },
+    { kind: "select", key: "sort", label: "Sort", options: SORTS }
+  ];
+  var films = defineProvider({
+    kind: "video.source",
+    id: "films",
+    name: "Internet Archive Films",
+    popular: ({ page }) => searchPage(inCollection("feature_films"), "downloads desc", page),
+    latest: ({ page }) => searchPage(inCollection("feature_films"), "addeddate desc", page),
+    async search({ query, page, filters: values }) {
+      const collection = pick(values, "collection", COLLECTIONS);
+      const sort = pick(values, "sort", SORTS);
+      const cleaned = escapeQuery(query);
+      const q = cleaned ? `(title:(${cleaned}) OR subject:(${cleaned})) AND ${inCollection(collection)}` : inCollection(collection);
+      return searchPage(q, sort, page);
+    },
+    filters: async () => filters,
+    async details({ id }) {
+      const item = await metadata(id);
+      const meta = item.metadata ?? {};
+      const description = firstString(meta.description);
+      const year = Number.parseInt((meta.year ?? meta.date ?? "").slice(0, 4), 10);
+      const subjects = (Array.isArray(meta.subject) ? meta.subject : [meta.subject ?? ""]).flatMap((subject) => subject.split(/\s*;\s*/)).map((subject) => subject.trim()).filter(Boolean);
+      const creators = Array.isArray(meta.creator) ? meta.creator : meta.creator ? [meta.creator] : [];
+      return {
+        id,
+        title: firstString(meta.title) ?? id,
+        coverUrl: cover(id),
+        description: description ? plainText(description) : null,
+        genres: [...new Set(subjects)].slice(0, 8),
+        directors: creators,
+        type: "movie",
+        year: Number.isFinite(year) ? year : null,
+        status: "completed",
+        url: `${API}/details/${encodeURIComponent(id)}`
+      };
+    },
+    async episodes({ id }) {
+      const groups = [...episodeFiles(await metadata(id))];
+      if (groups.length === 0) throw new Error("This item has no video Raygun can play");
+      if (groups.length === 1) return { episodes: [{ id: `${id}/${groups[0][0]}`, name: "Film" }] };
+      return {
+        episodes: groups.map(([original, files], index) => ({
+          id: `${id}/${original}`,
+          name: files.find((file) => file.title)?.title ?? baseName(original).replace(/_/g, " "),
+          number: index + 1
+        }))
+      };
+    },
+    // One server, resolved at once: the archive serves every file itself.
+    servers: async ({ episodeId }) => ({ servers: [await resolveServer(episodeId)] }),
+    // Never needed (`servers` comes resolved), but part of the contract.
+    videos: async ({ serverId }) => ({ videos: (await resolveServer(serverId)).videos ?? [] })
+  });
+
+  // src/index.ts
+  var API2 = "https://archive.org";
+  var escapeQuery2 = (query) => query.replace(/[+\-!(){}[\]^"~*?:\\/&|]/g, " ").trim();
+  var firstString2 = (value) => (Array.isArray(value) ? value[0] : value) ?? null;
   var parseLength = (length) => {
     if (!length) return null;
     const seconds = length.split(":").reduce((total, part) => total * 60 + Number.parseFloat(part), 0);
@@ -25,7 +182,7 @@
   };
   var trackNumber = (file) => Number.parseInt(String(file.track ?? "").split("/")[0] ?? "", 10);
   var isMp3 = (file) => file.format?.includes("MP3") ?? false;
-  var encodePath = (path) => path.split("/").map(encodeURIComponent).join("/");
+  var encodePath2 = (path) => path.split("/").map(encodeURIComponent).join("/");
   var searchDocs = async (q, rows) => {
     const params = [
       `q=${encodeURIComponent(q)}`,
@@ -36,31 +193,31 @@
       "sort[]=downloads+desc",
       "output=json"
     ];
-    const result = await fetchJson(`${API}/advancedsearch.php?${params.join("&")}`);
+    const result = await fetchJson(`${API2}/advancedsearch.php?${params.join("&")}`);
     return result.response?.docs ?? [];
   };
   var searchItems = (query, rows) => searchDocs(`(title:(${query}) OR creator:(${query})) AND mediatype:audio`, rows);
   var bareTitle = (title) => title.replace(/\([^)]*\)|\[[^\]]*\]/g, " ").trim() || title;
   var mainArtist = (artist) => artist.split(/\s*(?:&|,|;|\/|\bfeat\.?|\bft\.?|\band\b|\bwith\b|\bx\b)\s*/i)[0]?.trim() || artist;
-  var words = (text) => escapeQuery(text).toLowerCase().split(/\s+/).filter(Boolean);
+  var words = (text) => escapeQuery2(text).toLowerCase().split(/\s+/).filter(Boolean);
   var itemTracks = async (doc, max) => {
     const id = doc.identifier;
-    const item = await fetchJson(`${API}/metadata/${encodeURIComponent(id)}`);
+    const item = await fetchJson(`${API2}/metadata/${encodeURIComponent(id)}`);
     const files = (item.files ?? []).filter(isMp3);
     const preferred = files.some((file) => file.format === "VBR MP3") ? files.filter((file) => file.format === "VBR MP3") : files;
     preferred.sort((a, b) => (trackNumber(a) || 1e9) - (trackNumber(b) || 1e9));
-    const album = firstString(item.metadata?.title) ?? firstString(doc.title);
-    const creator = firstString(item.metadata?.creator) ?? firstString(doc.creator);
+    const album = firstString2(item.metadata?.title) ?? firstString2(doc.title);
+    const creator = firstString2(item.metadata?.creator) ?? firstString2(doc.creator);
     return preferred.slice(0, max).map((file) => ({
       id: `${id}/${file.name}`,
       title: file.title || file.name.replace(/\.mp3$/i, "").replace(/_/g, " "),
-      artist: firstString(file.creator) ?? firstString(file.artist) ?? creator,
+      artist: firstString2(file.creator) ?? firstString2(file.artist) ?? creator,
       album: file.album || album,
       durationMs: parseLength(file.length),
-      artworkUrl: `${API}/services/img/${encodeURIComponent(id)}`,
+      artworkUrl: `${API2}/services/img/${encodeURIComponent(id)}`,
       source: {
         kind: "url",
-        url: `${API}/download/${encodeURIComponent(id)}/${encodePath(file.name)}`,
+        url: `${API2}/download/${encodeURIComponent(id)}/${encodePath2(file.name)}`,
         headers: {}
       }
     }));
@@ -70,7 +227,7 @@
     id: "search",
     name: "Internet Archive",
     async search({ query, limit }) {
-      const cleaned = escapeQuery(query);
+      const cleaned = escapeQuery2(query);
       if (cleaned === "") return { tracks: [] };
       const rows = Math.max(1, Math.min(raygun.settings.get("itemsPerSearch") ?? 6, 12));
       const docs = await searchItems(cleaned, rows);
@@ -90,9 +247,9 @@
     id: "stream",
     name: "Internet Archive",
     async candidates({ title, artist, limit }) {
-      const wantedTitle = escapeQuery(bareTitle(title));
+      const wantedTitle = escapeQuery2(bareTitle(title));
       if (wantedTitle === "") return { candidates: [] };
-      const wantedArtist = artist ? escapeQuery(mainArtist(artist)) : "";
+      const wantedArtist = artist ? escapeQuery2(mainArtist(artist)) : "";
       const queries = wantedArtist ? [
         `title:(${wantedTitle}) AND creator:(${wantedArtist})`,
         `creator:(${wantedArtist}) AND (${wantedTitle})`,
@@ -135,4 +292,5 @@
   });
   registerProvider(search);
   registerProvider(streams);
+  registerProvider(films);
 })();

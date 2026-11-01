@@ -95,6 +95,7 @@ export const AllResults: FC<{ query: string; onType: (type: SearchType) => void 
       </Section>
       <Section title={t('search.type.video')} onMore={() => onType('video')}>
         <VideoResults query={query} limit={2} />
+        <CatalogPreview medium="video" query={query} />
       </Section>
       <Section title={t('library.media.manga')} onMore={() => onType('manga')}>
         <CatalogPreview medium="manga" query={query} />

@@ -27,13 +27,14 @@
     {
       "id": "dev.raygun.internet-archive",
       "name": "Internet Archive",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "apiVersion": 1,
-      "description": "Public-domain and Creative Commons audio from the Internet Archive.",
+      "description": "Public-domain and Creative Commons audio and films from the Internet Archive.",
       "author": "Raygun",
       "provides": [
         "music.metadata",
-        "music.stream"
+        "music.stream",
+        "video.source"
       ],
       "permissions": {
         "net": [
@@ -43,9 +44,9 @@
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.internet-archive-1.1.0.zip",
-      "sha256": "3aeb1469968e2dcd9c23a0957b57f90a1c87b8536a29bb10e2b021465468bf8b",
-      "size": 2736
+      "package": "packages/dev.raygun.internet-archive-1.2.0.zip",
+      "sha256": "0a260a8c38b9ee33957dbb29d7be11a6b227dd6b092c7023346212d59480b938",
+      "size": 4993
     },
     {
       "id": "dev.raygun.lrclib",

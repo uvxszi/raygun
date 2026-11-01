@@ -42,6 +42,8 @@ const EXTRA: &[TableSpec] = &[
             "remote_genres",
             "remote_status",
             "remote_url",
+            "remote_media_type",
+            "remote_year",
             "user_in_library_at",
             "user_reader_mode",
             "state_refreshed_at",

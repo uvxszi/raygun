@@ -16,6 +16,7 @@ const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   language: 'en',
   showNsfw: false,
+  preferredVideoQuality: null,
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,

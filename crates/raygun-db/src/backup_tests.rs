@@ -21,6 +21,8 @@ fn manga(remote_id: &str, title: &str) -> TitleFields {
         genres: vec!["Fantasy".into()],
         status: "ongoing".into(),
         url: None,
+        media_type: None,
+        year: None,
     }
 }
 

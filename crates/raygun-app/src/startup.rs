@@ -74,6 +74,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         proxy.images(),
         paths.downloads(),
     ));
+    app.manage(crate::video_sources::VideoSourceService::new(
+        app.handle().clone(),
+        proxy.images(),
+    ));
     let downloads = crate::manga_downloads::MangaDownloadService::new(
         app.handle().clone(),
         paths.downloads(),

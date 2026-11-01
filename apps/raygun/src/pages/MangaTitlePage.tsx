@@ -9,7 +9,7 @@ import { CategoryPicker } from '../manga/CategoryPicker';
 import { DownloadButton } from '../manga/DownloadButton';
 import { MangaCover } from '../manga/MangaCover';
 import { LOCAL_EPUB, ROUTES } from '../manga/medium';
-import type { Medium } from '../manga/medium';
+import type { ReadingMedium } from '../manga/medium';
 import {
   useDownloadChapters,
   useMangaLiveEvents,
@@ -22,7 +22,7 @@ import {
 /** Where a partly read chapter stands: a page for manga, a share of the text for novels. */
 const progressLabel = (
   chapter: MangaChapterInfo,
-  medium: Medium,
+  medium: ReadingMedium,
   t: (key: string, options?: Record<string, unknown>) => string,
 ) => {
   if (chapter.lastPage === null || !chapter.totalPages) return null;
@@ -36,7 +36,7 @@ const progressLabel = (
 const ChapterRow: FC<{
   titleId: string;
   chapter: MangaChapterInfo;
-  medium: Medium;
+  medium: ReadingMedium;
   downloadable: boolean;
 }> = ({ titleId, chapter, medium, downloadable }) => {
   const { t, i18n } = useTranslation();
@@ -73,7 +73,7 @@ const ChapterRow: FC<{
 };
 
 /** A title: details, library button, continue reading and chapters. */
-export const MangaTitlePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) => {
+export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga' }) => {
   const { t } = useTranslation();
   const { source = '', id = '' }: { source?: string; id?: string } = useSearch({ strict: false });
   useMangaLiveEvents();

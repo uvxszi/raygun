@@ -15,6 +15,7 @@ pub mod podcast;
 pub mod repo;
 pub mod shosetsu;
 mod storage;
+pub mod video;
 
 #[cfg(test)]
 mod fixture_tests;

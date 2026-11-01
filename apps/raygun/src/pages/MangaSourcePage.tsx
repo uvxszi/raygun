@@ -104,3 +104,5 @@ export const MangaSourcePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) =
 };
 
 export const NovelSourcePage: FC = () => <MangaSourcePage medium="novel" />;
+
+export const VideoSourcePage: FC = () => <MangaSourcePage medium="video" />;

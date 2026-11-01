@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use raygun_db::titles::{self, TitleFields, TitleRow, UnitFields, UnitRow};
 use raygun_ext_host::manga::MangaList;
+use raygun_ext_host::video::VIDEO_SOURCE;
 use raygun_model::{
     ChapterDownload, FilterValue, LibraryCategory, MangaBrowseMode, MangaCard, MangaChapterInfo,
     MangaLibraryEntry, MangaListingPage, MangaSource, MangaTitleView, SourceFilter,
@@ -21,9 +22,9 @@ use crate::startup::AppDb;
 pub struct Catalog {
     app: AppHandle,
     pub images: ImageLinks,
-    /// `title.kind`: `manga` or `novel`.
+    /// `title.kind`: `manga`, `novel` or `video`.
     kind: &'static str,
-    /// The provider capability: `manga.source` or `novel.source`.
+    /// The provider capability: `manga.source`, `novel.source` or `video.source`.
     capability: &'static str,
 }
 
@@ -35,7 +36,6 @@ pub struct ChapterContext {
     pub next_id: Option<String>,
 }
 
-const UNIT_KIND: &str = "chapter";
 /// Prefix of stored covers that are files under the downloads folder.
 pub const LOCAL_PREFIX: &str = "local:";
 
@@ -219,14 +219,18 @@ impl Catalog {
         source_id: &str,
         remote_id: &str,
     ) -> Result<(TitleRow, usize), String> {
+        let video = self.capability == VIDEO_SOURCE;
         let (details, chapters) = {
             let extensions = self.extensions();
             let (_ready, host) = extensions.ready().await;
-            futures_util::future::join(
-                host.manga_details(source_id, remote_id),
-                host.manga_chapters(source_id, remote_id),
-            )
-            .await
+            let units = async {
+                if video {
+                    host.video_episodes(source_id, remote_id).await
+                } else {
+                    host.manga_chapters(source_id, remote_id).await
+                }
+            };
+            futures_util::future::join(host.manga_details(source_id, remote_id), units).await
         };
         let details = details?;
         let chapters = chapters?;
@@ -246,6 +250,8 @@ impl Catalog {
                 genres: details.genres,
                 status: details.status,
                 url: details.url,
+                media_type: details.media_type,
+                year: details.year,
             },
             now_ms(),
         )
@@ -262,7 +268,8 @@ impl Catalog {
                 date: chapter.date_upload,
             })
             .collect();
-        let added = titles::sync_units(&db, &id, &units, UNIT_KIND, now_ms())
+        let unit_kind = if video { "episode" } else { "chapter" };
+        let added = titles::sync_units(&db, &id, &units, unit_kind, now_ms())
             .await
             .map_err(to_message)?;
         tracing::info!(
@@ -473,6 +480,10 @@ impl Catalog {
             Some(path) => self.images.local(path),
             None => self.images.link(url, headers),
         }
+    }
+
+    pub fn app(&self) -> &AppHandle {
+        &self.app
     }
 
     pub fn db(&self) -> Arc<raygun_db::Db> {

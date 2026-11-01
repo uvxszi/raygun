@@ -1229,7 +1229,7 @@ pub async fn video_remove(app: tauri::AppHandle, key: String) -> Result<(), Stri
 
 // ---- Library categories (M39) ----
 
-/// The manga or novel catalog for `medium` (`manga` or `novel`).
+/// The catalog for `medium` (`manga`, `novel` or `video`).
 fn catalog_for<'a>(
     app: &'a tauri::AppHandle,
     medium: &str,
@@ -1238,6 +1238,10 @@ fn catalog_for<'a>(
     match medium {
         "manga" => Ok(app.state::<MangaService>().inner().catalog()),
         "novel" => Ok(app.state::<NovelService>().inner().catalog()),
+        "video" => Ok(app
+            .state::<crate::video_sources::VideoSourceService>()
+            .inner()
+            .catalog()),
         _ => Err(format!("unknown library {medium:?}")),
     }
 }
@@ -1521,4 +1525,87 @@ pub async fn local_network_open_settings(
     local_network: tauri::State<'_, LocalNetwork>,
 ) -> Result<(), String> {
     local_network.open_settings().await
+}
+
+// ---- Video sources (M42) ----
+
+type VideoSources<'a> = tauri::State<'a, crate::video_sources::VideoSourceService>;
+
+/// Installed video sources (`video.source` providers).
+#[tauri::command]
+#[specta::specta]
+pub async fn video_sources(sources: VideoSources<'_>) -> Result<Vec<MangaSource>, String> {
+    Ok(sources.catalog().sources().await)
+}
+
+/// A page of a video source's catalogue: popular, latest, or search results.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_browse(
+    sources: VideoSources<'_>,
+    source_id: String,
+    mode: MangaBrowseMode,
+    query: Option<String>,
+    page: u32,
+) -> Result<MangaListingPage, String> {
+    sources
+        .catalog()
+        .browse(&source_id, mode, query.as_deref(), page)
+        .await
+}
+
+/// A video title with its episodes and watching progress; `refresh` asks the source again.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_title(
+    sources: VideoSources<'_>,
+    source_id: String,
+    remote_id: String,
+    refresh: bool,
+) -> Result<raygun_model::VideoTitleView, String> {
+    sources.title(&source_id, &remote_id, refresh).await
+}
+
+/// An episode's servers (`episode_id` is the source's id); resolved ones come with their links.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_servers(
+    sources: VideoSources<'_>,
+    source_id: String,
+    episode_id: String,
+) -> Result<Vec<raygun_model::VideoServerView>, String> {
+    sources.servers(&source_id, &episode_id).await
+}
+
+/// One server's links, the preferred quality first.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_links(
+    sources: VideoSources<'_>,
+    source_id: String,
+    server_id: String,
+) -> Result<Vec<raygun_model::VideoLinkView>, String> {
+    sources.links(&source_id, &server_id).await
+}
+
+/// Plays a link of a stored episode in the video player.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_source_play(
+    sources: VideoSources<'_>,
+    request: raygun_model::VideoSourcePlay,
+) -> Result<(), String> {
+    sources.play(request).await
+}
+
+/// Marks a stored episode watched (or not).
+#[tauri::command]
+#[specta::specta]
+pub async fn video_set_episode_watched(
+    sources: VideoSources<'_>,
+    title_id: String,
+    episode_id: String,
+    watched: bool,
+) -> Result<(), String> {
+    sources.set_watched(&title_id, &episode_id, watched).await
 }

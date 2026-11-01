@@ -11,6 +11,7 @@ import {
   useResumeVideo,
 } from '../watch/useWatch';
 import { StremioRow } from '../watch/StremioRow';
+import { VideoSourceRows } from '../watch/VideoSourceRows';
 import { useStremioHome } from '../watch/useStremio';
 import { PageHeader } from './PageHeader';
 
@@ -124,6 +125,7 @@ export const WatchPage: FC = () => {
       {home.data?.map((row) => (
         <StremioRow key={`${row.addonId}-${row.kind}-${row.catalogId}`} row={row} />
       ))}
+      <VideoSourceRows />
       <section
         aria-labelledby="watch-link"
         className="bg-surface flex flex-col gap-2 rounded-xl px-5 py-4 text-sm"

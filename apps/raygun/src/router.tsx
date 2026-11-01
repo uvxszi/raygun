@@ -14,6 +14,7 @@ import { WatchAddonsPage } from './pages/WatchAddonsPage';
 import { WatchCatalogPage } from './pages/WatchCatalogPage';
 import { WatchPage } from './pages/WatchPage';
 import { WatchTitlePage } from './pages/WatchTitlePage';
+import { VideoTitlePage } from './pages/VideoTitlePage';
 import { isSearchType } from './search/searchTypes';
 import type { SearchType } from './search/searchTypes';
 import { DevicesPage } from './pages/DevicesPage';
@@ -24,7 +25,7 @@ import { HomePage } from './pages/HomePage';
 import { LibraryPage } from './pages/LibraryPage';
 import { MangaDownloadsPage } from './pages/MangaDownloadsPage';
 import { MangaReaderPage } from './pages/MangaReaderPage';
-import { MangaSourcePage, NovelSourcePage } from './pages/MangaSourcePage';
+import { MangaSourcePage, NovelSourcePage, VideoSourcePage } from './pages/MangaSourcePage';
 import { MangaSourcesPage, NovelSourcesPage } from './pages/MangaSourcesPage';
 import { MangaTitlePage, NovelTitlePage } from './pages/MangaTitlePage';
 import { MangaUpdatesPage } from './pages/MangaUpdatesPage';
@@ -208,6 +209,27 @@ const routeTree = rootRoute.addChildren([
     getParentRoute: () => rootRoute,
     path: '/watch/addons',
     component: WatchAddonsPage,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/watch/video',
+    component: VideoTitlePage,
+    validateSearch: (search: Record<string, unknown>) => ({
+      source: text(search.source),
+      id: text(search.id),
+    }),
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/watch/source',
+    component: VideoSourcePage,
+    validateSearch: (
+      search: Record<string, unknown>,
+    ): { id: string; mode?: MangaBrowseMode; q?: string } => ({
+      id: text(search.id),
+      ...(isMangaMode(search.mode) ? { mode: search.mode } : {}),
+      ...(text(search.q) ? { q: text(search.q) } : {}),
+    }),
   }),
   createRoute({
     getParentRoute: () => rootRoute,

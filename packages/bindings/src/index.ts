@@ -281,6 +281,20 @@ export const commands = {
 	 *  allowed.
 	 */
 	localNetworkOpenSettings: () => typedError<null, string>(__TAURI_INVOKE("local_network_open_settings")),
+	/**  Installed video sources (`video.source` providers). */
+	videoSources: () => typedError<MangaSource[], string>(__TAURI_INVOKE("video_sources")),
+	/**  A page of a video source's catalogue: popular, latest, or search results. */
+	videoBrowse: (sourceId: string, mode: MangaBrowseMode, query: string | null, page: number) => typedError<MangaListingPage, string>(__TAURI_INVOKE("video_browse", { sourceId, mode, query, page })),
+	/**  A video title with its episodes and watching progress; `refresh` asks the source again. */
+	videoTitle: (sourceId: string, remoteId: string, refresh: boolean) => typedError<VideoTitleView, string>(__TAURI_INVOKE("video_title", { sourceId, remoteId, refresh })),
+	/**  An episode's servers (`episode_id` is the source's id); resolved ones come with their links. */
+	videoServers: (sourceId: string, episodeId: string) => typedError<VideoServerView[], string>(__TAURI_INVOKE("video_servers", { sourceId, episodeId })),
+	/**  One server's links, the preferred quality first. */
+	videoLinks: (sourceId: string, serverId: string) => typedError<VideoLinkView[], string>(__TAURI_INVOKE("video_links", { sourceId, serverId })),
+	/**  Plays a link of a stored episode in the video player. */
+	videoSourcePlay: (request: VideoSourcePlay) => typedError<null, string>(__TAURI_INVOKE("video_source_play", { request })),
+	/**  Marks a stored episode watched (or not). */
+	videoSetEpisodeWatched: (titleId: string, episodeId: string, watched: boolean) => typedError<null, string>(__TAURI_INVOKE("video_set_episode_watched", { titleId, episodeId, watched })),
 };
 
 /** Events */
@@ -1092,7 +1106,7 @@ export type SearchResults = {
  *  A change to a single setting. The tagged shape (`{ key, value }`) lets the UI send only valid
  *  key/value pairs, and doubles as the format of a stored row.
  */
-export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean };
+export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "preferredVideoQuality"; value: number | null };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -1110,6 +1124,8 @@ export type Settings = {
 	novelReader: NovelReaderPrefs,
 	/**  Shows NSFW (18+) extensions and content; off by default (M35). */
 	showNsfw: boolean,
+	/**  The video height links are picked by (M42); `None` picks the highest. */
+	preferredVideoQuality: number | null,
 };
 
 /**  Titles of one Mihon source that Raygun has no source for. */
@@ -1386,6 +1402,34 @@ export type TtsUpdate = {
 	paragraph: number,
 };
 
+export type VideoEpisodeView = {
+	/**  The stored episode's id. */
+	id: string,
+	/**  The source's id for it, passed to `video_servers`. */
+	remoteId: string,
+	name: string,
+	number: number | null,
+	season: number | null,
+	/**  Unix ms. */
+	date: number | null,
+	positionMs: number | null,
+	durationMs: number | null,
+	watched: boolean,
+};
+
+export type VideoLinkView = {
+	url: string,
+	label: string | null,
+	/**  Height in pixels. */
+	quality: number | null,
+	headers: { [key in string]: string },
+	/**  `hls` or `dash`; none for a plain video file. */
+	format: string | null,
+	subtitles: VideoSubtitle[],
+	/**  The link the preferred quality picks (the first of its server). */
+	preferred: boolean,
+};
+
 /**  What to play in the video player. */
 export type VideoRequest = {
 	/**  Stable id of the content, for resuming (`url:<address>` for links). */
@@ -1401,6 +1445,20 @@ export type VideoRequest = {
 	subtitles: VideoSubtitle[],
 };
 
+/**  A server (hoster) for an episode; `links` when the source resolved it already. */
+export type VideoServerView = {
+	id: string,
+	name: string,
+	links: VideoLinkView[] | null,
+};
+
+/**  Plays a link of a stored episode. */
+export type VideoSourcePlay = {
+	titleId: string,
+	episodeId: string,
+	link: VideoLinkView,
+};
+
 /**  A subtitle file the player can load next to a video. */
 export type VideoSubtitle = {
 	url: string,
@@ -1408,6 +1466,32 @@ export type VideoSubtitle = {
 	label: string | null,
 	/**  `srt`, `vtt`, `ass` or `ttml`; guessed from the URL when missing. */
 	format: string | null,
+};
+
+/**  A video source's title page. */
+export type VideoTitleView = {
+	/**  The stored title's id. */
+	id: string,
+	sourceId: string,
+	sourceName: string,
+	remoteId: string,
+	title: string,
+	coverUrl: string | null,
+	/**  `movie`, `series`, `anime` or `other`. */
+	mediaType: string | null,
+	year: number | null,
+	description: string | null,
+	genres: string[],
+	cast: string[],
+	directors: string[],
+	status: string,
+	/**  The title's page on the source's website. */
+	url: string | null,
+	inLibrary: boolean,
+	/**  Adult content while NSFW is off: the page shows a notice instead. */
+	hiddenNsfw: boolean,
+	/**  In the source's order; a movie has one. */
+	episodes: VideoEpisodeView[],
 };
 
 /**

@@ -25,6 +25,10 @@ pub struct TitleFields {
     pub genres: Vec<String>,
     pub status: String,
     pub url: Option<String>,
+    /// Video titles (M42): `movie`, `series`, `anime` or `other`.
+    pub media_type: Option<String>,
+    /// Video titles (M42): the release year.
+    pub year: Option<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -78,7 +82,7 @@ pub struct UnitRow {
 const TITLE_COLUMNS: &str = "t.id, t.kind, t.source_id, t.remote_id, t.remote_title, t.remote_cover, \
      t.remote_cover_headers, \
      t.remote_authors, t.remote_artists, t.remote_description, t.remote_genres, t.remote_status, \
-     t.remote_url, t.user_in_library_at, t.state_refreshed_at, t.user_reader_mode";
+     t.remote_url, t.remote_media_type, t.remote_year, t.user_in_library_at,      t.state_refreshed_at, t.user_reader_mode";
 
 /// Stores what a source said about a title (inserting it on first sight) and returns its id.
 pub async fn upsert_title(db: &Db, fields: &TitleFields, now_ms: i64) -> Result<String, DbError> {
@@ -96,8 +100,8 @@ pub async fn upsert_title(db: &Db, fields: &TitleFields, now_ms: i64) -> Result<
         "INSERT INTO title (id, kind, source_id, remote_id, remote_title, remote_cover,
              remote_authors, remote_artists, remote_description, remote_genres, remote_status,
              remote_url, state_refreshed_at, updated_at_hlc, origin_device, deleted,
-             remote_cover_headers)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 0, ?16)
+             remote_cover_headers, remote_media_type, remote_year)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 0, ?16, ?17, ?18)
          ON CONFLICT (id) DO UPDATE SET
              remote_title = excluded.remote_title, remote_cover = excluded.remote_cover,
              remote_cover_headers = excluded.remote_cover_headers,
@@ -105,6 +109,7 @@ pub async fn upsert_title(db: &Db, fields: &TitleFields, now_ms: i64) -> Result<
              remote_description = excluded.remote_description,
              remote_genres = excluded.remote_genres, remote_status = excluded.remote_status,
              remote_url = excluded.remote_url, state_refreshed_at = excluded.state_refreshed_at,
+             remote_media_type = excluded.remote_media_type, remote_year = excluded.remote_year,
              updated_at_hlc = excluded.updated_at_hlc, origin_device = excluded.origin_device",
     )
     .bind(&id)
@@ -123,6 +128,8 @@ pub async fn upsert_title(db: &Db, fields: &TitleFields, now_ms: i64) -> Result<
     .bind(stamp as i64)
     .bind(db.device_id().to_string())
     .bind(serde_json::to_string(&fields.cover_headers).unwrap_or_else(|_| "{}".into()))
+    .bind(&fields.media_type)
+    .bind(fields.year)
     .execute(&mut *transaction)
     .await?;
     persist_hlc(&mut *transaction, stamp).await?;
@@ -496,6 +503,8 @@ fn title_row(row: &SqliteRow) -> TitleRow {
             genres: list("remote_genres"),
             status: row.get("remote_status"),
             url: row.get("remote_url"),
+            media_type: row.get("remote_media_type"),
+            year: row.get("remote_year"),
         },
         in_library_at: row.get("user_in_library_at"),
         refreshed_at: row.get("state_refreshed_at"),

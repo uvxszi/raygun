@@ -1,6 +1,7 @@
 import type { StremioCatalogRow, StremioItem } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import { ChevronRight, Clapperboard } from 'lucide-react';
+import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -9,18 +10,21 @@ const ASPECT: Record<string, string> = {
   square: 'aspect-square',
 };
 
-/** A poster in the shape its catalog asks for, or a placeholder; full width unless sized. */
+/** A poster in the shape its catalog asks for, or a placeholder (also when it fails to load);
+ * full width unless sized. */
 export const StremioPoster: FC<{ url: string | null; shape?: string; className?: string }> = ({
   url,
   shape = 'poster',
   className = 'w-full',
 }) => {
+  const [failed, setFailed] = useState<string | null>(null);
   const aspect = ASPECT[shape] ?? 'aspect-[2/3]';
-  return url ? (
+  return url && failed !== url ? (
     <img
       src={url}
       alt=""
       loading="lazy"
+      onError={() => setFailed(url)}
       className={`bg-surface rounded-lg object-cover ${aspect} ${className}`}
     />
   ) : (

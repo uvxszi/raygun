@@ -8,6 +8,7 @@ import { ContentCard } from '../settings/ContentCard';
 import { DevicesCard } from '../settings/DevicesCard';
 import { ExtensionsCard } from '../settings/ExtensionsCard';
 import { MangaCard } from '../settings/MangaCard';
+import { PlaybackCard } from '../settings/PlaybackCard';
 import { McpCard } from '../settings/McpCard';
 import { RemoteCard } from '../settings/RemoteCard';
 import { AboutCard } from './AboutCard';
@@ -20,6 +21,7 @@ export const SettingsPage: FC = () => {
       <PageHeader title={t('settings.title')} />
       <AppearanceCard />
       <ContentCard />
+      <PlaybackCard />
       <MangaCard />
       <ExtensionsCard />
       <AiCard />

@@ -175,7 +175,8 @@
         "include": "included",
         "exclude": "excluded"
       }
-    }
+    },
+    "fromSources": "From your sources"
   },
   "settings": {
     "title": "Settings",
@@ -236,7 +237,12 @@
     "languageHint": "Translations come from the community; untranslated text stays in English.",
     "content": "Content",
     "showNsfw": "Show NSFW (18+) content",
-    "showNsfwHint": "Off hides adult extensions, sources and titles everywhere in the app."
+    "showNsfwHint": "Off hides adult extensions, sources and titles everywhere in the app.",
+    "playback": "Playback",
+    "videoQuality": "Preferred video quality",
+    "videoQualityHighest": "Highest available",
+    "videoQualityUpTo": "Up to {{height}}p",
+    "videoQualityHint": "Video sources offer the link closest to this quality first, at or below it when they can."
   },
   "player": {
     "nothingPlaying": "Nothing playing",
@@ -726,6 +732,25 @@
     "unsupported": {
       "external": "Opens outside Raygun",
       "torrent": "Torrent streams aren't supported"
-    }
+    },
+    "video": "Video",
+    "subtitleCount_one": "{{count}} subtitle",
+    "subtitleCount_other": "{{count}} subtitles",
+    "preferred": "Preferred",
+    "resolving": "Resolving…",
+    "servers": "Servers",
+    "findingServers": "Finding servers…",
+    "noServers": "This source has no servers for this episode.",
+    "serverEmpty": "No videos on this server.",
+    "serverFailed": "This server failed: {{message}}",
+    "mediaType": {
+      "movie": "Movie",
+      "series": "Series",
+      "anime": "Anime",
+      "other": "Video"
+    },
+    "refresh": "Refresh",
+    "noEpisodes": "This title has no episodes.",
+    "hiddenNsfw": "This title is for adults. Turn on “Show NSFW (18+) content” in Settings to see it."
   }
 }
