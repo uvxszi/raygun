@@ -36,6 +36,9 @@ import { PanelHeading, PanelOption, PlayerPanel } from './PlayerPanel';
 import { sendReport, sendRequest } from './protocol';
 import type { PlayerRequest, Position, TitleState } from './protocol';
 import { SubtitleLines } from './SubtitleLines';
+import { CueEditor } from './CueEditor';
+import { applyCueEdits, editKey, withCueEdit } from './cueEdits';
+import type { CueEdit, CueEdits } from './cueEdits';
 import { cuesAt, parseSubtitles } from './subtitles';
 import type { Cue } from './subtitles';
 import { TimeBar } from './TimeBar';
@@ -301,6 +304,7 @@ const VideoStage: FC<StageProps> = ({
   const [speed, setSpeed] = useState(titleState.speed ?? prefs.defaultSpeed);
   const [aspect, setAspect] = useState<VideoAspect>(titleState.aspect ?? prefs.aspect);
   const [delayMs, setDelayMs] = useState(titleState.subtitleDelayMs ?? 0);
+  const [cueEdits, setCueEdits] = useState<CueEdits>(titleState.subtitleEdits ?? {});
   const [subtitleKey, setSubtitleKey] = useState<string | null>(null);
   const [lastSubtitle, setLastSubtitle] = useState<string | null>(null);
   const [loadedCues, setLoadedCues] = useState<{ key: string; cues: Cue[] } | null>(null);
@@ -791,11 +795,23 @@ const VideoStage: FC<StageProps> = ({
   }, []);
 
   // ---- What shows ----
-  const currentCues = subtitleKey?.startsWith('added:')
+  const originalCues = subtitleKey?.startsWith('added:')
     ? (added.find((option) => option.key === subtitleKey)?.cues ?? [])
     : loadedCues?.key === subtitleKey
       ? loadedCues.cues
       : [];
+  // Lines changed by hand (M46.12) are kept for this episode and this track.
+  const trackOption = subtitleOptions(engine).find((option) => option.key === subtitleKey);
+  const trackEditKey = trackOption ? editKey(id, trackOption.label, trackOption.language) : null;
+  const trackEdits = trackEditKey ? (cueEdits[trackEditKey] ?? []) : [];
+  const currentCues = applyCueEdits(originalCues, trackEdits);
+  const changeCue = (at: number, edit: Omit<CueEdit, 'at'> | null) => {
+    if (!trackEditKey) return;
+    const next: CueEdits = { ...cueEdits, [trackEditKey]: withCueEdit(trackEdits, at, edit) };
+    if (next[trackEditKey]?.length === 0) delete next[trackEditKey];
+    setCueEdits(next);
+    remember({ subtitleEdits: next });
+  };
   const lines = !subtitleKey
     ? []
     : subtitleKey.startsWith('embedded:')
@@ -1173,6 +1189,23 @@ const VideoStage: FC<StageProps> = ({
               {t('videoPlayer.reset')}
             </button>
           </div>
+          {subtitleKey && (
+            <>
+              <PanelHeading>{t('cueEdit.title')}</PanelHeading>
+              {subtitleKey.startsWith('embedded:') ? (
+                <p className="px-3 py-1 text-xs text-white/60">{t('cueEdit.embedded')}</p>
+              ) : (
+                <CueEditor
+                  original={originalCues}
+                  edits={trackEdits}
+                  timeMs={timeMs}
+                  delayMs={delayMs}
+                  onDelay={changeDelay}
+                  onEdit={changeCue}
+                />
+              )}
+            </>
+          )}
         </PlayerPanel>
       )}
       {panel === 'audio' && (

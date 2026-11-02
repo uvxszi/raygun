@@ -2151,6 +2151,57 @@
     "endBeforeStart": "The end must come after the start.",
     "volume": "This song’s volume",
     "volumeHint": "Added to the volume levelling, for songs mastered too loud or too quiet.",
-    "reset": "Undo every change to this song"
+    "reset": "Undo every change to this song",
+    "parts": "What to change",
+    "tab": {
+      "sound": "Sound",
+      "lyrics": "Lyrics"
+    }
+  },
+  "lyricsEdit": {
+    "fix": "Fix the lyrics",
+    "add": "Add lyrics",
+    "offset": "Timing",
+    "earlier": "Show the lines earlier",
+    "later": "Show the lines later",
+    "resetOffset": "Reset",
+    "offsetHint": "Lines show this much later than their times. Play the song to sync it to a line as you hear it.",
+    "syncHint": "Press “Now” beside a line as it’s sung, and the rest follow.",
+    "now": "Now",
+    "syncHere": "Sync to “{{line}}” now",
+    "editLines": "Edit lines and times",
+    "editText": "Edit as text",
+    "editHint": "Change the words or times, add or remove lines. While the song plays, the stamp button gives the next line the time you press it.",
+    "stamp": "Stamp: “{{line}}”",
+    "stamped": "Every line is stamped",
+    "playToStamp": "Play this song to stamp each line’s time as it’s sung.",
+    "lineTime": "Line {{line}} time",
+    "lineText": "Line {{line}} words",
+    "remove": "Remove line {{line}}",
+    "addLine": "Add a line",
+    "save": "Save lyrics",
+    "cancel": "Cancel",
+    "badTime": "Line {{line}}’s time isn’t a time (like 1:23.4).",
+    "words": "Lyrics",
+    "plainHint": "Fix the words, or split them into lines to time them.",
+    "noneHint": "No source has lyrics for this song. Type or paste them, then time them line by line.",
+    "placeholder": "One line per line of the song",
+    "makeSynced": "Time them line by line",
+    "useSource": "Use the source’s lyrics again"
+  },
+  "cueEdit": {
+    "title": "Lines",
+    "none": "This track’s lines haven’t loaded yet.",
+    "embedded": "Lines inside the video can only be shifted with the delay; pick a subtitle file to edit them.",
+    "heard": "Heard “{{line}}” now",
+    "heardHint": "Press as you hear this line: every line moves to match",
+    "edit": "Edit “{{line}}”",
+    "restore": "Undo the change to “{{line}}”",
+    "start": "Starts at",
+    "end": "Ends at",
+    "words": "Words",
+    "badTimes": "Times look like 1:23.4, and the end comes after the start.",
+    "save": "Save",
+    "cancel": "Cancel"
   }
 }

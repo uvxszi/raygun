@@ -1,6 +1,8 @@
 import { commands } from '@raygun/bindings';
 import type { VideoAspect, VideoChapter, VideoPlayerPrefs, VideoSubtitle } from '@raygun/bindings';
 
+import type { CueEdits } from './cueEdits';
+
 /**
  * The video player's protocol (M44, M45), as the Android player speaks it and as Rust sends it to
  * the webview's player on desktop (M46.4): a request opens it, updates change what it plays, and
@@ -18,6 +20,8 @@ export type TitleState = {
   subtitleDelayMs?: number;
   audio?: TrackChoice;
   introMs?: number;
+  /** Subtitle lines changed by hand (M46.12), per episode and track. */
+  subtitleEdits?: CueEdits;
 };
 
 /** A request (`prepare` in `video.rs`), or a session's shell before its first video. */

@@ -46,7 +46,7 @@ const STATE_PREFIX: &str = "video.playerState.";
 /// The brightness the player last had, for "remember brightness".
 const BRIGHTNESS_KEY: &str = "video.brightness";
 /// What a title remembers: speed, aspect, subtitle and audio choices, subtitle delay, intro length.
-const STATE_KEYS: [&str; 7] = [
+const STATE_KEYS: [&str; 8] = [
     "speed",
     "aspect",
     "subtitle",
@@ -54,6 +54,8 @@ const STATE_KEYS: [&str; 7] = [
     "subtitleDelayMs",
     "audio",
     "introMs",
+    // Subtitle lines changed by hand in the desktop player, per episode and track (M46.12).
+    "subtitleEdits",
 ];
 
 async fn player_prefs(db: &raygun_db::Db) -> PlayerPrefs {
@@ -716,11 +718,22 @@ mod tests {
             object(json!({ "speed": 125, "aspect": "crop", "audio": { "language": "ja" } }));
         merge_state(
             &mut saved,
-            &object(json!({ "speed": 150, "aspect": null, "subtitleDelayMs": -300, "volume": 1 })),
+            &object(json!({
+                "speed": 150,
+                "aspect": null,
+                "subtitleDelayMs": -300,
+                "volume": 1,
+                "subtitleEdits": { "ep1|English|en": [{ "at": 1000, "startMs": 1200, "endMs": 3000, "text": "Hi" }] },
+            })),
         );
         assert_eq!(
             Value::Object(saved),
-            json!({ "speed": 150, "audio": { "language": "ja" }, "subtitleDelayMs": -300 })
+            json!({
+                "speed": 150,
+                "audio": { "language": "ja" },
+                "subtitleDelayMs": -300,
+                "subtitleEdits": { "ep1|English|en": [{ "at": 1000, "startMs": 1200, "endMs": 3000, "text": "Hi" }] },
+            })
         );
     }
 

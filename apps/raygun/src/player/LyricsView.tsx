@@ -1,35 +1,13 @@
-import { commands } from '@raygun/bindings';
-import type { PlaybackState, QueueItem, TextAlign, TrackQuery } from '@raygun/bindings';
-import { useQuery } from '@tanstack/react-query';
+import type { PlaybackState, QueueItem, TextAlign } from '@raygun/bindings';
+import { PenLine } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { unwrapResult } from '../lib/commandResult';
+import { useSongEditStore } from '../sound/songEditStore';
+import { currentLine, trackQueryFor, useLyricsFor } from './lyricsQuery';
 import { useLivePosition } from './useLivePosition';
 import { sendControl } from './usePlayback';
-
-/** The metadata lyrics are looked up by: a lookup's own query, else the item's fields. */
-const trackQuery = (item: QueueItem): TrackQuery =>
-  item.source.kind === 'lookup'
-    ? {
-        title: item.source.title,
-        artist: item.source.artist,
-        album: item.source.album,
-        durationMs: item.source.durationMs,
-      }
-    : { title: item.title, artist: item.artist, album: item.album, durationMs: item.durationMs };
-
-const useLyrics = (item: QueueItem) => {
-  const query = trackQuery(item);
-  return useQuery({
-    queryKey: ['lyrics', query.title, query.artist, query.album, query.durationMs],
-    queryFn: () => unwrapResult(commands.lyricsGet(query)),
-    staleTime: Infinity,
-    // Providers already wait out slow services; one more try is enough before showing the error.
-    retry: 1,
-  });
-};
 
 type LyricsViewProps = {
   item: QueueItem;
@@ -62,18 +40,17 @@ export const LyricsView: FC<LyricsViewProps> = ({
   align = 'left',
 }) => {
   const { t } = useTranslation();
-  const lyrics = useLyrics(item);
+  const query = trackQueryFor(item);
+  const lyrics = useLyricsFor(query);
+  // The song's own offset (M46.12): lines show this much later, and seek to where they show.
+  const offsetMs = lyrics.data?.offsetMs ?? 0;
   const positionMs = useLivePosition(state);
   const containerRef = useRef<HTMLDivElement>(null);
   const currentRef = useRef<HTMLButtonElement>(null);
 
   const alignClass = align === 'center' ? 'text-center' : 'text-left';
   const synced = lyrics.data?.synced ?? [];
-  let current = -1;
-  for (const [index, line] of synced.entries()) {
-    if (line.timeMs <= positionMs) current = index;
-    else break;
-  }
+  const current = currentLine(synced, positionMs, offsetMs);
 
   useEffect(() => {
     // Scrolls only the lyrics, not what they sit in (the side panel scrolls too); jsdom has no
@@ -114,7 +91,9 @@ export const LyricsView: FC<LyricsViewProps> = ({
                 type="button"
                 ref={index === current ? currentRef : undefined}
                 aria-current={index === current ? 'true' : undefined}
-                onClick={() => void sendControl({ type: 'seek', positionMs: line.timeMs })}
+                onClick={() =>
+                  void sendControl({ type: 'seek', positionMs: line.timeMs + offsetMs })
+                }
                 style={size > 0 ? { fontSize: size } : undefined}
                 className={`w-full leading-snug font-semibold transition-colors ${alignClass} ${size > 0 ? '' : LINE_SIZE[variant]} ${
                   index === current ? 'text-foreground' : 'text-muted/60'
@@ -135,11 +114,23 @@ export const LyricsView: FC<LyricsViewProps> = ({
           </p>
         )
       )}
-      {lyrics.data && (
-        <p className="text-muted mt-6 text-xs">
-          {t('player.lyricsFrom', { source: lyrics.data.providerName })}
-        </p>
-      )}
+      <div className="mt-6 flex items-center gap-3">
+        {lyrics.data && (
+          <p className="text-muted text-xs">
+            {t('player.lyricsFrom', { source: lyrics.data.providerName })}
+          </p>
+        )}
+        {!lyrics.isPending && (
+          <button
+            type="button"
+            onClick={() => useSongEditStore.getState().open(query, { tab: 'lyrics' })}
+            className="text-muted hover:text-foreground flex items-center gap-1 text-xs"
+          >
+            <PenLine aria-hidden size={12} />
+            {t(lyrics.data ? 'lyricsEdit.fix' : 'lyricsEdit.add')}
+          </button>
+        )}
+      </div>
     </div>
   );
 };

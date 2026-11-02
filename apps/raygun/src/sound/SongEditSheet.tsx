@@ -8,7 +8,9 @@ import { useLivePosition } from '../player/useLivePosition';
 import { useNowPlaying } from '../player/usePlayback';
 import { Sheet } from '../shell/Sheet';
 import { formatDb, formatTrim, parseTrim } from './format';
+import { LyricsEditor } from './LyricsEditor';
 import { useSongEditStore } from './songEditStore';
+import type { SongEditTab } from './songEditStore';
 import type { FullSongEdit } from './soundPrefs';
 import { useSongEdit } from './useSound';
 
@@ -164,9 +166,12 @@ export const SongEditSheet: FC = () => {
   );
 };
 
+const TABS: SongEditTab[] = ['sound', 'lyrics'];
+
 const SongEditBody: FC<{ song: TrackQuery }> = ({ song }) => {
   const { t } = useTranslation();
   const { edit, save } = useSongEdit(song);
+  const tab = useSongEditStore((store) => store.tab);
   if (!edit.data) {
     return <p className="text-muted text-sm">{t('songEdit.loading')}</p>;
   }
@@ -179,7 +184,29 @@ const SongEditBody: FC<{ song: TrackQuery }> = ({ song }) => {
     current.lyrics !== null;
   return (
     <div data-testid="song-edit" className="flex flex-col gap-5">
-      <SoundTab song={song} edit={current} save={(next) => save.mutate(next)} />
+      <div role="tablist" aria-label={t('songEdit.parts')} className="flex gap-2">
+        {TABS.map((each) => (
+          <button
+            key={each}
+            type="button"
+            role="tab"
+            aria-selected={tab === each}
+            onClick={() => useSongEditStore.setState({ tab: each })}
+            className={`rounded-full px-4 py-1.5 text-sm ${
+              tab === each
+                ? 'bg-primary text-background font-semibold'
+                : 'bg-background hover:bg-surface'
+            }`}
+          >
+            {t(`songEdit.tab.${each}`)}
+          </button>
+        ))}
+      </div>
+      {tab === 'sound' ? (
+        <SoundTab song={song} edit={current} save={(next) => save.mutate(next)} />
+      ) : (
+        <LyricsEditor song={song} edit={current} save={(next) => save.mutate(next)} />
+      )}
       {save.error && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
           {String(save.error.message ?? save.error)}
