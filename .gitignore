@@ -11,3 +11,4 @@ raygun-data/
 *.tsbuildinfo
 # First-party extension bundles are compiled into the app, so cargo builds need them without Node.
 !extensions/*/dist/
+dist-desktop/
