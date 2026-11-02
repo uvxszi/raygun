@@ -8,6 +8,7 @@ import { EmptyState } from '../shell/EmptyState';
 import { unwrapResult } from '../lib/commandResult';
 import { useContinueWatching, useRemoveContinue, useResumeVideo } from '../watch/useWatch';
 import { PageHeader } from './PageHeader';
+import { SourceIssue } from '../shell/SourceIssue';
 
 /** Library → Videos → History: everything watched or started, newest first (Aniyomi's). */
 export const WatchHistoryPage: FC = () => {
@@ -100,11 +101,7 @@ export const WatchHistoryPage: FC = () => {
           );
         })}
       </ul>
-      {resume.error && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {resume.error.message}
-        </p>
-      )}
+      {resume.error && <SourceIssue>{resume.error.message}</SourceIssue>}
     </section>
   );
 };

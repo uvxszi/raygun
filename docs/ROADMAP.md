@@ -142,8 +142,11 @@ The user asked for the full depth of the reference apps ("its not meant to be a 
   - The playing mark in lists; reopening on the last song, paused; desktop sites reopen on their last page.
   - No mouse text selection, with right-click copy and selectable lyrics; the miniplayer opens in the app's colours and its text scales.
   - "Keep music playing with other media"; artist and credits cards in the side panel; podcast menus; Discord presence.
+- M46.17 **Calm source failures, a test pack, and video sources that learn** (asked 2026-11-02): ✅
+  - "Issue with source" cards with More info replace red errors.
+  - A developer test pack: broken-on-purpose extensions, legal test films and channels, every known repository.
+  - Video sources that failed lately are tried last and marked; a silent source no longer stalls searches (12 s).
 - **Asked 2026-11-02, next** (each a milestone):
-  - calm "Issue with source" pages with More info, test sources (legal film/TV), and video source fallback;
   - audio quality (streaming, mobile data, downloads), a Downloaded block, a download button with an undo popover, MP3 export, choosing a folder from Downloads;
   - Made for You, more charts and fuller genres;
   - the extension systems Raygun supports, listed (QuietPlay and Musike have none to load);

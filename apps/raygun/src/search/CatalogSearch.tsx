@@ -24,6 +24,7 @@ import {
 import type { FilterValues } from './useCatalogSearch';
 import { LoadMore } from '../shell/LoadMore';
 import { useSettings } from '../settings/useSettings';
+import { SourceIssue } from '../shell/SourceIssue';
 
 const toGridItems = (items: MangaCard[]) =>
   items.map((item) => ({
@@ -67,9 +68,9 @@ export const SourceRow: FC<{
         )}
       </div>
       {result.error ? (
-        <p role="alert" className="text-primary text-xs wrap-anywhere">
+        <SourceIssue compact source={result.source.name}>
           {t('search.providerFailed', { message: result.error })}
-        </p>
+        </SourceIssue>
       ) : result.items.length === 0 ? (
         <p className="text-muted text-xs">{t('search.providerEmpty')}</p>
       ) : (
@@ -122,9 +123,9 @@ export const LazySourceRow: FC<{
         <section aria-label={source.name} aria-busy={!search.error} className="flex flex-col gap-2">
           <h3 className="text-muted text-sm font-medium">{source.name}</h3>
           {search.error ? (
-            <p role="alert" className="text-primary text-xs wrap-anywhere">
+            <SourceIssue compact source={source.name} onRetry={() => void search.refetch()}>
               {t('search.providerFailed', { message: search.error.message })}
-            </p>
+            </SourceIssue>
           ) : search.isSuccess ? (
             <p className="text-muted text-xs">{t('search.providerEmpty')}</p>
           ) : (
@@ -278,11 +279,7 @@ const SourceSearch: FC<{ medium: Medium; sourceId: string; query: string }> = ({
         <SourceFiltersPanel filters={filters.data} values={values} onChange={setValues} />
       )}
       {!query.trim() && active === 0 && <h2 className="font-semibold">{t('search.popular')}</h2>}
-      {search.error && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {search.error.message}
-        </p>
-      )}
+      {search.error && <SourceIssue>{search.error.message}</SourceIssue>}
       {search.isFetching && items.length === 0 && (
         <LoaderCircle aria-label={t('search.searching')} className="text-muted animate-spin" />
       )}

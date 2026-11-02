@@ -13,6 +13,7 @@ import { EntryInfo } from './EntryInfo';
 import { entryKey, useInstallQueue } from './installQueue';
 import type { InstallStatus } from './installQueue';
 import { useCatalog } from './useExtensions';
+import { SourceIssue } from '../shell/SourceIssue';
 
 const SELECT = 'bg-surface min-w-0 flex-1 rounded-lg px-3 py-2 text-sm outline-none';
 
@@ -192,9 +193,7 @@ export const BrowseTab: FC = () => {
   return (
     <div data-testid="browse-tab" className="flex flex-col gap-4">
       {error && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {t('common.coreUnavailable', { message: error.message })}
-        </p>
+        <SourceIssue>{t('common.coreUnavailable', { message: error.message })}</SourceIssue>
       )}
       {catalog.data?.length === 0 && (
         <p className="text-muted text-sm">{t('extensions.noRepos')}</p>
@@ -253,9 +252,7 @@ export const BrowseTab: FC = () => {
         <section key={listing.repo.id} data-testid="repo-catalog" className="flex flex-col gap-2">
           <h2 className="text-primary px-1 text-sm font-semibold">{listing.repo.name}</h2>
           {listing.error && (
-            <p role="alert" className="text-primary text-sm wrap-anywhere">
-              {t('extensions.repoFailed', { message: listing.error })}
-            </p>
+            <SourceIssue>{t('extensions.repoFailed', { message: listing.error })}</SourceIssue>
           )}
           {!listing.error && listing.entries.length === 0 && (
             <p className="text-muted text-sm">{t('extensions.repoEmpty')}</p>

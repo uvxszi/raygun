@@ -1611,7 +1611,8 @@
     "edgeRaised": "Raised",
     "edgeDepressed": "Depressed",
     "bold": "Bold",
-    "italic": "Italic"
+    "italic": "Italic",
+    "unreliable": "didn't work lately"
   },
   "export": {
     "title": "Export",
@@ -2313,5 +2314,23 @@
   "lyricsSelect": {
     "on": "Make lyrics selectable",
     "off": "Stop selecting lyrics"
+  },
+  "issue": {
+    "title": "Issue with source",
+    "withSource": "Issue with {{source}}",
+    "calm": "It didn’t answer as expected. Everything else still works; try again later or use another source.",
+    "more": "More info",
+    "less": "Less",
+    "retry": "Try again",
+    "copy": "Copy details",
+    "copied": "Copied"
+  },
+  "developer": {
+    "title": "Developer: test sources",
+    "hint": "For testing Raygun with many sources, broken ones included: every known repository, Raygun’s sources that fail on purpose, and test video addons (legal films, live news). Not part of Raygun; remove them in Extensions and Addons.",
+    "add": "Add test sources",
+    "adding": "Adding…",
+    "report": "{{added}} added, {{already}} already there, {{failed}} couldn’t be added.",
+    "installAll": "Install everything from repositories ({{count}})"
   }
 }

@@ -154,6 +154,38 @@ impl Group {
     }
 }
 
+/// How long a server or addon that failed stays at the end of the list (M46.17).
+const FAILING_FOR_MS: i64 = 3 * 24 * 60 * 60 * 1000;
+const HEALTH_KEY: &str = "video.sourceHealth";
+
+/// How servers and addons did lately, by name (M46.17): when each was last tried and last failed.
+/// One that failed since it was last tried goes to the end of the list for three days, so known
+/// good sources are tried first.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceHealth {
+    pub sources: std::collections::HashMap<String, (i64, i64)>,
+}
+
+impl SourceHealth {
+    /// The names that failed lately and haven't worked since.
+    pub fn failing(&self, now: i64) -> HashSet<String> {
+        self.sources
+            .iter()
+            .filter(|(_, (tried, failed))| *failed >= *tried && now - *failed < FAILING_FOR_MS)
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
+    fn tried(&mut self, name: &str, now: i64) {
+        self.sources.entry(name.to_owned()).or_default().0 = now;
+    }
+
+    fn failed(&mut self, name: &str, now: i64) {
+        self.sources.entry(name.to_owned()).or_default().1 = now;
+    }
+}
+
 /// The source played last for a title, to try first next time.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -178,6 +210,8 @@ struct Session {
     /// Where the next link starts (a fallback or a source switch keeps the position).
     start_at: Option<i64>,
     remembered: Option<Remembered>,
+    /// Servers and addons that failed lately (M46.17): tried last, and marked.
+    failing: HashSet<String>,
     /// Resolving finished; with nothing playing, the session has run out of links.
     settled: bool,
 }
@@ -222,13 +256,22 @@ fn released(episode: &Episode, now: i64) -> bool {
     episode.released.is_none_or(|at| at <= now)
 }
 
-/// Puts the remembered source first: its group, and within Stremio the links of the same
-/// `bingeGroup` first.
-pub fn order_groups(groups: &mut [Group], remembered: Option<&Remembered>) {
+/// Puts the remembered source first (its group, and within Stremio the links of the same
+/// `bingeGroup` first) and the sources that failed lately last (M46.17).
+pub fn order_groups(
+    groups: &mut [Group],
+    remembered: Option<&Remembered>,
+    failing: &HashSet<String>,
+) {
+    groups.sort_by_key(|group| {
+        (
+            failing.contains(&group.name),
+            remembered.is_none_or(|remembered| group.name != remembered.group),
+        )
+    });
     let Some(remembered) = remembered else {
         return;
     };
-    groups.sort_by_key(|group| group.name != remembered.group);
     if let Some(tag) = &remembered.tag {
         for group in groups.iter_mut() {
             group
@@ -293,6 +336,7 @@ impl VideoSessions {
             })
             .unwrap_or(0);
         let remembered = self.remembered(&origin).await;
+        let failing = self.health().await.failing(now_ms());
         let generation = self.generations.fetch_add(1, Ordering::SeqCst) + 1;
         let label = episodes[index].label.clone();
         *self.session.lock().expect("session poisoned") = Some(Session {
@@ -307,6 +351,7 @@ impl VideoSessions {
             tried: HashSet::new(),
             start_at: None,
             remembered,
+            failing,
             settled: false,
         });
         let shell = crate::video::session_shell(&self.app, &title, &label).await;
@@ -463,6 +508,7 @@ impl VideoSessions {
 
     /// The playing link failed: the next one plays from the same spot.
     async fn fall_back(&self, key: &str, position: i64, error: String) {
+        let mut failed_group = None;
         let generation = {
             let mut guard = self.session.lock().expect("session poisoned");
             let Some(session) = guard.as_mut() else {
@@ -471,21 +517,49 @@ impl VideoSessions {
             if session.episode().key != key {
                 return;
             }
-            if let Some((group, link)) = session.current.take()
-                && let Some(entry) = session
+            if let Some((group, link)) = session.current.take() {
+                if let Some(entry) = session.groups.get(group) {
+                    failed_group = Some(entry.name.clone());
+                    session.failing.insert(entry.name.clone());
+                }
+                if let Some(entry) = session
                     .groups
                     .get_mut(group)
                     .and_then(|entry| entry.links.get_mut(link))
-            {
-                entry.failed = Some(error);
+                {
+                    entry.failed = Some(error);
+                }
             }
             if position > 0 {
                 session.start_at = Some(position);
             }
             session.generation
         };
+        if let Some(name) = failed_group {
+            self.note_health(|health| health.failed(&name, now_ms()))
+                .await;
+        }
         self.push_sources().await;
         self.try_play(generation).await;
+    }
+
+    async fn health(&self) -> SourceHealth {
+        raygun_db::local_value(&self.db(), HEALTH_KEY)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default()
+    }
+
+    async fn note_health(&self, change: impl FnOnce(&mut SourceHealth)) {
+        let mut health = self.health().await;
+        change(&mut health);
+        if let Ok(text) = serde_json::to_string(&health)
+            && let Err(error) = raygun_db::set_local_value(&self.db(), HEALTH_KEY, &text).await
+        {
+            tracing::warn!(%error, "could not keep how sources did");
+        }
     }
 
     fn spawn_resolve(&self, generation: u64) {
@@ -673,7 +747,7 @@ impl VideoSessions {
             else {
                 return;
             };
-            order_groups(&mut groups, session.remembered.as_ref());
+            order_groups(&mut groups, session.remembered.as_ref(), &session.failing);
             session.groups = groups;
             session.tried.clear();
             session.current = None;
@@ -817,6 +891,19 @@ impl VideoSessions {
                 self.push_episodes().await;
                 if !downloaded {
                     self.remember(&origin, &remembered).await;
+                    let name = remembered.group.clone();
+                    self.note_health(|health| health.tried(&name, now_ms()))
+                        .await;
+                    // It plays: no longer one that "didn't work lately".
+                    let cleared = self
+                        .session
+                        .lock()
+                        .expect("session poisoned")
+                        .as_mut()
+                        .is_some_and(|session| session.failing.remove(&name));
+                    if cleared {
+                        self.push_sources().await;
+                    }
                 }
             }
             Err(error) => {
@@ -922,6 +1009,7 @@ impl VideoSessions {
                         "name": group.name,
                         "state": state,
                         "error": error,
+                        "unreliable": session.failing.contains(&group.name),
                         "links": group.links.iter().enumerate().map(|(link_index, link)| json!({
                             "label": link.label,
                             "current": session.current == Some((group_index, link_index)),
@@ -1136,6 +1224,7 @@ mod tests {
             tried: HashSet::new(),
             start_at: None,
             remembered: None,
+            failing: HashSet::new(),
             settled: false,
         }
     }
@@ -1157,11 +1246,38 @@ mod tests {
                 group: "Beta".into(),
                 tag: Some("release".into()),
             }),
+            &HashSet::new(),
         );
         assert_eq!(groups[0].name, "Beta");
         assert_eq!(groups[0].links[0].label, "b2");
-        order_groups(&mut groups, None);
+        order_groups(&mut groups, None, &HashSet::new());
         assert_eq!(groups[0].name, "Beta", "nothing remembered keeps the order");
+
+        // One that failed lately goes last, even the remembered one (M46.17).
+        order_groups(
+            &mut groups,
+            Some(&Remembered {
+                group: "Beta".into(),
+                tag: None,
+            }),
+            &HashSet::from(["Beta".to_owned()]),
+        );
+        assert_eq!(groups[0].name, "Alpha");
+    }
+
+    #[test]
+    fn sources_that_failed_since_they_were_tried_count_as_failing_for_a_while() {
+        let mut health = SourceHealth::default();
+        health.tried("Good", 1_000);
+        health.tried("Bad", 1_000);
+        health.failed("Bad", 2_000);
+        health.failed("Fixed", 1_000);
+        health.tried("Fixed", 3_000);
+        assert_eq!(health.failing(5_000), HashSet::from(["Bad".to_owned()]));
+        assert!(
+            health.failing(2_000 + FAILING_FOR_MS).is_empty(),
+            "forgotten after three days"
+        );
     }
 
     #[test]

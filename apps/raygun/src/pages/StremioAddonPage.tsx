@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { TopBar } from '../shell/TopBar';
 import { StremioRow } from '../watch/StremioRow';
 import { useStremioAddons, useStremioHome } from '../watch/useStremio';
+import { SourceIssue } from '../shell/SourceIssue';
 
 /** One Stremio addon's catalogues as rows (CloudStream's provider home), opened from Browse. */
 export const StremioAddonPage: FC = () => {
@@ -27,11 +28,7 @@ export const StremioAddonPage: FC = () => {
       {home.isPending && (
         <LoaderCircle aria-label={t('watch.loading')} className="text-muted mx-auto animate-spin" />
       )}
-      {home.error && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {home.error.message}
-        </p>
-      )}
+      {home.error && <SourceIssue>{home.error.message}</SourceIssue>}
       {home.data && rows.length === 0 && (
         <p className="text-muted text-sm">{t('watch.noCatalogs')}</p>
       )}

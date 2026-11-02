@@ -14,6 +14,7 @@ import {
   useRemoveEpisodeDownload,
   useSetPlayed,
 } from './usePodcasts';
+import { SourceIssue } from '../shell/SourceIssue';
 
 const ICON_BUTTON =
   'bg-background grid size-9 shrink-0 place-items-center rounded-full disabled:opacity-60';
@@ -140,20 +141,16 @@ export const EpisodeItem: FC<{ episode: PodcastEpisode; showPodcast?: boolean }>
         </div>
       )}
       {downloadState === 'failed' && episode.download?.error && (
-        <p role="alert" className="text-primary text-xs wrap-anywhere">
+        <SourceIssue compact>
           {t('podcasts.downloadFailed', { message: episode.download.error })}
-        </p>
+        </SourceIssue>
       )}
       {expanded && episode.description && (
         <p className="text-muted text-sm whitespace-pre-line wrap-anywhere">
           {episode.description}
         </p>
       )}
-      {error && (
-        <p role="alert" className="text-primary text-xs wrap-anywhere">
-          {error.message}
-        </p>
-      )}
+      {error && <SourceIssue compact>{error.message}</SourceIssue>}
     </li>
   );
 };

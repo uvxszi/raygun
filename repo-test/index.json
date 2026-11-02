@@ -9,14 +9,9 @@
       "apiVersion": 1,
       "description": "Every search and chart throws an error. Tests calm \"Issue with source\" pages.",
       "author": "Raygun tests",
-      "provides": [
-        "music.metadata",
-        "manga.source"
-      ],
+      "provides": ["music.metadata", "manga.source"],
       "permissions": {
-        "net": [
-          "example.invalid"
-        ],
+        "net": ["example.invalid"],
         "webview": false
       },
       "contentRating": "safe",
@@ -31,13 +26,9 @@
       "apiVersion": 1,
       "description": "Searches wait until the host gives up on them. Tests timeouts.",
       "author": "Raygun tests",
-      "provides": [
-        "music.metadata"
-      ],
+      "provides": ["music.metadata"],
       "permissions": {
-        "net": [
-          "example.invalid"
-        ],
+        "net": ["example.invalid"],
         "webview": false
       },
       "contentRating": "safe",
@@ -52,15 +43,9 @@
       "apiVersion": 1,
       "description": "Answers with missing fields, wrong types, huge text and bad links. Tests that bad data is dropped, not shown.",
       "author": "Raygun tests",
-      "provides": [
-        "music.metadata",
-        "music.stream",
-        "manga.source"
-      ],
+      "provides": ["music.metadata", "music.stream", "manga.source"],
       "permissions": {
-        "net": [
-          "example.invalid"
-        ],
+        "net": ["example.invalid"],
         "webview": false
       },
       "contentRating": "safe",
@@ -75,13 +60,9 @@
       "apiVersion": 1,
       "description": "Offers streams for every song that answer 404 or 403. Tests that the player moves on.",
       "author": "Raygun tests",
-      "provides": [
-        "music.stream"
-      ],
+      "provides": ["music.stream"],
       "permissions": {
-        "net": [
-          "httpbin.org"
-        ],
+        "net": ["httpbin.org"],
         "webview": false
       },
       "contentRating": "safe",
@@ -96,13 +77,9 @@
       "apiVersion": 1,
       "description": "Throws while it loads. Tests how an extension that never starts is shown.",
       "author": "Raygun tests",
-      "provides": [
-        "music.metadata"
-      ],
+      "provides": ["music.metadata"],
       "permissions": {
-        "net": [
-          "example.invalid"
-        ],
+        "net": ["example.invalid"],
         "webview": false
       },
       "contentRating": "safe",

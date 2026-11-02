@@ -88,7 +88,13 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                 shown += 1
                 continue
             }
-            sheet.header(server.optString("name"))
+            // Failed lately and tried last (M46.17).
+            val unreliable = if (server.optBoolean("unreliable")) {
+                " · " + label("unreliable", "didn't work lately")
+            } else {
+                ""
+            }
+            sheet.header(server.optString("name") + unreliable)
             for (link in 0 until links.length()) {
                 val entry = links.optJSONObject(link) ?: continue
                 val current = entry.optBoolean("current")

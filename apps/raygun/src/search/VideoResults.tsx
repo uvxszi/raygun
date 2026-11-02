@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { StremioRow } from '../watch/StremioRow';
 import { useStremioHome, useStremioSearch } from '../watch/useStremio';
+import { SourceIssue } from '../shell/SourceIssue';
 
 /**
  * Movies and series from every Stremio addon that searches, a row per catalog; before anything
@@ -15,11 +16,7 @@ export const VideoResults: FC<{ query: string; limit?: number }> = ({ query, lim
   const home = useStremioHome(blank);
   const search = blank ? home : found;
   if (search.error) {
-    return (
-      <p role="alert" className="text-primary text-sm wrap-anywhere">
-        {search.error.message}
-      </p>
-    );
+    return <SourceIssue>{search.error.message}</SourceIssue>;
   }
   if (search.isPending) {
     return <p className="text-muted text-sm">{t('search.searching')}</p>;

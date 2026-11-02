@@ -10,6 +10,7 @@ import {
   useRemoveDownloads,
   useSetDownloadsPaused,
 } from './useManga';
+import { SourceIssue } from '../shell/SourceIssue';
 
 const DownloadRow: FC<{ item: MangaDownloadItem }> = ({ item }) => {
   const { t } = useTranslation();
@@ -84,11 +85,7 @@ export const ChapterDownloads: FC = () => {
 
   return (
     <div data-testid="chapter-downloads" className="flex flex-col gap-4">
-      {downloads.error && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {downloads.error.message}
-        </p>
-      )}
+      {downloads.error && <SourceIssue>{downloads.error.message}</SourceIssue>}
       {queue && (
         <>
           <div className="flex flex-wrap items-center gap-3">

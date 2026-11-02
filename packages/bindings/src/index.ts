@@ -92,6 +92,11 @@ export const commands = {
 	 *  engines listen. Only the first call of a run does anything.
 	 */
 	playbackRestore: () => typedError<null, string>(__TAURI_INVOKE("playback_restore")),
+	/**
+	 *  Adds the test sources (M46.17, Settings → Data → Developer): every suggested repository,
+	 *  Raygun's test repository and the test addons. Never part of a fresh install.
+	 */
+	devAddTestSources: () => typedError<TestSourcesReport, string>(__TAURI_INVOKE("dev_add_test_sources")),
 	/**  Queues an episode after what plays (`next`) or at the end (M46.16). */
 	podcastQueue: (episodeId: string, next: boolean) => typedError<null, string>(__TAURI_INVOKE("podcast_queue", { episodeId, next })),
 	/**  Where this device's player plays (M46.15). */
@@ -2562,6 +2567,18 @@ export type TagKind = "genre" | "mood";
 export type TapAction = "seek" | "playPause" | 
 /**  The previous episode on the left, the next on the right. */
 "switchEpisode" | "off";
+
+export type TestSourceFailure = {
+	url: string,
+	error: string,
+};
+
+/**  What adding the test sources did: what was added and what couldn't be. */
+export type TestSourcesReport = {
+	added: string[],
+	already: string[],
+	failed: TestSourceFailure[],
+};
 
 export type TextAlign = "left" | "center";
 

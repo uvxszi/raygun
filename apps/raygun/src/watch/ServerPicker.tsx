@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { useDownloadSourceVideo } from './useVideoLibrary';
 import { useVideoLinks, useVideoServers, useVideoSourcePlay } from './useVideoSources';
+import { SourceIssue } from '../shell/SourceIssue';
 
 /** Play a link, or save it to the device (M43). */
 export type PickIntent = 'play' | 'download';
@@ -234,11 +235,7 @@ export const ServerPicker: FC<{
               className="text-muted mx-auto animate-spin"
             />
           )}
-          {servers.error && (
-            <p role="alert" className="text-primary text-sm wrap-anywhere">
-              {servers.error.message}
-            </p>
-          )}
+          {servers.error && <SourceIssue>{servers.error.message}</SourceIssue>}
           {servers.data?.length === 0 && (
             <p className="text-muted text-sm">{t('watch.noServers')}</p>
           )}
@@ -257,11 +254,7 @@ export const ServerPicker: FC<{
               ))}
             </ul>
           )}
-          {error && (
-            <p role="alert" className="text-primary text-sm wrap-anywhere">
-              {error.message}
-            </p>
-          )}
+          {error && <SourceIssue>{error.message}</SourceIssue>}
         </div>
       </div>
     </div>

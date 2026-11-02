@@ -61,6 +61,7 @@ import {
   useMangaUpdateStatus,
   useUpdateLibrary,
 } from './useManga';
+import { SourceIssue } from '../shell/SourceIssue';
 
 const EMPTY = {
   manga: { icon: BookImage, title: 'manga.emptyTitle', body: 'manga.emptyLibrary' },
@@ -399,21 +400,13 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
             : t('novel.importing')}
         </p>
       )}
-      {importError && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {importError.message}
-        </p>
-      )}
+      {importError && <SourceIssue>{importError.message}</SourceIssue>}
       {notice && (
         <p role="status" className="text-muted text-sm">
           {notice}
         </p>
       )}
-      {library.error && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {library.error.message}
-        </p>
-      )}
+      {library.error && <SourceIssue>{library.error.message}</SourceIssue>}
       {video && !selecting && <ContinueWatchingRow />}
       {entries?.length === 0 && (
         <EmptyState

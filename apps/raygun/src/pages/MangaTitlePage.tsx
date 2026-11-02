@@ -23,6 +23,7 @@ import {
   useSetChapterRead,
   useSetInLibrary,
 } from '../manga/useManga';
+import { SourceIssue } from '../shell/SourceIssue';
 
 /** Where a partly read chapter stands: a page for manga, a share of the text for novels. */
 const progressLabel = (
@@ -125,9 +126,7 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
     return (
       <section data-testid="manga-title-page">
         {top}
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {title.error.message}
-        </p>
+        <SourceIssue>{title.error.message}</SourceIssue>
       </section>
     );
   }
@@ -247,9 +246,9 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
       {view.inLibrary && <CategoryPicker medium={medium} titleId={view.id} />}
       {duplicates.dialog}
       {(refresh.error ?? setInLibrary.error ?? download.error) && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
+        <SourceIssue>
           {(refresh.error ?? setInLibrary.error ?? download.error)?.message}
-        </p>
+        </SourceIssue>
       )}
       {view.description && (
         <button

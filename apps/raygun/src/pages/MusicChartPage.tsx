@@ -9,6 +9,7 @@ import { useChartSongs, useMusicCharts } from '../music/useDiscovery';
 import { OnlineTrackRow } from '../search/OnlineTrackRow';
 import { playResults } from '../search/useOnlineSearch';
 import { TopBar } from '../shell/TopBar';
+import { SourceIssue } from '../shell/SourceIssue';
 
 /** A chart's page (M46.9): its songs in order, played from any of them. */
 export const MusicChartPage: FC = () => {
@@ -68,11 +69,7 @@ export const MusicChartPage: FC = () => {
       {songs.isPending && (
         <LoaderCircle aria-label={t('discover.loading')} className="text-muted animate-spin" />
       )}
-      {songs.error && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {songs.error.message}
-        </p>
-      )}
+      {songs.error && <SourceIssue>{songs.error.message}</SourceIssue>}
       <ol className="flex flex-col">
         {list.map((song, index) => (
           <li key={`${song.title}-${index}`} className="flex items-center gap-3">

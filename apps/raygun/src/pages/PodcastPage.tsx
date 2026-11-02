@@ -14,6 +14,7 @@ import {
   useRefreshPodcast,
   useSetSubscribed,
 } from '../podcasts/usePodcasts';
+import { SourceIssue } from '../shell/SourceIssue';
 
 /** A podcast: subscribe, read about it, and play or download its episodes. */
 export const PodcastPage: FC = () => {
@@ -29,9 +30,7 @@ export const PodcastPage: FC = () => {
   if (podcast.error && !view) {
     return (
       <section data-testid="podcast-page">
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {podcast.error.message}
-        </p>
+        <SourceIssue>{podcast.error.message}</SourceIssue>
       </section>
     );
   }
@@ -89,9 +88,7 @@ export const PodcastPage: FC = () => {
         </button>
       )}
       {(refresh.error ?? setSubscribed.error) && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {(refresh.error ?? setSubscribed.error)?.message}
-        </p>
+        <SourceIssue>{(refresh.error ?? setSubscribed.error)?.message}</SourceIssue>
       )}
       <section aria-labelledby="podcast-episodes" className="flex flex-col gap-2">
         <h2 id="podcast-episodes" className="font-semibold">

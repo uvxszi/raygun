@@ -28,6 +28,7 @@ import {
   useSetEpisodeWatched,
   useVideoTitle,
 } from '../watch/useVideoSources';
+import { SourceIssue } from '../shell/SourceIssue';
 
 const number = (value: number) => (Number.isInteger(value) ? String(value) : value.toFixed(1));
 
@@ -202,9 +203,7 @@ export const VideoTitlePage: FC = () => {
     return (
       <section data-testid="video-title-page">
         {top}
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {title.error.message}
-        </p>
+        <SourceIssue>{title.error.message}</SourceIssue>
       </section>
     );
   }
@@ -345,9 +344,9 @@ export const VideoTitlePage: FC = () => {
         </dl>
       )}
       {(refresh.error ?? setWatched.error ?? setInLibrary.error ?? watch.error) && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
+        <SourceIssue>
           {(refresh.error ?? setWatched.error ?? setInLibrary.error ?? watch.error)?.message}
-        </p>
+        </SourceIssue>
       )}
       {!movie && view.episodes.length > 0 && (
         <Episodes view={view} downloads={downloads} onPick={pick} />

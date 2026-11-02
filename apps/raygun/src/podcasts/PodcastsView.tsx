@@ -24,6 +24,7 @@ import {
 import { Carousel } from '../shell/Carousel';
 import { openContextMenu } from '../shell/contextMenuStore';
 import { showMenu } from './podcastMenus';
+import { SourceIssue } from '../shell/SourceIssue';
 
 const matches = (text: string, query: string) =>
   text.toLocaleLowerCase().includes(query.toLocaleLowerCase());
@@ -207,11 +208,7 @@ export const PodcastsView: FC = () => {
               aria-label={t('podcasts.feedUrl')}
               className="bg-background placeholder:text-muted rounded-xl px-4 py-3 outline-none"
             />
-            {openFeed.error && (
-              <p role="alert" className="text-primary wrap-anywhere">
-                {openFeed.error.message}
-              </p>
-            )}
+            {openFeed.error && <SourceIssue>{openFeed.error.message}</SourceIssue>}
             <button
               type="submit"
               disabled={!feedUrl.trim() || openFeed.isPending}

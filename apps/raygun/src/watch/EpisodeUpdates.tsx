@@ -10,6 +10,7 @@ import { EmptyState } from '../shell/EmptyState';
 import { episodeLabel } from './episodeLabel';
 import { useVideoUpcoming, useVideoUpdates, videoTitleLink } from './useVideoLibrary';
 import { Carousel } from '../shell/Carousel';
+import { SourceIssue } from '../shell/SourceIssue';
 
 const Row: FC<{ item: VideoUpdateItem }> = ({ item }) => {
   const { t } = useTranslation();
@@ -73,11 +74,7 @@ export const EpisodeUpdates: FC = () => {
 
   return (
     <div data-testid="episode-updates" className="flex flex-col gap-5">
-      {error && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {error.message}
-        </p>
-      )}
+      {error && <SourceIssue>{error.message}</SourceIssue>}
       {soon.length > 0 && (
         <section aria-labelledby="upcoming-heading" className="flex flex-col gap-2">
           <h2 id="upcoming-heading" className="flex items-center gap-2 font-semibold">

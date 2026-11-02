@@ -1388,6 +1388,7 @@ const SessionPanel: FC<SessionPanelProps> = ({ kind, positionMs, onClose }) => {
             {group.state === 'resolving' && ` · ${t('videoPlayer.resolving')}`}
             {group.state === 'failed' && ` · ${t('videoPlayer.failed')}`}
             {group.state === 'empty' && ` · ${t('videoPlayer.empty')}`}
+            {group.unreliable && ` · ${t('videoPlayer.unreliable')}`}
           </PanelHeading>
           {group.links.map((link, linkIndex) => (
             <PanelOption

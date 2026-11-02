@@ -6,9 +6,6 @@
     "year": 2010,
     "poster": "https://archive.org/services/img/Sintel",
     "description": "Blender Foundation, CC BY 3.0. Two dead links come first: the player should move on to a working one by itself.",
-    "genres": [
-      "Animation",
-      "Test"
-    ]
+    "genres": ["Animation", "Test"]
   }
 }

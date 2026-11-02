@@ -9,6 +9,7 @@ import { openContextMenu } from '../shell/contextMenuStore';
 import { PodcastArt } from './PodcastArt';
 import { showMenu } from './podcastMenus';
 import { useOpenFeed } from './usePodcasts';
+import { SourceIssue } from '../shell/SourceIssue';
 
 /** Directory results; tapping one opens (and stores) its feed, then its page. */
 export const PodcastResultList: FC<{ results: PodcastSearchResult[] }> = ({ results }) => {
@@ -61,11 +62,7 @@ export const PodcastResultList: FC<{ results: PodcastSearchResult[] }> = ({ resu
           </li>
         ))}
       </ul>
-      {openFeed.error && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {openFeed.error.message}
-        </p>
-      )}
+      {openFeed.error && <SourceIssue>{openFeed.error.message}</SourceIssue>}
     </div>
   );
 };

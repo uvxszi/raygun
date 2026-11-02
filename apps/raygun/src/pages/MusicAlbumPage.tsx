@@ -14,6 +14,7 @@ import { downloadSongs } from '../music/useSongDownloads';
 import { OnlineTrackRow } from '../search/OnlineTrackRow';
 import { playResults } from '../search/useOnlineSearch';
 import { TopBar } from '../shell/TopBar';
+import { SourceIssue } from '../shell/SourceIssue';
 
 /** An album from a music source (M46.9): its songs in order, to play, save or download. */
 export const MusicAlbumPage: FC = () => {
@@ -89,11 +90,7 @@ export const MusicAlbumPage: FC = () => {
       {album.isPending && provider !== '' && (
         <LoaderCircle aria-label={t('album.loading')} className="text-muted animate-spin" />
       )}
-      {album.error && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {album.error.message}
-        </p>
-      )}
+      {album.error && <SourceIssue>{album.error.message}</SourceIssue>}
       <ol className="flex flex-col">
         {tracks.map((track, index) => (
           <li key={`${track.title}-${index}`} className="flex items-center gap-3">

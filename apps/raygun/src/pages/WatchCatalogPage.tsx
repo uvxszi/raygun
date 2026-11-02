@@ -7,6 +7,7 @@ import { StremioCard } from '../watch/StremioRow';
 import { useStremioCatalog } from '../watch/useStremio';
 import { PageHeader } from './PageHeader';
 import { LoadMore } from '../shell/LoadMore';
+import { SourceIssue } from '../shell/SourceIssue';
 
 /** One addon catalog as a grid, by genre, page after page. */
 export const WatchCatalogPage: FC = () => {
@@ -55,11 +56,7 @@ export const WatchCatalogPage: FC = () => {
           ))}
         </div>
       )}
-      {pages.error && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {pages.error.message}
-        </p>
-      )}
+      {pages.error && <SourceIssue>{pages.error.message}</SourceIssue>}
       {pages.isPending && (
         <LoaderCircle aria-label={t('watch.loading')} className="text-muted mx-auto animate-spin" />
       )}

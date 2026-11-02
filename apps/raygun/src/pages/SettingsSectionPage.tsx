@@ -29,6 +29,7 @@ import { ReaderDisplaySettings } from '../manga/ReaderDisplaySettings';
 import { PlayerViewSettings } from '../player/PlayerViewSettings';
 import { AppearanceCard } from '../settings/AppearanceCard';
 import { BackupCard } from '../settings/BackupCard';
+import { DeveloperCard } from '../settings/DeveloperCard';
 import { DownloadSettings } from '../settings/DownloadSettings';
 import { McpCard } from '../settings/McpCard';
 import { PLAYER_PAGES, withDefaults } from '../settings/playerOptions';
@@ -757,6 +758,11 @@ const SECTIONS: Record<SettingsSection, FC> = {
         </PrefBlock>
       </PrefGroup>
       <StorageSettings />
+      <PrefGroup>
+        <PrefBlock>
+          <DeveloperCard />
+        </PrefBlock>
+      </PrefGroup>
     </>
   ),
   connections: ConnectionSettings,

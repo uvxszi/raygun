@@ -34,6 +34,9 @@ pub const MUSIC_CHARTS: &str = "music.charts";
 pub const MUSIC_TAGS: &str = "music.tags";
 /// Artist facts and song credits (M46.14).
 pub const MUSIC_INFO: &str = "music.info";
+/// How long a search or a stream lookup waits for one source (M46.17); background work (charts,
+/// tags, downloads) keeps the longer call limit.
+pub const INTERACTIVE_TIMEOUT: Duration = Duration::from_secs(12);
 
 /// Longest tag name kept from a provider.
 const MAX_TAG_CHARS: usize = 60;
@@ -253,6 +256,19 @@ impl ExtensionHost {
     }
 
     /// Calls `method` on a provider (its full `<extension>/<provider>` id), JSON in and out.
+    /// A call someone is waiting on (M46.17): a search or a stream lookup gives up after
+    /// [`INTERACTIVE_TIMEOUT`], so one source that never answers doesn't hold up the others.
+    pub async fn call_interactive(
+        &self,
+        provider: &str,
+        method: &str,
+        args: serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        tokio::time::timeout(INTERACTIVE_TIMEOUT, self.call(provider, method, args))
+            .await
+            .unwrap_or_else(|_| Err(CallError::Timeout(provider.to_owned())))
+    }
+
     pub async fn call(
         &self,
         provider: &str,
@@ -278,7 +294,7 @@ impl ExtensionHost {
             let args = args.clone();
             async move {
                 let started = std::time::Instant::now();
-                match self.call(&provider.id, "search", args).await {
+                match self.call_interactive(&provider.id, "search", args).await {
                     Ok(value) => {
                         let tracks = parse_tracks(value);
                         tracing::info!(
@@ -325,7 +341,7 @@ impl ExtensionHost {
             let args = args.clone();
             async move {
                 let result = self
-                    .call(&provider.id, "candidates", args)
+                    .call_interactive(&provider.id, "candidates", args)
                     .await
                     .map(|value| parse_candidates(&provider, value))
                     .map_err(|error| error.to_string());
@@ -484,7 +500,7 @@ impl ExtensionHost {
         let requests = providers.into_iter().map(|provider| {
             let args = args.clone();
             async move {
-                match self.call(&provider.id, method, args).await {
+                match self.call_interactive(&provider.id, method, args).await {
                     Ok(value) => Some((provider, value)),
                     Err(error) => {
                         let message = error.to_string();

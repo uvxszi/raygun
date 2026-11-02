@@ -13,6 +13,7 @@ import {
   useSetVideoDownloadsPaused,
   useVideoDownloads,
 } from './useVideoLibrary';
+import { SourceIssue } from '../shell/SourceIssue';
 
 const ICON = 'grid size-9 shrink-0 place-items-center rounded-full disabled:opacity-60';
 
@@ -144,11 +145,7 @@ const Row: FC<{ item: VideoDownloadItem; paused: boolean }> = ({ item, paused })
           {item.error}
         </p>
       )}
-      {play.error && (
-        <p role="alert" className="text-primary text-xs wrap-anywhere">
-          {play.error.message}
-        </p>
-      )}
+      {play.error && <SourceIssue compact>{play.error.message}</SourceIssue>}
     </li>
   );
 };
@@ -165,11 +162,7 @@ export const VideoDownloadsList: FC = () => {
 
   return (
     <div data-testid="video-downloads" className="flex flex-col gap-4">
-      {downloads.error && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {downloads.error.message}
-        </p>
-      )}
+      {downloads.error && <SourceIssue>{downloads.error.message}</SourceIssue>}
       {list && list.items.length === 0 && (
         <EmptyState
           icon={Clapperboard}

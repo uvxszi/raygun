@@ -19,6 +19,7 @@ import { artistFacts, useArtistInfo } from '../player/musicInfo';
 import { OnlineTrackRow } from '../search/OnlineTrackRow';
 import { playResults } from '../search/useOnlineSearch';
 import { TopBar } from '../shell/TopBar';
+import { SourceIssue } from '../shell/SourceIssue';
 
 /** Popular songs shown before "Show more". */
 const POPULAR_SHOWN = 10;
@@ -124,11 +125,7 @@ export const MusicArtistPage: FC = () => {
       {overview.isPending && name !== '' && (
         <LoaderCircle aria-label={t('artist.loading')} className="text-muted animate-spin" />
       )}
-      {overview.error && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {overview.error.message}
-        </p>
-      )}
+      {overview.error && <SourceIssue>{overview.error.message}</SourceIssue>}
       {popular.length > 0 && (
         <Section title={t('artist.popular')}>
           <ol className="flex flex-col">

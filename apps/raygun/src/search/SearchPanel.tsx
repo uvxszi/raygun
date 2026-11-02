@@ -11,6 +11,7 @@ import { MusicResults } from './MusicResults';
 import { SEARCH_TYPES } from './searchTypes';
 import type { SearchType } from './searchTypes';
 import { VideoResults } from './VideoResults';
+import { SourceIssue } from '../shell/SourceIssue';
 
 /** Podcasts: the directory's results, or its top shows before anything is typed. */
 const PodcastSearch: FC<{ query: string }> = ({ query }) => {
@@ -21,11 +22,7 @@ const PodcastSearch: FC<{ query: string }> = ({ query }) => {
   return (
     <div data-testid="podcast-search" className="flex flex-col gap-3">
       {!query && <h2 className="font-semibold">{t('podcasts.topShows')}</h2>}
-      {search.error && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {search.error.message}
-        </p>
-      )}
+      {search.error && <SourceIssue>{search.error.message}</SourceIssue>}
       {search.data?.length === 0 && query && (
         <p className="text-muted text-sm">{t('podcasts.noResults')}</p>
       )}

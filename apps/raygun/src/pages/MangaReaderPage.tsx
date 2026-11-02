@@ -33,6 +33,7 @@ import { useWindowFullscreen } from '../shell/useWindowFullscreen';
 import { clampZoom, useReaderDisplay, ZOOM_STEP } from '../manga/readerDisplay';
 import { ReaderDisplaySettings } from '../manga/ReaderDisplaySettings';
 import { MANGA, saveProgress, useMangaChapter } from '../manga/useManga';
+import { SourceIssue } from '../shell/SourceIssue';
 
 /** Progress is saved this long after reading stops, and right away on the last page. */
 const SAVE_DELAY_MS = 800;
@@ -461,11 +462,7 @@ export const MangaReaderPage: FC = () => {
           </button>
         </header>
       )}
-      {loaded.error && (
-        <p role="alert" className="text-primary p-6 pt-20 text-sm wrap-anywhere">
-          {loaded.error.message}
-        </p>
-      )}
+      {loaded.error && <SourceIssue>{loaded.error.message}</SourceIssue>}
       {!data && !loaded.error && (
         <LoaderCircle
           aria-label={t('manga.loading')}

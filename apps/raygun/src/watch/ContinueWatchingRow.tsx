@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useContinueWatching, useRemoveContinue, useResumeVideo } from './useWatch';
 import { Carousel } from '../shell/Carousel';
+import { SourceIssue } from '../shell/SourceIssue';
 
 /** The poster, or a placeholder when there's none or it can't load (offline). */
 const Poster: FC<{ url: string | null }> = ({ url }) => {
@@ -64,11 +65,7 @@ const Card: FC<{ item: ContinueWatching }> = ({ item }) => {
       >
         <X aria-hidden size={15} />
       </button>
-      {resume.error && (
-        <p role="alert" className="text-primary mt-1 text-xs wrap-anywhere">
-          {resume.error.message}
-        </p>
-      )}
+      {resume.error && <SourceIssue compact>{resume.error.message}</SourceIssue>}
     </li>
   );
 };

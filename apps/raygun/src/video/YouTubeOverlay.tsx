@@ -6,6 +6,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useTrailerStore } from './trailerStore';
+import { SourceIssue } from '../shell/SourceIssue';
 
 /**
  * Trailers and YouTube streams in a full-window player with YouTube's own controls, instead of
@@ -109,9 +110,7 @@ const TrailerScreen: FC<{ video: YouTubeVideo }> = ({ video }) => {
       </div>
       <div className="grid min-h-0 flex-1 place-items-center px-2 pb-2">
         {failed ? (
-          <p role="alert" className="max-w-sm text-center text-sm text-white/80">
-            {t('desktopPlayer.trailerFailed')}
-          </p>
+          <SourceIssue>{t('desktopPlayer.trailerFailed')}</SourceIssue>
         ) : (
           <iframe
             ref={frameRef}

@@ -33,6 +33,7 @@ import { WebsitesSection } from '../websites/WebsitesSection';
 import type { SearchType } from '../search/searchTypes';
 import { useStremioAddons } from '../watch/useStremio';
 import { useVideoSources } from '../watch/useVideoSources';
+import { SourceIssue } from '../shell/SourceIssue';
 
 export type BrowseSection = 'search' | 'discover' | 'sources' | 'extensions';
 export type ExtensionList = 'installed' | 'available';
@@ -338,9 +339,7 @@ export const BrowsePage: FC = () => {
         </>
       )}
       {(reload.error ?? refresh.error) && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {(reload.error ?? refresh.error)?.message}
-        </p>
+        <SourceIssue>{(reload.error ?? refresh.error)?.message}</SourceIssue>
       )}
       {(reload.isPending || refresh.isPending) && (
         <p role="status" className="text-muted flex items-center gap-2 text-sm">

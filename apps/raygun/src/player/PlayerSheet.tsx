@@ -47,6 +47,7 @@ import { useLivePosition } from './useLivePosition';
 import { hasVideo } from './hasVideo';
 import { MediaArt, VideoToggle } from './MediaArt';
 import { isActive, sendControl, sourceNote, useNowPlaying } from './usePlayback';
+import { SourceIssue } from '../shell/SourceIssue';
 
 const DISMISS_DISTANCE = 120;
 const DISMISS_VELOCITY = 500;
@@ -403,11 +404,7 @@ const Controls: FC<ControlsProps> = ({ state, item, note, onScrub }) => {
                 : t('player.via', { source: note.source })}
             </p>
           )}
-          {state?.status === 'error' && state.error && (
-            <p role="alert" className="text-primary text-sm wrap-anywhere">
-              {state.error}
-            </p>
-          )}
+          {state?.status === 'error' && state.error && <SourceIssue>{state.error}</SourceIssue>}
         </div>
         {item && <FavoriteButton item={item} />}
         {item ? (

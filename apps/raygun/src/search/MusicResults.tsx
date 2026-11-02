@@ -9,6 +9,7 @@ import { AlbumFinds, ArtistFinds, BestSongs } from './MusicFinds';
 import { OnlineTrackRow } from './OnlineTrackRow';
 import { SourceMenu } from './SourceMenu';
 import { playResults, useOnlineSearch } from './useOnlineSearch';
+import { SourceIssue } from '../shell/SourceIssue';
 
 type ProviderResultsProps = { result: ProviderSearchResult; ambiguous: boolean; limit?: number };
 
@@ -30,9 +31,9 @@ const ProviderResults: FC<ProviderResultsProps> = ({ result, ambiguous, limit })
         />
       </h3>
       {result.error ? (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
+        <SourceIssue source={result.provider.name}>
           {t('search.providerFailed', { message: result.error })}
-        </p>
+        </SourceIssue>
       ) : result.tracks.length === 0 ? (
         <p className="text-muted text-sm">{t('search.providerEmpty')}</p>
       ) : (
@@ -140,9 +141,7 @@ export const MusicResults: FC<{ query: string; compact?: boolean }> = ({ query, 
 
   if (search.error) {
     return (
-      <p role="alert" className="text-primary text-sm wrap-anywhere">
-        {t('common.coreUnavailable', { message: search.error.message })}
-      </p>
+      <SourceIssue>{t('common.coreUnavailable', { message: search.error.message })}</SourceIssue>
     );
   }
   if (compact) {

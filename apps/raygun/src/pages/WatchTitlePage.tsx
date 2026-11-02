@@ -24,6 +24,7 @@ import {
   useSetStremioInLibrary,
   useWatchStremio,
 } from '../watch/useVideoLibrary';
+import { SourceIssue } from '../shell/SourceIssue';
 
 /** "S1 E2 · Pilot", or the title alone when it isn't numbered. */
 const episodeLabel = (video: StremioVideo) =>
@@ -214,9 +215,7 @@ export const WatchTitlePage: FC = () => {
     return (
       <section data-testid="watch-title-page">
         {top}
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {meta.error.message}
-        </p>
+        <SourceIssue>{meta.error.message}</SourceIssue>
       </section>
     );
   }
@@ -393,9 +392,9 @@ export const WatchTitlePage: FC = () => {
         </dl>
       )}
       {(trailer.error ?? setWatched.error ?? setInLibrary.error ?? watch.error) && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
+        <SourceIssue>
           {(trailer.error ?? setWatched.error ?? setInLibrary.error ?? watch.error)?.message}
-        </p>
+        </SourceIssue>
       )}
       {hasEpisodes && <Episodes meta={view} downloads={downloads} onPick={pick} />}
       <ResumeFab

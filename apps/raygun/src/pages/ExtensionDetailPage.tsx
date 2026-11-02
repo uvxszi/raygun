@@ -10,6 +10,7 @@ import { SettingsForm } from '../extensions/SettingsForm';
 import { useExtension, useUninstallExtension } from '../extensions/useExtensions';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { PageHeader } from './PageHeader';
+import { SourceIssue } from '../shell/SourceIssue';
 
 export const ExtensionDetailPage: FC = () => {
   const { t } = useTranslation();
@@ -62,9 +63,7 @@ export const ExtensionDetailPage: FC = () => {
       </header>
       {info.description && <p className="text-sm leading-relaxed">{info.description}</p>}
       {info.status === 'failed' && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {t('extensions.failed', { message: info.error ?? '' })}
-        </p>
+        <SourceIssue>{t('extensions.failed', { message: info.error ?? '' })}</SourceIssue>
       )}
       {info.providers.length > 0 && (
         <section aria-labelledby="extension-provides" className="flex flex-col gap-1 text-sm">
@@ -145,11 +144,7 @@ export const ExtensionDetailPage: FC = () => {
           >
             {t(confirming ? 'extensions.uninstallConfirm' : 'extensions.uninstall')}
           </button>
-          {uninstall.error && (
-            <p role="alert" className="text-primary text-sm wrap-anywhere">
-              {uninstall.error.message}
-            </p>
-          )}
+          {uninstall.error && <SourceIssue>{uninstall.error.message}</SourceIssue>}
         </div>
       )}
     </section>

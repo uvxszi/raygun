@@ -802,6 +802,11 @@ fn to_repo(row: store::RepoRow) -> ExtensionRepo {
     }
 }
 
+/// The suggested repositories' index URLs (M46.17: the test sources add them all).
+pub fn suggested_repo_urls() -> Vec<&'static str> {
+    SUGGESTED_REPOS.iter().map(|(url, _, _)| *url).collect()
+}
+
 /// Repositories offered with one tap: Raygun's own and the ecosystems Raygun can run.
 const SUGGESTED_REPOS: [(&str, &str, &str); 4] = [
     (

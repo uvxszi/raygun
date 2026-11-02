@@ -40,6 +40,7 @@ import {
   useNovelChapter,
 } from '../novel/useNovel';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
+import { SourceIssue } from '../shell/SourceIssue';
 
 /** Progress is saved this long after reading stops moving. */
 const SAVE_DELAY_MS = 800;
@@ -877,11 +878,7 @@ export const NovelReaderPage: FC = () => {
           onChange={(next) => updateSetting.mutate({ key: 'novelReader', value: next })}
         />
       )}
-      {loaded.error && (
-        <p role="alert" className="text-primary p-6 pt-20 text-sm wrap-anywhere">
-          {loaded.error.message}
-        </p>
-      )}
+      {loaded.error && <SourceIssue>{loaded.error.message}</SourceIssue>}
       {!data && !loaded.error && (
         <LoaderCircle
           aria-label={t('manga.loading')}

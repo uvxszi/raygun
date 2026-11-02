@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useSettings } from '../settings/useSettings';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { useExtensions } from './useExtensions';
+import { SourceIssue } from '../shell/SourceIssue';
 
 export const InstalledTab: FC = () => {
   const { t } = useTranslation();
@@ -16,9 +17,7 @@ export const InstalledTab: FC = () => {
   return (
     <div data-testid="installed-tab" className="flex flex-col gap-3">
       {error && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {t('common.coreUnavailable', { message: error.message })}
-        </p>
+        <SourceIssue>{t('common.coreUnavailable', { message: error.message })}</SourceIssue>
       )}
       {extensions.data?.length === 0 && (
         <p className="text-muted text-sm">{t('extensions.noneInstalled')}</p>

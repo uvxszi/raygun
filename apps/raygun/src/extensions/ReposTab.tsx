@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Sheet } from '../shell/Sheet';
 import { useAddRepo, useRemoveRepo, useRepos, useSuggestedRepos } from './useExtensions';
+import { SourceIssue } from '../shell/SourceIssue';
 
 /** Adding a repository by its address, from the top bar's "+". */
 export const AddRepoSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
@@ -36,11 +37,7 @@ export const AddRepoSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
           className="bg-background placeholder:text-muted rounded-xl px-4 py-3 outline-none"
         />
         <p className="text-muted text-xs">{t('extensions.repoHint')}</p>
-        {addRepo.error && (
-          <p role="alert" className="text-primary wrap-anywhere">
-            {addRepo.error.message}
-          </p>
-        )}
+        {addRepo.error && <SourceIssue>{addRepo.error.message}</SourceIssue>}
         <button
           type="submit"
           disabled={!url.trim() || addRepo.isPending}
@@ -121,9 +118,7 @@ export const ReposTab: FC = () => {
         </section>
       )}
       {(addRepo.error ?? removeRepo.error) && (
-        <p role="alert" className="text-primary wrap-anywhere">
-          {(addRepo.error ?? removeRepo.error)?.message}
-        </p>
+        <SourceIssue>{(addRepo.error ?? removeRepo.error)?.message}</SourceIssue>
       )}
     </div>
   );

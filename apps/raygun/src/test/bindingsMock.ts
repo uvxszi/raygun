@@ -268,6 +268,7 @@ export const bindingsMock = {
     musicSongCredits: vi.fn(),
     musicOpenInfoPage: vi.fn(),
     playbackRestore: vi.fn(),
+    devAddTestSources: vi.fn(),
     podcastQueue: vi.fn(),
     connectStatus: vi.fn(),
     connectDevices: vi.fn(),
@@ -543,6 +544,10 @@ export const seedBindings = () => {
   commands.musicSongCredits.mockResolvedValue(ok(null));
   commands.musicOpenInfoPage.mockResolvedValue(ok(null));
   commands.playbackRestore.mockResolvedValue({ status: 'ok', data: null });
+  commands.devAddTestSources.mockResolvedValue({
+    status: 'ok',
+    data: { added: [], already: [], failed: [] },
+  });
   commands.podcastQueue.mockResolvedValue({ status: 'ok', data: null });
   commands.connectStatus.mockResolvedValue(CONNECT_IDLE);
   commands.connectDevices.mockResolvedValue([]);

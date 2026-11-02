@@ -14,6 +14,7 @@ import { MusicResults } from './MusicResults';
 import { VideoResults } from './VideoResults';
 import type { SearchType } from './searchTypes';
 import { sourceSearchOptions } from './useCatalogSearch';
+import { SourceIssue } from '../shell/SourceIssue';
 
 const Section: FC<{
   title: string;
@@ -107,11 +108,7 @@ const PodcastPreview: FC<{ query: string }> = ({ query }) => {
   const top = useTopPodcasts(query === '');
   const search = query ? found : top;
   if (search.error) {
-    return (
-      <p role="alert" className="text-primary text-sm wrap-anywhere">
-        {search.error.message}
-      </p>
-    );
+    return <SourceIssue>{search.error.message}</SourceIssue>;
   }
   if (search.data?.length === 0) {
     return <p className="text-muted text-sm">{t('podcasts.noResults')}</p>;

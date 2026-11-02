@@ -11,6 +11,7 @@ import type { Medium } from '../manga/medium';
 import { useMangaBrowse, useMangaSources } from '../manga/useManga';
 import { PageHeader } from './PageHeader';
 import { LoadMore } from '../shell/LoadMore';
+import { SourceIssue } from '../shell/SourceIssue';
 
 const LISTS: MangaBrowseMode[] = ['popular', 'latest'];
 
@@ -72,11 +73,7 @@ export const MangaSourcePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) =
           </button>
         ))}
       </nav>
-      {browse.error && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {browse.error.message}
-        </p>
-      )}
+      {browse.error && <SourceIssue>{browse.error.message}</SourceIssue>}
       {browse.isPending && browse.fetchStatus === 'fetching' && (
         <LoaderCircle
           aria-label={t('manga.loading')}

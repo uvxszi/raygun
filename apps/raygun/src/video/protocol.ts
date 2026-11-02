@@ -61,6 +61,8 @@ export type SourceGroup = {
   state: 'resolving' | 'ready' | 'empty' | 'failed';
   error: string | null;
   links: SourceLink[];
+  /** It failed lately and hasn't worked since (M46.17): tried last. */
+  unreliable?: boolean;
 };
 
 export type PlayerUpdate =

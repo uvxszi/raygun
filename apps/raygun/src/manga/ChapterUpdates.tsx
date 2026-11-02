@@ -8,6 +8,7 @@ import { DownloadButton } from './DownloadButton';
 import { groupByDay, useDayLabel } from './groupByDay';
 import { MangaCover } from './MangaCover';
 import { useMangaUpdates } from './useManga';
+import { SourceIssue } from '../shell/SourceIssue';
 
 /** Updates → Chapters: chapters that library updates found, by day. */
 export const ChapterUpdates: FC = () => {
@@ -17,11 +18,7 @@ export const ChapterUpdates: FC = () => {
 
   return (
     <div data-testid="chapter-updates" className="flex flex-col gap-4">
-      {updates.error && (
-        <p role="alert" className="text-primary text-sm wrap-anywhere">
-          {updates.error.message}
-        </p>
-      )}
+      {updates.error && <SourceIssue>{updates.error.message}</SourceIssue>}
       {updates.data?.length === 0 && (
         <EmptyState icon={BellDot} title={t('manga.noUpdates')} body={t('manga.noUpdatesHint')} />
       )}

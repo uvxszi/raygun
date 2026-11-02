@@ -6,9 +6,6 @@
     "year": 2006,
     "poster": "https://archive.org/services/img/ElephantsDream",
     "description": "Blender Foundation, CC BY 2.5, from the Internet Archive.",
-    "genres": [
-      "Animation",
-      "Test"
-    ]
+    "genres": ["Animation", "Test"]
   }
 }

@@ -11,6 +11,7 @@ import { Artwork } from '../library/Artwork';
 import { OnlineTrackRow } from './OnlineTrackRow';
 import { titleScore } from './rankResults';
 import { playResults } from './useOnlineSearch';
+import { SourceIssue } from '../shell/SourceIssue';
 
 const simple = (text: string | null | undefined) =>
   (text ?? '')
@@ -93,11 +94,7 @@ export const ArtistFinds: FC<{ query: string }> = ({ query }) => {
     return <LoaderCircle aria-label={t('search.searching')} className="text-muted animate-spin" />;
   }
   if (artists.error) {
-    return (
-      <p role="alert" className="text-primary text-sm wrap-anywhere">
-        {artists.error.message}
-      </p>
-    );
+    return <SourceIssue>{artists.error.message}</SourceIssue>;
   }
   if (list.length === 0) {
     return <p className="text-muted text-sm">{t('search.noArtists', { query })}</p>;
@@ -149,11 +146,7 @@ export const AlbumFinds: FC<{ query: string }> = ({ query }) => {
     return <LoaderCircle aria-label={t('search.searching')} className="text-muted animate-spin" />;
   }
   if (albums.error) {
-    return (
-      <p role="alert" className="text-primary text-sm wrap-anywhere">
-        {albums.error.message}
-      </p>
-    );
+    return <SourceIssue>{albums.error.message}</SourceIssue>;
   }
   if (list.length === 0) {
     return <p className="text-muted text-sm">{t('search.noAlbums', { query })}</p>;

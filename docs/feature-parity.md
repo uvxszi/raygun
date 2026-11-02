@@ -63,6 +63,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Cards under the player (Lyrics, About the artist, Credits); artist bios; rows that page with buttons | Spotify | ✅ M46.14 (MusicBrainz and Wikipedia; similar artists and samples not yet) |
 | Connect: play on another device, "Playing on …", remote control, play here again | Spotify | ✅ M46.15 (between Raygun devices on one network; no Chromecast or DLNA) |
 | Playing mark in lists, reopen paused where you left off, Discord presence | Spotify | ✅ M46.16 (Discord: desktop, with your own Discord application ID) |
+| Sources failing calmly with details on request; automatic video source fallback that remembers bad sources | Cloudstream, Aniyomi, Stremio | ✅ M46.17 |
 | Equalizer | RiPlay | ✅ M46.12 (10 fixed bands with presets on both platforms; bass boost, reverb, balance, mono) |
 | Crossfade, loudness normalization, per-song start/end trims and volume | Spotify, RiPlay, Nuclear (setting only) | ✅ M46.12 (true crossfade with two players; loudness measured as songs play) |
 | Sleep timer | RiPlay | 🔜 M52 |

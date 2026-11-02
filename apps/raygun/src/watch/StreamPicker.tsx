@@ -7,6 +7,7 @@ import { OverflowMenu } from '../shell/OverflowMenu';
 import type { PickIntent } from './ServerPicker';
 import { useStremioPlay, useStremioStreams } from './useStremio';
 import { useDownloadStremio } from './useVideoLibrary';
+import { SourceIssue } from '../shell/SourceIssue';
 
 /** What is being played, as the player shows it. */
 export type StreamTarget = {
@@ -90,11 +91,7 @@ export const StreamPicker: FC<{
               className="text-muted mx-auto animate-spin"
             />
           )}
-          {groups.error && (
-            <p role="alert" className="text-primary text-sm wrap-anywhere">
-              {groups.error.message}
-            </p>
-          )}
+          {groups.error && <SourceIssue>{groups.error.message}</SourceIssue>}
           {groups.data && withStreams.length === 0 && (
             <p className="text-muted text-sm">{t('watch.noStreams')}</p>
           )}
@@ -183,11 +180,7 @@ export const StreamPicker: FC<{
               </ul>
             </section>
           ))}
-          {error && (
-            <p role="alert" className="text-primary text-sm wrap-anywhere">
-              {error.message}
-            </p>
-          )}
+          {error && <SourceIssue>{error.message}</SourceIssue>}
         </div>
       </div>
     </div>
