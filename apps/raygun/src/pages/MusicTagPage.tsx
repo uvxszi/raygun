@@ -1,13 +1,20 @@
 import type { OnlineTrack, SavedTrack } from '@raygun/bindings';
 import { useSearch } from '@tanstack/react-router';
-import { Play } from 'lucide-react';
+import { LoaderCircle, Play } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { SavedTrackRow } from '../collections/SavedTrackRow';
-import { ChartRow } from '../music/ChartRow';
-import { tileColor, useMusicCharts, useTagSongs, useTagVocabulary } from '../music/useDiscovery';
+import { ChartRow, SongsRow } from '../music/ChartRow';
+import {
+  tileColor,
+  useMusicCharts,
+  useTagSongs,
+  useTagSources,
+  useTagVocabulary,
+} from '../music/useDiscovery';
 import { playResults } from '../search/useOnlineSearch';
+import { SourceIssue } from '../shell/SourceIssue';
 import { TopBar } from '../shell/TopBar';
 
 const asOnline = (track: SavedTrack): OnlineTrack => ({
@@ -22,7 +29,7 @@ const asOnline = (track: SavedTrack): OnlineTrack => ({
 
 /**
  * A genre's or a mood's page (M46.9), from a tile in Browse all or a song's tag: the sources'
- * charts for it, then the user's own songs that have it.
+ * charts for it, every source's songs for it (M46.19), then the user's own songs that have it.
  */
 export const MusicTagPage: FC = () => {
   const { t } = useTranslation();
@@ -30,6 +37,7 @@ export const MusicTagPage: FC = () => {
   const vocabulary = useTagVocabulary();
   const charts = useMusicCharts();
   const songs = useTagSongs(name);
+  const sources = useTagSources(name);
   const kind = vocabulary.data?.find((tag) => tag.name === name)?.kind ?? 'genre';
   const tagCharts = (charts.data?.charts ?? []).filter((chart) => chart.tag === name);
   const list = songs.data ?? [];
@@ -61,6 +69,25 @@ export const MusicTagPage: FC = () => {
           chart={chart}
           title={t('discover.tagCharts', { name: `${chart.provider.name} ${name}` })}
         />
+      ))}
+      {sources.isPending && (
+        <LoaderCircle aria-label={t('discover.loading')} className="text-muted animate-spin" />
+      )}
+      {sources.data?.rows
+        // A source's genre chart is already shown above.
+        .filter((row) => !tagCharts.some((chart) => chart.provider.id === row.provider.id))
+        .map((row) => (
+          <SongsRow
+            key={row.provider.id}
+            heading={row.name}
+            source={row.provider.name}
+            songs={row.tracks}
+          />
+        ))}
+      {sources.data?.failures.map((failure) => (
+        <SourceIssue key={failure.source} compact source={failure.source}>
+          {failure.error}
+        </SourceIssue>
       ))}
       <section aria-label={t('discover.tagSongs', { name })} className="flex flex-col gap-2">
         <div className="flex items-center gap-3">

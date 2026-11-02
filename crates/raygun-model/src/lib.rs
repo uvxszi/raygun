@@ -2270,6 +2270,72 @@ pub struct MusicChart {
     pub artwork_url: Option<String>,
     /// The genre the chart belongs to, in the app's spelling ("Hip-Hop").
     pub tag: Option<String>,
+    /// What kind of chart it is (M46.19).
+    pub group: ChartGroup,
+}
+
+/// Kinds of chart (M46.19), in the order Browse → Music lists them.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Type,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum ChartGroup {
+    /// The most played overall.
+    Top,
+    /// Rising now.
+    Trending,
+    /// New releases.
+    New,
+    /// Spreading fast.
+    Viral,
+    Genre,
+    Mood,
+    Decade,
+    /// Rising artists with smaller followings.
+    Underground,
+}
+
+impl ChartGroup {
+    /// A provider's name for the group; unknown ones are `None`.
+    pub fn parse(text: &str) -> Option<Self> {
+        Some(match text.trim().to_ascii_lowercase().as_str() {
+            "top" => Self::Top,
+            "trending" => Self::Trending,
+            "new" => Self::New,
+            "viral" => Self::Viral,
+            "genre" => Self::Genre,
+            "mood" => Self::Mood,
+            "decade" => Self::Decade,
+            "underground" => Self::Underground,
+            _ => return None,
+        })
+    }
+}
+
+/// One source's songs for a genre or a mood (M46.19).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TagSongsRow {
+    pub provider: ProviderInfo,
+    /// What the source calls them ("Breakcore on ListenBrainz").
+    pub name: String,
+    pub tracks: Vec<OnlineTrack>,
+}
+
+/// A source that didn't answer, and why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceFailure {
+    pub source: String,
+    pub error: String,
+}
+
+/// Every source's songs for a genre or a mood (M46.19).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicTagSources {
+    pub rows: Vec<TagSongsRow>,
+    pub failures: Vec<SourceFailure>,
 }
 
 /// What open databases say about an artist (M46.14): the player's "About the artist" card.

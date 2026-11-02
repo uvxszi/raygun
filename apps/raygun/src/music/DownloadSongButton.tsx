@@ -62,7 +62,7 @@ export const DownloadSongButton: FC<{
   const { t } = useTranslation();
   const client = useQueryClient();
   const download = useSongDownloadFor(track);
-  const { remove, retry } = useSongDownloadActions();
+  const { remove, retry, record } = useSongDownloadActions();
   const start = useMutation({
     mutationFn: () => downloadSongs([track]),
     onSettled: () => void client.invalidateQueries({ queryKey: ['songs'] }),
@@ -153,6 +153,16 @@ export const DownloadSongButton: FC<{
               <button type="button" onClick={close} className={`${BUTTON} bg-background`}>
                 {t(state === 'done' || busy ? 'songs.button.keep' : 'collections.cancel')}
               </button>
+              {state === 'needsRecording' && found.canRecord && (
+                <button
+                  type="button"
+                  disabled={record.isPending}
+                  onClick={() => record.mutate(found.id, { onSuccess: close })}
+                  className={`${BUTTON} bg-background`}
+                >
+                  {t('songs.record')}
+                </button>
+              )}
               {(state === 'failed' || state === 'needsRecording') && (
                 <button
                   type="button"

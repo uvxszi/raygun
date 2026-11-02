@@ -99,7 +99,7 @@ pub fn place_for(prefs: &SavePrefs, destination: ExportDestination) -> Result<Pl
                 uri: uri.clone(),
                 name: prefs.folder_name.clone().unwrap_or_else(|| "Folder".into()),
             }),
-            None => Err("Pick a folder in Settings → Downloads first".into()),
+            None => Err("Choose a folder first".into()),
         },
     }
 }

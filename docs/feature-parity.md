@@ -64,6 +64,8 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Connect: play on another device, "Playing on …", remote control, play here again | Spotify | ✅ M46.15 (between Raygun devices on one network; no Chromecast or DLNA) |
 | Playing mark in lists, reopen paused where you left off, Discord presence | Spotify | ✅ M46.16 (Discord: desktop, with your own Discord application ID) |
 | Sources failing calmly with details on request; automatic video source fallback that remembers bad sources | Cloudstream, Aniyomi, Stremio | ✅ M46.17 |
+| Genre and mood pages full of songs from every source; charts by kind (top, trending, new, underground, decades) | Spotify, QuietPlay | ✅ M46.19 (Deezer, Apple Music, ListenBrainz, Audius) |
+| Audio quality for streaming, mobile data and downloads; a download button with an undo popover; a Downloaded library view; MP3 export | Spotify, RiPlay | ✅ M46.18 (quality picks among a source's streams; YouTube's embed has no quality control) |
 | Equalizer | RiPlay | ✅ M46.12 (10 fixed bands with presets on both platforms; bass boost, reverb, balance, mono) |
 | Crossfade, loudness normalization, per-song start/end trims and volume | Spotify, RiPlay, Nuclear (setting only) | ✅ M46.12 (true crossfade with two players; loudness measured as songs play) |
 | Sleep timer | RiPlay | 🔜 M52 |

@@ -146,9 +146,16 @@ The user asked for the full depth of the reference apps ("its not meant to be a 
   - "Issue with source" cards with More info replace red errors.
   - A developer test pack: broken-on-purpose extensions, legal test films and channels, every known repository.
   - Video sources that failed lately are tried last and marked; a silent source no longer stalls searches (12 s).
+- M46.18 **Audio quality and downloads** (asked 2026-11-02): ✅
+  - Streaming, mobile data and download quality settings that steer which stream plays (nearest bitrate among equal matches).
+  - A download button beside + with an attached confirm popover; Library → Audio → Downloaded.
+  - Save as MP3 (LAME), and choose a folder from the save sheet.
+- M46.19 **Fuller genres and more kinds of charts** (asked 2026-11-02): ✅
+  - Any genre or mood has songs from every source that has some (`tagSongs`), above the user's own.
+  - Charts grouped by kind (top, trending, new, underground, decades, genres); Apple genre charts, Deezer decades, ListenBrainz fresh singles.
+  - Audius, a new first-party source: trending and underground charts, search and full streams.
 - **Asked 2026-11-02, next** (each a milestone):
-  - audio quality (streaming, mobile data, downloads), a Downloaded block, a download button with an undo popover, MP3 export, choosing a folder from Downloads;
-  - Made for You, more charts and fuller genres;
+  - Made for You;
   - the extension systems Raygun supports, listed (QuietPlay and Musike have none to load);
   - Spotify playlist import and reading songs from screenshots;
   - Audiobooks: a media type with its own pill in Library → Audio, from LibriVox and Internet Archive.

@@ -8,7 +8,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use raygun_model::{
-    MediaSource, MusicCharts, MusicTag, OnlineTrack, SavedTrack, TagCount, TrackQuery, TrackTags,
+    MediaSource, MusicCharts, MusicTag, MusicTagSources, OnlineTrack, SavedTrack, SourceFailure,
+    TagCount, TagKind, TagSongsRow, TrackQuery, TrackTags,
 };
 use tauri::{AppHandle, Manager};
 use tokio::sync::Notify;
@@ -20,8 +21,10 @@ use crate::startup::AppDb;
 /// How long a region's chart list and a chart's songs are kept.
 const CHARTS_FOR: Duration = Duration::from_secs(60 * 60);
 const CHART_SONGS_FOR: Duration = Duration::from_secs(30 * 60);
-/// Songs asked per chart.
+/// Songs asked per chart, and per source for a genre or mood.
 const CHART_LIMIT: u32 = 50;
+/// How long a genre's or mood's songs from the sources are kept (M46.19).
+const TAG_SOURCES_FOR: Duration = Duration::from_secs(30 * 60);
 /// The tagger starts after the app has settled, rests between songs (MusicBrainz allows one
 /// request a second, and a song can take two), and looks again for new songs now and then.
 const TAGGER_DELAY: Duration = Duration::from_secs(20);
@@ -37,6 +40,7 @@ pub struct DiscoveryService {
     app: AppHandle,
     charts: Mutex<HashMap<String, (Instant, MusicCharts)>>,
     songs: Mutex<HashMap<ChartKey, (Instant, Vec<OnlineTrack>)>>,
+    tag_sources: Mutex<HashMap<(String, String), (Instant, MusicTagSources)>>,
     wake: Arc<Notify>,
 }
 
@@ -72,6 +76,7 @@ impl DiscoveryService {
             app,
             charts: Mutex::new(HashMap::new()),
             songs: Mutex::new(HashMap::new()),
+            tag_sources: Mutex::new(HashMap::new()),
             wake: Arc::new(Notify::new()),
         })
     }
@@ -148,6 +153,53 @@ impl DiscoveryService {
             .unwrap()
             .insert(key, (Instant::now(), songs.clone()));
         Ok(songs)
+    }
+
+    /// Songs for a genre or a mood from every chart source that has some (M46.19), a row per
+    /// source in the sources' order; empty rows are left out.
+    pub async fn tag_sources(&self, name: String, region: Option<String>) -> MusicTagSources {
+        let region = region.filter(|region| !region.is_empty());
+        let key = (name.clone(), region.clone().unwrap_or_default());
+        if let Some((at, found)) = self.tag_sources.lock().unwrap().get(&key)
+            && at.elapsed() < TAG_SOURCES_FOR
+        {
+            return found.clone();
+        }
+        let kind = match genres::canonical(&name).map(|tag| tag.kind) {
+            Some(TagKind::Mood) => "mood",
+            _ => "genre",
+        };
+        let aliases = genres::aliases(&name);
+        let answers = self
+            .extensions()
+            .music_tag_songs(&name, &aliases, kind, region.as_deref(), CHART_LIMIT)
+            .await;
+        let mut found = MusicTagSources {
+            rows: Vec::new(),
+            failures: Vec::new(),
+        };
+        for (provider, answer) in answers {
+            match answer {
+                Ok((_, tracks)) if tracks.is_empty() => {}
+                Ok((row_name, tracks)) => found.rows.push(TagSongsRow {
+                    name: row_name.unwrap_or_else(|| format!("{name} on {}", provider.name)),
+                    provider,
+                    tracks,
+                }),
+                Err(error) => found.failures.push(SourceFailure {
+                    source: provider.name,
+                    error,
+                }),
+            }
+        }
+        // Answers are kept; a page where every source failed asks again next time.
+        if !found.rows.is_empty() {
+            self.tag_sources
+                .lock()
+                .unwrap()
+                .insert(key, (Instant::now(), found.clone()));
+        }
+        found
     }
 
     /// Asks the sources for a song's tags. `Err` when no source could answer, so the song is

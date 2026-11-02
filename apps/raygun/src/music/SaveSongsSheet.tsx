@@ -1,10 +1,12 @@
-import type { AudioFileFormat, SongDestination } from '@raygun/bindings';
+import { commands } from '@raygun/bindings';
+import type { AudioFileFormat, Settings, SongDestination } from '@raygun/bindings';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { FolderOpen } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { usePickFolder } from '../export/useExports';
+import { unwrapResult } from '../lib/commandResult';
 import { useSettings } from '../settings/useSettings';
 import { Sheet } from '../shell/Sheet';
 import { useSongDownloadActions } from './useSongDownloads';
@@ -20,7 +22,16 @@ export const SaveSongsSheet: FC<{ ids: string[]; onClose: () => void }> = ({ ids
   const { t } = useTranslation();
   const settings = useSettings();
   const { save } = useSongDownloadActions();
-  const pick = usePickFolder();
+  const client = useQueryClient();
+  // Remembers the folder without changing where finished downloads go; cancelling changes nothing.
+  const pick = useMutation({
+    mutationFn: () => unwrapResult(commands.songsPickFolder()),
+    onSuccess: (settings: Settings | null) => {
+      if (!settings) return;
+      client.setQueryData(['settings'], settings);
+      setDestination('folder');
+    },
+  });
   const folder = settings.data?.save.folderName ?? null;
   const [format, setFormat] = useState<AudioFileFormat>(
     settings.data?.save.songFormat ?? 'original',
@@ -81,7 +92,7 @@ export const SaveSongsSheet: FC<{ ids: string[]; onClose: () => void }> = ({ ids
           <button
             type="button"
             disabled={pick.isPending}
-            onClick={() => pick.mutate(undefined, { onSuccess: () => setDestination('folder') })}
+            onClick={() => pick.mutate()}
             className="text-primary flex items-center gap-2 self-start rounded-full px-3 py-2 text-sm font-semibold disabled:opacity-60"
           >
             <FolderOpen aria-hidden size={16} />

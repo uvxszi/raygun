@@ -5,30 +5,54 @@
     {
       "id": "dev.raygun.apple-charts",
       "name": "Apple Music charts",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "apiVersion": 1,
-      "description": "The most played songs on Apple Music in your country, from Apple's public charts feed.",
+      "description": "The most played songs on Apple Music in your country, and each genre's top songs on the iTunes Store, from Apple's public charts feeds.",
       "author": "Raygun",
       "provides": [
         "music.charts"
       ],
       "permissions": {
         "net": [
-          "rss.marketingtools.apple.com"
+          "rss.marketingtools.apple.com",
+          "itunes.apple.com"
         ],
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.apple-charts-1.0.0.zip",
-      "sha256": "c30d8cf1f3bc83c1a19f2fc6fcae914c08aa365853337d8c0366b078a9064515",
-      "size": 1510
+      "package": "packages/dev.raygun.apple-charts-1.1.0.zip",
+      "sha256": "5dee8c9444cf12a84ee5a79848d754730c6fd19c1a75ac57d7c99c9dbc88d745",
+      "size": 2360
+    },
+    {
+      "id": "dev.raygun.audius",
+      "name": "Audius",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Trending and underground songs by genre from Audius, the open music platform where artists upload their own songs, playable in full. No account needed.",
+      "author": "Raygun",
+      "provides": [
+        "music.charts",
+        "music.metadata",
+        "music.stream"
+      ],
+      "permissions": {
+        "net": [
+          "api.audius.co"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.audius-1.0.0.zip",
+      "sha256": "53ac1e27fa839398837cc029680f991520f755a32584a4b0d9bb7c87b2b44867",
+      "size": 2578
     },
     {
       "id": "dev.raygun.deezer",
       "name": "Deezer",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "apiVersion": 1,
-      "description": "Song, artist and album search, charts (the top songs and each genre's) and song genres from Deezer's public API.",
+      "description": "Song, artist and album search, charts (the top songs, each genre's and the decades'), songs for any genre or mood, and song genres from Deezer's public API.",
       "author": "Raygun",
       "provides": [
         "music.charts",
@@ -42,9 +66,9 @@
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.deezer-1.1.0.zip",
-      "sha256": "00de6a1d3de2de500c944de017e60a2e20204c7392b403f78ea44a144012c46b",
-      "size": 2220
+      "package": "packages/dev.raygun.deezer-1.2.0.zip",
+      "sha256": "a826877b9b97b461701e651c277f32feb03be9acba15b58157724fc2ca993275",
+      "size": 3295
     },
     {
       "id": "dev.raygun.gutenberg",
@@ -95,9 +119,9 @@
     {
       "id": "dev.raygun.listenbrainz",
       "name": "ListenBrainz",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "apiVersion": 1,
-      "description": "The songs most listened to on the open ListenBrainz service this week, month and year.",
+      "description": "The songs most listened to on the open ListenBrainz service this week, month and year, fresh singles, and songs for any genre or mood from its tag radio.",
       "author": "Raygun",
       "provides": [
         "music.charts"
@@ -109,9 +133,9 @@
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.listenbrainz-1.0.0.zip",
-      "sha256": "a0b040ff98fc9cc041cc2a5c7f346d882d9e80626dbdf2f726fa6b2092bcae6c",
-      "size": 1373
+      "package": "packages/dev.raygun.listenbrainz-1.1.0.zip",
+      "sha256": "5314a5affd0498f2bddbd5cdb03046a5a3e15822b99d0c17c8eb44a3bd579d50",
+      "size": 2329
     },
     {
       "id": "dev.raygun.lrclib",

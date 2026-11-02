@@ -635,6 +635,17 @@ pub async fn music_charts(
     Ok(discovery.charts(region).await)
 }
 
+/// Every chart source's songs for a genre or a mood (M46.19).
+#[tauri::command]
+#[specta::specta]
+pub async fn music_tag_sources(
+    discovery: tauri::State<'_, Arc<DiscoveryService>>,
+    name: String,
+    region: Option<String>,
+) -> Result<raygun_model::MusicTagSources, String> {
+    Ok(discovery.tag_sources(name, region).await)
+}
+
 /// A chart's songs (M46.9).
 #[tauri::command]
 #[specta::specta]
@@ -2162,6 +2173,35 @@ pub async fn save_pick_folder(
     };
     settings::update(&db.0, SettingChange::Save(prefs))
         .await
+        .map_err(|error| error.to_string())
+}
+
+/// The folder picker for saving songs as files (M46.18): the chosen folder is remembered as the
+/// save folder, but where finished downloads go stays as it was. `None` when the user cancelled.
+#[tauri::command]
+#[specta::specta]
+pub async fn songs_pick_folder(
+    app: tauri::AppHandle,
+    db: tauri::State<'_, AppDb>,
+) -> Result<Option<Settings>, String> {
+    let current = settings::load(&db.0)
+        .await
+        .map_err(|error| error.to_string())?;
+    let picked = pick_folder(&app).await?;
+    let Some(uri) = picked.uri else {
+        return Ok(None);
+    };
+    if let Some(old) = current.save.folder_uri.as_deref().filter(|old| *old != uri) {
+        release_folder(&app, old);
+    }
+    let prefs = raygun_model::SavePrefs {
+        folder_name: picked.name.or_else(|| Some("Folder".into())),
+        folder_uri: Some(uri),
+        ..current.save
+    };
+    settings::update(&db.0, SettingChange::Save(prefs))
+        .await
+        .map(Some)
         .map_err(|error| error.to_string())
 }
 

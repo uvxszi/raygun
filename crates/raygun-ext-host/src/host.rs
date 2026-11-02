@@ -525,6 +525,54 @@ impl ExtensionHost {
             .collect()
     }
 
+    /// Songs for a genre or a mood from every `music.charts` provider that has `tagSongs`
+    /// (M46.19), at once. Providers without the call are left out; each other answers with
+    /// `(row name, songs)` or an error. `aliases` are the vocabulary's other spellings.
+    pub async fn music_tag_songs(
+        &self,
+        tag: &str,
+        aliases: &[String],
+        kind: &str,
+        region: Option<&str>,
+        limit: u32,
+    ) -> Vec<(
+        ProviderInfo,
+        Result<(Option<String>, Vec<OnlineTrack>), String>,
+    )> {
+        let providers = self.providers(MUSIC_CHARTS).await;
+        let args = serde_json::json!({
+            "tag": tag,
+            "aliases": aliases,
+            "kind": kind,
+            "region": region,
+            "limit": limit,
+        });
+        let requests = providers.into_iter().map(|provider| {
+            let args = args.clone();
+            async move {
+                match self.call_interactive(&provider.id, "tagSongs", args).await {
+                    Ok(value) => {
+                        let name = value
+                            .get("name")
+                            .and_then(serde_json::Value::as_str)
+                            .map(|name| name.trim().to_owned())
+                            .filter(|name| !name.is_empty());
+                        Some((provider, Ok((name, parse_tracks(value)))))
+                    }
+                    Err(error) => {
+                        let message = error.to_string();
+                        (!message.contains("has no method")).then_some((provider, Err(message)))
+                    }
+                }
+            }
+        });
+        futures_util::future::join_all(requests)
+            .await
+            .into_iter()
+            .flatten()
+            .collect()
+    }
+
     /// A chart's songs from the provider that keeps it (M46.9).
     pub async fn music_chart(
         &self,
@@ -1131,6 +1179,8 @@ struct RawChart {
     artwork_url: Option<String>,
     #[serde(default)]
     tag: Option<String>,
+    #[serde(default)]
+    group: Option<String>,
 }
 
 /// A provider's id for something: a string, or a number written out.
@@ -1198,13 +1248,25 @@ fn parse_charts(provider: &ProviderInfo, value: &serde_json::Value) -> Vec<Music
                 _ => return None,
             };
             let name = chart.name.trim().to_owned();
+            let tag = text(chart.tag);
+            // Without a group (older sources), a genre's chart is a genre chart, else a main one.
+            let group = chart
+                .group
+                .as_deref()
+                .and_then(raygun_model::ChartGroup::parse)
+                .unwrap_or(if tag.is_some() {
+                    raygun_model::ChartGroup::Genre
+                } else {
+                    raygun_model::ChartGroup::Top
+                });
             (!id.is_empty() && !name.is_empty()).then(|| MusicChart {
                 provider: provider.clone(),
                 id,
                 name,
                 description: text(chart.description),
                 artwork_url: chart.artwork_url.filter(|url| is_web_url(url)),
-                tag: text(chart.tag),
+                tag,
+                group,
             })
         })
         .collect()

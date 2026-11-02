@@ -194,6 +194,8 @@ export const commands = {
 	musicCharts: (region: string | null) => typedError<MusicCharts, string>(__TAURI_INVOKE("music_charts", { region })),
 	/**  A chart's songs (M46.9). */
 	musicChart: (providerId: string, chartId: string, region: string | null) => typedError<OnlineTrack[], string>(__TAURI_INVOKE("music_chart", { providerId, chartId, region })),
+	/**  Every chart source's songs for a genre or a mood (M46.19). */
+	musicTagSources: (name: string, region: string | null) => typedError<MusicTagSources, string>(__TAURI_INVOKE("music_tag_sources", { name, region })),
 	/**  A song's genres and moods, found now if they aren't stored yet (M46.9). */
 	musicTrackTags: (query: TrackQuery) => typedError<MusicTag[], string>(__TAURI_INVOKE("music_track_tags", { query })),
 	/**  Stored tags for songs by track key; songs without any are left out (M46.9). */
@@ -432,6 +434,105 @@ export const commands = {
 	 *  the settings, unchanged when the user cancelled.
 	 */
 	savePickFolder: () => typedError<Settings, string>(__TAURI_INVOKE("save_pick_folder")),
+	/**
+	 *  The folder picker for saving songs as files (M46.18): the chosen folder is remembered as the
+	 *  save folder, but where finished downloads go stays as it was. `None` when the user cancelled.
+	 */
+	songsPickFolder: () => typedError<{
+	theme: Theme,
+	/**  UI language as a BCP 47 tag, e.g. `en` or `pt-BR`. */
+	language: string,
+	/**  Hours between automatic manga library updates; 0 turns them off (M28). */
+	mangaUpdateHours: number,
+	/**  How novels are set (M31). */
+	novelReader: NovelReaderPrefs,
+	/**  Shows NSFW (18+) extensions and content; off by default (M35). */
+	showNsfw: boolean,
+	/**  The video height links are picked by (M42); `None` picks the highest. */
+	preferredVideoQuality: number | null,
+	/**  The colour of buttons, tabs and highlights (M42.1). */
+	accent: Accent,
+	/**  The screen the app opens on. */
+	startScreen: StartScreen,
+	/**  Navigation bar labels: on every tab, or on the selected one only. */
+	navLabels: NavLabels,
+	/**  Covers per row in library and browse grids; 0 fits them to the screen. */
+	gridColumns: number,
+	/**  Titles over covers (compact, as in Mihon) or under them (comfortable). */
+	coverStyle: CoverStyle,
+	/**  The unread count on library covers. */
+	unreadBadges: boolean,
+	/**  The downloaded count on library covers. */
+	downloadBadges: boolean,
+	/**  Videos pick up where they were left. */
+	resumeVideos: boolean,
+	/**  Share of a video, in percent, after which it counts as watched. */
+	watchedPercent: number,
+	/**  Seconds a double tap or the skip buttons jump in the video player. */
+	seekSeconds: number,
+	/**  Subtitles turn on by themselves when a video has them in the subtitle language. */
+	autoSubtitles: boolean,
+	/**  Subtitles' language as a BCP 47 tag; empty follows the app's language. */
+	subtitleLanguage: string,
+	/**  The next episode plays by itself at the end of one (M44). */
+	autoplayNext: boolean,
+	/**  Seconds before the end the next-episode prompt shows; 0 shows it at the end only (M44). */
+	nextPromptSeconds: number,
+	/**  The video player's controls, gestures, tracks and tools (M45). */
+	videoPlayer: VideoPlayerPrefs,
+	/**  How the manga, novel and video libraries look (M46). */
+	libraryDisplay: LibraryDisplayPrefs,
+	/**  Where downloads and pages are saved outside the app (M46.1). */
+	save: SavePrefs,
+	/**  Image cache limits and refreshing (M46.2). */
+	cache: CachePrefs,
+	/**  The built-in browser and its blocker (M46.3). */
+	websites: WebsitePrefs,
+	/**  How tabs, library tabs and the Home, Browse and More screens are arranged (M46.5). */
+	layout: LayoutPrefs,
+	/**  The accent when `accent` is `Custom`: `#rrggbb` (M46.7). */
+	accentColor: string,
+	/**  Smallest cover width in px when covers per row is automatic; 0 picks it by screen (M46.7). */
+	coverWidth: number,
+	/**  How manga pages fit the reader (M46.7). */
+	mangaReader: MangaReaderPrefs,
+	/**  How the full music player is laid out (M46.7). */
+	playerView: PlayerViewPrefs,
+	/**  How scrollbars look everywhere (M46.7). */
+	scrollbars: ScrollbarStyle,
+	/**  How much buttons, panels and sheets move (M46.7). */
+	motion: MotionLevel,
+	/**  Each kind of song table's sort, view and columns (M46.8). */
+	trackTables: TrackTablePrefs,
+	/**  Sizes of the panels the user resizes (M46.8). */
+	panels: PanelPrefs,
+	/**  The user's own colours over the theme's (M46.8). */
+	colors: CustomColors,
+	/**  Sources and providers (`<extension>/<provider>`) the user turned off (M46.8). */
+	disabledSources: string[],
+	/**  Loading a source's next page while scrolling (M46.8). */
+	autoLoad: AutoLoadPrefs,
+	/**  Who draws the desktop window's top edge (M46.9). */
+	windowFrame: WindowFrame,
+	/**  The desktop app's zoom in percent (M46.9): 50 to 200, in steps of 10. */
+	zoom: number,
+	/**  Charts and song tags (M46.9). */
+	discovery: DiscoveryPrefs,
+	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
+	failingSourcesLast: boolean,
+	/**  The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default. */
+	userAgent: string,
+	/**  The equalizer, effects, normalization and crossfade for every song (M46.12). */
+	sound: SoundPrefs,
+	/**  Music keeps playing when a video, a trailer or read-aloud starts (M46.16); off pauses it. */
+	keepMusicPlaying: boolean,
+	/**  Opening Raygun shows what played last, paused where it was (M46.16). */
+	resumeOnStart: boolean,
+	/**  What plays shows in Discord's status (desktop). */
+	discord: DiscordPrefs,
+	/**  How good songs sound against the data they use, streaming and downloading. */
+	audioQuality: AudioQualityPrefs,
+} | null, string>(__TAURI_INVOKE("songs_pick_folder")),
 	/**  Whether Raygun may still write to the picked folder. */
 	saveFolderState: (uri: string) => typedError<SaveFolderState, string>(__TAURI_INVOKE("save_folder_state", { uri })),
 	/**  What an export would do: chapters, those to download first, files, or why it can't run. */
@@ -839,6 +940,19 @@ export type ChapterFormat = "cbz" |
 
 /**  What a chapter of a video is, for the skip button. */
 export type ChapterKind = "opening" | "ending" | "recap" | "other";
+
+/**  Kinds of chart (M46.19), in the order Browse → Music lists them. */
+export type ChartGroup = 
+/**  The most played overall. */
+"top" | 
+/**  Rising now. */
+"trending" | 
+/**  New releases. */
+"new" | 
+/**  Spreading fast. */
+"viral" | "genre" | "mood" | "decade" | 
+/**  Rising artists with smaller followings. */
+"underground";
 
 /**  Which saved tracks to play. */
 export type Collection = { kind: "favorites" } | { kind: "playlist"; id: string } | { kind: "history" } | 
@@ -1665,6 +1779,8 @@ export type MusicChart = {
 	artworkUrl: string | null,
 	/**  The genre the chart belongs to, in the app's spelling ("Hip-Hop"). */
 	tag: string | null,
+	/**  What kind of chart it is (M46.19). */
+	group: ChartGroup,
 };
 
 /**  Every source's charts (M46.9), and the sources that failed. */
@@ -1678,6 +1794,12 @@ export type MusicCharts = {
 export type MusicTag = {
 	name: string,
 	kind: TagKind,
+};
+
+/**  Every source's songs for a genre or a mood (M46.19). */
+export type MusicTagSources = {
+	rows: TagSongsRow[],
+	failures: SourceFailure[],
 };
 
 export type NavLabels = "always" | "selected";
@@ -2284,6 +2406,12 @@ export type SoundPrefs = {
 	crossfadeMs?: number,
 };
 
+/**  A source that didn't answer, and why. */
+export type SourceFailure = {
+	source: string,
+	error: string,
+};
+
 /**  A filter a source offers for its search (Mihon's `FilterList`, simplified). */
 export type SourceFilter = 
 /**  Pick one option. */
@@ -2591,6 +2719,14 @@ export type TagCount = {
 
 /**  What a song's tag says (M46.9): a genre a source gave, or a mood derived from genres. */
 export type TagKind = "genre" | "mood";
+
+/**  One source's songs for a genre or a mood (M46.19). */
+export type TagSongsRow = {
+	provider: ProviderInfo,
+	/**  What the source calls them ("Breakcore on ListenBrainz"). */
+	name: string,
+	tracks: OnlineTrack[],
+};
 
 /**  What a double tap on one part of the player does. */
 export type TapAction = "seek" | "playPause" | 

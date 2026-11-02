@@ -105,6 +105,16 @@ fn built_in() -> Vec<ExtensionSource> {
         ExtensionSource::built_in(&[
             (
                 "raygun-extension.json",
+                include_str!("../../../extensions/audius/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/audius/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
                 include_str!("../../../extensions/lrclib/raygun-extension.json"),
             ),
             (
@@ -359,6 +369,24 @@ impl ExtensionService {
     ) -> Vec<(ProviderInfo, Result<Vec<MusicChart>, String>)> {
         let _ready = self.loading.read().await;
         self.host.music_charts(region).await
+    }
+
+    /// Every chart source's songs for a genre or a mood (M46.19).
+    pub async fn music_tag_songs(
+        &self,
+        tag: &str,
+        aliases: &[String],
+        kind: &str,
+        region: Option<&str>,
+        limit: u32,
+    ) -> Vec<(
+        ProviderInfo,
+        Result<(Option<String>, Vec<OnlineTrack>), String>,
+    )> {
+        let _ready = self.loading.read().await;
+        self.host
+            .music_tag_songs(tag, aliases, kind, region, limit)
+            .await
     }
 
     /// A chart's songs (M46.9).

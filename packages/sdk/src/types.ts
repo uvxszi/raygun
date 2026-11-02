@@ -152,6 +152,25 @@ export type Chart = {
   artworkUrl?: string | null;
   /** The genre the chart belongs to ("Rock"), so the genre's page can show it. */
   tag?: string | null;
+  /**
+   * What kind of chart it is (M46.19), for grouping in Browse. Without one, a chart with a `tag`
+   * counts as `genre`, else `top`.
+   */
+  group?: ChartGroup | null;
+};
+
+export type ChartGroup =
+  'top' | 'trending' | 'new' | 'viral' | 'genre' | 'mood' | 'decade' | 'underground';
+
+/** A genre or mood the app wants songs for (M46.19). */
+export type TagSongsArgs = {
+  /** The app's name for it ("Hip-Hop", "Chill"). */
+  tag: string;
+  /** Other spellings sources use ("hip hop", "rap"), lowercase. */
+  aliases: string[];
+  kind: 'genre' | 'mood';
+  region: string | null;
+  limit: number;
 };
 
 /** Where the user is, as an ISO 3166 country code ("us"), when the source has charts by country. */
@@ -164,6 +183,11 @@ export type MusicChartsProvider = {
   name?: string;
   charts(args: ChartArgs): Promise<{ charts: Chart[] }>;
   chart(args: { id: string; region: string | null; limit: number }): Promise<{ tracks: Track[] }>;
+  /**
+   * Songs for any genre or mood (M46.19), shown as a row on its page, named `name` (default
+   * "<tag> on <source>"). Answer no tracks when the source has nothing for it.
+   */
+  tagSongs?(args: TagSongsArgs): Promise<{ tracks: Track[]; name?: string | null }>;
 };
 
 /** A genre a source gives a song ("Hip-Hop", "Breakcore"); a higher weight is more certain. */
@@ -413,7 +437,27 @@ export type VideoSourceProvider = {
   videos(args: { serverId: string }): Promise<{ videos: Video[] }>;
 };
 
+/**
+ * Recommendations (M46.20) for Made for You and song radios: artists like an artist, an artist's
+ * best-known songs, their latest releases, and radios. Every call is optional; songs without a
+ * `source` play through `music.stream`.
+ */
+export type MusicRecommendProvider = {
+  kind: 'music.recommend';
+  id: string;
+  name?: string;
+  /** Artists like this one, the closest first. */
+  similarArtists?(args: { artist: string; limit: number }): Promise<{ artists: Artist[] }>;
+  /** The artist's most played songs. */
+  topTracks?(args: { artist: string; limit: number }): Promise<{ tracks: Track[] }>;
+  /** Songs from the artist's releases of the last `days` days, newest first. */
+  newReleases?(args: { artist: string; days: number; limit: number }): Promise<{ tracks: Track[] }>;
+  /** Songs like the artist's (and like this song, when `title` is given). */
+  radio?(args: { artist: string; title: string | null; limit: number }): Promise<{ tracks: Track[] }>;
+};
+
 export type Provider =
+  | MusicRecommendProvider
   | MusicMetadataProvider
   | MusicStreamProvider
   | LyricsProvider

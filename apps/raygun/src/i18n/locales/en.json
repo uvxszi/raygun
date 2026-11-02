@@ -2093,6 +2093,16 @@
     }
   },
   "discover": {
+    "groups": {
+      "top": "Top charts",
+      "trending": "Trending",
+      "new": "New releases",
+      "viral": "Viral",
+      "underground": "Underground",
+      "decade": "Decades",
+      "mood": "Moods",
+      "genre": "Genres"
+    },
     "title": "Browse all",
     "start": "Start browsing",
     "charts": "Charts",

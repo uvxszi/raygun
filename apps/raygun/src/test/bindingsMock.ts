@@ -207,6 +207,7 @@ export const bindingsMock = {
     musicTagsFor: vi.fn(),
     musicTagSummary: vi.fn(),
     musicTagSongs: vi.fn(),
+    musicTagSources: vi.fn(),
     musicTagVocabulary: vi.fn(),
     songsDownload: vi.fn(),
     musicSearchArtists: vi.fn(),
@@ -388,6 +389,7 @@ export const bindingsMock = {
     uploadCancel: vi.fn(),
     mangaImportComic: vi.fn(),
     savePickFolder: vi.fn(),
+    songsPickFolder: vi.fn(),
     saveFolderState: vi.fn(),
     exportPlan: vi.fn(),
     exportStart: vi.fn(),
@@ -498,6 +500,7 @@ export const seedBindings = () => {
   commands.musicTagsFor.mockResolvedValue(ok([]));
   commands.musicTagSummary.mockResolvedValue(ok([]));
   commands.musicTagSongs.mockResolvedValue(ok([]));
+  commands.musicTagSources.mockResolvedValue(ok({ rows: [], failures: [] }));
   commands.musicTagVocabulary.mockResolvedValue([]);
   commands.songsDownload.mockResolvedValue(ok(null));
   commands.musicSearchArtists.mockResolvedValue(ok([]));
@@ -700,6 +703,7 @@ export const seedBindings = () => {
   commands.uploadAppend.mockResolvedValue(ok(0));
   commands.mangaImportComic.mockResolvedValue(ok({ sourceId: 'local.comics', remoteId: 'series' }));
   commands.savePickFolder.mockResolvedValue(ok(DEFAULT_SETTINGS));
+  commands.songsPickFolder.mockResolvedValue(ok(null));
   commands.saveFolderState.mockResolvedValue(ok({ granted: true, name: null }));
   commands.exportPlan.mockResolvedValue(ok({ chapters: 0, missing: 0, files: 0, problem: null }));
   commands.exportStart.mockResolvedValue({ status: 'error', error: 'not mocked' });

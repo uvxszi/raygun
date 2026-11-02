@@ -122,7 +122,8 @@ export const BrowseAll: FC = () => {
   const vocabulary = useTagVocabulary();
   const [allTags, setAllTags] = useState(false);
   const all = charts.data?.charts ?? [];
-  const mainCharts = all.filter((chart) => !chart.tag);
+  // Tiles for the main kinds of chart; genres and moods have tiles of their own below.
+  const mainCharts = all.filter((chart) => chart.group !== 'genre' && chart.group !== 'mood');
   // A genre tile shows its chart's picture when a source has one.
   const genrePicture = new Map<string, string>();
   for (const chart of all) {

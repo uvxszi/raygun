@@ -13,6 +13,7 @@ import { useTrackMenu } from './useTrackMenu';
 import { Carousel } from '../shell/Carousel';
 import { NowPlayingBars } from '../player/NowPlayingBars';
 import { usePlayingMatch } from '../player/usePlayingMatch';
+import { SourceIssue } from '../shell/SourceIssue';
 
 /** Songs shown in a row; the chart's page has the rest. */
 const ROW_SONGS = 20;
@@ -87,7 +88,9 @@ export const ChartRow: FC<{ chart: MusicChart; title?: string }> = ({ chart, tit
         </Link>
       </div>
       {songs.error ? (
-        <p className="text-muted text-sm wrap-anywhere">{songs.error.message}</p>
+        <SourceIssue compact source={chart.provider.name} onRetry={() => void songs.refetch()}>
+          {songs.error.message}
+        </SourceIssue>
       ) : (
         <Carousel className="-mx-4 gap-1 px-2 lg:-mx-2">
           {shown.length > 0
@@ -109,3 +112,25 @@ export const ChartRow: FC<{ chart: MusicChart; title?: string }> = ({ chart, tit
     </section>
   );
 };
+
+/**
+ * A source's songs for a genre or a mood (M46.19), as a row like a chart's: the whole row plays
+ * from the song pressed.
+ */
+export const SongsRow: FC<{ heading: string; source: string; songs: OnlineTrack[] }> = ({
+  heading,
+  source,
+  songs,
+}) => (
+  <section aria-label={heading} data-testid="tag-source-row" className="flex flex-col gap-1">
+    <div className="flex items-baseline gap-3">
+      <h2 className="min-w-0 truncate text-lg font-semibold">{heading}</h2>
+      <span className="text-muted truncate text-xs">{source}</span>
+    </div>
+    <Carousel className="-mx-4 gap-1 px-2 lg:-mx-2">
+      {songs.map((song, index) => (
+        <SongCard key={`${song.title}-${index}`} song={song} songs={songs} rank={index + 1} />
+      ))}
+    </Carousel>
+  </section>
+);

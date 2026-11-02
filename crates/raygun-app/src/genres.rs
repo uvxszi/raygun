@@ -378,6 +378,24 @@ pub fn canonical(tag: &str) -> Option<MusicTag> {
     })
 }
 
+/// A genre's or a mood's other spellings, as sources use them (M46.19: asking sources for its
+/// songs); empty for a name outside the vocabulary.
+pub fn aliases(name: &str) -> Vec<String> {
+    GENRES
+        .iter()
+        .chain(MOODS)
+        .find(|(known, _)| *known == name)
+        .map(|(known, spellings)| {
+            let own = simplify(known);
+            spellings
+                .iter()
+                .map(|spelling| (*spelling).to_owned())
+                .filter(|spelling| *spelling != own)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Every genre and mood, in the order Browse shows them.
 pub fn vocabulary() -> Vec<MusicTag> {
     MOODS
@@ -518,5 +536,17 @@ mod tests {
             }
         }
         assert_eq!(vocabulary().len(), GENRES.len() + MOODS.len());
+    }
+
+    #[test]
+    fn names_come_with_their_other_spellings() {
+        let hip_hop = aliases("Hip-Hop");
+        assert!(hip_hop.iter().any(|alias| alias == "rap"), "{hip_hop:?}");
+        assert!(
+            !hip_hop.contains(&"hip hop".to_owned()),
+            "its own simple spelling is left out"
+        );
+        assert!(aliases("Chill").contains(&"relaxing".to_owned()));
+        assert!(aliases("Polka dots").is_empty());
     }
 }

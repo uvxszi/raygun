@@ -1,6 +1,8 @@
-// Deezer: charts (the top songs, and each genre's) and the genres of songs, from Deezer's public
-// API, which needs no key (M46.9). Charts follow the country Deezer sees the request from. Songs
-// carry no stream; Raygun finds one through `music.stream` providers when they play.
+// Deezer: charts (the top songs, each genre's, and the decades') and the genres of songs, from
+// Deezer's public API, which needs no key (M46.9). Any genre or mood has songs too (M46.19): its
+// chart, a Deezer radio for it, or else the best playlist named after it. Charts follow the
+// country Deezer sees the request from. Songs carry no stream; Raygun finds one through
+// `music.stream` providers when they play.
 import { defineProvider, registerProvider } from '@raygun/sdk';
 import type { Album, Artist, Chart, LyricsQuery, MusicTag, Track } from '@raygun/sdk';
 
@@ -28,6 +30,76 @@ type DeezerAlbum = {
   artist?: { name: string };
 };
 type DeezerList<T> = { data?: T[]; error?: { message?: string; code?: number } };
+type DeezerPlaylist = {
+  id: number;
+  title: string;
+  nb_tracks?: number;
+  user?: { id?: number; name?: string };
+};
+
+/** Deezer's genre charts, by the app's genre names. */
+const GENRE_CHARTS: Record<string, number> = {
+  Pop: 132,
+  'Hip-Hop': 116,
+  Rap: 116,
+  Reggaeton: 122,
+  Rock: 152,
+  Dance: 113,
+  'R&B': 165,
+  Alternative: 85,
+  Christian: 186,
+  Electronic: 106,
+  Folk: 466,
+  Reggae: 144,
+  Jazz: 129,
+  Country: 84,
+  Salsa: 67,
+  Classical: 98,
+  Soundtrack: 173,
+  Metal: 464,
+  Soul: 169,
+  Funk: 169,
+  Afrobeats: 2,
+  African: 2,
+  Blues: 153,
+  Brazilian: 75,
+  Cumbia: 71,
+  Indian: 81,
+  Kids: 95,
+  Latin: 197,
+};
+
+/** Deezer radios for moods, decades and genres without a chart. */
+const RADIOS: Record<string, number> = {
+  Happy: 38235,
+  Sad: 39051,
+  Chill: 37121,
+  Focus: 38225,
+  Party: 36871,
+  Workout: 36901,
+  Romantic: 36861,
+  Sleep: 38955,
+  Energetic: 648,
+  EDM: 648,
+  'Bossa Nova': 39101,
+  Ska: 31121,
+  Indie: 30771,
+  Techno: 30851,
+  Disco: 30841,
+  Gospel: 39071,
+  Grime: 40622,
+  House: 36891,
+  Dubstep: 38215,
+  Acoustic: 38435,
+  Opera: 37061,
+  "'60s": 38285,
+  "'70s": 38295,
+  "'80s": 38305,
+  "'90s": 38315,
+  '2000s': 38325,
+};
+
+const DECADES = ["'60s", "'70s", "'80s", "'90s", '2000s'];
 
 /** Deezer answers errors with status 200 and an `error` object; quota errors are worth a retry. */
 const get = async <T>(path: string): Promise<T> => {
@@ -61,7 +133,12 @@ registerProvider(
     async charts() {
       const genres = await get<DeezerList<DeezerGenre>>('/genre');
       const charts: Chart[] = [
-        { id: '0', name: 'Top songs on Deezer', description: 'The most played songs today' },
+        {
+          id: '0',
+          name: 'Top songs on Deezer',
+          description: 'The most played songs today',
+          group: 'top',
+        },
       ];
       for (const genre of genres.data ?? []) {
         if (genre.id === 0) continue;
@@ -71,19 +148,75 @@ registerProvider(
           description: `Top ${genre.name} songs on Deezer`,
           artworkUrl: genre.picture_xl ?? genre.picture_big ?? null,
           tag: genre.name,
+          group: 'genre',
+        });
+      }
+      for (const decade of DECADES) {
+        charts.push({
+          id: `radio:${RADIOS[decade]}`,
+          name: `The ${decade}`,
+          description: `Deezer's radio of the ${decade}`,
+          group: 'decade',
         });
       }
       return { charts };
     },
     async chart({ id, limit }) {
+      if (id.startsWith('radio:')) return { tracks: await radio(id.slice('radio:'.length), limit) };
       if (!/^\d+$/.test(id)) throw new Error(`Unknown chart ${id}`);
-      const page = await get<DeezerList<DeezerTrack>>(
-        `/chart/${id}/tracks?limit=${Math.min(Math.max(limit, 1), 100)}`,
-      );
-      return { tracks: (page.data ?? []).map(toTrack) };
+      return { tracks: await genreChart(Number(id), limit) };
+    },
+    async tagSongs({ tag, aliases, limit }) {
+      const names = [tag, ...aliases];
+      const chart = names.map((name) => GENRE_CHARTS[name]).find((id) => id !== undefined);
+      if (chart !== undefined) {
+        return { tracks: await genreChart(chart, limit), name: `${tag} on Deezer` };
+      }
+      const station = names.map((name) => RADIOS[name]).find((id) => id !== undefined);
+      if (station !== undefined) {
+        return { tracks: await radio(String(station), limit), name: `${tag} radio on Deezer` };
+      }
+      return playlistFor(tag, limit);
     },
   }),
 );
+
+const genreChart = async (id: number, limit: number) => {
+  const page = await get<DeezerList<DeezerTrack>>(
+    `/chart/${id}/tracks?limit=${Math.min(Math.max(limit, 1), 100)}`,
+  );
+  return (page.data ?? []).map(toTrack);
+};
+
+const radio = async (id: string, limit: number) => {
+  if (!/^\d+$/.test(id)) throw new Error(`Unknown radio ${id}`);
+  const page = await get<DeezerList<DeezerTrack>>(
+    `/radio/${id}/tracks?limit=${Math.min(Math.max(limit, 1), 100)}`,
+  );
+  return (page.data ?? []).map(toTrack);
+};
+
+/**
+ * Songs for a genre or mood Deezer has no chart or radio for: one of Deezer's own playlists for it,
+ * else the fullest listener playlist with the name in its title.
+ */
+const playlistFor = async (tag: string, limit: number) => {
+  const found = await get<DeezerList<DeezerPlaylist>>(
+    `/search/playlist?q=${encodeURIComponent(tag)}&limit=25`,
+  );
+  const wanted = simple(tag);
+  const named = (found.data ?? []).filter(
+    (playlist) => simple(playlist.title).includes(wanted) && (playlist.nb_tracks ?? 0) >= 15,
+  );
+  const editorial = named.find((playlist) => /deezer/i.test(playlist.user?.name ?? ''));
+  const chosen =
+    editorial ?? [...named].sort((a, b) => (b.nb_tracks ?? 0) - (a.nb_tracks ?? 0))[0] ?? null;
+  if (!chosen) return { tracks: [] };
+  const page = await get<DeezerList<DeezerTrack>>(
+    `/playlist/${chosen.id}/tracks?limit=${Math.min(Math.max(limit, 1), 100)}`,
+  );
+  return { tracks: (page.data ?? []).map(toTrack), name: `${chosen.title} (Deezer)` };
+};
 
 const simple = (text: string) =>
   text

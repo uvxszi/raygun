@@ -126,7 +126,7 @@ describe('Downloads beside the Plus (M46.18)', () => {
     commands.songsSave.mockResolvedValue(
       ok({ saved: ['Song folder/A - Sinnerman.mp3'], failed: [] }),
     );
-    commands.savePickFolder.mockResolvedValue(
+    commands.songsPickFolder.mockResolvedValue(
       ok({
         ...DEFAULT_SETTINGS,
         save: {
@@ -141,7 +141,7 @@ describe('Downloads beside the Plus (M46.18)', () => {
     const sheet = await screen.findByRole('dialog', { name: 'Save the song as a file' });
     await user.click(within(sheet).getByRole('radio', { name: /^MP3/ }));
     await user.click(within(sheet).getByRole('button', { name: 'Choose a folder' }));
-    expect(commands.savePickFolder).toHaveBeenCalled();
+    expect(commands.songsPickFolder).toHaveBeenCalled();
     const folder = await within(sheet).findByRole('radio', { name: 'Song folder' });
     expect(folder).toBeChecked();
     await user.click(within(sheet).getByRole('button', { name: 'Save' }));

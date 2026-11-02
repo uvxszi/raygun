@@ -963,6 +963,81 @@ async fn charts_and_tags_come_from_their_providers() {
 }
 
 #[tokio::test]
+async fn charts_have_groups_and_any_tag_has_songs() {
+    let host = test_host();
+    let manifest = manifest_json(json!({ "provides": ["music.charts"] }));
+    let code = r#"
+        raygun.providers.register({
+          kind: 'music.charts', id: 'full', name: 'Full',
+          charts: async () => ({ charts: [
+            { id: 'a', name: 'Rising', group: 'Trending' },
+            { id: 'b', name: 'Rock', tag: 'Rock' },
+            { id: 'c', name: 'Main' },
+            { id: 'd', name: 'Odd', group: 'sideways' },
+          ] }),
+          chart: async () => ({ tracks: [] }),
+          tagSongs: async ({ tag, aliases, kind, region, limit }) => ({
+            name: `${tag} ${kind}`,
+            tracks: [{ title: `${aliases.join('+')} ${region} ${limit}`, artist: 'A' }],
+          }),
+        });
+        raygun.providers.register({
+          kind: 'music.charts', id: 'plain', name: 'Plain',
+          charts: async () => ({ charts: [] }),
+          chart: async () => ({ tracks: [] }),
+        });
+        raygun.providers.register({
+          kind: 'music.charts', id: 'broken', name: 'Broken',
+          charts: async () => ({ charts: [] }),
+          chart: async () => ({ tracks: [] }),
+          tagSongs: async () => { throw new Error('genre server is down'); },
+        });
+    "#;
+    host.load(vec![ExtensionSource::built_in(&[
+        ("raygun-extension.json", &manifest),
+        ("index.js", code),
+    ])])
+    .await;
+
+    let charts = host.music_charts(None).await;
+    let full = charts[0].1.as_ref().unwrap();
+    let groups: Vec<_> = full.iter().map(|chart| chart.group).collect();
+    assert_eq!(
+        groups,
+        vec![
+            raygun_model::ChartGroup::Trending,
+            raygun_model::ChartGroup::Genre,
+            raygun_model::ChartGroup::Top,
+            raygun_model::ChartGroup::Top,
+        ],
+        "a tag without a group is a genre chart; no or an unknown group is a main one"
+    );
+
+    let answers = host
+        .music_tag_songs(
+            "Hip-Hop",
+            &["hip hop".into(), "rap".into()],
+            "genre",
+            Some("gb"),
+            30,
+        )
+        .await;
+    assert_eq!(answers.len(), 2, "sources without tagSongs are left out");
+    let (provider, answer) = &answers[0];
+    assert_eq!(provider.id, "dev.raygun.test/full");
+    let (name, tracks) = answer.as_ref().unwrap();
+    assert_eq!(name.as_deref(), Some("Hip-Hop genre"));
+    assert_eq!(tracks[0].title, "hip hop+rap gb 30");
+    assert!(
+        answers[1]
+            .1
+            .as_ref()
+            .unwrap_err()
+            .contains("genre server is down")
+    );
+}
+
+#[tokio::test]
 async fn artists_and_albums_come_from_sources_that_search_them() {
     let host = test_host();
     let code = r#"
@@ -1107,6 +1182,48 @@ async fn discovery_live_charts_and_tags() {
                 .collect::<Vec<_>>()
         );
         assert!(!songs.is_empty(), "{} {}", provider.name, first.name);
+        // Every kind of chart a source lists plays (M46.19).
+        let mut seen = std::collections::HashSet::new();
+        for chart in charts.iter().filter(|chart| seen.insert(chart.group)) {
+            let songs = host
+                .music_chart(&provider.id, &chart.id, Some("gb"), 5)
+                .await
+                .unwrap_or_else(|error| panic!("{} {}: {error}", provider.name, chart.name));
+            println!("  {:?} {}: {} songs", chart.group, chart.name, songs.len());
+            assert!(!songs.is_empty(), "{} {}", provider.name, chart.name);
+        }
+    }
+
+    // Songs for genres and moods from every source that has them (M46.19).
+    for (tag, aliases, kind) in [
+        ("Hip-Hop", vec!["hip hop", "rap"], "genre"),
+        ("Breakcore", vec![], "genre"),
+        ("Chill", vec!["relaxing", "mellow"], "mood"),
+        ("Phonk", vec!["drift phonk"], "genre"),
+    ] {
+        let aliases: Vec<String> = aliases.into_iter().map(str::to_owned).collect();
+        let answers = host
+            .music_tag_songs(tag, &aliases, kind, Some("gb"), 10)
+            .await;
+        let mut filled = 0;
+        for (provider, answer) in answers {
+            match answer {
+                Ok((name, songs)) => {
+                    println!(
+                        "{tag} / {}: {:?} {} songs {:?}",
+                        provider.name,
+                        name,
+                        songs.len(),
+                        songs.first().map(|song| (&song.title, &song.artist))
+                    );
+                    if !songs.is_empty() {
+                        filled += 1;
+                    }
+                }
+                Err(error) => panic!("{tag} / {}: {error}", provider.name),
+            }
+        }
+        assert!(filled >= 2, "{tag}: only {filled} sources had songs");
     }
 
     let albums = host.search_albums("random access memories", 5).await;

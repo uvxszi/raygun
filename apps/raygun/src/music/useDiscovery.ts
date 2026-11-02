@@ -48,7 +48,11 @@ export const useChartSongs = (providerId: string, chartId: string, enabled = tru
 
 /** Home's rows pick these charts first, then any chart that isn't a genre's. */
 const POPULAR = ['dev.raygun.apple-charts/charts:most-played', 'dev.raygun.deezer/charts:0'];
-const TRENDING = ['dev.raygun.listenbrainz/charts:week', 'dev.raygun.listenbrainz/charts:month'];
+const TRENDING = [
+  'dev.raygun.listenbrainz/charts:week',
+  'dev.raygun.listenbrainz/charts:month',
+  'dev.raygun.audius/charts:trending:week',
+];
 
 export const pickChart = (charts: MusicChart[], which: 'popular' | 'trending') => {
   const preferred = which === 'popular' ? POPULAR : TRENDING;
@@ -56,7 +60,7 @@ export const pickChart = (charts: MusicChart[], which: 'popular' | 'trending') =
     preferred
       .map((key) => charts.find((chart) => chartKey(chart) === key))
       .find((chart) => chart !== undefined) ??
-    (which === 'popular' ? charts.find((chart) => !chart.tag) : undefined) ??
+    charts.find((chart) => chart.group === (which === 'popular' ? 'top' : 'trending')) ??
     null
   );
 };
@@ -76,6 +80,17 @@ export const useTagVocabulary = () =>
     queryFn: () => commands.musicTagVocabulary(),
     staleTime: Infinity,
   });
+
+/** Every chart source's songs for a genre or a mood, a row each (M46.19). */
+export const useTagSources = (name: string) => {
+  const region = useChartRegion();
+  return useQuery({
+    queryKey: ['music', 'tags', 'sources', name, region],
+    queryFn: () => unwrapResult(commands.musicTagSources(name, region)),
+    enabled: name !== '',
+    staleTime: 10 * 60_000,
+  });
+};
 
 /** Favorites and playlist songs with a tag. */
 export const useTagSongs = (name: string) =>

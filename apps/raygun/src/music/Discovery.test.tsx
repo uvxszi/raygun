@@ -36,6 +36,7 @@ const chart = (
   description: null,
   artworkUrl: null,
   tag: null,
+  group: extra.tag ? 'genre' : 'top',
   ...extra,
 });
 
@@ -160,6 +161,73 @@ describe('Music discovery', () => {
     expect(await within(page).findByText('Thunderstruck')).toBeInTheDocument();
     expect(await within(page).findByText('Back in Black')).toBeInTheDocument();
     expect(commands.musicTagSongs).toHaveBeenCalledWith('Rock');
+  });
+
+  it("fills a mood's page with every source's songs, and calmly says which failed", async () => {
+    const user = userEvent.setup();
+    commands.musicTagSources.mockResolvedValue(
+      ok({
+        rows: [
+          {
+            provider: provider('dev.raygun.deezer', 'Deezer'),
+            name: 'Chill radio on Deezer',
+            tracks: [song('Sunset Lover', 'Petit Biscuit'), song('Weightless', 'Marconi Union')],
+          },
+          {
+            provider: provider('dev.raygun.listenbrainz', 'ListenBrainz'),
+            name: 'Chill on ListenBrainz',
+            tracks: [song('Teardrop', 'Massive Attack')],
+          },
+        ],
+        failures: [{ source: 'Audius', error: 'Audius answered HTTP 503' }],
+      }),
+    );
+    await AppShellWrapper.mount('/music/tag?name=Chill');
+    const page = await screen.findByTestId('music-tag-page');
+    const rows = await within(page).findAllByTestId('tag-source-row');
+    expect(rows.map((row) => within(row).getByRole('heading').textContent)).toEqual([
+      'Chill radio on Deezer',
+      'Chill on ListenBrainz',
+    ]);
+    expect(commands.musicTagSources).toHaveBeenCalledWith('Chill', expect.anything());
+    expect(within(page).getByTestId('source-issue')).toHaveTextContent('Issue with Audius');
+
+    await user.click(
+      within(rows[0] as HTMLElement).getByRole('button', { name: 'Play Weightless' }),
+    );
+    expect(commands.playbackReplace).toHaveBeenLastCalledWith(
+      [
+        expect.objectContaining({ title: 'Sunset Lover' }),
+        expect.objectContaining({ title: 'Weightless' }),
+      ],
+      1,
+    );
+  });
+
+  it('groups charts by kind in Browse → Music', async () => {
+    commands.musicCharts.mockResolvedValue(
+      ok({
+        charts: [
+          ...CHARTS,
+          chart('dev.raygun.audius', 'Underground trending', 'underground', {
+            group: 'underground',
+          }),
+          chart('dev.raygun.listenbrainz', 'Fresh singles', 'fresh', { group: 'new' }),
+          chart('dev.raygun.deezer', "The '80s", 'radio:38305', { group: 'decade' }),
+        ],
+        errors: [],
+      }),
+    );
+    await AppShellWrapper.mount('/music/charts');
+    const page = await screen.findByTestId('music-charts-page');
+    const headings = await within(page).findAllByRole('heading', { level: 2 });
+    expect(
+      headings
+        .map((heading) => heading.textContent)
+        .filter((text) =>
+          ['Top charts', 'New releases', 'Underground', 'Decades', 'Genres'].includes(text ?? ''),
+        ),
+    ).toEqual(['Top charts', 'New releases', 'Underground', 'Decades', 'Genres']);
   });
 
   it("filters a song table by its songs' tags and shows them in a column", async () => {
