@@ -23,6 +23,7 @@ import { OverflowMenu } from '../shell/OverflowMenu';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { ContinueWatchingRow } from '../watch/ContinueWatchingRow';
 import { useContinueWatching } from '../watch/useWatch';
+import { Carousel } from '../shell/Carousel';
 
 /** Playlists shown as shortcuts next to Favorites. */
 const HOME_PLAYLISTS = 5;
@@ -35,7 +36,7 @@ const YourMusic: FC = () => {
   return (
     <section className="flex flex-col gap-2">
       <h2 className="text-lg font-semibold">{t('home.yourMusic')}</h2>
-      <ul className="-mx-4 flex gap-3 overflow-x-auto px-4 lg:mx-0 lg:px-0">
+      <Carousel className="-mx-4 gap-3 px-4 lg:mx-0 lg:px-0">
         <li>
           <Link to="/library" search={{ view: 'favorites' }} className={TILE_CLASS}>
             <span className="bg-primary/15 text-primary grid aspect-square place-items-center rounded-lg">
@@ -55,7 +56,7 @@ const YourMusic: FC = () => {
             </Link>
           </li>
         ))}
-      </ul>
+      </Carousel>
     </section>
   );
 };
@@ -127,7 +128,7 @@ const ContinueReading: FC = () => {
       <h2 id="continue-reading" className="text-lg font-semibold">
         {t('home.continueReading')}
       </h2>
-      <ul className="-mx-4 flex gap-3 overflow-x-auto px-4 lg:mx-0 lg:px-0">
+      <Carousel className="-mx-4 gap-3 px-4 lg:mx-0 lg:px-0">
         {entries.map((entry) => (
           <li key={entry.titleId} className="w-28 shrink-0">
             <Link
@@ -148,7 +149,7 @@ const ContinueReading: FC = () => {
             </Link>
           </li>
         ))}
-      </ul>
+      </Carousel>
     </section>
   );
 };

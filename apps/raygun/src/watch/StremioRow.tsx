@@ -4,6 +4,7 @@ import { ChevronRight, Clapperboard } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Carousel } from '../shell/Carousel';
 
 const ASPECT: Record<string, string> = {
   landscape: 'aspect-video',
@@ -93,7 +94,7 @@ export const StremioRow: FC<{ row: StremioCatalogRow; browse?: boolean }> = ({
       ) : row.items.length === 0 ? (
         <p className="text-muted text-sm">{t('watch.catalogEmpty')}</p>
       ) : (
-        <ul className="-mx-4 flex gap-3 overflow-x-auto px-4 lg:mx-0 lg:px-0">
+        <Carousel className="-mx-4 gap-3 px-4 lg:mx-0 lg:px-0">
           {row.items.slice(0, 20).map((item) => (
             <li
               key={item.id}
@@ -102,7 +103,7 @@ export const StremioRow: FC<{ row: StremioCatalogRow; browse?: boolean }> = ({
               <StremioCard item={item} />
             </li>
           ))}
-        </ul>
+        </Carousel>
       )}
     </section>
   );

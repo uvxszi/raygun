@@ -76,7 +76,7 @@ const Episodes: FC<{
         <div
           role="tablist"
           aria-label={t('watch.seasons')}
-          className="-mx-4 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:px-0"
+          className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
         >
           {seasons.map((number) => (
             <button

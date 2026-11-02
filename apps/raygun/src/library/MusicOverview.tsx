@@ -12,6 +12,7 @@ import { FirstRunCard } from './FirstRunCard';
 import { TrackList } from './TrackList';
 import { playFromLibrary, useAlbums, useAllTracks, useArtists } from './useLibrary';
 import type { LibraryView } from './views';
+import { Carousel } from '../shell/Carousel';
 
 /** How many songs the overview lists before "See all". */
 const SONGS_SHOWN = 8;
@@ -43,7 +44,7 @@ const Section: FC<{ view: LibraryView; count: number; children: ReactNode }> = (
 };
 
 const Row: FC<{ children: ReactNode }> = ({ children }) => (
-  <ul className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-1 lg:mx-0 lg:px-0">{children}</ul>
+  <Carousel className="-mx-4 gap-3 px-4 pb-1 lg:mx-0 lg:px-0">{children}</Carousel>
 );
 
 /**

@@ -2224,5 +2224,9 @@
     "syncWith": "Sync with {{name}} now",
     "manage": "Pair or manage devices",
     "remote": "Control Raygun from another device"
+  },
+  "carousel": {
+    "back": "Scroll back",
+    "forward": "Scroll forward"
   }
 }

@@ -57,7 +57,7 @@ const Filters: FC<{
       <div
         role="group"
         aria-label={t('extensions.kindFilter')}
-        className="flex gap-2 overflow-x-auto"
+        className="flex gap-2 no-scrollbar overflow-x-auto"
       >
         {chip(null, t('extensions.kind.all'))}
         {facets.kinds.map((kind) => chip(kind, t(`extensions.kind.${kind}`)))}

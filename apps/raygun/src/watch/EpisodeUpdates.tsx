@@ -9,6 +9,7 @@ import { MangaCover } from '../manga/MangaCover';
 import { EmptyState } from '../shell/EmptyState';
 import { episodeLabel } from './episodeLabel';
 import { useVideoUpcoming, useVideoUpdates, videoTitleLink } from './useVideoLibrary';
+import { Carousel } from '../shell/Carousel';
 
 const Row: FC<{ item: VideoUpdateItem }> = ({ item }) => {
   const { t } = useTranslation();
@@ -83,7 +84,7 @@ export const EpisodeUpdates: FC = () => {
             <CalendarClock aria-hidden size={18} className="text-primary" />
             {t('watch.upcoming')}
           </h2>
-          <ul className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-1 lg:mx-0 lg:px-0">
+          <Carousel className="-mx-4 gap-3 px-4 pb-1 lg:mx-0 lg:px-0">
             {soon.map((item) => (
               <UpcomingCard
                 key={item.episodeId}
@@ -91,7 +92,7 @@ export const EpisodeUpdates: FC = () => {
                 when={dayLabel(new Date(item.date ?? 0).setHours(0, 0, 0, 0))}
               />
             ))}
-          </ul>
+          </Carousel>
         </section>
       )}
       {updates.data?.length === 0 && soon.length === 0 && (

@@ -39,7 +39,7 @@ export const WatchCatalogPage: FC = () => {
         <div
           role="tablist"
           aria-label={t('watch.genres')}
-          className="-mx-4 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:px-0"
+          className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
         >
           {['', ...first.genres].map((option) => (
             <button

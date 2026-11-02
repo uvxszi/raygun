@@ -17,14 +17,17 @@ const sidewaysScroller = (start: Element | null, direction: number) => {
 };
 
 /**
- * The mouse wheel scrolls sideways rows (posters, chips, covers) when the pointer is over them
- * (M46.8), as trackpads already do; at a row's end the page scrolls instead. Shift, Ctrl and
- * sideways wheels keep their own meaning.
+ * Shift with the mouse wheel scrolls sideways rows (posters, chips, covers) when the pointer is
+ * over them (M46.8; Shift since M46.14, when rows got their page buttons); at a row's end the
+ * page scrolls instead. The wheel alone scrolls the page; Ctrl and sideways wheels keep their own
+ * meaning.
  */
 export const useHorizontalWheel = () => {
   useEffect(() => {
     const onWheel = (event: WheelEvent) => {
-      if (event.ctrlKey || event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
+      // Rows page with their buttons (M46.14); the wheel scrolls them only with Shift held, and
+      // scrolls the page otherwise. A trackpad's own sideways swipe is left alone.
+      if (event.ctrlKey || !event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
         return;
       }
       const row = sidewaysScroller(event.target as Element | null, Math.sign(event.deltaY));

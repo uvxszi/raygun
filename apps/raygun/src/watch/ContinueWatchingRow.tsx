@@ -5,6 +5,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useContinueWatching, useRemoveContinue, useResumeVideo } from './useWatch';
+import { Carousel } from '../shell/Carousel';
 
 /** The poster, or a placeholder when there's none or it can't load (offline). */
 const Poster: FC<{ url: string | null }> = ({ url }) => {
@@ -82,11 +83,11 @@ export const ContinueWatchingRow: FC = () => {
       <h2 id="continue-watching" className="text-lg font-semibold">
         {t('watch.continue')}
       </h2>
-      <ul className="-mx-4 flex gap-3 overflow-x-auto px-4 lg:mx-0 lg:px-0">
+      <Carousel className="-mx-4 gap-3 px-4 lg:mx-0 lg:px-0">
         {continuing.data.map((item) => (
           <Card key={item.key} item={item} />
         ))}
-      </ul>
+      </Carousel>
     </section>
   );
 };

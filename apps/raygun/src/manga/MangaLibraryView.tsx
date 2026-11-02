@@ -436,7 +436,7 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
               aria-label={t(
                 display.tabs === 'lists' ? 'library.lists.title' : 'library.categories.title',
               )}
-              className="-mx-4 flex overflow-x-auto px-4 lg:mx-0 lg:px-0"
+              className="-mx-4 flex no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
             >
               {tabs.map((item) => (
                 <button

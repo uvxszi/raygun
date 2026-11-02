@@ -10,6 +10,7 @@ import { playResults } from '../search/useOnlineSearch';
 import { useInView } from '../shell/useInView';
 import { useChartSongs } from './useDiscovery';
 import { useTrackMenu } from './useTrackMenu';
+import { Carousel } from '../shell/Carousel';
 
 /** Songs shown in a row; the chart's page has the rest. */
 const ROW_SONGS = 20;
@@ -82,7 +83,7 @@ export const ChartRow: FC<{ chart: MusicChart; title?: string }> = ({ chart, tit
       {songs.error ? (
         <p className="text-muted text-sm wrap-anywhere">{songs.error.message}</p>
       ) : (
-        <ul className="-mx-4 flex gap-1 overflow-x-auto px-2 lg:-mx-2">
+        <Carousel className="-mx-4 gap-1 px-2 lg:-mx-2">
           {shown.length > 0
             ? shown.map((song, index) => (
                 <SongCard
@@ -97,7 +98,7 @@ export const ChartRow: FC<{ chart: MusicChart; title?: string }> = ({ chart, tit
                   <span className="bg-surface block aspect-square animate-pulse rounded-lg" />
                 </li>
               ))}
-        </ul>
+        </Carousel>
       )}
     </section>
   );

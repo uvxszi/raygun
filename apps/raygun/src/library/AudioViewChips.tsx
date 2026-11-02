@@ -16,7 +16,7 @@ export const AudioViewChips: FC<{ view: LibraryView }> = ({ view }) => {
     .filter(isLibraryView);
   return (
     <nav
-      className="-mx-4 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:px-0"
+      className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
       aria-label={t('library.views')}
     >
       {views.map((option) => (

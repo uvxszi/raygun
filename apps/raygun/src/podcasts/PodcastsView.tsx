@@ -19,6 +19,7 @@ import {
   useRefreshAll,
   useSubscriptions,
 } from './usePodcasts';
+import { Carousel } from '../shell/Carousel';
 
 const matches = (text: string, query: string) =>
   text.toLocaleLowerCase().includes(query.toLocaleLowerCase());
@@ -136,7 +137,7 @@ export const PodcastsView: FC = () => {
               />
             )}
           </div>
-          <ul className="-mx-4 flex gap-3 overflow-x-auto px-4 lg:mx-0 lg:px-0">
+          <Carousel className="-mx-4 gap-3 px-4 lg:mx-0 lg:px-0">
             {shows.map((podcast) => (
               <li key={podcast.id} className="w-28 shrink-0">
                 <Link
@@ -155,7 +156,7 @@ export const PodcastsView: FC = () => {
                 </Link>
               </li>
             ))}
-          </ul>
+          </Carousel>
         </section>
       )}
       {hasSubscriptions && episodes.length > 0 && (

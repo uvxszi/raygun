@@ -380,7 +380,7 @@ export const TrackTable: FC<TrackTableProps> = ({
         <div
           role="group"
           aria-label={t('discover.filterByTag')}
-          className="-mx-4 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:px-0"
+          className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
         >
           {[null, ...tagChips].map((name) => (
             <button

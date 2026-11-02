@@ -1,5 +1,14 @@
 @import 'tailwindcss';
 
+/* Rows that scroll sideways (chips, tabs, carousels) keep scrolling by finger, wheel and keys but
+   show no scrollbar under them (M46.14). */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* Dark is the default palette. Light and AMOLED override the same tokens, so every utility
    (bg-background, text-foreground, ...) follows the active theme. "System" removes data-theme and
    lets prefers-color-scheme decide. */

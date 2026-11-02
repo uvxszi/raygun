@@ -363,7 +363,7 @@ export const SelectionActions: FC<{
         role="toolbar"
         aria-label={t('library.select.actions')}
         data-testid="selection-actions"
-        className="bg-surface sticky bottom-2 z-30 mt-auto flex w-full justify-around overflow-x-auto rounded-2xl p-1 shadow-xl"
+        className="bg-surface sticky bottom-2 z-30 mt-auto flex w-full justify-around no-scrollbar overflow-x-auto rounded-2xl p-1 shadow-xl"
       >
         {action(t('library.select.categories'), FolderCog, () => setPanel('categories'))}
         {action(t('library.lists.title'), Bookmark, () => setPanel('list'))}
