@@ -184,6 +184,8 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(sync);
 
     create_main_window(app, &paths)?;
+    // The miniplayer window (M46.13) shares the main window's webview profile.
+    app.manage(crate::miniplayer::MiniplayerDir(paths.webview()));
 
     app.manage(LogGuard(guard));
     app.manage(AppPaths(paths));

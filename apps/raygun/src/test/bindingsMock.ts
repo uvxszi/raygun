@@ -228,6 +228,8 @@ export const bindingsMock = {
     extensionsList: vi.fn(),
     extensionsReload: vi.fn(),
     extensionClearData: vi.fn(),
+    miniplayerOpen: vi.fn(),
+    miniplayerClose: vi.fn(),
     extensionOpenWebsite: vi.fn(),
     extensionRepos: vi.fn(),
     extensionRepoAdd: vi.fn(),
@@ -487,6 +489,8 @@ export const seedBindings = () => {
   commands.extensionsList.mockResolvedValue(ok([]));
   commands.extensionsReload.mockResolvedValue(ok([]));
   commands.extensionClearData.mockResolvedValue(ok([]));
+  commands.miniplayerOpen.mockResolvedValue(ok(null));
+  commands.miniplayerClose.mockResolvedValue(ok(null));
   commands.extensionOpenWebsite.mockResolvedValue(ok(null));
   commands.extensionRepos.mockResolvedValue(ok([]));
   commands.extensionRepoAdd.mockResolvedValue(ok([]));

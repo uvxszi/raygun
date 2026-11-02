@@ -293,6 +293,21 @@ pub async fn extensions_reload(
     Ok(extensions.reload().await)
 }
 
+/// Opens the miniplayer (M46.13): a small window on top with the song and its controls. Async:
+/// on Windows a window made in a synchronous command never loads its page (it stays blank).
+#[tauri::command]
+#[specta::specta]
+pub async fn miniplayer_open(app: tauri::AppHandle) -> Result<(), String> {
+    crate::miniplayer::open(&app)
+}
+
+/// Closes the miniplayer; with `show_main`, Raygun's main window comes forward.
+#[tauri::command]
+#[specta::specta]
+pub async fn miniplayer_close(app: tauri::AppHandle, show_main: bool) -> Result<(), String> {
+    crate::miniplayer::close(&app, show_main)
+}
+
 /// Forgets an extension's cookies and stored data (M46.11), then reloads it.
 #[tauri::command]
 #[specta::specta]

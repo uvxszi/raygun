@@ -1,10 +1,12 @@
-import type { PlaybackState, QueueItem, RepeatMode } from '@raygun/bindings';
+import { commands } from '@raygun/bindings';
+import type { PlaybackState, QueueItem, QueueSnapshot, RepeatMode } from '@raygun/bindings';
 import {
   ListMusic,
   Maximize2,
   MicVocal,
   PanelRight,
   MonitorPlay,
+  PictureInPicture2,
   Pause,
   Play,
   Repeat,
@@ -24,6 +26,8 @@ import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
 import { ArtistLinks } from '../music/ArtistLinks';
+import { ConnectButton } from '../devices/ConnectButton';
+import { useIsDesktop } from '../shell/useIsDesktop';
 import { fromQueueItem } from '../collections/useCollections';
 import { useTrackMenu } from '../music/useTrackMenu';
 import { Marquee } from '../shell/Marquee';
@@ -34,11 +38,22 @@ import { SoundButton } from '../sound/SoundButton';
 import { PlaybackExtras } from './PlaybackExtras';
 import { usePlayerUiStore } from './playerUiStore';
 import { onSeekKey } from './seekKeys';
+import { swipeAction } from './swipe';
 import { useLivePosition } from './useLivePosition';
-import { isActive, sendControl, sourceNote, useNowPlaying } from './usePlayback';
+import { isActive, sendControl, sourceNote, useNowPlaying, useQueue } from './usePlayback';
 
-const SWIPE_UP_DISTANCE = 40;
-const SWIPE_UP_VELOCITY = 300;
+/** The song before the current one in play order (the last one with repeat all), to swipe back
+ * to: unlike Previous, it never just restarts the song. */
+const previousItem = (queue: QueueSnapshot | undefined, state: PlaybackState | undefined) => {
+  if (!queue || !state?.currentItemId) return null;
+  const current = queue.items.findIndex((each) => each.id === state.currentItemId);
+  const at = queue.order.indexOf(current);
+  if (at > 0) return queue.items[queue.order[at - 1] ?? -1] ?? null;
+  if (at === 0 && state.repeat === 'all' && queue.order.length > 1) {
+    return queue.items[queue.order.at(-1) ?? -1] ?? null;
+  }
+  return null;
+};
 
 const NEXT_REPEAT: Record<RepeatMode, RepeatMode> = { off: 'all', all: 'one', one: 'off' };
 
@@ -70,18 +85,28 @@ const PhoneBar: FC<BarProps> = ({ state, item }) => {
       ? Math.min(100, ((state.positionMs ?? 0) / state.durationMs) * 100)
       : 0;
 
+  const queue = useQueue().data;
+
   const handleDragEnd = (_event: PointerEvent, info: PanInfo) => {
-    if (info.offset.y < -SWIPE_UP_DISTANCE || info.velocity.y < -SWIPE_UP_VELOCITY) {
-      openSheet();
+    const action = swipeAction(info.offset, info.velocity);
+    if (action === 'open') openSheet();
+    if (action === 'next') void sendControl({ type: 'next' });
+    if (action === 'previous') {
+      const before = previousItem(queue, state);
+      void sendControl(
+        before ? { type: 'playItem', itemId: before.id } : { type: 'seek', positionMs: 0 },
+      );
     }
   };
 
   return (
     <motion.div
       data-testid="mini-player"
-      drag="y"
-      dragConstraints={{ top: 0, bottom: 0 }}
-      dragElastic={{ top: 0.25, bottom: 0 }}
+      // Up opens the full player; sideways changes the song (M46.13), the bar following the finger.
+      drag
+      dragDirectionLock
+      dragConstraints={{ top: 0, bottom: 0, left: 0, right: 0 }}
+      dragElastic={{ top: 0.25, bottom: 0, left: 0.4, right: 0.4 }}
       dragSnapToOrigin
       onPointerDown={() => {
         draggedRef.current = false;
@@ -116,16 +141,9 @@ const PhoneBar: FC<BarProps> = ({ state, item }) => {
           />
           <TrackText state={state} item={item} note={note?.kind === 'finding'} />
         </button>
+        <ConnectButton />
         <FavoriteButton item={item} compact />
         <PlayButton state={state} />
-        <button
-          type="button"
-          aria-label={t('player.next')}
-          onClick={() => void sendControl({ type: 'next' })}
-          className="grid size-10 place-items-center rounded-full"
-        >
-          <SkipForward aria-hidden size={20} />
-        </button>
       </div>
     </motion.div>
   );
@@ -141,6 +159,7 @@ const WideBar: FC<BarProps> = ({ state, item }) => {
   const repeat = state?.repeat ?? 'off';
   const isVideo = item.source.kind === 'youTube';
   const setVideoShown = usePlayerUiStore((store) => store.setVideoShown);
+  const desktop = useIsDesktop();
 
   return (
     <div
@@ -235,7 +254,13 @@ const WideBar: FC<BarProps> = ({ state, item }) => {
         </BarButton>
         <PlaybackExtras state={state} />
         <SoundButton />
+        <ConnectButton className="size-9" />
         <VolumeControl state={state} />
+        {desktop && (
+          <BarButton label={t('miniplayer.open')} onClick={() => void commands.miniplayerOpen()}>
+            <PictureInPicture2 aria-hidden size={18} />
+          </BarButton>
+        )}
         <BarButton label={t('player.openPlayer')} onClick={() => openSheet({ view: 'artwork' })}>
           <Maximize2 aria-hidden size={18} />
         </BarButton>

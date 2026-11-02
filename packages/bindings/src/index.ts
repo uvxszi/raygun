@@ -55,6 +55,13 @@ export const commands = {
 	extensionsReload: () => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extensions_reload")),
 	/**  Forgets an extension's cookies and stored data (M46.11), then reloads it. */
 	extensionClearData: (id: string) => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extension_clear_data", { id })),
+	/**
+	 *  Opens the miniplayer (M46.13): a small window on top with the song and its controls. Async:
+	 *  on Windows a window made in a synchronous command never loads its page (it stays blank).
+	 */
+	miniplayerOpen: () => typedError<null, string>(__TAURI_INVOKE("miniplayer_open")),
+	/**  Closes the miniplayer; with `show_main`, Raygun's main window comes forward. */
+	miniplayerClose: (showMain: boolean) => typedError<null, string>(__TAURI_INVOKE("miniplayer_close", { showMain })),
 	/**  Opens the site an extension's sources read in Raygun's browser (M46.11). */
 	extensionOpenWebsite: (id: string) => typedError<null, string>(__TAURI_INVOKE("extension_open_website", { id })),
 	/**  Repositories extensions can be installed from. */

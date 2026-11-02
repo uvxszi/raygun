@@ -26,6 +26,7 @@ mod manga;
 mod manga_downloads;
 mod mcp;
 mod mihon;
+mod miniplayer;
 mod music_downloads;
 mod novel;
 mod playback;
@@ -84,6 +85,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::extensions_list,
             commands::extensions_reload,
             commands::extension_clear_data,
+            commands::miniplayer_open,
+            commands::miniplayer_close,
             commands::extension_open_website,
             commands::extension_repos,
             commands::extension_suggested_repos,

@@ -2203,5 +2203,26 @@
     "badTimes": "Times look like 1:23.4, and the end comes after the start.",
     "save": "Save",
     "cancel": "Cancel"
+  },
+  "miniplayer": {
+    "open": "Open the miniplayer",
+    "close": "Close the miniplayer",
+    "back": "Back to Raygun",
+    "nothing": "Nothing playing"
+  },
+  "connect": {
+    "open": "Connect to a device",
+    "title": "Connect",
+    "thisDevice": "This device",
+    "playingHere": "Playing here",
+    "syncOff": "Pair your phone and computer to keep favorites, playlists, history and settings the same on both, over your own network.",
+    "setUp": "Set up device sync",
+    "devices": "Your devices",
+    "noPeers": "No devices paired yet.",
+    "synced": "Synced {{when}}",
+    "neverSynced": "Not synced yet",
+    "syncWith": "Sync with {{name}} now",
+    "manage": "Pair or manage devices",
+    "remote": "Control Raygun from another device"
   }
 }

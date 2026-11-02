@@ -2,7 +2,8 @@ import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper, makeItem } from '../shell/AppShell.test-wrapper';
-import { bindingsMock, emitEvent, IDLE_STATE } from '../test/bindingsMock';
+import { swipeAction } from './swipe';
+import { ANDROID_INFO, bindingsMock, emitEvent, IDLE_STATE } from '../test/bindingsMock';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -29,11 +30,34 @@ describe('Player bar', () => {
     delete (window as { matchMedia?: unknown }).matchMedia;
   });
 
-  it('has the favourite and next buttons on phones', async () => {
+  it('has Connect and the favourite button on phones; swipes change the song', async () => {
     setWide(false);
     const user = userEvent.setup();
+    commands.syncStatus.mockResolvedValue({
+      status: 'ok',
+      data: {
+        enabled: true,
+        deviceName: 'Pixel',
+        fingerprint: 'ab12',
+        pairingText: null,
+        pairingQrSvg: null,
+        kinds: ['library'],
+        peers: [
+          {
+            deviceId: 'pc-1',
+            name: 'Desktop PC',
+            fingerprint: 'cd34',
+            address: null,
+            pairedAt: 0,
+            lastSyncAt: Date.now() - 5 * 60_000,
+          },
+        ],
+        log: [],
+        error: null,
+      },
+    });
     await AppShellWrapper.mount();
-    AppShellWrapper.playing(QUEUE, 0);
+    AppShellWrapper.playing(QUEUE, 1);
     await AppShellWrapper.miniPlayer.title;
     const bar = AppShellWrapper.miniPlayer.element;
 
@@ -41,8 +65,34 @@ describe('Player bar', () => {
       within(bar).getByRole('button', { name: 'Save to Favorites or a playlist' }),
     ).toBeInTheDocument();
     expect(within(bar).queryByRole('button', { name: 'Shuffle' })).not.toBeInTheDocument();
-    await user.click(within(bar).getByRole('button', { name: 'Next' }));
-    expect(commands.playbackControl).toHaveBeenCalledWith({ type: 'next' });
+    // Swiping replaces the Next button (M46.13).
+    expect(within(bar).queryByRole('button', { name: 'Next' })).not.toBeInTheDocument();
+    expect(swipeAction({ x: -90, y: 8 }, { x: 0, y: 0 })).toBe('next');
+    expect(swipeAction({ x: 20, y: 2 }, { x: 600, y: 0 })).toBe('previous');
+    expect(swipeAction({ x: 4, y: -60 }, { x: 0, y: 0 })).toBe('open');
+    expect(swipeAction({ x: 30, y: 5 }, { x: 50, y: 0 })).toBeNull();
+
+    await user.click(within(bar).getByRole('button', { name: 'Connect to a device' }));
+    const sheet = await screen.findByTestId('connect-sheet');
+    expect(within(sheet).getByText('Pixel')).toBeInTheDocument();
+    expect(await within(sheet).findByText('Desktop PC')).toBeInTheDocument();
+    expect(within(sheet).getByText(/Synced 5 minutes ago/)).toBeInTheDocument();
+    await user.click(within(sheet).getByRole('button', { name: 'Sync with Desktop PC now' }));
+    expect(commands.syncNow).toHaveBeenCalledWith('pc-1');
+  });
+
+  it('opens the miniplayer from the desktop bar', async () => {
+    setWide(true);
+    commands.appInfo.mockResolvedValue({ ...ANDROID_INFO, platform: 'windows' });
+    const user = userEvent.setup();
+    await AppShellWrapper.mount();
+    AppShellWrapper.playing(QUEUE, 0);
+    await AppShellWrapper.miniPlayer.title;
+    const bar = AppShellWrapper.miniPlayer.element;
+
+    await user.click(await within(bar).findByRole('button', { name: 'Open the miniplayer' }));
+    expect(commands.miniplayerOpen).toHaveBeenCalled();
+    expect(within(bar).getByRole('button', { name: 'Connect to a device' })).toBeInTheDocument();
   });
 
   it('has Spotify’s controls on wide windows', async () => {
