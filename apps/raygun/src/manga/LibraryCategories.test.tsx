@@ -55,9 +55,12 @@ describe('Library categories and filters', () => {
   it('shows every media type and splits the manga library into category tabs', async () => {
     const user = userEvent.setup();
     await AppShellWrapper.mount('/library');
-    for (const media of ['music', 'podcast', 'manga', 'novel', 'video']) {
-      expect(await screen.findByTestId(`library-media-${media}`)).toBeInTheDocument();
+    const names = { music: 'Audio', manga: 'Comics', novel: 'Books', video: 'Videos' };
+    for (const [media, name] of Object.entries(names)) {
+      expect(await screen.findByTestId(`library-media-${media}`)).toHaveTextContent(name);
     }
+    // Podcasts are one of Audio's chips.
+    expect(screen.getByTestId('library-view-podcasts')).toHaveTextContent('Podcasts');
     await user.click(screen.getByTestId('library-media-manga'));
     const library = await screen.findByTestId('manga-library');
     await within(library).findByText('Frieren');

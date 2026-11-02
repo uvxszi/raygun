@@ -5,6 +5,8 @@ import { useTranslation } from 'react-i18next';
 
 import { PlaylistCover } from '../collections/PlaylistCover';
 import { useFavorites, usePlaylists } from '../collections/useCollections';
+import { PodcastArt } from '../podcasts/PodcastArt';
+import { useSubscriptions } from '../podcasts/usePodcasts';
 import { Artwork } from './Artwork';
 import { FirstRunCard } from './FirstRunCard';
 import { TrackList } from './TrackList';
@@ -45,7 +47,7 @@ const Row: FC<{ children: ReactNode }> = ({ children }) => (
 );
 
 /**
- * Library → Music → All: everything you have at a glance (Spotify's unfiltered library), each
+ * Library → Audio → All: everything you have at a glance (Spotify's unfiltered library), each
  * kind in a row that leads to its own view.
  */
 export const MusicOverview: FC<{
@@ -55,6 +57,7 @@ export const MusicOverview: FC<{
 }> = ({ hasFolders, trackCount, ready }) => {
   const { t } = useTranslation();
   const playlists = usePlaylists();
+  const podcasts = useSubscriptions();
   const favorites = useFavorites();
   const albums = useAlbums();
   const artists = useArtists();
@@ -101,6 +104,20 @@ export const MusicOverview: FC<{
                   <span className="text-muted -mt-1 truncate text-xs">
                     {t('library.trackCount', { count: playlist.itemCount })}
                   </span>
+                </Link>
+              </li>
+            ))}
+          </Row>
+        </Section>
+      )}
+      {podcasts.data && podcasts.data.length > 0 && (
+        <Section view="podcasts" count={podcasts.data.length}>
+          <Row>
+            {podcasts.data.map((podcast) => (
+              <li key={podcast.id} className="w-28 shrink-0">
+                <Link to="/podcast" search={{ id: podcast.id }} className="flex flex-col gap-1.5">
+                  <PodcastArt url={podcast.artworkUrl} className="w-full rounded-lg" />
+                  <span className="line-clamp-2 text-sm font-medium">{podcast.title}</span>
                 </Link>
               </li>
             ))}

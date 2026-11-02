@@ -48,10 +48,10 @@ const rootRoute = createRootRoute({ component: AppShell });
 const text = (value: unknown) =>
   typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '';
 
-/** Library shows music unless `media` is `manga` or `novel`. */
-export type LibraryMedia = 'podcast' | 'manga' | 'novel' | 'video';
+/** Library shows Audio unless `media` is `manga` (Comics), `novel` (Books) or `video`. */
+export type LibraryMedia = 'manga' | 'novel' | 'video';
 const isLibraryMedia = (value: unknown): value is LibraryMedia =>
-  value === 'podcast' || value === 'manga' || value === 'novel' || value === 'video';
+  value === 'manga' || value === 'novel' || value === 'video';
 
 const MANGA_MODES: MangaBrowseMode[] = ['popular', 'latest', 'search'];
 const isMangaMode = (value: unknown): value is MangaBrowseMode =>
@@ -68,8 +68,8 @@ const routeTree = rootRoute.addChildren([
     ): { view?: LibraryView; media?: LibraryMedia } => ({
       ...(isLibraryView(search.view) ? { view: search.view } : {}),
       ...(isLibraryMedia(search.media) ? { media: search.media } : {}),
-      // Podcasts used to be a music view.
-      ...(search.view === 'podcasts' ? { media: 'podcast' as const } : {}),
+      // Podcasts were a media tab of their own before they joined Audio.
+      ...(search.media === 'podcast' ? { view: 'podcasts' as const } : {}),
     }),
   }),
   // The source lists moved into Browse (M42.1).

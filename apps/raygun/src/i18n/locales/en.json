@@ -68,6 +68,12 @@
       "podcast": "Podcasts",
       "video": "Videos"
     },
+    "tabs": {
+      "music": "Audio",
+      "manga": "Comics",
+      "novel": "Books",
+      "video": "Videos"
+    },
     "filter": {
       "search": "Search the library",
       "searchPlaceholder": "Search your library…",
@@ -996,7 +1002,7 @@
     "downloadedCount_one": "{{count}} chapter downloaded",
     "downloadedCount_other": "{{count}} chapters downloaded",
     "downloadAction": "Download",
-    "emptyTitle": "No manga yet",
+    "emptyTitle": "No comics yet",
     "queueEmptyHint": "Download chapters from a title to read them offline.",
     "noUpdatesHint": "New chapters from titles in your library show up here after an update.",
     "tomorrow": "Tomorrow",
@@ -1034,7 +1040,7 @@
     "replayParagraph": "Read this paragraph again",
     "nextParagraph": "Skip to the next paragraph",
     "readAloudHint": "Hold a paragraph to read aloud from there",
-    "emptyTitle": "No novels yet"
+    "emptyTitle": "No books yet"
   },
   "ai": {
     "title": "AI",

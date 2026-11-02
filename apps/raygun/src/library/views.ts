@@ -1,7 +1,10 @@
-export type LibraryView = 'all' | 'playlists' | 'favorites' | 'albums' | 'artists' | 'tracks';
+export type LibraryView =
+  'all' | 'podcasts' | 'playlists' | 'favorites' | 'albums' | 'artists' | 'tracks';
 
+/** Library → Audio's chips: music views and podcasts. */
 export const LIBRARY_VIEWS: LibraryView[] = [
   'all',
+  'podcasts',
   'playlists',
   'favorites',
   'albums',

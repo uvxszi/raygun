@@ -10,9 +10,10 @@ import { Tabs } from '../shell/Tabs';
 import { TopBar } from '../shell/TopBar';
 import type { TopBarSearch } from '../shell/TopBar';
 
-export type LibraryMediaTab = 'music' | 'podcast' | 'manga' | 'novel' | 'video';
+/** Audio (music and podcasts), Comics (manga, manhwa, comics), Books (novels, books), Videos. */
+export type LibraryMediaTab = 'music' | 'manga' | 'novel' | 'video';
 
-const MEDIA: LibraryMediaTab[] = ['music', 'podcast', 'manga', 'novel', 'video'];
+const MEDIA: LibraryMediaTab[] = ['music', 'manga', 'novel', 'video'];
 
 /**
  * The Library's top bar and media tabs. Each media view passes its own actions and menu items;
@@ -49,7 +50,7 @@ export const LibraryTop: FC<{
         active={media}
         items={MEDIA.map((value) => ({
           id: value,
-          label: t(`library.media.${value}`),
+          label: t(`library.tabs.${value}`),
           to: '/library',
           search: value === 'music' ? {} : { media: value },
           testId: `library-media-${value}`,
@@ -57,7 +58,7 @@ export const LibraryTop: FC<{
       />
       {opening && (
         <OpenLinkSheet
-          initialKind={media === 'music' || media === 'podcast' ? 'audio' : 'video'}
+          initialKind={media === 'music' ? 'audio' : 'video'}
           onClose={() => setOpening(false)}
         />
       )}

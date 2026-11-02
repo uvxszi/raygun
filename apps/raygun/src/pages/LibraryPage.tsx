@@ -1,5 +1,5 @@
 import { commands } from '@raygun/bindings';
-import { Link, useSearch } from '@tanstack/react-router';
+import { useSearch } from '@tanstack/react-router';
 import { FolderCog, FolderPlus, FolderSearch, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
@@ -17,7 +17,8 @@ import { LibraryTop } from '../library/LibraryTop';
 import { MusicOverview } from '../library/MusicOverview';
 import { ScanBanner } from '../library/ScanBanner';
 import { TrackList } from '../library/TrackList';
-import { LIBRARY_VIEWS, isLocalView } from '../library/views';
+import { AudioViewChips } from '../library/AudioViewChips';
+import { isLocalView } from '../library/views';
 import type { LibraryView } from '../library/views';
 import {
   playFromLibrary,
@@ -57,7 +58,7 @@ const TracksView: FC = () => {
   );
 };
 
-/** Library → Music: everything (All), playlists, favorites, albums, artists and tracks. */
+/** Library → Audio: everything (All), playlists, favorites, albums, artists and tracks. */
 const MusicLibrary: FC<{ view: LibraryView }> = ({ view }) => {
   const { t } = useTranslation();
   const status = useLibraryStatus();
@@ -91,28 +92,7 @@ const MusicLibrary: FC<{ view: LibraryView }> = ({ view }) => {
         ]}
       />
       <ScanBanner />
-      <nav
-        className="-mx-4 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:px-0"
-        aria-label={t('library.views')}
-      >
-        {LIBRARY_VIEWS.map((option) => (
-          <Link
-            key={option}
-            to="/library"
-            search={{ view: option }}
-            replace
-            data-testid={`library-view-${option}`}
-            aria-current={option === view ? 'page' : undefined}
-            className={
-              option === view
-                ? 'bg-primary/20 text-primary shrink-0 rounded-full px-4 py-1.5 text-sm font-semibold'
-                : 'bg-surface shrink-0 rounded-full px-4 py-1.5 text-sm'
-            }
-          >
-            {t(`library.view.${option}`)}
-          </Link>
-        ))}
-      </nav>
+      <AudioViewChips view={view} />
       {connect.isError && (
         <p role="alert" className="text-primary text-sm">
           {connect.error.message}
@@ -139,16 +119,17 @@ const MusicLibrary: FC<{ view: LibraryView }> = ({ view }) => {
   );
 };
 
-/** The library: what you have, by kind of media (one top bar, one row of media tabs). */
+/**
+ * The library: what you have, by kind of media (one top bar, one row of media tabs): Audio
+ * (music and podcasts), Comics, Books and Videos.
+ */
 export const LibraryPage: FC = () => {
   const { view = 'all', media } = useSearch({ from: '/library' });
   return (
     <section data-testid="library-page" className="flex min-h-full flex-col gap-4">
-      {!media && <MusicLibrary view={view} />}
-      {(media === 'manga' || media === 'novel' || media === 'video') && (
-        <MangaLibraryView key={media} medium={media} />
-      )}
-      {media === 'podcast' && <PodcastsView />}
+      {!media && view === 'podcasts' && <PodcastsView />}
+      {!media && view !== 'podcasts' && <MusicLibrary view={view} />}
+      {media && <MangaLibraryView key={media} medium={media} />}
     </section>
   );
 };

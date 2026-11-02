@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { AudioViewChips } from '../library/AudioViewChips';
 import { LibraryTop } from '../library/LibraryTop';
 import { EmptyState } from '../shell/EmptyState';
 import { Sheet } from '../shell/Sheet';
@@ -23,7 +24,7 @@ const matches = (text: string, query: string) =>
   text.toLocaleLowerCase().includes(query.toLocaleLowerCase());
 
 /**
- * Library → Podcasts: the shows you follow and their new episodes. Finding shows happens in
+ * Library → Audio → Podcasts: the shows you follow and their new episodes. Finding shows happens in
  * Search; the library's search only narrows what you follow.
  */
 export const PodcastsView: FC = () => {
@@ -68,7 +69,7 @@ export const PodcastsView: FC = () => {
   return (
     <div data-testid="podcasts-view" className="flex flex-col gap-5">
       <LibraryTop
-        media="podcast"
+        media="music"
         search={
           searching
             ? {
@@ -103,6 +104,7 @@ export const PodcastsView: FC = () => {
         }
         menu={[{ label: t('podcasts.openFeed'), icon: Rss, onSelect: () => setAddingFeed(true) }]}
       />
+      <AudioViewChips view="podcasts" />
       {subscriptions.data?.length === 0 && (
         <EmptyState
           icon={Podcast}

@@ -72,7 +72,7 @@ describe('Podcasts', () => {
     commands.podcastOpenFeed.mockResolvedValue(ok(SHOW));
     await AppShellWrapper.mount('/library');
 
-    await user.click(await screen.findByTestId('library-media-podcast'));
+    await user.click(await screen.findByTestId('library-view-podcasts'));
     const view = await screen.findByTestId('podcasts-view');
     // The library holds what you follow; discovering shows is Search's job.
     expect(await within(view).findByText('No podcasts yet')).toBeInTheDocument();
