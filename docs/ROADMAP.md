@@ -72,7 +72,7 @@ The user asked for: mobile only until the app is great; a **Watch** tab for movi
 - M43 Video library, downloads, updates for followed series
 
 ## Phase 6.5 — Depth from the reference apps (re-planned 2026-11-01)
-The user asked for the full depth of the reference apps ("its not meant to be a simple app"), researched per app in `docs/research/` (mihon, aniyomi, cloudstream, stremio, shosetsu, music). Each milestone below names the report sections it works through; its spec lists the exact rows. The Library holds only your content; finding content lives in Search (and source lists in Browse).
+The user asked for the full depth of the reference apps ("its not meant to be a simple app"), researched per app in `docs/research/` (mihon, aniyomi, cloudstream, stremio, shosetsu, music). Each milestone below names the report sections it works through; its spec lists the exact rows. The Library holds only your content; finding content lives in Browse (its search bar, sources and extensions).
 
 - M44 **Playback sessions** (aniyomi §1, §6; stremio §1–2; cloudstream §5):
   - an episode plays at once from the best link, falling back on errors;

@@ -107,11 +107,15 @@ describe('Settings sections', () => {
     const user = userEvent.setup();
     await AppShellWrapper.mount('/settings/player');
     await user.click(await screen.findByRole('switch', { name: 'Resume where you left off' }));
-    await choose(user, /^Double-tap to skip/, '30 seconds');
-    await user.click(screen.getByRole('switch', { name: 'Turn on subtitles' }));
-    await choose(user, /^Subtitle language/, 'Deutsch');
     expect(commands.settingsUpdate).toHaveBeenCalledWith({ key: 'resumeVideos', value: false });
+
+    await user.click(screen.getByRole('link', { name: /^Gestures/ }));
+    await choose(user, /^Double-tap to skip/, '30 seconds');
     expect(commands.settingsUpdate).toHaveBeenCalledWith({ key: 'seekSeconds', value: 30 });
+
+    await AppShellWrapper.mount('/settings/player/subtitles');
+    await user.click(await screen.findByRole('switch', { name: 'Turn on subtitles' }));
+    await choose(user, /^Subtitle language/, 'Deutsch');
     expect(commands.settingsUpdate).toHaveBeenCalledWith({ key: 'autoSubtitles', value: true });
     expect(commands.settingsUpdate).toHaveBeenCalledWith({ key: 'subtitleLanguage', value: 'de' });
   });

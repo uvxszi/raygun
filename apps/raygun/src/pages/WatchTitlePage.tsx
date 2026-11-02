@@ -94,6 +94,7 @@ const Episodes: FC<{
           const label = episodeLabel(video);
           const target = {
             kind: meta.kind,
+            metaId: meta.id,
             videoId: video.id,
             title: meta.name,
             subtitle: label,
@@ -229,6 +230,7 @@ export const WatchTitlePage: FC = () => {
 
   const ownTarget: StreamTarget = {
     kind: view.kind,
+    metaId: view.id,
     videoId: view.id,
     title: view.name,
     subtitle: view.releaseInfo,
@@ -237,6 +239,7 @@ export const WatchTitlePage: FC = () => {
   };
   const episodeTarget = (video: StremioVideo): StreamTarget => ({
     kind: view.kind,
+    metaId: view.id,
     videoId: video.id,
     title: view.name,
     subtitle: episodeLabel(video),

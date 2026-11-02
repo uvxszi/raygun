@@ -38,6 +38,7 @@ import { NovelReaderPage } from './pages/NovelReaderPage';
 import { PlaylistPage } from './pages/PlaylistPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SETTINGS_SECTIONS } from './settings/sections';
+import { PlayerSettingsPage } from './pages/PlayerSettingsPage';
 import { SettingsSectionPage } from './pages/SettingsSectionPage';
 import { AppShell } from './shell/AppShell';
 
@@ -221,6 +222,11 @@ const routeTree = rootRoute.addChildren([
       component: SettingsSectionPage,
     }),
   ),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/settings/player/$page',
+    component: PlayerSettingsPage,
+  }),
   createRoute({
     getParentRoute: () => rootRoute,
     path: '/settings/devices',

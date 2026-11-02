@@ -14,6 +14,8 @@ import type {
 } from '@raygun/bindings';
 import { act } from '@testing-library/react';
 
+import { PLAYER_DEFAULTS } from '../settings/playerOptions';
+
 /**
  * Stand-in for `@raygun/bindings` (the Rust IPC layer). Use with
  * `vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock)`
@@ -34,6 +36,7 @@ type EventPayloads = {
   podcastsChangedEvent: string;
   watchChangedEvent: string;
   videoDownloadsEvent: string;
+  settingsChangedEvent: string;
 };
 type EventName = keyof EventPayloads;
 type Listener = (event: { payload: unknown }) => void;
@@ -99,6 +102,7 @@ export const DEFAULT_SETTINGS: Settings = {
   subtitleLanguage: '',
   autoplayNext: true,
   nextPromptSeconds: 10,
+  videoPlayer: PLAYER_DEFAULTS,
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,
@@ -304,6 +308,7 @@ export const bindingsMock = {
     podcastsChangedEvent: makeEvent('podcastsChangedEvent'),
     watchChangedEvent: makeEvent('watchChangedEvent'),
     videoDownloadsEvent: makeEvent('videoDownloadsEvent'),
+    settingsChangedEvent: makeEvent('settingsChangedEvent'),
   },
 };
 

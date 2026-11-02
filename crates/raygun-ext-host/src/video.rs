@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 
+use raygun_model::{ChapterKind, VideoChapter};
 use serde_json::Value;
 
 use crate::ExtensionHost;
@@ -16,6 +17,8 @@ pub const VIDEO_SOURCE: &str = "video.source";
 const MAX_SERVERS: usize = 50;
 const MAX_VIDEOS: usize = 50;
 const MAX_SUBTITLES: usize = 50;
+/// Most chapters one video may mark.
+const MAX_CHAPTERS: usize = 100;
 /// Longest server name, video label and subtitle label kept.
 const MAX_LABEL: usize = 80;
 
@@ -38,6 +41,8 @@ pub struct VideoLink {
     /// `hls` or `dash`; `None` for a progressive file (or unknown).
     pub format: Option<String>,
     pub subtitles: Vec<VideoTrack>,
+    /// Openings, endings and other chapters, from the video's `timestamps` (M45).
+    pub chapters: Vec<VideoChapter>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -159,10 +164,51 @@ fn videos_of(list: &Value) -> Vec<VideoLink> {
                     })
                     .take(MAX_SUBTITLES)
                     .collect(),
+                chapters: video.get("timestamps").map(chapters_of).unwrap_or_default(),
             })
         })
         .take(MAX_VIDEOS)
         .collect()
+}
+
+/// A video's `timestamps` (seconds, Aniyomi's `TimeStamp`) as chapters in order. Ones that start
+/// past a day or end before they start are dropped.
+fn chapters_of(list: &Value) -> Vec<VideoChapter> {
+    const DAY_MS: f64 = 86_400_000.0;
+    let ms = |value: Option<&Value>| {
+        value
+            .and_then(Value::as_f64)
+            .map(|seconds| seconds * 1000.0)
+            .filter(|ms| ms.is_finite() && (0.0..DAY_MS).contains(ms))
+            .map(|ms| ms as u32)
+    };
+    let mut chapters: Vec<VideoChapter> = list
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|stamp| {
+            let start_ms = ms(stamp.get("start"))?;
+            let end_ms = ms(stamp.get("end"));
+            if end_ms.is_some_and(|end| end <= start_ms) {
+                return None;
+            }
+            let kind = match stamp.get("type").and_then(Value::as_str) {
+                Some("opening" | "mixedOp") => ChapterKind::Opening,
+                Some("ending" | "mixedEd") => ChapterKind::Ending,
+                Some("recap") => ChapterKind::Recap,
+                _ => ChapterKind::Other,
+            };
+            Some(VideoChapter {
+                start_ms,
+                end_ms,
+                name: label(stamp.get("name")),
+                kind,
+            })
+        })
+        .take(MAX_CHAPTERS)
+        .collect();
+    chapters.sort_by_key(|chapter| chapter.start_ms);
+    chapters
 }
 
 #[cfg(test)]
@@ -170,6 +216,43 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn timestamps_become_chapters() {
+        let videos = parse_videos(&json!({
+            "videos": [{
+                "url": "https://cdn.example/1.mp4",
+                "timestamps": [
+                    { "start": 1300, "end": 1390.5, "name": "ED", "type": "ending" },
+                    { "start": 0, "end": 85, "type": "mixedOp" },
+                    { "start": 600, "name": "Part B" },
+                    { "start": 900, "end": 800, "type": "recap" },
+                    { "start": -5, "type": "recap" },
+                    { "end": 10 }
+                ]
+            }]
+        }));
+        let chapters: Vec<(u32, Option<u32>, ChapterKind, Option<&str>)> = videos[0]
+            .chapters
+            .iter()
+            .map(|chapter| {
+                (
+                    chapter.start_ms,
+                    chapter.end_ms,
+                    chapter.kind,
+                    chapter.name.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            chapters,
+            vec![
+                (0, Some(85_000), ChapterKind::Opening, None),
+                (600_000, None, ChapterKind::Other, Some("Part B")),
+                (1_300_000, Some(1_390_500), ChapterKind::Ending, Some("ED")),
+            ]
+        );
+    }
 
     #[test]
     fn servers_and_videos_are_checked() {

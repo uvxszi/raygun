@@ -2,7 +2,8 @@ import { Link } from '@tanstack/react-router';
 import { Check, ChevronRight } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useId, useState } from 'react';
-import type { FC, ReactNode } from 'react';
+import type { FC, FormEvent, ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Sheet } from '../shell/Sheet';
 
@@ -211,3 +212,76 @@ export const PrefLink: FC<{
 export const PrefBlock: FC<{ children: ReactNode }> = ({ children }) => (
   <li className="px-1 py-2">{children}</li>
 );
+
+/** Free text, edited in a sheet. `check` returns why a text can't be saved, or null. */
+export const PrefText: FC<{
+  title: string;
+  summary?: string;
+  value: string;
+  placeholder?: string;
+  check?: (text: string) => string | null;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}> = ({ title, summary, value, placeholder, check, onChange, disabled }) => {
+  const { t } = useTranslation();
+  const [draft, setDraft] = useState<string | null>(null);
+  const problem = draft === null ? null : (check?.(draft.trim()) ?? null);
+  const save = (event: FormEvent) => {
+    event.preventDefault();
+    if (draft === null || problem) return;
+    onChange(draft.trim());
+    setDraft(null);
+  };
+  return (
+    <li>
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        disabled={disabled}
+        onClick={() => setDraft(value)}
+        className={`${ROW} hover:bg-surface disabled:opacity-60`}
+      >
+        <RowText
+          title={title}
+          summary={
+            <>
+              <span className={value ? 'text-foreground/80' : ''}>{value || placeholder}</span>
+              {summary && <span className="block">{summary}</span>}
+            </>
+          }
+        />
+      </button>
+      {draft !== null && (
+        <Sheet title={title} onClose={() => setDraft(null)}>
+          <form onSubmit={save} className="flex flex-col gap-3 text-sm">
+            {summary && <p className="text-muted">{summary}</p>}
+            <input
+              autoFocus
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder={placeholder}
+              aria-label={title}
+              aria-invalid={problem !== null}
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              className="bg-background placeholder:text-muted rounded-xl px-4 py-3 outline-none"
+            />
+            {problem && (
+              <p role="alert" className="text-primary">
+                {problem}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={problem !== null}
+              className="bg-primary text-background self-end rounded-full px-5 py-2.5 font-semibold disabled:opacity-50"
+            >
+              {t('settings.save')}
+            </button>
+          </form>
+        </Sheet>
+      )}
+    </li>
+  );
+};

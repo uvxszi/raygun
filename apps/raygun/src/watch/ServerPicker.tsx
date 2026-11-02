@@ -1,8 +1,18 @@
 import type { VideoLinkView, VideoServerView } from '@raygun/bindings';
-import { CircleAlert, Download, LoaderCircle, Play, Star, X } from 'lucide-react';
+import {
+  CircleAlert,
+  Copy,
+  Download,
+  ExternalLink,
+  LoaderCircle,
+  Play,
+  Star,
+  X,
+} from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { OverflowMenu } from '../shell/OverflowMenu';
 import { useDownloadSourceVideo } from './useVideoLibrary';
 import { useVideoLinks, useVideoServers, useVideoSourcePlay } from './useVideoSources';
 
@@ -27,10 +37,13 @@ const ORDER: ServerState[] = ['ready', 'resolving', 'empty', 'failed'];
 /** DASH can play but not be saved. */
 const savable = (link: VideoLinkView) => link.format !== 'dash' && !link.url.includes('.mpd');
 
+/** Plays a link here, or in another app (`external`). */
+type PlayLink = (link: VideoLinkView, external?: boolean) => void;
+
 const LinkList: FC<{
   links: VideoLinkView[];
   intent: PickIntent;
-  onPlay: (link: VideoLinkView) => void;
+  onPlay: PlayLink;
   onDownload: (link: VideoLinkView) => void;
   busy: boolean;
 }> = ({ links, intent, onPlay, onDownload, busy }) => {
@@ -81,6 +94,25 @@ const LinkList: FC<{
               <Download aria-hidden size={18} />
             </button>
           )}
+          {intent === 'play' && (
+            <div className="bg-background grid shrink-0 place-items-center rounded-xl">
+              <OverflowMenu
+                label={t('watch.linkActions', { name: link.label ?? t('watch.video') })}
+                items={[
+                  {
+                    label: t('watch.openElsewhere'),
+                    icon: ExternalLink,
+                    onSelect: () => onPlay(link, true),
+                  },
+                  {
+                    label: t('watch.copyLink'),
+                    icon: Copy,
+                    onSelect: () => void navigator.clipboard?.writeText(link.url),
+                  },
+                ]}
+              />
+            </div>
+          )}
         </li>
       ))}
     </ul>
@@ -92,7 +124,7 @@ const ServerItem: FC<{
   sourceId: string;
   server: VideoServerView;
   intent: PickIntent;
-  onPlay: (link: VideoLinkView) => void;
+  onPlay: PlayLink;
   onDownload: (link: VideoLinkView) => void;
   busy: boolean;
 }> = ({ sourceId, server, intent, onPlay, onDownload, busy }) => {
@@ -158,9 +190,9 @@ export const ServerPicker: FC<{
   const play = useVideoSourcePlay();
   const download = useDownloadSourceVideo();
 
-  const onPlay = (link: VideoLinkView) =>
+  const onPlay: PlayLink = (link, external = false) =>
     play.mutate(
-      { titleId: target.titleId, episodeId: target.episodeId, link },
+      { titleId: target.titleId, episodeId: target.episodeId, link, external },
       { onSuccess: onClose },
     );
   const onDownload = (link: VideoLinkView) =>

@@ -12,7 +12,7 @@ import { MiniPlayer } from '../player/MiniPlayer';
 import { PlayerSheet } from '../player/PlayerSheet';
 import { usePlaybackSync } from '../player/usePlayback';
 import { useApplyTheme } from '../settings/useApplyTheme';
-import { useSettings } from '../settings/useSettings';
+import { useSettings, useSettingsEvents } from '../settings/useSettings';
 import { usePlayerLabels } from '../watch/usePlayerLabels';
 import { BottomTabs } from './BottomTabs';
 import { SideRail } from './SideRail';
@@ -35,6 +35,7 @@ export const AppShell: FC = () => {
   const settings = useSettings();
   useApplyTheme(settings.data?.theme, settings.data?.accent);
   useStartScreen(settings.data?.startScreen);
+  useSettingsEvents();
   useSyncLanguage(settings.data?.language);
   useEngineHost();
   usePlaybackSync();

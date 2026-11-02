@@ -109,7 +109,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Native player: gestures (seek/volume/brightness), double-tap skip, PiP, speed, orientation, resume | aniyomi, CloudStream | ✅ M38 |
 | Subtitles (.srt/.vtt/.ass), preferred languages, audio track selection | aniyomi, CloudStream | ✅ M38 (preferred languages later) |
 | HLS/DASH, header injection | CloudStream | ✅ M38 |
-| Intro/outro skip (chapters, AniSkip) | aniyomi | 🔜 M45 (chapters, skip button, AniSkip by AniList id) |
+| Intro/outro skip (chapters, AniSkip) | aniyomi | ✅ M45 (source chapters, skip button with countdown or auto-skip, per-title intro length, AniSkip by MAL id or AniList search) |
 | Mark seen at a percentage, preserve position | aniyomi | ✅ M42.1 (watched point setting), M43 (counts on library episodes) |
 | Stremio catalogs, metadata, streams, subtitles | Stremio | ✅ M41 (torrent streams not yet) |
 | Video sources with servers streamed as they resolve | CloudStream, aniyomi | ✅ M42 (`video.source`, Internet Archive films) |
@@ -119,9 +119,9 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Play at once with automatic fallback; sources switched inside the player | aniyomi, CloudStream | 🔜 M44 |
 | Previous/next episode, autoplay next with a countdown, episode list in the player | aniyomi, CloudStream, Stremio | 🔜 M44 |
 | Continue watching moves on to the next episode; last stream per series | Stremio | 🔜 M44 |
-| Custom player overlay: lock, aspect, rotation, speed presets, brightness/volume bars and boost, horizontal seek, configurable double-tap | aniyomi, CloudStream | 🔜 M45 |
-| Subtitle styling, delay, second track, local files; audio and subtitle language lists; tracks and speed remembered per title | aniyomi, Stremio | 🔜 M45 |
-| PiP actions, sleep timer, screenshots, decoder switch | aniyomi | 🔜 M45 |
+| Custom player overlay: lock, aspect, rotation, speed presets, brightness/volume bars and boost, horizontal seek, configurable double-tap | aniyomi, CloudStream | ✅ M45 (plus hold for speed, media keys) |
+| Subtitle styling, delay, second track, local files; audio and subtitle language lists; tracks and speed remembered per title | aniyomi, Stremio | ✅ M45 (second track = subtitle files; audio delay ✖) |
+| PiP actions, sleep timer, screenshots, decoder switch | aniyomi | ✅ M45 (screenshots as cover: M47) |
 | Watch-status lists (Watching, Plan to watch, Completed, On hold, Dropped), favorites | CloudStream | 🔜 M46 |
 | Episode filters, sort, bookmarks, fillers, selection and bulk actions | aniyomi | 🔜 M47 |
 | New-episode notifications, per-title toggle, calendar | CloudStream, Stremio | 🔜 M48 |
@@ -129,7 +129,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Discover with every addon filter, search history, source home pages | Stremio, CloudStream | 🔜 M53 |
 | WebView resolver | CloudStream | 🔜 M55 |
 | Torrent streaming (TorrServer) | aniyomi | ✖ for now (legal risk; not in first-party code) |
-| External player | aniyomi | 🔜 M45 |
+| External player | aniyomi | ✅ M45 (chooser or a set app; position read back) |
 | mpv scripts, custom Lua buttons, decoder tweaks | aniyomi | ✖ ExoPlayer instead of mpv on Android |
 | Chromecast | CloudStream | 🔜 M52 |
 | Trakt, Simkl, AniList, MAL | CloudStream, aniyomi | ⏸ M59 (accounts) |

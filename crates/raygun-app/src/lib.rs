@@ -4,6 +4,7 @@
 //! and context, and gets everything else from [`builder`].
 
 mod ai;
+mod aniskip;
 mod backup;
 mod catalog;
 mod collections;
@@ -227,7 +228,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::AiModelEvent,
             events::PodcastsChangedEvent,
             events::WatchChangedEvent,
-            events::VideoDownloadsEvent
+            events::VideoDownloadsEvent,
+            events::SettingsChangedEvent
         ])
 }
 

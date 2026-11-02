@@ -54,6 +54,10 @@ pub struct AiModelEvent(pub raygun_model::AiModelProgress);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct PodcastsChangedEvent(pub String);
 
+/// A setting changed outside the Settings screens (in the video player, M45); carries its key.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct SettingsChangedEvent(pub String);
+
 /// Watching progress changed (the player closed or finished something); carries the content key
 /// (M38).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]

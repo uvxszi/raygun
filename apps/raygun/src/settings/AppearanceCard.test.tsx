@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 
 import { renderWithProviders } from '../test/renderWithProviders';
 import { AppearanceCard } from './AppearanceCard';
+import { PLAYER_DEFAULTS } from './playerOptions';
 import { useApplyTheme } from './useApplyTheme';
 import { useSettings } from './useSettings';
 
@@ -31,6 +32,7 @@ const DEFAULT_SETTINGS: Settings = {
   subtitleLanguage: '',
   autoplayNext: true,
   nextPromptSeconds: 10,
+  videoPlayer: PLAYER_DEFAULTS,
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,

@@ -8,12 +8,13 @@ import { useTranslation } from 'react-i18next';
 import { useAiModels, useAiProviders } from '../ai/useAi';
 import { useSyncStatus } from '../devices/useDeviceSync';
 import { useExtensions } from '../extensions/useExtensions';
-import { LANGUAGES, nativeName } from '../i18n/languages';
 import { LibraryFolders } from '../library/LibraryFolders';
 import { useLibraryStatus } from '../library/useLibrary';
 import { AppearanceCard } from '../settings/AppearanceCard';
 import { BackupCard } from '../settings/BackupCard';
 import { McpCard } from '../settings/McpCard';
+import { PLAYER_PAGES, withDefaults } from '../settings/playerOptions';
+import type { PlayerPrefs } from '../settings/playerOptions';
 import {
   PrefBlock,
   PrefChoice,
@@ -27,10 +28,9 @@ import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { TopBar } from '../shell/TopBar';
 import type { SettingsSection } from '../settings/sections';
 
-/** Matches `MANGA_UPDATE_HOURS`, `VIDEO_QUALITIES` and `SEEK_SECONDS` in raygun-model. */
+/** Matches `MANGA_UPDATE_HOURS` and `VIDEO_QUALITIES` in raygun-model. */
 const UPDATE_HOURS = [0, 6, 12, 24, 48, 168];
 const QUALITIES = [1080, 720, 480, 360];
-const SEEK_SECONDS = [5, 10, 15, 30, 60];
 /** Matches `NEXT_PROMPT_SECONDS` in raygun-model (0: at the end). */
 const NEXT_PROMPT_SECONDS = [0, 5, 10, 15, 30];
 
@@ -221,8 +221,22 @@ const PlayerSettings: FC = () => {
   const { t } = useTranslation();
   const { data, update, busy } = useSetting();
   if (!data) return null;
+  const prefs = withDefaults(data.videoPlayer);
+  const setPlayer = (change: Partial<PlayerPrefs>) =>
+    update.mutate({ key: 'videoPlayer', value: { ...prefs, ...change } });
   return (
     <>
+      <PrefGroup>
+        {PLAYER_PAGES.map((page) => (
+          <PrefLink
+            key={page.id}
+            icon={page.icon}
+            title={t(`settings.player.section.${page.id}.title`)}
+            summary={t(`settings.player.section.${page.id}.summary`)}
+            to={`/settings/player/${page.id}`}
+          />
+        ))}
+      </PrefGroup>
       <PrefGroup title={t('settings.videoPlayback')}>
         <PrefChoice<number | null>
           title={t('settings.videoQuality')}
@@ -256,17 +270,6 @@ const PlayerSettings: FC = () => {
           disabled={busy}
           onChange={(value) => update.mutate({ key: 'watchedPercent', value })}
         />
-        <PrefChoice<number>
-          title={t('settings.seekSeconds')}
-          summary={t('settings.seekSecondsHint')}
-          value={data.seekSeconds}
-          disabled={busy}
-          options={SEEK_SECONDS.map((seconds) => ({
-            value: seconds,
-            label: t('settings.seconds', { count: seconds }),
-          }))}
-          onChange={(value) => update.mutate({ key: 'seekSeconds', value })}
-        />
       </PrefGroup>
       <PrefGroup title={t('settings.episodes')}>
         <PrefSwitch
@@ -291,24 +294,19 @@ const PlayerSettings: FC = () => {
           onChange={(value) => update.mutate({ key: 'nextPromptSeconds', value })}
         />
       </PrefGroup>
-      <PrefGroup title={t('settings.subtitles')}>
+      <PrefGroup title={t('settings.player.sourcesList')}>
         <PrefSwitch
-          title={t('settings.autoSubtitles')}
-          summary={t('settings.autoSubtitlesHint')}
-          checked={data.autoSubtitles}
+          title={t('settings.player.showFailedSources')}
+          summary={t('settings.player.showFailedSourcesHint')}
+          checked={prefs.showFailedSources}
           disabled={busy}
-          onChange={(value) => update.mutate({ key: 'autoSubtitles', value })}
+          onChange={(showFailedSources) => setPlayer({ showFailedSources })}
         />
-        <PrefChoice<string>
-          title={t('settings.subtitleLanguage')}
-          summary={t('settings.subtitleLanguageHint')}
-          value={data.subtitleLanguage}
+        <PrefSwitch
+          title={t('settings.player.showEmptySources')}
+          checked={prefs.showEmptySources}
           disabled={busy}
-          options={[
-            { value: '', label: t('settings.subtitleLanguageApp') },
-            ...LANGUAGES.map((tag) => ({ value: tag, label: nativeName(tag) })),
-          ]}
-          onChange={(value) => update.mutate({ key: 'subtitleLanguage', value })}
+          onChange={(showEmptySources) => setPlayer({ showEmptySources })}
         />
       </PrefGroup>
     </>

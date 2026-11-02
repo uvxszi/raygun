@@ -520,7 +520,11 @@ impl StremioService {
         match stream.kind {
             StremioStreamKind::Direct => {
                 let video = self.request(&request, language).await?;
-                crate::video::play(&self.app, video).await
+                if request.external {
+                    crate::video::play_elsewhere(&self.app, video).await
+                } else {
+                    crate::video::play(&self.app, video).await
+                }
             }
             StremioStreamKind::YouTube => {
                 self.app.state::<PlaybackService>().replace(
@@ -606,6 +610,9 @@ impl StremioService {
                         subtitle: target.subtitle.clone(),
                         poster: target.poster.clone(),
                         stream,
+                        // The session gives every link the series' memory.
+                        meta_id: None,
+                        external: false,
                     },
                     &extra,
                 );
@@ -858,7 +865,7 @@ fn addon_subtitles(found: Vec<protocol::Subtitle>) -> Vec<VideoSubtitle> {
         .into_iter()
         .map(|subtitle| VideoSubtitle {
             url: subtitle.url,
-            label: subtitle.lang.clone(),
+            label: subtitle.label.or_else(|| subtitle.lang.clone()),
             lang: subtitle.lang,
             format: None,
         })
@@ -888,6 +895,12 @@ fn direct_request(request: &StremioPlayRequest, extra: &[VideoSubtitle]) -> Vide
         headers: stream.headers.clone(),
         format,
         subtitles,
+        group: request
+            .meta_id
+            .as_ref()
+            .map(|id| format!("stremio:{}:{id}", request.kind)),
+        chapters: Vec::new(),
+        anime: None,
     }
 }
 
@@ -972,7 +985,7 @@ fn stream_view(stream: protocol::Stream) -> StremioStream {
             .into_iter()
             .map(|subtitle| VideoSubtitle {
                 url: subtitle.url,
-                label: subtitle.lang.clone(),
+                label: subtitle.label.or_else(|| subtitle.lang.clone()),
                 lang: subtitle.lang,
                 format: None,
             })

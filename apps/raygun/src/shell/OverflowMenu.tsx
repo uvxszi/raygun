@@ -14,8 +14,11 @@ export type OverflowItem = {
   search?: Record<string, unknown>;
 };
 
-/** The top bar's ⋮ menu: actions that don't earn an icon of their own. */
-export const OverflowMenu: FC<{ items: OverflowItem[] }> = ({ items }) => {
+/**
+ * The top bar's ⋮ menu: actions that don't earn an icon of their own. In a list, `label` names
+ * what the menu is for.
+ */
+export const OverflowMenu: FC<{ items: OverflowItem[]; label?: string }> = ({ items, label }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -51,7 +54,7 @@ export const OverflowMenu: FC<{ items: OverflowItem[] }> = ({ items }) => {
     <div ref={rootRef} className="relative">
       <button
         type="button"
-        aria-label={t('nav.moreActions')}
+        aria-label={label ?? t('nav.moreActions')}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}

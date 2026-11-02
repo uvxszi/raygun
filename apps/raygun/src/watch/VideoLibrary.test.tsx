@@ -285,6 +285,7 @@ describe('Video library', () => {
     expect(commands.stremioDownload).toHaveBeenCalledWith(
       {
         kind: 'series',
+        metaId: 'tt0903747',
         videoId: 'tt0903747:1:2',
         title: 'Breaking Bad',
         subtitle: 'S1 E2 · Episode 2',

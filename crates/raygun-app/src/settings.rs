@@ -137,6 +137,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn video_player_settings_read_partial_rows_and_refuse_bad_values() {
+        let temp = TempDir::new().unwrap();
+        let db = open(&temp).await;
+        // A row saved before later fields existed keeps their defaults.
+        raygun_db::settings::put(
+            &db,
+            "videoPlayer",
+            r#"{"swapSides":true,"subtitleStyle":{"size":150}}"#,
+        )
+        .await
+        .unwrap();
+        let loaded = load(&db).await.unwrap().video_player;
+        assert!(loaded.swap_sides);
+        assert_eq!(loaded.subtitle_style.size, 150);
+        assert_eq!(loaded.subtitle_style.position, 8);
+        assert_eq!(loaded.default_speed, 100);
+
+        let player = |change: fn(&mut raygun_model::VideoPlayerPrefs)| {
+            let mut prefs = raygun_model::VideoPlayerPrefs::default();
+            change(&mut prefs);
+            SettingChange::VideoPlayer(Box::new(prefs))
+        };
+        for bad in [
+            player(|prefs| prefs.controls_seconds = 6),
+            player(|prefs| prefs.default_speed = 500),
+            player(|prefs| prefs.speed_presets.clear()),
+            player(|prefs| prefs.hold_speed = 250),
+            player(|prefs| prefs.volume_boost = 35),
+            player(|prefs| prefs.skip_wait_seconds = 4),
+            player(|prefs| prefs.subtitle_style.size = 20),
+            player(|prefs| prefs.audio_language = "not a tag!".into()),
+        ] {
+            assert!(update(&db, bad.clone()).await.is_err(), "{bad:?}");
+        }
+        let saved = update(&db, player(|prefs| prefs.speed_presets = vec![100, 400]))
+            .await
+            .unwrap();
+        assert_eq!(saved.video_player.speed_presets, vec![100, 400]);
+    }
+
+    #[tokio::test]
     async fn display_and_player_settings_keep_to_what_is_offered() {
         let temp = TempDir::new().unwrap();
         let db = open(&temp).await;

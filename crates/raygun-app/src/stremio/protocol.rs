@@ -451,6 +451,8 @@ pub enum StreamSource {
 pub struct Subtitle {
     pub url: String,
     pub lang: Option<String>,
+    /// A name some addons give ("English Signs"); the player shows the language otherwise.
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -524,6 +526,7 @@ pub fn parse_subtitles(value: &Value) -> Vec<Subtitle> {
             Some(Subtitle {
                 url: http(subtitle.get("url"))?,
                 lang: text(subtitle.get("lang")),
+                label: text(subtitle.get("label")),
             })
         })
         .take(MAX_ITEMS)

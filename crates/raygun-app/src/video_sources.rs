@@ -6,8 +6,8 @@ use raygun_db::titles::{self, TitleRow, UnitRow};
 use raygun_db::video::{self as progress_store, VideoEntry, VideoProgress};
 use raygun_ext_host::video::{VIDEO_SOURCE, VideoLink};
 use raygun_model::{
-    VideoEpisodeView, VideoLinkView, VideoRequest, VideoServerView, VideoSourcePlay, VideoSubtitle,
-    VideoTitleView,
+    AnimeEpisode, VideoEpisodeView, VideoLinkView, VideoRequest, VideoServerView, VideoSourcePlay,
+    VideoSubtitle, VideoTitleView,
 };
 use raygun_net::ImageLinks;
 use tauri::AppHandle;
@@ -133,8 +133,13 @@ impl VideoSourceService {
 
     /// Plays a link of a stored episode, resuming where it was left.
     pub async fn play(&self, request: VideoSourcePlay) -> Result<(), String> {
+        let external = request.external;
         let video = self.request(request).await?;
-        crate::video::play(self.catalog.app(), video).await
+        if external {
+            crate::video::play_elsewhere(self.catalog.app(), video).await
+        } else {
+            crate::video::play(self.catalog.app(), video).await
+        }
     }
 
     /// What the player gets for a link of a stored episode (also what a download saves).
@@ -229,7 +234,20 @@ pub(crate) fn link_request(
     single: bool,
     link: VideoLinkView,
 ) -> VideoRequest {
+    // Whole episode numbers of anime can be looked up on AniSkip.
+    let anime = (row.fields.media_type.as_deref() == Some("anime"))
+        .then_some(unit.fields.number)
+        .flatten()
+        .filter(|number| *number >= 1.0 && number.fract() == 0.0 && *number < 100_000.0)
+        .map(|number| AnimeEpisode {
+            title: row.fields.title.clone(),
+            episode: number as u32,
+            mal_id: None,
+        });
     VideoRequest {
+        group: Some(format!("title:{}", row.id)),
+        chapters: link.chapters,
+        anime,
         key: content_key(&row.fields.source_id, &unit.fields.remote_id),
         subtitle: episode_subtitle(row, unit, single),
         title: row.fields.title.clone(),
@@ -306,6 +324,7 @@ fn link_views(mut videos: Vec<VideoLink>, preferred: Option<u32>) -> Vec<VideoLi
             quality: video.quality,
             headers: video.headers,
             format: video.format,
+            chapters: video.chapters,
             subtitles: video
                 .subtitles
                 .into_iter()
@@ -346,6 +365,7 @@ mod tests {
             headers: BTreeMap::new(),
             format: None,
             subtitles: Vec::new(),
+            chapters: Vec::new(),
         }
     }
 

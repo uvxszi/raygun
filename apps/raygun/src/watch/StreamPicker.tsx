@@ -1,8 +1,9 @@
 import type { StremioStream } from '@raygun/bindings';
-import { Download, LoaderCircle, Play, X } from 'lucide-react';
+import { Copy, Download, ExternalLink, LoaderCircle, Play, X } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { OverflowMenu } from '../shell/OverflowMenu';
 import type { PickIntent } from './ServerPicker';
 import { useStremioPlay, useStremioStreams } from './useStremio';
 import { useDownloadStremio } from './useVideoLibrary';
@@ -16,6 +17,8 @@ export type StreamTarget = {
   poster: string | null;
   /** The saved title, so a download counts toward it in the library. */
   titleId?: string | null;
+  /** The movie or series, whose remembered speed, aspect and tracks the player uses. */
+  metaId: string;
 };
 
 /** Only direct streams that aren't DASH can be saved. */
@@ -46,10 +49,10 @@ export const StreamPicker: FC<{
 
   const save = (stream: StremioStream) =>
     download.mutate({ request: { ...request, stream }, titleId }, { onSuccess: onClose });
-  const pick = (stream: StremioStream) =>
+  const pick = (stream: StremioStream, external = false) =>
     intent === 'download'
       ? save(stream)
-      : play.mutate({ ...request, stream }, { onSuccess: onClose });
+      : play.mutate({ ...request, stream, external }, { onSuccess: onClose });
   const usable = (stream: StremioStream) =>
     intent === 'download' ? savable(stream) : playable(stream);
 
@@ -155,6 +158,25 @@ export const StreamPicker: FC<{
                       >
                         <Download aria-hidden size={18} />
                       </button>
+                    )}
+                    {intent === 'play' && stream.kind === 'direct' && (
+                      <div className="bg-background grid shrink-0 place-items-center rounded-xl">
+                        <OverflowMenu
+                          label={t('watch.linkActions', { name: stream.name ?? group.addonName })}
+                          items={[
+                            {
+                              label: t('watch.openElsewhere'),
+                              icon: ExternalLink,
+                              onSelect: () => pick(stream, true),
+                            },
+                            {
+                              label: t('watch.copyLink'),
+                              icon: Copy,
+                              onSelect: () => void navigator.clipboard?.writeText(stream.target),
+                            },
+                          ]}
+                        />
+                      </div>
                     )}
                   </li>
                 ))}

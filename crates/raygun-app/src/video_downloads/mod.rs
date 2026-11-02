@@ -283,6 +283,9 @@ impl VideoDownloadService {
             headers: serde_json::from_str(&download.headers).unwrap_or_default(),
             format: download.format,
             subtitles: serde_json::from_str(&download.subtitles).unwrap_or_default(),
+            group: None,
+            chapters: Vec::new(),
+            anime: None,
         };
         crate::video::play(&self.app, request).await
     }

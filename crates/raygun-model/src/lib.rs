@@ -97,6 +97,8 @@ pub struct Settings {
     pub autoplay_next: bool,
     /// Seconds before the end the next-episode prompt shows; 0 shows it at the end only (M44).
     pub next_prompt_seconds: u32,
+    /// The video player's controls, gestures, tracks and tools (M45).
+    pub video_player: VideoPlayerPrefs,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -194,6 +196,314 @@ impl Default for NovelReaderPrefs {
     }
 }
 
+/// How the video player turns (M45, Aniyomi's choices).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum PlayerOrientation {
+    /// Follows the device.
+    Free,
+    /// Landscape for wide videos, portrait for tall ones.
+    Video,
+    Portrait,
+    ReversePortrait,
+    SensorPortrait,
+    Landscape,
+    ReverseLandscape,
+    #[default]
+    SensorLandscape,
+}
+
+/// How the picture fills the screen.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum VideoAspect {
+    /// All of the picture, with bars.
+    #[default]
+    Fit,
+    /// The screen filled, the edges cut.
+    Crop,
+    /// The screen filled, the picture stretched.
+    Stretch,
+}
+
+/// What a double tap on one part of the player does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TapAction {
+    Seek,
+    PlayPause,
+    /// The previous episode on the left, the next on the right.
+    SwitchEpisode,
+    Off,
+}
+
+/// What the media keys' previous and next do (headsets, keyboards, remotes).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum MediaKeyAction {
+    #[default]
+    SwitchEpisode,
+    Seek,
+}
+
+/// Which decoders play video.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum DecoderMode {
+    /// Hardware, falling back to software when it fails.
+    #[default]
+    Auto,
+    /// Software first: slower, but plays what the hardware can't.
+    Software,
+}
+
+/// The edge drawn around subtitle text.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SubtitleEdge {
+    None,
+    #[default]
+    Outline,
+    Shadow,
+    Raised,
+    Depressed,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SubtitleFont {
+    #[default]
+    Default,
+    Sans,
+    Serif,
+    Mono,
+}
+
+/// How subtitles look in the video player (M45).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SubtitleStyle {
+    /// Percent of the normal size, 50–200.
+    pub size: u32,
+    pub font: SubtitleFont,
+    pub bold: bool,
+    pub italic: bool,
+    /// Colours are 0xAARRGGBB.
+    pub text_color: u32,
+    pub edge: SubtitleEdge,
+    pub edge_color: u32,
+    /// Behind each line; fully transparent by default.
+    pub background_color: u32,
+    /// Distance from the bottom, in percent of the picture's height, 0–40.
+    pub position: u32,
+    /// Ignores the colours, fonts and positions a subtitle file sets itself.
+    pub ignore_embedded: bool,
+}
+
+impl Default for SubtitleStyle {
+    fn default() -> Self {
+        Self {
+            size: 100,
+            font: SubtitleFont::Default,
+            bold: false,
+            italic: false,
+            text_color: 0xFFFF_FFFF,
+            edge: SubtitleEdge::Outline,
+            edge_color: 0xFF00_0000,
+            background_color: 0,
+            position: 8,
+            ignore_embedded: false,
+        }
+    }
+}
+
+/// The video player's controls, gestures, tracks and tools (M45). One stored row; fields missing
+/// from it keep their defaults, so later fields need no migration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct VideoPlayerPrefs {
+    pub orientation: PlayerOrientation,
+    /// For titles with no aspect of their own yet.
+    pub aspect: VideoAspect,
+    /// Seconds the controls stay up.
+    pub controls_seconds: u32,
+    /// The time left instead of the length.
+    pub show_remaining: bool,
+    /// Speeds are in hundredths (100 = 1×), 25–400.
+    pub default_speed: u32,
+    /// The speeds the speed chip goes through.
+    pub speed_presets: Vec<u32>,
+    /// Faster speech keeps its pitch.
+    pub pitch_correction: bool,
+    /// The speed while the picture is held down; 0 turns that off.
+    pub hold_speed: u32,
+    pub remember_brightness: bool,
+
+    pub brightness_gesture: bool,
+    pub volume_gesture: bool,
+    /// Volume on the left, brightness on the right.
+    pub swap_sides: bool,
+    /// A sideways swipe seeks.
+    pub seek_gesture: bool,
+    pub double_tap_left: TapAction,
+    pub double_tap_center: TapAction,
+    pub double_tap_right: TapAction,
+    pub media_keys: MediaKeyAction,
+    /// Percent the volume may go past 100 %, 0–100.
+    pub volume_boost: u32,
+
+    /// The skip button: "Skip opening" in a chapter, else the intro length.
+    pub skip_button: bool,
+    /// The skip button's jump outside chapters, for titles without their own.
+    pub intro_seconds: u32,
+    /// Openings, endings and recaps are skipped at once.
+    pub auto_skip: bool,
+    /// A countdown on the skip button skips unless cancelled (Netflix style).
+    pub skip_countdown: bool,
+    pub skip_wait_seconds: u32,
+    /// Openings and endings of anime from AniSkip.
+    pub aniskip: bool,
+    /// No AniSkip lookup when the source gives chapters.
+    pub aniskip_unless_chapters: bool,
+
+    /// Subtitles' second language (the first is `Settings::subtitle_language`).
+    pub subtitle_fallback: String,
+    /// Comma-separated words that make a subtitle track preferred ("Full, Dialogue").
+    pub subtitle_prefer_words: String,
+    /// Comma-separated words that keep a subtitle track from being picked ("Signs, Songs").
+    pub subtitle_skip_words: String,
+    pub subtitle_style: SubtitleStyle,
+    /// Empty plays the video's own default track.
+    pub audio_language: String,
+    pub audio_fallback: String,
+
+    /// Leaving the app while a video plays keeps it in a small window.
+    pub pip_on_leave: bool,
+    /// Back shrinks the player into a small window instead of closing it.
+    pub pip_on_back: bool,
+
+    pub decoder: DecoderMode,
+    /// Videos open in another app instead.
+    pub external_player: bool,
+    /// That app's package; empty asks each time.
+    pub external_package: String,
+    /// The player's Sources list shows servers that failed or had nothing.
+    pub show_failed_sources: bool,
+    pub show_empty_sources: bool,
+}
+
+impl Default for VideoPlayerPrefs {
+    fn default() -> Self {
+        Self {
+            orientation: PlayerOrientation::SensorLandscape,
+            aspect: VideoAspect::Fit,
+            controls_seconds: 4,
+            show_remaining: false,
+            default_speed: 100,
+            speed_presets: SPEED_PRESETS.to_vec(),
+            pitch_correction: true,
+            hold_speed: 200,
+            remember_brightness: false,
+            brightness_gesture: true,
+            volume_gesture: true,
+            swap_sides: false,
+            seek_gesture: true,
+            double_tap_left: TapAction::Seek,
+            double_tap_center: TapAction::PlayPause,
+            double_tap_right: TapAction::Seek,
+            media_keys: MediaKeyAction::SwitchEpisode,
+            volume_boost: 30,
+            skip_button: true,
+            intro_seconds: 85,
+            auto_skip: false,
+            skip_countdown: false,
+            skip_wait_seconds: 5,
+            aniskip: false,
+            aniskip_unless_chapters: true,
+            subtitle_fallback: String::new(),
+            subtitle_prefer_words: String::new(),
+            subtitle_skip_words: String::new(),
+            subtitle_style: SubtitleStyle::default(),
+            audio_language: String::new(),
+            audio_fallback: String::new(),
+            pip_on_leave: true,
+            pip_on_back: false,
+            decoder: DecoderMode::Auto,
+            external_player: false,
+            external_package: String::new(),
+            show_failed_sources: true,
+            show_empty_sources: true,
+        }
+    }
+}
+
+/// The speed chip's speeds unless changed, in hundredths.
+pub const SPEED_PRESETS: [u32; 12] = [25, 50, 75, 100, 125, 150, 175, 200, 250, 300, 350, 400];
+
+/// How long the player's controls can stay up, in seconds.
+pub const CONTROLS_SECONDS: [u32; 5] = [2, 3, 4, 5, 8];
+
+/// The speeds holding the picture can play at (0: off), in hundredths.
+pub const HOLD_SPEEDS: [u32; 4] = [0, 150, 200, 300];
+
+/// How long the skip button counts down, in seconds.
+pub const SKIP_WAIT_SECONDS: [u32; 4] = [3, 5, 7, 10];
+
+impl VideoPlayerPrefs {
+    /// Checks values the type system can't express.
+    pub fn validate(&self) -> Result<(), String> {
+        let speed = |value: u32| (25..=400).contains(&value);
+        if !CONTROLS_SECONDS.contains(&self.controls_seconds) {
+            return Err(format!(
+                "{} s isn't an offered controls timeout",
+                self.controls_seconds
+            ));
+        }
+        if !speed(self.default_speed) {
+            return Err("Speeds go from 0.25× to 4×".into());
+        }
+        if self.speed_presets.is_empty()
+            || self.speed_presets.len() > 12
+            || !self.speed_presets.iter().copied().all(speed)
+        {
+            return Err("Speed presets are 1 to 12 speeds from 0.25× to 4×".into());
+        }
+        if !HOLD_SPEEDS.contains(&self.hold_speed) {
+            return Err("That hold speed isn't offered".into());
+        }
+        if self.volume_boost > 100 || !self.volume_boost.is_multiple_of(10) {
+            return Err(format!(
+                "{} % isn't an offered volume boost",
+                self.volume_boost
+            ));
+        }
+        if !(5..=600).contains(&self.intro_seconds) {
+            return Err("Intros are 5 seconds to 10 minutes long".into());
+        }
+        if !SKIP_WAIT_SECONDS.contains(&self.skip_wait_seconds) {
+            return Err("That countdown isn't offered".into());
+        }
+        let style = &self.subtitle_style;
+        if !(50..=200).contains(&style.size) || style.position > 40 {
+            return Err("That subtitle size or position isn't offered".into());
+        }
+        for tag in [
+            &self.subtitle_fallback,
+            &self.audio_language,
+            &self.audio_fallback,
+        ] {
+            if !tag.is_empty() {
+                language_tag(tag)?;
+            }
+        }
+        let words = [&self.subtitle_prefer_words, &self.subtitle_skip_words];
+        if words.iter().any(|list| list.len() > 200) || self.external_package.len() > 200 {
+            return Err("That text is too long".into());
+        }
+        Ok(())
+    }
+}
+
 /// The update intervals offered, in hours (0 = off).
 pub const MANGA_UPDATE_HOURS: [u32; 6] = [0, 6, 12, 24, 48, 168];
 
@@ -223,6 +533,7 @@ impl Default for Settings {
             subtitle_language: String::new(),
             autoplay_next: true,
             next_prompt_seconds: 10,
+            video_player: VideoPlayerPrefs::default(),
         }
     }
 }
@@ -250,6 +561,7 @@ impl Settings {
             SettingChange::SubtitleLanguage(tag) => self.subtitle_language = tag,
             SettingChange::AutoplayNext(on) => self.autoplay_next = on,
             SettingChange::NextPromptSeconds(seconds) => self.next_prompt_seconds = seconds,
+            SettingChange::VideoPlayer(prefs) => self.video_player = *prefs,
         }
     }
 }
@@ -279,6 +591,8 @@ pub enum SettingChange {
     SubtitleLanguage(String),
     AutoplayNext(bool),
     NextPromptSeconds(u32),
+    /// Boxed: much larger than the other settings.
+    VideoPlayer(Box<VideoPlayerPrefs>),
 }
 
 impl SettingChange {
@@ -305,6 +619,7 @@ impl SettingChange {
             Self::SubtitleLanguage(_) => "subtitleLanguage",
             Self::AutoplayNext(_) => "autoplayNext",
             Self::NextPromptSeconds(_) => "nextPromptSeconds",
+            Self::VideoPlayer(_) => "videoPlayer",
         }
     }
 
@@ -351,6 +666,7 @@ impl SettingChange {
                     Err(format!("{seconds} s isn't an offered seek step"))
                 }
             }
+            Self::VideoPlayer(prefs) => prefs.validate(),
             Self::SubtitleLanguage(tag) if tag.is_empty() => Ok(()),
             Self::SubtitleLanguage(tag) => language_tag(tag),
             Self::PreferredVideoQuality(Some(height)) => {
@@ -1663,6 +1979,39 @@ pub struct VideoSubtitle {
     pub format: Option<String>,
 }
 
+/// What a chapter of a video is, for the skip button.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ChapterKind {
+    Opening,
+    Ending,
+    Recap,
+    #[default]
+    Other,
+}
+
+/// A chapter of a video (M45): from its source, or from AniSkip.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoChapter {
+    /// Milliseconds from the start.
+    pub start_ms: u32,
+    /// Where it ends; the next chapter's start when missing.
+    pub end_ms: Option<u32>,
+    pub name: Option<String>,
+    pub kind: ChapterKind,
+}
+
+/// An anime episode, for looking up its openings and endings on AniSkip (M45).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimeEpisode {
+    /// The series' name, searched on AniList when there is no MyAnimeList id.
+    pub title: String,
+    pub episode: u32,
+    pub mal_id: Option<u32>,
+}
+
 /// What to play in the video player.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -1678,6 +2027,14 @@ pub struct VideoRequest {
     /// `hls` or `dash` when the URL doesn't say.
     pub format: Option<String>,
     pub subtitles: Vec<VideoSubtitle>,
+    /// The title it belongs to, whose remembered speed, aspect and tracks it uses (M45):
+    /// `title:<id>` or `stremio:<type>:<id>`. None: the video's own key.
+    #[serde(default)]
+    pub group: Option<String>,
+    #[serde(default)]
+    pub chapters: Vec<VideoChapter>,
+    #[serde(default)]
+    pub anime: Option<AnimeEpisode>,
 }
 
 /// Something started and not finished.
@@ -1908,6 +2265,12 @@ pub struct StremioPlayRequest {
     pub subtitle: Option<String>,
     pub poster: Option<String>,
     pub stream: StremioStream,
+    /// The movie's or series' id, whose remembered player settings apply (M45).
+    #[serde(default)]
+    pub meta_id: Option<String>,
+    /// Opens it in another app instead of Raygun's player (M45).
+    #[serde(default)]
+    pub external: bool,
 }
 
 // ---- Local network access (Android 17) ----
@@ -1996,6 +2359,9 @@ pub struct VideoLinkView {
     pub subtitles: Vec<VideoSubtitle>,
     /// The link the preferred quality picks (the first of its server).
     pub preferred: bool,
+    /// Openings, endings and other chapters the source marks (M45).
+    #[serde(default)]
+    pub chapters: Vec<VideoChapter>,
 }
 
 /// Plays a link of a stored episode.
@@ -2005,6 +2371,9 @@ pub struct VideoSourcePlay {
     pub title_id: String,
     pub episode_id: String,
     pub link: VideoLinkView,
+    /// Opens it in another app instead of Raygun's player (M45).
+    #[serde(default)]
+    pub external: bool,
 }
 
 // ---- Video library, updates and downloads (M43) ----

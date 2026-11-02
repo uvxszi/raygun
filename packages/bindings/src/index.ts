@@ -343,6 +343,7 @@ export const events = {
 	playbackStateEvent: makeEvent<PlaybackStateEvent>("playback-state-event"),
 	podcastsChangedEvent: makeEvent<PodcastsChangedEvent>("podcasts-changed-event"),
 	queueEvent: makeEvent<QueueEvent>("queue-event"),
+	settingsChangedEvent: makeEvent<SettingsChangedEvent>("settings-changed-event"),
 	syncChangedEvent: makeEvent<SyncChangedEvent>("sync-changed-event"),
 	ttsEvent: makeEvent<TtsEvent>("tts-event"),
 	videoDownloadsEvent: makeEvent<VideoDownloadsEvent>("video-downloads-event"),
@@ -404,6 +405,14 @@ export type AiProviderInput = {
 
 export type AiProviderKind = "claude" | "openAiCompatible" | "deepl";
 
+/**  An anime episode, for looking up its openings and endings on AniSkip (M45). */
+export type AnimeEpisode = {
+	/**  The series' name, searched on AniList when there is no MyAnimeList id. */
+	title: string,
+	episode: number,
+	malId: number | null,
+};
+
 /**  Build and runtime facts about the running app. */
 export type AppInfo = {
 	name: string,
@@ -461,6 +470,9 @@ export type ChapterDownload = {
 	error: string | null,
 };
 
+/**  What a chapter of a video is, for the skip button. */
+export type ChapterKind = "opening" | "ending" | "recap" | "other";
+
 /**  Which saved tracks to play. */
 export type Collection = { kind: "favorites" } | { kind: "playlist"; id: string } | { kind: "history" };
 
@@ -499,6 +511,13 @@ export type ContinueWatching = {
 };
 
 export type CoverStyle = "compact" | "comfortable";
+
+/**  Which decoders play video. */
+export type DecoderMode = 
+/**  Hardware, falling back to software when it fails. */
+"auto" | 
+/**  Software first: slower, but plays what the hardware can't. */
+"software";
 
 export type DownloadState = "queued" | "downloading" | "done" | "failed";
 
@@ -847,6 +866,9 @@ export type McpStatus = {
 	error: string | null,
 };
 
+/**  What the media keys' previous and next do (headsets, keyboards, remotes). */
+export type MediaKeyAction = "switchEpisode" | "seek";
+
 export type MediaKind = "audio" | "video";
 
 /**  Where the bytes of a playable item come from. */
@@ -948,6 +970,13 @@ export type PlaybackState = {
 export type PlaybackStateEvent = PlaybackState;
 
 export type PlaybackStatus = "idle" | "loading" | "buffering" | "playing" | "paused" | "ended" | "error";
+
+/**  How the video player turns (M45, Aniyomi's choices). */
+export type PlayerOrientation = 
+/**  Follows the device. */
+"free" | 
+/**  Landscape for wide videos, portrait for tall ones. */
+"video" | "portrait" | "reversePortrait" | "sensorPortrait" | "landscape" | "reverseLandscape" | "sensorLandscape";
 
 export type PlaylistDetail = {
 	playlist: PlaylistSummary,
@@ -1148,7 +1177,9 @@ export type SearchResults = {
  *  A change to a single setting. The tagged shape (`{ key, value }`) lets the UI send only valid
  *  key/value pairs, and doubles as the format of a stored row.
  */
-export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number };
+export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
+/**  Boxed: much larger than the other settings. */
+{ key: "videoPlayer"; value: VideoPlayerPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -1196,7 +1227,12 @@ export type Settings = {
 	autoplayNext: boolean,
 	/**  Seconds before the end the next-episode prompt shows; 0 shows it at the end only (M44). */
 	nextPromptSeconds: number,
+	/**  The video player's controls, gestures, tracks and tools (M45). */
+	videoPlayer: VideoPlayerPrefs,
 };
+
+/**  A setting changed outside the Settings screens (in the video player, M45); carries its key. */
+export type SettingsChangedEvent = string;
 
 /**  Titles of one Mihon source that Raygun has no source for. */
 export type SkippedSource = {
@@ -1322,6 +1358,10 @@ export type StremioPlayRequest = {
 	subtitle: string | null,
 	poster: string | null,
 	stream: StremioStream,
+	/**  The movie's or series' id, whose remembered player settings apply (M45). */
+	metaId?: string | null,
+	/**  Opens it in another app instead of Raygun's player (M45). */
+	external?: boolean,
 };
 
 export type StremioStream = {
@@ -1375,6 +1415,30 @@ export type StremioVideo = {
 	watched: boolean,
 	/**  Saved on the device (M43). */
 	downloaded: boolean,
+};
+
+/**  The edge drawn around subtitle text. */
+export type SubtitleEdge = "none" | "outline" | "shadow" | "raised" | "depressed";
+
+export type SubtitleFont = "default" | "sans" | "serif" | "mono";
+
+/**  How subtitles look in the video player (M45). */
+export type SubtitleStyle = {
+	/**  Percent of the normal size, 50–200. */
+	size?: number,
+	font?: SubtitleFont,
+	bold?: boolean,
+	italic?: boolean,
+	/**  Colours are 0xAARRGGBB. */
+	textColor?: number,
+	edge?: SubtitleEdge,
+	edgeColor?: number,
+	/**  Behind each line; fully transparent by default. */
+	backgroundColor?: number,
+	/**  Distance from the bottom, in percent of the picture's height, 0–40. */
+	position?: number,
+	/**  Ignores the colours, fonts and positions a subtitle file sets itself. */
+	ignoreEmbedded?: boolean,
 };
 
 /**  A well-known repository the Repositories tab offers to add with one tap (M36). */
@@ -1435,6 +1499,11 @@ export type SyncStatus = {
 	error: string | null,
 };
 
+/**  What a double tap on one part of the player does. */
+export type TapAction = "seek" | "playPause" | 
+/**  The previous episode on the left, the next on the right. */
+"switchEpisode" | "off";
+
 /**  One block of a novel chapter: text structure only, never source HTML. */
 export type TextBlock = { kind: "paragraph"; text: string } | { kind: "heading"; text: string } | { kind: "separator" } | 
 /**  Through the local image proxy. */
@@ -1482,6 +1551,25 @@ export type TtsState =
 export type TtsUpdate = {
 	state: TtsState,
 	paragraph: number,
+};
+
+/**  How the picture fills the screen. */
+export type VideoAspect = 
+/**  All of the picture, with bars. */
+"fit" | 
+/**  The screen filled, the edges cut. */
+"crop" | 
+/**  The screen filled, the picture stretched. */
+"stretch";
+
+/**  A chapter of a video (M45): from its source, or from AniSkip. */
+export type VideoChapter = {
+	/**  Milliseconds from the start. */
+	startMs: number,
+	/**  Where it ends; the next chapter's start when missing. */
+	endMs: number | null,
+	name: string | null,
+	kind: ChapterKind,
 };
 
 /**  One video download. */
@@ -1539,6 +1627,78 @@ export type VideoLinkView = {
 	subtitles: VideoSubtitle[],
 	/**  The link the preferred quality picks (the first of its server). */
 	preferred: boolean,
+	/**  Openings, endings and other chapters the source marks (M45). */
+	chapters?: VideoChapter[],
+};
+
+/**
+ *  The video player's controls, gestures, tracks and tools (M45). One stored row; fields missing
+ *  from it keep their defaults, so later fields need no migration.
+ */
+export type VideoPlayerPrefs = {
+	orientation?: PlayerOrientation,
+	/**  For titles with no aspect of their own yet. */
+	aspect?: VideoAspect,
+	/**  Seconds the controls stay up. */
+	controlsSeconds?: number,
+	/**  The time left instead of the length. */
+	showRemaining?: boolean,
+	/**  Speeds are in hundredths (100 = 1×), 25–400. */
+	defaultSpeed?: number,
+	/**  The speeds the speed chip goes through. */
+	speedPresets?: number[],
+	/**  Faster speech keeps its pitch. */
+	pitchCorrection?: boolean,
+	/**  The speed while the picture is held down; 0 turns that off. */
+	holdSpeed?: number,
+	rememberBrightness?: boolean,
+	brightnessGesture?: boolean,
+	volumeGesture?: boolean,
+	/**  Volume on the left, brightness on the right. */
+	swapSides?: boolean,
+	/**  A sideways swipe seeks. */
+	seekGesture?: boolean,
+	doubleTapLeft?: TapAction,
+	doubleTapCenter?: TapAction,
+	doubleTapRight?: TapAction,
+	mediaKeys?: MediaKeyAction,
+	/**  Percent the volume may go past 100 %, 0–100. */
+	volumeBoost?: number,
+	/**  The skip button: "Skip opening" in a chapter, else the intro length. */
+	skipButton?: boolean,
+	/**  The skip button's jump outside chapters, for titles without their own. */
+	introSeconds?: number,
+	/**  Openings, endings and recaps are skipped at once. */
+	autoSkip?: boolean,
+	/**  A countdown on the skip button skips unless cancelled (Netflix style). */
+	skipCountdown?: boolean,
+	skipWaitSeconds?: number,
+	/**  Openings and endings of anime from AniSkip. */
+	aniskip?: boolean,
+	/**  No AniSkip lookup when the source gives chapters. */
+	aniskipUnlessChapters?: boolean,
+	/**  Subtitles' second language (the first is `Settings::subtitle_language`). */
+	subtitleFallback?: string,
+	/**  Comma-separated words that make a subtitle track preferred ("Full, Dialogue"). */
+	subtitlePreferWords?: string,
+	/**  Comma-separated words that keep a subtitle track from being picked ("Signs, Songs"). */
+	subtitleSkipWords?: string,
+	subtitleStyle?: SubtitleStyle,
+	/**  Empty plays the video's own default track. */
+	audioLanguage?: string,
+	audioFallback?: string,
+	/**  Leaving the app while a video plays keeps it in a small window. */
+	pipOnLeave?: boolean,
+	/**  Back shrinks the player into a small window instead of closing it. */
+	pipOnBack?: boolean,
+	decoder?: DecoderMode,
+	/**  Videos open in another app instead. */
+	externalPlayer?: boolean,
+	/**  That app's package; empty asks each time. */
+	externalPackage?: string,
+	/**  The player's Sources list shows servers that failed or had nothing. */
+	showFailedSources?: boolean,
+	showEmptySources?: boolean,
 };
 
 /**  What to play in the video player. */
@@ -1554,6 +1714,13 @@ export type VideoRequest = {
 	/**  `hls` or `dash` when the URL doesn't say. */
 	format: string | null,
 	subtitles: VideoSubtitle[],
+	/**
+	 *  The title it belongs to, whose remembered speed, aspect and tracks it uses (M45):
+	 *  `title:<id>` or `stremio:<type>:<id>`. None: the video's own key.
+	 */
+	group?: string | null,
+	chapters?: VideoChapter[],
+	anime?: AnimeEpisode | null,
 };
 
 /**  A server (hoster) for an episode; `links` when the source resolved it already. */
@@ -1568,6 +1735,8 @@ export type VideoSourcePlay = {
 	titleId: string,
 	episodeId: string,
 	link: VideoLinkView,
+	/**  Opens it in another app instead of Raygun's player (M45). */
+	external?: boolean,
 };
 
 /**  A subtitle file the player can load next to a video. */

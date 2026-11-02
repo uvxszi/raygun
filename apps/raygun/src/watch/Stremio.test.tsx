@@ -176,11 +176,13 @@ describe('Stremio addons in Watch', () => {
     expect(commands.stremioPlay).toHaveBeenCalledWith(
       {
         kind: 'series',
+        metaId: 'tt0903747',
         videoId: 'tt0903747:1:2',
         title: 'Breaking Bad',
         subtitle: 'S1 E2 · Episode 2',
         poster: null,
         stream: stream('direct', 'HLS 720p', 'https://cdn.example/e2.m3u8'),
+        external: false,
       },
       'en',
     );

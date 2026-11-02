@@ -158,6 +158,33 @@ describe('Video sources in Watch', () => {
     expect(within(page).getByRole('listitem', { name: 'S2 E1 · Captured' })).toBeInTheDocument();
   });
 
+  it('opens a link in another app or copies it', async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    commands.videoTitle.mockResolvedValue(ok(FILM));
+    commands.videoServers.mockResolvedValue(
+      ok([{ id: 'fast', name: 'Fast host', links: [link('720p', 720, true)] }]),
+    );
+    await AppShellWrapper.mount(`/watch/video?source=${encodeURIComponent(SOURCE.id)}&id=chaplin`);
+    const page = await screen.findByTestId('video-title-page');
+    await user.click(within(page).getByRole('button', { name: 'Choose a source' }));
+    const picker = await screen.findByRole('dialog', { name: 'Servers' });
+
+    await user.click(await within(picker).findByRole('button', { name: 'More for 720p' }));
+    await user.click(within(picker).getByRole('menuitem', { name: 'Copy link' }));
+    expect(writeText).toHaveBeenCalledWith(link('720p', 720, true).url);
+
+    await user.click(within(picker).getByRole('button', { name: 'More for 720p' }));
+    await user.click(within(picker).getByRole('menuitem', { name: 'Open in another app' }));
+    expect(commands.videoSourcePlay).toHaveBeenCalledWith({
+      titleId: 'title-2',
+      episodeId: 'f1',
+      link: link('720p', 720, true),
+      external: true,
+    });
+  });
+
   it('resolves servers one by one and plays the preferred link', async () => {
     const user = userEvent.setup();
     commands.videoTitle.mockResolvedValue(ok(FILM));
@@ -213,6 +240,7 @@ describe('Video sources in Watch', () => {
       titleId: 'title-2',
       episodeId: 'f1',
       link: link('720p', 720, true),
+      external: false,
     });
     await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });

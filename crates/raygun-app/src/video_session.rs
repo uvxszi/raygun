@@ -38,6 +38,30 @@ pub enum Origin {
 }
 
 impl Origin {
+    /// The title's player memory (speed, aspect, tracks; M45), as `VideoRequest::group`.
+    pub fn group_key(&self) -> String {
+        match self {
+            Self::Source { title_id } => format!("title:{title_id}"),
+            Self::Stremio { kind, id } => format!("stremio:{kind}:{id}"),
+        }
+    }
+
+    /// Stremio anime (Kitsu, MyAnimeList or AniList ids, or the `anime` type) can be looked up on
+    /// AniSkip; a MyAnimeList id is used as it is.
+    fn anime(&self) -> Option<Option<u32>> {
+        let Self::Stremio { kind, id } = self else {
+            return None;
+        };
+        if let Some(mal) = id.strip_prefix("mal:") {
+            return Some(mal.parse().ok());
+        }
+        let anime = kind == "anime"
+            || ["kitsu:", "anilist:", "kitsu-", "mal-"]
+                .iter()
+                .any(|prefix| id.starts_with(prefix));
+        anime.then_some(None)
+    }
+
     /// The key a title's remembered source is kept under.
     fn memory_key(&self) -> String {
         match self {
@@ -72,6 +96,8 @@ pub struct Episode {
     pub released: Option<i64>,
     pub watched: bool,
     pub downloaded: bool,
+    /// Its episode number, when it's a whole one (for AniSkip).
+    pub number: Option<u32>,
 }
 
 /// A playable link.
@@ -501,6 +527,9 @@ impl VideoSessions {
                 headers: serde_json::from_str(&download.headers).unwrap_or_default(),
                 format: download.format,
                 subtitles: serde_json::from_str(&download.subtitles).unwrap_or_default(),
+                group: None,
+                chapters: Vec::new(),
+                anime: None,
             };
             let link = Link {
                 label: self.label("onDevice", "On this device"),
@@ -747,12 +776,26 @@ impl VideoSessions {
                 origin: session.origin.clone(),
                 episode: session.episode().remote_id.clone(),
             };
+            let mut request = chosen.request.clone();
+            request
+                .group
+                .get_or_insert_with(|| session.origin.group_key());
+            if request.anime.is_none()
+                && let Some(mal_id) = session.origin.anime()
+                && let Some(episode) = session.episode().number
+            {
+                request.anime = Some(raygun_model::AnimeEpisode {
+                    title: session.title.clone(),
+                    episode,
+                    mal_id,
+                });
+            }
             let remembered = Remembered {
                 group: entry.name.clone(),
                 tag: chosen.tag.clone(),
             };
             (
-                chosen.request.clone(),
+                request,
                 resume,
                 session.start_at,
                 session.origin.clone(),
@@ -972,6 +1015,11 @@ impl VideoSessions {
                             remote_id: unit.fields.remote_id.clone(),
                             unit_id: Some(unit.id.clone()),
                             released: unit.fields.date,
+                            number: unit
+                                .fields
+                                .number
+                                .filter(|number| *number >= 1.0 && number.fract() == 0.0)
+                                .map(|number| number as u32),
                             key,
                         }
                     })
@@ -990,6 +1038,7 @@ impl VideoSessions {
                         released: None,
                         watched: meta.watched,
                         downloaded: meta.downloaded,
+                        number: None,
                     }]
                 } else {
                     meta.videos
@@ -1010,6 +1059,7 @@ impl VideoSessions {
                                 .and_then(crate::stremio::release_ms),
                             watched: video.watched,
                             downloaded: video.downloaded,
+                            number: video.episode.filter(|number| *number >= 1),
                         })
                         .collect()
                 };
@@ -1050,6 +1100,9 @@ mod tests {
                 headers: Default::default(),
                 format: None,
                 subtitles: Vec::new(),
+                group: None,
+                chapters: Vec::new(),
+                anime: None,
             },
         }
     }
@@ -1063,6 +1116,7 @@ mod tests {
             released,
             watched: false,
             downloaded: false,
+            number: None,
         }
     }
 
@@ -1153,6 +1207,24 @@ mod tests {
         state.index = 3;
         assert_eq!(state.previous_before(3, 100), Some(1));
         assert_eq!(state.previous_before(0, 100), None);
+    }
+
+    #[test]
+    fn stremio_anime_is_looked_up_on_aniskip() {
+        let stremio = |kind: &str, id: &str| Origin::Stremio {
+            kind: kind.into(),
+            id: id.into(),
+        };
+        assert_eq!(stremio("series", "kitsu:7442").anime(), Some(None));
+        assert_eq!(stremio("anime", "tt2560140").anime(), Some(None));
+        assert_eq!(stremio("series", "mal:16498").anime(), Some(Some(16498)));
+        assert_eq!(stremio("series", "tt0903747").anime(), None);
+        let source = Origin::Source {
+            title_id: "t1".into(),
+        };
+        assert_eq!(source.anime(), None, "sources say so on the request");
+        assert_eq!(source.group_key(), "title:t1");
+        assert_eq!(stremio("series", "tt1").group_key(), "stremio:series:tt1");
     }
 
     #[test]

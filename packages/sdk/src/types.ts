@@ -277,6 +277,17 @@ export type Video = {
   /** Streaming manifests; leave it out for a plain video file. */
   format?: 'hls' | 'dash' | 'progressive';
   subtitles?: VideoSubtitle[];
+  /** Chapters: the player marks them and offers to skip openings, endings and recaps. */
+  timestamps?: VideoTimestamp[];
+};
+
+/** A chapter of a video, in seconds from the start (Aniyomi's `TimeStamp`). */
+export type VideoTimestamp = {
+  start: number;
+  /** The next chapter's start when left out. */
+  end?: number;
+  name?: string;
+  type?: 'opening' | 'ending' | 'recap' | 'mixedOp' | 'mixedEd' | 'other';
 };
 
 /** A server (hoster) for an episode. Include `videos` when they cost nothing to resolve. */
