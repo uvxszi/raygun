@@ -170,7 +170,7 @@ export const BrowseTab: FC = () => {
                 data-testid="catalog-entry"
                 className="flex items-center gap-4 px-1 py-2.5"
               >
-                <LetterAvatar name={entry.name} />
+                <LetterAvatar name={entry.name} logo={entry.icon} />
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="flex flex-wrap items-baseline gap-x-2">
                     <span className="font-medium">{entry.name}</span>

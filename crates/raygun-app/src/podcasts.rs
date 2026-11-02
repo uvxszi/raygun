@@ -110,7 +110,7 @@ impl PodcastService {
                 feed_url: row.podcast.fields.feed_url,
                 title: row.podcast.fields.title,
                 author: row.podcast.fields.author,
-                artwork_url: self.artwork(row.podcast.fields.artwork.as_deref()),
+                artwork_url: self.kept_artwork(row.podcast.fields.artwork.as_deref()),
                 episodes: row.episodes as u32,
                 unplayed: row.unplayed as u32,
                 latest_published_at: row.latest_published_at.map(|ms| ms as f64),
@@ -239,7 +239,11 @@ impl PodcastService {
             title: row.fields.title,
             author: row.fields.author,
             description: row.fields.description,
-            artwork_url: self.artwork(row.fields.artwork.as_deref()),
+            artwork_url: if row.subscribed_at.is_some() {
+                self.kept_artwork(row.fields.artwork.as_deref())
+            } else {
+                self.artwork(row.fields.artwork.as_deref())
+            },
             link: row.fields.link,
             subscribed: row.subscribed_at.is_some(),
             episodes: self.episodes_view(episodes).await?,
@@ -557,7 +561,12 @@ impl PodcastService {
     }
 
     fn artwork(&self, url: Option<&str>) -> Option<String> {
-        url.map(|url| self.images.link(url, &Default::default()))
+        url.map(|url| self.images.cover(url, &Default::default()))
+    }
+
+    /// A followed show's art: cached for good (M46.2).
+    fn kept_artwork(&self, url: Option<&str>) -> Option<String> {
+        url.map(|url| self.images.kept_cover(url, &Default::default()))
     }
 
     fn changed(&self, podcast_id: &str) {

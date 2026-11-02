@@ -20,6 +20,8 @@ pub enum CacheKind {
     Enhanced,
     /// Files handed to the share sheet or clipboard (M46.1).
     Share,
+    /// Covers, posters, thumbnails and icons (M46.2).
+    Covers,
 }
 
 impl CacheKind {
@@ -31,6 +33,7 @@ impl CacheKind {
             Self::Pages => "pages",
             Self::Enhanced => "enhanced",
             Self::Share => "share",
+            Self::Covers => "covers",
         }
     }
 }

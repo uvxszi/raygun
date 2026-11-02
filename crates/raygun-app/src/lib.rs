@@ -6,6 +6,7 @@
 mod ai;
 mod aniskip;
 mod backup;
+mod caches;
 mod catalog;
 mod collections;
 mod comics;
@@ -204,6 +205,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::page_save,
             commands::page_share,
             commands::page_copy,
+            commands::storage_usage,
+            commands::storage_clear,
             commands::catalog_filters,
             commands::catalog_search,
             commands::catalog_global_search,

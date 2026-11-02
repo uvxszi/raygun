@@ -168,8 +168,23 @@ impl ExtensionService {
     }
 
     pub async fn list(&self) -> Vec<ExtensionInfo> {
-        let _ready = self.loading.read().await;
-        self.host.list().await
+        let infos = {
+            let _ready = self.loading.read().await;
+            self.host.list().await
+        };
+        // Icons remembered at install, kept in the cover cache (M46.2).
+        let images = self.app.state::<raygun_net::ImageLinks>();
+        let mut with_icons = Vec::with_capacity(infos.len());
+        for info in infos {
+            let icon = raygun_db::local_value(self.db(), &icon_key(&info.id))
+                .await
+                .ok()
+                .flatten()
+                .filter(|url| images.is_remote(url))
+                .map(|url| images.kept_cover(&url, &Default::default()));
+            with_icons.push(ExtensionInfo { icon, ..info });
+        }
+        with_icons
     }
 
     /// Whether NSFW extensions and content are shown (M35).
@@ -345,11 +360,19 @@ impl ExtensionService {
                             ..repo
                         };
                         let show_nsfw = self.host.content().show_nsfw();
+                        let index_url: Option<reqwest::Url> = repo.url.parse().ok();
+                        let images = self.app.state::<raygun_net::ImageLinks>();
                         let entries = index
                             .extensions
                             .iter()
                             .filter(|entry| show_nsfw || entry.content_rating != "nsfw")
-                            .map(|entry| catalog_entry(&repo.id, entry, local.get(&entry.id)))
+                            .map(|entry| CatalogEntry {
+                                icon: index_url
+                                    .as_ref()
+                                    .and_then(|base| repo::icon_url(base, entry))
+                                    .map(|url| images.cover(url.as_str(), &Default::default())),
+                                ..catalog_entry(&repo.id, entry, local.get(&entry.id))
+                            })
                             .collect();
                         RepoCatalog {
                             repo,
@@ -520,6 +543,12 @@ impl ExtensionService {
         )
         .await
         .map_err(|error| error.to_string())?;
+        // Its icon, for the installed list (M46.2).
+        let icon = repo::icon_url(&index_url, entry).map_or_else(String::new, String::from);
+        if let Err(error) = raygun_db::set_local_value(self.db(), &icon_key(&entry.id), &icon).await
+        {
+            tracing::debug!(%error, "could not remember an extension's icon");
+        }
         tracing::info!(extension = %entry.id, version = %entry.version, repo = %repo.url, "extension installed");
         Ok(self.reload().await)
     }
@@ -611,6 +640,11 @@ fn same_url(a: &str, b: &str) -> bool {
         .eq_ignore_ascii_case(b.trim().trim_end_matches('/'))
 }
 
+/// Where an installed extension's icon address is kept.
+fn icon_key(extension_id: &str) -> String {
+    format!("extension.icon.{extension_id}")
+}
+
 fn catalog_entry(repo_id: &str, entry: &RepoEntry, local: Option<&String>) -> CatalogEntry {
     let state = match local {
         None => CatalogState::Available,
@@ -635,6 +669,7 @@ fn catalog_entry(repo_id: &str, entry: &RepoEntry, local: Option<&String>) -> Ca
         nuclear: entry.format == PackageFormat::Nuclear,
         state,
         installed_version: local.cloned(),
+        icon: None,
     }
 }
 
@@ -740,6 +775,7 @@ mod tests {
             content_rating: "safe".into(),
             lang: None,
             package: "a.zip".into(),
+            icon: None,
             sha256: "0".repeat(64),
             size: 1,
             format: Default::default(),

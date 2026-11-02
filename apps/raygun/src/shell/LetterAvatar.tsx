@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { FC } from 'react';
 
 const SIZES = {
@@ -10,9 +11,15 @@ export const LetterAvatar: FC<{
   name: string;
   logo?: string | null;
   size?: keyof typeof SIZES;
-}> = ({ name, logo, size = 'md' }) =>
-  logo ? (
-    <img src={logo} alt="" className={`bg-surface shrink-0 object-contain ${SIZES[size]}`} />
+}> = ({ name, logo, size = 'md' }) => {
+  const [failed, setFailed] = useState<string | null>(null);
+  return logo && failed !== logo ? (
+    <img
+      src={logo}
+      alt=""
+      onError={() => setFailed(logo)}
+      className={`bg-surface shrink-0 object-contain ${SIZES[size]}`}
+    />
   ) : (
     <span
       aria-hidden
@@ -21,3 +28,4 @@ export const LetterAvatar: FC<{
       {name.slice(0, 1).toUpperCase()}
     </span>
   );
+};

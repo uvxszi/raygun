@@ -66,6 +66,7 @@ pub async fn settings_update(
 ) -> Result<Settings, String> {
     let theme_changed = matches!(change, SettingChange::Theme(_));
     let nsfw_changed = matches!(change, SettingChange::ShowNsfw(_));
+    let cache_changed = matches!(change, SettingChange::Cache(_));
     let settings = settings::update(&db.0, change)
         .await
         .map_err(|error| error.to_string())?;
@@ -77,6 +78,10 @@ pub async fn settings_update(
         app.state::<Arc<ExtensionService>>()
             .set_show_nsfw(settings.show_nsfw)
             .await;
+    }
+    if cache_changed {
+        use tauri::Manager;
+        app.state::<crate::caches::Caches>().apply(&settings.cache);
     }
     Ok(settings)
 }
@@ -1667,6 +1672,36 @@ pub fn export_jobs(
     exports: tauri::State<'_, Arc<crate::export::ExportService>>,
 ) -> Vec<raygun_model::ExportJob> {
     exports.jobs()
+}
+
+/// What Raygun stores: each cache with its size and limit, music artwork and downloads (M46.2).
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_usage(
+    caches: tauri::State<'_, crate::caches::Caches>,
+    db: tauri::State<'_, AppDb>,
+) -> Result<Vec<raygun_model::StorageUsage>, String> {
+    let prefs = settings::load(&db.0)
+        .await
+        .map_err(|error| error.to_string())?
+        .cache;
+    Ok(caches.usage(&prefs).await)
+}
+
+/// Empties one cache; returns the new sizes.
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_clear(
+    caches: tauri::State<'_, crate::caches::Caches>,
+    db: tauri::State<'_, AppDb>,
+    area: raygun_model::StorageArea,
+) -> Result<Vec<raygun_model::StorageUsage>, String> {
+    caches.clear(area).await?;
+    let prefs = settings::load(&db.0)
+        .await
+        .map_err(|error| error.to_string())?
+        .cache;
+    Ok(caches.usage(&prefs).await)
 }
 
 /// Saves a reader page to Pictures/Raygun; returns where it went.

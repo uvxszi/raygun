@@ -22,9 +22,6 @@ pub struct AppPaths(pub Paths);
 /// The open database, available to commands as Tauri state.
 pub struct AppDb(pub std::sync::Arc<raygun_db::Db>);
 
-/// Manga pages and covers kept on disk (M27).
-const PAGE_CACHE_BYTES: u64 = 512 * 1024 * 1024;
-
 /// Keeps the background log writer alive for the app's lifetime.
 struct LogGuard(#[allow(dead_code)] WorkerGuard);
 
@@ -45,6 +42,12 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(AppDb(std::sync::Arc::new(db)));
 
     let art_dir = paths.cache(raygun_paths::CacheKind::Images);
+    // Image caches with their limits from settings (M46.2).
+    let cache_prefs =
+        tauri::async_runtime::block_on(crate::settings::load(&app.state::<AppDb>().0))
+            .map(|settings| settings.cache)
+            .unwrap_or_default();
+    let caches = crate::caches::Caches::new(&paths, &cache_prefs);
     let proxy = tauri::async_runtime::block_on(raygun_net::StreamProxy::start_with(
         raygun_net::http_client()?,
         raygun_net::ProxyStorage {
@@ -52,13 +55,13 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
                 dir: art_dir.clone(),
                 is_allowed: raygun_library::is_artwork_name,
             }),
-            pages: Some(raygun_net::PageCache::new(
-                paths.cache(raygun_paths::CacheKind::Pages),
-                PAGE_CACHE_BYTES,
-            )),
+            pages: Some(caches.pages.clone()),
+            covers: Some(caches.covers.clone()),
             local: Some(paths.downloads()),
         },
     ))?;
+    app.manage(caches);
+    crate::caches::sweep_later(app.handle());
     app.manage(proxy.images());
     app.manage(crate::library::LibraryService::new(
         app.handle().clone(),

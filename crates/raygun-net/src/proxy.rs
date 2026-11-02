@@ -9,11 +9,11 @@
 //!
 //! It also serves library artwork from one folder at `/art/<name>`, limited to names the caller's
 //! validator accepts, the YouTube embed host page at `/embed/youtube` (M08), remote images
-//! (manga covers and pages, M24) at `/image/<token>`, and subtitle files for the video player
-//! (M41) at `/subtitle/<token>`.
+//! (manga pages, M24) at `/image/<token>`, covers, posters and icons from a lasting cache
+//! (M46.2) at `/cover/<token>`, and subtitle files for the video player (M41) at
+//! `/subtitle/<token>`.
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::hash::{Hash, Hasher};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -28,6 +28,7 @@ use axum::routing::get;
 use futures_util::StreamExt;
 use raygun_model::MediaSource;
 
+use crate::cover_cache::CoverCache;
 use crate::images::{ImageError, fetch_image};
 use crate::page_cache::{PageCache, sniff_content_type};
 use tower::ServiceExt;
@@ -73,6 +74,8 @@ pub struct StaticFiles {
 struct ImageRegistry {
     images: HashMap<String, (String, BTreeMap<String, String>)>,
     order: VecDeque<String>,
+    /// Covers that stay cached whatever the size limit: the library's (M46.2).
+    kept: std::collections::HashSet<String>,
 }
 
 #[derive(Clone)]
@@ -82,6 +85,7 @@ struct ProxyState {
     client: reqwest::Client,
     artwork: Option<StaticFiles>,
     pages: Option<PageCache>,
+    covers: Option<CoverCache>,
     local: Option<PathBuf>,
 }
 
@@ -92,6 +96,8 @@ pub struct ProxyStorage {
     pub artwork: Option<StaticFiles>,
     /// Disk cache for `/image/<token>` (M27).
     pub pages: Option<PageCache>,
+    /// Lasting cache for `/cover/<token>` (M46.2).
+    pub covers: Option<CoverCache>,
     /// A folder served at `/local/<path>`, e.g. downloaded chapters (M28).
     pub local: Option<PathBuf>,
 }
@@ -107,9 +113,86 @@ pub struct StreamProxy {
 pub struct ImageLinks {
     address: SocketAddr,
     registry: Arc<Mutex<ImageRegistry>>,
+    covers: Option<CoverCache>,
+}
+
+/// The cache name of an image: a hash of its address and headers, the same in every version.
+pub fn image_token(url: &str, headers: &BTreeMap<String, String>) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(url.as_bytes());
+    for (name, value) in headers {
+        hasher.update([0]);
+        hasher.update(name.as_bytes());
+        hasher.update([1]);
+        hasher.update(value.as_bytes());
+    }
+    hasher
+        .finalize()
+        .iter()
+        .take(16)
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 impl ImageLinks {
+    /// The proxy URL of a cover, poster, thumbnail or icon: cached on disk and checked again when
+    /// old (M46.2). Reader pages use [`Self::link`].
+    pub fn cover(&self, url: &str, headers: &BTreeMap<String, String>) -> String {
+        format!("http://{}/cover/{}", self.address, self.token(url, headers))
+    }
+
+    /// Like [`Self::cover`], for an image that stays cached whatever the size limit: library
+    /// covers, followed podcasts, installed extensions.
+    pub fn kept_cover(&self, url: &str, headers: &BTreeMap<String, String>) -> String {
+        let token = self.token(url, headers);
+        self.registry
+            .lock()
+            .expect("image registry poisoned")
+            .kept
+            .insert(token.clone());
+        format!("http://{}/cover/{token}", self.address)
+    }
+
+    /// Drops the cached copy of a cover, so it's fetched again when next seen (a manual refresh).
+    pub async fn forget_cover(&self, url: &str, headers: &BTreeMap<String, String>) {
+        if let Some(covers) = &self.covers {
+            covers.forget(&image_token(url, headers)).await;
+        }
+    }
+
+    /// The lasting cover cache, for its usage and settings.
+    pub fn cover_cache(&self) -> Option<&CoverCache> {
+        self.covers.as_ref()
+    }
+
+    /// The source address behind one of this proxy's image or cover links; other URLs as they
+    /// are. Stored posters must outlive the app, and a proxy link doesn't.
+    pub fn original(&self, url: &str) -> String {
+        let token = url
+            .strip_prefix(&format!("http://{}/", self.address))
+            .and_then(|rest| {
+                rest.strip_prefix("cover/")
+                    .or_else(|| rest.strip_prefix("image/"))
+            });
+        token
+            .and_then(|token| {
+                self.registry
+                    .lock()
+                    .expect("image registry poisoned")
+                    .images
+                    .get(token)
+                    .map(|(source, _)| source.clone())
+            })
+            .unwrap_or_else(|| url.to_owned())
+    }
+
+    /// Whether `url` is a remote address this proxy can cache (not already one of its own).
+    pub fn is_remote(&self, url: &str) -> bool {
+        (url.starts_with("https://") || url.starts_with("http://"))
+            && !url.starts_with(&format!("http://{}/", self.address))
+    }
+
     /// The proxy URL for `url`, fetched with `headers` (e.g. a Referer the host requires).
     pub fn link(&self, url: &str, headers: &BTreeMap<String, String>) -> String {
         format!("http://{}/image/{}", self.address, self.token(url, headers))
@@ -126,10 +209,7 @@ impl ImageLinks {
     }
 
     fn token(&self, url: &str, headers: &BTreeMap<String, String>) -> String {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        url.hash(&mut hasher);
-        headers.hash(&mut hasher);
-        let token = format!("{:016x}", hasher.finish());
+        let token = image_token(url, headers);
         let mut registry = self.registry.lock().expect("image registry poisoned");
         if registry
             .images
@@ -155,7 +235,11 @@ impl ImageLinks {
     /// them back through the proxy, which knows their headers and cached copies (M46.1).
     pub fn is_page(&self, url: &str) -> bool {
         url.strip_prefix(&format!("http://{}/", self.address))
-            .is_some_and(|rest| rest.starts_with("image/") || rest.starts_with("local/"))
+            .is_some_and(|rest| {
+                rest.starts_with("image/")
+                    || rest.starts_with("cover/")
+                    || rest.starts_with("local/")
+            })
     }
 }
 
@@ -183,6 +267,7 @@ impl StreamProxy {
         let ProxyStorage {
             artwork,
             pages,
+            covers,
             local,
         } = storage;
         let registry = Arc::new(Mutex::new(Registry::default()));
@@ -193,11 +278,13 @@ impl StreamProxy {
             client,
             artwork,
             pages,
+            covers: covers.clone(),
             local,
         };
         let router = Router::new()
             .route("/stream/{token}", get(stream))
             .route("/image/{token}", get(serve_image))
+            .route("/cover/{token}", get(serve_cover))
             .route("/subtitle/{token}", get(serve_subtitle))
             .route("/art/{name}", get(serve_artwork))
             .route("/local/{*path}", get(serve_local))
@@ -217,6 +304,7 @@ impl StreamProxy {
             images: ImageLinks {
                 address,
                 registry: images,
+                covers,
             },
         })
     }
@@ -367,6 +455,39 @@ async fn serve_image(
                 );
             }
             response
+        }
+    };
+    with_cors(response)
+}
+
+/// A cover from the lasting cache (M46.2), or the page cache when there is none.
+async fn serve_cover(
+    State(state): State<ProxyState>,
+    Path(token): Path<String>,
+    request: Request,
+) -> Response {
+    let entry = {
+        let registry = state.images.lock().expect("image registry poisoned");
+        registry
+            .images
+            .get(&token)
+            .cloned()
+            .map(|(url, headers)| (url, headers, registry.kept.contains(&token)))
+    };
+    let Some((url, headers, kept)) = entry else {
+        return with_cors(StatusCode::NOT_FOUND.into_response());
+    };
+    let Some(covers) = &state.covers else {
+        return serve_image(State(state), Path(token), request).await;
+    };
+    let response = match covers
+        .get(&state.client, &token, &url, &headers, kept)
+        .await
+    {
+        Ok(bytes) => image_response(bytes),
+        Err(error) => {
+            tracing::debug!(%error, "cover request failed");
+            (StatusCode::BAD_GATEWAY, error).into_response()
         }
     };
     with_cors(response)

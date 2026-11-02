@@ -32,7 +32,7 @@ export const InstalledTab: FC = () => {
               data-testid="extension-row"
               className="hover:bg-surface flex items-center gap-4 rounded-xl px-1 py-2.5"
             >
-              <LetterAvatar name={extension.name} />
+              <LetterAvatar name={extension.name} logo={extension.icon} />
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="flex flex-wrap items-baseline gap-x-2">
                   <span className="font-medium">{extension.name}</span>

@@ -141,7 +141,8 @@ mod tests {
                 ],
                 "scripts": [
                     { "id": 1, "name": "NovelFull", "fileName": "NovelFull", "lang": "en", "ver": "3.0.1",
-                      "libVer": "1.0.0", "md5": sha256_hex(SCRIPT.as_bytes()), "type": "LuaScript" },
+                      "libVer": "1.0.0", "md5": sha256_hex(SCRIPT.as_bytes()), "type": "LuaScript",
+                      "imageURL": "https://example.org/icons/NovelFull.png" },
                     { "id": 2, "name": "Future", "fileName": "Future", "lang": "en", "ver": "1.0.0",
                       "libVer": "2.0.0", "md5": sha256_hex(b"x"), "type": "LuaScript" },
                     { "id": 3, "name": "Js", "fileName": "Js", "lang": "en", "ver": "1.0.0",
@@ -169,6 +170,29 @@ mod tests {
         assert_eq!(entry.provides, ["novel.source"]);
         assert_eq!(entry.format, crate::repo::PackageFormat::Shosetsu);
         assert_eq!(index.libraries[0].name, "novelvault");
+        // The icon its repository lists (M46.2), resolved like packages.
+        let base: url::Url = "https://example.org/repo/index.json".parse().unwrap();
+        assert_eq!(
+            crate::repo::icon_url(&base, entry)
+                .map(String::from)
+                .as_deref(),
+            Some("https://example.org/icons/NovelFull.png")
+        );
+        let relative = crate::repo::RepoEntry {
+            icon: Some("icons/x.png".into()),
+            ..entry.clone()
+        };
+        assert_eq!(
+            crate::repo::icon_url(&base, &relative)
+                .map(String::from)
+                .as_deref(),
+            Some("https://example.org/repo/icons/x.png")
+        );
+        let unsafe_icon = crate::repo::RepoEntry {
+            icon: Some("javascript:alert(1)".into()),
+            ..entry.clone()
+        };
+        assert!(crate::repo::icon_url(&base, &unsafe_icon).is_none());
     }
 
     #[test]

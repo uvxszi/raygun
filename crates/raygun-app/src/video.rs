@@ -140,7 +140,11 @@ pub async fn prepare(
         key: request.key.clone(),
         title: request.title.clone(),
         subtitle: request.subtitle.clone(),
-        poster: request.poster.clone(),
+        // The source's address: a proxy link wouldn't outlive the app.
+        poster: request
+            .poster
+            .as_deref()
+            .map(|poster| app.state::<raygun_net::ImageLinks>().original(poster)),
         request: match resume {
             Some(resume) => resume,
             None => serde_json::to_string(&request).map_err(|error| error.to_string())?,
@@ -541,7 +545,7 @@ pub async fn continue_watching(app: &AppHandle) -> Result<Vec<ContinueWatching>,
     let rows = store::continue_watching(&db, 30)
         .await
         .map_err(|error| error.to_string())?;
-    Ok(to_view(rows))
+    Ok(to_view(app, rows))
 }
 
 /// Everything watched or started, most recent first.
@@ -550,16 +554,24 @@ pub async fn history(app: &AppHandle) -> Result<Vec<ContinueWatching>, String> {
     let rows = store::history(&db, 200)
         .await
         .map_err(|error| error.to_string())?;
-    Ok(to_view(rows))
+    Ok(to_view(app, rows))
 }
 
-fn to_view(rows: Vec<store::VideoProgress>) -> Vec<ContinueWatching> {
+fn to_view(app: &AppHandle, rows: Vec<store::VideoProgress>) -> Vec<ContinueWatching> {
+    let images = app.state::<raygun_net::ImageLinks>();
     rows.into_iter()
         .map(|row| ContinueWatching {
             key: row.entry.key,
             title: row.entry.title,
             subtitle: row.entry.subtitle,
-            poster: row.entry.poster,
+            // Posters seen again and again: through the lasting cache (M46.2).
+            poster: row.entry.poster.map(|poster| {
+                if images.is_remote(&poster) {
+                    images.cover(&poster, &Default::default())
+                } else {
+                    poster
+                }
+            }),
             position_ms: row.position_ms as f64,
             duration_ms: row.duration_ms.map(|ms| ms as f64),
             updated_at: row.updated_at as f64,

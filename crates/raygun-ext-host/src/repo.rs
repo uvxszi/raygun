@@ -61,6 +61,9 @@ pub struct RepoEntry {
     pub lang: Option<String>,
     /// The package zip, relative to the index (or absolute).
     pub package: String,
+    /// The extension's icon, relative to the index (or absolute) (M46.2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     /// Lower-case hex SHA-256 of the package; may be empty for Nuclear plugins.
     pub sha256: String,
     /// Package size in bytes; 0 when the repository doesn't say (Nuclear's registry).
@@ -101,6 +104,8 @@ struct ShosetsuScript {
     md5: String,
     #[serde(rename = "type", default)]
     kind: Option<String>,
+    #[serde(rename = "imageURL", default)]
+    image_url: Option<String>,
 }
 
 /// The kotlin-lib major version Raygun's Shosetsu runtime stands in for.
@@ -163,6 +168,7 @@ fn from_shosetsu(index: ShosetsuIndex) -> RepoIndex {
                 content_rating: "suggestive".to_owned(),
                 lang: Some(script.lang.clone()),
                 package: format!("src/{}/{}.lua", script.lang, script.file_name),
+                icon: script.image_url.filter(|url| !url.trim().is_empty()),
                 sha256: script.md5.to_ascii_lowercase(),
                 size: 0,
                 format: PackageFormat::Shosetsu,
@@ -264,6 +270,7 @@ fn from_nuclear(registry: NuclearRegistry) -> RepoIndex {
                 content_rating: safe(),
                 lang: None,
                 package: plugin.download_url?,
+                icon: None,
                 sha256: plugin
                     .sha256
                     .filter(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
@@ -344,6 +351,12 @@ pub fn parse_index(json: &str) -> Result<RepoIndex, RepoError> {
         usable
     });
     Ok(index)
+}
+
+/// Where an entry's icon is, resolved against the index URL; http(s) only (M46.2).
+pub fn icon_url(index_url: &Url, entry: &RepoEntry) -> Option<Url> {
+    let url = index_url.join(entry.icon.as_deref()?).ok()?;
+    matches!(url.scheme(), "http" | "https").then_some(url)
 }
 
 /// Where an entry's package is, resolved against the index URL; http(s) only.

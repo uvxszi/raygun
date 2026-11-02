@@ -78,14 +78,15 @@ const SourcesList: FC = () => {
   const video = useVideoSources();
   const manga = useMangaSources('manga');
   const novel = useMangaSources('novel');
-  const extensionName = (source: MangaSource) =>
-    extensions.data?.find((extension) => extension.id === source.extensionId)?.name ??
-    source.extensionId;
+  const extensionOf = (source: MangaSource) =>
+    extensions.data?.find((extension) => extension.id === source.extensionId);
   const catalogue = (sources: MangaSource[] | undefined, route: string): SourceRow[] =>
     (sources ?? []).map((source) => ({
       key: source.id,
       name: source.name,
-      detail: extensionName(source),
+      detail: extensionOf(source)?.name ?? source.extensionId,
+      // A source shows its extension's icon (M46.2).
+      logo: extensionOf(source)?.icon,
       to: route,
       search: { id: source.id },
       latest: { to: route, search: { id: source.id, mode: 'latest' } },

@@ -220,7 +220,11 @@ impl VideoDownloadService {
             title_id,
             title: request.title,
             subtitle: request.subtitle,
-            poster: request.poster,
+            // The source's address: a proxy link wouldn't outlive the app.
+            poster: request
+                .poster
+                .as_deref()
+                .map(|poster| self.images.original(poster)),
             url: request.url,
             headers: serde_json::to_string(&request.headers).map_err(to_message)?,
             format: request.format,
@@ -312,7 +316,7 @@ impl VideoDownloadService {
                         .download
                         .poster
                         .as_deref()
-                        .map(|url| self.images.link(url, &Default::default())),
+                        .map(|url| self.images.cover(url, &Default::default())),
                     id: row.id,
                     key: row.download.key,
                     title_id: row.download.title_id,

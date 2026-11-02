@@ -179,7 +179,7 @@ async fn feed(
                 .fields
                 .cover
                 .as_deref()
-                .map(|url| images.link(url, &row.title.fields.cover_headers)),
+                .map(|url| images.kept_cover(url, &row.title.fields.cover_headers)),
             season: crate::video_sources::season(&row.unit),
             title_id: row.title.id,
             source_id: row.title.fields.source_id,

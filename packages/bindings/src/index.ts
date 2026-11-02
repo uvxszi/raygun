@@ -303,6 +303,10 @@ export const commands = {
 	pageShare: (page: PageRef) => typedError<null, string>(__TAURI_INVOKE("page_share", { page })),
 	/**  Puts a reader page on the clipboard. */
 	pageCopy: (page: PageRef) => typedError<null, string>(__TAURI_INVOKE("page_copy", { page })),
+	/**  What Raygun stores: each cache with its size and limit, music artwork and downloads (M46.2). */
+	storageUsage: () => typedError<StorageUsage[], string>(__TAURI_INVOKE("storage_usage")),
+	/**  Empties one cache; returns the new sizes. */
+	storageClear: (area: StorageArea) => typedError<StorageUsage[], string>(__TAURI_INVOKE("storage_clear", { area })),
 	/**  The filters a manga or novel source offers for its search. */
 	catalogFilters: (medium: string, sourceId: string) => typedError<SourceFilter[], string>(__TAURI_INVOKE("catalog_filters", { medium, sourceId })),
 	/**  Searches one source with its filters; the query may be empty when filters are set. */
@@ -499,6 +503,17 @@ export type BackupOutcome =
 /**  A Raygun backup: rows read and rows that changed here. */
 { kind: "raygun"; received: number; changed: number } | { kind: "mihon"; summary: MihonImport };
 
+/**  Image cache limits and refreshing. One stored row; missing fields keep their defaults. */
+export type CachePrefs = {
+	/**  Covers, posters, thumbnails and icons. Library covers count but are never removed. */
+	coverCacheMb?: number,
+	/**  Reader pages. */
+	pageCacheMb?: number,
+	coverRefreshDays?: number,
+	/**  The page cache is emptied each time the app starts (Mihon's option). */
+	clearPagesOnStart?: boolean,
+};
+
 /**  An extension a repository offers. */
 export type CatalogEntry = {
 	repoId: string,
@@ -519,6 +534,8 @@ export type CatalogEntry = {
 	nuclear: boolean,
 	/**  The version on this device (built-in or installed), if any. */
 	installedVersion: string | null,
+	/**  The icon the repository lists, through the cover cache (M46.2). */
+	icon: string | null,
 };
 
 export type CatalogState = "available" | "installed" | "updateAvailable" | 
@@ -731,6 +748,8 @@ export type ExtensionInfo = {
 	settings: ExtensionSetting[],
 	/**  For a converted Nuclear plugin (M17): what works and what doesn't. */
 	compatibility: CompatReport | null,
+	/**  The icon its repository lists, through the cover cache (M46.2). */
+	icon: string | null,
 };
 
 /**  Where an extension was loaded from. */
@@ -1451,7 +1470,7 @@ export type SearchResults = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -1505,6 +1524,8 @@ export type Settings = {
 	libraryDisplay: LibraryDisplayPrefs,
 	/**  Where downloads and pages are saved outside the app (M46.1). */
 	save: SavePrefs,
+	/**  Image cache limits and refreshing (M46.2). */
+	cache: CachePrefs,
 };
 
 /**  A setting changed outside the Settings screens (in the video player, M45); carries its key. */
@@ -1533,6 +1554,19 @@ export type SourceSearchResult = {
 
 export type StartScreen = "home" | "library" | "browse";
 
+/**  A part of what Raygun stores, as Settings → Data → Storage lists it. */
+export type StorageArea = 
+/**  Covers, posters, thumbnails and icons (a cache). */
+"covers" | 
+/**  Reader pages (a cache). */
+"pages" | 
+/**  Files made for sharing (a cache). */
+"shared" | 
+/**  Artwork read from the music library's files; it comes back only with a rescan. */
+"musicArt" | 
+/**  Downloaded chapters, books, comics and videos: not a cache. */
+"downloads";
+
 /**  Where Raygun keeps its data on this device. */
 export type StorageInfo = {
 	mode: StorageMode,
@@ -1551,6 +1585,16 @@ export type StorageMode =
 "mobile" | 
 /**  Set explicitly through `RAYGUN_HOME`. */
 "override";
+
+export type StorageUsage = {
+	area: StorageArea,
+	bytes: number | null,
+	files: number,
+	/**  The size limit, for caches that have one. */
+	limitBytes: number | null,
+	/**  Whether Clear is offered. */
+	clearable: boolean,
+};
 
 export type StremioAddon = {
 	id: string,

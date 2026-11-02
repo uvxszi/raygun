@@ -13,7 +13,8 @@ pub const MAX_IMAGE_BYTES: usize = 30 * 1024 * 1024;
 #[derive(Clone)]
 pub struct PageCache {
     dir: PathBuf,
-    max_bytes: u64,
+    /// Changeable from settings (M46.2).
+    max_bytes: Arc<AtomicU64>,
     /// Bytes written since the folder was last measured; a scan runs once this is large enough.
     written: Arc<AtomicU64>,
 }
@@ -22,7 +23,7 @@ impl PageCache {
     pub fn new(dir: PathBuf, max_bytes: u64) -> Self {
         Self {
             dir,
-            max_bytes,
+            max_bytes: Arc::new(AtomicU64::new(max_bytes)),
             // Start "full" so the first write measures the folder.
             written: Arc::new(AtomicU64::new(u64::MAX / 2)),
         }
@@ -62,22 +63,41 @@ impl PageCache {
         let written = self
             .written
             .fetch_add(bytes.len() as u64, Ordering::Relaxed);
-        if written + bytes.len() as u64 > self.max_bytes / 10 {
+        let max = self.max_bytes.load(Ordering::Relaxed);
+        if written + bytes.len() as u64 > max / 10 {
             self.written.store(0, Ordering::Relaxed);
-            let (dir, max) = (self.dir.clone(), self.max_bytes);
+            let dir = self.dir.clone();
             let _ = tokio::task::spawn_blocking(move || evict(&dir, max)).await;
         }
     }
+
+    /// Changes the size limit (from settings); the folder is trimmed on the next write.
+    pub fn set_max_bytes(&self, max_bytes: u64) {
+        self.max_bytes.store(max_bytes, Ordering::Relaxed);
+        self.written.store(u64::MAX / 2, Ordering::Relaxed);
+    }
+
+    pub async fn usage(&self) -> crate::cover_cache::Usage {
+        let dir = self.dir.clone();
+        tokio::task::spawn_blocking(move || crate::cover_cache::usage_of(&dir))
+            .await
+            .unwrap_or_default()
+    }
+
+    /// Deletes every cached page; they're fetched again when read.
+    pub async fn clear(&self) {
+        let _ = tokio::fs::remove_dir_all(&self.dir).await;
+    }
 }
 
-fn touch(path: &Path) {
+pub(crate) fn touch(path: &Path) {
     if let Ok(file) = std::fs::File::options().write(true).open(path) {
         let _ = file.set_modified(SystemTime::now());
     }
 }
 
 /// Removes the least recently used files until the folder is under 90% of `max_bytes`.
-fn evict(dir: &Path, max_bytes: u64) {
+pub(crate) fn evict(dir: &Path, max_bytes: u64) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };

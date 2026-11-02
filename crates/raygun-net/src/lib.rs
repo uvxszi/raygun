@@ -1,6 +1,7 @@
 //! Raygun networking (ARCHITECTURE §12): the shared HTTP client, the loopback stream proxy, and
 //! which hosts are on the local network (Android 17's local network protection).
 
+pub mod cover_cache;
 pub mod images;
 pub mod local_network;
 pub mod page_cache;
@@ -8,8 +9,12 @@ mod proxy;
 
 use std::sync::Arc;
 
+pub use cover_cache::CoverCache;
 pub use page_cache::PageCache;
-pub use proxy::{ImageLinks, ProxyStorage, StaticFiles, StreamProxy, artwork_url};
+pub use proxy::{
+    ImageLinks, ProxyStorage, StaticFiles, StreamProxy, artwork_url,
+    image_token as proxy_image_token,
+};
 
 /// Sent unless a source supplies its own `User-Agent`; many hosts reject unknown clients.
 pub const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";

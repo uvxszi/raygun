@@ -42,6 +42,7 @@ const extension = (overrides: Partial<ExtensionInfo> = {}): ExtensionInfo => ({
     { key: 'hd', label: 'HD only', kind: 'boolean', options: [], default: false, value: false },
   ],
   compatibility: null,
+  icon: null,
   ...overrides,
 });
 
@@ -60,6 +61,7 @@ const entry = (overrides: Partial<CatalogEntry> = {}): CatalogEntry => ({
   state: 'available',
   installedVersion: null,
   nuclear: false,
+  icon: null,
   ...overrides,
 });
 

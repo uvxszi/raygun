@@ -44,6 +44,7 @@ fn entry_for(bytes: &[u8]) -> RepoEntry {
         content_rating: "safe".into(),
         lang: None,
         package: "packages/dev.example.pkg-1.2.0.zip".into(),
+        icon: None,
         sha256: package::sha256_hex(bytes),
         size: bytes.len() as u64,
         format: Default::default(),

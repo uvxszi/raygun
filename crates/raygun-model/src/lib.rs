@@ -103,6 +103,8 @@ pub struct Settings {
     pub library_display: LibraryDisplayPrefs,
     /// Where downloads and pages are saved outside the app (M46.1).
     pub save: SavePrefs,
+    /// Image cache limits and refreshing (M46.2).
+    pub cache: CachePrefs,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -540,6 +542,7 @@ impl Default for Settings {
             video_player: VideoPlayerPrefs::default(),
             library_display: LibraryDisplayPrefs::default(),
             save: SavePrefs::default(),
+            cache: CachePrefs::default(),
         }
     }
 }
@@ -570,6 +573,7 @@ impl Settings {
             SettingChange::VideoPlayer(prefs) => self.video_player = *prefs,
             SettingChange::LibraryDisplay(prefs) => self.library_display = prefs,
             SettingChange::Save(prefs) => self.save = prefs,
+            SettingChange::Cache(prefs) => self.cache = prefs,
         }
     }
 }
@@ -603,6 +607,7 @@ pub enum SettingChange {
     VideoPlayer(Box<VideoPlayerPrefs>),
     LibraryDisplay(LibraryDisplayPrefs),
     Save(SavePrefs),
+    Cache(CachePrefs),
 }
 
 impl SettingChange {
@@ -632,6 +637,7 @@ impl SettingChange {
             Self::VideoPlayer(_) => "videoPlayer",
             Self::LibraryDisplay(_) => "libraryDisplay",
             Self::Save(_) => "save",
+            Self::Cache(_) => "cache",
         }
     }
 
@@ -679,6 +685,7 @@ impl SettingChange {
                 }
             }
             Self::VideoPlayer(prefs) => prefs.validate(),
+            Self::Cache(prefs) => prefs.validate(),
             Self::Save(prefs) => {
                 if prefs.location == SaveLocation::Folder && prefs.folder_uri.is_none() {
                     Err("Pick a folder first".into())
@@ -1126,6 +1133,8 @@ pub struct ExtensionInfo {
     pub settings: Vec<ExtensionSetting>,
     /// For a converted Nuclear plugin (M17): what works and what doesn't.
     pub compatibility: Option<CompatReport>,
+    /// The icon its repository lists, through the cover cache (M46.2).
+    pub icon: Option<String>,
 }
 
 /// How much of a Nuclear plugin runs in Raygun (M17).
@@ -1249,6 +1258,8 @@ pub struct CatalogEntry {
     pub nuclear: bool,
     /// The version on this device (built-in or installed), if any.
     pub installed_version: Option<String>,
+    /// The icon the repository lists, through the cover cache (M46.2).
+    pub icon: Option<String>,
 }
 
 /// One repository's listing; a repository that couldn't be read reports why.
@@ -1794,6 +1805,82 @@ pub enum LibraryTabs {
     /// Favorites and the lists (CloudStream).
     Lists,
     None,
+}
+
+// ---- Image caches (M46.2) ----
+
+/// The cache sizes offered, in megabytes.
+pub const CACHE_SIZES_MB: [u32; 6] = [128, 256, 512, 1024, 2048, 4096];
+/// How old a cached cover may get before it's checked again, in days; 0 never checks.
+pub const COVER_REFRESH_DAYS: [u32; 5] = [0, 1, 3, 7, 30];
+
+/// Image cache limits and refreshing. One stored row; missing fields keep their defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CachePrefs {
+    /// Covers, posters, thumbnails and icons. Library covers count but are never removed.
+    pub cover_cache_mb: u32,
+    /// Reader pages.
+    pub page_cache_mb: u32,
+    pub cover_refresh_days: u32,
+    /// The page cache is emptied each time the app starts (Mihon's option).
+    pub clear_pages_on_start: bool,
+}
+
+impl Default for CachePrefs {
+    fn default() -> Self {
+        Self {
+            cover_cache_mb: 512,
+            page_cache_mb: 512,
+            cover_refresh_days: 7,
+            clear_pages_on_start: false,
+        }
+    }
+}
+
+impl CachePrefs {
+    pub fn validate(&self) -> Result<(), String> {
+        for size in [self.cover_cache_mb, self.page_cache_mb] {
+            if !CACHE_SIZES_MB.contains(&size) {
+                return Err(format!("{size} MB isn't an offered cache size"));
+            }
+        }
+        if !COVER_REFRESH_DAYS.contains(&self.cover_refresh_days) {
+            return Err(format!(
+                "{} days isn't an offered refresh age",
+                self.cover_refresh_days
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// A part of what Raygun stores, as Settings → Data → Storage lists it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum StorageArea {
+    /// Covers, posters, thumbnails and icons (a cache).
+    Covers,
+    /// Reader pages (a cache).
+    Pages,
+    /// Files made for sharing (a cache).
+    Shared,
+    /// Artwork read from the music library's files; it comes back only with a rescan.
+    MusicArt,
+    /// Downloaded chapters, books, comics and videos: not a cache.
+    Downloads,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageUsage {
+    pub area: StorageArea,
+    pub bytes: f64,
+    pub files: u32,
+    /// The size limit, for caches that have one.
+    pub limit_bytes: Option<f64>,
+    /// Whether Clear is offered.
+    pub clearable: bool,
 }
 
 // ---- Saving outside the app and exports (M46.1) ----

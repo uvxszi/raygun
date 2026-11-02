@@ -49,7 +49,7 @@ export const ExtensionDetailPage: FC = () => {
     <section data-testid="extension-detail-page" className="flex max-w-2xl flex-col gap-4">
       <PageHeader back fallback="/browse" plainTitle title={t('extensions.title')} />
       <header className="flex items-center gap-4">
-        <LetterAvatar name={info.name} size="lg" />
+        <LetterAvatar name={info.name} logo={info.icon} size="lg" />
         <div className="flex min-w-0 flex-col gap-0.5">
           <h1 className="text-xl font-bold tracking-tight wrap-anywhere">{info.name}</h1>
           <p className="text-muted text-sm">

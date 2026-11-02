@@ -212,7 +212,18 @@ impl Catalog {
             .map_err(to_message)?;
         match stored {
             Some(row) if !refresh && row.refreshed_at.is_some() => Ok(row),
-            _ => Ok(self.fetch_title(source_id, remote_id).await?.0),
+            stored => {
+                // A manual refresh fetches the cover again too, as Mihon's does.
+                if refresh
+                    && let Some(row) = &stored
+                    && let Some(cover) = &row.fields.cover
+                {
+                    self.images
+                        .forget_cover(cover, &row.fields.cover_headers)
+                        .await;
+                }
+                Ok(self.fetch_title(source_id, remote_id).await?.0)
+            }
         }
     }
 
@@ -314,11 +325,13 @@ impl Catalog {
             source_name,
             remote_id: row.fields.remote_id,
             title: row.fields.title,
-            cover_url: row
-                .fields
-                .cover
-                .as_deref()
-                .map(|url| self.cover(url, &row.fields.cover_headers)),
+            cover_url: row.fields.cover.as_deref().map(|url| {
+                if row.in_library_at.is_some() {
+                    self.kept_cover(url, &row.fields.cover_headers)
+                } else {
+                    self.cover(url, &row.fields.cover_headers)
+                }
+            }),
             authors: row.fields.authors,
             artists: row.fields.artists,
             description: row.fields.description,
@@ -398,7 +411,7 @@ impl Catalog {
                     .fields
                     .cover
                     .as_deref()
-                    .map(|url| self.cover(url, &entry.title.fields.cover_headers)),
+                    .map(|url| self.kept_cover(url, &entry.title.fields.cover_headers)),
                 title_id: entry.title.id,
                 source_id: entry.title.fields.source_id,
                 remote_id: entry.title.fields.remote_id,
@@ -516,7 +529,19 @@ impl Catalog {
     pub fn cover(&self, url: &str, headers: &std::collections::BTreeMap<String, String>) -> String {
         match url.strip_prefix(LOCAL_PREFIX) {
             Some(path) => self.images.local(path),
-            None => self.images.link(url, headers),
+            None => self.images.cover(url, headers),
+        }
+    }
+
+    /// A library title's cover: cached for good, whatever the cache's size limit (M46.2).
+    pub fn kept_cover(
+        &self,
+        url: &str,
+        headers: &std::collections::BTreeMap<String, String>,
+    ) -> String {
+        match url.strip_prefix(LOCAL_PREFIX) {
+            Some(path) => self.images.local(path),
+            None => self.images.kept_cover(url, headers),
         }
     }
 

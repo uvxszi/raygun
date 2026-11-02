@@ -16,6 +16,7 @@ import type {
 import { act } from '@testing-library/react';
 
 import { SAVE_DEFAULTS } from '../export/saveDefaults';
+import { CACHE_DEFAULTS } from '../settings/cacheDefaults';
 import { LIBRARY_DISPLAY_DEFAULTS } from '../manga/libraryDisplay';
 import { PLAYER_DEFAULTS } from '../settings/playerOptions';
 
@@ -109,6 +110,7 @@ export const DEFAULT_SETTINGS: Settings = {
   videoPlayer: PLAYER_DEFAULTS,
   libraryDisplay: LIBRARY_DISPLAY_DEFAULTS,
   save: SAVE_DEFAULTS,
+  cache: CACHE_DEFAULTS,
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,
@@ -284,6 +286,8 @@ export const bindingsMock = {
     pageSave: vi.fn(),
     pageShare: vi.fn(),
     pageCopy: vi.fn(),
+    storageUsage: vi.fn(),
+    storageClear: vi.fn(),
     videoHistory: vi.fn(),
     videoSources: vi.fn(),
     videoBrowse: vi.fn(),
@@ -532,6 +536,8 @@ export const seedBindings = () => {
   commands.pageSave.mockResolvedValue(ok('Pictures/Raygun/page.jpg'));
   commands.pageShare.mockResolvedValue(ok(null));
   commands.pageCopy.mockResolvedValue(ok(null));
+  commands.storageUsage.mockResolvedValue(ok([]));
+  commands.storageClear.mockResolvedValue(ok([]));
   commands.videoHistory.mockResolvedValue(ok([]));
   commands.videoSources.mockResolvedValue(ok([]));
   commands.videoBrowse.mockResolvedValue(ok({ items: [], hasNextPage: false }));

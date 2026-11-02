@@ -329,8 +329,7 @@ impl MangaService {
                 chapter: chapter_info(&row.unit, &downloads),
                 cover_url: row.title.fields.cover.as_deref().map(|url| {
                     self.catalog
-                        .images
-                        .link(url, &row.title.fields.cover_headers)
+                        .kept_cover(url, &row.title.fields.cover_headers)
                 }),
                 title_id: row.title.id,
                 source_id: row.title.fields.source_id,

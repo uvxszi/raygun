@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../test/renderWithProviders';
 import { AppearanceCard } from './AppearanceCard';
 import { SAVE_DEFAULTS } from '../export/saveDefaults';
+import { CACHE_DEFAULTS } from './cacheDefaults';
 import { LIBRARY_DISPLAY_DEFAULTS } from '../manga/libraryDisplay';
 import { PLAYER_DEFAULTS } from './playerOptions';
 import { useApplyTheme } from './useApplyTheme';
@@ -37,6 +38,7 @@ const DEFAULT_SETTINGS: Settings = {
   videoPlayer: PLAYER_DEFAULTS,
   libraryDisplay: LIBRARY_DISPLAY_DEFAULTS,
   save: SAVE_DEFAULTS,
+  cache: CACHE_DEFAULTS,
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,

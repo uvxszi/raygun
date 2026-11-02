@@ -414,7 +414,7 @@
       },
       "data": {
         "title": "Data and backup",
-        "summary": "Back up and restore, import from Mihon"
+        "summary": "Back up and restore, import from Mihon, storage and caches"
       },
       "connections": {
         "title": "Connections",
@@ -1476,5 +1476,39 @@
     "copyPage": "Copy page",
     "savedTo": "Saved to {{place}}",
     "copied": "Copied"
+  },
+  "storage": {
+    "title": "Storage",
+    "limits": "Caches",
+    "areas": {
+      "covers": "Covers and icons",
+      "pages": "Reader pages",
+      "shared": "Shared files",
+      "musicArt": "Music artwork",
+      "downloads": "Downloads"
+    },
+    "hints": {
+      "covers": "Covers, posters, thumbnails and icons. Library covers stay even past the limit.",
+      "pages": "Pages read online, for reading them again quickly.",
+      "shared": "Pages and files made for sharing.",
+      "musicArt": "Read from your music files; it comes back with a rescan.",
+      "downloads": "Chapters, books, comics and videos you downloaded. Remove them in Downloads."
+    },
+    "usedOf": "{{used}} of {{limit}}",
+    "used_one": "{{used}} · {{count}} file",
+    "used_other": "{{used}} · {{count}} files",
+    "clear": "Clear",
+    "clearOne": "Clear {{name}}",
+    "fullness": "{{name}} used",
+    "coverLimit": "Covers and icons cache",
+    "coverLimitHint": "The least recently seen are removed past this size; library covers never are.",
+    "pageLimit": "Reader page cache",
+    "refresh": "Check covers again after",
+    "refreshHint": "Covers older than this are checked in the background, so changed ones update.",
+    "refreshNever": "Never",
+    "refreshDays_one": "{{count}} day",
+    "refreshDays_other": "{{count}} days",
+    "clearPagesOnStart": "Clear the page cache on start",
+    "clearPagesOnStartHint": "Reader pages are fetched again each time the app opens."
   }
 }

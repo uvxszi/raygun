@@ -39,6 +39,7 @@ import {
   PrefSwitch,
 } from '../settings/prefs';
 import { RemoteCard } from '../settings/RemoteCard';
+import { StorageSettings } from '../settings/StorageSettings';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { TopBar } from '../shell/TopBar';
 import type { SettingsSection } from '../settings/sections';
@@ -510,11 +511,14 @@ const SECTIONS: Record<SettingsSection, FC> = {
   downloads: DownloadSettings,
   browse: BrowseSettings,
   data: () => (
-    <PrefGroup>
-      <PrefBlock>
-        <BackupCard />
-      </PrefBlock>
-    </PrefGroup>
+    <>
+      <PrefGroup>
+        <PrefBlock>
+          <BackupCard />
+        </PrefBlock>
+      </PrefGroup>
+      <StorageSettings />
+    </>
   ),
   connections: ConnectionSettings,
 };

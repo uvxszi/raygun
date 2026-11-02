@@ -133,7 +133,7 @@ impl StremioService {
                     url: loaded.row.transport_url,
                     name: manifest.name,
                     description: manifest.description,
-                    logo: manifest.logo,
+                    logo: manifest.logo.map(|logo| self.kept_image(logo)),
                     version: manifest.version,
                     resources: manifest
                         .resources
@@ -318,7 +318,10 @@ impl StremioService {
                 .extra("genre")
                 .map(|extra| extra.options.clone())
                 .unwrap_or_default(),
-            items: items.into_iter().map(item).collect(),
+            items: items
+                .into_iter()
+                .map(|preview| self.listed(item(preview)))
+                .collect(),
             error,
         }
     }
@@ -408,6 +411,7 @@ impl StremioService {
             .chain([own_key.clone()])
             .collect();
         let downloaded = video_library::downloaded_keys(&db, &keys).await?;
+        let in_library = stored.is_some_and(|row| row.in_library_at.is_some());
         Ok(StremioMeta {
             videos: meta
                 .videos
@@ -425,7 +429,7 @@ impl StremioService {
                         season: video.season,
                         episode: video.episode,
                         released: video.released,
-                        thumbnail: video.thumbnail,
+                        thumbnail: video.thumbnail.map(|url| self.image(url)),
                         overview: video.overview,
                     }
                 })
@@ -434,14 +438,21 @@ impl StremioService {
             duration_ms: own.and_then(|row| row.duration_ms).map(|ms| ms as f64),
             watched: own.is_some_and(|row| row.watched_at.is_some()),
             downloaded: downloaded.contains(&own_key),
-            in_library: stored.is_some_and(|row| row.in_library_at.is_some()),
+            in_library,
             title_id: stored.map(|row| row.id.clone()),
             kind,
             id: meta.preview.id,
             name: meta.preview.name,
-            poster: meta.preview.poster,
-            background: meta.background,
-            logo: meta.logo,
+            // A saved title's art stays cached whatever the size limit (M46.2).
+            poster: meta.preview.poster.map(|url| {
+                if in_library {
+                    self.kept_image(url)
+                } else {
+                    self.image(url)
+                }
+            }),
+            background: meta.background.map(|url| self.image(url)),
+            logo: meta.logo.map(|url| self.image(url)),
             description: meta.description,
             genres: meta.genres,
             release_info: meta.preview.release_info,
@@ -784,6 +795,33 @@ impl StremioService {
             bytes.extend_from_slice(&chunk);
         }
         serde_json::from_slice(&bytes).map_err(|_| "The addon's answer couldn't be read".to_owned())
+    }
+
+    /// An addon's image through the lasting cover cache (M46.2); addons send plain web addresses.
+    fn image(&self, url: String) -> String {
+        let images = self.app.state::<raygun_net::ImageLinks>();
+        if images.is_remote(&url) {
+            images.cover(&url, &Default::default())
+        } else {
+            url
+        }
+    }
+
+    /// Like [`Self::image`], kept whatever the cache's size limit: saved titles, installed addons.
+    fn kept_image(&self, url: String) -> String {
+        let images = self.app.state::<raygun_net::ImageLinks>();
+        if images.is_remote(&url) {
+            images.kept_cover(&url, &Default::default())
+        } else {
+            url
+        }
+    }
+
+    fn listed(&self, item: StremioItem) -> StremioItem {
+        StremioItem {
+            poster: item.poster.map(|url| self.image(url)),
+            ..item
+        }
     }
 
     fn db(&self) -> Arc<raygun_db::Db> {
