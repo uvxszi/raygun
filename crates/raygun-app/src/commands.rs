@@ -72,6 +72,7 @@ pub async fn settings_update(
     let sources_changed = matches!(change, SettingChange::DisabledSources(_));
     let discovery_changed = matches!(change, SettingChange::Discovery(_));
     let agent_changed = matches!(change, SettingChange::UserAgent(_));
+    let sound_changed = matches!(change, SettingChange::Sound(_));
     let settings = settings::update(&db.0, change)
         .await
         .map_err(|error| error.to_string())?;
@@ -84,6 +85,11 @@ pub async fn settings_update(
     }
     if agent_changed {
         raygun_net::set_user_agent(&settings.user_agent);
+    }
+    if sound_changed {
+        use tauri::Manager;
+        app.state::<crate::playback::PlaybackService>()
+            .set_sound(settings.sound.clone());
     }
     if nsfw_changed {
         use tauri::Manager;
@@ -396,14 +402,42 @@ pub async fn extension_setting_set(
     extensions.set_setting(&extension_id, &key, value).await
 }
 
-/// Lyrics for a track, or `null` when no provider has any.
+/// Lyrics for a track, or `null` when no provider has any. The song's own lyrics (M46.12) win, and
+/// its lyrics offset comes along.
 #[tauri::command]
 #[specta::specta]
 pub async fn lyrics_get(
     extensions: tauri::State<'_, Arc<ExtensionService>>,
+    sound: tauri::State<'_, Arc<crate::sound::SoundService>>,
     query: TrackQuery,
 ) -> Result<Option<Lyrics>, String> {
-    extensions.lyrics(&query).await
+    let fetched = if sound.has_own_lyrics(&query) {
+        None
+    } else {
+        extensions.lyrics(&query).await?
+    };
+    Ok(sound.lyrics(&query, fetched))
+}
+
+/// A song's own trims, volume and lyrics edits (M46.12); defaults when it has none.
+#[tauri::command]
+#[specta::specta]
+pub fn song_edit_get(
+    sound: tauri::State<'_, Arc<crate::sound::SoundService>>,
+    query: TrackQuery,
+) -> raygun_model::SongEdit {
+    sound.edit(&crate::sound::key(&query))
+}
+
+/// Saves a song's edit; one with nothing changed forgets it. The playing song changes at once.
+#[tauri::command]
+#[specta::specta]
+pub async fn song_edit_set(
+    sound: tauri::State<'_, Arc<crate::sound::SoundService>>,
+    query: TrackQuery,
+    edit: raygun_model::SongEdit,
+) -> Result<raygun_model::SongEdit, String> {
+    sound.set(&query, edit).await
 }
 
 /// Local library tracks shown above online results.

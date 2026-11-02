@@ -48,6 +48,7 @@ import { WebsiteSettings } from '../websites/WebsiteSettings';
 import { autoRegion } from '../music/useDiscovery';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { TopBar } from '../shell/TopBar';
+import { SoundSettings } from '../sound/SoundSettings';
 import type { SettingsSection } from '../settings/sections';
 
 /** Matches `MANGA_UPDATE_HOURS` and `VIDEO_QUALITIES` in raygun-model. */
@@ -695,6 +696,7 @@ const SECTIONS: Record<SettingsSection, FC> = {
   library: LibrarySettings,
   reader: ReaderSettings,
   player: PlayerSettings,
+  sound: SoundSettings,
   downloads: DownloadSettings,
   browse: BrowseSettings,
   data: () => (

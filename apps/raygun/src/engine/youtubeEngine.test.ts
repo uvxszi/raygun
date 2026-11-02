@@ -27,7 +27,10 @@ const setup = () => {
       data: { raygunEmbed: true, token: 3, ...data },
       ...overrides,
     });
-  const load = (videoId = 'M7lc1UVf-VE') =>
+  const load = (
+    videoId = 'M7lc1UVf-VE',
+    extra: { gainDb?: number; endMs?: number | null; fadeMs?: number } = {},
+  ) =>
     engine.handle({
       type: 'loadYouTube',
       loadId: 3,
@@ -36,6 +39,9 @@ const setup = () => {
       startMs: 0,
       autoplay: true,
       volume: 0.8,
+      gainDb: extra.gainDb ?? 0,
+      endMs: extra.endMs ?? null,
+      fadeMs: extra.fadeMs ?? 0,
     });
   const posted = () => embedWindow.postMessage.mock.calls.map(([message]) => message);
   return { engine, frame, embedWindow, reports, fromPage, load, posted };
@@ -173,5 +179,43 @@ describe('YouTubeEmbedEngine', () => {
     expect(posted().at(-1)).toEqual(
       expect.objectContaining({ type: 'load', videoId: 'bbbbbbbbbbb' }),
     );
+  });
+
+  it("turns a song down by its gain, never up, and fades the embed's volume", () => {
+    vi.useFakeTimers();
+    const { engine, fromPage, load, posted } = setup();
+    load('M7lc1UVf-VE', { gainDb: -6, fadeMs: 1000 });
+    fromPage({ type: 'ready' });
+    const volumes = () =>
+      posted()
+        .filter((message) => (message as { type: string }).type === 'volume')
+        .map((message) => (message as { volume: number }).volume);
+    vi.advanceTimersByTime(1000);
+    // 0.8 × 10^(−6/20) ≈ 0.4, reached in ten steps from silence.
+    expect(volumes()).toHaveLength(10);
+    expect(volumes().at(-1)).toBeCloseTo(0.4, 2);
+
+    engine.handle({ type: 'setTrackGain', gainDb: 6 });
+    expect(volumes().at(-1)).toBeCloseTo(0.8, 5);
+
+    engine.handle({ type: 'fadeOut', fadeMs: 500 });
+    vi.advanceTimersByTime(500);
+    expect(volumes().at(-1)).toBe(0);
+    expect(posted().at(-1)).toEqual({ raygunCommand: true, type: 'stop' });
+    vi.useRealTimers();
+  });
+
+  it('ends a video at its end trim', () => {
+    const { fromPage, load, posted, reports } = setup();
+    load('M7lc1UVf-VE', { endMs: 60_000 });
+    fromPage({ type: 'ready' });
+    reports.length = 0;
+
+    fromPage({ type: 'progress', positionMs: 59_000, durationMs: 200_000 });
+    fromPage({ type: 'progress', positionMs: 60_200, durationMs: 200_000 });
+    fromPage({ type: 'state', state: 'paused' });
+
+    expect(reports.map((report) => report.event.type)).toEqual(['progress', 'ended']);
+    expect(posted()).toContainEqual({ raygunCommand: true, type: 'pause' });
   });
 });

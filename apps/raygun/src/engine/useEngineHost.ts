@@ -3,10 +3,22 @@ import type { EngineCommand, EngineReport } from '@raygun/bindings';
 import { useEffect } from 'react';
 
 import { Html5Engine } from './html5Engine';
+import { WebAudioSound, elementSound } from './soundGraph';
+import type { SoundBackend } from './soundGraph';
 import { createVideoDock, removeVideoDock } from './videoDock';
 import { YouTubeEmbedEngine } from './youtubeEngine';
 
 type WebviewEngine = { handle: (command: EngineCommand) => void; dispose: () => void };
+
+/** Web Audio's graph where there is one (not in tests), else the bare elements. */
+const soundBackend = (): SoundBackend => {
+  if (typeof AudioContext === 'undefined') return elementSound();
+  try {
+    return new WebAudioSound(new AudioContext({ latencyHint: 'playback' }));
+  } catch {
+    return elementSound();
+  }
+};
 
 /**
  * Runs the webview playback engines for the lifetime of the app shell: `<audio>` for streams and
@@ -19,9 +31,15 @@ export const useEngineHost = () => {
       void commands.playbackEngineReport(engineReport);
     };
 
-    const audio = new Audio();
-    audio.preload = 'auto';
-    const html5 = new Html5Engine(audio, report);
+    // Two elements take turns so songs can crossfade (M46.12). They go through Web Audio for the
+    // equalizer and effects; the stream proxy answers with CORS, which Web Audio needs to hear
+    // them. Without Web Audio they play as they are.
+    const decks: [HTMLAudioElement, HTMLAudioElement] = [new Audio(), new Audio()];
+    for (const deck of decks) {
+      deck.preload = 'auto';
+      deck.crossOrigin = 'anonymous';
+    }
+    const html5 = new Html5Engine(decks, report, undefined, soundBackend());
 
     const { frame } = createVideoDock();
     const youtube = new YouTubeEmbedEngine(
@@ -35,19 +53,22 @@ export const useEngineHost = () => {
     );
 
     let active: WebviewEngine = html5;
-    const switchTo = (next: WebviewEngine) => {
+    // In a crossfade the engine being left fades its song out instead of cutting it (M46.12).
+    const switchTo = (next: WebviewEngine, fadeMs: number | null) => {
       if (active !== next) {
-        active.handle({ type: 'stop' });
+        active.handle(fadeMs ? { type: 'fadeOut', fadeMs } : { type: 'stop' });
         active = next;
       }
     };
 
     const unlisten = events.engineCommandEvent.listen(({ payload }) => {
       if (payload.type === 'load') {
-        switchTo(html5);
+        switchTo(html5, payload.fadeMs);
       } else if (payload.type === 'loadYouTube') {
-        switchTo(youtube);
+        switchTo(youtube, payload.fadeMs);
       }
+      // The equalizer lives in the `<audio>` engine's graph whichever engine plays.
+      if (payload.type === 'setEffects' && active !== html5) html5.handle(payload);
       active.handle(payload);
     });
 

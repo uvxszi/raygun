@@ -169,6 +169,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         raygun_net::http_client()?,
     );
     app.manage(songs.clone());
+    // Song edits and loudness (M46.12), loaded before anything plays.
+    let sound = crate::sound::SoundService::new(app.handle().clone());
+    app.manage(sound.clone());
+    tauri::async_runtime::spawn(async move { sound.start().await });
     let mcp = tauri::async_runtime::block_on(crate::mcp::McpService::start(app.handle().clone()))?;
     app.manage(mcp);
     let remote =

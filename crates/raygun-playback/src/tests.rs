@@ -607,3 +607,79 @@ fn the_sleep_timer_pauses_or_stops_after_the_song() {
     )));
     assert!(!core.state().stop_after_current);
 }
+
+fn progress(core: &mut PlaybackCore, position_ms: f64) -> Vec<Effect> {
+    report(
+        core,
+        EngineEvent::Progress {
+            position_ms,
+            duration_ms: Some(180_000.0),
+        },
+    )
+}
+
+fn faded(effects: &[Effect]) -> Option<(String, f64)> {
+    effects.iter().find_map(|effect| match effect {
+        Effect::Load { item, fade_ms, .. } => Some((item.title.clone(), *fade_ms)),
+        _ => None,
+    })
+}
+
+#[test]
+fn crossfade_starts_the_next_song_before_the_end() {
+    let mut core = core_with(&["a", "b"]);
+    core.set_crossfade(5_000.0);
+    core.play();
+    report(&mut core, EngineEvent::Playing);
+    assert_eq!(faded(&progress(&mut core, 170_000.0)), None);
+    // 4 s left: the next song starts now, fading over what remains.
+    assert_eq!(
+        faded(&progress(&mut core, 176_000.0)),
+        Some(("b".into(), 4_000.0))
+    );
+    assert_eq!(current_title(&core), Some("b".into()));
+    // The old song's end arrives under its old load id and changes nothing.
+    let old = core.load_id - 1;
+    assert!(
+        core.report(EngineReport {
+            load_id: old,
+            event: EngineEvent::Ended,
+        })
+        .is_empty()
+    );
+}
+
+#[test]
+fn crossfade_waits_for_the_end_trim_and_skips_where_the_song_restarts_or_stops() {
+    let mut core = core_with(&["a", "b"]);
+    core.set_crossfade(3_000.0);
+    core.play();
+    core.set_end(core.load_id, Some(120_000.0));
+    report(&mut core, EngineEvent::Playing);
+    assert_eq!(
+        faded(&progress(&mut core, 118_000.0)),
+        Some(("b".into(), 2_000.0))
+    );
+
+    // Nothing after the last song, unless the queue repeats.
+    report(&mut core, EngineEvent::Playing);
+    assert_eq!(faded(&progress(&mut core, 178_000.0)), None);
+    core.set_repeat(RepeatMode::All);
+    assert_eq!(
+        faded(&progress(&mut core, 178_500.0)),
+        Some(("a".into(), 1_500.0))
+    );
+
+    // Repeat one restarts the song; the sleep timer's end of song waits for the end.
+    report(&mut core, EngineEvent::Playing);
+    core.set_repeat(RepeatMode::One);
+    assert_eq!(faded(&progress(&mut core, 179_000.0)), None);
+    core.set_repeat(RepeatMode::Off);
+    core.set_sleep(None, true);
+    assert_eq!(faded(&progress(&mut core, 179_000.0)), None);
+
+    // Off: songs end on their own.
+    core.set_sleep(None, false);
+    core.set_crossfade(0.0);
+    assert_eq!(faded(&progress(&mut core, 179_500.0)), None);
+}

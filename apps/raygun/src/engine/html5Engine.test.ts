@@ -1,7 +1,9 @@
-import type { EngineReport } from '@raygun/bindings';
+import type { EngineCommand, EngineReport } from '@raygun/bindings';
 
 import { Html5Engine } from './html5Engine';
 import type { MediaElementLike } from './html5Engine';
+import { toLufs } from './loudness';
+import type { DeckAudio, SoundBackend } from './soundGraph';
 
 class FakeMedia extends EventTarget {
   src = '';
@@ -10,9 +12,16 @@ class FakeMedia extends EventTarget {
   playbackRate = 1;
   defaultPlaybackRate = 1;
   duration = Number.NaN;
+  paused = true;
   error: { code: number } | null = null;
-  play = vi.fn(() => Promise.resolve());
-  pause = vi.fn();
+  play = vi.fn(() => {
+    this.paused = false;
+    return Promise.resolve();
+  });
+  pause = vi.fn(() => {
+    this.paused = true;
+    this.fire('pause');
+  });
   load = vi.fn();
   removeAttribute = vi.fn((name: string) => {
     if (name === 'src') {
@@ -25,23 +34,69 @@ class FakeMedia extends EventTarget {
   }
 }
 
+/** Records what the engine asks of a deck's sound. */
+class FakeDeckAudio implements DeckAudio {
+  gain = 0;
+  fade = 1;
+  fades: [number, number][] = [];
+  measured: number | null = null;
+  setGain = (db: number) => {
+    this.gain = db;
+  };
+  setFade = (level: number) => {
+    this.fade = level;
+  };
+  fadeTo = (level: number, ms: number) => {
+    this.fades.push([level, ms]);
+    this.fade = level;
+  };
+  power = () => this.measured;
+}
+
+const fakeSound = () => {
+  const decks: FakeDeckAudio[] = [];
+  const backend: SoundBackend & { volume: number; applied: unknown[] } = {
+    volume: 1,
+    applied: [],
+    deck: () => {
+      const deck = new FakeDeckAudio();
+      decks.push(deck);
+      return deck;
+    },
+    apply: (sound) => backend.applied.push(sound),
+    setVolume: (volume) => {
+      backend.volume = volume;
+    },
+    resume: () => undefined,
+  };
+  return { backend, decks };
+};
+
+type LoadCommand = Extract<EngineCommand, { type: 'load' }>;
+
 const setup = () => {
-  const media = new FakeMedia();
+  const medias = [new FakeMedia(), new FakeMedia()] as const;
+  const { backend, decks } = fakeSound();
   const reports: EngineReport[] = [];
   let clock = 0;
   const engine = new Html5Engine(
-    media as unknown as MediaElementLike,
+    medias as unknown as [MediaElementLike, MediaElementLike],
     (report) => reports.push(report),
     () => clock,
+    backend,
   );
+  const [media, other] = medias;
   return {
     media,
+    other,
+    decks,
+    backend,
     reports,
     engine,
     advance: (milliseconds: number) => {
       clock += milliseconds;
     },
-    load: (overrides: Partial<{ startMs: number; autoplay: boolean }> = {}) =>
+    load: (overrides: Partial<LoadCommand> = {}) =>
       engine.handle({
         type: 'load',
         loadId: 7,
@@ -49,21 +104,30 @@ const setup = () => {
         title: 'Intro',
         artist: null,
         artworkUrl: null,
-        startMs: overrides.startMs ?? 0,
-        autoplay: overrides.autoplay ?? true,
+        startMs: 0,
+        autoplay: true,
         volume: 0.5,
+        gainDb: 0,
+        endMs: null,
+        fadeMs: 0,
+        measure: false,
+        ...overrides,
       }),
   };
 };
 
 describe('Html5Engine', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('loads the stream and starts playing when asked to autoplay', () => {
-    const { media, reports, load } = setup();
+    const { media, backend, reports, load } = setup();
 
     load();
 
     expect(media.src).toBe('http://127.0.0.1:9000/stream/abc');
-    expect(media.volume).toBe(0.5);
+    expect(backend.volume).toBe(0.5);
     expect(media.play).toHaveBeenCalled();
     expect(reports).toEqual([{ loadId: 7, event: { type: 'buffering' } }]);
   });
@@ -133,7 +197,7 @@ describe('Html5Engine', () => {
   });
 
   it('executes seek, volume and pause commands', () => {
-    const { media, engine, load } = setup();
+    const { media, backend, engine, load } = setup();
     load();
 
     engine.handle({ type: 'seek', positionMs: 90_000 });
@@ -141,7 +205,7 @@ describe('Html5Engine', () => {
     engine.handle({ type: 'pause' });
 
     expect(media.currentTime).toBe(90);
-    expect(media.volume).toBe(0.2);
+    expect(backend.volume).toBe(0.2);
     expect(media.pause).toHaveBeenCalled();
   });
 
@@ -184,12 +248,113 @@ describe('Html5Engine', () => {
   });
 
   it('keeps the speed for the sources that follow', () => {
-    const { media, engine, load } = setup();
+    const { media, other, engine, load } = setup();
     load();
 
     engine.handle({ type: 'setRate', rate: 1.5 });
 
-    expect(media.playbackRate).toBe(1.5);
-    expect(media.defaultPlaybackRate).toBe(1.5);
+    for (const element of [media, other]) {
+      expect(element.playbackRate).toBe(1.5);
+      expect(element.defaultPlaybackRate).toBe(1.5);
+    }
+  });
+
+  it('crossfades: the next song fades in on the other deck while this one fades out', () => {
+    vi.useFakeTimers();
+    const { media, other, decks, reports, load } = setup();
+    load({ gainDb: -3 });
+    media.fire('playing');
+
+    load({ loadId: 8, url: 'http://127.0.0.1:9000/stream/next', fadeMs: 4000, gainDb: 2 });
+
+    expect(other.src).toBe('http://127.0.0.1:9000/stream/next');
+    expect(other.play).toHaveBeenCalled();
+    expect(decks[1]?.gain).toBe(2);
+    expect(decks[1]?.fades).toEqual([[1, 4000]]);
+    expect(decks[0]?.fades).toEqual([[0, 4000]]);
+    // The old song plays on under the new one, then stops; it says nothing more.
+    expect(media.src).not.toBe('');
+    reports.length = 0;
+    media.fire('ended');
+    vi.advanceTimersByTime(4100);
+    expect(media.src).toBe('');
+    expect(reports).toEqual([]);
+  });
+
+  it('cuts without a fade, and when nothing was playing', () => {
+    const { media, other, decks, load } = setup();
+    load({ autoplay: false });
+    load({ loadId: 8, fadeMs: 4000 });
+    // The first song never played: nothing to fade from.
+    expect(media.src).toBe('');
+    expect(decks[1]?.fade).toBe(1);
+    expect(decks[1]?.fades).toEqual([]);
+    other.fire('playing');
+    load({ loadId: 9 });
+    expect(other.src).toBe('');
+  });
+
+  it('ends a song at its end trim, without reporting the pause that stops it', () => {
+    const { media, reports, load } = setup();
+    load({ endMs: 30_000 });
+    media.fire('playing');
+    reports.length = 0;
+
+    media.currentTime = 30;
+    media.fire('timeupdate');
+
+    expect(reports).toEqual([{ loadId: 7, event: { type: 'ended' } }]);
+    expect(media.pause).toHaveBeenCalled();
+  });
+
+  it('waits for an end trim set while the song plays', () => {
+    vi.useFakeTimers();
+    const { media, engine, reports, load } = setup();
+    load();
+    media.currentTime = 10;
+    media.fire('playing');
+    engine.handle({ type: 'setEnd', endMs: 12_000 });
+    reports.length = 0;
+
+    media.currentTime = 12;
+    vi.advanceTimersByTime(2000);
+
+    expect(reports).toEqual([{ loadId: 7, event: { type: 'ended' } }]);
+  });
+
+  it('measures loudness, levels the song live and reports it', () => {
+    vi.useFakeTimers();
+    const { media, engine, decks, reports, load } = setup();
+    engine.handle({
+      type: 'setEffects',
+      sound: { normalize: true, normalizeTarget: -14 },
+    });
+    load({ measure: true, gainDb: 1 });
+    media.fire('playing');
+    const deck = decks[0];
+    if (!deck) throw new Error('no deck');
+    // A loud song: −8 LUFS.
+    deck.measured = 10 ** ((-8 + 0.691) / 10);
+
+    vi.advanceTimersByTime(5_000);
+    // 6 dB down from the song's own +1 dB.
+    expect(deck.gain).toBeCloseTo(1 - 6, 1);
+    expect(reports.some((report) => report.event.type === 'loudness')).toBe(false);
+
+    vi.advanceTimersByTime(45_000);
+    const loudness = reports.find((report) => report.event.type === 'loudness');
+    expect(loudness?.event).toEqual({ type: 'loudness', lufs: expect.closeTo(-8, 1) as number });
+    expect(toLufs(deck.measured)).toBeCloseTo(-8, 3);
+  });
+
+  it('passes effects to the sound graph and changes the playing song’s gain', () => {
+    const { engine, backend, decks, load } = setup();
+    load({ gainDb: -2 });
+
+    engine.handle({ type: 'setEffects', sound: { eqEnabled: true } });
+    engine.handle({ type: 'setTrackGain', gainDb: 4 });
+
+    expect(backend.applied).toEqual([{ eqEnabled: true }]);
+    expect(decks[0]?.gain).toBe(4);
   });
 });

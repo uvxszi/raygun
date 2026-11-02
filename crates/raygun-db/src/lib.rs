@@ -14,6 +14,7 @@ pub mod manga_downloads;
 pub mod music_downloads;
 pub mod podcasts;
 pub mod settings;
+pub mod song_edits;
 pub mod streams;
 pub mod stremio;
 pub mod sync;

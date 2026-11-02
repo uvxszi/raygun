@@ -78,6 +78,14 @@ export class YouTubeEmbedEngine {
   private queued: EmbedCommand[] = [];
   private origin: string | null = null;
   private readonly unlisten: () => void;
+  /** The listener's volume, the song's gain (only down: the embed can't go louder) and a fade. */
+  private master = 1;
+  private gain = 1;
+  private fade = 1;
+  private fadeTimer: ReturnType<typeof setInterval> | null = null;
+  /** The song's end trim, ms (M46.12), and whether it was reached. */
+  private endMs: number | null = null;
+  private finished = false;
 
   constructor(
     private readonly frame: EmbedFrame,
@@ -89,8 +97,15 @@ export class YouTubeEmbedEngine {
 
   handle(command: EngineCommand) {
     switch (command.type) {
-      case 'loadYouTube':
+      case 'loadYouTube': {
         this.loadId = command.loadId;
+        this.master = command.volume ?? 1;
+        this.gain = Math.min(1, 10 ** ((command.gainDb ?? 0) / 20));
+        this.endMs = command.endMs ?? null;
+        this.finished = false;
+        const fading = (command.fadeMs ?? 0) > 0;
+        this.stopFade();
+        this.fade = fading ? 0 : 1;
         this.ensurePage(command.embedUrl);
         this.emit({ type: 'buffering' });
         this.send({
@@ -98,10 +113,12 @@ export class YouTubeEmbedEngine {
           videoId: command.videoId,
           startMs: command.startMs ?? 0,
           autoplay: command.autoplay,
-          volume: command.volume ?? 1,
+          volume: this.volume(),
           token: command.loadId,
         });
+        if (fading) this.fadeTo(1, command.fadeMs ?? 0);
         break;
+      }
       case 'play':
         this.send({ type: 'play' });
         break;
@@ -112,13 +129,30 @@ export class YouTubeEmbedEngine {
         this.send({ type: 'seek', positionMs: command.positionMs ?? 0 });
         break;
       case 'setVolume':
-        this.send({ type: 'volume', volume: command.volume ?? 1 });
+        this.master = command.volume ?? 1;
+        this.send({ type: 'volume', volume: this.volume() });
+        break;
+      case 'setTrackGain':
+        this.gain = Math.min(1, 10 ** ((command.gainDb ?? 0) / 20));
+        this.send({ type: 'volume', volume: this.volume() });
+        break;
+      case 'setEnd':
+        this.endMs = command.endMs ?? null;
+        break;
+      case 'fadeOut':
+        // The `<audio>` engine takes over; this video fades away under it.
+        this.loadId = null;
+        this.fadeTo(0, command.fadeMs ?? 0, () => this.send({ type: 'stop' }));
+        break;
+      case 'setEffects':
+        // The embed plays outside Web Audio: no equalizer or effects reach it.
         break;
       case 'setRate':
         this.send({ type: 'rate', rate: command.rate ?? 1 });
         break;
       case 'stop':
         this.loadId = null;
+        this.stopFade();
         this.send({ type: 'stop' });
         break;
       case 'load':
@@ -127,7 +161,34 @@ export class YouTubeEmbedEngine {
   }
 
   dispose() {
+    this.stopFade();
     this.unlisten();
+  }
+
+  private volume() {
+    return Math.max(0, Math.min(1, this.master * this.gain * this.fade));
+  }
+
+  /** Steps the embed's volume to `target` over `ms` (it has no smoother way). */
+  private fadeTo(target: number, ms: number, then?: () => void) {
+    this.stopFade();
+    const steps = Math.max(1, Math.round(ms / 100));
+    const from = this.fade;
+    let step = 0;
+    this.fadeTimer = setInterval(() => {
+      step += 1;
+      this.fade = from + ((target - from) * step) / steps;
+      this.send({ type: 'volume', volume: this.volume() });
+      if (step >= steps) {
+        this.stopFade();
+        then?.();
+      }
+    }, 100);
+  }
+
+  private stopFade() {
+    if (this.fadeTimer) clearInterval(this.fadeTimer);
+    this.fadeTimer = null;
   }
 
   private ensurePage(embedUrl: string) {
@@ -173,12 +234,21 @@ export class YouTubeEmbedEngine {
         break;
       case 'state': {
         const event = STATE_EVENTS[reply.state];
-        if (event) {
+        // The pause after an end trim isn't the listener's.
+        if (event && !(this.finished && event.type === 'paused')) {
           this.emit(event);
         }
         break;
       }
       case 'progress':
+        if (this.endMs !== null && reply.positionMs >= this.endMs) {
+          if (!this.finished) {
+            this.finished = true;
+            this.send({ type: 'pause' });
+            this.emit({ type: 'ended' });
+          }
+          break;
+        }
         this.emit({
           type: 'progress',
           positionMs: reply.positionMs,

@@ -11,6 +11,7 @@ import {
   ListPlus,
   ListStart,
   Play,
+  Scissors,
   Search,
   UserRound,
 } from 'lucide-react';
@@ -20,6 +21,7 @@ import { useTrackActionsStore } from '../collections/trackActionsStore';
 import { COLLECTIONS } from '../collections/useCollections';
 import { unwrapResult } from '../lib/commandResult';
 import type { MenuItem } from '../shell/contextMenuStore';
+import { useSongEditStore } from '../sound/songEditStore';
 import { creditedArtists } from './artists';
 
 /** A spot at the pointer for popovers opened from the menu (they need something to sit by). */
@@ -92,11 +94,27 @@ export const trackMenu = (track: TrackInput, options: TrackMenuOptions): MenuIte
           onSelect: () => void unwrapResult(commands.favoriteSet(track, true)).then(refresh),
         },
   );
-  items.push({
-    label: t('songs.download'),
-    icon: Download,
-    onSelect: () => void unwrapResult(commands.songsDownload([track])),
-  });
+  items.push(
+    {
+      label: t('songs.download'),
+      icon: Download,
+      onSelect: () => void unwrapResult(commands.songsDownload([track])),
+    },
+    {
+      label: t('menu.editSong'),
+      icon: Scissors,
+      onSelect: () =>
+        useSongEditStore.getState().open(
+          {
+            title: track.title,
+            artist: track.artist,
+            album: track.album,
+            durationMs: track.durationMs,
+          },
+          { anchor: pointAnchor(at.x, at.y) },
+        ),
+    },
+  );
   if (playlistItemId) {
     items.push({
       label: t('collections.removeFromPlaylist'),

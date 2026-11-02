@@ -146,6 +146,19 @@ export const DEFAULT_SETTINGS: Settings = {
   discovery: { region: '', tagSongs: true },
   failingSourcesLast: true,
   userAgent: '',
+  sound: {
+    eqEnabled: false,
+    eqPreset: 'flat',
+    eqBands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    preamp: 0,
+    bassBoost: 0,
+    reverb: 'off',
+    balance: 0,
+    mono: false,
+    normalize: false,
+    normalizeTarget: -14,
+    crossfadeMs: 0,
+  },
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,
@@ -226,6 +239,8 @@ export const bindingsMock = {
     extensionSettingSet: vi.fn(),
     onlineSearch: vi.fn(),
     lyricsGet: vi.fn(),
+    songEditGet: vi.fn(),
+    songEditSet: vi.fn(),
     favoritesList: vi.fn(),
     favoriteGet: vi.fn(),
     collectionsSaves: vi.fn(),
@@ -483,6 +498,8 @@ export const seedBindings = () => {
   commands.extensionSettingSet.mockResolvedValue(ok([]));
   commands.onlineSearch.mockResolvedValue(ok({ library: [], top: [], providers: [] }));
   commands.lyricsGet.mockResolvedValue(ok(null));
+  commands.songEditGet.mockResolvedValue({});
+  commands.songEditSet.mockImplementation(async (_query: unknown, edit: unknown) => ok(edit));
   commands.favoritesList.mockResolvedValue(ok([]));
   commands.favoriteGet.mockResolvedValue(ok(false));
   commands.collectionsSaves.mockResolvedValue(ok({ favorite: false, playlistIds: [] }));

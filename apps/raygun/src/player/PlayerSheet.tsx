@@ -36,6 +36,7 @@ import type { SheetView } from './playerUiStore';
 import { usePlayerUiStore } from './playerUiStore';
 import { usePlayerView } from './playerView';
 import type { PlayerView } from './playerView';
+import { SoundButton } from '../sound/SoundButton';
 import { PlaybackExtras } from './PlaybackExtras';
 import { PlayerViewSettings } from './PlayerViewSettings';
 import { useCloseOnBack } from './useCloseOnBack';
@@ -192,6 +193,7 @@ export const PlayerSheet: FC = () => {
             <span aria-hidden className="bg-muted/40 h-1.5 w-10 rounded-full" />
             <div className="flex items-center">
               <PlaybackExtras state={state} className="h-11" />
+              <SoundButton className="size-11" />
               <VideoToggle item={item} className="size-11" />
               {item &&
                 !sideBySide &&

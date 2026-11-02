@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, FC } from 'react';
 
 import { TrackActionsSheet } from '../collections/TrackActionsSheet';
+import { SongEditSheet } from '../sound/SongEditSheet';
 import { useSyncChangedListener } from '../devices/useDeviceSync';
 import { useEngineHost } from '../engine/useEngineHost';
 import { useSpeechHost } from '../engine/useSpeechHost';
@@ -146,6 +147,7 @@ export const AppShell: FC = () => {
         </div>
         <PlayerSheet />
         <TrackActionsSheet />
+        <SongEditSheet />
         <VideoPlayer />
         <YouTubeOverlay />
         <HoverLabel />

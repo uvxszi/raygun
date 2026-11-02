@@ -29,6 +29,8 @@ pub enum Effect {
         item: QueueItem,
         start_ms: f64,
         autoplay: bool,
+        /// Fade from the song playing into this one over this long, ms (a crossfade, M46.12); 0 cuts.
+        fade_ms: f64,
     },
     /// Forward to the active engine.
     Engine(EngineCommand),
@@ -62,6 +64,10 @@ pub struct PlaybackCore {
     sleep_at: Option<f64>,
     /// See [`PlaybackState::stop_after_current`].
     stop_after_current: bool,
+    /// How long songs fade into the next, ms (M46.12); 0 waits for each to end.
+    crossfade_ms: f64,
+    /// Where the current load stops (its song's end trim), ms; set by the service.
+    end_ms: Option<f64>,
 }
 
 impl PlaybackCore {
@@ -85,6 +91,24 @@ impl PlaybackCore {
             rate: 1.0,
             sleep_at: None,
             stop_after_current: false,
+            crossfade_ms: 0.0,
+            end_ms: None,
+        }
+    }
+
+    /// How long songs fade into the next (M46.12); 0 turns crossfading off.
+    pub fn set_crossfade(&mut self, crossfade_ms: f64) {
+        self.crossfade_ms = if crossfade_ms.is_finite() {
+            crossfade_ms.max(0.0)
+        } else {
+            0.0
+        };
+    }
+
+    /// Where the load `load_id` stops (its song's end trim, M46.12). Ignored for older loads.
+    pub fn set_end(&mut self, load_id: u32, end_ms: Option<f64>) {
+        if load_id == self.load_id {
+            self.end_ms = end_ms;
         }
     }
 
@@ -468,7 +492,9 @@ impl PlaybackCore {
                 if duration_ms.is_some() {
                     self.duration_ms = duration_ms;
                 }
-                vec![Effect::StateChanged]
+                let mut effects = vec![Effect::StateChanged];
+                effects.extend(self.crossfade_if_due());
+                effects
             }
             EngineEvent::Playing => {
                 self.consecutive_errors = 0;
@@ -479,7 +505,47 @@ impl PlaybackCore {
             EngineEvent::Buffering => self.set_status(PlaybackStatus::Buffering),
             EngineEvent::Ended => self.on_ended(),
             EngineEvent::Error { message } => self.on_error(message),
+            // The service stores it; the queue doesn't change.
+            EngineEvent::Loudness { .. } => Vec::new(),
         }
+    }
+
+    /// Starts the next song early when the playing one is within the crossfade of its end (or end
+    /// trim), so the engine fades one into the other (M46.12). Not with repeat one (the song
+    /// restarts), the sleep timer's "end of song", or nothing next; nor for songs no longer than
+    /// two crossfades, which would barely be heard.
+    fn crossfade_if_due(&mut self) -> Vec<Effect> {
+        let Some(cursor) = self.cursor else {
+            return Vec::new();
+        };
+        if self.crossfade_ms <= 0.0
+            || self.status != PlaybackStatus::Playing
+            || self.repeat == RepeatMode::One
+            || self.stop_after_current
+        {
+            return Vec::new();
+        }
+        let Some(end) = self.end_ms.or(self.duration_ms) else {
+            return Vec::new();
+        };
+        if end <= self.crossfade_ms * 2.0 || end - self.position_ms > self.crossfade_ms {
+            return Vec::new();
+        }
+        let next = if cursor + 1 < self.order.len() {
+            cursor + 1
+        } else if self.repeat == RepeatMode::All && self.order.len() > 1 {
+            0
+        } else {
+            return Vec::new();
+        };
+        let fade_ms = (end - self.position_ms).clamp(0.0, self.crossfade_ms);
+        let mut effects = self.load_at(next, 0.0, true);
+        for effect in &mut effects {
+            if let Effect::Load { fade_ms: fade, .. } = effect {
+                *fade = fade_ms;
+            }
+        }
+        effects
     }
 
     fn on_ended(&mut self) -> Vec<Effect> {
@@ -540,6 +606,7 @@ impl PlaybackCore {
         self.source_label = None;
         let item = self.items[self.order[cursor]].clone();
         self.duration_ms = item.duration_ms.map(f64::from);
+        self.end_ms = None;
         if self.consecutive_errors == 0 {
             self.error = None;
         }
@@ -549,6 +616,7 @@ impl PlaybackCore {
                 item,
                 start_ms,
                 autoplay,
+                fade_ms: 0.0,
             },
             Effect::StateChanged,
         ]

@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use raygun_model::{
     EngineCommand, EngineEvent, EngineReport, MediaSource, PlaybackControl, PlaybackState,
-    QueueItem, QueueItemInput, QueueSnapshot, SleepTimer,
+    QueueItem, QueueItemInput, QueueSnapshot, SleepTimer, SoundPrefs, TrackQuery,
 };
 use raygun_net::StreamProxy;
 use raygun_playback::{Effect, PlaybackCore};
@@ -21,6 +21,7 @@ use crate::events::{EngineCommandEvent, PlaybackStateEvent, QueueEvent};
 use crate::history::PlayCounter;
 use crate::resolution::{ErrorPlan, LoadPlan, Tracker};
 use crate::resolver::ResolverService;
+use crate::sound::{SoundService, Tuning};
 
 /// Delivers one command to a native engine.
 pub type NativeEngineSink = Box<dyn Fn(&EngineCommand) -> Result<(), String> + Send + Sync>;
@@ -50,6 +51,10 @@ struct Inner {
     active: Option<Engine>,
     tracker: Tracker,
     plays: PlayCounter,
+    /// The equalizer, effects, normalization and crossfade (M46.12).
+    sound: SoundPrefs,
+    /// A crossfade waiting for its stream to be found: the load and how long it fades.
+    pending_fade: Option<(u32, f64)>,
 }
 
 pub struct PlaybackService {
@@ -89,6 +94,8 @@ impl PlaybackService {
                 active: None,
                 tracker: Tracker::default(),
                 plays: PlayCounter::default(),
+                sound: SoundPrefs::default(),
+                pending_fade: None,
             }),
             proxy,
             app,
@@ -145,6 +152,68 @@ impl PlaybackService {
     /// Queues items right after the current one (Play next, M46.8).
     pub fn enqueue_next(&self, items: Vec<QueueItemInput>) {
         self.run(|core| core.enqueue_next(items));
+    }
+
+    /// New sound settings (M46.12): the crossfade for the core, the effects for the engine.
+    pub fn set_sound(&self, sound: SoundPrefs) {
+        let mut outbox = Outbox::default();
+        {
+            let mut inner = self.lock();
+            inner.core.set_crossfade(f64::from(sound.crossfade_ms));
+            inner.sound = sound.clone();
+            if let Some(engine) = inner.active {
+                outbox
+                    .engine
+                    .push((engine, EngineCommand::SetEffects { sound }));
+            }
+        }
+        self.send(outbox);
+    }
+
+    /// A song's edit changed (M46.12): if it's the one playing, its gain and end change now.
+    pub fn song_edited(&self, key: &str) {
+        let mut outbox = Outbox::default();
+        {
+            let mut inner = self.lock();
+            let Some(item) = inner.core.current_item().cloned() else {
+                return;
+            };
+            if crate::sound::key(&TrackQuery::for_item(&item)) != key {
+                return;
+            }
+            let tuning = self.tuning(&inner.sound, &item);
+            let load_id = inner.core.load_id();
+            inner.core.set_end(load_id, tuning.end_ms);
+            if let Some(engine) = inner.active {
+                outbox.engine.push((
+                    engine,
+                    EngineCommand::SetTrackGain {
+                        gain_db: tuning.gain_db,
+                    },
+                ));
+                outbox.engine.push((
+                    engine,
+                    EngineCommand::SetEnd {
+                        end_ms: tuning.end_ms,
+                    },
+                ));
+            }
+        }
+        self.send(outbox);
+    }
+
+    /// How `item` plays: its trims and gain (M46.12).
+    fn tuning(&self, sound: &SoundPrefs, item: &QueueItem) -> Tuning {
+        let key = crate::sound::key(&TrackQuery::for_item(item));
+        match self.app.try_state::<Arc<SoundService>>() {
+            Some(service) => service.tuning(&key, sound),
+            None => Tuning {
+                start_ms: 0.0,
+                end_ms: None,
+                gain_db: 0.0,
+                measure: false,
+            },
+        }
     }
 
     /// Sets the sleep timer (M46.8). A time starts a task that pauses then, unless the timer was
@@ -214,6 +283,18 @@ impl PlaybackService {
                 EngineEvent::Playing if current => {
                     verified = inner.tracker.engine_playing(report.load_id);
                 }
+                EngineEvent::Loudness { lufs } if current => {
+                    if let (Some(item), Some(sound)) = (
+                        inner.core.current_item(),
+                        self.app.try_state::<Arc<SoundService>>(),
+                    ) {
+                        let key = crate::sound::key(&TrackQuery::for_item(item));
+                        let (sound, lufs) = (sound.inner().clone(), *lufs);
+                        tauri::async_runtime::spawn(async move {
+                            sound.record_loudness(key, lufs).await;
+                        });
+                    }
+                }
                 _ => {}
             }
             let effects = inner.core.report(report);
@@ -244,6 +325,10 @@ impl PlaybackService {
                         return;
                     };
                     let mut outbox = Outbox::default();
+                    let fade_ms = match inner.pending_fade.take() {
+                        Some((pending, fade_ms)) if pending == load_id => fade_ms,
+                        _ => 0.0,
+                    };
                     self.load_into(
                         &mut inner,
                         &mut outbox,
@@ -252,6 +337,7 @@ impl PlaybackService {
                         &pick.source,
                         start_ms,
                         autoplay,
+                        fade_ms,
                     );
                     let effects = inner
                         .core
@@ -310,6 +396,7 @@ impl PlaybackService {
                     item,
                     start_ms,
                     autoplay,
+                    fade_ms,
                 } => {
                     // A downloaded song plays its saved copy (M46.10).
                     let item =
@@ -325,12 +412,16 @@ impl PlaybackService {
                                 &source,
                                 start_ms,
                                 autoplay,
+                                fade_ms,
                             );
                         }
                         LoadPlan::Resolve => {
-                            // Nothing to play until a stream is found; silence the previous item.
                             tracing::debug!(load_id, title = %item.title, "finding a stream");
-                            if let Some(previous) = inner.active.take() {
+                            if fade_ms > 0.0 {
+                                // A crossfade: the song ending plays on until the next is found.
+                                inner.pending_fade = Some((load_id, fade_ms));
+                            } else if let Some(previous) = inner.active.take() {
+                                // Nothing to play until a stream is found; silence the previous item.
                                 outbox.engine.push((previous, EngineCommand::Stop));
                             }
                             outbox.resolve = Some(load_id);
@@ -411,14 +502,31 @@ impl PlaybackService {
         source: &MediaSource,
         start_ms: f64,
         autoplay: bool,
+        fade_ms: f64,
     ) {
         let engine = engine_for(source, self.native.is_some());
-        tracing::debug!(load_id, title = %item.title, ?engine, "loading");
+        tracing::debug!(load_id, title = %item.title, ?engine, fade_ms, "loading");
         if let Some(previous) = inner.active.filter(|previous| *previous != engine) {
-            outbox.engine.push((previous, EngineCommand::Stop));
+            // In a crossfade the other engine fades its song out instead of cutting it (M46.12).
+            let command = if fade_ms > 0.0 {
+                EngineCommand::FadeOut { fade_ms }
+            } else {
+                EngineCommand::Stop
+            };
+            outbox.engine.push((previous, command));
         }
         inner.active = Some(engine);
         let volume = inner.core.state().volume;
+        // The song's trims and gain (M46.12): a song from its top starts at its start trim.
+        let tuning = self.tuning(&inner.sound, item);
+        inner.core.set_end(load_id, tuning.end_ms);
+        let start_ms = start_ms.max(tuning.start_ms);
+        outbox.engine.push((
+            engine,
+            EngineCommand::SetEffects {
+                sound: inner.sound.clone(),
+            },
+        ));
         let command = match source {
             MediaSource::YouTube { video_id } => EngineCommand::LoadYouTube {
                 load_id,
@@ -427,6 +535,9 @@ impl PlaybackService {
                 start_ms,
                 autoplay,
                 volume,
+                gain_db: tuning.gain_db,
+                end_ms: tuning.end_ms,
+                fade_ms,
             },
             source => EngineCommand::Load {
                 load_id,
@@ -437,6 +548,10 @@ impl PlaybackService {
                 start_ms,
                 autoplay,
                 volume,
+                gain_db: tuning.gain_db,
+                end_ms: tuning.end_ms,
+                fade_ms,
+                measure: tuning.measure,
             },
         };
         outbox.engine.push((engine, command));

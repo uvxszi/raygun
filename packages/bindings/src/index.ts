@@ -79,13 +79,24 @@ export const commands = {
 	 *  with tracks or an error; songs several providers found are merged into `top`.
 	 */
 	onlineSearch: (query: string) => typedError<SearchResults, string>(__TAURI_INVOKE("online_search", { query })),
-	/**  Lyrics for a track, or `null` when no provider has any. */
+	/**
+	 *  Lyrics for a track, or `null` when no provider has any. The song's own lyrics (M46.12) win, and
+	 *  its lyrics offset comes along.
+	 */
 	lyricsGet: (query: TrackQuery) => typedError<{
 	providerName: string,
 	/**  Sorted by time; empty when only plain lyrics are known. */
 	synced: LyricLine[],
 	plain: string | null,
+	/**  The song's lyrics offset (M46.12): show each line this much later, ms. */
+	offsetMs?: number,
+	/**  These are the person's own lyrics, not a source's (M46.12). */
+	edited?: boolean,
 } | null, string>(__TAURI_INVOKE("lyrics_get", { query })),
+	/**  A song's own trims, volume and lyrics edits (M46.12); defaults when it has none. */
+	songEditGet: (query: TrackQuery) => __TAURI_INVOKE<SongEdit>("song_edit_get", { query }),
+	/**  Saves a song's edit; one with nothing changed forgets it. The playing song changes at once. */
+	songEditSet: (query: TrackQuery, edit: SongEdit) => typedError<SongEdit, string>(__TAURI_INVOKE("song_edit_set", { query, edit })),
 	/**  Favorite tracks, most recently added first. */
 	favoritesList: () => typedError<SavedTrack[], string>(__TAURI_INVOKE("favorites_list")),
 	/**  Where a song is saved: Favorites and the playlists holding it (M46.8). */
@@ -778,19 +789,47 @@ export type DiscoveryPrefs = {
 
 export type DownloadState = "queued" | "downloading" | "done" | "failed";
 
+/**  Lyrics a person wrote or corrected for a song (M46.12), replacing what sources have. */
+export type EditedLyrics = {
+	/**  Sorted by time; empty when the lyrics are plain. */
+	synced?: LyricLine[],
+	plain?: string | null,
+};
+
 /**  An instruction for the active playback engine. */
 export type EngineCommand = { type: "load"; loadId: number; url: string; 
 /**  For native engines' media session (notification, lock screen). */
-title: string; artist: string | null; artworkUrl: string | null; startMs: number | null; autoplay: boolean; volume: number | null } | 
-/**  Plays a YouTube video in the embedded player hosted at `embed_url` (webview only). */
-{ type: "loadYouTube"; loadId: number; embedUrl: string; videoId: string; startMs: number | null; autoplay: boolean; volume: number | null } | { type: "play" } | { type: "pause" } | { type: "seek"; positionMs: number | null } | { type: "setVolume"; volume: number | null } | 
+title: string; artist: string | null; artworkUrl: string | null; startMs: number | null; autoplay: boolean; volume: number | null; 
+/**  This song's gain in dB: its own volume plus normalization (M46.12). */
+gainDb: number | null; 
+/**  Where the song ends (its end trim), ms; the engine reports `Ended` there. */
+endMs: number | null; 
+/**  Fade from what plays now into this song over this long (a crossfade), ms; 0 cuts. */
+fadeMs: number | null; 
+/**  Measure this song's loudness and report it (it isn't known yet). */
+measure: boolean } | 
+/**
+ *  Plays a YouTube video in the embedded player hosted at `embed_url` (webview only). Only its
+ *  volume can change: `gain_db` scales it down, never up.
+ */
+{ type: "loadYouTube"; loadId: number; embedUrl: string; videoId: string; startMs: number | null; autoplay: boolean; volume: number | null; gainDb: number | null; endMs: number | null; fadeMs: number | null } | { type: "play" } | { type: "pause" } | { type: "seek"; positionMs: number | null } | { type: "setVolume"; volume: number | null } | 
 /**  Playback speed (M46.8); engines keep it across loads. */
-{ type: "setRate"; rate: number | null } | { type: "stop" };
+{ type: "setRate"; rate: number | null } | 
+/**  The equalizer and effects for every song (M46.12); engines keep them across loads. */
+{ type: "setEffects"; sound: SoundPrefs } | 
+/**  The playing song's gain changed (its volume was edited), dB. */
+{ type: "setTrackGain"; gainDb: number | null } | 
+/**  The playing song's end trim changed, ms. */
+{ type: "setEnd"; endMs: number | null } | 
+/**  Fades the playing song out over `fade_ms`, then stops (another engine takes over). */
+{ type: "fadeOut"; fadeMs: number | null } | { type: "stop" };
 
 /**  An instruction for the playback engine running in the webview. */
 export type EngineCommandEvent = EngineCommand;
 
-export type EngineEvent = { type: "progress"; positionMs: number | null; durationMs: number | null } | { type: "playing" } | { type: "paused" } | { type: "buffering" } | { type: "ended" } | { type: "error"; message: string };
+export type EngineEvent = { type: "progress"; positionMs: number | null; durationMs: number | null } | { type: "playing" } | { type: "paused" } | { type: "buffering" } | { type: "ended" } | { type: "error"; message: string } | 
+/**  The song's integrated loudness, measured while it played (M46.12). */
+{ type: "loudness"; lufs: number | null };
 
 /**
  *  What the engine observed. `load_id` ties it to a specific `Load`, so reports about a track
@@ -1158,6 +1197,10 @@ export type Lyrics = {
 	/**  Sorted by time; empty when only plain lyrics are known. */
 	synced: LyricLine[],
 	plain: string | null,
+	/**  The song's lyrics offset (M46.12): show each line this much later, ms. */
+	offsetMs?: number,
+	/**  These are the person's own lyrics, not a source's (M46.12). */
+	edited?: boolean,
 };
 
 export type MangaBrowseMode = "popular" | "latest" | "search";
@@ -1751,6 +1794,9 @@ export type RepoCatalog = {
 	error: string | null,
 };
 
+/**  A reverb, as Android's `PresetReverb` names them (M46.12). */
+export type Reverb = "off" | "smallRoom" | "mediumRoom" | "largeRoom" | "mediumHall" | "largeHall" | "plate";
+
 /**  The picked folder as Android sees it now. */
 export type SaveFolderState = {
 	/**  Raygun may still write there. */
@@ -1825,7 +1871,7 @@ export type SearchResults = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -1917,6 +1963,8 @@ export type Settings = {
 	failingSourcesLast: boolean,
 	/**  The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default. */
 	userAgent: string,
+	/**  The equalizer, effects, normalization and crossfade for every song (M46.12). */
+	sound: SoundPrefs,
 };
 
 /**  A setting changed outside the Settings screens (in the video player, M45); carries its key. */
@@ -1972,12 +2020,53 @@ export type SongDownloadState = "queued" | "downloading" |
 /**  The song downloads changed; carries the download's id when one did (else empty) (M46.10). */
 export type SongDownloadsEvent = string;
 
+/**  A song's own sound and lyrics (M46.12), kept by its track key. */
+export type SongEdit = {
+	/**  Where the song starts playing, ms (0 = its start). */
+	startMs?: number,
+	/**  Where it stops, ms; `None` = its end. */
+	endMs?: number | null,
+	/**  Its volume, tenths of a dB (−120 to 120). */
+	gain?: number,
+	/**  Shifts synced lyrics, ms: positive shows each line later. */
+	lyricsOffsetMs?: number,
+	/**  Lyrics that replace the sources'. */
+	lyrics?: EditedLyrics | null,
+};
+
 /**  What saving songs as files did (M46.10). */
 export type SongsSaved = {
 	/**  Where each file went, as the user sees it. */
 	saved: string[],
 	/**  `<title>: <why>` for each song that couldn't be written. */
 	failed: string[],
+};
+
+/**
+ *  Sound for every song (M46.12): what the engines apply, plus normalization and crossfade. One
+ *  stored row; missing fields keep their defaults.
+ */
+export type SoundPrefs = {
+	eqEnabled?: boolean,
+	/**  The preset the bands came from ("flat", "rock", ...), or "custom". */
+	eqPreset?: string,
+	/**  Gains for [`EQ_FREQUENCIES`], in tenths of a dB (−120 to 120). */
+	eqBands?: number[],
+	/**  Gain before the equalizer, in tenths of a dB (−120 to 120). */
+	preamp?: number,
+	/**  A low shelf below 100 Hz, 0 to 100 (100 = +12 dB). */
+	bassBoost?: number,
+	reverb?: Reverb,
+	/**  −100 (left only) to 100 (right only). */
+	balance?: number,
+	/**  Both channels mixed into one. */
+	mono?: boolean,
+	/**  Songs are brought to `normalize_target` by their measured loudness. */
+	normalize?: boolean,
+	/**  Loudness songs are brought to, LUFS (−23 to −8). */
+	normalizeTarget?: number,
+	/**  How long one song fades into the next, ms (0 = off, up to [`CROSSFADE_MAX_MS`]). */
+	crossfadeMs?: number,
 };
 
 /**  A filter a source offers for its search (Mihon's `FilterList`, simplified). */

@@ -128,8 +128,9 @@ The user asked for the full depth of the reference apps ("its not meant to be a 
   - desktop panels that shrink instead of disappearing, a full player sized by the window, live column dividers, placeholders the size of the covers, paragraph indents for novels;
   - a default User-Agent setting, cookies kept per source with "Clear cookies and data", a source's website in Raygun's browser, one running copy on desktop.
   - Not built: solving captchas or Cloudflare checks for sources, automatically or by moving the browser's cookies into a source; Royal Road, Scribble Hub and Webnovel block Raygun's requests, so Paraline has no copies of them.
+- M46.12 **Sound and lyrics editing** (asked 2026-11-01, started 2026-11-02): ✅ part 1, the sound: a 10-band equalizer with presets, bass boost, reverb, balance, mono, loudness normalization learned per song, crossfade, and each song's trims and volume, on desktop (Web Audio) and Android (Media3 processors). Part 2: the lyrics editor and subtitle cues.
 - **Asked 2026-11-01, queued in this order** (each becomes a milestone with a spec):
-  1. **Sound and lyrics editing:**
+  1. **Sound and lyrics editing** (now M46.12):
      - edit lyrics (words and timings) and shift them by an offset; the same for video subtitles;
      - per-song start and end trims and per-song volume;
      - loudness normalization, an equalizer and other sound effects for all songs;

@@ -442,6 +442,10 @@
       "connections": {
         "title": "Connections",
         "summary": "Devices, remote control, AI and assistants"
+      },
+      "sound": {
+        "title": "Sound",
+        "summary": "Equalizer, bass, reverb, volume levelling, crossfade"
       }
     },
     "display": "Display",
@@ -1893,7 +1897,8 @@
     "copyName": "Copy song name",
     "open": "Open",
     "searchEverywhere": "Search for it in every source",
-    "copyTitle": "Copy title"
+    "copyTitle": "Copy title",
+    "editSong": "Edit sound and lyrics"
   },
   "tracks": {
     "table": "Songs",
@@ -2070,5 +2075,82 @@
     "zoom": "Zoom (readers)",
     "navBack": "Back",
     "menu": "Options for what’s under the pointer"
+  },
+  "sound": {
+    "open": "Equalizer and sound",
+    "equalizer": "Equalizer",
+    "eqOn": "Equalizer on",
+    "reset": "Flat",
+    "presets": "Presets",
+    "preset": {
+      "flat": "Flat",
+      "bassBoost": "Bass boost",
+      "rock": "Rock",
+      "pop": "Pop",
+      "jazz": "Jazz",
+      "classical": "Classical",
+      "electronic": "Electronic",
+      "dance": "Dance",
+      "vocal": "Vocal",
+      "acoustic": "Acoustic",
+      "hipHop": "Hip-hop",
+      "loudness": "Loudness",
+      "trebleBoost": "Treble boost",
+      "trebleReducer": "Treble reducer",
+      "bassReducer": "Bass reducer",
+      "smallSpeakers": "Small speakers",
+      "spokenWord": "Spoken word",
+      "custom": "Custom"
+    },
+    "band": "{{frequency}} band",
+    "preamp": "Preamp",
+    "preampHint": "Boosts are taken back first, so they never distort; turn this up to make up for it.",
+    "effects": "Effects",
+    "bassBoost": "Bass boost",
+    "reverb": "Reverb",
+    "reverbs": {
+      "off": "Off",
+      "smallRoom": "Small room",
+      "mediumRoom": "Medium room",
+      "largeRoom": "Large room",
+      "mediumHall": "Medium hall",
+      "largeHall": "Large hall",
+      "plate": "Plate"
+    },
+    "balance": "Balance",
+    "centre": "Centre",
+    "left": "{{amount}}% left",
+    "right": "{{amount}}% right",
+    "mono": "Mono",
+    "monoHint": "Both channels in each ear, for one earbud or a hard-to-hear side",
+    "volume": "Volume",
+    "normalize": "Even out loudness",
+    "normalizeHint": "Every song plays at about the same volume. Raygun learns how loud each one is as it plays.",
+    "level": "Volume level",
+    "levels": {
+      "-23": "Quiet",
+      "-14": "Normal",
+      "-11": "Loud"
+    },
+    "crossfade": "Crossfade",
+    "crossfadeHint": "Each song fades into the next",
+    "seconds": "{{seconds}} s",
+    "off": "Off",
+    "editSong": "This song’s sound and lyrics",
+    "allSettings": "All sound settings"
+  },
+  "songEdit": {
+    "title": "{{title}}: sound and lyrics",
+    "loading": "Loading…",
+    "trimHint": "Skip a long intro or a silent ending. The song starts and ends here wherever it plays.",
+    "start": "Start at",
+    "end": "End at",
+    "toTheEnd": "The end",
+    "setNow": "Now ({{time}})",
+    "clear": "Clear {{name}}",
+    "endBeforeStart": "The end must come after the start.",
+    "volume": "This song’s volume",
+    "volumeHint": "Added to the volume levelling, for songs mastered too loud or too quiet.",
+    "reset": "Undo every change to this song"
   }
 }

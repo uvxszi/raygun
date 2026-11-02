@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.media.audiofx.PresetReverb
 import android.provider.Settings
 import androidx.activity.result.ActivityResult
 import androidx.appcompat.app.AppCompatActivity
@@ -18,6 +19,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.core.view.WindowCompat
@@ -46,6 +48,29 @@ class LoadArgs {
     var startMs: Double? = null
     var autoplay: Boolean = true
     var volume: Double? = null
+    /** The song's gain in dB: its own volume plus normalization (M46.12). */
+    var gainDb: Double? = null
+    /** Its end trim, ms. */
+    var endMs: Double? = null
+    /** Fade from the playing song into this one, ms (a crossfade); 0 cuts. */
+    var fadeMs: Double? = null
+    /** Measure its loudness and report it. */
+    var measure: Boolean = false
+}
+
+@InvokeArg
+class GainArgs {
+    var gainDb: Double? = null
+}
+
+@InvokeArg
+class EndArgs {
+    var endMs: Double? = null
+}
+
+@InvokeArg
+class FadeArgs {
+    var fadeMs: Double? = null
 }
 
 @InvokeArg
@@ -108,12 +133,42 @@ class RateArgs {
 }
 
 private const val PROGRESS_INTERVAL_MS = 500L
+/** A song measured this long reports its loudness, s; one that ends sooner, if it played this long. */
+private const val MEASURED_ENOUGH_S = 45.0
+private const val MEASURED_AT_LEAST_S = 10.0
+
+/** Android's preset reverbs by Raygun's names (M46.12). */
+private fun reverbPreset(name: String?): Short? = when (name) {
+    "smallRoom" -> PresetReverb.PRESET_SMALLROOM
+    "mediumRoom" -> PresetReverb.PRESET_MEDIUMROOM
+    "largeRoom" -> PresetReverb.PRESET_LARGEROOM
+    "mediumHall" -> PresetReverb.PRESET_MEDIUMHALL
+    "largeHall" -> PresetReverb.PRESET_LARGEHALL
+    "plate" -> PresetReverb.PRESET_PLATE
+    else -> null
+}
+
+/** Rust's `SoundPrefs` JSON as the processor's settings: tenths of a dB, percentages. */
+private fun soundConfig(sound: JSONObject): SoundConfig {
+    val bands = sound.optJSONArray("eqBands")
+    return SoundConfig(
+        eqEnabled = sound.optBoolean("eqEnabled", false),
+        bands = DoubleArray(EQ_FREQUENCIES.size) { (bands?.optDouble(it, 0.0) ?: 0.0) / 10 },
+        preampDb = sound.optDouble("preamp", 0.0) / 10,
+        bassDb = sound.optDouble("bassBoost", 0.0) / 100 * 12,
+        balance = (sound.optDouble("balance", 0.0) / 100).coerceIn(-1.0, 1.0),
+        mono = sound.optBoolean("mono", false),
+        normalize = sound.optBoolean("normalize", false),
+        targetLufs = sound.optDouble("normalizeTarget", -14.0),
+    )
+}
 
 /**
  * Native playback engine for the Rust `PlaybackService` (ARCHITECTURE §6.2). Executes engine
  * commands on a Media3 player hosted by [RaygunPlaybackService] and reports back through
  * [NativeBridge], tagging every report with the load id of the command that started the track.
  */
+@UnstableApi
 @TauriPlugin(
     permissions = [
         Permission(strings = [Manifest.permission.READ_MEDIA_AUDIO], alias = "audio"),
@@ -127,9 +182,15 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     private val pending = mutableListOf<(MediaController) -> Unit>()
     private var connecting = false
     private var loadId: Int? = null
+    /** The playing song's end trim, ms (M46.12), and whether it was reached. */
+    private var endMs: Double? = null
+    private var endReported = false
     private var theme = "system"
     private val speech by lazy { Speech(activity.applicationContext) }
     private val storage by lazy { Storage(activity.applicationContext) }
+
+    /** Waits for the song's end trim while it plays. */
+    private val endWatch = Runnable { controller?.let { checkEnd(it) } }
 
     private val progressTicker = object : Runnable {
         override fun run() {
@@ -145,10 +206,13 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
                 report("playing")
                 main.removeCallbacks(progressTicker)
                 main.post(progressTicker)
+                scheduleEnd(player)
             } else {
                 main.removeCallbacks(progressTicker)
+                main.removeCallbacks(endWatch)
                 reportProgress(player)
-                if (player.playbackState == Player.STATE_READY) {
+                // The pause at an end trim isn't the listener's.
+                if (player.playbackState == Player.STATE_READY && !endReported) {
                     report("paused")
                 }
             }
@@ -159,7 +223,10 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
             when (playbackState) {
                 Player.STATE_BUFFERING -> report("buffering")
                 Player.STATE_READY -> reportProgress(player)
-                Player.STATE_ENDED -> report("ended")
+                Player.STATE_ENDED -> {
+                    reportLoudnessIfHeard()
+                    report("ended")
+                }
                 Player.STATE_IDLE -> Unit
             }
         }
@@ -173,7 +240,12 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     fun load(invoke: Invoke) {
         val args = invoke.parseArgs(LoadArgs::class.java)
         withController { player ->
+            val fadeMs = (args.fadeMs ?: 0.0).toLong()
+            val crossfading = fadeMs > 0 && player.isPlaying
             loadId = args.loadId
+            endMs = args.endMs
+            endReported = false
+            main.removeCallbacks(endWatch)
             val metadata = MediaMetadata.Builder()
                 .setTitle(args.title)
                 .setArtist(args.artist)
@@ -184,12 +256,117 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
                 .setMediaId(args.loadId.toString())
                 .setMediaMetadata(metadata)
                 .build()
+            val startMs = (args.startMs ?: 0.0).toLong()
+            val gainDb = args.gainDb ?: 0.0
+            val service = RaygunPlaybackService.instance
             player.volume = (args.volume ?: 1.0).toFloat()
-            player.setMediaItem(item, (args.startMs ?: 0.0).toLong())
-            player.prepare()
-            player.playWhenReady = args.autoplay
+            if (service != null && crossfading) {
+                // The next song starts on the other player while this one fades out (M46.12).
+                service.crossfade(item, startMs, fadeMs, gainDb, args.measure)
+            } else {
+                service?.startTrack(gainDb, args.measure)
+                player.setMediaItem(item, startMs)
+                player.prepare()
+                player.playWhenReady = args.autoplay
+            }
+            service?.deck?.processor?.onMeasured = measured(args.loadId)
         }
         invoke.resolve()
+    }
+
+    /** Reports a song's loudness once enough of it was heard (called on the audio thread). */
+    private fun measured(id: Int): (LoudnessMeter) -> Unit = { meter ->
+        if (meter.seconds >= MEASURED_ENOUGH_S) {
+            RaygunPlaybackService.instance?.deck?.processor?.stopMeasuring()
+            val lufs = meter.integrated()
+            if (lufs != null) {
+                main.post {
+                    if (loadId == id) report("loudness", JSONObject().put("lufs", lufs))
+                }
+            }
+        }
+    }
+
+    /** A song that ends before it was measured long enough still reports, if it played 10 s. */
+    private fun reportLoudnessIfHeard() {
+        val processor = RaygunPlaybackService.instance?.deck?.processor ?: return
+        if (!processor.isMeasuring || processor.loudness.seconds < MEASURED_AT_LEAST_S) return
+        processor.stopMeasuring()
+        processor.loudness.integrated()?.let { report("loudness", JSONObject().put("lufs", it)) }
+    }
+
+    /** The equalizer and effects (M46.12): every player's processor, and the reverb. */
+    @Command
+    fun setEffects(invoke: Invoke) {
+        val sound = invoke.getArgs().optJSONObject("sound") ?: JSONObject()
+        val config = soundConfig(sound)
+        val reverb = reverbPreset(sound.optString("reverb"))
+        RaygunSound.config = config
+        RaygunSound.reverb = reverb
+        main.post { RaygunPlaybackService.instance?.applySound(config, reverb) }
+        invoke.resolve()
+    }
+
+    /** The playing song's volume was edited. */
+    @Command
+    fun setTrackGain(invoke: Invoke) {
+        val args = invoke.parseArgs(GainArgs::class.java)
+        main.post { RaygunPlaybackService.instance?.deck?.processor?.setGainDb(args.gainDb ?: 0.0) }
+        invoke.resolve()
+    }
+
+    /** The playing song's end trim was edited. */
+    @Command
+    fun setEnd(invoke: Invoke) {
+        val args = invoke.parseArgs(EndArgs::class.java)
+        withController {
+            endMs = args.endMs
+            endReported = false
+            scheduleEnd(it)
+        }
+        invoke.resolve()
+    }
+
+    /** Fades the playing song out, then stops: YouTube's embed in the webview takes over. */
+    @Command
+    fun fadeOut(invoke: Invoke) {
+        val args = invoke.parseArgs(FadeArgs::class.java)
+        withController {
+            loadId = null
+            main.removeCallbacks(progressTicker)
+            main.removeCallbacks(endWatch)
+            val service = RaygunPlaybackService.instance
+            if (service != null) {
+                service.retire(service.deck, (args.fadeMs ?: 0.0).toLong())
+            } else {
+                it.stop()
+                it.clearMediaItems()
+            }
+        }
+        invoke.resolve()
+    }
+
+    private fun scheduleEnd(player: Player) {
+        main.removeCallbacks(endWatch)
+        val end = endMs ?: return
+        if (endReported || !player.isPlaying) return
+        val speed = player.playbackParameters.speed.takeIf { it > 0 } ?: 1f
+        val remaining = ((end - player.currentPosition) / speed).toLong()
+        if (remaining <= 0) checkEnd(player) else main.postDelayed(endWatch, remaining)
+    }
+
+    /** At the end trim: report the end and pause; Rust loads what's next. */
+    private fun checkEnd(player: Player) {
+        val end = endMs ?: return
+        if (endReported) return
+        if (player.currentPosition + 40 < end) {
+            scheduleEnd(player)
+            return
+        }
+        endReported = true
+        reportLoudnessIfHeard()
+        player.pause()
+        report("ended")
     }
 
     @Command
@@ -207,7 +384,11 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun seek(invoke: Invoke) {
         val args = invoke.parseArgs(SeekArgs::class.java)
-        withController { it.seekTo((args.positionMs ?: 0.0).toLong()) }
+        withController {
+            it.seekTo((args.positionMs ?: 0.0).toLong())
+            endReported = false
+            scheduleEnd(it)
+        }
         invoke.resolve()
     }
 
@@ -232,6 +413,7 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         withController {
             loadId = null
             main.removeCallbacks(progressTicker)
+            main.removeCallbacks(endWatch)
             it.stop()
             it.clearMediaItems()
         }

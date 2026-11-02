@@ -1,6 +1,7 @@
 //! Checks that WASAPI process loopback hears a process tree (M46.10 recording): captures the given
 //! process id for a few seconds and prints how much sound arrived.
-//! `cargo run -p raygun-app --example loopback_probe -- <pid> [seconds]`
+//! `cargo run -p raygun-app --example loopback_probe -- <pid> [seconds] [out.wav]`; with a file
+//! name the capture is also saved, as float WAV, to check what the equalizer or a crossfade did.
 
 #[cfg(windows)]
 fn main() {
@@ -14,6 +15,7 @@ fn main() {
         .and_then(|arg| arg.parse().ok())
         .expect("a process id");
     let seconds: u64 = args.next().and_then(|arg| arg.parse().ok()).unwrap_or(5);
+    let out = args.next();
     let _ = initialize_mta();
     let format = WaveFormat::new(32, 32, &SampleType::Float, 48_000, 2, None);
     let mut client = AudioClient::new_application_loopback_client(pid, true).expect("client");
@@ -53,6 +55,19 @@ fn main() {
         .iter()
         .map(|sample| f32::from_le_bytes(*sample))
         .collect();
+    if let Some(out) = out {
+        let spec = hound::WavSpec {
+            channels: 2,
+            sample_rate: 48_000,
+            bits_per_sample: 32,
+            sample_format: hound::SampleFormat::Float,
+        };
+        let mut writer = hound::WavWriter::create(&out, spec).expect("wav");
+        for sample in &samples {
+            writer.write_sample(*sample).expect("write");
+        }
+        writer.finalize().expect("finish");
+    }
     let peak = samples
         .iter()
         .fold(0f32, |peak, value| peak.max(value.abs()));

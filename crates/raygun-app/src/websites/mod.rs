@@ -355,6 +355,8 @@ struct Report {
 }
 
 /// Where the browser's reports go: Android's over JNI, the desktop windows' when they close.
+/// Only the desktop windows hold the sender.
+#[cfg_attr(target_os = "android", allow(dead_code))]
 struct WebsiteReports(tokio::sync::mpsc::UnboundedSender<String>);
 
 /// The browser's reports (where a site is, its blocker) become the site's stored state.

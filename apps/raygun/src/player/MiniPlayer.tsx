@@ -30,6 +30,7 @@ import { Marquee } from '../shell/Marquee';
 import { useWideScreen } from '../shell/useWideScreen';
 import { FavoriteButton } from './FavoriteButton';
 import { formatTime } from './formatTime';
+import { SoundButton } from '../sound/SoundButton';
 import { PlaybackExtras } from './PlaybackExtras';
 import { usePlayerUiStore } from './playerUiStore';
 import { onSeekKey } from './seekKeys';
@@ -233,6 +234,7 @@ const WideBar: FC<BarProps> = ({ state, item }) => {
           <ListMusic aria-hidden size={18} />
         </BarButton>
         <PlaybackExtras state={state} />
+        <SoundButton />
         <VolumeControl state={state} />
         <BarButton label={t('player.openPlayer')} onClick={() => openSheet({ view: 'artwork' })}>
           <Maximize2 aria-hidden size={18} />

@@ -1135,6 +1135,8 @@ fn parse_lyrics(provider: &ProviderInfo, value: &serde_json::Value) -> Option<Ly
         provider_name: provider.name.clone(),
         synced,
         plain,
+        offset_ms: 0,
+        edited: false,
     })
 }
 

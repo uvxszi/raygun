@@ -59,7 +59,8 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | **Podcasts**: search, subscribe, episodes, resume, downloads | RiPlay | ✅ M37 |
 | Song downloads for offline play; save as the original file, WAV or FLAC with tags; recording when only YouTube has a song | Spotify, Nuclear, RiPlay | ✅ M46.10 (recording on Windows; Android: queued) |
 | Music search by songs, artists and albums; album pages | Spotify, Nuclear | ✅ M46.11 |
-| Equalizer | RiPlay | 🔜 M52 |
+| Equalizer | RiPlay | ✅ M46.12 (10 fixed bands with presets on both platforms; bass boost, reverb, balance, mono) |
+| Crossfade, loudness normalization, per-song start/end trims and volume | Spotify, RiPlay, Nuclear (setting only) | ✅ M46.12 (true crossfade with two players; loudness measured as songs play) |
 | Sleep timer | RiPlay | 🔜 M52 |
 | Blacklist (artists/tracks) | RiPlay | 🔜 M52 |
 | Listening stats, "Rewind" yearly recap | RiPlay | 🔜 M52 |

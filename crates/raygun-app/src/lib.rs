@@ -36,6 +36,7 @@ mod resolution;
 mod resolver;
 mod search;
 mod settings;
+mod sound;
 mod startup;
 mod stremio;
 mod system_ui;
@@ -94,6 +95,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::extension_setting_set,
             commands::online_search,
             commands::lyrics_get,
+            commands::song_edit_get,
+            commands::song_edit_set,
             commands::favorites_list,
             commands::collections_saves,
             commands::collections_set_saves,

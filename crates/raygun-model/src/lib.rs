@@ -141,6 +141,177 @@ pub struct Settings {
     pub failing_sources_last: bool,
     /// The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default.
     pub user_agent: String,
+    /// The equalizer, effects, normalization and crossfade for every song (M46.12).
+    pub sound: SoundPrefs,
+}
+
+/// Centre frequencies of the equalizer's bands in Hz (M46.12): ten octaves, as most players have.
+pub const EQ_FREQUENCIES: [u32; 10] = [31, 62, 125, 250, 500, 1_000, 2_000, 4_000, 8_000, 16_000];
+/// The equalizer's and the preamp's range, in tenths of a dB (±12 dB).
+pub const EQ_LIMIT: i32 = 120;
+/// The longest crossfade, ms.
+pub const CROSSFADE_MAX_MS: u32 = 12_000;
+
+/// A reverb, as Android's `PresetReverb` names them (M46.12).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum Reverb {
+    #[default]
+    Off,
+    SmallRoom,
+    MediumRoom,
+    LargeRoom,
+    MediumHall,
+    LargeHall,
+    Plate,
+}
+
+/// Sound for every song (M46.12): what the engines apply, plus normalization and crossfade. One
+/// stored row; missing fields keep their defaults.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SoundPrefs {
+    pub eq_enabled: bool,
+    /// The preset the bands came from ("flat", "rock", ...), or "custom".
+    pub eq_preset: String,
+    /// Gains for [`EQ_FREQUENCIES`], in tenths of a dB (−120 to 120).
+    pub eq_bands: Vec<i32>,
+    /// Gain before the equalizer, in tenths of a dB (−120 to 120).
+    pub preamp: i32,
+    /// A low shelf below 100 Hz, 0 to 100 (100 = +12 dB).
+    pub bass_boost: u32,
+    pub reverb: Reverb,
+    /// −100 (left only) to 100 (right only).
+    pub balance: i32,
+    /// Both channels mixed into one.
+    pub mono: bool,
+    /// Songs are brought to `normalize_target` by their measured loudness.
+    pub normalize: bool,
+    /// Loudness songs are brought to, LUFS (−23 to −8).
+    pub normalize_target: i32,
+    /// How long one song fades into the next, ms (0 = off, up to [`CROSSFADE_MAX_MS`]).
+    pub crossfade_ms: u32,
+}
+
+impl Default for SoundPrefs {
+    fn default() -> Self {
+        Self {
+            eq_enabled: false,
+            eq_preset: "flat".to_owned(),
+            eq_bands: vec![0; EQ_FREQUENCIES.len()],
+            preamp: 0,
+            bass_boost: 0,
+            reverb: Reverb::Off,
+            balance: 0,
+            mono: false,
+            normalize: false,
+            normalize_target: -14,
+            crossfade_ms: 0,
+        }
+    }
+}
+
+impl SoundPrefs {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.eq_bands.len() != EQ_FREQUENCIES.len() {
+            return Err(format!(
+                "the equalizer has {} bands, not {}",
+                EQ_FREQUENCIES.len(),
+                self.eq_bands.len()
+            ));
+        }
+        if let Some(gain) = self
+            .eq_bands
+            .iter()
+            .chain([&self.preamp])
+            .find(|gain| gain.abs() > EQ_LIMIT)
+        {
+            return Err(format!("{} dB is outside ±12 dB", f64::from(*gain) / 10.0));
+        }
+        if self.eq_preset.is_empty() || self.eq_preset.len() > 40 {
+            return Err("a preset needs a short name".to_owned());
+        }
+        if self.bass_boost > 100 {
+            return Err("bass boost goes up to 100".to_owned());
+        }
+        if self.balance.abs() > 100 {
+            return Err("balance goes from −100 to 100".to_owned());
+        }
+        if !(-23..=-8).contains(&self.normalize_target) {
+            return Err(format!(
+                "{} LUFS isn't an offered loudness",
+                self.normalize_target
+            ));
+        }
+        if self.crossfade_ms > CROSSFADE_MAX_MS {
+            return Err("a crossfade is at most 12 seconds".to_owned());
+        }
+        Ok(())
+    }
+}
+
+/// Lyrics a person wrote or corrected for a song (M46.12), replacing what sources have.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct EditedLyrics {
+    /// Sorted by time; empty when the lyrics are plain.
+    pub synced: Vec<LyricLine>,
+    pub plain: Option<String>,
+}
+
+/// A song's own sound and lyrics (M46.12), kept by its track key.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SongEdit {
+    /// Where the song starts playing, ms (0 = its start).
+    pub start_ms: u32,
+    /// Where it stops, ms; `None` = its end.
+    pub end_ms: Option<u32>,
+    /// Its volume, tenths of a dB (−120 to 120).
+    pub gain: i32,
+    /// Shifts synced lyrics, ms: positive shows each line later.
+    pub lyrics_offset_ms: i32,
+    /// Lyrics that replace the sources'.
+    pub lyrics: Option<EditedLyrics>,
+}
+
+impl SongEdit {
+    /// Nothing changed from how the song plays by default.
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(end) = self.end_ms
+            && end <= self.start_ms
+        {
+            return Err("the song must end after it starts".to_owned());
+        }
+        if self.gain.abs() > EQ_LIMIT {
+            return Err("a song's volume goes from −12 to 12 dB".to_owned());
+        }
+        if self.lyrics_offset_ms.abs() > 60_000 {
+            return Err("lyrics move by at most a minute".to_owned());
+        }
+        if let Some(lyrics) = &self.lyrics {
+            if lyrics
+                .synced
+                .windows(2)
+                .any(|pair| pair[1].time_ms < pair[0].time_ms)
+            {
+                return Err("lyrics lines must be in time order".to_owned());
+            }
+            if lyrics.synced.len() > 2_000
+                || lyrics
+                    .plain
+                    .as_ref()
+                    .is_some_and(|plain| plain.len() > 100_000)
+            {
+                return Err("those lyrics are too long".to_owned());
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Charts and song tags (M46.9).
@@ -1008,6 +1179,7 @@ impl Default for Settings {
             discovery: DiscoveryPrefs::default(),
             failing_sources_last: true,
             user_agent: String::new(),
+            sound: SoundPrefs::default(),
         }
     }
 }
@@ -1055,6 +1227,7 @@ impl Settings {
             SettingChange::Zoom(percent) => self.zoom = percent,
             SettingChange::FailingSourcesLast(on) => self.failing_sources_last = on,
             SettingChange::UserAgent(agent) => self.user_agent = agent.trim().to_owned(),
+            SettingChange::Sound(prefs) => self.sound = prefs,
             SettingChange::Discovery(prefs) => {
                 self.discovery = DiscoveryPrefs {
                     region: prefs.region.to_ascii_lowercase(),
@@ -1121,6 +1294,7 @@ pub enum SettingChange {
     Discovery(DiscoveryPrefs),
     FailingSourcesLast(bool),
     UserAgent(String),
+    Sound(SoundPrefs),
 }
 
 impl SettingChange {
@@ -1169,6 +1343,7 @@ impl SettingChange {
             Self::Discovery(_) => "discovery",
             Self::FailingSourcesLast(_) => "failingSourcesLast",
             Self::UserAgent(_) => "userAgent",
+            Self::Sound(_) => "sound",
         }
     }
 
@@ -1191,6 +1366,7 @@ impl SettingChange {
             | Self::Motion(_)
             | Self::WindowFrame(_)
             | Self::FailingSourcesLast(_) => Ok(()),
+            Self::Sound(prefs) => prefs.validate(),
             // What an HTTP header can carry: printable ASCII.
             Self::UserAgent(agent) => {
                 if agent.len() <= 512 && agent.bytes().all(|byte| (32..127).contains(&byte)) {
@@ -1571,8 +1747,17 @@ pub enum EngineCommand {
         start_ms: f64,
         autoplay: bool,
         volume: f64,
+        /// This song's gain in dB: its own volume plus normalization (M46.12).
+        gain_db: f64,
+        /// Where the song ends (its end trim), ms; the engine reports `Ended` there.
+        end_ms: Option<f64>,
+        /// Fade from what plays now into this song over this long (a crossfade), ms; 0 cuts.
+        fade_ms: f64,
+        /// Measure this song's loudness and report it (it isn't known yet).
+        measure: bool,
     },
-    /// Plays a YouTube video in the embedded player hosted at `embed_url` (webview only).
+    /// Plays a YouTube video in the embedded player hosted at `embed_url` (webview only). Only its
+    /// volume can change: `gain_db` scales it down, never up.
     #[serde(rename_all = "camelCase")]
     LoadYouTube {
         load_id: u32,
@@ -1581,6 +1766,9 @@ pub enum EngineCommand {
         start_ms: f64,
         autoplay: bool,
         volume: f64,
+        gain_db: f64,
+        end_ms: Option<f64>,
+        fade_ms: f64,
     },
     Play,
     Pause,
@@ -1594,6 +1782,25 @@ pub enum EngineCommand {
     /// Playback speed (M46.8); engines keep it across loads.
     SetRate {
         rate: f64,
+    },
+    /// The equalizer and effects for every song (M46.12); engines keep them across loads.
+    SetEffects {
+        sound: SoundPrefs,
+    },
+    /// The playing song's gain changed (its volume was edited), dB.
+    #[serde(rename_all = "camelCase")]
+    SetTrackGain {
+        gain_db: f64,
+    },
+    /// The playing song's end trim changed, ms.
+    #[serde(rename_all = "camelCase")]
+    SetEnd {
+        end_ms: Option<f64>,
+    },
+    /// Fades the playing song out over `fade_ms`, then stops (another engine takes over).
+    #[serde(rename_all = "camelCase")]
+    FadeOut {
+        fade_ms: f64,
     },
     Stop,
 }
@@ -1621,6 +1828,10 @@ pub enum EngineEvent {
     Ended,
     Error {
         message: String,
+    },
+    /// The song's integrated loudness, measured while it played (M46.12).
+    Loudness {
+        lufs: f64,
     },
 }
 
@@ -1937,6 +2148,12 @@ pub struct Lyrics {
     /// Sorted by time; empty when only plain lyrics are known.
     pub synced: Vec<LyricLine>,
     pub plain: Option<String>,
+    /// The song's lyrics offset (M46.12): show each line this much later, ms.
+    #[serde(default)]
+    pub offset_ms: i32,
+    /// These are the person's own lyrics, not a source's (M46.12).
+    #[serde(default)]
+    pub edited: bool,
 }
 
 /// A chart a `music.charts` provider keeps (M46.9): its most played, trending, or a genre's top.
