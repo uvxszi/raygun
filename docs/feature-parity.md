@@ -89,6 +89,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Video on desktop: HLS and DASH with headers, subtitles, tracks and quality, sessions, keys, full screen, mpv/VLC for other codecs | Stremio desktop, CloudStream | ✅ M46.4 |
 | Trailers in their own full-window player | Stremio, CloudStream | ✅ M46.4 |
 | Player bar with shuffle, repeat, seek, volume, lyrics and a queue panel | Spotify, Nuclear | ✅ M46.4 |
+| Arrange tabs (add, hide, reorder, start screen), library tabs, Home, Browse and More | Aniyomi (NavStyle, start screen), Mihon (category order) | ✅ M46.5 (pinned sources: M53) |
 | Cover cache kept for the library, cache sizes and clearing, extension icons | Mihon, CloudStream, RiPlay | ✅ M46.2 (separate cover and page caches with limits, background revalidation, Storage screen, repository icons) |
 | Chapter swipe actions, scanlator filter, bookmarks | Mihon | 🔜 M47 |
 | Trackers (AniList, MAL, Kitsu, MangaUpdates, Bangumi, Shikimori, Komga/Kavita) | Mihon | ⏸ M59 (accounts) |

@@ -7,6 +7,7 @@ import { renderWithProviders } from '../test/renderWithProviders';
 import { AppearanceCard } from './AppearanceCard';
 import { SAVE_DEFAULTS } from '../export/saveDefaults';
 import { CACHE_DEFAULTS } from './cacheDefaults';
+import { LAYOUT_DEFAULTS } from '../layout/layout';
 import { LIBRARY_DISPLAY_DEFAULTS } from '../manga/libraryDisplay';
 import { PLAYER_DEFAULTS } from './playerOptions';
 import { useApplyTheme } from './useApplyTheme';
@@ -46,6 +47,7 @@ const DEFAULT_SETTINGS: Settings = {
     customListUrl: null,
     desktop: false,
   },
+  layout: LAYOUT_DEFAULTS,
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,

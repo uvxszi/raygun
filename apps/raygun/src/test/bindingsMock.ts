@@ -19,6 +19,7 @@ import { act } from '@testing-library/react';
 
 import { SAVE_DEFAULTS } from '../export/saveDefaults';
 import { CACHE_DEFAULTS } from '../settings/cacheDefaults';
+import { LAYOUT_DEFAULTS } from '../layout/layout';
 import { LIBRARY_DISPLAY_DEFAULTS } from '../manga/libraryDisplay';
 import { PLAYER_DEFAULTS } from '../settings/playerOptions';
 
@@ -122,6 +123,7 @@ export const DEFAULT_SETTINGS: Settings = {
     customListUrl: null,
     desktop: false,
   },
+  layout: LAYOUT_DEFAULTS,
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,

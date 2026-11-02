@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Download,
   Info,
+  LayoutList,
   Package,
   Puzzle,
   Settings,
@@ -15,6 +16,9 @@ import type { LucideIcon } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useLayout } from '../layout/useLayout';
+import { useNavTabs } from '../shell/navTabs';
+import { OverflowMenu } from '../shell/OverflowMenu';
 import { TopBar } from '../shell/TopBar';
 
 type MoreRow = {
@@ -42,50 +46,103 @@ const Row: FC<{ row: MoreRow }> = ({ row }) => (
   </li>
 );
 
-/** More (Mihon's): everything that isn't a tab of its own, then Settings and About. */
+/**
+ * More (Mihon's): tabs the bar doesn't hold (hidden ones and, on phones, those past five; as in
+ * Aniyomi), then everything else in the order the user set (M46.5).
+ */
 export const MorePage: FC = () => {
   const { t } = useTranslation();
-  const activity: MoreRow[] = [
-    { to: '/updates', icon: BellDot, label: t('more.updates'), hint: t('more.updatesHint') },
-    {
+  const layout = useLayout();
+  const { inMore } = useNavTabs();
+  const entries: Record<string, MoreRow> = {
+    updates: {
+      to: '/updates',
+      icon: BellDot,
+      label: t('more.updates'),
+      hint: t('more.updatesHint'),
+    },
+    downloads: {
       to: '/downloads',
       icon: Download,
       label: t('more.downloads'),
       hint: t('more.downloadsHint'),
     },
-    {
+    categories: {
       to: '/library/categories',
       search: { medium: 'manga' },
       icon: Tag,
       label: t('more.categories'),
       hint: t('more.categoriesHint'),
     },
-  ];
-  const sources: MoreRow[] = [
-    { to: '/watch/addons', icon: Puzzle, label: t('watch.addons'), hint: t('more.addonsHint') },
-    { to: '/extensions/repos', icon: Package, label: t('browse.repos'), hint: t('more.reposHint') },
-    { to: '/settings/ai', icon: Sparkles, label: t('more.ai'), hint: t('more.aiHint') },
-    {
+    addons: {
+      to: '/watch/addons',
+      icon: Puzzle,
+      label: t('watch.addons'),
+      hint: t('more.addonsHint'),
+    },
+    repos: {
+      to: '/extensions/repos',
+      icon: Package,
+      label: t('browse.repos'),
+      hint: t('more.reposHint'),
+    },
+    ai: { to: '/settings/ai', icon: Sparkles, label: t('more.ai'), hint: t('more.aiHint') },
+    devices: {
       to: '/settings/devices',
       icon: Smartphone,
       label: t('more.devices'),
       hint: t('more.devicesHint'),
     },
-  ];
-  const app: MoreRow[] = [
-    { to: '/settings', icon: Settings, label: t('settings.title'), hint: t('more.settingsHint') },
-    { to: '/about', icon: Info, label: t('more.about'), hint: t('more.aboutHint') },
-  ];
+    settings: {
+      to: '/settings',
+      icon: Settings,
+      label: t('settings.title'),
+      hint: t('more.settingsHint'),
+    },
+    about: { to: '/about', icon: Info, label: t('more.about'), hint: t('more.aboutHint') },
+  };
+  const rows = layout.moreEntries
+    .filter((item) => item.visible)
+    .flatMap((item) => entries[item.id] ?? []);
+  // A tab that's also an entry (Updates, Downloads, Settings) isn't listed twice.
+  const tabRows: MoreRow[] = inMore
+    .filter(
+      (tab) =>
+        !rows.some((row) => row.to === tab.to && !row.search && !Object.keys(tab.search).length),
+    )
+    .map((tab) => ({
+      to: tab.to,
+      search: tab.search,
+      icon: tab.icon,
+      label: t(tab.labelKey),
+      hint: t('more.tabHint'),
+    }));
+
   return (
     <section data-testid="more-page" className="flex max-w-2xl flex-col gap-2">
-      <TopBar title={t('nav.more')} />
-      {[activity, sources, app].map((group, index) => (
-        <ul key={index} className="border-surface flex flex-col border-b pb-2 last:border-b-0">
-          {group.map((row) => (
-            <Row key={row.to} row={row} />
+      <TopBar
+        title={t('nav.more')}
+        actions={
+          <OverflowMenu
+            items={[
+              { label: t('layout.editMore'), icon: LayoutList, to: '/settings/layout/moreEntries' },
+              { label: t('layout.editTabs'), icon: LayoutList, to: '/settings/layout/tabs' },
+            ]}
+          />
+        }
+      />
+      {tabRows.length > 0 && (
+        <ul aria-label={t('more.otherTabs')} className="border-surface flex flex-col border-b pb-2">
+          {tabRows.map((row) => (
+            <Row key={`${row.to}?${JSON.stringify(row.search)}`} row={row} />
           ))}
         </ul>
-      ))}
+      )}
+      <ul className="flex flex-col">
+        {rows.map((row) => (
+          <Row key={row.to} row={row} />
+        ))}
+      </ul>
     </section>
   );
 };

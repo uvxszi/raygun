@@ -18,8 +18,9 @@ import { MusicOverview } from '../library/MusicOverview';
 import { ScanBanner } from '../library/ScanBanner';
 import { TrackList } from '../library/TrackList';
 import { AudioViewChips } from '../library/AudioViewChips';
-import { isLocalView } from '../library/views';
+import { isLibraryView, isLocalView } from '../library/views';
 import type { LibraryView } from '../library/views';
+import { useLayout } from '../layout/useLayout';
 import {
   playFromLibrary,
   useAlbums,
@@ -124,12 +125,20 @@ const MusicLibrary: FC<{ view: LibraryView }> = ({ view }) => {
  * (music and podcasts), Comics, Books and Videos.
  */
 export const LibraryPage: FC = () => {
-  const { view = 'all', media } = useSearch({ from: '/library' });
+  const search = useSearch({ from: '/library' });
+  const layout = useLayout();
+  // Without a tab in the address, the first one the user shows (M46.5); a view means Audio.
+  const firstMedia = layout.libraryMedia.find((item) => item.visible)?.id ?? 'music';
+  const media = search.media ?? (search.view ? 'music' : firstMedia);
+  const firstView = layout.audioViews.find((item) => item.visible)?.id;
+  const view: LibraryView = search.view ?? (isLibraryView(firstView) ? firstView : 'all');
   return (
     <section data-testid="library-page" className="flex min-h-full flex-col gap-4">
-      {!media && view === 'podcasts' && <PodcastsView />}
-      {!media && view !== 'podcasts' && <MusicLibrary view={view} />}
-      {media && <MangaLibraryView key={media} medium={media} />}
+      {media === 'music' && view === 'podcasts' && <PodcastsView />}
+      {media === 'music' && view !== 'podcasts' && <MusicLibrary view={view} />}
+      {(media === 'manga' || media === 'novel' || media === 'video') && (
+        <MangaLibraryView key={media} medium={media} />
+      )}
     </section>
   );
 };

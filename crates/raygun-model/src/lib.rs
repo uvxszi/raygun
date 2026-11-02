@@ -107,6 +107,8 @@ pub struct Settings {
     pub cache: CachePrefs,
     /// The built-in browser and its blocker (M46.3).
     pub websites: WebsitePrefs,
+    /// How tabs, library tabs and the Home, Browse and More screens are arranged (M46.5).
+    pub layout: LayoutPrefs,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -129,6 +131,15 @@ pub enum StartScreen {
     Home,
     Library,
     Browse,
+    /// Tabs that can be added (M46.5).
+    Watch,
+    Music,
+    Comics,
+    Books,
+    Podcasts,
+    Search,
+    Updates,
+    Downloads,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -546,6 +557,7 @@ impl Default for Settings {
             save: SavePrefs::default(),
             cache: CachePrefs::default(),
             websites: WebsitePrefs::default(),
+            layout: LayoutPrefs::default(),
         }
     }
 }
@@ -578,6 +590,7 @@ impl Settings {
             SettingChange::Save(prefs) => self.save = prefs,
             SettingChange::Cache(prefs) => self.cache = prefs,
             SettingChange::Websites(prefs) => self.websites = prefs,
+            SettingChange::Layout(prefs) => self.layout = prefs.normalized(),
         }
     }
 }
@@ -613,6 +626,7 @@ pub enum SettingChange {
     Save(SavePrefs),
     Cache(CachePrefs),
     Websites(WebsitePrefs),
+    Layout(LayoutPrefs),
 }
 
 impl SettingChange {
@@ -644,6 +658,7 @@ impl SettingChange {
             Self::Save(_) => "save",
             Self::Cache(_) => "cache",
             Self::Websites(_) => "websites",
+            Self::Layout(_) => "layout",
         }
     }
 
@@ -693,6 +708,7 @@ impl SettingChange {
             Self::VideoPlayer(prefs) => prefs.validate(),
             Self::Cache(prefs) => prefs.validate(),
             Self::Websites(prefs) => prefs.validate(),
+            Self::Layout(prefs) => prefs.validate(),
             Self::Save(prefs) => {
                 if prefs.location == SaveLocation::Folder && prefs.folder_uri.is_none() {
                     Err("Pick a folder first".into())
@@ -1851,6 +1867,182 @@ impl Blocklist {
             }
             Self::Custom => None,
         }
+    }
+}
+
+/// One entry of a list the user arranges (M46.5): a tab, a section, a chip, a menu entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LayoutItem {
+    pub id: String,
+    pub visible: bool,
+}
+
+/// How the app's screens are arranged (M46.5): each list in the user's order, each entry shown
+/// or hidden. One stored row; [`LayoutPrefs::normalized`] drops entries Raygun no longer has and
+/// puts new ones at their default place, so an update never loses the user's order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LayoutPrefs {
+    /// The navigation tabs; hidden ones are listed in More.
+    pub tabs: Vec<LayoutItem>,
+    /// Library's media tabs (Audio, Comics, Books, Videos); the first shown is the default.
+    pub library_media: Vec<LayoutItem>,
+    /// Library → Audio's chips; the first shown is the default.
+    pub audio_views: Vec<LayoutItem>,
+    /// Home's sections.
+    pub home_sections: Vec<LayoutItem>,
+    /// Browse's tabs (Search, Sources, Extensions).
+    pub browse_tabs: Vec<LayoutItem>,
+    /// Browse → Sources' sections.
+    pub browse_sections: Vec<LayoutItem>,
+    /// More's entries.
+    pub more_entries: Vec<LayoutItem>,
+}
+
+/// Every tab there is, in the default order: the four shown, then the ones that can be added.
+pub const LAYOUT_TABS: [(&str, bool); 13] = [
+    ("home", true),
+    ("library", true),
+    ("browse", true),
+    ("more", true),
+    ("watch", false),
+    ("music", false),
+    ("comics", false),
+    ("books", false),
+    ("podcasts", false),
+    ("search", false),
+    ("updates", false),
+    ("downloads", false),
+    ("settings", false),
+];
+pub const LAYOUT_LIBRARY_MEDIA: [(&str, bool); 4] = [
+    ("music", true),
+    ("manga", true),
+    ("novel", true),
+    ("video", true),
+];
+pub const LAYOUT_AUDIO_VIEWS: [(&str, bool); 7] = [
+    ("all", true),
+    ("podcasts", true),
+    ("playlists", true),
+    ("favorites", true),
+    ("albums", true),
+    ("artists", true),
+    ("tracks", true),
+];
+pub const LAYOUT_HOME_SECTIONS: [(&str, bool); 4] = [
+    ("continueWatching", true),
+    ("continueReading", true),
+    ("yourMusic", true),
+    ("recentlyPlayed", true),
+];
+pub const LAYOUT_BROWSE_TABS: [(&str, bool); 3] =
+    [("search", true), ("sources", true), ("extensions", true)];
+pub const LAYOUT_BROWSE_SECTIONS: [(&str, bool); 4] = [
+    ("video", true),
+    ("manga", true),
+    ("novel", true),
+    ("websites", true),
+];
+pub const LAYOUT_MORE_ENTRIES: [(&str, bool); 9] = [
+    ("updates", true),
+    ("downloads", true),
+    ("categories", true),
+    ("addons", true),
+    ("repos", true),
+    ("ai", true),
+    ("devices", true),
+    ("settings", true),
+    ("about", true),
+];
+
+/// `saved` in its order with only known ids (once each), then every default it lacks, placed
+/// after the entry that comes before it by default.
+fn arrange(saved: &[LayoutItem], defaults: &[(&str, bool)]) -> Vec<LayoutItem> {
+    let mut items: Vec<LayoutItem> = Vec::with_capacity(defaults.len());
+    for item in saved {
+        let known = defaults.iter().any(|(id, _)| *id == item.id);
+        if known && !items.iter().any(|other| other.id == item.id) {
+            items.push(item.clone());
+        }
+    }
+    for (index, (id, visible)) in defaults.iter().enumerate() {
+        if items.iter().any(|item| item.id == *id) {
+            continue;
+        }
+        let at = defaults[..index]
+            .iter()
+            .rev()
+            .find_map(|(before, _)| items.iter().position(|item| item.id == *before))
+            .map_or(0, |position| position + 1);
+        items.insert(
+            at,
+            LayoutItem {
+                id: (*id).to_owned(),
+                visible: *visible,
+            },
+        );
+    }
+    items
+}
+
+fn shows(items: &[LayoutItem], id: &str) -> bool {
+    items.iter().any(|item| item.id == id && item.visible)
+}
+
+impl LayoutPrefs {
+    /// Every list with Raygun's current entries, in the user's order where they set one.
+    pub fn normalized(&self) -> Self {
+        Self {
+            tabs: arrange(&self.tabs, &LAYOUT_TABS),
+            library_media: arrange(&self.library_media, &LAYOUT_LIBRARY_MEDIA),
+            audio_views: arrange(&self.audio_views, &LAYOUT_AUDIO_VIEWS),
+            home_sections: arrange(&self.home_sections, &LAYOUT_HOME_SECTIONS),
+            browse_tabs: arrange(&self.browse_tabs, &LAYOUT_BROWSE_TABS),
+            browse_sections: arrange(&self.browse_sections, &LAYOUT_BROWSE_SECTIONS),
+            more_entries: arrange(&self.more_entries, &LAYOUT_MORE_ENTRIES),
+        }
+    }
+
+    /// More and Settings can't be hidden (they lead everywhere else), Browse keeps Search, and
+    /// every list that picks a default keeps something to show.
+    pub fn validate(&self) -> Result<(), String> {
+        let layout = self.normalized();
+        if !shows(&layout.tabs, "more") {
+            return Err("More can't be hidden: it leads to everything else".into());
+        }
+        if layout.tabs.iter().filter(|item| item.visible).count() < 2 {
+            return Err("Keep at least one tab besides More".into());
+        }
+        if !shows(&layout.more_entries, "settings") {
+            return Err("Settings can't be hidden from More".into());
+        }
+        if !shows(&layout.browse_tabs, "search") {
+            return Err("Browse's Search can't be hidden".into());
+        }
+        if !layout.library_media.iter().any(|item| item.visible) {
+            return Err("Keep at least one library tab".into());
+        }
+        if !layout.audio_views.iter().any(|item| item.visible) {
+            return Err("Keep at least one Audio view".into());
+        }
+        Ok(())
+    }
+}
+
+impl Default for LayoutPrefs {
+    fn default() -> Self {
+        Self {
+            tabs: Vec::new(),
+            library_media: Vec::new(),
+            audio_views: Vec::new(),
+            home_sections: Vec::new(),
+            browse_tabs: Vec::new(),
+            browse_sections: Vec::new(),
+            more_entries: Vec::new(),
+        }
+        .normalized()
     }
 }
 

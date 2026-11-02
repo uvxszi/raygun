@@ -1,3 +1,4 @@
+import type { StartScreen } from '@raygun/bindings';
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { useEffect, useRef } from 'react';
 import type { FC } from 'react';
@@ -20,10 +21,11 @@ import { useYouTubeVideoEvents } from '../video/trailerStore';
 import { YouTubeOverlay } from '../video/YouTubeOverlay';
 import { usePlayerLabels } from '../watch/usePlayerLabels';
 import { BottomTabs } from './BottomTabs';
+import { NAV_TABS } from './navTabs';
 import { SideRail } from './SideRail';
 
-/** Opens the start screen chosen in Settings, once, when the app starts on Home. */
-const useStartScreen = (screen: 'home' | 'library' | 'browse' | undefined) => {
+/** Opens the start screen chosen in Settings (any tab, M46.5), once, when the app starts on Home. */
+const useStartScreen = (screen: StartScreen | undefined) => {
   const navigate = useNavigate();
   const done = useRef(false);
   const path = useRouterState({ select: (state) => state.location.pathname });
@@ -31,7 +33,8 @@ const useStartScreen = (screen: 'home' | 'library' | 'browse' | undefined) => {
     if (done.current || !screen) return;
     done.current = true;
     if (screen !== 'home' && path === '/') {
-      void navigate({ to: screen === 'library' ? '/library' : '/browse', replace: true });
+      const tab = NAV_TABS[screen];
+      void navigate({ to: tab.to, search: tab.search, replace: true });
     }
   }, [screen, path, navigate]);
 };

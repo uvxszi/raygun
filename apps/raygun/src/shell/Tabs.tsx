@@ -30,6 +30,8 @@ export const Tabs: FC<{ label: string; items: TabItem[]; active: string }> = ({
           replace
           data-testid={item.testId}
           aria-current={current ? 'page' : undefined}
+          // `active` decides; the link alone would count every tab whose search is a subset.
+          activeOptions={{ exact: true, includeSearch: true }}
           className={`relative shrink-0 px-4 py-3 text-sm font-medium ${current ? 'text-primary' : 'text-muted'}`}
         >
           {item.label}

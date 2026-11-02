@@ -1,6 +1,6 @@
 import type { MangaLibraryEntry } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
-import { Heart, Library, Search } from 'lucide-react';
+import { Heart, LayoutList, Library, Search } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -16,6 +16,8 @@ import {
 import { MangaCover } from '../manga/MangaCover';
 import { ROUTES } from '../manga/medium';
 import { useMangaLibrary } from '../manga/useManga';
+import { useLayout } from '../layout/useLayout';
+import { OverflowMenu } from '../shell/OverflowMenu';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { ContinueWatchingRow } from '../watch/ContinueWatchingRow';
 import { useContinueWatching } from '../watch/useWatch';
@@ -178,8 +180,17 @@ const GetStarted: FC = () => {
 };
 
 /** Home: picking up where you left off, in everything. */
+/** Home's sections by their layout id (M46.5). */
+const HOME_SECTIONS: Record<string, FC> = {
+  continueWatching: () => <ContinueWatchingRow />,
+  continueReading: () => <ContinueReading />,
+  yourMusic: () => <YourMusic />,
+  recentlyPlayed: () => <RecentlyPlayed />,
+};
+
 export const HomePage: FC = () => {
   const { t } = useTranslation();
+  const layout = useLayout();
   const watching = useContinueWatching();
   const history = useHistory(HOME_HISTORY_LIMIT);
   const manga = useMangaLibrary('manga');
@@ -194,19 +205,32 @@ export const HomePage: FC = () => {
       <TopBar
         title={t('home.heading')}
         actions={
-          <TopBarAction
-            label={t('search.title')}
-            icon={Search}
-            to="/browse"
-            search={{ tab: 'search' }}
-          />
+          <>
+            <TopBarAction
+              label={t('search.title')}
+              icon={Search}
+              to="/browse"
+              search={{ tab: 'search' }}
+            />
+            <OverflowMenu
+              items={[
+                {
+                  label: t('layout.editHome'),
+                  icon: LayoutList,
+                  to: '/settings/layout/homeSections',
+                },
+              ]}
+            />
+          </>
         }
       />
       {nothingYet && <GetStarted />}
-      <ContinueWatchingRow />
-      <ContinueReading />
-      <YourMusic />
-      <RecentlyPlayed />
+      {layout.homeSections
+        .filter((item) => item.visible)
+        .map((item) => {
+          const Section = HOME_SECTIONS[item.id];
+          return Section ? <Section key={item.id} /> : null;
+        })}
     </section>
   );
 };

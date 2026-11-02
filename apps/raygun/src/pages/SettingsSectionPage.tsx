@@ -8,7 +8,7 @@ import type {
 } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
-import { Bot, Package, Puzzle, Smartphone, Tag } from 'lucide-react';
+import { Bot, LayoutList, Package, Puzzle, Smartphone, Tag } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -505,8 +505,26 @@ const ConnectionSettings: FC = () => {
   );
 };
 
+/** Appearance, and the way to arrange tabs and screens (M46.5). */
+const AppearanceSettings: FC = () => {
+  const { t } = useTranslation();
+  return (
+    <>
+      <AppearanceCard />
+      <PrefGroup title={t('layout.title')}>
+        <PrefLink
+          title={t('layout.title')}
+          summary={t('layout.linkHint')}
+          to="/settings/layout"
+          icon={LayoutList}
+        />
+      </PrefGroup>
+    </>
+  );
+};
+
 const SECTIONS: Record<SettingsSection, FC> = {
-  appearance: AppearanceCard,
+  appearance: AppearanceSettings,
   library: LibrarySettings,
   reader: ReaderSettings,
   player: PlayerSettings,

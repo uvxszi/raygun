@@ -1,14 +1,15 @@
 import type { MangaSource } from '@raygun/bindings';
 import { useIsFetching } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { LoaderCircle, Package, Puzzle, RefreshCw, Search } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import type { FC } from 'react';
+import { LayoutList, LoaderCircle, Package, Puzzle, RefreshCw, Search } from 'lucide-react';
+import { Fragment, useEffect, useState } from 'react';
+import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { BrowseTab as AvailableExtensions } from '../extensions/BrowseTab';
 import { InstalledTab } from '../extensions/InstalledTab';
 import { useExtensions, useRefreshCatalog, useReloadExtensions } from '../extensions/useExtensions';
+import { useLayout } from '../layout/useLayout';
 import { useMangaSources } from '../manga/useManga';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { OverflowMenu } from '../shell/OverflowMenu';
@@ -74,6 +75,7 @@ const SourceSection: FC<{ title: string; rows: SourceRow[] }> = ({ title, rows }
 /** Browse → Sources: every catalogue to browse, by kind (Aniyomi's Browse). */
 const SourcesList: FC = () => {
   const { t } = useTranslation();
+  const layout = useLayout();
   const extensions = useExtensions();
   const addons = useStremioAddons();
   const video = useVideoSources();
@@ -113,21 +115,39 @@ const SourcesList: FC = () => {
     (manga.data?.length ?? 0) === 0 &&
     (novel.data?.length ?? 0) === 0;
 
-  return (
-    <div data-testid="browse-sources" className="flex flex-col gap-2">
-      <SourceSection title={t('browse.kind.video')} rows={videoRows} />
+  // The sections in the user's order (M46.5).
+  const sections: Record<string, ReactNode> = {
+    video: <SourceSection title={t('browse.kind.video')} rows={videoRows} />,
+    manga: (
       <SourceSection
         title={t('library.media.manga')}
         rows={catalogue(manga.data, '/manga/source')}
       />
+    ),
+    novel: (
       <SourceSection
         title={t('library.media.novel')}
         rows={catalogue(novel.data, '/novel/source')}
       />
+    ),
+    websites: <WebsitesSection />,
+  };
+  return (
+    <div data-testid="browse-sources" className="flex flex-col gap-2">
       {empty && <p className="text-muted px-1 text-sm">{t('browse.noSources')}</p>}
-      <WebsitesSection />
+      {layout.browseSections
+        .filter((item) => item.visible)
+        .map((item) => (
+          <Fragment key={item.id}>{sections[item.id]}</Fragment>
+        ))}
     </div>
   );
+};
+
+const BROWSE_TAB_LABEL: Record<BrowseSection, string> = {
+  search: 'search.title',
+  sources: 'browse.sources',
+  extensions: 'extensions.title',
 };
 
 /** Wait for a pause in typing before searching, so each keystroke doesn't hit the network. */
@@ -141,7 +161,18 @@ export const SEARCH_DEBOUNCE_MS = 400;
 export const BrowsePage: FC = () => {
   const { t } = useTranslation();
   const current = useSearch({ from: '/browse' });
-  const { tab = 'sources', list = 'installed', q = '', type = 'all' } = current;
+  const layout = useLayout();
+  // Without a tab in the address, Sources, or the first tab the user shows (M46.5).
+  const shownTabs = layout.browseTabs
+    .filter((item) => item.visible)
+    .map((item) => item.id)
+    .filter(
+      (id): id is BrowseSection => id === 'search' || id === 'sources' || id === 'extensions',
+    );
+  const firstTab: BrowseSection = shownTabs.includes('sources')
+    ? 'sources'
+    : (shownTabs[0] ?? 'search');
+  const { tab = firstTab, list = 'installed', q = '', type = 'all' } = current;
   const navigate = useNavigate({ from: '/browse' });
   const reload = useReloadExtensions();
   const refresh = useRefreshCatalog();
@@ -222,35 +253,24 @@ export const BrowsePage: FC = () => {
               : []),
             { label: t('watch.addons'), icon: Puzzle, to: '/watch/addons' },
             { label: t('browse.repos'), icon: Package, to: '/extensions/repos' },
+            {
+              label: t('layout.editBrowse'),
+              icon: LayoutList,
+              to: '/settings/layout/browseSections',
+            },
           ]}
         />
       </header>
       <Tabs
         label={t('browse.title')}
         active={tab}
-        items={[
-          {
-            id: 'search',
-            label: t('search.title'),
-            to: '/browse',
-            search: searchParams,
-            testId: 'browse-tab-search',
-          },
-          {
-            id: 'sources',
-            label: t('browse.sources'),
-            to: '/browse',
-            search: {},
-            testId: 'browse-tab-sources',
-          },
-          {
-            id: 'extensions',
-            label: t('extensions.title'),
-            to: '/browse',
-            search: { tab: 'extensions' },
-            testId: 'browse-tab-extensions',
-          },
-        ]}
+        items={shownTabs.concat(shownTabs.includes(tab) ? [] : [tab]).map((id) => ({
+          id,
+          label: t(BROWSE_TAB_LABEL[id]),
+          to: '/browse',
+          search: id === 'search' ? searchParams : id === firstTab ? {} : { tab: id },
+          testId: `browse-tab-${id}`,
+        }))}
       />
       {(reload.error ?? refresh.error) && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">

@@ -9,7 +9,15 @@
     "back": "Back",
     "moreActions": "More options",
     "closeSearch": "Close search",
-    "clearSearch": "Clear search"
+    "clearSearch": "Clear search",
+    "watch": "Watch",
+    "music": "Music",
+    "comics": "Comics",
+    "books": "Books",
+    "podcasts": "Podcasts",
+    "search": "Search",
+    "updates": "Updates",
+    "downloads": "Downloads"
   },
   "home": {
     "recentlyPlayed": "Recently played",
@@ -1304,7 +1312,9 @@
     "devicesHint": "Pair and sync with your other devices",
     "settingsHint": "Appearance, library, reader, player and more",
     "about": "About",
-    "aboutHint": "Version and where Raygun keeps its data"
+    "aboutHint": "Version and where Raygun keeps its data",
+    "otherTabs": "Your other tabs",
+    "tabHint": "A tab that isn’t in the bar"
   },
   "updates": {
     "chapters": "Chapters",
@@ -1590,5 +1600,69 @@
     "inTheVideo": "In the video",
     "trailerPlayer": "Trailer player",
     "trailerFailed": "YouTube doesn't let this video play outside its site."
+  },
+  "layout": {
+    "title": "Layout",
+    "hint": "Arrange Raygun your way: reorder, hide and add tabs, library tabs, and what Home, Browse and More show.",
+    "linkHint": "Tabs, library tabs, Home, Browse and More",
+    "surfacesTitle": "What to arrange",
+    "surfaces": {
+      "tabs": "Navigation tabs",
+      "libraryMedia": "Library tabs",
+      "audioViews": "Audio views",
+      "homeSections": "Home",
+      "browseTabs": "Browse tabs",
+      "browseSections": "Browse sources",
+      "moreEntries": "More"
+    },
+    "surfaceHints": {
+      "tabs": "Show a screen to add it as a tab. Phones fit five; the rest are listed in More. More always shows.",
+      "libraryMedia": "The first one shown opens when you tap Library.",
+      "audioViews": "The first one shown opens in Audio.",
+      "homeSections": "What Home shows, top to bottom.",
+      "browseTabs": "Search always shows. Without a tab chosen, Browse opens Sources, or the first one shown.",
+      "browseSections": "The order of Browse → Sources.",
+      "moreEntries": "Settings always shows."
+    },
+    "drag": "Drag {{name}}",
+    "moveUp": "Move {{name}} up",
+    "moveDown": "Move {{name}} down",
+    "show": "Show {{name}}",
+    "locked": "Always shown",
+    "reset": "Reset to default",
+    "unknown": "There’s nothing to arrange here.",
+    "editHome": "Edit Home",
+    "editMore": "Edit More",
+    "editTabs": "Edit tabs",
+    "editBrowse": "Edit Browse",
+    "editLibraryTabs": "Edit library tabs",
+    "home": {
+      "continueWatching": "Continue watching",
+      "continueReading": "Continue reading",
+      "yourMusic": "Your music",
+      "recentlyPlayed": "Recently played"
+    },
+    "browseTab": {
+      "search": "Search",
+      "sources": "Sources",
+      "extensions": "Extensions"
+    },
+    "browseSection": {
+      "video": "Movies & series",
+      "manga": "Manga",
+      "novel": "Novels",
+      "websites": "Websites"
+    },
+    "moreEntry": {
+      "updates": "Updates",
+      "downloads": "Downloads",
+      "categories": "Categories",
+      "addons": "Addons",
+      "repos": "Extension repositories",
+      "ai": "AI",
+      "devices": "Devices",
+      "settings": "Settings",
+      "about": "About"
+    }
   }
 }

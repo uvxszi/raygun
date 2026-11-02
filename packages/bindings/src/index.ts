@@ -869,6 +869,34 @@ export type ImportedTitle = {
 	remoteId: string,
 };
 
+/**  One entry of a list the user arranges (M46.5): a tab, a section, a chip, a menu entry. */
+export type LayoutItem = {
+	id: string,
+	visible: boolean,
+};
+
+/**
+ *  How the app's screens are arranged (M46.5): each list in the user's order, each entry shown
+ *  or hidden. One stored row; [`LayoutPrefs::normalized`] drops entries Raygun no longer has and
+ *  puts new ones at their default place, so an update never loses the user's order.
+ */
+export type LayoutPrefs = {
+	/**  The navigation tabs; hidden ones are listed in More. */
+	tabs?: LayoutItem[],
+	/**  Library's media tabs (Audio, Comics, Books, Videos); the first shown is the default. */
+	libraryMedia?: LayoutItem[],
+	/**  Library → Audio's chips; the first shown is the default. */
+	audioViews?: LayoutItem[],
+	/**  Home's sections. */
+	homeSections?: LayoutItem[],
+	/**  Browse's tabs (Search, Sources, Extensions). */
+	browseTabs?: LayoutItem[],
+	/**  Browse → Sources' sections. */
+	browseSections?: LayoutItem[],
+	/**  More's entries. */
+	moreEntries?: LayoutItem[],
+};
+
 export type LibraryAlbum = {
 	artist: string,
 	title: string,
@@ -1529,7 +1557,7 @@ export type SearchResults = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -1587,6 +1615,8 @@ export type Settings = {
 	cache: CachePrefs,
 	/**  The built-in browser and its blocker (M46.3). */
 	websites: WebsitePrefs,
+	/**  How tabs, library tabs and the Home, Browse and More screens are arranged (M46.5). */
+	layout: LayoutPrefs,
 };
 
 /**  A setting changed outside the Settings screens (in the video player, M45); carries its key. */
@@ -1613,7 +1643,9 @@ export type SourceSearchResult = {
 	error: string | null,
 };
 
-export type StartScreen = "home" | "library" | "browse";
+export type StartScreen = "home" | "library" | "browse" | 
+/**  Tabs that can be added (M46.5). */
+"watch" | "music" | "comics" | "books" | "podcasts" | "search" | "updates" | "downloads";
 
 /**  A part of what Raygun stores, as Settings → Data → Storage lists it. */
 export type StorageArea = 

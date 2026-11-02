@@ -107,7 +107,7 @@ The user asked for the full depth of the reference apps ("its not meant to be a 
   - Trailers open in a full-window player instead of the music queue.
   - The player bar gets Spotify's controls and a queue panel on wide windows.
   - Search picks sources with chips (several at once) and shows popular titles before anything is typed.
-- M46.5 **Customizable layout** (asked 2026-11-01: "make it very customizable, so you can add and move around tabs and options and such, similar to mihon"): tabs, library media tabs, Browse sections, Home sections and More entries that can be hidden and reordered, with a start screen and hidden tabs moving into More (research: aniyomi's NavStyle, Mihon's category editor, CloudStream's pinned providers).
+- M46.5 **Customizable layout** (asked 2026-11-01: "make it very customizable, so you can add and move around tabs and options and such, similar to mihon"): navigation tabs added, hidden and reordered (five on phones, the rest in More; any of them as the start screen), library tabs, Audio's chips, Home's sections, Browse's tabs and sections, and More's entries, edited by dragging or with buttons in Settings → Appearance → Layout. Pinned sources follow in M53.
 - M47 **Title pages and chapter/episode lists** (mihon §2; aniyomi §8; cloudstream §4; stremio §4; shosetsu novel screen):
   - **Lists:** filters, sort and display with defaults; selection with bulk actions (mark previous, download, delete, bookmark); bookmarks and fillers; swipe actions; download menus (next N, all unread).
   - **Title extras:** cover dialog and custom cover, notes, edit info, share, links (genres, authors and cast open Search).

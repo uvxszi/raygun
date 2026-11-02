@@ -4,6 +4,8 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { LANGUAGES, SYSTEM_LANGUAGE, nativeName, resolveLanguage } from '../i18n/languages';
+import { useLayout } from '../layout/useLayout';
+import { NAV_TABS, isNavTabId } from '../shell/navTabs';
 import { PrefBlock, PrefChoice, PrefGroup } from './prefs';
 import { useSettings, useUpdateSetting } from './useSettings';
 
@@ -31,6 +33,7 @@ export const AppearanceCard: FC = () => {
   const settings = useSettings();
   const updateSetting = useUpdateSetting();
   const data = settings.data;
+  const layout = useLayout();
   if (!data) return null;
   const busy = updateSetting.isPending;
 
@@ -133,10 +136,17 @@ export const AppearanceCard: FC = () => {
           summary={t('settings.startScreenHint')}
           value={data.startScreen}
           disabled={busy}
-          options={(['home', 'library', 'browse'] as const).map((value) => ({
-            value,
-            label: t(`nav.${value}`),
-          }))}
+          // Any tab the user shows (M46.5), and the current one even if it's hidden since.
+          options={layout.tabs
+            .filter(
+              (item) =>
+                (item.visible || item.id === data.startScreen) &&
+                item.id !== 'more' &&
+                item.id !== 'settings',
+            )
+            .map((item) => item.id)
+            .filter(isNavTabId)
+            .map((id) => ({ value: id as StartScreen, label: t(NAV_TABS[id].labelKey) }))}
           onChange={(value) => updateSetting.mutate({ key: 'startScreen', value })}
         />
         <PrefChoice<NavLabels>

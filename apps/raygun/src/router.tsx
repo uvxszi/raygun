@@ -39,6 +39,7 @@ import { PlaylistPage } from './pages/PlaylistPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SETTINGS_SECTIONS } from './settings/sections';
 import { PlayerSettingsPage } from './pages/PlayerSettingsPage';
+import { LayoutSettingsPage, LayoutSurfacePage } from './pages/LayoutSettingsPage';
 import { SettingsSectionPage } from './pages/SettingsSectionPage';
 import { AppShell } from './shell/AppShell';
 
@@ -65,9 +66,9 @@ const routeTree = rootRoute.addChildren([
     component: LibraryPage,
     validateSearch: (
       search: Record<string, unknown>,
-    ): { view?: LibraryView; media?: LibraryMedia } => ({
+    ): { view?: LibraryView; media?: LibraryMedia | 'music' } => ({
       ...(isLibraryView(search.view) ? { view: search.view } : {}),
-      ...(isLibraryMedia(search.media) ? { media: search.media } : {}),
+      ...(isLibraryMedia(search.media) || search.media === 'music' ? { media: search.media } : {}),
       // Podcasts were a media tab of their own before they joined Audio.
       ...(search.media === 'podcast' ? { view: 'podcasts' as const } : {}),
     }),
@@ -229,6 +230,16 @@ const routeTree = rootRoute.addChildren([
   }),
   createRoute({
     getParentRoute: () => rootRoute,
+    path: '/settings/layout',
+    component: LayoutSettingsPage,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/settings/layout/$surface',
+    component: LayoutSurfacePage,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
     path: '/settings/devices',
     component: DevicesPage,
   }),
@@ -254,7 +265,9 @@ const routeTree = rootRoute.addChildren([
     validateSearch: (
       search: Record<string, unknown>,
     ): { tab?: BrowseSection; list?: ExtensionList; q?: string; type?: SearchType } => ({
-      ...(search.tab === 'extensions' || search.tab === 'search' ? { tab: search.tab } : {}),
+      ...(search.tab === 'extensions' || search.tab === 'search' || search.tab === 'sources'
+        ? { tab: search.tab }
+        : {}),
       ...(search.list === 'available' ? { list: 'available' as const } : {}),
       ...(text(search.q) ? { q: text(search.q) } : {}),
       ...(isSearchType(search.type) && search.type !== 'all' ? { type: search.type } : {}),

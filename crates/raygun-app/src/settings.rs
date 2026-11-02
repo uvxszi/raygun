@@ -236,4 +236,137 @@ mod tests {
         assert_eq!(loaded.theme, Theme::System);
         assert_eq!(loaded.language, "ja");
     }
+
+    fn item(id: &str, visible: bool) -> raygun_model::LayoutItem {
+        raygun_model::LayoutItem {
+            id: id.to_owned(),
+            visible,
+        }
+    }
+
+    #[tokio::test]
+    async fn layouts_keep_the_users_order_and_take_new_entries_in_place() {
+        let temp = TempDir::new().unwrap();
+        let db = open(&temp).await;
+        // A layout saved by an older version: More first, an id since removed, Browse missing.
+        settings::put(
+            &db,
+            "layout",
+            r#"{"tabs":[{"id":"more","visible":true},{"id":"gone","visible":true},{"id":"library","visible":true},{"id":"home","visible":false}]}"#,
+        )
+        .await
+        .unwrap();
+
+        let layout = load(&db).await.unwrap().layout;
+        let tabs: Vec<(&str, bool)> = layout
+            .tabs
+            .iter()
+            .map(|tab| (tab.id.as_str(), tab.visible))
+            .collect();
+        // New tabs go after their neighbour by default (More, here, now first).
+        let first_four: Vec<(&str, bool)> = tabs
+            .iter()
+            .copied()
+            .filter(|(id, _)| ["home", "library", "browse", "more"].contains(id))
+            .collect();
+        assert_eq!(
+            first_four,
+            [
+                ("more", true),
+                ("library", true),
+                ("browse", true),
+                ("home", false)
+            ],
+            "the saved order, unknown ids dropped, Browse back after Library"
+        );
+        assert!(!tabs.iter().any(|(id, _)| *id == "gone"));
+        assert_eq!(tabs.len(), raygun_model::LAYOUT_TABS.len());
+        assert!(
+            tabs.contains(&("watch", false)),
+            "tabs that can be added are listed hidden"
+        );
+        // The other lists are whole.
+        assert_eq!(
+            layout.more_entries.len(),
+            raygun_model::LAYOUT_MORE_ENTRIES.len()
+        );
+        assert_eq!(layout.home_sections[0].id, "continueWatching");
+    }
+
+    #[tokio::test]
+    async fn layouts_keep_more_settings_and_a_tab() {
+        let temp = TempDir::new().unwrap();
+        let db = open(&temp).await;
+        let base = load(&db).await.unwrap().layout;
+        let hide = |list: &[raygun_model::LayoutItem], id: &str| -> Vec<raygun_model::LayoutItem> {
+            list.iter()
+                .map(|entry| item(&entry.id, entry.visible && entry.id != id))
+                .collect()
+        };
+
+        for layout in [
+            raygun_model::LayoutPrefs {
+                tabs: hide(&base.tabs, "more"),
+                ..base.clone()
+            },
+            raygun_model::LayoutPrefs {
+                more_entries: hide(&base.more_entries, "settings"),
+                ..base.clone()
+            },
+            raygun_model::LayoutPrefs {
+                browse_tabs: hide(&base.browse_tabs, "search"),
+                ..base.clone()
+            },
+            raygun_model::LayoutPrefs {
+                tabs: base
+                    .tabs
+                    .iter()
+                    .map(|tab| item(&tab.id, tab.id == "more"))
+                    .collect(),
+                ..base.clone()
+            },
+            raygun_model::LayoutPrefs {
+                library_media: base
+                    .library_media
+                    .iter()
+                    .map(|tab| item(&tab.id, false))
+                    .collect(),
+                ..base.clone()
+            },
+        ] {
+            assert!(
+                update(&db, SettingChange::Layout(layout)).await.is_err(),
+                "refused"
+            );
+        }
+
+        // Adding Watch as a tab and hiding Home is fine, and the start screen can be Watch.
+        let mut tabs = hide(&base.tabs, "home");
+        tabs.iter_mut()
+            .filter(|tab| tab.id == "watch")
+            .for_each(|tab| tab.visible = true);
+        let saved = update(
+            &db,
+            SettingChange::Layout(raygun_model::LayoutPrefs {
+                tabs,
+                ..base.clone()
+            }),
+        )
+        .await
+        .unwrap();
+        assert!(
+            saved
+                .layout
+                .tabs
+                .iter()
+                .any(|tab| tab.id == "watch" && tab.visible)
+        );
+        let saved = update(
+            &db,
+            SettingChange::StartScreen(raygun_model::StartScreen::Watch),
+        )
+        .await
+        .unwrap();
+        assert_eq!(saved.start_screen, raygun_model::StartScreen::Watch);
+    }
 }
