@@ -25,7 +25,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Searchable settings | Mihon | 🔜 M54 |
 | MCP server, LAN remote | Nuclear | ✅ M19, M20 |
 | Device sync | — | ⏸ M22 |
-| Keyboard shortcuts | Nuclear | ✖ desktop only, later |
+| Keyboard shortcuts | Nuclear | ✅ M46.8 (playback; everywhere: queued) |
 
 ## Extensions and repositories
 | Feature | From | Status |
@@ -35,7 +35,8 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Suggested repositories, browse with search and filters (kind, language, repository, rating) | Mihon, CloudStream | ✅ M36 |
 | Hide NSFW extensions; content rating shown | Mihon | ✅ M35 |
 | Nuclear plugins | Nuclear | ✅ M17 |
-| Shosetsu Lua scripts | Shosetsu | ✅ M32 |
+| Shosetsu Lua scripts | Shosetsu | ✅ M32 (every script that works in Shosetsu: M46.9.1) |
+| Fixed copies of broken sources (Paraline Raygun) | — | ✅ M46.9.1 |
 | Stremio addons | Stremio | ✅ M41 |
 | LNReader JS plugins | LNReader | 🔜 M51 |
 | Mihon/Aniyomi APK extensions | Mihon, aniyomi | 🔜 M60 (Android dex runtime) |

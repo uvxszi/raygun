@@ -10,6 +10,9 @@ use serde::Deserialize;
 use crate::package::{MAX_PACKAGE_BYTES, PackageError};
 
 const CONVERTER: &str = include_str!("../assets/nuclear-converter.js");
+/// The converter's `CONVERTER_VERSION`: installed plugins converted by an older one are offered
+/// again as updates (M46.9.1). Conversions from before it was stamped count as 1.
+pub const CONVERTER_VERSION: u32 = 2;
 /// Sucrase's parser recurses deeply on large files; give it room.
 const CONVERTER_STACK_BYTES: usize = 16 * 1024 * 1024;
 const CONVERTER_MEMORY_BYTES: usize = 256 * 1024 * 1024;

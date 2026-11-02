@@ -536,6 +536,9 @@ impl HostState {
         for (id, (source, manifest)) in chosen {
             let origin = source.origin;
             let (name, version) = (manifest.name.clone(), manifest.version.to_string());
+            // A conversion that fails still says which converter made it, so a newer one is
+            // offered (M46.9.1).
+            let compatibility = manifest.nuclear.as_ref().and_then(compat_report);
             let user_settings = settings.remove(&id).unwrap_or_default();
             match self.load_one(source, manifest, user_settings).await {
                 Ok(extension) => {
@@ -551,7 +554,10 @@ impl HostState {
                 }
                 Err(error) => {
                     tracing::warn!(extension = %id, %error, "extension failed to load");
-                    infos.push(failed_info(&id, &name, &version, origin, error));
+                    infos.push(ExtensionInfo {
+                        compatibility,
+                        ..failed_info(&id, &name, &version, origin, error)
+                    });
                 }
             }
         }
@@ -699,6 +705,11 @@ fn compat_report(nuclear: &serde_json::Value) -> Option<raygun_model::CompatRepo
     };
     Some(raygun_model::CompatReport {
         package: nuclear.get("package")?.as_str()?.to_owned(),
+        converter: nuclear
+            .get("converter")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|version| u32::try_from(version).ok())
+            .unwrap_or(1),
         supported: list("supported"),
         unsupported_categories: list("unsupportedCategories"),
         stubbed_apis: list("stubbedApis"),

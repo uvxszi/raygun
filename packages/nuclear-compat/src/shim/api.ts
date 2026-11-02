@@ -21,6 +21,28 @@ export const STUBBED_DOMAINS = [
   'Lyrics',
 ] as const;
 
+/**
+ * `domain` with a no-op for anything Raygun's copy lacks (newer plugin SDK calls), logged once,
+ * instead of "not a function" stopping the whole plugin (M46.9.1).
+ */
+const lenient = <T extends object>(domain: string, object: T): T => {
+  const warned = new Set<string>();
+  return new Proxy(object, {
+    get: (target, property, receiver) => {
+      if (property in target || typeof property === 'symbol' || property === 'then') {
+        return Reflect.get(target, property, receiver) as unknown;
+      }
+      return () => {
+        if (!warned.has(property)) {
+          warned.add(property);
+          raygun.log.warn(`${domain}.${property} isn't in Raygun's Nuclear API; skipped`);
+        }
+        return undefined;
+      };
+    },
+  });
+};
+
 const unsupported = (domain: string) =>
   new Proxy(
     {},
@@ -108,6 +130,8 @@ export const createApi = (plugin: PluginInfo) => {
     },
     async setGlobal() {},
     subscribe: () => () => {},
+    // A settings widget (Subsonic's connection test) is Nuclear UI; Raygun shows the fields only.
+    registerWidget() {},
   };
 
   const Providers = {
@@ -141,8 +165,8 @@ export const createApi = (plugin: PluginInfo) => {
   const api: Record<string, unknown> = {
     Http: { fetch: pluginFetch },
     Logger,
-    Settings,
-    Providers,
+    Settings: lenient('Settings', Settings),
+    Providers: lenient('Providers', Providers),
   };
   for (const domain of STUBBED_DOMAINS) api[domain] = unsupported(domain);
   return api;

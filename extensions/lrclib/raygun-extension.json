@@ -7,13 +7,9 @@
   "entry": "dist/index.js",
   "description": "Synced lyrics from the open LRCLIB database.",
   "author": "Raygun",
-  "provides": [
-    "lyrics"
-  ],
+  "provides": ["lyrics"],
   "permissions": {
-    "net": [
-      "lrclib.net"
-    ]
+    "net": ["lrclib.net"]
   },
   "contentRating": "safe"
 }

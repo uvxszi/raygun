@@ -7,14 +7,9 @@
   "entry": "dist/index.js",
   "description": "Search millions of podcasts and browse the top shows, through Apple's public iTunes Search API.",
   "author": "Raygun",
-  "provides": [
-    "podcast.directory"
-  ],
+  "provides": ["podcast.directory"],
   "permissions": {
-    "net": [
-      "itunes.apple.com",
-      "rss.marketingtools.apple.com"
-    ]
+    "net": ["itunes.apple.com", "rss.marketingtools.apple.com"]
   },
   "contentRating": "safe",
   "settings": [

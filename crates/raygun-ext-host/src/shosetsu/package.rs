@@ -62,11 +62,17 @@ fn text(bytes: &[u8]) -> Result<String, PackageError> {
         .map_err(|_| PackageError::Zip("the script is not UTF-8 text".into()))
 }
 
-/// A downloaded script, checked against its index entry.
+/// A downloaded script, compared with its index entry. Shosetsu's own repository updates scripts
+/// without always updating their hash in the index, and Shosetsu keeps the hash only to spot
+/// updates, never refusing a script over it; a mismatch is logged, not refused (M46.9.1). Such a
+/// script must still start with a script's metadata line, so an error page never installs.
 pub fn verify_script(bytes: &[u8], entry: &RepoEntry) -> Result<String, PackageError> {
     let code = text(bytes)?;
     if !sha256_hex(bytes).eq_ignore_ascii_case(&entry.sha256) {
-        return Err(PackageError::Checksum);
+        if header(&code).is_none_or(|header| header.get("id").is_none()) {
+            return Err(PackageError::Checksum);
+        }
+        tracing::warn!(script = %entry.id, "the script doesn't match its repository index's hash");
     }
     Ok(code)
 }
@@ -204,8 +210,12 @@ mod tests {
         assert_eq!(dependencies("return {}"), Vec::<String>::new());
 
         let script = verify_script(SCRIPT.as_bytes(), entry).unwrap();
+        // A script newer than its index entry installs, as in Shosetsu; libraries stay checked.
+        let updated = SCRIPT.replace("return {}", "return { updated = true }");
+        assert_eq!(verify_script(updated.as_bytes(), entry).unwrap(), updated);
+        // Anything else with the wrong hash (an error page) doesn't.
         assert_eq!(
-            verify_script(b"tampered", entry).unwrap_err(),
+            verify_script(b"Too many requests", entry).unwrap_err(),
             PackageError::Checksum
         );
         let library = verify_library("novelvault", LIBRARY.as_bytes(), &index).unwrap();

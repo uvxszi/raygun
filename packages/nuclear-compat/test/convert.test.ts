@@ -232,6 +232,24 @@ describe('convertPlugin', () => {
     expect(providers.map((provider) => provider.kind)).toContain('music.metadata');
   });
 
+  it('loads plugins that draw in a page or call newer APIs (mini-player, Subsonic)', async () => {
+    const files = pluginFiles({ ...PACKAGE, nuclear: { categories: ['lyrics'] } });
+    files['sample-1.2.3/src/index.ts'] = `
+      export default {
+        async onEnable(api) {
+          const panel = document.createElement('div');
+          panel.classList.add('mini');
+          document.body.appendChild(panel);
+          api.Settings.registerWidget('test', () => null);
+          await api.Settings.somethingNewer({ id: 'x' });
+          api.Providers.register({ id: 'l', kind: 'lyrics', name: 'L', getLyrics: async () => ({ type: 'instrumental', metadata: {} }) });
+        },
+      };`;
+    const { bundle } = convertPlugin(files, shim);
+    const { providers } = await runBundle(bundle);
+    expect(providers.map((provider) => provider.kind)).toEqual(['lyrics']);
+  });
+
   it('rejects plugins Raygun has nothing to run for', () => {
     const files = pluginFiles({ ...PACKAGE, nuclear: { categories: ['dashboard', 'playlists'] } });
     // Its code registers nothing Raygun runs either.

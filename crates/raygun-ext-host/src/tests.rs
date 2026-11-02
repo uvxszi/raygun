@@ -1019,6 +1019,141 @@ async fn shosetsu_official_scripts_work() {
     }
 }
 
+/// `cargo test -p raygun-ext-host -- --ignored shosetsu_survey --nocapture`: every script in
+/// Shosetsu's official repository (or `SHOSETSU_SCRIPTS`), each reporting how far it got: load,
+/// listing, novel, chapters, passage. Prints a table instead of failing, to find runtime gaps.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs network access to gitlab.com and many novel sites"]
+async fn shosetsu_survey() {
+    use crate::shosetsu::package as shosetsu_package;
+    const INDEX: &str = "https://gitlab.com/shosetsuorg/extensions/-/raw/dev/index.json";
+    let client = raygun_net::http_client().unwrap();
+    // `SHOSETSU_DIR` reads the index and scripts from a checkout instead of GitLab.
+    let local = std::env::var("SHOSETSU_DIR").ok();
+    let download = |url: reqwest::Url| {
+        let client = client.clone();
+        let local = local.clone();
+        async move {
+            if let Some(dir) = local {
+                let path = url
+                    .path()
+                    .split_once("/raw/dev/")
+                    .map(|(_, path)| path.to_owned())
+                    .ok_or("not in the repository")?;
+                return std::fs::read(std::path::Path::new(&dir).join(path))
+                    .map_err(|error| error.to_string());
+            }
+            // Gently: GitLab answers 429 to a burst of raw downloads.
+            tokio::time::sleep(Duration::from_millis(400)).await;
+            let response = client
+                .get(url)
+                .send()
+                .await
+                .and_then(reqwest::Response::error_for_status)
+                .map_err(|error| error.to_string())?;
+            response
+                .bytes()
+                .await
+                .map(|bytes| bytes.to_vec())
+                .map_err(|error| error.to_string())
+        }
+    };
+    let index_url = reqwest::Url::parse(INDEX).unwrap();
+    let index = crate::repo::parse_index(
+        &String::from_utf8(download(index_url.clone()).await.unwrap()).unwrap(),
+    )
+    .unwrap();
+    let wanted = std::env::var("SHOSETSU_SCRIPTS").ok();
+    let mut report = Vec::new();
+    for entry in &index.extensions {
+        if wanted
+            .as_deref()
+            .is_some_and(|list| !list.split(',').any(|id| id == entry.id))
+        {
+            continue;
+        }
+        let temp = tempfile::TempDir::new().unwrap();
+        let installed: Result<(), String> = async {
+            let bytes = download(crate::repo::package_url(&index_url, entry).unwrap()).await?;
+            let script = shosetsu_package::verify_script(&bytes, entry)
+                .map_err(|error| error.to_string())?;
+            let mut queue = shosetsu_package::dependencies(&script);
+            let mut libraries: Vec<(String, String)> = Vec::new();
+            while let Some(name) = queue.pop() {
+                if libraries.iter().any(|(known, _)| *known == name) {
+                    continue;
+                }
+                let bytes = download(index_url.join(&format!("lib/{name}.lua")).unwrap()).await?;
+                let code = shosetsu_package::verify_library(&name, &bytes, &index)
+                    .map_err(|error| error.to_string())?;
+                queue.extend(shosetsu_package::dependencies(&code));
+                libraries.push((name, code));
+            }
+            let package = shosetsu_package::package(entry, script, libraries)
+                .map_err(|error| error.to_string())?;
+            crate::package::install(temp.path(), &package)
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        }
+        .await;
+        if let Err(error) = installed {
+            report.push((entry.id.clone(), "install", error));
+            continue;
+        }
+        let host = ExtensionHost::start(HostConfig::default()).unwrap();
+        let infos = host.load(discover_installed(temp.path())).await;
+        let Some(info) = infos.first() else {
+            report.push((entry.id.clone(), "load", "nothing loaded".into()));
+            continue;
+        };
+        if info.status != ExtensionStatus::Loaded {
+            report.push((entry.id.clone(), "load", format!("{:?}", info.error)));
+            continue;
+        }
+        let provider = format!("{}/novel", info.id);
+        let step = async {
+            let popular = host
+                .manga_list(&provider, crate::manga::MangaList::Popular, 1)
+                .await
+                .map_err(|error| ("listing", error.to_string()))?;
+            let novel = popular
+                .items
+                .first()
+                .ok_or(("listing", "no novels".to_owned()))?
+                .clone();
+            host.manga_details(&provider, &novel.id)
+                .await
+                .map_err(|error| ("novel", error.to_string()))?;
+            let chapters = host
+                .manga_chapters(&provider, &novel.id)
+                .await
+                .map_err(|error| ("chapters", error.to_string()))?;
+            let first = chapters
+                .first()
+                .ok_or(("chapters", "no chapters".to_owned()))?;
+            let passage = host
+                .novel_passage(&provider, &first.id)
+                .await
+                .map_err(|error| ("passage", error.to_string()))?;
+            if passage.len() < 2 {
+                return Err(("passage", format!("{} blocks", passage.len())));
+            }
+            Ok(())
+        }
+        .await;
+        match step {
+            Ok(()) => report.push((entry.id.clone(), "ok", String::new())),
+            Err((stage, error)) => report.push((entry.id.clone(), stage, error)),
+        }
+    }
+    let working = report.iter().filter(|(_, stage, _)| *stage == "ok").count();
+    eprintln!("{working} of {} scripts work", report.len());
+    for (id, stage, error) in &report {
+        let line: String = error.chars().take(160).collect();
+        eprintln!("{stage:>8}  {id}  {line}");
+    }
+}
+
 #[tokio::test]
 async fn nsfw_switch_hides_nsfw_providers_and_reaches_extensions() {
     let host = test_host();

@@ -7,6 +7,8 @@ type ModuleFunction = (
   exports: object,
   require: (id: string) => unknown,
   module: { exports: unknown },
+  document: unknown,
+  window: unknown,
 ) => void;
 
 const EXTENSIONS = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json'];
@@ -40,7 +42,15 @@ export const createRequire = (definitions: Definitions, bare: Record<string, unk
     const module = { exports: {} as unknown };
     cache.set(path, module);
     const define = definitions[path] as ModuleFunction;
-    define(module.exports as object, (id) => requireFrom(path, id), module);
+    // A plugin's page globals are the shim's (an inert page, M46.9.1), wherever it runs.
+    const scope = globalThis as Record<string, unknown>;
+    define(
+      module.exports as object,
+      (id) => requireFrom(path, id),
+      module,
+      scope.document,
+      scope.window ?? scope,
+    );
     return module.exports;
   };
 

@@ -50,6 +50,22 @@ fn selector(text: &str) -> mlua::Result<Selector> {
     Selector::parse(text).map_err(mlua::Error::runtime)
 }
 
+/// A tag name for `appendElement`: letters, digits and dashes only, so it can't inject markup.
+fn element_tag(tag: &str) -> mlua::Result<&str> {
+    if !tag.is_empty() && tag.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        Ok(tag)
+    } else {
+        Err(mlua::Error::runtime(format!("{tag:?} isn't a tag name")))
+    }
+}
+
+/// Text as HTML that reads back as the same text.
+fn escape_text(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 impl LuaNode {
     fn with<T>(&self, read: impl FnOnce(NodeRef<'_, Node>) -> T) -> T {
         let html = self.doc.html.borrow();
@@ -372,6 +388,24 @@ impl UserData for LuaNode {
         });
         methods.add_method("append", |_, this, html: String| {
             this.insert(&html, Place::Append);
+            Ok(this.clone())
+        });
+        // Jsoup's appendElement/prependElement give back the new element; appendText/prependText
+        // add escaped text (M46.9.1: scripts that build pages, e.g. ReadFromNet).
+        methods.add_method("appendElement", |_, this, tag: String| {
+            this.insert(&format!("<{0}></{0}>", element_tag(&tag)?), Place::Append);
+            Ok(this.element_children().last().map(|id| this.node(*id)))
+        });
+        methods.add_method("prependElement", |_, this, tag: String| {
+            this.insert(&format!("<{0}></{0}>", element_tag(&tag)?), Place::Prepend);
+            Ok(this.element_children().first().map(|id| this.node(*id)))
+        });
+        methods.add_method("appendText", |_, this, text: String| {
+            this.insert(&escape_text(&text), Place::Append);
+            Ok(this.clone())
+        });
+        methods.add_method("prependText", |_, this, text: String| {
+            this.insert(&escape_text(&text), Place::Prepend);
             Ok(this.clone())
         });
         methods.add_method("empty", |_, this, ()| {

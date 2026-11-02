@@ -387,6 +387,9 @@ fn install_natives<'js>(ctx: &Ctx<'js>, shared: Rc<Shared>) -> rquickjs::Result<
     ctx.globals().set("__rg", native)
 }
 
+/// Provider kinds Nuclear plugins become (`CATEGORY_KINDS` in nuclear-compat).
+const NUCLEAR_KINDS: [&str; 3] = ["music.metadata", "music.stream", "lyrics"];
+
 #[derive(Deserialize)]
 struct ProviderMeta {
     kind: Option<String>,
@@ -398,7 +401,10 @@ fn register(shared: &Shared, meta: &str) -> Result<(), String> {
     let meta: ProviderMeta = serde_json::from_str(meta).map_err(|error| error.to_string())?;
     let manifest = &shared.manifest;
     let kind = meta.kind.ok_or("provider kind is required")?;
-    if !manifest.provides.contains(&kind) {
+    // A converted Nuclear plugin may register a kind its package didn't declare (OmniSource's
+    // metadata, Bandcamp's streams); any kind Raygun runs for Nuclear plugins is allowed.
+    let nuclear_kind = manifest.nuclear.is_some() && NUCLEAR_KINDS.contains(&kind.as_str());
+    if !manifest.provides.contains(&kind) && !nuclear_kind {
         return Err(format!(
             "provider kind {kind:?} is not listed in the manifest's \"provides\""
         ));

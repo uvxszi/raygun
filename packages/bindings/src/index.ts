@@ -675,6 +675,8 @@ export type CollectionPlayRequest = {
 export type CompatReport = {
 	/**  The original npm package name. */
 	package: string,
+	/**  The version of the converter that made it (1 when it wasn't recorded). */
+	converter: number,
 	/**  Raygun provider kinds the plugin provides. */
 	supported: string[],
 	/**  Nuclear categories Raygun can't run (dashboard, playlists, ...). */

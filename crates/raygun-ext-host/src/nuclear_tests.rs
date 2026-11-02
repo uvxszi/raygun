@@ -86,6 +86,11 @@ async fn real_registry_plugins_convert_and_load() {
         );
         let compatibility = info.compatibility.as_ref().unwrap();
         assert_eq!(compatibility.package, format!("nuclear-plugin-{name}"));
+        assert_eq!(
+            compatibility.converter,
+            nuclear::CONVERTER_VERSION,
+            "{name}: the converter bundle and the Rust constant agree"
+        );
     }
 }
 
@@ -163,4 +168,66 @@ fn ui_only_plugins_are_rejected_with_a_reason() {
     files.insert("index.js".to_owned(), "module.exports = {};".to_owned());
     let error = nuclear::convert(&files).unwrap_err();
     assert!(error.contains("it provides dashboard"), "{error}");
+}
+
+#[tokio::test]
+async fn converted_plugins_reach_public_hosts_and_register_nuclear_kinds() {
+    let manifest = json!({
+        "id": "nuclear.sample", "name": "Sample", "version": "1.0.0", "apiVersion": 1,
+        "runtime": "js", "entry": "dist/index.js", "provides": ["lyrics"],
+        "permissions": { "net": ["lrclib.net"] }, "contentRating": "safe",
+        "nuclear": { "package": "nuclear-plugin-sample", "report": {} },
+    })
+    .to_string();
+    let parsed = Manifest::parse(&manifest).unwrap();
+    assert_eq!(
+        parsed.net.patterns(),
+        [
+            crate::permissions::HostPattern::Exact("lrclib.net".into()),
+            crate::permissions::HostPattern::AnyPublic
+        ]
+    );
+    let allows = |url: &str| parsed.net.allows(&url.parse().unwrap());
+    assert!(allows("https://cf-media.sndcdn.com/a.mp3"));
+    assert!(!allows("http://127.0.0.1:8810/"));
+    assert!(!allows("http://192.168.1.10/"));
+
+    // A kind the package didn't declare loads when Raygun runs that kind for Nuclear plugins.
+    let code = "raygun.providers.register({ kind: 'lyrics', id: 'l', run: async () => null });\n\
+                raygun.providers.register({ kind: 'music.stream', id: 's', run: async () => null });";
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    let infos = host
+        .load(vec![ExtensionSource::built_in(&[
+            (MANIFEST_FILE, &manifest),
+            ("dist/index.js", code),
+        ])])
+        .await;
+    assert_eq!(
+        infos[0].status,
+        raygun_model::ExtensionStatus::Loaded,
+        "{:?}",
+        infos[0].error
+    );
+    let kinds: Vec<_> = infos[0]
+        .providers
+        .iter()
+        .map(|provider| provider.kind.as_str())
+        .collect();
+    assert_eq!(kinds, ["lyrics", "music.stream"]);
+    assert_eq!(infos[0].compatibility.as_ref().unwrap().converter, 1);
+
+    // Kinds outside Nuclear's still need declaring.
+    let other = manifest.replace("nuclear.sample", "nuclear.other");
+    let infos = host
+        .load(vec![ExtensionSource::built_in(&[
+            (MANIFEST_FILE, &other),
+            (
+                "dist/index.js",
+                "raygun.providers.register({ kind: 'manga.source', id: 'm', run: async () => null });",
+            ),
+        ])])
+        .await;
+    assert_eq!(infos[0].status, raygun_model::ExtensionStatus::Failed);
+    // It still names its converter, so a newer conversion is offered.
+    assert_eq!(infos[0].compatibility.as_ref().unwrap().converter, 1);
 }

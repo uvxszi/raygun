@@ -188,7 +188,7 @@ impl Manifest {
             .iter()
             .map(|pattern| {
                 HostPattern::parse(pattern)
-                    // Any-host access is for Shosetsu scripts only.
+                    // Any-host access is for Shosetsu scripts (Nuclear conversions get it below).
                     .filter(|parsed| {
                         *parsed != HostPattern::AnyPublic || runtime == Runtime::Shosetsu
                     })
@@ -206,6 +206,13 @@ impl Manifest {
                     .is_some_and(|value| !setting.accepts(value))
         }) {
             return Err(ManifestError::Setting(setting.key.clone()));
+        }
+        // Nuclear runs its plugins without a host list, and their code builds addresses the
+        // conversion can't see (SoundCloud's CDN, consent pages): converted plugins also reach any
+        // public host, as Shosetsu scripts do (M46.9.1). The hosts found in their code stay.
+        let mut patterns = patterns;
+        if raw.nuclear.is_some() && !patterns.contains(&HostPattern::AnyPublic) {
+            patterns.push(HostPattern::AnyPublic);
         }
         Ok(Self {
             id: raw.id,

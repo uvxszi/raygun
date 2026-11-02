@@ -879,6 +879,7 @@
     "uninstallConfirm": "Tap again to uninstall",
     "notFound": "This extension isn't loaded.",
     "nuclearBadge": "Nuclear",
+    "newerConversion": "{{version}}, converted again with fixes",
     "nuclearNetwork": "A Nuclear plugin: Raygun converts it when installing and allows only the hosts found in its code. They're listed on the extension's page afterwards.",
     "compatibilityTitle": "Compatibility",
     "compatibilityFrom": "Converted from the Nuclear plugin {{package}}.",

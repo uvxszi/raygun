@@ -1672,6 +1672,8 @@ pub struct ExtensionInfo {
 pub struct CompatReport {
     /// The original npm package name.
     pub package: String,
+    /// The version of the converter that made it (1 when it wasn't recorded).
+    pub converter: u32,
     /// Raygun provider kinds the plugin provides.
     pub supported: Vec<String>,
     /// Nuclear categories Raygun can't run (dashboard, playlists, ...).

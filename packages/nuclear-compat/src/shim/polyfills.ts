@@ -550,6 +550,56 @@ class AbortControllerPolyfill {
 }
 
 /** Installs whichever of these the runtime lacks. */
+// ---- A page that isn't there ----
+
+/** An element that takes every call and shows nothing (a plugin's own panel, a style tag). */
+const inertElement = (): Record<string, unknown> => {
+  const element: Record<string, unknown> = {
+    style: {},
+    dataset: {},
+    children: [],
+    childNodes: [],
+    innerHTML: '',
+    textContent: '',
+    classList: { add() {}, remove() {}, toggle: () => false, contains: () => false },
+    appendChild: (child: unknown) => child,
+    removeChild: (child: unknown) => child,
+    insertBefore: (child: unknown) => child,
+    append() {},
+    prepend() {},
+    remove() {},
+    setAttribute() {},
+    getAttribute: () => null,
+    removeAttribute() {},
+    addEventListener() {},
+    removeEventListener() {},
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    getBoundingClientRect: () => ({ top: 0, left: 0, width: 0, height: 0, right: 0, bottom: 0 }),
+  };
+  return element;
+};
+
+/**
+ * `document` for plugins that also draw in Nuclear's window (a lyrics panel, a mini player): their
+ * drawing goes nowhere, and what Raygun runs (their providers) still loads (M46.9.1).
+ */
+export const inertDocument = () => ({
+  head: inertElement(),
+  body: inertElement(),
+  documentElement: inertElement(),
+  createElement: () => inertElement(),
+  createElementNS: () => inertElement(),
+  createTextNode: () => inertElement(),
+  getElementById: () => null,
+  getElementsByTagName: () => [],
+  getElementsByClassName: () => [],
+  querySelector: () => null,
+  querySelectorAll: () => [],
+  addEventListener() {},
+  removeEventListener() {},
+});
+
 export const installPolyfills = (
   target: Record<string, unknown> = globalThis as Record<string, unknown>,
 ) => {
@@ -572,4 +622,6 @@ export const installPolyfills = (
   provide('clearInterval', clearTimeoutPolyfill);
   provide('AbortController', AbortControllerPolyfill);
   provide('queueMicrotask', (callback: () => void) => void Promise.resolve().then(callback));
+  provide('document', inertDocument());
+  provide('window', target);
 };

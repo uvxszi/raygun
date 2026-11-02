@@ -115,7 +115,7 @@ The user asked for the full depth of the reference apps ("its not meant to be a 
   - popular and trending music from open charts (Deezer charts, Apple's top songs feed, ListenBrainz's most played, YouTube Music's charts), as Home and Browse rows;
   - songs tagged by genre and mood like Spotify's (Rock, Rap, Jazz, Breakcore, Energetic, Chill…) from MusicBrainz and Deezer genres mapped to moods;
   - tag chips that filter your songs; Browse → Music by tag.
-- M46.9.1 **Sources that work** (asked 2026-11-02): fix the sources and converters that fail where they worked in their own apps (Shosetsu scripts, Nuclear plugins); fixed copies of sources for legitimate sites go to the separate **Paraline Raygun** repository (`uvxszi/paraline-raygun`, published with the user's go-ahead of 2026-11-02).
+- M46.9.1 **Sources that work** (asked 2026-11-02): fix the sources and converters that fail where they worked in their own apps (Shosetsu scripts, Nuclear plugins); fixed copies of sources for legitimate sites go to the separate **Paraline Raygun** repository (`uvxszi/paraline-raygun`, published with the user's go-ahead of 2026-11-02). ✅ Shosetsu hashes, TLS and DOM gaps; Nuclear hosts, kinds, page stubs and re-offered conversions; Paraline with Syosetsu and Wattpad.
 - M46.10 **Music downloads**, then everything downloadable (asked 2026-11-02):
   - songs downloaded into the app to play offline, from the stream a source gives;
   - exported as files (as downloaded, WAV or FLAC) to Music or a chosen folder;

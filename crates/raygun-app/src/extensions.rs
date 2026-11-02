@@ -348,11 +348,19 @@ impl ExtensionService {
 
     pub async fn catalog(&self, refresh: bool) -> Result<Vec<RepoCatalog>, String> {
         let repos = self.repos().await?;
-        let local: HashMap<String, String> = self
+        let local: HashMap<String, Installed> = self
             .list()
             .await
             .into_iter()
-            .map(|info| (info.id, info.version))
+            .map(|info| {
+                let installed = Installed {
+                    stale_conversion: info.compatibility.as_ref().is_some_and(|report| {
+                        report.converter < raygun_ext_host::nuclear::CONVERTER_VERSION
+                    }),
+                    version: info.version,
+                };
+                (info.id, installed)
+            })
             .collect();
         let listings = repos.into_iter().map(|repo| {
             let local = &local;
@@ -630,11 +638,16 @@ fn to_repo(row: store::RepoRow) -> ExtensionRepo {
 }
 
 /// Repositories offered with one tap: Raygun's own and the ecosystems Raygun can run.
-const SUGGESTED_REPOS: [(&str, &str, &str); 3] = [
+const SUGGESTED_REPOS: [(&str, &str, &str); 4] = [
     (
         "https://raw.githubusercontent.com/uvxszi/raygun/main/repo/index.json",
         "Raygun Extensions",
         "Raygun's official extensions: music, manga, novels, lyrics and more.",
+    ),
+    (
+        "https://raw.githubusercontent.com/uvxszi/paraline-raygun/main/shosetsu/index.json",
+        "Paraline Raygun",
+        "Fixed copies of novel sources whose sites changed (Syosetsu, Wattpad); they install as updates.",
     ),
     (
         "https://gitlab.com/shosetsuorg/extensions/-/raw/dev/index.json",
@@ -660,11 +673,25 @@ fn icon_key(extension_id: &str) -> String {
     format!("extension.icon.{extension_id}")
 }
 
-fn catalog_entry(repo_id: &str, entry: &RepoEntry, local: Option<&String>) -> CatalogEntry {
+/// What the catalogue needs to know about an installed extension.
+#[derive(Debug, Clone, Default)]
+struct Installed {
+    version: String,
+    /// A Nuclear plugin converted by an older converter: installing it again brings the fixes
+    /// in the shim (M46.9.1).
+    stale_conversion: bool,
+}
+
+fn catalog_entry(repo_id: &str, entry: &RepoEntry, local: Option<&Installed>) -> CatalogEntry {
     let state = match local {
         None => CatalogState::Available,
-        Some(version) => match repo::compare_versions(&entry.version, version) {
+        Some(installed) => match repo::compare_versions(&entry.version, &installed.version) {
             std::cmp::Ordering::Greater => CatalogState::UpdateAvailable,
+            std::cmp::Ordering::Equal
+                if installed.stale_conversion && entry.format == PackageFormat::Nuclear =>
+            {
+                CatalogState::UpdateAvailable
+            }
             std::cmp::Ordering::Equal => CatalogState::Installed,
             std::cmp::Ordering::Less => CatalogState::NewerInstalled,
         },
@@ -683,7 +710,7 @@ fn catalog_entry(repo_id: &str, entry: &RepoEntry, local: Option<&String>) -> Ca
         size: u32::try_from(entry.size).unwrap_or(u32::MAX),
         nuclear: entry.format == PackageFormat::Nuclear,
         state,
-        installed_version: local.cloned(),
+        installed_version: local.map(|installed| installed.version.clone()),
         icon: None,
     }
 }
@@ -834,7 +861,11 @@ mod tests {
     #[test]
     fn catalog_state_compares_versions() {
         let state = |repo: &str, local: Option<&str>| {
-            catalog_entry("r", &entry(repo), local.map(str::to_owned).as_ref()).state
+            let installed = local.map(|version| Installed {
+                version: version.to_owned(),
+                stale_conversion: false,
+            });
+            catalog_entry("r", &entry(repo), installed.as_ref()).state
         };
         assert_eq!(state("1.0.0", None), CatalogState::Available);
         assert_eq!(state("1.0.0", Some("1.0.0")), CatalogState::Installed);
@@ -845,6 +876,24 @@ mod tests {
         assert_eq!(
             state("1.0.0", Some("1.0.1-dev")),
             CatalogState::NewerInstalled
+        );
+
+        // A Nuclear plugin converted by an older converter is offered again; other kinds aren't.
+        let stale = Installed {
+            version: "1.0.0".into(),
+            stale_conversion: true,
+        };
+        let nuclear = RepoEntry {
+            format: PackageFormat::Nuclear,
+            ..entry("1.0.0")
+        };
+        assert_eq!(
+            catalog_entry("r", &nuclear, Some(&stale)).state,
+            CatalogState::UpdateAvailable
+        );
+        assert_eq!(
+            catalog_entry("r", &entry("1.0.0"), Some(&stale)).state,
+            CatalogState::Installed
         );
     }
 

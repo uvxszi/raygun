@@ -81,6 +81,13 @@ const slug = (name: string) =>
     .replace(/^-+|-+$/g, '')
     .slice(0, 80) || 'plugin';
 
+/**
+ * Bumped whenever the converter or its shim changes what a converted plugin can do. Raygun offers
+ * plugins converted by an older one as updates (M46.9.1); keep `CONVERTER_VERSION` in
+ * `raygun-ext-host::nuclear` equal to it.
+ */
+export const CONVERTER_VERSION = 2;
+
 const SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
 
 const IGNORED_HOSTS = new Set(['localhost', 'example.com', 'example.org', 'www.w3.org']);
@@ -177,7 +184,7 @@ export const convertPlugin = (files: Record<string, string>, shimSource: string)
   const definitions = Object.entries(sources)
     .map(
       ([path, source]) =>
-        `${JSON.stringify(path)}: function (exports, require, module) {\n${compile(path, source)}\n}`,
+        `${JSON.stringify(path)}: function (exports, require, module, document, window) {\n${compile(path, source)}\n}`,
     )
     .join(',\n');
   const plugin = {
@@ -209,7 +216,7 @@ export const convertPlugin = (files: Record<string, string>, shimSource: string)
     provides: report.supported,
     permissions: { net: report.hosts },
     contentRating: 'safe',
-    nuclear: { package: pkg.name, report },
+    nuclear: { package: pkg.name, converter: CONVERTER_VERSION, report },
   };
   return { manifest, bundle, report };
 };

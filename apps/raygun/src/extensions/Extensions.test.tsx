@@ -279,12 +279,35 @@ describe('Extensions', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent('converts it when installing');
   });
 
+  it('offers plugins converted by an older converter again', async () => {
+    commands.extensionCatalog.mockResolvedValue(
+      ok(
+        catalog([
+          entry({
+            id: 'nuclear.nuclear-plugin-lrclib',
+            name: 'LRCLIB',
+            nuclear: true,
+            state: 'updateAvailable',
+            version: '1.0.0',
+            installedVersion: '1.0.0',
+          }),
+        ]),
+      ),
+    );
+    await AppShellWrapper.mount('/extensions?tab=browse');
+
+    const row = await screen.findByTestId('catalog-entry');
+    expect(row).toHaveTextContent('1.0.0, converted again with fixes');
+    expect(within(row).getByRole('button', { name: 'Update' })).toBeInTheDocument();
+  });
+
   it("shows a converted Nuclear plugin's compatibility report", async () => {
     commands.extensionsList.mockResolvedValue(
       ok([
         extension({
           compatibility: {
             package: 'nuclear-plugin-sample',
+            converter: 2,
             supported: ['lyrics'],
             unsupportedCategories: ['dashboard'],
             stubbedApis: ['Queue'],

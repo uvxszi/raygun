@@ -292,9 +292,11 @@ export const BrowseTab: FC = () => {
                         </span>
                       )}
                       <span className="text-muted text-xs">
-                        {entry.state === 'updateAvailable' && entry.installedVersion
-                          ? `${entry.installedVersion} → ${entry.version}`
-                          : entry.version}
+                        {entry.state !== 'updateAvailable' || !entry.installedVersion
+                          ? entry.version
+                          : entry.installedVersion === entry.version
+                            ? t('extensions.newerConversion', { version: entry.version })
+                            : `${entry.installedVersion} → ${entry.version}`}
                       </span>
                       {entry.lang && (
                         <span className="text-muted text-xs">

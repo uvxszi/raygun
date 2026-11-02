@@ -161,6 +161,8 @@ return {{
     getPassage = function(url)
         local content = GETDocument(expandURL(url)):selectFirst("#content")
         content:select(".ads, script"):remove()
+        -- Jsoup's builders (ReadFromNet's): a new element back, and text kept as text.
+        content:appendElement("p"):appendText("Read on <next> & more")
         return pageOfElem(content, true)
     end,
     shrinkURL = shrinkURL,
@@ -266,6 +268,10 @@ async fn a_shosetsu_script_serves_novel_source_calls() {
     assert!(
         !html.contains("BUY NOW") && !html.contains("track()"),
         "removed elements stay out"
+    );
+    assert!(
+        html.contains("<p>Read on &lt;next&gt; &amp; more</p>"),
+        "appendElement and appendText: {html}"
     );
     assert_eq!(passage["baseUrl"], format!("{base}/chapter/x-1"));
     let blocks = crate::novel::parse_passage(&passage);

@@ -15,7 +15,7 @@ use super::dom::{LuaNode, parse_document};
 use crate::permissions::{HostPattern, NetPolicy, is_public_ip};
 
 /// Response bodies larger than this fail the request.
-const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
+const MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_REDIRECTS: usize = 10;
 
@@ -116,13 +116,13 @@ impl Fetcher {
                 .content_length()
                 .is_some_and(|length| length > MAX_BODY_BYTES as u64)
             {
-                return Err(format!("{final_url} sent more than 8 MiB"));
+                return Err(format!("{final_url} sent more than 16 MiB"));
             }
             let mut body = Vec::new();
             let mut response = response;
             while let Some(chunk) = response.chunk().await.map_err(|error| describe(&error))? {
                 if body.len() + chunk.len() > MAX_BODY_BYTES {
-                    return Err(format!("{final_url} sent more than 8 MiB"));
+                    return Err(format!("{final_url} sent more than 16 MiB"));
                 }
                 body.extend_from_slice(&chunk);
             }
