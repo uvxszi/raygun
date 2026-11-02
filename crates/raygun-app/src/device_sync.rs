@@ -328,6 +328,16 @@ fn lan_ip() -> IpAddr {
     raygun_remote::lan_ip().unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST))
 }
 
+/// This device's name as other devices see it (sync, the remote, Connect).
+pub async fn device_name(db: &raygun_db::Db) -> String {
+    raygun_db::local_value(db, NAME_KEY)
+        .await
+        .ok()
+        .flatten()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(default_device_name)
+}
+
 fn default_device_name() -> String {
     match std::env::consts::OS {
         "android" => "Android phone".into(),

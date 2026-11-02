@@ -7,8 +7,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use raygun_model::{
-    EngineCommand, EngineEvent, EngineReport, MediaSource, PlaybackControl, PlaybackState,
-    QueueItem, QueueItemInput, QueueSnapshot, SleepTimer, SoundPrefs, TrackQuery,
+    ConnectCommand, EngineCommand, EngineEvent, EngineReport, MediaSource, PlaybackControl,
+    PlaybackState, QueueItem, QueueItemInput, QueueSnapshot, SleepTimer, SoundPrefs, TrackQuery,
 };
 use raygun_net::StreamProxy;
 use raygun_playback::{Effect, PlaybackCore};
@@ -25,6 +25,9 @@ use crate::sound::{SoundService, Tuning};
 
 /// Delivers one command to a native engine.
 pub type NativeEngineSink = Box<dyn Fn(&EngineCommand) -> Result<(), String> + Send + Sync>;
+
+/// Where queue changes and controls go while this device plays on another one (M46.15).
+pub type Redirect = Arc<dyn Fn(ConnectCommand) + Send + Sync>;
 
 /// Which engine plays an item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,6 +67,8 @@ pub struct PlaybackService {
     native: Option<NativeEngineSink>,
     /// Bumped by every sleep timer setting; a waiting timer only fires if it's still the latest.
     sleep_generation: Arc<AtomicU64>,
+    /// Set while playing on another device (M46.15): what would change this player goes there.
+    redirect: Mutex<Option<Redirect>>,
 }
 
 /// Everything to emit once the core lock is released.
@@ -101,6 +106,47 @@ impl PlaybackService {
             app,
             native,
             sleep_generation: Arc::new(AtomicU64::new(0)),
+            redirect: Mutex::new(None),
+        }
+    }
+
+    /// Sends what would change this player to another device instead, or (`None`) back here.
+    pub fn set_redirect(&self, redirect: Option<Redirect>) {
+        *self.redirect.lock().expect("redirect poisoned") = redirect;
+    }
+
+    fn redirect(&self) -> Option<Redirect> {
+        self.redirect.lock().expect("redirect poisoned").clone()
+    }
+
+    /// Runs what another device sent through Connect (M46.15). It plays here even if this device
+    /// itself plays elsewhere.
+    pub fn apply(&self, command: ConnectCommand) {
+        match command {
+            ConnectCommand::Replace {
+                items,
+                start_index,
+                shuffle,
+                start_ms,
+                play,
+            } => {
+                self.run(|core| {
+                    core.replace_at(
+                        items,
+                        start_index.map(|index| index as usize),
+                        shuffle,
+                        start_ms,
+                    )
+                });
+                if !play {
+                    self.run(|core| core.pause());
+                }
+            }
+            ConnectCommand::Enqueue { items, play_now } => {
+                self.run(|core| core.enqueue(items, play_now));
+            }
+            ConnectCommand::EnqueueNext { items } => self.run(|core| core.enqueue_next(items)),
+            ConnectCommand::Control { control } => self.control_here(control),
         }
     }
 
@@ -113,20 +159,49 @@ impl PlaybackService {
     }
 
     pub fn enqueue(&self, items: Vec<QueueItemInput>, play_now: bool) {
+        if let Some(send) = self.redirect() {
+            return send(ConnectCommand::Enqueue { items, play_now });
+        }
         self.run(|core| core.enqueue(items, play_now));
     }
 
     /// Replaces the queue and starts playing (see `PlaybackCore::replace`).
     pub fn replace(&self, items: Vec<QueueItemInput>, start_index: Option<usize>, shuffle: bool) {
+        if let Some(send) = self.redirect() {
+            return send(ConnectCommand::Replace {
+                items,
+                start_index: start_index.map(|index| index as u32),
+                shuffle,
+                start_ms: 0.0,
+                play: true,
+            });
+        }
         self.run(|core| core.replace(items, start_index, shuffle));
     }
 
     /// Replaces the queue and starts its first item at `start_ms` (a podcast episode resuming).
     pub fn replace_from(&self, items: Vec<QueueItemInput>, start_ms: f64) {
+        if let Some(send) = self.redirect() {
+            return send(ConnectCommand::Replace {
+                items,
+                start_index: Some(0),
+                shuffle: false,
+                start_ms,
+                play: true,
+            });
+        }
         self.run(|core| core.replace_at(items, Some(0), false, start_ms));
     }
 
     pub fn control(&self, control: PlaybackControl) {
+        if let Some(send) = self.redirect() {
+            return send(ConnectCommand::Control { control });
+        }
+        self.control_here(control);
+    }
+
+    /// Controls this device's own player, even while it plays elsewhere.
+    pub fn control_here(&self, control: PlaybackControl) {
         self.run(|core| match control {
             PlaybackControl::Play => core.play(),
             PlaybackControl::Pause => core.pause(),
@@ -151,6 +226,9 @@ impl PlaybackService {
 
     /// Queues items right after the current one (Play next, M46.8).
     pub fn enqueue_next(&self, items: Vec<QueueItemInput>) {
+        if let Some(send) = self.redirect() {
+            return send(ConnectCommand::EnqueueNext { items });
+        }
         self.run(|core| core.enqueue_next(items));
     }
 

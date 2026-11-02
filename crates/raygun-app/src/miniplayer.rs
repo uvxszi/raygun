@@ -16,8 +16,26 @@ pub const LABEL: &str = "miniplayer";
 #[cfg_attr(any(target_os = "android", target_os = "ios"), allow(dead_code))]
 pub struct MiniplayerDir(pub PathBuf);
 
+/// `#rrggbb` as a window colour.
+#[cfg_attr(any(target_os = "android", target_os = "ios"), allow(dead_code))]
+fn parse_color(text: &str) -> Option<tauri::window::Color> {
+    let hex = text.trim().strip_prefix('#')?;
+    if hex.len() != 6 {
+        return None;
+    }
+    let value = u32::from_str_radix(hex, 16).ok()?;
+    Some(tauri::window::Color(
+        (value >> 16) as u8,
+        (value >> 8) as u8,
+        value as u8,
+        255,
+    ))
+}
+
+/// Opens the miniplayer, or brings it forward. `background` (`#rrggbb`, the app's own) shows
+/// while its page loads instead of white.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub fn open(app: &AppHandle) -> Result<(), String> {
+pub fn open(app: &AppHandle, background: Option<&str>) -> Result<(), String> {
     use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
     if let Some(window) = app.get_webview_window(LABEL) {
@@ -35,6 +53,9 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
     if let Some(dir) = app.try_state::<MiniplayerDir>() {
         builder = builder.data_directory(dir.0.clone());
     }
+    if let Some(color) = background.and_then(parse_color) {
+        builder = builder.background_color(color);
+    }
     builder
         .build()
         .map(|_| ())
@@ -42,7 +63,7 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub fn open(_app: &AppHandle) -> Result<(), String> {
+pub fn open(_app: &AppHandle, _background: Option<&str>) -> Result<(), String> {
     Err("The miniplayer is a desktop window".into())
 }
 
@@ -65,4 +86,19 @@ pub fn close(app: &AppHandle, show_main: bool) -> Result<(), String> {
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub fn close(_app: &AppHandle, _show_main: bool) -> Result<(), String> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn colors_are_read_from_hex() {
+        assert_eq!(
+            parse_color("#0a141e"),
+            Some(tauri::window::Color(10, 20, 30, 255))
+        );
+        assert_eq!(parse_color("0a141e"), None);
+        assert_eq!(parse_color("#fff"), None);
+    }
 }

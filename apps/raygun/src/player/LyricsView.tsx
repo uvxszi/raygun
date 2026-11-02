@@ -1,10 +1,12 @@
 import type { PlaybackState, QueueItem, TextAlign } from '@raygun/bindings';
-import { PenLine } from 'lucide-react';
+import { PenLine, TextCursorInput } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { openContextMenu } from '../shell/contextMenuStore';
 import { useSongEditStore } from '../sound/songEditStore';
+import { usePlayerUiStore } from './playerUiStore';
 import { currentLine, trackQueryFor, useLyricsFor } from './lyricsQuery';
 import { useLivePosition } from './useLivePosition';
 import { sendControl } from './usePlayback';
@@ -47,6 +49,8 @@ export const LyricsView: FC<LyricsViewProps> = ({
   const positionMs = useLivePosition(state);
   const containerRef = useRef<HTMLDivElement>(null);
   const currentRef = useRef<HTMLButtonElement>(null);
+  const selectable = usePlayerUiStore((store) => store.lyricsSelectable);
+  const setSelectable = usePlayerUiStore((store) => store.setLyricsSelectable);
 
   const alignClass = align === 'center' ? 'text-center' : 'text-left';
   const synced = lyrics.data?.synced ?? [];
@@ -77,7 +81,18 @@ export const LyricsView: FC<LyricsViewProps> = ({
     <div
       ref={containerRef}
       data-testid="lyrics-view"
-      className={`relative flex min-h-0 flex-col overflow-y-auto py-4 ${CONTAINER[variant]}`}
+      onContextMenu={(event) =>
+        openContextMenu(event, [
+          {
+            label: t(selectable ? 'lyricsSelect.off' : 'lyricsSelect.on'),
+            icon: TextCursorInput,
+            onSelect: () => setSelectable(!selectable),
+          },
+        ])
+      }
+      className={`relative flex min-h-0 flex-col overflow-y-auto py-4 ${CONTAINER[variant]} ${
+        selectable ? 'selectable' : ''
+      }`}
     >
       {lyrics.isPending && message(t('player.lyricsLoading'))}
       {lyrics.error &&

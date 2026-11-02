@@ -6,6 +6,7 @@ import android.content.ComponentName
 import android.content.Intent
 import android.content.res.Configuration
 import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Environment
 import android.os.Handler
@@ -56,6 +57,11 @@ class LoadArgs {
     var fadeMs: Double? = null
     /** Measure its loudness and report it. */
     var measure: Boolean = false
+}
+
+@InvokeArg
+class MulticastArgs {
+    var hold: Boolean = false
 }
 
 @InvokeArg
@@ -572,6 +578,26 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
             Intent(activity, WebsiteActivity::class.java)
                 .putExtra(WebsiteActivity.EXTRA_REQUEST, invoke.getArgs().toString()),
         )
+        invoke.resolve()
+    }
+
+    // ---- Connect (M46.15): hearing other devices' mDNS needs a multicast lock ----
+
+    private var multicastLock: WifiManager.MulticastLock? = null
+
+    @Command
+    fun setMulticast(invoke: Invoke) {
+        val args = invoke.parseArgs(MulticastArgs::class.java)
+        val wifi = activity.applicationContext.getSystemService(WifiManager::class.java)
+        if (args.hold) {
+            val lock = multicastLock ?: wifi?.createMulticastLock("raygun-connect")?.also {
+                it.setReferenceCounted(false)
+                multicastLock = it
+            }
+            lock?.acquire()
+        } else {
+            multicastLock?.release()
+        }
         invoke.resolve()
     }
 

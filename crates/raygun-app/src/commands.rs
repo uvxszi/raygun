@@ -297,8 +297,11 @@ pub async fn extensions_reload(
 /// on Windows a window made in a synchronous command never loads its page (it stays blank).
 #[tauri::command]
 #[specta::specta]
-pub async fn miniplayer_open(app: tauri::AppHandle) -> Result<(), String> {
-    crate::miniplayer::open(&app)
+pub async fn miniplayer_open(
+    app: tauri::AppHandle,
+    background: Option<String>,
+) -> Result<(), String> {
+    crate::miniplayer::open(&app, background.as_deref())
 }
 
 /// Closes the miniplayer; with `show_main`, Raygun's main window comes forward.
@@ -705,6 +708,75 @@ pub async fn music_artist_info(
                 .map(|url| images.cover(url, &Default::default())),
             ..info
         }))
+}
+
+/// Where this device's player plays (M46.15).
+#[tauri::command]
+#[specta::specta]
+pub fn connect_status(
+    connect: tauri::State<'_, Arc<crate::connect::ConnectService>>,
+) -> raygun_model::ConnectStatus {
+    connect.status()
+}
+
+/// Other Raygun devices to play on: heard on the network, added by address, or allowed before.
+#[tauri::command]
+#[specta::specta]
+pub fn connect_devices(
+    connect: tauri::State<'_, Arc<crate::connect::ConnectService>>,
+) -> Vec<raygun_model::ConnectDevice> {
+    connect.inner().devices()
+}
+
+/// Adds a device by its address (`192.168.1.20:8820`).
+#[tauri::command]
+#[specta::specta]
+pub async fn connect_add(
+    connect: tauri::State<'_, Arc<crate::connect::ConnectService>>,
+    address: String,
+) -> Result<raygun_model::ConnectDevice, String> {
+    connect.add(&address).await
+}
+
+/// Plays on another device: asks it the first time, then moves the queue there.
+#[tauri::command]
+#[specta::specta]
+pub async fn connect_to(
+    connect: tauri::State<'_, Arc<crate::connect::ConnectService>>,
+    id: String,
+) -> Result<raygun_model::ConnectStatus, String> {
+    connect.inner().connect(&id).await
+}
+
+/// Stops playing on another device; with `play_here` its queue comes back to this one.
+#[tauri::command]
+#[specta::specta]
+pub async fn connect_disconnect(
+    connect: tauri::State<'_, Arc<crate::connect::ConnectService>>,
+    play_here: bool,
+) -> Result<raygun_model::ConnectStatus, String> {
+    Ok(connect.disconnect(play_here).await)
+}
+
+/// Forgets a device this one was allowed on or added.
+#[tauri::command]
+#[specta::specta]
+pub async fn connect_forget(
+    connect: tauri::State<'_, Arc<crate::connect::ConnectService>>,
+    id: String,
+) -> Result<Vec<raygun_model::ConnectDevice>, String> {
+    Ok(connect.inner().forget(&id).await)
+}
+
+/// This device's user answers another device that asked to play here.
+#[tauri::command]
+#[specta::specta]
+pub fn connect_answer(
+    connect: tauri::State<'_, Arc<crate::connect::ConnectService>>,
+    id: String,
+    allow: bool,
+) {
+    connect.answer(&id, allow);
 }
 
 /// Opens where an artist's or a song's facts came from (M46.14) in Raygun's browser.

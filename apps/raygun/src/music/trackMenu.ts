@@ -145,6 +145,19 @@ export const trackMenu = (track: TrackInput, options: TrackMenuOptions): MenuIte
       icon: Copy,
       onSelect: () => void navigator.clipboard?.writeText(name).catch(() => undefined),
     },
+    {
+      label: t('menu.copyTitle'),
+      icon: Copy,
+      onSelect: () => void navigator.clipboard?.writeText(track.title).catch(() => undefined),
+    },
   );
+  if (track.artist) {
+    const artist = track.artist;
+    items.push({
+      label: t('menu.copyArtist'),
+      icon: Copy,
+      onSelect: () => void navigator.clipboard?.writeText(artist).catch(() => undefined),
+    });
+  }
   return items;
 };

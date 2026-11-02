@@ -29,6 +29,7 @@ import { usePlayerLabels } from '../watch/usePlayerLabels';
 import { AppBar } from './AppBar';
 import { setAppZoom, setWindowDecorations, useWindowState } from './appWindow';
 import { BottomTabs } from './BottomTabs';
+import { ConnectPrompt } from '../connect/ConnectPrompt';
 import { ContextMenuHost } from './ContextMenu';
 import { HoverLabel } from './HoverLabel';
 import { useHorizontalWheel } from './useHorizontalWheel';
@@ -152,6 +153,7 @@ export const AppShell: FC = () => {
         <YouTubeOverlay />
         <HoverLabel />
         <ContextMenuHost />
+        <ConnectPrompt />
         {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
         {/* Keeps scrolled content from showing through the transparent status bar on phones. */}
         <div

@@ -6,8 +6,11 @@ import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
 
-/** What reaching the local network is for: an addon there, or devices there reaching the remote. */
-export type LocalNetworkReason = 'addon' | 'remote';
+/**
+ * What reaching the local network is for: an addon there, devices there reaching the remote, or
+ * playing on another device there (Connect, M46.15).
+ */
+export type LocalNetworkReason = 'addon' | 'remote' | 'connect';
 
 type LocalNetworkSheetProps = {
   reason: LocalNetworkReason;

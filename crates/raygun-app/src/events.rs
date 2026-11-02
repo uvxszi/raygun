@@ -16,6 +16,14 @@ pub struct PlaybackStateEvent(pub PlaybackState);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct QueueEvent(pub QueueSnapshot);
 
+/// Where this device's player plays changed, or the device it plays on reported (M46.15).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct ConnectEvent(pub raygun_model::ConnectStatus);
+
+/// Another device asks to play on this one, or the question closed (M46.15).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct ConnectRequestEvent(pub raygun_model::ConnectRequest);
+
 /// Progress of a local library scan.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct LibraryScanEvent(pub raygun_model::LibraryScanProgress);

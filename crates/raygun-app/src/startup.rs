@@ -175,6 +175,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     tauri::async_runtime::spawn(async move { sound.start().await });
     let mcp = tauri::async_runtime::block_on(crate::mcp::McpService::start(app.handle().clone()))?;
     app.manage(mcp);
+    // Connect (M46.15) first: the remote answers other devices for it.
+    let connect =
+        tauri::async_runtime::block_on(crate::connect::ConnectService::start(app.handle().clone()));
+    app.manage(connect);
     let remote =
         tauri::async_runtime::block_on(crate::remote::RemoteService::start(app.handle().clone()))?;
     app.manage(remote);

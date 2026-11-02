@@ -211,4 +211,17 @@ body {
   font-family: system-ui, sans-serif;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
+  /* Names, titles and buttons don't highlight under the mouse, as in an app; right click copies
+     them instead. Fields, error details and text marked selectable (lyrics, when asked) do. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea,
+[contenteditable='true'],
+.selectable,
+.selectable * {
+  -webkit-user-select: text;
+  user-select: text;
 }

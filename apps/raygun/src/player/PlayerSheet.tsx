@@ -39,6 +39,7 @@ import type { PlayerView } from './playerView';
 import { SoundButton } from '../sound/SoundButton';
 import { PlaybackExtras } from './PlaybackExtras';
 import { PlayerCards } from './PlayerCards';
+import { PlayingOn } from '../connect/PlayingOn';
 import { PlayerViewSettings } from './PlayerViewSettings';
 import { useCloseOnBack } from './useCloseOnBack';
 import { onSeekKey } from './seekKeys';
@@ -229,6 +230,7 @@ export const PlayerSheet: FC = () => {
             </div>
           </div>
 
+          <PlayingOn className="mx-auto mt-1 w-fit max-w-full rounded-full" />
           <div
             style={width.style}
             className={`mx-auto flex min-h-0 w-full flex-1 ${width.className}`}

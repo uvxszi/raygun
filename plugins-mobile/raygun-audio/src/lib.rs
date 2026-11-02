@@ -168,6 +168,18 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(|error| error.to_string())
     }
 
+    /// Lets the app hear multicast (mDNS) while held: Connect listens for devices (M46.15).
+    #[cfg(target_os = "android")]
+    pub fn multicast(&self, hold: bool) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>(
+                "setMulticast",
+                serde_json::json!({ "hold": hold }),
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
     /// Clears the built-in browser's cookies, storage and cache.
     #[cfg(target_os = "android")]
     pub fn website_clear(&self) -> Result<(), String> {

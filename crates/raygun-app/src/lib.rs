@@ -11,6 +11,7 @@ mod catalog;
 mod collections;
 mod comics;
 mod commands;
+mod connect;
 mod device_sync;
 mod discovery;
 mod epub;
@@ -89,6 +90,13 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::music_artist_info,
             commands::music_song_credits,
             commands::music_open_info_page,
+            commands::connect_status,
+            commands::connect_devices,
+            commands::connect_add,
+            commands::connect_to,
+            commands::connect_disconnect,
+            commands::connect_forget,
+            commands::connect_answer,
             commands::miniplayer_close,
             commands::extension_open_website,
             commands::extension_repos,
@@ -318,7 +326,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::ExportEvent,
             events::VideoPlayerEvent,
             events::YouTubeVideoEvent,
-            events::SpeechCommandEvent
+            events::SpeechCommandEvent,
+            events::ConnectEvent,
+            events::ConnectRequestEvent
         ])
 }
 

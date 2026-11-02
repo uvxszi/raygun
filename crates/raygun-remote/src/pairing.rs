@@ -79,23 +79,16 @@ impl Pairing {
         }
         self.code = None;
         self.failures = 0;
-        let name: String = name.trim().chars().take(MAX_NAME_CHARS).collect();
-        let device = PairedDevice {
-            id: uuid::Uuid::now_v7().to_string(),
-            name: if name.is_empty() {
-                "Browser".into()
-            } else {
-                name
-            },
-            token: format!(
-                "{}{}",
-                uuid::Uuid::new_v4().simple(),
-                uuid::Uuid::new_v4().simple()
-            ),
-            paired_at: now_ms,
-        };
+        let device = new_device(name, now_ms);
         self.devices.push(device.clone());
         Ok(device)
+    }
+
+    /// Admits a device this device's user allowed (Connect, M46.15): no code is needed.
+    pub fn admit(&mut self, name: &str, now_ms: i64) -> PairedDevice {
+        let device = new_device(name, now_ms);
+        self.devices.push(device.clone());
+        device
     }
 
     /// The paired device holding this token.
@@ -113,6 +106,24 @@ impl Pairing {
         let before = self.devices.len();
         self.devices.retain(|device| device.id != id);
         self.devices.len() != before
+    }
+}
+
+fn new_device(name: &str, now_ms: i64) -> PairedDevice {
+    let name: String = name.trim().chars().take(MAX_NAME_CHARS).collect();
+    PairedDevice {
+        id: uuid::Uuid::now_v7().to_string(),
+        name: if name.is_empty() {
+            "Browser".into()
+        } else {
+            name
+        },
+        token: format!(
+            "{}{}",
+            uuid::Uuid::new_v4().simple(),
+            uuid::Uuid::new_v4().simple()
+        ),
+        paired_at: now_ms,
     }
 }
 

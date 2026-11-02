@@ -134,9 +134,10 @@ The user asked for the full depth of the reference apps ("its not meant to be a 
   - rows with side buttons and Shift+wheel, and no scrollbars under rows, chips or tabs;
   - the phone's player with an "Up next" pill under the cover and its controls higher up, then Lyrics, About the artist and Credits cards;
   - artist facts and credits through the new `music.info` capability (MusicBrainz with Wikipedia), also shown on artist pages.
-- **Asked 2026-11-02, next:**
-  - M46.15 Connect: play on another device, with "Playing on …" on this one, which then works as a remote;
-  - M46.16 Audiobooks: a media type with its own pill in Library → Audio, from LibriVox and Internet Archive.
+- M46.15 **Connect: play on another device** (asked 2026-11-02): ✅
+  - Raygun devices find each other (mDNS, or an address) and ask once on the device being played on.
+  - The queue and the position move there, and this device shows "Playing on …" and controls it. "Play here" takes the queue back.
+- **Asked 2026-11-02, next:** M46.16 Audiobooks: a media type with its own pill in Library → Audio, from LibriVox and Internet Archive.
 - **Asked 2026-11-01, queued in this order** (each becomes a milestone with a spec):
   1. **Sound and lyrics editing** (now M46.12):
      - edit lyrics (words and timings) and shift them by an offset; the same for video subtitles;

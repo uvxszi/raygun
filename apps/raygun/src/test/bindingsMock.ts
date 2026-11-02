@@ -1,6 +1,8 @@
 import type {
   AiModelProgress,
   AppInfo,
+  ConnectRequest,
+  ConnectStatus,
   EngineCommand,
   ExportJob,
   ExtensionInfo,
@@ -31,6 +33,8 @@ import { PLAYER_DEFAULTS } from '../settings/playerOptions';
  */
 
 type EventPayloads = {
+  connectEvent: ConnectStatus;
+  connectRequestEvent: ConnectRequest;
   engineCommandEvent: EngineCommand;
   playbackStateEvent: PlaybackState;
   queueEvent: QueueSnapshot;
@@ -66,6 +70,14 @@ const makeEvent = (name: EventName) => ({
     });
   }),
 });
+
+/** Connect's status while this device plays here (M46.15). */
+export const CONNECT_IDLE: ConnectStatus = {
+  thisDevice: 'Pixel',
+  session: null,
+  asking: null,
+  error: null,
+};
 
 export const IDLE_STATE: PlaybackState = {
   status: 'idle',
@@ -251,6 +263,13 @@ export const bindingsMock = {
     musicArtistInfo: vi.fn(),
     musicSongCredits: vi.fn(),
     musicOpenInfoPage: vi.fn(),
+    connectStatus: vi.fn(),
+    connectDevices: vi.fn(),
+    connectAdd: vi.fn(),
+    connectTo: vi.fn(),
+    connectDisconnect: vi.fn(),
+    connectForget: vi.fn(),
+    connectAnswer: vi.fn(),
     playbackQueueTracks: vi.fn(),
     favoriteSet: vi.fn(),
     playlistsList: vi.fn(),
@@ -423,6 +442,8 @@ export const bindingsMock = {
     librarySearch: vi.fn(),
   },
   events: {
+    connectEvent: makeEvent('connectEvent'),
+    connectRequestEvent: makeEvent('connectRequestEvent'),
     engineCommandEvent: makeEvent('engineCommandEvent'),
     playbackStateEvent: makeEvent('playbackStateEvent'),
     queueEvent: makeEvent('queueEvent'),
@@ -515,6 +536,13 @@ export const seedBindings = () => {
   commands.musicArtistInfo.mockResolvedValue(ok(null));
   commands.musicSongCredits.mockResolvedValue(ok(null));
   commands.musicOpenInfoPage.mockResolvedValue(ok(null));
+  commands.connectStatus.mockResolvedValue(CONNECT_IDLE);
+  commands.connectDevices.mockResolvedValue([]);
+  commands.connectAdd.mockResolvedValue({ status: 'error', error: 'not mocked' });
+  commands.connectTo.mockResolvedValue(ok(CONNECT_IDLE));
+  commands.connectDisconnect.mockResolvedValue(ok(CONNECT_IDLE));
+  commands.connectForget.mockResolvedValue(ok([]));
+  commands.connectAnswer.mockResolvedValue(null);
   commands.favoriteSet.mockResolvedValue(ok(null));
   commands.playlistsList.mockResolvedValue(ok([]));
   commands.playlistGet.mockResolvedValue(

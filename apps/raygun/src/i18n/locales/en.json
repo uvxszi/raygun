@@ -1050,11 +1050,13 @@
     "title": "Local network access",
     "why": {
       "addon": "This addon is on your network. Android asks before an app connects to devices on your Wi-Fi, so it will ask Raygun's permission to reach \"nearby devices\".",
-      "remote": "Phones and computers on your Wi-Fi connect to the remote. Android asks before an app lets devices on your network in, so it will ask Raygun's permission to reach \"nearby devices\"."
+      "remote": "Phones and computers on your Wi-Fi connect to the remote. Android asks before an app lets devices on your network in, so it will ask Raygun's permission to reach \"nearby devices\".",
+      "connect": "Your other device is on your Wi-Fi. Android asks before an app connects to devices on your network, so it will ask Raygun's permission to reach \"nearby devices\"."
     },
     "denied": {
       "addon": "Allow local network access to reach addons on your network.",
-      "remote": "Allow local network access so devices on your network can reach the remote."
+      "remote": "Allow local network access so devices on your network can reach the remote.",
+      "connect": "Allow local network access to play on your other devices."
     },
     "settingsHint": "Android won't ask again. In Raygun's app settings, open Permissions, then Nearby devices, and choose Allow.",
     "allow": "Continue",
@@ -1916,7 +1918,9 @@
     "open": "Open",
     "searchEverywhere": "Search for it in every source",
     "copyTitle": "Copy title",
-    "editSong": "Edit sound and lyrics"
+    "editSong": "Edit sound and lyrics",
+    "copyText": "Copy “{{text}}”",
+    "copyArtist": "Copy artist"
   },
   "tracks": {
     "table": "Songs",
@@ -2241,10 +2245,44 @@
     "neverSynced": "Not synced yet",
     "syncWith": "Sync with {{name}} now",
     "manage": "Pair or manage devices",
-    "remote": "Control Raygun from another device"
+    "remote": "Control Raygun from another device",
+    "playingOn": "Playing on {{name}}",
+    "playingThere": "Playing there; this device controls it",
+    "selectDevice": "Select a device",
+    "playHere": "Play here",
+    "playOn": "Play on {{name}}",
+    "disconnect": "Disconnect",
+    "status": {
+      "playing": "Playing",
+      "asking": "Waiting for {{name}} to allow it…",
+      "ready": "Ready",
+      "asksFirst": "Asks on that device the first time",
+      "away": "Not seen on the network"
+    },
+    "noDevices": "No other devices yet. On your other device, turn on “Let other devices play here”, or add it by its address.",
+    "add": "Add a device by address",
+    "addressLabel": "The address your other device shows under “Let other devices play here”",
+    "addButton": "Add",
+    "cancel": "Cancel",
+    "forget": "Forget {{name}}",
+    "allowHere": "Let other devices play here",
+    "allowHereHint": "Your other Raygun devices can play on this one. The first time, this device asks you.",
+    "allowHereAddress": "Other devices find this one on your network, or at {{address}}.",
+    "sync": "Device sync",
+    "ask": {
+      "title": "Play on this device?",
+      "question": "{{name}} wants to play on this device",
+      "explain": "Allow it, and {{name}} can play here and control what plays, from now on. You can remove it in Settings → Remote.",
+      "allow": "Allow",
+      "deny": "Don’t allow"
+    }
   },
   "carousel": {
     "back": "Scroll back",
     "forward": "Scroll forward"
+  },
+  "lyricsSelect": {
+    "on": "Make lyrics selectable",
+    "off": "Stop selecting lyrics"
   }
 }

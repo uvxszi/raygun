@@ -59,7 +59,7 @@ export const commands = {
 	 *  Opens the miniplayer (M46.13): a small window on top with the song and its controls. Async:
 	 *  on Windows a window made in a synchronous command never loads its page (it stays blank).
 	 */
-	miniplayerOpen: () => typedError<null, string>(__TAURI_INVOKE("miniplayer_open")),
+	miniplayerOpen: (background: string | null) => typedError<null, string>(__TAURI_INVOKE("miniplayer_open", { background })),
 	/**  What open databases say about an artist (M46.14), or `null`. */
 	musicArtistInfo: (name: string) => typedError<{
 	name: string,
@@ -87,6 +87,20 @@ export const commands = {
 } | null, string>(__TAURI_INVOKE("music_song_credits", { query })),
 	/**  Opens where an artist's or a song's facts came from (M46.14) in Raygun's browser. */
 	musicOpenInfoPage: (url: string) => typedError<null, string>(__TAURI_INVOKE("music_open_info_page", { url })),
+	/**  Where this device's player plays (M46.15). */
+	connectStatus: () => __TAURI_INVOKE<ConnectStatus>("connect_status"),
+	/**  Other Raygun devices to play on: heard on the network, added by address, or allowed before. */
+	connectDevices: () => __TAURI_INVOKE<ConnectDevice[]>("connect_devices"),
+	/**  Adds a device by its address (`192.168.1.20:8820`). */
+	connectAdd: (address: string) => typedError<ConnectDevice, string>(__TAURI_INVOKE("connect_add", { address })),
+	/**  Plays on another device: asks it the first time, then moves the queue there. */
+	connectTo: (id: string) => typedError<ConnectStatus, string>(__TAURI_INVOKE("connect_to", { id })),
+	/**  Stops playing on another device; with `play_here` its queue comes back to this one. */
+	connectDisconnect: (playHere: boolean) => typedError<ConnectStatus, string>(__TAURI_INVOKE("connect_disconnect", { playHere })),
+	/**  Forgets a device this one was allowed on or added. */
+	connectForget: (id: string) => typedError<ConnectDevice[], string>(__TAURI_INVOKE("connect_forget", { id })),
+	/**  This device's user answers another device that asked to play here. */
+	connectAnswer: (id: string, allow: boolean) => __TAURI_INVOKE<void>("connect_answer", { id, allow }),
 	/**  Closes the miniplayer; with `show_main`, Raygun's main window comes forward. */
 	miniplayerClose: (showMain: boolean) => typedError<null, string>(__TAURI_INVOKE("miniplayer_close", { showMain })),
 	/**  Opens the site an extension's sources read in Raygun's browser (M46.11). */
@@ -524,6 +538,8 @@ export const commands = {
 /** Events */
 export const events = {
 	aiModelEvent: makeEvent<AiModelEvent>("ai-model-event"),
+	connectEvent: makeEvent<ConnectEvent>("connect-event"),
+	connectRequestEvent: makeEvent<ConnectRequestEvent>("connect-request-event"),
 	engineCommandEvent: makeEvent<EngineCommandEvent>("engine-command-event"),
 	exportEvent: makeEvent<ExportEvent>("export-event"),
 	extensionsChangedEvent: makeEvent<ExtensionsChangedEvent>("extensions-changed-event"),
@@ -793,6 +809,55 @@ export type CompatReport = {
 	stubbedApis: string[],
 	/**  UI modules it imports; they're inert in Raygun. */
 	uiImports: string[],
+};
+
+/**  Another Raygun device this one can play on (M46.15). */
+export type ConnectDevice = {
+	id: string,
+	name: string,
+	/**  `host:port`. */
+	address: string,
+	/**  `phone` or `computer`. */
+	kind: string,
+	/**  It allowed this device before, so playing there asks nothing. */
+	paired: boolean,
+	/**  Heard on the network, or reached at its address, this run. */
+	found: boolean,
+};
+
+/**  Where this device's player plays changed, or the device it plays on reported (M46.15). */
+export type ConnectEvent = ConnectStatus;
+
+/**  Another device asks to play on this one (M46.15); `open` is false once it's answered or gone. */
+export type ConnectRequest = {
+	id: string,
+	name: string,
+	open: boolean,
+};
+
+/**  Another device asks to play on this one, or the question closed (M46.15). */
+export type ConnectRequestEvent = ConnectRequest;
+
+/**  Playing on another device (M46.15): which one, and its player as it last reported. */
+export type ConnectSession = {
+	deviceId: string,
+	deviceName: string,
+	/**  `phone` or `computer`. */
+	deviceKind: string,
+	state: PlaybackState | null,
+	queue: QueueSnapshot | null,
+};
+
+/**  Where this device's player plays (M46.15). */
+export type ConnectStatus = {
+	/**  This device's name, as others see it. */
+	thisDevice: string,
+	/**  Set while playing on another device. */
+	session: ConnectSession | null,
+	/**  The device being asked, until it answers. */
+	asking: string | null,
+	/**  What went wrong last: a refusal, a device that went away. */
+	error: string | null,
 };
 
 /**  Something started and not finished. */

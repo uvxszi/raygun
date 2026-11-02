@@ -26,7 +26,9 @@ import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
 import { ArtistLinks } from '../music/ArtistLinks';
+import { PlayingOn } from '../connect/PlayingOn';
 import { ConnectButton } from '../devices/ConnectButton';
+import { appBackground } from '../shell/appWindow';
 import { useIsDesktop } from '../shell/useIsDesktop';
 import { fromQueueItem } from '../collections/useCollections';
 import { useTrackMenu } from '../music/useTrackMenu';
@@ -70,7 +72,14 @@ export const MiniPlayer: FC = () => {
   if (!item) {
     return null;
   }
-  return wide ? <WideBar state={state} item={item} /> : <PhoneBar state={state} item={item} />;
+  return wide ? (
+    <>
+      <WideBar state={state} item={item} />
+      <PlayingOn className="-mt-1 mx-2 mb-2 rounded-xl lg:mx-4" />
+    </>
+  ) : (
+    <PhoneBar state={state} item={item} />
+  );
 };
 
 type BarProps = { state: PlaybackState | undefined; item: QueueItem };
@@ -145,6 +154,7 @@ const PhoneBar: FC<BarProps> = ({ state, item }) => {
         <FavoriteButton item={item} compact />
         <PlayButton state={state} />
       </div>
+      <PlayingOn />
     </motion.div>
   );
 };
@@ -257,7 +267,10 @@ const WideBar: FC<BarProps> = ({ state, item }) => {
         <ConnectButton className="size-9" />
         <VolumeControl state={state} />
         {desktop && (
-          <BarButton label={t('miniplayer.open')} onClick={() => void commands.miniplayerOpen()}>
+          <BarButton
+            label={t('miniplayer.open')}
+            onClick={() => void commands.miniplayerOpen(appBackground())}
+          >
             <PictureInPicture2 aria-hidden size={18} />
           </BarButton>
         )}

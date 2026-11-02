@@ -29,6 +29,26 @@ export const closeWindow = () => withWindow((window) => window.close());
 export const setWindowDecorations = (system: boolean) =>
   withWindow((window) => window.setDecorations(system));
 
+/**
+ * The app's background as `#rrggbb` (the theme's or the user's own colour), for a window that
+ * shows before its page paints (the miniplayer, M46.13). A canvas turns any CSS colour into RGB.
+ */
+export const appBackground = (): string | null => {
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+    const context = canvas.getContext('2d');
+    if (!context) return null;
+    context.fillStyle = getComputedStyle(document.body).backgroundColor;
+    context.fillRect(0, 0, 1, 1);
+    const [red = 0, green = 0, blue = 0] = context.getImageData(0, 0, 1, 1).data;
+    return `#${[red, green, blue].map((part) => part.toString(16).padStart(2, '0')).join('')}`;
+  } catch {
+    return null;
+  }
+};
+
 /** The whole app's zoom, 1 = 100 % (M46.9). */
 export const setAppZoom = async (factor: number) => {
   try {

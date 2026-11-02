@@ -3,12 +3,13 @@
 
 use std::sync::{Arc, Mutex};
 
-use raygun_model::{RemoteDevice, RemoteStatus};
+use raygun_model::{ConnectCommand, QueueSnapshot, RemoteDevice, RemoteStatus};
 use raygun_remote::{Access, Backend, PairedDevice, Pairing, Running};
 use serde_json::{Value, json};
 use tauri::{AppHandle, Manager};
 
 use crate::collections::{CollectionsService, portable_url};
+use crate::connect::ConnectService;
 use crate::extensions::ExtensionService;
 use crate::library::LibraryService;
 use crate::local_network::{LocalNetwork, REMOTE_DENIED};
@@ -30,6 +31,8 @@ pub struct RemoteService {
 #[derive(Default)]
 struct ServerState {
     running: Option<Running>,
+    /// This device on the network for Connect (M46.15), while the server runs.
+    advertised: Option<raygun_remote::discovery::Advertised>,
     error: Option<String>,
 }
 
@@ -121,6 +124,7 @@ impl RemoteService {
                 running.stop();
                 tracing::info!("remote stopped");
             }
+            state.advertised = None;
             state.error = None;
         }
         self.status().await
@@ -175,10 +179,17 @@ impl RemoteService {
             access,
         );
         let result = raygun_remote::serve(router).await;
+        let me = self.app.state::<Arc<ConnectService>>().me().clone();
         let mut state = self.lock();
         match result {
             Ok(running) => {
                 tracing::info!(port = running.port, "remote listening on the local network");
+                // Other Raygun devices hear of this one, to play on it (M46.15).
+                state.advertised = raygun_remote::lan_ip().and_then(|ip| {
+                    raygun_remote::discovery::advertise(&me.id, &me.name, me.kind, ip, running.port)
+                        .map_err(|error| tracing::warn!(%error, "couldn't advertise for Connect"))
+                        .ok()
+                });
                 state.running = Some(running);
                 state.error = None;
             }
@@ -332,6 +343,46 @@ impl Backend for RemoteBackend {
             .state::<PlaybackService>()
             .enqueue(vec![item], true);
         Ok(())
+    }
+
+    fn device(&self) -> Value {
+        let me = self.app.state::<Arc<ConnectService>>().me().clone();
+        json!({ "id": me.id, "name": me.name, "kind": me.kind })
+    }
+
+    /// The player as another Raygun shows it: sources it can play and artwork at its source.
+    fn connect_snapshot(&self) -> (Value, Value) {
+        let playback = self.app.state::<PlaybackService>();
+        let images = self.app.state::<raygun_net::ImageLinks>();
+        let original = |url: &str| images.original(url);
+        let queue = playback.queue();
+        let queue = QueueSnapshot {
+            items: queue
+                .items
+                .into_iter()
+                .map(|item| crate::connect::portable_queue_item(item, &original))
+                .collect(),
+            order: queue.order,
+        };
+        (
+            serde_json::to_value(playback.state()).unwrap_or_default(),
+            serde_json::to_value(queue).unwrap_or_default(),
+        )
+    }
+
+    fn connect_command(&self, command: &Value) -> Result<(), String> {
+        let command: ConnectCommand =
+            serde_json::from_value(command.clone()).map_err(|_| "Unknown command".to_owned())?;
+        let images = self.app.state::<raygun_net::ImageLinks>();
+        self.app
+            .state::<PlaybackService>()
+            .apply(crate::connect::arrived(command, &images));
+        Ok(())
+    }
+
+    async fn ask(&self, name: &str) -> bool {
+        let connect = self.app.state::<Arc<ConnectService>>().inner().clone();
+        connect.ask(name).await
     }
 }
 

@@ -38,6 +38,9 @@ type PlayerUiState = {
   videoShown: boolean;
   /** The volume unmuting goes back to. */
   unmutedVolume: number;
+  /** Lyrics can be selected and copied, toggled from their right-click menu. */
+  lyricsSelectable: boolean;
+  setLyricsSelectable: (selectable: boolean) => void;
   openSheet: (options?: { view?: SheetView }) => void;
   closeSheet: () => void;
   setSheetView: (view: SheetView) => void;
@@ -54,6 +57,8 @@ export const usePlayerUiStore = create<PlayerUiState>((set) => ({
   panel: savedPanel(),
   videoShown: false,
   unmutedVolume: 1,
+  lyricsSelectable: false,
+  setLyricsSelectable: (lyricsSelectable) => set({ lyricsSelectable }),
   openSheet: (options) =>
     set((state) => ({ sheetOpen: true, sheetView: options?.view ?? state.sheetView })),
   closeSheet: () => set({ sheetOpen: false }),

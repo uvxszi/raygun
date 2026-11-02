@@ -1,33 +1,11 @@
 import { commands } from '@raygun/bindings';
-import type { RemoteStatus } from '@raygun/bindings';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw, X } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
 import { useLocalNetworkGate } from '../network/useLocalNetworkGate';
-
-const REMOTE = ['remote'];
-
-/** While the remote is on, devices pair from elsewhere: refresh to show them and the used code. */
-const REFRESH_MS = 3000;
-
-const useRemoteStatus = () =>
-  useQuery({
-    queryKey: REMOTE,
-    queryFn: () => unwrapResult(commands.remoteStatus()),
-    refetchInterval: (query) => (query.state.data?.enabled ? REFRESH_MS : false),
-  });
-
-/** Every change answers with the new status, which replaces the cached one. */
-const useRemoteChange = <Variables,>(run: (variables: Variables) => Promise<RemoteStatus>) => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: run,
-    onSuccess: (status) => queryClient.setQueryData(REMOTE, status),
-  });
-};
+import { useRemoteChange, useRemoteStatus } from './remoteQueries';
 
 /** Lets browsers on the same network control playback after pairing with a QR code (M20). */
 export const RemoteCard: FC = () => {

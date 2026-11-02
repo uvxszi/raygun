@@ -100,6 +100,22 @@ const spotItems = (event: MouseEvent, t: TFunction, search: (text: string) => vo
       },
     );
   }
+  // Text isn't selectable in the app, so the words under the pointer can be copied as they are.
+  if (!field && !selected) {
+    const words = target
+      ?.closest('h1, h2, h3, h4, h5, h6, p, span, a, li, td, th, label, button, dd, dt')
+      ?.textContent?.replace(/\s+/g, ' ')
+      .trim();
+    if (words && words.length <= 300) {
+      items.push({
+        label: t('menu.copyText', {
+          text: words.length > 28 ? `${words.slice(0, 28)}…` : words,
+        }),
+        icon: Copy,
+        onSelect: () => copy(words),
+      });
+    }
+  }
   const link = target?.closest('a[href]');
   if (link instanceof HTMLAnchorElement && /^https?:/.test(link.href)) {
     if (items.length) items.push({ kind: 'separator' });

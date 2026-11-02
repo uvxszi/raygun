@@ -3,12 +3,15 @@ import type { PlaybackControl, PlaybackState, QueueItem, QueueSnapshot } from '@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
+import { useConnectSession, useConnectSync } from '../connect/useConnect';
+
 const PLAYBACK_STATE_KEY = ['playbackState'] as const;
 const QUEUE_KEY = ['queue'] as const;
 
 /** Keeps the query cache in sync with state pushed from Rust. Mount once, in the app shell. */
 export const usePlaybackSync = () => {
   const queryClient = useQueryClient();
+  useConnectSync();
   useEffect(() => {
     const unlistenState = events.playbackStateEvent.listen((event) =>
       queryClient.setQueryData(PLAYBACK_STATE_KEY, event.payload),
@@ -23,19 +26,30 @@ export const usePlaybackSync = () => {
   }, [queryClient]);
 };
 
-export const usePlaybackState = () =>
-  useQuery<PlaybackState>({
+/**
+ * The player's state: this device's, or while it plays on another (M46.15) that device's, so
+ * every player view shows and controls what plays there.
+ */
+export const usePlaybackState = () => {
+  const local = useQuery<PlaybackState>({
     queryKey: PLAYBACK_STATE_KEY,
     queryFn: () => commands.playbackGetState(),
     staleTime: Infinity,
   });
+  const session = useConnectSession();
+  return session ? { ...local, data: session.state ?? undefined } : local;
+};
 
-export const useQueue = () =>
-  useQuery<QueueSnapshot>({
+/** The queue, also from the other device while playing there (M46.15). */
+export const useQueue = () => {
+  const local = useQuery<QueueSnapshot>({
     queryKey: QUEUE_KEY,
     queryFn: () => commands.playbackGetQueue(),
     staleTime: Infinity,
   });
+  const session = useConnectSession();
+  return session ? { ...local, data: session.queue ?? undefined } : local;
+};
 
 /** The playing item together with the state that drives the player UI. */
 export const useNowPlaying = () => {

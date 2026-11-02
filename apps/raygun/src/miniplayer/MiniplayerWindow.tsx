@@ -55,7 +55,7 @@ const SeekBar: FC<{ state: PlaybackState | undefined; position: number }> = ({
   const duration = state?.durationMs ?? 0;
   return (
     <div className="flex flex-col gap-0.5">
-      <div className="flex justify-between text-[11px] text-white/85 tabular-nums">
+      <div className="flex justify-between text-[clamp(11px,3.4vw,1.1rem)] text-white/85 tabular-nums">
         <span>{formatTime(position)}</span>
         <span>{formatTime(duration)}</span>
       </div>
@@ -215,13 +215,20 @@ export const MiniplayerWindow: FC = () => {
         {item ? (
           <>
             <div className="min-w-0 flex-1">
-              <Marquee text={item.title} className="text-lg leading-tight font-extrabold" />
-              <p className="text-muted truncate text-sm">{item.artist}</p>
+              <Marquee
+                text={item.title}
+                className="text-[clamp(1.05rem,6.5vw,2.75rem)] leading-tight font-extrabold"
+              />
+              <p className="text-muted truncate text-[clamp(0.85rem,4.4vw,1.75rem)]">
+                {item.artist}
+              </p>
             </div>
             <FavoriteButton item={item} compact />
           </>
         ) : (
-          <p className="text-muted flex-1 text-sm">{t('miniplayer.nothing')}</p>
+          <p className="text-muted flex-1 text-[clamp(0.85rem,4.4vw,1.75rem)]">
+            {t('miniplayer.nothing')}
+          </p>
         )}
       </div>
     </div>

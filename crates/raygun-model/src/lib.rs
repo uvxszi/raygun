@@ -2460,6 +2460,83 @@ pub struct RemoteStatus {
     pub error: Option<String>,
 }
 
+// ---- Connect (M46.15) ----
+
+/// What one device sends another it plays on (M46.15): the same changes as its own player's.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ConnectCommand {
+    /// Replaces the queue and starts `start_index` at `start_ms`; paused unless `play`.
+    #[serde(rename_all = "camelCase")]
+    Replace {
+        items: Vec<QueueItemInput>,
+        start_index: Option<u32>,
+        shuffle: bool,
+        start_ms: f64,
+        play: bool,
+    },
+    #[serde(rename_all = "camelCase")]
+    Enqueue {
+        items: Vec<QueueItemInput>,
+        play_now: bool,
+    },
+    #[serde(rename_all = "camelCase")]
+    EnqueueNext { items: Vec<QueueItemInput> },
+    #[serde(rename_all = "camelCase")]
+    Control { control: PlaybackControl },
+}
+
+/// Another Raygun device this one can play on (M46.15).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectDevice {
+    pub id: String,
+    pub name: String,
+    /// `host:port`.
+    pub address: String,
+    /// `phone` or `computer`.
+    pub kind: String,
+    /// It allowed this device before, so playing there asks nothing.
+    pub paired: bool,
+    /// Heard on the network, or reached at its address, this run.
+    pub found: bool,
+}
+
+/// Playing on another device (M46.15): which one, and its player as it last reported.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectSession {
+    pub device_id: String,
+    pub device_name: String,
+    /// `phone` or `computer`.
+    pub device_kind: String,
+    pub state: Option<PlaybackState>,
+    pub queue: Option<QueueSnapshot>,
+}
+
+/// Where this device's player plays (M46.15).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectStatus {
+    /// This device's name, as others see it.
+    pub this_device: String,
+    /// Set while playing on another device.
+    pub session: Option<ConnectSession>,
+    /// The device being asked, until it answers.
+    pub asking: Option<String>,
+    /// What went wrong last: a refusal, a device that went away.
+    pub error: Option<String>,
+}
+
+/// Another device asks to play on this one (M46.15); `open` is false once it's answered or gone.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectRequest {
+    pub id: String,
+    pub name: String,
+    pub open: bool,
+}
+
 // ---- Device sync (M21) ----
 
 /// What a user can choose to sync between devices.

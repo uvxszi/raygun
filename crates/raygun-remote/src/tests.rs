@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use axum::body::{Body, to_bytes};
 use axum::http::Request;
@@ -11,6 +11,12 @@ use super::*;
 #[derive(Default)]
 struct Fake {
     controls: AtomicU32,
+    /// What this device's user answers when another device asks to play here.
+    allow: AtomicBool,
+    /// Who asked.
+    asked: Mutex<Vec<String>>,
+    /// Connect commands received.
+    commands: Mutex<Vec<Value>>,
 }
 
 impl Backend for Arc<Fake> {
@@ -38,6 +44,30 @@ impl Backend for Arc<Fake> {
             .and_then(Value::as_str)
             .map(|_| ())
             .ok_or_else(|| "title is required".into())
+    }
+
+    fn device(&self) -> Value {
+        json!({ "id": "pc", "name": "Living room PC", "kind": "computer" })
+    }
+
+    fn connect_snapshot(&self) -> (Value, Value) {
+        (
+            json!({ "status": "playing", "controls": self.controls.load(Ordering::SeqCst) }),
+            json!({ "items": [], "order": [] }),
+        )
+    }
+
+    fn connect_command(&self, command: &Value) -> Result<(), String> {
+        if command.get("type").is_none() {
+            return Err("Unknown command".into());
+        }
+        self.commands.lock().unwrap().push(command.clone());
+        Ok(())
+    }
+
+    async fn ask(&self, name: &str) -> bool {
+        self.asked.lock().unwrap().push(name.to_owned());
+        self.allow.load(Ordering::SeqCst)
     }
 }
 
@@ -264,4 +294,115 @@ fn lan_addresses_exclude_loopback_and_unspecified() {
     assert!(!usable_lan_ip("127.0.0.1".parse().unwrap()));
     assert!(!usable_lan_ip("0.0.0.0".parse().unwrap()));
     assert!(!usable_lan_ip("::1".parse().unwrap()));
+}
+
+#[tokio::test]
+async fn another_raygun_plays_here_once_this_device_allows_it() {
+    let setup = setup();
+    let (status, device) = send(
+        &setup.app,
+        Request::get("/api/device").body(Body::empty()).unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "naming the device needs no token");
+    assert_eq!(device["name"], "Living room PC");
+
+    let (status, answer) = send(
+        &setup.app,
+        post_json("/api/connect/hello", None, json!({ "name": " Pixel 4 " })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(answer["error"], "That device didn't allow it.");
+    assert!(setup.saved.lock().unwrap().is_empty());
+
+    setup.fake.allow.store(true, Ordering::SeqCst);
+    let (status, answer) = send(
+        &setup.app,
+        post_json("/api/connect/hello", None, json!({ "name": " Pixel 4 " })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(answer["device"]["id"], "pc");
+    let token = answer["token"].as_str().unwrap().to_owned();
+    assert_eq!(*setup.fake.asked.lock().unwrap(), ["Pixel 4", "Pixel 4"]);
+    let saved = setup.saved.lock().unwrap().clone();
+    assert_eq!(saved.len(), 1, "an allowed device is paired like a browser");
+    assert_eq!(saved[0].name, "Pixel 4");
+
+    assert_eq!(
+        send(
+            &setup.app,
+            post_json("/api/connect/command", None, json!({ "type": "control" }))
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
+    let command = json!({ "type": "control", "control": { "type": "pause" } });
+    let (status, _) = send(
+        &setup.app,
+        post_json("/api/connect/command", Some(&token), command.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(*setup.fake.commands.lock().unwrap(), [command]);
+    let (status, answer) = send(
+        &setup.app,
+        post_json("/api/connect/command", Some(&token), json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(answer["error"], "Unknown command");
+}
+
+#[tokio::test]
+async fn connect_events_send_the_queue_and_the_state_as_they_change() {
+    let setup = setup();
+    let token = paired(&setup).await;
+    assert_eq!(
+        send(
+            &setup.app,
+            Request::get("/api/connect/events?token=made-up")
+                .body(Body::empty())
+                .unwrap()
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
+    let response = setup
+        .app
+        .clone()
+        .oneshot(
+            Request::get(format!("/api/connect/events?token={token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut body = response.into_body().into_data_stream();
+    let mut next = async || {
+        let chunk = tokio::time::timeout(Duration::from_secs(5), body.next())
+            .await
+            .expect("an event within a few seconds")
+            .unwrap()
+            .unwrap();
+        String::from_utf8(chunk.to_vec()).unwrap()
+    };
+
+    let first = next().await;
+    assert!(first.contains("event: queue"), "{first}");
+    let second = next().await;
+    assert!(second.contains("event: state"), "{second}");
+    assert!(second.contains(r#""controls":0"#), "{second}");
+
+    setup.fake.controls.fetch_add(1, Ordering::SeqCst);
+    let changed = next().await;
+    assert!(
+        changed.contains("event: state"),
+        "only the state changed: {changed}"
+    );
+    assert!(changed.contains(r#""controls":1"#), "{changed}");
 }
