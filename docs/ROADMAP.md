@@ -158,9 +158,12 @@ The user asked for the full depth of the reference apps ("its not meant to be a 
   - Daily Mixes, Discover Weekly, Release Radar, On Repeat, a time-of-day mix, Repeat Rewind, "Because you listened to", artist radios, genre and mood mixes, listening numbers.
   - A Home row, a Browse all tile, mix pages with Play, Shuffle and Save as playlist.
   - A new `music.recommend` kind (Deezer: similar artists, top songs, new releases, radio).
+- M46.21 **Importing songs** (asked 2026-11-02): ✅
+  - Spotify playlist, album and song links (the public embed page), CSV exports and pasted lists.
+  - Screenshots of song lists, read by Windows' OCR or ocrs (downloaded once).
+  - Matched against the sources (covers, albums, lengths), then saved as a playlist.
 - **Asked 2026-11-02, next** (each a milestone):
   - the extension systems Raygun supports, listed (QuietPlay and Musike have none to load);
-  - Spotify playlist import and reading songs from screenshots;
   - Audiobooks: a media type with its own pill in Library → Audio, from LibriVox and Internet Archive.
 - **Asked 2026-11-01, queued in this order** (each becomes a milestone with a spec):
   1. **Sound and lyrics editing** (now M46.12):

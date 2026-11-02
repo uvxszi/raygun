@@ -56,6 +56,15 @@ flacenc = "0.5"
 lofty = "0.25"
 mp3lame-encoder = "0.2.5"
 
+# Copying pages on desktop (M46.6) and reading screenshots with ocrs (M46.21).
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
+
+# Reading screenshots where Windows' own OCR isn't there (M46.21): ocrs over rten.
+[target.'cfg(not(windows))'.dependencies]
+ocrs = { version = "0.13", default-features = false, features = ["onnx"] }
+rten = "0.26"
+rten-imageproc = "0.26"
+
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 rfd.workspace = true
 # One running copy on desktop (M46.11): two would share one database.
@@ -64,12 +73,20 @@ tauri-plugin-single-instance = "2.5"
 discord-rich-presence = "1.1"
 # Copying a page to the clipboard on desktop (M46.6).
 arboard = { version = "3", default-features = false, features = ["image-data"] }
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 
 # The desktop browser's blocker (M46.6): WebView2's request filter, at Tauri's own versions.
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39"
-windows = { version = "0.62", features = ["Win32_System_Com"] }
+# Windows' OCR reads screenshots for importing songs (M46.21).
+windows = { version = "0.62", features = [
+    "Win32_System_Com",
+    "Foundation",
+    "Foundation_Collections",
+    "Globalization",
+    "Graphics_Imaging",
+    "Media_Ocr",
+    "Storage_Streams",
+] }
 # Recording what Raygun plays (M46.10): WASAPI process loopback.
 wasapi = "0.26"
 

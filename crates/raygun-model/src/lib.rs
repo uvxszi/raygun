@@ -2312,6 +2312,40 @@ impl ChartGroup {
     }
 }
 
+// ---- Importing songs (M46.21) ----
+
+/// A song read from a link, a file, pasted text or a screenshot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedSong {
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub duration_ms: Option<u32>,
+    pub artwork_url: Option<String>,
+}
+
+/// Songs read for importing, and what to call them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedList {
+    pub name: String,
+    pub artwork_url: Option<String>,
+    pub songs: Vec<ImportedSong>,
+    /// The source shared only part of the list (Spotify's embed stops at 100 songs).
+    pub capped: bool,
+}
+
+/// A song after matching it against the music sources: what the best match added to it, which
+/// source that was, and its stream when the source plays it directly.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchedSong {
+    pub song: ImportedSong,
+    pub matched_by: Option<String>,
+    pub source: Option<MediaSource>,
+}
+
 // ---- Made for You (M46.20) ----
 
 /// Kinds of mix made for the user.

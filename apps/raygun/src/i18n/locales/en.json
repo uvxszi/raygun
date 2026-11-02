@@ -2093,6 +2093,35 @@
       "failed": "Couldn't download"
     }
   },
+  "import": {
+    "title": "Import songs",
+    "open": "Import songs",
+    "ways": {
+      "link": "Link",
+      "text": "Text or CSV",
+      "screenshots": "Screenshots"
+    },
+    "linkLabel": "Playlist, album or song link",
+    "linkHint": "A Spotify playlist, album or song link (Share → Copy link). Public playlists read up to their first 100 songs.",
+    "textLabel": "Songs, one per line",
+    "textPlaceholder": "Artist - Title\nArtist - Title",
+    "textHint": "One song per line (Artist - Title), or a CSV export such as Exportify's.",
+    "openCsv": "Open a file",
+    "screenshotsHint": "Pictures of a song list (from Spotify, YouTube Music, Apple Music…): Raygun reads the titles and artists.",
+    "downloadReader": "Download the text reader (12 MB)",
+    "downloadingReader": "Downloading the text reader…",
+    "chooseScreenshots": "Choose screenshots",
+    "read": "Read songs",
+    "reading": "Reading…",
+    "matching": "Finding the songs in your sources: {{done}} of {{count}}",
+    "matched": "Found {{found}} of {{count}} in your sources; the rest are looked for when they play.",
+    "matchedAll": "Found all {{count}} in your sources.",
+    "capped": "Spotify shares only a playlist's first 100 songs; import a CSV for the rest.",
+    "foundOn": "Found on {{source}}",
+    "notFound": "Not found yet",
+    "create_one": "Make a playlist of {{count}} song",
+    "create_other": "Make a playlist of {{count}} songs"
+  },
   "forYou": {
     "title": "Made for You",
     "refresh": "Make new mixes",

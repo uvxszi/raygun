@@ -21,6 +21,7 @@ mod export;
 mod extensions;
 mod genres;
 mod history;
+mod import;
 mod last_played;
 mod library;
 mod library_actions;
@@ -130,6 +131,13 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::made_for_you,
             commands::made_for_you_mix,
             commands::made_for_you_save,
+            commands::import_read_link,
+            commands::import_read_text,
+            commands::import_reader_ready,
+            commands::import_prepare_reader,
+            commands::import_read_screenshots,
+            commands::import_match,
+            commands::import_save,
             commands::music_track_tags,
             commands::music_tags_for,
             commands::music_tag_summary,

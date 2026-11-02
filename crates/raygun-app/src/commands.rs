@@ -635,6 +635,74 @@ pub async fn music_charts(
     Ok(discovery.charts(region).await)
 }
 
+/// The songs a Spotify playlist, album or song link points at (M46.21).
+#[tauri::command]
+#[specta::specta]
+pub async fn import_read_link(
+    import: tauri::State<'_, crate::import::ImportService>,
+    link: String,
+) -> Result<raygun_model::ImportedList, String> {
+    import.read_link(&link).await
+}
+
+/// Songs in a CSV export or pasted lines (M46.21).
+#[tauri::command]
+#[specta::specta]
+pub fn import_read_text(
+    import: tauri::State<'_, crate::import::ImportService>,
+    text: String,
+    name: Option<String>,
+) -> Result<raygun_model::ImportedList, String> {
+    import.read_text(&text, name)
+}
+
+/// Whether screenshots can be read now (the text reader is built in or downloaded) (M46.21).
+#[tauri::command]
+#[specta::specta]
+pub fn import_reader_ready(import: tauri::State<'_, crate::import::ImportService>) -> bool {
+    import.reader_ready()
+}
+
+/// Downloads the text reader for screenshots where it isn't built in (M46.21).
+#[tauri::command]
+#[specta::specta]
+pub async fn import_prepare_reader(
+    import: tauri::State<'_, crate::import::ImportService>,
+) -> Result<(), String> {
+    import.prepare_reader().await
+}
+
+/// Songs in uploaded screenshots of song lists (M46.21).
+#[tauri::command]
+#[specta::specta]
+pub async fn import_read_screenshots(
+    import: tauri::State<'_, crate::import::ImportService>,
+    upload_ids: Vec<String>,
+) -> Result<raygun_model::ImportedList, String> {
+    import.read_screenshots(upload_ids).await
+}
+
+/// Matches imported songs against the music sources (M46.21).
+#[tauri::command]
+#[specta::specta]
+pub async fn import_match(
+    import: tauri::State<'_, crate::import::ImportService>,
+    songs: Vec<raygun_model::ImportedSong>,
+) -> Result<Vec<raygun_model::MatchedSong>, String> {
+    Ok(import.match_songs(songs).await)
+}
+
+/// Saves imported songs as a new playlist; returns its id (M46.21).
+#[tauri::command]
+#[specta::specta]
+pub async fn import_save(
+    import: tauri::State<'_, crate::import::ImportService>,
+    name: String,
+    songs: Vec<raygun_model::MatchedSong>,
+) -> Result<String, String> {
+    import.save(&name, songs).await
+}
+
 /// Made for You (M46.20): today's mixes (made in the background when they're from another day,
 /// or when `refresh`) and the listening numbers. `utc_offset_minutes` is the user's clock.
 #[tauri::command]

@@ -212,6 +212,13 @@ export const bindingsMock = {
     madeForYou: vi.fn(),
     madeForYouMix: vi.fn(),
     madeForYouSave: vi.fn(),
+    importReadLink: vi.fn(),
+    importReadText: vi.fn(),
+    importReaderReady: vi.fn(),
+    importPrepareReader: vi.fn(),
+    importReadScreenshots: vi.fn(),
+    importMatch: vi.fn(),
+    importSave: vi.fn(),
     musicTagVocabulary: vi.fn(),
     songsDownload: vi.fn(),
     musicSearchArtists: vi.fn(),
@@ -522,6 +529,8 @@ export const seedBindings = () => {
     }),
   );
   commands.madeForYouSave.mockResolvedValue(ok('playlist-1'));
+  commands.importReaderReady.mockResolvedValue(true);
+  commands.importMatch.mockResolvedValue(ok([]));
   commands.musicTagVocabulary.mockResolvedValue([]);
   commands.songsDownload.mockResolvedValue(ok(null));
   commands.musicSearchArtists.mockResolvedValue(ok([]));

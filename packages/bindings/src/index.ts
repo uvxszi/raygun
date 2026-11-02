@@ -205,6 +205,20 @@ export const commands = {
 	madeForYouMix: (id: string) => typedError<Mix, string>(__TAURI_INVOKE("made_for_you_mix", { id })),
 	/**  Saves a mix as a playlist named `name`; returns the playlist's id (M46.20). */
 	madeForYouSave: (id: string, name: string) => typedError<string, string>(__TAURI_INVOKE("made_for_you_save", { id, name })),
+	/**  The songs a Spotify playlist, album or song link points at (M46.21). */
+	importReadLink: (link: string) => typedError<ImportedList, string>(__TAURI_INVOKE("import_read_link", { link })),
+	/**  Songs in a CSV export or pasted lines (M46.21). */
+	importReadText: (text: string, name: string | null) => typedError<ImportedList, string>(__TAURI_INVOKE("import_read_text", { text, name })),
+	/**  Whether screenshots can be read now (the text reader is built in or downloaded) (M46.21). */
+	importReaderReady: () => __TAURI_INVOKE<boolean>("import_reader_ready"),
+	/**  Downloads the text reader for screenshots where it isn't built in (M46.21). */
+	importPrepareReader: () => typedError<null, string>(__TAURI_INVOKE("import_prepare_reader")),
+	/**  Songs in uploaded screenshots of song lists (M46.21). */
+	importReadScreenshots: (uploadIds: string[]) => typedError<ImportedList, string>(__TAURI_INVOKE("import_read_screenshots", { uploadIds })),
+	/**  Matches imported songs against the music sources (M46.21). */
+	importMatch: (songs: ImportedSong[]) => typedError<MatchedSong[], string>(__TAURI_INVOKE("import_match", { songs })),
+	/**  Saves imported songs as a new playlist; returns its id (M46.21). */
+	importSave: (name: string, songs: MatchedSong[]) => typedError<string, string>(__TAURI_INVOKE("import_save", { name, songs })),
 	/**  A song's genres and moods, found now if they aren't stored yet (M46.9). */
 	musicTrackTags: (query: TrackQuery) => typedError<MusicTag[], string>(__TAURI_INVOKE("music_track_tags", { query })),
 	/**  Stored tags for songs by track key; songs without any are left out (M46.9). */
@@ -1347,6 +1361,24 @@ export type ImportedBook = {
 	novelId: string,
 };
 
+/**  Songs read for importing, and what to call them. */
+export type ImportedList = {
+	name: string,
+	artworkUrl: string | null,
+	songs: ImportedSong[],
+	/**  The source shared only part of the list (Spotify's embed stops at 100 songs). */
+	capped: boolean,
+};
+
+/**  A song read from a link, a file, pasted text or a screenshot. */
+export type ImportedSong = {
+	title: string,
+	artist: string | null,
+	album: string | null,
+	durationMs: number | null,
+	artworkUrl: string | null,
+};
+
 /**  A title imported from the device (comics, M46): its source and the source's id for it. */
 export type ImportedTitle = {
 	sourceId: string,
@@ -1731,6 +1763,16 @@ export type MangaUpdateStatus = {
 	failed: number,
 	/**  Unix ms of the last finished run. */
 	lastRunAt: number | null,
+};
+
+/**
+ *  A song after matching it against the music sources: what the best match added to it, which
+ *  source that was, and its stream when the source plays it directly.
+ */
+export type MatchedSong = {
+	song: ImportedSong,
+	matchedBy: string | null,
+	source: MediaSource | null,
 };
 
 /**  The MCP server's switch and how to reach it. */

@@ -210,6 +210,13 @@ impl AiService {
             .collect()
     }
 
+    /// The folder of an installed model (M46.21: the screenshot reader's), when it is installed.
+    pub fn installed_dir(&self, id: &str) -> Option<std::path::PathBuf> {
+        let model = models::find(id).ok()?;
+        models::is_installed(&self.models_dir, &model)
+            .then(|| models::model_dir(&self.models_dir, &model))
+    }
+
     /// Downloads a model, reporting progress as `AiModelEvent`s; returns when it is installed.
     pub async fn download_model(&self, id: &str) -> Result<(), String> {
         let model = models::find(id).map_err(|error| error.to_string())?;

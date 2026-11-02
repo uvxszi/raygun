@@ -170,6 +170,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(crate::made_for_you::MadeForYouService::new(
         app.handle().clone(),
     ));
+    app.manage(crate::import::ImportService::new(
+        app.handle().clone(),
+        raygun_net::http_client()?,
+    ));
     let songs = crate::music_downloads::SongDownloadService::new(
         app.handle().clone(),
         paths.downloads(),

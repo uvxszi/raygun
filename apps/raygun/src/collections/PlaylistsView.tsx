@@ -1,10 +1,11 @@
 import { Link } from '@tanstack/react-router';
-import { Plus } from 'lucide-react';
+import { Import, Plus } from 'lucide-react';
 import { useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Sheet } from '../shell/Sheet';
+import { ImportSheet } from './ImportSheet';
 import { PlaylistCover } from './PlaylistCover';
 import { useCreatePlaylist, usePlaylists } from './useCollections';
 
@@ -51,10 +52,12 @@ export const PlaylistsView: FC = () => {
   const { t } = useTranslation();
   const playlists = usePlaylists();
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   return (
     <div data-testid="playlists-view" className="flex flex-col gap-3">
       {creating && <NewPlaylistForm onDone={() => setCreating(false)} />}
+      {importing && <ImportSheet onClose={() => setImporting(false)} />}
       {
         <button
           type="button"
@@ -67,6 +70,16 @@ export const PlaylistsView: FC = () => {
           {t('collections.newPlaylist')}
         </button>
       }
+      <button
+        type="button"
+        onClick={() => setImporting(true)}
+        className="flex h-14 items-center gap-3 text-left text-sm font-medium"
+      >
+        <span className="bg-surface text-primary grid size-12 place-items-center rounded-lg">
+          <Import aria-hidden size={22} />
+        </span>
+        {t('import.open')}
+      </button>
       {playlists.data?.length === 0 && (
         <p className="text-muted text-sm">{t('collections.noPlaylists')}</p>
       )}

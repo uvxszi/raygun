@@ -72,7 +72,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Sleep timer | RiPlay | 🔜 M52 |
 | Blacklist (artists/tracks) | RiPlay | 🔜 M52 |
 | Listening stats, "Rewind" yearly recap | RiPlay | 🔜 M52 |
-| Playlist import (from URLs/files) | Nuclear | 🔜 M52 |
+| Playlist import (from URLs/files) | Nuclear, RiPlay | ✅ M46.21 (Spotify links, CSV, pasted lists, screenshots; matched per song) |
 | Dashboard/discovery: new releases, moods, quick picks | Nuclear, RiPlay | ✅ M46.20 (Made for You: mixes from plays and favorites, Release Radar, moods; skip signals not yet) |
 | Lyrics translation | RiPlay | 🔜 M58 |
 | Last.fm scrobbling | RiPlay | 🔜 M52 (own tokens) / ⏸ M59 (accounts) |
