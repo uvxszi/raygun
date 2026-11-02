@@ -145,6 +145,8 @@ pub fn open(
         list: Blocklist::load(&request.blocklist),
     });
     let menu = menu(app, &label, &site).map_err(|error| error.to_string())?;
+    let report = Arc::new(report);
+    let report_load = report.clone();
 
     let on_navigation = site.clone();
     let on_popup = (site.clone(), app.clone(), label.clone());
@@ -187,6 +189,8 @@ pub fn open(
             if payload.event() == PageLoadEvent::Finished {
                 *on_load.url.lock().expect("site poisoned") = payload.url().clone();
                 on_load.show_title(&window);
+                // Kept as it goes (M46.16), so the site reopens here even if Raygun quits first.
+                report_load(on_load.report());
             }
         })
         .on_document_title_changed(move |window, title| {
@@ -208,10 +212,20 @@ pub fn open(
         menu_action(&webview, &on_menu, action);
     });
     let on_close = site.clone();
-    window.on_window_event(move |event| {
-        if let tauri::WindowEvent::Destroyed = event {
+    let watched = window.clone();
+    window.on_window_event(move |event| match event {
+        // Pages that change their address without loading (single-page sites) are caught when
+        // the window is left or closed: the webview's own address is the one shown.
+        tauri::WindowEvent::Focused(false) | tauri::WindowEvent::CloseRequested { .. } => {
+            if let Ok(url) = watched.url()
+                && matches!(url.scheme(), "http" | "https")
+            {
+                *on_close.url.lock().expect("site poisoned") = url;
+            }
             report(on_close.report());
         }
+        tauri::WindowEvent::Destroyed => report(on_close.report()),
+        _ => {}
     });
     #[cfg(windows)]
     install_blocker(&window, site);

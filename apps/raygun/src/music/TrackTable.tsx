@@ -43,6 +43,8 @@ import { useTagsFor } from './useDiscovery';
 import { downloadSongs, useDownloadedKeys } from './useSongDownloads';
 import type { TableTrack, TableView, TrackTableKind } from './tableView';
 import { useTrackMenu } from './useTrackMenu';
+import { NowPlayingBars } from '../player/NowPlayingBars';
+import { usePlayingMatch } from '../player/usePlayingMatch';
 
 const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
 
@@ -163,6 +165,7 @@ export const TrackTable: FC<TrackTableProps> = ({
   const { t } = useTranslation();
   const wide = useWideScreen();
   const menu = useTrackMenu();
+  const playingMatch = usePlayingMatch();
   const { view, set } = useTableView(kind);
   const [filter, setFilter] = useState('');
   const [filtering, setFiltering] = useState(false);
@@ -567,6 +570,7 @@ export const TrackTable: FC<TrackTableProps> = ({
           <p className="text-muted px-2 py-4 text-sm">{t('tracks.noMatch', { filter })}</p>
         )}
         {shown.map((track, index) => {
+          const playing = playingMatch(track);
           const isSelected = selected.has(track.rowKey);
           const compact = view.view === 'compact';
           return (
@@ -592,7 +596,9 @@ export const TrackTable: FC<TrackTableProps> = ({
             >
               {wide && (
                 <span className="relative grid h-8 place-items-center text-sm tabular-nums">
-                  <span className="text-muted group-hover:invisible">{index + 1}</span>
+                  <span className="text-muted grid place-items-center group-hover:invisible">
+                    {playing ? <NowPlayingBars playing={playing === 'playing'} /> : index + 1}
+                  </span>
                   <button
                     type="button"
                     aria-label={t('tracks.playRow', { title: track.title })}
@@ -624,8 +630,9 @@ export const TrackTable: FC<TrackTableProps> = ({
                       if (!wide) onPlay(shown, index);
                       else pick(event, index);
                     }}
-                    className="flex min-w-0 items-center gap-1.5 truncate text-left text-sm font-medium"
+                    className={`flex min-w-0 items-center gap-1.5 truncate text-left text-sm font-medium ${playing ? 'text-primary' : ''}`}
                   >
+                    {playing && !wide && <NowPlayingBars playing={playing === 'playing'} />}
                     <span className="truncate">{track.title}</span>
                     {downloaded.has(track.trackKey) && (
                       <ArrowDownCircle

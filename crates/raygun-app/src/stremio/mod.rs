@@ -13,9 +13,9 @@ use raygun_db::stremio::{self as store, AddonRow};
 use raygun_db::titles::{self, TitleFields, TitleRow, UnitFields};
 use raygun_db::video::{self as progress_store, VideoEntry};
 use raygun_model::{
-    PlaybackControl, StremioAddon, StremioCatalogRow, StremioItem, StremioMeta, StremioPlayRequest,
-    StremioStream, StremioStreamGroup, StremioStreamKind, StremioSuggestion, StremioVideo,
-    VideoRequest, VideoSubtitle, YouTubeVideo,
+    StremioAddon, StremioCatalogRow, StremioItem, StremioMeta, StremioPlayRequest, StremioStream,
+    StremioStreamGroup, StremioStreamKind, StremioSuggestion, StremioVideo, VideoRequest,
+    VideoSubtitle, YouTubeVideo,
 };
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
@@ -26,7 +26,6 @@ use crate::catalog::now_ms;
 use crate::events::YouTubeVideoEvent;
 use crate::extensions::ExtensionService;
 use crate::local_network::{self, LocalNetwork};
-use crate::playback::PlaybackService;
 use crate::startup::AppDb;
 use crate::video_library::{self, STREMIO_SOURCE};
 use crate::video_session;
@@ -573,9 +572,7 @@ impl StremioService {
                     .try_state::<raygun_net::MediaLinks>()
                     .ok_or("The YouTube player isn't available")?
                     .youtube_embed_url();
-                self.app
-                    .state::<PlaybackService>()
-                    .control(PlaybackControl::Pause);
+                crate::playback::other_media_started(&self.app).await;
                 YouTubeVideoEvent(YouTubeVideo {
                     video_id: stream.target.clone(),
                     title: request.title.clone(),

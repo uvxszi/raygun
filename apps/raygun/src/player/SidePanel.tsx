@@ -24,6 +24,7 @@ import { ResizeHandle } from '../shell/ResizeHandle';
 import { usePanelSizes } from '../shell/usePanelSizes';
 import { FavoriteButton } from './FavoriteButton';
 import { LyricsView } from './LyricsView';
+import { ArtistCard, CreditsCard } from './PlayerCards';
 import type { PlayerPanel } from './playerUiStore';
 import { usePlayerUiStore } from './playerUiStore';
 import { sendControl, sourceNote, useNowPlaying } from './usePlayback';
@@ -111,7 +112,7 @@ export const SidePanel: FC = () => {
             <X aria-hidden size={18} />
           </button>
         </header>
-        <div role="tabpanel" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <div role="tabpanel" className="no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto">
           {panel === 'nowPlaying' ? <NowPlaying item={item} /> : <Queue item={item} />}
         </div>
       </aside>
@@ -196,6 +197,9 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
           <p className="text-muted text-sm">{t('player.queueEmpty')}</p>
         )}
       </section>
+      {/* The artist and the credits, as under the phone's player (M46.16). */}
+      <ArtistCard credit={item.artist} />
+      <CreditsCard item={item} />
     </div>
   );
 };

@@ -137,7 +137,18 @@ The user asked for the full depth of the reference apps ("its not meant to be a 
 - M46.15 **Connect: play on another device** (asked 2026-11-02): ✅
   - Raygun devices find each other (mDNS, or an address) and ask once on the device being played on.
   - The queue and the position move there, and this device shows "Playing on …" and controls it. "Play here" takes the queue back.
-- **Asked 2026-11-02, next:** M46.16 Audiobooks: a media type with its own pill in Library → Audio, from LibriVox and Internet Archive.
+- M46.16 **A player you can trust, and polish around it** (asked 2026-11-02): ✅
+  - Pause always holds and play always answers; a stream that doesn't start is skipped.
+  - The playing mark in lists; reopening on the last song, paused; desktop sites reopen on their last page.
+  - No mouse text selection, with right-click copy and selectable lyrics; the miniplayer opens in the app's colours and its text scales.
+  - "Keep music playing with other media"; artist and credits cards in the side panel; podcast menus; Discord presence.
+- **Asked 2026-11-02, next** (each a milestone):
+  - calm "Issue with source" pages with More info, test sources (legal film/TV), and video source fallback;
+  - audio quality (streaming, mobile data, downloads), a Downloaded block, a download button with an undo popover, MP3 export, choosing a folder from Downloads;
+  - Made for You, more charts and fuller genres;
+  - the extension systems Raygun supports, listed (QuietPlay and Musike have none to load);
+  - Spotify playlist import and reading songs from screenshots;
+  - Audiobooks: a media type with its own pill in Library → Audio, from LibriVox and Internet Archive.
 - **Asked 2026-11-01, queued in this order** (each becomes a milestone with a spec):
   1. **Sound and lyrics editing** (now M46.12):
      - edit lyrics (words and timings) and shift them by an offset; the same for video subtitles;

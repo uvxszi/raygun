@@ -73,6 +73,7 @@ pub async fn settings_update(
     let discovery_changed = matches!(change, SettingChange::Discovery(_));
     let agent_changed = matches!(change, SettingChange::UserAgent(_));
     let sound_changed = matches!(change, SettingChange::Sound(_));
+    let discord_changed = matches!(change, SettingChange::Discord(_));
     let settings = settings::update(&db.0, change)
         .await
         .map_err(|error| error.to_string())?;
@@ -85,6 +86,11 @@ pub async fn settings_update(
     }
     if agent_changed {
         raygun_net::set_user_agent(&settings.user_agent);
+    }
+    if discord_changed {
+        use tauri::Manager;
+        app.state::<Arc<crate::discord::DiscordPresence>>()
+            .set_prefs(settings.discord.clone());
     }
     if sound_changed {
         use tauri::Manager;
@@ -114,6 +120,18 @@ pub async fn settings_update(
 #[specta::specta]
 pub fn playback_get_state(playback: tauri::State<'_, PlaybackService>) -> PlaybackState {
     playback.state()
+}
+
+/// Puts back what played when Raygun closed, paused where it was (M46.16); the UI asks once its
+/// engines listen. Only the first call of a run does anything.
+#[tauri::command]
+#[specta::specta]
+pub async fn playback_restore(
+    app: tauri::AppHandle,
+    playback: tauri::State<'_, PlaybackService>,
+) -> Result<(), String> {
+    playback.restore_last(&app).await;
+    Ok(())
 }
 
 /// Current queue. Afterwards, changes arrive as `QueueEvent`.
@@ -1636,6 +1654,17 @@ pub async fn podcast_top(
 #[specta::specta]
 pub async fn podcast_play(podcasts: Podcasts<'_>, episode_id: String) -> Result<(), String> {
     podcasts.play(&episode_id).await
+}
+
+/// Queues an episode after what plays (`next`) or at the end (M46.16).
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_queue(
+    podcasts: Podcasts<'_>,
+    episode_id: String,
+    next: bool,
+) -> Result<(), String> {
+    podcasts.queue(&episode_id, next).await
 }
 
 #[tauri::command]

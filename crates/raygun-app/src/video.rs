@@ -433,6 +433,10 @@ fn subtitle_format(url: &str) -> Option<String> {
 
 #[cfg(target_os = "android")]
 pub fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), String> {
+    let started = app.clone();
+    tauri::async_runtime::spawn(
+        async move { crate::playback::other_media_started(&started).await },
+    );
     let player = app
         .try_state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
         .ok_or_else(|| "The video player isn't available".to_owned())?;
@@ -441,6 +445,10 @@ pub fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), S
 
 #[cfg(not(target_os = "android"))]
 pub fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), String> {
+    let started = app.clone();
+    tauri::async_runtime::spawn(
+        async move { crate::playback::other_media_started(&started).await },
+    );
     crate::video_desktop::open(app, payload)
 }
 

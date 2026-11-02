@@ -778,6 +778,20 @@
       "cooldown": "Wait between pages",
       "cooldownHint": "Longer waits keep sources from blocking you",
       "seconds": "{{n}} s"
+    },
+    "musicPlayback": "Music and audio",
+    "resumeOnStart": "Pick up where you left off",
+    "resumeOnStartHint": "Raygun opens on what played last, paused where it was.",
+    "keepMusicPlaying": "Keep music playing with other media",
+    "keepMusicPlayingHint": "Off: music pauses when a video, a trailer or read-aloud starts.",
+    "discord": {
+      "title": "Discord",
+      "enabled": "Show what plays in Discord",
+      "hint": "“Listening to” with the song, its cover and a progress bar in your Discord status, while Discord is open. Nothing shows while paused.",
+      "needsId": "Discord asks apps for an application ID: make one named Raygun at discord.com/developers/applications and paste its ID below.",
+      "appId": "Discord application ID",
+      "appIdHint": "From your Discord application’s General Information page.",
+      "appIdInvalid": "An application ID is digits only"
     }
   },
   "player": {
@@ -884,7 +898,9 @@
       "lyricsNone": "No lyrics for this song yet. Tap to add them.",
       "from": "From {{source}}",
       "openSource": "Open on {{source}}"
-    }
+    },
+    "nowPlayingMark": "Playing now",
+    "pausedMark": "Paused"
   },
   "common": {
     "coreUnavailable": "Core unavailable: {{message}}"
@@ -1326,7 +1342,20 @@
     "removeDownload": "Delete download",
     "downloadFailed": "Download failed: {{message}}",
     "emptyTitle": "No podcasts yet",
-    "filterPlaceholder": "Search your podcasts…"
+    "filterPlaceholder": "Search your podcasts…",
+    "menu": {
+      "resume": "Resume",
+      "showNotes": "Show notes",
+      "hideNotes": "Hide notes",
+      "goToShow": "Go to {{name}}",
+      "copyTitle": "Copy episode title",
+      "copyShow": "Copy show name",
+      "refresh": "Check for new episodes",
+      "follow": "Follow",
+      "unfollow": "Unfollow",
+      "copyName": "Copy name",
+      "copyFeed": "Copy feed address"
+    }
   },
   "watch": {
     "title": "Watch",

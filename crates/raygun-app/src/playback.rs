@@ -69,6 +69,10 @@ pub struct PlaybackService {
     sleep_generation: Arc<AtomicU64>,
     /// Set while playing on another device (M46.15): what would change this player goes there.
     redirect: Mutex<Option<Redirect>>,
+    /// What was last saved for reopening (M46.16), to skip writing it again unchanged.
+    saved: Mutex<Option<String>>,
+    /// The saved queue was put back (or there was none): only once per run.
+    restored: std::sync::atomic::AtomicBool,
 }
 
 /// Everything to emit once the core lock is released.
@@ -107,7 +111,75 @@ impl PlaybackService {
             native,
             sleep_generation: Arc::new(AtomicU64::new(0)),
             redirect: Mutex::new(None),
+            saved: Mutex::new(None),
+            restored: std::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// Saves the queue and where it is every few seconds (M46.16), so Raygun reopens on it.
+    pub fn start_saving(app: AppHandle) {
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::time::sleep(SAVE_EVERY).await;
+                let playback = app.state::<PlaybackService>();
+                // Nothing is saved before the last queue is back, or it would be overwritten.
+                if !playback.restored.load(Ordering::SeqCst) {
+                    continue;
+                }
+                let images = app.state::<raygun_net::ImageLinks>();
+                let json = {
+                    let inner = playback.lock();
+                    crate::last_played::snapshot(&inner.core, &|url| images.original(url))
+                };
+                let changed = {
+                    let mut saved = playback.saved.lock().expect("saved poisoned");
+                    let changed = saved.as_deref() != Some(json.as_str());
+                    if changed {
+                        *saved = Some(json.clone());
+                    }
+                    changed
+                };
+                if changed {
+                    let db = app.state::<crate::startup::AppDb>().inner().0.clone();
+                    crate::last_played::save(&db, &json).await;
+                }
+            }
+        });
+    }
+
+    /// Puts back what played when Raygun closed, paused where it was (M46.16). Once per run,
+    /// when the player is ready (the webview's engines listen by then), and only into an empty
+    /// queue: something played since is kept.
+    pub async fn restore_last(&self, app: &AppHandle) {
+        if self.restored.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let db = app.state::<crate::startup::AppDb>().inner().0.clone();
+        let on = crate::settings::load(&db)
+            .await
+            .map(|settings| settings.resume_on_start)
+            .unwrap_or(true);
+        let Some(last) = crate::last_played::load(&db).await.filter(|_| on) else {
+            return;
+        };
+        let images = app.state::<raygun_net::ImageLinks>();
+        let items = crate::last_played::arrived(last.items, &images);
+        let effects_ran = {
+            let mut inner = self.lock();
+            if !inner.core.queue().items.is_empty() {
+                return;
+            }
+            let effects = inner.core.restore(
+                items,
+                last.order,
+                last.current,
+                last.position_ms,
+                last.shuffle,
+                last.repeat,
+            );
+            self.resolve(&mut inner, effects)
+        };
+        self.send(effects_ran);
     }
 
     /// Sends what would change this player to another device instead, or (`None`) back here.
@@ -202,6 +274,25 @@ impl PlaybackService {
 
     /// Controls this device's own player, even while it plays elsewhere.
     pub fn control_here(&self, control: PlaybackControl) {
+        let resumes = matches!(control, PlaybackControl::Play | PlaybackControl::Toggle);
+        self.control_core(control);
+        if resumes {
+            // Pressing play must start something (M46.16), or the next stream gets its turn.
+            let (load_id, loading) = {
+                let inner = self.lock();
+                let state = inner.core.state();
+                (
+                    inner.core.load_id(),
+                    state.status == raygun_model::PlaybackStatus::Loading && !inner.core.held(),
+                )
+            };
+            if loading {
+                self.watch_start(load_id);
+            }
+        }
+    }
+
+    fn control_core(&self, control: PlaybackControl) {
         self.run(|core| match control {
             PlaybackControl::Play => core.play(),
             PlaybackControl::Pause => core.pause(),
@@ -399,6 +490,8 @@ impl PlaybackService {
                     else {
                         return;
                     };
+                    // Paused while it was being found (M46.16): it loads, and waits.
+                    let autoplay = autoplay && !inner.core.held();
                     let Some(item) = inner.core.current_item().cloned() else {
                         return;
                     };
@@ -547,6 +640,21 @@ impl PlaybackService {
             {
                 songs.on_playback(&state, outbox.current.as_ref());
             }
+            if let (Some(discord), Some(images)) = (
+                self.app.try_state::<Arc<crate::discord::DiscordPresence>>(),
+                self.app.try_state::<raygun_net::ImageLinks>(),
+            ) {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|elapsed| elapsed.as_millis() as i64)
+                    .unwrap_or_default();
+                discord.show(crate::discord::presence(
+                    &state,
+                    outbox.current.as_ref(),
+                    &|url| images.original(url),
+                    now,
+                ));
+            }
             log_emit(PlaybackStateEvent(state).emit(&self.app));
         }
         if outbox.verified.is_some() || outbox.failed.is_some() {
@@ -633,6 +741,9 @@ impl PlaybackService {
             },
         };
         outbox.engine.push((engine, command));
+        if autoplay {
+            self.watch_start(load_id);
+        }
         // Engines keep the speed across loads, but an engine just switched to may not know it.
         let rate = inner.core.rate();
         if (rate - 1.0).abs() > f64::EPSILON {
@@ -642,8 +753,55 @@ impl PlaybackService {
         }
     }
 
+    /// An engine that never starts a load must not leave the player stuck (M46.16): after
+    /// [`START_TIMEOUT`] still loading, it counts as the stream failing, so the next stream or
+    /// the next song plays.
+    fn watch_start(&self, load_id: u32) {
+        let app = self.app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(START_TIMEOUT).await;
+            let playback = app.state::<PlaybackService>();
+            let stuck = {
+                let inner = playback.lock();
+                let state = inner.core.state();
+                inner.core.load_id() == load_id
+                    && state.status == raygun_model::PlaybackStatus::Loading
+                    && !inner.core.held()
+            };
+            if stuck {
+                tracing::warn!(load_id, "the stream didn't start in time");
+                playback.report(EngineReport {
+                    load_id,
+                    event: EngineEvent::Error {
+                        message: "This stream didn't start in time".into(),
+                    },
+                });
+            }
+        });
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         self.inner.lock().expect("playback state poisoned")
+    }
+}
+
+/// How often the queue is saved for reopening (M46.16).
+const SAVE_EVERY: Duration = Duration::from_secs(5);
+
+/// How long a load may take to start playing before another stream is tried (M46.16).
+const START_TIMEOUT: Duration = Duration::from_secs(25);
+
+/// Another kind of media starts here (a video, a trailer, read-aloud): music pauses, unless
+/// Settings → Playback keeps it playing (M46.16). Music playing on another device plays on.
+pub async fn other_media_started(app: &AppHandle) {
+    let db = app.state::<crate::startup::AppDb>().inner().0.clone();
+    let keep = crate::settings::load(&db)
+        .await
+        .map(|settings| settings.keep_music_playing)
+        .unwrap_or(false);
+    if !keep {
+        app.state::<PlaybackService>()
+            .control_here(PlaybackControl::Pause);
     }
 }
 

@@ -1,3 +1,4 @@
+import { commands } from '@raygun/bindings';
 import type { StartScreen, WindowFrame } from '@raygun/bindings';
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { MotionConfig } from 'motion/react';
@@ -37,6 +38,9 @@ import { NAV_TABS } from './navTabs';
 import { toggleWindowFullscreen } from './useWindowFullscreen';
 import { SideRail } from './SideRail';
 import { useIsDesktop } from './useIsDesktop';
+
+/** Engines start listening right after the shell mounts; the last queue comes back then. */
+const RESTORE_DELAY_MS = 600;
 
 /** Opens the start screen chosen in Settings (any tab, M46.5), once, when the app starts on Home. */
 const useStartScreen = (screen: StartScreen | undefined) => {
@@ -95,6 +99,11 @@ export const AppShell: FC = () => {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const openShortcuts = useCallback(() => setShortcutsOpen(true), []);
   usePlaybackSync();
+  useEffect(() => {
+    // What played when Raygun closed comes back, paused (M46.16), once the engines listen.
+    const timer = setTimeout(() => void commands.playbackRestore(), RESTORE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, []);
   useLibraryScanSync();
   useExtensionsSync();
   useSyncChangedListener();

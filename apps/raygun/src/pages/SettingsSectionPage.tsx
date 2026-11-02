@@ -48,6 +48,7 @@ import { WebsiteSettings } from '../websites/WebsiteSettings';
 import { autoRegion } from '../music/useDiscovery';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { TopBar } from '../shell/TopBar';
+import { useIsDesktop } from '../shell/useIsDesktop';
 import { SoundSettings } from '../sound/SoundSettings';
 import type { SettingsSection } from '../settings/sections';
 
@@ -351,6 +352,22 @@ const PlayerSettings: FC = () => {
         ))}
       </PrefGroup>
       <PlayerViewSettings title={t('player.view.musicTitle')} />
+      <PrefGroup title={t('settings.musicPlayback')}>
+        <PrefSwitch
+          title={t('settings.resumeOnStart')}
+          summary={t('settings.resumeOnStartHint')}
+          checked={data.resumeOnStart ?? true}
+          disabled={busy}
+          onChange={(value) => update.mutate({ key: 'resumeOnStart', value })}
+        />
+        <PrefSwitch
+          title={t('settings.keepMusicPlaying')}
+          summary={t('settings.keepMusicPlayingHint')}
+          checked={data.keepMusicPlaying ?? false}
+          disabled={busy}
+          onChange={(value) => update.mutate({ key: 'keepMusicPlaying', value })}
+        />
+      </PrefGroup>
       <PrefGroup title={t('settings.videoPlayback')}>
         <PrefChoice<number | null>
           title={t('settings.videoQuality')}
@@ -669,7 +686,40 @@ const ConnectionSettings: FC = () => {
           <McpCard />
         </PrefBlock>
       </PrefGroup>
+      <DiscordSettings />
     </>
+  );
+};
+
+/** Discord presence (M46.16): desktop only, with the user's own Discord application. */
+const DiscordSettings: FC = () => {
+  const { t } = useTranslation();
+  const desktop = useIsDesktop();
+  const data = useSettings().data;
+  const update = useUpdateSetting();
+  if (!desktop || !data) return null;
+  const discord = data.discord ?? { enabled: false, appId: '' };
+  return (
+    <PrefGroup title={t('settings.discord.title')}>
+      <PrefSwitch
+        title={t('settings.discord.enabled')}
+        summary={t(discord.appId ? 'settings.discord.hint' : 'settings.discord.needsId')}
+        checked={discord.enabled}
+        disabled={update.isPending}
+        onChange={(enabled) => update.mutate({ key: 'discord', value: { ...discord, enabled } })}
+      />
+      <PrefText
+        title={t('settings.discord.appId')}
+        summary={t('settings.discord.appIdHint')}
+        value={discord.appId}
+        placeholder="123456789012345678"
+        check={(text) =>
+          /^\d{0,32}$/.test(text.trim()) ? null : t('settings.discord.appIdInvalid')
+        }
+        disabled={update.isPending}
+        onChange={(appId) => update.mutate({ key: 'discord', value: { ...discord, appId } })}
+      />
+    </PrefGroup>
   );
 };
 

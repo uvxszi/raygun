@@ -5,7 +5,9 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { openContextMenu } from '../shell/contextMenuStore';
 import { PodcastArt } from './PodcastArt';
+import { showMenu } from './podcastMenus';
 import { useOpenFeed } from './usePodcasts';
 
 /** Directory results; tapping one opens (and stores) its feed, then its page. */
@@ -27,7 +29,12 @@ export const PodcastResultList: FC<{ results: PodcastSearchResult[] }> = ({ resu
     <div className="flex flex-col gap-2">
       <ul className="bg-surface flex flex-col rounded-xl">
         {results.map((result) => (
-          <li key={result.feedUrl}>
+          <li
+            key={result.feedUrl}
+            onContextMenu={(event) =>
+              openContextMenu(event, showMenu(result, t, { open: () => open(result.feedUrl) }))
+            }
+          >
             <button
               type="button"
               onClick={() => open(result.feedUrl)}

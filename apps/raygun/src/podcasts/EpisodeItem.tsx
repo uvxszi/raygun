@@ -1,10 +1,13 @@
 import type { PodcastEpisode } from '@raygun/bindings';
 import { Check, Download, LoaderCircle, Play, Trash2 } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { openContextMenu } from '../shell/contextMenuStore';
 import { formatLength } from './formatLength';
+import { episodeMenu } from './podcastMenus';
 import {
   useDownloadEpisode,
   usePlayEpisode,
@@ -26,6 +29,7 @@ export const EpisodeItem: FC<{ episode: PodcastEpisode; showPodcast?: boolean }>
   const setPlayed = useSetPlayed();
   const download = useDownloadEpisode();
   const removeDownload = useRemoveEpisodeDownload();
+  const navigate = useNavigate();
   const duration = episode.durationMs ?? 0;
   const position = episode.positionMs ?? 0;
   const started = !episode.played && position > 0;
@@ -44,7 +48,26 @@ export const EpisodeItem: FC<{ episode: PodcastEpisode; showPodcast?: boolean }>
   const error = play.error ?? download.error ?? setPlayed.error;
 
   return (
-    <li className="flex flex-col gap-2" aria-label={episode.title}>
+    <li
+      className="flex flex-col gap-2"
+      aria-label={episode.title}
+      onContextMenu={(event) =>
+        openContextMenu(
+          event,
+          episodeMenu(episode, t, {
+            play: () => play.mutate(episode.id),
+            setPlayed: (played) => setPlayed.mutate({ id: episode.id, played }),
+            download: () => download.mutate(episode.id),
+            removeDownload: () => removeDownload.mutate(episode.id),
+            toggleNotes: () => setExpanded(!expanded),
+            notesShown: expanded,
+            openPodcast: showPodcast
+              ? () => void navigate({ to: '/podcast', search: { id: episode.podcastId } })
+              : undefined,
+          }),
+        )
+      }
+    >
       <div className="flex items-start gap-3">
         <button
           type="button"

@@ -158,6 +158,10 @@ export const DEFAULT_SETTINGS: Settings = {
   discovery: { region: '', tagSongs: true },
   failingSourcesLast: true,
   userAgent: '',
+  keepMusicPlaying: false,
+  resumeOnStart: true,
+  discord: { enabled: false, appId: '' },
+  audioQuality: { streaming: 'high', cellular: 'normal', download: 'veryHigh' },
   sound: {
     eqEnabled: false,
     eqPreset: 'flat',
@@ -263,6 +267,8 @@ export const bindingsMock = {
     musicArtistInfo: vi.fn(),
     musicSongCredits: vi.fn(),
     musicOpenInfoPage: vi.fn(),
+    playbackRestore: vi.fn(),
+    podcastQueue: vi.fn(),
     connectStatus: vi.fn(),
     connectDevices: vi.fn(),
     connectAdd: vi.fn(),
@@ -536,6 +542,8 @@ export const seedBindings = () => {
   commands.musicArtistInfo.mockResolvedValue(ok(null));
   commands.musicSongCredits.mockResolvedValue(ok(null));
   commands.musicOpenInfoPage.mockResolvedValue(ok(null));
+  commands.playbackRestore.mockResolvedValue({ status: 'ok', data: null });
+  commands.podcastQueue.mockResolvedValue({ status: 'ok', data: null });
   commands.connectStatus.mockResolvedValue(CONNECT_IDLE);
   commands.connectDevices.mockResolvedValue([]);
   commands.connectAdd.mockResolvedValue({ status: 'error', error: 'not mocked' });

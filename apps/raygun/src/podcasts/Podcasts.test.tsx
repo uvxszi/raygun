@@ -1,5 +1,5 @@
 import type { PodcastEpisode, PodcastView } from '@raygun/bindings';
-import { screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
@@ -115,6 +115,32 @@ describe('Podcasts', () => {
 
     await user.click(within(one).getByRole('button', { name: /^Episode One/ }));
     expect(within(one).getByText('All about one.')).toBeInTheDocument();
+  });
+
+  it('offers an episode’s options on right click', async () => {
+    const user = userEvent.setup();
+    commands.podcastGet.mockResolvedValue(ok(SHOW));
+    await AppShellWrapper.mount('/podcast?id=p1');
+    const page = await screen.findByTestId('podcast-page');
+    const two = within(page).getByRole('listitem', { name: 'Episode Two' });
+
+    fireEvent.contextMenu(two, { clientX: 40, clientY: 40 });
+    const menu = await screen.findByRole('menu');
+    expect(within(menu).getByRole('menuitem', { name: 'Resume' })).toBeInTheDocument();
+    await user.click(within(menu).getByRole('menuitem', { name: 'Play next' }));
+    expect(commands.podcastQueue).toHaveBeenCalledWith('e2', true);
+
+    fireEvent.contextMenu(two, { clientX: 40, clientY: 40 });
+    await user.click(
+      within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Add to queue' }),
+    );
+    expect(commands.podcastQueue).toHaveBeenLastCalledWith('e2', false);
+
+    fireEvent.contextMenu(two, { clientX: 40, clientY: 40 });
+    await user.click(
+      within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Mark as played' }),
+    );
+    expect(commands.podcastSetPlayed).toHaveBeenCalledWith('e2', true);
   });
 
   it('follows downloads reported by Rust', async () => {

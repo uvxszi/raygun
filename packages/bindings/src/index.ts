@@ -87,6 +87,13 @@ export const commands = {
 } | null, string>(__TAURI_INVOKE("music_song_credits", { query })),
 	/**  Opens where an artist's or a song's facts came from (M46.14) in Raygun's browser. */
 	musicOpenInfoPage: (url: string) => typedError<null, string>(__TAURI_INVOKE("music_open_info_page", { url })),
+	/**
+	 *  Puts back what played when Raygun closed, paused where it was (M46.16); the UI asks once its
+	 *  engines listen. Only the first call of a run does anything.
+	 */
+	playbackRestore: () => typedError<null, string>(__TAURI_INVOKE("playback_restore")),
+	/**  Queues an episode after what plays (`next`) or at the end (M46.16). */
+	podcastQueue: (episodeId: string, next: boolean) => typedError<null, string>(__TAURI_INVOKE("podcast_queue", { episodeId, next })),
 	/**  Where this device's player plays (M46.15). */
 	connectStatus: () => __TAURI_INVOKE<ConnectStatus>("connect_status"),
 	/**  Other Raygun devices to play on: heard on the network, added by address, or allowed before. */
@@ -669,6 +676,30 @@ export type AudioFileFormat =
 "original" | "wav" | "flac";
 
 /**
+ *  How good a song should sound against how much data it takes, as Spotify offers it. Sources
+ *  that give several streams of a song (bitrates, formats) pick the one nearest to it.
+ */
+export type AudioQuality = 
+/**  About 64 kbps. */
+"low" | 
+/**  About 128 kbps. */
+"normal" | 
+/**  About 192 kbps. */
+"high" | 
+/**  About 320 kbps. */
+"veryHigh" | 
+/**  The best a source has, lossless included. */
+"best";
+
+/**  The quality for streaming, for streaming on mobile data, and for downloads. */
+export type AudioQualityPrefs = {
+	streaming: AudioQuality,
+	/**  Used instead of `streaming` while the phone is on mobile data. */
+	cellular: AudioQuality,
+	download: AudioQuality,
+};
+
+/**
  *  Next pages load as a list's end comes near (M46.8), at most one per `cooldown_ms`, so sources
  *  don't rate-limit the user; off, a Load more button stays.
  */
@@ -902,6 +933,16 @@ export type DecoderMode =
 "auto" | 
 /**  Software first: slower, but plays what the hardware can't. */
 "software";
+
+/**
+ *  Discord presence (desktop): off by default, and it needs the ID of a Discord application the
+ *  user made (Discord's local IPC asks for one; Raygun has none of its own).
+ */
+export type DiscordPrefs = {
+	enabled: boolean,
+	/**  The application's ID from discord.com/developers/applications (digits). */
+	appId: string,
+};
 
 /**  Charts and song tags (M46.9). */
 export type DiscoveryPrefs = {
@@ -1995,7 +2036,7 @@ export type SearchResults = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "discord"; value: DiscordPrefs } | { key: "audioQuality"; value: AudioQualityPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -2089,6 +2130,14 @@ export type Settings = {
 	userAgent: string,
 	/**  The equalizer, effects, normalization and crossfade for every song (M46.12). */
 	sound: SoundPrefs,
+	/**  Music keeps playing when a video, a trailer or read-aloud starts (M46.16); off pauses it. */
+	keepMusicPlaying: boolean,
+	/**  Opening Raygun shows what played last, paused where it was (M46.16). */
+	resumeOnStart: boolean,
+	/**  What plays shows in Discord's status (desktop). */
+	discord: DiscordPrefs,
+	/**  How good songs sound against the data they use, streaming and downloading. */
+	audioQuality: AudioQualityPrefs,
 };
 
 /**  A setting changed outside the Settings screens (in the video player, M45); carries its key. */

@@ -64,6 +64,10 @@ const DEFAULT_SETTINGS: Settings = {
   discovery: { region: '', tagSongs: true },
   failingSourcesLast: true,
   userAgent: '',
+  keepMusicPlaying: false,
+  resumeOnStart: true,
+  discord: { enabled: false, appId: '' },
+  audioQuality: { streaming: 'high', cellular: 'normal', download: 'veryHigh' },
   sound: {
     eqEnabled: false,
     eqPreset: 'flat',

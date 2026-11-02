@@ -7,6 +7,8 @@ import { useTrackMenu } from '../music/useTrackMenu';
 import { formatTime } from '../player/formatTime';
 import { TrackMoreButton } from './TrackMoreButton';
 import { fromSavedTrack } from './useCollections';
+import { NowPlayingBars } from '../player/NowPlayingBars';
+import { usePlayingMatch } from '../player/usePlayingMatch';
 
 type SavedTrackRowProps = {
   track: SavedTrack;
@@ -25,6 +27,7 @@ export const SavedTrackRow: FC<SavedTrackRowProps> = ({
   actions,
 }) => {
   const menu = useTrackMenu();
+  const playing = usePlayingMatch()(track);
   return (
     <div
       className="flex items-center"
@@ -38,7 +41,12 @@ export const SavedTrackRow: FC<SavedTrackRowProps> = ({
       >
         <Artwork url={track.artworkUrl} className="size-10 shrink-0 rounded" iconSize={18} />
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-sm font-medium">{track.title}</span>
+          <span
+            className={`flex min-w-0 items-center gap-1.5 text-sm font-medium ${playing ? 'text-primary' : ''}`}
+          >
+            {playing && <NowPlayingBars playing={playing === 'playing'} />}
+            <span className="truncate">{track.title}</span>
+          </span>
           <span className="text-muted block truncate text-xs">
             <ArtistLinks credit={track.artist} nested />
             {track.album && <> · {track.album}</>}

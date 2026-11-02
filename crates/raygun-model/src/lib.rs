@@ -143,6 +143,74 @@ pub struct Settings {
     pub user_agent: String,
     /// The equalizer, effects, normalization and crossfade for every song (M46.12).
     pub sound: SoundPrefs,
+    /// Music keeps playing when a video, a trailer or read-aloud starts (M46.16); off pauses it.
+    pub keep_music_playing: bool,
+    /// Opening Raygun shows what played last, paused where it was (M46.16).
+    pub resume_on_start: bool,
+    /// What plays shows in Discord's status (desktop).
+    pub discord: DiscordPrefs,
+    /// How good songs sound against the data they use, streaming and downloading.
+    pub audio_quality: AudioQualityPrefs,
+}
+
+/// Discord presence (desktop): off by default, and it needs the ID of a Discord application the
+/// user made (Discord's local IPC asks for one; Raygun has none of its own).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscordPrefs {
+    pub enabled: bool,
+    /// The application's ID from discord.com/developers/applications (digits).
+    pub app_id: String,
+}
+
+/// How good a song should sound against how much data it takes, as Spotify offers it. Sources
+/// that give several streams of a song (bitrates, formats) pick the one nearest to it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum AudioQuality {
+    /// About 64 kbps.
+    Low,
+    /// About 128 kbps.
+    Normal,
+    /// About 192 kbps.
+    High,
+    /// About 320 kbps.
+    VeryHigh,
+    /// The best a source has, lossless included.
+    Best,
+}
+
+impl AudioQuality {
+    /// The bitrate aimed for, kbps; `None` takes the best there is.
+    pub fn target_kbps(self) -> Option<u32> {
+        match self {
+            Self::Low => Some(64),
+            Self::Normal => Some(128),
+            Self::High => Some(192),
+            Self::VeryHigh => Some(320),
+            Self::Best => None,
+        }
+    }
+}
+
+/// The quality for streaming, for streaming on mobile data, and for downloads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioQualityPrefs {
+    pub streaming: AudioQuality,
+    /// Used instead of `streaming` while the phone is on mobile data.
+    pub cellular: AudioQuality,
+    pub download: AudioQuality,
+}
+
+impl Default for AudioQualityPrefs {
+    fn default() -> Self {
+        Self {
+            streaming: AudioQuality::High,
+            cellular: AudioQuality::Normal,
+            download: AudioQuality::VeryHigh,
+        }
+    }
 }
 
 /// Centre frequencies of the equalizer's bands in Hz (M46.12): ten octaves, as most players have.
@@ -1180,6 +1248,10 @@ impl Default for Settings {
             failing_sources_last: true,
             user_agent: String::new(),
             sound: SoundPrefs::default(),
+            keep_music_playing: false,
+            resume_on_start: true,
+            discord: DiscordPrefs::default(),
+            audio_quality: AudioQualityPrefs::default(),
         }
     }
 }
@@ -1228,6 +1300,15 @@ impl Settings {
             SettingChange::FailingSourcesLast(on) => self.failing_sources_last = on,
             SettingChange::UserAgent(agent) => self.user_agent = agent.trim().to_owned(),
             SettingChange::Sound(prefs) => self.sound = prefs,
+            SettingChange::KeepMusicPlaying(on) => self.keep_music_playing = on,
+            SettingChange::ResumeOnStart(on) => self.resume_on_start = on,
+            SettingChange::Discord(prefs) => {
+                self.discord = DiscordPrefs {
+                    app_id: prefs.app_id.trim().to_owned(),
+                    ..prefs
+                }
+            }
+            SettingChange::AudioQuality(prefs) => self.audio_quality = prefs,
             SettingChange::Discovery(prefs) => {
                 self.discovery = DiscoveryPrefs {
                     region: prefs.region.to_ascii_lowercase(),
@@ -1295,6 +1376,10 @@ pub enum SettingChange {
     FailingSourcesLast(bool),
     UserAgent(String),
     Sound(SoundPrefs),
+    KeepMusicPlaying(bool),
+    ResumeOnStart(bool),
+    Discord(DiscordPrefs),
+    AudioQuality(AudioQualityPrefs),
 }
 
 impl SettingChange {
@@ -1344,6 +1429,10 @@ impl SettingChange {
             Self::FailingSourcesLast(_) => "failingSourcesLast",
             Self::UserAgent(_) => "userAgent",
             Self::Sound(_) => "sound",
+            Self::KeepMusicPlaying(_) => "keepMusicPlaying",
+            Self::ResumeOnStart(_) => "resumeOnStart",
+            Self::Discord(_) => "discord",
+            Self::AudioQuality(_) => "audioQuality",
         }
     }
 
@@ -1365,7 +1454,18 @@ impl SettingChange {
             | Self::Scrollbars(_)
             | Self::Motion(_)
             | Self::WindowFrame(_)
-            | Self::FailingSourcesLast(_) => Ok(()),
+            | Self::FailingSourcesLast(_)
+            | Self::KeepMusicPlaying(_)
+            | Self::ResumeOnStart(_)
+            | Self::AudioQuality(_) => Ok(()),
+            Self::Discord(prefs) => {
+                let id = prefs.app_id.trim();
+                if id.len() <= 32 && id.bytes().all(|byte| byte.is_ascii_digit()) {
+                    Ok(())
+                } else {
+                    Err("a Discord application ID is digits only".to_owned())
+                }
+            }
             Self::Sound(prefs) => prefs.validate(),
             // What an HTTP header can carry: printable ASCII.
             Self::UserAgent(agent) => {

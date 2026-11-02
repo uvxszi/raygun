@@ -114,9 +114,16 @@ fn toggle_pauses_while_playing_and_resumes_while_paused() {
     core.play();
     report(&mut core, EngineEvent::Playing);
 
-    assert_eq!(core.toggle(), vec![Effect::Engine(EngineCommand::Pause)]);
+    // Each answers at once with the state it asked for (M46.16).
+    assert_eq!(
+        core.toggle(),
+        vec![Effect::Engine(EngineCommand::Pause), Effect::StateChanged]
+    );
     report(&mut core, EngineEvent::Paused);
-    assert_eq!(core.toggle(), vec![Effect::Engine(EngineCommand::Play)]);
+    assert_eq!(
+        core.toggle(),
+        vec![Effect::Engine(EngineCommand::Play), Effect::StateChanged]
+    );
 }
 
 #[test]
@@ -682,4 +689,83 @@ fn crossfade_waits_for_the_end_trim_and_skips_where_the_song_restarts_or_stops()
     core.set_sleep(None, false);
     core.set_crossfade(0.0);
     assert_eq!(faded(&progress(&mut core, 179_500.0)), None);
+}
+
+#[test]
+fn a_pause_holds_even_before_the_engine_answers() {
+    let mut core = core_with(&["a", "b"]);
+    core.play();
+    assert_eq!(core.state().status, PlaybackStatus::Loading);
+
+    // Paused while the song is still being found: the state says so at once.
+    let effects = core.pause();
+    assert!(effects.contains(&Effect::Engine(EngineCommand::Pause)));
+    assert_eq!(core.state().status, PlaybackStatus::Paused);
+    assert!(core.held());
+
+    // An engine that starts anyway is paused again, and buffering doesn't look like playing.
+    let effects = report(&mut core, EngineEvent::Playing);
+    assert!(effects.contains(&Effect::Engine(EngineCommand::Pause)));
+    assert_eq!(core.state().status, PlaybackStatus::Paused);
+    assert!(report(&mut core, EngineEvent::Buffering).is_empty());
+    assert_eq!(core.state().status, PlaybackStatus::Paused);
+
+    // Play answers at once too, and lets the engine play.
+    let effects = core.play();
+    assert!(effects.contains(&Effect::Engine(EngineCommand::Play)));
+    assert_eq!(core.state().status, PlaybackStatus::Loading);
+    assert!(!core.held());
+    report(&mut core, EngineEvent::Playing);
+    assert_eq!(core.state().status, PlaybackStatus::Playing);
+
+    // Skipping plays the next song even after a pause.
+    core.pause();
+    core.next();
+    assert!(!core.held());
+}
+
+#[test]
+fn a_saved_queue_comes_back_paused_where_it_was() {
+    let mut core = PlaybackCore::new(3);
+    let effects = core.restore(
+        vec![input("a"), input("b"), input("c")],
+        vec![2, 0, 1],
+        0,
+        42_000.0,
+        true,
+        RepeatMode::All,
+    );
+    let load = effects.iter().find_map(|effect| match effect {
+        Effect::Load {
+            item,
+            start_ms,
+            autoplay,
+            ..
+        } => Some((item.title.clone(), *start_ms, *autoplay)),
+        _ => None,
+    });
+    assert_eq!(
+        load,
+        Some(("a".into(), 42_000.0, false)),
+        "paused, where it was"
+    );
+    assert!(core.held());
+    let state = core.state();
+    assert!(state.shuffle);
+    assert_eq!(state.repeat, RepeatMode::All);
+    assert_eq!(core.queue().order, vec![2, 0, 1]);
+
+    // A broken order keeps the queue's own.
+    let mut core = PlaybackCore::new(3);
+    core.restore(
+        vec![input("a"), input("b")],
+        vec![0, 0],
+        1,
+        0.0,
+        true,
+        RepeatMode::Off,
+    );
+    assert_eq!(core.queue().order, vec![0, 1]);
+    assert!(!core.state().shuffle);
+    assert_eq!(current_title(&core), Some("b".into()));
 }

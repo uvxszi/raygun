@@ -68,6 +68,9 @@ pub struct PlaybackCore {
     crossfade_ms: f64,
     /// Where the current load stops (its song's end trim), ms; set by the service.
     end_ms: Option<f64>,
+    /// The user paused (M46.16): nothing plays until they play again, whatever an engine or a
+    /// stream found late does.
+    held: bool,
 }
 
 impl PlaybackCore {
@@ -93,7 +96,13 @@ impl PlaybackCore {
             stop_after_current: false,
             crossfade_ms: 0.0,
             end_ms: None,
+            held: false,
         }
+    }
+
+    /// Whether the user paused: a stream found now loads without playing.
+    pub fn held(&self) -> bool {
+        self.held
     }
 
     /// How long songs fade into the next (M46.12); 0 turns crossfading off.
@@ -314,7 +323,42 @@ impl PlaybackCore {
         effects
     }
 
+    /// Puts a saved queue back (M46.16, Raygun reopened): its play order, the song it was on and
+    /// where, loaded paused. An order that doesn't fit the items falls back to queue order.
+    pub fn restore(
+        &mut self,
+        inputs: Vec<QueueItemInput>,
+        order: Vec<usize>,
+        current: usize,
+        position_ms: f64,
+        shuffle: bool,
+        repeat: RepeatMode,
+    ) -> Vec<Effect> {
+        if inputs.is_empty() {
+            return Vec::new();
+        }
+        self.items.clear();
+        self.order.clear();
+        self.cursor = None;
+        self.consecutive_errors = 0;
+        self.shuffle = false;
+        self.enqueue(inputs, false);
+        let count = self.items.len();
+        let mut sorted = order.clone();
+        sorted.sort_unstable();
+        if sorted == (0..count).collect::<Vec<_>>() {
+            self.order = order;
+            self.shuffle = shuffle;
+        }
+        self.repeat = repeat;
+        let cursor = self.position_in_order(current.min(count - 1));
+        let mut effects = vec![Effect::QueueChanged];
+        effects.extend(self.load_at(cursor, position_ms.max(0.0), false));
+        effects
+    }
+
     pub fn play(&mut self) -> Vec<Effect> {
+        self.held = false;
         match self.cursor {
             None if !self.items.is_empty() => self.load_at(0, 0.0, true),
             None => Vec::new(),
@@ -322,15 +366,32 @@ impl PlaybackCore {
             Some(cursor) if self.status == PlaybackStatus::Error => {
                 self.load_at(cursor, self.position_ms, true)
             }
-            Some(_) => vec![Effect::Engine(EngineCommand::Play)],
+            Some(_) => {
+                // Answers at once (M46.16); the engine's report says when sound comes.
+                let mut effects = vec![Effect::Engine(EngineCommand::Play)];
+                if self.status == PlaybackStatus::Paused {
+                    effects.extend(self.set_status(PlaybackStatus::Loading));
+                }
+                effects
+            }
         }
     }
 
+    /// Pauses at once (M46.16): the state says paused before the engine answers, and a song
+    /// still being found, or an engine that starts anyway, stays paused.
     pub fn pause(&mut self) -> Vec<Effect> {
         if self.cursor.is_none() {
             return Vec::new();
         }
-        vec![Effect::Engine(EngineCommand::Pause)]
+        self.held = true;
+        let mut effects = vec![Effect::Engine(EngineCommand::Pause)];
+        if matches!(
+            self.status,
+            PlaybackStatus::Playing | PlaybackStatus::Loading | PlaybackStatus::Buffering
+        ) {
+            effects.extend(self.set_status(PlaybackStatus::Paused));
+        }
+        effects
     }
 
     pub fn toggle(&mut self) -> Vec<Effect> {
@@ -499,9 +560,16 @@ impl PlaybackCore {
             EngineEvent::Playing => {
                 self.consecutive_errors = 0;
                 self.error = None;
+                if self.held {
+                    // It started after the user paused: pause it again.
+                    let mut effects = vec![Effect::Engine(EngineCommand::Pause)];
+                    effects.extend(self.set_status(PlaybackStatus::Paused));
+                    return effects;
+                }
                 self.set_status(PlaybackStatus::Playing)
             }
             EngineEvent::Paused => self.set_status(PlaybackStatus::Paused),
+            EngineEvent::Buffering if self.held => Vec::new(),
             EngineEvent::Buffering => self.set_status(PlaybackStatus::Buffering),
             EngineEvent::Ended => self.on_ended(),
             EngineEvent::Error { message } => self.on_error(message),
@@ -600,8 +668,15 @@ impl PlaybackCore {
 
     fn load_at(&mut self, cursor: usize, start_ms: f64, autoplay: bool) -> Vec<Effect> {
         self.cursor = Some(cursor);
+        self.held = !autoplay;
         self.load_id = self.load_id.wrapping_add(1);
-        self.status = PlaybackStatus::Loading;
+        // A song loaded to wait (reopening, the sleep timer's end of song) reads as paused: an
+        // engine that loads paused has nothing to report.
+        self.status = if autoplay {
+            PlaybackStatus::Loading
+        } else {
+            PlaybackStatus::Paused
+        };
         self.position_ms = start_ms;
         self.source_label = None;
         let item = self.items[self.order[cursor]].clone();

@@ -17,9 +17,13 @@ import {
   useOpenFeed,
   usePodcastEvents,
   useRefreshAll,
+  useRefreshPodcast,
+  useSetSubscribed,
   useSubscriptions,
 } from './usePodcasts';
 import { Carousel } from '../shell/Carousel';
+import { openContextMenu } from '../shell/contextMenuStore';
+import { showMenu } from './podcastMenus';
 
 const matches = (text: string, query: string) =>
   text.toLocaleLowerCase().includes(query.toLocaleLowerCase());
@@ -35,6 +39,8 @@ export const PodcastsView: FC = () => {
   const subscriptions = useSubscriptions();
   const latest = useLatestEpisodes();
   const refreshAll = useRefreshAll();
+  const refresh = useRefreshPodcast();
+  const setSubscribed = useSetSubscribed();
   const openFeed = useOpenFeed();
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
@@ -139,7 +145,21 @@ export const PodcastsView: FC = () => {
           </div>
           <Carousel className="-mx-4 gap-3 px-4 lg:mx-0 lg:px-0">
             {shows.map((podcast) => (
-              <li key={podcast.id} className="w-28 shrink-0">
+              <li
+                key={podcast.id}
+                className="w-28 shrink-0"
+                onContextMenu={(event) =>
+                  openContextMenu(
+                    event,
+                    showMenu({ ...podcast, subscribed: true }, t, {
+                      open: () => void navigate({ to: '/podcast', search: { id: podcast.id } }),
+                      refresh: () => refresh.mutate(podcast.id),
+                      setSubscribed: (subscribed) =>
+                        setSubscribed.mutate({ id: podcast.id, subscribed }),
+                    }),
+                  )
+                }
+              >
                 <Link
                   to="/podcast"
                   search={{ id: podcast.id }}

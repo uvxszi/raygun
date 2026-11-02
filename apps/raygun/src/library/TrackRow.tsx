@@ -7,6 +7,8 @@ import { formatTime } from '../player/formatTime';
 import { ArtistLinks } from '../music/ArtistLinks';
 import { useTrackMenu } from '../music/useTrackMenu';
 import { Artwork } from './Artwork';
+import { NowPlayingBars } from '../player/NowPlayingBars';
+import { usePlayingMatch } from '../player/usePlayingMatch';
 
 type TrackRowProps = {
   track: LibraryTrack;
@@ -17,6 +19,7 @@ type TrackRowProps = {
 
 export const TrackRow: FC<TrackRowProps> = ({ track, onPlay, variant = 'artwork' }) => {
   const menu = useTrackMenu();
+  const playing = usePlayingMatch()(track);
   return (
     <div
       className="flex items-center"
@@ -36,7 +39,12 @@ export const TrackRow: FC<TrackRowProps> = ({ track, onPlay, variant = 'artwork'
           </span>
         )}
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-sm font-medium">{track.title}</span>
+          <span
+            className={`flex min-w-0 items-center gap-1.5 text-sm font-medium ${playing ? 'text-primary' : ''}`}
+          >
+            {playing && <NowPlayingBars playing={playing === 'playing'} />}
+            <span className="truncate">{track.title}</span>
+          </span>
           <span className="text-muted block truncate text-xs">
             <ArtistLinks credit={track.artist} nested />
             {variant === 'artwork' && <> · {track.album}</>}

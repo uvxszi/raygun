@@ -147,6 +147,7 @@ pub async fn speak(
         return Err("There is nothing to read".into());
     }
     let rate = rate.clamp(0.5, 2.0);
+    crate::playback::other_media_started(app).await;
     #[cfg(target_os = "android")]
     {
         let app = app.clone();

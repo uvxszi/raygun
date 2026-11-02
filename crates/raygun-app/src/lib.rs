@@ -13,6 +13,7 @@ mod comics;
 mod commands;
 mod connect;
 mod device_sync;
+mod discord;
 mod discovery;
 mod epub;
 mod events;
@@ -20,6 +21,7 @@ mod export;
 mod extensions;
 mod genres;
 mod history;
+mod last_played;
 mod library;
 mod library_actions;
 mod local_network;
@@ -90,6 +92,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::music_artist_info,
             commands::music_song_credits,
             commands::music_open_info_page,
+            commands::playback_restore,
+            commands::podcast_queue,
             commands::connect_status,
             commands::connect_devices,
             commands::connect_add,

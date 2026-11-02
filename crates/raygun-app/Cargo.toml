@@ -59,6 +59,8 @@ lofty = "0.25"
 rfd.workspace = true
 # One running copy on desktop (M46.11): two would share one database.
 tauri-plugin-single-instance = "2.5"
+# Discord presence (M46.16): its local IPC.
+discord-rich-presence = "1.1"
 # Copying a page to the clipboard on desktop (M46.6).
 arboard = { version = "3", default-features = false, features = ["image-data"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }

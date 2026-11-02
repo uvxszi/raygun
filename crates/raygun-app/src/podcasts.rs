@@ -356,6 +356,27 @@ impl PodcastService {
 
     /// Plays an episode, resuming where listening stopped (from the start once played).
     pub async fn play(&self, episode_id: &str) -> Result<(), String> {
+        let (item, start_ms) = self.queue_item(episode_id).await?;
+        self.app
+            .state::<PlaybackService>()
+            .replace_from(vec![item], start_ms);
+        Ok(())
+    }
+
+    /// Queues an episode after the current item (`next`, Play next) or at the end (M46.16).
+    pub async fn queue(&self, episode_id: &str, next: bool) -> Result<(), String> {
+        let (item, _) = self.queue_item(episode_id).await?;
+        let playback = self.app.state::<PlaybackService>();
+        if next {
+            playback.enqueue_next(vec![item]);
+        } else {
+            playback.enqueue(vec![item], false);
+        }
+        Ok(())
+    }
+
+    /// An episode as a queue item (its download when there is one), and where it resumes.
+    async fn queue_item(&self, episode_id: &str) -> Result<(QueueItemInput, f64), String> {
         let db = self.db();
         let episode = store::episode(&db, episode_id)
             .await
@@ -409,10 +430,7 @@ impl PodcastService {
             },
             source,
         };
-        self.app
-            .state::<PlaybackService>()
-            .replace_from(vec![item], start_ms);
-        Ok(())
+        Ok((item, start_ms))
     }
 
     /// Follows playback: saves the position of a playing episode and marks it played near the

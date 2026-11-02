@@ -11,6 +11,8 @@ import { useInView } from '../shell/useInView';
 import { useChartSongs } from './useDiscovery';
 import { useTrackMenu } from './useTrackMenu';
 import { Carousel } from '../shell/Carousel';
+import { NowPlayingBars } from '../player/NowPlayingBars';
+import { usePlayingMatch } from '../player/usePlayingMatch';
 
 /** Songs shown in a row; the chart's page has the rest. */
 const ROW_SONGS = 20;
@@ -22,6 +24,7 @@ const SongCard: FC<{ song: OnlineTrack; songs: OnlineTrack[]; rank: number }> = 
 }) => {
   const { t } = useTranslation();
   const menu = useTrackMenu();
+  const playing = usePlayingMatch()(song);
   const play = () => void playResults(songs, song);
   return (
     <li className="w-36 shrink-0 sm:w-40">
@@ -35,14 +38,17 @@ const SongCard: FC<{ song: OnlineTrack; songs: OnlineTrack[]; rank: number }> = 
       >
         <span className="relative block">
           <Artwork url={song.artworkUrl} className="w-full rounded-lg shadow-lg" iconSize={40} />
-          <span className="bg-background/80 absolute top-1.5 left-1.5 rounded-md px-1.5 text-xs font-bold tabular-nums">
+          <span className="bg-background/80 absolute top-1.5 left-1.5 flex items-center gap-1 rounded-md px-1.5 text-xs font-bold tabular-nums">
+            {playing && <NowPlayingBars playing={playing === 'playing'} />}
             {rank}
           </span>
           <span className="bg-primary text-background absolute right-2 bottom-2 grid size-10 translate-y-1 place-items-center rounded-full opacity-0 shadow-lg transition group-hover:translate-y-0 group-hover:opacity-100 group-focus-visible:opacity-100">
             <Play aria-hidden size={18} fill="currentColor" />
           </span>
         </span>
-        <span className="truncate text-sm font-semibold">{song.title}</span>
+        <span className={`truncate text-sm font-semibold ${playing ? 'text-primary' : ''}`}>
+          {song.title}
+        </span>
         <span className="text-muted -mt-1.5 truncate text-xs">{song.artist}</span>
       </button>
     </li>

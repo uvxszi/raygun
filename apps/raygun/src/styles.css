@@ -105,6 +105,25 @@
     transform: translateY(-4px) scale(0.96);
   }
 }
+/* The playing mark's bars (M46.16); still where motion is off. */
+@keyframes raygun-eq {
+  0%,
+  100% {
+    height: 25%;
+  }
+  50% {
+    height: 100%;
+  }
+}
+.raygun-eq-bar {
+  height: 60%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-motion='off']) .raygun-eq-bar {
+    animation: raygun-eq 0.9s ease-in-out infinite;
+  }
+}
+
 @keyframes raygun-rise-in {
   from {
     opacity: 0;

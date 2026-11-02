@@ -107,7 +107,8 @@ const LyricsCard: FC<{ item: QueueItem; state: PlaybackState | undefined; onOpen
   );
 };
 
-const ArtistCard: FC<{ credit: string | null }> = ({ credit }) => {
+/** About the artist (M46.14): also below the desktop side panel's Now playing. */
+export const ArtistCard: FC<{ credit: string | null }> = ({ credit }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const name = creditedArtists(credit)[0];
@@ -158,7 +159,8 @@ const ArtistCard: FC<{ credit: string | null }> = ({ credit }) => {
   );
 };
 
-const CreditsCard: FC<{ item: QueueItem }> = ({ item }) => {
+/** Who made the song (M46.14): also below the desktop side panel's Now playing. */
+export const CreditsCard: FC<{ item: QueueItem }> = ({ item }) => {
   const { t } = useTranslation();
   const heading = useId();
   const [open, setOpen] = useState(false);
