@@ -453,7 +453,11 @@ export type MusicRecommendProvider = {
   /** Songs from the artist's releases of the last `days` days, newest first. */
   newReleases?(args: { artist: string; days: number; limit: number }): Promise<{ tracks: Track[] }>;
   /** Songs like the artist's (and like this song, when `title` is given). */
-  radio?(args: { artist: string; title: string | null; limit: number }): Promise<{ tracks: Track[] }>;
+  radio?(args: {
+    artist: string;
+    title: string | null;
+    limit: number;
+  }): Promise<{ tracks: Track[] }>;
 };
 
 export type Provider =

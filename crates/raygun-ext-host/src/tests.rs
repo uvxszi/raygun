@@ -1038,6 +1038,56 @@ async fn charts_have_groups_and_any_tag_has_songs() {
 }
 
 #[tokio::test]
+async fn recommendations_come_from_the_first_source_that_has_some() {
+    let host = test_host();
+    let manifest = manifest_json(json!({ "provides": ["music.recommend"] }));
+    let code = r#"
+        raygun.providers.register({
+          kind: 'music.recommend', id: 'empty', name: 'Empty',
+          similarArtists: async () => ({ artists: [] }),
+          radio: async () => { throw new Error('radio is off the air'); },
+        });
+        raygun.providers.register({
+          kind: 'music.recommend', id: 'full', name: 'Full',
+          similarArtists: async ({ artist, limit }) => ({ artists: [
+            { id: 1, name: ` ${artist} II ` }, { id: 2, name: '' }, { id: 3, name: `${limit}` },
+          ] }),
+          topTracks: async ({ artist }) => ({ tracks: [{ title: `${artist} hit`, artist }] }),
+          radio: async ({ artist }) => ({ tracks: [{ title: `${artist} radio`, artist }] }),
+        });
+    "#;
+    host.load(vec![ExtensionSource::built_in(&[
+        ("raygun-extension.json", &manifest),
+        ("index.js", code),
+    ])])
+    .await;
+
+    assert_eq!(host.similar_artists("Nina", 4).await, vec!["Nina II", "4"]);
+    let top = host
+        .recommended_tracks("topTracks", json!({ "artist": "Nina", "limit": 5 }))
+        .await;
+    assert_eq!(top[0].title, "Nina hit");
+    let radio = host
+        .recommended_tracks(
+            "radio",
+            json!({ "artist": "Nina", "title": null, "limit": 5 }),
+        )
+        .await;
+    assert_eq!(
+        radio[0].title, "Nina radio",
+        "a failing source gives way to the next"
+    );
+    assert!(
+        host.recommended_tracks(
+            "newReleases",
+            json!({ "artist": "Nina", "days": 28, "limit": 5 })
+        )
+        .await
+        .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn artists_and_albums_come_from_sources_that_search_them() {
     let host = test_host();
     let code = r#"
@@ -1225,6 +1275,34 @@ async fn discovery_live_charts_and_tags() {
         }
         assert!(filled >= 2, "{tag}: only {filled} sources had songs");
     }
+
+    // Recommendations for Made for You (M46.20).
+    let similar = host.similar_artists("Daft Punk", 8).await;
+    println!("similar to Daft Punk: {similar:?}");
+    assert!(!similar.is_empty());
+    let top = host
+        .recommended_tracks("topTracks", json!({ "artist": "Daft Punk", "limit": 5 }))
+        .await;
+    assert!(!top.is_empty());
+    let radio = host
+        .recommended_tracks(
+            "radio",
+            json!({ "artist": "Daft Punk", "title": null, "limit": 10 }),
+        )
+        .await;
+    assert!(!radio.is_empty());
+    let releases = host
+        .recommended_tracks(
+            "newReleases",
+            json!({ "artist": "Taylor Swift", "days": 365, "limit": 5 }),
+        )
+        .await;
+    println!(
+        "top {:?}, radio {:?}, releases {:?}",
+        top.first().map(|song| &song.title),
+        radio.first().map(|song| &song.title),
+        releases.first().map(|song| &song.title)
+    );
 
     let albums = host.search_albums("random access memories", 5).await;
     println!(

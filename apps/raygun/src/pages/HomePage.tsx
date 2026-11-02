@@ -18,7 +18,9 @@ import { ROUTES } from '../manga/medium';
 import { useMangaLibrary } from '../manga/useManga';
 import { useLayout } from '../layout/useLayout';
 import { ChartRow } from '../music/ChartRow';
+import { MixCard } from '../music/MixCard';
 import { pickChart, useMusicCharts } from '../music/useDiscovery';
+import { useMadeForYou } from '../music/useMadeForYou';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { ContinueWatchingRow } from '../watch/ContinueWatchingRow';
@@ -198,9 +200,44 @@ const ChartSection: FC<{ which: 'popular' | 'trending' }> = ({ which }) => {
   );
 };
 
+/** Made for You's mixes as a row (M46.20); hidden until there are some. */
+const MadeForYouRow: FC = () => {
+  const { t } = useTranslation();
+  const overview = useMadeForYou();
+  const mixes = overview.data?.mixes ?? [];
+  if (mixes.length === 0) return null;
+  return (
+    <section
+      aria-label={t('forYou.title')}
+      data-testid="made-for-you-row"
+      className="flex flex-col gap-1"
+    >
+      <div className="flex items-baseline gap-3">
+        <h2 className="text-lg font-semibold">
+          <Link to="/music/for-you" className="hover:underline">
+            {t('forYou.title')}
+          </Link>
+        </h2>
+        <Link
+          to="/music/for-you"
+          className="text-muted hover:text-foreground ml-auto shrink-0 text-sm font-semibold"
+        >
+          {t('forYou.seeAll')}
+        </Link>
+      </div>
+      <Carousel className="-mx-4 gap-1 px-2 lg:-mx-2">
+        {mixes.slice(0, 12).map((mix) => (
+          <MixCard key={mix.id} mix={mix} />
+        ))}
+      </Carousel>
+    </section>
+  );
+};
+
 const HOME_SECTIONS: Record<string, FC> = {
   continueWatching: () => <ContinueWatchingRow />,
   continueReading: () => <ContinueReading />,
+  madeForYou: () => <MadeForYouRow />,
   yourMusic: () => <YourMusic />,
   recentlyPlayed: () => <RecentlyPlayed />,
   popularMusic: () => <ChartSection which="popular" />,

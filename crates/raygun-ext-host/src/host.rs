@@ -34,6 +34,8 @@ pub const MUSIC_CHARTS: &str = "music.charts";
 pub const MUSIC_TAGS: &str = "music.tags";
 /// Artist facts and song credits (M46.14).
 pub const MUSIC_INFO: &str = "music.info";
+/// Similar artists, top songs, new releases and radios (M46.20).
+pub const MUSIC_RECOMMEND: &str = "music.recommend";
 /// How long a search or a stream lookup waits for one source (M46.17); background work (charts,
 /// tags, downloads) keeps the longer call limit.
 pub const INTERACTIVE_TIMEOUT: Duration = Duration::from_secs(12);
@@ -571,6 +573,56 @@ impl ExtensionHost {
             .into_iter()
             .flatten()
             .collect()
+    }
+
+    /// Artists like `artist` from the first `music.recommend` provider that knows some (M46.20),
+    /// the closest first.
+    pub async fn similar_artists(&self, artist: &str, limit: u32) -> Vec<String> {
+        let args = serde_json::json!({ "artist": artist, "limit": limit });
+        for provider in self.providers(MUSIC_RECOMMEND).await {
+            match self
+                .call(&provider.id, "similarArtists", args.clone())
+                .await
+            {
+                Ok(value) => {
+                    let names: Vec<String> = value
+                        .get("artists")
+                        .and_then(serde_json::Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|artist| artist.get("name")?.as_str())
+                        .map(|name| name.trim().to_owned())
+                        .filter(|name| !name.is_empty())
+                        .collect();
+                    if !names.is_empty() {
+                        return names;
+                    }
+                }
+                Err(error) => log_unless_missing(&provider, "similarArtists", &error),
+            }
+        }
+        Vec::new()
+    }
+
+    /// Songs from the first `music.recommend` provider whose `method` (`topTracks`,
+    /// `newReleases` or `radio`) has some for `args` (M46.20).
+    pub async fn recommended_tracks(
+        &self,
+        method: &str,
+        args: serde_json::Value,
+    ) -> Vec<OnlineTrack> {
+        for provider in self.providers(MUSIC_RECOMMEND).await {
+            match self.call(&provider.id, method, args.clone()).await {
+                Ok(value) => {
+                    let tracks = parse_tracks(value);
+                    if !tracks.is_empty() {
+                        return tracks;
+                    }
+                }
+                Err(error) => log_unless_missing(&provider, method, &error),
+            }
+        }
+        Vec::new()
     }
 
     /// A chart's songs from the provider that keeps it (M46.9).
@@ -1181,6 +1233,14 @@ struct RawChart {
     tag: Option<String>,
     #[serde(default)]
     group: Option<String>,
+}
+
+/// Logs a failed optional call, unless the provider just doesn't have it.
+fn log_unless_missing(provider: &ProviderInfo, method: &str, error: &CallError) {
+    let message = error.to_string();
+    if !message.contains("has no method") {
+        tracing::warn!(provider = %provider.id, %message, "{method} failed");
+    }
 }
 
 /// A provider's id for something: a string, or a number written out.

@@ -421,7 +421,7 @@ pub(crate) fn fields(track: TrackInput) -> TrackFields {
 }
 
 /// A source that means the same on another device.
-fn portable(source: MediaSource) -> Option<MediaSource> {
+pub(crate) fn portable(source: MediaSource) -> Option<MediaSource> {
     match &source {
         MediaSource::Url { url, .. } if portable_url(url) => Some(source),
         MediaSource::YouTube { .. } => Some(source),

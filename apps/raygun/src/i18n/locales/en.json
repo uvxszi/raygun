@@ -1886,6 +1886,7 @@
     "editBrowse": "Edit Browse",
     "editLibraryTabs": "Edit library tabs",
     "home": {
+      "madeForYou": "Made for you",
       "continueWatching": "Continue watching",
       "continueReading": "Continue reading",
       "yourMusic": "Your music",
@@ -2092,7 +2093,65 @@
       "failed": "Couldn't download"
     }
   },
+  "forYou": {
+    "title": "Made for You",
+    "refresh": "Make new mixes",
+    "making": "Making your mixes from what you play…",
+    "remaking": "Making today's mixes…",
+    "emptyTitle": "Your mixes start here",
+    "emptyBody": "Play and save a few songs, and Raygun makes mixes from them: Daily Mixes, Discover Weekly, On Repeat and more.",
+    "browse": "Find music",
+    "seeAll": "See all",
+    "save": "Save as playlist",
+    "saved": "Saved to your playlists.",
+    "openPlaylist": "Open it",
+    "artists2": "{{first}} and {{second}}",
+    "artists3": "{{first}}, {{second}} and {{third}}",
+    "shelves": {
+      "daily": "Your Daily Mixes",
+      "made": "Made for you",
+      "because": "Because you listen to them",
+      "themed": "Your genres and moods"
+    },
+    "titles": {
+      "daily": "Daily Mix {{number}}",
+      "discoverWeekly": "Discover Weekly",
+      "releaseRadar": "Release Radar",
+      "onRepeat": "On Repeat",
+      "repeatRewind": "Repeat Rewind",
+      "because": "Because you listened to {{artist}}",
+      "radio": "{{artist}} Radio",
+      "themed": "{{name}} Mix",
+      "time": {
+        "morning": "Your morning mix",
+        "afternoon": "Your afternoon mix",
+        "evening": "Your evening mix",
+        "night": "Your late-night mix"
+      }
+    },
+    "about": {
+      "discoverWeekly": "New to you, this week",
+      "releaseRadar": "New from your artists",
+      "onRepeat": "Your most played lately",
+      "repeatRewind": "Songs you loved and haven't played in a while",
+      "timeOfDay": "What you play around now",
+      "becauseYouListened": "Artists like them",
+      "artistRadio": "Songs like theirs",
+      "genre": "Your songs and new finds",
+      "mood": "Your songs and new finds"
+    },
+    "stats": {
+      "title": "Your listening",
+      "week": "This week",
+      "minutes_one": "{{count}} minute",
+      "minutes_other": "{{count}} minutes",
+      "topArtist": "Top artist this month",
+      "topSong": "Top song this month",
+      "peak": "You listen most at"
+    }
+  },
   "discover": {
+    "madeForYou": "Made for You",
     "groups": {
       "top": "Top charts",
       "trending": "Trending",

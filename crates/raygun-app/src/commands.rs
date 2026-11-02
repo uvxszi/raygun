@@ -635,6 +635,39 @@ pub async fn music_charts(
     Ok(discovery.charts(region).await)
 }
 
+/// Made for You (M46.20): today's mixes (made in the background when they're from another day,
+/// or when `refresh`) and the listening numbers. `utc_offset_minutes` is the user's clock.
+#[tauri::command]
+#[specta::specta]
+pub async fn made_for_you(
+    service: tauri::State<'_, Arc<crate::made_for_you::MadeForYouService>>,
+    refresh: bool,
+    utc_offset_minutes: i32,
+) -> Result<raygun_model::MadeForYou, String> {
+    Ok(service.overview(refresh, utc_offset_minutes).await)
+}
+
+/// One Made for You mix with its songs (M46.20).
+#[tauri::command]
+#[specta::specta]
+pub async fn made_for_you_mix(
+    service: tauri::State<'_, Arc<crate::made_for_you::MadeForYouService>>,
+    id: String,
+) -> Result<raygun_model::Mix, String> {
+    service.mix(&id).await
+}
+
+/// Saves a mix as a playlist named `name`; returns the playlist's id (M46.20).
+#[tauri::command]
+#[specta::specta]
+pub async fn made_for_you_save(
+    service: tauri::State<'_, Arc<crate::made_for_you::MadeForYouService>>,
+    id: String,
+    name: String,
+) -> Result<String, String> {
+    service.save(&id, &name).await
+}
+
 /// Every chart source's songs for a genre or a mood (M46.19).
 #[tauri::command]
 #[specta::specta]

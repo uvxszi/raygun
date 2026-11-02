@@ -2312,6 +2312,90 @@ impl ChartGroup {
     }
 }
 
+// ---- Made for You (M46.20) ----
+
+/// Kinds of mix made for the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum MixKind {
+    /// The user's songs of a genre (or artist) with similar artists' songs.
+    Daily,
+    /// Songs the user hasn't heard, by artists like theirs; new each week.
+    DiscoverWeekly,
+    /// New releases by the user's artists.
+    ReleaseRadar,
+    /// The most played of the last 30 days.
+    OnRepeat,
+    /// Songs played a lot before but not lately.
+    RepeatRewind,
+    /// What the user plays at this time of day.
+    TimeOfDay,
+    /// Songs like an artist the user listens to (`seed`).
+    BecauseYouListened,
+    /// A source's radio for an artist (`seed`).
+    ArtistRadio,
+    /// The user's songs of a genre (`seed`) with the genre sources' songs.
+    Genre,
+    /// The same for a mood.
+    Mood,
+}
+
+/// A mix with its songs. Its name is made by the UI from the kind, `seed` and `number`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Mix {
+    /// Steady across days ("daily-1", "discover-weekly", "because-nina simone").
+    pub id: String,
+    pub kind: MixKind,
+    /// The artist, genre, mood or time of day it's about.
+    pub seed: Option<String>,
+    /// A Daily Mix's number.
+    pub number: Option<u32>,
+    /// The first three main artists, for the description.
+    pub artists: Vec<String>,
+    /// Up to four covers, for the mosaic.
+    pub artwork_urls: Vec<String>,
+    pub tracks: Vec<OnlineTrack>,
+}
+
+/// A mix without its songs, for the shelves.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MixSummary {
+    pub id: String,
+    pub kind: MixKind,
+    pub seed: Option<String>,
+    pub number: Option<u32>,
+    pub artists: Vec<String>,
+    pub artwork_urls: Vec<String>,
+    pub track_count: u32,
+}
+
+/// The "Your listening" numbers (QuietPlay's stat cards).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ListeningStats {
+    pub plays_this_week: u32,
+    pub minutes_this_week: u32,
+    pub top_artist: Option<String>,
+    pub top_song: Option<OnlineTrack>,
+    /// The hour (0-23, the user's clock) they play most at.
+    pub peak_hour: Option<u8>,
+    /// Songs the user has played or saved.
+    pub songs_known: u32,
+}
+
+/// Made for You: today's mixes, and whether new ones are being made.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MadeForYou {
+    pub mixes: Vec<MixSummary>,
+    pub stats: ListeningStats,
+    /// When the mixes were made (unix ms).
+    pub made_at: Option<f64>,
+    pub making: bool,
+}
+
 /// One source's songs for a genre or a mood (M46.19).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -3271,9 +3355,10 @@ pub const LAYOUT_AUDIO_VIEWS: [(&str, bool); 8] = [
     ("artists", true),
     ("tracks", true),
 ];
-pub const LAYOUT_HOME_SECTIONS: [(&str, bool); 6] = [
+pub const LAYOUT_HOME_SECTIONS: [(&str, bool); 7] = [
     ("continueWatching", true),
     ("continueReading", true),
+    ("madeForYou", true),
     ("yourMusic", true),
     ("recentlyPlayed", true),
     ("popularMusic", true),

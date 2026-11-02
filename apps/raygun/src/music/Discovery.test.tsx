@@ -127,7 +127,15 @@ describe('Music discovery', () => {
       within(all)
         .getAllByTestId('kind-tile')
         .map((tile) => tile.textContent),
-    ).toEqual(['Music', 'Podcasts', 'Comics', 'Books', 'Movies & series', 'Websites']);
+    ).toEqual([
+      'Made for You',
+      'Music',
+      'Podcasts',
+      'Comics',
+      'Books',
+      'Movies & series',
+      'Websites',
+    ]);
     const charts = await within(all).findByRole('region', { name: 'Charts' });
     expect(
       within(charts)

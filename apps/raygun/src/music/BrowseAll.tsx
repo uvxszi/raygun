@@ -8,6 +8,7 @@ import {
   LibraryBig,
   Mic,
   Music,
+  Sparkles,
   TrendingUp,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -138,6 +139,7 @@ export const BrowseAll: FC = () => {
   const genres = tags.filter((tag) => tag.kind === 'genre' && (allTags || featured.has(tag.name)));
   const kinds: { title: string; icon: LucideIcon; to: string; search?: Record<string, unknown> }[] =
     [
+      { title: t('discover.madeForYou'), icon: Sparkles, to: '/music/for-you' },
       { title: t('discover.music'), icon: Music, to: '/music/charts' },
       {
         title: t('discover.podcasts'),

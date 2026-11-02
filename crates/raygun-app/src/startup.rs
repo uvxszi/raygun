@@ -167,6 +167,9 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     ));
     let discovery = crate::discovery::DiscoveryService::new(app.handle().clone());
     app.manage(discovery.clone());
+    app.manage(crate::made_for_you::MadeForYouService::new(
+        app.handle().clone(),
+    ));
     let songs = crate::music_downloads::SongDownloadService::new(
         app.handle().clone(),
         paths.downloads(),

@@ -25,6 +25,7 @@ mod last_played;
 mod library;
 mod library_actions;
 mod local_network;
+mod made_for_you;
 mod manga;
 mod manga_downloads;
 mod mcp;
@@ -126,6 +127,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::music_charts,
             commands::music_chart,
             commands::music_tag_sources,
+            commands::made_for_you,
+            commands::made_for_you_mix,
+            commands::made_for_you_save,
             commands::music_track_tags,
             commands::music_tags_for,
             commands::music_tag_summary,
@@ -332,6 +336,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::WatchChangedEvent,
             events::VideoDownloadsEvent,
             events::SongDownloadsEvent,
+            events::MadeForYouEvent,
             events::SettingsChangedEvent,
             events::ExportEvent,
             events::VideoPlayerEvent,

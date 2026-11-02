@@ -371,6 +371,22 @@ impl ExtensionService {
         self.host.music_charts(region).await
     }
 
+    /// Artists like `artist` (M46.20).
+    pub async fn similar_artists(&self, artist: &str, limit: u32) -> Vec<String> {
+        let _ready = self.loading.read().await;
+        self.host.similar_artists(artist, limit).await
+    }
+
+    /// Songs from a `music.recommend` call (M46.20).
+    pub async fn recommended_tracks(
+        &self,
+        method: &str,
+        args: serde_json::Value,
+    ) -> Vec<OnlineTrack> {
+        let _ready = self.loading.read().await;
+        self.host.recommended_tracks(method, args).await
+    }
+
     /// Every chart source's songs for a genre or a mood (M46.19).
     pub async fn music_tag_songs(
         &self,

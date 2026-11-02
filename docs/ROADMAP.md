@@ -154,8 +154,11 @@ The user asked for the full depth of the reference apps ("its not meant to be a 
   - Any genre or mood has songs from every source that has some (`tagSongs`), above the user's own.
   - Charts grouped by kind (top, trending, new, underground, decades, genres); Apple genre charts, Deezer decades, ListenBrainz fresh singles.
   - Audius, a new first-party source: trending and underground charts, search and full streams.
+- M46.20 **Made for You** (asked 2026-11-02): ✅
+  - Daily Mixes, Discover Weekly, Release Radar, On Repeat, a time-of-day mix, Repeat Rewind, "Because you listened to", artist radios, genre and mood mixes, listening numbers.
+  - A Home row, a Browse all tile, mix pages with Play, Shuffle and Save as playlist.
+  - A new `music.recommend` kind (Deezer: similar artists, top songs, new releases, radio).
 - **Asked 2026-11-02, next** (each a milestone):
-  - Made for You;
   - the extension systems Raygun supports, listed (QuietPlay and Musike have none to load);
   - Spotify playlist import and reading songs from screenshots;
   - Audiobooks: a media type with its own pill in Library → Audio, from LibriVox and Internet Archive.

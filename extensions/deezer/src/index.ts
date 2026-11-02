@@ -1,8 +1,8 @@
-// Deezer: charts (the top songs, each genre's, and the decades') and the genres of songs, from
-// Deezer's public API, which needs no key (M46.9). Any genre or mood has songs too (M46.19): its
-// chart, a Deezer radio for it, or else the best playlist named after it. Charts follow the
-// country Deezer sees the request from. Songs carry no stream; Raygun finds one through
-// `music.stream` providers when they play.
+// Deezer, from its public API, which needs no key (M46.9): charts (the top songs, each genre's and
+// the decades'), songs for any genre or mood (M46.19: its chart, a Deezer radio for it, or else the
+// best playlist named after it), the genres of songs, and recommendations for Made for You
+// (M46.20). Charts follow the country Deezer sees the request from. Songs carry no stream; Raygun
+// finds one through `music.stream` providers when they play.
 import { defineProvider, registerProvider } from '@raygun/sdk';
 import type { Album, Artist, Chart, LyricsQuery, MusicTag, Track } from '@raygun/sdk';
 
@@ -318,6 +318,95 @@ registerProvider(
         }),
       );
       return { album: toAlbum(album), tracks };
+    },
+  }),
+);
+
+// Artists already looked up, so making mixes asks Deezer about each name once.
+const artists = new Map<string, DeezerArtist | null>();
+
+/** The Deezer artist with this name: the first search hit whose name matches, else the first. */
+const artistNamed = async (name: string): Promise<DeezerArtist | null> => {
+  const wanted = simple(name);
+  if (artists.has(wanted)) return artists.get(wanted) ?? null;
+  const found = await get<DeezerList<DeezerArtist>>(
+    `/search/artist?q=${encodeURIComponent(name)}&limit=5`,
+  );
+  const list = found.data ?? [];
+  const artist = list.find((candidate) => simple(candidate.name) === wanted) ?? list[0] ?? null;
+  if (artists.size > 500) artists.clear();
+  artists.set(wanted, artist);
+  return artist;
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Recommendations (M46.20) for Made for You: artists Deezer relates, their top songs, releases
+ * from the last weeks, and Deezer's artist radio.
+ */
+registerProvider(
+  defineProvider({
+    kind: 'music.recommend',
+    id: 'recommend',
+    name: 'Deezer',
+    async similarArtists({ artist, limit }) {
+      const found = await artistNamed(artist);
+      if (!found) return { artists: [] };
+      const related = await get<DeezerList<DeezerArtist>>(
+        `/artist/${found.id}/related?limit=${limitOf(limit)}`,
+      );
+      const artists: Artist[] = (related.data ?? []).map((other) => ({
+        id: String(other.id),
+        name: other.name,
+        imageUrl: other.picture_xl ?? other.picture_big ?? null,
+      }));
+      return { artists };
+    },
+    async topTracks({ artist, limit }) {
+      const found = await artistNamed(artist);
+      if (!found) return { tracks: [] };
+      const top = await get<DeezerList<DeezerTrack>>(
+        `/artist/${found.id}/top?limit=${limitOf(limit)}`,
+      );
+      return { tracks: (top.data ?? []).map(toTrack) };
+    },
+    async newReleases({ artist, days, limit }) {
+      const found = await artistNamed(artist);
+      if (!found) return { tracks: [] };
+      const albums = await get<DeezerList<DeezerAlbum>>(`/artist/${found.id}/albums?limit=25`);
+      const since = Date.now() - Math.max(1, days) * DAY_MS;
+      const recent = (albums.data ?? [])
+        .filter((album) => album.release_date && Date.parse(album.release_date) >= since)
+        .sort((a, b) => Date.parse(b.release_date ?? '') - Date.parse(a.release_date ?? ''))
+        .slice(0, 3);
+      const tracks: Track[] = [];
+      for (const album of recent) {
+        const page = await get<DeezerList<DeezerTrack>>(`/album/${album.id}/tracks?limit=50`);
+        for (const track of page.data ?? []) {
+          tracks.push(
+            toTrack({
+              ...track,
+              artist: track.artist ?? { name: found.name },
+              album: {
+                id: album.id,
+                title: album.title,
+                cover_xl: album.cover_xl,
+                cover_big: album.cover_big,
+              },
+            }),
+          );
+        }
+      }
+      return { tracks: tracks.slice(0, limitOf(limit)) };
+    },
+    async radio({ artist, limit }) {
+      const found = await artistNamed(artist);
+      if (!found) return { tracks: [] };
+      const radio = await get<DeezerList<DeezerTrack>>(
+        `/artist/${found.id}/radio?limit=${Math.min(Math.max(limit, 1), 100)}`,
+      );
+      return { tracks: (radio.data ?? []).map(toTrack) };
     },
   }),
 );

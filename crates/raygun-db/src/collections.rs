@@ -496,6 +496,26 @@ pub async fn recent_history(db: &Db, limit: i64) -> Result<Vec<HistoryRow>, DbEr
         .collect())
 }
 
+/// Every play since `since_ms`, newest first, at most `limit` (M46.20: Made for You).
+pub async fn plays_since(db: &Db, since_ms: i64, limit: i64) -> Result<Vec<HistoryRow>, DbError> {
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT id, played_at, {TRACK_COLUMNS} FROM music_play_history
+         WHERE deleted = 0 AND played_at >= ?1 ORDER BY played_at DESC, id DESC LIMIT ?2"
+    )))
+    .bind(since_ms)
+    .bind(limit)
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows
+        .iter()
+        .map(|row| HistoryRow {
+            id: row.get("id"),
+            track: track_fields(row),
+            played_at: row.get("played_at"),
+        })
+        .collect())
+}
+
 /// How many times each of `keys` was played (M46.8); keys never played are missing.
 pub async fn play_counts(
     db: &Db,

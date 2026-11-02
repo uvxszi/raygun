@@ -162,6 +162,16 @@ async fn history_lists_each_track_once_by_its_latest_play() {
     assert_eq!(listed, [("one", 300), ("two", 200)]);
     assert_eq!(recent_history(&db, 1).await.unwrap().len(), 1);
 
+    // Every play, for Made for You (M46.20): newest first, from a time, at most a number.
+    let plays: Vec<i64> = plays_since(&db, 150, 10)
+        .await
+        .unwrap()
+        .iter()
+        .map(|row| row.played_at)
+        .collect();
+    assert_eq!(plays, [300, 200]);
+    assert_eq!(plays_since(&db, 0, 2).await.unwrap().len(), 2);
+
     clear_history(&db).await.unwrap();
     assert!(recent_history(&db, 10).await.unwrap().is_empty());
 }

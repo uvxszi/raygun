@@ -196,6 +196,15 @@ export const commands = {
 	musicChart: (providerId: string, chartId: string, region: string | null) => typedError<OnlineTrack[], string>(__TAURI_INVOKE("music_chart", { providerId, chartId, region })),
 	/**  Every chart source's songs for a genre or a mood (M46.19). */
 	musicTagSources: (name: string, region: string | null) => typedError<MusicTagSources, string>(__TAURI_INVOKE("music_tag_sources", { name, region })),
+	/**
+	 *  Made for You (M46.20): today's mixes (made in the background when they're from another day,
+	 *  or when `refresh`) and the listening numbers. `utc_offset_minutes` is the user's clock.
+	 */
+	madeForYou: (refresh: boolean, utcOffsetMinutes: number) => typedError<MadeForYou, string>(__TAURI_INVOKE("made_for_you", { refresh, utcOffsetMinutes })),
+	/**  One Made for You mix with its songs (M46.20). */
+	madeForYouMix: (id: string) => typedError<Mix, string>(__TAURI_INVOKE("made_for_you_mix", { id })),
+	/**  Saves a mix as a playlist named `name`; returns the playlist's id (M46.20). */
+	madeForYouSave: (id: string, name: string) => typedError<string, string>(__TAURI_INVOKE("made_for_you_save", { id, name })),
 	/**  A song's genres and moods, found now if they aren't stored yet (M46.9). */
 	musicTrackTags: (query: TrackQuery) => typedError<MusicTag[], string>(__TAURI_INVOKE("music_track_tags", { query })),
 	/**  Stored tags for songs by track key; songs without any are left out (M46.9). */
@@ -682,6 +691,7 @@ export const events = {
 	exportEvent: makeEvent<ExportEvent>("export-event"),
 	extensionsChangedEvent: makeEvent<ExtensionsChangedEvent>("extensions-changed-event"),
 	libraryScanEvent: makeEvent<LibraryScanEvent>("library-scan-event"),
+	madeForYouEvent: makeEvent<MadeForYouEvent>("made-for-you-event"),
 	mangaDownloadsEvent: makeEvent<MangaDownloadsEvent>("manga-downloads-event"),
 	mangaUpdateEvent: makeEvent<MangaUpdateEvent>("manga-update-event"),
 	playbackStateEvent: makeEvent<PlaybackStateEvent>("playback-state-event"),
@@ -1483,6 +1493,18 @@ export type LibraryTrack = {
 	artworkUrl: string | null,
 };
 
+/**  The "Your listening" numbers (QuietPlay's stat cards). */
+export type ListeningStats = {
+	playsThisWeek: number,
+	minutesThisWeek: number,
+	topArtist: string | null,
+	topSong: OnlineTrack | null,
+	/**  The hour (0-23, the user's clock) they play most at. */
+	peakHour: number | null,
+	/**  Songs the user has played or saved. */
+	songsKnown: number,
+};
+
 /**
  *  Android 17's local network permission, for one connection: reaching an addon on the user's
  *  network, or (with no address) devices on the network reaching the LAN remote.
@@ -1515,6 +1537,18 @@ export type Lyrics = {
 	/**  These are the person's own lyrics, not a source's (M46.12). */
 	edited?: boolean,
 };
+
+/**  Made for You: today's mixes, and whether new ones are being made. */
+export type MadeForYou = {
+	mixes: MixSummary[],
+	stats: ListeningStats,
+	/**  When the mixes were made (unix ms). */
+	madeAt: number | null,
+	making: boolean,
+};
+
+/**  New Made for You mixes are ready (M46.20). */
+export type MadeForYouEvent = null;
 
 export type MangaBrowseMode = "popular" | "latest" | "search";
 
@@ -1736,6 +1770,56 @@ export type MihonImport = {
 	chapters: number,
 	readChapters: number,
 	skipped: SkippedSource[],
+};
+
+/**  A mix with its songs. Its name is made by the UI from the kind, `seed` and `number`. */
+export type Mix = {
+	/**  Steady across days ("daily-1", "discover-weekly", "because-nina simone"). */
+	id: string,
+	kind: MixKind,
+	/**  The artist, genre, mood or time of day it's about. */
+	seed: string | null,
+	/**  A Daily Mix's number. */
+	number: number | null,
+	/**  The first three main artists, for the description. */
+	artists: string[],
+	/**  Up to four covers, for the mosaic. */
+	artworkUrls: string[],
+	tracks: OnlineTrack[],
+};
+
+/**  Kinds of mix made for the user. */
+export type MixKind = 
+/**  The user's songs of a genre (or artist) with similar artists' songs. */
+"daily" | 
+/**  Songs the user hasn't heard, by artists like theirs; new each week. */
+"discoverWeekly" | 
+/**  New releases by the user's artists. */
+"releaseRadar" | 
+/**  The most played of the last 30 days. */
+"onRepeat" | 
+/**  Songs played a lot before but not lately. */
+"repeatRewind" | 
+/**  What the user plays at this time of day. */
+"timeOfDay" | 
+/**  Songs like an artist the user listens to (`seed`). */
+"becauseYouListened" | 
+/**  A source's radio for an artist (`seed`). */
+"artistRadio" | 
+/**  The user's songs of a genre (`seed`) with the genre sources' songs. */
+"genre" | 
+/**  The same for a mood. */
+"mood";
+
+/**  A mix without its songs, for the shelves. */
+export type MixSummary = {
+	id: string,
+	kind: MixKind,
+	seed: string | null,
+	number: number | null,
+	artists: string[],
+	artworkUrls: string[],
+	trackCount: number,
 };
 
 /**

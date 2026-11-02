@@ -49,6 +49,7 @@ type EventPayloads = {
   watchChangedEvent: string;
   videoDownloadsEvent: string;
   songDownloadsEvent: string;
+  madeForYouEvent: null;
   settingsChangedEvent: string;
   exportEvent: ExportJob | null;
   videoPlayerEvent: VideoPlayerMessage;
@@ -208,6 +209,9 @@ export const bindingsMock = {
     musicTagSummary: vi.fn(),
     musicTagSongs: vi.fn(),
     musicTagSources: vi.fn(),
+    madeForYou: vi.fn(),
+    madeForYouMix: vi.fn(),
+    madeForYouSave: vi.fn(),
     musicTagVocabulary: vi.fn(),
     songsDownload: vi.fn(),
     musicSearchArtists: vi.fn(),
@@ -469,6 +473,7 @@ export const bindingsMock = {
     watchChangedEvent: makeEvent('watchChangedEvent'),
     videoDownloadsEvent: makeEvent('videoDownloadsEvent'),
     songDownloadsEvent: makeEvent('songDownloadsEvent'),
+    madeForYouEvent: makeEvent('madeForYouEvent'),
     settingsChangedEvent: makeEvent('settingsChangedEvent'),
     exportEvent: makeEvent('exportEvent'),
     videoPlayerEvent: makeEvent('videoPlayerEvent'),
@@ -501,6 +506,22 @@ export const seedBindings = () => {
   commands.musicTagSummary.mockResolvedValue(ok([]));
   commands.musicTagSongs.mockResolvedValue(ok([]));
   commands.musicTagSources.mockResolvedValue(ok({ rows: [], failures: [] }));
+  commands.madeForYou.mockResolvedValue(
+    ok({
+      mixes: [],
+      stats: {
+        playsThisWeek: 0,
+        minutesThisWeek: 0,
+        topArtist: null,
+        topSong: null,
+        peakHour: null,
+        songsKnown: 0,
+      },
+      madeAt: null,
+      making: false,
+    }),
+  );
+  commands.madeForYouSave.mockResolvedValue(ok('playlist-1'));
   commands.musicTagVocabulary.mockResolvedValue([]);
   commands.songsDownload.mockResolvedValue(ok(null));
   commands.musicSearchArtists.mockResolvedValue(ok([]));

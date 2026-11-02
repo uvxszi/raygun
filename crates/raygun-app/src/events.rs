@@ -49,6 +49,10 @@ pub struct VideoDownloadsEvent(pub String);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SongDownloadsEvent(pub String);
 
+/// New Made for You mixes are ready (M46.20).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct MadeForYouEvent;
+
 /// Progress reading a chapter aloud (M33).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct TtsEvent(pub raygun_model::TtsUpdate);

@@ -16,6 +16,8 @@ import { MusicAlbumPage } from './pages/MusicAlbumPage';
 import { MusicChartPage } from './pages/MusicChartPage';
 import { MusicChartsPage } from './pages/MusicChartsPage';
 import { MusicTagPage } from './pages/MusicTagPage';
+import { MadeForYouPage } from './pages/MadeForYouPage';
+import { MixPage } from './pages/MixPage';
 import { BrowsePage } from './pages/BrowsePage';
 import type { BrowseSection, ExtensionList } from './pages/BrowsePage';
 import { MorePage } from './pages/MorePage';
@@ -227,6 +229,17 @@ const routeTree = rootRoute.addChildren([
       provider: text(search.provider),
       id: text(search.id),
     }),
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/music/for-you',
+    component: MadeForYouPage,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/music/mix',
+    component: MixPage,
+    validateSearch: (search: Record<string, unknown>) => ({ id: text(search.id) }),
   }),
   createRoute({
     getParentRoute: () => rootRoute,

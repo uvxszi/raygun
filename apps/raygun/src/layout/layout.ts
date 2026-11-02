@@ -44,6 +44,7 @@ export const LAYOUT_ENTRIES: Record<LayoutSurface, readonly (readonly [string, b
   homeSections: [
     ['continueWatching', true],
     ['continueReading', true],
+    ['madeForYou', true],
     ['yourMusic', true],
     ['recentlyPlayed', true],
     ['popularMusic', true],

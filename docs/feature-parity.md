@@ -64,6 +64,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Connect: play on another device, "Playing on …", remote control, play here again | Spotify | ✅ M46.15 (between Raygun devices on one network; no Chromecast or DLNA) |
 | Playing mark in lists, reopen paused where you left off, Discord presence | Spotify | ✅ M46.16 (Discord: desktop, with your own Discord application ID) |
 | Sources failing calmly with details on request; automatic video source fallback that remembers bad sources | Cloudstream, Aniyomi, Stremio | ✅ M46.17 |
+| Made for You: Daily Mixes, Discover Weekly, Release Radar, On Repeat, Repeat Rewind, "Because you listened to", artist radios, listening numbers | QuietPlay, Spotify, Metrolist, RiPlay | ✅ M46.20 (made daily from plays and favorites; skips aren't counted yet) |
 | Genre and mood pages full of songs from every source; charts by kind (top, trending, new, underground, decades) | Spotify, QuietPlay | ✅ M46.19 (Deezer, Apple Music, ListenBrainz, Audius) |
 | Audio quality for streaming, mobile data and downloads; a download button with an undo popover; a Downloaded library view; MP3 export | Spotify, RiPlay | ✅ M46.18 (quality picks among a source's streams; YouTube's embed has no quality control) |
 | Equalizer | RiPlay | ✅ M46.12 (10 fixed bands with presets on both platforms; bass boost, reverb, balance, mono) |
@@ -72,7 +73,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Blacklist (artists/tracks) | RiPlay | 🔜 M52 |
 | Listening stats, "Rewind" yearly recap | RiPlay | 🔜 M52 |
 | Playlist import (from URLs/files) | Nuclear | 🔜 M52 |
-| Dashboard/discovery: new releases, moods, quick picks | Nuclear, RiPlay | 🔜 M52 |
+| Dashboard/discovery: new releases, moods, quick picks | Nuclear, RiPlay | ✅ M46.20 (Made for You: mixes from plays and favorites, Release Radar, moods; skip signals not yet) |
 | Lyrics translation | RiPlay | 🔜 M58 |
 | Last.fm scrobbling | RiPlay | 🔜 M52 (own tokens) / ⏸ M59 (accounts) |
 | WebDAV database backup | RiPlay | 🔜 M54 |

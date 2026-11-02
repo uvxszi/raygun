@@ -1,4 +1,4 @@
-// dev.raygun.deezer 1.2.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.deezer 1.3.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -231,12 +231,12 @@
         const found = await get(
           `/search/artist?q=${encodeURIComponent(query)}&limit=${limitOf(limit)}`
         );
-        const artists = (found.data ?? []).map((artist) => ({
+        const artists2 = (found.data ?? []).map((artist) => ({
           id: String(artist.id),
           name: artist.name,
           imageUrl: artist.picture_xl ?? artist.picture_big ?? null
         }));
-        return { artists };
+        return { artists: artists2 };
       },
       async searchAlbums({ query, limit }) {
         const found = await get(
@@ -259,6 +259,82 @@
           })
         );
         return { album: toAlbum(album), tracks };
+      }
+    })
+  );
+  var artists = /* @__PURE__ */ new Map();
+  var artistNamed = async (name) => {
+    const wanted = simple(name);
+    if (artists.has(wanted)) return artists.get(wanted) ?? null;
+    const found = await get(
+      `/search/artist?q=${encodeURIComponent(name)}&limit=5`
+    );
+    const list = found.data ?? [];
+    const artist = list.find((candidate) => simple(candidate.name) === wanted) ?? list[0] ?? null;
+    if (artists.size > 500) artists.clear();
+    artists.set(wanted, artist);
+    return artist;
+  };
+  var DAY_MS = 24 * 60 * 60 * 1e3;
+  registerProvider(
+    defineProvider({
+      kind: "music.recommend",
+      id: "recommend",
+      name: "Deezer",
+      async similarArtists({ artist, limit }) {
+        const found = await artistNamed(artist);
+        if (!found) return { artists: [] };
+        const related = await get(
+          `/artist/${found.id}/related?limit=${limitOf(limit)}`
+        );
+        const artists2 = (related.data ?? []).map((other) => ({
+          id: String(other.id),
+          name: other.name,
+          imageUrl: other.picture_xl ?? other.picture_big ?? null
+        }));
+        return { artists: artists2 };
+      },
+      async topTracks({ artist, limit }) {
+        const found = await artistNamed(artist);
+        if (!found) return { tracks: [] };
+        const top = await get(
+          `/artist/${found.id}/top?limit=${limitOf(limit)}`
+        );
+        return { tracks: (top.data ?? []).map(toTrack) };
+      },
+      async newReleases({ artist, days, limit }) {
+        const found = await artistNamed(artist);
+        if (!found) return { tracks: [] };
+        const albums = await get(`/artist/${found.id}/albums?limit=25`);
+        const since = Date.now() - Math.max(1, days) * DAY_MS;
+        const recent = (albums.data ?? []).filter((album) => album.release_date && Date.parse(album.release_date) >= since).sort((a, b) => Date.parse(b.release_date ?? "") - Date.parse(a.release_date ?? "")).slice(0, 3);
+        const tracks = [];
+        for (const album of recent) {
+          const page = await get(`/album/${album.id}/tracks?limit=50`);
+          for (const track of page.data ?? []) {
+            tracks.push(
+              toTrack({
+                ...track,
+                artist: track.artist ?? { name: found.name },
+                album: {
+                  id: album.id,
+                  title: album.title,
+                  cover_xl: album.cover_xl,
+                  cover_big: album.cover_big
+                }
+              })
+            );
+          }
+        }
+        return { tracks: tracks.slice(0, limitOf(limit)) };
+      },
+      async radio({ artist, limit }) {
+        const found = await artistNamed(artist);
+        if (!found) return { tracks: [] };
+        const radio2 = await get(
+          `/artist/${found.id}/radio?limit=${Math.min(Math.max(limit, 1), 100)}`
+        );
+        return { tracks: (radio2.data ?? []).map(toTrack) };
       }
     })
   );
