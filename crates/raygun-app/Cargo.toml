@@ -52,6 +52,14 @@ chrono = { version = "0.4", default-features = false, features = ["std", "alloc"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 rfd.workspace = true
+# Copying a page to the clipboard on desktop (M46.6).
+arboard = { version = "3", default-features = false, features = ["image-data"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
+
+# The desktop browser's blocker (M46.6): WebView2's request filter, at Tauri's own versions.
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows = { version = "0.62", features = ["Win32_System_Com"] }
 
 [dev-dependencies]
 tempfile = "3"

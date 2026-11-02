@@ -247,3 +247,16 @@ fn non_empty_env(key: &str) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests;
+
+/// The user's Downloads folder on desktop, where exported files go (M46.6). Raygun's own data
+/// stays in its data root; this is only for files the user saves, as a browser's downloads.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub fn user_downloads() -> Option<PathBuf> {
+    dirs::download_dir()
+}
+
+/// The user's Pictures folder on desktop, where saved pages and screenshots go (M46.6).
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub fn user_pictures() -> Option<PathBuf> {
+    dirs::picture_dir()
+}

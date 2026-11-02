@@ -11,6 +11,8 @@ Read this instead of re-exploring the repos. Each section: what to take, what to
 | mihon, aniyomi, TachiyomiAT, mihon_img_upscale | Apache-2.0 | Can copy/adapt with attribution + NOTICE |
 | RiPlay, shosetsu, cloudstream | GPL-3.0 | Copying code makes Raygun GPL-3.0 |
 | nuclear | AGPL-3.0 | Copying code makes Raygun AGPL-3.0 |
+| miru-app | AGPL-3.0 | Same as nuclear |
+| miru-repo (extensions) | MIT (a few AGPL/GPL-3.0) | Can be bundled or converted with attribution |
 
 Raygun is **AGPL-3.0-only**, so code from all of these may be adapted. Keep a header naming the source repo and license on adapted files, and list Apache-2.0 sources in `NOTICE`.
 
@@ -119,3 +121,58 @@ Frontend stack: React, Tailwind v4, Zustand, TanStack Query v5 + Router, Zod, Vi
 - `Video{videoUrl, videoTitle, resolution, bitrate, headers, preferred, subtitleTracks, audioTracks, timestamps(OP/ED/Recap), mpvArgs, ffmpeg*Args}`.
 - Player: **mpv-android** (libmpv) — needed for MKV/ASS/HEVC that platform players handle poorly.
 - Separate DB tables/screens for anime vs manga but shared category/tracker/backup infrastructure.
+
+## miru (Flutter, AGPL-3.0; abandoned since 2024-04) and miru-repo (MIT) — JS extensions
+Cloned 2026-11-01 into `reference/miru-app` (commit 8599d0d) and `reference/miru-repo` (145 extensions: 97 bangumi/video, 39 manga, 9 fikushon/novel; 35 NSFW). Basis for M46.7.
+- **Repo:**
+  - `index.json` is an array of the header fields as strings (`name, package, type, lang, license, version, webSite, url`, optional `icon`, `nsfw` "true"/"false", `description`, `tags`). `main.go` generates it from the `// ==MiruExtension==` header.
+  - Install URL: `<repo>/repo/<package>.js`; the default repo is `https://miru-repo.0n0.dev`.
+  - The installed version is compared with `!=`.
+  - `parseExtension` reads `@key value` anywhere in the file.
+- **Source:**
+  - `export default class extends Extension {…}`. Miru rewrites that line to a named class, evaluates the script in its own runtime (QuickJS on Android and Windows), creates the instance, and calls `load()` without awaiting it.
+  - **Methods:**
+    - `latest(page)` and `search(kw, page, filter)` return `[{title, url, cover?, update?, headers?}]`;
+    - `createFilter(filter?)` returns `{key: {title, min, max, default, options: {key: label}}}`;
+    - `detail(url)` returns `{title, cover?, desc?, episodes: [{title, urls: [{name, url}]}], headers?}`;
+    - `watch(url)` returns:
+      - bangumi: `{type: hls|mp4|torrent, url, headers?, subtitles?: [{title, url, language?}], audioTrack?}`;
+      - manga: `{urls, headers?}`;
+      - fikushon: `{title, subtitle?, content: [paragraphs]}`.
+  - Missing headers default to `{Referer: last request URL, User-Agent, Cookie: jar}` (a replacement, not a merge).
+- **Runtime** (`lib/data/services/extension_service.dart:448-616`):
+  - **`this.request(url, options)`:**
+    - the address is `(options.headers["Miru-Url"] || webSite) + url`, plain concatenation, with the header still sent;
+    - options: `method` (default get), `data` (an object is sent as JSON, or as a form with that content type), `queryParameters`;
+    - the default UA is Edge 120;
+    - it returns parsed JSON when the body parses, else text; non-2xx throws; a persistent cookie jar per domain.
+  - **HTML helpers** (Dart `html` 0.15; every call re-parses):
+    - `querySelector(html, sel)` → `Element{content, selector}` with async `text`/`outerHTML`/`innerHTML`/`querySelector`/`getAttributeText`/`removeSelector`;
+    - `await querySelectorAll` → Elements over each match's outerHTML;
+    - `getAttributeText(html, sel, attr)`;
+    - `queryXPath(html, xpath)` → `{attr, attrs (JSON string), text, outerHTML, allHTML (a stringified list; extensions iterate it)}`;
+    - `:nth-child(n)` is a 0-based literal index among all child nodes.
+  - **Settings:** `registerSetting({title, key, type: input|radio|toggle, defaultValue, description?, options: {label: value}})` and `getSetting(key)`, all strings.
+  - **Bundled:** CryptoJS, JSEncrypt, the npm `md5`, `console.log`, `setTimeout`, a `fetch` polyfill.
+  - **Not provided:** atob/btoa, URL, TextEncoder, DOM.
+- **Player:**
+  - **Video:** media_kit with the headers; subtitles start off.
+  - **Torrents:** go through a local bt-server.
+  - **Manga:** pages all use `watch.headers`.
+  - **Novels:** plain-text paragraphs.
+- **Hard cases:**
+  - `openWebView` (hanime1, mydramanovel, yomovies);
+  - packed JS with eval;
+  - CryptoJS in 20 extensions;
+  - third-party key and extractor services (hianime, sflix, kisskh, filmpalast, wtr-lab, youtube);
+  - torrents (nyaa, eztv, yts, mikanani, acg.rip);
+  - `vod.api.xml.bajie` (no export);
+  - `kuromanhua.xyz` (a package clash with komiku.com).
+- **Official or public APIs among them:**
+  - de.ccc.media (media.ccc.de talks, CC);
+  - mangadex.org (official API);
+  - mangacross.jp (Akita Shoten's own free chapters);
+  - royalroad.com (original web fiction);
+  - iptv-org (public playlists);
+  - api.yinyuetai.
+  - The rest are unofficial streaming, scanlation or torrent sites.

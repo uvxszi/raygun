@@ -186,6 +186,7 @@ export const commands = {
 	 *  Progress arrives as `TtsEvent`s.
 	 */
 	ttsSpeak: (paragraphs: TtsParagraph[], rate: number | null) => typedError<null, string>(__TAURI_INVOKE("tts_speak", { paragraphs, rate })),
+	/**  Stops reading aloud. */
 	ttsStop: () => typedError<null, string>(__TAURI_INVOKE("tts_stop")),
 	/**  Configured translators (keys are shown only as a hint). */
 	aiProviders: () => typedError<AiProvider[], string>(__TAURI_INVOKE("ai_providers")),
@@ -420,6 +421,10 @@ export const commands = {
 	videoPlayerReport: (report: string) => __TAURI_INVOKE<void>("video_player_report", { report }),
 	/**  Plays a video in mpv or VLC (desktop, M46.4); returns the app's name. */
 	videoPlayerExternal: (play: ExternalPlay) => typedError<string, string>(__TAURI_INVOKE("video_player_external", { play })),
+	/**  A report from the webview's speech engine (desktop, M46.6), in the Android engine's JSON. */
+	ttsReport: (report: string) => __TAURI_INVOKE<void>("tts_report", { report }),
+	/**  Whether the webview can speak (desktop, M46.6); its speech engine says so when it starts. */
+	ttsSetAvailable: (available: boolean) => __TAURI_INVOKE<void>("tts_set_available", { available }),
 };
 
 /** Events */
@@ -435,6 +440,7 @@ export const events = {
 	podcastsChangedEvent: makeEvent<PodcastsChangedEvent>("podcasts-changed-event"),
 	queueEvent: makeEvent<QueueEvent>("queue-event"),
 	settingsChangedEvent: makeEvent<SettingsChangedEvent>("settings-changed-event"),
+	speechCommandEvent: makeEvent<SpeechCommandEvent>("speech-command-event"),
 	syncChangedEvent: makeEvent<SyncChangedEvent>("sync-changed-event"),
 	ttsEvent: makeEvent<TtsEvent>("tts-event"),
 	videoDownloadsEvent: makeEvent<VideoDownloadsEvent>("video-downloads-event"),
@@ -1641,6 +1647,20 @@ export type SourceSearchResult = {
 	items: MangaCard[],
 	hasNextPage: boolean,
 	error: string | null,
+};
+
+/**  What the webview's speech engine does on desktop (M46.6). */
+export type SpeechCommand = 
+/**  Speaks `items` in order at `rate` (1 is normal), after stopping anything playing. */
+{ type: "speak"; items: SpeechLine[]; rate: number | null } | { type: "stop" };
+
+/**  What the webview's speech engine should do (read-aloud on desktop, M46.6). */
+export type SpeechCommandEvent = SpeechCommand;
+
+/**  One piece for a speech engine: `id` is the paragraph's, with `:end` on the very last piece. */
+export type SpeechLine = {
+	id: string,
+	text: string,
 };
 
 export type StartScreen = "home" | "library" | "browse" | 

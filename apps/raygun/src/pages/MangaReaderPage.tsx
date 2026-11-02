@@ -144,7 +144,8 @@ const WebtoonView: FC<ViewProps & { jumpTo: number | null }> = ({
             alt={t('manga.pageAlt', { page: index + 1 })}
             loading={index < 3 ? 'eager' : 'lazy'}
             decoding="async"
-            className="min-h-[60vh] w-full bg-neutral-900 object-contain"
+            // One column: the screen's width on phones, at most 768 px on wide windows (M46.6).
+            className="mx-auto min-h-[60vh] w-full max-w-3xl bg-neutral-900 object-contain"
             onLoad={(event) => event.currentTarget.classList.remove('min-h-[60vh]')}
             onContextMenu={(event) => {
               event.preventDefault();

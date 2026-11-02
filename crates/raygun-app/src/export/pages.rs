@@ -80,8 +80,11 @@ pub async fn act(app: &AppHandle, page: &PageRef, action: PageAction) -> Result<
     let prefs = service.save_prefs().await;
     let name = names::file_name(&fetched.stem, fetched.extension);
     let mime = image_mime(fetched.extension);
+    // Desktop has no share sheet: "Show in folder" saves the page like Save, then shows it (M46.6).
+    let save_like = matches!(action, PageAction::Save)
+        || (matches!(action, PageAction::Share) && cfg!(not(target_os = "android")));
     let (place, folder) = match action {
-        PageAction::Save => {
+        _ if save_like => {
             let folder = if prefs.pages_per_title && !fetched.title.trim().is_empty() {
                 vec![names::safe_name(&fetched.title)]
             } else {
@@ -89,7 +92,7 @@ pub async fn act(app: &AppHandle, page: &PageRef, action: PageAction) -> Result<
             };
             (Place::Pictures, folder)
         }
-        PageAction::Share | PageAction::Copy => (Place::Share, Vec::new()),
+        _ => (Place::Share, Vec::new()),
     };
     let outputs = service.outputs().clone();
     let bytes = fetched.bytes;
@@ -108,7 +111,14 @@ pub async fn act(app: &AppHandle, page: &PageRef, action: PageAction) -> Result<
         .map_err(to_message)??
         .0
     };
-    if let Some(path) = saved.path.clone() {
+    let shared = if matches!(action, PageAction::Save) {
+        None
+    } else if save_like {
+        saved.local.clone()
+    } else {
+        saved.path.clone()
+    };
+    if let Some(path) = shared {
         tauri::async_runtime::spawn_blocking(move || match action {
             PageAction::Copy => outputs.copy_image(&path, &name),
             _ => outputs.share(&path, mime, &name),

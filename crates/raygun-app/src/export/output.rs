@@ -3,8 +3,10 @@
 //! On Android the `raygun-audio` plugin makes each file (in `Download/Raygun/`,
 //! `Pictures/Raygun/` or a folder the user picked) and hands over an open descriptor, since Rust
 //! can't open `content://` URIs; the file is written here like any other and published when
-//! done. Elsewhere the same places are plain folders under `<data root>/exports/`. Files for the
-//! share sheet go to the cache's `share/` folder.
+//! done. On desktop (M46.6) they are the user's own Downloads and Pictures folders (or
+//! `<data root>/exports/` when the system has none) and a picked folder's path. Files for the
+//! share sheet go to the cache's `share/` folder; on desktop "sharing" shows the file in the file
+//! manager, and copying puts the decoded image on the clipboard.
 
 use std::fs::File;
 use std::io::{Seek, Write};
@@ -29,7 +31,8 @@ impl Place {
     /// How the user sees the place's top folder.
     fn shown(&self) -> String {
         match self {
-            Self::Downloads => "Download/Raygun".into(),
+            Self::Downloads if cfg!(target_os = "android") => "Download/Raygun".into(),
+            Self::Downloads => "Downloads/Raygun".into(),
             Self::Pictures => "Pictures/Raygun".into(),
             Self::Folder { name, .. } => name.clone(),
             Self::Share => String::new(),
@@ -58,6 +61,8 @@ pub struct Saved {
     pub shown: String,
     /// Set for files in the share folder, to hand to the share sheet.
     pub path: Option<PathBuf>,
+    /// Where a plain file is (desktop, and the share folder), to show it in the file manager.
+    pub local: Option<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -147,13 +152,7 @@ impl Outputs {
         _mime: &str,
         shown: String,
     ) -> Result<Output, String> {
-        let top = match place {
-            Place::Downloads => "Download",
-            Place::Pictures => "Pictures",
-            Place::Folder { .. } => "Folder",
-            Place::Share => unreachable!("share files are plain"),
-        };
-        let mut dir = self.exports.join(top);
+        let mut dir = desktop_folder(place, &self.exports);
         for part in path {
             dir.push(part);
         }
@@ -181,7 +180,11 @@ impl Outputs {
                         .finish_output(&_uri, ok)?;
                 }
                 flushed.map_err(|error| error.to_string())?;
-                Ok(Saved { shown, path: None })
+                Ok(Saved {
+                    shown,
+                    path: None,
+                    local: None,
+                })
             }
             Target::Path { partial, path } => {
                 if !ok {
@@ -190,10 +193,11 @@ impl Outputs {
                     return Err("The file wasn't finished".into());
                 }
                 std::fs::rename(&partial, &path).map_err(|error| error.to_string())?;
-                let shared = path.starts_with(&self.share).then_some(path);
+                let shared = path.starts_with(&self.share).then(|| path.clone());
                 Ok(Saved {
                     shown,
                     path: shared,
+                    local: Some(path),
                 })
             }
         }
@@ -218,8 +222,8 @@ impl Outputs {
         }
         #[cfg(not(target_os = "android"))]
         {
-            let _ = (path, mime, title);
-            Err("Sharing works on Android only for now".into())
+            let _ = (mime, title);
+            reveal(path)
         }
     }
 
@@ -235,10 +239,71 @@ impl Outputs {
         }
         #[cfg(not(target_os = "android"))]
         {
-            let _ = (path, label);
-            Err("Copying images works on Android only for now".into())
+            let _ = label;
+            copy_to_clipboard(path)
         }
     }
+}
+
+/// Where a place is on desktop: the user's Downloads or Pictures (in a `Raygun` folder), a
+/// picked folder's path, or `exports` when the system has no such folder.
+#[cfg(not(target_os = "android"))]
+fn desktop_folder(place: &Place, exports: &Path) -> PathBuf {
+    match place {
+        Place::Downloads => raygun_paths::user_downloads()
+            .map(|dir| dir.join("Raygun"))
+            .unwrap_or_else(|| exports.join("Download")),
+        Place::Pictures => raygun_paths::user_pictures()
+            .map(|dir| dir.join("Raygun"))
+            .unwrap_or_else(|| exports.join("Pictures")),
+        Place::Folder { uri, .. } => PathBuf::from(uri),
+        Place::Share => unreachable!("share files are plain"),
+    }
+}
+
+/// Shows `path` selected in the file manager. Arguments go to the program directly, no shell.
+#[cfg(not(target_os = "android"))]
+fn reveal(path: &Path) -> Result<(), String> {
+    let path = path.canonicalize().map_err(|error| error.to_string())?;
+    #[cfg(windows)]
+    let spawned = {
+        use std::os::windows::process::CommandExt;
+        // Explorer wants `/select,"<path>"` as one argument, quotes and all.
+        let shown = path.to_string_lossy();
+        let shown = shown.strip_prefix(r"\\?\").unwrap_or(&shown);
+        std::process::Command::new("explorer")
+            .raw_arg(format!("/select,\"{shown}\""))
+            .spawn()
+    };
+    #[cfg(target_os = "macos")]
+    let spawned = std::process::Command::new("open")
+        .arg("-R")
+        .arg(&path)
+        .spawn();
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let spawned = std::process::Command::new("xdg-open")
+        .arg(path.parent().unwrap_or(&path))
+        .spawn();
+    spawned
+        .map(|_| ())
+        .map_err(|error| format!("The file manager didn't open: {error}"))
+}
+
+/// Puts the image at `path` on the clipboard.
+#[cfg(not(target_os = "android"))]
+fn copy_to_clipboard(path: &Path) -> Result<(), String> {
+    let image = image::open(path)
+        .map_err(|error| format!("That image can't be copied: {error}"))?
+        .into_rgba8();
+    let (width, height) = image.dimensions();
+    let mut clipboard = arboard::Clipboard::new().map_err(|error| error.to_string())?;
+    clipboard
+        .set_image(arboard::ImageData {
+            width: width as usize,
+            height: height as usize,
+            bytes: std::borrow::Cow::Owned(image.into_raw()),
+        })
+        .map_err(|error| format!("The clipboard refused the image: {error}"))
 }
 
 fn plain(path: PathBuf, shown: String) -> Result<Output, String> {

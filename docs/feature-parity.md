@@ -87,6 +87,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Export titles as CBZ, PDF, image folders, EPUB, text or video files, waiting for downloads first | (none of the reference apps) | ✅ M46.1 |
 | Websites the user adds, in a built-in browser with an ad, tracker, popup and redirect blocker | CloudStream (WebView), browsers | ✅ M46.3 |
 | Video on desktop: HLS and DASH with headers, subtitles, tracks and quality, sessions, keys, full screen, mpv/VLC for other codecs | Stremio desktop, CloudStream | ✅ M46.4 |
+| Desktop: exports to user folders, page copy and Show in folder, read-aloud, websites browser with blocker | (desktop apps) | ✅ M46.6 |
 | Trailers in their own full-window player | Stremio, CloudStream | ✅ M46.4 |
 | Player bar with shuffle, repeat, seek, volume, lyrics and a queue panel | Spotify, Nuclear | ✅ M46.4 |
 | Arrange tabs (add, hide, reorder, start screen), library tabs, Home, Browse and More | Aniyomi (NavStyle, start screen), Mihon (category order) | ✅ M46.5 (pinned sources: M53) |

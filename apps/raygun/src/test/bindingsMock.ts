@@ -11,6 +11,7 @@ import type {
   PlaybackState,
   QueueSnapshot,
   Settings,
+  SpeechCommand,
   StorageInfo,
   VideoPlayerMessage,
   YouTubeVideo,
@@ -47,6 +48,7 @@ type EventPayloads = {
   exportEvent: ExportJob | null;
   videoPlayerEvent: VideoPlayerMessage;
   youTubeVideoEvent: YouTubeVideo;
+  speechCommandEvent: SpeechCommand;
 };
 type EventName = keyof EventPayloads;
 type Listener = (event: { payload: unknown }) => void;
@@ -150,6 +152,8 @@ export const bindingsMock = {
   commands: {
     appInfo: vi.fn(),
     videoPlayerReport: vi.fn(),
+    ttsReport: vi.fn(),
+    ttsSetAvailable: vi.fn(),
     videoPlayerExternal: vi.fn(),
     storageInfo: vi.fn(),
     settingsGet: vi.fn(),
@@ -372,6 +376,7 @@ export const bindingsMock = {
     exportEvent: makeEvent('exportEvent'),
     videoPlayerEvent: makeEvent('videoPlayerEvent'),
     youTubeVideoEvent: makeEvent('youTubeVideoEvent'),
+    speechCommandEvent: makeEvent('speechCommandEvent'),
   },
 };
 
@@ -381,6 +386,8 @@ export const seedBindings = () => {
   const { commands } = bindingsMock;
   commands.appInfo.mockResolvedValue(ANDROID_INFO);
   commands.videoPlayerReport.mockResolvedValue(null);
+  commands.ttsReport.mockResolvedValue(null);
+  commands.ttsSetAvailable.mockResolvedValue(null);
   commands.videoPlayerExternal.mockResolvedValue({ status: 'ok', data: 'mpv' });
   commands.storageInfo.mockResolvedValue(MOBILE_STORAGE);
   commands.settingsGet.mockResolvedValue({ status: 'ok', data: DEFAULT_SETTINGS });

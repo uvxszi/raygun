@@ -260,7 +260,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::stremio_watch,
             commands::video_set_player_labels,
             commands::video_player_report,
-            commands::video_player_external
+            commands::video_player_external,
+            commands::tts_report,
+            commands::tts_set_available
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,
@@ -279,7 +281,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::SettingsChangedEvent,
             events::ExportEvent,
             events::VideoPlayerEvent,
-            events::YouTubeVideoEvent
+            events::YouTubeVideoEvent,
+            events::SpeechCommandEvent
         ])
 }
 

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { usePlatform } from '../lib/usePlatform';
 import { PrefBlock, PrefChoice, PrefGroup, PrefSwitch } from '../settings/prefs';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { Sheet } from '../shell/Sheet';
@@ -30,6 +31,8 @@ export const WebsiteSettings: FC = () => {
   const refresh = useUpdateBlocklist();
   const clear = useClearWebsiteData();
   const [customUrl, setCustomUrl] = useState<string | null>(null);
+  // Desktop sites are desktop sites already.
+  const android = (usePlatform() ?? 'android') === 'android';
   const prefs: Prefs = { ...WEBSITE_DEFAULTS, ...settings.data?.websites };
   if (!settings.data) return null;
   const busy = update.isPending;
@@ -107,13 +110,15 @@ export const WebsiteSettings: FC = () => {
           </p>
         )}
       </PrefBlock>
-      <PrefSwitch
-        title={t('websites.desktop')}
-        summary={t('websites.desktopHint')}
-        checked={prefs.desktop}
-        disabled={busy}
-        onChange={(desktop) => change({ desktop })}
-      />
+      {android && (
+        <PrefSwitch
+          title={t('websites.desktop')}
+          summary={t('websites.desktopHint')}
+          checked={prefs.desktop}
+          disabled={busy}
+          onChange={(desktop) => change({ desktop })}
+        />
+      )}
       {customUrl !== null && (
         <Sheet title={t('websites.lists.custom')} onClose={() => setCustomUrl(null)}>
           <form

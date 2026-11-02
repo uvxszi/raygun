@@ -6,6 +6,7 @@ import type { FC } from 'react';
 import { TrackActionsSheet } from '../collections/TrackActionsSheet';
 import { useSyncChangedListener } from '../devices/useDeviceSync';
 import { useEngineHost } from '../engine/useEngineHost';
+import { useSpeechHost } from '../engine/useSpeechHost';
 import { useSyncLanguage } from '../i18n/useSyncLanguage';
 import { useLibraryScanSync } from '../library/useLibrary';
 import { useExtensionsSync } from '../extensions/useExtensions';
@@ -46,6 +47,7 @@ export const AppShell: FC = () => {
   useSettingsEvents();
   useSyncLanguage(settings.data?.language);
   useEngineHost();
+  useSpeechHost();
   usePlaybackSync();
   useLibraryScanSync();
   useExtensionsSync();

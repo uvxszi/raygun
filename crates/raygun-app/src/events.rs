@@ -71,6 +71,10 @@ pub struct WatchChangedEvent(pub String);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct VideoPlayerEvent(pub raygun_model::VideoPlayerMessage);
 
+/// What the webview's speech engine should do (read-aloud on desktop, M46.6).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct SpeechCommandEvent(pub raygun_model::SpeechCommand);
+
 /// A YouTube video to open in its own full-window player (trailers, M46.4).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct YouTubeVideoEvent(pub raygun_model::YouTubeVideo);

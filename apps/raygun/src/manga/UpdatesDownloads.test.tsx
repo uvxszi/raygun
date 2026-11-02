@@ -66,10 +66,13 @@ describe('Manga updates and downloads', () => {
   it('lists updates by day, opens a chapter and runs a library update', async () => {
     const user = userEvent.setup();
     const now = Date.now();
+    // The calendar's yesterday: a day when clocks change has 23 or 25 hours.
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
     commands.mangaUpdates.mockResolvedValue(
       ok([
         update('Frieren', chapter('c5', 'Chapter 5'), now),
-        update('Berserk', chapter('c9', 'Chapter 9', { read: true }), now - DAY),
+        update('Berserk', chapter('c9', 'Chapter 9', { read: true }), yesterday.getTime()),
       ]),
     );
     await AppShellWrapper.mount('/manga/updates');

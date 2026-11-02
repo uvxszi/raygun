@@ -1,11 +1,12 @@
 import { commands } from '@raygun/bindings';
 import type { PageRef } from '@raygun/bindings';
 import { useMutation } from '@tanstack/react-query';
-import { Copy, Download, Share2 } from 'lucide-react';
+import { Copy, Download, FolderOpen, Share2 } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
+import { usePlatform } from '../lib/usePlatform';
 import { Sheet } from '../shell/Sheet';
 
 type PageAction = 'save' | 'share' | 'copy';
@@ -20,6 +21,8 @@ const run = (action: PageAction, page: PageRef) =>
 /** A long press on a reader page (Mihon's page actions): save it to Pictures, share or copy it. */
 export const PageActionsSheet: FC<{ page: PageRef; onClose: () => void }> = ({ page, onClose }) => {
   const { t } = useTranslation();
+  // Desktop has no share sheet: the file is shown in the file manager instead (M46.6).
+  const desktop = (usePlatform() ?? 'android') !== 'android';
   const act = useMutation({
     mutationFn: (action: PageAction) => run(action, page),
     onSuccess: (_saved, action) => {
@@ -48,7 +51,9 @@ export const PageActionsSheet: FC<{ page: PageRef; onClose: () => void }> = ({ p
     <Sheet title={t('reader.pageTitle', { page: page.index + 1 })} onClose={onClose}>
       <div className="-mx-2 flex flex-col text-sm">
         {action('save', t('reader.savePage'), Download)}
-        {action('share', t('reader.sharePage'), Share2)}
+        {desktop
+          ? action('share', t('reader.showInFolder'), FolderOpen)
+          : action('share', t('reader.sharePage'), Share2)}
         {action('copy', t('reader.copyPage'), Copy)}
       </div>
       {done && (

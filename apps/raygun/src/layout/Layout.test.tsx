@@ -106,6 +106,19 @@ describe('Customizable layout', () => {
     expect(within(others).queryByRole('link', { name: /Watch/ })).not.toBeInTheDocument();
   });
 
+  it('lists hidden default tabs in More, but not screens that were never added', async () => {
+    withLayout({
+      tabs: LAYOUT_DEFAULTS.tabs.map((item) =>
+        item.id === 'home' ? { ...item, visible: false } : item,
+      ),
+    });
+    await AppShellWrapper.mount('/more');
+    const others = await screen.findByRole('list', { name: 'Your other tabs' });
+    expect(within(others).getByRole('link', { name: /Home/ })).toBeInTheDocument();
+    expect(within(others).queryByRole('link', { name: /Music/ })).not.toBeInTheDocument();
+    expect(within(others).queryByRole('link', { name: /Watch/ })).not.toBeInTheDocument();
+  });
+
   it('opens the first library tab shown, and Audio on its first view', async () => {
     withLayout({
       libraryMedia: [

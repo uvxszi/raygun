@@ -1496,7 +1496,8 @@
     "sharePage": "Share page",
     "copyPage": "Copy page",
     "savedTo": "Saved to {{place}}",
-    "copied": "Copied"
+    "copied": "Copied",
+    "showInFolder": "Show in folder"
   },
   "storage": {
     "title": "Storage",

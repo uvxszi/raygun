@@ -79,9 +79,189 @@ pub fn encode(domains: &BTreeSet<String>) -> Vec<u8> {
     bytes
 }
 
+/// The biggest ad, pop-under and tracker networks, as in `Blocklist.kt`: used until a list is
+/// downloaded, then merged with it (some lists leave a few of them out).
+#[cfg_attr(target_os = "android", allow(dead_code))]
+pub const BUILT_IN: &[&str] = &[
+    "doubleclick.net",
+    "googlesyndication.com",
+    "googleadservices.com",
+    "adservice.google.com",
+    "google-analytics.com",
+    "googletagmanager.com",
+    "amazon-adsystem.com",
+    "adnxs.com",
+    "taboola.com",
+    "outbrain.com",
+    "criteo.com",
+    "criteo.net",
+    "pubmatic.com",
+    "rubiconproject.com",
+    "openx.net",
+    "scorecardresearch.com",
+    "quantserve.com",
+    "moatads.com",
+    "adform.net",
+    "mgid.com",
+    "revcontent.com",
+    "popads.net",
+    "popcash.net",
+    "propellerads.com",
+    "propellerclick.com",
+    "onclickads.net",
+    "onclkds.com",
+    "exoclick.com",
+    "exosrv.com",
+    "juicyads.com",
+    "trafficjunky.net",
+    "adsterra.com",
+    "adsterratech.com",
+    "hilltopads.net",
+    "a-ads.com",
+    "clickadu.com",
+    "adcash.com",
+    "monetag.com",
+    "admaven.com",
+    "ad-maven.com",
+    "galaksion.com",
+    "bidvertiser.com",
+    "zedo.com",
+    "yieldmo.com",
+    "highperformanceformat.com",
+    "profitablecpmrate.com",
+    "pushame.com",
+    "adskeeper.com",
+];
+
+/// The list a browser checks hosts against: what `Blocklist.kt` does on Android, for the desktop
+/// browser (M46.6). A host is blocked when it or one of its parent domains is listed.
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(target_os = "android", allow(dead_code))]
+pub struct Blocklist {
+    hashes: Vec<i64>,
+}
+
+#[cfg_attr(target_os = "android", allow(dead_code))]
+impl Blocklist {
+    /// The downloaded list with the built-in networks, or the built-in ones alone when there is
+    /// no readable file.
+    pub fn load(path: &std::path::Path) -> Self {
+        let mut hashes = std::fs::read(path)
+            .ok()
+            .and_then(|bytes| decode(&bytes))
+            .unwrap_or_default();
+        hashes.extend(BUILT_IN.iter().map(|domain| hash(domain)));
+        hashes.sort_unstable();
+        hashes.dedup();
+        Self { hashes }
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.hashes.len()
+    }
+
+    pub fn blocks(&self, host: &str) -> bool {
+        let host = host.to_ascii_lowercase();
+        let mut domain = host.trim_end_matches('.');
+        while domain.contains('.') {
+            if self.hashes.binary_search(&hash(domain)).is_ok() {
+                return true;
+            }
+            domain = domain.split_once('.').map_or("", |(_, parent)| parent);
+        }
+        false
+    }
+}
+
+/// The hashes in a file [`encode`] wrote, or `None` for anything else.
+#[cfg_attr(target_os = "android", allow(dead_code))]
+fn decode(bytes: &[u8]) -> Option<Vec<i64>> {
+    if bytes.len() < 12 || &bytes[..4] != MAGIC {
+        return None;
+    }
+    let word = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap_or_default());
+    if word(4) != VERSION {
+        return None;
+    }
+    let count = word(8) as usize;
+    let body = &bytes[12..];
+    if body.len() < count.checked_mul(8)? {
+        return None;
+    }
+    Some(
+        body.as_chunks::<8>()
+            .0
+            .iter()
+            .take(count)
+            .map(|chunk| i64::from_le_bytes(*chunk))
+            .collect(),
+    )
+}
+
+#[cfg_attr(target_os = "android", allow(dead_code))]
+const SECOND_LEVEL: [&str; 10] = [
+    "co", "com", "net", "org", "gov", "edu", "ac", "or", "ne", "go",
+];
+
+/// The site a host belongs to, as `Blocklist.site`: `www.example.co.uk` is `example.co.uk`.
+#[cfg_attr(target_os = "android", allow(dead_code))]
+pub fn site(host: &str) -> String {
+    let host = host.to_ascii_lowercase();
+    let labels: Vec<&str> = host.trim_end_matches('.').split('.').collect();
+    if labels.len() <= 2 {
+        return labels.join(".");
+    }
+    let last = labels[labels.len() - 1];
+    let second = labels[labels.len() - 2];
+    let keep = if last.len() == 2 && SECOND_LEVEL.contains(&second) {
+        3
+    } else {
+        2
+    };
+    labels[labels.len() - keep..].join(".")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_list_blocks_hosts_and_their_subdomains_with_the_built_in_networks() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("blocklist.bin");
+        let domains: BTreeSet<String> =
+            ["ads.example.com".to_owned(), "tracker.net".to_owned()].into();
+        std::fs::write(&path, encode(&domains)).unwrap();
+
+        let list = Blocklist::load(&path);
+        assert!(list.blocks("ads.example.com"));
+        assert!(
+            list.blocks("cdn.ads.example.com."),
+            "a subdomain, with a trailing dot"
+        );
+        assert!(list.blocks("TRACKER.net"));
+        assert!(
+            !list.blocks("example.com"),
+            "the parent of a listed domain isn't"
+        );
+        assert!(list.blocks("securepubads.g.doubleclick.net"), "built in");
+        assert_eq!(list.len(), 2 + BUILT_IN.len());
+
+        // A missing or foreign file leaves the built-in networks.
+        let missing = Blocklist::load(&temp.path().join("none.bin"));
+        assert_eq!(missing.len(), BUILT_IN.len());
+        std::fs::write(&path, b"not a list").unwrap();
+        assert_eq!(Blocklist::load(&path).len(), BUILT_IN.len());
+    }
+
+    #[test]
+    fn hosts_belong_to_their_registrable_site() {
+        assert_eq!(site("www.example.co.uk"), "example.co.uk");
+        assert_eq!(site("a.b.example.com"), "example.com");
+        assert_eq!(site("example.org."), "example.org");
+        assert_eq!(site("localhost"), "localhost");
+    }
 
     #[test]
     fn lists_in_every_format_give_their_domains() {

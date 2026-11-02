@@ -554,7 +554,8 @@ const ChapterView: FC<{
   };
 
   const textStyle = {
-    fontSize: `${prefs.fontSize}px`,
+    // Wide windows sit further away than a phone: text is a fifth larger there (M46.6).
+    fontSize: `calc(${prefs.fontSize}px * var(--reader-scale, 1))`,
     lineHeight: prefs.lineSpacing / 10,
     fontFamily: FONTS[prefs.font],
   };
@@ -599,7 +600,7 @@ const ChapterView: FC<{
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
         {...pressHandlers}
-        className={`h-dvh overflow-hidden outline-none select-none [-webkit-touch-callout:none] ${chrome ? 'pt-16 pb-16' : 'pt-6 pb-6'}`}
+        className={`h-dvh overflow-hidden outline-none select-none [-webkit-touch-callout:none] lg:[--reader-scale:1.2] ${chrome ? 'pt-16 pb-16' : 'pt-6 pb-6'}`}
       >
         <div
           style={{
@@ -625,11 +626,11 @@ const ChapterView: FC<{
         if (!handledTap(event)) onToggleChrome();
       }}
       {...pressHandlers}
-      className="px-5 pt-20 pb-24 select-none [-webkit-touch-callout:none]"
+      className="px-5 pt-20 pb-24 select-none [-webkit-touch-callout:none] lg:[--reader-scale:1.2]"
     >
       <article
         style={textStyle}
-        className={`mx-auto ${prefs.width === 'wide' ? 'max-w-3xl' : 'max-w-xl'}`}
+        className={`mx-auto ${prefs.width === 'wide' ? 'max-w-3xl lg:max-w-4xl' : 'max-w-xl lg:max-w-2xl'}`}
       >
         {blocks}
       </article>

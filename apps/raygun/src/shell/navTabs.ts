@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
+import { LAYOUT_ENTRIES } from '../layout/layout';
 import { useLayout } from '../layout/useLayout';
 import { useSideRail } from './useWideScreen';
 
@@ -110,6 +111,10 @@ export const NAV_TABS: Record<NavTabId, NavTab> = {
 
 export const isNavTabId = (value: string): value is NavTabId => value in NAV_TABS;
 
+const SHOWN_BY_DEFAULT = new Set(
+  LAYOUT_ENTRIES.tabs.filter(([, visible]) => visible).map(([id]) => id),
+);
+
 /** The most tabs a phone's bottom bar holds (Material's limit). */
 export const PHONE_TABS = 5;
 
@@ -131,7 +136,8 @@ export const tabScore = (tab: NavTab, pathname: string, search: Record<string, u
 
 /**
  * The tabs as the user arranged them: those in the bar (at most five on phones, More last when
- * some don't fit; all on the desktop rail), those left for More's list, and the one that's open.
+ * some don't fit; all on the desktop rail), those More lists (shown ones that don't fit, hidden
+ * default ones), and the one that's open.
  */
 export const useNavTabs = () => {
   const layout = useLayout();
@@ -144,8 +150,15 @@ export const useNavTabs = () => {
   const bar = fits
     ? shown
     : [...shown.filter((tab) => tab.id !== 'more').slice(0, PHONE_TABS - 1), NAV_TABS.more];
+  // More lists the tabs turned on that don't fit, and default tabs hidden (so they stay
+  // reachable); screens that could be added but weren't are reached the usual way.
   const inMore = layout.tabs
-    .filter((item) => isNavTabId(item.id) && item.id !== 'more')
+    .filter(
+      (item) =>
+        isNavTabId(item.id) &&
+        item.id !== 'more' &&
+        (item.visible || SHOWN_BY_DEFAULT.has(item.id)),
+    )
     .map((item) => NAV_TABS[item.id as NavTabId])
     .filter((tab) => !bar.includes(tab));
   const search = location.search as Record<string, unknown>;

@@ -1,11 +1,14 @@
 //! Websites the user added and Raygun's built-in browser (M46.3).
 //!
-//! The browser is `WebsiteActivity` in the `raygun-audio` plugin, in its own process. Rust keeps
+//! On Android the browser is `WebsiteActivity` in the `raygun-audio` plugin, in its own process;
+//! on desktop it's a window of its own (`desktop`, M46.6). Rust keeps
 //! the list, opens a site with its settings and the blocklist's path, keeps the blocklist
 //! (downloaded and refreshed weekly, written in the form `Blocklist.kt` reads) and stores what
 //! the browser reports: where a site was left and whether its blocker is on.
 
 pub mod blocklist;
+#[cfg(not(target_os = "android"))]
+mod desktop;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -67,6 +70,9 @@ pub fn default_name(url: &url::Url) -> String {
 
 impl WebsiteService {
     pub fn new(app: AppHandle, dir: PathBuf) -> Result<Self, reqwest::Error> {
+        // A desktop browser profile that was in use when its data was cleared goes now.
+        #[cfg(not(target_os = "android"))]
+        desktop::clear_marked(&dir);
         Ok(Self {
             app,
             dir,
@@ -183,6 +189,8 @@ impl WebsiteService {
             "blockPopups": prefs.block_popups,
             "desktop": prefs.desktop,
             "blocklist": list.to_string_lossy(),
+            // The desktop browser's own profile (M46.6).
+            "profile": self.dir.join("desktop").to_string_lossy(),
         });
         self.launch(&request)
     }
@@ -195,8 +203,11 @@ impl WebsiteService {
     }
 
     #[cfg(not(target_os = "android"))]
-    fn launch(&self, _request: &serde_json::Value) -> Result<(), String> {
-        Err("The built-in browser works on Android only for now".into())
+    fn launch(&self, request: &serde_json::Value) -> Result<(), String> {
+        let reports = self.app.state::<WebsiteReports>().0.clone();
+        desktop::open(&self.app, request, move |json| {
+            let _ = reports.send(json);
+        })
     }
 
     /// Clears the browser's cookies, storage and cache.
@@ -209,7 +220,9 @@ impl WebsiteService {
         }
         #[cfg(not(target_os = "android"))]
         {
-            Err("The built-in browser works on Android only for now".into())
+            desktop::close_all(&self.app);
+            desktop::clear_profile(&self.dir);
+            Ok(())
         }
     }
 
@@ -320,9 +333,13 @@ struct Report {
     block_ads: bool,
 }
 
+/// Where the browser's reports go: Android's over JNI, the desktop windows' when they close.
+struct WebsiteReports(tokio::sync::mpsc::UnboundedSender<String>);
+
 /// The browser's reports (where a site is, its blocker) become the site's stored state.
 pub fn install(app: &AppHandle) {
     let (sender, mut reports) = tokio::sync::mpsc::unbounded_channel::<String>();
+    app.manage(WebsiteReports(sender.clone()));
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(json) = reports.recv().await {

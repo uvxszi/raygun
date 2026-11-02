@@ -1010,6 +1010,21 @@ pub async fn tts_speak(
     crate::tts::speak(&app, paragraphs, rate).await
 }
 
+/// A report from the webview's speech engine (desktop, M46.6), in the Android engine's JSON.
+#[tauri::command]
+#[specta::specta]
+pub fn tts_report(app: tauri::AppHandle, report: String) {
+    crate::tts::report(&app, &report);
+}
+
+/// Whether the webview can speak (desktop, M46.6); its speech engine says so when it starts.
+#[tauri::command]
+#[specta::specta]
+pub fn tts_set_available(app: tauri::AppHandle, available: bool) {
+    crate::tts::set_available(&app, available);
+}
+
+/// Stops reading aloud.
 #[tauri::command]
 #[specta::specta]
 pub async fn tts_stop(app: tauri::AppHandle) -> Result<(), String> {
@@ -1583,11 +1598,31 @@ async fn pick_folder(
     .map_err(|error| error.to_string())?
 }
 
+/// The system's folder dialog on desktop (M46.6); a picked folder is a plain path there.
 #[cfg(not(target_os = "android"))]
 async fn pick_folder(
     _app: &tauri::AppHandle,
 ) -> Result<tauri_plugin_raygun_audio::PickedFolder, String> {
-    Err("Picking a folder works on Android only for now".into())
+    let picked = rfd::AsyncFileDialog::new()
+        .set_title("Where Raygun saves downloads")
+        .pick_folder()
+        .await;
+    Ok(match picked {
+        Some(folder) => {
+            let path = folder.path().to_path_buf();
+            tauri_plugin_raygun_audio::PickedFolder {
+                name: path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .or_else(|| Some(path.to_string_lossy().into_owned())),
+                uri: Some(path.to_string_lossy().into_owned()),
+            }
+        }
+        None => tauri_plugin_raygun_audio::PickedFolder {
+            uri: None,
+            name: None,
+        },
+    })
 }
 
 /// Gives up the grant of a folder no longer used.
@@ -1622,12 +1657,16 @@ pub async fn save_folder_state(
             name: state.name,
         })
     }
+    // A plain folder: writable while it's there.
     #[cfg(not(target_os = "android"))]
     {
-        let _ = (app, uri);
+        let _ = app;
+        let path = std::path::PathBuf::from(&uri);
         Ok(raygun_model::SaveFolderState {
-            granted: false,
-            name: None,
+            granted: path.is_dir(),
+            name: path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned()),
         })
     }
 }

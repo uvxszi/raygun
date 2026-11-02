@@ -2582,6 +2582,25 @@ pub struct TtsUpdate {
     pub paragraph: u32,
 }
 
+/// One piece for a speech engine: `id` is the paragraph's, with `:end` on the very last piece.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct SpeechLine {
+    pub id: String,
+    pub text: String,
+}
+
+/// What the webview's speech engine does on desktop (M46.6).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum SpeechCommand {
+    /// Speaks `items` in order at `rate` (1 is normal), after stopping anything playing.
+    Speak {
+        items: Vec<SpeechLine>,
+        rate: f64,
+    },
+    Stop,
+}
+
 // ---- AI: translators and models (M34) ----
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]

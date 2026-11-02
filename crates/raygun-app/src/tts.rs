@@ -1,9 +1,20 @@
 //! Reading novels aloud (M33) with the phone's text-to-speech engine, through the native audio
-//! plugin on Android. Elsewhere speech is unavailable. Progress comes back as `TtsEvent`s.
+//! plugin on Android. On desktop (M46.6) the webview speaks (`speechSynthesis` with the system's
+//! voices): Rust sends it `SpeechCommandEvent`s and it reports back through `tts_report` in the
+//! same JSON as Android's engine. Progress comes back as `TtsEvent`s.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(not(target_os = "android"))]
+use raygun_model::{SpeechCommand, SpeechLine};
 use raygun_model::{TtsParagraph, TtsState, TtsUpdate};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_raygun_audio::SpeechItem;
+use tauri_specta::Event;
+
+/// Whether the webview's speech engine can speak (desktop).
+#[cfg_attr(target_os = "android", allow(dead_code))]
+struct SpeechAvailable(AtomicBool);
 
 /// Longest piece handed to the engine at once (Android accepts about 4000 characters).
 const MAX_UTTERANCE: usize = 3_000;
@@ -54,7 +65,6 @@ fn split(text: &str) -> Vec<String> {
 }
 
 /// Parses a progress report from the engine.
-#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub fn parse_update(json: &str) -> Option<TtsUpdate> {
     let value: serde_json::Value = serde_json::from_str(json).ok()?;
     let state = match value.get("state")?.as_str()? {
@@ -76,18 +86,38 @@ fn engine(
 
 /// Sends the engine's progress to the UI as `TtsEvent`s.
 pub fn install(app: &AppHandle) {
+    app.manage(SpeechAvailable(AtomicBool::new(false)));
     #[cfg(target_os = "android")]
     {
-        use tauri_specta::Event;
         let app = app.clone();
-        tauri_plugin_raygun_audio::set_tts_handler(move |json| {
-            if let Some(update) = parse_update(&json) {
-                let _ = crate::events::TtsEvent(update).emit(&app);
-            }
-        });
+        tauri_plugin_raygun_audio::set_tts_handler(move |json| report(&app, &json));
     }
-    #[cfg(not(target_os = "android"))]
-    let _ = app;
+}
+
+/// A progress report from an engine (Android's over JNI, the webview's through `tts_report`).
+pub fn report(app: &AppHandle, json: &str) {
+    if let Some(update) = parse_update(json) {
+        let _ = crate::events::TtsEvent(update).emit(app);
+    }
+}
+
+/// What the webview's engine says when it starts: whether `speechSynthesis` is there.
+pub fn set_available(app: &AppHandle, available: bool) {
+    if let Some(state) = app.try_state::<SpeechAvailable>() {
+        state.0.store(available, Ordering::Relaxed);
+    }
+}
+
+/// The pieces as the webview's engine takes them.
+#[cfg(not(target_os = "android"))]
+fn lines(items: Vec<SpeechItem>) -> Vec<SpeechLine> {
+    items
+        .into_iter()
+        .map(|item| SpeechLine {
+            id: item.id,
+            text: item.text,
+        })
+        .collect()
 }
 
 pub async fn available(app: &AppHandle) -> bool {
@@ -102,8 +132,8 @@ pub async fn available(app: &AppHandle) -> bool {
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = app;
-        false
+        app.try_state::<SpeechAvailable>()
+            .is_some_and(|state| state.0.load(Ordering::Relaxed))
     }
 }
 
@@ -130,8 +160,15 @@ pub async fn speak(
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = (app, rate);
-        Err("Text-to-speech is only available on Android".into())
+        if !available(app).await {
+            return Err("This system has no voices to read aloud with".into());
+        }
+        crate::events::SpeechCommandEvent(SpeechCommand::Speak {
+            items: lines(items),
+            rate,
+        })
+        .emit(app)
+        .map_err(|error| error.to_string())
     }
 }
 
@@ -148,8 +185,9 @@ pub async fn stop(app: &AppHandle) -> Result<(), String> {
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = app;
-        Ok(())
+        crate::events::SpeechCommandEvent(SpeechCommand::Stop)
+            .emit(app)
+            .map_err(|error| error.to_string())
     }
 }
 

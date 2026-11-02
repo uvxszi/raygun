@@ -325,7 +325,8 @@ describe('Novels', () => {
       value: { ...DEFAULT_SETTINGS.novelReader, fontSize: 20 },
     });
     await vi.waitFor(() =>
-      expect(within(reader).getByRole('article')).toHaveStyle({ fontSize: '20px' }),
+      // The size, times the wide-window scale (`calc(20px * var(--reader-scale, 1))`).
+      expect(within(reader).getByRole('article').getAttribute('style')).toContain('20px'),
     );
     await user.click(within(panel).getByRole('button', { name: 'Sans' }));
     expect(commands.settingsUpdate).toHaveBeenLastCalledWith({
