@@ -310,28 +310,33 @@ impl PlaybackService {
                     item,
                     start_ms,
                     autoplay,
-                } => match inner.tracker.begin(load_id, &item, start_ms, autoplay) {
-                    LoadPlan::Direct => {
-                        let source = item.source.clone();
-                        self.load_into(
-                            inner,
-                            &mut outbox,
-                            load_id,
-                            &item,
-                            &source,
-                            start_ms,
-                            autoplay,
-                        );
-                    }
-                    LoadPlan::Resolve => {
-                        // Nothing to play until a stream is found; silence the previous item.
-                        tracing::debug!(load_id, title = %item.title, "finding a stream");
-                        if let Some(previous) = inner.active.take() {
-                            outbox.engine.push((previous, EngineCommand::Stop));
+                } => {
+                    // A downloaded song plays its saved copy (M46.10).
+                    let item =
+                        crate::music_downloads::offline_item(&self.app, &item).unwrap_or(item);
+                    match inner.tracker.begin(load_id, &item, start_ms, autoplay) {
+                        LoadPlan::Direct => {
+                            let source = item.source.clone();
+                            self.load_into(
+                                inner,
+                                &mut outbox,
+                                load_id,
+                                &item,
+                                &source,
+                                start_ms,
+                                autoplay,
+                            );
                         }
-                        outbox.resolve = Some(load_id);
+                        LoadPlan::Resolve => {
+                            // Nothing to play until a stream is found; silence the previous item.
+                            tracing::debug!(load_id, title = %item.title, "finding a stream");
+                            if let Some(previous) = inner.active.take() {
+                                outbox.engine.push((previous, EngineCommand::Stop));
+                            }
+                            outbox.resolve = Some(load_id);
+                        }
                     }
-                },
+                }
                 Effect::Engine(command) => {
                     let engine = inner.active.unwrap_or(Engine::Webview);
                     outbox.engine.push((engine, command));
@@ -366,6 +371,12 @@ impl PlaybackService {
                 .try_state::<std::sync::Arc<crate::podcasts::PodcastService>>()
             {
                 podcasts.on_playback(&state, outbox.current.as_ref());
+            }
+            if let Some(songs) = self
+                .app
+                .try_state::<std::sync::Arc<crate::music_downloads::SongDownloadService>>()
+            {
+                songs.on_playback(&state, outbox.current.as_ref());
             }
             log_emit(PlaybackStateEvent(state).emit(&self.app));
         }

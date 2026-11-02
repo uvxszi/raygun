@@ -33,6 +33,27 @@ export type Track = {
 export type SearchArgs = { query: string; limit: number };
 export type SearchResult = { tracks: Track[] };
 
+/** An artist a source knows (M46.9). */
+export type Artist = {
+  /** The source's own id. */
+  id: string;
+  name: string;
+  /** http(s) only. */
+  imageUrl?: string | null;
+};
+
+/** An album or single a source knows (M46.9). */
+export type Album = {
+  /** The source's own id, passed back to `album`. */
+  id: string;
+  title: string;
+  artist?: string | null;
+  year?: number | null;
+  /** http(s) only. */
+  artworkUrl?: string | null;
+  trackCount?: number | null;
+};
+
 /** Online music search. The app asks every `music.metadata` provider at once. */
 export type MusicMetadataProvider = {
   kind: 'music.metadata';
@@ -41,6 +62,12 @@ export type MusicMetadataProvider = {
   /** Shown as the heading of this provider's results; defaults to the extension's name. */
   name?: string;
   search(args: SearchArgs): Promise<SearchResult>;
+  /** Artists by name (M46.9); Search → Music → Artists. */
+  searchArtists?(args: SearchArgs): Promise<{ artists: Artist[] }>;
+  /** Albums by title or artist (M46.9); Search → Music → Albums. */
+  searchAlbums?(args: SearchArgs): Promise<{ albums: Album[] }>;
+  /** An album's songs, in order (M46.9). */
+  album?(args: { id: string }): Promise<{ album: Album; tracks: Track[] }>;
 };
 
 /** The track the app wants a stream for (M14). */
@@ -461,4 +488,6 @@ export type Manifest = {
   };
   contentRating?: 'safe' | 'suggestive' | 'nsfw';
   settings?: SettingDef[];
+  /** The site the sources read (http or https); a source's menu opens it in Raygun's browser. */
+  website?: string;
 };

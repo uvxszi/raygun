@@ -11,10 +11,12 @@ import { formatTime } from '../player/formatTime';
 type OnlineTrackRowProps = {
   track: OnlineTrack;
   onPlay: (track: OnlineTrack) => void;
+  /** The source it came from, in lists that mix sources (M46.9). */
+  source?: string;
 };
 
 /** A search result. Tracks without a stream get one from the resolver when they play (M14). */
-export const OnlineTrackRow: FC<OnlineTrackRowProps> = ({ track, onPlay }) => {
+export const OnlineTrackRow: FC<OnlineTrackRowProps> = ({ track, onPlay, source }) => {
   const menu = useTrackMenu();
   return (
     <div
@@ -33,6 +35,7 @@ export const OnlineTrackRow: FC<OnlineTrackRowProps> = ({ track, onPlay }) => {
           <span className="text-muted block truncate text-xs">
             <ArtistLinks credit={track.artist} nested />
             {track.album && <> · {track.album}</>}
+            {source && <span className="text-primary/80"> · {source}</span>}
           </span>
         </span>
         <span className="text-muted shrink-0 text-xs tabular-nums">

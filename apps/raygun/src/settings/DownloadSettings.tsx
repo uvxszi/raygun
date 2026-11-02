@@ -1,4 +1,4 @@
-import type { ChapterFormat, SaveLocation } from '@raygun/bindings';
+import type { AudioFileFormat, ChapterFormat, SaveLocation } from '@raygun/bindings';
 import { FolderOpen } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -88,6 +88,19 @@ export const DownloadSettings: FC = () => {
             label: t(`settings.chapterFormats.${value}`),
           }))}
           onChange={(chapterFormat) => change({ chapterFormat })}
+        />
+      </PrefGroup>
+      <PrefGroup title={t('songs.tab')}>
+        <PrefChoice<AudioFileFormat>
+          title={t('songs.songFormat')}
+          summary={t('songs.songFormatHint')}
+          value={save.songFormat}
+          disabled={busy}
+          options={(['original', 'wav', 'flac'] as const).map((value) => ({
+            value,
+            label: t(`songs.formats.${value}`),
+          }))}
+          onChange={(songFormat) => change({ songFormat })}
         />
       </PrefGroup>
       <PrefGroup title={t('settings.savedPages')}>

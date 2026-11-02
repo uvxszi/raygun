@@ -62,8 +62,10 @@ const Block: FC<{
   block: TextBlock;
   index: number;
   active: boolean;
+  /** Paragraphs start their first line further in (M46.10). */
+  indent: boolean;
   register: (index: number, element: HTMLElement | null) => void;
-}> = ({ block, index, active, register }) => {
+}> = ({ block, index, active, indent, register }) => {
   const ref = (element: HTMLElement | null) => register(index, element);
   // The paragraph being read aloud.
   const highlight = active ? 'bg-primary/15 -mx-1 rounded px-1' : '';
@@ -98,6 +100,7 @@ const Block: FC<{
           ref={ref}
           data-block={index}
           aria-current={active || undefined}
+          style={indent ? { textIndent: '2em' } : undefined}
           className={`mb-[0.9em] ${highlight}`}
         >
           {block.text}
@@ -201,6 +204,14 @@ const PrefsPanel: FC<{ prefs: NovelReaderPrefs; onChange: (prefs: NovelReaderPre
         </Choice>
         <Choice pressed={prefs.width === 'wide'} onClick={() => set({ width: 'wide' })}>
           {t('novel.wide')}
+        </Choice>
+      </div>
+      <div className="flex gap-2">
+        <Choice pressed={!prefs.indent} onClick={() => set({ indent: false })}>
+          {t('novel.noIndent')}
+        </Choice>
+        <Choice pressed={prefs.indent ?? false} onClick={() => set({ indent: true })}>
+          {t('novel.indent')}
         </Choice>
       </div>
       <Stepper
@@ -592,6 +603,7 @@ const ChapterView: FC<{
       block={block}
       index={index}
       active={index === speaking}
+      indent={prefs.indent ?? false}
       register={register}
     />
   ));
@@ -835,7 +847,7 @@ export const NovelReaderPage: FC = () => {
       className="bg-background text-foreground -mx-4 flex min-h-dvh flex-col lg:-mx-10"
     >
       {chrome && (
-        <header className="bg-surface/95 fixed inset-x-0 top-0 z-30 flex min-h-16 items-center gap-1 px-1 pt-[env(safe-area-inset-top)] shadow-md backdrop-blur">
+        <header className="bg-surface/95 fixed inset-x-0 top-[var(--app-bar,0px)] z-30 flex min-h-16 items-center gap-1 px-1 pt-[env(safe-area-inset-top)] shadow-md backdrop-blur">
           <button
             type="button"
             aria-label={t('manga.closeReader')}

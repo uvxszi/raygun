@@ -8,7 +8,7 @@ pub mod manifest;
 pub mod page_cache;
 mod proxy;
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 pub use cover_cache::CoverCache;
 pub use page_cache::PageCache;
@@ -19,6 +19,39 @@ pub use proxy::{
 
 /// Sent unless a source supplies its own `User-Agent`; many hosts reject unknown clients.
 pub const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
+
+/// The user's choice of User-Agent (M46.11, Mihon's "Default user agent"); empty for the default.
+static USER_AGENT: RwLock<String> = RwLock::new(String::new());
+
+/// The User-Agent requests made for sources carry when they don't name one: the user's choice,
+/// or [`DEFAULT_USER_AGENT`].
+pub fn user_agent() -> String {
+    USER_AGENT
+        .read()
+        .ok()
+        .map(|agent| agent.clone())
+        .filter(|agent| !agent.is_empty())
+        .unwrap_or_else(|| DEFAULT_USER_AGENT.to_owned())
+}
+
+/// Sets the User-Agent sources send from now on; empty restores the default.
+pub fn set_user_agent(agent: &str) {
+    if let Ok(mut current) = USER_AGENT.write() {
+        agent.trim().clone_into(&mut current);
+    }
+}
+
+/// Adds [`user_agent`] to a request unless `names` (its headers' names) has its own.
+pub fn with_user_agent<'a>(
+    request: reqwest::RequestBuilder,
+    mut names: impl Iterator<Item = &'a str>,
+) -> reqwest::RequestBuilder {
+    if names.any(|name| name.eq_ignore_ascii_case("user-agent")) {
+        request
+    } else {
+        request.header(reqwest::header::USER_AGENT, user_agent())
+    }
+}
 
 /// HTTP client shared by the whole app.
 ///
@@ -71,4 +104,36 @@ pub fn client_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder()
         .use_preconfigured_tls(tls)
         .user_agent(DEFAULT_USER_AGENT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sources_send_the_chosen_user_agent_unless_they_name_one() {
+        let client = reqwest::Client::new();
+        let sent = |request: reqwest::RequestBuilder| {
+            let request = request.build().unwrap();
+            let agents: Vec<String> = request
+                .headers()
+                .get_all(reqwest::header::USER_AGENT)
+                .iter()
+                .map(|value| value.to_str().unwrap().to_owned())
+                .collect();
+            agents
+        };
+        set_user_agent("  Custom/1.0 ");
+        let plain = with_user_agent(client.get("https://example.com/"), std::iter::empty());
+        assert_eq!(sent(plain), ["Custom/1.0"]);
+        let own = client
+            .get("https://example.com/")
+            .header("user-agent", "Own/2");
+        assert_eq!(
+            sent(with_user_agent(own, ["User-Agent"].into_iter())),
+            ["Own/2"]
+        );
+        set_user_agent("");
+        assert_eq!(user_agent(), DEFAULT_USER_AGENT);
+    }
 }

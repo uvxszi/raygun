@@ -21,6 +21,8 @@ pub enum Place {
     Downloads,
     /// `Pictures/Raygun/`.
     Pictures,
+    /// `Music/Raygun/` (M46.10).
+    Music,
     /// A folder the user picked: its tree URI and name.
     Folder { uri: String, name: String },
     /// The cache, for the share sheet or the clipboard.
@@ -34,6 +36,7 @@ impl Place {
             Self::Downloads if cfg!(target_os = "android") => "Download/Raygun".into(),
             Self::Downloads => "Downloads/Raygun".into(),
             Self::Pictures => "Pictures/Raygun".into(),
+            Self::Music => "Music/Raygun".into(),
             Self::Folder { name, .. } => name.clone(),
             Self::Share => String::new(),
         }
@@ -121,6 +124,7 @@ impl Outputs {
         let (kind, tree) = match place {
             Place::Downloads => ("downloads", None),
             Place::Pictures => ("pictures", None),
+            Place::Music => ("music", None),
             Place::Folder { uri, .. } => ("tree", Some(uri.as_str())),
             Place::Share => unreachable!("share files are plain"),
         };
@@ -256,6 +260,9 @@ fn desktop_folder(place: &Place, exports: &Path) -> PathBuf {
         Place::Pictures => raygun_paths::user_pictures()
             .map(|dir| dir.join("Raygun"))
             .unwrap_or_else(|| exports.join("Pictures")),
+        Place::Music => raygun_paths::user_music()
+            .map(|dir| dir.join("Raygun"))
+            .unwrap_or_else(|| exports.join("Music")),
         Place::Folder { uri, .. } => PathBuf::from(uri),
         Place::Share => unreachable!("share files are plain"),
     }

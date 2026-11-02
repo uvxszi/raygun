@@ -8,6 +8,7 @@ export const SAVE_DEFAULTS: Save = {
   folderName: null,
   chapterFormat: 'cbz',
   pagesPerTitle: true,
+  songFormat: 'original',
 };
 
 /** Settings → Downloads with every field filled (the stored row may predate some). */

@@ -182,6 +182,7 @@ impl ExtensionService {
         tauri::async_runtime::spawn(async move {
             match crate::settings::load(loader.db()).await {
                 Ok(settings) => {
+                    raygun_net::set_user_agent(&settings.user_agent);
                     loader.host.content().set_show_nsfw(settings.show_nsfw);
                     loader
                         .host
@@ -208,7 +209,12 @@ impl ExtensionService {
             let _ready = self.loading.read().await;
             self.host.list().await
         };
-        // Icons remembered at install, kept in the cover cache (M46.2).
+        self.with_icons(infos).await
+    }
+
+    /// Adds the icons remembered at install, kept in the cover cache (M46.2). Reloads answer with
+    /// them too, or the lists they replace in the UI lose every icon (M46.11).
+    async fn with_icons(&self, infos: Vec<ExtensionInfo>) -> Vec<ExtensionInfo> {
         let images = self.app.state::<raygun_net::ImageLinks>();
         let mut with_icons = Vec::with_capacity(infos.len());
         for info in infos {
@@ -266,6 +272,31 @@ impl ExtensionService {
     pub async fn lyrics(&self, query: &TrackQuery) -> Result<Option<Lyrics>, String> {
         let _ready = self.loading.read().await;
         self.host.lyrics(query).await
+    }
+
+    /// Artists for a search, from every source that searches artists (M46.9).
+    pub async fn search_artists(&self, query: &str) -> Vec<raygun_model::MusicArtist> {
+        let _ready = self.loading.read().await;
+        self.host.search_artists(query, SEARCH_LIMIT).await
+    }
+
+    /// Albums for a search, from every source that searches albums (M46.9).
+    pub async fn search_albums(&self, query: &str) -> Vec<raygun_model::MusicAlbum> {
+        let _ready = self.loading.read().await;
+        self.host.search_albums(query, SEARCH_LIMIT).await
+    }
+
+    /// An album's songs (M46.9).
+    pub async fn music_album(
+        &self,
+        provider_id: &str,
+        album_id: &str,
+    ) -> Result<raygun_model::MusicAlbumDetail, String> {
+        let _ready = self.loading.read().await;
+        self.host
+            .music_album(provider_id, album_id)
+            .await
+            .map_err(|error| error.to_string())
     }
 
     /// Every chart source's charts (M46.9).
@@ -331,6 +362,7 @@ impl ExtensionService {
         sources.extend(discover_installed(&self.extensions_dir));
         let settings = self.user_settings().await;
         let infos = self.host.load_with_settings(sources, settings).await;
+        let infos = self.with_icons(infos).await;
         tracing::info!(count = infos.len(), "extensions ready");
         if let Err(error) = ExtensionsChangedEvent(infos.clone()).emit(&self.app) {
             tracing::warn!(%error, "could not announce extension changes");
@@ -637,6 +669,30 @@ impl ExtensionService {
         }
         tracing::info!(extension = %entry.id, version = %entry.version, repo = %repo.url, "extension installed");
         Ok(self.reload().await)
+    }
+
+    /// Forgets what an extension stored and its cookies (M46.11), then reloads every extension
+    /// so it starts afresh.
+    pub async fn clear_data(&self, extension_id: &str) -> Result<Vec<ExtensionInfo>, String> {
+        let _changing = self.changing.lock().await;
+        let (storage_dir, id) = (self.storage_dir.clone(), extension_id.to_owned());
+        tauri::async_runtime::spawn_blocking(move || package::clear_data(&storage_dir, &id))
+            .await
+            .map_err(|error| error.to_string())?
+            .map_err(|error| format!("could not clear its data: {error}"))?;
+        tracing::info!(extension = %extension_id, "extension data cleared");
+        Ok(self.reload().await)
+    }
+
+    /// The site an extension's sources read, when it names one (M46.11).
+    pub async fn website(&self, extension_id: &str) -> Option<String> {
+        let _ready = self.loading.read().await;
+        self.host
+            .list()
+            .await
+            .into_iter()
+            .find(|info| info.id == extension_id)?
+            .website
     }
 
     /// Removes an installed extension and its storage. A built-in one it overrode comes back.

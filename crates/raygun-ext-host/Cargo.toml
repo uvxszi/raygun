@@ -24,6 +24,7 @@ mlua = { version = "0.10", features = ["lua52", "vendored"] }
 semver = "1"
 sha2 = "0.11"
 url = "2"
+cookie_store = { version = "0.22", default-features = false, features = ["serde_json"] }
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 

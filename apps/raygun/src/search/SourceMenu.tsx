@@ -1,9 +1,24 @@
 import { Link } from '@tanstack/react-router';
-import { Ban, CircleCheck, Compass, Filter, MoreHorizontal, Settings2 } from 'lucide-react';
+import {
+  Ban,
+  Check,
+  CircleCheck,
+  Compass,
+  Eraser,
+  Filter,
+  Globe,
+  MoreHorizontal,
+  Settings2,
+} from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import {
+  useClearExtensionData,
+  useExtension,
+  useOpenExtensionWebsite,
+} from '../extensions/useExtensions';
 import { Sheet } from '../shell/Sheet';
 import { useSourceSwitch } from './useSourceSwitch';
 
@@ -22,13 +37,20 @@ type SourceMenuProps = {
 
 /**
  * A source's ⋯ beside its name in Browse and Search (M46.8): search only it, open it, its
- * extension's settings, or switch it off, without hunting for it in Sources.
+ * extension's settings, or switch it off, without hunting for it in Sources. M46.11 adds its
+ * website in Raygun's browser and clearing its cookies and stored data.
  */
 export const SourceMenu: FC<SourceMenuProps> = ({ sourceId, extensionId, name, page, onOnly }) => {
   const { t } = useTranslation();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const { enabled, setEnabled, busy } = useSourceSwitch(sourceId);
-  const close = () => setAnchor(null);
+  const website = useExtension(extensionId).data?.website ?? null;
+  const openWebsite = useOpenExtensionWebsite();
+  const clearData = useClearExtensionData();
+  const close = () => {
+    setAnchor(null);
+    clearData.reset();
+  };
   return (
     <>
       <button
@@ -72,6 +94,32 @@ export const SourceMenu: FC<SourceMenuProps> = ({ sourceId, extensionId, name, p
               <Settings2 aria-hidden size={16} className="text-muted" />
               {t('sources.settings')}
             </Link>
+            {website && (
+              <button
+                type="button"
+                onClick={() => {
+                  openWebsite.mutate(extensionId);
+                  close();
+                }}
+                className={ITEM}
+              >
+                <Globe aria-hidden size={16} className="text-muted" />
+                {t('sources.website')}
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={clearData.isPending || clearData.isSuccess}
+              onClick={() => clearData.mutate(extensionId)}
+              className={`${ITEM} disabled:opacity-70`}
+            >
+              {clearData.isSuccess ? (
+                <Check aria-hidden size={16} className="text-primary" />
+              ) : (
+                <Eraser aria-hidden size={16} className="text-muted" />
+              )}
+              {t(clearData.isSuccess ? 'sources.cleared' : 'sources.clearData')}
+            </button>
             <button
               type="button"
               disabled={busy}

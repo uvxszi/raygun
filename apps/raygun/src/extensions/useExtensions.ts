@@ -49,6 +49,19 @@ const useStoreExtensions = () => {
   };
 };
 
+/** Forgets an extension's cookies and stored data, then reloads it (M46.11). */
+export const useClearExtensionData = () => {
+  const store = useStoreExtensions();
+  return useMutation({
+    mutationFn: (id: string) => unwrapResult(commands.extensionClearData(id)),
+    onSuccess: store,
+  });
+};
+
+/** Opens the site an extension's source reads in Raygun's browser (M46.11). */
+export const useOpenExtensionWebsite = () =>
+  useMutation({ mutationFn: (id: string) => unwrapResult(commands.extensionOpenWebsite(id)) });
+
 export const useReloadExtensions = () => {
   const store = useStoreExtensions();
   return useMutation({

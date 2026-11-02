@@ -33,6 +33,9 @@ struct RawManifest {
     /// Written by the Nuclear converter (M17): the original package and its compatibility report.
     #[serde(default)]
     nuclear: Option<serde_json::Value>,
+    /// The site its sources read, opened from their menus (M46.11).
+    #[serde(default)]
+    website: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -127,6 +130,8 @@ pub struct Manifest {
     pub author: Option<String>,
     /// Present for converted Nuclear plugins.
     pub nuclear: Option<serde_json::Value>,
+    /// An http(s) address; others are dropped.
+    pub website: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -228,6 +233,9 @@ impl Manifest {
             description: raw.description,
             author: raw.author,
             nuclear: raw.nuclear,
+            website: raw
+                .website
+                .filter(|url| url.starts_with("https://") || url.starts_with("http://")),
         })
     }
 

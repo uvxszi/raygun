@@ -11,6 +11,9 @@ pub struct Exclusions {
     pub tried: Vec<CandidateKey>,
     /// Concrete sources that already failed (so a fallback doesn't pick the same stream again).
     pub failed_sources: Vec<MediaSource>,
+    /// Skip the cache of verified picks: downloads check each pick's artist, which the cache
+    /// doesn't keep (M46.10).
+    pub fresh_only: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -182,6 +185,7 @@ mod tests {
             },
             track_key: "band|song".into(),
             title: "Song".into(),
+            artist: None,
             provider_name: "Example".into(),
             source: url(id),
             expires_at: None,

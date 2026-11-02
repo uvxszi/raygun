@@ -1,7 +1,16 @@
 import type { MangaSource } from '@raygun/bindings';
 import { useIsFetching } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { LayoutList, LoaderCircle, Package, Puzzle, RefreshCw, Search } from 'lucide-react';
+import {
+  LayoutList,
+  LoaderCircle,
+  Package,
+  Puzzle,
+  RefreshCw,
+  Search,
+  Square,
+  SquareCheck,
+} from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -16,6 +25,8 @@ import { OverflowMenu } from '../shell/OverflowMenu';
 import { Tabs } from '../shell/Tabs';
 import { BrowseAll } from '../music/BrowseAll';
 import { SearchPanel } from '../search/SearchPanel';
+import { failingLast, useSourceHealth } from '../search/sourceHealth';
+import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { useIsDesktop } from '../shell/useIsDesktop';
 import { SourceMenu } from '../search/SourceMenu';
 import { WebsitesSection } from '../websites/WebsitesSection';
@@ -97,13 +108,19 @@ const SourcesList: FC = () => {
   const video = useVideoSources();
   const manga = useMangaSources('manga');
   const novel = useMangaSources('novel');
+  // Sources that failed lately go last (M46.9), unless Settings says otherwise.
+  const failures = useSourceHealth((state) => state.failures);
+  const failingAtEnd = useSettings().data?.failingSourcesLast ?? true;
   const extensionOf = (source: MangaSource) =>
     extensions.data?.find((extension) => extension.id === source.extensionId);
   const catalogue = (sources: MangaSource[] | undefined, route: string): SourceRow[] =>
-    (sources ?? []).map((source) => ({
+    failingLast(sources ?? [], failures, failingAtEnd).map((source) => ({
       key: source.id,
       name: source.name,
-      detail: extensionOf(source)?.name ?? source.extensionId,
+      detail:
+        source.id in failures
+          ? t('sources.failedLately', { detail: extensionOf(source)?.name ?? source.extensionId })
+          : (extensionOf(source)?.name ?? source.extensionId),
       // A source shows its extension's icon (M46.2).
       logo: extensionOf(source)?.icon,
       to: route,
@@ -195,6 +212,8 @@ export const BrowsePage: FC = () => {
     'search';
   // On desktop the app bar holds the search field (M46.9).
   const desktop = useIsDesktop();
+  const updateSetting = useUpdateSetting();
+  const failingAtEnd = useSettings().data?.failingSourcesLast ?? true;
   const { tab = firstTab, list = 'installed', q = '', type = 'all' } = current;
   const navigate = useNavigate({ from: '/browse' });
   const reload = useReloadExtensions();
@@ -202,15 +221,16 @@ export const BrowsePage: FC = () => {
   const fetching = useIsFetching() > 0;
   const [input, setInput] = useState(q);
 
-  // The query lives in the URL, so Back to this page shows the same results.
+  // The query lives in the URL, so Back to this page shows the same results. On desktop the app
+  // bar's field owns it (M46.9); this hidden one must not write its old text back.
   useEffect(() => {
-    if (input.trim() === q) return;
+    if (desktop || input.trim() === q) return;
     const timer = setTimeout(() => {
       const next = input.trim();
       void navigate({ search: { ...current, q: next || undefined }, replace: true });
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [input, q, current, navigate]);
+  }, [input, q, current, navigate, desktop]);
 
   const onInput = (value: string) => {
     setInput(value);
@@ -251,6 +271,11 @@ export const BrowsePage: FC = () => {
               },
             ]
           : []),
+        {
+          label: t('sources.failingLast'),
+          icon: failingAtEnd ? SquareCheck : Square,
+          onSelect: () => updateSetting.mutate({ key: 'failingSourcesLast', value: !failingAtEnd }),
+        },
         { label: t('watch.addons'), icon: Puzzle, to: '/watch/addons' },
         { label: t('browse.repos'), icon: Package, to: '/extensions/repos' },
         {

@@ -1,4 +1,4 @@
-// dev.raygun.deezer 1.0.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.deezer 1.1.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -92,6 +92,61 @@
           weight: index === 0 ? 1 : 0.7
         }));
         return { tags };
+      }
+    })
+  );
+  var toAlbum = (album) => ({
+    id: String(album.id),
+    title: album.title,
+    artist: album.artist?.name ?? null,
+    year: album.release_date ? Number(album.release_date.slice(0, 4)) || null : null,
+    artworkUrl: album.cover_xl ?? album.cover_big ?? null,
+    trackCount: album.nb_tracks ?? null
+  });
+  var limitOf = (limit) => Math.min(Math.max(limit, 1), 50);
+  registerProvider(
+    defineProvider({
+      kind: "music.metadata",
+      id: "catalogue",
+      name: "Deezer",
+      async search({ query, limit }) {
+        const found = await get(
+          `/search?q=${encodeURIComponent(query)}&limit=${limitOf(limit)}`
+        );
+        return { tracks: (found.data ?? []).map(toTrack) };
+      },
+      async searchArtists({ query, limit }) {
+        const found = await get(
+          `/search/artist?q=${encodeURIComponent(query)}&limit=${limitOf(limit)}`
+        );
+        const artists = (found.data ?? []).map((artist) => ({
+          id: String(artist.id),
+          name: artist.name,
+          imageUrl: artist.picture_xl ?? artist.picture_big ?? null
+        }));
+        return { artists };
+      },
+      async searchAlbums({ query, limit }) {
+        const found = await get(
+          `/search/album?q=${encodeURIComponent(query)}&limit=${limitOf(limit)}`
+        );
+        return { albums: (found.data ?? []).map(toAlbum) };
+      },
+      async album({ id }) {
+        if (!/^\d+$/.test(id)) throw new Error(`Unknown album ${id}`);
+        const album = await get(`/album/${id}`);
+        const tracks = (album.tracks?.data ?? []).map(
+          (track) => toTrack({
+            ...track,
+            album: track.album ?? {
+              id: album.id,
+              title: album.title,
+              cover_xl: album.cover_xl,
+              cover_big: album.cover_big
+            }
+          })
+        );
+        return { album: toAlbum(album), tracks };
       }
     })
   );

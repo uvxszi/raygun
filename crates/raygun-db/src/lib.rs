@@ -11,6 +11,7 @@ pub mod extensions;
 pub mod hlc;
 pub mod local_music;
 pub mod manga_downloads;
+pub mod music_downloads;
 pub mod podcasts;
 pub mod settings;
 pub mod streams;

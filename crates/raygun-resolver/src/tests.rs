@@ -226,3 +226,31 @@ fn history_shapes_the_ranking() {
     assert_eq!(ranked[0].candidate.id, "b");
     assert!(ranked[0].score - ranked[1].score >= 15);
 }
+
+#[test]
+fn a_one_word_title_needs_some_sign_of_the_artist() {
+    // "i can't swim" by nobody named is no answer for BTS's "SWIM" (M46.10).
+    let swim = query("SWIM", "BTS", None);
+    assert_eq!(
+        best(&swim, vec![candidate("other", "i can't swim", None, None)]),
+        None
+    );
+    assert_eq!(
+        best(
+            &swim,
+            vec![
+                candidate("other", "i can't swim", None, None),
+                candidate("bts", "BTS - SWIM", None, None),
+            ]
+        ),
+        Some("bts".into())
+    );
+    // A whole title with nothing about its artist still plays.
+    assert_eq!(
+        best(
+            &query("Hello, Dolly", "Louis Armstrong", None),
+            vec![candidate("dolly", "Hello, Dolly", None, None)]
+        ),
+        Some("dolly".into())
+    );
+}

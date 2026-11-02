@@ -26,13 +26,14 @@
     {
       "id": "dev.raygun.deezer",
       "name": "Deezer",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "apiVersion": 1,
-      "description": "Charts (the top songs and each genre's) and song genres from Deezer's public API.",
+      "description": "Song, artist and album search, charts (the top songs and each genre's) and song genres from Deezer's public API.",
       "author": "Raygun",
       "provides": [
         "music.charts",
-        "music.tags"
+        "music.tags",
+        "music.metadata"
       ],
       "permissions": {
         "net": [
@@ -41,9 +42,9 @@
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.deezer-1.0.0.zip",
-      "sha256": "f3042adaf7f10271ff6c9ddbd5120ecf4264abc73e3ed08228ee61d31553de46",
-      "size": 1861
+      "package": "packages/dev.raygun.deezer-1.1.0.zip",
+      "sha256": "00de6a1d3de2de500c944de017e60a2e20204c7392b403f78ea44a144012c46b",
+      "size": 2220
     },
     {
       "id": "dev.raygun.gutenberg",
@@ -157,7 +158,7 @@
     {
       "id": "dev.raygun.musicbrainz",
       "name": "MusicBrainz",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "apiVersion": 1,
       "description": "Song search and song genres from the open MusicBrainz database. Results play through streaming extensions.",
       "author": "Raygun",
@@ -172,9 +173,9 @@
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.musicbrainz-1.1.0.zip",
-      "sha256": "181ff35ade627babbcf2df92f8ee2b95af79cd150920bd698e164c21ff54112a",
-      "size": 2461
+      "package": "packages/dev.raygun.musicbrainz-1.2.0.zip",
+      "sha256": "a9f892bb39c41148fb7179cad2adab2704fd7200f1dbc2fe7eea93d52381e978",
+      "size": 2908
     },
     {
       "id": "dev.raygun.podcast-directory",

@@ -13,6 +13,7 @@ export const DEFAULT_PREFS: NovelReaderPrefs = {
   width: 'narrow',
   paged: false,
   ttsRate: 10,
+  indent: false,
 };
 
 export const novelChapterQuery = (titleId: string, chapterId: string) => ({

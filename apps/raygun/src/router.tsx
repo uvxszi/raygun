@@ -12,6 +12,7 @@ import { PodcastPage } from './pages/PodcastPage';
 import { WatchAddonsPage } from './pages/WatchAddonsPage';
 import { WatchCatalogPage } from './pages/WatchCatalogPage';
 import { AboutPage } from './pages/AboutPage';
+import { MusicAlbumPage } from './pages/MusicAlbumPage';
 import { MusicChartPage } from './pages/MusicChartPage';
 import { MusicChartsPage } from './pages/MusicChartsPage';
 import { MusicTagPage } from './pages/MusicTagPage';
@@ -97,7 +98,12 @@ const routeTree = rootRoute.addChildren([
     path: '/downloads',
     component: DownloadsPage,
     validateSearch: (search: Record<string, unknown>): { tab?: DownloadsTab } =>
-      search.tab === 'videos' || search.tab === 'exports' ? { tab: search.tab } : {},
+      search.tab === 'videos' ||
+      search.tab === 'exports' ||
+      search.tab === 'music' ||
+      search.tab === 'chapters'
+        ? { tab: search.tab }
+        : {},
   }),
   createRoute({
     getParentRoute: () => rootRoute,
@@ -110,7 +116,7 @@ const routeTree = rootRoute.addChildren([
     getParentRoute: () => rootRoute,
     path: '/manga/downloads',
     beforeLoad: () => {
-      throw redirect({ to: '/downloads', replace: true });
+      throw redirect({ to: '/downloads', search: { tab: 'chapters' }, replace: true });
     },
   }),
   createRoute({
@@ -208,6 +214,15 @@ const routeTree = rootRoute.addChildren([
     getParentRoute: () => rootRoute,
     path: '/music/chart',
     component: MusicChartPage,
+    validateSearch: (search: Record<string, unknown>) => ({
+      provider: text(search.provider),
+      id: text(search.id),
+    }),
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/music/album',
+    component: MusicAlbumPage,
     validateSearch: (search: Record<string, unknown>) => ({
       provider: text(search.provider),
       id: text(search.id),

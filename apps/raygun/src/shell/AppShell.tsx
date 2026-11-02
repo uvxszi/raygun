@@ -2,7 +2,7 @@ import type { StartScreen, WindowFrame } from '@raygun/bindings';
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { MotionConfig } from 'motion/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { FC } from 'react';
+import type { CSSProperties, FC } from 'react';
 
 import { TrackActionsSheet } from '../collections/TrackActionsSheet';
 import { useSyncChangedListener } from '../devices/useDeviceSync';
@@ -115,7 +115,11 @@ export const AppShell: FC = () => {
 
   return (
     <MotionConfig reducedMotion={settings.data?.motion === 'off' ? 'always' : 'user'}>
-      <div className="flex h-full flex-col">
+      <div
+        className="flex h-full flex-col"
+        // Full-window screens (the full player) start below the desktop bar (M46.9).
+        style={{ '--app-bar': desktop && !fullscreen ? '4rem' : '0px' } as CSSProperties}
+      >
         {desktop && !fullscreen && (
           <AppBar
             frame={settings.data?.windowFrame ?? 'app'}

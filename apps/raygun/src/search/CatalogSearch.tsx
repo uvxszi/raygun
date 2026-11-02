@@ -1,6 +1,7 @@
 import type { MangaCard, MangaSource, SourceSearchResult } from '@raygun/bindings';
-import { ChevronRight, LoaderCircle, SlidersHorizontal } from 'lucide-react';
-import { useState } from 'react';
+import { useQueries } from '@tanstack/react-query';
+import { ChevronRight, LoaderCircle, Search, SlidersHorizontal } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -12,7 +13,14 @@ import { ROUTES } from '../manga/medium';
 import { useInView } from '../shell/useInView';
 import { SourceMenu } from './SourceMenu';
 import { SourceFiltersPanel } from './SourceFiltersPanel';
-import { useFilteredSearch, useSourceFilters, useSourceSearch } from './useCatalogSearch';
+import { rankResults } from './rankResults';
+import { failingLast, useSourceHealth } from './sourceHealth';
+import {
+  sourceSearchOptions,
+  useFilteredSearch,
+  useSourceFilters,
+  useSourceSearch,
+} from './useCatalogSearch';
 import type { FilterValues } from './useCatalogSearch';
 import { LoadMore } from '../shell/LoadMore';
 import { useSettings } from '../settings/useSettings';
@@ -105,6 +113,7 @@ export const LazySourceRow: FC<{
   const { t } = useTranslation();
   const [ref, seen] = useInView<HTMLDivElement>();
   const search = useSourceSearch(medium, source.id, query, seen);
+  useHealthReport(source.id, search.error, search.data);
   return (
     <div ref={ref} data-testid="source-row">
       {search.data ? (
@@ -125,6 +134,98 @@ export const LazySourceRow: FC<{
       )}
     </div>
   );
+};
+
+/** Remembers which sources failed lately, so lists can put them last (M46.9). */
+const useHealthReport = (
+  id: string,
+  error: unknown,
+  data: SourceSearchResult | null | undefined,
+) => {
+  const { failed, worked } = useSourceHealth();
+  useEffect(() => {
+    if (error || data?.error) failed(id);
+    else if (data) worked(id);
+  }, [id, error, data, failed, worked]);
+};
+
+/**
+ * Every searched source's results in one list (M46.9), the best answers first, each with its
+ * source's name. Sources answer a few at a time; the list grows as they do.
+ */
+const RankedResults: FC<{ sources: MangaSource[]; medium: Medium; query: string }> = ({
+  sources,
+  medium,
+  query,
+}) => {
+  const { t } = useTranslation();
+  const { failed, worked } = useSourceHealth();
+  const searches = useQueries({
+    queries: sources.map((source) => sourceSearchOptions(medium, source.id, query)),
+  });
+  const answered = searches.filter((search) => search.isSuccess || search.isError).length;
+  const results = searches
+    .map((search) => search.data)
+    .filter((result): result is SourceSearchResult => Boolean(result));
+  const ranked = rankResults(
+    results.filter((result) => !result.error),
+    query,
+  );
+  const errors = results.filter((result) => result.error);
+  const errorKey = searches
+    .map((search, index) => `${sources[index]?.id}:${search.status}:${search.data?.error ?? ''}`)
+    .join('|');
+  useEffect(() => {
+    searches.forEach((search, index) => {
+      const id = sources[index]?.id;
+      if (!id) return;
+      if (search.isError || search.data?.error) failed(id);
+      else if (search.isSuccess) worked(id);
+    });
+    // Reported once per change of the sources' answers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [errorKey]);
+  return (
+    <div data-testid="ranked-results" className="flex flex-col gap-3">
+      {answered < sources.length && (
+        <p role="status" className="text-muted flex items-center gap-2 text-sm">
+          <LoaderCircle aria-hidden size={14} className="animate-spin" />
+          {t('search.sourcesAnswered', { done: answered, total: sources.length })}
+        </p>
+      )}
+      {answered === sources.length && ranked.length === 0 && (
+        <p className="text-muted text-sm">
+          {query.trim() ? t('search.noResults', { query }) : t('search.providerEmpty')}
+        </p>
+      )}
+      {ranked.length > 0 && (
+        <MangaGrid
+          medium={medium}
+          items={ranked.map(({ card, sourceName }) => ({
+            ...toGridItems([card])[0]!,
+            subtitle: sourceName,
+          }))}
+        />
+      )}
+      {errors.length > 0 && (
+        <p className="text-muted text-xs wrap-anywhere">
+          {t('search.someFailed', {
+            sources: errors.map((result) => `${result.source.name} (${result.error})`).join(', '),
+          })}
+        </p>
+      )}
+    </div>
+  );
+};
+
+const groupKey = (medium: Medium) => `raygun.search.grouped.${medium}`;
+
+const readGrouped = (medium: Medium) => {
+  try {
+    return localStorage.getItem(groupKey(medium)) === '1';
+  } catch {
+    return false;
+  }
 };
 
 const SourceChip: FC<{ label: string; pressed: boolean; onClick: () => void }> = ({
@@ -223,6 +324,18 @@ export const CatalogSearch: FC<{ medium: Medium; query: string }> = ({ medium, q
   const sources = useMangaSources(medium);
   const [chosen, setChosenState] = useState(() => readChosen(medium));
   const [unfolded, setUnfolded] = useState(false);
+  const [finding, setFinding] = useState('');
+  const [grouped, setGroupedState] = useState(() => readGrouped(medium));
+  const failures = useSourceHealth((state) => state.failures);
+  const failingAtEnd = useSettings().data?.failingSourcesLast ?? true;
+  const setGrouped = (next: boolean) => {
+    setGroupedState(next);
+    try {
+      localStorage.setItem(groupKey(medium), next ? '1' : '0');
+    } catch {
+      // A per-device convenience.
+    }
+  };
   // Sources removed since they were chosen don't count.
   const picked = sources.data
     ? chosen.filter((id) => sources.data.some((source) => source.id === id))
@@ -241,9 +354,18 @@ export const CatalogSearch: FC<{ medium: Medium; query: string }> = ({ medium, q
     setChosen(picked.includes(id) ? picked.filter((other) => other !== id) : [...picked, id]);
   const all = sources.data ?? [];
   // Several sources: a row each, loading as they come into view (M46.7).
-  const searched = picked.length > 0 ? all.filter((source) => picked.includes(source.id)) : all;
-  const shown =
-    unfolded || all.length <= FOLDED_CHIPS
+  const searched = failingLast(
+    picked.length > 0 ? all.filter((source) => picked.includes(source.id)) : all,
+    failures,
+    failingAtEnd,
+  );
+  // Finding a source by name shows every match; otherwise the list folds after a dozen.
+  const needle = finding.trim().toLowerCase();
+  const shown = needle
+    ? all.filter(
+        (source) => source.name.toLowerCase().includes(needle) || picked.includes(source.id),
+      )
+    : unfolded || all.length <= FOLDED_CHIPS
       ? all
       : all.filter((source, index) => index < FOLDED_CHIPS || picked.includes(source.id));
 
@@ -254,6 +376,19 @@ export const CatalogSearch: FC<{ medium: Medium; query: string }> = ({ medium, q
       )}
       {all.length > 0 && (
         <div role="group" aria-label={t('search.sources')} className="flex flex-wrap gap-2">
+          {all.length > FOLDED_CHIPS && (
+            <label className="bg-surface flex items-center gap-2 rounded-full px-3 py-1.5">
+              <Search aria-hidden size={14} className="text-muted" />
+              <input
+                type="search"
+                value={finding}
+                onChange={(event) => setFinding(event.target.value)}
+                placeholder={t('search.findSource')}
+                aria-label={t('search.findSource')}
+                className="placeholder:text-muted w-32 bg-transparent text-sm outline-none"
+              />
+            </label>
+          )}
           <SourceChip
             label={t('search.allSources')}
             pressed={picked.length === 0}
@@ -267,7 +402,7 @@ export const CatalogSearch: FC<{ medium: Medium; query: string }> = ({ medium, q
               onClick={() => toggle(source.id)}
             />
           ))}
-          {all.length > FOLDED_CHIPS && (
+          {all.length > FOLDED_CHIPS && !needle && (
             <button
               type="button"
               aria-expanded={unfolded}
@@ -283,18 +418,43 @@ export const CatalogSearch: FC<{ medium: Medium; query: string }> = ({ medium, q
       )}
       {sourceId === '' ? (
         <>
-          {!query.trim() && all.length > 0 && (
-            <h2 className="font-semibold">{t('search.popular')}</h2>
+          <div className="flex items-center gap-3">
+            {!query.trim() && all.length > 0 && (
+              <h2 className="font-semibold">{t('search.popular')}</h2>
+            )}
+            {searched.length > 1 && (
+              <div
+                role="group"
+                aria-label={t('search.arrange')}
+                className="bg-surface ml-auto flex rounded-full p-0.5 text-sm"
+              >
+                {([false, true] as const).map((byGroup) => (
+                  <button
+                    key={String(byGroup)}
+                    type="button"
+                    aria-pressed={grouped === byGroup}
+                    onClick={() => setGrouped(byGroup)}
+                    className={`rounded-full px-3 py-1 ${grouped === byGroup ? 'bg-primary/20 text-primary font-semibold' : 'text-muted'}`}
+                  >
+                    {t(byGroup ? 'search.bySource' : 'search.byResult')}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {grouped || searched.length === 1 ? (
+            searched.map((source) => (
+              <LazySourceRow
+                key={`${source.id}:${query.trim()}`}
+                source={source}
+                medium={medium}
+                query={query}
+                onMore={() => setChosen([source.id])}
+              />
+            ))
+          ) : (
+            <RankedResults sources={searched} medium={medium} query={query} />
           )}
-          {searched.map((source) => (
-            <LazySourceRow
-              key={`${source.id}:${query.trim()}`}
-              source={source}
-              medium={medium}
-              query={query}
-              onMore={() => setChosen([source.id])}
-            />
-          ))}
         </>
       ) : (
         <SourceSearch key={sourceId} medium={medium} sourceId={sourceId} query={query} />

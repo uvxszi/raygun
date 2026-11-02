@@ -43,6 +43,7 @@ const extension = (overrides: Partial<ExtensionInfo> = {}): ExtensionInfo => ({
   ],
   compatibility: null,
   icon: null,
+  website: null,
   ...overrides,
 });
 

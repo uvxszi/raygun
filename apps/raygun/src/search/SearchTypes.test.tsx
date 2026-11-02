@@ -58,6 +58,9 @@ describe('Search by type', () => {
   beforeEach(() => {
     AppShellWrapper.seedCore();
     commands.mangaSources.mockResolvedValue(ok([MANGADEX, OTHER]));
+    // These tests look at a row per source; best matches have their own tests.
+    localStorage.setItem('raygun.search.grouped.manga', '1');
+    localStorage.setItem('raygun.search.grouped.novel', '1');
   });
 
   it('searches every kind and leads to each type', async () => {

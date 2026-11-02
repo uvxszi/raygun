@@ -71,7 +71,7 @@ internal class Storage(private val context: Context) {
      */
     fun create(place: String, tree: String?, path: List<String>, name: String, mime: String): Output = when (place) {
         "tree" -> createInTree(Uri.parse(tree ?: error("No folder was picked")), path, name, mime)
-        "downloads", "pictures" ->
+        "downloads", "pictures", "music" ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) createInMediaStore(place, path, name, mime)
             else createInPublicFolder(place, path, name)
         else -> error("Unknown place $place")
@@ -79,9 +79,18 @@ internal class Storage(private val context: Context) {
 
     private fun createInMediaStore(place: String, path: List<String>, name: String, mime: String): Output {
         val pictures = place == "pictures" && mime.startsWith("image/")
-        val collection = if (pictures) MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-        else MediaStore.Downloads.EXTERNAL_CONTENT_URI
-        val top = if (pictures) Environment.DIRECTORY_PICTURES else Environment.DIRECTORY_DOWNLOADS
+        // Saved songs go to Music/Raygun/<artist>/, where music players look (M46.10).
+        val music = place == "music" && mime.startsWith("audio/")
+        val collection = when {
+            pictures -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            music -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+            else -> MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        }
+        val top = when {
+            pictures -> Environment.DIRECTORY_PICTURES
+            music -> Environment.DIRECTORY_MUSIC
+            else -> Environment.DIRECTORY_DOWNLOADS
+        }
         val relative = (listOf(top, "Raygun") + path).joinToString("/") + "/"
         val existing = resolver.query(
             collection,
@@ -113,7 +122,11 @@ internal class Storage(private val context: Context) {
         if (!granted) error("Allow Raygun to use storage in the system settings to save files")
         @Suppress("DEPRECATION")
         val top = Environment.getExternalStoragePublicDirectory(
-            if (place == "pictures") Environment.DIRECTORY_PICTURES else Environment.DIRECTORY_DOWNLOADS,
+            when (place) {
+                "pictures" -> Environment.DIRECTORY_PICTURES
+                "music" -> Environment.DIRECTORY_MUSIC
+                else -> Environment.DIRECTORY_DOWNLOADS
+            },
         )
         val dir = File(top, (listOf("Raygun") + path).joinToString(File.separator))
         if (!dir.isDirectory && !dir.mkdirs()) error("Couldn't make ${dir.path}")

@@ -162,6 +162,13 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     ));
     let discovery = crate::discovery::DiscoveryService::new(app.handle().clone());
     app.manage(discovery.clone());
+    let songs = crate::music_downloads::SongDownloadService::new(
+        app.handle().clone(),
+        paths.downloads(),
+        app.state::<raygun_net::ImageLinks>().inner().clone(),
+        raygun_net::http_client()?,
+    );
+    app.manage(songs.clone());
     let mcp = tauri::async_runtime::block_on(crate::mcp::McpService::start(app.handle().clone()))?;
     app.manage(mcp);
     let remote =
@@ -181,6 +188,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.state::<crate::library::LibraryService>().start_scan();
     downloads.start();
     discovery.start_tagger();
+    songs.start();
     video_downloads.start();
     podcasts.start();
     crate::tts::install(app.handle());

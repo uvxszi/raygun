@@ -203,6 +203,22 @@ pub fn install(extensions_dir: &Path, package: &VerifiedPackage) -> Result<PathB
 }
 
 /// Removes an installed extension and its storage.
+/// Deletes what an extension stored (`raygun.storage`) and its cookies (M46.11); it starts afresh
+/// on its next load.
+pub fn clear_data(storage_dir: &Path, id: &str) -> std::io::Result<()> {
+    if !is_extension_id(id) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("invalid extension id {id:?}"),
+        ));
+    }
+    let dir = storage_dir.join(id);
+    if dir.exists() {
+        std::fs::remove_dir_all(dir)?;
+    }
+    Ok(())
+}
+
 pub fn uninstall(extensions_dir: &Path, storage_dir: &Path, id: &str) -> std::io::Result<()> {
     if !is_extension_id(id) {
         return Err(std::io::Error::new(

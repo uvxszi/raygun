@@ -13,14 +13,15 @@ use std::time::Duration;
 
 use raygun_model::{
     ExtensionInfo, ExtensionOrigin, ExtensionSetting, ExtensionStatus, LyricLine, Lyrics,
-    MediaSource, MusicChart, OnlineTrack, ProviderInfo, ProviderSearchResult, SettingKind,
-    SettingValue, TrackQuery,
+    MediaSource, MusicAlbum, MusicAlbumDetail, MusicArtist, MusicChart, OnlineTrack, ProviderInfo,
+    ProviderSearchResult, SettingKind, SettingValue, TrackQuery,
 };
 use raygun_resolver::Candidate;
 use serde::Deserialize;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::content::ContentFilter;
+use crate::cookies::CookieJar;
 use crate::js::{JsExtension, Limits};
 use crate::manifest::{self, MANIFEST_FILE, Manifest, Runtime};
 use crate::shosetsu::ShosetsuExtension;
@@ -395,6 +396,111 @@ impl ExtensionHost {
         futures_util::future::join_all(requests).await
     }
 
+    /// Artists named like `query` from every `music.metadata` provider that searches artists
+    /// (M46.9); providers without the call are left out.
+    pub async fn search_artists(&self, query: &str, limit: u32) -> Vec<MusicArtist> {
+        let answers = self.ask_metadata("searchArtists", query, limit).await;
+        answers
+            .into_iter()
+            .flat_map(|(provider, value)| {
+                value
+                    .get("artists")
+                    .and_then(serde_json::Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(move |artist| {
+                        let name = artist.get("name")?.as_str()?.trim().to_owned();
+                        let id = json_id(artist.get("id"))?;
+                        (!name.is_empty()).then(|| MusicArtist {
+                            provider: provider.clone(),
+                            id,
+                            name,
+                            image_url: web_url(artist.get("imageUrl")),
+                        })
+                    })
+            })
+            .collect()
+    }
+
+    /// Albums for `query` from every `music.metadata` provider that searches albums (M46.9).
+    pub async fn search_albums(&self, query: &str, limit: u32) -> Vec<MusicAlbum> {
+        let answers = self.ask_metadata("searchAlbums", query, limit).await;
+        answers
+            .into_iter()
+            .flat_map(|(provider, value)| {
+                value
+                    .get("albums")
+                    .and_then(serde_json::Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(move |album| parse_album(&provider, &album))
+            })
+            .collect()
+    }
+
+    /// An album's songs from the provider that knows it (M46.9).
+    pub async fn music_album(
+        &self,
+        provider_id: &str,
+        album_id: &str,
+    ) -> Result<MusicAlbumDetail, CallError> {
+        let provider = self
+            .providers(MUSIC_METADATA)
+            .await
+            .into_iter()
+            .find(|provider| provider.id == provider_id)
+            .ok_or_else(|| CallError::Script("That source isn't available".to_owned()))?;
+        let value = self
+            .call(provider_id, "album", serde_json::json!({ "id": album_id }))
+            .await?;
+        let album = value
+            .get("album")
+            .and_then(|album| parse_album(&provider, album))
+            .ok_or_else(|| CallError::Script("The source gave no album".to_owned()))?;
+        Ok(MusicAlbumDetail {
+            album,
+            tracks: parse_tracks(value),
+        })
+    }
+
+    /// Asks every `music.metadata` provider that has `method` at once; answers from providers
+    /// without it, or that failed, are dropped (failures are logged).
+    async fn ask_metadata(
+        &self,
+        method: &str,
+        query: &str,
+        limit: u32,
+    ) -> Vec<(ProviderInfo, serde_json::Value)> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Vec::new();
+        }
+        let providers = self.providers(MUSIC_METADATA).await;
+        let args = serde_json::json!({ "query": query, "limit": limit });
+        let requests = providers.into_iter().map(|provider| {
+            let args = args.clone();
+            async move {
+                match self.call(&provider.id, method, args).await {
+                    Ok(value) => Some((provider, value)),
+                    Err(error) => {
+                        let message = error.to_string();
+                        if !message.contains("has no method") {
+                            tracing::warn!(provider = %provider.id, %message, "{method} failed");
+                        }
+                        None
+                    }
+                }
+            }
+        });
+        futures_util::future::join_all(requests)
+            .await
+            .into_iter()
+            .flatten()
+            .collect()
+    }
+
     /// A chart's songs from the provider that keeps it (M46.9).
     pub async fn music_chart(
         &self,
@@ -498,6 +604,17 @@ impl Extension {
         match self {
             Self::Js(extension) => extension.providers(),
             Self::Shosetsu(extension) => extension.providers(),
+        }
+    }
+
+    /// The manifest's website, else a Shosetsu script's `baseURL`.
+    fn website(&self) -> Option<String> {
+        let declared = self.manifest().website.clone();
+        match self {
+            Self::Js(_) => declared,
+            Self::Shosetsu(extension) => {
+                declared.or_else(|| extension.website().map(str::to_owned))
+            }
         }
     }
 
@@ -640,8 +757,14 @@ impl HostState {
         manifest: Manifest,
         mut user_settings: BTreeMap<String, serde_json::Value>,
     ) -> Result<Extension, String> {
+        let data_dir = self
+            .config
+            .storage_dir
+            .as_ref()
+            .map(|dir| dir.join(&manifest.id));
+        let cookies = CookieJar::open(data_dir.as_ref().map(|dir| dir.join("cookies.json")));
         if manifest.runtime == Runtime::Shosetsu {
-            let load = ShosetsuExtension::load(manifest, source);
+            let load = ShosetsuExtension::load(manifest, source, cookies);
             return tokio::time::timeout(self.config.call_timeout, load)
                 .await
                 .map_err(|_| "loading timed out".to_owned())?
@@ -649,16 +772,12 @@ impl HostState {
         }
         user_settings.retain(|key, value| manifest.check_setting(key, value).is_ok());
         let code = source.read(&manifest.entry)?;
-        let storage = KvStore::open(
-            self.config
-                .storage_dir
-                .as_ref()
-                .map(|dir| dir.join(&manifest.id).join("storage.json")),
-        );
+        let storage = KvStore::open(data_dir.map(|dir| dir.join("storage.json")));
         let load = JsExtension::load(
             manifest,
             code,
             storage,
+            cookies,
             user_settings,
             &self.config.limits,
             self.config.content.clone(),
@@ -727,6 +846,7 @@ fn loaded_info(extension: &Extension, origin: ExtensionOrigin) -> ExtensionInfo 
         providers: extension.providers(),
         compatibility: manifest.nuclear.as_ref().and_then(compat_report),
         icon: None,
+        website: extension.website(),
         settings: manifest
             .settings
             .iter()
@@ -807,6 +927,7 @@ fn failed_info(
         settings: Vec::new(),
         compatibility: None,
         icon: None,
+        website: None,
     }
 }
 
@@ -871,6 +992,50 @@ struct RawChart {
     artwork_url: Option<String>,
     #[serde(default)]
     tag: Option<String>,
+}
+
+/// A provider's id for something: a string, or a number written out.
+fn json_id(value: Option<&serde_json::Value>) -> Option<String> {
+    match value? {
+        serde_json::Value::String(id) if !id.is_empty() => Some(id.clone()),
+        serde_json::Value::Number(id) => Some(id.to_string()),
+        _ => None,
+    }
+}
+
+fn web_url(value: Option<&serde_json::Value>) -> Option<String> {
+    value
+        .and_then(serde_json::Value::as_str)
+        .filter(|url| is_web_url(url))
+        .map(str::to_owned)
+}
+
+/// Reads `{ id, title, artist?, year?, artworkUrl?, trackCount? }`.
+fn parse_album(provider: &ProviderInfo, album: &serde_json::Value) -> Option<MusicAlbum> {
+    let title = album.get("title")?.as_str()?.trim().to_owned();
+    if title.is_empty() {
+        return None;
+    }
+    let number = |key: &str| {
+        album
+            .get(key)
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+    };
+    Some(MusicAlbum {
+        provider: provider.clone(),
+        id: json_id(album.get("id"))?,
+        title,
+        artist: album
+            .get("artist")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|artist| !artist.is_empty())
+            .map(str::to_owned),
+        year: number("year"),
+        artwork_url: web_url(album.get("artworkUrl")),
+        track_count: number("trackCount"),
+    })
 }
 
 /// Reads `{ charts: [{ id, name, description?, artworkUrl?, tag? }] }`, dropping charts without an

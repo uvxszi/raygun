@@ -26,6 +26,7 @@ mod manga;
 mod manga_downloads;
 mod mcp;
 mod mihon;
+mod music_downloads;
 mod novel;
 mod playback;
 mod podcast_feed;
@@ -81,6 +82,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::playback_replace,
             commands::extensions_list,
             commands::extensions_reload,
+            commands::extension_clear_data,
+            commands::extension_open_website,
             commands::extension_repos,
             commands::extension_suggested_repos,
             commands::extension_repo_add,
@@ -102,6 +105,16 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::music_tag_summary,
             commands::music_tag_songs,
             commands::music_tag_vocabulary,
+            commands::music_search_artists,
+            commands::music_search_albums,
+            commands::music_album,
+            commands::songs_download,
+            commands::song_downloads,
+            commands::song_download_remove,
+            commands::song_download_retry,
+            commands::song_download_record,
+            commands::songs_save,
+            commands::song_downloaded_keys,
             commands::favorite_get,
             commands::favorite_set,
             commands::playlists_list,
@@ -291,6 +304,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::PodcastsChangedEvent,
             events::WatchChangedEvent,
             events::VideoDownloadsEvent,
+            events::SongDownloadsEvent,
             events::SettingsChangedEvent,
             events::ExportEvent,
             events::VideoPlayerEvent,
@@ -312,7 +326,19 @@ pub fn export_bindings(path: &Path) -> Result<(), String> {
 /// Returns a Tauri builder with all Raygun commands registered.
 pub fn builder() -> tauri::Builder<tauri::Wry> {
     let specta = specta_builder();
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // One running copy on desktop (M46.11): opening Raygun again brings its window forward, since
+    // two copies would write to one database. The plugin must come first.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        use tauri::Manager;
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }));
+    builder
         .plugin(tauri_plugin_raygun_audio::init())
         .invoke_handler(specta.invoke_handler())
         .setup(move |app| {

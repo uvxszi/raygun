@@ -12,6 +12,7 @@ use mlua::{AnyUserData, Lua, Table, UserData, UserDataMethods, Value};
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 
 use super::dom::{LuaNode, parse_document};
+use crate::cookies::CookieJar;
 use crate::permissions::{HostPattern, NetPolicy, is_public_ip};
 
 /// Response bodies larger than this fail the request.
@@ -45,8 +46,9 @@ pub struct Fetcher {
 }
 
 impl Fetcher {
-    /// `loopback` also allows 127.0.0.1, for tests against a local server.
-    pub fn new(loopback: bool) -> Result<Self, String> {
+    /// `loopback` also allows 127.0.0.1, for tests against a local server. The script's cookies
+    /// live in `cookies` (M46.11).
+    pub fn new(loopback: bool, cookies: Arc<CookieJar>) -> Result<Self, String> {
         let mut patterns = vec![HostPattern::AnyPublic];
         if loopback {
             patterns.push(HostPattern::Exact("127.0.0.1".into()));
@@ -65,6 +67,7 @@ impl Fetcher {
         let client = raygun_net::client_builder()
             .dns_resolver(Arc::new(PublicResolver))
             .redirect(redirects)
+            .cookie_provider(cookies)
             .timeout(TIMEOUT)
             .build()
             .map_err(|error| error.to_string())?;
@@ -94,7 +97,7 @@ impl Fetcher {
             builder = builder.header(name, value);
         }
         if !has_agent {
-            builder = builder.header("User-Agent", raygun_net::DEFAULT_USER_AGENT);
+            builder = builder.header("User-Agent", raygun_net::user_agent());
         }
         if let Some(body) = &request.body {
             builder = builder
@@ -537,7 +540,7 @@ mod tests {
 
     #[test]
     fn refuses_local_addresses() {
-        let fetcher = Fetcher::new(false).unwrap();
+        let fetcher = Fetcher::new(false, CookieJar::in_memory()).unwrap();
         for url in [
             "http://127.0.0.1/",
             "http://localhost:8080/",

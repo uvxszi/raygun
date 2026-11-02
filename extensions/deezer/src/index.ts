@@ -2,7 +2,7 @@
 // API, which needs no key (M46.9). Charts follow the country Deezer sees the request from. Songs
 // carry no stream; Raygun finds one through `music.stream` providers when they play.
 import { defineProvider, registerProvider } from '@raygun/sdk';
-import type { Chart, LyricsQuery, MusicTag, Track } from '@raygun/sdk';
+import type { Album, Artist, Chart, LyricsQuery, MusicTag, Track } from '@raygun/sdk';
 
 const API = 'https://api.deezer.com';
 // Deezer allows 50 requests in 5 seconds; one retry covers a brief "quota" answer.
@@ -17,6 +17,16 @@ type DeezerTrack = {
   album?: { id: number; title: string; cover_xl?: string; cover_big?: string };
 };
 type DeezerGenre = { id: number; name: string; picture_xl?: string; picture_big?: string };
+type DeezerArtist = { id: number; name: string; picture_xl?: string; picture_big?: string };
+type DeezerAlbum = {
+  id: number;
+  title: string;
+  cover_xl?: string;
+  cover_big?: string;
+  nb_tracks?: number;
+  release_date?: string;
+  artist?: { name: string };
+};
 type DeezerList<T> = { data?: T[]; error?: { message?: string; code?: number } };
 
 /** Deezer answers errors with status 200 and an `error` object; quota errors are worth a retry. */
@@ -116,6 +126,65 @@ registerProvider(
         weight: index === 0 ? 1 : 0.7,
       }));
       return { tags };
+    },
+  }),
+);
+
+const toAlbum = (album: DeezerAlbum): Album => ({
+  id: String(album.id),
+  title: album.title,
+  artist: album.artist?.name ?? null,
+  year: album.release_date ? Number(album.release_date.slice(0, 4)) || null : null,
+  artworkUrl: album.cover_xl ?? album.cover_big ?? null,
+  trackCount: album.nb_tracks ?? null,
+});
+
+const limitOf = (limit: number) => Math.min(Math.max(limit, 1), 50);
+
+/** Songs, artists and albums from Deezer's catalogue (M46.9); songs play through other sources. */
+registerProvider(
+  defineProvider({
+    kind: 'music.metadata',
+    id: 'catalogue',
+    name: 'Deezer',
+    async search({ query, limit }) {
+      const found = await get<DeezerList<DeezerTrack>>(
+        `/search?q=${encodeURIComponent(query)}&limit=${limitOf(limit)}`,
+      );
+      return { tracks: (found.data ?? []).map(toTrack) };
+    },
+    async searchArtists({ query, limit }) {
+      const found = await get<DeezerList<DeezerArtist>>(
+        `/search/artist?q=${encodeURIComponent(query)}&limit=${limitOf(limit)}`,
+      );
+      const artists: Artist[] = (found.data ?? []).map((artist) => ({
+        id: String(artist.id),
+        name: artist.name,
+        imageUrl: artist.picture_xl ?? artist.picture_big ?? null,
+      }));
+      return { artists };
+    },
+    async searchAlbums({ query, limit }) {
+      const found = await get<DeezerList<DeezerAlbum>>(
+        `/search/album?q=${encodeURIComponent(query)}&limit=${limitOf(limit)}`,
+      );
+      return { albums: (found.data ?? []).map(toAlbum) };
+    },
+    async album({ id }) {
+      if (!/^\d+$/.test(id)) throw new Error(`Unknown album ${id}`);
+      const album = await get<DeezerAlbum & { tracks?: { data?: DeezerTrack[] } }>(`/album/${id}`);
+      const tracks = (album.tracks?.data ?? []).map((track) =>
+        toTrack({
+          ...track,
+          album: track.album ?? {
+            id: album.id,
+            title: album.title,
+            cover_xl: album.cover_xl,
+            cover_big: album.cover_big,
+          },
+        }),
+      );
+      return { album: toAlbum(album), tracks };
     },
   }),
 );

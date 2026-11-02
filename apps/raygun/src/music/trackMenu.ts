@@ -3,6 +3,7 @@ import type { TrackInput } from '@raygun/bindings';
 import type { QueryClient } from '@tanstack/react-query';
 import {
   Copy,
+  Download,
   Heart,
   HeartOff,
   ListEnd,
@@ -91,6 +92,11 @@ export const trackMenu = (track: TrackInput, options: TrackMenuOptions): MenuIte
           onSelect: () => void unwrapResult(commands.favoriteSet(track, true)).then(refresh),
         },
   );
+  items.push({
+    label: t('songs.download'),
+    icon: Download,
+    onSelect: () => void unwrapResult(commands.songsDownload([track])),
+  });
   if (playlistItemId) {
     items.push({
       label: t('collections.removeFromPlaylist'),

@@ -4,6 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useEffect } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
+import { useSourceHealth } from '../search/sourceHealth';
 import { browseCommands, catalogCommands, libraryCommand } from './medium';
 import type { Medium, ReadingMedium } from './medium';
 
@@ -27,10 +28,25 @@ export const useMangaBrowse = (
 ) =>
   useInfiniteQuery({
     queryKey: [medium, 'browse', sourceId, mode, query],
-    queryFn: ({ pageParam }) =>
-      unwrapResult(
-        browseCommands(medium).browse(sourceId, mode, mode === 'search' ? query : null, pageParam),
-      ),
+    queryFn: async ({ pageParam }) => {
+      // Whether the source answers, so lists can put failing sources last (M46.9).
+      const health = useSourceHealth.getState();
+      try {
+        const page = await unwrapResult(
+          browseCommands(medium).browse(
+            sourceId,
+            mode,
+            mode === 'search' ? query : null,
+            pageParam,
+          ),
+        );
+        health.worked(sourceId);
+        return page;
+      } catch (error) {
+        health.failed(sourceId);
+        throw error;
+      }
+    },
     initialPageParam: 1,
     getNextPageParam: (last, pages) => (last.hasNextPage ? pages.length + 1 : undefined),
     enabled: Boolean(sourceId) && (mode !== 'search' || query.trim().length > 0),

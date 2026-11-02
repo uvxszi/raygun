@@ -19,6 +19,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::content::ContentFilter;
+use crate::cookies::CookieJar;
 use crate::html;
 use crate::manifest::{Manifest, is_provider_id};
 use crate::permissions::NetPolicy;
@@ -82,12 +83,14 @@ impl JsExtension {
         manifest: Manifest,
         code: String,
         storage: KvStore,
+        cookies: Arc<CookieJar>,
         settings: BTreeMap<String, serde_json::Value>,
         limits: &Limits,
         content: ContentFilter,
     ) -> Result<Self, String> {
         let policy = Arc::new(manifest.net.clone());
-        let client = extension_client(policy.clone()).map_err(|error| error.to_string())?;
+        let client =
+            extension_client(policy.clone(), cookies).map_err(|error| error.to_string())?;
         let deadline = Rc::new(Cell::new(Instant::now() + limits.cpu_budget));
         let shared = Rc::new(Shared {
             manifest,
@@ -216,8 +219,12 @@ fn eval_script(ctx: &Ctx<'_>, code: &str, filename: &str) -> Result<(), String> 
         .map_err(|error| error.to_string())
 }
 
-/// An HTTP client whose redirects obey the extension's permissions, like its own requests.
-fn extension_client(policy: Arc<NetPolicy>) -> reqwest::Result<reqwest::Client> {
+/// An HTTP client whose redirects obey the extension's permissions, like its own requests, and
+/// that keeps the extension's cookies (M46.11).
+fn extension_client(
+    policy: Arc<NetPolicy>,
+    cookies: Arc<CookieJar>,
+) -> reqwest::Result<reqwest::Client> {
     let redirects = reqwest::redirect::Policy::custom(move |attempt| {
         if attempt.previous().len() >= MAX_REDIRECTS {
             attempt.error("too many redirects")
@@ -230,6 +237,7 @@ fn extension_client(policy: Arc<NetPolicy>) -> reqwest::Result<reqwest::Client> 
     });
     raygun_net::client_builder()
         .redirect(redirects)
+        .cookie_provider(cookies)
         .timeout(REQUEST_TIMEOUT)
         .build()
 }
@@ -464,6 +472,7 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
     for (name, value) in &options.headers {
         request = request.header(name, value);
     }
+    request = raygun_net::with_user_agent(request, options.headers.keys().map(String::as_str));
     if let Some(body) = options.body {
         request = request.body(body);
     }

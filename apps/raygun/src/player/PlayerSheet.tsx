@@ -130,7 +130,12 @@ export const PlayerSheet: FC = () => {
     <MediaArt
       item={item}
       active={sheetOpen}
-      videoClassName="aspect-video w-full rounded-2xl bg-black"
+      videoClassName={`mx-auto aspect-video w-full rounded-2xl bg-black ${
+        // A short window keeps the video small enough for the controls, at 16:9.
+        sideBySide
+          ? 'max-w-[min(100%,calc((100dvh-22rem)*16/9))]'
+          : 'max-w-[min(100%,calc((100dvh-26rem)*16/9))]'
+      }`}
       artworkClassName={`mx-auto aspect-square w-full rounded-2xl shadow-xl ${
         sideBySide ? 'max-w-[min(100%,calc(100dvh-22rem))]' : 'max-w-[min(100%,calc(100dvh-26rem))]'
       }`}
@@ -163,7 +168,7 @@ export const PlayerSheet: FC = () => {
           dragConstraints={{ top: 0, bottom: 0 }}
           dragElastic={{ top: 0, bottom: 0.7 }}
           onDragEnd={handleDragEnd}
-          className="bg-background fixed inset-0 isolate z-50 flex flex-col overflow-hidden px-6 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] lg:px-10"
+          className="bg-background fixed inset-x-0 top-[var(--app-bar,0px)] bottom-0 isolate z-50 flex flex-col overflow-hidden px-6 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] lg:px-10"
         >
           {layout.background && item?.artworkUrl && !isVideo && (
             <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">

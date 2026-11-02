@@ -121,6 +121,13 @@ The user asked for the full depth of the reference apps ("its not meant to be a 
   - songs downloaded into the app to play offline, from the stream a source gives;
   - exported as files (as downloaded, WAV or FLAC) to Music or a chosen folder;
   - when no source gives a file (YouTube's embed), recording what plays: the audio element on desktop, the app's own sound through WASAPI process loopback on Windows, AudioPlaybackCapture on Android.
+  - ✅ Downloads → Music, offline playback by the song's key, files as downloaded, WAV or FLAC with tags, recording on Windows. Android recording (AudioPlaybackCapture) is queued.
+- M46.11 **Search and sources, and window polish** (asked 2026-11-02):
+  - search results ranked across sources with each source named, "By source" to group them again; music search by songs, artists and albums, with album pages;
+  - a finder for source chips; failing sources last (a setting, and Browse's ⋮ menu);
+  - desktop panels that shrink instead of disappearing, a full player sized by the window, live column dividers, placeholders the size of the covers, paragraph indents for novels;
+  - a default User-Agent setting, cookies kept per source with "Clear cookies and data", a source's website in Raygun's browser, one running copy on desktop.
+  - Not built: solving captchas or Cloudflare checks for sources, automatically or by moving the browser's cookies into a source; Royal Road, Scribble Hub and Webnovel block Raygun's requests, so Paraline has no copies of them.
 - **Asked 2026-11-01, queued in this order** (each becomes a milestone with a spec):
   1. **Sound and lyrics editing:**
      - edit lyrics (words and timings) and shift them by an offset; the same for video subtitles;

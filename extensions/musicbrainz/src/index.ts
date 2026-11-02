@@ -2,7 +2,7 @@
 // one through `music.stream` providers when they play (M14). Artwork comes from the Cover Art
 // Archive, loaded by the app rather than this extension.
 import { defineProvider, registerProvider } from '@raygun/sdk';
-import type { Track } from '@raygun/sdk';
+import type { Album, Track } from '@raygun/sdk';
 
 const API = 'https://musicbrainz.org/ws/2';
 // MusicBrainz asks every client to identify itself with a contact URL.
@@ -109,10 +109,83 @@ const fetchPaced = async (url: string) => {
   }
 };
 
+type ReleaseGroup = {
+  id: string;
+  title: string;
+  'first-release-date'?: string;
+  'primary-type'?: string;
+  'artist-credit'?: { name: string; joinphrase?: string }[];
+};
+
+type ReleaseWithTracks = {
+  id: string;
+  title: string;
+  media?: { tracks?: { title: string; length?: number | null; recording?: { id: string } }[] }[];
+  'artist-credit'?: { name: string; joinphrase?: string }[];
+};
+
+const creditOf = (credits: { name: string; joinphrase?: string }[] = []) =>
+  credits
+    .map((part) => part.name + (part.joinphrase ?? ''))
+    .join('')
+    .trim();
+
+const toAlbum = (group: ReleaseGroup): Album => ({
+  id: group.id,
+  title: group.title,
+  artist: creditOf(group['artist-credit']) || null,
+  year: Number(group['first-release-date']?.slice(0, 4)) || null,
+  artworkUrl: `https://coverartarchive.org/release-group/${group.id}/front-250`,
+});
+
 const search = defineProvider({
   kind: 'music.metadata',
   id: 'recordings',
   name: 'MusicBrainz',
+
+  async searchArtists({ query, limit }) {
+    const cleaned = escapeQuery(query);
+    if (cleaned === '') return { artists: [] };
+    const found = await getJson<{ artists?: { id: string; name: string }[] }>(
+      `${API}/artist?query=${encodeURIComponent(cleaned)}&limit=${Math.min(limit, 25)}&fmt=json`,
+    );
+    return {
+      artists: (found.artists ?? []).map((artist) => ({ id: artist.id, name: artist.name })),
+    };
+  },
+
+  async searchAlbums({ query, limit }) {
+    const cleaned = escapeQuery(query);
+    if (cleaned === '') return { albums: [] };
+    const found = await getJson<{ 'release-groups'?: ReleaseGroup[] }>(
+      `${API}/release-group?query=${encodeURIComponent(cleaned)}&limit=${Math.min(limit, 25)}&fmt=json`,
+    );
+    return { albums: (found['release-groups'] ?? []).map(toAlbum) };
+  },
+
+  async album({ id }) {
+    if (!/^[0-9a-f-]{36}$/.test(id)) throw new Error(`Unknown album ${id}`);
+    const group = await getJson<ReleaseGroup>(
+      `${API}/release-group/${id}?inc=artist-credits&fmt=json`,
+    );
+    // An official release of the group carries the track list.
+    const releases = await getJson<{ releases?: ReleaseWithTracks[] }>(
+      `${API}/release?release-group=${id}&inc=recordings+artist-credits&status=official&limit=1&fmt=json`,
+    );
+    const release = releases.releases?.[0];
+    const artist = creditOf(release?.['artist-credit'] ?? group['artist-credit']) || null;
+    const tracks: Track[] = (release?.media ?? []).flatMap((medium) =>
+      (medium.tracks ?? []).map((track) => ({
+        id: track.recording?.id,
+        title: track.title,
+        artist,
+        album: group.title,
+        durationMs: track.length ?? null,
+        artworkUrl: `https://coverartarchive.org/release-group/${id}/front-250`,
+      })),
+    );
+    return { album: toAlbum(group), tracks };
+  },
 
   async search({ query, limit }) {
     const cleaned = escapeQuery(query);

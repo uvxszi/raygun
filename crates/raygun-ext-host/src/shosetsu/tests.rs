@@ -196,6 +196,7 @@ async fn load(code: &str, files: &[(&str, &str)]) -> Result<ShosetsuExtension, S
     ShosetsuExtension::load_with(
         manifest,
         ExtensionSource::built_in(&all),
+        crate::cookies::CookieJar::in_memory(),
         true,
         std::time::Duration::from_secs(2),
     )

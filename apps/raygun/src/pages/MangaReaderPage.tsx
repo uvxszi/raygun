@@ -428,7 +428,7 @@ export const MangaReaderPage: FC = () => {
   return (
     <section data-testid="manga-reader" className="-mx-4 flex flex-col bg-black lg:-mx-10">
       {chrome && (
-        <header className="bg-surface/95 fixed inset-x-0 top-0 z-30 flex min-h-16 items-center gap-1 px-1 pt-[env(safe-area-inset-top)] shadow-md backdrop-blur">
+        <header className="bg-surface/95 fixed inset-x-0 top-[var(--app-bar,0px)] z-30 flex min-h-16 items-center gap-1 px-1 pt-[env(safe-area-inset-top)] shadow-md backdrop-blur">
           <button
             type="button"
             aria-label={t('manga.closeReader')}

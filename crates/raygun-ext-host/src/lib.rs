@@ -2,6 +2,7 @@
 //! registry and the QuickJS (`js`) runtime with the host API.
 
 mod content;
+pub mod cookies;
 mod host;
 mod html;
 mod js;

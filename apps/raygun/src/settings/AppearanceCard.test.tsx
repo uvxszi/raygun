@@ -62,6 +62,8 @@ const DEFAULT_SETTINGS: Settings = {
   windowFrame: 'app',
   zoom: 100,
   discovery: { region: '', tagSongs: true },
+  failingSourcesLast: true,
+  userAgent: '',
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,
@@ -70,6 +72,7 @@ const DEFAULT_SETTINGS: Settings = {
     width: 'narrow',
     paged: false,
     ttsRate: 10,
+    indent: false,
   },
 };
 

@@ -80,6 +80,9 @@ pub struct Pick {
     pub key: CandidateKey,
     pub track_key: String,
     pub title: String,
+    /// The candidate's artist, when its source named one (fresh picks only: the cache keeps
+    /// titles).
+    pub artist: Option<String>,
     pub provider_name: String,
     pub source: MediaSource,
     /// Unix milliseconds after which `source` stops working, if known.
@@ -193,6 +196,9 @@ pub fn score(query: &TrackQuery, candidate: &Candidate, history: &History) -> i3
             };
         } else if named_in(&full_title) {
             total += 15.0;
+        } else {
+            // Nothing says it's this artist's: a one-word title ("Swim") would match anyone's.
+            total -= 10.0;
         }
     }
 

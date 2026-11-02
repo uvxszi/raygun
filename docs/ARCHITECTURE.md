@@ -194,7 +194,8 @@ The **mixed queue** holds audio and video items side by side; each `QueueItem` s
                                        // novel.source, tracker, translator, upscaler, ...
   "permissions": { "net": ["api.mangadex.org", "uploads.mangadex.org"], "webview": false },
   "contentRating": "safe",
-  "settings": [ { "key": "lang", "type": "select", "options": ["en","ja"] } ]
+  "settings": [ { "key": "lang", "type": "select", "options": ["en","ja"] } ],
+  "website": "https://mangadex.org"     // optional; opened from a source's menu (M46.11)
 }
 ```
 Repositories use an `index.json` listing extensions and shared libraries (the Shosetsu and Mihon repo format).
@@ -212,7 +213,7 @@ Repositories use an `index.json` listing extensions and shared libraries (the Sh
 On desktop, Mihon/Aniyomi compatibility could come from an optional **Suwayomi-Server sidecar** (JVM) exposed as a remote source provider. It's heavy, so it stays opt-in and outside the portable core.
 
 ### 7.3 Host API (same for all code runtimes, implemented once in Rust)
-`http.fetch` (permission-checked host allowlist, shared cookie jar, rate limiting) · `html.parse` → selector API (`scraper` crate) · `json`, `crypto`, `encoding` · `storage` (per-extension kv) · `settings` · `log` · `webview.resolve` (only when the extension holds the `webview` permission) · `cache`.
+`http.fetch` (permission-checked host allowlist, a cookie jar per extension saved in `extensions/.data/<id>/cookies.json` (M46.11), the user's default User-Agent unless the extension names one, rate limiting) · `html.parse` → selector API (`scraper` crate) · `json`, `crypto`, `encoding` · `storage` (per-extension kv) · `settings` · `log` · `webview.resolve` (only when the extension holds the `webview` permission) · `cache`.
 
 Providers register through the SDK (`api.providers.register({kind:'manga.source', ...})`). The registry is in Rust, so the UI, jobs and MCP all see the same set.
 

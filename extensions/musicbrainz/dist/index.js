@@ -1,4 +1,4 @@
-// dev.raygun.musicbrainz 1.1.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.musicbrainz 1.2.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -61,10 +61,58 @@
       await raygun.time.sleep(MIN_INTERVAL_MS * (attempt + 1));
     }
   };
+  var creditOf = (credits = []) => credits.map((part) => part.name + (part.joinphrase ?? "")).join("").trim();
+  var toAlbum = (group) => ({
+    id: group.id,
+    title: group.title,
+    artist: creditOf(group["artist-credit"]) || null,
+    year: Number(group["first-release-date"]?.slice(0, 4)) || null,
+    artworkUrl: `https://coverartarchive.org/release-group/${group.id}/front-250`
+  });
   var search = defineProvider({
     kind: "music.metadata",
     id: "recordings",
     name: "MusicBrainz",
+    async searchArtists({ query, limit }) {
+      const cleaned = escapeQuery(query);
+      if (cleaned === "") return { artists: [] };
+      const found = await getJson(
+        `${API}/artist?query=${encodeURIComponent(cleaned)}&limit=${Math.min(limit, 25)}&fmt=json`
+      );
+      return {
+        artists: (found.artists ?? []).map((artist) => ({ id: artist.id, name: artist.name }))
+      };
+    },
+    async searchAlbums({ query, limit }) {
+      const cleaned = escapeQuery(query);
+      if (cleaned === "") return { albums: [] };
+      const found = await getJson(
+        `${API}/release-group?query=${encodeURIComponent(cleaned)}&limit=${Math.min(limit, 25)}&fmt=json`
+      );
+      return { albums: (found["release-groups"] ?? []).map(toAlbum) };
+    },
+    async album({ id }) {
+      if (!/^[0-9a-f-]{36}$/.test(id)) throw new Error(`Unknown album ${id}`);
+      const group = await getJson(
+        `${API}/release-group/${id}?inc=artist-credits&fmt=json`
+      );
+      const releases = await getJson(
+        `${API}/release?release-group=${id}&inc=recordings+artist-credits&status=official&limit=1&fmt=json`
+      );
+      const release = releases.releases?.[0];
+      const artist = creditOf(release?.["artist-credit"] ?? group["artist-credit"]) || null;
+      const tracks = (release?.media ?? []).flatMap(
+        (medium) => (medium.tracks ?? []).map((track) => ({
+          id: track.recording?.id,
+          title: track.title,
+          artist,
+          album: group.title,
+          durationMs: track.length ?? null,
+          artworkUrl: `https://coverartarchive.org/release-group/${id}/front-250`
+        }))
+      );
+      return { album: toAlbum(group), tracks };
+    },
     async search({ query, limit }) {
       const cleaned = escapeQuery(query);
       if (cleaned === "") return { tracks: [] };

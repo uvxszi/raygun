@@ -10,10 +10,12 @@ import { CSS } from '@dnd-kit/utilities';
 import type { TrackColumnId, TrackSortKey } from '@raygun/bindings';
 import {
   ArrowDown,
+  ArrowDownCircle,
   ArrowUp,
   Check,
   ChevronDown,
   Clock3,
+  Download,
   List,
   ListEnd,
   ListStart,
@@ -38,6 +40,7 @@ import { useWideScreen } from '../shell/useWideScreen';
 import { ArtistLinks } from './ArtistLinks';
 import { COLUMN_TRACKS, SORT_KEYS, filterTracks, sortTracks, useTableView } from './tableView';
 import { useTagsFor } from './useDiscovery';
+import { downloadSongs, useDownloadedKeys } from './useSongDownloads';
 import type { TableTrack, TableView, TrackTableKind } from './tableView';
 import { useTrackMenu } from './useTrackMenu';
 
@@ -169,6 +172,8 @@ export const TrackTable: FC<TrackTableProps> = ({
   const [columnsAnchor, setColumnsAnchor] = useState<HTMLElement | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
+  // Songs saved into the app are marked (M46.10).
+  const downloaded = useDownloadedKeys();
   // Genres and moods found for these songs (M46.9): chips filter the table by one.
   const trackKeys = useMemo(() => [...new Set(tracks.map((track) => track.trackKey))], [tracks]);
   const tagsFor = useTagsFor(trackKeys);
@@ -466,6 +471,13 @@ export const TrackTable: FC<TrackTableProps> = ({
           >
             <ListEnd aria-hidden size={14} /> {t('menu.addToQueue')}
           </button>
+          <button
+            type="button"
+            onClick={() => void downloadSongs(chosen.map((track) => track.input))}
+            className="hover:bg-background flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm"
+          >
+            <Download aria-hidden size={14} /> {t('songs.downloadSelected')}
+          </button>
           {onRemove && (
             <button
               type="button"
@@ -612,9 +624,17 @@ export const TrackTable: FC<TrackTableProps> = ({
                       if (!wide) onPlay(shown, index);
                       else pick(event, index);
                     }}
-                    className="truncate text-left text-sm font-medium"
+                    className="flex min-w-0 items-center gap-1.5 truncate text-left text-sm font-medium"
                   >
-                    {track.title}
+                    <span className="truncate">{track.title}</span>
+                    {downloaded.has(track.trackKey) && (
+                      <ArrowDownCircle
+                        role="img"
+                        aria-label={t('songs.downloaded')}
+                        size={13}
+                        className="text-primary shrink-0"
+                      />
+                    )}
                   </button>
                   <ArtistLinks
                     credit={track.artist}

@@ -64,7 +64,7 @@ impl ResolverService {
             |failed_at: Option<i64>| failed_at.is_some_and(|at| now - at < FAILURE_COOLDOWN_MS);
 
         // 1. A pick that played before and is still valid plays right away.
-        for row in &rows {
+        for row in rows.iter().filter(|_| !exclusions.fresh_only) {
             let candidate_key = CandidateKey {
                 provider_id: row.provider_id.clone(),
                 candidate_id: row.candidate_id.clone(),
@@ -87,6 +87,7 @@ impl ResolverService {
                     key: candidate_key,
                     track_key: key,
                     title: row.title.clone(),
+                    artist: None,
                     provider_name: self.provider_name(&row.provider_id).await,
                     source,
                     expires_at: row.expires_at,
@@ -157,6 +158,7 @@ impl ResolverService {
                         key: candidate_key,
                         track_key: key,
                         title: candidate.title,
+                        artist: candidate.artist,
                         provider_name: candidate.provider_name,
                         source,
                         expires_at,

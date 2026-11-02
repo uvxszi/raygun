@@ -260,3 +260,9 @@ pub fn user_downloads() -> Option<PathBuf> {
 pub fn user_pictures() -> Option<PathBuf> {
     dirs::picture_dir()
 }
+
+/// The user's Music folder on desktop, where saved songs go (M46.10).
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub fn user_music() -> Option<PathBuf> {
+    dirs::audio_dir()
+}

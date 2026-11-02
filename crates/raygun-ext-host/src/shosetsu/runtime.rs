@@ -14,6 +14,7 @@ use serde_json::json;
 use tokio::sync::oneshot;
 
 use super::http::Fetcher;
+use crate::cookies::CookieJar;
 use crate::host::ExtensionSource;
 use crate::manifest::Manifest;
 use crate::novel::NOVEL_SOURCE;
@@ -38,12 +39,18 @@ pub struct ShosetsuExtension {
     manifest: Manifest,
     jobs: mpsc::Sender<Job>,
     no_settings: BTreeMap<String, serde_json::Value>,
+    /// The site the script reads (its `baseURL`), for "Open the website" (M46.11).
+    website: Option<String>,
 }
 
 impl ShosetsuExtension {
     /// Starts the script's thread and waits for the script to load.
-    pub async fn load(manifest: Manifest, source: ExtensionSource) -> Result<Self, String> {
-        Self::load_with(manifest, source, false, CALL_BUDGET).await
+    pub async fn load(
+        manifest: Manifest,
+        source: ExtensionSource,
+        cookies: Arc<CookieJar>,
+    ) -> Result<Self, String> {
+        Self::load_with(manifest, source, cookies, false, CALL_BUDGET).await
     }
 
     /// Like [`Self::load`]; `loopback` lets the script reach 127.0.0.1 (tests only), and
@@ -51,6 +58,7 @@ impl ShosetsuExtension {
     pub async fn load_with(
         manifest: Manifest,
         source: ExtensionSource,
+        cookies: Arc<CookieJar>,
         loopback: bool,
         budget: Duration,
     ) -> Result<Self, String> {
@@ -61,9 +69,10 @@ impl ShosetsuExtension {
         std::thread::Builder::new()
             .name(format!("shosetsu {label}"))
             .spawn(move || {
-                let script = match Script::load(&label, &source, &entry, loopback, budget) {
+                let script = match Script::load(&label, &source, &entry, cookies, loopback, budget)
+                {
                     Ok(script) => {
-                        let _ = ready.send(Ok(()));
+                        let _ = ready.send(Ok(script.website.clone()));
                         script
                     }
                     Err(error) => {
@@ -77,18 +86,23 @@ impl ShosetsuExtension {
                 }
             })
             .map_err(|error| error.to_string())?;
-        loaded
+        let website = loaded
             .await
             .map_err(|_| "the script stopped while loading".to_owned())??;
         Ok(Self {
             manifest,
             jobs,
             no_settings: BTreeMap::new(),
+            website,
         })
     }
 
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
+    }
+
+    pub fn website(&self) -> Option<&str> {
+        self.website.as_deref()
     }
 
     pub fn user_settings(&self) -> &BTreeMap<String, serde_json::Value> {
@@ -134,6 +148,7 @@ struct Script {
     deadline: Rc<Cell<Instant>>,
     budget: Duration,
     parsed: RefCell<HashMap<String, (Instant, serde_json::Value)>>,
+    website: Option<String>,
 }
 
 /// The first line of a Lua error (without the traceback).
@@ -151,11 +166,12 @@ impl Script {
         label: &str,
         source: &ExtensionSource,
         entry: &str,
+        cookies: Arc<CookieJar>,
         loopback: bool,
         budget: Duration,
     ) -> Result<Self, String> {
         let code = source.read(entry)?;
-        let fetcher = Arc::new(Fetcher::new(loopback)?);
+        let fetcher = Arc::new(Fetcher::new(loopback, cookies)?);
         let lua = Lua::new_with(
             StdLib::STRING | StdLib::TABLE | StdLib::MATH | StdLib::BIT,
             LuaOptions::default(),
@@ -181,6 +197,7 @@ impl Script {
             deadline,
             budget,
             parsed: RefCell::new(HashMap::new()),
+            website: None,
         };
         script
             .install(label, source.clone(), fetcher)
@@ -202,8 +219,14 @@ impl Script {
                 return Err(format!("the script has no {key} ({kind})"));
             }
         }
+        let website = table
+            .get::<Option<String>>("baseURL")
+            .ok()
+            .flatten()
+            .filter(|url| url.starts_with("https://") || url.starts_with("http://"));
         Ok(Self {
             source: table,
+            website,
             ..script
         })
     }

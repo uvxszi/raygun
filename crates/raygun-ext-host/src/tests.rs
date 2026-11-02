@@ -154,6 +154,23 @@ fn start_server() -> SocketAddr {
                 }))
                 .route("/redirect-in", get(|| async { Redirect::temporary("/json") }))
                 .route(
+                    "/cookie",
+                    get(|| async { [(header::SET_COOKIE, "site=chosen; Max-Age=3600; Path=/")] }),
+                )
+                .route(
+                    "/whoami",
+                    get(|headers: HeaderMap| async move {
+                        let value = |name: header::HeaderName| {
+                            headers
+                                .get(name)
+                                .and_then(|value| value.to_str().ok())
+                                .unwrap_or("")
+                                .to_owned()
+                        };
+                        format!("{}|{}", value(header::COOKIE), value(header::USER_AGENT))
+                    }),
+                )
+                .route(
                     "/redirect-out",
                     get(move || async move {
                         Redirect::temporary(&format!("http://localhost:{port}/json"))
@@ -244,6 +261,54 @@ async fn registers_providers_and_calls_them_with_json() {
         host.call("dev.raygun.test/p", "nope", json!({})).await,
         Err(CallError::Script(message)) if message.contains("has no method nope")
     ));
+}
+
+#[tokio::test]
+async fn cookies_last_per_extension_until_its_data_is_cleared() {
+    let address = start_server();
+    let dir = tempfile::tempdir().unwrap();
+    let host = ExtensionHost::start(HostConfig {
+        storage_dir: Some(dir.path().to_owned()),
+        call_timeout: Duration::from_secs(10),
+        ..HostConfig::default()
+    })
+    .unwrap();
+    let code = "raygun.providers.register({ kind: 'music.metadata', id: 'p', name: 'P',         run: async (args) => (await raygun.http.fetch(args.url)).text() });";
+    let source = || {
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                &manifest_json(json!({ "website": "https://site.example/" })),
+            ),
+            ("index.js", code),
+        ])
+    };
+    let infos = host.load(vec![source()]).await;
+    assert_eq!(infos[0].website.as_deref(), Some("https://site.example/"));
+    let fetch = |path: &str| {
+        let host = host.clone();
+        let url = format!("http://{address}{path}");
+        async move { run(&host, json!({ "url": url })).await.unwrap() }
+    };
+    fetch("/cookie").await;
+    let seen = fetch("/whoami").await;
+    let (cookie, agent) = seen.as_str().unwrap().split_once('|').unwrap();
+    assert_eq!(cookie, "site=chosen");
+    assert_eq!(agent, raygun_net::user_agent());
+    assert!(dir.path().join("dev.raygun.test/cookies.json").exists());
+
+    // A restart keeps them; clearing the extension's data forgets them.
+    host.load(vec![source()]).await;
+    assert_eq!(
+        fetch("/whoami").await.as_str().unwrap().split('|').next(),
+        Some("site=chosen")
+    );
+    crate::package::clear_data(dir.path(), "dev.raygun.test").unwrap();
+    host.load(vec![source()]).await;
+    assert_eq!(
+        fetch("/whoami").await.as_str().unwrap().split('|').next(),
+        Some("")
+    );
 }
 
 #[tokio::test]
@@ -895,6 +960,57 @@ async fn charts_and_tags_come_from_their_providers() {
     );
 }
 
+#[tokio::test]
+async fn artists_and_albums_come_from_sources_that_search_them() {
+    let host = test_host();
+    let code = r#"
+        raygun.providers.register({
+          kind: 'music.metadata', id: 'full', name: 'Full',
+          search: async () => ({ tracks: [] }),
+          searchArtists: async ({ query }) => ({ artists: [
+            { id: 27, name: query, imageUrl: 'https://e.x/a.jpg' }, { id: '', name: 'No id' },
+          ] }),
+          searchAlbums: async () => ({ albums: [
+            { id: 'a1', title: 'Discovery', artist: 'Daft Punk', year: 2001, trackCount: 14 },
+            { id: 'a2', title: '  ' },
+          ] }),
+          album: async ({ id }) => ({
+            album: { id, title: 'Discovery', artist: 'Daft Punk' },
+            tracks: [{ title: 'One More Time', artist: 'Daft Punk' }],
+          }),
+        });
+    "#;
+    let other = "raygun.providers.register({ kind: 'music.metadata', id: 'songs', search: async () => ({ tracks: [] }) });";
+    host.load(vec![
+        extension("dev.raygun.full", code),
+        extension("dev.raygun.songs", other),
+    ])
+    .await;
+    let artists = host.search_artists("Daft Punk", 10).await;
+    assert_eq!(
+        artists.len(),
+        1,
+        "sources without the call and entries without ids are left out"
+    );
+    assert_eq!(artists[0].id, "27");
+    assert_eq!(artists[0].name, "Daft Punk");
+    let albums = host.search_albums("discovery", 10).await;
+    assert_eq!(albums.len(), 1);
+    assert_eq!(albums[0].year, Some(2001));
+    let album = host
+        .music_album("dev.raygun.full/full", "a1")
+        .await
+        .unwrap();
+    assert_eq!(album.album.id, "a1");
+    assert_eq!(album.tracks[0].title, "One More Time");
+    assert!(
+        host.music_album("dev.raygun.songs/songs", "a1")
+            .await
+            .is_err()
+    );
+    assert!(host.search_albums("  ", 10).await.is_empty());
+}
+
 /// The chart and tag extensions against their real services:
 /// `cargo test -p raygun-ext-host -- --ignored discovery_live --nocapture`.
 #[tokio::test]
@@ -925,6 +1041,25 @@ async fn discovery_live_charts_and_tags() {
         );
         assert!(!songs.is_empty(), "{} {}", provider.name, first.name);
     }
+
+    let albums = host.search_albums("random access memories", 5).await;
+    println!(
+        "albums: {:?}",
+        albums
+            .iter()
+            .map(|album| (&album.provider.name, &album.title))
+            .collect::<Vec<_>>()
+    );
+    let deezer = albums
+        .iter()
+        .find(|album| album.provider.extension_id == "dev.raygun.deezer")
+        .expect("Deezer finds the album");
+    let detail = host
+        .music_album(&deezer.provider.id, &deezer.id)
+        .await
+        .unwrap();
+    assert!(detail.tracks.len() > 10, "{}", detail.tracks.len());
+    assert!(!host.search_artists("daft punk", 5).await.is_empty());
 
     let query = raygun_model::TrackQuery {
         title: "Get Lucky".into(),

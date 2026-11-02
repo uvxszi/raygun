@@ -22,6 +22,7 @@ use crate::local_network::LocalNetwork;
 use crate::manga::MangaService;
 use crate::manga_downloads::MangaDownloadService;
 use crate::mcp::McpService;
+use crate::music_downloads::SongDownloadService;
 use crate::novel::NovelService;
 use crate::playback::PlaybackService;
 use crate::remote::RemoteService;
@@ -70,6 +71,7 @@ pub async fn settings_update(
     let cache_changed = matches!(change, SettingChange::Cache(_));
     let sources_changed = matches!(change, SettingChange::DisabledSources(_));
     let discovery_changed = matches!(change, SettingChange::Discovery(_));
+    let agent_changed = matches!(change, SettingChange::UserAgent(_));
     let settings = settings::update(&db.0, change)
         .await
         .map_err(|error| error.to_string())?;
@@ -79,6 +81,9 @@ pub async fn settings_update(
     }
     if theme_changed {
         crate::system_ui::apply_theme(&app, settings.theme);
+    }
+    if agent_changed {
+        raygun_net::set_user_agent(&settings.user_agent);
     }
     if nsfw_changed {
         use tauri::Manager;
@@ -282,6 +287,35 @@ pub async fn extensions_reload(
     Ok(extensions.reload().await)
 }
 
+/// Forgets an extension's cookies and stored data (M46.11), then reloads it.
+#[tauri::command]
+#[specta::specta]
+pub async fn extension_clear_data(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    id: String,
+) -> Result<Vec<ExtensionInfo>, String> {
+    extensions.clear_data(&id).await
+}
+
+/// Opens the site an extension's sources read in Raygun's browser (M46.11).
+#[tauri::command]
+#[specta::specta]
+pub async fn extension_open_website(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    websites: Websites<'_>,
+    id: String,
+) -> Result<(), String> {
+    let url = extensions
+        .website(&id)
+        .await
+        .ok_or("This source doesn't name its website")?;
+    websites
+        .inner()
+        .clone()
+        .open_page(&format!("{}{id}", crate::websites::PAGE_PREFIX), &url)
+        .await
+}
+
 /// Repositories extensions can be installed from.
 #[tauri::command]
 #[specta::specta]
@@ -402,6 +436,105 @@ pub async fn online_search(
 
 /// Songs an artist page shows (M46.8).
 const ARTIST_POPULAR_LIMIT: usize = 20;
+
+/// Artists for a search, from every source that searches artists (M46.9).
+#[tauri::command]
+#[specta::specta]
+pub async fn music_search_artists(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    query: String,
+) -> Result<Vec<raygun_model::MusicArtist>, String> {
+    Ok(extensions.search_artists(&query).await)
+}
+
+/// Albums for a search, from every source that searches albums (M46.9).
+#[tauri::command]
+#[specta::specta]
+pub async fn music_search_albums(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    query: String,
+) -> Result<Vec<raygun_model::MusicAlbum>, String> {
+    Ok(extensions.search_albums(&query).await)
+}
+
+/// An album's songs from the source that knows it (M46.9).
+#[tauri::command]
+#[specta::specta]
+pub async fn music_album(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    provider_id: String,
+    album_id: String,
+) -> Result<raygun_model::MusicAlbumDetail, String> {
+    extensions.music_album(&provider_id, &album_id).await
+}
+
+/// Queues songs to save into the app (M46.10).
+#[tauri::command]
+#[specta::specta]
+pub async fn songs_download(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+    tracks: Vec<TrackInput>,
+) -> Result<(), String> {
+    songs.enqueue(tracks).await
+}
+
+/// Every song download, newest first (M46.10).
+#[tauri::command]
+#[specta::specta]
+pub async fn song_downloads(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+) -> Result<Vec<raygun_model::SongDownload>, String> {
+    songs.list().await
+}
+
+/// Removes a song download and its file (M46.10).
+#[tauri::command]
+#[specta::specta]
+pub async fn song_download_remove(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+    id: String,
+) -> Result<(), String> {
+    songs.remove(&id).await
+}
+
+/// Queues a failed song download again (M46.10).
+#[tauri::command]
+#[specta::specta]
+pub async fn song_download_retry(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+    id: String,
+) -> Result<(), String> {
+    songs.retry(&id).await
+}
+
+/// Plays a song only YouTube has and records it as it plays (M46.10).
+#[tauri::command]
+#[specta::specta]
+pub async fn song_download_record(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+    id: String,
+) -> Result<(), String> {
+    songs.record(&id).await
+}
+
+/// Writes saved songs out as files (M46.10).
+#[tauri::command]
+#[specta::specta]
+pub async fn songs_save(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+    ids: Vec<String>,
+    format: raygun_model::AudioFileFormat,
+    destination: raygun_model::SongDestination,
+) -> Result<raygun_model::SongsSaved, String> {
+    songs.save(ids, format, destination).await
+}
+
+/// Keys of every downloaded song, to mark them in lists (M46.10).
+#[tauri::command]
+#[specta::specta]
+pub fn song_downloaded_keys(songs: tauri::State<'_, Arc<SongDownloadService>>) -> Vec<String> {
+    songs.downloaded_keys()
+}
 
 /// Every source's charts for a country (M46.9), cached for an hour.
 #[tauri::command]

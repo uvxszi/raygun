@@ -44,6 +44,7 @@ type EventPayloads = {
   podcastsChangedEvent: string;
   watchChangedEvent: string;
   videoDownloadsEvent: string;
+  songDownloadsEvent: string;
   settingsChangedEvent: string;
   exportEvent: ExportJob | null;
   videoPlayerEvent: VideoPlayerMessage;
@@ -143,6 +144,8 @@ export const DEFAULT_SETTINGS: Settings = {
   windowFrame: 'app',
   zoom: 100,
   discovery: { region: '', tagSongs: true },
+  failingSourcesLast: true,
+  userAgent: '',
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,
@@ -151,6 +154,7 @@ export const DEFAULT_SETTINGS: Settings = {
     width: 'narrow',
     paged: false,
     ttsRate: 10,
+    indent: false,
   },
 };
 
@@ -175,6 +179,16 @@ export const bindingsMock = {
     musicTagSummary: vi.fn(),
     musicTagSongs: vi.fn(),
     musicTagVocabulary: vi.fn(),
+    songsDownload: vi.fn(),
+    musicSearchArtists: vi.fn(),
+    musicSearchAlbums: vi.fn(),
+    musicAlbum: vi.fn(),
+    songDownloads: vi.fn(),
+    songDownloadRemove: vi.fn(),
+    songDownloadRetry: vi.fn(),
+    songDownloadRecord: vi.fn(),
+    songsSave: vi.fn(),
+    songDownloadedKeys: vi.fn(),
     videoPlayerReport: vi.fn(),
     ttsReport: vi.fn(),
     ttsSetAvailable: vi.fn(),
@@ -200,6 +214,8 @@ export const bindingsMock = {
     playbackReplace: vi.fn(),
     extensionsList: vi.fn(),
     extensionsReload: vi.fn(),
+    extensionClearData: vi.fn(),
+    extensionOpenWebsite: vi.fn(),
     extensionRepos: vi.fn(),
     extensionRepoAdd: vi.fn(),
     extensionSuggestedRepos: vi.fn(),
@@ -400,6 +416,7 @@ export const bindingsMock = {
     podcastsChangedEvent: makeEvent('podcastsChangedEvent'),
     watchChangedEvent: makeEvent('watchChangedEvent'),
     videoDownloadsEvent: makeEvent('videoDownloadsEvent'),
+    songDownloadsEvent: makeEvent('songDownloadsEvent'),
     settingsChangedEvent: makeEvent('settingsChangedEvent'),
     exportEvent: makeEvent('exportEvent'),
     videoPlayerEvent: makeEvent('videoPlayerEvent'),
@@ -432,6 +449,15 @@ export const seedBindings = () => {
   commands.musicTagSummary.mockResolvedValue(ok([]));
   commands.musicTagSongs.mockResolvedValue(ok([]));
   commands.musicTagVocabulary.mockResolvedValue([]);
+  commands.songsDownload.mockResolvedValue(ok(null));
+  commands.musicSearchArtists.mockResolvedValue(ok([]));
+  commands.musicSearchAlbums.mockResolvedValue(ok([]));
+  commands.songDownloads.mockResolvedValue(ok([]));
+  commands.songDownloadRemove.mockResolvedValue(ok(null));
+  commands.songDownloadRetry.mockResolvedValue(ok(null));
+  commands.songDownloadRecord.mockResolvedValue(ok(null));
+  commands.songsSave.mockResolvedValue(ok({ saved: [], failed: [] }));
+  commands.songDownloadedKeys.mockResolvedValue([]);
   commands.libraryStatus.mockResolvedValue(ok(EMPTY_LIBRARY));
   commands.libraryConnectDeviceMusic.mockResolvedValue(ok(EMPTY_LIBRARY));
   commands.libraryAddRoot.mockResolvedValue(ok(EMPTY_LIBRARY));
@@ -445,6 +471,8 @@ export const seedBindings = () => {
   commands.playbackReplace.mockResolvedValue(undefined);
   commands.extensionsList.mockResolvedValue(ok([]));
   commands.extensionsReload.mockResolvedValue(ok([]));
+  commands.extensionClearData.mockResolvedValue(ok([]));
+  commands.extensionOpenWebsite.mockResolvedValue(ok(null));
   commands.extensionRepos.mockResolvedValue(ok([]));
   commands.extensionRepoAdd.mockResolvedValue(ok([]));
   commands.extensionSuggestedRepos.mockResolvedValue(ok([]));

@@ -53,6 +53,10 @@ export const commands = {
 	extensionsList: () => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extensions_list")),
 	/**  Reloads all extensions, picking up any copied into the `extensions/` folder. */
 	extensionsReload: () => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extensions_reload")),
+	/**  Forgets an extension's cookies and stored data (M46.11), then reloads it. */
+	extensionClearData: (id: string) => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extension_clear_data", { id })),
+	/**  Opens the site an extension's sources read in Raygun's browser (M46.11). */
+	extensionOpenWebsite: (id: string) => typedError<null, string>(__TAURI_INVOKE("extension_open_website", { id })),
 	/**  Repositories extensions can be installed from. */
 	extensionRepos: () => typedError<ExtensionRepo[], string>(__TAURI_INVOKE("extension_repos")),
 	/**  Well-known repositories to add with one tap, marked when already added. */
@@ -104,6 +108,26 @@ export const commands = {
 	musicTagSongs: (name: string) => typedError<SavedTrack[], string>(__TAURI_INVOKE("music_tag_songs", { name })),
 	/**  Every genre and mood Raygun knows, moods first (M46.9). */
 	musicTagVocabulary: () => __TAURI_INVOKE<MusicTag[]>("music_tag_vocabulary"),
+	/**  Artists for a search, from every source that searches artists (M46.9). */
+	musicSearchArtists: (query: string) => typedError<MusicArtist[], string>(__TAURI_INVOKE("music_search_artists", { query })),
+	/**  Albums for a search, from every source that searches albums (M46.9). */
+	musicSearchAlbums: (query: string) => typedError<MusicAlbum[], string>(__TAURI_INVOKE("music_search_albums", { query })),
+	/**  An album's songs from the source that knows it (M46.9). */
+	musicAlbum: (providerId: string, albumId: string) => typedError<MusicAlbumDetail, string>(__TAURI_INVOKE("music_album", { providerId, albumId })),
+	/**  Queues songs to save into the app (M46.10). */
+	songsDownload: (tracks: TrackInput[]) => typedError<null, string>(__TAURI_INVOKE("songs_download", { tracks })),
+	/**  Every song download, newest first (M46.10). */
+	songDownloads: () => typedError<SongDownload[], string>(__TAURI_INVOKE("song_downloads")),
+	/**  Removes a song download and its file (M46.10). */
+	songDownloadRemove: (id: string) => typedError<null, string>(__TAURI_INVOKE("song_download_remove", { id })),
+	/**  Queues a failed song download again (M46.10). */
+	songDownloadRetry: (id: string) => typedError<null, string>(__TAURI_INVOKE("song_download_retry", { id })),
+	/**  Plays a song only YouTube has and records it as it plays (M46.10). */
+	songDownloadRecord: (id: string) => typedError<null, string>(__TAURI_INVOKE("song_download_record", { id })),
+	/**  Writes saved songs out as files (M46.10). */
+	songsSave: (ids: string[], format: AudioFileFormat, destination: SongDestination) => typedError<SongsSaved, string>(__TAURI_INVOKE("songs_save", { ids, format, destination })),
+	/**  Keys of every downloaded song, to mark them in lists (M46.10). */
+	songDownloadedKeys: () => __TAURI_INVOKE<string[]>("song_downloaded_keys"),
 	/**  Whether a track (by its artist and title) is a favorite. */
 	favoriteGet: (track: TrackInput) => typedError<boolean, string>(__TAURI_INVOKE("favorite_get", { track })),
 	favoriteSet: (track: TrackInput, favorite: boolean) => typedError<null, string>(__TAURI_INVOKE("favorite_set", { track, favorite })),
@@ -465,6 +489,7 @@ export const events = {
 	podcastsChangedEvent: makeEvent<PodcastsChangedEvent>("podcasts-changed-event"),
 	queueEvent: makeEvent<QueueEvent>("queue-event"),
 	settingsChangedEvent: makeEvent<SettingsChangedEvent>("settings-changed-event"),
+	songDownloadsEvent: makeEvent<SongDownloadsEvent>("song-downloads-event"),
 	speechCommandEvent: makeEvent<SpeechCommandEvent>("speech-command-event"),
 	syncChangedEvent: makeEvent<SyncChangedEvent>("sync-changed-event"),
 	ttsEvent: makeEvent<TtsEvent>("tts-event"),
@@ -557,6 +582,11 @@ export type ArtistOverview = {
 	albums: LibraryAlbum[],
 	tracks: LibraryTrack[],
 };
+
+/**  What a saved song is written out as (M46.10). */
+export type AudioFileFormat = 
+/**  The bytes as downloaded (or the recording's FLAC). */
+"original" | "wav" | "flac";
 
 /**
  *  Next pages load as a list's end comes near (M46.8), at most one per `cooldown_ms`, so sources
@@ -886,6 +916,11 @@ export type ExtensionInfo = {
 	compatibility: CompatReport | null,
 	/**  The icon its repository lists, through the cover cache (M46.2). */
 	icon: string | null,
+	/**
+	 *  The site its sources read (the manifest's `website` or a Shosetsu script's `baseURL`),
+	 *  opened in Raygun's browser from a source's menu (M46.11).
+	 */
+	website: string | null,
 };
 
 /**  Where an extension was loaded from. */
@@ -1353,6 +1388,31 @@ export type MihonImport = {
  */
 export type MotionLevel = "off" | "calm" | "lively";
 
+/**  An album a music source knows (M46.9): Search → Music → Albums. */
+export type MusicAlbum = {
+	provider: ProviderInfo,
+	id: string,
+	title: string,
+	artist: string | null,
+	year: number | null,
+	artworkUrl: string | null,
+	trackCount: number | null,
+};
+
+/**  An album with its songs, in order (M46.9). */
+export type MusicAlbumDetail = {
+	album: MusicAlbum,
+	tracks: OnlineTrack[],
+};
+
+/**  An artist a music source knows (M46.9): Search → Music → Artists. */
+export type MusicArtist = {
+	provider: ProviderInfo,
+	id: string,
+	name: string,
+	imageUrl: string | null,
+};
+
 /**  A chart a `music.charts` provider keeps (M46.9): its most played, trending, or a genre's top. */
 export type MusicChart = {
 	provider: ProviderInfo,
@@ -1405,6 +1465,8 @@ export type NovelReaderPrefs = {
 	paged: boolean,
 	/**  Reading-aloud speed in tenths, 5–20 (0.5×–2×). */
 	ttsRate?: number,
+	/**  The first line of each paragraph starts further in, as in printed books (M46.10). */
+	indent?: boolean,
 };
 
 export type NovelWidth = "narrow" | "wide";
@@ -1714,6 +1776,8 @@ export type SavePrefs = {
 	chapterFormat?: ChapterFormat,
 	/**  Saved pages go to `Pictures/Raygun/<Title>/` rather than `Pictures/Raygun/`. */
 	pagesPerTitle?: boolean,
+	/**  How finished song downloads are also written out, when they are (M46.10). */
+	songFormat?: AudioFileFormat,
 };
 
 /**
@@ -1761,7 +1825,7 @@ export type SearchResults = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -1849,6 +1913,10 @@ export type Settings = {
 	zoom: number,
 	/**  Charts and song tags (M46.9). */
 	discovery: DiscoveryPrefs,
+	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
+	failingSourcesLast: boolean,
+	/**  The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default. */
+	userAgent: string,
 };
 
 /**  A setting changed outside the Settings screens (in the video player, M45); carries its key. */
@@ -1862,6 +1930,55 @@ export type SkippedSource = {
 
 /**  The sleep timer (M46.8). */
 export type SleepTimer = { kind: "off" } | { kind: "minutes"; minutes: number } | { kind: "endOfTrack" };
+
+/**  Where saved songs are written (M46.10). */
+export type SongDestination = 
+/**  `Music/Raygun/<artist>/`. */
+"music" | 
+/**  The folder picked in Settings → Downloads. */
+"folder";
+
+/**  A song saved (or being saved) into the app to play offline (M46.10). */
+export type SongDownload = {
+	id: string,
+	trackKey: string,
+	title: string,
+	artist: string | null,
+	album: string | null,
+	durationMs: number | null,
+	/**  A cover link through the image cache. */
+	artworkUrl: string | null,
+	state: SongDownloadState,
+	/**  `file` (a source's stream) or `recording`, once done. */
+	kind: string | null,
+	/**  Where the audio came from. */
+	provider: string | null,
+	/**  The saved file's extension ("mp3", "flac"...), once done. */
+	format: string | null,
+	doneBytes: number | null,
+	totalBytes: number | null,
+	error: string | null,
+	/**  This device can record what plays (Windows for now). */
+	canRecord: boolean,
+};
+
+/**  Where a song saved into the app stands (M46.10). */
+export type SongDownloadState = "queued" | "downloading" | 
+/**  Playing and being recorded (only YouTube had it). */
+"recording" | "done" | "failed" | 
+/**  Only YouTube has the song: it can be recorded as it plays. */
+"needsRecording";
+
+/**  The song downloads changed; carries the download's id when one did (else empty) (M46.10). */
+export type SongDownloadsEvent = string;
+
+/**  What saving songs as files did (M46.10). */
+export type SongsSaved = {
+	/**  Where each file went, as the user sees it. */
+	saved: string[],
+	/**  `<title>: <why>` for each song that couldn't be written. */
+	failed: string[],
+};
 
 /**  A filter a source offers for its search (Mihon's `FilterList`, simplified). */
 export type SourceFilter = 

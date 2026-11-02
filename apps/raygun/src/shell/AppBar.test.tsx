@@ -75,6 +75,19 @@ describe('The desktop app bar', () => {
     expect(await screen.findByTestId('browse-all')).toBeInTheDocument();
   });
 
+  it('searches again from Browse without the old query coming back', async () => {
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/browse?tab=search&type=music&q=old%20song');
+    const bar = await screen.findByTestId('app-bar');
+    const search = within(bar).getByRole('searchbox', { name: 'Search' });
+    await vi.waitFor(() => expect(search).toHaveValue('old song'));
+    await user.clear(search);
+    await user.type(search, 'new song');
+    await vi.waitFor(() => expect(commands.onlineSearch).toHaveBeenLastCalledWith('new song'));
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    expect(search).toHaveValue('new song');
+  });
+
   it('runs File, View, Playback and Help from the ⋯ menu', async () => {
     const user = userEvent.setup();
     await AppShellWrapper.mount('/');

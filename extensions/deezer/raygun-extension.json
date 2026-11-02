@@ -1,13 +1,13 @@
 {
   "id": "dev.raygun.deezer",
   "name": "Deezer",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "apiVersion": 1,
   "runtime": "js",
   "entry": "dist/index.js",
-  "description": "Charts (the top songs and each genre's) and song genres from Deezer's public API.",
+  "description": "Song, artist and album search, charts (the top songs and each genre's) and song genres from Deezer's public API.",
   "author": "Raygun",
-  "provides": ["music.charts", "music.tags"],
+  "provides": ["music.charts", "music.tags", "music.metadata"],
   "permissions": {
     "net": ["api.deezer.com"]
   },

@@ -21,6 +21,8 @@ export type MangaGridItem = {
   downloaded?: number;
   /** Where it opens, when not the medium's title page (Stremio titles in the video library). */
   link?: { to: string; search: Record<string, string> };
+  /** A line under the cover, e.g. the source a search result came from (M46.9). */
+  subtitle?: string;
 };
 
 /**
@@ -110,6 +112,9 @@ export const MangaGrid: FC<{ items: MangaGridItem[]; medium?: Medium }> = ({
               )}
             </span>
             {!compact && <span className="line-clamp-2 text-xs font-medium">{item.title}</span>}
+            {item.subtitle && (
+              <span className="text-muted truncate text-[11px]">{item.subtitle}</span>
+            )}
           </Link>
         </li>
       ))}

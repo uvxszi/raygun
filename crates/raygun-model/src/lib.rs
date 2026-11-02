@@ -137,6 +137,10 @@ pub struct Settings {
     pub zoom: u32,
     /// Charts and song tags (M46.9).
     pub discovery: DiscoveryPrefs,
+    /// Sources that didn't answer lately go to the end of Browse and Search (M46.9).
+    pub failing_sources_last: bool,
+    /// The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default.
+    pub user_agent: String,
 }
 
 /// Charts and song tags (M46.9).
@@ -622,6 +626,9 @@ pub struct NovelReaderPrefs {
     /// Reading-aloud speed in tenths, 5–20 (0.5×–2×).
     #[serde(default = "normal_rate")]
     pub tts_rate: u32,
+    /// The first line of each paragraph starts further in, as in printed books (M46.10).
+    #[serde(default)]
+    pub indent: bool,
 }
 
 fn normal_rate() -> u32 {
@@ -637,6 +644,7 @@ impl Default for NovelReaderPrefs {
             width: NovelWidth::Narrow,
             paged: false,
             tts_rate: 10,
+            indent: false,
         }
     }
 }
@@ -998,6 +1006,8 @@ impl Default for Settings {
             window_frame: WindowFrame::App,
             zoom: 100,
             discovery: DiscoveryPrefs::default(),
+            failing_sources_last: true,
+            user_agent: String::new(),
         }
     }
 }
@@ -1043,6 +1053,8 @@ impl Settings {
             SettingChange::AutoLoad(prefs) => self.auto_load = prefs,
             SettingChange::WindowFrame(frame) => self.window_frame = frame,
             SettingChange::Zoom(percent) => self.zoom = percent,
+            SettingChange::FailingSourcesLast(on) => self.failing_sources_last = on,
+            SettingChange::UserAgent(agent) => self.user_agent = agent.trim().to_owned(),
             SettingChange::Discovery(prefs) => {
                 self.discovery = DiscoveryPrefs {
                     region: prefs.region.to_ascii_lowercase(),
@@ -1107,6 +1119,8 @@ pub enum SettingChange {
     WindowFrame(WindowFrame),
     Zoom(u32),
     Discovery(DiscoveryPrefs),
+    FailingSourcesLast(bool),
+    UserAgent(String),
 }
 
 impl SettingChange {
@@ -1153,6 +1167,8 @@ impl SettingChange {
             Self::WindowFrame(_) => "windowFrame",
             Self::Zoom(_) => "zoom",
             Self::Discovery(_) => "discovery",
+            Self::FailingSourcesLast(_) => "failingSourcesLast",
+            Self::UserAgent(_) => "userAgent",
         }
     }
 
@@ -1173,7 +1189,16 @@ impl SettingChange {
             | Self::AutoplayNext(_)
             | Self::Scrollbars(_)
             | Self::Motion(_)
-            | Self::WindowFrame(_) => Ok(()),
+            | Self::WindowFrame(_)
+            | Self::FailingSourcesLast(_) => Ok(()),
+            // What an HTTP header can carry: printable ASCII.
+            Self::UserAgent(agent) => {
+                if agent.len() <= 512 && agent.bytes().all(|byte| (32..127).contains(&byte)) {
+                    Ok(())
+                } else {
+                    Err("a user agent is printable ASCII, up to 512 characters".to_owned())
+                }
+            }
             Self::Discovery(prefs) => {
                 if prefs.region.is_empty()
                     || (prefs.region.len() == 2
@@ -1740,6 +1765,9 @@ pub struct ExtensionInfo {
     pub compatibility: Option<CompatReport>,
     /// The icon its repository lists, through the cover cache (M46.2).
     pub icon: Option<String>,
+    /// The site its sources read (the manifest's `website` or a Shosetsu script's `baseURL`),
+    /// opened in Raygun's browser from a source's menu (M46.11).
+    pub website: Option<String>,
 }
 
 /// How much of a Nuclear plugin runs in Raygun (M17).
@@ -1923,6 +1951,37 @@ pub struct MusicChart {
     pub artwork_url: Option<String>,
     /// The genre the chart belongs to, in the app's spelling ("Hip-Hop").
     pub tag: Option<String>,
+}
+
+/// An artist a music source knows (M46.9): Search → Music → Artists.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicArtist {
+    pub provider: ProviderInfo,
+    pub id: String,
+    pub name: String,
+    pub image_url: Option<String>,
+}
+
+/// An album a music source knows (M46.9): Search → Music → Albums.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicAlbum {
+    pub provider: ProviderInfo,
+    pub id: String,
+    pub title: String,
+    pub artist: Option<String>,
+    pub year: Option<u32>,
+    pub artwork_url: Option<String>,
+    pub track_count: Option<u32>,
+}
+
+/// An album with its songs, in order (M46.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicAlbumDetail {
+    pub album: MusicAlbum,
+    pub tracks: Vec<OnlineTrack>,
 }
 
 /// Every source's charts (M46.9), and the sources that failed.
@@ -2259,6 +2318,90 @@ pub struct MangaChapterInfo {
     pub total_pages: Option<u32>,
     /// Set once the chapter was queued for download (M28).
     pub download: Option<ChapterDownload>,
+}
+
+/// Where a song saved into the app stands (M46.10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SongDownloadState {
+    Queued,
+    Downloading,
+    /// Playing and being recorded (only YouTube had it).
+    Recording,
+    Done,
+    Failed,
+    /// Only YouTube has the song: it can be recorded as it plays.
+    NeedsRecording,
+}
+
+impl SongDownloadState {
+    pub fn parse(text: &str) -> Self {
+        match text {
+            "downloading" => Self::Downloading,
+            "recording" => Self::Recording,
+            "done" => Self::Done,
+            "failed" => Self::Failed,
+            "needsRecording" => Self::NeedsRecording,
+            _ => Self::Queued,
+        }
+    }
+}
+
+/// A song saved (or being saved) into the app to play offline (M46.10).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SongDownload {
+    pub id: String,
+    pub track_key: String,
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub duration_ms: Option<u32>,
+    /// A cover link through the image cache.
+    pub artwork_url: Option<String>,
+    pub state: SongDownloadState,
+    /// `file` (a source's stream) or `recording`, once done.
+    pub kind: Option<String>,
+    /// Where the audio came from.
+    pub provider: Option<String>,
+    /// The saved file's extension ("mp3", "flac"...), once done.
+    pub format: Option<String>,
+    pub done_bytes: f64,
+    pub total_bytes: Option<f64>,
+    pub error: Option<String>,
+    /// This device can record what plays (Windows for now).
+    pub can_record: bool,
+}
+
+/// What a saved song is written out as (M46.10).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum AudioFileFormat {
+    /// The bytes as downloaded (or the recording's FLAC).
+    #[default]
+    Original,
+    Wav,
+    Flac,
+}
+
+/// Where saved songs are written (M46.10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SongDestination {
+    /// `Music/Raygun/<artist>/`.
+    Music,
+    /// The folder picked in Settings → Downloads.
+    Folder,
+}
+
+/// What saving songs as files did (M46.10).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SongsSaved {
+    /// Where each file went, as the user sees it.
+    pub saved: Vec<String>,
+    /// `<title>: <why>` for each song that couldn't be written.
+    pub failed: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -2911,6 +3054,8 @@ pub struct SavePrefs {
     pub chapter_format: ChapterFormat,
     /// Saved pages go to `Pictures/Raygun/<Title>/` rather than `Pictures/Raygun/`.
     pub pages_per_title: bool,
+    /// How finished song downloads are also written out, when they are (M46.10).
+    pub song_format: AudioFileFormat,
 }
 
 impl Default for SavePrefs {
@@ -2921,6 +3066,7 @@ impl Default for SavePrefs {
             folder_name: None,
             chapter_format: ChapterFormat::Cbz,
             pages_per_title: true,
+            song_format: AudioFileFormat::Original,
         }
     }
 }

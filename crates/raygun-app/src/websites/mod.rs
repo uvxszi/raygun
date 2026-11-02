@@ -23,6 +23,9 @@ use tokio::sync::Mutex;
 use crate::catalog::{now_ms, to_message};
 use crate::startup::AppDb;
 
+/// Window ids of pages opened for sources (M46.11), as opposed to the user's sites.
+pub const PAGE_PREFIX: &str = "source-";
+
 const LIST_FILE: &str = "blocklist.bin";
 const STATUS_KEY: &str = "web.blocklist";
 /// The list is downloaded again when a site opens after this long.
@@ -171,6 +174,24 @@ impl WebsiteService {
             .await
             .map_err(to_message)?
             .ok_or("The site was removed")?;
+        let url = site.last_url.as_deref().unwrap_or(&site.url).to_owned();
+        self.show(&site.id, &url, &site.url, site.block_ads).await
+    }
+
+    /// Opens an address that isn't one of the user's sites, such as a source's website (M46.11).
+    /// `key` (starting with [`PAGE_PREFIX`]) names its window; nothing about it is stored.
+    pub async fn open_page(self: &Arc<Self>, key: &str, url: &str) -> Result<(), String> {
+        let url = normalize(url)?;
+        self.show(key, url.as_str(), url.as_str(), true).await
+    }
+
+    async fn show(
+        self: &Arc<Self>,
+        id: &str,
+        url: &str,
+        home: &str,
+        site_blocks_ads: bool,
+    ) -> Result<(), String> {
         let prefs = self.prefs().await;
         let list = self.dir.join(LIST_FILE);
         if prefs.block_ads && self.list_is_old().await {
@@ -182,10 +203,10 @@ impl WebsiteService {
             });
         }
         let request = serde_json::json!({
-            "id": site.id,
-            "url": site.last_url.as_deref().unwrap_or(&site.url),
-            "home": site.url,
-            "blockAds": prefs.block_ads && site.block_ads,
+            "id": id,
+            "url": url,
+            "home": home,
+            "blockAds": prefs.block_ads && site_blocks_ads,
             "blockPopups": prefs.block_popups,
             "desktop": prefs.desktop,
             "blocklist": list.to_string_lossy(),
@@ -347,6 +368,10 @@ pub fn install(app: &AppHandle) {
                 tracing::warn!(%json, "unreadable browser report");
                 continue;
             };
+            // Pages opened for sources aren't the user's sites: nothing to remember.
+            if report.id.starts_with(PAGE_PREFIX) {
+                continue;
+            }
             let url = report
                 .url
                 .filter(|url| url.starts_with("https://") || url.starts_with("http://"));

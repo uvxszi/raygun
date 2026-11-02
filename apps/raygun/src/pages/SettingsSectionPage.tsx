@@ -40,6 +40,7 @@ import {
   PrefLink,
   PrefSlider,
   PrefSwitch,
+  PrefText,
 } from '../settings/prefs';
 import { RemoteCard } from '../settings/RemoteCard';
 import { StorageSettings } from '../settings/StorageSettings';
@@ -50,6 +51,11 @@ import { TopBar } from '../shell/TopBar';
 import type { SettingsSection } from '../settings/sections';
 
 /** Matches `MANGA_UPDATE_HOURS` and `VIDEO_QUALITIES` in raygun-model. */
+/** A User-Agent must be printable ASCII (what an HTTP header can carry), up to 512 characters. */
+const isHeaderText = (text: string) =>
+  text.length <= 512 &&
+  [...text].every((char) => char.charCodeAt(0) >= 32 && char.charCodeAt(0) < 127);
+
 const UPDATE_HOURS = [0, 6, 12, 24, 48, 168];
 const QUALITIES = [1080, 720, 480, 360];
 /** Matches `NEXT_PROMPT_SECONDS` in raygun-model (0: at the end). */
@@ -292,6 +298,13 @@ const ReaderSettings: FC = () => {
           onChange={(width) => set({ width })}
         />
         <PrefSwitch
+          title={t('settings.indent')}
+          summary={t('settings.indentHint')}
+          checked={prefs.indent ?? false}
+          disabled={busy}
+          onChange={(indent) => set({ indent })}
+        />
+        <PrefSwitch
           title={t('settings.paged')}
           summary={t('settings.pagedHint')}
           checked={prefs.paged}
@@ -523,6 +536,24 @@ const BrowseSettings: FC = () => {
               value: { region: data.discovery?.region ?? '', tagSongs },
             })
           }
+        />
+      </PrefGroup>
+      <PrefGroup title={t('sources.title')}>
+        <PrefSwitch
+          title={t('sources.failingLast')}
+          summary={t('sources.failingLastHint')}
+          checked={data.failingSourcesLast ?? true}
+          disabled={busy}
+          onChange={(value) => update.mutate({ key: 'failingSourcesLast', value })}
+        />
+        <PrefText
+          title={t('sources.userAgent')}
+          summary={t('sources.userAgentHint')}
+          value={data.userAgent ?? ''}
+          placeholder={t('sources.userAgentDefault')}
+          check={(text) => (isHeaderText(text) ? null : t('sources.userAgentInvalid'))}
+          disabled={busy}
+          onChange={(value) => update.mutate({ key: 'userAgent', value })}
         />
       </PrefGroup>
       <PrefGroup title={t('settings.autoLoad.title')}>

@@ -20,7 +20,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Backup/restore (own format), Mihon backup import | Mihon | ✅ M30 |
 | Automatic backups on a schedule, backup location | Mihon | 🔜 M54 |
 | Storage usage, clear caches, clear database of non-library entries | Mihon | 🔜 M49 (downloads) / M54 |
-| DNS over HTTPS, custom user agent, clear cookies/WebView data | Mihon | 🔜 M54 |
+| DNS over HTTPS, custom user agent, clear cookies/WebView data | Mihon | ✅ M46.11 (default user agent; cookies and data cleared per source; the browser's data in Settings → Websites since M46.3) / 🔜 M54 (DNS over HTTPS) |
 | Crash logs, verbose logging, debug info | Mihon, Nuclear (logs view) | 🔜 M54 |
 | Searchable settings | Mihon | 🔜 M54 |
 | MCP server, LAN remote | Nuclear | ✅ M19, M20 |
@@ -40,6 +40,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Charts: popular and trending, by country and genre | Spotify, Nuclear (dashboard) | ✅ M46.9 |
 | Genres and moods on songs, Browse all tiles, genre pages | Spotify, Nuclear (tags) | ✅ M46.9 |
 | Desktop top bar: menu, Back/Forward, Home, search, Browse, window buttons; zoom | Spotify desktop | ✅ M46.9 |
+| Search ranked across sources (source named on each result), grouped by source on demand; failing sources last | Mihon (global search), Spotify | ✅ M46.11 |
 | Stremio addons | Stremio | ✅ M41 |
 | LNReader JS plugins | LNReader | 🔜 M51 |
 | Mihon/Aniyomi APK extensions | Mihon, aniyomi | 🔜 M60 (Android dex runtime) |
@@ -56,6 +57,8 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Furigana/romaji, word-by-word sync, lyrics offset and sources | Nuclear, RiPlay | 🔜 M52 (was marked done; never built) |
 | Internet radio | — | ✅ (Radio Browser) |
 | **Podcasts**: search, subscribe, episodes, resume, downloads | RiPlay | ✅ M37 |
+| Song downloads for offline play; save as the original file, WAV or FLAC with tags; recording when only YouTube has a song | Spotify, Nuclear, RiPlay | ✅ M46.10 (recording on Windows; Android: queued) |
+| Music search by songs, artists and albums; album pages | Spotify, Nuclear | ✅ M46.11 |
 | Equalizer | RiPlay | 🔜 M52 |
 | Sleep timer | RiPlay | 🔜 M52 |
 | Blacklist (artists/tracks) | RiPlay | 🔜 M52 |

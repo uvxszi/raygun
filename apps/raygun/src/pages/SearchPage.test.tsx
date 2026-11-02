@@ -38,6 +38,8 @@ const answer = (
 describe('Search', () => {
   beforeEach(() => {
     AppShellWrapper.seedCore();
+    // These tests look at each source's own list; best matches have their own tests.
+    localStorage.setItem('raygun.search.grouped.music', '1');
   });
 
   it("shows what's popular before anything is typed", async () => {

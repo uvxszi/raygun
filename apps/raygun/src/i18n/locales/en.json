@@ -330,6 +330,20 @@
     "moreSources_one": "{{count}} more",
     "moreSources_other": "{{count}} more",
     "fewerSources": "Fewer",
+    "findSource": "Find a source",
+    "music": {
+      "kind": "What to find",
+      "songs": "Songs",
+      "artists": "Artists",
+      "albums": "Albums"
+    },
+    "noArtists": "No artists named like “{{query}}”",
+    "noAlbums": "No albums for “{{query}}”",
+    "arrange": "Arrange results",
+    "byResult": "Best matches",
+    "bySource": "By source",
+    "sourcesAnswered": "{{done}} of {{total}} sources answered",
+    "someFailed": "Couldn't search {{sources}}",
     "popular": "Popular",
     "popularHint": "Popular now. Type above to search everything."
   },
@@ -463,6 +477,8 @@
     "musicFoldersHint": "Folders on this device that Raygun reads for your music library.",
     "novelReader": "Novels",
     "fontSize": "Text size",
+    "indent": "Indent paragraphs",
+    "indentHint": "The first line of each paragraph starts further in, as in printed books",
     "lineSpacing": "Line spacing",
     "font": "Typeface",
     "fontSerif": "Serif",
@@ -1190,6 +1206,8 @@
     "serif": "Serif",
     "sans": "Sans",
     "narrow": "Narrow",
+    "noIndent": "Flush paragraphs",
+    "indent": "Indented paragraphs",
     "wide": "Wide",
     "scroll": "Scroll",
     "paged": "Pages",
@@ -1821,13 +1839,24 @@
     }
   },
   "sources": {
+    "title": "Sources",
     "menu": "{{name}} options",
     "only": "Search only this source",
     "open": "Open the source",
     "settings": "Extension and settings",
     "disable": "Turn this source off",
     "enable": "Turn this source on",
-    "disabledNote": "Off · {{detail}}"
+    "disabledNote": "Off · {{detail}}",
+    "failedLately": "Didn't answer lately · {{detail}}",
+    "failingLast": "Failing sources last",
+    "failingLastHint": "Sources that didn't answer lately go to the end of Browse and Search",
+    "website": "Open the website",
+    "clearData": "Clear cookies and data",
+    "cleared": "Cookies and data cleared",
+    "userAgent": "User agent",
+    "userAgentHint": "How sources introduce themselves to websites. Empty means Raygun's default, a desktop Chrome. Open databases such as MusicBrainz and MangaDex still get Raygun's name, as their rules ask.",
+    "userAgentDefault": "Default (desktop Chrome)",
+    "userAgentInvalid": "Use plain letters, numbers and punctuation, up to 512 characters"
   },
   "artist": {
     "title": "Artist",
@@ -1908,6 +1937,57 @@
   "rail": {
     "library": "Your library",
     "resize": "Drag to resize the side rail"
+  },
+  "album": {
+    "title": "Album",
+    "kind": "Album",
+    "download": "Download all",
+    "loading": "Loading the album"
+  },
+  "songs": {
+    "tab": "Music",
+    "title": "Downloaded songs",
+    "download": "Download",
+    "downloadSelected": "Download",
+    "downloaded": "Downloaded",
+    "emptyTitle": "No songs downloaded yet",
+    "emptyHint": "Download songs from their menu (right-click or ⋯) to play them without the internet. They're listed here.",
+    "record": "Record",
+    "retry": "Try {{title}} again",
+    "remove": "Remove {{title}}",
+    "saveOne": "Save {{title}} as a file",
+    "saveAll": "Save all {{count}} as files",
+    "saveTitle_one": "Save the song as a file",
+    "saveTitle_other": "Save {{count}} songs as files",
+    "format": "Format",
+    "formats": {
+      "original": "As downloaded",
+      "wav": "WAV",
+      "flac": "FLAC"
+    },
+    "formatHints": {
+      "original": "The file as the source gave it (MP3, M4A…); recordings are FLAC",
+      "wav": "Uncompressed, plays anywhere, large",
+      "flac": "Lossless and smaller than WAV"
+    },
+    "where": "Where",
+    "toMusic": "Music/Raygun, in a folder per artist",
+    "toFolder": "{{name}} (the folder picked in Settings → Downloads)",
+    "noFolder": "A folder you pick (choose one in Settings → Downloads)",
+    "save": "Save",
+    "saving": "Saving…",
+    "done": "Done",
+    "savedTo": "Saved to {{place}}",
+    "songFormat": "Songs saved as",
+    "songFormatHint": "How downloaded songs are written when they're also saved outside the app",
+    "state": {
+      "queued": "Queued",
+      "downloading": "Downloading",
+      "recording": "Recording as it plays — let the song play to the end",
+      "done": "On this device",
+      "needsRecording": "Only YouTube has it",
+      "failed": "Couldn't download"
+    }
   },
   "discover": {
     "title": "Browse all",

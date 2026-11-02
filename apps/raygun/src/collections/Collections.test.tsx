@@ -229,6 +229,8 @@ describe('Favorites and playlists', () => {
 describe('Search across sources', () => {
   beforeEach(() => {
     AppShellWrapper.seedCore();
+    // These tests look at each source's own list; best matches have their own tests.
+    localStorage.setItem('raygun.search.grouped.music', '1');
   });
 
   it('shows your library and merged top results above each source', async () => {

@@ -37,6 +37,10 @@ pub struct MangaDownloadsEvent(pub String);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct VideoDownloadsEvent(pub String);
 
+/// The song downloads changed; carries the download's id when one did (else empty) (M46.10).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct SongDownloadsEvent(pub String);
+
 /// Progress reading a chapter aloud (M33).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct TtsEvent(pub raygun_model::TtsUpdate);
