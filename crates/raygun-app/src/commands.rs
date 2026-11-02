@@ -117,11 +117,26 @@ pub fn playback_enqueue(
     playback.enqueue(items, play_now);
 }
 
-/// Queues items to play right after the current one (Play next, M46.8).
+/// Queues songs from anywhere (M46.8): right after the current one with `next` (Play next), else
+/// at the end. Each plays from the library's file when it has the song.
 #[tauri::command]
 #[specta::specta]
-pub fn playback_play_next(playback: tauri::State<'_, PlaybackService>, items: Vec<QueueItemInput>) {
-    playback.enqueue_next(items);
+pub async fn playback_queue_tracks(
+    collections: tauri::State<'_, CollectionsService>,
+    playback: tauri::State<'_, PlaybackService>,
+    tracks: Vec<TrackInput>,
+    next: bool,
+) -> Result<(), String> {
+    let mut items = Vec::with_capacity(tracks.len());
+    for track in tracks {
+        items.push(collections.queue_item_for(track).await?);
+    }
+    if next {
+        playback.enqueue_next(items);
+    } else {
+        playback.enqueue(items, false);
+    }
+    Ok(())
 }
 
 /// Replaces the queue with `items` and starts playing at `start_index` (default: the first).

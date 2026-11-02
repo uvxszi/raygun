@@ -23,10 +23,14 @@ import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
+import { ArtistLinks } from '../music/ArtistLinks';
+import { fromQueueItem } from '../collections/useCollections';
+import { useTrackMenu } from '../music/useTrackMenu';
 import { Marquee } from '../shell/Marquee';
 import { useWideScreen } from '../shell/useWideScreen';
 import { FavoriteButton } from './FavoriteButton';
 import { formatTime } from './formatTime';
+import { PlaybackExtras } from './PlaybackExtras';
 import { usePlayerUiStore } from './playerUiStore';
 import { onSeekKey } from './seekKeys';
 import { useLivePosition } from './useLivePosition';
@@ -228,6 +232,7 @@ const WideBar: FC<BarProps> = ({ state, item }) => {
         >
           <ListMusic aria-hidden size={18} />
         </BarButton>
+        <PlaybackExtras state={state} />
         <VolumeControl state={state} />
         <BarButton label={t('player.openPlayer')} onClick={() => openSheet({ view: 'artwork' })}>
           <Maximize2 aria-hidden size={18} />
@@ -239,15 +244,18 @@ const WideBar: FC<BarProps> = ({ state, item }) => {
 
 const TrackText: FC<BarProps & { note: boolean }> = ({ item, note }) => {
   const { t } = useTranslation();
+  const menu = useTrackMenu();
   return (
-    <span className="flex min-w-0 flex-col">
+    <span className="flex min-w-0 flex-col" onContextMenu={menu(fromQueueItem(item))}>
       <Marquee testId="mini-player-title" text={item.title} className="text-sm font-medium" />
       {note ? (
         <span data-testid="source-note" className="text-muted truncate text-xs">
           {t('player.findingSource')}
         </span>
       ) : (
-        item.artist && <span className="text-muted truncate text-xs">{item.artist}</span>
+        item.artist && (
+          <ArtistLinks credit={item.artist} nested className="text-muted block truncate text-xs" />
+        )
       )}
     </span>
   );

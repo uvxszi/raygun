@@ -24,7 +24,7 @@ import { isSearchType } from './search/searchTypes';
 import type { SearchType } from './search/searchTypes';
 import { DevicesPage } from './pages/DevicesPage';
 import { ExtensionDetailPage } from './pages/ExtensionDetailPage';
-import { ArtistPage } from './pages/ArtistPage';
+import { MusicArtistPage } from './pages/MusicArtistPage';
 import { HomePage } from './pages/HomePage';
 import { LibraryPage } from './pages/LibraryPage';
 import { DownloadsPage } from './pages/DownloadsPage';
@@ -190,7 +190,16 @@ const routeTree = rootRoute.addChildren([
   createRoute({
     getParentRoute: () => rootRoute,
     path: '/library/artist',
-    component: ArtistPage,
+    // Every artist name leads to one page now (M46.8).
+    beforeLoad: ({ search }) => {
+      throw redirect({ to: '/artist', search: { name: search.name }, replace: true });
+    },
+    validateSearch: (search: Record<string, unknown>) => ({ name: text(search.name) }),
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/artist',
+    component: MusicArtistPage,
     validateSearch: (search: Record<string, unknown>) => ({ name: text(search.name) }),
   }),
   createRoute({

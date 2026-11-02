@@ -127,11 +127,14 @@ describe('Favorites and playlists', () => {
       startIndex: null,
       shuffle: false,
     });
-    await userEvent.click(within(page).getAllByTestId('saved-track-row')[1] as HTMLElement);
+    // A song plays the table from it, in the order shown (M46.8).
+    const row = within(page).getAllByTestId('track-table-row')[1] as HTMLElement;
+    await userEvent.click(within(row).getByRole('button', { name: 'Two' }));
     expect(commands.collectionPlay).toHaveBeenLastCalledWith({
       collection: { kind: 'playlist', id: 'p1' },
       startIndex: 1,
       shuffle: false,
+      order: ['nina simone|one', 'nina simone|two', 'nina simone|three'],
     });
 
     await userEvent.click(within(page).getByRole('button', { name: 'Edit' }));
@@ -187,21 +190,39 @@ describe('Favorites and playlists', () => {
     expect(commands.historyRecent).toHaveBeenCalledWith(10);
   });
 
-  it('hearts the current track in the full player', async () => {
-    commands.favoriteGet.mockResolvedValue(ok(true));
+  it('saves the current song with the Plus: Favorites at once, then playlists', async () => {
+    commands.playlistsList.mockResolvedValue(
+      ok([{ id: 'p1', name: 'Road', itemCount: 3, artworkUrls: [] }]),
+    );
     await AppShellWrapper.mount('/');
     AppShellWrapper.playing([makeItem('Sinnerman', 'Nina Simone')], 0);
     await AppShellWrapper.miniPlayer.open();
 
-    // The player bar has a heart too; this one is the sheet's.
+    // The player bar has a Plus too; this one is the sheet's.
     const sheet = await AppShellWrapper.playerSheet.element;
-    const heart = await within(sheet).findByRole('button', { name: 'Remove from favorites' });
-    expect(heart).toHaveAttribute('aria-pressed', 'true');
-    await userEvent.click(heart);
-    expect(commands.favoriteSet).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Sinnerman', artist: 'Nina Simone' }),
-      false,
+    const plus = await within(sheet).findByRole('button', {
+      name: 'Save to Favorites or a playlist',
+    });
+    await vi.waitFor(() => expect(plus).toBeEnabled());
+    await userEvent.click(plus);
+    const song = expect.objectContaining({ title: 'Sinnerman', artist: 'Nina Simone' });
+    expect(commands.collectionsSetSaves).toHaveBeenCalledWith(song, {
+      favorite: true,
+      playlistIds: [],
+    });
+
+    // The popover: Favorites ticked, a playlist ticked, Done saves both.
+    const popover = await screen.findByRole('dialog', { name: 'Add to playlist' });
+    expect(within(popover).getByRole('checkbox', { name: 'Favorites' })).toHaveAttribute(
+      'aria-checked',
+      'true',
     );
+    await userEvent.click(await within(popover).findByRole('checkbox', { name: 'Road' }));
+    await userEvent.click(within(popover).getByRole('button', { name: 'Done' }));
+    expect(commands.collectionsSetSaves).toHaveBeenLastCalledWith(song, {
+      favorite: true,
+      playlistIds: ['p1'],
+    });
   });
 });
 

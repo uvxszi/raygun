@@ -353,8 +353,19 @@ export const pack = async (dir, repoDir) => {
   };
   const archive = zipSync(files, { level: 9, mtime: PACKAGE_TIME });
   const name = `${manifest.id}-${manifest.version}.zip`;
+  const target = join(repoDir, 'packages', name);
   await mkdir(join(repoDir, 'packages'), { recursive: true });
-  await writeFile(join(repoDir, 'packages', name), archive);
+  // A published version never changes: installs check its checksum. Changed code needs a new
+  // version, so an existing package with other bytes is kept and the author warned.
+  const published = await readFile(target).catch(() => null);
+  if (published && !Buffer.from(published).equals(Buffer.from(archive))) {
+    console.warn(
+      `${manifest.id} ${manifest.version} is already published with other contents; ` +
+        'kept it. Bump the version to publish the changes.',
+    );
+  } else if (!published) {
+    await writeFile(target, archive);
+  }
   const index = await writeIndex(repoDir);
   return { manifest, package: `packages/${name}`, bytes: archive.length, index };
 };

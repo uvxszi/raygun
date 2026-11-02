@@ -1,11 +1,25 @@
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import type { QueueItem } from '@raygun/bindings';
 import { ListMusic, Maximize2, X } from 'lucide-react';
+import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { fromQueueItem, useAddToPlaylist, useCreatePlaylist } from '../collections/useCollections';
 import { Artwork } from '../library/Artwork';
+import { ArtistLinks } from '../music/ArtistLinks';
 import { Marquee } from '../shell/Marquee';
 import { useWideScreen } from '../shell/useWideScreen';
+import { ResizeHandle } from '../shell/ResizeHandle';
+import { usePanelSizes } from '../shell/usePanelSizes';
 import { FavoriteButton } from './FavoriteButton';
 import { LyricsView } from './LyricsView';
 import type { PlayerPanel } from './playerUiStore';
@@ -26,44 +40,66 @@ export const SidePanel: FC = () => {
   const setPanel = usePlayerUiStore((state) => state.setPanel);
   const wide = useWideScreen();
   const { item } = useNowPlaying();
+  const { panels, save } = usePanelSizes();
+  const [dragging, setDragging] = useState<number | null>(null);
   if (!panel || !wide || !item) return null;
+  // Dragged to a size (M46.8), or by screen: 18, 20 then 24 rem.
+  const width = dragging ?? (panels.sidePanelWidth || null);
 
   return (
-    <aside
-      aria-label={t(`player.panel.${panel}`)}
-      data-testid="side-panel"
-      className="bg-surface my-2 mr-2 flex w-72 shrink-0 flex-col overflow-hidden rounded-2xl lg:mr-4 lg:w-80 xl:w-96"
-    >
-      <header className="flex items-center gap-1 px-2 pt-2">
-        <div role="tablist" aria-label={t('player.panel.label')} className="flex flex-1 gap-1">
-          {TABS.map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              role="tab"
-              aria-selected={panel === tab}
-              onClick={() => setPanel(tab)}
-              className={`rounded-full px-3 py-1.5 text-sm font-medium ${
-                panel === tab ? 'bg-background text-foreground' : 'text-muted hover:text-foreground'
-              }`}
-            >
-              {t(`player.panel.${tab}`)}
-            </button>
-          ))}
+    <>
+      <ResizeHandle
+        label={t('player.panel.resize')}
+        value={width ?? 320}
+        min={280}
+        max={560}
+        direction={-1}
+        onPreview={setDragging}
+        onCommit={(sidePanelWidth) => {
+          setDragging(null);
+          save({ sidePanelWidth });
+        }}
+        className="my-2"
+      />
+      <aside
+        aria-label={t(`player.panel.${panel}`)}
+        data-testid="side-panel"
+        style={width ? { width } : undefined}
+        className={`bg-surface my-2 mr-2 flex shrink-0 flex-col overflow-hidden rounded-2xl lg:mr-4 ${width ? '' : 'w-72 lg:w-80 xl:w-96'}`}
+      >
+        <header className="flex items-center gap-1 px-2 pt-2">
+          <div role="tablist" aria-label={t('player.panel.label')} className="flex flex-1 gap-1">
+            {TABS.map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={panel === tab}
+                onClick={() => setPanel(tab)}
+                className={`rounded-full px-3 py-1.5 text-sm font-medium ${
+                  panel === tab
+                    ? 'bg-background text-foreground'
+                    : 'text-muted hover:text-foreground'
+                }`}
+              >
+                {t(`player.panel.${tab}`)}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            aria-label={t('player.panel.close')}
+            onClick={() => setPanel(null)}
+            className="text-muted hover:text-foreground grid size-9 place-items-center rounded-full"
+          >
+            <X aria-hidden size={18} />
+          </button>
+        </header>
+        <div role="tabpanel" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          {panel === 'nowPlaying' ? <NowPlaying item={item} /> : <Queue item={item} />}
         </div>
-        <button
-          type="button"
-          aria-label={t('player.panel.close')}
-          onClick={() => setPanel(null)}
-          className="text-muted hover:text-foreground grid size-9 place-items-center rounded-full"
-        >
-          <X aria-hidden size={18} />
-        </button>
-      </header>
-      <div role="tabpanel" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        {panel === 'nowPlaying' ? <NowPlaying item={item} /> : <Queue item={item} />}
-      </div>
-    </aside>
+      </aside>
+    </>
   );
 };
 
@@ -90,7 +126,9 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
       <div className="flex items-center gap-1">
         <div className="flex min-w-0 flex-1 flex-col">
           <Marquee testId="side-panel-title" text={item.title} className="text-xl font-bold" />
-          {item.artist && <Marquee text={item.artist} className="text-muted text-sm" />}
+          {item.artist && (
+            <ArtistLinks credit={item.artist} className="text-muted block truncate text-sm" />
+          )}
           {note && (
             <span className="text-muted text-xs">
               {note.kind === 'finding'
@@ -145,13 +183,60 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
   );
 };
 
+/** A queued item that drags into another place (M46.8). */
+const SortableQueueRow: FC<{ item: QueueItem }> = ({ item }) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: item.id,
+  });
+  return (
+    <li
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      className={isDragging ? 'relative z-10 opacity-80' : ''}
+      {...attributes}
+      {...listeners}
+      // A list item that drags, not a second button around the row's own.
+      role="listitem"
+    >
+      <QueueRow item={item} />
+    </li>
+  );
+};
+
 const Queue: FC<{ item: QueueItem }> = ({ item }) => {
   const { t } = useTranslation();
   const { upNext } = useNowPlaying();
+  const createPlaylist = useCreatePlaylist();
+  const addToPlaylist = useAddToPlaylist();
+  const [saved, setSaved] = useState<string | null>(null);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   const clear = async () => {
     for (const next of upNext) {
       await sendControl({ type: 'remove', itemId: next.id });
     }
+  };
+  // Dropped before the item now after it, or at the end.
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    const ids = upNext.map((next) => next.id);
+    const moved = arrayMove(ids, ids.indexOf(String(active.id)), ids.indexOf(String(over.id)));
+    const at = moved.indexOf(String(active.id));
+    void sendControl({
+      type: 'move',
+      itemId: String(active.id),
+      beforeItemId: moved[at + 1] ?? null,
+    });
+  };
+  // The whole queue, playing song first, as a new playlist (M46.8).
+  const saveQueue = () => {
+    const name = t('player.queueSavedName', { date: new Date().toLocaleString() });
+    createPlaylist.mutate(name, {
+      onSuccess: (playlist) =>
+        addToPlaylist.mutate(
+          { id: playlist.id, tracks: [item, ...upNext].map(fromQueueItem) },
+          { onSuccess: () => setSaved(name) },
+        ),
+    });
   };
 
   return (
@@ -164,26 +249,46 @@ const Queue: FC<{ item: QueueItem }> = ({ item }) => {
         <h3 className="text-muted text-xs font-semibold tracking-wide uppercase">
           {t('player.upNext')}
         </h3>
-        {upNext.length > 0 && (
+        <span className="flex items-center">
           <button
             type="button"
-            onClick={() => void clear()}
+            disabled={createPlaylist.isPending || addToPlaylist.isPending}
+            onClick={saveQueue}
             className="text-muted hover:text-foreground rounded-full px-2 py-0.5 text-sm"
           >
-            {t('player.clearQueue')}
+            {t('player.saveQueue')}
           </button>
-        )}
+          {upNext.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void clear()}
+              className="text-muted hover:text-foreground rounded-full px-2 py-0.5 text-sm"
+            >
+              {t('player.clearQueue')}
+            </button>
+          )}
+        </span>
       </div>
+      {saved && (
+        <p role="status" className="text-primary px-2 pb-1 text-xs">
+          {t('player.queueSaved', { name: saved })}
+        </p>
+      )}
       {upNext.length === 0 ? (
         <p className="text-muted px-2 py-2 text-sm">{t('player.queueEmpty')}</p>
       ) : (
-        <ul data-testid="queue-panel-list" className="flex flex-col">
-          {upNext.map((next) => (
-            <li key={next.id}>
-              <QueueRow item={next} />
-            </li>
-          ))}
-        </ul>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+          <SortableContext
+            items={upNext.map((next) => next.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <ul data-testid="queue-panel-list" className="flex flex-col">
+              {upNext.map((next) => (
+                <SortableQueueRow key={next.id} item={next} />
+              ))}
+            </ul>
+          </SortableContext>
+        </DndContext>
       )}
     </div>
   );

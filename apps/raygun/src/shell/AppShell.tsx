@@ -1,7 +1,7 @@
 import type { StartScreen } from '@raygun/bindings';
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { MotionConfig } from 'motion/react';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FC } from 'react';
 
 import { TrackActionsSheet } from '../collections/TrackActionsSheet';
@@ -13,7 +13,10 @@ import { useLibraryScanSync } from '../library/useLibrary';
 import { useExtensionsSync } from '../extensions/useExtensions';
 import { MiniPlayer } from '../player/MiniPlayer';
 import { PlayerSheet } from '../player/PlayerSheet';
+import { ShortcutsSheet } from '../player/ShortcutsSheet';
 import { SidePanel } from '../player/SidePanel';
+import { usePlaybackKeys } from '../player/usePlaybackKeys';
+import { useMediaSession } from '../engine/useMediaSession';
 import { usePlaybackSync } from '../player/usePlayback';
 import { useApplyColors, useApplyFeel, useApplyTheme } from '../settings/useApplyTheme';
 import { useSettings, useSettingsEvents } from '../settings/useSettings';
@@ -23,7 +26,9 @@ import { useYouTubeVideoEvents } from '../video/trailerStore';
 import { YouTubeOverlay } from '../video/YouTubeOverlay';
 import { usePlayerLabels } from '../watch/usePlayerLabels';
 import { BottomTabs } from './BottomTabs';
+import { ContextMenuHost } from './ContextMenu';
 import { HoverLabel } from './HoverLabel';
+import { useHorizontalWheel } from './useHorizontalWheel';
 import { NAV_TABS } from './navTabs';
 import { toggleWindowFullscreen } from './useWindowFullscreen';
 import { SideRail } from './SideRail';
@@ -67,6 +72,10 @@ export const AppShell: FC = () => {
   useEngineHost();
   useSpeechHost();
   useFullscreenKey();
+  useHorizontalWheel();
+  useMediaSession();
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const openShortcuts = useCallback(() => setShortcutsOpen(true), []);
   usePlaybackSync();
   useLibraryScanSync();
   useExtensionsSync();
@@ -85,6 +94,8 @@ export const AppShell: FC = () => {
   useEffect(() => {
     mainRef.current?.scrollTo?.(0, 0);
   }, [href]);
+  // Playback keys everywhere but the readers, whose keys turn pages (M46.8).
+  usePlaybackKeys(openShortcuts, !immersive);
 
   return (
     <MotionConfig reducedMotion={settings.data?.motion === 'off' ? 'always' : 'user'}>
@@ -109,6 +120,8 @@ export const AppShell: FC = () => {
         <VideoPlayer />
         <YouTubeOverlay />
         <HoverLabel />
+        <ContextMenuHost />
+        {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
         {/* Keeps scrolled content from showing through the transparent status bar on phones. */}
         <div
           aria-hidden

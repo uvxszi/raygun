@@ -1,0 +1,139 @@
+import type { SavedTrack, SettingChange, Settings } from '@raygun/bindings';
+import { fireEvent, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+
+import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
+import { bindingsMock, DEFAULT_SETTINGS } from '../test/bindingsMock';
+
+vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
+
+const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
+const { commands } = bindingsMock;
+
+const song = (title: string, artist: string, addedAt: number, playCount = 0): SavedTrack => ({
+  trackKey: `${artist.toLowerCase()}|${title.toLowerCase()}`,
+  title,
+  artist,
+  album: `${title} album`,
+  durationMs: 180_000,
+  artworkUrl: null,
+  source: null,
+  local: false,
+  addedAt,
+  playCount,
+});
+
+/** Settings that Rust saves and sends back, as the real command does. */
+const withSettings = (settings: Settings) => {
+  let current = settings;
+  commands.settingsGet.mockImplementation(async () => ok(current));
+  commands.settingsUpdate.mockImplementation(async (change: SettingChange) => {
+    current = { ...current, [change.key]: change.value };
+    return ok(current);
+  });
+};
+
+/** A window wide enough for the table's columns. */
+const setWide = () => {
+  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+    matches: true,
+    media: query,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
+};
+
+const titles = () =>
+  screen
+    .getAllByTestId('track-table-row')
+    .map((row) => within(row).getAllByRole('button')[1]?.textContent);
+
+describe('Song tables', () => {
+  beforeEach(() => {
+    AppShellWrapper.seedCore();
+    withSettings(DEFAULT_SETTINGS);
+    commands.favoritesList.mockResolvedValue(
+      ok([
+        song('Bravo', 'Zed', 3_000, 5),
+        song('Alpha', 'Mia', 2_000, 1),
+        song('Charlie', 'Ann', 1_000, 9),
+      ]),
+    );
+    commands.collectionPlay.mockResolvedValue(ok(null));
+    commands.playbackQueueTracks.mockResolvedValue(ok(null));
+  });
+
+  afterEach(() => {
+    delete (window as { matchMedia?: unknown }).matchMedia;
+  });
+
+  it('sorts, filters, shows columns and plays in the order shown', async () => {
+    setWide();
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/library?view=favorites');
+    await screen.findByTestId('track-table');
+    expect(titles()).toEqual(['Bravo', 'Alpha', 'Charlie']);
+
+    // The Title header sorts A to Z; a second click Z to A.
+    await user.click(screen.getByRole('button', { name: 'Title' }));
+    await vi.waitFor(() => expect(titles()).toEqual(['Alpha', 'Bravo', 'Charlie']));
+    expect(screen.getAllByRole('columnheader')[1]).toHaveAttribute('aria-sort', 'ascending');
+
+    // Sort by in the menu: Most played; then Compact.
+    await user.click(screen.getByRole('button', { name: /^Sort and view/ }));
+    const menu = await screen.findByRole('dialog', { name: 'Sort by' });
+    await user.click(within(menu).getByRole('radio', { name: 'Most played' }));
+    await vi.waitFor(() => expect(titles()).toEqual(['Charlie', 'Bravo', 'Alpha']));
+    await user.click(within(menu).getByRole('radio', { name: 'Compact' }));
+    await user.keyboard('{Escape}');
+
+    // Hide the Album column from the header's menu.
+    expect(screen.getByRole('columnheader', { name: 'Album' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Columns' }));
+    await user.click(await screen.findByRole('checkbox', { name: 'Album' }));
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('columnheader', { name: 'Album' })).not.toBeInTheDocument(),
+    );
+    await user.keyboard('{Escape}');
+
+    // Playing a row plays the table as shown.
+    const charlie = screen.getAllByTestId('track-table-row')[0] as HTMLElement;
+    fireEvent.doubleClick(charlie);
+    expect(commands.collectionPlay).toHaveBeenLastCalledWith({
+      collection: { kind: 'favorites' },
+      startIndex: 0,
+      shuffle: false,
+      order: ['ann|charlie', 'zed|bravo', 'mia|alpha'],
+    });
+
+    // Filter.
+    await user.click(screen.getByRole('button', { name: 'Find in these songs' }));
+    await user.keyboard('mia');
+    expect(titles()).toEqual(['Alpha']);
+  });
+
+  it('acts on several songs at once', async () => {
+    setWide();
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/library?view=favorites');
+    await screen.findByTestId('track-table');
+    const rows = screen.getAllByTestId('track-table-row');
+
+    await user.click(rows[0] as HTMLElement);
+    await user.keyboard('{Shift>}');
+    await user.click(rows[2] as HTMLElement);
+    await user.keyboard('{/Shift}');
+    const bar = screen.getByRole('toolbar', { name: 'Selected songs' });
+    expect(bar).toHaveTextContent('3 songs selected');
+
+    await user.click(within(bar).getByRole('button', { name: /Play next/ }));
+    expect(commands.playbackQueueTracks).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({ title: 'Bravo' }),
+        expect.objectContaining({ title: 'Alpha' }),
+        expect.objectContaining({ title: 'Charlie' }),
+      ],
+      true,
+    );
+  });
+});

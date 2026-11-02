@@ -1,0 +1,583 @@
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+import {
+  SortableContext,
+  arrayMove,
+  horizontalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import type { TrackColumnId, TrackSortKey } from '@raygun/bindings';
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  ChevronDown,
+  Clock3,
+  List,
+  ListEnd,
+  ListStart,
+  Play,
+  Rows3,
+  Search,
+  Trash2,
+  X,
+} from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import type { FC, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
+import { commands } from '@raygun/bindings';
+
+import { SaveButton } from '../collections/SaveButton';
+import { TrackMoreButton } from '../collections/TrackMoreButton';
+import { unwrapResult } from '../lib/commandResult';
+import { Artwork } from '../library/Artwork';
+import { formatTime } from '../player/formatTime';
+import { Sheet } from '../shell/Sheet';
+import { useWideScreen } from '../shell/useWideScreen';
+import { ArtistLinks } from './ArtistLinks';
+import { COLUMN_TRACKS, SORT_KEYS, filterTracks, sortTracks, useTableView } from './tableView';
+import type { TableTrack, TableView, TrackTableKind } from './tableView';
+import { useTrackMenu } from './useTrackMenu';
+
+const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+
+/** "6 days ago", "2 weeks ago": when a song was saved. */
+const ago = (at: number | null) => {
+  if (!at) return '';
+  const days = Math.round((at - Date.now()) / 86_400_000);
+  if (days > -7) return relative.format(days, 'day');
+  if (days > -60) return relative.format(Math.round(days / 7), 'week');
+  if (days > -730) return relative.format(Math.round(days / 30), 'month');
+  return relative.format(Math.round(days / 365), 'year');
+};
+
+/** A header cell: sorts on click, drags to reorder, and its edge drags to resize. */
+const HeaderCell: FC<{
+  id: TrackColumnId;
+  label: string;
+  sorted: 'asc' | 'desc' | null;
+  onSort: () => void;
+  onResize: (width: number) => void;
+}> = ({ id, label, sorted, onSort, onResize }) => {
+  const { t } = useTranslation();
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id,
+  });
+  const cell = useRef<HTMLDivElement | null>(null);
+  const startResize = (event: ReactPointerEvent) => {
+    event.stopPropagation();
+    event.preventDefault();
+    const start = event.clientX;
+    const width = cell.current?.getBoundingClientRect().width ?? 120;
+    const move = (moved: PointerEvent) => {
+      const next = Math.round(Math.min(800, Math.max(40, width + moved.clientX - start)));
+      if (cell.current) cell.current.style.width = `${next}px`;
+    };
+    const up = (ended: PointerEvent) => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      onResize(Math.round(Math.min(800, Math.max(40, width + ended.clientX - start))));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  return (
+    <div
+      ref={(node) => {
+        setNodeRef(node);
+        cell.current = node;
+      }}
+      role="columnheader"
+      aria-label={label}
+      aria-sort={sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : undefined}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      className={`group relative flex min-w-0 items-center ${isDragging ? 'z-10 opacity-70' : ''}`}
+    >
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        onClick={onSort}
+        className={`flex min-w-0 items-center gap-1 truncate text-left ${sorted ? 'text-primary' : 'hover:text-foreground'}`}
+      >
+        {id === 'duration' ? (
+          <Clock3 aria-label={label} size={14} />
+        ) : (
+          <span className="truncate">{label}</span>
+        )}
+        {sorted === 'asc' && <ArrowUp aria-hidden size={12} />}
+        {sorted === 'desc' && <ArrowDown aria-hidden size={12} />}
+      </button>
+      <span
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t('tracks.resizeColumn', { name: label })}
+        onPointerDown={startResize}
+        className="absolute inset-y-0 -right-2 w-3 cursor-col-resize opacity-0 group-hover:opacity-100 after:absolute after:inset-y-1 after:left-1.5 after:w-px after:bg-white/20"
+      />
+    </div>
+  );
+};
+
+type TrackTableProps = {
+  kind: TrackTableKind;
+  tracks: TableTrack[];
+  /** Plays `ordered` (the table's shown order) from `index`. */
+  onPlay: (ordered: TableTrack[], index: number) => void;
+  /** What "custom" order is called here ("Custom order", "Recently played"...). */
+  customLabel?: string;
+  /** Takes rows out of this list (a playlist, Favorites). */
+  onRemove?: (rows: TableTrack[]) => void;
+  /** Replaces a row's Plus and more button (a playlist's edit controls). */
+  actions?: (track: TableTrack, index: number) => ReactNode;
+  toolbar?: ReactNode;
+};
+
+/**
+ * Songs as a table (M46.8), Spotify's: sort by clicking a column or from Sort by, filter, list
+ * or compact, columns to show, drag and resize, and several songs at once with Ctrl and Shift.
+ * Playing plays the table in the order it shows.
+ */
+export const TrackTable: FC<TrackTableProps> = ({
+  kind,
+  tracks,
+  onPlay,
+  customLabel,
+  onRemove,
+  actions,
+  toolbar,
+}) => {
+  const { t } = useTranslation();
+  const wide = useWideScreen();
+  const menu = useTrackMenu();
+  const { view, set } = useTableView(kind);
+  const [filter, setFilter] = useState('');
+  const [filtering, setFiltering] = useState(false);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const lastPicked = useRef<number | null>(null);
+  const [sortAnchor, setSortAnchor] = useState<HTMLElement | null>(null);
+  const [columnsAnchor, setColumnsAnchor] = useState<HTMLElement | null>(null);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+
+  const shown = useMemo(
+    () => filterTracks(sortTracks(tracks, view), filter),
+    [tracks, view, filter],
+  );
+  const columns = view.columns.filter((column) => column.visible);
+  const sortLabel = (key: TrackSortKey) =>
+    key === 'custom' ? (customLabel ?? t('tracks.sort.custom')) : t(`tracks.sort.${key}`);
+  const sortBy = (key: TrackSortKey) =>
+    set({
+      sort: key,
+      descending: view.sort === key ? !view.descending : key === 'added' || key === 'plays',
+    });
+  const template = `2.5rem minmax(12rem, 1.6fr) ${columns
+    .map((column) => (column.width > 0 ? `${column.width}px` : COLUMN_TRACKS[column.id]))
+    .join(' ')} 5.5rem`;
+  const chosen = shown.filter((track) => selected.has(track.rowKey));
+
+  const pick = (event: MouseEvent, index: number) => {
+    const key = shown[index]?.rowKey;
+    if (!key) return;
+    // Read now: the update runs later, after `lastPicked` has moved to this row.
+    const anchor = lastPicked.current;
+    setSelected((current) => {
+      const next = new Set(event.ctrlKey || event.metaKey || event.shiftKey ? current : []);
+      if (event.shiftKey && anchor !== null) {
+        const [from, to] = [Math.min(anchor, index), Math.max(anchor, index)];
+        for (const track of shown.slice(from, to + 1)) next.add(track.rowKey);
+      } else if (next.has(key) && (event.ctrlKey || event.metaKey)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+    lastPicked.current = index;
+  };
+  const queue = (next: boolean) =>
+    void unwrapResult(
+      commands.playbackQueueTracks(
+        chosen.map((track) => track.input),
+        next,
+      ),
+    );
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    const from = view.columns.findIndex((column) => column.id === active.id);
+    const to = view.columns.findIndex((column) => column.id === over.id);
+    set({ columns: arrayMove(view.columns, from, to) });
+  };
+  const sortOf = (key: TrackSortKey) =>
+    view.sort === key ? (view.descending ? 'desc' : 'asc') : null;
+
+  const sortSheet = sortAnchor && (
+    <Sheet
+      title={t('tracks.sortBy')}
+      anchor={sortAnchor}
+      popoverWidth={240}
+      onClose={() => setSortAnchor(null)}
+    >
+      <div role="radiogroup" aria-label={t('tracks.sortBy')} className="-mx-2 flex flex-col">
+        {SORT_KEYS.map((key) => (
+          <button
+            key={key}
+            type="button"
+            role="radio"
+            aria-checked={view.sort === key}
+            onClick={() => sortBy(key)}
+            className={`hover:bg-background flex items-center justify-between rounded-lg px-3 py-2 text-sm ${view.sort === key ? 'text-primary' : ''}`}
+          >
+            {sortLabel(key)}
+            {view.sort === key &&
+              (view.descending ? (
+                <ArrowDown aria-hidden size={14} />
+              ) : (
+                <ArrowUp aria-hidden size={14} />
+              ))}
+          </button>
+        ))}
+        <h3 className="text-muted px-3 pt-3 pb-1 text-xs font-semibold">{t('tracks.viewAs')}</h3>
+        {(['compact', 'list'] as const).map((option) => (
+          <button
+            key={option}
+            type="button"
+            role="radio"
+            aria-checked={view.view === option}
+            onClick={() => set({ view: option })}
+            className={`hover:bg-background flex items-center gap-3 rounded-lg px-3 py-2 text-sm ${view.view === option ? 'text-primary' : ''}`}
+          >
+            {option === 'compact' ? (
+              <Rows3 aria-hidden size={16} />
+            ) : (
+              <List aria-hidden size={16} />
+            )}
+            <span className="flex-1 text-left">{t(`tracks.view.${option}`)}</span>
+            {view.view === option && <Check aria-hidden size={14} />}
+          </button>
+        ))}
+      </div>
+    </Sheet>
+  );
+  const columnsSheet = columnsAnchor && (
+    <Sheet
+      title={t('tracks.columns')}
+      anchor={columnsAnchor}
+      popoverWidth={220}
+      onClose={() => setColumnsAnchor(null)}
+    >
+      <div className="-mx-2 flex flex-col">
+        {view.columns.map((column) => (
+          <button
+            key={column.id}
+            type="button"
+            role="checkbox"
+            aria-checked={column.visible}
+            onClick={() =>
+              set({
+                columns: view.columns.map((other) =>
+                  other.id === column.id ? { ...other, visible: !other.visible } : other,
+                ),
+              })
+            }
+            className={`hover:bg-background flex items-center justify-between rounded-lg px-3 py-2 text-sm ${column.visible ? 'text-primary' : ''}`}
+          >
+            {t(`tracks.column.${column.id}`)}
+            {column.visible && <Check aria-hidden size={14} />}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => set({ columns: view.columns.map((column) => ({ ...column, width: 0 })) })}
+          className="text-muted hover:bg-background rounded-lg px-3 py-2 text-left text-xs"
+        >
+          {t('tracks.resetWidths')}
+        </button>
+      </div>
+    </Sheet>
+  );
+
+  return (
+    <div data-testid="track-table" data-kind={kind} className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {toolbar}
+        <div className="ml-auto flex items-center gap-1">
+          {filtering || filter ? (
+            <label className="bg-surface flex items-center gap-2 rounded-full px-3 py-1.5">
+              <Search aria-hidden size={14} className="text-muted" />
+              <input
+                autoFocus
+                type="search"
+                value={filter}
+                onChange={(event) => setFilter(event.target.value)}
+                onBlur={() => setFiltering(false)}
+                aria-label={t('tracks.filter')}
+                placeholder={t('tracks.filter')}
+                className="placeholder:text-muted w-40 bg-transparent text-sm outline-none"
+              />
+            </label>
+          ) : (
+            <button
+              type="button"
+              aria-label={t('tracks.filter')}
+              onClick={() => setFiltering(true)}
+              className="text-muted hover:text-foreground grid size-9 place-items-center rounded-full"
+            >
+              <Search aria-hidden size={18} />
+            </button>
+          )}
+          <button
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded={sortAnchor !== null}
+            aria-label={t('tracks.sortButton', { sort: sortLabel(view.sort) })}
+            onClick={(event) => setSortAnchor(sortAnchor ? null : event.currentTarget)}
+            className="text-muted hover:text-foreground flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm"
+          >
+            {sortLabel(view.sort)}
+            {view.view === 'compact' ? (
+              <Rows3 aria-hidden size={16} />
+            ) : (
+              <List aria-hidden size={16} />
+            )}
+          </button>
+        </div>
+      </div>
+      {chosen.length > 0 && (
+        <div
+          role="toolbar"
+          aria-label={t('tracks.selection')}
+          className="bg-surface motion-pop sticky top-0 z-10 flex flex-wrap items-center gap-1 rounded-2xl px-3 py-2 shadow-lg shadow-black/20"
+        >
+          <span className="flex-1 text-sm font-medium">
+            {t('tracks.selected', { count: chosen.length })}
+          </span>
+          <button
+            type="button"
+            onClick={() => onPlay(chosen, 0)}
+            className="hover:bg-background flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm"
+          >
+            <Play aria-hidden size={14} /> {t('menu.play')}
+          </button>
+          <button
+            type="button"
+            onClick={() => queue(true)}
+            className="hover:bg-background flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm"
+          >
+            <ListStart aria-hidden size={14} /> {t('menu.playNext')}
+          </button>
+          <button
+            type="button"
+            onClick={() => queue(false)}
+            className="hover:bg-background flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm"
+          >
+            <ListEnd aria-hidden size={14} /> {t('menu.addToQueue')}
+          </button>
+          {onRemove && (
+            <button
+              type="button"
+              onClick={() => {
+                onRemove(chosen);
+                setSelected(new Set());
+              }}
+              className="text-primary hover:bg-background flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm"
+            >
+              <Trash2 aria-hidden size={14} /> {t('tracks.remove')}
+            </button>
+          )}
+          <button
+            type="button"
+            aria-label={t('tracks.clearSelection')}
+            onClick={() => setSelected(new Set())}
+            className="text-muted hover:text-foreground grid size-8 place-items-center rounded-full"
+          >
+            <X aria-hidden size={16} />
+          </button>
+        </div>
+      )}
+      <div
+        role="table"
+        aria-label={t('tracks.table')}
+        aria-rowcount={shown.length}
+        className="flex flex-col"
+      >
+        {wide && (
+          <div
+            role="row"
+            style={{ gridTemplateColumns: template }}
+            className="text-muted border-foreground/10 grid items-center gap-4 border-b px-2 pb-2 text-xs"
+          >
+            <span role="columnheader" className="text-center">
+              #
+            </span>
+            <div
+              role="columnheader"
+              aria-sort={
+                view.sort === 'title' ? (view.descending ? 'descending' : 'ascending') : undefined
+              }
+            >
+              <button
+                type="button"
+                onClick={() => sortBy('title')}
+                className={`flex items-center gap-1 ${view.sort === 'title' ? 'text-primary' : 'hover:text-foreground'}`}
+              >
+                {t('tracks.column.title')}
+                {sortOf('title') === 'asc' && <ArrowUp aria-hidden size={12} />}
+                {sortOf('title') === 'desc' && <ArrowDown aria-hidden size={12} />}
+              </button>
+            </div>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+              <SortableContext
+                items={columns.map((column) => column.id)}
+                strategy={horizontalListSortingStrategy}
+              >
+                {columns.map((column) => (
+                  <HeaderCell
+                    key={column.id}
+                    id={column.id}
+                    label={t(`tracks.column.${column.id}`)}
+                    sorted={sortOf(column.id)}
+                    onSort={() => sortBy(column.id)}
+                    onResize={(width) =>
+                      set({
+                        columns: view.columns.map((other) =>
+                          other.id === column.id ? { ...other, width } : other,
+                        ),
+                      })
+                    }
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                aria-label={t('tracks.columns')}
+                aria-haspopup="dialog"
+                onClick={(event) => setColumnsAnchor(columnsAnchor ? null : event.currentTarget)}
+                className="hover:text-foreground grid size-7 place-items-center rounded-full"
+              >
+                <ChevronDown aria-hidden size={16} />
+              </button>
+            </div>
+          </div>
+        )}
+        {tracks.length > 0 && shown.length === 0 && (
+          <p className="text-muted px-2 py-4 text-sm">{t('tracks.noMatch', { filter })}</p>
+        )}
+        {shown.map((track, index) => {
+          const isSelected = selected.has(track.rowKey);
+          const compact = view.view === 'compact';
+          return (
+            <div
+              key={track.rowKey}
+              role="row"
+              aria-selected={isSelected}
+              data-testid="track-table-row"
+              onClick={(event) => pick(event, index)}
+              onDoubleClick={() => onPlay(shown, index)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') onPlay(shown, index);
+              }}
+              onContextMenu={menu(track.input, {
+                onPlay: () => onPlay(shown, index),
+                playlistItemId: track.playlistItemId,
+              })}
+              tabIndex={0}
+              style={wide ? { gridTemplateColumns: template } : undefined}
+              className={`group grid items-center gap-4 rounded-lg px-2 outline-none ${compact ? 'py-1' : 'py-1.5'} ${
+                wide ? '' : 'grid-cols-[minmax(0,1fr)_auto]'
+              } ${isSelected ? 'bg-primary/15' : 'hover:bg-surface focus-visible:bg-surface'}`}
+            >
+              {wide && (
+                <span className="relative grid h-8 place-items-center text-sm tabular-nums">
+                  <span className="text-muted group-hover:invisible">{index + 1}</span>
+                  <button
+                    type="button"
+                    aria-label={t('tracks.playRow', { title: track.title })}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onPlay(shown, index);
+                    }}
+                    className="absolute inset-0 hidden place-items-center group-hover:grid"
+                  >
+                    <Play aria-hidden size={14} fill="currentColor" />
+                  </button>
+                </span>
+              )}
+              <div className="flex min-w-0 items-center gap-3">
+                {!compact && (
+                  <Artwork
+                    url={track.artworkUrl}
+                    className="size-10 shrink-0 rounded"
+                    iconSize={18}
+                  />
+                )}
+                <div
+                  className={`flex min-w-0 flex-1 ${compact ? 'items-baseline gap-2' : 'flex-col'}`}
+                >
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (!wide) onPlay(shown, index);
+                      else pick(event, index);
+                    }}
+                    className="truncate text-left text-sm font-medium"
+                  >
+                    {track.title}
+                  </button>
+                  <ArtistLinks
+                    credit={track.artist}
+                    className="text-muted block truncate text-xs"
+                  />
+                </div>
+              </div>
+              {wide &&
+                columns.map((column) => (
+                  <span
+                    key={column.id}
+                    role="cell"
+                    className="text-muted min-w-0 truncate text-sm tabular-nums"
+                  >
+                    {column.id === 'album' && (track.album ?? '')}
+                    {column.id === 'added' && ago(track.addedAt)}
+                    {column.id === 'plays' && (track.playCount > 0 ? track.playCount : '')}
+                    {column.id === 'duration' &&
+                      (track.durationMs ? formatTime(track.durationMs) : '')}
+                  </span>
+                ))}
+              <span
+                className="flex items-center justify-end gap-0.5"
+                onClick={(event) => event.stopPropagation()}
+              >
+                {actions ? (
+                  actions(track, index)
+                ) : (
+                  <>
+                    <SaveButton
+                      track={track.input}
+                      compact
+                      className="opacity-0 group-hover:opacity-100 focus:opacity-100"
+                    />
+                    {!wide && track.durationMs ? (
+                      <span className="text-muted pr-1 text-xs tabular-nums">
+                        {formatTime(track.durationMs)}
+                      </span>
+                    ) : null}
+                    <TrackMoreButton track={track.input} playlistItemId={track.playlistItemId} />
+                  </>
+                )}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {sortSheet}
+      {columnsSheet}
+    </div>
+  );
+};
+
+export type { TableTrack, TableView };

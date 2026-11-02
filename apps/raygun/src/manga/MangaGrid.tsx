@@ -1,8 +1,10 @@
-import { Link } from '@tanstack/react-router';
-import type { FC } from 'react';
+import { Link, useNavigate } from '@tanstack/react-router';
+import { BookOpen, Copy, Search } from 'lucide-react';
+import type { FC, MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useSettings } from '../settings/useSettings';
+import { openContextMenu } from '../shell/contextMenuStore';
 import { COVER_GRID_CLASS, coverGridStyle } from './coverGrid';
 import { MangaCover } from './MangaCover';
 import { ROUTES } from './medium';
@@ -30,7 +32,31 @@ export const MangaGrid: FC<{ items: MangaGridItem[]; medium?: Medium }> = ({
   medium = 'manga',
 }) => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const settings = useSettings().data;
+  // A cover's right-click options (M46.8): open it, find it in every source, copy its name.
+  const coverMenu = (item: MangaGridItem) => (event: MouseEvent) => {
+    const to = item.link?.to ?? ROUTES[medium].title;
+    const search = item.link?.search ?? { source: item.sourceId, id: item.id };
+    openContextMenu(event, [
+      { kind: 'heading', label: item.title },
+      { label: t('menu.open'), icon: BookOpen, onSelect: () => void navigate({ to, search }) },
+      {
+        label: t('menu.searchEverywhere'),
+        icon: Search,
+        onSelect: () =>
+          void navigate({
+            to: '/browse',
+            search: { tab: 'search', type: medium, q: item.title } as never,
+          }),
+      },
+      {
+        label: t('menu.copyTitle'),
+        icon: Copy,
+        onSelect: () => void navigator.clipboard?.writeText(item.title).catch(() => undefined),
+      },
+    ]);
+  };
   const compact = (settings?.coverStyle ?? 'compact') === 'compact';
   const unreadBadges = settings?.unreadBadges ?? true;
   const downloadBadges = settings?.downloadBadges ?? true;
@@ -45,6 +71,7 @@ export const MangaGrid: FC<{ items: MangaGridItem[]; medium?: Medium }> = ({
             to={item.link?.to ?? ROUTES[medium].title}
             search={item.link?.search ?? { source: item.sourceId, id: item.id }}
             data-testid="manga-card"
+            onContextMenu={coverMenu(item)}
             className="flex flex-col gap-1"
           >
             <span className="relative overflow-hidden rounded-xl">

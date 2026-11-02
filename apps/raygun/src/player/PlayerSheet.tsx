@@ -16,15 +16,18 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import type { PanInfo } from 'motion/react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, FC, ReactNode, SyntheticEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useTrackActionsStore } from '../collections/trackActionsStore';
 import { fromQueueItem } from '../collections/useCollections';
 import { Artwork } from '../library/Artwork';
+import { ArtistLinks } from '../music/ArtistLinks';
 import { Marquee } from '../shell/Marquee';
+import { ResizeHandle } from '../shell/ResizeHandle';
 import { Sheet } from '../shell/Sheet';
+import { usePanelSizes } from '../shell/usePanelSizes';
 import { useSideRail, useWideScreen } from '../shell/useWideScreen';
 import { FavoriteButton } from './FavoriteButton';
 import { formatTime } from './formatTime';
@@ -33,6 +36,7 @@ import type { SheetView } from './playerUiStore';
 import { usePlayerUiStore } from './playerUiStore';
 import { usePlayerView } from './playerView';
 import type { PlayerView } from './playerView';
+import { PlaybackExtras } from './PlaybackExtras';
 import { PlayerViewSettings } from './PlayerViewSettings';
 import { useCloseOnBack } from './useCloseOnBack';
 import { onSeekKey } from './seekKeys';
@@ -71,6 +75,9 @@ export const PlayerSheet: FC = () => {
   const setView = usePlayerUiStore((state) => state.setSheetView);
   const { state, item, upNext } = useNowPlaying();
   const { view: layout } = usePlayerView();
+  const { panels, save: savePanels } = usePanelSizes();
+  const [split, setSplit] = useState<number | null>(null);
+  const splitRow = useRef<HTMLDivElement>(null);
   const wide = useWideScreen();
   const large = useSideRail();
   const sideBySide =
@@ -179,6 +186,7 @@ export const PlayerSheet: FC = () => {
             </button>
             <span aria-hidden className="bg-muted/40 h-1.5 w-10 rounded-full" />
             <div className="flex items-center">
+              <PlaybackExtras state={state} className="h-11" />
               <VideoToggle item={item} className="size-11" />
               {item &&
                 !sideBySide &&
@@ -204,10 +212,19 @@ export const PlayerSheet: FC = () => {
             className={`mx-auto flex min-h-0 w-full flex-1 ${width.className}`}
           >
             {sideBySide ? (
-              <div className="flex min-h-0 flex-1 gap-10 py-4 xl:gap-16">
+              <div ref={splitRow} className="flex min-h-0 flex-1 gap-4 py-4 xl:gap-8">
                 <div
+                  style={
+                    (split ?? panels.playerSplit)
+                      ? { width: `${split ?? panels.playerSplit}%` }
+                      : undefined
+                  }
                   className={`flex min-h-0 shrink-0 flex-col justify-center gap-6 ${
-                    isVideo ? 'w-[min(58%,60rem)]' : 'w-[min(42%,34rem)]'
+                    (split ?? panels.playerSplit)
+                      ? ''
+                      : isVideo
+                        ? 'w-[min(58%,60rem)]'
+                        : 'w-[min(42%,34rem)]'
                   }`}
                 >
                   <div className="flex justify-center">{media}</div>
@@ -218,6 +235,19 @@ export const PlayerSheet: FC = () => {
                     note={sourceNote(state, item)}
                   />
                 </div>
+                <ResizeHandle
+                  label={t('player.view.resizeSplit')}
+                  value={split ?? (panels.playerSplit || (isVideo ? 58 : 42))}
+                  min={30}
+                  max={70}
+                  direction={1}
+                  scale={() => 100 / Math.max(1, splitRow.current?.clientWidth ?? 1000)}
+                  onPreview={setSplit}
+                  onCommit={(playerSplit) => {
+                    setSplit(null);
+                    savePanels({ playerSplit });
+                  }}
+                />
                 <section
                   aria-label={view === 'queue' ? t('player.upNextView') : t('player.lyrics')}
                   className="flex min-h-0 min-w-0 flex-1 flex-col"
@@ -318,7 +348,12 @@ const Controls: FC<ControlsProps> = ({ state, item, note, onScrub }) => {
             text={item?.title ?? t('player.nothingPlaying')}
             className="w-full text-2xl font-bold"
           />
-          {item?.artist && <Marquee text={item.artist} className="text-muted w-full text-lg" />}
+          {item?.artist && (
+            <ArtistLinks
+              credit={item.artist}
+              className="text-muted block w-full truncate text-lg"
+            />
+          )}
           {note && (
             <p data-testid="sheet-source-note" className="text-muted text-xs">
               {note.kind === 'finding'

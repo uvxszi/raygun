@@ -20,8 +20,11 @@ export const commands = {
 	playbackGetQueue: () => __TAURI_INVOKE<QueueSnapshot>("playback_get_queue"),
 	/**  Adds items to the queue; with `play_now` the first one starts immediately. */
 	playbackEnqueue: (items: QueueItemInput[], playNow: boolean) => __TAURI_INVOKE<void>("playback_enqueue", { items, playNow }),
-	/**  Queues items to play right after the current one (Play next, M46.8). */
-	playbackPlayNext: (items: QueueItemInput[]) => __TAURI_INVOKE<void>("playback_play_next", { items }),
+	/**
+	 *  Queues songs from anywhere (M46.8): right after the current one with `next` (Play next), else
+	 *  at the end. Each plays from the library's file when it has the song.
+	 */
+	playbackQueueTracks: (tracks: TrackInput[], next: boolean) => typedError<null, string>(__TAURI_INVOKE("playback_queue_tracks", { tracks, next })),
 	/**  Play, pause, skip, seek, volume, repeat, shuffle and queue edits. */
 	playbackControl: (control: PlaybackControl) => __TAURI_INVOKE<void>("playback_control", { control }),
 	/**  Called by the playback engine in the webview to report what the media element did. */

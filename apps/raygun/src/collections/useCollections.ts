@@ -6,6 +6,7 @@ import type {
   QueueItem,
   SavedTrack,
   TrackInput,
+  TrackSaves,
 } from '@raygun/bindings';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -134,3 +135,18 @@ export const fromSavedTrack = (track: SavedTrack): TrackInput => ({
   artworkUrl: track.artworkUrl,
   source: track.source,
 });
+
+// ---- Where a song is saved (M46.8) ----
+
+/** Favorites and the playlists holding `track`; Rust matches it by artist and title. */
+export const useTrackSaves = (track: TrackInput | null, enabled = true) =>
+  useQuery({
+    queryKey: [COLLECTIONS, 'saves', track?.artist ?? null, track?.title ?? null],
+    queryFn: () => unwrapResult(commands.collectionsSaves(track as TrackInput)),
+    enabled: enabled && track !== null,
+  });
+
+export const useSetTrackSaves = () =>
+  useCollectionMutation(({ track, saves }: { track: TrackInput; saves: TrackSaves }) =>
+    unwrapResult(commands.collectionsSetSaves(track, saves)),
+  );

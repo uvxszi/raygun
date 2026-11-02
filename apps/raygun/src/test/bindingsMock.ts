@@ -202,6 +202,10 @@ export const bindingsMock = {
     lyricsGet: vi.fn(),
     favoritesList: vi.fn(),
     favoriteGet: vi.fn(),
+    collectionsSaves: vi.fn(),
+    collectionsSetSaves: vi.fn(),
+    musicArtist: vi.fn(),
+    playbackQueueTracks: vi.fn(),
     favoriteSet: vi.fn(),
     playlistsList: vi.fn(),
     playlistGet: vi.fn(),
@@ -436,6 +440,9 @@ export const seedBindings = () => {
   commands.lyricsGet.mockResolvedValue(ok(null));
   commands.favoritesList.mockResolvedValue(ok([]));
   commands.favoriteGet.mockResolvedValue(ok(false));
+  commands.collectionsSaves.mockResolvedValue(ok({ favorite: false, playlistIds: [] }));
+  commands.collectionsSetSaves.mockResolvedValue(ok(null));
+  commands.musicArtist.mockResolvedValue(ok({ name: '', popular: [], albums: [], tracks: [] }));
   commands.favoriteSet.mockResolvedValue(ok(null));
   commands.playlistsList.mockResolvedValue(ok([]));
   commands.playlistGet.mockResolvedValue(

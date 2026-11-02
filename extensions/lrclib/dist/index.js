@@ -1,4 +1,4 @@
-// dev.raygun.lrclib 1.0.1. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.lrclib 1.0.2. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -10,6 +10,12 @@
   // src/index.ts
   var API = "https://lrclib.net/api";
   var HEADERS = { "User-Agent": "Raygun/1.0 (https://github.com/uvxszi/raygun)" };
+  var fetchPatiently = async (url) => {
+    const first = await raygun.http.fetch(url, { headers: HEADERS });
+    if (first.status !== 429 && first.status < 500) return first;
+    await raygun.time.sleep(1500);
+    return raygun.http.fetch(url, { headers: HEADERS });
+  };
   var MAX_LENGTH_GAP_S = 10;
   var encode = (params) => Object.entries(params).filter(([, value]) => value !== null && value !== void 0 && value !== "").map(([key, value]) => `${key}=${encodeURIComponent(String(value))}`).join("&");
   var TIMESTAMP = /\[(\d+):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
@@ -40,14 +46,14 @@
       album_name: query.album,
       duration: query.durationMs ? Math.round(query.durationMs / 1e3) : null
     });
-    const response = await raygun.http.fetch(`${API}/get?${params}`, { headers: HEADERS });
+    const response = await fetchPatiently(`${API}/get?${params}`);
     if (response.status === 404 || response.status === 400) return null;
     if (!response.ok) throw new Error(`LRCLIB answered HTTP ${response.status}`);
     return response.json();
   };
   var searchClosest = async (query) => {
     const params = query.artist?.trim() ? encode({ track_name: query.title, artist_name: query.artist }) : encode({ q: query.title });
-    const response = await raygun.http.fetch(`${API}/search?${params}`, { headers: HEADERS });
+    const response = await fetchPatiently(`${API}/search?${params}`);
     if (response.status === 400 || response.status === 404) return null;
     if (!response.ok) throw new Error(`LRCLIB answered HTTP ${response.status}`);
     const records = await response.json();

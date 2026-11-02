@@ -94,6 +94,13 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Any accent colour, cover sizes, reader page fit and zoom, a page bar to arrange, pages to load ahead, scrollbars and animations as settings | Mihon (reader settings), Aniyomi | ✅ M46.7 |
 | YouTube search without an API key | Grayjay, NewPipe, FreeTube | ✅ M46.7 (search through YouTube Music's web API; playback in YouTube's embed) |
 | One-click and bulk extension installs, update all | Mihon, Aniyomi | ✅ M46.7 |
+| Song tables: sort, filter, compact/list, columns to show, reorder and resize, multi-select | Spotify | ✅ M46.8 |
+| Save with a Plus into Favorites and playlists, made on the spot | Spotify | ✅ M46.8 |
+| Artist pages from any credit | Spotify, Nuclear | ✅ M46.8 (bios and facts: M46.9) |
+| Right-click menus everywhere, themed | Spotify desktop | ✅ M46.8 |
+| Resizable rail and panels, playlists in the rail | Spotify desktop | ✅ M46.8 |
+| Play next, queue drag, save queue, sleep timer, speed, shortcuts, media keys | Spotify, Nuclear, RiPlay | ✅ M46.8 |
+| Turn sources off from Browse, auto-loading pages | Mihon | ✅ M46.8 |
 | Arrange tabs (add, hide, reorder, start screen), library tabs, Home, Browse and More | Aniyomi (NavStyle, start screen), Mihon (category order) | ✅ M46.5 (pinned sources: M53) |
 | Cover cache kept for the library, cache sizes and clearing, extension icons | Mihon, CloudStream, RiPlay | ✅ M46.2 (separate cover and page caches with limits, background revalidation, Storage screen, repository icons) |
 | Chapter swipe actions, scanlator filter, bookmarks | Mihon | 🔜 M47 |

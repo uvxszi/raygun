@@ -51,7 +51,7 @@
     {
       "id": "dev.raygun.lrclib",
       "name": "LRCLIB",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "apiVersion": 1,
       "description": "Synced lyrics from the open LRCLIB database.",
       "author": "Raygun",
@@ -65,9 +65,9 @@
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.lrclib-1.0.1.zip",
-      "sha256": "d179b98b3b3a022aa355e8acea0306ac1a35d77afaac66bebdf0244b669138af",
-      "size": 1797
+      "package": "packages/dev.raygun.lrclib-1.0.2.zip",
+      "sha256": "3ba78f35c905d659886991baae0702e04cae90b9b6a159c3a8c0fd00745a9990",
+      "size": 1879
     },
     {
       "id": "dev.raygun.mangadex",
@@ -114,7 +114,7 @@
     {
       "id": "dev.raygun.podcast-directory",
       "name": "Podcast directory",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "apiVersion": 1,
       "description": "Search millions of podcasts and browse the top shows, through Apple's public iTunes Search API.",
       "author": "Raygun",
@@ -129,8 +129,8 @@
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.podcast-directory-1.0.0.zip",
-      "sha256": "331f040e42e309297cc91445c8d0e6275569ec75e1df70ab8c250a47a1519c72",
+      "package": "packages/dev.raygun.podcast-directory-1.0.1.zip",
+      "sha256": "5a4fed1eab9b168f0e42d7eef38288475b8413bb437bd874eecbb58f23fdea95",
       "size": 1616
     },
     {

@@ -37,7 +37,9 @@ describe('Player bar', () => {
     await AppShellWrapper.miniPlayer.title;
     const bar = AppShellWrapper.miniPlayer.element;
 
-    expect(within(bar).getByRole('button', { name: 'Add to favorites' })).toBeInTheDocument();
+    expect(
+      within(bar).getByRole('button', { name: 'Save to Favorites or a playlist' }),
+    ).toBeInTheDocument();
     expect(within(bar).queryByRole('button', { name: 'Shuffle' })).not.toBeInTheDocument();
     await user.click(within(bar).getByRole('button', { name: 'Next' }));
     expect(commands.playbackControl).toHaveBeenCalledWith({ type: 'next' });

@@ -6,6 +6,14 @@ import type { LyricsQuery, LyricsResult } from '@raygun/sdk';
 const API = 'https://lrclib.net/api';
 // LRCLIB asks clients to identify themselves.
 const HEADERS = { 'User-Agent': 'Raygun/1.0 (https://github.com/uvxszi/raygun)' };
+
+/** Tries once more after a pause when LRCLIB is busy or briefly down (429, 5xx). */
+const fetchPatiently = async (url: string) => {
+  const first = await raygun.http.fetch(url, { headers: HEADERS });
+  if (first.status !== 429 && first.status < 500) return first;
+  await raygun.time.sleep(1500);
+  return raygun.http.fetch(url, { headers: HEADERS });
+};
 // Search results further than this from the track's length are probably another version.
 const MAX_LENGTH_GAP_S = 10;
 
@@ -58,7 +66,7 @@ const getExact = async (query: LyricsQuery): Promise<LrcRecord | null> => {
     album_name: query.album,
     duration: query.durationMs ? Math.round(query.durationMs / 1000) : null,
   });
-  const response = await raygun.http.fetch(`${API}/get?${params}`, { headers: HEADERS });
+  const response = await fetchPatiently(`${API}/get?${params}`);
   if (response.status === 404 || response.status === 400) return null;
   if (!response.ok) throw new Error(`LRCLIB answered HTTP ${response.status}`);
   return response.json<LrcRecord>();
@@ -68,7 +76,7 @@ const searchClosest = async (query: LyricsQuery): Promise<LrcRecord | null> => {
   const params = query.artist?.trim()
     ? encode({ track_name: query.title, artist_name: query.artist })
     : encode({ q: query.title });
-  const response = await raygun.http.fetch(`${API}/search?${params}`, { headers: HEADERS });
+  const response = await fetchPatiently(`${API}/search?${params}`);
   // A request LRCLIB can't answer means there are no lyrics to show, not a failure.
   if (response.status === 400 || response.status === 404) return null;
   if (!response.ok) throw new Error(`LRCLIB answered HTTP ${response.status}`);

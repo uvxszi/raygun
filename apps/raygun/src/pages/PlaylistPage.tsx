@@ -1,4 +1,6 @@
+import { commands } from '@raygun/bindings';
 import type { PlaylistDetail, PlaylistItem } from '@raygun/bindings';
+import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { ArrowDown, ArrowUp, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
@@ -9,8 +11,11 @@ import { TopBar } from '../shell/TopBar';
 
 import { PlayButtons } from '../collections/PlayButtons';
 import { PlaylistCover } from '../collections/PlaylistCover';
-import { SavedTrackRow } from '../collections/SavedTrackRow';
+import { savedRow } from '../music/tableView';
+import { TrackTable } from '../music/TrackTable';
+import { unwrapResult } from '../lib/commandResult';
 import {
+  COLLECTIONS,
   playCollection,
   useDeletePlaylist,
   useMovePlaylistItem,
@@ -144,6 +149,7 @@ export const PlaylistPage: FC = () => {
   const { t } = useTranslation();
   const { id } = useSearch({ from: '/library/playlist' });
   const playlist = usePlaylist(id);
+  const client = useQueryClient();
   const [editing, setEditing] = useState(false);
 
   if (playlist.error) {
@@ -196,20 +202,38 @@ export const PlaylistPage: FC = () => {
       {detail.items.length === 0 ? (
         <p className="text-muted text-sm">{t('collections.emptyPlaylist')}</p>
       ) : (
-        <ul className="flex flex-col">
-          {detail.items.map((item, index) => (
-            <li key={item.id}>
-              <SavedTrackRow
-                track={item.track}
-                playlistItemId={item.id}
-                onPlay={() =>
-                  void playCollection({ collection, startIndex: index, shuffle: false })
-                }
-                actions={editing ? <EditControls items={detail.items} index={index} /> : undefined}
-              />
-            </li>
-          ))}
-        </ul>
+        <TrackTable
+          kind="playlist"
+          tracks={detail.items.map((item) => savedRow(item.track, item.id, item.id))}
+          // A sorted or filtered table plays in the order it shows (M46.8).
+          onPlay={(ordered, index) =>
+            void playCollection({
+              collection,
+              startIndex: index,
+              shuffle: false,
+              order: ordered.map((row) => row.trackKey),
+            })
+          }
+          onRemove={(removed) =>
+            void Promise.all(
+              removed.map((row) =>
+                row.playlistItemId
+                  ? unwrapResult(commands.playlistRemoveItem(row.playlistItemId))
+                  : null,
+              ),
+            ).then(() => client.invalidateQueries({ queryKey: [COLLECTIONS] }))
+          }
+          actions={
+            editing
+              ? (row) => (
+                  <EditControls
+                    items={detail.items}
+                    index={detail.items.findIndex((item) => item.id === row.rowKey)}
+                  />
+                )
+              : undefined
+          }
+        />
       )}
     </section>
   );

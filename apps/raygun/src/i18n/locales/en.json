@@ -794,7 +794,8 @@
       "close": "Close the side panel",
       "fullLyrics": "Full screen",
       "nextUp": "Next in queue",
-      "openQueue": "Open the queue"
+      "openQueue": "Open the queue",
+      "resize": "Drag to resize the side panel"
     },
     "upNextView": "Up next",
     "view": {
@@ -821,8 +822,24 @@
         "left": "Left",
         "center": "Centred"
       },
-      "background": "Blurred artwork behind the player"
-    }
+      "background": "Blurred artwork behind the player",
+      "resizeSplit": "Drag to resize the artwork and lyrics"
+    },
+    "extras": {
+      "open": "Speed and sleep timer",
+      "title": "Speed and sleep timer",
+      "speed": "Speed",
+      "sleep": "Sleep timer",
+      "off": "Off",
+      "minutes_one": "{{count}} minute",
+      "minutes_other": "{{count}} minutes",
+      "minutesLeft_one": "{{count}} minute left",
+      "minutesLeft_other": "{{count}} minutes left",
+      "endOfSong": "End of the song"
+    },
+    "saveQueue": "Save as playlist",
+    "queueSavedName": "Queue from {{date}}",
+    "queueSaved": "Saved as “{{name}}”"
   },
   "common": {
     "coreUnavailable": "Core unavailable: {{message}}"
@@ -937,7 +954,7 @@
     "favorites": "Favorites",
     "emptyPlaylist": "This playlist is empty. Add songs from Search, your library or the player.",
     "rename": "Rename",
-    "save": "Save",
+    "save": "Save to Favorites or a playlist",
     "delete": "Delete playlist",
     "deleteConfirm": "Delete “{{name}}”? Its songs stay wherever they came from.",
     "edit": "Edit",
@@ -946,7 +963,14 @@
     "moveDown": "Move {{title}} down",
     "remove": "Remove {{title}}",
     "onDevice": "On this device",
-    "noFavoritesTitle": "No favorites yet"
+    "noFavoritesTitle": "No favorites yet",
+    "saved": "Saved; change where",
+    "findPlaylist": "Find a playlist",
+    "savedIn": "Saved in",
+    "yourPlaylists": "Your playlists",
+    "favoritesDetail": "Your favorite songs",
+    "songs_one": "{{count}} song",
+    "songs_other": "{{count}} songs"
   },
   "mcp": {
     "title": "MCP server",
@@ -1789,5 +1813,105 @@
     "disable": "Turn this source off",
     "enable": "Turn this source on",
     "disabledNote": "Off · {{detail}}"
+  },
+  "artist": {
+    "title": "Artist",
+    "kind": "Artist",
+    "loading": "Loading the artist",
+    "summary": "{{popular}} popular songs · {{library}} in your library · {{saved}} saved",
+    "popular": "Popular",
+    "showMore": "Show more",
+    "showLess": "Show less",
+    "noPopular": "Your sources found no songs by this artist.",
+    "albums": "Albums in your library",
+    "inLibrary": "Songs in your library",
+    "saved": "Your saved songs"
+  },
+  "menu": {
+    "title": "Options",
+    "cut": "Cut",
+    "copy": "Copy",
+    "paste": "Paste",
+    "selectAll": "Select all",
+    "searchFor": "Search Raygun for “{{text}}”",
+    "copyLink": "Copy link address",
+    "openLink": "Open link in your browser",
+    "copyImageAddress": "Copy image address",
+    "back": "Back",
+    "forward": "Forward",
+    "reload": "Reload",
+    "fullscreen": "Full screen",
+    "play": "Play",
+    "playNext": "Play next",
+    "addToQueue": "Add to queue",
+    "goToArtist": "Go to {{name}}",
+    "findSong": "Find this song elsewhere",
+    "copyName": "Copy song name",
+    "open": "Open",
+    "searchEverywhere": "Search for it in every source",
+    "copyTitle": "Copy title"
+  },
+  "tracks": {
+    "table": "Songs",
+    "sortBy": "Sort by",
+    "viewAs": "View as",
+    "view": {
+      "list": "List",
+      "compact": "Compact"
+    },
+    "sort": {
+      "custom": "Custom order",
+      "title": "Title",
+      "artist": "Artist",
+      "album": "Album",
+      "added": "Recently added",
+      "duration": "Duration",
+      "plays": "Most played",
+      "addedOrder": "Recently added"
+    },
+    "columns": "Columns",
+    "column": {
+      "title": "Title",
+      "album": "Album",
+      "added": "Date added",
+      "plays": "Plays",
+      "duration": "Duration"
+    },
+    "resetWidths": "Reset column widths",
+    "filter": "Find in these songs",
+    "noMatch": "No songs here match “{{filter}}”.",
+    "selection": "Selected songs",
+    "selected_one": "{{count}} song selected",
+    "selected_other": "{{count}} songs selected",
+    "remove": "Remove",
+    "clearSelection": "Clear the selection",
+    "playRow": "Play {{title}}",
+    "sortButton": "Sort and view: {{sort}}",
+    "resizeColumn": "Drag to resize {{name}}"
+  },
+  "rail": {
+    "library": "Your library",
+    "resize": "Drag to resize the side rail"
+  },
+  "shortcuts": {
+    "title": "Keyboard shortcuts",
+    "playPause": "Play or pause",
+    "next": "Next song",
+    "previous": "Previous song",
+    "forward": "Forward 5 seconds",
+    "back": "Back 5 seconds",
+    "louder": "Louder",
+    "quieter": "Quieter",
+    "mute": "Mute",
+    "shuffle": "Shuffle",
+    "repeat": "Repeat",
+    "lyrics": "Lyrics",
+    "queue": "Queue",
+    "player": "Open or close the full player",
+    "help": "These shortcuts",
+    "fullscreen": "Full screen",
+    "zoom": "Zoom (readers)",
+    "navBack": "Back",
+    "menu": "Options for what’s under the pointer"
   }
 }
