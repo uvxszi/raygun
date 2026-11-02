@@ -21,6 +21,20 @@ static REPORT_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 static CONTROL_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 static TTS_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 static VIDEO_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
+static WEBSITE_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
+
+/// Installs the receiver for the built-in browser's reports (`{"id", "url", "blockAds"}` JSON,
+/// M46.3). Called on the Android main thread. Only the first call wins.
+pub fn set_website_handler(handler: impl Fn(String) + Send + Sync + 'static) {
+    let _ = WEBSITE_HANDLER.set(Box::new(handler));
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn deliver_website(json: String) {
+    if let Some(handler) = WEBSITE_HANDLER.get() {
+        handler(json);
+    }
+}
 
 /// Installs the receiver for video player reports (`{"id", "state", "positionMs", "durationMs"}`
 /// JSON, M38). Called on the Android main thread. Only the first call wins.
@@ -145,6 +159,24 @@ pub struct OutputFile {
 }
 
 impl<R: Runtime> NativeAudio<R> {
+    /// Opens a website in the built-in browser (M46.3).
+    #[cfg(target_os = "android")]
+    pub fn website_open(&self, request: &serde_json::Value) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>("websiteOpen", request.clone())
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    /// Clears the built-in browser's cookies, storage and cache.
+    #[cfg(target_os = "android")]
+    pub fn website_clear(&self) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>("websiteClear", ())
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
     /// Shows the system folder picker and keeps the grant. Blocks until the user answers.
     #[cfg(target_os = "android")]
     pub fn pick_folder(&self) -> Result<PickedFolder, String> {

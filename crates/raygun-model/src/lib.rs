@@ -105,6 +105,8 @@ pub struct Settings {
     pub save: SavePrefs,
     /// Image cache limits and refreshing (M46.2).
     pub cache: CachePrefs,
+    /// The built-in browser and its blocker (M46.3).
+    pub websites: WebsitePrefs,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -543,6 +545,7 @@ impl Default for Settings {
             library_display: LibraryDisplayPrefs::default(),
             save: SavePrefs::default(),
             cache: CachePrefs::default(),
+            websites: WebsitePrefs::default(),
         }
     }
 }
@@ -574,6 +577,7 @@ impl Settings {
             SettingChange::LibraryDisplay(prefs) => self.library_display = prefs,
             SettingChange::Save(prefs) => self.save = prefs,
             SettingChange::Cache(prefs) => self.cache = prefs,
+            SettingChange::Websites(prefs) => self.websites = prefs,
         }
     }
 }
@@ -608,6 +612,7 @@ pub enum SettingChange {
     LibraryDisplay(LibraryDisplayPrefs),
     Save(SavePrefs),
     Cache(CachePrefs),
+    Websites(WebsitePrefs),
 }
 
 impl SettingChange {
@@ -638,6 +643,7 @@ impl SettingChange {
             Self::LibraryDisplay(_) => "libraryDisplay",
             Self::Save(_) => "save",
             Self::Cache(_) => "cache",
+            Self::Websites(_) => "websites",
         }
     }
 
@@ -686,6 +692,7 @@ impl SettingChange {
             }
             Self::VideoPlayer(prefs) => prefs.validate(),
             Self::Cache(prefs) => prefs.validate(),
+            Self::Websites(prefs) => prefs.validate(),
             Self::Save(prefs) => {
                 if prefs.location == SaveLocation::Folder && prefs.folder_uri.is_none() {
                     Err("Pick a folder first".into())
@@ -1805,6 +1812,120 @@ pub enum LibraryTabs {
     /// Favorites and the lists (CloudStream).
     Lists,
     None,
+}
+
+// ---- Websites and the built-in browser (M46.3) ----
+
+/// The list of ad and tracker domains the built-in browser blocks.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum Blocklist {
+    /// HaGeZi's Multi NORMAL: ads, trackers, malware, few false positives.
+    #[default]
+    HageziMulti,
+    /// HaGeZi's Light: the smallest.
+    HageziLight,
+    /// HaGeZi's PRO: the strictest.
+    HageziPro,
+    /// StevenBlack's unified hosts.
+    StevenBlack,
+    /// An address the user gave (domains, hosts or `||domain^` rules).
+    Custom,
+}
+
+impl Blocklist {
+    /// Where the list is downloaded from.
+    pub fn url(self) -> Option<&'static str> {
+        match self {
+            Self::HageziMulti => Some(
+                "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/multi-onlydomains.txt",
+            ),
+            Self::HageziLight => Some(
+                "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/light-onlydomains.txt",
+            ),
+            Self::HageziPro => Some(
+                "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/pro-onlydomains.txt",
+            ),
+            Self::StevenBlack => {
+                Some("https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts")
+            }
+            Self::Custom => None,
+        }
+    }
+}
+
+/// The built-in browser and its blocker. One stored row; missing fields keep their defaults.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct WebsitePrefs {
+    /// Listed ad and tracker domains are blocked.
+    pub block_ads: bool,
+    /// Popups and redirects to other sites no tap asked for are blocked.
+    pub block_popups: bool,
+    pub blocklist: Blocklist,
+    /// For [`Blocklist::Custom`].
+    pub custom_list_url: Option<String>,
+    /// Sites open in desktop mode.
+    pub desktop: bool,
+}
+
+impl Default for WebsitePrefs {
+    fn default() -> Self {
+        Self {
+            block_ads: true,
+            block_popups: true,
+            blocklist: Blocklist::HageziMulti,
+            custom_list_url: None,
+            desktop: false,
+        }
+    }
+}
+
+impl WebsitePrefs {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.blocklist == Blocklist::Custom {
+            let url = self.custom_list_url.as_deref().unwrap_or_default();
+            if !url.starts_with("https://") && !url.starts_with("http://") {
+                return Err("Enter the list's web address".into());
+            }
+        }
+        Ok(())
+    }
+
+    /// Where the chosen list is downloaded from.
+    pub fn list_url(&self) -> Option<String> {
+        match self.blocklist {
+            Blocklist::Custom => self.custom_list_url.clone(),
+            list => list.url().map(str::to_owned),
+        }
+    }
+}
+
+/// A website the user added.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Website {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    pub host: String,
+    /// Its icon through the cover cache.
+    pub icon: Option<String>,
+    /// Where it was left, when it opens there rather than at `url`.
+    pub last_url: Option<String>,
+    pub block_ads: bool,
+}
+
+/// The downloaded blocklist.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BlocklistStatus {
+    /// Domains listed; 0 before the first download (a short built-in list is used then).
+    pub domains: u32,
+    /// Unix ms.
+    pub updated_at: Option<f64>,
+    pub source: Option<String>,
+    pub error: Option<String>,
 }
 
 // ---- Image caches (M46.2) ----

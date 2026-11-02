@@ -410,7 +410,7 @@
       },
       "browse": {
         "title": "Browse",
-        "summary": "Adult content, extensions, repositories, addons"
+        "summary": "Websites and the ad blocker, adult content, extensions, repositories, addons"
       },
       "data": {
         "title": "Data and backup",
@@ -1510,5 +1510,51 @@
     "refreshDays_other": "{{count}} days",
     "clearPagesOnStart": "Clear the page cache on start",
     "clearPagesOnStartHint": "Reader pages are fetched again each time the app opens."
+  },
+  "websites": {
+    "title": "Websites",
+    "add": "Add website",
+    "addButton": "Add",
+    "edit": "Edit website",
+    "save": "Save",
+    "address": "Address",
+    "name": "Name",
+    "namePlaceholder": "Name (optional)",
+    "blockerNote": "Sites open in Raygun's browser, with ads, popups and redirects blocked.",
+    "empty": "Add any site to open it here, with ads and popups blocked.",
+    "open": "Open {{name}}",
+    "menu": "{{name}} options",
+    "startOver": "Start from its home page",
+    "remove": "Remove",
+    "blockAds": "Block ads and trackers",
+    "blockAdsHint": "Requests to listed ad and tracker sites are stopped. Each site can turn it off in its menu.",
+    "blockPopups": "Block popups and redirects",
+    "blockPopupsHint": "New windows to other sites, and jumps to other sites made by the page, are held; a notice lets you go anyway.",
+    "list": "Blocklist",
+    "listStatus_one": "{{formatted}} site listed · updated {{date}}",
+    "listStatus_other": "{{formatted}} sites listed · updated {{date}}",
+    "listNone": "Downloaded when a site first opens; a short built-in list is used until then.",
+    "lists": {
+      "hageziMulti": "HaGeZi Multi NORMAL",
+      "hageziLight": "HaGeZi Light",
+      "hageziPro": "HaGeZi PRO",
+      "stevenBlack": "StevenBlack hosts",
+      "custom": "A list from an address"
+    },
+    "listHints": {
+      "hageziMulti": "Ads, trackers and malware, with few false positives (recommended)",
+      "hageziLight": "The smallest: the worst ads and trackers",
+      "hageziPro": "The strictest: more blocked, now and then a site breaks",
+      "stevenBlack": "A well-known hosts file of ads and malware",
+      "custom": "Domains, a hosts file or ||domain^ rules"
+    },
+    "customUrl": "List address",
+    "customHint": "One domain per line, a hosts file (0.0.0.0 domain), or adblock rules that block a whole domain (||domain^).",
+    "updateList": "Update blocklist now",
+    "updating": "Updating…",
+    "clearData": "Clear website data",
+    "cleared": "Cookies, logins and saved data of websites were cleared.",
+    "desktop": "Open sites in desktop mode",
+    "desktopHint": "Asks sites for their computer version. Each site can switch in its menu."
   }
 }

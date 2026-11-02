@@ -39,6 +39,13 @@ const DEFAULT_SETTINGS: Settings = {
   libraryDisplay: LIBRARY_DISPLAY_DEFAULTS,
   save: SAVE_DEFAULTS,
   cache: CACHE_DEFAULTS,
+  websites: {
+    blockAds: true,
+    blockPopups: true,
+    blocklist: 'hageziMulti',
+    customListUrl: null,
+    desktop: false,
+  },
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,

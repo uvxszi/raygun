@@ -1,0 +1,372 @@
+//! Websites the user added and Raygun's built-in browser (M46.3).
+//!
+//! The browser is `WebsiteActivity` in the `raygun-audio` plugin, in its own process. Rust keeps
+//! the list, opens a site with its settings and the blocklist's path, keeps the blocklist
+//! (downloaded and refreshed weekly, written in the form `Blocklist.kt` reads) and stores what
+//! the browser reports: where a site was left and whether its blocker is on.
+
+pub mod blocklist;
+
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+
+use raygun_db::websites as store;
+use raygun_model::{BlocklistStatus, Website, WebsitePrefs};
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Manager};
+use tokio::sync::Mutex;
+
+use crate::catalog::{now_ms, to_message};
+use crate::startup::AppDb;
+
+const LIST_FILE: &str = "blocklist.bin";
+const STATUS_KEY: &str = "web.blocklist";
+/// The list is downloaded again when a site opens after this long.
+const REFRESH: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+/// The biggest list read (HaGeZi PRO is about 4 MB).
+const MAX_LIST_BYTES: usize = 32 * 1024 * 1024;
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredStatus {
+    domains: u32,
+    updated_at: Option<i64>,
+    source: Option<String>,
+}
+
+pub struct WebsiteService {
+    app: AppHandle,
+    dir: PathBuf,
+    client: reqwest::Client,
+    /// One download at a time; the last one's error.
+    updating: Mutex<Option<String>>,
+}
+
+/// An address as typed: `example.com/x` becomes `https://example.com/x`. Only web addresses.
+pub fn normalize(input: &str) -> Result<url::Url, String> {
+    let input = input.trim();
+    let with_scheme = if input.contains("://") {
+        input.to_owned()
+    } else {
+        format!("https://{input}")
+    };
+    let url = url::Url::parse(&with_scheme).map_err(|_| "That isn't a web address".to_owned())?;
+    let host = url.host_str().unwrap_or_default();
+    if !matches!(url.scheme(), "http" | "https") || host.is_empty() || !host.contains('.') {
+        return Err("Enter a web address, like example.com".into());
+    }
+    Ok(url)
+}
+
+/// A site's name from its address: the host without `www.`.
+pub fn default_name(url: &url::Url) -> String {
+    let host = url.host_str().unwrap_or_default();
+    host.strip_prefix("www.").unwrap_or(host).to_owned()
+}
+
+impl WebsiteService {
+    pub fn new(app: AppHandle, dir: PathBuf) -> Result<Self, reqwest::Error> {
+        Ok(Self {
+            app,
+            dir,
+            client: raygun_net::http_client()?,
+            updating: Mutex::new(None),
+        })
+    }
+
+    fn db(&self) -> Arc<raygun_db::Db> {
+        self.app.state::<AppDb>().inner().0.clone()
+    }
+
+    async fn prefs(&self) -> WebsitePrefs {
+        crate::settings::load(&self.db())
+            .await
+            .map(|settings| settings.websites)
+            .unwrap_or_default()
+    }
+
+    fn view(&self, site: store::Website) -> Website {
+        let host = url::Url::parse(&site.url)
+            .ok()
+            .and_then(|url| url.host_str().map(str::to_owned))
+            .unwrap_or_default();
+        let images = self.app.state::<raygun_net::ImageLinks>();
+        let icon = (!host.is_empty()).then(|| {
+            images.kept_cover(&format!("https://{host}/favicon.ico"), &Default::default())
+        });
+        Website {
+            id: site.id,
+            name: site.name,
+            url: site.url,
+            host,
+            icon,
+            last_url: site.last_url,
+            block_ads: site.block_ads,
+        }
+    }
+
+    pub async fn list(&self) -> Result<Vec<Website>, String> {
+        Ok(store::list(&self.db())
+            .await
+            .map_err(to_message)?
+            .into_iter()
+            .map(|site| self.view(site))
+            .collect())
+    }
+
+    pub async fn add(&self, name: Option<String>, url: &str) -> Result<Website, String> {
+        let url = normalize(url)?;
+        let name = name
+            .map(|name| name.trim().to_owned())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| default_name(&url));
+        let db = self.db();
+        let id = store::add(&db, &name, url.as_str())
+            .await
+            .map_err(to_message)?;
+        let site = store::get(&db, &id)
+            .await
+            .map_err(to_message)?
+            .ok_or("The site wasn't saved")?;
+        Ok(self.view(site))
+    }
+
+    pub async fn edit(&self, id: &str, name: &str, url: &str) -> Result<(), String> {
+        let url = normalize(url)?;
+        let name = match name.trim() {
+            "" => default_name(&url),
+            name => name.to_owned(),
+        };
+        store::edit(&self.db(), id, &name, url.as_str())
+            .await
+            .map_err(to_message)
+    }
+
+    pub async fn remove(&self, id: &str) -> Result<(), String> {
+        store::remove(&self.db(), id).await.map_err(to_message)
+    }
+
+    /// Forgets where a site was left: it opens at its address again.
+    pub async fn reset(&self, id: &str) -> Result<(), String> {
+        let db = self.db();
+        let site = store::get(&db, id)
+            .await
+            .map_err(to_message)?
+            .ok_or("The site was removed")?;
+        store::set_state(&db, id, None, site.block_ads)
+            .await
+            .map_err(to_message)
+    }
+
+    /// Opens a site in the built-in browser, where it was left.
+    pub async fn open(self: &Arc<Self>, id: &str) -> Result<(), String> {
+        let site = store::get(&self.db(), id)
+            .await
+            .map_err(to_message)?
+            .ok_or("The site was removed")?;
+        let prefs = self.prefs().await;
+        let list = self.dir.join(LIST_FILE);
+        if prefs.block_ads && self.list_is_old().await {
+            let service = self.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = service.update_blocklist().await {
+                    tracing::info!(%error, "blocklist not updated");
+                }
+            });
+        }
+        let request = serde_json::json!({
+            "id": site.id,
+            "url": site.last_url.as_deref().unwrap_or(&site.url),
+            "home": site.url,
+            "blockAds": prefs.block_ads && site.block_ads,
+            "blockPopups": prefs.block_popups,
+            "desktop": prefs.desktop,
+            "blocklist": list.to_string_lossy(),
+        });
+        self.launch(&request)
+    }
+
+    #[cfg(target_os = "android")]
+    fn launch(&self, request: &serde_json::Value) -> Result<(), String> {
+        self.app
+            .state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+            .website_open(request)
+    }
+
+    #[cfg(not(target_os = "android"))]
+    fn launch(&self, _request: &serde_json::Value) -> Result<(), String> {
+        Err("The built-in browser works on Android only for now".into())
+    }
+
+    /// Clears the browser's cookies, storage and cache.
+    pub fn clear_data(&self) -> Result<(), String> {
+        #[cfg(target_os = "android")]
+        {
+            self.app
+                .state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+                .website_clear()
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            Err("The built-in browser works on Android only for now".into())
+        }
+    }
+
+    async fn stored_status(&self) -> StoredStatus {
+        raygun_db::local_value(&self.db(), STATUS_KEY)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|json| serde_json::from_str(&json).ok())
+            .unwrap_or_default()
+    }
+
+    async fn list_is_old(&self) -> bool {
+        let status = self.stored_status().await;
+        let source_changed = status.source != self.prefs().await.list_url();
+        let old = status
+            .updated_at
+            .is_none_or(|at| now_ms().saturating_sub(at) > REFRESH.as_millis() as i64);
+        old || source_changed || !self.dir.join(LIST_FILE).exists()
+    }
+
+    pub async fn status(&self) -> BlocklistStatus {
+        let stored = self.stored_status().await;
+        BlocklistStatus {
+            domains: stored.domains,
+            updated_at: stored.updated_at.map(|at| at as f64),
+            source: stored.source,
+            error: self.updating.lock().await.clone(),
+        }
+    }
+
+    /// Downloads the chosen list and writes it for the browser.
+    pub async fn update_blocklist(&self) -> Result<BlocklistStatus, String> {
+        let mut last_error = self.updating.lock().await;
+        let result = self.download_list().await;
+        *last_error = result.as_ref().err().cloned();
+        drop(last_error);
+        result?;
+        Ok(self.status().await)
+    }
+
+    async fn download_list(&self) -> Result<(), String> {
+        let source = self
+            .prefs()
+            .await
+            .list_url()
+            .ok_or("Choose a blocklist first")?;
+        let response = self
+            .client
+            .get(&source)
+            .timeout(Duration::from_secs(60))
+            .send()
+            .await
+            .map_err(|error| format!("The list couldn't be downloaded: {error}"))?;
+        if !response.status().is_success() {
+            return Err(format!(
+                "The list couldn't be downloaded (HTTP {})",
+                response.status().as_u16()
+            ));
+        }
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_LIST_BYTES as u64)
+        {
+            return Err("The list is too large".into());
+        }
+        let bytes = response.bytes().await.map_err(to_message)?;
+        if bytes.len() > MAX_LIST_BYTES {
+            return Err("The list is too large".into());
+        }
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        let dir = self.dir.clone();
+        let domains = tauri::async_runtime::spawn_blocking(move || {
+            let domains = blocklist::parse(&text);
+            if domains.is_empty() {
+                return Err("The list has no domains in it".to_owned());
+            }
+            std::fs::create_dir_all(&dir).map_err(to_message)?;
+            let partial = dir.join(format!("{LIST_FILE}.part"));
+            std::fs::write(&partial, blocklist::encode(&domains)).map_err(to_message)?;
+            std::fs::rename(&partial, dir.join(LIST_FILE)).map_err(to_message)?;
+            Ok(domains.len())
+        })
+        .await
+        .map_err(to_message)??;
+        let status = StoredStatus {
+            domains: domains.min(u32::MAX as usize) as u32,
+            updated_at: Some(now_ms()),
+            source: Some(source),
+        };
+        raygun_db::set_local_value(
+            &self.db(),
+            STATUS_KEY,
+            &serde_json::to_string(&status).map_err(to_message)?,
+        )
+        .await
+        .map_err(to_message)?;
+        tracing::info!(domains, "blocklist updated");
+        Ok(())
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Report {
+    id: String,
+    url: Option<String>,
+    block_ads: bool,
+}
+
+/// The browser's reports (where a site is, its blocker) become the site's stored state.
+pub fn install(app: &AppHandle) {
+    let (sender, mut reports) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        while let Some(json) = reports.recv().await {
+            let Ok(report) = serde_json::from_str::<Report>(&json) else {
+                tracing::warn!(%json, "unreadable browser report");
+                continue;
+            };
+            let url = report
+                .url
+                .filter(|url| url.starts_with("https://") || url.starts_with("http://"));
+            let db = app.state::<AppDb>().inner().0.clone();
+            if let Err(error) =
+                store::set_state(&db, &report.id, url.as_deref(), report.block_ads).await
+            {
+                tracing::warn!(%error, "could not store a site's state");
+            }
+        }
+    });
+    tauri_plugin_raygun_audio::set_website_handler(move |json| {
+        let _ = sender.send(json);
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn addresses_are_completed_and_checked() {
+        assert_eq!(
+            normalize("archive.org/details/x").unwrap().as_str(),
+            "https://archive.org/details/x"
+        );
+        assert_eq!(
+            normalize(" http://example.com ").unwrap().as_str(),
+            "http://example.com/"
+        );
+        assert!(normalize("ftp://example.com").is_err());
+        assert!(normalize("javascript:alert(1)").is_err());
+        assert!(normalize("localhost").is_err());
+        assert!(normalize("").is_err());
+        assert_eq!(
+            default_name(&normalize("www.wikipedia.org").unwrap()),
+            "wikipedia.org"
+        );
+    }
+}

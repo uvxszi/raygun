@@ -43,6 +43,7 @@ mod video_downloads;
 mod video_library;
 mod video_session;
 mod video_sources;
+mod websites;
 
 use std::path::Path;
 
@@ -207,6 +208,15 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::page_copy,
             commands::storage_usage,
             commands::storage_clear,
+            commands::website_list,
+            commands::website_add,
+            commands::website_edit,
+            commands::website_remove,
+            commands::website_reset,
+            commands::website_open,
+            commands::website_blocklist_status,
+            commands::website_blocklist_update,
+            commands::website_clear_data,
             commands::catalog_filters,
             commands::catalog_search,
             commands::catalog_global_search,

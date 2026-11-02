@@ -24,6 +24,18 @@ object NativeBridge {
     @JvmStatic
     external fun onVideo(json: String)
 
+    /** The built-in browser's state for a site (M46.3). */
+    @JvmStatic
+    external fun onWebsite(json: String)
+
+    fun website(json: String) {
+        try {
+            onWebsite(json)
+        } catch (error: UnsatisfiedLinkError) {
+            Log.e("RaygunAudio", "Rust engine bridge is not linked", error)
+        }
+    }
+
     fun video(json: String) {
         try {
             onVideo(json)

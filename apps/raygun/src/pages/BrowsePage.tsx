@@ -14,6 +14,7 @@ import { LetterAvatar } from '../shell/LetterAvatar';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { Tabs } from '../shell/Tabs';
 import { SearchPanel } from '../search/SearchPanel';
+import { WebsitesSection } from '../websites/WebsitesSection';
 import type { SearchType } from '../search/searchTypes';
 import { useStremioAddons } from '../watch/useStremio';
 import { useVideoSources } from '../watch/useVideoSources';
@@ -124,6 +125,7 @@ const SourcesList: FC = () => {
         rows={catalogue(novel.data, '/novel/source')}
       />
       {empty && <p className="text-muted px-1 text-sm">{t('browse.noSources')}</p>}
+      <WebsitesSection />
     </div>
   );
 };

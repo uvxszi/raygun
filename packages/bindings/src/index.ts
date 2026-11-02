@@ -307,6 +307,20 @@ export const commands = {
 	storageUsage: () => typedError<StorageUsage[], string>(__TAURI_INVOKE("storage_usage")),
 	/**  Empties one cache; returns the new sizes. */
 	storageClear: (area: StorageArea) => typedError<StorageUsage[], string>(__TAURI_INVOKE("storage_clear", { area })),
+	websiteList: () => typedError<Website[], string>(__TAURI_INVOKE("website_list")),
+	/**  Adds a site by its address (`example.com` is enough); the name defaults to its host. */
+	websiteAdd: (name: string | null, url: string) => typedError<Website, string>(__TAURI_INVOKE("website_add", { name, url })),
+	websiteEdit: (id: string, name: string, url: string) => typedError<null, string>(__TAURI_INVOKE("website_edit", { id, name, url })),
+	websiteRemove: (id: string) => typedError<null, string>(__TAURI_INVOKE("website_remove", { id })),
+	/**  Forgets where a site was left. */
+	websiteReset: (id: string) => typedError<null, string>(__TAURI_INVOKE("website_reset", { id })),
+	/**  Opens a site in the built-in browser. */
+	websiteOpen: (id: string) => typedError<null, string>(__TAURI_INVOKE("website_open", { id })),
+	websiteBlocklistStatus: () => typedError<BlocklistStatus, string>(__TAURI_INVOKE("website_blocklist_status")),
+	/**  Downloads the chosen blocklist now. */
+	websiteBlocklistUpdate: () => typedError<BlocklistStatus, string>(__TAURI_INVOKE("website_blocklist_update")),
+	/**  Clears the built-in browser's cookies, storage and cache. */
+	websiteClearData: () => typedError<null, string>(__TAURI_INVOKE("website_clear_data")),
 	/**  The filters a manga or novel source offers for its search. */
 	catalogFilters: (medium: string, sourceId: string) => typedError<SourceFilter[], string>(__TAURI_INVOKE("catalog_filters", { medium, sourceId })),
 	/**  Searches one source with its filters; the query may be empty when filters are set. */
@@ -502,6 +516,29 @@ export type BackupFile = {
 export type BackupOutcome = 
 /**  A Raygun backup: rows read and rows that changed here. */
 { kind: "raygun"; received: number; changed: number } | { kind: "mihon"; summary: MihonImport };
+
+/**  The list of ad and tracker domains the built-in browser blocks. */
+export type Blocklist = 
+/**  HaGeZi's Multi NORMAL: ads, trackers, malware, few false positives. */
+"hageziMulti" | 
+/**  HaGeZi's Light: the smallest. */
+"hageziLight" | 
+/**  HaGeZi's PRO: the strictest. */
+"hageziPro" | 
+/**  StevenBlack's unified hosts. */
+"stevenBlack" | 
+/**  An address the user gave (domains, hosts or `||domain^` rules). */
+"custom";
+
+/**  The downloaded blocklist. */
+export type BlocklistStatus = {
+	/**  Domains listed; 0 before the first download (a short built-in list is used then). */
+	domains: number,
+	/**  Unix ms. */
+	updatedAt: number | null,
+	source: string | null,
+	error: string | null,
+};
 
 /**  Image cache limits and refreshing. One stored row; missing fields keep their defaults. */
 export type CachePrefs = {
@@ -1470,7 +1507,7 @@ export type SearchResults = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -1526,6 +1563,8 @@ export type Settings = {
 	save: SavePrefs,
 	/**  Image cache limits and refreshing (M46.2). */
 	cache: CachePrefs,
+	/**  The built-in browser and its blocker (M46.3). */
+	websites: WebsitePrefs,
 };
 
 /**  A setting changed outside the Settings screens (in the video player, M45); carries its key. */
@@ -2130,6 +2169,32 @@ export type VideoUpdateItem = {
  *  (M38).
  */
 export type WatchChangedEvent = string;
+
+/**  A website the user added. */
+export type Website = {
+	id: string,
+	name: string,
+	url: string,
+	host: string,
+	/**  Its icon through the cover cache. */
+	icon: string | null,
+	/**  Where it was left, when it opens there rather than at `url`. */
+	lastUrl: string | null,
+	blockAds: boolean,
+};
+
+/**  The built-in browser and its blocker. One stored row; missing fields keep their defaults. */
+export type WebsitePrefs = {
+	/**  Listed ad and tracker domains are blocked. */
+	blockAds?: boolean,
+	/**  Popups and redirects to other sites no tap asked for are blocked. */
+	blockPopups?: boolean,
+	blocklist?: Blocklist,
+	/**  For [`Blocklist::Custom`]. */
+	customListUrl?: string | null,
+	/**  Sites open in desktop mode. */
+	desktop?: boolean,
+};
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

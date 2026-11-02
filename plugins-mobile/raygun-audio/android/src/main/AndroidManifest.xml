@@ -24,6 +24,22 @@
             android:resizeableActivity="true"
             android:supportsPictureInPicture="true"
             android:theme="@style/Theme.AppCompat.NoActionBar" />
+        <!-- The built-in browser for websites the user added (M46.3), in its own process so its
+             cookies, storage and cache stay apart from Raygun's webview. -->
+        <activity
+            android:name="app.raygun.audio.WebsiteActivity"
+            android:process=":web"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.AppCompat.NoActionBar" />
+        <activity
+            android:name="app.raygun.audio.WebsiteDataActivity"
+            android:process=":web"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay" />
         <service
             android:name="app.raygun.audio.RaygunPlaybackService"
             android:exported="true"

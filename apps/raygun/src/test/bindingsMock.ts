@@ -111,6 +111,13 @@ export const DEFAULT_SETTINGS: Settings = {
   libraryDisplay: LIBRARY_DISPLAY_DEFAULTS,
   save: SAVE_DEFAULTS,
   cache: CACHE_DEFAULTS,
+  websites: {
+    blockAds: true,
+    blockPopups: true,
+    blocklist: 'hageziMulti',
+    customListUrl: null,
+    desktop: false,
+  },
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,
@@ -288,6 +295,15 @@ export const bindingsMock = {
     pageCopy: vi.fn(),
     storageUsage: vi.fn(),
     storageClear: vi.fn(),
+    websiteList: vi.fn(),
+    websiteAdd: vi.fn(),
+    websiteEdit: vi.fn(),
+    websiteRemove: vi.fn(),
+    websiteReset: vi.fn(),
+    websiteOpen: vi.fn(),
+    websiteBlocklistStatus: vi.fn(),
+    websiteBlocklistUpdate: vi.fn(),
+    websiteClearData: vi.fn(),
     videoHistory: vi.fn(),
     videoSources: vi.fn(),
     videoBrowse: vi.fn(),
@@ -538,6 +554,19 @@ export const seedBindings = () => {
   commands.pageCopy.mockResolvedValue(ok(null));
   commands.storageUsage.mockResolvedValue(ok([]));
   commands.storageClear.mockResolvedValue(ok([]));
+  commands.websiteList.mockResolvedValue(ok([]));
+  for (const command of [
+    commands.websiteEdit,
+    commands.websiteRemove,
+    commands.websiteReset,
+    commands.websiteOpen,
+    commands.websiteClearData,
+  ]) {
+    command.mockResolvedValue(ok(null));
+  }
+  const blocklist = { domains: 0, updatedAt: null, source: null, error: null };
+  commands.websiteBlocklistStatus.mockResolvedValue(ok(blocklist));
+  commands.websiteBlocklistUpdate.mockResolvedValue(ok(blocklist));
   commands.videoHistory.mockResolvedValue(ok([]));
   commands.videoSources.mockResolvedValue(ok([]));
   commands.videoBrowse.mockResolvedValue(ok({ items: [], hasNextPage: false }));

@@ -60,6 +60,18 @@ pub extern "system" fn Java_app_raygun_audio_NativeBridge_onVideo(
     }
 }
 
+/// Called by `app.raygun.audio.NativeBridge.onWebsite` on the Android main thread (M46.3).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_app_raygun_audio_NativeBridge_onWebsite(
+    mut env: JNIEnv,
+    _class: JClass,
+    json: JString,
+) {
+    if let Ok(json) = env.get_string(&json) {
+        crate::deliver_website(json.into());
+    }
+}
+
 /// Called by `app.raygun.audio.NativeBridge.onEngineEvent` on the Android main thread.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_app_raygun_audio_NativeBridge_onEngineEvent(

@@ -101,7 +101,7 @@ The user asked for the full depth of the reference apps ("its not meant to be a 
 - M46.2 **Image cache and cache settings** (asked 2026-11-01: "extension icons and other shows and thumbnails … cache them so users dont have to keep loading them, and update when needed … have cache settings"):
   - covers, posters, thumbnails and extension icons kept on disk and refreshed when they change;
   - Settings → Data: cache sizes, limits and clear buttons per cache.
-- (Proposed, not scheduled) **Websites in Browse:** sites the user adds themselves, opened in an in-app browser. Asked for as a HiAnime page on 2026-11-01. Raygun won't bundle or scrape unlicensed streaming sites, but a neutral bookmark-and-browser feature serves the same convenience.
+- M46.3 **Websites, with an ad and popup blocker** (asked 2026-11-01): sites the user enters, opened in a built-in browser in its own process, with a downloaded ad and tracker blocklist and popup and redirect blocking. Raygun bundles no particular site.
 - M47 **Title pages and chapter/episode lists** (mihon §2; aniyomi §8; cloudstream §4; stremio §4; shosetsu novel screen):
   - **Lists:** filters, sort and display with defaults; selection with bulk actions (mark previous, download, delete, bookmark); bookmarks and fillers; swipe actions; download menus (next N, all unread).
   - **Title extras:** cover dialog and custom cover, notes, edit info, share, links (genres, authors and cast open Search).

@@ -352,6 +352,39 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
     }
 
+    // ---- The built-in browser (M46.3): see WebsiteActivity ----
+
+    private var websiteReports: WebsiteReports? = null
+
+    /** Reports from the browser's process reach Rust through this receiver. */
+    private fun listenToWebsites() {
+        if (websiteReports != null) return
+        val receiver = WebsiteReports()
+        androidx.core.content.ContextCompat.registerReceiver(
+            activity,
+            receiver,
+            android.content.IntentFilter(WebsiteActivity.ACTION_REPORT),
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        websiteReports = receiver
+    }
+
+    @Command
+    fun websiteOpen(invoke: Invoke) {
+        listenToWebsites()
+        activity.startActivity(
+            Intent(activity, WebsiteActivity::class.java)
+                .putExtra(WebsiteActivity.EXTRA_REQUEST, invoke.getArgs().toString()),
+        )
+        invoke.resolve()
+    }
+
+    @Command
+    fun websiteClear(invoke: Invoke) {
+        activity.startActivity(Intent(activity, WebsiteDataActivity::class.java))
+        invoke.resolve()
+    }
+
     // ---- Files outside the app (M46.1): see Storage ----
 
     @Command

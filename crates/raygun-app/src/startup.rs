@@ -61,6 +61,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         },
     ))?;
     app.manage(caches);
+    app.manage(std::sync::Arc::new(crate::websites::WebsiteService::new(
+        app.handle().clone(),
+        paths.root().join("web"),
+    )?));
     crate::caches::sweep_later(app.handle());
     app.manage(proxy.images());
     app.manage(crate::library::LibraryService::new(
@@ -177,6 +181,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     podcasts.start();
     crate::tts::install(app.handle());
     crate::video::install(app.handle());
+    crate::websites::install(app.handle());
     app.state::<crate::manga::MangaService>().start_scheduler();
     crate::system_ui::apply_saved_theme(app.handle().clone());
     Ok(())

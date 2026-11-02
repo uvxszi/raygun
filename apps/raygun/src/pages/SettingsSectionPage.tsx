@@ -40,6 +40,7 @@ import {
 } from '../settings/prefs';
 import { RemoteCard } from '../settings/RemoteCard';
 import { StorageSettings } from '../settings/StorageSettings';
+import { WebsiteSettings } from '../websites/WebsiteSettings';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { TopBar } from '../shell/TopBar';
 import type { SettingsSection } from '../settings/sections';
@@ -418,6 +419,7 @@ const BrowseSettings: FC = () => {
           }
         />
       </PrefGroup>
+      <WebsiteSettings />
       <PrefGroup title={t('settings.sources')}>
         <PrefLink
           icon={Puzzle}

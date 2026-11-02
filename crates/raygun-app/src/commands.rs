@@ -1704,6 +1704,82 @@ pub async fn storage_clear(
     Ok(caches.usage(&prefs).await)
 }
 
+// ---- Websites and the built-in browser (M46.3) ----
+
+type Websites<'a> = tauri::State<'a, Arc<crate::websites::WebsiteService>>;
+
+#[tauri::command]
+#[specta::specta]
+pub async fn website_list(websites: Websites<'_>) -> Result<Vec<raygun_model::Website>, String> {
+    websites.list().await
+}
+
+/// Adds a site by its address (`example.com` is enough); the name defaults to its host.
+#[tauri::command]
+#[specta::specta]
+pub async fn website_add(
+    websites: Websites<'_>,
+    name: Option<String>,
+    url: String,
+) -> Result<raygun_model::Website, String> {
+    websites.add(name, &url).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn website_edit(
+    websites: Websites<'_>,
+    id: String,
+    name: String,
+    url: String,
+) -> Result<(), String> {
+    websites.edit(&id, &name, &url).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn website_remove(websites: Websites<'_>, id: String) -> Result<(), String> {
+    websites.remove(&id).await
+}
+
+/// Forgets where a site was left.
+#[tauri::command]
+#[specta::specta]
+pub async fn website_reset(websites: Websites<'_>, id: String) -> Result<(), String> {
+    websites.reset(&id).await
+}
+
+/// Opens a site in the built-in browser.
+#[tauri::command]
+#[specta::specta]
+pub async fn website_open(websites: Websites<'_>, id: String) -> Result<(), String> {
+    websites.inner().clone().open(&id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn website_blocklist_status(
+    websites: Websites<'_>,
+) -> Result<raygun_model::BlocklistStatus, String> {
+    Ok(websites.status().await)
+}
+
+/// Downloads the chosen blocklist now.
+#[tauri::command]
+#[specta::specta]
+pub async fn website_blocklist_update(
+    websites: Websites<'_>,
+) -> Result<raygun_model::BlocklistStatus, String> {
+    websites.update_blocklist().await
+}
+
+/// Clears the built-in browser's cookies, storage and cache.
+#[tauri::command]
+#[specta::specta]
+pub fn website_clear_data(websites: Websites<'_>) -> Result<(), String> {
+    websites.clear_data()
+}
+
 /// Saves a reader page to Pictures/Raygun; returns where it went.
 #[tauri::command]
 #[specta::specta]

@@ -85,6 +85,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Downloads queue | Mihon | ✅ M28 |
 | CBZ, Wi-Fi only, delete after reading, download ahead, auto-download new chapters, concurrency | Mihon | ✅ M46.1 (downloads also saved as CBZ or images to Downloads or a picked folder; retries with backoff and Retry-After; resumed chapters) / 🔜 M49 (the rest) |
 | Export titles as CBZ, PDF, image folders, EPUB, text or video files, waiting for downloads first | (none of the reference apps) | ✅ M46.1 |
+| Websites the user adds, in a built-in browser with an ad, tracker, popup and redirect blocker | CloudStream (WebView), browsers | ✅ M46.3 |
 | Cover cache kept for the library, cache sizes and clearing, extension icons | Mihon, CloudStream, RiPlay | ✅ M46.2 (separate cover and page caches with limits, background revalidation, Storage screen, repository icons) |
 | Chapter swipe actions, scanlator filter, bookmarks | Mihon | 🔜 M47 |
 | Trackers (AniList, MAL, Kitsu, MangaUpdates, Bangumi, Shikimori, Komga/Kavita) | Mihon | ⏸ M59 (accounts) |

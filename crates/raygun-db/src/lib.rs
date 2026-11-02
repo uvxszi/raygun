@@ -19,6 +19,7 @@ pub mod sync;
 pub mod titles;
 pub mod video;
 pub mod video_downloads;
+pub mod websites;
 
 use std::path::Path;
 use std::str::FromStr;
