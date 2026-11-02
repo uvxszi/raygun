@@ -1,0 +1,12 @@
+{
+  "streams": [
+    {
+      "name": "Raygun test",
+      "title": "Internet Archive",
+      "url": "https://archive.org/download/ElephantsDream/ed_hd.mp4",
+      "behaviorHints": {
+        "bingeGroup": "raygun-test"
+      }
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "metas": [
+    {
+      "id": "rgtest-sintel",
+      "type": "movie",
+      "name": "Sintel (fallback test)",
+      "year": 2010,
+      "poster": "https://archive.org/services/img/Sintel",
+      "description": "Blender Foundation, CC BY 3.0. Two dead links come first: the player should move on to a working one by itself.",
+      "genres": [
+        "Animation",
+        "Test"
+      ]
+    },
+    {
+      "id": "rgtest-tears",
+      "type": "movie",
+      "name": "Tears of Steel (HLS and DASH)",
+      "year": 2012,
+      "poster": "https://archive.org/services/img/tears-of-steel",
+      "description": "Blender Foundation, CC BY 3.0. Adaptive streams: HLS and DASH test servers, then the file.",
+      "genres": [
+        "Animation",
+        "Test"
+      ]
+    },
+    {
+      "id": "rgtest-bbb",
+      "type": "movie",
+      "name": "Big Buck Bunny",
+      "year": 2008,
+      "poster": "https://archive.org/services/img/BigBuckBunny_124",
+      "description": "Blender Foundation, CC BY 3.0, from the Internet Archive and test HLS servers.",
+      "genres": [
+        "Animation",
+        "Test"
+      ]
+    },
+    {
+      "id": "rgtest-elephants",
+      "type": "movie",
+      "name": "Elephants Dream",
+      "year": 2006,
+      "poster": "https://archive.org/services/img/ElephantsDream",
+      "description": "Blender Foundation, CC BY 2.5, from the Internet Archive.",
+      "genres": [
+        "Animation",
+        "Test"
+      ]
+    },
+    {
+      "id": "rgtest-broken",
+      "type": "movie",
+      "name": "Every link broken (test)",
+      "year": 2026,
+      "poster": null,
+      "description": "Every link is dead on purpose: the player should say so calmly, not hang.",
+      "genres": [
+        "Animation",
+        "Test"
+      ]
+    }
+  ]
+}

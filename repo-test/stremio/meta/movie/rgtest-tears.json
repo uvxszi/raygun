@@ -1,0 +1,14 @@
+{
+  "meta": {
+    "id": "rgtest-tears",
+    "type": "movie",
+    "name": "Tears of Steel (HLS and DASH)",
+    "year": 2012,
+    "poster": "https://archive.org/services/img/tears-of-steel",
+    "description": "Blender Foundation, CC BY 3.0. Adaptive streams: HLS and DASH test servers, then the file.",
+    "genres": [
+      "Animation",
+      "Test"
+    ]
+  }
+}

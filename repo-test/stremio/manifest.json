@@ -1,0 +1,31 @@
+{
+  "id": "dev.raygun.test-videos",
+  "version": "1.0.0",
+  "name": "Raygun test videos",
+  "description": "Legal test films (Blender, Internet Archive) and live news channels, with dead links first to test fallback. For testing Raygun only.",
+  "types": [
+    "movie",
+    "tv"
+  ],
+  "catalogs": [
+    {
+      "type": "movie",
+      "id": "rgtest",
+      "name": "Test films"
+    },
+    {
+      "type": "tv",
+      "id": "rgtest-live",
+      "name": "Test live channels"
+    }
+  ],
+  "resources": [
+    "catalog",
+    "meta",
+    "stream",
+    "subtitles"
+  ],
+  "idPrefixes": [
+    "rgtest"
+  ]
+}

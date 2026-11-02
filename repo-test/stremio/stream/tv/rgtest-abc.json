@@ -1,0 +1,9 @@
+{
+  "streams": [
+    {
+      "name": "Live",
+      "title": "ABC News",
+      "url": "https://abcnews-streams.akamaized.net/hls/live/2023560/abcnewshudson1/master.m3u8"
+    }
+  ]
+}

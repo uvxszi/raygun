@@ -1,0 +1,9 @@
+{
+  "streams": [
+    {
+      "name": "Live",
+      "title": "DW",
+      "url": "https://dwamdstream102.akamaized.net/hls/live/2015525/dwstream102/master.m3u8"
+    }
+  ]
+}

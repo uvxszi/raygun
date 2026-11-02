@@ -1,0 +1,11 @@
+{
+  "meta": {
+    "id": "rgtest-abc",
+    "type": "tv",
+    "name": "ABC News Live",
+    "description": "ABC News Live, live from the broadcaster.",
+    "genres": [
+      "News"
+    ]
+  }
+}

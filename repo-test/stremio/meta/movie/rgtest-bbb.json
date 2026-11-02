@@ -1,0 +1,14 @@
+{
+  "meta": {
+    "id": "rgtest-bbb",
+    "type": "movie",
+    "name": "Big Buck Bunny",
+    "year": 2008,
+    "poster": "https://archive.org/services/img/BigBuckBunny_124",
+    "description": "Blender Foundation, CC BY 3.0, from the Internet Archive and test HLS servers.",
+    "genres": [
+      "Animation",
+      "Test"
+    ]
+  }
+}

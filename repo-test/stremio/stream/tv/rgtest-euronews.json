@@ -1,0 +1,9 @@
+{
+  "streams": [
+    {
+      "name": "Live",
+      "title": "Euronews",
+      "url": "https://cdn-euronews.akamaized.net/live/eds/euronews-en/25002/index.m3u8"
+    }
+  ]
+}

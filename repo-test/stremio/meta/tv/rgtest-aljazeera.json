@@ -1,0 +1,11 @@
+{
+  "meta": {
+    "id": "rgtest-aljazeera",
+    "type": "tv",
+    "name": "Al Jazeera English (first host dead)",
+    "description": "Al Jazeera English (first host dead), live from the broadcaster.",
+    "genres": [
+      "News"
+    ]
+  }
+}

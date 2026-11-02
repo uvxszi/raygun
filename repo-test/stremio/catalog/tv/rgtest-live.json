@@ -1,0 +1,49 @@
+{
+  "metas": [
+    {
+      "id": "rgtest-dw",
+      "type": "tv",
+      "name": "DW English",
+      "description": "DW English, live from the broadcaster.",
+      "genres": [
+        "News"
+      ]
+    },
+    {
+      "id": "rgtest-nhk",
+      "type": "tv",
+      "name": "NHK World",
+      "description": "NHK World, live from the broadcaster.",
+      "genres": [
+        "News"
+      ]
+    },
+    {
+      "id": "rgtest-euronews",
+      "type": "tv",
+      "name": "Euronews English",
+      "description": "Euronews English, live from the broadcaster.",
+      "genres": [
+        "News"
+      ]
+    },
+    {
+      "id": "rgtest-abc",
+      "type": "tv",
+      "name": "ABC News Live",
+      "description": "ABC News Live, live from the broadcaster.",
+      "genres": [
+        "News"
+      ]
+    },
+    {
+      "id": "rgtest-aljazeera",
+      "type": "tv",
+      "name": "Al Jazeera English (first host dead)",
+      "description": "Al Jazeera English (first host dead), live from the broadcaster.",
+      "genres": [
+        "News"
+      ]
+    }
+  ]
+}

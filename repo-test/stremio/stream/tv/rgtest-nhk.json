@@ -1,0 +1,9 @@
+{
+  "streams": [
+    {
+      "name": "Live",
+      "title": "NHK",
+      "url": "https://media-tyo.hls.nhkworld.jp/hls/w/live/master.m3u8"
+    }
+  ]
+}

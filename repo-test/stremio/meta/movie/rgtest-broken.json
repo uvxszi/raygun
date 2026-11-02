@@ -1,0 +1,14 @@
+{
+  "meta": {
+    "id": "rgtest-broken",
+    "type": "movie",
+    "name": "Every link broken (test)",
+    "year": 2026,
+    "poster": null,
+    "description": "Every link is dead on purpose: the player should say so calmly, not hang.",
+    "genres": [
+      "Animation",
+      "Test"
+    ]
+  }
+}
