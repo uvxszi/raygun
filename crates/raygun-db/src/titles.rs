@@ -39,6 +39,12 @@ pub struct TitleRow {
     pub refreshed_at: Option<i64>,
     /// `webtoon`, `pagedLtr` or `pagedRtl` (M27).
     pub reader_mode: String,
+    /// The user's list (M46): `reading`, `planned`, `completed`, `onHold` or `dropped`.
+    pub list: Option<String>,
+    /// When it was made a favorite (M46).
+    pub favorite_at: Option<i64>,
+    /// When it was pinned to the top of the library (M46).
+    pub pinned_at: Option<i64>,
 }
 
 /// A library title with its reading state.
@@ -55,6 +61,8 @@ pub struct LibraryTitle {
     pub last_read_hlc: Option<i64>,
     /// The newest unit's date (its upload date, else when it was found).
     pub latest_unit_at: Option<i64>,
+    /// When the newest unit was found (Mihon's "chapter fetch date").
+    pub latest_found_at: Option<i64>,
 }
 
 /// What a source says about a unit.
@@ -82,7 +90,8 @@ pub struct UnitRow {
 const TITLE_COLUMNS: &str = "t.id, t.kind, t.source_id, t.remote_id, t.remote_title, t.remote_cover, \
      t.remote_cover_headers, \
      t.remote_authors, t.remote_artists, t.remote_description, t.remote_genres, t.remote_status, \
-     t.remote_url, t.remote_media_type, t.remote_year, t.user_in_library_at,      t.state_refreshed_at, t.user_reader_mode";
+     t.remote_url, t.remote_media_type, t.remote_year, t.user_in_library_at,      t.state_refreshed_at, t.user_reader_mode, \
+     t.user_list, t.user_favorite_at, t.user_pinned_at";
 
 /// Stores what a source said about a title (inserting it on first sight) and returns its id.
 pub async fn upsert_title(db: &Db, fields: &TitleFields, now_ms: i64) -> Result<String, DbError> {
@@ -163,6 +172,98 @@ pub async fn find_title(
     Ok(row.as_ref().map(title_row))
 }
 
+/// The user's own fields on a title that can be set for many at once (M46).
+#[derive(Debug, Clone, PartialEq)]
+pub enum TitleMark {
+    /// A list, or none.
+    List(Option<String>),
+    /// Favorite since, or not.
+    Favorite(Option<i64>),
+    /// Pinned since, or not.
+    Pinned(Option<i64>),
+}
+
+/// Sets a list, favorite or pin on titles.
+pub async fn set_mark(db: &Db, ids: &[String], mark: &TitleMark) -> Result<(), DbError> {
+    let stamp = db.tick();
+    let device = db.device_id().to_string();
+    let column = match mark {
+        TitleMark::List(_) => "user_list",
+        TitleMark::Favorite(_) => "user_favorite_at",
+        TitleMark::Pinned(_) => "user_pinned_at",
+    };
+    let mut transaction = db.pool().begin().await?;
+    for id in ids {
+        // The column comes from the match above, never from input.
+        let query = sqlx::query(AssertSqlSafe(format!(
+            "UPDATE title SET {column} = ?2, updated_at_hlc = ?3, origin_device = ?4
+             WHERE id = ?1 AND deleted = 0"
+        )))
+        .bind(id);
+        let query = match mark {
+            TitleMark::List(list) => query.bind(list.clone()),
+            TitleMark::Favorite(at) | TitleMark::Pinned(at) => query.bind(*at),
+        };
+        query
+            .bind(stamp as i64)
+            .bind(&device)
+            .execute(&mut *transaction)
+            .await?;
+    }
+    persist_hlc(&mut *transaction, stamp).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+/// Marks every released unit of titles read, or every unit unread (M46's bulk action). Units read
+/// before keep the time they were finished.
+pub async fn set_titles_completed(
+    db: &Db,
+    title_ids: &[String],
+    completed: bool,
+    now_ms: i64,
+) -> Result<(), DbError> {
+    let stamp = db.tick();
+    let device = db.device_id().to_string();
+    let mut transaction = db.pool().begin().await?;
+    for title_id in title_ids {
+        let units: Vec<String> = sqlx::query(
+            "SELECT id FROM unit WHERE title_id = ?1 AND deleted = 0
+                 AND (?2 = 0 OR remote_date IS NULL OR remote_date <= ?3)",
+        )
+        .bind(title_id)
+        .bind(completed)
+        .bind(now_ms)
+        .fetch_all(&mut *transaction)
+        .await?
+        .iter()
+        .map(|row| row.get("id"))
+        .collect();
+        for unit_id in units {
+            sqlx::query(
+                "INSERT INTO unit_progress (unit_id, position, total, completed_at, updated_at_hlc,
+                     origin_device, deleted)
+                 VALUES (?1, 0, NULL, ?2, ?3, ?4, 0)
+                 ON CONFLICT (unit_id) DO UPDATE SET
+                     completed_at = CASE WHEN excluded.completed_at IS NULL THEN NULL
+                         ELSE COALESCE(completed_at, excluded.completed_at) END,
+                     position = CASE WHEN excluded.completed_at IS NULL THEN 0 ELSE position END,
+                     updated_at_hlc = excluded.updated_at_hlc,
+                     origin_device = excluded.origin_device, deleted = 0",
+            )
+            .bind(&unit_id)
+            .bind(completed.then_some(now_ms))
+            .bind(stamp as i64)
+            .bind(&device)
+            .execute(&mut *transaction)
+            .await?;
+        }
+    }
+    persist_hlc(&mut *transaction, stamp).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
 /// Adds a title to the library (with the time it was added) or takes it out.
 pub async fn set_in_library(db: &Db, id: &str, added_at: Option<i64>) -> Result<(), DbError> {
     let stamp = db.tick();
@@ -233,7 +334,9 @@ pub async fn library(db: &Db, kind: &str) -> Result<Vec<LibraryTitle>, DbError> 
               JOIN unit_progress p ON p.unit_id = u.id AND p.deleted = 0
               WHERE u.title_id = t.id AND u.deleted = 0) AS last_read,
              (SELECT MAX(COALESCE(u.remote_date, u.state_found_at)) FROM unit u
-              WHERE u.title_id = t.id AND u.deleted = 0) AS latest_unit
+              WHERE u.title_id = t.id AND u.deleted = 0) AS latest_unit,
+             (SELECT MAX(u.state_found_at) FROM unit u
+              WHERE u.title_id = t.id AND u.deleted = 0) AS latest_found
          FROM title t
          WHERE t.kind = ?1 AND t.user_in_library_at IS NOT NULL AND t.deleted = 0
          ORDER BY t.remote_title COLLATE NOCASE"
@@ -251,6 +354,7 @@ pub async fn library(db: &Db, kind: &str) -> Result<Vec<LibraryTitle>, DbError> 
             downloaded: row.get("downloaded"),
             last_read_hlc: row.get("last_read"),
             latest_unit_at: row.get("latest_unit"),
+            latest_found_at: row.get("latest_found"),
         })
         .collect())
 }
@@ -593,6 +697,9 @@ fn title_row(row: &SqliteRow) -> TitleRow {
         in_library_at: row.get("user_in_library_at"),
         refreshed_at: row.get("state_refreshed_at"),
         reader_mode: row.get("user_reader_mode"),
+        list: row.get("user_list"),
+        favorite_at: row.get("user_favorite_at"),
+        pinned_at: row.get("user_pinned_at"),
     }
 }
 

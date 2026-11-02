@@ -9,6 +9,8 @@ import { CategoryPicker } from '../manga/CategoryPicker';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { LibraryPill } from '../watch/LibraryPill';
+import { TitleListActions } from '../manga/TitleListActions';
+import { useDuplicateCheck } from '../manga/useDuplicateCheck';
 import { ServerPicker } from '../watch/ServerPicker';
 import type { PickIntent, ServerTarget } from '../watch/ServerPicker';
 import { StremioPoster } from '../watch/StremioRow';
@@ -157,6 +159,7 @@ export const VideoTitlePage: FC = () => {
   const refresh = useRefreshVideoTitle();
   const setWatched = useSetEpisodeWatched();
   const setInLibrary = useSetVideoInLibrary();
+  const duplicates = useDuplicateCheck('video');
   const downloads = useDownloadsByKey();
   const watch = useWatchSourceTitle();
   const [picking, setPicking] = useState<{ target: ServerTarget; intent: PickIntent } | null>(null);
@@ -272,9 +275,14 @@ export const VideoTitlePage: FC = () => {
           <div className="flex flex-wrap items-center gap-2">
             <LibraryPill
               inLibrary={view.inLibrary}
-              busy={setInLibrary.isPending}
-              onToggle={() => setInLibrary.mutate({ titleId: view.id, inLibrary: !view.inLibrary })}
+              busy={setInLibrary.isPending || duplicates.checking}
+              onToggle={() => {
+                const add = () => setInLibrary.mutate({ titleId: view.id, inLibrary: true });
+                if (view.inLibrary) setInLibrary.mutate({ titleId: view.id, inLibrary: false });
+                else void duplicates.addChecked(view.id, view.title, add);
+              }}
             />
+            <TitleListActions medium="video" titleId={view.id} title={view.title} pill />
             {movie && (
               <button
                 type="button"
@@ -307,6 +315,7 @@ export const VideoTitlePage: FC = () => {
         </div>
       </TitleHero>
       {view.inLibrary && <CategoryPicker medium="video" titleId={view.id} />}
+      {duplicates.dialog}
       {view.description && (
         <button
           type="button"

@@ -115,6 +115,8 @@ class VideoPlayerActivity : AppCompatActivity() {
     private lateinit var secondView: SubtitleView
     private lateinit var root: FrameLayout
     private lateinit var hint: TextView
+    /** A small pill at the top while the picture is held for speed. */
+    private lateinit var speedBadge: TextView
     private lateinit var loading: LinearLayout
     private lateinit var loadingText: TextView
     private lateinit var nextPrompt: LinearLayout
@@ -270,6 +272,15 @@ class VideoPlayerActivity : AppCompatActivity() {
             setPadding(dp(20), dp(12), dp(20), dp(12))
             visibility = View.GONE
         }
+        speedBadge = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            background = rounded(0x99000000.toInt(), dp(14).toFloat())
+            setPadding(dp(12), dp(5), dp(12), dp(5))
+            visibility = View.GONE
+        }
         loadingText = TextView(this).apply {
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
@@ -329,6 +340,9 @@ class VideoPlayerActivity : AppCompatActivity() {
             addView(controls.root, FrameLayout.LayoutParams(-1, -1))
             addView(loading, FrameLayout.LayoutParams(-1, -1))
             addView(hint, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+            addView(speedBadge, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
+                topMargin = dp(20)
+            })
             addView(nextPrompt, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END))
         }
         setContentView(root)
@@ -1231,6 +1245,12 @@ class VideoPlayerActivity : AppCompatActivity() {
     internal fun hideHint() {
         main.removeCallbacks(hideHintLater)
         hint.visibility = View.GONE
+    }
+
+    /** The held speed, small and out of the way at the top; null hides it. */
+    internal fun showSpeedBadge(text: String?) {
+        speedBadge.text = text ?: ""
+        speedBadge.visibility = if (text == null) View.GONE else View.VISIBLE
     }
 
     private fun heading(request: JSONObject): String {

@@ -1,13 +1,16 @@
 //! Manga (M24): browsing `manga.source` extensions, titles with their chapters, the manga library
 //! and reading progress. Covers and pages are linked through the stream proxy's image route.
 //! Library updates and the updates feed arrived in M28; the catalogue code is shared with novels
-//! through `Catalog` (M31).
+//! through `Catalog` (M31). Comics imported from the device (M46, `comics`) are manga of the
+//! `local.comics` source, read from their unpacked files.
 
+use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures_util::{StreamExt, stream};
-use raygun_db::titles::{self, TitleRow};
+use raygun_db::titles::{self, TitleFields, TitleRow, UnitFields};
 use raygun_ext_host::manga::MANGA_SOURCE;
 use raygun_model::{
     MangaBrowseMode, MangaChapterPages, MangaLibraryEntry, MangaListingPage, MangaSource,
@@ -17,7 +20,10 @@ use raygun_net::ImageLinks;
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
-use crate::catalog::{Catalog, chapter_info, now_ms, to_message};
+use crate::catalog::{
+    Catalog, LOCAL_PREFIX, LOCAL_SOURCE_PREFIX, chapter_info, now_ms, to_message,
+};
+use crate::comics::{self, COMICS, LOCAL_COMICS};
 use crate::events::MangaUpdateEvent;
 use crate::manga_downloads::MangaDownloadService;
 use crate::stremio::StremioService;
@@ -39,6 +45,15 @@ pub struct MangaService {
     app: AppHandle,
     catalog: Catalog,
     update: Mutex<MangaUpdateStatus>,
+    /// Where imported comics are unpacked (under `comics/`).
+    downloads_dir: PathBuf,
+}
+
+/// A local comic series' folder and title id: a hash of its name as duplicates are matched, so
+/// later volumes join the same title and the path stays plain ASCII.
+pub fn series_key(series: &str) -> String {
+    let key = crate::library_actions::duplicate_key(series);
+    raygun_ext_host::package::sha256_hex(key.as_bytes())[..16].to_owned()
 }
 
 impl MangaService {
@@ -47,11 +62,12 @@ impl MangaService {
         &self.catalog
     }
 
-    pub fn new(app: AppHandle, images: ImageLinks) -> Self {
+    pub fn new(app: AppHandle, images: ImageLinks, downloads_dir: PathBuf) -> Self {
         Self {
             catalog: Catalog::new(app.clone(), images, KIND, MANGA_SOURCE),
             app,
             update: Mutex::new(MangaUpdateStatus::default()),
+            downloads_dir,
         }
     }
 
@@ -76,12 +92,161 @@ impl MangaService {
         remote_id: &str,
         refresh: bool,
     ) -> Result<MangaTitleView, String> {
-        let row = self
-            .catalog
-            .title_row(source_id, remote_id, refresh)
-            .await?;
+        let row = if source_id == LOCAL_COMICS {
+            // Imported comics have nothing to refresh from.
+            titles::find_title(&self.db(), source_id, remote_id)
+                .await
+                .map_err(to_message)?
+                .ok_or_else(|| "This comic was removed".to_owned())?
+        } else {
+            self.catalog
+                .title_row(source_id, remote_id, refresh)
+                .await?
+        };
         let downloads = self.downloads().for_title(&row.id).await;
-        self.catalog.title_view(row, &downloads).await
+        let mut view = self.catalog.title_view(row, &downloads).await?;
+        if view.source_id == LOCAL_COMICS {
+            view.source_name = "Local comics".into();
+        }
+        Ok(view)
+    }
+
+    /// Imports a comic archive (an upload's file, deleted afterwards) as a chapter of a local
+    /// series, adding the series to the library. Returns the source's id and the series' id, as the
+    /// title page wants them.
+    pub async fn import_comic(
+        &self,
+        archive: PathBuf,
+        file_name: &str,
+    ) -> Result<(String, String), String> {
+        let comics_dir = self.downloads_dir.join(COMICS);
+        let name = file_name.to_owned();
+        let (unpacked, _) = tauri::async_runtime::spawn_blocking(move || {
+            let result = comics::unpack(&archive, &name, &comics_dir, series_key);
+            let _ = std::fs::remove_file(&archive);
+            result
+        })
+        .await
+        .map_err(to_message)??;
+        let key = series_key(&unpacked.series);
+        let db = self.db();
+        let now = now_ms();
+        let existing = titles::find_title(&db, LOCAL_COMICS, &key)
+            .await
+            .map_err(to_message)?;
+        let mut units: Vec<UnitFields> = match &existing {
+            Some(row) => titles::units(&db, &row.id)
+                .await
+                .map_err(to_message)?
+                .into_iter()
+                .map(|unit| unit.fields)
+                .filter(|fields| fields.remote_id != unpacked.hash)
+                .collect(),
+            None => Vec::new(),
+        };
+        units.push(UnitFields {
+            remote_id: unpacked.hash.clone(),
+            name: unpacked.name.clone(),
+            number: unpacked.number,
+            volume: None,
+            scanlator: None,
+            date: None,
+        });
+        // Newest first, as sources list them; unnumbered chapters last.
+        units.sort_by(|a, b| match (a.number, b.number) {
+            (Some(x), Some(y)) => y.partial_cmp(&x).unwrap_or(std::cmp::Ordering::Equal),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => comics::natural_cmp(&a.name, &b.name),
+        });
+        // The cover is the first page of the first chapter.
+        let first = units.last().map(|unit| unit.remote_id.clone());
+        let cover = match first {
+            Some(chapter) => {
+                let dir = self.downloads_dir.join(COMICS).join(&key).join(&chapter);
+                comics::pages(&dir)
+                    .ok()
+                    .and_then(|pages| pages.into_iter().next())
+                    .map(|page| format!("{LOCAL_PREFIX}{COMICS}/{key}/{chapter}/{page}"))
+            }
+            None => None,
+        };
+        let info = &unpacked.info;
+        let keep = |new: &Option<String>, old: Option<&str>| {
+            new.clone().or_else(|| old.map(str::to_owned))
+        };
+        let old = existing.as_ref().map(|row| &row.fields);
+        let id = titles::upsert_title(
+            &db,
+            &TitleFields {
+                kind: KIND.into(),
+                source_id: LOCAL_COMICS.into(),
+                remote_id: key.clone(),
+                title: unpacked.series.clone(),
+                cover,
+                cover_headers: Default::default(),
+                authors: keep(
+                    &info.writer,
+                    old.and_then(|old| old.authors.first().map(String::as_str)),
+                )
+                .into_iter()
+                .collect(),
+                artists: keep(
+                    &info.penciller,
+                    old.and_then(|old| old.artists.first().map(String::as_str)),
+                )
+                .into_iter()
+                .collect(),
+                description: keep(
+                    &info.summary,
+                    old.and_then(|old| old.description.as_deref()),
+                ),
+                genres: match &info.genre {
+                    Some(genres) => genres
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|genre| !genre.is_empty())
+                        .map(str::to_owned)
+                        .collect(),
+                    None => old.map(|old| old.genres.clone()).unwrap_or_default(),
+                },
+                status: "unknown".into(),
+                url: None,
+                media_type: None,
+                year: None,
+            },
+            now,
+        )
+        .await
+        .map_err(to_message)?;
+        titles::sync_units(&db, &id, &units, "chapter", now)
+            .await
+            .map_err(to_message)?;
+        let stored = titles::title(&db, &id).await.map_err(to_message)?;
+        if stored.is_some_and(|title| title.in_library_at.is_none()) {
+            titles::set_in_library(&db, &id, Some(now))
+                .await
+                .map_err(to_message)?;
+        }
+        tracing::info!(series = %unpacked.series, pages = unpacked.pages, "comic imported");
+        Ok((LOCAL_COMICS.to_owned(), key))
+    }
+
+    /// An imported comic chapter's pages, from its unpacked folder.
+    async fn local_comic_pages(&self, series: &str, chapter: &str) -> Result<Vec<String>, String> {
+        let dir = self.downloads_dir.join(COMICS).join(series).join(chapter);
+        let names = tauri::async_runtime::spawn_blocking(move || comics::pages(&dir))
+            .await
+            .map_err(to_message)?
+            .map_err(|_| "This chapter is missing from the device".to_owned())?;
+        Ok(names
+            .iter()
+            .map(|name| {
+                self.catalog
+                    .images
+                    .local(&format!("{COMICS}/{series}/{chapter}/{name}"))
+            })
+            .collect())
     }
 
     pub async fn set_in_library(&self, title_id: &str, in_library: bool) -> Result<(), String> {
@@ -103,6 +268,13 @@ impl MangaService {
         // A downloaded chapter reads from disk, without asking the source.
         let pages = match downloads.local_pages(title_id, unit_id).await {
             Some(pages) => pages,
+            None if context.title.fields.source_id == LOCAL_COMICS => {
+                self.local_comic_pages(
+                    &context.title.fields.remote_id,
+                    &context.unit.fields.remote_id,
+                )
+                .await?
+            }
             None => {
                 let extensions = self.catalog.extensions();
                 let (_ready, host) = extensions.ready().await;
@@ -181,6 +353,15 @@ impl MangaService {
     /// Starts a library update in the background unless one is running. A manual update also
     /// checks finished and cancelled series, which scheduled ones skip.
     pub async fn start_update(&self, manual: bool) -> MangaUpdateStatus {
+        self.start_update_of(manual, None).await
+    }
+
+    /// Like `start_update`, for some titles only (one category, M46).
+    pub async fn start_update_of(
+        &self,
+        manual: bool,
+        only: Option<HashSet<String>>,
+    ) -> MangaUpdateStatus {
         {
             let mut status = self.update.lock().expect("update status poisoned");
             if status.running {
@@ -191,7 +372,7 @@ impl MangaService {
         let app = self.app.clone();
         tauri::async_runtime::spawn(async move {
             let manga = app.state::<MangaService>();
-            if let Err(message) = manga.run_update(manual).await {
+            if let Err(message) = manga.run_update(manual, only).await {
                 tracing::warn!(%message, "library update failed");
             }
             let finished = {
@@ -204,7 +385,7 @@ impl MangaService {
         self.update_status().await
     }
 
-    async fn run_update(&self, manual: bool) -> Result<(), String> {
+    async fn run_update(&self, manual: bool, only: Option<HashSet<String>>) -> Result<(), String> {
         let started = std::time::Instant::now();
         let db = self.db();
         let mut library = titles::library(&db, KIND).await.map_err(to_message)?;
@@ -218,6 +399,9 @@ impl MangaService {
             .into_iter()
             .map(|entry| entry.title)
             .filter(|title| manual || wants_update(&title.fields.status))
+            // Imported titles have no source to ask.
+            .filter(|title| !title.fields.source_id.starts_with(LOCAL_SOURCE_PREFIX))
+            .filter(|title| only.as_ref().is_none_or(|only| only.contains(&title.id)))
             .collect();
         let snapshot = {
             let mut status = self.update.lock().expect("update status poisoned");

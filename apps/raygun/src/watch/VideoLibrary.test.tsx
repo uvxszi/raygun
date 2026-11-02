@@ -10,6 +10,7 @@ import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
 import { bindingsMock, emitEvent } from '../test/bindingsMock';
+import { libraryEntry } from '../test/libraryEntry';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -23,24 +24,19 @@ const entry = (
   sourceId: string,
   remoteId: string,
   extra: Partial<MangaLibraryEntry> = {},
-): MangaLibraryEntry => ({
-  titleId: `t-${remoteId}`,
-  sourceId,
-  remoteId,
-  title,
-  coverUrl: null,
-  chapters: 10,
-  unread: 4,
-  categoryIds: [],
-  genres: ['Drama'],
-  status: 'ongoing',
-  addedAt: 1,
-  lastReadAt: null,
-  latestChapterAt: null,
-  started: true,
-  downloaded: 1,
-  ...extra,
-});
+): MangaLibraryEntry =>
+  libraryEntry({
+    titleId: `t-${remoteId}`,
+    sourceId,
+    remoteId,
+    title,
+    unread: 4,
+    genres: ['Drama'],
+    addedAt: 1,
+    started: true,
+    downloaded: 1,
+    ...extra,
+  });
 
 const FILM: VideoTitleView = {
   id: 'title-film',
@@ -166,7 +162,7 @@ describe('Video library', () => {
     await AppShellWrapper.mount('/library?media=video');
     const library = await screen.findByTestId('video-library');
 
-    const cards = await within(library).findAllByTestId('manga-card');
+    const cards = await within(library).findAllByTestId('library-item');
     expect(cards[0]).toHaveAttribute('href', '/watch/title?type=series&id=tt0903747');
     expect(cards[1]).toHaveAttribute(
       'href',
@@ -188,8 +184,10 @@ describe('Video library', () => {
     // Videos read as videos in the filters.
     await user.click(within(library).getByRole('button', { name: 'Filter and sort' }));
     const sheet = await screen.findByRole('dialog', { name: 'Filters' });
-    expect(within(sheet).getByRole('button', { name: 'Unwatched' })).toBeInTheDocument();
-    expect(within(sheet).getByRole('option', { name: 'Last watched' })).toBeInTheDocument();
+    expect(within(sheet).getByRole('button', { name: 'Unwatched: off' })).toBeInTheDocument();
+    expect(within(sheet).getByRole('button', { name: 'Watching: off' })).toBeInTheDocument();
+    await user.click(within(sheet).getByRole('tab', { name: 'Sort' }));
+    expect(within(sheet).getByRole('radio', { name: 'Last watched' })).toBeInTheDocument();
   });
 
   it('sends an empty video library to Browse → Search for videos', async () => {

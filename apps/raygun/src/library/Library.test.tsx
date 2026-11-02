@@ -77,9 +77,19 @@ describe('Library', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('needs permission');
   });
 
-  it('shows albums with artwork by default', async () => {
+  it('shows everything under All by default and albums with artwork', async () => {
     seedLibrary();
     await AppShellWrapper.mount('/library');
+
+    const overview = await screen.findByTestId('music-overview');
+    expect(screen.getByTestId('library-view-all')).toHaveAttribute('aria-current', 'page');
+    const albums = await within(overview).findByRole('region', { name: 'Albums' });
+    expect(within(albums).getByRole('link', { name: /Pew Pew/ })).toBeInTheDocument();
+    expect(await within(overview).findByRole('region', { name: 'Artists' })).toHaveTextContent(
+      'The Raygunners',
+    );
+    expect(await within(overview).findAllByTestId('track-row')).toHaveLength(2);
+    await userEvent.click(within(overview).getByRole('link', { name: 'See all Albums' }));
 
     const grid = await screen.findByTestId('album-grid');
 
@@ -135,7 +145,7 @@ describe('Library', () => {
 
   it('shows scan progress while reading files', async () => {
     seedLibrary();
-    await AppShellWrapper.mount('/library');
+    await AppShellWrapper.mount('/library?view=albums');
     await screen.findByTestId('album-grid');
 
     emitEvent('libraryScanEvent', {

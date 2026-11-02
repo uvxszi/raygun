@@ -9,9 +9,9 @@ use raygun_db::titles::{self, TitleFields, TitleRow, UnitFields, UnitRow};
 use raygun_ext_host::manga::MangaList;
 use raygun_ext_host::video::VIDEO_SOURCE;
 use raygun_model::{
-    ChapterDownload, FilterValue, LibraryCategory, MangaBrowseMode, MangaCard, MangaChapterInfo,
-    MangaLibraryEntry, MangaListingPage, MangaSource, MangaTitleView, SourceFilter,
-    SourceSearchResult,
+    ChapterDownload, FilterValue, LibraryCategory, LibraryList, MangaBrowseMode, MangaCard,
+    MangaChapterInfo, MangaLibraryEntry, MangaListingPage, MangaSource, MangaTitleView,
+    SourceFilter, SourceSearchResult,
 };
 use raygun_net::ImageLinks;
 use tauri::{AppHandle, Manager};
@@ -38,6 +38,9 @@ pub struct ChapterContext {
 
 /// Prefix of stored covers that are files under the downloads folder.
 pub const LOCAL_PREFIX: &str = "local:";
+
+/// Sources of titles imported from the device (EPUB books, comics) start with this.
+pub const LOCAL_SOURCE_PREFIX: &str = "local.";
 
 impl Catalog {
     pub fn new(
@@ -337,6 +340,20 @@ impl Catalog {
             .map_err(to_message)
     }
 
+    /// A source's name for people: its provider's, or what the app's own sources are called.
+    pub async fn source_names(&self) -> HashMap<String, String> {
+        let mut names: HashMap<String, String> = self
+            .sources()
+            .await
+            .into_iter()
+            .map(|source| (source.id, source.name))
+            .collect();
+        names.insert("stremio".into(), "Stremio".into());
+        names.insert(crate::novel::LOCAL_EPUB.into(), "EPUB file".into());
+        names.insert(crate::comics::LOCAL_COMICS.into(), "Local comics".into());
+        names
+    }
+
     pub async fn library(&self) -> Result<Vec<MangaLibraryEntry>, String> {
         let entries = titles::library(&self.db(), self.kind)
             .await
@@ -345,10 +362,27 @@ impl Catalog {
         let mut memberships = raygun_db::categories::memberships(&self.db(), self.kind)
             .await
             .map_err(to_message)?;
+        let names = self.source_names().await;
         Ok(entries
             .into_iter()
             .filter(|entry| show_nsfw || !is_adult(&entry.title.fields.genres))
             .map(|entry| MangaLibraryEntry {
+                list: entry.title.list.as_deref().and_then(LibraryList::from_key),
+                favorite: entry.title.favorite_at.is_some(),
+                pinned: entry.title.pinned_at.is_some(),
+                authors: entry.title.fields.authors.clone(),
+                artists: entry.title.fields.artists.clone(),
+                source_name: names
+                    .get(&entry.title.fields.source_id)
+                    .cloned()
+                    .unwrap_or_else(|| entry.title.fields.source_id.clone()),
+                refreshed_at: entry.title.refreshed_at.map(|ms| ms as f64),
+                latest_fetched_at: entry.latest_found_at.map(|ms| ms as f64),
+                local: entry
+                    .title
+                    .fields
+                    .source_id
+                    .starts_with(LOCAL_SOURCE_PREFIX),
                 category_ids: memberships.remove(&entry.title.id).unwrap_or_default(),
                 genres: entry.title.fields.genres.clone(),
                 status: entry.title.fields.status.clone(),
@@ -383,6 +417,10 @@ impl Catalog {
             .map_err(to_message)?
             .into_iter()
             .map(|category| LibraryCategory {
+                display: category
+                    .display
+                    .as_deref()
+                    .and_then(|json| serde_json::from_str(json).ok()),
                 id: category.id,
                 name: category.name,
             })
@@ -480,6 +518,11 @@ impl Catalog {
             Some(path) => self.images.local(path),
             None => self.images.link(url, headers),
         }
+    }
+
+    /// `title.kind` of this catalogue's titles.
+    pub fn kind(&self) -> &'static str {
+        self.kind
     }
 
     pub fn app(&self) -> &AppHandle {

@@ -1,5 +1,5 @@
 import { X } from 'lucide-react';
-import { useEffect, useId } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -14,6 +14,8 @@ export const Sheet: FC<{ title: string; onClose: () => void; children: ReactNode
 }) => {
   const { t } = useTranslation();
   const titleId = useId();
+  // Closing on pointer down would let the tap's click land on whatever is under the sheet.
+  const pressedBackdrop = useRef(false);
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
@@ -26,7 +28,11 @@ export const Sheet: FC<{ title: string; onClose: () => void; children: ReactNode
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center"
       onPointerDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        pressedBackdrop.current = event.target === event.currentTarget;
+      }}
+      onClick={(event) => {
+        if (pressedBackdrop.current && event.target === event.currentTarget) onClose();
+        pressedBackdrop.current = false;
       }}
     >
       <div

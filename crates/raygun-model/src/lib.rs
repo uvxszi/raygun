@@ -99,6 +99,8 @@ pub struct Settings {
     pub next_prompt_seconds: u32,
     /// The video player's controls, gestures, tracks and tools (M45).
     pub video_player: VideoPlayerPrefs,
+    /// How the manga, novel and video libraries look (M46).
+    pub library_display: LibraryDisplayPrefs,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -534,6 +536,7 @@ impl Default for Settings {
             autoplay_next: true,
             next_prompt_seconds: 10,
             video_player: VideoPlayerPrefs::default(),
+            library_display: LibraryDisplayPrefs::default(),
         }
     }
 }
@@ -562,6 +565,7 @@ impl Settings {
             SettingChange::AutoplayNext(on) => self.autoplay_next = on,
             SettingChange::NextPromptSeconds(seconds) => self.next_prompt_seconds = seconds,
             SettingChange::VideoPlayer(prefs) => self.video_player = *prefs,
+            SettingChange::LibraryDisplay(prefs) => self.library_display = prefs,
         }
     }
 }
@@ -593,6 +597,7 @@ pub enum SettingChange {
     NextPromptSeconds(u32),
     /// Boxed: much larger than the other settings.
     VideoPlayer(Box<VideoPlayerPrefs>),
+    LibraryDisplay(LibraryDisplayPrefs),
 }
 
 impl SettingChange {
@@ -620,6 +625,7 @@ impl SettingChange {
             Self::AutoplayNext(_) => "autoplayNext",
             Self::NextPromptSeconds(_) => "nextPromptSeconds",
             Self::VideoPlayer(_) => "videoPlayer",
+            Self::LibraryDisplay(_) => "libraryDisplay",
         }
     }
 
@@ -646,7 +652,7 @@ impl SettingChange {
                 }
             }
             Self::GridColumns(columns) => {
-                if *columns == 0 || (2..=6).contains(columns) {
+                if GRID_COLUMNS.contains(columns) {
                     Ok(())
                 } else {
                     Err(format!("{columns} covers per row isn't offered"))
@@ -667,6 +673,16 @@ impl SettingChange {
                 }
             }
             Self::VideoPlayer(prefs) => prefs.validate(),
+            Self::LibraryDisplay(prefs) => {
+                if GRID_COLUMNS.contains(&prefs.columns_landscape) {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "{} covers per row isn't offered",
+                        prefs.columns_landscape
+                    ))
+                }
+            }
             Self::SubtitleLanguage(tag) if tag.is_empty() => Ok(()),
             Self::SubtitleLanguage(tag) => language_tag(tag),
             Self::PreferredVideoQuality(Some(height)) => {
@@ -1649,6 +1665,77 @@ pub struct MangaLibraryEntry {
     pub started: bool,
     pub downloaded: u32,
     pub category_ids: Vec<String>,
+    /// The user's list (M46).
+    pub list: Option<LibraryList>,
+    pub favorite: bool,
+    /// Kept at the top of the library (M46).
+    pub pinned: bool,
+    pub authors: Vec<String>,
+    pub artists: Vec<String>,
+    /// The source's name, for search (`source:`) and the list display.
+    pub source_name: String,
+    /// Unix ms the title was last checked for new chapters.
+    pub refreshed_at: Option<f64>,
+    /// Unix ms the newest chapter was found (Mihon's "chapter fetch date").
+    pub latest_fetched_at: Option<f64>,
+    /// Imported from the device (EPUB, comics).
+    pub local: bool,
+}
+
+/// The user's lists for titles (M46, CloudStream's watch status). Each title is in at most one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum LibraryList {
+    Reading,
+    Planned,
+    Completed,
+    OnHold,
+    Dropped,
+}
+
+impl LibraryList {
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Reading => "reading",
+            Self::Planned => "planned",
+            Self::Completed => "completed",
+            Self::OnHold => "onHold",
+            Self::Dropped => "dropped",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        Some(match key {
+            "reading" => Self::Reading,
+            "planned" => Self::Planned,
+            "completed" => Self::Completed,
+            "onHold" => Self::OnHold,
+            "dropped" => Self::Dropped,
+            _ => return None,
+        })
+    }
+}
+
+/// A title's list, favorite and pin, for its page (M46).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TitleMarks {
+    pub in_library: bool,
+    pub list: Option<LibraryList>,
+    pub favorite: bool,
+    pub pinned: bool,
+}
+
+/// A library title another one may duplicate (same name, another source; M46).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryDuplicate {
+    pub title_id: String,
+    pub source_id: String,
+    pub remote_id: String,
+    pub title: String,
+    pub source_name: String,
+    pub cover_url: Option<String>,
 }
 
 /// A user-named shelf in the manga or novel library (M39).
@@ -1657,7 +1744,84 @@ pub struct MangaLibraryEntry {
 pub struct LibraryCategory {
     pub id: String,
     pub name: String,
+    /// Its own display and sort, when the library keeps them per category (M46).
+    pub display: Option<CategoryDisplay>,
 }
+
+/// A category's own display and sort (M46, Mihon's per-category settings).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CategoryDisplay {
+    pub mode: LibraryDisplayMode,
+    /// One of the library's sorts, as the UI names them (`title`, `lastRead`...).
+    pub sort: String,
+    pub descending: bool,
+}
+
+/// How library titles are laid out (M46, Mihon's display modes).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum LibraryDisplayMode {
+    /// The title over the cover's bottom edge.
+    #[default]
+    CompactGrid,
+    /// The title under the cover.
+    ComfortableGrid,
+    CoverOnlyGrid,
+    List,
+}
+
+/// What the library's tabs group by (M46).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum LibraryTabs {
+    /// The user's categories (Mihon).
+    #[default]
+    Categories,
+    /// Favorites and the lists (CloudStream).
+    Lists,
+    None,
+}
+
+/// The manga, novel and video libraries' display (M46). One stored row; fields missing from it
+/// keep their defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LibraryDisplayPrefs {
+    pub mode: LibraryDisplayMode,
+    /// Covers per row in landscape; 0 fits them to the screen. (`Settings::grid_columns` is the
+    /// portrait value.)
+    pub columns_landscape: u32,
+    pub tabs: LibraryTabs,
+    /// The number of titles on each tab.
+    pub show_counts: bool,
+    /// Each category keeps its own display and sort.
+    pub per_category: bool,
+    /// A play button on covers that continues reading or watching.
+    pub continue_button: bool,
+    /// A badge on titles imported from the device.
+    pub local_badge: bool,
+    /// Pinned titles come first whatever the sort.
+    pub pins_on_top: bool,
+}
+
+impl Default for LibraryDisplayPrefs {
+    fn default() -> Self {
+        Self {
+            mode: LibraryDisplayMode::CompactGrid,
+            columns_landscape: 0,
+            tabs: LibraryTabs::Categories,
+            show_counts: true,
+            per_category: false,
+            continue_button: true,
+            local_badge: true,
+            pins_on_top: true,
+        }
+    }
+}
+
+/// Covers per row offered (0 fits them to the screen).
+pub const GRID_COLUMNS: [u32; 8] = [0, 2, 3, 4, 5, 6, 7, 8];
 
 /// How a title is read (M27).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -1787,6 +1951,14 @@ pub struct NovelChapter {
 pub struct ImportedBook {
     pub source_id: String,
     pub novel_id: String,
+}
+
+/// A title imported from the device (comics, M46): its source and the source's id for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedTitle {
+    pub source_id: String,
+    pub remote_id: String,
 }
 
 // ---- Reading aloud (M33) ----

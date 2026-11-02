@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
 import { bindingsMock } from '../test/bindingsMock';
+import { libraryEntry } from '../test/libraryEntry';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -68,30 +69,20 @@ describe('Manga', () => {
     const user = userEvent.setup();
     commands.mangaLibrary.mockResolvedValue(
       ok([
-        {
+        libraryEntry({
           titleId: 't1',
           sourceId: SOURCE,
           remoteId: 'm1',
           title: 'Frieren',
-          coverUrl: null,
-          chapters: 10,
           unread: 3,
-          genres: [],
-          status: 'ongoing',
-          addedAt: 0,
-          lastReadAt: null,
-          latestChapterAt: null,
-          started: false,
-          downloaded: 0,
-          categoryIds: [],
-        },
+        }),
       ]),
     );
     await AppShellWrapper.mount('/library');
     await user.click(await screen.findByTestId('library-media-manga'));
 
     const library = await screen.findByTestId('manga-library');
-    expect(await within(library).findByTestId('manga-card')).toHaveTextContent('Frieren');
+    expect(await within(library).findByTestId('library-item')).toHaveTextContent('Frieren');
     expect(within(library).getByLabelText('3 unread chapters')).toBeInTheDocument();
     expect(screen.getByTestId('nav-browse-tab')).toHaveAttribute('href', '/browse');
   });

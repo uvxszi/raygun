@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
 import { DEFAULT_SETTINGS, bindingsMock } from '../test/bindingsMock';
+import { libraryEntry } from '../test/libraryEntry';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -64,28 +65,20 @@ describe('Settings sections', () => {
     const user = userEvent.setup();
     commands.mangaLibrary.mockResolvedValue(
       ok([
-        {
+        libraryEntry({
           titleId: 't1',
           sourceId: 'dev.raygun.mangadex/mangadex',
           remoteId: 'm1',
           title: 'Frieren',
-          coverUrl: null,
-          chapters: 10,
           unread: 3,
-          genres: [],
-          status: 'ongoing',
-          addedAt: 0,
-          lastReadAt: null,
-          latestChapterAt: null,
-          started: false,
           downloaded: 2,
-          categoryIds: [],
-        },
+        }),
       ]),
     );
     await AppShellWrapper.mount('/settings/library');
-    await choose(user, /^Covers per row/, '4');
-    await choose(user, /^Titles on covers/, /^Comfortable/);
+    await choose(user, /^Covers per row \(portrait\)/, '4');
+    await choose(user, /^Covers in Browse/, /^Comfortable/);
+    await choose(user, /^Layout/, 'List');
     await user.click(screen.getByRole('switch', { name: 'Downloaded badges' }));
     expect(commands.settingsUpdate).toHaveBeenCalledWith({ key: 'gridColumns', value: 4 });
     expect(commands.settingsUpdate).toHaveBeenCalledWith({
@@ -93,14 +86,18 @@ describe('Settings sections', () => {
       value: 'comfortable',
     });
     expect(commands.settingsUpdate).toHaveBeenCalledWith({ key: 'downloadBadges', value: false });
+    expect(commands.settingsUpdate).toHaveBeenCalledWith({
+      key: 'libraryDisplay',
+      value: expect.objectContaining({ mode: 'list' }),
+    });
 
     await user.click(screen.getByTestId('nav-library-tab'));
     await user.click(await screen.findByTestId('library-media-manga'));
     const library = await screen.findByTestId('manga-library');
-    const card = await within(library).findByTestId('manga-card');
-    expect(card.closest('ul')).toHaveClass('grid-cols-4');
-    expect(within(card).getByLabelText('3 unread chapters')).toBeInTheDocument();
-    expect(within(card).queryByLabelText('2 chapters downloaded')).not.toBeInTheDocument();
+    const item = await within(library).findByTestId('library-item');
+    expect(item.closest('ul')).toHaveAttribute('data-testid', 'library-list');
+    expect(within(item).getByLabelText('3 unread chapters')).toBeInTheDocument();
+    expect(within(item).queryByLabelText('2 chapters downloaded')).not.toBeInTheDocument();
   });
 
   it('saves the player settings', async () => {

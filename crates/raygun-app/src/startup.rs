@@ -65,9 +65,13 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         art_dir,
         proxy.address(),
     ));
+    app.manage(crate::uploads::Uploads::new(
+        paths.downloads().join(".uploads"),
+    ));
     app.manage(crate::manga::MangaService::new(
         app.handle().clone(),
         proxy.images(),
+        paths.downloads(),
     ));
     app.manage(crate::novel::NovelService::new(
         app.handle().clone(),

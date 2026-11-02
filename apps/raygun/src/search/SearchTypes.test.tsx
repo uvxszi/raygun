@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
 import { bindingsMock } from '../test/bindingsMock';
+import { libraryEntry } from '../test/libraryEntry';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -160,23 +161,13 @@ describe('Search by type', () => {
   });
 
   it('finds what you already have', async () => {
-    const entry: MangaLibraryEntry = {
+    const entry: MangaLibraryEntry = libraryEntry({
       titleId: 't1',
       sourceId: MANGADEX.id,
       remoteId: 'm1',
       title: 'Frieren',
-      coverUrl: null,
-      chapters: 10,
       unread: 2,
-      genres: [],
-      status: 'ongoing',
-      addedAt: 0,
-      lastReadAt: null,
-      latestChapterAt: null,
-      started: false,
-      downloaded: 0,
-      categoryIds: [],
-    };
+    });
     commands.mangaLibrary.mockResolvedValue(
       ok([entry, { ...entry, titleId: 't2', title: 'Berserk' }]),
     );

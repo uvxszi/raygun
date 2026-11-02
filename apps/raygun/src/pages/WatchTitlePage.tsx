@@ -9,6 +9,8 @@ import { CategoryPicker } from '../manga/CategoryPicker';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { LibraryPill } from '../watch/LibraryPill';
+import { TitleListActions } from '../manga/TitleListActions';
+import { useDuplicateCheck } from '../manga/useDuplicateCheck';
 import type { PickIntent } from '../watch/ServerPicker';
 import { StreamPicker } from '../watch/StreamPicker';
 import type { StreamTarget } from '../watch/StreamPicker';
@@ -177,6 +179,7 @@ export const WatchTitlePage: FC = () => {
   const setWatched = useSetWatched();
   const trailer = useStremioPlay();
   const setInLibrary = useSetStremioInLibrary();
+  const duplicates = useDuplicateCheck('video');
   const downloads = useDownloadsByKey();
   const watch = useWatchStremio();
   const [picking, setPicking] = useState<{ target: StreamTarget; intent: PickIntent } | null>(null);
@@ -281,11 +284,17 @@ export const WatchTitlePage: FC = () => {
         <div className="flex flex-wrap items-center gap-2">
           <LibraryPill
             inLibrary={view.inLibrary}
-            busy={setInLibrary.isPending}
-            onToggle={() =>
-              setInLibrary.mutate({ kind: view.kind, id: view.id, inLibrary: !view.inLibrary })
-            }
+            busy={setInLibrary.isPending || duplicates.checking}
+            onToggle={() => {
+              const toggle = (inLibrary: boolean) =>
+                setInLibrary.mutate({ kind: view.kind, id: view.id, inLibrary });
+              if (view.inLibrary) toggle(false);
+              else void duplicates.addChecked(view.titleId ?? '', view.name, () => toggle(true));
+            }}
           />
+          {view.inLibrary && view.titleId && (
+            <TitleListActions medium="video" titleId={view.titleId} title={view.name} pill />
+          )}
           {!hasEpisodes && (
             <button
               type="button"
@@ -352,6 +361,7 @@ export const WatchTitlePage: FC = () => {
         )}
       </TitleHero>
       {view.inLibrary && view.titleId && <CategoryPicker medium="video" titleId={view.titleId} />}
+      {duplicates.dialog}
       {view.description && (
         <button
           type="button"

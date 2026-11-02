@@ -1,4 +1,11 @@
-import type { CoverStyle, NovelFont, NovelReaderPrefs, NovelWidth } from '@raygun/bindings';
+import type {
+  CoverStyle,
+  LibraryDisplayMode,
+  LibraryTabs,
+  NovelFont,
+  NovelReaderPrefs,
+  NovelWidth,
+} from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
 import { Bot, Package, Puzzle, Smartphone, Tag } from 'lucide-react';
@@ -9,6 +16,13 @@ import { useAiModels, useAiProviders } from '../ai/useAi';
 import { useSyncStatus } from '../devices/useDeviceSync';
 import { useExtensions } from '../extensions/useExtensions';
 import { LibraryFolders } from '../library/LibraryFolders';
+import {
+  DISPLAY_MODES,
+  GRID_COLUMNS,
+  TAB_MODES,
+  withLibraryDisplay,
+} from '../manga/libraryDisplay';
+import type { LibraryDisplay } from '../manga/libraryDisplay';
 import { useLibraryStatus } from '../library/useLibrary';
 import { AppearanceCard } from '../settings/AppearanceCard';
 import { BackupCard } from '../settings/BackupCard';
@@ -55,21 +69,80 @@ const LibrarySettings: FC = () => {
   const { data, update, busy } = useSetting();
   const status = useLibraryStatus();
   if (!data) return null;
+  const libraryDisplay = withLibraryDisplay(data.libraryDisplay);
+  const setLibraryDisplay = (change: Partial<LibraryDisplay>) =>
+    update.mutate({ key: 'libraryDisplay', value: { ...libraryDisplay, ...change } });
   return (
     <>
-      <PrefGroup title={t('settings.display')}>
+      <PrefGroup title={t('settings.libraryDisplay')}>
+        <PrefChoice<LibraryDisplayMode>
+          title={t('library.display.mode')}
+          value={libraryDisplay.mode}
+          disabled={busy}
+          options={DISPLAY_MODES.map((value) => ({
+            value,
+            label: t(`library.display.modes.${value}`),
+          }))}
+          onChange={(mode) => setLibraryDisplay({ mode })}
+        />
         <PrefChoice<number>
           title={t('settings.gridColumns')}
           value={data.gridColumns}
           disabled={busy}
-          options={[0, 2, 3, 4, 5, 6].map((value) => ({
+          options={GRID_COLUMNS.map((value) => ({
             value,
             label: value === 0 ? t('settings.gridColumnsAuto') : String(value),
           }))}
           onChange={(value) => update.mutate({ key: 'gridColumns', value })}
         />
+        <PrefChoice<number>
+          title={t('library.display.columnsLandscape')}
+          value={libraryDisplay.columnsLandscape}
+          disabled={busy}
+          options={GRID_COLUMNS.map((value) => ({
+            value,
+            label: value === 0 ? t('settings.gridColumnsAuto') : String(value),
+          }))}
+          onChange={(columnsLandscape) => setLibraryDisplay({ columnsLandscape })}
+        />
+        <PrefChoice<LibraryTabs>
+          title={t('library.display.tabs')}
+          value={libraryDisplay.tabs}
+          disabled={busy}
+          options={TAB_MODES.map((value) => ({
+            value,
+            label: t(`library.display.tabModes.${value}`),
+          }))}
+          onChange={(tabs) => setLibraryDisplay({ tabs })}
+        />
+        <PrefSwitch
+          title={t('library.display.showCounts')}
+          checked={libraryDisplay.showCounts}
+          disabled={busy}
+          onChange={(showCounts) => setLibraryDisplay({ showCounts })}
+        />
+        <PrefSwitch
+          title={t('library.display.perCategory')}
+          checked={libraryDisplay.perCategory}
+          disabled={busy}
+          onChange={(perCategory) => setLibraryDisplay({ perCategory })}
+        />
+        <PrefSwitch
+          title={t('library.display.continueReading')}
+          checked={libraryDisplay.continueButton}
+          disabled={busy}
+          onChange={(continueButton) => setLibraryDisplay({ continueButton })}
+        />
+        <PrefSwitch
+          title={t('library.display.pinsOnTop')}
+          checked={libraryDisplay.pinsOnTop}
+          disabled={busy}
+          onChange={(pinsOnTop) => setLibraryDisplay({ pinsOnTop })}
+        />
+      </PrefGroup>
+      <PrefGroup title={t('settings.display')}>
         <PrefChoice<CoverStyle>
-          title={t('settings.coverStyle')}
+          title={t('settings.browseCovers')}
           value={data.coverStyle}
           disabled={busy}
           options={[
@@ -99,6 +172,12 @@ const LibrarySettings: FC = () => {
           checked={data.downloadBadges}
           disabled={busy}
           onChange={(value) => update.mutate({ key: 'downloadBadges', value })}
+        />
+        <PrefSwitch
+          title={t('library.display.localBadge')}
+          checked={libraryDisplay.localBadge}
+          disabled={busy}
+          onChange={(localBadge) => setLibraryDisplay({ localBadge })}
         />
       </PrefGroup>
       <PrefGroup title={t('settings.libraryUpdates')}>

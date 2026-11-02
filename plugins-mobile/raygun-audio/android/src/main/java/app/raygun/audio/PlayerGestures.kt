@@ -230,11 +230,13 @@ internal class PlayerGestures(private val host: VideoPlayerActivity) {
         mode = Mode.HOLD
         heldSpeed = player.playbackParameters.speed
         host.applySpeed(speed)
-        host.showHint("${formatSpeed(speed)} »", 0)
+        // The controls would cover the badge; the picture stays clear while held.
+        host.controls.hide()
+        host.showSpeedBadge("${formatSpeed(speed)} »")
     }
 
     private fun endHold() {
         host.applySpeed(heldSpeed)
-        host.hideHint()
+        host.showSpeedBadge(null)
     }
 }

@@ -241,6 +241,46 @@ export const commands = {
 	libraryCategoryReorder: (medium: string, ids: string[]) => typedError<null, string>(__TAURI_INVOKE("library_category_reorder", { medium, ids })),
 	/**  Makes `category_ids` exactly the title's categories. */
 	librarySetTitleCategories: (medium: string, titleId: string, categoryIds: string[]) => typedError<null, string>(__TAURI_INVOKE("library_set_title_categories", { medium, titleId, categoryIds })),
+	/**  A title's list, favorite and pin, for its page. */
+	libraryTitleMarks: (medium: string, titleId: string) => typedError<TitleMarks, string>(__TAURI_INVOKE("library_title_marks", { medium, titleId })),
+	/**  Puts titles on a list (adding them to the library) or takes them off theirs. */
+	librarySetList: (medium: string, titleIds: string[], list: "reading" | "planned" | "completed" | "onHold" | "dropped" | null) => typedError<null, string>(__TAURI_INVOKE("library_set_list", { medium, titleIds, list })),
+	/**  Makes titles favorites (adding them to the library) or not. */
+	librarySetFavorite: (medium: string, titleIds: string[], favorite: boolean) => typedError<null, string>(__TAURI_INVOKE("library_set_favorite", { medium, titleIds, favorite })),
+	/**  Pins titles to the top of the library, or unpins them. */
+	librarySetPinned: (medium: string, titleIds: string[], pinned: boolean) => typedError<null, string>(__TAURI_INVOKE("library_set_pinned", { medium, titleIds, pinned })),
+	/**  Marks every released chapter or episode of titles read (or all unread). */
+	libraryMarkRead: (medium: string, titleIds: string[], read: boolean) => typedError<null, string>(__TAURI_INVOKE("library_mark_read", { medium, titleIds, read })),
+	/**  Takes titles out of the library and/or deletes their downloads. */
+	libraryRemove: (medium: string, titleIds: string[], fromLibrary: boolean, deleteDownloads: boolean) => typedError<null, string>(__TAURI_INVOKE("library_remove", { medium, titleIds, fromLibrary, deleteDownloads })),
+	/**  Adds titles to some categories and takes them out of others. */
+	libraryChangeCategories: (medium: string, titleIds: string[], add: string[], remove: string[]) => typedError<null, string>(__TAURI_INVOKE("library_change_categories", { medium, titleIds, add, remove })),
+	/**
+	 *  Queues the next `amount` unread chapters of titles (all unread ones without an amount);
+	 *  returns how many were queued.
+	 */
+	libraryDownloadNext: (medium: string, titleIds: string[], amount: number | null) => typedError<number, string>(__TAURI_INVOKE("library_download_next", { medium, titleIds, amount })),
+	/**  The chapter or episode a title continues at. */
+	libraryContinue: (medium: string, titleId: string) => typedError<string | null, string>(__TAURI_INVOKE("library_continue", { medium, titleId })),
+	/**  Library titles with the same name as `title` from other sources. */
+	libraryDuplicates: (medium: string, titleId: string, title: string) => typedError<LibraryDuplicate[], string>(__TAURI_INVOKE("library_duplicates", { medium, titleId, title })),
+	/**  Gives a category its own display and sort, or makes it follow the library's again. */
+	librarySetCategoryDisplay: (medium: string, categoryId: string, display: {
+	mode: LibraryDisplayMode,
+	/**  One of the library's sorts, as the UI names them (`title`, `lastRead`...). */
+	sort: string,
+	descending: boolean,
+} | null) => typedError<null, string>(__TAURI_INVOKE("library_set_category_display", { medium, categoryId, display })),
+	/**  Updates one category's titles (manga and video libraries). */
+	libraryUpdateCategory: (medium: string, categoryId: string) => typedError<MangaUpdateStatus, string>(__TAURI_INVOKE("library_update_category", { medium, categoryId })),
+	/**  Starts sending a file picked in the app; returns the upload's id. */
+	uploadBegin: () => typedError<string, string>(__TAURI_INVOKE("upload_begin")),
+	/**  Adds a base64 slice to an upload; returns its size so far. */
+	uploadAppend: (id: string, chunk: string) => typedError<number | null, string>(__TAURI_INVOKE("upload_append", { id, chunk })),
+	/**  Drops an upload that won't be finished. */
+	uploadCancel: (id: string) => __TAURI_INVOKE<void>("upload_cancel", { id }),
+	/**  Imports an uploaded CBZ or ZIP as a chapter of a local comic; returns the title's source and id. */
+	mangaImportComic: (uploadId: string, fileName: string) => typedError<ImportedTitle, string>(__TAURI_INVOKE("manga_import_comic", { uploadId, fileName })),
 	/**  The filters a manga or novel source offers for its search. */
 	catalogFilters: (medium: string, sourceId: string) => typedError<SourceFilter[], string>(__TAURI_INVOKE("catalog_filters", { medium, sourceId })),
 	/**  Searches one source with its filters; the query may be empty when filters are set. */
@@ -462,6 +502,14 @@ export type CatalogState = "available" | "installed" | "updateAvailable" |
 /**  This device has a newer version than the repository (a built-in or development copy). */
 "newerInstalled";
 
+/**  A category's own display and sort (M46, Mihon's per-category settings). */
+export type CategoryDisplay = {
+	mode: LibraryDisplayMode,
+	/**  One of the library's sorts, as the UI names them (`title`, `lastRead`...). */
+	sort: string,
+	descending: boolean,
+};
+
 /**  Where a chapter's download stands. */
 export type ChapterDownload = {
 	state: DownloadState,
@@ -623,6 +671,12 @@ export type ImportedBook = {
 	novelId: string,
 };
 
+/**  A title imported from the device (comics, M46): its source and the source's id for it. */
+export type ImportedTitle = {
+	sourceId: string,
+	remoteId: string,
+};
+
 export type LibraryAlbum = {
 	artist: string,
 	title: string,
@@ -642,7 +696,53 @@ export type LibraryArtist = {
 export type LibraryCategory = {
 	id: string,
 	name: string,
+	/**  Its own display and sort, when the library keeps them per category (M46). */
+	display: CategoryDisplay | null,
 };
+
+/**  How library titles are laid out (M46, Mihon's display modes). */
+export type LibraryDisplayMode = 
+/**  The title over the cover's bottom edge. */
+"compactGrid" | 
+/**  The title under the cover. */
+"comfortableGrid" | "coverOnlyGrid" | "list";
+
+/**
+ *  The manga, novel and video libraries' display (M46). One stored row; fields missing from it
+ *  keep their defaults.
+ */
+export type LibraryDisplayPrefs = {
+	mode?: LibraryDisplayMode,
+	/**
+	 *  Covers per row in landscape; 0 fits them to the screen. (`Settings::grid_columns` is the
+	 *  portrait value.)
+	 */
+	columnsLandscape?: number,
+	tabs?: LibraryTabs,
+	/**  The number of titles on each tab. */
+	showCounts?: boolean,
+	/**  Each category keeps its own display and sort. */
+	perCategory?: boolean,
+	/**  A play button on covers that continues reading or watching. */
+	continueButton?: boolean,
+	/**  A badge on titles imported from the device. */
+	localBadge?: boolean,
+	/**  Pinned titles come first whatever the sort. */
+	pinsOnTop?: boolean,
+};
+
+/**  A library title another one may duplicate (same name, another source; M46). */
+export type LibraryDuplicate = {
+	titleId: string,
+	sourceId: string,
+	remoteId: string,
+	title: string,
+	sourceName: string,
+	coverUrl: string | null,
+};
+
+/**  The user's lists for titles (M46, CloudStream's watch status). Each title is in at most one. */
+export type LibraryList = "reading" | "planned" | "completed" | "onHold" | "dropped";
 
 /**  Progress of a local library scan. */
 export type LibraryScanEvent = LibraryScanProgress;
@@ -667,6 +767,13 @@ export type LibraryStatus = {
 	trackCount: number,
 	scanning: boolean,
 };
+
+/**  What the library's tabs group by (M46). */
+export type LibraryTabs = 
+/**  The user's categories (Mihon). */
+"categories" | 
+/**  Favorites and the lists (CloudStream). */
+"lists" | "none";
 
 export type LibraryTrack = {
 	id: string,
@@ -793,6 +900,21 @@ export type MangaLibraryEntry = {
 	started: boolean,
 	downloaded: number,
 	categoryIds: string[],
+	/**  The user's list (M46). */
+	list: LibraryList | null,
+	favorite: boolean,
+	/**  Kept at the top of the library (M46). */
+	pinned: boolean,
+	authors: string[],
+	artists: string[],
+	/**  The source's name, for search (`source:`) and the list display. */
+	sourceName: string,
+	/**  Unix ms the title was last checked for new chapters. */
+	refreshedAt: number | null,
+	/**  Unix ms the newest chapter was found (Mihon's "chapter fetch date"). */
+	latestFetchedAt: number | null,
+	/**  Imported from the device (EPUB, comics). */
+	local: boolean,
 };
 
 export type MangaListingPage = {
@@ -1179,7 +1301,7 @@ export type SearchResults = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -1229,6 +1351,8 @@ export type Settings = {
 	nextPromptSeconds: number,
 	/**  The video player's controls, gestures, tracks and tools (M45). */
 	videoPlayer: VideoPlayerPrefs,
+	/**  How the manga, novel and video libraries look (M46). */
+	libraryDisplay: LibraryDisplayPrefs,
 };
 
 /**  A setting changed outside the Settings screens (in the video player, M45); carries its key. */
@@ -1513,6 +1637,14 @@ export type TextBlock = { kind: "paragraph"; text: string } | { kind: "heading";
 export type Theme = "system" | "light" | "dark" | 
 /**  Pure black background for OLED screens. */
 "amoled";
+
+/**  A title's list, favorite and pin, for its page (M46). */
+export type TitleMarks = {
+	inLibrary: boolean,
+	list: LibraryList | null,
+	favorite: boolean,
+	pinned: boolean,
+};
 
 /**  A track to save, from the player, the library or a search result. */
 export type TrackInput = {

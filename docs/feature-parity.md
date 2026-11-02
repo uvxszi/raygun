@@ -70,9 +70,9 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 |---|---|---|
 | Sources: popular/latest/search with filters, global search | Mihon | ✅ M25, M40 (filters, global search) |
 | Library with in-library toggle | Mihon | ✅ M24 |
-| Categories, per-category sort/filter/display, default category | Mihon | ✅ M39 (categories) / 🔜 M46 (per-category settings) |
-| Library filters (downloaded, unread, started, completed, tracked), sort, badges, display modes | Mihon | ✅ M39 (filters, sort, tags) / 🔜 M46 (display modes, tri-state, selection) |
-| Duplicate detection, migration to another source | Mihon | 🔜 M46 (duplicates) / M53 (migration) |
+| Categories, per-category sort/filter/display, default category | Mihon | ✅ M39 (categories), M46 (per-category layout and sort, update one category) |
+| Library filters (downloaded, unread, started, completed, tracked), sort, badges, display modes | Mihon | ✅ M39 (filters, sort, tags), M46 (tri-state filters, nine sorts, search language, four layouts, columns per orientation, selection with bulk actions, continue buttons, random title; tracked: M59) |
+| Duplicate detection, migration to another source | Mihon | ✅ M46 (duplicates) / 🔜 M53 (migration) |
 | Title notes, custom cover, edit info | Mihon | 🔜 M47 |
 | Stats | Mihon | 🔜 M54 |
 | Reader: paged LTR/RTL, webtoon, zoom, tap zones, prefetch | Mihon | ✅ M27 |
@@ -86,7 +86,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | CBZ, Wi-Fi only, delete after reading, download ahead, auto-download new chapters, concurrency | Mihon | 🔜 M49 |
 | Chapter swipe actions, scanlator filter, bookmarks | Mihon | 🔜 M47 |
 | Trackers (AniList, MAL, Kitsu, MangaUpdates, Bangumi, Shikimori, Komga/Kavita) | Mihon | ⏸ M59 (accounts) |
-| Local source (CBZ/folders) | Mihon | 🔜 M46 |
+| Local source (CBZ/folders) | Mihon | ✅ M46 (CBZ/ZIP with ComicInfo; folders and RAR ✖, Android's picker gives files) |
 | AI upscaling | mihon_img_upscale | 🔜 M56 |
 | OCR + translation overlay, auto-translate downloads | TachiyomiAT | 🔜 M57, M58 |
 | WebView (open in browser, Cloudflare) | Mihon | 🔜 M55 |
@@ -122,7 +122,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Custom player overlay: lock, aspect, rotation, speed presets, brightness/volume bars and boost, horizontal seek, configurable double-tap | aniyomi, CloudStream | ✅ M45 (plus hold for speed, media keys) |
 | Subtitle styling, delay, second track, local files; audio and subtitle language lists; tracks and speed remembered per title | aniyomi, Stremio | ✅ M45 (second track = subtitle files; audio delay ✖) |
 | PiP actions, sleep timer, screenshots, decoder switch | aniyomi | ✅ M45 (screenshots as cover: M47) |
-| Watch-status lists (Watching, Plan to watch, Completed, On hold, Dropped), favorites | CloudStream | 🔜 M46 |
+| Watch-status lists (Watching, Plan to watch, Completed, On hold, Dropped), favorites | CloudStream | ✅ M46 (for manga and novels too; tabs by list; Shosetsu's pins) |
 | Episode filters, sort, bookmarks, fillers, selection and bulk actions | aniyomi | 🔜 M47 |
 | New-episode notifications, per-title toggle, calendar | CloudStream, Stremio | 🔜 M48 |
 | Background downloads with notifications, parallel, Wi-Fi only, auto-download, delete after watching | aniyomi, CloudStream | 🔜 M49 |

@@ -13,12 +13,14 @@ pub struct Category {
     pub id: String,
     pub name: String,
     pub position: i64,
+    /// Its own display and sort as JSON (M46); none follows the library's.
+    pub display: Option<String>,
 }
 
 /// A kind's categories in the user's order.
 pub async fn list(db: &Db, kind: &str) -> Result<Vec<Category>, DbError> {
     let rows = sqlx::query(
-        "SELECT id, name, position FROM category WHERE kind = ?1 AND deleted = 0
+        "SELECT id, name, position, user_display FROM category WHERE kind = ?1 AND deleted = 0
          ORDER BY position, name COLLATE NOCASE",
     )
     .bind(kind)
@@ -30,8 +32,73 @@ pub async fn list(db: &Db, kind: &str) -> Result<Vec<Category>, DbError> {
             id: row.get("id"),
             name: row.get("name"),
             position: row.get("position"),
+            display: row.get("user_display"),
         })
         .collect())
+}
+
+/// Sets a category's own display and sort (JSON), or clears it (M46).
+pub async fn set_display(db: &Db, id: &str, display: Option<&str>) -> Result<(), DbError> {
+    let stamp = db.tick();
+    let mut transaction = db.pool().begin().await?;
+    sqlx::query(
+        "UPDATE category SET user_display = ?2, updated_at_hlc = ?3, origin_device = ?4
+         WHERE id = ?1 AND deleted = 0",
+    )
+    .bind(id)
+    .bind(display)
+    .bind(stamp as i64)
+    .bind(db.device_id().to_string())
+    .execute(&mut *transaction)
+    .await?;
+    persist_hlc(&mut *transaction, stamp).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+/// Adds titles to categories and takes them out of others, leaving the rest of their categories
+/// alone (the bulk action of M46's selection mode).
+pub async fn change_titles(
+    db: &Db,
+    title_ids: &[String],
+    add: &[String],
+    remove: &[String],
+) -> Result<(), DbError> {
+    let stamp = db.tick();
+    let device = db.device_id().to_string();
+    let mut transaction = db.pool().begin().await?;
+    for title_id in title_ids {
+        for category_id in add {
+            sqlx::query(
+                "INSERT INTO title_category (title_id, category_id, updated_at_hlc, origin_device, deleted)
+                 VALUES (?1, ?2, ?3, ?4, 0)
+                 ON CONFLICT (title_id, category_id) DO UPDATE SET
+                     deleted = 0, updated_at_hlc = excluded.updated_at_hlc,
+                     origin_device = excluded.origin_device",
+            )
+            .bind(title_id)
+            .bind(category_id)
+            .bind(stamp as i64)
+            .bind(&device)
+            .execute(&mut *transaction)
+            .await?;
+        }
+        for category_id in remove {
+            sqlx::query(
+                "UPDATE title_category SET deleted = 1, updated_at_hlc = ?3, origin_device = ?4
+                 WHERE title_id = ?1 AND category_id = ?2 AND deleted = 0",
+            )
+            .bind(title_id)
+            .bind(category_id)
+            .bind(stamp as i64)
+            .bind(&device)
+            .execute(&mut *transaction)
+            .await?;
+        }
+    }
+    persist_hlc(&mut *transaction, stamp).await?;
+    transaction.commit().await?;
+    Ok(())
 }
 
 /// Adds a category at the end; returns its id.
@@ -237,5 +304,37 @@ mod tests {
             "a deleted category's titles are uncategorized"
         );
         assert_eq!(names(list(&db, "manga").await.unwrap()), ["Plan to read"]);
+    }
+
+    #[tokio::test]
+    async fn bulk_changes_and_a_categorys_own_display() {
+        let temp = TempDir::new().unwrap();
+        let db = Db::open(&temp.path().join("raygun.db")).await.unwrap();
+        let reading = create(&db, "manga", "Reading").await.unwrap();
+        let later = create(&db, "manga", "Later").await.unwrap();
+        set_title_categories(&db, "t1", std::slice::from_ref(&reading))
+            .await
+            .unwrap();
+        change_titles(
+            &db,
+            &["t1".to_owned(), "t2".to_owned()],
+            std::slice::from_ref(&later),
+            std::slice::from_ref(&reading),
+        )
+        .await
+        .unwrap();
+        let members = memberships(&db, "manga").await.unwrap();
+        assert_eq!(members["t1"], std::slice::from_ref(&later));
+        assert_eq!(members["t2"], std::slice::from_ref(&later));
+
+        set_display(&db, &later, Some("{\"mode\":\"list\"}"))
+            .await
+            .unwrap();
+        let shown = list(&db, "manga").await.unwrap();
+        let display = |id: &str| shown.iter().find(|c| c.id == id).unwrap().display.clone();
+        assert_eq!(display(&later).as_deref(), Some("{\"mode\":\"list\"}"));
+        assert_eq!(display(&reading), None);
+        set_display(&db, &later, None).await.unwrap();
+        assert_eq!(list(&db, "manga").await.unwrap()[1].display, None);
     }
 }

@@ -10,7 +10,9 @@ import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { DownloadButton } from '../manga/DownloadButton';
 import { MangaCover } from '../manga/MangaCover';
-import { LOCAL_EPUB, ROUTES } from '../manga/medium';
+import { TitleListActions } from '../manga/TitleListActions';
+import { useDuplicateCheck } from '../manga/useDuplicateCheck';
+import { ROUTES, isLocalSource } from '../manga/medium';
 import type { ReadingMedium } from '../manga/medium';
 import {
   useDownloadChapters,
@@ -83,6 +85,7 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
   const download = useDownloadChapters();
   const refresh = useRefreshTitle(medium);
   const setInLibrary = useSetInLibrary(medium);
+  const duplicates = useDuplicateCheck(medium);
   const [expanded, setExpanded] = useState(false);
   const navigate = useNavigate();
   const view = refresh.data && refresh.data.remoteId === id ? refresh.data : title.data;
@@ -93,7 +96,8 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
       plainTitle
       title={view?.sourceName ?? ''}
       actions={
-        view && (
+        view &&
+        !isLocalSource(view.sourceId) && (
           <TopBarAction
             label={t('manga.refresh')}
             icon={RefreshCw}
@@ -148,7 +152,7 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
   const continueChapter = view.chapters.find((chapter) => chapter.id === view.continueChapterId);
   const started = view.chapters.some((chapter) => chapter.read || chapter.lastPage !== null);
   // Imported books are already on the device.
-  const downloadable = view.sourceId !== LOCAL_EPUB;
+  const downloadable = !isLocalSource(view.sourceId);
   // Oldest first, so the queue reads in order (the list is newest first).
   const unreadToDownload = view.chapters
     .filter((chapter) => downloadable && !chapter.read && !chapter.download)
@@ -173,13 +177,18 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
           <button
             type="button"
             aria-pressed={view.inLibrary}
-            disabled={setInLibrary.isPending}
-            onClick={() => setInLibrary.mutate({ titleId: view.id, inLibrary: !view.inLibrary })}
+            disabled={setInLibrary.isPending || duplicates.checking}
+            onClick={() => {
+              const add = () => setInLibrary.mutate({ titleId: view.id, inLibrary: true });
+              if (view.inLibrary) setInLibrary.mutate({ titleId: view.id, inLibrary: false });
+              else void duplicates.addChecked(view.id, view.title, add);
+            }}
             className={`flex flex-1 flex-col items-center gap-1 rounded-xl px-2 py-2 text-xs font-medium disabled:opacity-60 ${view.inLibrary ? 'text-primary' : ''}`}
           >
             <Heart aria-hidden size={22} fill={view.inLibrary ? 'currentColor' : 'none'} />
             {t(view.inLibrary ? 'manga.inLibrary' : 'manga.addToLibrary')}
           </button>
+          <TitleListActions medium={medium} titleId={view.id} title={view.title} />
           {downloadable && (
             <button
               type="button"
@@ -224,6 +233,7 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
         </div>
       </TitleHero>
       {view.inLibrary && <CategoryPicker medium={medium} titleId={view.id} />}
+      {duplicates.dialog}
       {(refresh.error ?? setInLibrary.error ?? download.error) && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
           {(refresh.error ?? setInLibrary.error ?? download.error)?.message}

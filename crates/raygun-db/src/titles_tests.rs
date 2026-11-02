@@ -376,3 +376,83 @@ async fn upcoming_lists_future_episodes_of_library_series_soonest_first() {
     let entry = &library(&db, "video").await.unwrap()[0];
     assert_eq!((entry.units, entry.unread), (5, 4));
 }
+
+#[tokio::test]
+async fn lists_favorites_pins_and_bulk_read() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp).await;
+    let first = upsert_title(&db, &manga("m1", "Frieren"), 1).await.unwrap();
+    let second = upsert_title(&db, &manga("m2", "Dungeon Meshi"), 1)
+        .await
+        .unwrap();
+    let both = [first.clone(), second.clone()];
+    set_mark(&db, &both, &TitleMark::List(Some("reading".into())))
+        .await
+        .unwrap();
+    set_mark(
+        &db,
+        std::slice::from_ref(&first),
+        &TitleMark::Favorite(Some(7)),
+    )
+    .await
+    .unwrap();
+    set_mark(
+        &db,
+        std::slice::from_ref(&second),
+        &TitleMark::Pinned(Some(8)),
+    )
+    .await
+    .unwrap();
+    let stored = title(&db, &first).await.unwrap().unwrap();
+    assert_eq!(stored.list.as_deref(), Some("reading"));
+    assert_eq!((stored.favorite_at, stored.pinned_at), (Some(7), None));
+    set_mark(&db, std::slice::from_ref(&first), &TitleMark::List(None))
+        .await
+        .unwrap();
+    assert_eq!(title(&db, &first).await.unwrap().unwrap().list, None);
+    assert_eq!(
+        title(&db, &second).await.unwrap().unwrap().pinned_at,
+        Some(8)
+    );
+
+    // Chapter 3 isn't out yet: marking read leaves it unread.
+    let mut future = chapter("c3", 3.0);
+    future.date = Some(4_000_000_000_000);
+    sync_units(
+        &db,
+        &first,
+        &[chapter("c1", 1.0), chapter("c2", 2.0), future],
+        "chapter",
+        1,
+    )
+    .await
+    .unwrap();
+    set_in_library(&db, &first, Some(2)).await.unwrap();
+    set_titles_completed(&db, std::slice::from_ref(&first), true, 1_800_000_000_000)
+        .await
+        .unwrap();
+    let stored_units = units(&db, &first).await.unwrap();
+    let read: Vec<&str> = stored_units
+        .iter()
+        .filter(|unit| unit.completed_at.is_some())
+        .map(|unit| unit.fields.remote_id.as_str())
+        .collect();
+    assert_eq!(read.len(), 2);
+    assert!(!read.contains(&"c3"));
+    assert_eq!(
+        library(&db, "manga").await.unwrap()[0].unread,
+        0,
+        "what isn't out yet doesn't count as unread"
+    );
+
+    set_titles_completed(&db, std::slice::from_ref(&first), false, 1_800_000_000_001)
+        .await
+        .unwrap();
+    assert!(
+        units(&db, &first)
+            .await
+            .unwrap()
+            .iter()
+            .all(|unit| unit.completed_at.is_none())
+    );
+}

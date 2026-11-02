@@ -10,3 +10,8 @@ MotionGlobalConfig.skipAnimations = true;
 window.HTMLMediaElement.prototype.play = () => Promise.resolve();
 window.HTMLMediaElement.prototype.pause = () => {};
 window.HTMLMediaElement.prototype.load = () => {};
+
+// Per-device conveniences (the library's tab and filter) must not leak from one test to the next.
+afterEach(() => {
+  localStorage.clear();
+});

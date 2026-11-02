@@ -94,6 +94,10 @@ The user asked for the full depth of the reference apps ("its not meant to be a 
   - **Display:** display modes (list, comfortable, compact, cover only), per-category display and sort, columns per orientation.
   - **Sorting and filters:** more sorts, tri-state filters and badges.
   - **Extras:** continue buttons, duplicate detection, random pick, local source (folders, CBZ, EPUB).
+- M46.1 **Save to the device and export** (asked 2026-11-01: "downloading to a specific folder like downloads", "manga screenshots", "full manga chapter or entire thing downloads in different formats"; pulls forward parts of M49 and M50):
+  - **Storage:** where downloads go: app storage (the default) or a folder the user picks.
+  - **Exports:** a chapter, a selection or a whole title, as an image folder, CBZ or PDF for manga; EPUB or text for novels; video files copied out. Missing chapters are downloaded first, at the source's pace.
+  - **Pages:** save, share or set as cover from the reader.
 - M47 **Title pages and chapter/episode lists** (mihon §2; aniyomi §8; cloudstream §4; stremio §4; shosetsu novel screen):
   - **Lists:** filters, sort and display with defaults; selection with bulk actions (mark previous, download, delete, bookmark); bookmarks and fillers; swipe actions; download menus (next N, all unread).
   - **Title extras:** cover dialog and custom cover, notes, edit info, share, links (genres, authors and cast open Search).

@@ -43,6 +43,7 @@
     "noTracksFound": "No music found in your library folders yet.",
     "views": "Library views",
     "view": {
+      "all": "All",
       "albums": "Albums",
       "artists": "Artists",
       "tracks": "Tracks",
@@ -84,11 +85,28 @@
       "reset": "Clear filters",
       "noMatches": "Nothing in the library matches.",
       "video": {
-        "unread": "Unwatched"
+        "unread": "Unwatched",
+        "started": "Started"
+      },
+      "favorite": "Favorites",
+      "pinned": "Pinned",
+      "local": "On the device",
+      "people": "Authors and artists",
+      "cast": "Cast and directors",
+      "forCategory": "For {{name}} only",
+      "tabs": {
+        "filter": "Filter",
+        "sort": "Sort",
+        "display": "Display"
+      },
+      "state": {
+        "off": "off",
+        "include": "only",
+        "exclude": "without"
       }
     },
     "sort": {
-      "title": "Title",
+      "title": "Alphabetical",
       "lastRead": "Last read",
       "latestChapter": "Latest chapter",
       "unread": "Unread count",
@@ -96,8 +114,14 @@
       "video": {
         "lastRead": "Last watched",
         "latestChapter": "Latest episode",
-        "unread": "Unwatched count"
-      }
+        "unread": "Unwatched count",
+        "totalChapters": "Total episodes",
+        "fetchedAt": "Episode fetch date"
+      },
+      "totalChapters": "Total chapters",
+      "lastChecked": "Last update check",
+      "fetchedAt": "Chapter fetch date",
+      "random": "Random"
     },
     "categories": {
       "title": "Categories",
@@ -140,7 +164,95 @@
     "manageFolders": "Manage folders",
     "folderHint": "A folder on this device, like /sdcard/Music. Raygun reads it and keeps watching for new files.",
     "noFolders": "No music folders yet.",
-    "findInSearch": "Find in Browse"
+    "findInSearch": "Find in Browse",
+    "lists": {
+      "title": "List",
+      "none": "No list",
+      "favorites": "Favorites",
+      "reading": "Reading",
+      "planned": "Plan to read",
+      "completed": "Completed",
+      "onHold": "On hold",
+      "dropped": "Dropped",
+      "video": {
+        "reading": "Watching",
+        "planned": "Plan to watch"
+      },
+      "set": "List: {{name}}",
+      "add": "Add to a list",
+      "favorite": "Favorite",
+      "unfavorite": "Remove from favorites"
+    },
+    "display": {
+      "mode": "Layout",
+      "modes": {
+        "compactGrid": "Compact grid",
+        "comfortableGrid": "Comfortable grid",
+        "coverOnlyGrid": "Covers only",
+        "list": "List"
+      },
+      "columnsPortrait": "Covers per row (portrait)",
+      "columnsLandscape": "Covers per row (landscape)",
+      "tabs": "Tabs",
+      "tabModes": {
+        "categories": "Categories",
+        "lists": "Lists",
+        "none": "None"
+      },
+      "showCounts": "Number of titles on tabs",
+      "continueReading": "Continue reading button",
+      "continueWatching": "Continue watching button",
+      "localBadge": "Badge for titles on the device",
+      "perCategory": "Layout and sort per category",
+      "pinsOnTop": "Pinned titles on top"
+    },
+    "select": {
+      "count_one": "{{count}} selected",
+      "count_other": "{{count}} selected",
+      "close": "Stop selecting",
+      "all": "Select all",
+      "invert": "Invert selection",
+      "actions": "Selected titles",
+      "categories": "Set categories",
+      "noCategories": "You don't have any categories yet.",
+      "save": "OK",
+      "favorite": "Add to favorites",
+      "unfavorite": "Remove from favorites",
+      "pin": "Pin to top",
+      "unpin": "Unpin",
+      "markRead": "Mark as read",
+      "markUnread": "Mark as unread",
+      "markWatched": "Mark as watched",
+      "markUnwatched": "Mark as unwatched",
+      "download": "Download",
+      "downloadNext_one": "Next chapter",
+      "downloadNext_other": "Next {{count}} chapters",
+      "downloadUnread": "All unread",
+      "remove": "Remove",
+      "fromLibrary": "From the library",
+      "downloadedChapters": "Downloaded chapters",
+      "downloadedEpisodes": "Downloaded episodes",
+      "removeConfirm": "Remove"
+    },
+    "pinned": "Pinned",
+    "localBadge": "On the device",
+    "continueReading": "Continue reading {{title}}",
+    "continueWatching": "Continue watching {{title}}",
+    "noNextChapter": "There's nothing left to read in it.",
+    "noRandom": "There's nothing here to pick from.",
+    "openRandom": "Open a random title",
+    "updateCategory": "Update {{name}}",
+    "emptyTab": "Nothing here yet.",
+    "duplicates": {
+      "title": "Already in your library?",
+      "body": "You have titles with a similar name. Open one, or add this one anyway.",
+      "addAnyway": "Add anyway",
+      "open": "Open {{title}} from {{source}}",
+      "cancel": "Cancel"
+    },
+    "overview": {
+      "seeAll": "See all {{name}}"
+    }
   },
   "search": {
     "title": "Search",
@@ -315,7 +427,7 @@
     "navLabels": "Navigation bar labels",
     "navLabelsAlways": "Always show",
     "navLabelsSelected": "Only on the selected tab",
-    "gridColumns": "Covers per row",
+    "gridColumns": "Covers per row (portrait)",
     "gridColumnsAuto": "Automatic (fits the screen)",
     "coverStyle": "Titles on covers",
     "coverCompact": "Compact",
@@ -557,7 +669,9 @@
       "externalPackage": "Other app",
       "externalPackageHint": "It must be installed; position and progress come back when it closes",
       "externalAsk": "Ask each time"
-    }
+    },
+    "libraryDisplay": "Library layout",
+    "browseCovers": "Covers in Browse"
   },
   "player": {
     "nothingPlaying": "Nothing playing",
@@ -885,7 +999,10 @@
     "emptyTitle": "No manga yet",
     "queueEmptyHint": "Download chapters from a title to read them offline.",
     "noUpdatesHint": "New chapters from titles in your library show up here after an update.",
-    "tomorrow": "Tomorrow"
+    "tomorrow": "Tomorrow",
+    "importComics": "Import comics",
+    "comicFiles": "CBZ or ZIP files",
+    "importingComics": "Importing {{done}} of {{total}}…"
   },
   "novel": {
     "sources": "Novel sources",

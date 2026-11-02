@@ -1314,6 +1314,225 @@ pub async fn library_set_title_categories(
         .await
 }
 
+// ---- Library depth (M46) ----
+
+/// A title's list, favorite and pin, for its page.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_title_marks(
+    app: tauri::AppHandle,
+    medium: String,
+    title_id: String,
+) -> Result<raygun_model::TitleMarks, String> {
+    crate::library_actions::marks(catalog_for(&app, &medium)?, &title_id).await
+}
+
+/// Puts titles on a list (adding them to the library) or takes them off theirs.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_set_list(
+    app: tauri::AppHandle,
+    medium: String,
+    title_ids: Vec<String>,
+    list: Option<raygun_model::LibraryList>,
+) -> Result<(), String> {
+    use crate::library_actions::{Mark, set_mark};
+    set_mark(catalog_for(&app, &medium)?, &title_ids, Mark::List(list)).await
+}
+
+/// Makes titles favorites (adding them to the library) or not.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_set_favorite(
+    app: tauri::AppHandle,
+    medium: String,
+    title_ids: Vec<String>,
+    favorite: bool,
+) -> Result<(), String> {
+    use crate::library_actions::{Mark, set_mark};
+    set_mark(
+        catalog_for(&app, &medium)?,
+        &title_ids,
+        Mark::Favorite(favorite),
+    )
+    .await
+}
+
+/// Pins titles to the top of the library, or unpins them.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_set_pinned(
+    app: tauri::AppHandle,
+    medium: String,
+    title_ids: Vec<String>,
+    pinned: bool,
+) -> Result<(), String> {
+    use crate::library_actions::{Mark, set_mark};
+    set_mark(
+        catalog_for(&app, &medium)?,
+        &title_ids,
+        Mark::Pinned(pinned),
+    )
+    .await
+}
+
+/// Marks every released chapter or episode of titles read (or all unread).
+#[tauri::command]
+#[specta::specta]
+pub async fn library_mark_read(
+    app: tauri::AppHandle,
+    medium: String,
+    title_ids: Vec<String>,
+    read: bool,
+) -> Result<(), String> {
+    crate::library_actions::set_read(catalog_for(&app, &medium)?, &title_ids, read).await
+}
+
+/// Takes titles out of the library and/or deletes their downloads.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_remove(
+    app: tauri::AppHandle,
+    medium: String,
+    title_ids: Vec<String>,
+    from_library: bool,
+    delete_downloads: bool,
+) -> Result<(), String> {
+    let catalog = catalog_for(&app, &medium)?;
+    crate::library_actions::remove(&app, catalog, &title_ids, from_library, delete_downloads).await
+}
+
+/// Adds titles to some categories and takes them out of others.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_change_categories(
+    app: tauri::AppHandle,
+    medium: String,
+    title_ids: Vec<String>,
+    add: Vec<String>,
+    remove: Vec<String>,
+) -> Result<(), String> {
+    crate::library_actions::change_categories(
+        catalog_for(&app, &medium)?,
+        &title_ids,
+        &add,
+        &remove,
+    )
+    .await
+}
+
+/// Queues the next `amount` unread chapters of titles (all unread ones without an amount);
+/// returns how many were queued.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_download_next(
+    app: tauri::AppHandle,
+    medium: String,
+    title_ids: Vec<String>,
+    amount: Option<u32>,
+) -> Result<u32, String> {
+    if medium == "video" {
+        return Err("Episodes are downloaded from their title page".into());
+    }
+    let catalog = catalog_for(&app, &medium)?;
+    crate::library_actions::download_next(&app, catalog, &title_ids, amount).await
+}
+
+/// The chapter or episode a title continues at.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_continue(
+    app: tauri::AppHandle,
+    medium: String,
+    title_id: String,
+) -> Result<Option<String>, String> {
+    crate::library_actions::continue_unit(catalog_for(&app, &medium)?, &title_id).await
+}
+
+/// Library titles with the same name as `title` from other sources.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_duplicates(
+    app: tauri::AppHandle,
+    medium: String,
+    title_id: String,
+    title: String,
+) -> Result<Vec<raygun_model::LibraryDuplicate>, String> {
+    crate::library_actions::duplicates(catalog_for(&app, &medium)?, &title_id, &title).await
+}
+
+/// Gives a category its own display and sort, or makes it follow the library's again.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_set_category_display(
+    app: tauri::AppHandle,
+    medium: String,
+    category_id: String,
+    display: Option<raygun_model::CategoryDisplay>,
+) -> Result<(), String> {
+    crate::library_actions::set_category_display(catalog_for(&app, &medium)?, &category_id, display)
+        .await
+}
+
+/// Updates one category's titles (manga and video libraries).
+#[tauri::command]
+#[specta::specta]
+pub async fn library_update_category(
+    app: tauri::AppHandle,
+    manga: tauri::State<'_, MangaService>,
+    medium: String,
+    category_id: String,
+) -> Result<raygun_model::MangaUpdateStatus, String> {
+    if medium == "novel" {
+        return Err("Novels aren't updated yet".into());
+    }
+    let only =
+        crate::library_actions::category_titles(catalog_for(&app, &medium)?, &category_id).await?;
+    Ok(manga.start_update_of(true, Some(only)).await)
+}
+
+/// Starts sending a file picked in the app; returns the upload's id.
+#[tauri::command]
+#[specta::specta]
+pub fn upload_begin(uploads: tauri::State<'_, crate::uploads::Uploads>) -> Result<String, String> {
+    uploads.begin()
+}
+
+/// Adds a base64 slice to an upload; returns its size so far.
+#[tauri::command]
+#[specta::specta]
+pub fn upload_append(
+    uploads: tauri::State<'_, crate::uploads::Uploads>,
+    id: String,
+    chunk: String,
+) -> Result<f64, String> {
+    uploads.append(&id, &chunk).map(|size| size as f64)
+}
+
+/// Drops an upload that won't be finished.
+#[tauri::command]
+#[specta::specta]
+pub fn upload_cancel(uploads: tauri::State<'_, crate::uploads::Uploads>, id: String) {
+    uploads.cancel(&id);
+}
+
+/// Imports an uploaded CBZ or ZIP as a chapter of a local comic; returns the title's source and id.
+#[tauri::command]
+#[specta::specta]
+pub async fn manga_import_comic(
+    manga: tauri::State<'_, MangaService>,
+    uploads: tauri::State<'_, crate::uploads::Uploads>,
+    upload_id: String,
+    file_name: String,
+) -> Result<raygun_model::ImportedTitle, String> {
+    let file = uploads.take(&upload_id)?;
+    let (source_id, remote_id) = manga.import_comic(file, &file_name).await?;
+    Ok(raygun_model::ImportedTitle {
+        source_id,
+        remote_id,
+    })
+}
+
 /// Everything watched or started, most recent first (the Videos library).
 #[tauri::command]
 #[specta::specta]

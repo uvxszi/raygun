@@ -177,10 +177,20 @@ export const useMangaLiveEvents = () => {
         ]);
       }
     });
+    // The library's download badges follow the queue once it settles, not on every page.
+    let libraryRefresh: ReturnType<typeof setTimeout> | undefined;
     const unlistenDownloads = events.mangaDownloadsEvent.listen(() => {
       void invalidateDownloads(queryClient);
+      clearTimeout(libraryRefresh);
+      libraryRefresh = setTimeout(() => {
+        void Promise.all([
+          queryClient.invalidateQueries({ queryKey: [MANGA, 'library'] }),
+          queryClient.invalidateQueries({ queryKey: ['novel', 'library'] }),
+        ]);
+      }, 1000);
     });
     return () => {
+      clearTimeout(libraryRefresh);
       void unlistenUpdate.then((unlisten) => unlisten());
       void unlistenDownloads.then((unlisten) => unlisten());
     };

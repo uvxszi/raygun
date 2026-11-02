@@ -14,6 +14,7 @@ import { ArtistList } from '../library/ArtistList';
 import { FirstRunCard } from '../library/FirstRunCard';
 import { AddFolderSheet } from '../library/AddFolderForm';
 import { LibraryTop } from '../library/LibraryTop';
+import { MusicOverview } from '../library/MusicOverview';
 import { ScanBanner } from '../library/ScanBanner';
 import { TrackList } from '../library/TrackList';
 import { LIBRARY_VIEWS, isLocalView } from '../library/views';
@@ -56,7 +57,7 @@ const TracksView: FC = () => {
   );
 };
 
-/** Library → Music: albums, artists, tracks, playlists and favorites. */
+/** Library → Music: everything (All), playlists, favorites, albums, artists and tracks. */
 const MusicLibrary: FC<{ view: LibraryView }> = ({ view }) => {
   const { t } = useTranslation();
   const status = useLibraryStatus();
@@ -117,6 +118,13 @@ const MusicLibrary: FC<{ view: LibraryView }> = ({ view }) => {
           {connect.error.message}
         </p>
       )}
+      {view === 'all' && (
+        <MusicOverview
+          hasFolders={hasFolders}
+          trackCount={status.data?.trackCount ?? 0}
+          ready={status.data !== undefined}
+        />
+      )}
       {view === 'playlists' && <PlaylistsView />}
       {view === 'favorites' && <FavoritesView />}
       {local && status.data && !hasFolders && <FirstRunCard />}
@@ -133,9 +141,9 @@ const MusicLibrary: FC<{ view: LibraryView }> = ({ view }) => {
 
 /** The library: what you have, by kind of media (one top bar, one row of media tabs). */
 export const LibraryPage: FC = () => {
-  const { view = 'albums', media } = useSearch({ from: '/library' });
+  const { view = 'all', media } = useSearch({ from: '/library' });
   return (
-    <section data-testid="library-page" className="flex flex-col gap-4">
+    <section data-testid="library-page" className="flex min-h-full flex-col gap-4">
       {!media && <MusicLibrary view={view} />}
       {(media === 'manga' || media === 'novel' || media === 'video') && (
         <MangaLibraryView key={media} medium={media} />

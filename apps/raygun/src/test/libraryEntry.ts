@@ -1,0 +1,30 @@
+import type { MangaLibraryEntry } from '@raygun/bindings';
+
+/** A library entry for tests, every field filled; `overrides` set what a test cares about. */
+export const libraryEntry = (overrides: Partial<MangaLibraryEntry> = {}): MangaLibraryEntry => ({
+  titleId: 't',
+  sourceId: 'src',
+  remoteId: 'r',
+  title: 'Title',
+  coverUrl: null,
+  chapters: 10,
+  unread: 0,
+  genres: [],
+  status: 'ongoing',
+  addedAt: 0,
+  lastReadAt: null,
+  latestChapterAt: null,
+  started: false,
+  downloaded: 0,
+  categoryIds: [],
+  list: null,
+  favorite: false,
+  pinned: false,
+  authors: [],
+  artists: [],
+  sourceName: 'Source',
+  refreshedAt: null,
+  latestFetchedAt: null,
+  local: false,
+  ...overrides,
+});

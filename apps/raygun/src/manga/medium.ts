@@ -40,6 +40,9 @@ export const libraryCommand = (medium: Medium) =>
 /** The source id of imported EPUB books. */
 export const LOCAL_EPUB = 'local.epub';
 
+/** Imported titles (EPUB books, local comics): already on the device, nothing to refresh. */
+export const isLocalSource = (sourceId: string) => sourceId.startsWith('local.');
+
 export const ROUTES = {
   manga: {
     browse: '/browse',

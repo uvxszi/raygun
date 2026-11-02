@@ -8,6 +8,7 @@ mod aniskip;
 mod backup;
 mod catalog;
 mod collections;
+mod comics;
 mod commands;
 mod device_sync;
 mod epub;
@@ -15,6 +16,7 @@ mod events;
 mod extensions;
 mod history;
 mod library;
+mod library_actions;
 mod local_network;
 mod manga;
 mod manga_downloads;
@@ -33,6 +35,7 @@ mod startup;
 mod stremio;
 mod system_ui;
 mod tts;
+mod uploads;
 mod video;
 mod video_downloads;
 mod video_library;
@@ -174,6 +177,22 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::library_category_delete,
             commands::library_category_reorder,
             commands::library_set_title_categories,
+            commands::library_title_marks,
+            commands::library_set_list,
+            commands::library_set_favorite,
+            commands::library_set_pinned,
+            commands::library_mark_read,
+            commands::library_remove,
+            commands::library_change_categories,
+            commands::library_download_next,
+            commands::library_continue,
+            commands::library_duplicates,
+            commands::library_set_category_display,
+            commands::library_update_category,
+            commands::upload_begin,
+            commands::upload_append,
+            commands::upload_cancel,
+            commands::manga_import_comic,
             commands::catalog_filters,
             commands::catalog_search,
             commands::catalog_global_search,

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
 import { DEFAULT_SETTINGS, bindingsMock, emitEvent } from '../test/bindingsMock';
+import { libraryEntry } from '../test/libraryEntry';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -87,30 +88,21 @@ describe('Novels', () => {
     const user = userEvent.setup();
     commands.novelLibrary.mockResolvedValue(
       ok([
-        {
+        libraryEntry({
           titleId: 't1',
           sourceId: SOURCE,
           remoteId: '84',
           title: 'Frankenstein',
-          coverUrl: null,
           chapters: 24,
           unread: 20,
-          genres: [],
-          status: 'ongoing',
-          addedAt: 0,
-          lastReadAt: null,
-          latestChapterAt: null,
-          started: false,
-          downloaded: 0,
-          categoryIds: [],
-        },
+        }),
       ]),
     );
     await AppShellWrapper.mount('/library');
     await user.click(await screen.findByTestId('library-media-novel'));
 
     const library = await screen.findByTestId('novel-library');
-    const card = await within(library).findByTestId('manga-card');
+    const card = await within(library).findByTestId('library-item');
     expect(card.getAttribute('href')).toMatch(/^\/novel\/title\?source=dev\.raygun\.gutenberg/);
     // Library actions are in the top bar's menu: no Updates for novels (they don't update).
     await user.click(within(library).getByRole('button', { name: 'More options' }));

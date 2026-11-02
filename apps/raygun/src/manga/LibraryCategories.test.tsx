@@ -4,30 +4,14 @@ import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
 import { bindingsMock } from '../test/bindingsMock';
+import { libraryEntry } from '../test/libraryEntry';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
 const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 const { commands } = bindingsMock;
 
-const entry = (overrides: Partial<MangaLibraryEntry>): MangaLibraryEntry => ({
-  titleId: 't',
-  sourceId: 'src',
-  remoteId: 'r',
-  title: 'Title',
-  coverUrl: null,
-  chapters: 10,
-  unread: 0,
-  genres: [],
-  status: 'ongoing',
-  addedAt: 0,
-  lastReadAt: null,
-  latestChapterAt: null,
-  started: false,
-  downloaded: 0,
-  categoryIds: [],
-  ...overrides,
-});
+const entry = (overrides: Partial<MangaLibraryEntry>): MangaLibraryEntry => libraryEntry(overrides);
 
 const LIBRARY = [
   entry({
@@ -98,17 +82,32 @@ describe('Library categories and filters', () => {
     expect(shownTitles(library)).toEqual(['Berserk', 'Chainsaw Man', 'Frieren']);
 
     await user.click(within(library).getByRole('button', { name: 'Filter and sort' }));
-    await user.click(within(library).getByRole('button', { name: 'Unread' }));
+    const sheet = screen.getByRole('dialog');
+    // Filters cycle off → only → without (Mihon's tri-state).
+    await user.click(within(sheet).getByRole('button', { name: 'Unread: off' }));
     expect(shownTitles(library)).toEqual(['Chainsaw Man', 'Frieren']);
-    const tags = within(library).getByRole('group', { name: 'Tags' });
-    await user.click(within(tags).getByRole('button', { name: 'Horror' }));
+    await user.click(within(sheet).getByRole('button', { name: 'Unread: only' }));
+    expect(shownTitles(library)).toEqual(['Berserk']);
+    await user.click(within(sheet).getByRole('button', { name: 'Unread: without' }));
+    const tags = within(sheet).getByRole('group', { name: 'Tags' });
+    await user.click(within(tags).getByRole('button', { name: 'Horror: off' }));
+    expect(shownTitles(library)).toEqual(['Berserk', 'Chainsaw Man']);
+    await user.click(within(tags).getByRole('button', { name: 'Fantasy: off' }));
+    await user.click(within(tags).getByRole('button', { name: 'Fantasy: only' }));
     expect(shownTitles(library)).toEqual(['Chainsaw Man']);
-    await user.click(within(library).getByRole('button', { name: 'Clear filters' }));
+    await user.click(within(sheet).getByRole('button', { name: 'Clear filters' }));
 
-    await user.selectOptions(within(library).getByRole('combobox', { name: 'Sort by' }), 'unread');
-    await user.click(within(library).getByRole('button', { name: 'Ascending' }));
-    expect(shownTitles(library)).toEqual(['Chainsaw Man', 'Frieren', 'Berserk']);
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }));
+    // Sort: picking a sort keeps the direction; picking it again flips it.
+    await user.click(within(sheet).getByRole('tab', { name: 'Sort' }));
+    await user.click(within(sheet).getByRole('radio', { name: 'Unread count' }));
+    expect(shownTitles(library)).toEqual(['Frieren', 'Chainsaw Man', 'Berserk']);
+    await user.click(within(sheet).getByRole('radio', { name: /Unread count/ }));
+    expect(shownTitles(library), 'nothing unread stays last').toEqual([
+      'Chainsaw Man',
+      'Frieren',
+      'Berserk',
+    ]);
+    await user.click(within(sheet).getByRole('button', { name: 'Close' }));
 
     // Searching is the top bar's: the title turns into a search field.
     await user.click(within(library).getByRole('button', { name: 'Search the library' }));

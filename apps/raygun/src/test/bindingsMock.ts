@@ -14,6 +14,7 @@ import type {
 } from '@raygun/bindings';
 import { act } from '@testing-library/react';
 
+import { LIBRARY_DISPLAY_DEFAULTS } from '../manga/libraryDisplay';
 import { PLAYER_DEFAULTS } from '../settings/playerOptions';
 
 /**
@@ -103,6 +104,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoplayNext: true,
   nextPromptSeconds: 10,
   videoPlayer: PLAYER_DEFAULTS,
+  libraryDisplay: LIBRARY_DISPLAY_DEFAULTS,
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,
@@ -252,6 +254,22 @@ export const bindingsMock = {
     libraryCategoryDelete: vi.fn(),
     libraryCategoryReorder: vi.fn(),
     librarySetTitleCategories: vi.fn(),
+    libraryTitleMarks: vi.fn(),
+    librarySetList: vi.fn(),
+    librarySetFavorite: vi.fn(),
+    librarySetPinned: vi.fn(),
+    libraryMarkRead: vi.fn(),
+    libraryRemove: vi.fn(),
+    libraryChangeCategories: vi.fn(),
+    libraryDownloadNext: vi.fn(),
+    libraryContinue: vi.fn(),
+    libraryDuplicates: vi.fn(),
+    librarySetCategoryDisplay: vi.fn(),
+    libraryUpdateCategory: vi.fn(),
+    uploadBegin: vi.fn(),
+    uploadAppend: vi.fn(),
+    uploadCancel: vi.fn(),
+    mangaImportComic: vi.fn(),
     videoHistory: vi.fn(),
     videoSources: vi.fn(),
     videoBrowse: vi.fn(),
@@ -465,6 +483,30 @@ export const seedBindings = () => {
   commands.libraryCategoryDelete.mockResolvedValue(ok(null));
   commands.libraryCategoryReorder.mockResolvedValue(ok(null));
   commands.librarySetTitleCategories.mockResolvedValue(ok(null));
+  commands.libraryTitleMarks.mockResolvedValue(
+    ok({ inLibrary: false, list: null, favorite: false, pinned: false }),
+  );
+  for (const command of [
+    commands.librarySetList,
+    commands.librarySetFavorite,
+    commands.librarySetPinned,
+    commands.libraryMarkRead,
+    commands.libraryRemove,
+    commands.libraryChangeCategories,
+    commands.librarySetCategoryDisplay,
+    commands.uploadCancel,
+  ]) {
+    command.mockResolvedValue(ok(null));
+  }
+  commands.libraryDownloadNext.mockResolvedValue(ok(0));
+  commands.libraryContinue.mockResolvedValue(ok(null));
+  commands.libraryDuplicates.mockResolvedValue(ok([]));
+  commands.libraryUpdateCategory.mockResolvedValue(
+    ok({ running: true, checked: 0, total: 0, newChapters: 0, failed: 0, lastRunAt: null }),
+  );
+  commands.uploadBegin.mockResolvedValue(ok('upload-1'));
+  commands.uploadAppend.mockResolvedValue(ok(0));
+  commands.mangaImportComic.mockResolvedValue(ok({ sourceId: 'local.comics', remoteId: 'series' }));
   commands.videoHistory.mockResolvedValue(ok([]));
   commands.videoSources.mockResolvedValue(ok([]));
   commands.videoBrowse.mockResolvedValue(ok({ items: [], hasNextPage: false }));
