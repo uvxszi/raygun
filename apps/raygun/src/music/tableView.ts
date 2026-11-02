@@ -12,7 +12,7 @@ import { useSettings, useUpdateSetting } from '../settings/useSettings';
 
 /** Where a song table is (each kind keeps its own sort, view and columns, M46.8). */
 export type TrackTableKind =
-  'favorites' | 'playlist' | 'library' | 'album' | 'artist' | 'history' | 'search';
+  'favorites' | 'downloaded' | 'playlist' | 'library' | 'album' | 'artist' | 'history' | 'search';
 
 /** One row of a song table. */
 export type TableTrack = {

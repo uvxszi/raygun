@@ -267,8 +267,14 @@ impl SongDownloadService {
             Some(source @ MediaSource::YouTube { .. }) => Some(source.clone()),
             _ => None,
         };
+        let quality = crate::settings::load(&self.db())
+            .await
+            .unwrap_or_default()
+            .audio_quality
+            .download;
         let mut exclusions = Exclusions {
             fresh_only: true,
+            quality: Some(quality),
             ..Exclusions::default()
         };
         let mut last_error = None;
@@ -513,6 +519,16 @@ impl SongDownloadService {
     }
 
     /// Every download, newest first.
+    /// The download of `track`'s song, whatever its state (M46.18: the download button).
+    pub async fn find(&self, track: &TrackInput) -> Result<Option<SongDownload>, String> {
+        let key = raygun_resolver::track_key(&query_for(track));
+        Ok(self
+            .list()
+            .await?
+            .into_iter()
+            .find(|download| download.track_key == key))
+    }
+
     pub async fn list(&self) -> Result<Vec<SongDownload>, String> {
         let rows = store::all(&self.db()).await.map_err(to_message)?;
         Ok(rows
@@ -746,12 +762,20 @@ impl SongDownloadService {
         destination: SongDestination,
     ) -> Result<SongsSaved, String> {
         let place = self.place(destination).await?;
+        // MP3s are encoded at the Downloads audio quality (M46.18); Best is LAME's 320 kbps.
+        let mp3_kbps = crate::settings::load(&self.db())
+            .await
+            .unwrap_or_default()
+            .audio_quality
+            .download
+            .target_kbps()
+            .unwrap_or(320);
         let mut saved = SongsSaved {
             saved: Vec::new(),
             failed: Vec::new(),
         };
         for id in ids {
-            match self.save_one(&id, format, &place).await {
+            match self.save_one(&id, format, &place, mp3_kbps).await {
                 Ok(shown) => saved.saved.push(shown),
                 Err((title, error)) => saved.failed.push(format!("{title}: {error}")),
             }
@@ -777,6 +801,7 @@ impl SongDownloadService {
         id: &str,
         format: AudioFileFormat,
         place: &Place,
+        mp3_kbps: u32,
     ) -> Result<String, (String, String)> {
         let row = store::get(&self.db(), id)
             .await
@@ -816,7 +841,7 @@ impl SongDownloadService {
         tokio::task::spawn_blocking(move || {
             std::fs::create_dir_all(&scratch).map_err(|error| error.to_string())?;
             let (temp, extension) =
-                transcode::write_file(&source, format, &scratch.join(uuid_name()))?;
+                transcode::write_file(&source, format, &scratch.join(uuid_name()), mp3_kbps)?;
             let tagged = transcode::tag(&temp, &tags);
             if let Err(error) = &tagged {
                 tracing::info!(%error, "couldn't tag a saved song");

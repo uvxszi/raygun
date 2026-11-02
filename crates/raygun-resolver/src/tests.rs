@@ -22,6 +22,7 @@ fn candidate(id: &str, title: &str, artist: Option<&str>, duration_ms: Option<u3
         artist: artist.map(Into::into),
         duration_ms,
         quality: None,
+        bitrate_kbps: None,
         source: Some(MediaSource::Url {
             url: format!("https://example.org/{id}.mp3"),
             headers: BTreeMap::new(),
@@ -253,4 +254,81 @@ fn a_one_word_title_needs_some_sign_of_the_artist() {
         ),
         Some("dolly".into())
     );
+}
+
+fn at(id: &str, quality: &str) -> Candidate {
+    Candidate {
+        quality: Some(quality.into()),
+        ..candidate(id, "Song", Some("Band"), Some(200_000))
+    }
+}
+
+#[test]
+fn quality_labels_name_bitrates() {
+    assert_eq!(label_kbps("64Kbps MP3"), Some(64));
+    assert_eq!(label_kbps("320 kbps"), Some(320));
+    assert_eq!(label_kbps("MP3 128k"), Some(128));
+    assert_eq!(label_kbps("FLAC"), Some(LOSSLESS_KBPS));
+    assert_eq!(label_kbps("24bit Flac"), Some(LOSSLESS_KBPS));
+    assert_eq!(label_kbps("YouTube"), None);
+    assert_eq!(label_kbps("VBR MP3"), None);
+    assert_eq!(label_kbps("2024 remaster"), None);
+}
+
+#[test]
+fn the_same_song_is_picked_at_the_quality_asked_for() {
+    let wanted = query("Song", "Band", Some(200_000));
+    let offered = || {
+        vec![
+            at("hq", "320 kbps"),
+            at("low", "64Kbps MP3"),
+            at("mid", "128k"),
+            at("flac", "FLAC"),
+        ]
+    };
+    let first = |target| {
+        rank_for(&wanted, offered(), &History::default(), target)
+            .first()
+            .map(|scored| scored.candidate.id.clone())
+    };
+    assert_eq!(first(QualityTarget::Kbps(64)).as_deref(), Some("low"));
+    assert_eq!(first(QualityTarget::Kbps(128)).as_deref(), Some("mid"));
+    assert_eq!(first(QualityTarget::Kbps(320)).as_deref(), Some("hq"));
+    assert_eq!(first(QualityTarget::Best).as_deref(), Some("flac"));
+    // Without a target the providers' order stands.
+    assert_eq!(first(QualityTarget::Any).as_deref(), Some("hq"));
+}
+
+#[test]
+fn quality_never_beats_a_better_match() {
+    let wanted = query("Song", "Band", Some(200_000));
+    let wrong_length = Candidate {
+        quality: Some("64Kbps MP3".into()),
+        ..candidate("low", "Song", Some("Band"), Some(150_000))
+    };
+    let ranked = rank_for(
+        &wanted,
+        vec![at("hq", "320 kbps"), wrong_length],
+        &History::default(),
+        QualityTarget::Kbps(64),
+    );
+    assert_eq!(ranked[0].candidate.id, "hq");
+}
+
+#[test]
+fn a_remembered_pick_gives_way_to_a_better_fitting_bitrate() {
+    let wanted = query("Song", "Band", Some(200_000));
+    let mut history = History::default();
+    history.verified.insert(at("hq", "320 kbps").key());
+    let ranked = rank_for(
+        &wanted,
+        vec![at("hq", "320 kbps"), at("low", "64Kbps MP3")],
+        &history,
+        QualityTarget::Kbps(64),
+    );
+    assert_eq!(ranked[0].candidate.id, "low");
+    assert!(QualityTarget::Kbps(64).fits(Some(96)));
+    assert!(!QualityTarget::Kbps(64).fits(Some(320)));
+    assert!(QualityTarget::Kbps(192).fits(None));
+    assert!(!QualityTarget::Best.fits(Some(128)));
 }

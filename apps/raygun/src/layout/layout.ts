@@ -36,6 +36,7 @@ export const LAYOUT_ENTRIES: Record<LayoutSurface, readonly (readonly [string, b
     ['podcasts', true],
     ['playlists', true],
     ['favorites', true],
+    ['downloaded', true],
     ['albums', true],
     ['artists', true],
     ['tracks', true],

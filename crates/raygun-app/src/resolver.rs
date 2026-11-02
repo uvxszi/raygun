@@ -6,8 +6,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use raygun_db::streams;
-use raygun_model::{MediaSource, TrackQuery};
-use raygun_resolver::{Candidate, CandidateKey, History, Pick, ProviderRecord, rank, track_key};
+use raygun_model::{AudioQuality, MediaSource, TrackQuery};
+use raygun_resolver::{
+    Candidate, CandidateKey, History, Pick, ProviderRecord, QualityTarget, rank_for, track_key,
+};
 use tauri::{AppHandle, Manager};
 
 use crate::extensions::ExtensionService;
@@ -50,6 +52,7 @@ impl ResolverService {
     ) -> Result<Pick, String> {
         let key = track_key(query);
         let now = unix_ms();
+        let target = self.quality_target(exclusions.quality).await;
         let rows = streams::candidates(self.db(), &key)
             .await
             .unwrap_or_else(|error| {
@@ -76,11 +79,13 @@ impl ResolverService {
             let fresh = row
                 .expires_at
                 .is_none_or(|expires| expires - EXPIRY_MARGIN_MS > now);
+            let bitrate_kbps = row.bitrate_kbps.and_then(|kbps| u32::try_from(kbps).ok());
             if let Some(source) = source
                 && row.verified_at.is_some()
                 && fresh
                 && !recently_failed(row.failed_at)
                 && !excluded(&candidate_key, Some(&source))
+                && target.fits(bitrate_kbps)
             {
                 tracing::info!(track = %key, provider = %row.provider_id, "playing cached stream");
                 return Ok(Pick {
@@ -92,6 +97,7 @@ impl ResolverService {
                     source,
                     expires_at: row.expires_at,
                     from_cache: true,
+                    bitrate_kbps,
                 });
             }
         }
@@ -119,20 +125,21 @@ impl ResolverService {
                 },
             );
         }
-        let candidates = self.candidates(&key, query).await;
+        let candidates = self.candidates(&key, query, target).await;
         if candidates.is_empty() {
             return Err(format!(
                 "No streaming source has \u{201c}{}\u{201d}",
                 query.title
             ));
         }
-        let ranked = rank(query, candidates, &history);
-        tracing::info!(track = %key, ranked = ranked.len(), "stream candidates ranked");
+        let ranked = rank_for(query, candidates, &history, target);
+        tracing::info!(track = %key, ranked = ranked.len(), ?target, "stream candidates ranked");
 
         // 3. The best one that resolves.
         for scored in ranked {
             let candidate = scored.candidate;
             let candidate_key = candidate.key();
+            let bitrate_kbps = candidate.bitrate();
             if excluded(&candidate_key, candidate.source.as_ref()) {
                 continue;
             }
@@ -163,6 +170,7 @@ impl ResolverService {
                         source,
                         expires_at,
                         from_cache: false,
+                        bitrate_kbps,
                     });
                 }
                 Err(error) => {
@@ -186,15 +194,44 @@ impl ResolverService {
         ))
     }
 
-    /// Candidates from every provider, kept for a while per track.
-    async fn candidates(&self, key: &str, query: &TrackQuery) -> Vec<Candidate> {
+    /// The quality a resolution aims for (M46.18): what was asked (downloads), else the
+    /// streaming setting, or the mobile data one while this device is on mobile data.
+    async fn quality_target(&self, asked: Option<AudioQuality>) -> QualityTarget {
+        let quality = match asked {
+            Some(quality) => quality,
+            None => {
+                let prefs = crate::settings::load(self.db())
+                    .await
+                    .map(|settings| settings.audio_quality)
+                    .unwrap_or_default();
+                if crate::network::on_mobile_data(&self.app) {
+                    prefs.cellular
+                } else {
+                    prefs.streaming
+                }
+            }
+        };
+        quality
+            .target_kbps()
+            .map_or(QualityTarget::Best, QualityTarget::Kbps)
+    }
+
+    /// Candidates from every provider, kept for a while per track and quality.
+    async fn candidates(
+        &self,
+        key: &str,
+        query: &TrackQuery,
+        target: QualityTarget,
+    ) -> Vec<Candidate> {
+        let key = format!("{key}|{target:?}");
+        let key = key.as_str();
         if let Some((searched, candidates)) = self.searches.lock().unwrap().get(key)
             && searched.elapsed() < CANDIDATES_TTL
         {
             return candidates.clone();
         }
         let mut candidates = Vec::new();
-        for answer in self.extensions().stream_candidates(query).await {
+        for answer in self.extensions().stream_candidates(query, target).await {
             match answer.result {
                 Ok(found) => candidates.extend(found),
                 Err(error) => {
@@ -228,12 +265,15 @@ impl ResolverService {
         };
         if let Err(error) = streams::mark_verified(
             self.db(),
-            &pick.track_key,
-            &pick.key.provider_id,
-            &pick.key.candidate_id,
-            &pick.title,
-            &source,
-            pick.expires_at,
+            streams::Played {
+                track_key: &pick.track_key,
+                provider_id: &pick.key.provider_id,
+                candidate_id: &pick.key.candidate_id,
+                title: &pick.title,
+                source_json: &source,
+                expires_at: pick.expires_at,
+                bitrate_kbps: pick.bitrate_kbps.map(i64::from),
+            },
             unix_ms(),
         )
         .await

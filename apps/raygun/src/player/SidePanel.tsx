@@ -155,7 +155,7 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
           )}
           <TrackTagChips track={item} className="pt-1.5" />
         </div>
-        <FavoriteButton item={item} compact />
+        <FavoriteButton item={item} compact download />
         <VideoToggle item={item} className="size-9" />
         <button
           type="button"

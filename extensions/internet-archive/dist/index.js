@@ -1,4 +1,4 @@
-// dev.raygun.internet-archive 1.2.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.internet-archive 1.3.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -181,7 +181,29 @@
     return Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds * 1e3) : null;
   };
   var trackNumber = (file) => Number.parseInt(String(file.track ?? "").split("/")[0] ?? "", 10);
-  var isMp3 = (file) => file.format?.includes("MP3") ?? false;
+  var formatKbps = (format) => {
+    if (!format) return null;
+    if (/flac|lossless/i.test(format)) return 1411;
+    const stated = /(\d+)\s*kbps/i.exec(format);
+    if (stated) return Number(stated[1]);
+    return format === "VBR MP3" ? 200 : null;
+  };
+  var isPlayable2 = (file) => (file.format?.includes("MP3") ?? false) || /flac/i.test(file.format ?? "");
+  var pickFormat = (files, targetKbps) => {
+    const formats = [...new Set(files.map((file) => file.format ?? ""))].filter(
+      (format) => formatKbps(format) !== null
+    );
+    if (formats.length === 0) return null;
+    if (targetKbps === void 0) {
+      return formats.includes("VBR MP3") ? "VBR MP3" : formats.find((format) => format.includes("MP3")) ?? formats[0] ?? null;
+    }
+    const distance = (format) => {
+      const kbps = formatKbps(format) ?? 160;
+      if (targetKbps === null) return -kbps;
+      return Math.max(kbps, targetKbps) / Math.max(1, Math.min(kbps, targetKbps));
+    };
+    return [...formats].sort((a, b) => distance(a) - distance(b))[0] ?? null;
+  };
   var encodePath2 = (path) => path.split("/").map(encodeURIComponent).join("/");
   var searchDocs = async (q, rows) => {
     const params = [
@@ -200,25 +222,29 @@
   var bareTitle = (title) => title.replace(/\([^)]*\)|\[[^\]]*\]/g, " ").trim() || title;
   var mainArtist = (artist) => artist.split(/\s*(?:&|,|;|\/|\bfeat\.?|\bft\.?|\band\b|\bwith\b|\bx\b)\s*/i)[0]?.trim() || artist;
   var words = (text) => escapeQuery2(text).toLowerCase().split(/\s+/).filter(Boolean);
-  var itemTracks = async (doc, max) => {
+  var itemTracks = async (doc, max, targetKbps) => {
     const id = doc.identifier;
     const item = await fetchJson(`${API2}/metadata/${encodeURIComponent(id)}`);
-    const files = (item.files ?? []).filter(isMp3);
-    const preferred = files.some((file) => file.format === "VBR MP3") ? files.filter((file) => file.format === "VBR MP3") : files;
+    const files = (item.files ?? []).filter(isPlayable2);
+    const format = pickFormat(files, targetKbps);
+    const preferred = format === null ? files : files.filter((file) => file.format === format);
     preferred.sort((a, b) => (trackNumber(a) || 1e9) - (trackNumber(b) || 1e9));
     const album = firstString2(item.metadata?.title) ?? firstString2(doc.title);
     const creator = firstString2(item.metadata?.creator) ?? firstString2(doc.creator);
     return preferred.slice(0, max).map((file) => ({
-      id: `${id}/${file.name}`,
-      title: file.title || file.name.replace(/\.mp3$/i, "").replace(/_/g, " "),
-      artist: firstString2(file.creator) ?? firstString2(file.artist) ?? creator,
-      album: file.album || album,
-      durationMs: parseLength(file.length),
-      artworkUrl: `${API2}/services/img/${encodeURIComponent(id)}`,
-      source: {
-        kind: "url",
-        url: `${API2}/download/${encodeURIComponent(id)}/${encodePath2(file.name)}`,
-        headers: {}
+      format: file.format ?? null,
+      track: {
+        id: `${id}/${file.name}`,
+        title: file.title || file.name.replace(/\.(mp3|flac)$/i, "").replace(/_/g, " "),
+        artist: firstString2(file.creator) ?? firstString2(file.artist) ?? creator,
+        album: file.album || album,
+        durationMs: parseLength(file.length),
+        artworkUrl: `${API2}/services/img/${encodeURIComponent(id)}`,
+        source: {
+          kind: "url",
+          url: `${API2}/download/${encodeURIComponent(id)}/${encodePath2(file.name)}`,
+          headers: {}
+        }
       }
     }));
   };
@@ -238,7 +264,7 @@
           raygun.log.warn("item skipped:", String(result.reason));
         }
       }
-      const tracks = settled.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+      const tracks = settled.flatMap((result) => result.status === "fulfilled" ? result.value : []).map((item) => item.track);
       return { tracks: tracks.slice(0, limit) };
     }
   });
@@ -246,7 +272,7 @@
     kind: "music.stream",
     id: "stream",
     name: "Internet Archive",
-    async candidates({ title, artist, limit }) {
+    async candidates({ title, artist, limit, targetKbps }) {
       const wantedTitle = escapeQuery2(bareTitle(title));
       if (wantedTitle === "") return { candidates: [] };
       const wantedArtist = artist ? escapeQuery2(mainArtist(artist)) : "";
@@ -267,11 +293,11 @@
         ).values()
       ].slice(0, 6);
       const wanted = words(bareTitle(title));
-      const settled = await Promise.allSettled(docs.map((doc) => itemTracks(doc, 500)));
+      const settled = await Promise.allSettled(docs.map((doc) => itemTracks(doc, 500, targetKbps)));
       for (const result of settled) {
         if (result.status === "rejected") raygun.log.warn("item skipped:", String(result.reason));
       }
-      const matching = settled.flatMap((result) => result.status === "fulfilled" ? result.value : []).filter((track) => {
+      const matching = settled.flatMap((result) => result.status === "fulfilled" ? result.value : []).filter(({ track }) => {
         const offered = words(track.title);
         return wanted.every((word) => offered.includes(word));
       });
@@ -279,12 +305,13 @@
         `stream candidates for "${title}": ${docs.length} items, ${matching.length} matching files`
       );
       return {
-        candidates: matching.slice(0, limit).map((track) => ({
+        candidates: matching.slice(0, limit).map(({ track, format }) => ({
           id: track.id ?? track.title,
           title: track.title,
           artist: track.artist ?? null,
           durationMs: track.durationMs ?? null,
-          quality: "MP3",
+          quality: format ?? "MP3",
+          bitrateKbps: formatKbps(format ?? void 0),
           source: track.source ?? null
         }))
       };

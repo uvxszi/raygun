@@ -218,6 +218,8 @@ export const bindingsMock = {
     songDownloadRecord: vi.fn(),
     songsSave: vi.fn(),
     songDownloadedKeys: vi.fn(),
+    songDownloadFor: vi.fn(),
+    downloadedSongs: vi.fn(),
     videoPlayerReport: vi.fn(),
     ttsReport: vi.fn(),
     ttsSetAvailable: vi.fn(),
@@ -506,6 +508,8 @@ export const seedBindings = () => {
   commands.songDownloadRecord.mockResolvedValue(ok(null));
   commands.songsSave.mockResolvedValue(ok({ saved: [], failed: [] }));
   commands.songDownloadedKeys.mockResolvedValue([]);
+  commands.songDownloadFor.mockResolvedValue(ok(null));
+  commands.downloadedSongs.mockResolvedValue(ok([]));
   commands.libraryStatus.mockResolvedValue(ok(EMPTY_LIBRARY));
   commands.libraryConnectDeviceMusic.mockResolvedValue(ok(EMPTY_LIBRARY));
   commands.libraryAddRoot.mockResolvedValue(ok(EMPTY_LIBRARY));

@@ -180,6 +180,20 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(|error| error.to_string())
     }
 
+    /// The active network's kind: `cellular`, `wifi`, `ethernet`, `other` or `none` (M46.18:
+    /// the Audio quality for mobile data).
+    #[cfg(target_os = "android")]
+    pub fn network_kind(&self) -> Result<String, String> {
+        #[derive(serde::Deserialize)]
+        struct Kind {
+            kind: String,
+        }
+        self.handle
+            .run_mobile_plugin::<Kind>("networkKind", ())
+            .map(|answer| answer.kind)
+            .map_err(|error| error.to_string())
+    }
+
     /// Clears the built-in browser's cookies, storage and cache.
     #[cfg(target_os = "android")]
     pub fn website_clear(&self) -> Result<(), String> {

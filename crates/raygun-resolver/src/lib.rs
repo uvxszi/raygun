@@ -12,6 +12,99 @@ mod tests;
 /// Candidates scoring below this are dropped: skipping a track beats playing the wrong song.
 pub const MIN_SCORE: i32 = 35;
 
+/// What a candidate that played this track before earns.
+const VERIFIED_BONUS: i32 = 50;
+
+/// Matches this close to the best one count as the same recording when choosing by quality
+/// (M46.18); the verified bonus doesn't count here, so a better bitrate can replace a pick.
+const QUALITY_BAND: i32 = 6;
+
+/// What a stream of unknown bitrate is taken to be.
+const UNKNOWN_KBPS: u32 = 160;
+
+/// What lossless streams count as (CD audio).
+pub const LOSSLESS_KBPS: u32 = 1411;
+
+/// The bitrate a resolution aims for (M46.18): the Audio quality setting for streaming, mobile
+/// data or downloads.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum QualityTarget {
+    /// Whatever matches best.
+    #[default]
+    Any,
+    /// Nearest this many kbps.
+    Kbps(u32),
+    /// The highest there is, lossless included.
+    Best,
+}
+
+impl QualityTarget {
+    /// How far `bitrate` is from what's wanted; 0 is a perfect fit. For a kbps target it's the
+    /// percentage by which the larger exceeds the smaller, so 64 vs 128 and 256 vs 128 weigh alike.
+    pub fn distance(self, bitrate: Option<u32>) -> u32 {
+        let bitrate = bitrate.unwrap_or(UNKNOWN_KBPS).max(1);
+        match self {
+            Self::Any => 0,
+            Self::Best => LOSSLESS_KBPS.saturating_sub(bitrate),
+            Self::Kbps(target) => {
+                let target = target.max(1);
+                bitrate.max(target) * 100 / bitrate.min(target) - 100
+            }
+        }
+    }
+
+    /// Whether a stream remembered from an earlier play is close enough to keep using: within
+    /// 60 % of a kbps target; for Best, lossless or 256 kbps and up. Unknown bitrates fit.
+    pub fn fits(self, bitrate: Option<u32>) -> bool {
+        let Some(bitrate) = bitrate else {
+            return true;
+        };
+        match self {
+            Self::Any => true,
+            Self::Best => bitrate >= 256,
+            Self::Kbps(_) => self.distance(Some(bitrate)) <= 60,
+        }
+    }
+
+    /// The target as `music.stream` providers get it: kbps, `None` for the best there is.
+    pub fn kbps(self) -> Option<u32> {
+        match self {
+            Self::Kbps(kbps) => Some(kbps),
+            Self::Any | Self::Best => None,
+        }
+    }
+}
+
+/// The bitrate a provider's quality label names: "320 kbps", "128k MP3", "64Kbps MP3"; FLAC,
+/// ALAC, WAV and "lossless" count as [`LOSSLESS_KBPS`].
+pub fn label_kbps(label: &str) -> Option<u32> {
+    let lower = label.to_lowercase();
+    if ["flac", "lossless", "alac", "wav", "hi-res", "hires"]
+        .iter()
+        .any(|word| lower.contains(word))
+    {
+        return Some(LOSSLESS_KBPS);
+    }
+    let bytes = lower.as_bytes();
+    let mut start = None;
+    for (index, byte) in bytes.iter().enumerate() {
+        if byte.is_ascii_digit() {
+            start.get_or_insert(index);
+            continue;
+        }
+        if let Some(from) = start.take() {
+            let rest = lower[index..].trim_start();
+            if rest.starts_with('k')
+                && let Ok(kbps) = lower[from..index].parse::<u32>()
+                && (8..=9_999).contains(&kbps)
+            {
+                return Some(kbps);
+            }
+        }
+    }
+    None
+}
+
 /// Variants a listener rarely wants unless they asked for them.
 const UNWANTED_VARIANTS: &[&str] = &[
     "live",
@@ -39,6 +132,8 @@ pub struct Candidate {
     pub artist: Option<String>,
     pub duration_ms: Option<u32>,
     pub quality: Option<String>,
+    /// The stream's bitrate, as the provider gives it (M46.18).
+    pub bitrate_kbps: Option<u32>,
     /// Inline stream, when the provider already knows it.
     pub source: Option<MediaSource>,
 }
@@ -49,6 +144,12 @@ impl Candidate {
             provider_id: self.provider_id.clone(),
             candidate_id: self.id.clone(),
         }
+    }
+
+    /// The bitrate given, else the one its quality label names.
+    pub fn bitrate(&self) -> Option<u32> {
+        self.bitrate_kbps
+            .or_else(|| self.quality.as_deref().and_then(label_kbps))
     }
 }
 
@@ -89,6 +190,8 @@ pub struct Pick {
     pub expires_at: Option<i64>,
     /// Came from the cache of verified picks rather than a fresh search.
     pub from_cache: bool,
+    /// The stream's bitrate, when known (M46.18).
+    pub bitrate_kbps: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -240,7 +343,7 @@ pub fn score(query: &TrackQuery, candidate: &Candidate, history: &History) -> i3
     }
 
     if history.verified.contains(&candidate.key()) {
-        total += 50.0;
+        total += f64::from(VERIFIED_BONUS);
     }
     total.round() as i32
 }
@@ -248,6 +351,47 @@ pub fn score(query: &TrackQuery, candidate: &Candidate, history: &History) -> i3
 /// Scores every candidate, drops failed ones and poor matches, best first. Ties keep the
 /// providers' own order.
 pub fn rank(query: &TrackQuery, candidates: Vec<Candidate>, history: &History) -> Vec<Scored> {
+    rank_for(query, candidates, history, QualityTarget::Any)
+}
+
+/// [`rank`], then the matches as good as the best one (within [`QUALITY_BAND`], not counting
+/// the bonus for having played before) ordered by how near their bitrate is to `target`
+/// (M46.18): the same song at 64 kbps on mobile data, lossless when Best is asked for.
+pub fn rank_for(
+    query: &TrackQuery,
+    candidates: Vec<Candidate>,
+    history: &History,
+    target: QualityTarget,
+) -> Vec<Scored> {
+    let mut scored = rank_by_match(query, candidates, history);
+    if target == QualityTarget::Any {
+        return scored;
+    }
+    let base = |scored: &Scored| {
+        scored.score
+            - if history.verified.contains(&scored.candidate.key()) {
+                VERIFIED_BONUS
+            } else {
+                0
+            }
+    };
+    let Some(top) = scored.iter().map(base).max() else {
+        return scored;
+    };
+    let (mut close, rest): (Vec<Scored>, Vec<Scored>) = scored
+        .drain(..)
+        .partition(|scored| base(scored) >= top - QUALITY_BAND);
+    close.sort_by_key(|scored| {
+        (
+            target.distance(scored.candidate.bitrate()),
+            std::cmp::Reverse(scored.score),
+        )
+    });
+    close.extend(rest);
+    close
+}
+
+fn rank_by_match(query: &TrackQuery, candidates: Vec<Candidate>, history: &History) -> Vec<Scored> {
     let mut scored: Vec<Scored> = candidates
         .into_iter()
         .filter(|candidate| !history.failed.contains(&candidate.key()))

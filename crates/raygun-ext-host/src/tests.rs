@@ -693,7 +693,9 @@ async fn stream_providers_offer_and_resolve_candidates() {
         album: None,
         duration_ms: Some(200_000),
     };
-    let answers = host.stream_candidates(&query, 10).await;
+    let answers = host
+        .stream_candidates(&query, 10, raygun_resolver::QualityTarget::Any)
+        .await;
     assert_eq!(answers.len(), 1);
     let candidates = answers[0].result.as_ref().unwrap();
     let ids: Vec<_> = candidates
@@ -769,7 +771,7 @@ async fn musicbrainz_song_resolves_through_internet_archive() {
         duration_ms: song.duration_ms,
     };
     let candidates: Vec<_> = host
-        .stream_candidates(&query, 10)
+        .stream_candidates(&query, 10, raygun_resolver::QualityTarget::Any)
         .await
         .into_iter()
         .flat_map(|answer| answer.result.unwrap_or_default())
@@ -817,7 +819,7 @@ async fn internet_archive_streams_match_credited_duets() {
         duration_ms: Some(148_000),
     };
     let candidates: Vec<_> = host
-        .stream_candidates(&query, 10)
+        .stream_candidates(&query, 10, raygun_resolver::QualityTarget::Any)
         .await
         .into_iter()
         .flat_map(|answer| answer.result.unwrap())

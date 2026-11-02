@@ -31,6 +31,7 @@ mod mcp;
 mod mihon;
 mod miniplayer;
 mod music_downloads;
+mod network;
 mod novel;
 mod playback;
 mod podcast_feed;
@@ -117,6 +118,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::song_edit_get,
             commands::song_edit_set,
             commands::favorites_list,
+            commands::downloaded_songs,
+            commands::song_download_for,
             commands::collections_saves,
             commands::collections_set_saves,
             commands::music_artist,

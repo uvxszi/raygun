@@ -5,6 +5,8 @@ import android.app.Activity
 import android.content.ComponentName
 import android.content.Intent
 import android.content.res.Configuration
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Build
@@ -599,6 +601,22 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
             multicastLock?.release()
         }
         invoke.resolve()
+    }
+
+    // ---- Audio quality (M46.18): mobile data has its own setting ----
+
+    @Command
+    fun networkKind(invoke: Invoke) {
+        val connectivity = activity.applicationContext.getSystemService(ConnectivityManager::class.java)
+        val capabilities = connectivity?.activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
+        val kind = when {
+            capabilities == null -> "none"
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+            else -> "other"
+        }
+        invoke.resolve(JSObject().put("kind", kind))
     }
 
     @Command

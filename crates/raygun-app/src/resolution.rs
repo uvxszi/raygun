@@ -14,6 +14,9 @@ pub struct Exclusions {
     /// Skip the cache of verified picks: downloads check each pick's artist, which the cache
     /// doesn't keep (M46.10).
     pub fresh_only: bool,
+    /// The quality to aim for; `None` takes the streaming setting (or the mobile data one while
+    /// on mobile data). Downloads pass theirs (M46.18).
+    pub quality: Option<raygun_model::AudioQuality>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -190,6 +193,7 @@ mod tests {
             source: url(id),
             expires_at: None,
             from_cache: false,
+            bitrate_kbps: None,
         }
     }
 

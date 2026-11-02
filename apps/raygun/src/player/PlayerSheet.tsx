@@ -406,7 +406,7 @@ const Controls: FC<ControlsProps> = ({ state, item, note, onScrub }) => {
           )}
           {state?.status === 'error' && state.error && <SourceIssue>{state.error}</SourceIssue>}
         </div>
-        {item && <FavoriteButton item={item} />}
+        {item && <FavoriteButton item={item} download />}
         {item ? (
           <button
             type="button"

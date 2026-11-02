@@ -15,6 +15,8 @@ pub struct CandidateRow {
     pub expires_at: Option<i64>,
     pub verified_at: Option<i64>,
     pub failed_at: Option<i64>,
+    /// The stream's bitrate when it played (M46.18).
+    pub bitrate_kbps: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,7 +29,8 @@ pub struct ProviderStats {
 /// Everything remembered about a track's candidates.
 pub async fn candidates(db: &Db, track_key: &str) -> Result<Vec<CandidateRow>, DbError> {
     let rows = sqlx::query(
-        "SELECT provider_id, candidate_id, title, source, expires_at, verified_at, failed_at
+        "SELECT provider_id, candidate_id, title, source, expires_at, verified_at, failed_at,
+                bitrate_kbps
          FROM local_stream_candidate WHERE track_key = ?1
          ORDER BY verified_at DESC NULLS LAST",
     )
@@ -44,46 +47,52 @@ pub async fn candidates(db: &Db, track_key: &str) -> Result<Vec<CandidateRow>, D
             expires_at: row.get("expires_at"),
             verified_at: row.get("verified_at"),
             failed_at: row.get("failed_at"),
+            bitrate_kbps: row.get("bitrate_kbps"),
         })
         .collect())
 }
 
+/// A stream that played, as [`mark_verified`] records it.
+#[derive(Debug, Clone, Copy)]
+pub struct Played<'a> {
+    pub track_key: &'a str,
+    pub provider_id: &'a str,
+    pub candidate_id: &'a str,
+    pub title: &'a str,
+    pub source_json: &'a str,
+    pub expires_at: Option<i64>,
+    pub bitrate_kbps: Option<i64>,
+}
+
 /// Records a candidate that played: its resolved source, and a success for its provider. Clears
 /// any earlier failure.
-#[allow(clippy::too_many_arguments)]
-pub async fn mark_verified(
-    db: &Db,
-    track_key: &str,
-    provider_id: &str,
-    candidate_id: &str,
-    title: &str,
-    source_json: &str,
-    expires_at: Option<i64>,
-    now_ms: i64,
-) -> Result<(), DbError> {
+pub async fn mark_verified(db: &Db, played: Played<'_>, now_ms: i64) -> Result<(), DbError> {
     let mut transaction = db.pool().begin().await?;
     sqlx::query(
         "INSERT INTO local_stream_candidate
-             (track_key, provider_id, candidate_id, title, source, expires_at, verified_at, failed_at, failure)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL)
+             (track_key, provider_id, candidate_id, title, source, expires_at, verified_at, failed_at, failure,
+              bitrate_kbps)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL, ?8)
          ON CONFLICT (track_key, provider_id, candidate_id) DO UPDATE SET
              title = excluded.title,
              source = excluded.source,
              expires_at = excluded.expires_at,
              verified_at = excluded.verified_at,
              failed_at = NULL,
-             failure = NULL",
+             failure = NULL,
+             bitrate_kbps = excluded.bitrate_kbps",
     )
-    .bind(track_key)
-    .bind(provider_id)
-    .bind(candidate_id)
-    .bind(title)
-    .bind(source_json)
-    .bind(expires_at)
+    .bind(played.track_key)
+    .bind(played.provider_id)
+    .bind(played.candidate_id)
+    .bind(played.title)
+    .bind(played.source_json)
+    .bind(played.expires_at)
     .bind(now_ms)
+    .bind(played.bitrate_kbps)
     .execute(&mut *transaction)
     .await?;
-    count(&mut transaction, provider_id, "successes").await?;
+    count(&mut transaction, played.provider_id, "successes").await?;
     transaction.commit().await?;
     Ok(())
 }

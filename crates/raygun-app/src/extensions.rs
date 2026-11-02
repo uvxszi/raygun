@@ -267,10 +267,17 @@ impl ExtensionService {
         self.host.search_music(query, SEARCH_LIMIT).await
     }
 
-    /// Stream candidates for a track from every `music.stream` provider (M14).
-    pub async fn stream_candidates(&self, query: &TrackQuery) -> Vec<ProviderCandidates> {
+    /// Stream candidates for a track from every `music.stream` provider (M14), aiming for
+    /// `quality` (M46.18).
+    pub async fn stream_candidates(
+        &self,
+        query: &TrackQuery,
+        quality: raygun_resolver::QualityTarget,
+    ) -> Vec<ProviderCandidates> {
         let _ready = self.loading.read().await;
-        self.host.stream_candidates(query, CANDIDATE_LIMIT).await
+        self.host
+            .stream_candidates(query, CANDIDATE_LIMIT, quality)
+            .await
     }
 
     /// Lyrics for a track from the `lyrics` providers (M15).

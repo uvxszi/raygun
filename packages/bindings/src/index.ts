@@ -159,6 +159,31 @@ export const commands = {
 	songEditSet: (query: TrackQuery, edit: SongEdit) => typedError<SongEdit, string>(__TAURI_INVOKE("song_edit_set", { query, edit })),
 	/**  Favorite tracks, most recently added first. */
 	favoritesList: () => typedError<SavedTrack[], string>(__TAURI_INVOKE("favorites_list")),
+	/**  Songs downloaded into the app, as a collection (M46.18: Library → Audio → Downloaded). */
+	downloadedSongs: () => typedError<SavedTrack[], string>(__TAURI_INVOKE("downloaded_songs")),
+	/**  The download of one song, if it has one (M46.18: the download button beside +). */
+	songDownloadFor: (track: TrackInput) => typedError<{
+	id: string,
+	trackKey: string,
+	title: string,
+	artist: string | null,
+	album: string | null,
+	durationMs: number | null,
+	/**  A cover link through the image cache. */
+	artworkUrl: string | null,
+	state: SongDownloadState,
+	/**  `file` (a source's stream) or `recording`, once done. */
+	kind: string | null,
+	/**  Where the audio came from. */
+	provider: string | null,
+	/**  The saved file's extension ("mp3", "flac"...), once done. */
+	format: string | null,
+	doneBytes: number | null,
+	totalBytes: number | null,
+	error: string | null,
+	/**  This device can record what plays (Windows for now). */
+	canRecord: boolean,
+} | null, string>(__TAURI_INVOKE("song_download_for", { track })),
 	/**  Where a song is saved: Favorites and the playlists holding it (M46.8). */
 	collectionsSaves: (track: TrackInput) => typedError<TrackSaves, string>(__TAURI_INVOKE("collections_saves", { track })),
 	/**  Saves a song exactly where `saves` says (the Add to playlist popover's Done, M46.8). */
@@ -678,7 +703,9 @@ export type ArtistOverview = {
 /**  What a saved song is written out as (M46.10). */
 export type AudioFileFormat = 
 /**  The bytes as downloaded (or the recording's FLAC). */
-"original" | "wav" | "flac";
+"original" | "wav" | "flac" | 
+/**  Encoded with LAME at the Downloads audio quality (M46.18); an MP3 download is copied. */
+"mp3";
 
 /**
  *  How good a song should sound against how much data it takes, as Spotify offers it. Sources
@@ -814,7 +841,9 @@ export type ChapterFormat = "cbz" |
 export type ChapterKind = "opening" | "ending" | "recap" | "other";
 
 /**  Which saved tracks to play. */
-export type Collection = { kind: "favorites" } | { kind: "playlist"; id: string } | { kind: "history" };
+export type Collection = { kind: "favorites" } | { kind: "playlist"; id: string } | { kind: "history" } | 
+/**  Songs downloaded into the app (M46.18). */
+{ kind: "downloaded" };
 
 export type CollectionPlayRequest = {
 	collection: Collection,
@@ -2651,7 +2680,8 @@ export type TrackSortKey = "custom" | "title" | "artist" | "album" | "added" | "
 
 /**
  *  The song tables' looks by kind: `favorites`, `playlist`, `library`, `album`, `artist`,
- *  `history`, `search` (M46.8). Kinds not set use `TrackTableView::default()`.
+ *  `history`, `search` (M46.8), `downloaded` (M46.18). Kinds not set use
+ *  `TrackTableView::default()`.
  */
 export type TrackTablePrefs = {
 	tables?: { [key in string]: TrackTableView },

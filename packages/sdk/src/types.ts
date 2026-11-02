@@ -77,6 +77,12 @@ export type StreamQuery = {
   album: string | null;
   durationMs: number | null;
   limit: number;
+  /**
+   * The bitrate the user's Audio quality setting asks for, in kbps (M46.18): streaming, mobile
+   * data or downloads. `null` asks for the best there is, lossless included; absent means no
+   * preference. Providers with several streams of a song pick the nearest.
+   */
+  targetKbps?: number | null;
 };
 
 /** A stream a provider can offer for a track. Without a `source`, the app calls `resolve` later. */
@@ -87,8 +93,10 @@ export type StreamCandidate = {
   title: string;
   artist?: string | null;
   durationMs?: number | null;
-  /** Shown to the user, e.g. "VBR MP3". */
+  /** Shown to the user, e.g. "VBR MP3". A bitrate in it ("320 kbps", "FLAC") counts too. */
   quality?: string | null;
+  /** The stream's bitrate (M46.18): among equal matches, the app plays the nearest to the setting. */
+  bitrateKbps?: number | null;
   source?: MediaSource | null;
 };
 

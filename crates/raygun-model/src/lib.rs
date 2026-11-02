@@ -533,7 +533,8 @@ impl Default for TrackTableView {
 }
 
 /// The song tables' looks by kind: `favorites`, `playlist`, `library`, `album`, `artist`,
-/// `history`, `search` (M46.8). Kinds not set use `TrackTableView::default()`.
+/// `history`, `search` (M46.8), `downloaded` (M46.18). Kinds not set use
+/// `TrackTableView::default()`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(default, rename_all = "camelCase")]
 pub struct TrackTablePrefs {
@@ -541,8 +542,9 @@ pub struct TrackTablePrefs {
 }
 
 /// The kinds of song table.
-pub const TRACK_TABLE_KINDS: [&str; 7] = [
+pub const TRACK_TABLE_KINDS: [&str; 8] = [
     "favorites",
+    "downloaded",
     "playlist",
     "library",
     "album",
@@ -2503,6 +2505,8 @@ pub enum Collection {
         id: String,
     },
     History,
+    /// Songs downloaded into the app (M46.18).
+    Downloaded,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -2833,6 +2837,8 @@ pub enum AudioFileFormat {
     Original,
     Wav,
     Flac,
+    /// Encoded with LAME at the Downloads audio quality (M46.18); an MP3 download is copied.
+    Mp3,
 }
 
 /// Where saved songs are written (M46.10).
@@ -3189,11 +3195,12 @@ pub const LAYOUT_LIBRARY_MEDIA: [(&str, bool); 4] = [
     ("novel", true),
     ("video", true),
 ];
-pub const LAYOUT_AUDIO_VIEWS: [(&str, bool); 7] = [
+pub const LAYOUT_AUDIO_VIEWS: [(&str, bool); 8] = [
     ("all", true),
     ("podcasts", true),
     ("playlists", true),
     ("favorites", true),
+    ("downloaded", true),
     ("albums", true),
     ("artists", true),
     ("tracks", true),

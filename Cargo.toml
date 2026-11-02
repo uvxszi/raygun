@@ -70,3 +70,4 @@ strip = true
 # rquickjs-sys ships no Android bindings; see third_party/README.md.
 [patch.crates-io]
 rquickjs-sys = { path = "third_party/rquickjs-sys" }
+mp3lame-sys = { path = "third_party/mp3lame-sys" }

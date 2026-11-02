@@ -1,5 +1,5 @@
 import { commands, events } from '@raygun/bindings';
-import type { AudioFileFormat, SongDestination, TrackInput } from '@raygun/bindings';
+import type { AudioFileFormat, SavedTrack, SongDestination, TrackInput } from '@raygun/bindings';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
@@ -40,6 +40,24 @@ export const useDownloadedKeys = () => {
     staleTime: 60_000,
   });
   return new Set(keys.data ?? []);
+};
+
+/** One song's download, if it has one (M46.18: the download button beside +). */
+export const useSongDownloadFor = (track: TrackInput) => {
+  useSongDownloadEvents();
+  return useQuery({
+    queryKey: [...KEYS, 'for', track.title, track.artist ?? ''],
+    queryFn: () => unwrapResult(commands.songDownloadFor(track)),
+  });
+};
+
+/** Songs downloaded into the app, as a collection (M46.18: Library → Audio → Downloaded). */
+export const useDownloadedSongs = () => {
+  useSongDownloadEvents();
+  return useQuery<SavedTrack[]>({
+    queryKey: [...KEYS, 'songs'],
+    queryFn: () => unwrapResult(commands.downloadedSongs()),
+  });
 };
 
 /** Queues songs to save into the app. */

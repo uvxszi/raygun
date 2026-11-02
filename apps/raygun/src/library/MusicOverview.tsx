@@ -1,10 +1,11 @@
 import { Link } from '@tanstack/react-router';
-import { ChevronRight, Heart } from 'lucide-react';
+import { ArrowDown, ChevronRight, Heart } from 'lucide-react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { PlaylistCover } from '../collections/PlaylistCover';
 import { useFavorites, usePlaylists } from '../collections/useCollections';
+import { useDownloadedSongs } from '../music/useSongDownloads';
 import { PodcastArt } from '../podcasts/PodcastArt';
 import { useSubscriptions } from '../podcasts/usePodcasts';
 import { Artwork } from './Artwork';
@@ -60,16 +61,18 @@ export const MusicOverview: FC<{
   const playlists = usePlaylists();
   const podcasts = useSubscriptions();
   const favorites = useFavorites();
+  const downloaded = useDownloadedSongs();
   const albums = useAlbums();
   const artists = useArtists();
   const tracks = useAllTracks();
   const hasTracks = hasFolders && trackCount > 0;
   const favoriteCount = favorites.data?.length ?? 0;
+  const downloadedCount = downloaded.data?.length ?? 0;
   const playlistCount = playlists.data?.length ?? 0;
 
   return (
     <div data-testid="music-overview" className="flex flex-col gap-6">
-      {(playlistCount > 0 || favoriteCount > 0) && (
+      {(playlistCount > 0 || favoriteCount > 0 || downloadedCount > 0) && (
         <Section view="playlists" count={playlistCount}>
           <Row>
             {favoriteCount > 0 && (
@@ -86,6 +89,28 @@ export const MusicOverview: FC<{
                   <span className="truncate text-sm font-medium">{t('collections.favorites')}</span>
                   <span className="text-muted -mt-1 truncate text-xs">
                     {t('library.trackCount', { count: favoriteCount })}
+                  </span>
+                </Link>
+              </li>
+            )}
+            {downloadedCount > 0 && (
+              <li className="w-28 shrink-0">
+                <Link
+                  to="/library"
+                  search={{ view: 'downloaded' }}
+                  replace
+                  className="flex flex-col gap-1.5"
+                >
+                  <span className="bg-primary/20 text-primary grid aspect-square w-full place-items-center rounded-lg">
+                    <span className="bg-primary text-background grid size-12 place-items-center rounded-full">
+                      <ArrowDown aria-hidden size={28} strokeWidth={3} />
+                    </span>
+                  </span>
+                  <span className="truncate text-sm font-medium">
+                    {t('library.view.downloaded')}
+                  </span>
+                  <span className="text-muted -mt-1 truncate text-xs">
+                    {t('library.trackCount', { count: downloadedCount })}
                   </span>
                 </Link>
               </li>

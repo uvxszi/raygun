@@ -1,22 +1,26 @@
 import type { AudioFileFormat, SongDestination } from '@raygun/bindings';
+import { FolderOpen } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { usePickFolder } from '../export/useExports';
 import { useSettings } from '../settings/useSettings';
 import { Sheet } from '../shell/Sheet';
 import { useSongDownloadActions } from './useSongDownloads';
 
-const FORMATS: AudioFileFormat[] = ['original', 'wav', 'flac'];
+const FORMATS: AudioFileFormat[] = ['original', 'mp3', 'wav', 'flac'];
 
 /**
- * Saving downloaded songs as files (M46.10): as downloaded, WAV or FLAC, to Music/Raygun or the
- * folder picked in Settings → Downloads. Says where each file went.
+ * Saving downloaded songs as files (M46.10): as downloaded, MP3, WAV or FLAC, to Music/Raygun or
+ * a folder, which can be picked right here (M46.18; it also becomes Settings → Downloads'
+ * folder). Says where each file went.
  */
 export const SaveSongsSheet: FC<{ ids: string[]; onClose: () => void }> = ({ ids, onClose }) => {
   const { t } = useTranslation();
   const settings = useSettings();
   const { save } = useSongDownloadActions();
+  const pick = usePickFolder();
   const folder = settings.data?.save.folderName ?? null;
   const [format, setFormat] = useState<AudioFileFormat>(
     settings.data?.save.songFormat ?? 'original',
@@ -62,17 +66,32 @@ export const SaveSongsSheet: FC<{ ids: string[]; onClose: () => void }> = ({ ids
             />
             {t('songs.toMusic')}
           </label>
-          <label className={radio(destination === 'folder')}>
-            <input
-              type="radio"
-              name="song-destination"
-              checked={destination === 'folder'}
-              disabled={!folder}
-              onChange={() => setDestination('folder')}
-              className="accent-primary"
-            />
-            {folder ? t('songs.toFolder', { name: folder }) : t('songs.noFolder')}
-          </label>
+          {folder && (
+            <label className={radio(destination === 'folder')}>
+              <input
+                type="radio"
+                name="song-destination"
+                checked={destination === 'folder'}
+                onChange={() => setDestination('folder')}
+                className="accent-primary"
+              />
+              <span className="min-w-0 flex-1 truncate">{folder}</span>
+            </label>
+          )}
+          <button
+            type="button"
+            disabled={pick.isPending}
+            onClick={() => pick.mutate(undefined, { onSuccess: () => setDestination('folder') })}
+            className="text-primary flex items-center gap-2 self-start rounded-full px-3 py-2 text-sm font-semibold disabled:opacity-60"
+          >
+            <FolderOpen aria-hidden size={16} />
+            {folder ? t('songs.otherFolder') : t('songs.chooseFolder')}
+          </button>
+          {pick.isError && (
+            <p role="alert" className="text-primary px-1 text-sm wrap-anywhere">
+              {pick.error.message}
+            </p>
+          )}
         </fieldset>
         {save.data && (
           <div role="status" className="flex flex-col gap-1 text-sm">

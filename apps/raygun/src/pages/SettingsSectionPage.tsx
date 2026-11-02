@@ -28,6 +28,7 @@ import { useLibraryStatus } from '../library/useLibrary';
 import { ReaderDisplaySettings } from '../manga/ReaderDisplaySettings';
 import { PlayerViewSettings } from '../player/PlayerViewSettings';
 import { AppearanceCard } from '../settings/AppearanceCard';
+import { AudioQualitySettings } from '../settings/AudioQualitySettings';
 import { BackupCard } from '../settings/BackupCard';
 import { DeveloperCard } from '../settings/DeveloperCard';
 import { DownloadSettings } from '../settings/DownloadSettings';
@@ -353,6 +354,7 @@ const PlayerSettings: FC = () => {
         ))}
       </PrefGroup>
       <PlayerViewSettings title={t('player.view.musicTitle')} />
+      <AudioQualitySettings />
       <PrefGroup title={t('settings.musicPlayback')}>
         <PrefSwitch
           title={t('settings.resumeOnStart')}

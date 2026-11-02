@@ -191,7 +191,7 @@ const WideBar: FC<BarProps> = ({ state, item }) => {
           />
           <TrackText state={state} item={item} note={note?.kind === 'finding'} />
         </button>
-        <FavoriteButton item={item} compact />
+        <FavoriteButton item={item} compact download />
       </div>
 
       <div className="flex min-w-0 flex-col items-center gap-0.5">

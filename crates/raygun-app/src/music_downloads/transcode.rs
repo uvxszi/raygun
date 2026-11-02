@@ -1,6 +1,7 @@
-//! Songs as files (M46.10): checking a download is audio, writing it as WAV or FLAC (decoded
-//! with symphonia, written with hound and flacenc), tagging saved files with lofty, and turning
-//! a recording's capture into its FLAC. All blocking: call from `spawn_blocking`.
+//! Songs as files (M46.10): checking a download is audio, writing it as WAV, FLAC or MP3
+//! (decoded with symphonia, written with hound, flacenc and LAME), tagging saved files with
+//! lofty, and turning a recording's capture into its FLAC. All blocking: call from
+//! `spawn_blocking`.
 
 use std::fs::File;
 use std::path::Path;
@@ -128,12 +129,13 @@ pub fn probe(path: &Path) -> Result<(), String> {
         .ok_or_else(|| "it has no sound".to_owned())
 }
 
-/// Writes `source` to a file at `target` (its extension added) in `format`; returns the file
-/// and its extension.
+/// Writes `source` to a file at `target` (its extension added) in `format`, MP3s at `mp3_kbps`;
+/// returns the file and its extension.
 pub fn write_file(
     source: &Path,
     format: AudioFileFormat,
     target: &Path,
+    mp3_kbps: u32,
 ) -> Result<(std::path::PathBuf, String), String> {
     let source_extension = source
         .extension()
@@ -144,6 +146,7 @@ pub fn write_file(
         AudioFileFormat::Original => source_extension.clone(),
         AudioFileFormat::Wav => "wav".to_owned(),
         AudioFileFormat::Flac => "flac".to_owned(),
+        AudioFileFormat::Mp3 => "mp3".to_owned(),
     };
     let path = target.with_extension(&extension);
     if extension == source_extension {
@@ -153,9 +156,100 @@ pub fn write_file(
     let mut decoding = open(source)?;
     match format {
         AudioFileFormat::Wav => write_wav(&mut decoding, &path)?,
+        AudioFileFormat::Mp3 => write_mp3(&mut decoding, &path, mp3_kbps)?,
         _ => write_flac(&mut decoding, &path)?,
     }
     Ok((path, extension))
+}
+
+/// The LAME bitrate nearest at or above `kbps`, up to 320.
+fn lame_bitrate(kbps: u32) -> mp3lame_encoder::Bitrate {
+    use mp3lame_encoder::Bitrate;
+    match kbps {
+        0..=64 => Bitrate::Kbps64,
+        65..=96 => Bitrate::Kbps96,
+        97..=128 => Bitrate::Kbps128,
+        129..=160 => Bitrate::Kbps160,
+        161..=192 => Bitrate::Kbps192,
+        193..=256 => Bitrate::Kbps256,
+        _ => Bitrate::Kbps320,
+    }
+}
+
+/// Encodes to a constant-bitrate MP3 (M46.18). Mono stays mono; more than two channels keep the
+/// front pair.
+fn write_mp3(decoding: &mut Decoding, path: &Path, kbps: u32) -> Result<(), String> {
+    use std::io::Write;
+
+    use mp3lame_encoder::{Builder, FlushNoGap, InterleavedPcm, MonoPcm, Quality};
+
+    let failed = |error: &dyn std::fmt::Display| format!("the MP3 encoder failed ({error})");
+    let mut samples = Vec::new();
+    // The first piece fixes the rate and channels.
+    let first = decoding.next(&mut samples)?;
+    let channels = decoding.channels.max(1);
+    let mono = channels == 1;
+    let mut builder = Builder::new().ok_or("the MP3 encoder didn't start")?;
+    builder
+        .set_num_channels(if mono { 1 } else { 2 })
+        .map_err(|error| failed(&error))?;
+    builder
+        .set_sample_rate(decoding.rate)
+        .map_err(|error| failed(&error))?;
+    builder
+        .set_brate(lame_bitrate(kbps))
+        .map_err(|error| failed(&error))?;
+    // LAME's recommended quality for its speed.
+    builder
+        .set_quality(Quality::NearBest)
+        .map_err(|error| failed(&error))?;
+    // The VBR/Info frame would have to be written back over the file's start.
+    builder
+        .set_to_write_vbr_tag(false)
+        .map_err(|error| failed(&error))?;
+    let mut encoder = builder.build().map_err(|error| failed(&error))?;
+    let file = File::create(path).map_err(|error| error.to_string())?;
+    let mut out = std::io::BufWriter::new(file);
+    let mut encoded = Vec::new();
+    let mut pair = Vec::new();
+    if first.is_some() {
+        loop {
+            encoded.clear();
+            if mono {
+                encoded.reserve(mp3lame_encoder::max_required_buffer_size(samples.len()));
+                encoder
+                    .encode_to_vec(MonoPcm(samples.as_slice()), &mut encoded)
+                    .map_err(|error| failed(&error))?;
+            } else {
+                let frames: &[i16] = if channels == 2 {
+                    &samples
+                } else {
+                    pair.clear();
+                    pair.extend(
+                        samples
+                            .chunks_exact(channels)
+                            .flat_map(|frame| [frame[0], frame[1]]),
+                    );
+                    &pair
+                };
+                encoded.reserve(mp3lame_encoder::max_required_buffer_size(frames.len() / 2));
+                encoder
+                    .encode_to_vec(InterleavedPcm(frames), &mut encoded)
+                    .map_err(|error| failed(&error))?;
+            }
+            out.write_all(&encoded).map_err(|error| error.to_string())?;
+            if decoding.next(&mut samples)?.is_none() {
+                break;
+            }
+        }
+    }
+    encoded.clear();
+    encoded.reserve(7200);
+    encoder
+        .flush_to_vec::<FlushNoGap>(&mut encoded)
+        .map_err(|error| failed(&error))?;
+    out.write_all(&encoded).map_err(|error| error.to_string())?;
+    out.flush().map_err(|error| error.to_string())
 }
 
 fn write_wav(decoding: &mut Decoding, path: &Path) -> Result<(), String> {
@@ -416,8 +510,13 @@ mod tests {
         tone(&source);
         probe(&source).unwrap();
 
-        let (flac, extension) =
-            write_file(&source, AudioFileFormat::Flac, &temp.path().join("out")).unwrap();
+        let (flac, extension) = write_file(
+            &source,
+            AudioFileFormat::Flac,
+            &temp.path().join("out"),
+            320,
+        )
+        .unwrap();
         assert_eq!(extension, "flac");
         probe(&flac).unwrap();
         tag(
@@ -435,15 +534,40 @@ mod tests {
         assert_eq!(read.primary_tag().unwrap().title().as_deref(), Some("Tone"));
 
         // FLAC back to WAV keeps the length.
-        let (wav, _) = write_file(&flac, AudioFileFormat::Wav, &temp.path().join("back")).unwrap();
+        let (wav, _) =
+            write_file(&flac, AudioFileFormat::Wav, &temp.path().join("back"), 320).unwrap();
         let reader = hound::WavReader::open(&wav).unwrap();
         assert_eq!(reader.duration(), 132_300);
+
+        // MP3 (M46.18): decodable, tagged, about as long, and smaller at a lower bitrate.
+        let (mp3, extension) =
+            write_file(&flac, AudioFileFormat::Mp3, &temp.path().join("mp3"), 320).unwrap();
+        assert_eq!(extension, "mp3");
+        probe(&mp3).unwrap();
+        tag(
+            &mp3,
+            &SongTags {
+                title: "Tone".into(),
+                artist: None,
+                album: None,
+                cover: None,
+            },
+        )
+        .unwrap();
+        let read = lofty::read_from_path(&mp3).unwrap();
+        assert_eq!(read.primary_tag().unwrap().title().as_deref(), Some("Tone"));
+        let seconds = read.properties().duration().as_secs_f64();
+        assert!((2.9..3.2).contains(&seconds), "{seconds} s");
+        let (small, _) =
+            write_file(&flac, AudioFileFormat::Mp3, &temp.path().join("small"), 64).unwrap();
+        assert!(std::fs::metadata(&small).unwrap().len() < std::fs::metadata(&mp3).unwrap().len());
 
         // The same format is a copy.
         let (copy, extension) = write_file(
             &source,
             AudioFileFormat::Original,
             &temp.path().join("copy"),
+            320,
         )
         .unwrap();
         assert_eq!(extension, "wav");
@@ -485,7 +609,8 @@ mod tests {
             (990..=1000).contains(&kept),
             "about the 1 s of sound: {kept}"
         );
-        let (back, _) = write_file(&flac, AudioFileFormat::Wav, &temp.path().join("back")).unwrap();
+        let (back, _) =
+            write_file(&flac, AudioFileFormat::Wav, &temp.path().join("back"), 320).unwrap();
         let samples: Vec<i16> = hound::WavReader::open(back)
             .unwrap()
             .samples::<i16>()

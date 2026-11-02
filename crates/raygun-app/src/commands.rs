@@ -548,6 +548,25 @@ pub async fn songs_download(
     songs.enqueue(tracks).await
 }
 
+/// The download of one song, if it has one (M46.18: the download button beside +).
+#[tauri::command]
+#[specta::specta]
+pub async fn song_download_for(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+    track: TrackInput,
+) -> Result<Option<raygun_model::SongDownload>, String> {
+    songs.find(&track).await
+}
+
+/// Songs downloaded into the app, as a collection (M46.18: Library → Audio → Downloaded).
+#[tauri::command]
+#[specta::specta]
+pub async fn downloaded_songs(
+    collections: tauri::State<'_, CollectionsService>,
+) -> Result<Vec<SavedTrack>, String> {
+    collections.downloaded().await
+}
+
 /// Every song download, newest first (M46.10).
 #[tauri::command]
 #[specta::specta]

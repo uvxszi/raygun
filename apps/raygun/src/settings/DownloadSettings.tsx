@@ -96,7 +96,7 @@ export const DownloadSettings: FC = () => {
           summary={t('songs.songFormatHint')}
           value={save.songFormat}
           disabled={busy}
-          options={(['original', 'wav', 'flac'] as const).map((value) => ({
+          options={(['original', 'mp3', 'wav', 'flac'] as const).map((value) => ({
             value,
             label: t(`songs.formats.${value}`),
           }))}

@@ -328,15 +328,21 @@ impl ExtensionHost {
         &self,
         query: &TrackQuery,
         limit: u32,
+        quality: raygun_resolver::QualityTarget,
     ) -> Vec<ProviderCandidates> {
         let providers = self.providers(MUSIC_STREAM).await;
-        let args = serde_json::json!({
+        let mut args = serde_json::json!({
             "title": query.title,
             "artist": query.artist,
             "album": query.album,
             "durationMs": query.duration_ms,
             "limit": limit,
         });
+        // M46.18: providers with several streams per song pick the one nearest this; `null`
+        // asks for the best there is.
+        if quality != raygun_resolver::QualityTarget::Any {
+            args["targetKbps"] = serde_json::json!(quality.kbps());
+        }
         let requests = providers.into_iter().map(|provider| {
             let args = args.clone();
             async move {
@@ -1294,6 +1300,8 @@ struct RawCandidate {
     #[serde(default)]
     quality: Option<String>,
     #[serde(default)]
+    bitrate_kbps: Option<f64>,
+    #[serde(default)]
     source: Option<MediaSource>,
 }
 
@@ -1325,6 +1333,10 @@ fn parse_candidates(provider: &ProviderInfo, value: serde_json::Value) -> Vec<Ca
                 .filter(|ms| ms.is_finite() && *ms > 0.0 && *ms < f64::from(u32::MAX))
                 .map(|ms| ms as u32),
             quality: candidate.quality,
+            bitrate_kbps: candidate
+                .bitrate_kbps
+                .filter(|kbps| kbps.is_finite() && *kbps >= 1.0 && *kbps < 100_000.0)
+                .map(|kbps| kbps.round() as u32),
             source: candidate.source,
         })
         .collect()

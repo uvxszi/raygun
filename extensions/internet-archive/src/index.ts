@@ -43,7 +43,39 @@ const parseLength = (length: string | undefined): number | null => {
 const trackNumber = (file: ItemFile) =>
   Number.parseInt(String(file.track ?? '').split('/')[0] ?? '', 10);
 
-const isMp3 = (file: ItemFile) => file.format?.includes('MP3') ?? false;
+/** What a file format sounds like in kbps: lossless counts as CD audio, IA's VBR MP3s average ~200. */
+const formatKbps = (format: string | undefined): number | null => {
+  if (!format) return null;
+  if (/flac|lossless/i.test(format)) return 1411;
+  const stated = /(\d+)\s*kbps/i.exec(format);
+  if (stated) return Number(stated[1]);
+  return format === 'VBR MP3' ? 200 : null;
+};
+
+const isPlayable = (file: ItemFile) =>
+  (file.format?.includes('MP3') ?? false) || /flac/i.test(file.format ?? '');
+
+/**
+ * The format to play from an item that has the same recordings at several bitrates (M46.18):
+ * VBR MP3 when nothing is asked, the nearest to `targetKbps`, or the highest for `null`.
+ */
+const pickFormat = (files: ItemFile[], targetKbps: number | null | undefined): string | null => {
+  const formats = [...new Set(files.map((file) => file.format ?? ''))].filter(
+    (format) => formatKbps(format) !== null,
+  );
+  if (formats.length === 0) return null;
+  if (targetKbps === undefined) {
+    return formats.includes('VBR MP3')
+      ? 'VBR MP3'
+      : (formats.find((format) => format.includes('MP3')) ?? formats[0] ?? null);
+  }
+  const distance = (format: string) => {
+    const kbps = formatKbps(format) ?? 160;
+    if (targetKbps === null) return -kbps;
+    return Math.max(kbps, targetKbps) / Math.max(1, Math.min(kbps, targetKbps));
+  };
+  return [...formats].sort((a, b) => distance(a) - distance(b))[0] ?? null;
+};
 
 const encodePath = (path: string) => path.split('/').map(encodeURIComponent).join('/');
 
@@ -73,28 +105,36 @@ const mainArtist = (artist: string) =>
 
 const words = (text: string) => escapeQuery(text).toLowerCase().split(/\s+/).filter(Boolean);
 
-const itemTracks = async (doc: SearchDoc, max: number): Promise<Track[]> => {
+type ItemTrack = { track: Track; format: string | null };
+
+const itemTracks = async (
+  doc: SearchDoc,
+  max: number,
+  targetKbps?: number | null,
+): Promise<ItemTrack[]> => {
   const id = doc.identifier;
   const item = await fetchJson<ItemMetadata>(`${API}/metadata/${encodeURIComponent(id)}`);
-  const files = (item.files ?? []).filter(isMp3);
-  // Items often carry the same recording at several bitrates; prefer VBR, keep one per title.
-  const preferred = files.some((file) => file.format === 'VBR MP3')
-    ? files.filter((file) => file.format === 'VBR MP3')
-    : files;
+  const files = (item.files ?? []).filter(isPlayable);
+  // Items often carry the same recording at several bitrates; one format, so one file per title.
+  const format = pickFormat(files, targetKbps);
+  const preferred = format === null ? files : files.filter((file) => file.format === format);
   preferred.sort((a, b) => (trackNumber(a) || 1e9) - (trackNumber(b) || 1e9));
   const album = firstString(item.metadata?.title) ?? firstString(doc.title);
   const creator = firstString(item.metadata?.creator) ?? firstString(doc.creator);
   return preferred.slice(0, max).map((file) => ({
-    id: `${id}/${file.name}`,
-    title: file.title || file.name.replace(/\.mp3$/i, '').replace(/_/g, ' '),
-    artist: firstString(file.creator) ?? firstString(file.artist) ?? creator,
-    album: file.album || album,
-    durationMs: parseLength(file.length),
-    artworkUrl: `${API}/services/img/${encodeURIComponent(id)}`,
-    source: {
-      kind: 'url',
-      url: `${API}/download/${encodeURIComponent(id)}/${encodePath(file.name)}`,
-      headers: {},
+    format: file.format ?? null,
+    track: {
+      id: `${id}/${file.name}`,
+      title: file.title || file.name.replace(/\.(mp3|flac)$/i, '').replace(/_/g, ' '),
+      artist: firstString(file.creator) ?? firstString(file.artist) ?? creator,
+      album: file.album || album,
+      durationMs: parseLength(file.length),
+      artworkUrl: `${API}/services/img/${encodeURIComponent(id)}`,
+      source: {
+        kind: 'url',
+        url: `${API}/download/${encodeURIComponent(id)}/${encodePath(file.name)}`,
+        headers: {},
+      },
     },
   }));
 };
@@ -117,7 +157,9 @@ const search = defineProvider({
         raygun.log.warn('item skipped:', String(result.reason));
       }
     }
-    const tracks = settled.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
+    const tracks: Track[] = settled
+      .flatMap((result) => (result.status === 'fulfilled' ? result.value : []))
+      .map((item) => item.track);
     return { tracks: tracks.slice(0, limit) };
   },
 });
@@ -129,7 +171,7 @@ const streams = defineProvider({
   id: 'stream',
   name: 'Internet Archive',
 
-  async candidates({ title, artist, limit }) {
+  async candidates({ title, artist, limit, targetKbps }) {
     const wantedTitle = escapeQuery(bareTitle(title));
     if (wantedTitle === '') return { candidates: [] };
     const wantedArtist = artist ? escapeQuery(mainArtist(artist)) : '';
@@ -157,13 +199,13 @@ const streams = defineProvider({
     ].slice(0, 6);
 
     const wanted = words(bareTitle(title));
-    const settled = await Promise.allSettled(docs.map((doc) => itemTracks(doc, 500)));
+    const settled = await Promise.allSettled(docs.map((doc) => itemTracks(doc, 500, targetKbps)));
     for (const result of settled) {
       if (result.status === 'rejected') raygun.log.warn('item skipped:', String(result.reason));
     }
     const matching = settled
       .flatMap((result) => (result.status === 'fulfilled' ? result.value : []))
-      .filter((track) => {
+      .filter(({ track }) => {
         const offered = words(track.title);
         return wanted.every((word) => offered.includes(word));
       });
@@ -171,12 +213,13 @@ const streams = defineProvider({
       `stream candidates for "${title}": ${docs.length} items, ${matching.length} matching files`,
     );
     return {
-      candidates: matching.slice(0, limit).map((track) => ({
+      candidates: matching.slice(0, limit).map(({ track, format }) => ({
         id: track.id ?? track.title,
         title: track.title,
         artist: track.artist ?? null,
         durationMs: track.durationMs ?? null,
-        quality: 'MP3',
+        quality: format ?? 'MP3',
+        bitrateKbps: formatKbps(format ?? undefined),
         source: track.source ?? null,
       })),
     };

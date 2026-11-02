@@ -54,6 +54,7 @@ symphonia = { version = "0.6", default-features = false, features = ["mp3", "aac
 hound = "3.5"
 flacenc = "0.5"
 lofty = "0.25"
+mp3lame-encoder = "0.2.5"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 rfd.workspace = true

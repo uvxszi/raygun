@@ -177,12 +177,15 @@ async fn stream_candidates_and_provider_stats_round_trip() {
         .unwrap();
     streams::mark_verified(
         &db,
-        key,
-        "dev.b/stream",
-        "2",
-        "Studio",
-        r#"{"kind":"url"}"#,
-        Some(99),
+        streams::Played {
+            track_key: key,
+            provider_id: "dev.b/stream",
+            candidate_id: "2",
+            title: "Studio",
+            source_json: r#"{"kind":"url"}"#,
+            expires_at: Some(99),
+            bitrate_kbps: Some(128),
+        },
         20,
     )
     .await
@@ -190,12 +193,15 @@ async fn stream_candidates_and_provider_stats_round_trip() {
     // Verifying a candidate that failed before clears the failure.
     streams::mark_verified(
         &db,
-        key,
-        "dev.a/stream",
-        "1",
-        "Live",
-        r#"{"kind":"url"}"#,
-        None,
+        streams::Played {
+            track_key: key,
+            provider_id: "dev.a/stream",
+            candidate_id: "1",
+            title: "Live",
+            source_json: r#"{"kind":"url"}"#,
+            expires_at: None,
+            bitrate_kbps: None,
+        },
         30,
     )
     .await
@@ -206,6 +212,7 @@ async fn stream_candidates_and_provider_stats_round_trip() {
     assert_eq!(rows[0].candidate_id, "1", "most recently verified first");
     assert_eq!(rows[0].failed_at, None);
     assert_eq!(rows[1].expires_at, Some(99));
+    assert_eq!(rows[1].bitrate_kbps, Some(128));
     assert!(
         streams::candidates(&db, "other|key")
             .await

@@ -416,7 +416,11 @@ async fn youtube_searches_youtube_music_without_a_key_or_the_api_with_one() {
     assert_eq!(tracks[1].artist.as_deref(), Some("Some Uploader"));
     assert_eq!(tracks[1].duration_ms, Some(3_723_000));
     let candidates = host
-        .stream_candidates(&query("Song", Some(201_000)), 5)
+        .stream_candidates(
+            &query("Song", Some(201_000)),
+            5,
+            raygun_resolver::QualityTarget::Any,
+        )
         .await;
     let candidates = candidates[0].result.as_ref().unwrap();
     assert_eq!(candidates[0].id, "abc123def45");

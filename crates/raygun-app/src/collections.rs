@@ -48,6 +48,34 @@ impl CollectionsService {
         Ok(with_dates(tracks, added))
     }
 
+    /// Songs downloaded into the app, newest first (M46.18): Library → Audio → Downloaded. They
+    /// play from their saved files (`music_downloads::offline_item`).
+    pub async fn downloaded(&self) -> Result<Vec<SavedTrack>, String> {
+        let rows: Vec<_> = raygun_db::music_downloads::all(self.db())
+            .await
+            .map_err(to_message)?
+            .into_iter()
+            .filter(|row| row.state == raygun_db::music_downloads::DONE)
+            .collect();
+        let added: Vec<i64> = rows
+            .iter()
+            .map(|row| row.finished_at.unwrap_or(row.created_at))
+            .collect();
+        let fields = rows
+            .into_iter()
+            .map(|row| collections::TrackFields {
+                track_key: row.song.track_key,
+                title: row.song.title,
+                artist: row.song.artist,
+                album: row.song.album,
+                duration_ms: row.song.duration_ms,
+                artwork_url: row.song.artwork_url,
+                source: row.song.source,
+            })
+            .collect();
+        Ok(with_dates(self.saved(fields).await?, added))
+    }
+
     /// Where a song is saved: Favorites and the playlists holding it (M46.8).
     pub async fn saves(&self, track: TrackInput) -> Result<TrackSaves, String> {
         let key = fields(track).track_key;
@@ -266,6 +294,7 @@ impl CollectionsService {
                 .into_iter()
                 .map(|entry| entry.track)
                 .collect(),
+            Collection::Downloaded => self.downloaded().await?,
         };
         // A sorted or filtered table plays in the order it shows (M46.8).
         let tracks = match &request.order {

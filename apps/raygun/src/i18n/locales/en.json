@@ -57,7 +57,13 @@
       "tracks": "Tracks",
       "playlists": "Playlists",
       "favorites": "Favorites",
+      "downloaded": "Downloaded",
       "podcasts": "Podcasts"
+    },
+    "downloaded": {
+      "emptyTitle": "No downloads yet",
+      "emptyHint": "Press the download button beside + on a song, or Download in its menu, to keep it on this device.",
+      "manage": "Manage downloads"
     },
     "artistCounts": "{{albums}} albums · {{tracks}} tracks",
     "trackCount_one": "{{count}} track",
@@ -784,6 +790,29 @@
     "resumeOnStartHint": "Raygun opens on what played last, paused where it was.",
     "keepMusicPlaying": "Keep music playing with other media",
     "keepMusicPlayingHint": "Off: music pauses when a video, a trailer or read-aloud starts.",
+    "audioQuality": {
+      "title": "Audio quality",
+      "streaming": "Streaming",
+      "streamingHint": "Sources with a song at several bitrates play the nearest. Others play what they have.",
+      "cellular": "Mobile data",
+      "cellularHint": "Used instead while the phone streams over mobile data.",
+      "download": "Downloads",
+      "downloadHint": "Songs you download are fetched at this quality when a source offers it.",
+      "levels": {
+        "low": "Low",
+        "normal": "Normal",
+        "high": "High",
+        "veryHigh": "Very high",
+        "best": "Best available"
+      },
+      "hints": {
+        "low": "About 64 kbps",
+        "normal": "About 128 kbps",
+        "high": "About 192 kbps",
+        "veryHigh": "About 320 kbps",
+        "best": "The best a source has, lossless included"
+      }
+    },
     "discord": {
       "title": "Discord",
       "enabled": "Show what plays in Discord",
@@ -2019,18 +2048,35 @@
     "format": "Format",
     "formats": {
       "original": "As downloaded",
+      "mp3": "MP3",
       "wav": "WAV",
       "flac": "FLAC"
     },
     "formatHints": {
       "original": "The file as the source gave it (MP3, M4A…); recordings are FLAC",
+      "mp3": "Plays anywhere; made at your Downloads audio quality (MP3 downloads are copied)",
       "wav": "Uncompressed, plays anywhere, large",
       "flac": "Lossless and smaller than WAV"
     },
     "where": "Where",
     "toMusic": "Music/Raygun, in a folder per artist",
-    "toFolder": "{{name}} (the folder picked in Settings → Downloads)",
-    "noFolder": "A folder you pick (choose one in Settings → Downloads)",
+    "chooseFolder": "Choose a folder",
+    "otherFolder": "Choose another folder",
+    "button": {
+      "download": "Download",
+      "downloading": "Downloading",
+      "downloaded": "Downloaded",
+      "failed": "Download didn’t work",
+      "removeTitle": "Remove from downloads?",
+      "removeHint": "“{{title}}” won’t play offline anymore. You can download it again.",
+      "cancelTitle": "Cancel this download?",
+      "cancelHint": "What it saved so far is deleted.",
+      "failedTitle": "This download didn’t work",
+      "keep": "Keep",
+      "remove": "Remove",
+      "cancel": "Cancel download",
+      "retry": "Try again"
+    },
     "save": "Save",
     "saving": "Saving…",
     "done": "Done",
