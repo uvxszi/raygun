@@ -12,14 +12,31 @@ export type EmbedMessage = {
   data: unknown;
 };
 
+/**
+ * `token` names the load a reply is about (the load id the page was given), so replies the page
+ * sent about the previous video before it saw the new load are dropped (M46.7).
+ */
 type EmbedReply =
   | { raygunEmbed: true; type: 'ready' }
-  | { raygunEmbed: true; type: 'state'; state: string }
-  | { raygunEmbed: true; type: 'progress'; positionMs: number; durationMs: number | null }
-  | { raygunEmbed: true; type: 'error'; code: number };
+  | { raygunEmbed: true; type: 'state'; state: string; token?: number | null }
+  | {
+      raygunEmbed: true;
+      type: 'progress';
+      positionMs: number;
+      durationMs: number | null;
+      token?: number | null;
+    }
+  | { raygunEmbed: true; type: 'error'; code: number; token?: number | null };
 
 type EmbedCommand =
-  | { type: 'load'; videoId: string; startMs: number; autoplay: boolean; volume: number }
+  | {
+      type: 'load';
+      videoId: string;
+      startMs: number;
+      autoplay: boolean;
+      volume: number;
+      token: number;
+    }
   | { type: 'play' }
   | { type: 'pause' }
   | { type: 'seek'; positionMs: number }
@@ -81,6 +98,7 @@ export class YouTubeEmbedEngine {
           startMs: command.startMs ?? 0,
           autoplay: command.autoplay,
           volume: command.volume ?? 1,
+          token: command.loadId,
         });
         break;
       case 'play':
@@ -138,6 +156,10 @@ export class YouTubeEmbedEngine {
       return;
     }
     const reply = message.data;
+    // Late news about the video before this load: its position or its end would land on this one.
+    if (reply.type !== 'ready' && reply.token !== this.loadId) {
+      return;
+    }
     switch (reply.type) {
       case 'ready':
         this.pageReady = true;

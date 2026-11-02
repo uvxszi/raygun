@@ -48,6 +48,12 @@ const DEFAULT_SETTINGS: Settings = {
     desktop: false,
   },
   layout: LAYOUT_DEFAULTS,
+  accentColor: '#e5484d',
+  coverWidth: 0,
+  mangaReader: { pagedScale: 'fitScreen', webtoonWidth: 0 },
+  playerView: { layout: 'auto', width: 0 },
+  scrollbars: 'thin',
+  motion: 'lively',
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,

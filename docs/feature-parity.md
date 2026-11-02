@@ -90,6 +90,10 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Desktop: exports to user folders, page copy and Show in folder, read-aloud, websites browser with blocker | (desktop apps) | ✅ M46.6 |
 | Trailers in their own full-window player | Stremio, CloudStream | ✅ M46.4 |
 | Player bar with shuffle, repeat, seek, volume, lyrics and a queue panel | Spotify, Nuclear | ✅ M46.4 |
+| Now playing side panel (art, lyrics, next up, queue), scrolling titles, a full player laid out side by side with its own settings | Spotify | ✅ M46.7 |
+| Any accent colour, cover sizes, reader page fit and zoom, a page bar to arrange, pages to load ahead, scrollbars and animations as settings | Mihon (reader settings), Aniyomi | ✅ M46.7 |
+| YouTube search without an API key | Grayjay, NewPipe, FreeTube | ✅ M46.7 (search through YouTube Music's web API; playback in YouTube's embed) |
+| One-click and bulk extension installs, update all | Mihon, Aniyomi | ✅ M46.7 |
 | Arrange tabs (add, hide, reorder, start screen), library tabs, Home, Browse and More | Aniyomi (NavStyle, start screen), Mihon (category order) | ✅ M46.5 (pinned sources: M53) |
 | Cover cache kept for the library, cache sizes and clearing, extension icons | Mihon, CloudStream, RiPlay | ✅ M46.2 (separate cover and page caches with limits, background revalidation, Storage screen, repository icons) |
 | Chapter swipe actions, scanlator filter, bookmarks | Mihon | 🔜 M47 |

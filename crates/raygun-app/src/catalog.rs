@@ -19,6 +19,10 @@ use tauri::{AppHandle, Manager};
 use crate::extensions::ExtensionService;
 use crate::startup::AppDb;
 
+/// Sources searched at the same time (M46.7): each runs a script and makes requests, so a search
+/// over many sources goes a few at a time instead of all at once.
+const SEARCH_CONCURRENCY: usize = 4;
+
 pub struct Catalog {
     app: AppHandle,
     pub images: ImageLinks,
@@ -163,10 +167,10 @@ impl Catalog {
         self.listing_page(source_id, listing).await
     }
 
-    /// The first page of every source's results for `query`, sources in parallel (Mihon's global
-    /// search), or only of the ones in `only` (Search's source chips, M46.4) when it isn't empty.
-    /// A blank query gives each source's popular titles. A source that fails reports its error
-    /// and the others still show.
+    /// The first page of every source's results for `query`, a few sources at a time (Mihon's
+    /// global search; never all at once, M46.7), or only of the ones in `only` (Search's source
+    /// chips, M46.4) when it isn't empty. A blank query gives each source's popular titles. A
+    /// source that fails reports its error and the others still show.
     pub async fn global_search(
         &self,
         query: &str,
@@ -206,7 +210,7 @@ impl Catalog {
                 },
             }
         });
-        let mut results = futures_util::future::join_all(searches).await;
+        let mut results = crate::stremio::at_most(SEARCH_CONCURRENCY, searches).await;
         // Sources with results first, then empty ones, then failures.
         results.sort_by_key(|result| (result.error.is_some(), result.items.is_empty()));
         Ok(results)

@@ -42,7 +42,127 @@
   --accent-on-light: oklch(0.6 0.22 355);
 }
 
+/* Scrollbars (M46.7, Settings → Appearance): a thin thumb over a clear track at the outer edge of
+   whatever scrolls, without the system's grey gutter and arrows; wider, or hidden. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  background: transparent;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-button {
+  display: none;
+}
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 9999px;
+  background-clip: padding-box;
+  background-color: color-mix(in oklab, var(--color-muted) 40%, transparent);
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklab, var(--color-muted) 70%, transparent);
+}
+:root[data-scrollbars='wide'] ::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+:root[data-scrollbars='hidden'] * {
+  scrollbar-width: none;
+}
+:root[data-scrollbars='hidden'] ::-webkit-scrollbar {
+  display: none;
+}
+
+/* Animations (M46.7, Settings → Appearance): buttons answer hover and press, popovers and panels
+   come in. Calm moves less; Off and the system's reduced motion turn it off. */
+:root {
+  --press-scale: 0.9;
+  --press-scale-wide: 0.98;
+  --hover-icon-scale: 1.12;
+  --motion-time: 180ms;
+}
+:root[data-motion='calm'] {
+  --press-scale: 0.95;
+  --press-scale-wide: 0.99;
+  --hover-icon-scale: 1.05;
+  --motion-time: 140ms;
+}
+@keyframes raygun-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
+}
+@keyframes raygun-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+@keyframes raygun-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Long titles slide to show the rest of themselves, resting at each end (shell/Marquee, M46.7). */
+@keyframes raygun-marquee {
+  0%,
+  15% {
+    transform: translateX(0);
+  }
+  85%,
+  100% {
+    transform: translateX(var(--marquee-shift));
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .marquee-run {
+    animation: raygun-marquee var(--marquee-time) linear infinite alternate;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .marquee-run {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
 @layer base {
+  @media (prefers-reduced-motion: no-preference) {
+    :root:not([data-motion='off']) :is(button, a, [role='button'], [role='tab'], summary) {
+      transition-property: transform, background-color, color, border-color, opacity, box-shadow;
+      transition-duration: var(--motion-time);
+      transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    :root:not([data-motion='off']) :is(button, a, [role='button']):not(:disabled):active {
+      transform: scale(var(--press-scale-wide));
+    }
+    /* Icon buttons press deeper and their icon grows under the pointer. */
+    :root:not([data-motion='off']) button:not(:disabled):has(> svg:only-child):active {
+      transform: scale(var(--press-scale));
+    }
+    :root:not([data-motion='off']) button > svg:only-child {
+      transition: transform var(--motion-time) cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    :root:not([data-motion='off']) button:not(:disabled):hover > svg:only-child {
+      transform: scale(var(--hover-icon-scale));
+    }
+    :root:not([data-motion='off']) .motion-pop {
+      animation: raygun-pop-in var(--motion-time) cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    :root:not([data-motion='off']) .motion-rise {
+      animation: raygun-rise-in calc(var(--motion-time) * 1.4) cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    :root:not([data-motion='off']) .motion-fade {
+      animation: raygun-fade-in var(--motion-time) ease-out;
+    }
+  }
+
   :root[data-theme='light'] {
     --color-background: oklch(0.98 0.005 270);
     --color-surface: oklch(0.93 0.01 270);

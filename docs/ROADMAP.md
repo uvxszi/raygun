@@ -109,6 +109,34 @@ The user asked for the full depth of the reference apps ("its not meant to be a 
   - Search picks sources with chips (several at once) and shows popular titles before anything is typed.
 - M46.5 **Customizable layout** (asked 2026-11-01: "make it very customizable, so you can add and move around tabs and options and such, similar to mihon"): navigation tabs added, hidden and reordered (five on phones, the rest in More; any of them as the start screen), library tabs, Audio's chips, Home's sections, Browse's tabs and sections, and More's entries, edited by dragging or with buttons in Settings → Appearance → Layout. Pinned sources follow in M53.
 - M46.6 **Desktop: saving, sharing, read-aloud and websites** (asked 2026-11-01: "yes desktop gaps"): exports to the user's folders and a picked folder, Show in folder and copying pages, read-aloud with the system's voices, and the websites browser in windows of its own with the blocker; readers sized for wide windows.
+- M46.7 **Customization** (asked 2026-11-01): any accent colour; cover sizes (smaller by default on desktop, a setting); the manga reader's page fit, webtoon width, zoom (Ctrl+scroll, Ctrl±, buttons), pages to load ahead and a narrower page bar with chosen buttons; novels zoom with Ctrl+scroll; F11 full screen; hover labels on icon buttons; Search's catalog rows named; LRCLIB without an artist; long titles scroll; a Now playing side panel on desktop (art, lyrics, queue); YouTube search without an API key; a playhead that follows the audio; a wider full player with its own layout settings and Up next as a view; popovers beside buttons instead of full-window menus; one-click and bulk extension installs; scrollbars and animations as settings; no crash on script errors on Windows (release builds unwind); searches and addon requests a few at a time, rows loading as they're seen; the new app icon.
+- **Asked 2026-11-01, queued in this order** (each becomes a milestone with a spec):
+  1. **Sound and lyrics editing:**
+     - edit lyrics (words and timings) and shift them by an offset; the same for video subtitles;
+     - per-song start and end trims and per-song volume;
+     - loudness normalization, an equalizer and other sound effects for all songs;
+     - crossfade into the next song, adjustable or off;
+     - desktop through Web Audio, Android through Media3's audio processors. YouTube's embedded player can only change its volume.
+  2. **Artist and song info** (open sources, Spotify's "About the artist" and credits):
+     - an online artist page (bio, picture, facts, members, discography, similar artists);
+     - song credits and facts (writers, producers, samples, covers);
+     - from Wikipedia/Wikidata, MusicBrainz and ListenBrainz, through an extension capability;
+     - shown in the Now playing panel and the full player.
+  3. **Keyboard and sorting:**
+     - keyboard navigation through the whole app, with shortcuts everywhere and no mouse needed;
+     - sorting everywhere, including podcasts and their episodes;
+     - ratings beside IMDb (Rotten Tomatoes and Metacritic through OMDb, with a key the user pastes in; no scraping);
+     - using the spare space on desktop for more buttons and panels.
+  4. **Read-aloud:** pause and resume; choosing voices (and their speed and pitch).
+  5. **Miru extensions** (M46.8 in the research notes): run Miru's JavaScript extensions and install Miru repositories. Raygun's own repository may hold converted copies of the licensed and public ones.
+  6. **Nuvio / NuvioTV support:** what NuvioTV offers beyond Stremio addons (its plugin repositories and their scrapers, run for repositories the user adds; Trakt; its TV layout). Same rule as Miru: no piracy repositories shipped or pre-added. Research in `docs/reference-notes.md`.
+  7. **Paraline Raygun:** a separate collection repository. It holds Raygun's own extensions, website presets and links to other repositories, as one thing to add. Neutral and legal content only, created locally first and published with the user's go-ahead.
+  8. **AI for manga** (pulls forward M56–M58):
+     - upscaling and translation, on and off separately or together, on desktop and phones;
+     - translations drawn over the speech bubbles;
+     - offline translation models: download from the list or a link, manage, uninstall;
+     - a "translate this automatically" path offered when a title isn't in the user's language.
+  9. **The manga reader:** two pages side by side (spreads) and the rest of M50.
 - M47 **Title pages and chapter/episode lists** (mihon §2; aniyomi §8; cloudstream §4; stremio §4; shosetsu novel screen):
   - **Lists:** filters, sort and display with defaults; selection with bulk actions (mark previous, download, delete, bookmark); bookmarks and fillers; swipe actions; download menus (next N, all unread).
   - **Title extras:** cover dialog and custom cover, notes, edit info, share, links (genres, authors and cast open Search).

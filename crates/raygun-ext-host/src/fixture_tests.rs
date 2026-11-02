@@ -8,7 +8,7 @@ use std::path::Path;
 use axum::Router;
 use axum::http::{StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use serde_json::json;
 
 use crate::{ExtensionHost, ExtensionSource, HostConfig};
@@ -74,6 +74,11 @@ fn serve(app: Router) -> SocketAddr {
 /// A first-party extension whose `api_base` now points at `address`, with network access
 /// limited to that address.
 fn patched_extension(name: &str, api_base: &str, address: SocketAddr) -> ExtensionSource {
+    patched_extension_bases(name, &[api_base], address)
+}
+
+/// [`patched_extension`] for an extension that talks to more than one API.
+fn patched_extension_bases(name: &str, api_bases: &[&str], address: SocketAddr) -> ExtensionSource {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../extensions")
         .join(name);
@@ -81,12 +86,14 @@ fn patched_extension(name: &str, api_base: &str, address: SocketAddr) -> Extensi
         serde_json::from_str(&std::fs::read_to_string(dir.join("raygun-extension.json")).unwrap())
             .unwrap();
     manifest["permissions"]["net"] = json!(["127.0.0.1"]);
-    let code = std::fs::read_to_string(dir.join("dist/index.js")).unwrap();
-    assert!(
-        code.contains(api_base),
-        "{name} bundle doesn't use {api_base}"
-    );
-    let code = code.replace(api_base, &format!("http://{address}"));
+    let mut code = std::fs::read_to_string(dir.join("dist/index.js")).unwrap();
+    for api_base in api_bases {
+        assert!(
+            code.contains(api_base),
+            "{name} bundle doesn't use {api_base}"
+        );
+        code = code.replace(api_base, &format!("http://{address}"));
+    }
     ExtensionSource::built_in(&[
         ("raygun-extension.json", &manifest.to_string()),
         ("dist/index.js", &code),
@@ -202,6 +209,89 @@ async fn lrclib_finds_exact_and_searched_lyrics() {
     );
 }
 
+/// The web client version the fixture's music.youtube.com page names; others are refused.
+const YOUTUBE_CLIENT: &str = "1.20990101.00.00";
+
+/// A YouTube Music search result row, as InnerTube sends it.
+fn youtube_music_row(video_id: &str, title: &str, details: serde_json::Value) -> serde_json::Value {
+    json!({ "musicResponsiveListItemRenderer": {
+        "playlistItemData": { "videoId": video_id },
+        "thumbnail": { "musicThumbnailRenderer": { "thumbnail": { "thumbnails": [
+            { "url": format!("https://lh3.googleusercontent.com/{video_id}=w60-h60-l90-rj"), "width": 60 },
+            { "url": format!("https://lh3.googleusercontent.com/{video_id}=w120-h120-l90-rj"), "width": 120 },
+        ] } } },
+        "flexColumns": [
+            { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": title }] } } },
+            { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": details } } },
+        ],
+    } })
+}
+
+fn music_page(text: &str, page_type: &str) -> serde_json::Value {
+    json!({ "text": text, "navigationEndpoint": { "browseEndpoint": {
+        "browseEndpointContextSupportedConfigs": {
+            "browseEndpointContextMusicConfig": { "pageType": page_type },
+        },
+    } } })
+}
+
+fn youtube_music_search(headers: &axum::http::HeaderMap, body: &str) -> Response {
+    let body: serde_json::Value = serde_json::from_str(body).unwrap();
+    let client = &body["context"]["client"];
+    if client["clientVersion"] != YOUTUBE_CLIENT
+        || headers["x-youtube-client-version"] != YOUTUBE_CLIENT
+    {
+        return json_response(StatusCode::BAD_REQUEST, json!({ "error": { "code": 400 } }));
+    }
+    assert_eq!(client["clientName"], "WEB_REMIX");
+    assert_eq!(client["gl"], "DE", "the region setting");
+    assert_eq!(headers["x-youtube-client-name"], "67");
+    let separator = || json!({ "text": " \u{2022} " });
+    let rows = if body["params"] == "EgWKAQIIAWoKEAkQBRAKEAMQBA==" {
+        vec![youtube_music_row(
+            "abc123def45",
+            "Song (feat. Guest)",
+            json!([
+                music_page("Band", "MUSIC_PAGE_TYPE_ARTIST"),
+                { "text": " & " },
+                music_page("Guest", "MUSIC_PAGE_TYPE_ARTIST"),
+                separator(),
+                music_page("The Album", "MUSIC_PAGE_TYPE_ALBUM"),
+                separator(),
+                { "text": "3:21" },
+            ]),
+        )]
+    } else {
+        vec![
+            youtube_music_row(
+                "abc123def45",
+                "Song (Official Audio)",
+                json!([music_page("Band", "MUSIC_PAGE_TYPE_ARTIST"), separator(), { "text": "3:21" }]),
+            ),
+            youtube_music_row(
+                "zzz999yyy88",
+                "Song live",
+                json!([
+                    music_page("Some Uploader - Topic", "MUSIC_PAGE_TYPE_USER_CHANNEL"),
+                    separator(),
+                    { "text": "58M views" },
+                    separator(),
+                    { "text": "1:02:03" },
+                ]),
+            ),
+        ]
+    };
+    json_response(
+        StatusCode::OK,
+        json!({ "contents": { "tabbedSearchResultsRenderer": { "tabs": [{ "tabRenderer": {
+            "content": { "sectionListRenderer": { "contents": [
+                { "itemSectionRenderer": {} },
+                { "musicShelfRenderer": { "contents": rows } },
+            ] } },
+        } }] } } }),
+    )
+}
+
 fn youtube_app() -> Router {
     let key_error = |params: &HashMap<String, String>| -> Option<Response> {
         match params.get("key").map(String::as_str) {
@@ -217,6 +307,18 @@ fn youtube_app() -> Router {
         }
     };
     Router::new()
+        .route(
+            "/",
+            get(|| async {
+                format!(r#"<script>ytcfg.set({{"INNERTUBE_CLIENT_VERSION":"{YOUTUBE_CLIENT}"}})</script>"#)
+            }),
+        )
+        .route(
+            "/youtubei/v1/search",
+            post(|headers: axum::http::HeaderMap, body: String| async move {
+                youtube_music_search(&headers, &body)
+            }),
+        )
         .route(
             "/youtube/v3/search",
             get(move |uri: Uri| async move {
@@ -259,7 +361,7 @@ fn youtube_app() -> Router {
 }
 
 #[tokio::test]
-async fn youtube_searches_and_offers_embed_streams_with_the_users_key() {
+async fn youtube_searches_youtube_music_without_a_key_or_the_api_with_one() {
     let address = serve(youtube_app());
     let load = |key: &str| {
         let key = key.to_owned();
@@ -268,12 +370,16 @@ async fn youtube_searches_and_offers_embed_streams_with_the_users_key() {
             let mut settings = crate::UserSettings::new();
             settings.insert(
                 "dev.raygun.youtube".into(),
-                [("apiKey".to_owned(), json!(key))].into(),
+                [
+                    ("apiKey".to_owned(), json!(key)),
+                    ("region".to_owned(), json!("de")),
+                ]
+                .into(),
             );
             host.load_with_settings(
-                vec![patched_extension(
+                vec![patched_extension_bases(
                     "youtube",
-                    "https://www.googleapis.com",
+                    &["https://music.youtube.com", "https://www.googleapis.com"],
                     address,
                 )],
                 settings,
@@ -283,17 +389,40 @@ async fn youtube_searches_and_offers_embed_streams_with_the_users_key() {
         }
     };
 
-    // Without a key, providers say what to do.
+    // No key: YouTube Music's own search, after reading the client version its page names.
     let host = load("").await;
     let results = host.search_music("song", 10).await;
-    assert!(
-        results[0]
-            .error
-            .as_ref()
-            .unwrap()
-            .contains("Add your YouTube Data API key")
+    assert_eq!(results[0].error, None);
+    let tracks = &results[0].tracks;
+    assert_eq!(
+        tracks.len(),
+        2,
+        "songs, then videos that aren't already there"
     );
+    assert_eq!(tracks[0].title, "Song (feat. Guest)");
+    assert_eq!(tracks[0].artist.as_deref(), Some("Band, Guest"));
+    assert_eq!(tracks[0].album.as_deref(), Some("The Album"));
+    assert_eq!(tracks[0].duration_ms, Some(201_000));
+    assert_eq!(
+        tracks[0].artwork_url.as_deref(),
+        Some("https://lh3.googleusercontent.com/abc123def45=w544-h544-l90-rj")
+    );
+    assert_eq!(
+        tracks[0].source,
+        Some(raygun_model::MediaSource::YouTube {
+            video_id: "abc123def45".into()
+        })
+    );
+    assert_eq!(tracks[1].artist.as_deref(), Some("Some Uploader"));
+    assert_eq!(tracks[1].duration_ms, Some(3_723_000));
+    let candidates = host
+        .stream_candidates(&query("Song", Some(201_000)), 5)
+        .await;
+    let candidates = candidates[0].result.as_ref().unwrap();
+    assert_eq!(candidates[0].id, "abc123def45");
+    assert_eq!(candidates[0].quality.as_deref(), Some("YouTube"));
 
+    // With a key: the official API.
     let host = load("test-key").await;
     let results = host.search_music("song", 10).await;
     assert_eq!(results[0].error, None);
@@ -302,21 +431,8 @@ async fn youtube_searches_and_offers_embed_streams_with_the_users_key() {
     assert_eq!(tracks[0].title, "Band & Friends - Song (Official Audio)");
     assert_eq!(tracks[0].artist.as_deref(), Some("Band"));
     assert_eq!(tracks[0].duration_ms, Some(201_000));
-    assert_eq!(
-        tracks[0].source,
-        Some(raygun_model::MediaSource::YouTube {
-            video_id: "abc123def45".into()
-        })
-    );
     assert_eq!(tracks[1].title, "Song 'Live'");
     assert_eq!(tracks[1].duration_ms, Some(3_723_000));
-
-    let candidates = host
-        .stream_candidates(&query("Song", Some(201_000)), 5)
-        .await;
-    let candidates = candidates[0].result.as_ref().unwrap();
-    assert_eq!(candidates[0].id, "abc123def45");
-    assert_eq!(candidates[0].quality.as_deref(), Some("YouTube"));
 
     // API errors become readable messages.
     let host = load("bad-key").await;

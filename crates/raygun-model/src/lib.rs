@@ -109,6 +109,186 @@ pub struct Settings {
     pub websites: WebsitePrefs,
     /// How tabs, library tabs and the Home, Browse and More screens are arranged (M46.5).
     pub layout: LayoutPrefs,
+    /// The accent when `accent` is `Custom`: `#rrggbb` (M46.7).
+    pub accent_color: String,
+    /// Smallest cover width in px when covers per row is automatic; 0 picks it by screen (M46.7).
+    pub cover_width: u32,
+    /// How manga pages fit the reader (M46.7).
+    pub manga_reader: MangaReaderPrefs,
+    /// How the full music player is laid out (M46.7).
+    pub player_view: PlayerViewPrefs,
+    /// How scrollbars look everywhere (M46.7).
+    pub scrollbars: ScrollbarStyle,
+    /// How much buttons, panels and sheets move (M46.7).
+    pub motion: MotionLevel,
+}
+
+/// Animations (M46.7): buttons that answer hover and press, panels and popovers that slide and
+/// fade in. The system's reduced-motion setting still turns the movement off.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum MotionLevel {
+    Off,
+    Calm,
+    #[default]
+    Lively,
+}
+
+/// Scrollbars (M46.7): thin over a clear track by default, the system's width, or none at all
+/// (scrolling still works).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ScrollbarStyle {
+    #[default]
+    Thin,
+    Wide,
+    Hidden,
+}
+
+/// How the full player arranges itself (M46.7).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum PlayerLayout {
+    /// Side by side on wide windows, one above the other on phones.
+    #[default]
+    Auto,
+    /// The artwork, lyrics or queue above the controls.
+    Stacked,
+    /// The artwork and controls beside the lyrics or queue.
+    SideBySide,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TextAlign {
+    #[default]
+    Left,
+    Center,
+}
+
+/// The full music player's layout (M46.7). One stored row; missing fields keep their defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PlayerViewPrefs {
+    pub layout: PlayerLayout,
+    /// The player's width in percent of the window's (40-100, steps of 5); 0 picks it by screen.
+    pub width: u32,
+    /// Lyrics text size in px (14-48, even); 0 picks it by screen.
+    pub lyrics_size: u32,
+    pub lyrics_align: TextAlign,
+    /// The artwork, blurred, behind the player.
+    pub background: bool,
+}
+
+impl Default for PlayerViewPrefs {
+    fn default() -> Self {
+        Self {
+            layout: PlayerLayout::Auto,
+            width: 0,
+            lyrics_size: 0,
+            lyrics_align: TextAlign::Left,
+            background: true,
+        }
+    }
+}
+
+impl PlayerViewPrefs {
+    pub fn validate(&self) -> Result<(), String> {
+        if !(self.width == 0 || ((40..=100).contains(&self.width) && self.width.is_multiple_of(5)))
+        {
+            return Err(format!("{}% isn't an offered player width", self.width));
+        }
+        if !(self.lyrics_size == 0
+            || ((14..=48).contains(&self.lyrics_size) && self.lyrics_size.is_multiple_of(2)))
+        {
+            return Err(format!(
+                "{} px isn't an offered lyrics size",
+                self.lyrics_size
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Cover widths offered, in px (0: by screen).
+pub const COVER_WIDTHS: [u32; 10] = [0, 90, 100, 110, 120, 140, 160, 180, 200, 240];
+
+/// How a page fits the screen in the paged reader modes (M46.7).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum PagedScale {
+    /// All of the page on screen.
+    #[default]
+    FitScreen,
+    /// The screen's width; tall pages scroll.
+    FitWidth,
+    /// The screen's height; wide pages scroll.
+    FitHeight,
+    /// The image's own size.
+    Original,
+}
+
+/// The manga reader's display (M46.7). One stored row; missing fields keep their defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct MangaReaderPrefs {
+    pub paged_scale: PagedScale,
+    /// The webtoon column in percent of the window's width; 0 is the screen's width on phones and
+    /// at most 768 px on wide windows.
+    pub webtoon_width: u32,
+    /// The page bar's width in percent of the window's; 0 is the full width on phones and 70 %
+    /// on wide windows.
+    pub bar_width: u32,
+    /// The page bar's buttons beside the page slider.
+    pub bar_chapters: bool,
+    pub bar_zoom: bool,
+    pub bar_mode: bool,
+    pub bar_fullscreen: bool,
+    /// Pages loaded ahead of the one being read, 1–10.
+    pub preload_pages: u32,
+}
+
+impl Default for MangaReaderPrefs {
+    fn default() -> Self {
+        Self {
+            paged_scale: PagedScale::FitScreen,
+            webtoon_width: 0,
+            bar_width: 0,
+            bar_chapters: true,
+            bar_zoom: true,
+            bar_mode: true,
+            bar_fullscreen: true,
+            preload_pages: 3,
+        }
+    }
+}
+
+impl MangaReaderPrefs {
+    pub fn validate(&self) -> Result<(), String> {
+        let percent = |value: u32, low: u32| {
+            value == 0 || ((low..=100).contains(&value) && value.is_multiple_of(5))
+        };
+        if !percent(self.webtoon_width, 30) {
+            return Err(format!(
+                "{}% isn't an offered webtoon width",
+                self.webtoon_width
+            ));
+        }
+        if !percent(self.bar_width, 40) {
+            return Err(format!("{}% isn't an offered bar width", self.bar_width));
+        }
+        if !(1..=10).contains(&self.preload_pages) {
+            return Err("Load between 1 and 10 pages ahead".into());
+        }
+        Ok(())
+    }
+}
+
+/// Whether `color` is a `#rrggbb` colour.
+fn is_hex_color(color: &str) -> bool {
+    color.len() == 7
+        && color.starts_with('#')
+        && color[1..].chars().all(|char| char.is_ascii_hexdigit())
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -122,6 +302,8 @@ pub enum Accent {
     Blue,
     Purple,
     Pink,
+    /// `Settings::accent_color` (M46.7).
+    Custom,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -558,6 +740,12 @@ impl Default for Settings {
             cache: CachePrefs::default(),
             websites: WebsitePrefs::default(),
             layout: LayoutPrefs::default(),
+            accent_color: "#e5484d".into(),
+            cover_width: 0,
+            manga_reader: MangaReaderPrefs::default(),
+            player_view: PlayerViewPrefs::default(),
+            scrollbars: ScrollbarStyle::Thin,
+            motion: MotionLevel::Lively,
         }
     }
 }
@@ -591,6 +779,12 @@ impl Settings {
             SettingChange::Cache(prefs) => self.cache = prefs,
             SettingChange::Websites(prefs) => self.websites = prefs,
             SettingChange::Layout(prefs) => self.layout = prefs.normalized(),
+            SettingChange::AccentColor(color) => self.accent_color = color.to_ascii_lowercase(),
+            SettingChange::CoverWidth(width) => self.cover_width = width,
+            SettingChange::MangaReader(prefs) => self.manga_reader = prefs,
+            SettingChange::PlayerView(prefs) => self.player_view = prefs,
+            SettingChange::Scrollbars(style) => self.scrollbars = style,
+            SettingChange::Motion(level) => self.motion = level,
         }
     }
 }
@@ -627,6 +821,12 @@ pub enum SettingChange {
     Cache(CachePrefs),
     Websites(WebsitePrefs),
     Layout(LayoutPrefs),
+    AccentColor(String),
+    CoverWidth(u32),
+    MangaReader(MangaReaderPrefs),
+    PlayerView(PlayerViewPrefs),
+    Scrollbars(ScrollbarStyle),
+    Motion(MotionLevel),
 }
 
 impl SettingChange {
@@ -659,6 +859,12 @@ impl SettingChange {
             Self::Cache(_) => "cache",
             Self::Websites(_) => "websites",
             Self::Layout(_) => "layout",
+            Self::AccentColor(_) => "accentColor",
+            Self::CoverWidth(_) => "coverWidth",
+            Self::MangaReader(_) => "mangaReader",
+            Self::PlayerView(_) => "playerView",
+            Self::Scrollbars(_) => "scrollbars",
+            Self::Motion(_) => "motion",
         }
     }
 
@@ -676,7 +882,9 @@ impl SettingChange {
             | Self::DownloadBadges(_)
             | Self::ResumeVideos(_)
             | Self::AutoSubtitles(_)
-            | Self::AutoplayNext(_) => Ok(()),
+            | Self::AutoplayNext(_)
+            | Self::Scrollbars(_)
+            | Self::Motion(_) => Ok(()),
             Self::NextPromptSeconds(seconds) => {
                 if NEXT_PROMPT_SECONDS.contains(seconds) {
                     Ok(())
@@ -709,6 +917,22 @@ impl SettingChange {
             Self::Cache(prefs) => prefs.validate(),
             Self::Websites(prefs) => prefs.validate(),
             Self::Layout(prefs) => prefs.validate(),
+            Self::MangaReader(prefs) => prefs.validate(),
+            Self::PlayerView(prefs) => prefs.validate(),
+            Self::AccentColor(color) => {
+                if is_hex_color(color) {
+                    Ok(())
+                } else {
+                    Err(format!("{color} isn't a colour like #e5484d"))
+                }
+            }
+            Self::CoverWidth(width) => {
+                if COVER_WIDTHS.contains(width) {
+                    Ok(())
+                } else {
+                    Err(format!("{width} px isn't an offered cover size"))
+                }
+            }
             Self::Save(prefs) => {
                 if prefs.location == SaveLocation::Folder && prefs.folder_uri.is_none() {
                     Err("Pick a folder first".into())

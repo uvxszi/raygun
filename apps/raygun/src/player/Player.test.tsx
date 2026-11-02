@@ -42,6 +42,9 @@ describe('Player', () => {
     expect(sheet).toHaveTextContent('Intro');
     expect(sheet).toHaveTextContent('1:05');
     expect(sheet).toHaveTextContent('3:00');
+    // Up next is a view of its own, so the controls never move when the queue changes.
+    expect(screen.queryByTestId('up-next')).not.toBeInTheDocument();
+    await AppShellWrapper.playerSheet.press('Up next');
     const upNext = await AppShellWrapper.playerSheet.upNext;
     expect(upNext).toHaveTextContent('Second');
     expect(upNext).toHaveTextContent('Third');
@@ -51,6 +54,7 @@ describe('Player', () => {
     await AppShellWrapper.mount();
     AppShellWrapper.playing(QUEUE, 0);
     await AppShellWrapper.miniPlayer.open();
+    await AppShellWrapper.playerSheet.press('Up next');
     const { emitEvent, IDLE_STATE } = await import('../test/bindingsMock');
 
     emitEvent('playbackStateEvent', {
@@ -87,6 +91,7 @@ describe('Player', () => {
     await AppShellWrapper.mount();
     AppShellWrapper.playing(QUEUE, 0);
     await AppShellWrapper.miniPlayer.open();
+    await AppShellWrapper.playerSheet.press('Up next');
 
     await AppShellWrapper.playerSheet.press('Third');
 

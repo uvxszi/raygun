@@ -99,6 +99,36 @@ describe('Player bar', () => {
     expect(await screen.findByTestId('lyrics-view')).toBeInTheDocument();
   });
 
+  it('shows what plays beside the page: artwork, lyrics and what comes next', async () => {
+    setWide(true);
+    const user = userEvent.setup();
+    commands.lyricsGet.mockResolvedValue({
+      status: 'ok',
+      data: {
+        providerName: 'LRCLIB',
+        plain: 'First line' + String.fromCharCode(10) + 'Second line',
+        synced: [],
+      },
+    });
+    await AppShellWrapper.mount();
+    AppShellWrapper.playing(QUEUE, 0);
+    await AppShellWrapper.miniPlayer.title;
+    const bar = AppShellWrapper.miniPlayer.element;
+
+    await user.click(within(bar).getByRole('button', { name: 'Now playing view' }));
+    const panel = screen.getByRole('complementary', { name: 'Now playing' });
+    expect(within(panel).getByTestId('side-panel-title')).toHaveTextContent('Intro');
+    expect(await within(panel).findByText(/First line/)).toBeInTheDocument();
+    const nextUp = within(panel).getByRole('region', { name: 'Next in queue' });
+    expect(nextUp).toHaveTextContent('Second');
+
+    // Its tabs switch to the queue; the bar's button closes it again.
+    await user.click(within(panel).getByRole('button', { name: 'Open the queue' }));
+    expect(screen.getByRole('complementary', { name: 'Queue' })).toBeInTheDocument();
+    await user.click(within(bar).getByRole('button', { name: 'Queue' }));
+    expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
+  });
+
   it('shows the queue beside the bar, to play, remove and clear', async () => {
     setWide(true);
     const user = userEvent.setup();
@@ -122,7 +152,7 @@ describe('Player bar', () => {
     await user.click(within(queue).getByRole('button', { name: 'Clear' }));
     expect(commands.playbackControl).toHaveBeenCalledWith({ type: 'remove', itemId: 'id-Third' });
 
-    await user.click(within(queue).getByRole('button', { name: 'Close the queue' }));
+    await user.click(within(queue).getByRole('button', { name: 'Close the side panel' }));
     expect(screen.queryByRole('complementary', { name: 'Queue' })).not.toBeInTheDocument();
   });
 });

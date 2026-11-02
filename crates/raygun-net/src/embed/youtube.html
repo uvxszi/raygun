@@ -6,7 +6,10 @@
 
   Protocol (window.postMessage with the parent app):
     app  -> page: { raygunCommand: true, type: "load" | "play" | "pause" | "seek" | "volume" | "stop", ... }
-    page -> app:  { raygunEmbed: true, type: "ready" | "state" | "progress" | "error", ... }
+    page -> app:  { raygunEmbed: true, type: "ready" | "state" | "progress" | "error", token, ... }
+
+  `token` is the load the reply is about (sent with "load"), so the app can drop what the player
+  says about the previous video after a new one was asked for (M46.7).
 -->
 <html lang="en">
   <head>
@@ -40,14 +43,25 @@
       var player = null;
       var ready = false;
       var pending = [];
+      // The load the player is on, its video, and whether that video has started or is cued:
+      // until then the player's time can still be the previous video's.
+      var token = null;
+      var videoId = null;
+      var settled = false;
 
       function post(message) {
         message.raygunEmbed = true;
+        message.token = token;
         window.parent.postMessage(message, '*');
       }
 
+      function onCurrentVideo() {
+        var data = typeof player.getVideoData === 'function' ? player.getVideoData() : null;
+        return !data || !data.video_id || data.video_id === videoId;
+      }
+
       function reportProgress() {
-        if (!ready || !player.getCurrentTime) return;
+        if (!ready || !player.getCurrentTime || !settled || !onCurrentVideo()) return;
         var duration = player.getDuration();
         post({
           type: 'progress',
@@ -59,6 +73,9 @@
       function handle(command) {
         switch (command.type) {
           case 'load': {
+            token = command.token == null ? null : command.token;
+            videoId = command.videoId;
+            settled = false;
             var options = { videoId: command.videoId, startSeconds: (command.startMs || 0) / 1000 };
             player.setVolume(Math.round((command.volume == null ? 1 : command.volume) * 100));
             if (command.autoplay) player.loadVideoById(options);
@@ -79,6 +96,8 @@
             player.setVolume(Math.round((command.volume == null ? 1 : command.volume) * 100));
             break;
           case 'stop':
+            token = null;
+            settled = false;
             player.stopVideo();
             break;
         }
@@ -111,7 +130,10 @@
               pending.splice(0).forEach(handle);
             },
             onStateChange: function (event) {
-              post({ type: 'state', state: STATES[String(event.data)] || 'unstarted' });
+              var state = STATES[String(event.data)] || 'unstarted';
+              if (!onCurrentVideo()) return;
+              if (state === 'playing' || state === 'paused' || state === 'cued') settled = true;
+              post({ type: 'state', state: state });
               reportProgress();
             },
             onError: function (event) {

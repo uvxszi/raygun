@@ -1,14 +1,17 @@
 import type { CatalogEntry, RepoCatalog } from '@raygun/bindings';
-import { Search } from 'lucide-react';
+import { Info, LoaderCircle, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { nativeName } from '../i18n/languages';
 import { LetterAvatar } from '../shell/LetterAvatar';
+import { Sheet } from '../shell/Sheet';
 import { NO_FILTER, catalogFacets, filterCatalog } from './catalogFilters';
 import type { CatalogFilter, ExtensionKind } from './catalogFilters';
-import { InstallSheet } from './InstallSheet';
+import { EntryInfo } from './EntryInfo';
+import { entryKey, useInstallQueue } from './installQueue';
+import type { InstallStatus } from './installQueue';
 import { useCatalog } from './useExtensions';
 
 const SELECT = 'bg-surface min-w-0 flex-1 rounded-lg px-3 py-2 text-sm outline-none';
@@ -95,27 +98,43 @@ const Filters: FC<{
   );
 };
 
-const EntryAction: FC<{ entry: CatalogEntry; onInstall: () => void }> = ({ entry, onInstall }) => {
+const installable = (entry: CatalogEntry) =>
+  entry.state === 'available' || entry.state === 'updateAvailable';
+
+/** Install or Update, at once (M46.7): what it may access is behind the info button beside it. */
+const EntryAction: FC<{
+  entry: CatalogEntry;
+  status: InstallStatus | undefined;
+  onInstall: () => void;
+}> = ({ entry, status, onInstall }) => {
   const { t } = useTranslation();
+  if (status?.state === 'queued' || status?.state === 'installing') {
+    return (
+      <span
+        role="status"
+        className="text-muted flex items-center gap-1.5 px-2 text-sm whitespace-nowrap"
+      >
+        <LoaderCircle
+          aria-hidden
+          size={16}
+          className={status.state === 'installing' ? 'animate-spin' : ''}
+        />
+        {t(status.state === 'installing' ? 'extensions.installing' : 'extensions.queued')}
+      </span>
+    );
+  }
   switch (entry.state) {
     case 'available':
-      return (
-        <button
-          type="button"
-          onClick={onInstall}
-          className="bg-primary text-background rounded-full px-4 py-1.5 text-sm font-semibold"
-        >
-          {t('extensions.install')}
-        </button>
-      );
     case 'updateAvailable':
       return (
         <button
           type="button"
           onClick={onInstall}
-          className="bg-primary text-background rounded-full px-4 py-1.5 text-sm font-semibold"
+          className="bg-primary text-background rounded-full px-4 py-1.5 text-sm font-semibold whitespace-nowrap"
         >
-          {t('extensions.update')}
+          {status?.state === 'failed'
+            ? t('extensions.retry')
+            : t(entry.state === 'available' ? 'extensions.install' : 'extensions.update')}
         </button>
       );
     case 'installed':
@@ -128,13 +147,36 @@ const EntryAction: FC<{ entry: CatalogEntry; onInstall: () => void }> = ({ entry
 export const BrowseTab: FC = () => {
   const { t } = useTranslation();
   const catalog = useCatalog();
-  const [installing, setInstalling] = useState<CatalogEntry | null>(null);
+  const queue = useInstallQueue();
+  const [info, setInfo] = useState<{ entry: CatalogEntry; anchor: HTMLElement } | null>(null);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [filter, setFilter] = useState<CatalogFilter>(NO_FILTER);
   const error = catalog.error;
   const listings = useMemo(
     () => (catalog.data ? filterCatalog(catalog.data, filter) : undefined),
     [catalog.data, filter],
   );
+  const shown = useMemo(() => listings?.flatMap((listing) => listing.entries) ?? [], [listings]);
+  // Entries that can still be installed, among those shown; a selection keeps only these.
+  const choosable = shown.filter(
+    (entry) => installable(entry) && queue.status[entryKey(entry)]?.state !== 'installing',
+  );
+  const chosen = choosable.filter((entry) => selected.has(entryKey(entry)));
+  const updates = shown.filter((entry) => entry.state === 'updateAvailable');
+  const repoNames = new Map(catalog.data?.map((listing) => [listing.repo.id, listing.repo.name]));
+
+  const toggle = (entry: CatalogEntry) =>
+    setSelected((current) => {
+      const next = new Set(current);
+      const key = entryKey(entry);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const installChosen = () => {
+    queue.install(chosen);
+    setSelected(new Set());
+  };
 
   return (
     <div data-testid="browse-tab" className="flex flex-col gap-4">
@@ -148,6 +190,50 @@ export const BrowseTab: FC = () => {
       )}
       {catalog.data && catalog.data.length > 0 && (
         <Filters catalog={catalog.data} filter={filter} onChange={setFilter} />
+      )}
+      {chosen.length > 0 ? (
+        <div
+          role="toolbar"
+          aria-label={t('extensions.selection')}
+          className="bg-surface motion-pop sticky top-0 z-10 flex flex-wrap items-center gap-2 rounded-2xl px-3 py-2 shadow-lg shadow-black/20"
+        >
+          <span className="flex-1 text-sm font-medium">
+            {t('extensions.selected', { count: chosen.length })}
+          </span>
+          {chosen.length < choosable.length && (
+            <button
+              type="button"
+              onClick={() => setSelected(new Set(choosable.map(entryKey)))}
+              className="text-muted hover:text-foreground rounded-full px-3 py-1.5 text-sm"
+            >
+              {t('extensions.selectAll', { count: choosable.length })}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setSelected(new Set())}
+            className="text-muted hover:text-foreground rounded-full px-3 py-1.5 text-sm"
+          >
+            {t('extensions.clearSelection')}
+          </button>
+          <button
+            type="button"
+            onClick={installChosen}
+            className="bg-primary text-background rounded-full px-4 py-1.5 text-sm font-semibold"
+          >
+            {t('extensions.installSelected', { count: chosen.length })}
+          </button>
+        </div>
+      ) : (
+        updates.length > 1 && (
+          <button
+            type="button"
+            onClick={() => queue.install(updates)}
+            className="bg-surface self-start rounded-full px-4 py-1.5 text-sm font-semibold"
+          >
+            {t('extensions.updateAll', { count: updates.length })}
+          </button>
+        )
       )}
       {listings?.length === 0 && catalog.data && catalog.data.length > 0 && (
         <p className="text-muted text-sm">{t('extensions.noMatches')}</p>
@@ -164,43 +250,88 @@ export const BrowseTab: FC = () => {
             <p className="text-muted text-sm">{t('extensions.repoEmpty')}</p>
           )}
           <ul className="flex flex-col">
-            {listing.entries.map((entry) => (
-              <li
-                key={entry.id}
-                data-testid="catalog-entry"
-                className="flex items-center gap-4 px-1 py-2.5"
-              >
-                <LetterAvatar name={entry.name} logo={entry.icon} />
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="flex flex-wrap items-baseline gap-x-2">
-                    <span className="font-medium">{entry.name}</span>
-                    {entry.nuclear && (
-                      <span className="bg-background text-muted rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase">
-                        {t('extensions.nuclearBadge')}
-                      </span>
-                    )}
-                    <span className="text-muted text-xs">
-                      {entry.state === 'updateAvailable' && entry.installedVersion
-                        ? `${entry.installedVersion} → ${entry.version}`
-                        : entry.version}
-                    </span>
-                    {entry.lang && (
+            {listing.entries.map((entry) => {
+              const key = entryKey(entry);
+              const status = queue.status[key];
+              const canChoose = installable(entry) && status?.state !== 'installing';
+              return (
+                <li
+                  key={entry.id}
+                  data-testid="catalog-entry"
+                  className="flex items-center gap-3 px-1 py-2.5"
+                >
+                  {canChoose ? (
+                    <input
+                      type="checkbox"
+                      aria-label={t('extensions.select', { name: entry.name })}
+                      checked={selected.has(key)}
+                      onChange={() => toggle(entry)}
+                      className="accent-primary size-4 shrink-0 cursor-pointer"
+                    />
+                  ) : (
+                    <span aria-hidden className="size-4 shrink-0" />
+                  )}
+                  <LetterAvatar name={entry.name} logo={entry.icon} />
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="flex flex-wrap items-baseline gap-x-2">
+                      <span className="font-medium">{entry.name}</span>
+                      {entry.nuclear && (
+                        <span className="bg-background text-muted rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase">
+                          {t('extensions.nuclearBadge')}
+                        </span>
+                      )}
                       <span className="text-muted text-xs">
-                        {languageName(entry.lang, t('extensions.multiLanguage'))}
+                        {entry.state === 'updateAvailable' && entry.installedVersion
+                          ? `${entry.installedVersion} → ${entry.version}`
+                          : entry.version}
+                      </span>
+                      {entry.lang && (
+                        <span className="text-muted text-xs">
+                          {languageName(entry.lang, t('extensions.multiLanguage'))}
+                        </span>
+                      )}
+                    </span>
+                    {entry.description && (
+                      <span className="text-muted line-clamp-2 text-xs">{entry.description}</span>
+                    )}
+                    {status?.state === 'failed' && (
+                      <span role="alert" className="text-primary text-xs wrap-anywhere">
+                        {status.message}
                       </span>
                     )}
                   </span>
-                  {entry.description && (
-                    <span className="text-muted line-clamp-2 text-xs">{entry.description}</span>
-                  )}
-                </span>
-                <EntryAction entry={entry} onInstall={() => setInstalling(entry)} />
-              </li>
-            ))}
+                  <button
+                    type="button"
+                    aria-label={t('extensions.about', { name: entry.name })}
+                    aria-haspopup="dialog"
+                    aria-expanded={info?.entry === entry}
+                    onClick={(event) =>
+                      setInfo(info?.entry === entry ? null : { entry, anchor: event.currentTarget })
+                    }
+                    className="text-muted hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full"
+                  >
+                    <Info aria-hidden size={18} />
+                  </button>
+                  <EntryAction
+                    entry={entry}
+                    status={status}
+                    onInstall={() => queue.install([entry])}
+                  />
+                </li>
+              );
+            })}
           </ul>
         </section>
       ))}
-      {installing && <InstallSheet entry={installing} onClose={() => setInstalling(null)} />}
+      {info && (
+        <Sheet
+          title={t('extensions.aboutTitle')}
+          anchor={info.anchor}
+          onClose={() => setInfo(null)}
+        >
+          <EntryInfo entry={info.entry} repoName={repoNames.get(info.entry.repoId) ?? ''} />
+        </Sheet>
+      )}
     </div>
   );
 };

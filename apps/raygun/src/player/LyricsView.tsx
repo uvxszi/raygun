@@ -1,15 +1,13 @@
 import { commands } from '@raygun/bindings';
-import type { PlaybackState, QueueItem, TrackQuery } from '@raygun/bindings';
+import type { PlaybackState, QueueItem, TextAlign, TrackQuery } from '@raygun/bindings';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
+import { useLivePosition } from './useLivePosition';
 import { sendControl } from './usePlayback';
-
-/** How often the highlighted line is re-checked between engine progress reports. */
-const TICK_MS = 250;
 
 /** The metadata lyrics are looked up by: a lookup's own query, else the item's fields. */
 const trackQuery = (item: QueueItem): TrackQuery =>
@@ -33,38 +31,43 @@ const useLyrics = (item: QueueItem) => {
   });
 };
 
-/**
- * The playback position, advanced locally while playing: engines report progress about once a
- * second, which is too coarse for line-by-line lyrics.
- */
-const useLivePosition = (state: PlaybackState | undefined) => {
-  const playing = state?.status === 'playing';
-  const reported = state?.positionMs ?? 0;
-  // How far playback has moved since `base` was reported; only the timer writes it.
-  const [live, setLive] = useState({ base: reported, elapsedMs: 0 });
-
-  useEffect(() => {
-    if (!playing) return;
-    const started = performance.now();
-    const timer = setInterval(
-      () => setLive({ base: reported, elapsedMs: performance.now() - started }),
-      TICK_MS,
-    );
-    return () => clearInterval(timer);
-  }, [playing, reported]);
-
-  return playing && live.base === reported ? reported + live.elapsedMs : reported;
+type LyricsViewProps = {
+  item: QueueItem;
+  state: PlaybackState | undefined;
+  /** `panel`: the smaller card in the desktop side panel (M46.7). */
+  variant?: 'sheet' | 'panel';
+  /** Text size in px; 0 picks it by screen (Settings → Player, M46.7). */
+  size?: number;
+  align?: TextAlign;
 };
 
-type LyricsViewProps = { item: QueueItem; state: PlaybackState | undefined };
+const CONTAINER = {
+  // The whole column scrolls, so its scrollbar sits at the column's edge, away from the words.
+  sheet: 'w-full flex-1 pr-4',
+  panel: 'h-[26rem] w-full px-4',
+} as const;
+
+/** Line sizes by screen when no size is chosen. */
+const LINE_SIZE = {
+  sheet: 'text-xl md:text-2xl lg:text-3xl',
+  panel: 'text-lg',
+} as const;
 
 /** Lyrics for the playing item: synced lines follow playback, tapping one seeks there. */
-export const LyricsView: FC<LyricsViewProps> = ({ item, state }) => {
+export const LyricsView: FC<LyricsViewProps> = ({
+  item,
+  state,
+  variant = 'sheet',
+  size = 0,
+  align = 'left',
+}) => {
   const { t } = useTranslation();
   const lyrics = useLyrics(item);
   const positionMs = useLivePosition(state);
+  const containerRef = useRef<HTMLDivElement>(null);
   const currentRef = useRef<HTMLButtonElement>(null);
 
+  const alignClass = align === 'center' ? 'text-center' : 'text-left';
   const synced = lyrics.data?.synced ?? [];
   let current = -1;
   for (const [index, line] of synced.entries()) {
@@ -73,8 +76,15 @@ export const LyricsView: FC<LyricsViewProps> = ({ item, state }) => {
   }
 
   useEffect(() => {
-    // jsdom has no scrollIntoView.
-    currentRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+    // Scrolls only the lyrics, not what they sit in (the side panel scrolls too); jsdom has no
+    // scrollTo on elements.
+    const container = containerRef.current;
+    const line = currentRef.current;
+    if (!container || !line) return;
+    container.scrollTo?.({
+      top: line.offsetTop - container.clientHeight / 2 + line.clientHeight / 2,
+      behavior: 'smooth',
+    });
   }, [current]);
 
   const message = (text: string, role?: 'alert') => (
@@ -88,8 +98,9 @@ export const LyricsView: FC<LyricsViewProps> = ({ item, state }) => {
 
   return (
     <div
+      ref={containerRef}
       data-testid="lyrics-view"
-      className="flex min-h-0 w-full max-w-md flex-1 flex-col overflow-y-auto py-4"
+      className={`relative flex min-h-0 flex-col overflow-y-auto py-4 ${CONTAINER[variant]}`}
     >
       {lyrics.isPending && message(t('player.lyricsLoading'))}
       {lyrics.error &&
@@ -104,7 +115,8 @@ export const LyricsView: FC<LyricsViewProps> = ({ item, state }) => {
                 ref={index === current ? currentRef : undefined}
                 aria-current={index === current ? 'true' : undefined}
                 onClick={() => void sendControl({ type: 'seek', positionMs: line.timeMs })}
-                className={`w-full text-left text-xl leading-snug font-semibold transition-colors ${
+                style={size > 0 ? { fontSize: size } : undefined}
+                className={`w-full leading-snug font-semibold transition-colors ${alignClass} ${size > 0 ? '' : LINE_SIZE[variant]} ${
                   index === current ? 'text-foreground' : 'text-muted/60'
                 }`}
               >
@@ -115,7 +127,12 @@ export const LyricsView: FC<LyricsViewProps> = ({ item, state }) => {
         </ol>
       ) : (
         lyrics.data?.plain && (
-          <p className="text-lg leading-relaxed whitespace-pre-line">{lyrics.data.plain}</p>
+          <p
+            style={size > 0 ? { fontSize: Math.round(size * 0.75) } : undefined}
+            className={`leading-relaxed whitespace-pre-line ${alignClass} ${variant === 'panel' ? 'text-base' : 'text-lg md:text-xl'}`}
+          >
+            {lyrics.data.plain}
+          </p>
         )
       )}
       {lyrics.data && (

@@ -3,6 +3,7 @@ import {
   ListMusic,
   Maximize2,
   MicVocal,
+  PanelRight,
   MonitorPlay,
   Pause,
   Play,
@@ -22,10 +23,13 @@ import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
+import { Marquee } from '../shell/Marquee';
 import { useWideScreen } from '../shell/useWideScreen';
 import { FavoriteButton } from './FavoriteButton';
 import { formatTime } from './formatTime';
 import { usePlayerUiStore } from './playerUiStore';
+import { onSeekKey } from './seekKeys';
+import { useLivePosition } from './useLivePosition';
 import { isActive, sendControl, sourceNote, useNowPlaying } from './usePlayback';
 
 const SWIPE_UP_DISTANCE = 40;
@@ -125,9 +129,9 @@ const PhoneBar: FC<BarProps> = ({ state, item }) => {
 const WideBar: FC<BarProps> = ({ state, item }) => {
   const { t } = useTranslation();
   const openSheet = usePlayerUiStore((store) => store.openSheet);
-  const lyricsShown = usePlayerUiStore((store) => store.sheetOpen && store.lyrics);
-  const queueOpen = usePlayerUiStore((store) => store.queueOpen);
-  const toggleQueue = usePlayerUiStore((store) => store.toggleQueue);
+  const lyricsShown = usePlayerUiStore((store) => store.sheetOpen && store.sheetView === 'lyrics');
+  const panel = usePlayerUiStore((store) => store.panel);
+  const togglePanel = usePlayerUiStore((store) => store.togglePanel);
   const note = sourceNote(state, item);
   const repeat = state?.repeat ?? 'off';
   const isVideo = item.source.kind === 'youTube';
@@ -198,16 +202,27 @@ const WideBar: FC<BarProps> = ({ state, item }) => {
           <BarButton
             label={t('player.lyrics')}
             pressed={lyricsShown}
-            onClick={() => openSheet({ lyrics: true })}
+            onClick={() => openSheet({ view: 'lyrics' })}
           >
             <MicVocal aria-hidden size={18} />
           </BarButton>
         )}
-        <BarButton label={t('player.queue')} pressed={queueOpen} onClick={toggleQueue}>
+        <BarButton
+          label={t('player.panel.nowPlayingView')}
+          pressed={panel === 'nowPlaying'}
+          onClick={() => togglePanel('nowPlaying')}
+        >
+          <PanelRight aria-hidden size={18} />
+        </BarButton>
+        <BarButton
+          label={t('player.queue')}
+          pressed={panel === 'queue'}
+          onClick={() => togglePanel('queue')}
+        >
           <ListMusic aria-hidden size={18} />
         </BarButton>
         <VolumeControl state={state} />
-        <BarButton label={t('player.openPlayer')} onClick={() => openSheet({ lyrics: false })}>
+        <BarButton label={t('player.openPlayer')} onClick={() => openSheet({ view: 'artwork' })}>
           <Maximize2 aria-hidden size={18} />
         </BarButton>
       </div>
@@ -219,9 +234,7 @@ const TrackText: FC<BarProps & { note: boolean }> = ({ item, note }) => {
   const { t } = useTranslation();
   return (
     <span className="flex min-w-0 flex-col">
-      <span data-testid="mini-player-title" className="truncate text-sm font-medium">
-        {item.title}
-      </span>
+      <Marquee testId="mini-player-title" text={item.title} className="text-sm font-medium" />
       {note ? (
         <span data-testid="source-note" className="text-muted truncate text-xs">
           {t('player.findingSource')}
@@ -263,8 +276,9 @@ const PlayButton: FC<{ state: PlaybackState | undefined; round?: boolean }> = ({
 const SeekBar: FC<{ state: PlaybackState | undefined }> = ({ state }) => {
   const { t } = useTranslation();
   const [scrubMs, setScrubMs] = useState<number | null>(null);
+  const livePositionMs = useLivePosition(state);
   const durationMs = state?.durationMs ?? 0;
-  const positionMs = scrubMs ?? state?.positionMs ?? 0;
+  const positionMs = scrubMs ?? livePositionMs;
   const commit = () => {
     if (scrubMs !== null) {
       void sendControl({ type: 'seek', positionMs: scrubMs });
@@ -281,10 +295,11 @@ const SeekBar: FC<{ state: PlaybackState | undefined }> = ({ state }) => {
         aria-label={t('player.seek')}
         min={0}
         max={Math.max(durationMs, 1)}
-        step={1000}
+        step={250}
         value={Math.min(positionMs, Math.max(durationMs, 1))}
         disabled={durationMs <= 0}
         onChange={(event) => setScrubMs(Number(event.target.value))}
+        onKeyDown={onSeekKey(positionMs, durationMs, setScrubMs)}
         onPointerUp={commit}
         onKeyUp={commit}
         onBlur={commit}

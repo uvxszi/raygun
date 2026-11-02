@@ -32,7 +32,7 @@ export const VideoResults: FC<{ query: string; limit?: number }> = ({ query, lim
   return (
     <div data-testid="video-results" className="flex flex-col gap-5">
       {search.data.slice(0, limit).map((row) => (
-        <StremioRow key={`${row.addonId}-${row.kind}-${row.catalogId}`} row={row} browse={false} />
+        <StremioRow key={`${row.addonId}-${row.kind}-${row.catalogId}`} row={row} browse={blank} />
       ))}
     </div>
   );

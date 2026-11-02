@@ -369,4 +369,111 @@ mod tests {
         .unwrap();
         assert_eq!(saved.start_screen, raygun_model::StartScreen::Watch);
     }
+
+    #[tokio::test]
+    async fn custom_accents_cover_sizes_and_reader_zoom_keep_to_what_is_offered() {
+        use raygun_model::{
+            Accent, MangaReaderPrefs, PagedScale, PlayerLayout, PlayerViewPrefs, TextAlign,
+        };
+        let temp = TempDir::new().unwrap();
+        let db = open(&temp).await;
+
+        let saved = update(&db, SettingChange::AccentColor("#1E90FF".into()))
+            .await
+            .unwrap();
+        assert_eq!(saved.accent_color, "#1e90ff");
+        let saved = update(&db, SettingChange::Accent(Accent::Custom))
+            .await
+            .unwrap();
+        assert_eq!(saved.accent, Accent::Custom);
+        for bad in ["blue", "#12345", "#12345g", "1e90ff0"] {
+            assert!(
+                update(&db, SettingChange::AccentColor(bad.into()))
+                    .await
+                    .is_err(),
+                "{bad}"
+            );
+        }
+
+        assert_eq!(
+            update(&db, SettingChange::CoverWidth(120))
+                .await
+                .unwrap()
+                .cover_width,
+            120
+        );
+        assert!(update(&db, SettingChange::CoverWidth(125)).await.is_err());
+
+        let zoom = MangaReaderPrefs {
+            paged_scale: PagedScale::FitWidth,
+            webtoon_width: 60,
+            bar_width: 50,
+            bar_zoom: false,
+            preload_pages: 6,
+            ..MangaReaderPrefs::default()
+        };
+        assert_eq!(
+            update(&db, SettingChange::MangaReader(zoom))
+                .await
+                .unwrap()
+                .manga_reader,
+            zoom
+        );
+        for width in [20, 62, 105] {
+            let bad = MangaReaderPrefs {
+                webtoon_width: width,
+                ..zoom
+            };
+            assert!(
+                update(&db, SettingChange::MangaReader(bad)).await.is_err(),
+                "{width}"
+            );
+        }
+        for bad in [
+            MangaReaderPrefs {
+                bar_width: 35,
+                ..zoom
+            },
+            MangaReaderPrefs {
+                preload_pages: 0,
+                ..zoom
+            },
+            MangaReaderPrefs {
+                preload_pages: 11,
+                ..zoom
+            },
+        ] {
+            assert!(update(&db, SettingChange::MangaReader(bad)).await.is_err());
+        }
+
+        // The full player's layout.
+        let view = PlayerViewPrefs {
+            layout: PlayerLayout::SideBySide,
+            width: 85,
+            lyrics_size: 32,
+            lyrics_align: TextAlign::Center,
+            background: false,
+        };
+        assert_eq!(
+            update(&db, SettingChange::PlayerView(view))
+                .await
+                .unwrap()
+                .player_view,
+            view
+        );
+        for bad in [
+            PlayerViewPrefs { width: 30, ..view },
+            PlayerViewPrefs { width: 87, ..view },
+            PlayerViewPrefs {
+                lyrics_size: 13,
+                ..view
+            },
+            PlayerViewPrefs {
+                lyrics_size: 50,
+                ..view
+            },
+        ] {
+            assert!(update(&db, SettingChange::PlayerView(bad)).await.is_err());
+        }
+    }
 }

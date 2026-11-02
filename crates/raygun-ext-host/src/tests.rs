@@ -850,6 +850,41 @@ async fn lrclib_live_returns_synced_lyrics() {
     assert!(!lyrics.synced.is_empty());
 }
 
+/// YouTube Music's real search, without a key: `cargo test -p raygun-ext-host -- --ignored youtube_live`.
+#[tokio::test]
+#[ignore = "needs network access to music.youtube.com"]
+async fn youtube_live_searches_without_a_key() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(discover_installed(&dir)).await;
+    let results = host.search_music("daft punk get lucky", 10).await;
+    let youtube = results
+        .iter()
+        .find(|result| result.provider.extension_id == "dev.raygun.youtube")
+        .expect("the YouTube extension searched");
+    assert_eq!(youtube.error, None);
+    for track in youtube.tracks.iter().take(5) {
+        println!(
+            "{} · {:?} · {:?} · {:?}",
+            track.title, track.artist, track.album, track.duration_ms
+        );
+    }
+    let first = &youtube.tracks[0];
+    assert!(first.title.contains("Get Lucky"));
+    assert!(
+        first
+            .artist
+            .as_deref()
+            .unwrap_or_default()
+            .contains("Daft Punk")
+    );
+    assert!(first.duration_ms.is_some());
+    assert!(matches!(
+        first.source,
+        Some(raygun_model::MediaSource::YouTube { .. })
+    ));
+}
+
 /// `cargo test -p raygun-ext-host -- --ignored gutenberg`.
 #[tokio::test]
 #[ignore = "needs network access to gutenberg.org"]

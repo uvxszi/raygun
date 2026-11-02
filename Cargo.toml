@@ -57,11 +57,14 @@ debug = false
 [profile.dev.package.rquickjs-sys]
 opt-level = 3
 
+# Panics unwind, never abort (M46.7): on Windows, Lua's errors (Shosetsu scripts, mlua) travel as
+# SEH unwinds through Rust frames, and with `panic = "abort"` any script error ended the whole app.
+# Unwinding also lets a panic stop one worker thread instead of the process.
 [profile.release]
 codegen-units = 1
 lto = true
 opt-level = 3
-panic = "abort"
+panic = "unwind"
 strip = true
 
 # rquickjs-sys ships no Android bindings; see third_party/README.md.

@@ -2,12 +2,13 @@ import type { LibraryDisplayMode, MangaLibraryEntry } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import { Check, FolderOpen, Pin, Play } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import type { CSSProperties, FC, MouseEvent, ReactNode } from 'react';
+import type { FC, MouseEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useSettings } from '../settings/useSettings';
 import { videoTitleLink } from '../watch/useVideoLibrary';
 import type { LibraryDisplay } from './libraryDisplay';
+import { COVER_GRID_CLASS, coverGridStyle } from './coverGrid';
 import { MangaCover } from './MangaCover';
 import { ROUTES } from './medium';
 import type { Medium } from './medium';
@@ -25,11 +26,6 @@ const useLandscape = () => {
 };
 
 /** Covers per row; 0 fits as many as have room (Mihon's adaptive columns). */
-const gridStyle = (columns: number): CSSProperties => ({
-  gridTemplateColumns:
-    columns > 0 ? `repeat(${columns}, minmax(0, 1fr))` : 'repeat(auto-fill, minmax(6.5rem, 1fr))',
-});
-
 type ItemProps = {
   entry: MangaLibraryEntry;
   medium: Medium;
@@ -271,8 +267,8 @@ export const LibraryItems: FC<{
     <ul
       data-testid="library-grid"
       data-mode={mode}
-      className="grid gap-2"
-      style={gridStyle(columns)}
+      className={COVER_GRID_CLASS}
+      style={coverGridStyle(columns, settings?.coverWidth ?? 0)}
     >
       {entries.map(item)}
     </ul>

@@ -3,6 +3,7 @@ import { RouterProvider, createMemoryHistory } from '@tanstack/react-router';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
+import { resetInstallQueue } from '../extensions/installQueue';
 import { usePlayerUiStore } from '../player/playerUiStore';
 import { createAppRouter } from '../router';
 import { EMPTY_QUEUE, IDLE_STATE, emitEvent, seedBindings } from '../test/bindingsMock';
@@ -26,12 +27,13 @@ export const AppShellWrapper = {
     seedBindings();
     usePlayerUiStore.setState({
       sheetOpen: false,
-      lyrics: false,
-      queueOpen: false,
+      sheetView: 'artwork',
+      panel: null,
       unmutedVolume: 1,
     });
     useVideoPlayerStore.getState().close();
     useTrailerStore.getState().close();
+    resetInstallQueue();
   },
 
   async mount(path = '/') {

@@ -5,6 +5,8 @@ import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useCloseOnBack } from '../player/useCloseOnBack';
+import { Popover } from '../shell/Popover';
+import { useWideScreen } from '../shell/useWideScreen';
 import { useTrackActionsStore } from './trackActionsStore';
 import {
   useAddToPlaylist,
@@ -91,27 +93,33 @@ const PlaylistPicker: FC<{ track: TrackInput; onDone: () => void }> = ({ track, 
   );
 };
 
-/** Favorite, playlist actions for one track. Mounted once; rows open it through the store. */
+/**
+ * Favorite, playlist actions for one track. Mounted once; rows open it through the store. On wide
+ * windows it pops up beside the button pressed (M46.7); on phones it's a bottom sheet.
+ */
 export const TrackActionsSheet: FC = () => {
-  const { t } = useTranslation();
   const track = useTrackActionsStore((state) => state.track);
-  const playlistItemId = useTrackActionsStore((state) => state.playlistItemId);
+  const anchor = useTrackActionsStore((state) => state.anchor);
   const close = useTrackActionsStore((state) => state.close);
   const stableClose = useCallback(() => close(), [close]);
+  const wide = useWideScreen();
   useCloseOnBack(track !== null, stableClose);
-
-  const favorite = useIsFavorite(track);
-  const setFavorite = useSetFavorite();
-  const remove = useRemovePlaylistItem();
 
   if (!track) {
     return null;
   }
-  const isFavorite = favorite.data === true;
-
+  if (anchor && wide && anchor.isConnected) {
+    return (
+      <Popover anchor={anchor} label={track.title} onClose={stableClose} width={300}>
+        <div className="flex flex-col gap-2 p-1">
+          <TrackActions track={track} />
+        </div>
+      </Popover>
+    );
+  }
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-end justify-center bg-black/60 sm:items-center"
+      className="motion-fade fixed inset-0 z-[60] flex items-end justify-center bg-black/60 sm:items-center"
       onClick={(event) => {
         if (event.target === event.currentTarget) close();
       }}
@@ -120,48 +128,67 @@ export const TrackActionsSheet: FC = () => {
         role="dialog"
         aria-modal="true"
         aria-labelledby="track-actions-title"
-        className="bg-surface flex w-full max-w-md flex-col gap-3 rounded-t-2xl px-4 pt-5 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:rounded-2xl"
+        className="bg-surface motion-rise flex w-full max-w-md flex-col gap-3 rounded-t-2xl px-4 pt-5 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:rounded-2xl"
       >
-        <div className="flex flex-col px-2">
-          <h2 id="track-actions-title" className="truncate font-semibold">
-            {track.title}
-          </h2>
-          <p className="text-muted truncate text-sm">
-            {[track.artist, track.album].filter(Boolean).join(' · ')}
-          </p>
-        </div>
+        <TrackActions track={track} sheet />
+      </div>
+    </div>
+  );
+};
+
+/** The actions themselves; `sheet` adds the bottom sheet's Cancel. */
+const TrackActions: FC<{ track: TrackInput; sheet?: boolean }> = ({ track, sheet = false }) => {
+  const { t } = useTranslation();
+  const playlistItemId = useTrackActionsStore((state) => state.playlistItemId);
+  const close = useTrackActionsStore((state) => state.close);
+  const favorite = useIsFavorite(track);
+  const setFavorite = useSetFavorite();
+  const remove = useRemovePlaylistItem();
+  const isFavorite = favorite.data === true;
+
+  return (
+    <>
+      <div className="flex flex-col px-2">
+        <h2 id="track-actions-title" className="truncate font-semibold">
+          {track.title}
+        </h2>
+        <p className="text-muted truncate text-sm">
+          {[track.artist, track.album].filter(Boolean).join(' · ')}
+        </p>
+      </div>
+      <button
+        type="button"
+        disabled={favorite.isPending || setFavorite.isPending}
+        onClick={() =>
+          setFavorite.mutate({ track, favorite: !isFavorite }, { onSuccess: () => close() })
+        }
+        className={ROW_CLASS}
+      >
+        {setFavorite.isPending ? (
+          <LoaderCircle aria-hidden size={18} className="animate-spin" />
+        ) : (
+          <Heart
+            aria-hidden
+            size={18}
+            className="text-primary"
+            fill={isFavorite ? 'currentColor' : 'none'}
+          />
+        )}
+        {t(isFavorite ? 'collections.unfavorite' : 'collections.favorite')}
+      </button>
+      {playlistItemId && (
         <button
           type="button"
-          disabled={favorite.isPending || setFavorite.isPending}
-          onClick={() =>
-            setFavorite.mutate({ track, favorite: !isFavorite }, { onSuccess: () => close() })
-          }
+          disabled={remove.isPending}
+          onClick={() => remove.mutate(playlistItemId, { onSuccess: () => close() })}
           className={ROW_CLASS}
         >
-          {setFavorite.isPending ? (
-            <LoaderCircle aria-hidden size={18} className="animate-spin" />
-          ) : (
-            <Heart
-              aria-hidden
-              size={18}
-              className="text-primary"
-              fill={isFavorite ? 'currentColor' : 'none'}
-            />
-          )}
-          {t(isFavorite ? 'collections.unfavorite' : 'collections.favorite')}
+          <ListMinus aria-hidden size={18} className="text-muted" />
+          {t('collections.removeFromPlaylist')}
         </button>
-        {playlistItemId && (
-          <button
-            type="button"
-            disabled={remove.isPending}
-            onClick={() => remove.mutate(playlistItemId, { onSuccess: () => close() })}
-            className={ROW_CLASS}
-          >
-            <ListMinus aria-hidden size={18} className="text-muted" />
-            {t('collections.removeFromPlaylist')}
-          </button>
-        )}
-        <PlaylistPicker track={track} onDone={close} />
+      )}
+      <PlaylistPicker track={track} onDone={close} />
+      {sheet && (
         <button
           type="button"
           onClick={close}
@@ -169,7 +196,7 @@ export const TrackActionsSheet: FC = () => {
         >
           {t('collections.cancel')}
         </button>
-      </div>
-    </div>
+      )}
+    </>
   );
 };

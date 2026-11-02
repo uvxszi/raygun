@@ -14,7 +14,10 @@ export const SideRail: FC = () => {
       data-testid="side-rail"
       className="bg-surface hidden w-56 shrink-0 flex-col gap-1 p-3 lg:flex"
     >
-      <span className="text-primary px-3 pt-2 pb-4 text-2xl font-black tracking-tight">Raygun</span>
+      <span className="text-primary flex items-center gap-2 px-2 pt-2 pb-4 text-2xl font-black tracking-tight">
+        <img src="/icon.svg" alt="" className="size-9 shrink-0" />
+        Raygun
+      </span>
       {bar.map(({ id, to, search, labelKey, icon: Icon }) => (
         <Link
           key={id}

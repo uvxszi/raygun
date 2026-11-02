@@ -450,7 +450,9 @@ export const events = {
 };
 
 /* Types */
-export type Accent = "red" | "orange" | "green" | "teal" | "blue" | "purple" | "pink";
+export type Accent = "red" | "orange" | "green" | "teal" | "blue" | "purple" | "pink" | 
+/**  `Settings::accent_color` (M46.7). */
+"custom";
 
 export type AiModel = {
 	id: string,
@@ -1148,6 +1150,28 @@ export type MangaListingPage = {
 	hasNextPage: boolean,
 };
 
+/**  The manga reader's display (M46.7). One stored row; missing fields keep their defaults. */
+export type MangaReaderPrefs = {
+	pagedScale?: PagedScale,
+	/**
+	 *  The webtoon column in percent of the window's width; 0 is the screen's width on phones and
+	 *  at most 768 px on wide windows.
+	 */
+	webtoonWidth?: number,
+	/**
+	 *  The page bar's width in percent of the window's; 0 is the full width on phones and 70 %
+	 *  on wide windows.
+	 */
+	barWidth?: number,
+	/**  The page bar's buttons beside the page slider. */
+	barChapters?: boolean,
+	barZoom?: boolean,
+	barMode?: boolean,
+	barFullscreen?: boolean,
+	/**  Pages loaded ahead of the one being read, 1–10. */
+	preloadPages?: number,
+};
+
 export type MangaSource = {
 	/**  `<extension>/<provider>`. */
 	id: string,
@@ -1242,6 +1266,12 @@ export type MihonImport = {
 	skipped: SkippedSource[],
 };
 
+/**
+ *  Animations (M46.7): buttons that answer hover and press, panels and popovers that slide and
+ *  fade in. The system's reduced-motion setting still turns the movement off.
+ */
+export type MotionLevel = "off" | "calm" | "lively";
+
 export type NavLabels = "always" | "selected";
 
 /**  What the novel reader needs for one chapter. */
@@ -1295,6 +1325,17 @@ export type PageRef = {
 	url: string,
 };
 
+/**  How a page fits the screen in the paged reader modes (M46.7). */
+export type PagedScale = 
+/**  All of the page on screen. */
+"fitScreen" | 
+/**  The screen's width; tall pages scroll. */
+"fitWidth" | 
+/**  The screen's height; wide pages scroll. */
+"fitHeight" | 
+/**  The image's own size. */
+"original";
+
 export type PlayRequest = {
 	selection: PlaySelection,
 	/**  Track to start with; otherwise the first (or a random one when shuffling). */
@@ -1328,12 +1369,33 @@ export type PlaybackStateEvent = PlaybackState;
 
 export type PlaybackStatus = "idle" | "loading" | "buffering" | "playing" | "paused" | "ended" | "error";
 
+/**  How the full player arranges itself (M46.7). */
+export type PlayerLayout = 
+/**  Side by side on wide windows, one above the other on phones. */
+"auto" | 
+/**  The artwork, lyrics or queue above the controls. */
+"stacked" | 
+/**  The artwork and controls beside the lyrics or queue. */
+"sideBySide";
+
 /**  How the video player turns (M45, Aniyomi's choices). */
 export type PlayerOrientation = 
 /**  Follows the device. */
 "free" | 
 /**  Landscape for wide videos, portrait for tall ones. */
 "video" | "portrait" | "reversePortrait" | "sensorPortrait" | "landscape" | "reverseLandscape" | "sensorLandscape";
+
+/**  The full music player's layout (M46.7). One stored row; missing fields keep their defaults. */
+export type PlayerViewPrefs = {
+	layout?: PlayerLayout,
+	/**  The player's width in percent of the window's (40-100, steps of 5); 0 picks it by screen. */
+	width?: number,
+	/**  Lyrics text size in px (14-48, even); 0 picks it by screen. */
+	lyricsSize?: number,
+	lyricsAlign?: TextAlign,
+	/**  The artwork, blurred, behind the player. */
+	background?: boolean,
+};
 
 export type PlaylistDetail = {
 	playlist: PlaylistSummary,
@@ -1548,6 +1610,12 @@ export type SavedTrack = {
 
 export type ScanPhase = "discovering" | "reading" | "done" | "failed";
 
+/**
+ *  Scrollbars (M46.7): thin over a clear track by default, the system's width, or none at all
+ *  (scrolling still works).
+ */
+export type ScrollbarStyle = "thin" | "wide" | "hidden";
+
 /**  Everything a search found (M18). */
 export type SearchResults = {
 	/**  Local library tracks matching every word of the query. */
@@ -1563,7 +1631,7 @@ export type SearchResults = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -1623,6 +1691,18 @@ export type Settings = {
 	websites: WebsitePrefs,
 	/**  How tabs, library tabs and the Home, Browse and More screens are arranged (M46.5). */
 	layout: LayoutPrefs,
+	/**  The accent when `accent` is `Custom`: `#rrggbb` (M46.7). */
+	accentColor: string,
+	/**  Smallest cover width in px when covers per row is automatic; 0 picks it by screen (M46.7). */
+	coverWidth: number,
+	/**  How manga pages fit the reader (M46.7). */
+	mangaReader: MangaReaderPrefs,
+	/**  How the full music player is laid out (M46.7). */
+	playerView: PlayerViewPrefs,
+	/**  How scrollbars look everywhere (M46.7). */
+	scrollbars: ScrollbarStyle,
+	/**  How much buttons, panels and sheets move (M46.7). */
+	motion: MotionLevel,
 };
 
 /**  A setting changed outside the Settings screens (in the video player, M45); carries its key. */
@@ -1936,6 +2016,8 @@ export type SyncStatus = {
 export type TapAction = "seek" | "playPause" | 
 /**  The previous episode on the left, the next on the right. */
 "switchEpisode" | "off";
+
+export type TextAlign = "left" | "center";
 
 /**  One block of a novel chapter: text structure only, never source HTML. */
 export type TextBlock = { kind: "paragraph"; text: string } | { kind: "heading"; text: string } | { kind: "separator" } | 

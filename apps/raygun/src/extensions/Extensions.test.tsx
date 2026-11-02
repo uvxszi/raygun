@@ -165,7 +165,7 @@ describe('Extensions', () => {
     expect(screen.queryByRole('button', { name: 'Uninstall' })).not.toBeInTheDocument();
   });
 
-  it('installs from a repository after showing the network access it asks for', async () => {
+  it('installs from a repository at once, with what it may access behind the info button', async () => {
     commands.extensionCatalog.mockResolvedValue(
       ok(
         catalog([
@@ -179,16 +179,45 @@ describe('Extensions', () => {
 
     const entries = await screen.findAllByTestId('catalog-entry');
     expect(entries[1]).toHaveTextContent('Installed');
-    await userEvent.click(within(entries[0]!).getByRole('button', { name: 'Install' }));
-
-    const dialog = screen.getByRole('dialog', { name: 'Install Radio Browser?' });
-    expect(within(dialog).getByTestId('install-permissions')).toHaveTextContent(
+    await userEvent.click(within(entries[0]!).getByRole('button', { name: 'About Radio Browser' }));
+    const info = screen.getByRole('dialog', { name: 'About this extension' });
+    expect(within(info).getByTestId('install-permissions')).toHaveTextContent(
       '*.api.radio-browser.info',
     );
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Install' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
 
+    await userEvent.click(within(entries[0]!).getByRole('button', { name: 'Install' }));
     expect(commands.extensionInstall).toHaveBeenCalledWith('repo-1', 'dev.raygun.radio-browser');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('installs a selection, one after another', async () => {
+    commands.extensionCatalog.mockResolvedValue(
+      ok(
+        catalog([
+          entry(),
+          entry({ id: 'dev.raygun.ia', name: 'Internet Archive' }),
+          entry({ id: 'dev.raygun.mb', name: 'MusicBrainz' }),
+        ]),
+      ),
+    );
+    commands.extensionInstall.mockResolvedValue(ok([extension()]));
+    await AppShellWrapper.mount('/extensions?tab=browse');
+    await screen.findAllByTestId('catalog-entry');
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Radio Browser' }));
+    const bar = screen.getByRole('toolbar', { name: 'Selected extensions' });
+    expect(bar).toHaveTextContent('1 selected');
+    await userEvent.click(within(bar).getByRole('button', { name: 'Select all 3' }));
+    await userEvent.click(within(bar).getByRole('button', { name: 'Install 3' }));
+
+    await vi.waitFor(() => expect(commands.extensionInstall).toHaveBeenCalledTimes(3));
+    expect(commands.extensionInstall.mock.calls.map(([, id]) => id)).toEqual([
+      'dev.raygun.radio-browser',
+      'dev.raygun.ia',
+      'dev.raygun.mb',
+    ]);
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
   });
 
   it('says a Shosetsu script may reach any public website', async () => {
@@ -207,8 +236,8 @@ describe('Extensions', () => {
     await AppShellWrapper.mount('/extensions?tab=browse');
 
     const [novelFull] = await screen.findAllByTestId('catalog-entry');
-    await userEvent.click(within(novelFull!).getByRole('button', { name: 'Install' }));
-    const dialog = screen.getByRole('dialog', { name: 'Install NovelFull?' });
+    await userEvent.click(within(novelFull!).getByRole('button', { name: 'About NovelFull' }));
+    const dialog = screen.getByRole('dialog', { name: 'About this extension' });
     expect(within(dialog).getByTestId('install-permissions')).toHaveTextContent(
       'Any public website (never this device or your local network)',
     );
@@ -229,10 +258,9 @@ describe('Extensions', () => {
     const row = await screen.findByTestId('catalog-entry');
     expect(row).toHaveTextContent('1.0.0 → 1.1.0');
     await userEvent.click(within(row).getByRole('button', { name: 'Update' }));
-    const dialog = screen.getByRole('dialog', { name: 'Update Radio Browser?' });
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Update' }));
 
-    expect(await within(dialog).findByRole('alert')).toHaveTextContent('checksum');
+    expect(await within(row).findByRole('alert')).toHaveTextContent('checksum');
+    expect(within(row).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 
   it('marks Nuclear plugins and says their network access is detected at install', async () => {
@@ -247,7 +275,7 @@ describe('Extensions', () => {
 
     const row = await screen.findByTestId('catalog-entry');
     expect(row).toHaveTextContent('Nuclear');
-    await userEvent.click(within(row).getByRole('button', { name: 'Install' }));
+    await userEvent.click(within(row).getByRole('button', { name: 'About LRCLIB' }));
     expect(screen.getByRole('dialog')).toHaveTextContent('converts it when installing');
   });
 

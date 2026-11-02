@@ -18,12 +18,15 @@ import { useExtensions } from '../extensions/useExtensions';
 import { LibraryFolders } from '../library/LibraryFolders';
 import {
   DISPLAY_MODES,
+  COVER_WIDTHS,
   GRID_COLUMNS,
   TAB_MODES,
   withLibraryDisplay,
 } from '../manga/libraryDisplay';
 import type { LibraryDisplay } from '../manga/libraryDisplay';
 import { useLibraryStatus } from '../library/useLibrary';
+import { ReaderDisplaySettings } from '../manga/ReaderDisplaySettings';
+import { PlayerViewSettings } from '../player/PlayerViewSettings';
 import { AppearanceCard } from '../settings/AppearanceCard';
 import { BackupCard } from '../settings/BackupCard';
 import { DownloadSettings } from '../settings/DownloadSettings';
@@ -107,6 +110,18 @@ const LibrarySettings: FC = () => {
             label: value === 0 ? t('settings.gridColumnsAuto') : String(value),
           }))}
           onChange={(columnsLandscape) => setLibraryDisplay({ columnsLandscape })}
+        />
+        <PrefChoice<number>
+          title={t('settings.coverWidth')}
+          summary={t('settings.coverWidthHint')}
+          value={data.coverWidth ?? 0}
+          disabled={busy}
+          options={COVER_WIDTHS.map((value) => ({
+            value,
+            label:
+              value === 0 ? t('settings.coverWidthAuto') : t('settings.coverWidthPx', { n: value }),
+          }))}
+          onChange={(value) => update.mutate({ key: 'coverWidth', value })}
         />
         <PrefChoice<LibraryTabs>
           title={t('library.display.tabs')}
@@ -229,6 +244,7 @@ const ReaderSettings: FC = () => {
     update.mutate({ key: 'novelReader', value: { ...prefs, ...patch } });
   return (
     <>
+      <ReaderDisplaySettings title={t('reader.display.mangaTitle')} />
       <PrefGroup title={t('settings.novelReader')}>
         <PrefSlider
           title={t('settings.fontSize')}
@@ -319,6 +335,7 @@ const PlayerSettings: FC = () => {
           />
         ))}
       </PrefGroup>
+      <PlayerViewSettings title={t('player.view.musicTitle')} />
       <PrefGroup title={t('settings.videoPlayback')}>
         <PrefChoice<number | null>
           title={t('settings.videoQuality')}

@@ -1,4 +1,4 @@
-// dev.raygun.lrclib 1.0.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.lrclib 1.0.1. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -33,6 +33,7 @@
     return synced.length > 0 || plain ? { synced, plain } : null;
   };
   var getExact = async (query) => {
+    if (!query.artist?.trim()) return null;
     const params = encode({
       track_name: query.title,
       artist_name: query.artist,
@@ -40,13 +41,14 @@
       duration: query.durationMs ? Math.round(query.durationMs / 1e3) : null
     });
     const response = await raygun.http.fetch(`${API}/get?${params}`, { headers: HEADERS });
-    if (response.status === 404) return null;
+    if (response.status === 404 || response.status === 400) return null;
     if (!response.ok) throw new Error(`LRCLIB answered HTTP ${response.status}`);
     return response.json();
   };
   var searchClosest = async (query) => {
-    const params = encode({ track_name: query.title, artist_name: query.artist });
+    const params = query.artist?.trim() ? encode({ track_name: query.title, artist_name: query.artist }) : encode({ q: query.title });
     const response = await raygun.http.fetch(`${API}/search?${params}`, { headers: HEADERS });
+    if (response.status === 400 || response.status === 404) return null;
     if (!response.ok) throw new Error(`LRCLIB answered HTTP ${response.status}`);
     const records = await response.json();
     const wanted = query.durationMs ? query.durationMs / 1e3 : null;

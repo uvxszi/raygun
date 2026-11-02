@@ -88,15 +88,20 @@ export const PrefChoice = <T,>({
   onChange: (value: T) => void;
   disabled?: boolean;
 }) => {
-  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  const open = anchor !== null;
+  const setOpen = (shown: boolean) => {
+    if (!shown) setAnchor(null);
+  };
   const current = options.find((option) => Object.is(option.value, value));
   return (
     <li>
       <button
         type="button"
         aria-haspopup="dialog"
+        aria-expanded={open}
         disabled={disabled}
-        onClick={() => setOpen(true)}
+        onClick={(event) => setAnchor(open ? null : event.currentTarget)}
         className={`${ROW} hover:bg-surface disabled:opacity-60`}
       >
         <RowText
@@ -110,7 +115,7 @@ export const PrefChoice = <T,>({
         />
       </button>
       {open && (
-        <Sheet title={title} onClose={() => setOpen(false)}>
+        <Sheet title={title} anchor={anchor} onClose={() => setOpen(false)}>
           <div role="radiogroup" aria-label={title} className="-mx-2 flex flex-col">
             {options.map((option) => {
               const selected = Object.is(option.value, value);

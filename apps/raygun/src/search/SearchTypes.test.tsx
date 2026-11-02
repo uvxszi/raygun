@@ -58,11 +58,12 @@ describe('Search by type', () => {
     commands.mangaSources.mockResolvedValue(ok([MANGADEX, OTHER]));
   });
 
-  it('searches everything at once and leads to each type', async () => {
+  it('searches every kind and leads to each type', async () => {
     const user = userEvent.setup();
-    commands.catalogGlobalSearch.mockImplementation(async (medium: string) =>
+    commands.novelSources.mockResolvedValue(ok([OTHER]));
+    commands.catalogGlobalSearch.mockImplementation(async (medium: string, _query, sources) =>
       ok(
-        medium === 'manga'
+        medium === 'manga' && sources[0] === MANGADEX.id
           ? [{ source: MANGADEX, items: [card('m1', 'Frieren')], hasNextPage: true, error: null }]
           : [],
       ),
@@ -86,8 +87,12 @@ describe('Search by type', () => {
     expect(await within(manga).findByText('Frieren')).toBeInTheDocument();
     const podcasts = within(all).getByRole('region', { name: 'Podcasts' });
     expect(await within(podcasts).findByText('Frieren Talk')).toBeInTheDocument();
-    expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('manga', 'frieren', []);
-    expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('novel', 'frieren', []);
+    // One source at a time, and only until two have something to show.
+    expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('manga', 'frieren', [MANGADEX.id]);
+    expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('novel', 'frieren', [OTHER.id]);
+    expect(
+      commands.catalogGlobalSearch.mock.calls.every(([, , sources]) => sources.length === 1),
+    ).toBe(true);
 
     await user.click(within(manga).getByRole('button', { name: 'See all' }));
     expect(screen.getByRole('tab', { name: 'Manga' })).toHaveAttribute('aria-selected', 'true');
@@ -162,9 +167,9 @@ describe('Search by type', () => {
   });
 
   it("shows what's popular before anything is typed", async () => {
-    commands.catalogGlobalSearch.mockImplementation(async (medium: string) =>
+    commands.catalogGlobalSearch.mockImplementation(async (medium: string, _query, sources) =>
       ok(
-        medium === 'manga'
+        medium === 'manga' && sources[0] === MANGADEX.id
           ? [{ source: MANGADEX, items: [card('m1', 'One Piece')], hasNextPage: true, error: null }]
           : [],
       ),
@@ -185,7 +190,7 @@ describe('Search by type', () => {
     const all = await screen.findByTestId('all-results');
     const manga = within(all).getByRole('region', { name: 'Manga' });
     expect(await within(manga).findByText('One Piece')).toBeInTheDocument();
-    expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('manga', '', []);
+    expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('manga', '', [MANGADEX.id]);
     const podcasts = within(all).getByRole('region', { name: 'Podcasts' });
     expect(await within(podcasts).findByText('Top Show')).toBeInTheDocument();
     expect(within(all).queryByRole('region', { name: 'In your library' })).not.toBeInTheDocument();
@@ -193,8 +198,12 @@ describe('Search by type', () => {
 
   it('searches the sources chosen with chips, several at once', async () => {
     const user = userEvent.setup();
-    commands.catalogGlobalSearch.mockResolvedValue(
-      ok([{ source: MANGADEX, items: [card('m1', 'Berserk')], hasNextPage: true, error: null }]),
+    commands.catalogGlobalSearch.mockImplementation(async (_medium, _query, sources) =>
+      ok(
+        sources[0] === MANGADEX.id
+          ? [{ source: MANGADEX, items: [card('m1', 'Berserk')], hasNextPage: true, error: null }]
+          : [{ source: OTHER, items: [], hasNextPage: false, error: null }],
+      ),
     );
     commands.catalogFilters.mockResolvedValue(ok(FILTERS));
     commands.catalogSearch.mockResolvedValue(
@@ -208,13 +217,13 @@ describe('Search by type', () => {
       'true',
     );
 
-    // Two sources search together, without filters.
+    // Two sources search together (a row each), without filters.
     await user.click(within(chips).getByRole('button', { name: 'MangaDex' }));
     await user.click(within(chips).getByRole('button', { name: 'Other Source' }));
-    expect(commands.catalogGlobalSearch).toHaveBeenLastCalledWith('manga', 'dark', [
-      MANGADEX.id,
-      OTHER.id,
-    ]);
+    expect(await within(view).findByRole('region', { name: 'Other Source' })).toHaveTextContent(
+      'No results',
+    );
+    expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('manga', 'dark', [OTHER.id]);
     expect(within(chips).getByRole('button', { name: 'All sources' })).toHaveAttribute(
       'aria-pressed',
       'false',
@@ -226,11 +235,11 @@ describe('Search by type', () => {
     expect(await within(view).findByText('Claymore')).toBeInTheDocument();
     expect(commands.catalogSearch).toHaveBeenLastCalledWith('manga', MANGADEX.id, 'dark', 1, {});
 
-    // All sources again: every source's row (from the first search).
+    // All sources again: every source's row, each asked on its own.
     await user.click(within(chips).getByRole('button', { name: 'All sources' }));
     const row = await within(view).findByRole('region', { name: 'MangaDex' });
-    expect(within(row).getByText('Berserk')).toBeInTheDocument();
-    expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('manga', 'dark', []);
+    expect(await within(row).findByText('Berserk')).toBeInTheDocument();
+    expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('manga', 'dark', [MANGADEX.id]);
   });
 
   it('finds what you already have', async () => {

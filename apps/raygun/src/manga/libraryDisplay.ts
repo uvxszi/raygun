@@ -37,6 +37,9 @@ export const LISTS: LibraryList[] = ['reading', 'completed', 'onHold', 'dropped'
 /** Matches `GRID_COLUMNS` in raygun-model (0 fits covers to the screen). */
 export const GRID_COLUMNS = [0, 2, 3, 4, 5, 6, 7, 8];
 
+/** Matches `COVER_WIDTHS` in raygun-model: cover sizes in px, 0 by screen (M46.7). */
+export const COVER_WIDTHS = [0, 90, 100, 110, 120, 140, 160, 180, 200, 240];
+
 /** Words that read differently for videos ("Watching", "Plan to watch"). */
 export const listKey = (list: LibraryList, video: boolean) =>
   video && (list === 'reading' || list === 'planned')

@@ -19,7 +19,8 @@ export const TrackMoreButton: FC<TrackMoreButtonProps> = ({ track, playlistItemI
     <button
       type="button"
       aria-label={t('collections.moreActions', { title: track.title })}
-      onClick={() => open(track, { playlistItemId })}
+      aria-haspopup="dialog"
+      onClick={(event) => open(track, { playlistItemId, anchor: event.currentTarget })}
       className="text-muted grid size-10 shrink-0 place-items-center rounded-full"
     >
       <EllipsisVertical aria-hidden size={18} />

@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <clipPath id="squircleClip">
+      <rect x="48" y="48" width="928" height="928" rx="208" ry="208"/>
+    </clipPath>
+
+    <mask id="rPlayMask">
+      <rect x="0" y="0" width="1024" height="1024" fill="#FFFFFF"/>
+      <path d="M 498.00 355.63 A 14.00 14.00 0 0 1 518.72 343.35 L 643.58 411.72 A 14.00 14.00 0 0 1 643.58 436.28 L 518.72 504.65 A 14.00 14.00 0 0 1 498.00 492.37 Z" fill="#000000"/>
+    </mask>
+
+    <linearGradient id="bgObsidian" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#141724"/>
+      <stop offset="50%" stop-color="#0A0C14"/>
+      <stop offset="100%" stop-color="#05060A"/>
+    </linearGradient>
+
+    <radialGradient id="cyanGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#00F5D4" stop-opacity="0.20"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="crimsonGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FF2A54" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="squircleRim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F5D4" stop-opacity="0.35"/>
+      <stop offset="50%" stop-color="#FFFFFF" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#FF2A54" stop-opacity="0.35"/>
+    </linearGradient>
+
+    <linearGradient id="rBladeCrimson" x1="420" y1="214" x2="790" y2="788" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF6B8B"/>
+      <stop offset="45%" stop-color="#FF2A54"/>
+      <stop offset="100%" stop-color="#9F1239"/>
+    </linearGradient>
+
+    <linearGradient id="eqBarCyan" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#A7F3D0"/>
+      <stop offset="45%" stop-color="#00F5D4"/>
+      <stop offset="100%" stop-color="#0891B2"/>
+    </linearGradient>
+
+    <linearGradient id="eqBarWhite" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#CBD5E1"/>
+    </linearGradient>
+
+    <filter id="squircleShadow" filterUnits="userSpaceOnUse" x="-100" y="-100" width="1224" height="1224">
+      <feDropShadow dx="0" dy="20" stdDeviation="20" flood-color="#000000" flood-opacity="0.65"/>
+    </filter>
+
+    <filter id="markShadow" filterUnits="userSpaceOnUse" x="-100" y="-100" width="1224" height="1224">
+      <feDropShadow dx="0" dy="22" stdDeviation="18" flood-color="#000000" flood-opacity="0.58"/>
+    </filter>
+  </defs>
+
+  <!--
+    CONCEPT 2: THE CYBER 'R' + PLAY LASER BLADE MONOGRAM
+  -->
+  <g transform="translate(512 512) scale(0.72) translate(-512 -512)">
+<g id="Cyber-R-Play-Monogram" filter="url(#markShadow)">
+
+    <!-- 1. Left Pillar of the 'R': 3 Audio-Equalizer Laser Bars -->
+    <rect x="220" y="340" width="44" height="332" rx="22" fill="url(#eqBarCyan)"/>
+    <rect x="286" y="272" width="44" height="468" rx="22" fill="url(#eqBarWhite)"/>
+    <rect x="352" y="214" width="46" height="574" rx="23" fill="url(#eqBarCyan)"/>
+
+    <!-- 2. Right Swept 'R' Play-Blade -->
+    <path d="M 422.00 254.58 A 24.00 24.00 0 0 1 457.56 233.55 L 760.02 399.82 A 28.00 28.00 0 0 1 760.32 448.72 L 604.41 536.98 A 12.00 12.00 0 0 0 601.04 555.03 L 762.54 752.05 A 22.00 22.00 0 0 1 745.52 788.00 L 654.57 788.00 A 22.00 22.00 0 0 1 637.39 779.74 L 473.40 574.76 A 18.00 18.00 0 0 0 459.35 568.00 L 444.00 568.00 A 22.00 22.00 0 0 1 422.00 546.00 Z" fill="url(#rBladeCrimson)" mask="url(#rPlayMask)"/>
+
+    <!-- 3. Glowing White-Hot Play (▶) Core suspended inside the 'R' Loop -->
+    <path d="M 520.00 379.50 A 8.00 8.00 0 0 1 531.84 372.48 L 613.17 416.98 A 8.00 8.00 0 0 1 613.17 431.02 L 531.84 475.52 A 8.00 8.00 0 0 1 520.00 468.50 Z" fill="url(#eqBarWhite)"/>
+
+  </g>
+</g>
+</svg>

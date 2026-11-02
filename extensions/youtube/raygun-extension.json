@@ -1,22 +1,22 @@
 {
   "id": "dev.raygun.youtube",
   "name": "YouTube",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "apiVersion": 1,
   "runtime": "js",
   "entry": "dist/index.js",
-  "description": "Music search and playback through YouTube's official API and embedded player. Needs your own YouTube Data API key.",
+  "description": "Music search through YouTube Music, played in YouTube's own embedded player. No key needed; add your own YouTube Data API key to use the official API instead.",
   "author": "Raygun",
   "provides": ["music.metadata", "music.stream"],
   "permissions": {
-    "net": ["www.googleapis.com"]
+    "net": ["music.youtube.com", "www.googleapis.com"]
   },
   "contentRating": "safe",
   "settings": [
     {
       "key": "apiKey",
       "type": "text",
-      "label": "YouTube Data API key (from Google Cloud Console)",
+      "label": "YouTube Data API key (optional: uses the official API instead of YouTube Music search)",
       "default": ""
     },
     {

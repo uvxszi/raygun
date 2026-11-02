@@ -388,7 +388,8 @@ impl ExtensionService {
                 }
             }
         });
-        Ok(futures_util::future::join_all(listings).await)
+        // A few repositories at a time (M46.7).
+        Ok(crate::stremio::at_most(4, listings).await)
     }
 
     async fn fetch_index(&self, url: &str, refresh: bool) -> Result<RepoIndex, String> {

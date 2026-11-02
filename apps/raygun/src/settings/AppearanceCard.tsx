@@ -1,5 +1,13 @@
-import type { Accent, NavLabels, StartScreen, Theme } from '@raygun/bindings';
-import { Check } from 'lucide-react';
+import type {
+  Accent,
+  MotionLevel,
+  NavLabels,
+  ScrollbarStyle,
+  StartScreen,
+  Theme,
+} from '@raygun/bindings';
+import { Check, Palette } from 'lucide-react';
+import { useRef } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -34,7 +42,23 @@ export const AppearanceCard: FC = () => {
   const updateSetting = useUpdateSetting();
   const data = settings.data;
   const layout = useLayout();
+  const colorTimer = useRef<number | undefined>(undefined);
   if (!data) return null;
+  // The picker reports every move; the colour is saved once it rests.
+  const pickColor = (color: string) => {
+    window.clearTimeout(colorTimer.current);
+    colorTimer.current = window.setTimeout(() => {
+      updateSetting.mutate(
+        { key: 'accentColor', value: color.toLowerCase() },
+        {
+          onSuccess: () => {
+            if (data.accent !== 'custom') updateSetting.mutate({ key: 'accent', value: 'custom' });
+          },
+        },
+      );
+    }, 250);
+  };
+  const customSelected = data.accent === 'custom';
   const busy = updateSetting.isPending;
 
   return (
@@ -110,6 +134,29 @@ export const AppearanceCard: FC = () => {
                   </button>
                 );
               })}
+              <label
+                title={t('settings.accentCustom')}
+                className={`relative grid size-10 cursor-pointer place-items-center rounded-full ring-offset-2 ring-offset-[var(--color-background)] ${customSelected ? 'ring-foreground ring-2' : ''}`}
+                style={{
+                  background: customSelected
+                    ? data.accentColor
+                    : 'conic-gradient(#f55, #fb4, #5d5, #4cd, #58f, #a6f, #f5a, #f55)',
+                }}
+              >
+                {customSelected ? (
+                  <Check aria-hidden size={20} strokeWidth={3} color="#111" />
+                ) : (
+                  <Palette aria-hidden size={18} color="#111" />
+                )}
+                <input
+                  type="color"
+                  aria-label={t('settings.accentCustom')}
+                  value={data.accentColor ?? '#e5484d'}
+                  disabled={busy}
+                  onChange={(event) => pickColor(event.target.value)}
+                  className="absolute inset-0 size-full cursor-pointer opacity-0"
+                />
+              </label>
             </div>
           </div>
         </PrefBlock>
@@ -158,6 +205,28 @@ export const AppearanceCard: FC = () => {
             { value: 'selected', label: t('settings.navLabelsSelected') },
           ]}
           onChange={(value) => updateSetting.mutate({ key: 'navLabels', value })}
+        />
+        <PrefChoice<MotionLevel>
+          title={t('settings.motion')}
+          summary={t('settings.motionHint')}
+          value={data.motion ?? 'lively'}
+          disabled={busy}
+          options={(['lively', 'calm', 'off'] as const).map((value) => ({
+            value,
+            label: t(`settings.motionLevels.${value}`),
+          }))}
+          onChange={(value) => updateSetting.mutate({ key: 'motion', value })}
+        />
+        <PrefChoice<ScrollbarStyle>
+          title={t('settings.scrollbars')}
+          value={data.scrollbars ?? 'thin'}
+          disabled={busy}
+          options={(['thin', 'wide', 'hidden'] as const).map((value) => ({
+            value,
+            label: t(`settings.scrollbarStyles.${value}`),
+            hint: value === 'hidden' ? t('settings.scrollbarsHiddenHint') : undefined,
+          }))}
+          onChange={(value) => updateSetting.mutate({ key: 'scrollbars', value })}
         />
       </PrefGroup>
       {updateSetting.isError && (

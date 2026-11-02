@@ -3,6 +3,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useSettings } from '../settings/useSettings';
+import { COVER_GRID_CLASS, coverGridStyle } from './coverGrid';
 import { MangaCover } from './MangaCover';
 import { ROUTES } from './medium';
 import type { Medium } from './medium';
@@ -20,16 +21,6 @@ export type MangaGridItem = {
   link?: { to: string; search: Record<string, string> };
 };
 
-/** Covers per row (Settings → Library); 0 fits them to the screen. */
-const COLUMNS: Record<number, string> = {
-  0: 'grid-cols-3 sm:grid-cols-4 lg:grid-cols-6',
-  2: 'grid-cols-2',
-  3: 'grid-cols-3',
-  4: 'grid-cols-4',
-  5: 'grid-cols-5',
-  6: 'grid-cols-6',
-};
-
 /**
  * Covers in a grid, each opening its title page. Compact puts the title over the cover's bottom
  * edge (Mihon's default); comfortable puts it underneath.
@@ -44,7 +35,10 @@ export const MangaGrid: FC<{ items: MangaGridItem[]; medium?: Medium }> = ({
   const unreadBadges = settings?.unreadBadges ?? true;
   const downloadBadges = settings?.downloadBadges ?? true;
   return (
-    <ul className={`grid gap-2 ${COLUMNS[settings?.gridColumns ?? 0] ?? COLUMNS[0]}`}>
+    <ul
+      className={COVER_GRID_CLASS}
+      style={coverGridStyle(settings?.gridColumns ?? 0, settings?.coverWidth ?? 0)}
+    >
       {items.map((item) => (
         <li key={`${item.sourceId}:${item.id}`}>
           <Link

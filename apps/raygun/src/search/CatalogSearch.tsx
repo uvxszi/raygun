@@ -1,4 +1,4 @@
-import type { MangaCard, SourceSearchResult } from '@raygun/bindings';
+import type { MangaCard, MangaSource, SourceSearchResult } from '@raygun/bindings';
 import { ChevronRight, LoaderCircle, SlidersHorizontal } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
@@ -7,8 +7,9 @@ import { useTranslation } from 'react-i18next';
 import { MangaGrid } from '../manga/MangaGrid';
 import type { Medium } from '../manga/medium';
 import { useMangaSources } from '../manga/useManga';
+import { useInView } from '../shell/useInView';
 import { SourceFiltersPanel } from './SourceFiltersPanel';
-import { useFilteredSearch, useGlobalSearch, useSourceFilters } from './useCatalogSearch';
+import { useFilteredSearch, useSourceFilters, useSourceSearch } from './useCatalogSearch';
 import type { FilterValues } from './useCatalogSearch';
 
 const toGridItems = (items: MangaCard[]) =>
@@ -53,6 +54,51 @@ export const SourceRow: FC<{
         <MangaGrid medium={medium} items={toGridItems(result.items.slice(0, limit))} />
       )}
     </section>
+  );
+};
+
+/** Cover-shaped placeholders while a source's row loads, so the page doesn't jump. */
+const RowPlaceholder: FC<{ count?: number }> = ({ count = 6 }) => (
+  <div aria-hidden className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+    {Array.from({ length: count }, (_, index) => (
+      <span key={index} className="bg-surface aspect-[2/3] animate-pulse rounded-lg" />
+    ))}
+  </div>
+);
+
+/**
+ * A source's row that loads only when it comes near the window (M46.7), queued with the others,
+ * so a search over many sources never runs them all at once.
+ */
+export const LazySourceRow: FC<{
+  source: MangaSource;
+  medium: Medium;
+  query: string;
+  limit?: number;
+  onMore?: () => void;
+}> = ({ source, medium, query, limit, onMore }) => {
+  const { t } = useTranslation();
+  const [ref, seen] = useInView<HTMLDivElement>();
+  const search = useSourceSearch(medium, source.id, query, seen);
+  return (
+    <div ref={ref} data-testid="source-row">
+      {search.data ? (
+        <SourceRow result={search.data} medium={medium} limit={limit} onMore={onMore} />
+      ) : (
+        <section aria-label={source.name} aria-busy={!search.error} className="flex flex-col gap-2">
+          <h3 className="text-muted text-sm font-medium">{source.name}</h3>
+          {search.error ? (
+            <p role="alert" className="text-primary text-xs wrap-anywhere">
+              {t('search.providerFailed', { message: search.error.message })}
+            </p>
+          ) : search.isSuccess ? (
+            <p className="text-muted text-xs">{t('search.providerEmpty')}</p>
+          ) : (
+            <RowPlaceholder count={Math.min(limit ?? 6, 6)} />
+          )}
+        </section>
+      )}
+    </div>
   );
 };
 
@@ -162,7 +208,6 @@ export const CatalogSearch: FC<{ medium: Medium; query: string }> = ({ medium, q
     ? chosen.filter((id) => sources.data.some((source) => source.id === id))
     : chosen;
   const sourceId = picked.length === 1 ? picked[0]! : '';
-  const global = useGlobalSearch(medium, query, sourceId === '', picked);
 
   const setChosen = (ids: string[]) => {
     setChosenState(ids);
@@ -175,6 +220,8 @@ export const CatalogSearch: FC<{ medium: Medium; query: string }> = ({ medium, q
   const toggle = (id: string) =>
     setChosen(picked.includes(id) ? picked.filter((other) => other !== id) : [...picked, id]);
   const all = sources.data ?? [];
+  // Several sources: a row each, loading as they come into view (M46.7).
+  const searched = picked.length > 0 ? all.filter((source) => picked.includes(source.id)) : all;
   const shown =
     unfolded || all.length <= FOLDED_CHIPS
       ? all
@@ -219,20 +266,13 @@ export const CatalogSearch: FC<{ medium: Medium; query: string }> = ({ medium, q
           {!query.trim() && all.length > 0 && (
             <h2 className="font-semibold">{t('search.popular')}</h2>
           )}
-          {global.isFetching && !global.data && (
-            <LoaderCircle aria-label={t('search.searching')} className="text-muted animate-spin" />
-          )}
-          {global.error && (
-            <p role="alert" className="text-primary text-sm wrap-anywhere">
-              {global.error.message}
-            </p>
-          )}
-          {global.data?.map((result) => (
-            <SourceRow
-              key={result.source.id}
-              result={result}
+          {searched.map((source) => (
+            <LazySourceRow
+              key={`${source.id}:${query.trim()}`}
+              source={source}
               medium={medium}
-              onMore={() => setChosen([result.source.id])}
+              query={query}
+              onMore={() => setChosen([source.id])}
             />
           ))}
         </>

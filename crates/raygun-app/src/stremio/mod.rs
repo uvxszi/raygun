@@ -68,6 +68,25 @@ impl Loaded {
     }
 }
 
+/// Addons asked at the same time (M46.7): rows, searches, streams and subtitles go a few addons at
+/// a time instead of all at once.
+const ADDON_CONCURRENCY: usize = 6;
+
+/// Runs `tasks` with at most `limit` at once, keeping their order. (A semaphore rather than a
+/// buffered stream: the futures borrow `self`, and spawned sessions need them `Send`.)
+pub(crate) async fn at_most<T, F: Future<Output = T>>(
+    limit: usize,
+    tasks: impl IntoIterator<Item = F>,
+) -> Vec<T> {
+    let permits = tokio::sync::Semaphore::new(limit);
+    let permits = &permits;
+    join_all(tasks.into_iter().map(|task| async move {
+        let _permit = permits.acquire().await;
+        task.await
+    }))
+    .await
+}
+
 pub struct StremioService {
     app: AppHandle,
     client: reqwest::Client,
@@ -117,7 +136,7 @@ impl StremioService {
             }
         });
         let show_nsfw = self.app.state::<Arc<ExtensionService>>().show_nsfw();
-        Ok(join_all(loads)
+        Ok(at_most(ADDON_CONCURRENCY, loads)
             .await
             .into_iter()
             .filter(|loaded| show_nsfw || !loaded.manifest().is_some_and(|manifest| manifest.adult))
@@ -227,7 +246,7 @@ impl StremioService {
         let rows = catalogs
             .into_iter()
             .map(|(addon, manifest, catalog)| self.row(addon, manifest, catalog, Vec::new()));
-        Ok(join_all(rows).await)
+        Ok(at_most(ADDON_CONCURRENCY, rows).await)
     }
 
     /// One catalog's page: optionally a genre, starting `skip` items in.
@@ -283,8 +302,11 @@ impl StremioService {
                     .map(move |catalog| {
                         self.row(addon, manifest, catalog, vec![("search", query.to_owned())])
                     })
-            });
-        Ok(join_all(rows)
+            })
+            // Collected first: a lazy iterator of closures inside the future trips rustc's
+            // higher-ranked lifetime check for the command's `Send`.
+            .collect::<Vec<_>>();
+        Ok(at_most(ADDON_CONCURRENCY, rows)
             .await
             .into_iter()
             .filter(|row| !row.items.is_empty() || row.error.is_some())
@@ -492,7 +514,7 @@ impl StremioService {
                     error,
                 }
             });
-        Ok(join_all(asks).await)
+        Ok(at_most(ADDON_CONCURRENCY, asks).await)
     }
 
     /// Subtitles from every subtitle addon, the preferred language first.
@@ -522,7 +544,11 @@ impl StremioService {
                     .map(|value| protocol::parse_subtitles(&value))
                     .unwrap_or_default()
             });
-        let all = join_all(asks).await.into_iter().flatten().collect();
+        let all = at_most(ADDON_CONCURRENCY, asks)
+            .await
+            .into_iter()
+            .flatten()
+            .collect();
         protocol::order_subtitles(all, language, MAX_SUBTITLES)
     }
 

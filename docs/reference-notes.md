@@ -13,6 +13,7 @@ Read this instead of re-exploring the repos. Each section: what to take, what to
 | nuclear | AGPL-3.0 | Copying code makes Raygun AGPL-3.0 |
 | miru-app | AGPL-3.0 | Same as nuclear |
 | miru-repo (extensions) | MIT (a few AGPL/GPL-3.0) | Can be bundled or converted with attribution |
+| Nuvio (NuvioTV, NuvioMobile; not cloned) | GPL-3.0 | Read for the plugin format; copying code makes Raygun GPL-3.0 |
 
 Raygun is **AGPL-3.0-only**, so code from all of these may be adapted. Keep a header naming the source repo and license on adapted files, and list Apache-2.0 sources in `NOTICE`.
 
@@ -89,6 +90,7 @@ Frontend stack: React, Tailwind v4, Zustand, TanStack Query v5 + Router, Zod, Vi
 - Models (`app/src/main/assets/*-models/*.param|.bin`): Real-CUGAN SE/Pro/Nose (2/3/4x, denoise levels), Real-ESRGAN animevideov3 / general-x4v3, Waifu2x, W2xEX, AnimeJaNai, SPAN.
 - **Queue** (`util/waifu2x/ImageEnhancer.kt`): `PriorityBlockingQueue`; order = visible primary page → visible secondary (spread) → promoted → preload, tie-break by distance to the current page; requests carry a *generation* so stale requests are dropped on chapter change; low→high priority upgrade re-enqueues.
 - Cache keyed by page + model + scale + filter settings; skip enhancement above a resolution threshold; on failure always show the original.
+- The local clone (2026-11-02) no longer has the prebuilt ncnn Android libraries (`third_party/ncnn-*`) or the model weights (`assets/*-models/*.bin`); the `.param` files and code remain. The weights come from the Real-CUGAN/Real-ESRGAN/waifu2x releases, and Raygun downloads its own, pinned by SHA-256.
 
 ## TachiyomiAT (Mihon fork) — OCR + translation
 
@@ -176,3 +178,88 @@ Cloned 2026-11-01 into `reference/miru-app` (commit 8599d0d) and `reference/miru
   - iptv-org (public playlists);
   - api.yinyuetai.
   - The rest are unofficial streaming, scanlation or torrent sites.
+
+---
+
+## Nuvio / NuvioTV (Kotlin, GPL-3.0) — Stremio addons plus "local scraper" plugins
+
+Researched 2026-11-01 from the public repos (source only; nothing installed or run; the sites are JS-only, and the community guide `yoruix/nuvio-providers/DOCUMENTATION.md` is partly outdated).
+
+| Repo | Platform / stack | License |
+|---|---|---|
+| github.com/NuvioMedia/NuvioTV (branch `dev`) | Android TV: Kotlin, Compose + TV Material 3, Media3, libmpv, QuickJS (`com.dokar.quickjs`), Jsoup | GPL-3.0 |
+| github.com/NuvioMedia/NuvioMobile (branch `cmp-rewrite`) | Android + iOS, Kotlin/Compose Multiplatform (the old React Native app is `tapframe/NuvioMobile`) | GPL-3.0 |
+| github.com/NuvioMedia/NuvioDesktop | Compose Desktop, alpha | GPL-3.0 |
+| github.com/NuvioMedia/NuvioTVSmart | Tizen/webOS (JS) | GPL-3.0 |
+| github.com/NuvioMedia/self-host | Supabase-style sync backend | Apache-2.0 |
+
+- "Bring your own sources": nothing bundled, no default addons or repositories. A `playstore` flavour removes the plugin runtime (`FEATURE_PLUGINS_ENABLED=false`).
+- Account sync (profiles, library, progress, addons, plugins and their settings) through Supabase; debrid (Real-Debrid, Torbox, Premiumize), a torrent engine, Emby/Jellyfin, watch party.
+
+**Stremio addons** (Raygun has these since M41). Beyond the core protocol it reads:
+- catalogs' `pageSize` and `showInHome` (home row toggle);
+- streams' `clientResolve` (client-side torrent/debrid resolution, AIOStreams/Torrentio style) and `behaviorHints.audioDelayMs`/`audioDelayLanguage`;
+- `kitsu:`/`mal:`/`anilist:`/`anidb:` ids;
+- `videoHash`/`videoSize`/`filename` extras for subtitles.
+
+**Plugin repositories:** the user adds a URL; `/manifest.json` is appended unless it ends in `.json`. Unknown keys are ignored; required are `name`, `version` and a non-empty `scrapers`, and per scraper `id`, `name`, `version`, `filename`.
+
+```jsonc
+{
+  "name": "My Repo", "version": "1.0.0", "description": "...", "author": "...",
+  "scrapers": [{
+    "id": "myprov", "name": "My Provider", "description": "...", "version": "1.0.3",
+    "filename": "providers/myprov.js",   // relative to the manifest, or an absolute URL
+    "supportedTypes": ["movie", "tv"],   // "series"/"show"/"other" count as "tv"
+    "enabled": true, "hasSettings": false, "logo": "https://...png",
+    "contentLanguage": ["en"], "formats": ["mp4", "m3u8"],
+    "supportedPlatforms": ["android"], "disabledPlatforms": [],
+    "supportsExternalPlayer": true, "limited": false
+  }]
+}
+```
+
+**Runtime:** one single-file script per scraper (no `import`), wrapped as `var module={exports:{}}; (function(){ CODE })();`, in a fresh QuickJS context per call. Limits on TV: 10 scrapers at once, 60 s each, results deduped by URL and capped at 150. No filesystem, cookies or storage; `fetch` has no host allow-list.
+
+```js
+module.exports = { getStreams, onSettings };   // or globalThis.getStreams
+async function getStreams(tmdbId /*string*/, mediaType /*"movie"|"tv"|"series"*/, season, episode) {
+  return [{ name, title, url /*required*/, quality, size, language, type: "hls|mp4|torrent",
+            seeders, peers, infoHash, headers: { Referer, "User-Agent" },
+            subtitles: [{ url, language, name, id, headers }], behaviorHints: { audioDelayMs } }];
+}
+// Globals: SCRAPER_ID, SCRAPER_SETTINGS, TMDB_API_KEY, console, fetch (method, headers, string or
+// binary body, signal, redirect; response ok/status/url/headers.get/text/json/arrayBuffer),
+// AbortController, atob/btoa, URL, URLSearchParams, cheerio (Jsoup-backed; require('cheerio') and
+// its RN aliases), require('crypto-js') / CryptoJS. Mobile adds setTimeout (≤ 60 s), crypto.subtle,
+// TextEncoder/TextDecoder, WebAssembly. onSettings() returns header/info/text/toggle/select fields,
+// saved per scraper and passed back as SCRAPER_SETTINGS.
+```
+
+- **Arguments:**
+  - the Stremio id is turned into a TMDB id with TMDB `find`;
+  - anime ids pass `season = null` and the absolute episode; without a TMDB mapping, the raw `kitsu:123` id is passed as is.
+- **Results:** they join the stream list as an addon named after the scraper (`bingeGroup: "local-plugin-<id>"`, headers as `proxyHeaders.request`).
+- **CloudStream:** the TV app also loads CloudStream `.cs3` DEX plugins (Android only; not reusable).
+
+**Other integrations:**
+- **Trakt** (device-code OAuth): scrobbling, playback progress, watched/history, watchlist, lists as catalogs. Simkl works the same way.
+- **MDBList** (user key): ratings from IMDb, Trakt, TMDB, Letterboxd, Rotten Tomatoes and Metacritic, each with a toggle and an order.
+- **Skip segments:** IntroDB (intro, recap, outro, post-credits), AniSkip and Anime-Skip.
+- **Subtitles:** auto-sync that corrects a constant delay or drift against the embedded track.
+- **TMDB** with a build-time key (users can override it on mobile).
+- **Home:** layouts (classic, grid, modern hero), catalog order, collections.
+- **TV:**
+  - a left rail that expands with D-pad Left;
+  - focus restored per row by content id;
+  - text entry sent from a phone through a QR-linked local page.
+
+**Repositories in the wild:** the official `tapframe/nuvio-providers` holds only a template. Community collections (several unlicensed, many obfuscated) almost all scrape unlicensed streaming, download, anime and regional sites.
+
+**For Raygun:**
+- Raygun can support the format on its QuickJS host: `manifest.json` repositories and `getStreams` mapped onto Raygun streams, with headers going through the proxy.
+  - Host API to add: binary `fetch`, `URL`/`URLSearchParams`, `atob`/`btoa`, `AbortController`, `setTimeout`, `TextEncoder`.
+  - `cheerio` can sit on the Shosetsu Jsoup-compatible selector; crypto-js comes bundled.
+  - It needs `onSettings` and the three globals.
+- The same rule as Miru applies: scrapers only from repositories the user adds; Raygun ships and pre-adds none.
+- Stremio additions worth taking: `showInHome`, `audioDelayMs`, the subtitle hash extras, and MDBList ratings (a user key, like OMDb).

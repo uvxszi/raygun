@@ -6,7 +6,14 @@ import { useTranslation } from 'react-i18next';
 
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { Sheet } from '../shell/Sheet';
-import { DISPLAY_MODES, GRID_COLUMNS, LISTS, TAB_MODES, listKey } from './libraryDisplay';
+import {
+  COVER_WIDTHS,
+  DISPLAY_MODES,
+  GRID_COLUMNS,
+  LISTS,
+  TAB_MODES,
+  listKey,
+} from './libraryDisplay';
 import type { LibraryDisplay } from './libraryDisplay';
 import {
   DEFAULT_FILTER,
@@ -140,6 +147,8 @@ export const LibraryFilterSheet: FC<{
     landscape
       ? onDisplay({ ...display, columnsLandscape: value })
       : update.mutate({ key: 'gridColumns', value });
+  const coverWidth = settings?.coverWidth ?? 0;
+  const setCoverWidth = (value: number) => update.mutate({ key: 'coverWidth', value });
 
   const cycleIn = <Key extends string>(
     choices: Partial<Record<Key, TriState>>,
@@ -340,6 +349,21 @@ export const LibraryFilterSheet: FC<{
                   className={`min-w-10 rounded-full px-3 py-1.5 ${columns === value ? 'bg-primary/20 text-primary font-semibold' : 'bg-background'}`}
                 >
                   {value === 0 ? t('settings.gridColumnsAuto') : value}
+                </button>
+              ))}
+            </Section>
+          )}
+          {mode !== 'list' && (
+            <Section title={t('settings.coverWidth')}>
+              {COVER_WIDTHS.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={coverWidth === value}
+                  onClick={() => setCoverWidth(value)}
+                  className={`min-w-10 rounded-full px-3 py-1.5 ${coverWidth === value ? 'bg-primary/20 text-primary font-semibold' : 'bg-background'}`}
+                >
+                  {value === 0 ? t('settings.coverWidthAuto') : value}
                 </button>
               ))}
             </Section>

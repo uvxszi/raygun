@@ -7,7 +7,7 @@ import { unwrapResult } from '../lib/commandResult';
 
 export const EXTENSIONS = ['extensions'];
 export const ONLINE_SEARCH = ['onlineSearch'];
-const CATALOG = ['extensionCatalog'];
+export const CATALOG = ['extensionCatalog'];
 const REPOS = ['extensionRepos'];
 const SUGGESTED = ['extensionSuggestedRepos'];
 

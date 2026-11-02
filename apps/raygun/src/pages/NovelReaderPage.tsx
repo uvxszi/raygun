@@ -16,7 +16,15 @@ import {
   Type,
   Volume2,
 } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { FC, KeyboardEvent, MouseEvent, PointerEvent, ReactNode, TouchEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -649,6 +657,35 @@ export const NovelReaderPage: FC = () => {
   const settings = useSettings();
   const updateSetting = useUpdateSetting();
   const prefs = settings.data?.novelReader ?? DEFAULT_PREFS;
+  // Ctrl+scroll and Ctrl+plus/minus make the text bigger or smaller, as zooming would (M46.7).
+  const resize = (delta: number) => {
+    const fontSize = Math.min(30, Math.max(14, prefs.fontSize + delta));
+    if (fontSize !== prefs.fontSize)
+      updateSetting.mutate({ key: 'novelReader', value: { ...prefs, fontSize } });
+  };
+  const onZoomWheel = useEffectEvent((event: WheelEvent) => {
+    if (!event.ctrlKey) return;
+    event.preventDefault();
+    resize(event.deltaY < 0 ? 2 : -2);
+  });
+  const onZoomKey = useEffectEvent((event: globalThis.KeyboardEvent) => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    if (event.key === '=' || event.key === '+') resize(2);
+    else if (event.key === '-') resize(-2);
+    else if (event.key === '0') resize(DEFAULT_PREFS.fontSize - prefs.fontSize);
+    else return;
+    event.preventDefault();
+  });
+  useEffect(() => {
+    const wheel = (event: WheelEvent) => onZoomWheel(event);
+    const key = (event: globalThis.KeyboardEvent) => onZoomKey(event);
+    window.addEventListener('wheel', wheel, { passive: false });
+    window.addEventListener('keydown', key);
+    return () => {
+      window.removeEventListener('wheel', wheel);
+      window.removeEventListener('keydown', key);
+    };
+  }, []);
   const [chrome, setChrome] = useState(true);
   const [panel, setPanel] = useState(false);
   const [progress, setProgress] = useState({ fraction: 0, label: '' });

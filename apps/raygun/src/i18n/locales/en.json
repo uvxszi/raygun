@@ -439,7 +439,8 @@
       "teal": "Teal",
       "blue": "Blue",
       "purple": "Purple",
-      "pink": "Pink"
+      "pink": "Pink",
+      "custom": "Your colour"
     },
     "startScreen": "Start screen",
     "startScreenHint": "Where Raygun opens.",
@@ -711,7 +712,26 @@
     },
     "savedPages": "Saved pages",
     "pagesPerTitle": "A folder per title",
-    "pagesPerTitleHint": "Pages saved from the reader go to Pictures/Raygun/<title>"
+    "pagesPerTitleHint": "Pages saved from the reader go to Pictures/Raygun/<title>",
+    "coverWidth": "Cover size",
+    "coverWidthHint": "How wide covers are when covers per row is automatic, in Browse, Search and the library",
+    "coverWidthAuto": "By screen",
+    "coverWidthPx": "{{n}} px",
+    "accentCustom": "Any colour",
+    "motion": "Animations",
+    "motionHint": "How much buttons, panels and popups move",
+    "motionLevels": {
+      "lively": "Lively",
+      "calm": "Calm",
+      "off": "Off"
+    },
+    "scrollbars": "Scrollbars",
+    "scrollbarStyles": {
+      "thin": "Thin",
+      "wide": "Wide",
+      "hidden": "Hidden"
+    },
+    "scrollbarsHiddenHint": "Scrolling still works with the wheel, touch and keys"
   },
   "player": {
     "nothingPlaying": "Nothing playing",
@@ -745,12 +765,48 @@
     "mute": "Mute",
     "unmute": "Unmute",
     "queue": "Queue",
-    "closeQueue": "Close the queue",
     "clearQueue": "Clear",
     "removeFromQueue": "Remove {{title}} from the queue",
     "nowPlayingHeading": "Now playing",
     "queueEmpty": "Nothing else is queued",
-    "showVideo": "Show the video"
+    "showVideo": "Show the video",
+    "panel": {
+      "label": "Side panel",
+      "nowPlaying": "Now playing",
+      "queue": "Queue",
+      "nowPlayingView": "Now playing view",
+      "close": "Close the side panel",
+      "fullLyrics": "Full screen",
+      "nextUp": "Next in queue",
+      "openQueue": "Open the queue"
+    },
+    "upNextView": "Up next",
+    "view": {
+      "title": "Player layout",
+      "musicTitle": "Music player",
+      "open": "Player layout",
+      "layout": "Layout",
+      "layouts": {
+        "auto": "By screen",
+        "sideBySide": "Side by side",
+        "stacked": "Stacked"
+      },
+      "layoutHints": {
+        "auto": "Side by side on wide windows, stacked on phones",
+        "sideBySide": "Artwork and controls beside the lyrics or queue",
+        "stacked": "Artwork, lyrics or queue above the controls"
+      },
+      "width": "Width",
+      "widthHint": "How much of the window the player uses",
+      "lyricsSize": "Lyrics size",
+      "px": "{{n}} px",
+      "lyricsAlign": "Lyrics alignment",
+      "aligns": {
+        "left": "Left",
+        "center": "Centred"
+      },
+      "background": "Blurred artwork behind the player"
+    }
   },
   "common": {
     "coreUnavailable": "Core unavailable: {{message}}"
@@ -776,8 +832,6 @@
     "noRepos": "No repositories. Add one under Repositories.",
     "repoFailed": "Couldn't load this repository: {{message}}",
     "repoEmpty": "This repository has no extensions for this version of Raygun.",
-    "installTitle": "Install {{name}}?",
-    "updateTitle": "Update {{name}}?",
     "permissionsTitle": "Network access",
     "noNetwork": "No network access",
     "cancel": "Cancel",
@@ -834,7 +888,21 @@
       "novel.source": "Novel source",
       "video.source": "Movies and series source",
       "podcast.directory": "Podcast directory"
-    }
+    },
+    "installing": "Installing",
+    "queued": "Waiting",
+    "retry": "Try again",
+    "about": "About {{name}}",
+    "aboutTitle": "About this extension",
+    "select": "Select {{name}}",
+    "selection": "Selected extensions",
+    "selected_one": "{{count}} selected",
+    "selected_other": "{{count}} selected",
+    "selectAll": "Select all {{count}}",
+    "clearSelection": "Clear",
+    "installSelected_one": "Install {{count}}",
+    "installSelected_other": "Install {{count}}",
+    "updateAll": "Update all ({{count}})"
   },
   "collections": {
     "moreActions": "More for {{title}}",
@@ -1497,7 +1565,37 @@
     "copyPage": "Copy page",
     "savedTo": "Saved to {{place}}",
     "copied": "Copied",
-    "showInFolder": "Show in folder"
+    "showInFolder": "Show in folder",
+    "display": {
+      "title": "Display",
+      "mangaTitle": "Manga",
+      "byScreen": "By screen",
+      "percent": "{{n}} %",
+      "pagedScale": "Page fit (paged)",
+      "pagedScaleHint": "How a page fits when reading one page at a time",
+      "scale": {
+        "fitScreen": "Fit screen",
+        "fitWidth": "Fit width",
+        "fitHeight": "Fit height",
+        "original": "Original size"
+      },
+      "webtoonWidth": "Webtoon width",
+      "webtoonWidthHint": "How wide the scrolling strip is, as a share of the window",
+      "barWidth": "Page bar width",
+      "barChapters": "Chapter buttons in the page bar",
+      "barZoom": "Zoom buttons in the page bar",
+      "barMode": "Reading mode button in the page bar",
+      "barFullscreen": "Full screen button in the page bar",
+      "preload": "Pages to load ahead",
+      "preloadHint": "More pages load sooner but use more data",
+      "pages_one": "{{count}} page",
+      "pages_other": "{{count}} pages",
+      "zoom": "Zoom",
+      "zoomIn": "Zoom in",
+      "zoomOut": "Zoom out",
+      "zoomReset": "Back to the fit",
+      "zoomHint": "Ctrl + scroll, Ctrl + plus or minus, or a double click. Ctrl + 0 goes back to the fit."
+    }
   },
   "storage": {
     "title": "Storage",

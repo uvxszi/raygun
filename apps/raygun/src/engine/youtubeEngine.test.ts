@@ -19,11 +19,12 @@ const setup = () => {
     },
     (report) => reports.push(report),
   );
+  /** A reply from the page; it names load 3 (the test's load) unless `data` says otherwise. */
   const fromPage = (data: object, overrides: Partial<EmbedMessage> = {}) =>
     deliver({
       source: embedWindow,
       origin: ORIGIN,
-      data: { raygunEmbed: true, ...data },
+      data: { raygunEmbed: true, token: 3, ...data },
       ...overrides,
     });
   const load = (videoId = 'M7lc1UVf-VE') =>
@@ -58,6 +59,7 @@ describe('YouTubeEmbedEngine', () => {
         startMs: 0,
         autoplay: true,
         volume: 0.8,
+        token: 3,
       },
     ]);
     expect(posted()).toHaveLength(1);
@@ -94,6 +96,24 @@ describe('YouTubeEmbedEngine', () => {
     expect(reports.every((report) => report.loadId === 3)).toBe(true);
   });
 
+  it("drops the page's late news about the previous video", () => {
+    const { reports, load, fromPage } = setup();
+    load();
+    fromPage({ type: 'ready' });
+    reports.length = 0;
+
+    // Sent before the page loaded video 3: the old video's position and its end.
+    fromPage({ type: 'progress', positionMs: 150_000, durationMs: 200_000, token: 2 });
+    fromPage({ type: 'state', state: 'ended', token: 2 });
+    fromPage({ type: 'error', code: 150, token: null });
+    expect(reports).toEqual([]);
+
+    fromPage({ type: 'progress', positionMs: 400, durationMs: 213_000 });
+    expect(reports.map((report) => report.event)).toEqual([
+      { type: 'progress', positionMs: 400, durationMs: 213_000 },
+    ]);
+  });
+
   it('explains YouTube error codes', () => {
     const { reports, load, fromPage } = setup();
     load();
@@ -113,7 +133,10 @@ describe('YouTubeEmbedEngine', () => {
 
     fromPage({ type: 'state', state: 'playing' }, { source: {} });
     fromPage({ type: 'state', state: 'playing' }, { origin: 'https://evil.example' });
-    fromPage({ type: 'state', state: 'playing' }, { data: { type: 'state', state: 'playing' } });
+    fromPage(
+      { type: 'state', state: 'playing' },
+      { data: { type: 'state', state: 'playing', token: 3 } },
+    );
 
     expect(reports).toEqual([]);
   });

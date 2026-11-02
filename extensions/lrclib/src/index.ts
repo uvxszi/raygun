@@ -49,6 +49,9 @@ const toResult = (record: LrcRecord): LyricsResult | null => {
 };
 
 const getExact = async (query: LyricsQuery): Promise<LrcRecord | null> => {
+  // The exact lookup needs an artist (LRCLIB answers 400 without one): podcasts and some videos
+  // have none, and are searched by title alone.
+  if (!query.artist?.trim()) return null;
   const params = encode({
     track_name: query.title,
     artist_name: query.artist,
@@ -56,14 +59,18 @@ const getExact = async (query: LyricsQuery): Promise<LrcRecord | null> => {
     duration: query.durationMs ? Math.round(query.durationMs / 1000) : null,
   });
   const response = await raygun.http.fetch(`${API}/get?${params}`, { headers: HEADERS });
-  if (response.status === 404) return null;
+  if (response.status === 404 || response.status === 400) return null;
   if (!response.ok) throw new Error(`LRCLIB answered HTTP ${response.status}`);
   return response.json<LrcRecord>();
 };
 
 const searchClosest = async (query: LyricsQuery): Promise<LrcRecord | null> => {
-  const params = encode({ track_name: query.title, artist_name: query.artist });
+  const params = query.artist?.trim()
+    ? encode({ track_name: query.title, artist_name: query.artist })
+    : encode({ q: query.title });
   const response = await raygun.http.fetch(`${API}/search?${params}`, { headers: HEADERS });
+  // A request LRCLIB can't answer means there are no lyrics to show, not a failure.
+  if (response.status === 400 || response.status === 404) return null;
   if (!response.ok) throw new Error(`LRCLIB answered HTTP ${response.status}`);
   const records = await response.json<LrcRecord[]>();
   const wanted = query.durationMs ? query.durationMs / 1000 : null;

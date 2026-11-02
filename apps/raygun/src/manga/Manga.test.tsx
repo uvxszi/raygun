@@ -266,7 +266,8 @@ describe('Manga', () => {
     await within(reader).findAllByTestId('manga-page');
     expect(within(reader).queryByTestId('paged-reader')).not.toBeInTheDocument();
 
-    await user.click(within(reader).getByRole('button', { name: 'Reading mode' }));
+    // The top bar's (the page bar has one too, M46.7).
+    await user.click(within(reader).getAllByRole('button', { name: 'Reading mode' })[0]!);
     const modes = await screen.findByRole('dialog', { name: 'Reading mode' });
     expect(within(modes).getByRole('radio', { name: 'Vertical strip' })).toBeChecked();
     await user.click(within(modes).getByRole('radio', { name: 'Paged, left to right' }));
