@@ -14,6 +14,7 @@ const SOURCE = {
   id: 'dev.raygun.internet-archive/films',
   name: 'Archive Films',
   extensionId: 'ia',
+  enabled: true,
 };
 
 const link = (label: string, quality: number, preferred = false): VideoLinkView => ({

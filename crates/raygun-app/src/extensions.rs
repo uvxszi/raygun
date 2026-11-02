@@ -151,7 +151,13 @@ impl ExtensionService {
         let loader = service.clone();
         tauri::async_runtime::spawn(async move {
             match crate::settings::load(loader.db()).await {
-                Ok(settings) => loader.host.content().set_show_nsfw(settings.show_nsfw),
+                Ok(settings) => {
+                    loader.host.content().set_show_nsfw(settings.show_nsfw);
+                    loader
+                        .host
+                        .content()
+                        .set_disabled(&settings.disabled_sources);
+                }
                 Err(error) => tracing::warn!(%error, "could not read the NSFW setting"),
             }
             loader.load_all().await;
@@ -188,6 +194,11 @@ impl ExtensionService {
     }
 
     /// Whether NSFW extensions and content are shown (M35).
+    /// The sources and providers the user turned off (M46.8): searches and lookups skip them.
+    pub fn set_disabled_sources(&self, ids: &[String]) {
+        self.host.content().set_disabled(ids);
+    }
+
     pub fn show_nsfw(&self) -> bool {
         self.host.content().show_nsfw()
     }
@@ -483,10 +494,13 @@ impl ExtensionService {
                 package::check_nuclear_download(&bytes, entry)
                     .map_err(|error| error.to_string())?;
                 let sources = nuclear::unzip_sources(&bytes).map_err(|error| error.to_string())?;
-                let converted =
+                let mut converted =
                     tauri::async_runtime::spawn_blocking(move || nuclear::convert(&sources))
                         .await
                         .map_err(|error| error.to_string())??;
+                // The repository's version, not the package's own: plugins forget to bump theirs,
+                // and the catalogue then offered the same update forever (M46.8).
+                converted.manifest = with_version(&converted.manifest, &entry.version)?;
                 let verified = package::from_converted(&converted.manifest, &converted.bundle)
                     .map_err(|error| error.to_string())?;
                 if verified.manifest.id != entry.id {
@@ -720,6 +734,14 @@ pub fn fingerprint(dir: &Path) -> Fingerprint {
     files
 }
 
+/// A converted manifest (JSON) with `version` set.
+fn with_version(manifest: &str, version: &str) -> Result<String, String> {
+    let mut value: serde_json::Value =
+        serde_json::from_str(manifest).map_err(|error| error.to_string())?;
+    value["version"] = serde_json::Value::String(version.to_owned());
+    Ok(value.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -798,6 +820,15 @@ mod tests {
                 .iter()
                 .all(|(url, _, _)| url.starts_with("https://"))
         );
+    }
+
+    #[test]
+    fn converted_plugins_take_the_repository_version() {
+        let manifest = r#"{"id":"nuclear.x","version":"1.0.0","provides":["music.stream"]}"#;
+        let updated: serde_json::Value =
+            serde_json::from_str(&super::with_version(manifest, "1.0.1").unwrap()).unwrap();
+        assert_eq!(updated["version"], "1.0.1");
+        assert_eq!(updated["provides"][0], "music.stream");
     }
 
     #[test]

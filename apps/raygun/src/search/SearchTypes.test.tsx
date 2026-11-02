@@ -15,11 +15,13 @@ const MANGADEX = {
   id: 'dev.raygun.mangadex/mangadex',
   name: 'MangaDex',
   extensionId: 'dev.raygun.mangadex',
+  enabled: true,
 };
 const OTHER = {
   id: 'dev.example.other/other',
   name: 'Other Source',
   extensionId: 'dev.example.other',
+  enabled: true,
 };
 const card = (id: string, title: string, sourceId = MANGADEX.id): MangaCard => ({
   sourceId,

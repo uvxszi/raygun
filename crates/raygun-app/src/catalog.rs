@@ -64,10 +64,11 @@ impl Catalog {
     pub async fn sources(&self) -> Vec<MangaSource> {
         let extensions = self.extensions();
         let (_ready, host) = extensions.ready().await;
-        host.providers(self.capability)
+        host.listed_providers(self.capability)
             .await
             .into_iter()
             .map(|provider| MangaSource {
+                enabled: !host.content().is_disabled(&provider.id),
                 id: provider.id,
                 name: provider.name,
                 extension_id: provider.extension_id,
@@ -178,7 +179,9 @@ impl Catalog {
     ) -> Result<Vec<SourceSearchResult>, String> {
         let query = query.trim();
         let mut sources = self.sources().await;
-        if !only.is_empty() {
+        if only.is_empty() {
+            sources.retain(|source| source.enabled);
+        } else {
             sources.retain(|source| only.contains(&source.id));
         }
         let searches = sources.into_iter().map(|source| async move {

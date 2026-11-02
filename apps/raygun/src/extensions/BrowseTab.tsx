@@ -1,5 +1,5 @@
 import type { CatalogEntry, RepoCatalog } from '@raygun/bindings';
-import { Info, LoaderCircle, Search } from 'lucide-react';
+import { Check, Info, LoaderCircle, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -108,6 +108,17 @@ const EntryAction: FC<{
   onInstall: () => void;
 }> = ({ entry, status, onInstall }) => {
   const { t } = useTranslation();
+  if (status?.state === 'done') {
+    return (
+      <span
+        role="status"
+        className="text-primary flex items-center gap-1.5 px-2 text-sm whitespace-nowrap"
+      >
+        <Check aria-hidden size={16} />
+        {t('extensions.installedNow')}
+      </span>
+    );
+  }
   if (status?.state === 'queued' || status?.state === 'installing') {
     return (
       <span

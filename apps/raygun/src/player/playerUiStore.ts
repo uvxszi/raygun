@@ -34,6 +34,8 @@ type PlayerUiState = {
   sheetOpen: boolean;
   sheetView: SheetView;
   panel: PlayerPanel | null;
+  /** A YouTube song shows its video instead of its artwork: only once asked for (M46.8). */
+  videoShown: boolean;
   /** The volume unmuting goes back to. */
   unmutedVolume: number;
   openSheet: (options?: { view?: SheetView }) => void;
@@ -42,6 +44,7 @@ type PlayerUiState = {
   /** Opens `panel`, or closes the side panel when `panel` is what it shows. */
   togglePanel: (panel: PlayerPanel) => void;
   setPanel: (panel: PlayerPanel | null) => void;
+  setVideoShown: (shown: boolean) => void;
   setUnmutedVolume: (volume: number) => void;
 };
 
@@ -49,6 +52,7 @@ export const usePlayerUiStore = create<PlayerUiState>((set) => ({
   sheetOpen: false,
   sheetView: 'artwork',
   panel: savedPanel(),
+  videoShown: false,
   unmutedVolume: 1,
   openSheet: (options) =>
     set((state) => ({ sheetOpen: true, sheetView: options?.view ?? state.sheetView })),
@@ -64,5 +68,6 @@ export const usePlayerUiStore = create<PlayerUiState>((set) => ({
     savePanel(panel);
     set({ panel });
   },
+  setVideoShown: (videoShown) => set({ videoShown }),
   setUnmutedVolume: (unmutedVolume) => set({ unmutedVolume }),
 }));

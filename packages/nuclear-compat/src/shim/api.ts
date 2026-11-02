@@ -119,7 +119,12 @@ export const createApi = (plugin: PluginInfo) => {
       }
       if (!registered.has(wrapped.id)) {
         registered.add(wrapped.id);
-        raygun.providers.register(wrapped);
+        // A kind the conversion didn't find is skipped, not the whole plugin (M46.8).
+        try {
+          raygun.providers.register(wrapped);
+        } catch (error) {
+          Logger.warn(`${plugin.name}: skipped a "${provider.kind}" provider: ${String(error)}`);
+        }
       }
       return provider.id;
     },

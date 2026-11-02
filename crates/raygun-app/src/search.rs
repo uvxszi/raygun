@@ -69,6 +69,103 @@ pub fn merge_top(results: &[ProviderSearchResult]) -> Vec<OnlineTrack> {
         .collect()
 }
 
+/// The artists named in a credit such as "A, B & C feat. D" (M46.8), trimmed.
+pub fn credited_artists(credit: &str) -> Vec<String> {
+    const SEPARATORS: [&str; 9] = [
+        ", ",
+        " & ",
+        " feat. ",
+        " feat ",
+        " ft. ",
+        " ft ",
+        " featuring ",
+        " x ",
+        " and ",
+    ];
+    let mut parts = vec![credit.to_owned()];
+    for separator in SEPARATORS {
+        parts = parts
+            .iter()
+            .flat_map(|part| {
+                let lower = part.to_lowercase();
+                // Split case-insensitively, keeping the part's own spelling.
+                let mut pieces = Vec::new();
+                let mut start = 0;
+                while let Some(found) = lower[start..].find(separator) {
+                    pieces.push(part[start..start + found].to_owned());
+                    start += found + separator.len();
+                }
+                pieces.push(part[start..].to_owned());
+                pieces
+            })
+            .collect();
+    }
+    parts
+        .into_iter()
+        .map(|part| part.trim().trim_matches(['(', ')']).trim().to_owned())
+        .filter(|part| !part.is_empty())
+        .collect()
+}
+
+/// Whether `credit` names `artist` (case and spacing aside): as one of its artists, or whole
+/// between separators, so "Simon & Garfunkel" is found as a duo and as Simon.
+pub fn credits_include(credit: &str, artist: &str) -> bool {
+    const BEFORE: [&str; 9] = [
+        ", ",
+        " & ",
+        " feat. ",
+        " feat ",
+        " ft. ",
+        " ft ",
+        " featuring ",
+        " x ",
+        " and ",
+    ];
+    let wanted = artist.trim().to_lowercase();
+    if wanted.is_empty() {
+        return false;
+    }
+    if credited_artists(credit)
+        .iter()
+        .any(|part| part.to_lowercase() == wanted)
+    {
+        return true;
+    }
+    let lower = credit.trim().to_lowercase();
+    lower.match_indices(&wanted).any(|(at, _)| {
+        let before = &lower[..at];
+        let after = &lower[at + wanted.len()..];
+        (before.is_empty() || BEFORE.iter().any(|separator| before.ends_with(separator)))
+            && (after.is_empty() || BEFORE.iter().any(|separator| after.starts_with(separator)))
+    })
+}
+
+/// Songs the providers found for an artist's name whose credits include them: songs several
+/// providers agree on first, then each provider's in its order, without repeats (M46.8).
+pub fn artist_tracks(
+    results: &[ProviderSearchResult],
+    artist: &str,
+    limit: usize,
+) -> Vec<OnlineTrack> {
+    let mut seen = std::collections::HashSet::new();
+    let agreed = merge_top(results);
+    let each = results
+        .iter()
+        .flat_map(|result| result.tracks.iter().cloned());
+    agreed
+        .into_iter()
+        .chain(each)
+        .filter(|track| {
+            track
+                .artist
+                .as_deref()
+                .is_some_and(|credit| credits_include(credit, artist))
+        })
+        .filter(|track| seen.insert(key(track)))
+        .take(limit)
+        .collect()
+}
+
 fn key(track: &OnlineTrack) -> String {
     raygun_resolver::track_key(&TrackQuery {
         title: track.title.clone(),
@@ -92,6 +189,86 @@ fn fill(track: &mut OnlineTrack, other: &OnlineTrack) {
     if track.source.is_none() {
         track.source.clone_from(&other.source);
         track.external_id.clone_from(&other.external_id);
+    }
+}
+
+#[cfg(test)]
+mod artist_tests {
+    use raygun_model::{OnlineTrack, ProviderInfo, ProviderSearchResult};
+
+    use super::{artist_tracks, credited_artists, credits_include};
+
+    #[test]
+    fn credits_split_into_artists() {
+        assert_eq!(
+            credited_artists("Daft Punk, Pharrell Williams & Nile Rodgers"),
+            ["Daft Punk", "Pharrell Williams", "Nile Rodgers"]
+        );
+        assert_eq!(
+            credited_artists("Calvin Harris feat. Rihanna"),
+            ["Calvin Harris", "Rihanna"]
+        );
+        assert_eq!(
+            credited_artists("Simon & Garfunkel"),
+            ["Simon", "Garfunkel"]
+        );
+        assert!(credits_include("Simon & Garfunkel", "simon & garfunkel"));
+        assert!(credits_include(
+            "Simon & Garfunkel feat. X",
+            "Simon & Garfunkel"
+        ));
+        assert!(credits_include(
+            "Daft Punk FT. Julian Casablancas",
+            "julian casablancas"
+        ));
+        assert!(!credits_include("Daft Punk Tribute Band", "Daft Punk"));
+        assert!(!credits_include("Daft Punk", ""));
+    }
+
+    #[test]
+    fn an_artists_songs_keep_to_them_without_repeats() {
+        let track = |title: &str, artist: &str| OnlineTrack {
+            external_id: None,
+            title: title.into(),
+            artist: Some(artist.into()),
+            album: None,
+            duration_ms: None,
+            artwork_url: None,
+            source: None,
+        };
+        let provider = |id: &str, tracks| ProviderSearchResult {
+            provider: ProviderInfo {
+                id: id.into(),
+                extension_id: id.into(),
+                kind: "music.metadata".into(),
+                name: id.into(),
+            },
+            tracks,
+            error: None,
+        };
+        let results = [
+            provider(
+                "a",
+                vec![
+                    track("Get Lucky", "Daft Punk, Pharrell Williams"),
+                    track("Get Lucky (Cover)", "Some Band"),
+                    track("One More Time", "Daft Punk"),
+                ],
+            ),
+            provider(
+                "b",
+                vec![
+                    track("One More Time", "Daft Punk"),
+                    track("Around the World", "Daft Punk"),
+                ],
+            ),
+        ];
+        let titles: Vec<String> = artist_tracks(&results, "daft punk", 10)
+            .into_iter()
+            .map(|track| track.title)
+            .collect();
+        // The song both providers found leads; the cover isn't theirs; no repeats.
+        assert_eq!(titles, ["One More Time", "Get Lucky", "Around the World"]);
     }
 }
 

@@ -332,6 +332,7 @@ mod tests {
             id: "dev.raygun.mangadex/mangadex".into(),
             name: "MangaDex".into(),
             extension_id: "dev.raygun.mangadex".into(),
+            enabled: true,
         }];
 
         let summary = import(&db, &backup(), &sources, 1_000).await.unwrap();

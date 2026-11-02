@@ -731,7 +731,23 @@
       "wide": "Wide",
       "hidden": "Hidden"
     },
-    "scrollbarsHiddenHint": "Scrolling still works with the wheel, touch and keys"
+    "scrollbarsHiddenHint": "Scrolling still works with the wheel, touch and keys",
+    "colors": {
+      "title": "Colours",
+      "background": "Background",
+      "surface": "Panels and cards",
+      "foreground": "Text",
+      "muted": "Secondary text",
+      "fromTheme": "From the theme",
+      "reset": "Use the theme’s {{name}}"
+    },
+    "autoLoad": {
+      "title": "Load more while scrolling",
+      "hint": "Next pages load as you reach the end of a list",
+      "cooldown": "Wait between pages",
+      "cooldownHint": "Longer waits keep sources from blocking you",
+      "seconds": "{{n}} s"
+    }
   },
   "player": {
     "nothingPlaying": "Nothing playing",
@@ -902,7 +918,8 @@
     "clearSelection": "Clear",
     "installSelected_one": "Install {{count}}",
     "installSelected_other": "Install {{count}}",
-    "updateAll": "Update all ({{count}})"
+    "updateAll": "Update all ({{count}})",
+    "installedNow": "Installed"
   },
   "collections": {
     "moreActions": "More for {{title}}",
@@ -1763,5 +1780,14 @@
       "settings": "Settings",
       "about": "About"
     }
+  },
+  "sources": {
+    "menu": "{{name}} options",
+    "only": "Search only this source",
+    "open": "Open the source",
+    "settings": "Extension and settings",
+    "disable": "Turn this source off",
+    "enable": "Turn this source on",
+    "disabledNote": "Off · {{detail}}"
   }
 }

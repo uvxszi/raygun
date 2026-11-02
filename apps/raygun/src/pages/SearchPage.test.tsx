@@ -12,6 +12,7 @@ const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 const PROVIDER = {
   id: 'dev.raygun.internet-archive/search',
   extensionId: 'dev.raygun.internet-archive',
+  enabled: true,
   kind: 'music.metadata',
   name: 'Internet Archive',
 };

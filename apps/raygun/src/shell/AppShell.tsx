@@ -15,7 +15,7 @@ import { MiniPlayer } from '../player/MiniPlayer';
 import { PlayerSheet } from '../player/PlayerSheet';
 import { SidePanel } from '../player/SidePanel';
 import { usePlaybackSync } from '../player/usePlayback';
-import { useApplyFeel, useApplyTheme } from '../settings/useApplyTheme';
+import { useApplyColors, useApplyFeel, useApplyTheme } from '../settings/useApplyTheme';
 import { useSettings, useSettingsEvents } from '../settings/useSettings';
 import { VideoPlayer } from '../video/VideoPlayer';
 import { useVideoPlayerEvents } from '../video/videoPlayerStore';
@@ -60,6 +60,7 @@ export const AppShell: FC = () => {
   const settings = useSettings();
   useApplyTheme(settings.data?.theme, settings.data?.accent, settings.data?.accentColor);
   useApplyFeel(settings.data?.scrollbars, settings.data?.motion);
+  useApplyColors(settings.data?.colors);
   useStartScreen(settings.data?.startScreen);
   useSettingsEvents();
   useSyncLanguage(settings.data?.language);

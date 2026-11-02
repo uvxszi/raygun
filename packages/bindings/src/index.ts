@@ -20,6 +20,8 @@ export const commands = {
 	playbackGetQueue: () => __TAURI_INVOKE<QueueSnapshot>("playback_get_queue"),
 	/**  Adds items to the queue; with `play_now` the first one starts immediately. */
 	playbackEnqueue: (items: QueueItemInput[], playNow: boolean) => __TAURI_INVOKE<void>("playback_enqueue", { items, playNow }),
+	/**  Queues items to play right after the current one (Play next, M46.8). */
+	playbackPlayNext: (items: QueueItemInput[]) => __TAURI_INVOKE<void>("playback_play_next", { items }),
 	/**  Play, pause, skip, seek, volume, repeat, shuffle and queue edits. */
 	playbackControl: (control: PlaybackControl) => __TAURI_INVOKE<void>("playback_control", { control }),
 	/**  Called by the playback engine in the webview to report what the media element did. */
@@ -79,6 +81,12 @@ export const commands = {
 } | null, string>(__TAURI_INVOKE("lyrics_get", { query })),
 	/**  Favorite tracks, most recently added first. */
 	favoritesList: () => typedError<SavedTrack[], string>(__TAURI_INVOKE("favorites_list")),
+	/**  Where a song is saved: Favorites and the playlists holding it (M46.8). */
+	collectionsSaves: (track: TrackInput) => typedError<TrackSaves, string>(__TAURI_INVOKE("collections_saves", { track })),
+	/**  Saves a song exactly where `saves` says (the Add to playlist popover's Done, M46.8). */
+	collectionsSetSaves: (track: TrackInput, saves: TrackSaves) => typedError<null, string>(__TAURI_INVOKE("collections_set_saves", { track, saves })),
+	/**  An artist's page: popular songs from the sources, and the library's albums and songs by them. */
+	musicArtist: (name: string) => typedError<ArtistOverview, string>(__TAURI_INVOKE("music_artist", { name })),
 	/**  Whether a track (by its artist and title) is a favorite. */
 	favoriteGet: (track: TrackInput) => typedError<boolean, string>(__TAURI_INVOKE("favorite_get", { track })),
 	favoriteSet: (track: TrackInput, favorite: boolean) => typedError<null, string>(__TAURI_INVOKE("favorite_set", { track, favorite })),
@@ -524,6 +532,25 @@ export type AppInfo = {
 	debug: boolean,
 };
 
+/**  An artist's page (M46.8): popular songs from the sources, and what the library has by them. */
+export type ArtistOverview = {
+	name: string,
+	/**  Songs the sources found for the name whose artists include it, without repeats. */
+	popular: OnlineTrack[],
+	albums: LibraryAlbum[],
+	tracks: LibraryTrack[],
+};
+
+/**
+ *  Next pages load as a list's end comes near (M46.8), at most one per `cooldown_ms`, so sources
+ *  don't rate-limit the user; off, a Load more button stays.
+ */
+export type AutoLoadPrefs = {
+	enabled?: boolean,
+	/**  0 to 10 000 ms. */
+	cooldownMs?: number,
+};
+
 /**  A backup file kept on this device. */
 export type BackupFile = {
 	name: string,
@@ -628,9 +655,17 @@ export type Collection = { kind: "favorites" } | { kind: "playlist"; id: string 
 
 export type CollectionPlayRequest = {
 	collection: Collection,
-	/**  Track to start with; otherwise the first (or a random one when shuffling). */
+	/**
+	 *  Track to start with; otherwise the first (or a random one when shuffling). With `order`, an
+	 *  index into that order.
+	 */
 	startIndex: number | null,
 	shuffle: boolean,
+	/**
+	 *  The tracks' keys in the order a sorted or filtered table shows them (M46.8); the
+	 *  collection's own order when missing. Keys not in the collection are skipped.
+	 */
+	order?: string[] | null,
 };
 
 /**  How much of a Nuclear plugin runs in Raygun (M17). */
@@ -662,6 +697,21 @@ export type ContinueWatching = {
 
 export type CoverStyle = "compact" | "comfortable";
 
+/**
+ *  Colours the user picked instead of the theme's (M46.8): each `#rrggbb`, or empty for the
+ *  theme's own. The accent has its own setting.
+ */
+export type CustomColors = {
+	/**  The page behind everything. */
+	background?: string,
+	/**  Cards, bars, panels and sheets. */
+	surface?: string,
+	/**  Text and icons. */
+	foreground?: string,
+	/**  Secondary text and icons. */
+	muted?: string,
+};
+
 /**  Which decoders play video. */
 export type DecoderMode = 
 /**  Hardware, falling back to software when it fails. */
@@ -676,7 +726,9 @@ export type EngineCommand = { type: "load"; loadId: number; url: string;
 /**  For native engines' media session (notification, lock screen). */
 title: string; artist: string | null; artworkUrl: string | null; startMs: number | null; autoplay: boolean; volume: number | null } | 
 /**  Plays a YouTube video in the embedded player hosted at `embed_url` (webview only). */
-{ type: "loadYouTube"; loadId: number; embedUrl: string; videoId: string; startMs: number | null; autoplay: boolean; volume: number | null } | { type: "play" } | { type: "pause" } | { type: "seek"; positionMs: number | null } | { type: "setVolume"; volume: number | null } | { type: "stop" };
+{ type: "loadYouTube"; loadId: number; embedUrl: string; videoId: string; startMs: number | null; autoplay: boolean; volume: number | null } | { type: "play" } | { type: "pause" } | { type: "seek"; positionMs: number | null } | { type: "setVolume"; volume: number | null } | 
+/**  Playback speed (M46.8); engines keep it across loads. */
+{ type: "setRate"; rate: number | null } | { type: "stop" };
 
 /**  An instruction for the playback engine running in the webview. */
 export type EngineCommandEvent = EngineCommand;
@@ -1177,6 +1229,8 @@ export type MangaSource = {
 	id: string,
 	name: string,
 	extensionId: string,
+	/**  False when the user disabled it: it stays listed, but searches skip it (M46.8). */
+	enabled: boolean,
 };
 
 export type MangaTitleView = {
@@ -1336,6 +1390,16 @@ export type PagedScale =
 /**  The image's own size. */
 "original";
 
+/**  Panel sizes the user dragged (M46.8); 0 is the default for the screen. */
+export type PanelPrefs = {
+	/**  The side rail, 72 (covers only) to 360 px. */
+	railWidth?: number,
+	/**  The Now playing panel, 280 to 560 px. */
+	sidePanelWidth?: number,
+	/**  The full player's left column, 30 to 70 % (side by side). */
+	playerSplit?: number,
+};
+
 export type PlayRequest = {
 	selection: PlaySelection,
 	/**  Track to start with; otherwise the first (or a random one when shuffling). */
@@ -1347,7 +1411,11 @@ export type PlayRequest = {
 export type PlaySelection = { kind: "album"; artist: string; album: string } | { kind: "artist"; artist: string } | { kind: "allTracks" };
 
 /**  A user or client request to the player. */
-export type PlaybackControl = { type: "play" } | { type: "pause" } | { type: "toggle" } | { type: "next" } | { type: "previous" } | { type: "seek"; positionMs: number | null } | { type: "setVolume"; volume: number | null } | { type: "setRepeat"; mode: RepeatMode } | { type: "setShuffle"; enabled: boolean } | { type: "playItem"; itemId: string } | { type: "remove"; itemId: string } | { type: "clear" };
+export type PlaybackControl = { type: "play" } | { type: "pause" } | { type: "toggle" } | { type: "next" } | { type: "previous" } | { type: "seek"; positionMs: number | null } | { type: "setVolume"; volume: number | null } | { type: "setRepeat"; mode: RepeatMode } | { type: "setShuffle"; enabled: boolean } | { type: "playItem"; itemId: string } | { type: "remove"; itemId: string } | { type: "clear" } | 
+/**  Moves a queued item before another in the play order, or to the end (M46.8). */
+{ type: "move"; itemId: string; beforeItemId: string | null } | 
+/**  Playback speed, one of `PLAYBACK_RATES` (M46.8). */
+{ type: "setRate"; rate: number | null } | { type: "setSleepTimer"; timer: SleepTimer };
 
 /**  Canonical player state, owned by Rust and mirrored by every client (UI, MCP, remote). */
 export type PlaybackState = {
@@ -1362,6 +1430,12 @@ export type PlaybackState = {
 	error: string | null,
 	/**  Where the current item's stream came from when the resolver picked it (provider name). */
 	sourceLabel: string | null,
+	/**  Playback speed, 0.5 to 2 (M46.8). */
+	rate: number | null,
+	/**  When the sleep timer pauses playback (unix ms), if it's set to a time (M46.8). */
+	sleepAt: number | null,
+	/**  The sleep timer pauses when the current song ends (M46.8). */
+	stopAfterCurrent: boolean,
 };
 
 /**  The canonical player state changed. */
@@ -1606,6 +1680,10 @@ export type SavedTrack = {
 	source: MediaSource | null,
 	/**  The same song is in this device's library. */
 	local: boolean,
+	/**  When it was saved here (unix ms): a favorite's or a playlist item's date (M46.8). */
+	addedAt: number | null,
+	/**  Times it was played, from the history (M46.8). */
+	playCount: number,
 };
 
 export type ScanPhase = "discovering" | "reading" | "done" | "failed";
@@ -1631,7 +1709,7 @@ export type SearchResults = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -1703,6 +1781,16 @@ export type Settings = {
 	scrollbars: ScrollbarStyle,
 	/**  How much buttons, panels and sheets move (M46.7). */
 	motion: MotionLevel,
+	/**  Each kind of song table's sort, view and columns (M46.8). */
+	trackTables: TrackTablePrefs,
+	/**  Sizes of the panels the user resizes (M46.8). */
+	panels: PanelPrefs,
+	/**  The user's own colours over the theme's (M46.8). */
+	colors: CustomColors,
+	/**  Sources and providers (`<extension>/<provider>`) the user turned off (M46.8). */
+	disabledSources: string[],
+	/**  Loading a source's next page while scrolling (M46.8). */
+	autoLoad: AutoLoadPrefs,
 };
 
 /**  A setting changed outside the Settings screens (in the video player, M45); carries its key. */
@@ -1713,6 +1801,9 @@ export type SkippedSource = {
 	name: string,
 	titles: number,
 };
+
+/**  The sleep timer (M46.8). */
+export type SleepTimer = { kind: "off" } | { kind: "minutes"; minutes: number } | { kind: "endOfTrack" };
 
 /**  A filter a source offers for its search (Mihon's `FilterList`, simplified). */
 export type SourceFilter = 
@@ -2037,6 +2128,16 @@ export type TitleMarks = {
 	pinned: boolean,
 };
 
+export type TrackColumn = {
+	id: TrackColumnId,
+	visible: boolean,
+	/**  In px; 0 lets the table choose. */
+	width: number,
+};
+
+/**  A song table's optional columns; the title (with artists) always shows. */
+export type TrackColumnId = "album" | "added" | "plays" | "duration";
+
 /**  A track to save, from the player, the library or a search result. */
 export type TrackInput = {
 	title: string,
@@ -2048,12 +2149,47 @@ export type TrackInput = {
 	source: MediaSource | null,
 };
 
+export type TrackListView = 
+/**  Artwork and two lines. */
+"list" | 
+/**  One line each, no artwork. */
+"compact";
+
 /**  What the resolver searches for: a track's metadata. */
 export type TrackQuery = {
 	title: string,
 	artist: string | null,
 	album: string | null,
 	durationMs: number | null,
+};
+
+/**
+ *  Where a song is saved (M46.8): Favorites and the playlists that hold it. The Add to playlist
+ *  popover reads it and sends back what should be true.
+ */
+export type TrackSaves = {
+	favorite: boolean,
+	playlistIds: string[],
+};
+
+/**  What a song table is sorted by (M46.8). `Custom` is the collection's own order. */
+export type TrackSortKey = "custom" | "title" | "artist" | "album" | "added" | "duration" | "plays";
+
+/**
+ *  The song tables' looks by kind: `favorites`, `playlist`, `library`, `album`, `artist`,
+ *  `history`, `search` (M46.8). Kinds not set use `TrackTableView::default()`.
+ */
+export type TrackTablePrefs = {
+	tables?: { [key in string]: TrackTableView },
+};
+
+/**  One kind of song table's look (M46.8). */
+export type TrackTableView = {
+	sort?: TrackSortKey,
+	descending?: boolean,
+	view?: TrackListView,
+	/**  In display order. */
+	columns?: TrackColumn[],
 };
 
 /**  Progress reading a chapter aloud (M33). */

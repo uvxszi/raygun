@@ -11,7 +11,7 @@ import { LyricsView } from './LyricsView';
 import type { PlayerPanel } from './playerUiStore';
 import { usePlayerUiStore } from './playerUiStore';
 import { sendControl, sourceNote, useNowPlaying } from './usePlayback';
-import { useVideoSurface } from './useVideoSurface';
+import { MediaArt, VideoToggle } from './MediaArt';
 
 const TABS: PlayerPanel[] = ['nowPlaying', 'queue'];
 
@@ -73,28 +73,20 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
   const sheetOpen = usePlayerUiStore((store) => store.sheetOpen);
   const openSheet = usePlayerUiStore((store) => store.openSheet);
   const setPanel = usePlayerUiStore((store) => store.setPanel);
-  const isVideo = item.source.kind === 'youTube';
-  // The one video dock plays here unless the full player has it.
-  const videoRef = useVideoSurface(isVideo && !sheetOpen);
   const note = sourceNote(state, item);
   const next = upNext[0];
 
   return (
     <div className="flex flex-col gap-4 px-4 pt-3 pb-4">
-      {isVideo ? (
-        <div
-          ref={videoRef}
-          data-testid="side-panel-video"
-          className="aspect-video w-full overflow-hidden rounded-xl bg-black"
-        />
-      ) : (
-        <Artwork
-          key={item.artworkUrl ?? 'none'}
-          url={item.artworkUrl}
-          className="aspect-square w-full rounded-xl shadow-lg"
-          iconSize={72}
-        />
-      )}
+      {/* The one video dock shows here unless the full player has it. */}
+      <MediaArt
+        item={item}
+        active={!sheetOpen}
+        testId="side-panel-video"
+        artworkClassName="aspect-square w-full rounded-xl shadow-lg"
+        videoClassName="aspect-video w-full overflow-hidden rounded-xl bg-black"
+        iconSize={72}
+      />
       <div className="flex items-center gap-1">
         <div className="flex min-w-0 flex-1 flex-col">
           <Marquee testId="side-panel-title" text={item.title} className="text-xl font-bold" />
@@ -108,6 +100,7 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
           )}
         </div>
         <FavoriteButton item={item} compact />
+        <VideoToggle item={item} className="size-9" />
         <button
           type="button"
           aria-label={t('player.openPlayer')}

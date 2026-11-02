@@ -121,6 +121,209 @@ pub struct Settings {
     pub scrollbars: ScrollbarStyle,
     /// How much buttons, panels and sheets move (M46.7).
     pub motion: MotionLevel,
+    /// Each kind of song table's sort, view and columns (M46.8).
+    pub track_tables: TrackTablePrefs,
+    /// Sizes of the panels the user resizes (M46.8).
+    pub panels: PanelPrefs,
+    /// The user's own colours over the theme's (M46.8).
+    pub colors: CustomColors,
+    /// Sources and providers (`<extension>/<provider>`) the user turned off (M46.8).
+    pub disabled_sources: Vec<String>,
+    /// Loading a source's next page while scrolling (M46.8).
+    pub auto_load: AutoLoadPrefs,
+}
+
+/// Next pages load as a list's end comes near (M46.8), at most one per `cooldown_ms`, so sources
+/// don't rate-limit the user; off, a Load more button stays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AutoLoadPrefs {
+    pub enabled: bool,
+    /// 0 to 10 000 ms.
+    pub cooldown_ms: u32,
+}
+
+impl Default for AutoLoadPrefs {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            cooldown_ms: 1_500,
+        }
+    }
+}
+
+/// Colours the user picked instead of the theme's (M46.8): each `#rrggbb`, or empty for the
+/// theme's own. The accent has its own setting.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CustomColors {
+    /// The page behind everything.
+    pub background: String,
+    /// Cards, bars, panels and sheets.
+    pub surface: String,
+    /// Text and icons.
+    pub foreground: String,
+    /// Secondary text and icons.
+    pub muted: String,
+}
+
+impl CustomColors {
+    pub fn validate(&self) -> Result<(), String> {
+        for color in [
+            &self.background,
+            &self.surface,
+            &self.foreground,
+            &self.muted,
+        ] {
+            if !color.is_empty() && !is_hex_color(color) {
+                return Err(format!("{color} isn't a #rrggbb colour"));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// What a song table is sorted by (M46.8). `Custom` is the collection's own order.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TrackSortKey {
+    #[default]
+    Custom,
+    Title,
+    Artist,
+    Album,
+    Added,
+    Duration,
+    Plays,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TrackListView {
+    /// Artwork and two lines.
+    #[default]
+    List,
+    /// One line each, no artwork.
+    Compact,
+}
+
+/// A song table's optional columns; the title (with artists) always shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TrackColumnId {
+    Album,
+    Added,
+    Plays,
+    Duration,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackColumn {
+    pub id: TrackColumnId,
+    pub visible: bool,
+    /// In px; 0 lets the table choose.
+    pub width: u32,
+}
+
+/// One kind of song table's look (M46.8).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TrackTableView {
+    pub sort: TrackSortKey,
+    pub descending: bool,
+    pub view: TrackListView,
+    /// In display order.
+    pub columns: Vec<TrackColumn>,
+}
+
+impl Default for TrackTableView {
+    fn default() -> Self {
+        let column = |id, visible| TrackColumn {
+            id,
+            visible,
+            width: 0,
+        };
+        Self {
+            sort: TrackSortKey::Custom,
+            descending: false,
+            view: TrackListView::List,
+            columns: vec![
+                column(TrackColumnId::Album, true),
+                column(TrackColumnId::Added, true),
+                column(TrackColumnId::Plays, false),
+                column(TrackColumnId::Duration, true),
+            ],
+        }
+    }
+}
+
+/// The song tables' looks by kind: `favorites`, `playlist`, `library`, `album`, `artist`,
+/// `history`, `search` (M46.8). Kinds not set use `TrackTableView::default()`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TrackTablePrefs {
+    pub tables: std::collections::BTreeMap<String, TrackTableView>,
+}
+
+/// The kinds of song table.
+pub const TRACK_TABLE_KINDS: [&str; 7] = [
+    "favorites",
+    "playlist",
+    "library",
+    "album",
+    "artist",
+    "history",
+    "search",
+];
+
+impl TrackTablePrefs {
+    pub fn validate(&self) -> Result<(), String> {
+        for (kind, view) in &self.tables {
+            if !TRACK_TABLE_KINDS.contains(&kind.as_str()) {
+                return Err(format!("{kind} isn't a song table"));
+            }
+            let mut seen = Vec::new();
+            for column in &view.columns {
+                if seen.contains(&column.id) {
+                    return Err("A column shows up twice".into());
+                }
+                seen.push(column.id);
+                if column.width != 0 && !(40..=800).contains(&column.width) {
+                    return Err(format!("{} px isn't a column width", column.width));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Panel sizes the user dragged (M46.8); 0 is the default for the screen.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PanelPrefs {
+    /// The side rail, 72 (covers only) to 360 px.
+    pub rail_width: u32,
+    /// The Now playing panel, 280 to 560 px.
+    pub side_panel_width: u32,
+    /// The full player's left column, 30 to 70 % (side by side).
+    pub player_split: u32,
+}
+
+impl PanelPrefs {
+    pub fn validate(&self) -> Result<(), String> {
+        let within = |value: u32, low: u32, high: u32| value == 0 || (low..=high).contains(&value);
+        if !within(self.rail_width, 72, 360) {
+            return Err(format!("{} px isn't a rail width", self.rail_width));
+        }
+        if !within(self.side_panel_width, 280, 560) {
+            return Err(format!("{} px isn't a panel width", self.side_panel_width));
+        }
+        if !within(self.player_split, 30, 70) {
+            return Err(format!("{}% isn't a player split", self.player_split));
+        }
+        Ok(())
+    }
 }
 
 /// Animations (M46.7): buttons that answer hover and press, panels and popovers that slide and
@@ -746,6 +949,11 @@ impl Default for Settings {
             player_view: PlayerViewPrefs::default(),
             scrollbars: ScrollbarStyle::Thin,
             motion: MotionLevel::Lively,
+            track_tables: TrackTablePrefs::default(),
+            panels: PanelPrefs::default(),
+            colors: CustomColors::default(),
+            disabled_sources: Vec::new(),
+            auto_load: AutoLoadPrefs::default(),
         }
     }
 }
@@ -785,6 +993,18 @@ impl Settings {
             SettingChange::PlayerView(prefs) => self.player_view = prefs,
             SettingChange::Scrollbars(style) => self.scrollbars = style,
             SettingChange::Motion(level) => self.motion = level,
+            SettingChange::TrackTables(prefs) => self.track_tables = prefs,
+            SettingChange::Panels(prefs) => self.panels = prefs,
+            SettingChange::DisabledSources(ids) => self.disabled_sources = ids,
+            SettingChange::AutoLoad(prefs) => self.auto_load = prefs,
+            SettingChange::Colors(colors) => {
+                self.colors = CustomColors {
+                    background: colors.background.to_ascii_lowercase(),
+                    surface: colors.surface.to_ascii_lowercase(),
+                    foreground: colors.foreground.to_ascii_lowercase(),
+                    muted: colors.muted.to_ascii_lowercase(),
+                }
+            }
         }
     }
 }
@@ -827,6 +1047,11 @@ pub enum SettingChange {
     PlayerView(PlayerViewPrefs),
     Scrollbars(ScrollbarStyle),
     Motion(MotionLevel),
+    TrackTables(TrackTablePrefs),
+    Panels(PanelPrefs),
+    Colors(CustomColors),
+    DisabledSources(Vec<String>),
+    AutoLoad(AutoLoadPrefs),
 }
 
 impl SettingChange {
@@ -865,6 +1090,11 @@ impl SettingChange {
             Self::PlayerView(_) => "playerView",
             Self::Scrollbars(_) => "scrollbars",
             Self::Motion(_) => "motion",
+            Self::TrackTables(_) => "trackTables",
+            Self::Panels(_) => "panels",
+            Self::Colors(_) => "colors",
+            Self::DisabledSources(_) => "disabledSources",
+            Self::AutoLoad(_) => "autoLoad",
         }
     }
 
@@ -919,6 +1149,23 @@ impl SettingChange {
             Self::Layout(prefs) => prefs.validate(),
             Self::MangaReader(prefs) => prefs.validate(),
             Self::PlayerView(prefs) => prefs.validate(),
+            Self::TrackTables(prefs) => prefs.validate(),
+            Self::Panels(prefs) => prefs.validate(),
+            Self::Colors(colors) => colors.validate(),
+            Self::AutoLoad(prefs) => {
+                if prefs.cooldown_ms <= 10_000 {
+                    Ok(())
+                } else {
+                    Err("Wait at most 10 seconds between pages".into())
+                }
+            }
+            Self::DisabledSources(ids) => {
+                if ids.len() > 2_000 || ids.iter().any(|id| id.is_empty() || id.len() > 300) {
+                    Err("That isn't a list of sources".into())
+                } else {
+                    Ok(())
+                }
+            }
             Self::AccentColor(color) => {
                 if is_hex_color(color) {
                     Ok(())
@@ -1132,7 +1379,25 @@ pub struct PlaybackState {
     pub error: Option<String>,
     /// Where the current item's stream came from when the resolver picked it (provider name).
     pub source_label: Option<String>,
+    /// Playback speed, 0.5 to 2 (M46.8).
+    pub rate: f64,
+    /// When the sleep timer pauses playback (unix ms), if it's set to a time (M46.8).
+    pub sleep_at: Option<f64>,
+    /// The sleep timer pauses when the current song ends (M46.8).
+    pub stop_after_current: bool,
 }
+
+/// The sleep timer (M46.8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum SleepTimer {
+    Off,
+    Minutes { minutes: u32 },
+    EndOfTrack,
+}
+
+/// Speeds offered for music (M46.8).
+pub const PLAYBACK_RATES: [f64; 9] = [0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -1175,6 +1440,19 @@ pub enum PlaybackControl {
         item_id: String,
     },
     Clear,
+    /// Moves a queued item before another in the play order, or to the end (M46.8).
+    #[serde(rename_all = "camelCase")]
+    Move {
+        item_id: String,
+        before_item_id: Option<String>,
+    },
+    /// Playback speed, one of `PLAYBACK_RATES` (M46.8).
+    SetRate {
+        rate: f64,
+    },
+    SetSleepTimer {
+        timer: SleepTimer,
+    },
 }
 
 /// An instruction for the active playback engine.
@@ -1211,6 +1489,10 @@ pub enum EngineCommand {
     },
     SetVolume {
         volume: f64,
+    },
+    /// Playback speed (M46.8); engines keep it across loads.
+    SetRate {
+        rate: f64,
     },
     Stop,
 }
@@ -1588,7 +1870,7 @@ pub struct TrackInput {
 
 /// A track as saved in favorites, a playlist or history. Artwork comes from the local library when
 /// the same song is there.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SavedTrack {
     /// The resolver's `artist|title` key: one favorite per key.
@@ -1602,6 +1884,30 @@ pub struct SavedTrack {
     pub source: Option<MediaSource>,
     /// The same song is in this device's library.
     pub local: bool,
+    /// When it was saved here (unix ms): a favorite's or a playlist item's date (M46.8).
+    pub added_at: Option<f64>,
+    /// Times it was played, from the history (M46.8).
+    pub play_count: u32,
+}
+
+/// Where a song is saved (M46.8): Favorites and the playlists that hold it. The Add to playlist
+/// popover reads it and sends back what should be true.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackSaves {
+    pub favorite: bool,
+    pub playlist_ids: Vec<String>,
+}
+
+/// An artist's page (M46.8): popular songs from the sources, and what the library has by them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtistOverview {
+    pub name: String,
+    /// Songs the sources found for the name whose artists include it, without repeats.
+    pub popular: Vec<OnlineTrack>,
+    pub albums: Vec<LibraryAlbum>,
+    pub tracks: Vec<LibraryTrack>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -1614,14 +1920,14 @@ pub struct PlaylistSummary {
     pub artwork_urls: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaylistItem {
     pub id: String,
     pub track: SavedTrack,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaylistDetail {
     pub playlist: PlaylistSummary,
@@ -1652,9 +1958,14 @@ pub enum Collection {
 #[serde(rename_all = "camelCase")]
 pub struct CollectionPlayRequest {
     pub collection: Collection,
-    /// Track to start with; otherwise the first (or a random one when shuffling).
+    /// Track to start with; otherwise the first (or a random one when shuffling). With `order`, an
+    /// index into that order.
     pub start_index: Option<u32>,
     pub shuffle: bool,
+    /// The tracks' keys in the order a sorted or filtered table shows them (M46.8); the
+    /// collection's own order when missing. Keys not in the collection are skipped.
+    #[serde(default)]
+    pub order: Option<Vec<String>>,
 }
 
 // ---- MCP server (M19) ----
@@ -1764,6 +2075,8 @@ pub struct MangaSource {
     pub id: String,
     pub name: String,
     pub extension_id: String,
+    /// False when the user disabled it: it stays listed, but searches skip it (M46.8).
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]

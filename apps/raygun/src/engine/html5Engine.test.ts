@@ -7,6 +7,8 @@ class FakeMedia extends EventTarget {
   src = '';
   currentTime = 0;
   volume = 1;
+  playbackRate = 1;
+  defaultPlaybackRate = 1;
   duration = Number.NaN;
   error: { code: number } | null = null;
   play = vi.fn(() => Promise.resolve());
@@ -179,5 +181,15 @@ describe('Html5Engine', () => {
     await vi.waitFor(() => expect(reports.at(-1)?.event.type).toBe('error'));
 
     expect(reports.filter((report) => report.event.type === 'error')).toHaveLength(1);
+  });
+
+  it('keeps the speed for the sources that follow', () => {
+    const { media, engine, load } = setup();
+    load();
+
+    engine.handle({ type: 'setRate', rate: 1.5 });
+
+    expect(media.playbackRate).toBe(1.5);
+    expect(media.defaultPlaybackRate).toBe(1.5);
   });
 });

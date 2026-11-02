@@ -67,6 +67,7 @@ pub async fn settings_update(
     let theme_changed = matches!(change, SettingChange::Theme(_));
     let nsfw_changed = matches!(change, SettingChange::ShowNsfw(_));
     let cache_changed = matches!(change, SettingChange::Cache(_));
+    let sources_changed = matches!(change, SettingChange::DisabledSources(_));
     let settings = settings::update(&db.0, change)
         .await
         .map_err(|error| error.to_string())?;
@@ -82,6 +83,11 @@ pub async fn settings_update(
     if cache_changed {
         use tauri::Manager;
         app.state::<crate::caches::Caches>().apply(&settings.cache);
+    }
+    if sources_changed {
+        use tauri::Manager;
+        app.state::<Arc<ExtensionService>>()
+            .set_disabled_sources(&settings.disabled_sources);
     }
     Ok(settings)
 }
@@ -109,6 +115,13 @@ pub fn playback_enqueue(
     play_now: bool,
 ) {
     playback.enqueue(items, play_now);
+}
+
+/// Queues items to play right after the current one (Play next, M46.8).
+#[tauri::command]
+#[specta::specta]
+pub fn playback_play_next(playback: tauri::State<'_, PlaybackService>, items: Vec<QueueItemInput>) {
+    playback.enqueue_next(items);
 }
 
 /// Replaces the queue with `items` and starts playing at `start_index` (default: the first).
@@ -364,6 +377,64 @@ pub async fn online_search(
         top: crate::search::merge_top(&providers),
         providers,
     })
+}
+
+/// Songs an artist page shows (M46.8).
+const ARTIST_POPULAR_LIMIT: usize = 20;
+
+/// An artist's page: popular songs from the sources, and the library's albums and songs by them.
+#[tauri::command]
+#[specta::specta]
+pub async fn music_artist(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    library: tauri::State<'_, LibraryService>,
+    name: String,
+) -> Result<raygun_model::ArtistOverview, String> {
+    let name = name.trim().to_owned();
+    if name.is_empty() {
+        return Err("No artist named".into());
+    }
+    let (providers, albums, local) = futures_util::future::join3(
+        extensions.search(&name),
+        library.albums(Some(&name)),
+        library.search(&name, 500),
+    )
+    .await;
+    let tracks = local
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|track| {
+            crate::search::credits_include(&track.artist, &name)
+                || crate::search::credits_include(&track.album_artist, &name)
+        })
+        .collect();
+    Ok(raygun_model::ArtistOverview {
+        popular: crate::search::artist_tracks(&providers, &name, ARTIST_POPULAR_LIMIT),
+        albums: albums.unwrap_or_default(),
+        tracks,
+        name,
+    })
+}
+
+/// Where a song is saved: Favorites and the playlists holding it (M46.8).
+#[tauri::command]
+#[specta::specta]
+pub async fn collections_saves(
+    collections: tauri::State<'_, CollectionsService>,
+    track: TrackInput,
+) -> Result<raygun_model::TrackSaves, String> {
+    collections.saves(track).await
+}
+
+/// Saves a song exactly where `saves` says (the Add to playlist popover's Done, M46.8).
+#[tauri::command]
+#[specta::specta]
+pub async fn collections_set_saves(
+    collections: tauri::State<'_, CollectionsService>,
+    track: TrackInput,
+    saves: raygun_model::TrackSaves,
+) -> Result<(), String> {
+    collections.set_saves(track, saves).await
 }
 
 /// Favorite tracks, most recently added first.

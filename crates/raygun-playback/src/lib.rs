@@ -56,6 +56,12 @@ pub struct PlaybackCore {
     load_id: u32,
     consecutive_errors: usize,
     rng: XorShift,
+    /// See [`PlaybackState::rate`].
+    rate: f64,
+    /// See [`PlaybackState::sleep_at`]; the service's timer pauses then.
+    sleep_at: Option<f64>,
+    /// See [`PlaybackState::stop_after_current`].
+    stop_after_current: bool,
 }
 
 impl PlaybackCore {
@@ -76,6 +82,9 @@ impl PlaybackCore {
             load_id: 0,
             consecutive_errors: 0,
             rng: XorShift::new(seed),
+            rate: 1.0,
+            sleep_at: None,
+            stop_after_current: false,
         }
     }
 
@@ -90,7 +99,86 @@ impl PlaybackCore {
             shuffle: self.shuffle,
             error: self.error.clone(),
             source_label: self.source_label.clone(),
+            rate: self.rate,
+            sleep_at: self.sleep_at,
+            stop_after_current: self.stop_after_current,
         }
+    }
+
+    /// Playback speed, kept between 0.5 and 2 (M46.8). Engines keep it across loads, and the
+    /// service sends it again after each load.
+    pub fn set_rate(&mut self, rate: f64) -> Vec<Effect> {
+        if !rate.is_finite() {
+            return Vec::new();
+        }
+        self.rate = rate.clamp(0.5, 2.0);
+        vec![
+            Effect::Engine(EngineCommand::SetRate { rate: self.rate }),
+            Effect::StateChanged,
+        ]
+    }
+
+    pub fn rate(&self) -> f64 {
+        self.rate
+    }
+
+    /// The sleep timer (M46.8): a time the service pauses at, or the end of the current song.
+    pub fn set_sleep(&mut self, sleep_at: Option<f64>, stop_after_current: bool) -> Vec<Effect> {
+        self.sleep_at = sleep_at;
+        self.stop_after_current = stop_after_current;
+        vec![Effect::StateChanged]
+    }
+
+    /// The timer's time came: pause, and forget it.
+    pub fn sleep_now(&mut self) -> Vec<Effect> {
+        self.sleep_at = None;
+        let mut effects = self.pause();
+        effects.push(Effect::StateChanged);
+        effects
+    }
+
+    /// Queues items to play right after the current one, in the order given (Play next, M46.8);
+    /// with nothing playing, at the front.
+    pub fn enqueue_next(&mut self, inputs: Vec<QueueItemInput>) -> Vec<Effect> {
+        if inputs.is_empty() {
+            return Vec::new();
+        }
+        let first = self.cursor.map_or(0, |cursor| cursor + 1);
+        for (slot, input) in (first..).zip(inputs) {
+            let index = self.items.len();
+            self.items.push(QueueItem {
+                id: uuid::Uuid::now_v7().to_string(),
+                title: input.title,
+                artist: input.artist,
+                album: input.album,
+                duration_ms: input.duration_ms,
+                artwork_url: input.artwork_url,
+                media_kind: input.media_kind,
+                source: input.source,
+            });
+            self.order.insert(slot, index);
+        }
+        vec![Effect::QueueChanged]
+    }
+
+    /// Moves an item in the play order: before `before_item_id`, or to the end (M46.8). The
+    /// current item stays current.
+    pub fn move_item(&mut self, item_id: &str, before_item_id: Option<&str>) -> Vec<Effect> {
+        let Some(index) = self.items.iter().position(|item| item.id == item_id) else {
+            return Vec::new();
+        };
+        let current = self.cursor.map(|cursor| self.order[cursor]);
+        let from = self.position_in_order(index);
+        self.order.remove(from);
+        let to = match before_item_id
+            .and_then(|before| self.items.iter().position(|item| item.id == before))
+        {
+            Some(before) if before != index => self.position_in_order(before),
+            _ => self.order.len(),
+        };
+        self.order.insert(to, index);
+        self.cursor = current.map(|current| self.position_in_order(current));
+        vec![Effect::QueueChanged]
     }
 
     /// The id of the latest `Effect::Load`; engine reports and async resolutions must match it.
@@ -396,6 +484,15 @@ impl PlaybackCore {
 
     fn on_ended(&mut self) -> Vec<Effect> {
         let cursor = self.cursor.expect("report checked cursor");
+        if self.stop_after_current {
+            // The sleep timer's "end of song": the next one waits, paused, to be resumed.
+            self.stop_after_current = false;
+            if cursor + 1 < self.order.len() {
+                return self.load_at(cursor + 1, 0.0, false);
+            }
+            self.status = PlaybackStatus::Ended;
+            return vec![Effect::StateChanged];
+        }
         if self.repeat == RepeatMode::One {
             return self.load_at(cursor, 0.0, true);
         }

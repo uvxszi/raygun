@@ -1,4 +1,4 @@
-import type { Accent, MotionLevel, ScrollbarStyle, Theme } from '@raygun/bindings';
+import type { Accent, CustomColors, MotionLevel, ScrollbarStyle, Theme } from '@raygun/bindings';
 import { useEffect } from 'react';
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -44,6 +44,18 @@ export const useApplyTheme = (
       root.dataset.accent = accent;
     }
   }, [accent, accentColor]);
+};
+
+/** The user's own colours over the theme's (M46.8): set on the root, they win over any theme. */
+export const useApplyColors = (colors: Partial<CustomColors> | undefined) => {
+  const { background = '', surface = '', foreground = '', muted = '' } = colors ?? {};
+  useEffect(() => {
+    const root = document.documentElement;
+    for (const [key, value] of Object.entries({ background, surface, foreground, muted })) {
+      if (HEX.test(value)) root.style.setProperty(`--color-${key}`, value);
+      else root.style.removeProperty(`--color-${key}`);
+    }
+  }, [background, surface, foreground, muted]);
 };
 
 /** Puts the scrollbar style and the animation level on the page (M46.7; styles.css). */

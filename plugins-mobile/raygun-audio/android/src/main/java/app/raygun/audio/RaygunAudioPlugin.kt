@@ -102,6 +102,11 @@ class VolumeArgs {
     var volume: Double? = null
 }
 
+@InvokeArg
+class RateArgs {
+    var rate: Double? = null
+}
+
 private const val PROGRESS_INTERVAL_MS = 500L
 
 /**
@@ -210,6 +215,15 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     fun setVolume(invoke: Invoke) {
         val args = invoke.parseArgs(VolumeArgs::class.java)
         withController { it.volume = (args.volume ?: 1.0).toFloat() }
+        invoke.resolve()
+    }
+
+    /** Playback speed (M46.8); Media3 keeps it for the next items. */
+    @Command
+    fun setRate(invoke: Invoke) {
+        val args = invoke.parseArgs(RateArgs::class.java)
+        val rate = (args.rate ?: 1.0).coerceIn(0.5, 2.0).toFloat()
+        withController { it.setPlaybackSpeed(rate) }
         invoke.resolve()
     }
 

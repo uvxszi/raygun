@@ -48,6 +48,8 @@
       var token = null;
       var videoId = null;
       var settled = false;
+      // Playback speed (M46.8); a new video starts at 1, so it's set again once it plays.
+      var rate = 1;
 
       function post(message) {
         message.raygunEmbed = true;
@@ -95,6 +97,10 @@
           case 'volume':
             player.setVolume(Math.round((command.volume == null ? 1 : command.volume) * 100));
             break;
+          case 'rate':
+            rate = command.rate || 1;
+            if (player.setPlaybackRate) player.setPlaybackRate(rate);
+            break;
           case 'stop':
             token = null;
             settled = false;
@@ -133,6 +139,13 @@
               var state = STATES[String(event.data)] || 'unstarted';
               if (!onCurrentVideo()) return;
               if (state === 'playing' || state === 'paused' || state === 'cued') settled = true;
+              if (
+                state === 'playing' &&
+                player.getPlaybackRate &&
+                player.getPlaybackRate() !== rate
+              ) {
+                player.setPlaybackRate(rate);
+              }
               post({ type: 'state', state: state });
               reportProgress();
             },

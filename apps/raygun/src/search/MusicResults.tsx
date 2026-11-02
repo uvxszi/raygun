@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { TrackRow } from '../library/TrackRow';
 import { playFromLibrary } from '../library/useLibrary';
 import { OnlineTrackRow } from './OnlineTrackRow';
+import { SourceMenu } from './SourceMenu';
 import { playResults, useOnlineSearch } from './useOnlineSearch';
 
 type ProviderResultsProps = { result: ProviderSearchResult; ambiguous: boolean; limit?: number };
@@ -14,10 +15,17 @@ const ProviderResults: FC<ProviderResultsProps> = ({ result, ambiguous, limit })
   const tracks = limit ? result.tracks.slice(0, limit) : result.tracks;
   return (
     <section data-testid="provider-results" className="flex flex-col gap-1">
-      <h3 className="text-muted text-sm font-medium">
-        {result.provider.name}
-        {/* Two sources with one name (a Nuclear plugin beside Raygun's own) need telling apart. */}
-        {ambiguous && <span className="font-normal"> · {result.provider.extensionId}</span>}
+      <h3 className="text-muted flex min-w-0 items-center gap-1 text-sm font-medium">
+        <span className="truncate">
+          {result.provider.name}
+          {/* Two sources with one name (a Nuclear plugin beside Raygun's own) need telling apart. */}
+          {ambiguous && <span className="font-normal"> · {result.provider.extensionId}</span>}
+        </span>
+        <SourceMenu
+          sourceId={result.provider.id}
+          extensionId={result.provider.extensionId}
+          name={result.provider.name}
+        />
       </h3>
       {result.error ? (
         <p role="alert" className="text-primary text-sm wrap-anywhere">

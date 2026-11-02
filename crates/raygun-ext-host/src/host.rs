@@ -221,8 +221,19 @@ impl ExtensionHost {
             .unwrap_or_default()
     }
 
-    /// Providers of `kind`; those of NSFW-rated extensions only while NSFW content is shown.
+    /// Providers of `kind` that searches and lookups use: not the disabled ones, and those of
+    /// NSFW-rated extensions only while NSFW content is shown.
     pub async fn providers(&self, kind: &str) -> Vec<ProviderInfo> {
+        self.listed_providers(kind)
+            .await
+            .into_iter()
+            .filter(|provider| !self.content.is_disabled(&provider.id))
+            .collect()
+    }
+
+    /// Providers of `kind` to list, disabled ones included (the user turns them back on there,
+    /// M46.8); NSFW-rated extensions' only while NSFW content is shown.
+    pub async fn listed_providers(&self, kind: &str) -> Vec<ProviderInfo> {
         let show_nsfw = self.content.show_nsfw();
         self.list()
             .await

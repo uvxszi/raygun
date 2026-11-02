@@ -37,7 +37,8 @@ import { PlayerViewSettings } from './PlayerViewSettings';
 import { useCloseOnBack } from './useCloseOnBack';
 import { onSeekKey } from './seekKeys';
 import { useLivePosition } from './useLivePosition';
-import { useVideoSurface } from './useVideoSurface';
+import { hasVideo } from './hasVideo';
+import { MediaArt, VideoToggle } from './MediaArt';
 import { isActive, sendControl, sourceNote, useNowPlaying } from './usePlayback';
 
 const DISMISS_DISTANCE = 120;
@@ -74,8 +75,9 @@ export const PlayerSheet: FC = () => {
   const large = useSideRail();
   const sideBySide =
     wide && (layout.layout === 'sideBySide' || (layout.layout === 'auto' && large));
-  const isVideo = item?.source.kind === 'youTube';
-  const videoSurfaceRef = useVideoSurface(sheetOpen && isVideo);
+  const videoShown = usePlayerUiStore((state) => state.videoShown);
+  // A YouTube song shows its video only once asked for (M46.8).
+  const isVideo = hasVideo(item) && videoShown;
   const [layoutAnchor, setLayoutAnchor] = useState<HTMLElement | null>(null);
   const [scrubbing, setScrubbing] = useState(false);
 
@@ -117,21 +119,18 @@ export const PlayerSheet: FC = () => {
   };
 
   const width = columnWidth(layout, sideBySide);
-  const media = isVideo ? (
-    <div
-      ref={videoSurfaceRef}
-      data-testid="video-surface"
-      className="aspect-video w-full rounded-2xl bg-black"
-    />
-  ) : (
-    <Artwork
-      key={item?.artworkUrl ?? 'none'}
-      url={item?.artworkUrl}
-      className={`aspect-square w-full rounded-2xl shadow-xl ${
+  const media = item ? (
+    <MediaArt
+      item={item}
+      active={sheetOpen}
+      videoClassName="aspect-video w-full rounded-2xl bg-black"
+      artworkClassName={`mx-auto aspect-square w-full rounded-2xl shadow-xl ${
         sideBySide ? 'max-w-[min(100%,calc(100dvh-22rem))]' : 'max-w-[min(100%,calc(100dvh-26rem))]'
       }`}
       iconSize={96}
     />
+  ) : (
+    <Artwork url={null} className="aspect-square w-full max-w-xs rounded-2xl" iconSize={96} />
   );
   const lyrics = item ? (
     <LyricsView item={item} state={state} size={layout.lyricsSize} align={layout.lyricsAlign} />
@@ -180,6 +179,7 @@ export const PlayerSheet: FC = () => {
             </button>
             <span aria-hidden className="bg-muted/40 h-1.5 w-10 rounded-full" />
             <div className="flex items-center">
+              <VideoToggle item={item} className="size-11" />
               {item &&
                 !sideBySide &&
                 viewButton('lyrics', t('player.lyrics'), <MicVocal aria-hidden size={22} />)}
@@ -254,8 +254,7 @@ export const PlayerSheet: FC = () => {
                   onPointerDownCapture={view === 'artwork' ? undefined : keepDrag}
                   className="flex min-h-0 flex-1 flex-col items-center justify-center"
                 >
-                  {isVideo && media}
-                  {view === 'lyrics' ? lyrics : view === 'queue' ? queue : !isVideo && media}
+                  {view === 'lyrics' ? lyrics : view === 'queue' ? queue : media}
                 </div>
                 <Controls
                   state={state}

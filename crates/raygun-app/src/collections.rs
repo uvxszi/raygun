@@ -9,6 +9,7 @@ use raygun_db::local_music::TrackRow;
 use raygun_model::{
     Collection, CollectionPlayRequest, HistoryEntry, MediaKind, MediaSource, PlaylistDetail,
     PlaylistItem, PlaylistSummary, QueueItem, QueueItemInput, SavedTrack, TrackInput, TrackQuery,
+    TrackSaves,
 };
 use tauri::{AppHandle, Manager};
 
@@ -40,8 +41,52 @@ impl CollectionsService {
         let rows = collections::favorites(self.db())
             .await
             .map_err(to_message)?;
-        self.saved(rows.into_iter().map(|row| row.track).collect())
+        let added: Vec<i64> = rows.iter().map(|row| row.added_at).collect();
+        let tracks = self
+            .saved(rows.into_iter().map(|row| row.track).collect())
+            .await?;
+        Ok(with_dates(tracks, added))
+    }
+
+    /// Where a song is saved: Favorites and the playlists holding it (M46.8).
+    pub async fn saves(&self, track: TrackInput) -> Result<TrackSaves, String> {
+        let key = fields(track).track_key;
+        let db = self.db();
+        Ok(TrackSaves {
+            favorite: collections::is_favorite(db, &key)
+                .await
+                .map_err(to_message)?,
+            playlist_ids: collections::playlists_with_track(db, &key)
+                .await
+                .map_err(to_message)?,
+        })
+    }
+
+    /// Makes a song saved exactly where `saves` says: Favorites on or off, added to the playlists
+    /// listed that don't hold it, taken out of the ones not listed (M46.8).
+    pub async fn set_saves(&self, track: TrackInput, saves: TrackSaves) -> Result<(), String> {
+        let saved = fields(track);
+        let db = self.db();
+        let now = now_ms();
+        collections::set_favorite(db, &saved, saves.favorite, now)
             .await
+            .map_err(to_message)?;
+        let current = collections::playlists_with_track(db, &saved.track_key)
+            .await
+            .map_err(to_message)?;
+        for id in &saves.playlist_ids {
+            if !current.contains(id) {
+                collections::add_to_playlist(db, id, std::slice::from_ref(&saved), now)
+                    .await
+                    .map_err(to_message)?;
+            }
+        }
+        for id in current.iter().filter(|id| !saves.playlist_ids.contains(id)) {
+            collections::remove_track_from_playlist(db, id, &saved.track_key)
+                .await
+                .map_err(to_message)?;
+        }
+        Ok(())
     }
 
     pub async fn is_favorite(&self, track: TrackInput) -> Result<bool, String> {
@@ -80,9 +125,11 @@ impl CollectionsService {
             .await
             .map_err(to_message)?;
         let ids: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
+        let added: Vec<i64> = rows.iter().map(|row| row.added_at).collect();
         let tracks = self
             .saved(rows.into_iter().map(|row| row.track).collect())
             .await?;
+        let tracks = with_dates(tracks, added);
         Ok(PlaylistDetail {
             playlist: self.summary(row).await?,
             items: ids
@@ -220,6 +267,11 @@ impl CollectionsService {
                 .map(|entry| entry.track)
                 .collect(),
         };
+        // A sorted or filtered table plays in the order it shows (M46.8).
+        let tracks = match &request.order {
+            Some(order) => in_order(tracks, order),
+            None => tracks,
+        };
         if tracks.is_empty() {
             return Err("Nothing to play here yet".into());
         }
@@ -267,6 +319,9 @@ impl CollectionsService {
     async fn saved(&self, rows: Vec<TrackFields>) -> Result<Vec<SavedTrack>, String> {
         let keys: Vec<String> = rows.iter().map(|row| row.track_key.clone()).collect();
         let local = self.local_matches(&keys).await?;
+        let plays = collections::play_counts(self.db(), &keys)
+            .await
+            .map_err(to_message)?;
         let library = self.app.state::<LibraryService>();
         Ok(rows
             .into_iter()
@@ -275,6 +330,8 @@ impl CollectionsService {
                 let local_art = found.and_then(|track| library.artwork_url(track.art.clone()));
                 SavedTrack {
                     local: found.is_some(),
+                    play_count: plays.get(&row.track_key).copied().unwrap_or(0) as u32,
+                    added_at: None,
                     artwork_url: local_art.or(row.artwork_url),
                     track_key: row.track_key,
                     title: row.title,
@@ -397,6 +454,31 @@ fn playlist_name(name: &str) -> Result<String, String> {
     }
 }
 
+/// `tracks` with the dates they were saved, in the same order.
+fn with_dates(tracks: Vec<SavedTrack>, added: Vec<i64>) -> Vec<SavedTrack> {
+    tracks
+        .into_iter()
+        .zip(added)
+        .map(|(track, added_at)| SavedTrack {
+            added_at: Some(added_at as f64),
+            ..track
+        })
+        .collect()
+}
+
+/// `tracks` in the order of `keys`; keys not among them are skipped, and a key listed twice
+/// takes the next track with it (a playlist can hold a song twice).
+fn in_order(tracks: Vec<SavedTrack>, keys: &[String]) -> Vec<SavedTrack> {
+    let mut left: Vec<Option<SavedTrack>> = tracks.into_iter().map(Some).collect();
+    keys.iter()
+        .filter_map(|key| {
+            left.iter_mut()
+                .find(|slot| slot.as_ref().is_some_and(|track| &track.track_key == key))
+                .and_then(Option::take)
+        })
+        .collect()
+}
+
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -487,6 +569,36 @@ mod tests {
     }
 
     #[test]
+    fn tables_play_in_the_order_they_show() {
+        let song = |key: &str| SavedTrack {
+            track_key: key.into(),
+            title: key.into(),
+            artist: None,
+            album: None,
+            duration_ms: None,
+            artwork_url: None,
+            source: None,
+            local: false,
+            added_at: None,
+            play_count: 0,
+        };
+        let tracks = vec![song("a"), song("b"), song("a"), song("c")];
+        let keys = |tracks: Vec<SavedTrack>| -> Vec<String> {
+            tracks.into_iter().map(|track| track.track_key).collect()
+        };
+        // A key twice takes both copies; unknown keys are skipped; unlisted tracks are left out.
+        assert_eq!(
+            keys(in_order(
+                tracks.clone(),
+                &["c".into(), "a".into(), "x".into(), "a".into()]
+            )),
+            ["c", "a", "a"]
+        );
+        let dated = with_dates(tracks, vec![10, 20, 30, 40]);
+        assert_eq!(dated[1].added_at, Some(20.0));
+    }
+
+    #[test]
     fn saved_tracks_without_a_source_play_through_the_resolver() {
         let track = SavedTrack {
             track_key: "a|b".into(),
@@ -497,6 +609,8 @@ mod tests {
             artwork_url: None,
             source: None,
             local: false,
+            added_at: None,
+            play_count: 0,
         };
         let item = queue_item(track.clone());
         assert!(matches!(item.source, MediaSource::Lookup { ref title, .. } if title == "B"));

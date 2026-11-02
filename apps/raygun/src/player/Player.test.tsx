@@ -167,7 +167,7 @@ describe('Player with video', () => {
     AppShellWrapper.seedCore();
   });
 
-  it('shows a video area instead of artwork for YouTube items', async () => {
+  it('plays YouTube songs as music, and shows their video only when asked', async () => {
     const video = {
       ...makeItem('Clip'),
       mediaKind: 'video' as const,
@@ -179,7 +179,11 @@ describe('Player with video', () => {
 
     const sheet = await AppShellWrapper.playerSheet.element;
 
+    expect(within(sheet).queryByTestId('video-surface')).not.toBeInTheDocument();
+    await userEvent.click(within(sheet).getAllByRole('button', { name: 'Show the video' })[0]!);
     expect(within(sheet).getByTestId('video-surface')).toBeInTheDocument();
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Show artwork' }));
+    expect(within(sheet).queryByTestId('video-surface')).not.toBeInTheDocument();
   });
 });
 

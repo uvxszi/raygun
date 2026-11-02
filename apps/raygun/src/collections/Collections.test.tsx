@@ -19,6 +19,8 @@ const saved = (title: string, artworkUrl: string | null = null): SavedTrack => (
   artworkUrl,
   source: null,
   local: false,
+  addedAt: null,
+  playCount: 0,
 });
 
 const online: OnlineTrack = {
@@ -34,6 +36,7 @@ const online: OnlineTrack = {
 const PROVIDER = {
   id: 'dev.raygun.musicbrainz/recordings',
   extensionId: 'dev.raygun.musicbrainz',
+  enabled: true,
   kind: 'music.metadata',
   name: 'MusicBrainz',
 };

@@ -223,8 +223,20 @@ describe('convertPlugin', () => {
     ).toBeNull();
   });
 
+  it('declares providers the code registers beyond its categories (OmniSource)', async () => {
+    // Says "streaming" but also registers metadata, as OmniSource 1.0.1 does.
+    const files = pluginFiles({ ...PACKAGE, nuclear: { categories: ['streaming'] } });
+    const { manifest, bundle } = convertPlugin(files, shim);
+    expect(manifest.provides).toEqual(expect.arrayContaining(['music.stream', 'music.metadata']));
+    const { providers } = await runBundle(bundle);
+    expect(providers.map((provider) => provider.kind)).toContain('music.metadata');
+  });
+
   it('rejects plugins Raygun has nothing to run for', () => {
     const files = pluginFiles({ ...PACKAGE, nuclear: { categories: ['dashboard', 'playlists'] } });
+    // Its code registers nothing Raygun runs either.
+    files['sample-1.2.3/src/index.ts'] =
+      `export default { onEnable(api) { api.Logger.info('hi'); } };`;
     expect(() => convertPlugin(files, shim)).toThrow(
       "Raygun can't run this Nuclear plugin yet: it provides dashboard, playlists",
     );

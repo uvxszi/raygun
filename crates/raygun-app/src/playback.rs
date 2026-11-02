@@ -2,11 +2,13 @@
 //! need one (M14), serving sources through the stream proxy, commanding the right engine for each
 //! item, broadcasting state to every client and counting plays for history (M18).
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use raygun_model::{
     EngineCommand, EngineEvent, EngineReport, MediaSource, PlaybackControl, PlaybackState,
-    QueueItem, QueueItemInput, QueueSnapshot,
+    QueueItem, QueueItemInput, QueueSnapshot, SleepTimer,
 };
 use raygun_net::StreamProxy;
 use raygun_playback::{Effect, PlaybackCore};
@@ -55,6 +57,8 @@ pub struct PlaybackService {
     proxy: StreamProxy,
     app: AppHandle,
     native: Option<NativeEngineSink>,
+    /// Bumped by every sleep timer setting; a waiting timer only fires if it's still the latest.
+    sleep_generation: Arc<AtomicU64>,
 }
 
 /// Everything to emit once the core lock is released.
@@ -89,6 +93,7 @@ impl PlaybackService {
             proxy,
             app,
             native,
+            sleep_generation: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -128,7 +133,42 @@ impl PlaybackService {
             PlaybackControl::PlayItem { item_id } => core.play_item(&item_id),
             PlaybackControl::Remove { item_id } => core.remove(&item_id),
             PlaybackControl::Clear => core.clear(),
+            PlaybackControl::Move {
+                item_id,
+                before_item_id,
+            } => core.move_item(&item_id, before_item_id.as_deref()),
+            PlaybackControl::SetRate { rate } => core.set_rate(rate),
+            PlaybackControl::SetSleepTimer { timer } => self.sleep_timer(core, timer),
         });
+    }
+
+    /// Queues items right after the current one (Play next, M46.8).
+    pub fn enqueue_next(&self, items: Vec<QueueItemInput>) {
+        self.run(|core| core.enqueue_next(items));
+    }
+
+    /// Sets the sleep timer (M46.8). A time starts a task that pauses then, unless the timer was
+    /// changed meanwhile (each setting has its own generation).
+    fn sleep_timer(&self, core: &mut PlaybackCore, timer: SleepTimer) -> Vec<Effect> {
+        let generation = self.sleep_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        match timer {
+            SleepTimer::Off => core.set_sleep(None, false),
+            SleepTimer::EndOfTrack => core.set_sleep(None, true),
+            SleepTimer::Minutes { minutes } => {
+                let minutes = minutes.clamp(1, 24 * 60);
+                let wait = Duration::from_secs(u64::from(minutes) * 60);
+                let at = crate::catalog::now_ms() as f64 + wait.as_millis() as f64;
+                let app = self.app.clone();
+                let generations = self.sleep_generation.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(wait).await;
+                    if generations.load(Ordering::SeqCst) == generation {
+                        app.state::<PlaybackService>().run(PlaybackCore::sleep_now);
+                    }
+                });
+                core.set_sleep(Some(at), false)
+            }
+        }
     }
 
     pub fn report(&self, report: EngineReport) {
@@ -389,6 +429,13 @@ impl PlaybackService {
             },
         };
         outbox.engine.push((engine, command));
+        // Engines keep the speed across loads, but an engine just switched to may not know it.
+        let rate = inner.core.rate();
+        if (rate - 1.0).abs() > f64::EPSILON {
+            outbox
+                .engine
+                .push((engine, EngineCommand::SetRate { rate }));
+        }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {

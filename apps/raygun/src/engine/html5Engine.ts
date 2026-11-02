@@ -6,6 +6,8 @@ export type MediaElementLike = Pick<
   | 'src'
   | 'currentTime'
   | 'volume'
+  | 'playbackRate'
+  | 'defaultPlaybackRate'
   | 'duration'
   | 'error'
   | 'play'
@@ -81,6 +83,11 @@ export class Html5Engine {
         break;
       case 'setVolume':
         this.media.volume = command.volume ?? 1;
+        break;
+      case 'setRate':
+        // The default survives new sources, which reset the rate to it (M46.8).
+        this.media.defaultPlaybackRate = command.rate ?? 1;
+        this.media.playbackRate = command.rate ?? 1;
         break;
       case 'stop':
         this.loadId = null;

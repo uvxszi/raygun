@@ -135,6 +135,7 @@ const WideBar: FC<BarProps> = ({ state, item }) => {
   const note = sourceNote(state, item);
   const repeat = state?.repeat ?? 'off';
   const isVideo = item.source.kind === 'youTube';
+  const setVideoShown = usePlayerUiStore((store) => store.setVideoShown);
 
   return (
     <div
@@ -195,7 +196,13 @@ const WideBar: FC<BarProps> = ({ state, item }) => {
 
       <div className="flex min-w-0 items-center justify-end gap-1">
         {isVideo ? (
-          <BarButton label={t('player.showVideo')} onClick={() => openSheet()}>
+          <BarButton
+            label={t('player.showVideo')}
+            onClick={() => {
+              setVideoShown(true);
+              openSheet();
+            }}
+          >
             <MonitorPlay aria-hidden size={18} />
           </BarButton>
         ) : (

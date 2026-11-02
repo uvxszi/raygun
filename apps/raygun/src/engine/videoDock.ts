@@ -16,6 +16,7 @@ export const createVideoDock = (): { container: HTMLDivElement; frame: HTMLIFram
     zIndex: '60',
     overflow: 'hidden',
     borderRadius: '16px',
+    // Clickable only while it shows (place): YouTube's own play/pause and links (M46.8).
     pointerEvents: 'none',
     background: '#000',
   });
@@ -35,20 +36,25 @@ export const removeVideoDock = () => {
   dock = null;
 };
 
-export const showVideoAt = (rect: Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>) => {
-  place(rect);
+/** How much of the video's top and bottom its surroundings hide, in px. */
+export type VideoClip = { top: number; bottom: number };
+
+export const showVideoAt = (
+  rect: Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>,
+  clip: VideoClip = { top: 0, bottom: 0 },
+) => {
+  place(rect, true, clip);
 };
 
 export const hideVideo = () => {
-  place(OFFSCREEN);
+  place(OFFSCREEN, false);
 };
 
-const place = ({
-  left,
-  top,
-  width,
-  height,
-}: Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>) => {
+const place = (
+  { left, top, width, height }: Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>,
+  shown: boolean,
+  clip: VideoClip = { top: 0, bottom: 0 },
+) => {
   if (!dock) {
     return;
   }
@@ -57,5 +63,7 @@ const place = ({
     top: `${top}px`,
     width: `${width}px`,
     height: `${height}px`,
+    pointerEvents: shown ? 'auto' : 'none',
+    clipPath: clip.top > 0 || clip.bottom > 0 ? `inset(${clip.top}px 0 ${clip.bottom}px 0)` : '',
   });
 };

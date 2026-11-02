@@ -137,8 +137,22 @@ export const convertPlugin = (files: Record<string, string>, shimSource: string)
   const categories =
     pkg.nuclear?.categories ?? (pkg.nuclear?.category ? [pkg.nuclear.category] : []);
   const code = Object.values(sources);
+  // Plugins also register providers their categories don't name (OmniSource's metadata, M46.8).
+  const registered = [
+    ...new Set(
+      code.flatMap((source) =>
+        [...source.matchAll(/\bkind\s*:\s*['"](metadata|streaming|lyrics)['"]/g)].map(
+          ([, kind]) => kind as string,
+        ),
+      ),
+    ),
+  ];
   const report: CompatReport = {
-    supported: [...new Set(categories.flatMap((category) => CATEGORY_KINDS[category] ?? []))],
+    supported: [
+      ...new Set(
+        [...categories, ...registered].flatMap((category) => CATEGORY_KINDS[category] ?? []),
+      ),
+    ],
     unsupportedCategories: categories.filter((category) => !(category in CATEGORY_KINDS)),
     stubbedApis: STUBBED_DOMAINS.filter((domain) =>
       code.some((source) => new RegExp(`\\.${domain}\\s*\\.`).test(source)),

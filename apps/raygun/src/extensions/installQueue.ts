@@ -6,9 +6,15 @@ import { create } from 'zustand';
 import { unwrapResult } from '../lib/commandResult';
 import { CATALOG, EXTENSIONS } from './useExtensions';
 
-/** An install waiting its turn, running, or failed (finished ones are dropped). */
+/** An install waiting its turn, running, just finished (shown a moment), or failed. */
 export type InstallStatus =
-  { state: 'queued' } | { state: 'installing' } | { state: 'failed'; message: string };
+  | { state: 'queued' }
+  | { state: 'installing' }
+  | { state: 'done' }
+  | { state: 'failed'; message: string };
+
+/** How long a finished install says so on its row. */
+const DONE_SHOWN_MS = 4000;
 
 /** One catalog entry: the same extension can be listed by more than one repository. */
 export const entryKey = (entry: Pick<CatalogEntry, 'repoId' | 'id'>) =>
@@ -49,7 +55,11 @@ const drain = async (stored: (extensions: ExtensionInfo[]) => void) => {
     setStatus(key, { state: 'installing' });
     try {
       stored(await unwrapResult(commands.extensionInstall(entry.repoId, entry.id)));
-      setStatus(key, null);
+      // Said on the row for a moment, so a click visibly did something (M46.8).
+      setStatus(key, { state: 'done' });
+      setTimeout(() => {
+        if (useQueueStore.getState().status[key]?.state === 'done') setStatus(key, null);
+      }, DONE_SHOWN_MS);
     } catch (error) {
       setStatus(key, {
         state: 'failed',

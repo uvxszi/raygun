@@ -41,6 +41,7 @@ type EmbedCommand =
   | { type: 'pause' }
   | { type: 'seek'; positionMs: number }
   | { type: 'volume'; volume: number }
+  | { type: 'rate'; rate: number }
   | { type: 'stop' };
 
 /** IFrame Player API error codes, phrased for people. */
@@ -112,6 +113,9 @@ export class YouTubeEmbedEngine {
         break;
       case 'setVolume':
         this.send({ type: 'volume', volume: command.volume ?? 1 });
+        break;
+      case 'setRate':
+        this.send({ type: 'rate', rate: command.rate ?? 1 });
         break;
       case 'stop':
         this.loadId = null;

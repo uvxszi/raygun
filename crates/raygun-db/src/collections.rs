@@ -314,6 +314,39 @@ pub async fn remove_playlist_item(db: &Db, item_id: &str) -> Result<(), DbError>
     finish(transaction, stamp).await
 }
 
+/// The live playlists holding a song (M46.8).
+pub async fn playlists_with_track(db: &Db, track_key: &str) -> Result<Vec<String>, DbError> {
+    let rows = sqlx::query(
+        "SELECT DISTINCT item.playlist_id AS id FROM music_playlist_item AS item
+         JOIN music_playlist AS playlist ON playlist.id = item.playlist_id AND playlist.deleted = 0
+         WHERE item.track_key = ?1 AND item.deleted = 0",
+    )
+    .bind(track_key)
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows.iter().map(|row| row.get("id")).collect())
+}
+
+/// Tombstones every item of a song in a playlist (M46.8).
+pub async fn remove_track_from_playlist(
+    db: &Db,
+    playlist_id: &str,
+    track_key: &str,
+) -> Result<(), DbError> {
+    let (mut transaction, stamp) = begin(db).await?;
+    sqlx::query(
+        "UPDATE music_playlist_item SET deleted = 1, updated_at_hlc = ?3, origin_device = ?4
+         WHERE playlist_id = ?1 AND track_key = ?2 AND deleted = 0",
+    )
+    .bind(playlist_id)
+    .bind(track_key)
+    .bind(stamp.hlc)
+    .bind(&stamp.device)
+    .execute(&mut *transaction)
+    .await?;
+    finish(transaction, stamp).await
+}
+
 /// Moves an item before another item of its playlist, or to the end when `before` is None.
 /// Only the moved row changes, unless the gap is too small and the playlist is renumbered.
 pub async fn move_playlist_item(
@@ -461,6 +494,29 @@ pub async fn recent_history(db: &Db, limit: i64) -> Result<Vec<HistoryRow>, DbEr
             played_at: row.get("played_at"),
         })
         .collect())
+}
+
+/// How many times each of `keys` was played (M46.8); keys never played are missing.
+pub async fn play_counts(
+    db: &Db,
+    keys: &[String],
+) -> Result<std::collections::HashMap<String, i64>, DbError> {
+    let mut counts = std::collections::HashMap::new();
+    // SQLite allows a limited number of bound values per statement.
+    for chunk in keys.chunks(500) {
+        let marks = vec!["?"; chunk.len()].join(", ");
+        let mut query = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "SELECT track_key, COUNT(*) AS plays FROM music_play_history
+             WHERE deleted = 0 AND track_key IN ({marks}) GROUP BY track_key"
+        )));
+        for key in chunk {
+            query = query.bind(key);
+        }
+        for row in query.fetch_all(db.pool()).await? {
+            counts.insert(row.get("track_key"), row.get("plays"));
+        }
+    }
+    Ok(counts)
 }
 
 /// Tombstones every play.

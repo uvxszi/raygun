@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next';
 import { LANGUAGES, SYSTEM_LANGUAGE, nativeName, resolveLanguage } from '../i18n/languages';
 import { useLayout } from '../layout/useLayout';
 import { NAV_TABS, isNavTabId } from '../shell/navTabs';
+import { ColorSettings } from './ColorSettings';
 import { PrefBlock, PrefChoice, PrefGroup } from './prefs';
 import { useSettings, useUpdateSetting } from './useSettings';
 
@@ -161,6 +162,7 @@ export const AppearanceCard: FC = () => {
           </div>
         </PrefBlock>
       </PrefGroup>
+      <ColorSettings />
       <PrefGroup title={t('settings.display')}>
         <PrefChoice<string>
           title={t('settings.language')}

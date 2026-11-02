@@ -10,6 +10,7 @@ import { ROUTES } from '../manga/medium';
 import type { Medium } from '../manga/medium';
 import { useMangaBrowse, useMangaSources } from '../manga/useManga';
 import { PageHeader } from './PageHeader';
+import { LoadMore } from '../shell/LoadMore';
 
 const LISTS: MangaBrowseMode[] = ['popular', 'latest'];
 
@@ -86,19 +87,11 @@ export const MangaSourcePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) =
         <p className="text-muted text-sm">{t('manga.nothingFound')}</p>
       )}
       <MangaGrid items={items} medium={medium} />
-      {browse.hasNextPage && (
-        <button
-          type="button"
-          disabled={browse.isFetchingNextPage}
-          onClick={() => void browse.fetchNextPage()}
-          className="bg-surface flex items-center gap-2 self-center rounded-full px-5 py-2 text-sm disabled:opacity-60"
-        >
-          {browse.isFetchingNextPage && (
-            <LoaderCircle aria-hidden size={16} className="animate-spin" />
-          )}
-          {t('manga.loadMore')}
-        </button>
-      )}
+      <LoadMore
+        hasNextPage={browse.hasNextPage}
+        fetching={browse.isFetchingNextPage}
+        onLoad={() => void browse.fetchNextPage()}
+      />
     </section>
   );
 };

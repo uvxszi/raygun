@@ -436,6 +436,36 @@ const BrowseSettings: FC = () => {
           }
         />
       </PrefGroup>
+      <PrefGroup title={t('settings.autoLoad.title')}>
+        <PrefSwitch
+          title={t('settings.autoLoad.title')}
+          summary={t('settings.autoLoad.hint')}
+          checked={data.autoLoad?.enabled ?? true}
+          disabled={busy}
+          onChange={(enabled) =>
+            update.mutate({
+              key: 'autoLoad',
+              value: { cooldownMs: data.autoLoad?.cooldownMs ?? 1500, enabled },
+            })
+          }
+        />
+        <PrefSlider
+          title={t('settings.autoLoad.cooldown')}
+          summary={t('settings.autoLoad.cooldownHint')}
+          value={data.autoLoad?.cooldownMs ?? 1500}
+          min={0}
+          max={10_000}
+          step={500}
+          format={(value) => t('settings.autoLoad.seconds', { n: value / 1000 })}
+          disabled={busy || !(data.autoLoad?.enabled ?? true)}
+          onChange={(cooldownMs) =>
+            update.mutate({
+              key: 'autoLoad',
+              value: { enabled: data.autoLoad?.enabled ?? true, cooldownMs },
+            })
+          }
+        />
+      </PrefGroup>
       <WebsiteSettings />
       <PrefGroup title={t('settings.sources')}>
         <PrefLink

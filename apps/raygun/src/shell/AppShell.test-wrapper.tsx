@@ -28,6 +28,7 @@ export const AppShellWrapper = {
     usePlayerUiStore.setState({
       sheetOpen: false,
       sheetView: 'artwork',
+      videoShown: false,
       panel: null,
       unmutedVolume: 1,
     });

@@ -373,7 +373,8 @@ mod tests {
     #[tokio::test]
     async fn custom_accents_cover_sizes_and_reader_zoom_keep_to_what_is_offered() {
         use raygun_model::{
-            Accent, MangaReaderPrefs, PagedScale, PlayerLayout, PlayerViewPrefs, TextAlign,
+            Accent, CustomColors, MangaReaderPrefs, PagedScale, PanelPrefs, PlayerLayout,
+            PlayerViewPrefs, TextAlign, TrackTablePrefs, TrackTableView,
         };
         let temp = TempDir::new().unwrap();
         let db = open(&temp).await;
@@ -445,6 +446,83 @@ mod tests {
         ] {
             assert!(update(&db, SettingChange::MangaReader(bad)).await.is_err());
         }
+
+        // Song tables, panels and colours (M46.8).
+        let mut tables = TrackTablePrefs::default();
+        tables
+            .tables
+            .insert("favorites".into(), TrackTableView::default());
+        assert!(
+            update(&db, SettingChange::TrackTables(tables.clone()))
+                .await
+                .is_ok()
+        );
+        let mut unknown = tables.clone();
+        unknown
+            .tables
+            .insert("somewhere".into(), TrackTableView::default());
+        assert!(
+            update(&db, SettingChange::TrackTables(unknown))
+                .await
+                .is_err()
+        );
+        let mut twice = TrackTableView::default();
+        twice.columns.push(twice.columns[0]);
+        let mut doubled = TrackTablePrefs::default();
+        doubled.tables.insert("playlist".into(), twice);
+        assert!(
+            update(&db, SettingChange::TrackTables(doubled))
+                .await
+                .is_err()
+        );
+        let panels = PanelPrefs {
+            rail_width: 72,
+            side_panel_width: 400,
+            player_split: 40,
+        };
+        assert_eq!(
+            update(&db, SettingChange::Panels(panels))
+                .await
+                .unwrap()
+                .panels,
+            panels
+        );
+        assert!(
+            update(
+                &db,
+                SettingChange::Panels(PanelPrefs {
+                    rail_width: 40,
+                    ..panels
+                })
+            )
+            .await
+            .is_err()
+        );
+        let colors = CustomColors {
+            background: "#101010".into(),
+            surface: "".into(),
+            foreground: "#FAFAFA".into(),
+            muted: "".into(),
+        };
+        assert_eq!(
+            update(&db, SettingChange::Colors(colors))
+                .await
+                .unwrap()
+                .colors
+                .foreground,
+            "#fafafa"
+        );
+        assert!(
+            update(
+                &db,
+                SettingChange::Colors(CustomColors {
+                    background: "red".into(),
+                    ..CustomColors::default()
+                })
+            )
+            .await
+            .is_err()
+        );
 
         // The full player's layout.
         let view = PlayerViewPrefs {

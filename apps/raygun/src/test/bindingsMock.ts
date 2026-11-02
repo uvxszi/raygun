@@ -76,6 +76,9 @@ export const IDLE_STATE: PlaybackState = {
   shuffle: false,
   error: null,
   sourceLabel: null,
+  rate: 1,
+  sleepAt: null,
+  stopAfterCurrent: false,
 };
 
 export const EMPTY_QUEUE: QueueSnapshot = { items: [], order: [] };
@@ -132,6 +135,11 @@ export const DEFAULT_SETTINGS: Settings = {
   playerView: { layout: 'auto', width: 0 },
   scrollbars: 'thin',
   motion: 'lively',
+  trackTables: { tables: {} },
+  panels: { railWidth: 0, sidePanelWidth: 0, playerSplit: 0 },
+  colors: { background: '', surface: '', foreground: '', muted: '' },
+  disabledSources: [],
+  autoLoad: { enabled: true, cooldownMs: 1500 },
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,

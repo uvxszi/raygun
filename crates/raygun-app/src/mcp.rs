@@ -345,6 +345,7 @@ impl AppBackend {
             .ok_or_else(|| format!("No playlist named “{name}”. See playlists_list."))?;
         self.collections()
             .play(CollectionPlayRequest {
+                order: None,
                 collection: Collection::Playlist { id },
                 start_index: None,
                 shuffle: false,

@@ -15,6 +15,7 @@ import { LetterAvatar } from '../shell/LetterAvatar';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { Tabs } from '../shell/Tabs';
 import { SearchPanel } from '../search/SearchPanel';
+import { SourceMenu } from '../search/SourceMenu';
 import { WebsitesSection } from '../websites/WebsitesSection';
 import type { SearchType } from '../search/searchTypes';
 import { useStremioAddons } from '../watch/useStremio';
@@ -32,6 +33,8 @@ type SourceRow = {
   search: Record<string, unknown>;
   /** Where "Latest" leads, for sources that list new titles. */
   latest?: { to: string; search: Record<string, unknown> };
+  /** An extension's source: its ⋯ menu, and whether the user turned it off (M46.8). */
+  source?: { id: string; extensionId: string; enabled: boolean };
 };
 
 const SourceSection: FC<{ title: string; rows: SourceRow[] }> = ({ title, rows }) => {
@@ -47,12 +50,16 @@ const SourceSection: FC<{ title: string; rows: SourceRow[] }> = ({ title, rows }
               to={row.to}
               search={row.search}
               aria-label={row.name}
-              className="hover:bg-surface flex min-w-0 flex-1 items-center gap-4 rounded-xl px-1 py-2.5"
+              className={`hover:bg-surface flex min-w-0 flex-1 items-center gap-4 rounded-xl px-1 py-2.5 ${row.source?.enabled === false ? 'opacity-50' : ''}`}
             >
               <LetterAvatar name={row.name} logo={row.logo} />
               <span className="flex min-w-0 flex-col">
                 <span className="truncate font-medium">{row.name}</span>
-                <span className="text-muted truncate text-xs">{row.detail}</span>
+                <span className="text-muted truncate text-xs">
+                  {row.source?.enabled === false
+                    ? t('sources.disabledNote', { detail: row.detail })
+                    : row.detail}
+                </span>
               </span>
             </Link>
             {row.latest && (
@@ -64,6 +71,13 @@ const SourceSection: FC<{ title: string; rows: SourceRow[] }> = ({ title, rows }
               >
                 {t('manga.list.latest')}
               </Link>
+            )}
+            {row.source && (
+              <SourceMenu
+                sourceId={row.source.id}
+                extensionId={row.source.extensionId}
+                name={row.name}
+              />
             )}
           </li>
         ))}
@@ -93,6 +107,7 @@ const SourcesList: FC = () => {
       to: route,
       search: { id: source.id },
       latest: { to: route, search: { id: source.id, mode: 'latest' } },
+      source: { id: source.id, extensionId: source.extensionId, enabled: source.enabled },
     }));
 
   const videoRows: SourceRow[] = [

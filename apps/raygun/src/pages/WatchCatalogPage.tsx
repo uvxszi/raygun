@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { StremioCard } from '../watch/StremioRow';
 import { useStremioCatalog } from '../watch/useStremio';
 import { PageHeader } from './PageHeader';
+import { LoadMore } from '../shell/LoadMore';
 
 /** One addon catalog as a grid, by genre, page after page. */
 export const WatchCatalogPage: FC = () => {
@@ -74,19 +75,12 @@ export const WatchCatalogPage: FC = () => {
           </li>
         ))}
       </ul>
-      {pages.hasNextPage && (
-        <button
-          type="button"
-          disabled={pages.isFetchingNextPage}
-          onClick={() => void pages.fetchNextPage()}
-          className="bg-surface mx-auto flex items-center gap-2 rounded-full px-5 py-2 text-sm disabled:opacity-60"
-        >
-          {pages.isFetchingNextPage && (
-            <LoaderCircle aria-hidden size={16} className="animate-spin" />
-          )}
-          {t('search.more')}
-        </button>
-      )}
+      <LoadMore
+        hasNextPage={pages.hasNextPage}
+        fetching={pages.isFetchingNextPage}
+        onLoad={() => void pages.fetchNextPage()}
+        label={t('search.more')}
+      />
     </section>
   );
 };

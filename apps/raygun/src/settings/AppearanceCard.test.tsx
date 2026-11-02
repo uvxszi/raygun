@@ -54,6 +54,11 @@ const DEFAULT_SETTINGS: Settings = {
   playerView: { layout: 'auto', width: 0 },
   scrollbars: 'thin',
   motion: 'lively',
+  trackTables: { tables: {} },
+  panels: { railWidth: 0, sidePanelWidth: 0, playerSplit: 0 },
+  colors: { background: '', surface: '', foreground: '', muted: '' },
+  disabledSources: [],
+  autoLoad: { enabled: true, cooldownMs: 1500 },
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,

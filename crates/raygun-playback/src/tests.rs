@@ -527,3 +527,83 @@ fn replace_at_starts_where_listening_stopped() {
             .any(|effect| matches!(effect, Effect::Load { start_ms, .. } if *start_ms == 0.0))
     );
 }
+
+fn order_titles(core: &PlaybackCore) -> Vec<String> {
+    let queue = core.queue();
+    queue
+        .order
+        .iter()
+        .map(|&index| queue.items[index as usize].title.clone())
+        .collect()
+}
+
+#[test]
+fn play_next_goes_right_after_the_current_item_in_order() {
+    let mut core = core_with(&["a", "b", "c"]);
+    core.play_item(&core.queue().items[0].id.clone());
+
+    let effects = core.enqueue_next(vec![input("x"), input("y")]);
+
+    assert_eq!(effects, vec![Effect::QueueChanged]);
+    assert_eq!(order_titles(&core), ["a", "x", "y", "b", "c"]);
+    assert_eq!(current_title(&core).as_deref(), Some("a"));
+    core.next();
+    assert_eq!(current_title(&core).as_deref(), Some("x"));
+}
+
+#[test]
+fn moving_an_item_keeps_the_current_one_playing() {
+    let mut core = core_with(&["a", "b", "c", "d"]);
+    let ids: Vec<String> = core
+        .queue()
+        .items
+        .iter()
+        .map(|item| item.id.clone())
+        .collect();
+    core.play_item(&ids[1]);
+
+    // "d" before "b", then "a" to the end.
+    core.move_item(&ids[3], Some(&ids[1]));
+    assert_eq!(order_titles(&core), ["a", "d", "b", "c"]);
+    core.move_item(&ids[0], None);
+    assert_eq!(order_titles(&core), ["d", "b", "c", "a"]);
+    assert_eq!(current_title(&core).as_deref(), Some("b"));
+    core.next();
+    assert_eq!(current_title(&core).as_deref(), Some("c"));
+    // Unknown items change nothing.
+    assert!(core.move_item("nope", None).is_empty());
+}
+
+#[test]
+fn speed_is_kept_within_half_and_double() {
+    let mut core = core_with(&["a"]);
+
+    let effects = core.set_rate(1.5);
+    assert!(effects.contains(&Effect::Engine(EngineCommand::SetRate { rate: 1.5 })));
+    assert_eq!(core.state().rate, 1.5);
+    core.set_rate(9.0);
+    assert_eq!(core.state().rate, 2.0);
+    assert!(core.set_rate(f64::NAN).is_empty());
+}
+
+#[test]
+fn the_sleep_timer_pauses_or_stops_after_the_song() {
+    let mut core = core_with(&["a", "b"]);
+    core.play_item(&core.queue().items[0].id.clone());
+    report(&mut core, EngineEvent::Playing);
+
+    core.set_sleep(Some(1_000.0), false);
+    assert_eq!(core.state().sleep_at, Some(1_000.0));
+    let effects = core.sleep_now();
+    assert!(effects.contains(&Effect::Engine(EngineCommand::Pause)));
+    assert_eq!(core.state().sleep_at, None);
+
+    // End of song: the next one loads paused, and the timer is spent.
+    core.set_sleep(None, true);
+    let effects = report(&mut core, EngineEvent::Ended);
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::Load { autoplay: false, item, .. } if item.title == "b"
+    )));
+    assert!(!core.state().stop_after_current);
+}

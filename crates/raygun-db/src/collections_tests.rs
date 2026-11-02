@@ -185,3 +185,54 @@ async fn writes_are_stamped_for_sync() {
     assert!(second.0 > first.0);
     assert_eq!(second.1, 1, "unfavoriting leaves a tombstone");
 }
+
+#[tokio::test]
+async fn songs_know_their_playlists_and_play_counts() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp).await;
+    let song = track("daft punk|get lucky");
+    let other = track("daft punk|one more time");
+    let road = create_playlist(&db, "Road", 1).await.unwrap();
+    let gym = create_playlist(&db, "Gym", 2).await.unwrap();
+    add_to_playlist(&db, &road, &[song.clone(), other.clone(), song.clone()], 3)
+        .await
+        .unwrap();
+    add_to_playlist(&db, &gym, std::slice::from_ref(&song), 4)
+        .await
+        .unwrap();
+
+    let mut holding = playlists_with_track(&db, &song.track_key).await.unwrap();
+    holding.sort();
+    let mut both = vec![road.clone(), gym.clone()];
+    both.sort();
+    assert_eq!(holding, both);
+
+    // Taking a song out of a playlist takes every copy of it.
+    remove_track_from_playlist(&db, &road, &song.track_key)
+        .await
+        .unwrap();
+    assert_eq!(
+        titles(&playlist_items(&db, &road).await.unwrap()),
+        ["one more time"]
+    );
+    assert_eq!(
+        playlists_with_track(&db, &song.track_key).await.unwrap(),
+        std::slice::from_ref(&gym)
+    );
+    delete_playlist(&db, &gym).await.unwrap();
+    assert!(
+        playlists_with_track(&db, &song.track_key)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    record_play(&db, &song, 10).await.unwrap();
+    record_play(&db, &song, 20).await.unwrap();
+    record_play(&db, &other, 30).await.unwrap();
+    let counts = play_counts(&db, &[song.track_key.clone(), "never|played".into()])
+        .await
+        .unwrap();
+    assert_eq!(counts.get(&song.track_key), Some(&2));
+    assert_eq!(counts.get("never|played"), None);
+}

@@ -7,10 +7,13 @@ import { useTranslation } from 'react-i18next';
 import { MangaGrid } from '../manga/MangaGrid';
 import type { Medium } from '../manga/medium';
 import { useMangaSources } from '../manga/useManga';
+import { ROUTES } from '../manga/medium';
 import { useInView } from '../shell/useInView';
+import { SourceMenu } from './SourceMenu';
 import { SourceFiltersPanel } from './SourceFiltersPanel';
 import { useFilteredSearch, useSourceFilters, useSourceSearch } from './useCatalogSearch';
 import type { FilterValues } from './useCatalogSearch';
+import { LoadMore } from '../shell/LoadMore';
 
 const toGridItems = (items: MangaCard[]) =>
   items.map((item) => ({
@@ -32,7 +35,16 @@ export const SourceRow: FC<{
   return (
     <section aria-label={result.source.name} className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <h3 className="text-muted text-sm font-medium">{result.source.name}</h3>
+        <h3 className="text-muted flex min-w-0 items-center gap-1 text-sm font-medium">
+          <span className="truncate">{result.source.name}</span>
+          <SourceMenu
+            sourceId={result.source.id}
+            extensionId={result.source.extensionId}
+            name={result.source.name}
+            page={{ to: ROUTES[medium].source, search: { id: result.source.id } }}
+            onOnly={onMore}
+          />
+        </h3>
         {onMore && result.items.length > 0 && (
           <button
             type="button"
@@ -166,16 +178,11 @@ const SourceSearch: FC<{ medium: Medium; sourceId: string; query: string }> = ({
         </p>
       )}
       {items.length > 0 && <MangaGrid medium={medium} items={toGridItems(items)} />}
-      {search.hasNextPage && (
-        <button
-          type="button"
-          disabled={search.isFetchingNextPage}
-          onClick={() => void search.fetchNextPage()}
-          className="bg-surface w-fit rounded-full px-4 py-2 text-sm disabled:opacity-60"
-        >
-          {t('manga.loadMore')}
-        </button>
-      )}
+      <LoadMore
+        hasNextPage={search.hasNextPage}
+        fetching={search.isFetchingNextPage}
+        onLoad={() => void search.fetchNextPage()}
+      />
     </div>
   );
 };
