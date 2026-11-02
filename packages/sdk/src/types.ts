@@ -105,6 +105,43 @@ export type LyricsProvider = {
   lyrics(query: LyricsQuery): Promise<LyricsResult | null>;
 };
 
+// ---- Music discovery (M46.9) ----
+
+/** A chart a source keeps: its most played, trending or a genre's top songs. */
+export type Chart = {
+  /** Passed back to `chart`. */
+  id: string;
+  name: string;
+  description?: string | null;
+  /** http(s) only; the app uses the first song's artwork without one. */
+  artworkUrl?: string | null;
+  /** The genre the chart belongs to ("Rock"), so the genre's page can show it. */
+  tag?: string | null;
+};
+
+/** Where the user is, as an ISO 3166 country code ("us"), when the source has charts by country. */
+export type ChartArgs = { region: string | null };
+
+/** Popular and trending songs (M46.9). Songs without a `source` play through `music.stream`. */
+export type MusicChartsProvider = {
+  kind: 'music.charts';
+  id: string;
+  name?: string;
+  charts(args: ChartArgs): Promise<{ charts: Chart[] }>;
+  chart(args: { id: string; region: string | null; limit: number }): Promise<{ tracks: Track[] }>;
+};
+
+/** A genre a source gives a song ("Hip-Hop", "Breakcore"); a higher weight is more certain. */
+export type MusicTag = { name: string; weight?: number | null };
+
+/** Genres for a song (M46.9); the app derives moods from them. Return no tags when unsure. */
+export type MusicTagsProvider = {
+  kind: 'music.tags';
+  id: string;
+  name?: string;
+  tags(query: LyricsQuery): Promise<{ tags: MusicTag[] }>;
+};
+
 // ---- Manga (M24) ----
 
 /** A title in a catalogue list. */
@@ -316,6 +353,8 @@ export type Provider =
   | MusicMetadataProvider
   | MusicStreamProvider
   | LyricsProvider
+  | MusicChartsProvider
+  | MusicTagsProvider
   | MangaSourceProvider
   | NovelSourceProvider
   | PodcastDirectoryProvider

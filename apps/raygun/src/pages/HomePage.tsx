@@ -17,6 +17,8 @@ import { MangaCover } from '../manga/MangaCover';
 import { ROUTES } from '../manga/medium';
 import { useMangaLibrary } from '../manga/useManga';
 import { useLayout } from '../layout/useLayout';
+import { ChartRow } from '../music/ChartRow';
+import { pickChart, useMusicCharts } from '../music/useDiscovery';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { ContinueWatchingRow } from '../watch/ContinueWatchingRow';
@@ -181,11 +183,27 @@ const GetStarted: FC = () => {
 
 /** Home: picking up where you left off, in everything. */
 /** Home's sections by their layout id (M46.5). */
+/** Popular now and Trending (M46.9): the charts that fit, as rows. */
+const ChartSection: FC<{ which: 'popular' | 'trending' }> = ({ which }) => {
+  const { t } = useTranslation();
+  const charts = useMusicCharts();
+  const chart = pickChart(charts.data?.charts ?? [], which);
+  if (!chart) return null;
+  return (
+    <ChartRow
+      chart={chart}
+      title={t(which === 'popular' ? 'discover.popularNow' : 'discover.trending')}
+    />
+  );
+};
+
 const HOME_SECTIONS: Record<string, FC> = {
   continueWatching: () => <ContinueWatchingRow />,
   continueReading: () => <ContinueReading />,
   yourMusic: () => <YourMusic />,
   recentlyPlayed: () => <RecentlyPlayed />,
+  popularMusic: () => <ChartSection which="popular" />,
+  trendingMusic: () => <ChartSection which="trending" />,
 };
 
 export const HomePage: FC = () => {

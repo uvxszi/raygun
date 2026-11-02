@@ -12,10 +12,12 @@ mod collections;
 mod comics;
 mod commands;
 mod device_sync;
+mod discovery;
 mod epub;
 mod events;
 mod export;
 mod extensions;
+mod genres;
 mod history;
 mod library;
 mod library_actions;
@@ -93,6 +95,13 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::collections_saves,
             commands::collections_set_saves,
             commands::music_artist,
+            commands::music_charts,
+            commands::music_chart,
+            commands::music_track_tags,
+            commands::music_tags_for,
+            commands::music_tag_summary,
+            commands::music_tag_songs,
+            commands::music_tag_vocabulary,
             commands::favorite_get,
             commands::favorite_set,
             commands::playlists_list,

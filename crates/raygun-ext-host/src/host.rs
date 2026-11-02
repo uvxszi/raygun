@@ -13,8 +13,8 @@ use std::time::Duration;
 
 use raygun_model::{
     ExtensionInfo, ExtensionOrigin, ExtensionSetting, ExtensionStatus, LyricLine, Lyrics,
-    MediaSource, OnlineTrack, ProviderInfo, ProviderSearchResult, SettingKind, SettingValue,
-    TrackQuery,
+    MediaSource, MusicChart, OnlineTrack, ProviderInfo, ProviderSearchResult, SettingKind,
+    SettingValue, TrackQuery,
 };
 use raygun_resolver::Candidate;
 use serde::Deserialize;
@@ -29,6 +29,11 @@ use crate::storage::KvStore;
 pub const MUSIC_METADATA: &str = "music.metadata";
 pub const MUSIC_STREAM: &str = "music.stream";
 pub const LYRICS: &str = "lyrics";
+pub const MUSIC_CHARTS: &str = "music.charts";
+pub const MUSIC_TAGS: &str = "music.tags";
+
+/// Longest tag name kept from a provider.
+const MAX_TAG_CHARS: usize = 60;
 
 /// One `music.stream` provider's answer: its candidates, or why it failed.
 #[derive(Debug, Clone)]
@@ -366,6 +371,69 @@ impl ExtensionHost {
         // Stable sort keeps provider order among equals.
         found.sort_by_key(|lyrics| lyrics.synced.is_empty());
         Ok(found.into_iter().next())
+    }
+
+    /// Every `music.charts` provider's charts at once (M46.9); each answers with charts or an
+    /// error. Charts' `tag`s are as the provider wrote them.
+    pub async fn music_charts(
+        &self,
+        region: Option<&str>,
+    ) -> Vec<(ProviderInfo, Result<Vec<MusicChart>, String>)> {
+        let providers = self.providers(MUSIC_CHARTS).await;
+        let args = serde_json::json!({ "region": region });
+        let requests = providers.into_iter().map(|provider| {
+            let args = args.clone();
+            async move {
+                let answer = self
+                    .call(&provider.id, "charts", args)
+                    .await
+                    .map(|value| parse_charts(&provider, &value))
+                    .map_err(|error| error.to_string());
+                (provider, answer)
+            }
+        });
+        futures_util::future::join_all(requests).await
+    }
+
+    /// A chart's songs from the provider that keeps it (M46.9).
+    pub async fn music_chart(
+        &self,
+        provider_id: &str,
+        chart_id: &str,
+        region: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<OnlineTrack>, CallError> {
+        let args = serde_json::json!({ "id": chart_id, "region": region, "limit": limit });
+        self.call(provider_id, "chart", args)
+            .await
+            .map(parse_tracks)
+    }
+
+    /// Every `music.tags` provider's genres for a song at once (M46.9): `(name, weight)` pairs as
+    /// each wrote them, weights between 0 and 1 (1 when a provider gives none).
+    pub async fn music_tags(
+        &self,
+        query: &TrackQuery,
+    ) -> Vec<(ProviderInfo, Result<Vec<(String, f64)>, String>)> {
+        let providers = self.providers(MUSIC_TAGS).await;
+        let args = serde_json::json!({
+            "title": query.title,
+            "artist": query.artist,
+            "album": query.album,
+            "durationMs": query.duration_ms,
+        });
+        let requests = providers.into_iter().map(|provider| {
+            let args = args.clone();
+            async move {
+                let answer = self
+                    .call(&provider.id, "tags", args)
+                    .await
+                    .map(|value| parse_tags(&value))
+                    .map_err(|error| error.to_string());
+                (provider, answer)
+            }
+        });
+        futures_util::future::join_all(requests).await
     }
 
     /// Asks a provider for the stream behind one of its candidates.
@@ -788,6 +856,74 @@ fn parse_tracks(value: serde_json::Value) -> Vec<OnlineTrack> {
                 .map(|ms| ms as u32),
             artwork_url: track.artwork_url.filter(|url| is_web_url(url)),
             source: track.source.filter(allowed_source),
+        })
+        .collect()
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawChart {
+    id: serde_json::Value,
+    name: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    artwork_url: Option<String>,
+    #[serde(default)]
+    tag: Option<String>,
+}
+
+/// Reads `{ charts: [{ id, name, description?, artworkUrl?, tag? }] }`, dropping charts without an
+/// id or a name.
+fn parse_charts(provider: &ProviderInfo, value: &serde_json::Value) -> Vec<MusicChart> {
+    let Some(charts) = value.get("charts").and_then(serde_json::Value::as_array) else {
+        return Vec::new();
+    };
+    let text = |value: Option<String>| {
+        value
+            .map(|text| text.trim().to_owned())
+            .filter(|text| !text.is_empty())
+    };
+    charts
+        .iter()
+        .filter_map(|chart| serde_json::from_value::<RawChart>(chart.clone()).ok())
+        .filter_map(|chart| {
+            let id = match chart.id {
+                serde_json::Value::String(id) => id,
+                serde_json::Value::Number(id) => id.to_string(),
+                _ => return None,
+            };
+            let name = chart.name.trim().to_owned();
+            (!id.is_empty() && !name.is_empty()).then(|| MusicChart {
+                provider: provider.clone(),
+                id,
+                name,
+                description: text(chart.description),
+                artwork_url: chart.artwork_url.filter(|url| is_web_url(url)),
+                tag: text(chart.tag),
+            })
+        })
+        .collect()
+}
+
+/// Reads `{ tags: [{ name, weight? }] }`: names trimmed and at most `MAX_TAG_CHARS` long,
+/// weights clamped to 0-1.
+fn parse_tags(value: &serde_json::Value) -> Vec<(String, f64)> {
+    let Some(tags) = value.get("tags").and_then(serde_json::Value::as_array) else {
+        return Vec::new();
+    };
+    tags.iter()
+        .filter_map(|tag| {
+            let name = tag.get("name")?.as_str()?.trim();
+            if name.is_empty() || name.chars().count() > MAX_TAG_CHARS {
+                return None;
+            }
+            let weight = tag
+                .get("weight")
+                .and_then(serde_json::Value::as_f64)
+                .filter(|weight| weight.is_finite())
+                .map_or(1.0, |weight| weight.clamp(0.0, 1.0));
+            Some((name.to_owned(), weight))
         })
         .collect()
 }

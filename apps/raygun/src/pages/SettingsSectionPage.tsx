@@ -44,6 +44,7 @@ import {
 import { RemoteCard } from '../settings/RemoteCard';
 import { StorageSettings } from '../settings/StorageSettings';
 import { WebsiteSettings } from '../websites/WebsiteSettings';
+import { autoRegion } from '../music/useDiscovery';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { TopBar } from '../shell/TopBar';
 import type { SettingsSection } from '../settings/sections';
@@ -412,6 +413,64 @@ const PlayerSettings: FC = () => {
   );
 };
 
+/** Countries offered for charts (M46.9); Apple's charts cover these. */
+const CHART_REGIONS = [
+  'us',
+  'gb',
+  'ca',
+  'au',
+  'ie',
+  'nz',
+  'de',
+  'fr',
+  'es',
+  'it',
+  'nl',
+  'be',
+  'se',
+  'no',
+  'dk',
+  'fi',
+  'pl',
+  'pt',
+  'at',
+  'ch',
+  'br',
+  'mx',
+  'ar',
+  'cl',
+  'co',
+  'jp',
+  'kr',
+  'tw',
+  'hk',
+  'sg',
+  'in',
+  'id',
+  'ph',
+  'th',
+  'vn',
+  'my',
+  'za',
+  'ng',
+  'eg',
+  'sa',
+  'ae',
+  'tr',
+  'ua',
+  'il',
+];
+
+const countryName = (code: string) => {
+  try {
+    return (
+      new Intl.DisplayNames([navigator.language], { type: 'region' }).of(code.toUpperCase()) ?? code
+    );
+  } catch {
+    return code.toUpperCase();
+  }
+};
+
 const BrowseSettings: FC = () => {
   const { t } = useTranslation();
   const { data, update, busy } = useSetting();
@@ -433,6 +492,36 @@ const BrowseSettings: FC = () => {
               // Sources, listings and the library all depend on it.
               { onSuccess: () => void queryClient.invalidateQueries() },
             )
+          }
+        />
+      </PrefGroup>
+      <PrefGroup title={t('discover.music')}>
+        <PrefChoice<string>
+          title={t('discover.region')}
+          summary={t('discover.regionHint')}
+          value={data.discovery?.region ?? ''}
+          disabled={busy}
+          options={[
+            { value: '', label: t('discover.regionAuto', { region: countryName(autoRegion()) }) },
+            ...CHART_REGIONS.map((code) => ({ value: code, label: countryName(code) })),
+          ]}
+          onChange={(region) =>
+            update.mutate({
+              key: 'discovery',
+              value: { tagSongs: data.discovery?.tagSongs ?? true, region },
+            })
+          }
+        />
+        <PrefSwitch
+          title={t('discover.tagSongsTitle')}
+          summary={t('discover.tagSongsHint')}
+          checked={data.discovery?.tagSongs ?? true}
+          disabled={busy}
+          onChange={(tagSongs) =>
+            update.mutate({
+              key: 'discovery',
+              value: { region: data.discovery?.region ?? '', tagSongs },
+            })
           }
         />
       </PrefGroup>

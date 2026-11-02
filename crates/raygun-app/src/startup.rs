@@ -160,6 +160,8 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(crate::collections::CollectionsService::new(
         app.handle().clone(),
     ));
+    let discovery = crate::discovery::DiscoveryService::new(app.handle().clone());
+    app.manage(discovery.clone());
     let mcp = tauri::async_runtime::block_on(crate::mcp::McpService::start(app.handle().clone()))?;
     app.manage(mcp);
     let remote =
@@ -178,6 +180,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     // Pick up files added or removed while the app was closed (cheap when nothing changed).
     app.state::<crate::library::LibraryService>().start_scan();
     downloads.start();
+    discovery.start_tagger();
     video_downloads.start();
     podcasts.start();
     crate::tts::install(app.handle());

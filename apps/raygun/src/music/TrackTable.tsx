@@ -37,6 +37,7 @@ import { Sheet } from '../shell/Sheet';
 import { useWideScreen } from '../shell/useWideScreen';
 import { ArtistLinks } from './ArtistLinks';
 import { COLUMN_TRACKS, SORT_KEYS, filterTracks, sortTracks, useTableView } from './tableView';
+import { useTagsFor } from './useDiscovery';
 import type { TableTrack, TableView, TrackTableKind } from './tableView';
 import { useTrackMenu } from './useTrackMenu';
 
@@ -52,42 +53,32 @@ const ago = (at: number | null) => {
   return relative.format(Math.round(days / 365), 'year');
 };
 
-/** A header cell: sorts on click, drags to reorder, and its edge drags to resize. */
+/** A column's narrowest and widest, in px. */
+const MIN_COLUMN = 40;
+const MAX_COLUMN = 800;
+const clampColumn = (width: number) =>
+  Math.round(Math.min(MAX_COLUMN, Math.max(MIN_COLUMN, width)));
+
+/**
+ * A header cell: sorts on click, drags to reorder, and the divider on its left edge drags to
+ * resize it. The columns to its right keep their widths, so the divider follows the pointer.
+ */
 const HeaderCell: FC<{
   id: TrackColumnId;
   label: string;
   sorted: 'asc' | 'desc' | null;
   onSort: () => void;
-  onResize: (width: number) => void;
-}> = ({ id, label, sorted, onSort, onResize }) => {
+  onResizeStart: (event: ReactPointerEvent) => void;
+  onResizeBy: (by: number) => void;
+}> = ({ id, label, sorted, onSort, onResizeStart, onResizeBy }) => {
   const { t } = useTranslation();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id,
   });
-  const cell = useRef<HTMLDivElement | null>(null);
-  const startResize = (event: ReactPointerEvent) => {
-    event.stopPropagation();
-    event.preventDefault();
-    const start = event.clientX;
-    const width = cell.current?.getBoundingClientRect().width ?? 120;
-    const move = (moved: PointerEvent) => {
-      const next = Math.round(Math.min(800, Math.max(40, width + moved.clientX - start)));
-      if (cell.current) cell.current.style.width = `${next}px`;
-    };
-    const up = (ended: PointerEvent) => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      onResize(Math.round(Math.min(800, Math.max(40, width + ended.clientX - start))));
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  };
   return (
     <div
-      ref={(node) => {
-        setNodeRef(node);
-        cell.current = node;
-      }}
+      ref={setNodeRef}
+      data-column-id={id}
       role="columnheader"
       aria-label={label}
       aria-sort={sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : undefined}
@@ -111,10 +102,22 @@ const HeaderCell: FC<{
       </button>
       <span
         role="separator"
+        tabIndex={0}
         aria-orientation="vertical"
         aria-label={t('tracks.resizeColumn', { name: label })}
-        onPointerDown={startResize}
-        className="absolute inset-y-0 -right-2 w-3 cursor-col-resize opacity-0 group-hover:opacity-100 after:absolute after:inset-y-1 after:left-1.5 after:w-px after:bg-white/20"
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          event.preventDefault();
+          onResizeStart(event);
+        }}
+        onKeyDown={(event) => {
+          // The divider sits on the left: moving it left makes the column wider.
+          if (event.key === 'ArrowLeft') onResizeBy(16);
+          else if (event.key === 'ArrowRight') onResizeBy(-16);
+          else return;
+          event.preventDefault();
+        }}
+        className="absolute inset-y-0 -left-3 w-3 cursor-col-resize opacity-0 outline-none group-hover:opacity-100 after:absolute after:inset-y-1 after:left-1.5 after:w-px after:bg-white/20 focus-visible:opacity-100"
       />
     </div>
   );
@@ -133,6 +136,12 @@ type TrackTableProps = {
   actions?: (track: TableTrack, index: number) => ReactNode;
   toolbar?: ReactNode;
 };
+
+/** A column's width when the window can't measure it (tests). */
+const COLUMN_FALLBACK = 120;
+
+/** Tag chips shown above a table, the most common first. */
+const TAG_CHIPS = 12;
 
 /**
  * Songs as a table (M46.8), Spotify's: sort by clicking a column or from Sort by, filter, list
@@ -160,9 +169,29 @@ export const TrackTable: FC<TrackTableProps> = ({
   const [columnsAnchor, setColumnsAnchor] = useState<HTMLElement | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
+  // Genres and moods found for these songs (M46.9): chips filter the table by one.
+  const trackKeys = useMemo(() => [...new Set(tracks.map((track) => track.trackKey))], [tracks]);
+  const tagsFor = useTagsFor(trackKeys);
+  const [tag, setTag] = useState<string | null>(null);
+  const tagChips = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const track of tracks) {
+      for (const found of tagsFor.data?.get(track.trackKey) ?? []) {
+        counts.set(found.name, (counts.get(found.name) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, TAG_CHIPS)
+      .map(([name]) => name);
+  }, [tracks, tagsFor.data]);
   const shown = useMemo(
-    () => filterTracks(sortTracks(tracks, view), filter),
-    [tracks, view, filter],
+    () =>
+      filterTracks(sortTracks(tracks, view), filter).filter(
+        (track) =>
+          !tag || (tagsFor.data?.get(track.trackKey) ?? []).some((found) => found.name === tag),
+      ),
+    [tracks, view, filter, tag, tagsFor.data],
   );
   const columns = view.columns.filter((column) => column.visible);
   const sortLabel = (key: TrackSortKey) =>
@@ -172,9 +201,51 @@ export const TrackTable: FC<TrackTableProps> = ({
       sort: key,
       descending: view.sort === key ? !view.descending : key === 'added' || key === 'plays',
     });
+  // Widths while a divider is dragged; saved when it's let go.
+  const headerRow = useRef<HTMLDivElement>(null);
+  const [liveWidths, setLiveWidths] = useState<Partial<Record<TrackColumnId, number>> | null>(null);
   const template = `2.5rem minmax(12rem, 1.6fr) ${columns
-    .map((column) => (column.width > 0 ? `${column.width}px` : COLUMN_TRACKS[column.id]))
+    .map((column) => {
+      const width = liveWidths?.[column.id] ?? column.width;
+      return width > 0 ? `${width}px` : COLUMN_TRACKS[column.id];
+    })
     .join(' ')} 5.5rem`;
+  /** Every shown column's width now, so only the title column gives or takes space. */
+  const measured = () => {
+    const widths: Partial<Record<TrackColumnId, number>> = {};
+    for (const cell of headerRow.current?.querySelectorAll<HTMLElement>('[data-column-id]') ?? []) {
+      const id = cell.dataset.columnId as TrackColumnId;
+      widths[id] = Math.round(cell.getBoundingClientRect().width) || COLUMN_FALLBACK;
+    }
+    return widths;
+  };
+  const saveWidths = (widths: Partial<Record<TrackColumnId, number>>) =>
+    set({
+      columns: view.columns.map((column) => {
+        const width = widths[column.id];
+        return width === undefined ? column : { ...column, width };
+      }),
+    });
+  const startResize = (id: TrackColumnId, event: ReactPointerEvent) => {
+    const start = event.clientX;
+    const widths = measured();
+    const from = widths[id] ?? COLUMN_FALLBACK;
+    const at = (x: number) => ({ ...widths, [id]: clampColumn(from - (x - start)) });
+    const move = (moved: PointerEvent) => setLiveWidths(at(moved.clientX));
+    const up = (ended: PointerEvent) => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      setLiveWidths(null);
+      saveWidths(at(ended.clientX));
+    };
+    setLiveWidths(widths);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  const resizeBy = (id: TrackColumnId, by: number) => {
+    const widths = measured();
+    saveWidths({ ...widths, [id]: clampColumn((widths[id] ?? COLUMN_FALLBACK) + by) });
+  };
   const chosen = shown.filter((track) => selected.has(track.rowKey));
 
   const pick = (event: MouseEvent, index: number) => {
@@ -300,6 +371,27 @@ export const TrackTable: FC<TrackTableProps> = ({
 
   return (
     <div data-testid="track-table" data-kind={kind} className="flex flex-col gap-2">
+      {tagChips.length > 0 && (
+        <div
+          role="group"
+          aria-label={t('discover.filterByTag')}
+          className="-mx-4 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:px-0"
+        >
+          {[null, ...tagChips].map((name) => (
+            <button
+              key={name ?? ''}
+              type="button"
+              aria-pressed={tag === name}
+              onClick={() => setTag(tag === name ? null : name)}
+              className={`shrink-0 rounded-full px-3 py-1 text-sm ${
+                tag === name ? 'bg-foreground text-background font-semibold' : 'bg-surface'
+              }`}
+            >
+              {name ?? t('discover.allTags')}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         {toolbar}
         <div className="ml-auto flex items-center gap-1">
@@ -404,6 +496,7 @@ export const TrackTable: FC<TrackTableProps> = ({
       >
         {wide && (
           <div
+            ref={headerRow}
             role="row"
             style={{ gridTemplateColumns: template }}
             className="text-muted border-foreground/10 grid items-center gap-4 border-b px-2 pb-2 text-xs"
@@ -437,15 +530,10 @@ export const TrackTable: FC<TrackTableProps> = ({
                     key={column.id}
                     id={column.id}
                     label={t(`tracks.column.${column.id}`)}
-                    sorted={sortOf(column.id)}
-                    onSort={() => sortBy(column.id)}
-                    onResize={(width) =>
-                      set({
-                        columns: view.columns.map((other) =>
-                          other.id === column.id ? { ...other, width } : other,
-                        ),
-                      })
-                    }
+                    sorted={column.id === 'tags' ? null : sortOf(column.id)}
+                    onSort={() => column.id !== 'tags' && sortBy(column.id)}
+                    onResizeStart={(event) => startResize(column.id, event)}
+                    onResizeBy={(by) => resizeBy(column.id, by)}
                   />
                 ))}
               </SortableContext>
@@ -546,6 +634,11 @@ export const TrackTable: FC<TrackTableProps> = ({
                     {column.id === 'plays' && (track.playCount > 0 ? track.playCount : '')}
                     {column.id === 'duration' &&
                       (track.durationMs ? formatTime(track.durationMs) : '')}
+                    {column.id === 'tags' &&
+                      (tagsFor.data?.get(track.trackKey) ?? [])
+                        .slice(0, 3)
+                        .map((found) => found.name)
+                        .join(' · ')}
                   </span>
                 ))}
               <span

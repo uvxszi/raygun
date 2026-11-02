@@ -1,14 +1,6 @@
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useEffect, useState } from 'react';
 
-/** The app window, or nothing outside Tauri (tests). */
-const appWindow = () => {
-  try {
-    return getCurrentWindow();
-  } catch {
-    return null;
-  }
-};
+import { appWindow } from './appWindow';
 
 /** Turns the window's full screen on or off (F11, the readers' button; M46.7). */
 export const toggleWindowFullscreen = async () => {

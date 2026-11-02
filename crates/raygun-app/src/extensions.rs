@@ -20,8 +20,8 @@ use raygun_ext_host::{
 };
 use raygun_model::{
     CatalogEntry, CatalogState, ExtensionInfo, ExtensionOrigin, ExtensionRepo, ExtensionSetting,
-    Lyrics, ProviderSearchResult, RepoCatalog, SettingKind, SettingValue, SuggestedRepo,
-    TrackQuery,
+    Lyrics, MusicChart, OnlineTrack, ProviderInfo, ProviderSearchResult, RepoCatalog, SettingKind,
+    SettingValue, SuggestedRepo, TrackQuery,
 };
 use raygun_paths::Paths;
 use tauri::{AppHandle, Manager};
@@ -70,6 +70,36 @@ fn built_in() -> Vec<ExtensionSource> {
             (
                 "dist/index.js",
                 include_str!("../../../extensions/musicbrainz/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/deezer/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/deezer/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/apple-charts/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/apple-charts/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/listenbrainz/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/listenbrainz/dist/index.js"),
             ),
         ]),
         ExtensionSource::built_in(&[
@@ -236,6 +266,39 @@ impl ExtensionService {
     pub async fn lyrics(&self, query: &TrackQuery) -> Result<Option<Lyrics>, String> {
         let _ready = self.loading.read().await;
         self.host.lyrics(query).await
+    }
+
+    /// Every chart source's charts (M46.9).
+    pub async fn music_charts(
+        &self,
+        region: Option<&str>,
+    ) -> Vec<(ProviderInfo, Result<Vec<MusicChart>, String>)> {
+        let _ready = self.loading.read().await;
+        self.host.music_charts(region).await
+    }
+
+    /// A chart's songs (M46.9).
+    pub async fn music_chart(
+        &self,
+        provider_id: &str,
+        chart_id: &str,
+        region: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<OnlineTrack>, String> {
+        let _ready = self.loading.read().await;
+        self.host
+            .music_chart(provider_id, chart_id, region, limit)
+            .await
+            .map_err(|error| error.to_string())
+    }
+
+    /// Every tag source's genres for a song (M46.9).
+    pub async fn music_tags(
+        &self,
+        query: &TrackQuery,
+    ) -> Vec<(ProviderInfo, Result<Vec<(String, f64)>, String>)> {
+        let _ready = self.loading.read().await;
+        self.host.music_tags(query).await
     }
 
     /// The stream behind a candidate that came without one.

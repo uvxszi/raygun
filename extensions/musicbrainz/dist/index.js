@@ -1,4 +1,4 @@
-// dev.raygun.musicbrainz 1.0.1. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.musicbrainz 1.1.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -83,4 +83,41 @@
     }
   });
   registerProvider(search);
+  var simple = (text) => words(text).join(" ");
+  var weighted = (tags = []) => {
+    const most = Math.max(1, ...tags.map((tag) => tag.count ?? 1));
+    return tags.filter((tag) => (tag.count ?? 1) > 0).map((tag) => ({ name: tag.name, weight: (tag.count ?? 1) / most }));
+  };
+  var getJson = async (url) => {
+    const response = await fetchPaced(url);
+    if (!response.ok) throw new Error(`MusicBrainz answered HTTP ${response.status}`);
+    return response.json();
+  };
+  registerProvider(
+    defineProvider({
+      kind: "music.tags",
+      id: "genres",
+      name: "MusicBrainz",
+      async tags({ title, artist }) {
+        const parts = [`recording:"${escapeQuery(title)}"`];
+        if (artist) parts.push(`artist:"${escapeQuery(artist)}"`);
+        const found = await getJson(
+          `${API}/recording?query=${encodeURIComponent(parts.join(" AND "))}&limit=10&fmt=json`
+        );
+        const wanted = simple(title);
+        const matches = (found.recordings ?? []).filter(
+          (recording) => simple(recording.title) === wanted && (!artist || words(credit(recording)).some((word) => words(artist).includes(word)))
+        );
+        const match = matches.find((recording) => recording.tags?.length) ?? matches[0];
+        if (!match) return { tags: [] };
+        if (match.tags?.length) return { tags: weighted(match.tags) };
+        const artistId = match["artist-credit"]?.[0]?.artist?.id;
+        if (!artistId) return { tags: [] };
+        const byArtist = await getJson(
+          `${API}/artist/${artistId}?inc=genres+tags&fmt=json`
+        );
+        return { tags: weighted(byArtist.genres?.length ? byArtist.genres : byArtist.tags) };
+      }
+    })
+  );
 })();

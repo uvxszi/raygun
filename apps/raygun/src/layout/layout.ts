@@ -45,9 +45,12 @@ export const LAYOUT_ENTRIES: Record<LayoutSurface, readonly (readonly [string, b
     ['continueReading', true],
     ['yourMusic', true],
     ['recentlyPlayed', true],
+    ['popularMusic', true],
+    ['trendingMusic', true],
   ],
   browseTabs: [
     ['search', true],
+    ['discover', true],
     ['sources', true],
     ['extensions', true],
   ],

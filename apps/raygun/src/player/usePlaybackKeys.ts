@@ -1,5 +1,6 @@
 import type { PlaybackState, RepeatMode } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 import { usePlayerUiStore } from './playerUiStore';
@@ -25,11 +26,73 @@ export const PLAYBACK_SHORTCUTS = [
   ['?', 'help'],
 ] as const;
 
-const typing = (target: EventTarget | null) =>
+export const typing = (target: EventTarget | null) =>
   target instanceof HTMLInputElement ||
   target instanceof HTMLTextAreaElement ||
   target instanceof HTMLSelectElement ||
   (target instanceof HTMLElement && target.isContentEditable);
+
+export type PlaybackAction = Exclude<(typeof PLAYBACK_SHORTCUTS)[number][1], 'help'>;
+
+/** Runs one playback action against the current state (keys, the app menu; M46.8, M46.9). */
+export const runPlaybackAction = (action: PlaybackAction, client: QueryClient) => {
+  const state = client.getQueryData<PlaybackState>(['playbackState']);
+  const ui = usePlayerUiStore.getState();
+  const position = state?.positionMs ?? 0;
+  const volume = state?.volume ?? 1;
+  switch (action) {
+    case 'playPause':
+      return sendControl({ type: 'toggle' });
+    case 'next':
+      return sendControl({ type: 'next' });
+    case 'previous':
+      return sendControl({ type: 'previous' });
+    case 'louder':
+      return sendControl({ type: 'setVolume', volume: Math.min(1, volume + 0.1) });
+    case 'quieter':
+      return sendControl({ type: 'setVolume', volume: Math.max(0, volume - 0.1) });
+    case 'forward':
+      return sendControl({ type: 'seek', positionMs: position + 5000 });
+    case 'back':
+      return sendControl({ type: 'seek', positionMs: Math.max(0, position - 5000) });
+    case 'mute':
+      if (volume > 0) ui.setUnmutedVolume(volume);
+      return sendControl({ type: 'setVolume', volume: volume > 0 ? 0 : ui.unmutedVolume || 1 });
+    case 'shuffle':
+      return sendControl({ type: 'setShuffle', enabled: !state?.shuffle });
+    case 'repeat':
+      return sendControl({ type: 'setRepeat', mode: NEXT_REPEAT[state?.repeat ?? 'off'] });
+    case 'lyrics':
+      return ui.openSheet({ view: 'lyrics' });
+    case 'queue':
+      return ui.togglePanel('queue');
+    case 'player':
+      return ui.sheetOpen ? ui.closeSheet() : ui.openSheet();
+  }
+};
+
+/** The action a key press asks for, if any. */
+const actionFor = (event: KeyboardEvent, onButton: boolean): PlaybackAction | 'help' | null => {
+  const key = event.key;
+  if (key === ' ' && !onButton && !event.ctrlKey) return 'playPause';
+  if (event.ctrlKey && key === 'ArrowRight') return 'next';
+  if (event.ctrlKey && key === 'ArrowLeft') return 'previous';
+  if (event.ctrlKey && key === 'ArrowUp') return 'louder';
+  if (event.ctrlKey && key === 'ArrowDown') return 'quieter';
+  if (event.shiftKey && key === 'ArrowRight') return 'forward';
+  if (event.shiftKey && key === 'ArrowLeft') return 'back';
+  if (event.ctrlKey || event.shiftKey) return key === '?' ? 'help' : null;
+  const letters: Record<string, PlaybackAction | 'help'> = {
+    m: 'mute',
+    s: 'shuffle',
+    r: 'repeat',
+    l: 'lyrics',
+    q: 'queue',
+    p: 'player',
+    '?': 'help',
+  };
+  return letters[key.toLowerCase()] ?? null;
+};
 
 /**
  * Playback from the keyboard, anywhere (M46.8): Space, Ctrl/Shift with the arrows, and single
@@ -41,55 +104,11 @@ export const usePlaybackKeys = (onHelp: () => void, enabled = true) => {
     if (!enabled) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || typing(event.target) || event.altKey || event.metaKey) return;
-      const state = client.getQueryData<PlaybackState>(['playbackState']);
-      const ui = usePlayerUiStore.getState();
-      const position = state?.positionMs ?? 0;
-      const volume = state?.volume ?? 1;
-      const onButton = event.target instanceof HTMLButtonElement;
-      const key = event.key;
-      const act = (() => {
-        if (key === ' ' && !onButton && !event.ctrlKey)
-          return () => sendControl({ type: 'toggle' });
-        if (event.ctrlKey && key === 'ArrowRight') return () => sendControl({ type: 'next' });
-        if (event.ctrlKey && key === 'ArrowLeft') return () => sendControl({ type: 'previous' });
-        if (event.ctrlKey && key === 'ArrowUp')
-          return () => sendControl({ type: 'setVolume', volume: Math.min(1, volume + 0.1) });
-        if (event.ctrlKey && key === 'ArrowDown')
-          return () => sendControl({ type: 'setVolume', volume: Math.max(0, volume - 0.1) });
-        if (event.shiftKey && key === 'ArrowRight')
-          return () => sendControl({ type: 'seek', positionMs: position + 5000 });
-        if (event.shiftKey && key === 'ArrowLeft')
-          return () => sendControl({ type: 'seek', positionMs: Math.max(0, position - 5000) });
-        if (event.ctrlKey || event.shiftKey) return key === '?' ? onHelp : null;
-        switch (key.toLowerCase()) {
-          case 'm':
-            return () => {
-              if (volume > 0) ui.setUnmutedVolume(volume);
-              void sendControl({
-                type: 'setVolume',
-                volume: volume > 0 ? 0 : ui.unmutedVolume || 1,
-              });
-            };
-          case 's':
-            return () => sendControl({ type: 'setShuffle', enabled: !state?.shuffle });
-          case 'r':
-            return () =>
-              sendControl({ type: 'setRepeat', mode: NEXT_REPEAT[state?.repeat ?? 'off'] });
-          case 'l':
-            return () => ui.openSheet({ view: 'lyrics' });
-          case 'q':
-            return () => ui.togglePanel('queue');
-          case 'p':
-            return () => (ui.sheetOpen ? ui.closeSheet() : ui.openSheet());
-          case '?':
-            return onHelp;
-          default:
-            return null;
-        }
-      })();
-      if (!act) return;
+      const action = actionFor(event, event.target instanceof HTMLButtonElement);
+      if (!action) return;
       event.preventDefault();
-      void act();
+      if (action === 'help') onHelp();
+      else void runPlaybackAction(action, client);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

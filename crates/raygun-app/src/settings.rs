@@ -383,6 +383,40 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(saved.accent_color, "#1e90ff");
+
+        // The desktop window (M46.9): its frame, and zoom in steps of 10 % from 50 to 200.
+        assert_eq!(saved.zoom, 100);
+        assert_eq!(saved.window_frame, raygun_model::WindowFrame::App);
+        let saved = update(&db, SettingChange::Zoom(130)).await.unwrap();
+        assert_eq!(saved.zoom, 130);
+        for bad in [40, 125, 210] {
+            assert!(
+                update(&db, SettingChange::Zoom(bad)).await.is_err(),
+                "{bad}"
+            );
+        }
+        let saved = update(
+            &db,
+            SettingChange::WindowFrame(raygun_model::WindowFrame::System),
+        )
+        .await
+        .unwrap();
+        assert_eq!(saved.window_frame, raygun_model::WindowFrame::System);
+
+        // Charts follow a country code, or the app's language when empty (M46.9).
+        assert!(saved.discovery.tag_songs);
+        let discovery = |region: &str| {
+            SettingChange::Discovery(raygun_model::DiscoveryPrefs {
+                region: region.into(),
+                tag_songs: false,
+            })
+        };
+        let saved = update(&db, discovery("GB")).await.unwrap();
+        assert_eq!(saved.discovery.region, "gb");
+        assert!(!saved.discovery.tag_songs);
+        for bad in ["gbr", "g1", "u s"] {
+            assert!(update(&db, discovery(bad)).await.is_err(), "{bad}");
+        }
         let saved = update(&db, SettingChange::Accent(Accent::Custom))
             .await
             .unwrap();

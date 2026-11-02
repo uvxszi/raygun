@@ -67,6 +67,43 @@ describe('Song tables', () => {
     delete (window as { matchMedia?: unknown }).matchMedia;
   });
 
+  it('resizes a column live from the divider on its left, and with the arrow keys', async () => {
+    setWide();
+    await AppShellWrapper.mount('/library?view=favorites');
+    await screen.findByTestId('track-table');
+    const divider = screen.getByRole('separator', { name: 'Drag to resize Album' });
+    const header = screen.getAllByRole('row')[0] as HTMLElement;
+
+    // Dragging the divider 50 px left widens Album by 50 px, and the table follows at once.
+    fireEvent.pointerDown(divider, { clientX: 500 });
+    fireEvent.pointerMove(window, { clientX: 450 });
+    expect(header.style.gridTemplateColumns).toContain('170px');
+    fireEvent.pointerUp(window, { clientX: 450 });
+    await vi.waitFor(() =>
+      expect(commands.settingsUpdate).toHaveBeenLastCalledWith(
+        expect.objectContaining({ key: 'trackTables' }),
+      ),
+    );
+    const saved = (
+      commands.settingsUpdate.mock.lastCall?.[0] as SettingChange & {
+        value: Settings['trackTables'];
+      }
+    ).value.tables?.favorites?.columns;
+    expect(saved?.find((column) => column.id === 'album')?.width).toBe(170);
+
+    // From the keyboard: Left makes the column wider.
+    divider.focus();
+    fireEvent.keyDown(divider, { key: 'ArrowLeft' });
+    await vi.waitFor(() => {
+      const after = (
+        commands.settingsUpdate.mock.lastCall?.[0] as SettingChange & {
+          value: Settings['trackTables'];
+        }
+      ).value.tables?.favorites?.columns;
+      expect(after?.find((column) => column.id === 'album')?.width).toBe(136);
+    });
+  });
+
   it('sorts, filters, shows columns and plays in the order shown', async () => {
     setWide();
     const user = userEvent.setup();

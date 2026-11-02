@@ -48,6 +48,7 @@ export const TABLE_DEFAULTS: TableView = {
     { id: 'album', visible: true, width: 0 },
     { id: 'added', visible: true, width: 0 },
     { id: 'plays', visible: false, width: 0 },
+    { id: 'tags', visible: false, width: 0 },
     { id: 'duration', visible: true, width: 0 },
   ],
 };
@@ -67,6 +68,7 @@ export const COLUMN_TRACKS: Record<TrackColumnId, string> = {
   album: 'minmax(120px, 0.8fr)',
   added: '128px',
   plays: '80px',
+  tags: 'minmax(110px, 0.6fr)',
   duration: '72px',
 };
 

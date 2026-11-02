@@ -15,6 +15,7 @@ use crate::ai::AiService;
 use crate::backup::BackupService;
 use crate::collections::CollectionsService;
 use crate::device_sync::SyncService;
+use crate::discovery::DiscoveryService;
 use crate::extensions::ExtensionService;
 use crate::library::LibraryService;
 use crate::local_network::LocalNetwork;
@@ -68,9 +69,14 @@ pub async fn settings_update(
     let nsfw_changed = matches!(change, SettingChange::ShowNsfw(_));
     let cache_changed = matches!(change, SettingChange::Cache(_));
     let sources_changed = matches!(change, SettingChange::DisabledSources(_));
+    let discovery_changed = matches!(change, SettingChange::Discovery(_));
     let settings = settings::update(&db.0, change)
         .await
         .map_err(|error| error.to_string())?;
+    if discovery_changed {
+        use tauri::Manager;
+        app.state::<Arc<DiscoveryService>>().nudge();
+    }
     if theme_changed {
         crate::system_ui::apply_theme(&app, settings.theme);
     }
@@ -397,6 +403,74 @@ pub async fn online_search(
 /// Songs an artist page shows (M46.8).
 const ARTIST_POPULAR_LIMIT: usize = 20;
 
+/// Every source's charts for a country (M46.9), cached for an hour.
+#[tauri::command]
+#[specta::specta]
+pub async fn music_charts(
+    discovery: tauri::State<'_, Arc<DiscoveryService>>,
+    region: Option<String>,
+) -> Result<raygun_model::MusicCharts, String> {
+    Ok(discovery.charts(region).await)
+}
+
+/// A chart's songs (M46.9).
+#[tauri::command]
+#[specta::specta]
+pub async fn music_chart(
+    discovery: tauri::State<'_, Arc<DiscoveryService>>,
+    provider_id: String,
+    chart_id: String,
+    region: Option<String>,
+) -> Result<Vec<raygun_model::OnlineTrack>, String> {
+    discovery.chart(&provider_id, &chart_id, region).await
+}
+
+/// A song's genres and moods, found now if they aren't stored yet (M46.9).
+#[tauri::command]
+#[specta::specta]
+pub async fn music_track_tags(
+    discovery: tauri::State<'_, Arc<DiscoveryService>>,
+    query: TrackQuery,
+) -> Result<Vec<raygun_model::MusicTag>, String> {
+    discovery.track_tags(query).await
+}
+
+/// Stored tags for songs by track key; songs without any are left out (M46.9).
+#[tauri::command]
+#[specta::specta]
+pub async fn music_tags_for(
+    discovery: tauri::State<'_, Arc<DiscoveryService>>,
+    keys: Vec<String>,
+) -> Result<Vec<raygun_model::TrackTags>, String> {
+    discovery.tags_for(keys).await
+}
+
+/// The tags across the user's songs, the most common first (M46.9).
+#[tauri::command]
+#[specta::specta]
+pub async fn music_tag_summary(
+    discovery: tauri::State<'_, Arc<DiscoveryService>>,
+) -> Result<Vec<raygun_model::TagCount>, String> {
+    discovery.summary().await
+}
+
+/// Favorites and playlist songs with a tag (M46.9).
+#[tauri::command]
+#[specta::specta]
+pub async fn music_tag_songs(
+    discovery: tauri::State<'_, Arc<DiscoveryService>>,
+    name: String,
+) -> Result<Vec<SavedTrack>, String> {
+    discovery.songs_with_tag(&name).await
+}
+
+/// Every genre and mood Raygun knows, moods first (M46.9).
+#[tauri::command]
+#[specta::specta]
+pub fn music_tag_vocabulary() -> Vec<raygun_model::MusicTag> {
+    crate::genres::vocabulary()
+}
+
 /// An artist's page: popular songs from the sources, and the library's albums and songs by them.
 #[tauri::command]
 #[specta::specta]
@@ -446,10 +520,13 @@ pub async fn collections_saves(
 #[specta::specta]
 pub async fn collections_set_saves(
     collections: tauri::State<'_, CollectionsService>,
+    discovery: tauri::State<'_, Arc<DiscoveryService>>,
     track: TrackInput,
     saves: raygun_model::TrackSaves,
 ) -> Result<(), String> {
-    collections.set_saves(track, saves).await
+    collections.set_saves(track, saves).await?;
+    discovery.nudge();
+    Ok(())
 }
 
 /// Favorite tracks, most recently added first.
@@ -475,10 +552,13 @@ pub async fn favorite_get(
 #[specta::specta]
 pub async fn favorite_set(
     collections: tauri::State<'_, CollectionsService>,
+    discovery: tauri::State<'_, Arc<DiscoveryService>>,
     track: TrackInput,
     favorite: bool,
 ) -> Result<(), String> {
-    collections.set_favorite(track, favorite).await
+    collections.set_favorite(track, favorite).await?;
+    discovery.nudge();
+    Ok(())
 }
 
 #[tauri::command]
@@ -531,10 +611,13 @@ pub async fn playlist_delete(
 #[specta::specta]
 pub async fn playlist_add(
     collections: tauri::State<'_, CollectionsService>,
+    discovery: tauri::State<'_, Arc<DiscoveryService>>,
     id: String,
     tracks: Vec<TrackInput>,
 ) -> Result<(), String> {
-    collections.add_to_playlist(&id, tracks).await
+    collections.add_to_playlist(&id, tracks).await?;
+    discovery.nudge();
+    Ok(())
 }
 
 #[tauri::command]

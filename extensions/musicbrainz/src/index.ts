@@ -24,13 +24,16 @@ type Release = {
   'release-group'?: { 'primary-type'?: string };
 };
 
+type Tag = { name: string; count?: number };
+
 type Recording = {
   id: string;
   title: string;
   length?: number | null;
   score?: number;
-  'artist-credit'?: { name: string; joinphrase?: string }[];
+  'artist-credit'?: { name: string; joinphrase?: string; artist?: { id: string } }[];
   releases?: Release[];
+  tags?: Tag[];
 };
 
 // Lucene syntax characters would change the meaning of the user's query.
@@ -132,3 +135,54 @@ const search = defineProvider({
 });
 
 registerProvider(search);
+
+const simple = (text: string) => words(text).join(' ');
+
+/** Tags weighted by votes, the most voted 1 (M46.9). The app keeps the ones that are genres. */
+const weighted = (tags: Tag[] = []) => {
+  const most = Math.max(1, ...tags.map((tag) => tag.count ?? 1));
+  return tags
+    .filter((tag) => (tag.count ?? 1) > 0)
+    .map((tag) => ({ name: tag.name, weight: (tag.count ?? 1) / most }));
+};
+
+const getJson = async <T>(url: string): Promise<T> => {
+  const response = await fetchPaced(url);
+  if (!response.ok) throw new Error(`MusicBrainz answered HTTP ${response.status}`);
+  return response.json<T>();
+};
+
+/**
+ * A song's genres (M46.9): the recording's own tags, or its artist's genres when nobody tagged the
+ * recording. One request a second, as MusicBrainz asks.
+ */
+registerProvider(
+  defineProvider({
+    kind: 'music.tags',
+    id: 'genres',
+    name: 'MusicBrainz',
+    async tags({ title, artist }) {
+      const parts = [`recording:"${escapeQuery(title)}"`];
+      if (artist) parts.push(`artist:"${escapeQuery(artist)}"`);
+      const found = await getJson<{ recordings?: Recording[] }>(
+        `${API}/recording?query=${encodeURIComponent(parts.join(' AND '))}&limit=10&fmt=json`,
+      );
+      const wanted = simple(title);
+      const matches = (found.recordings ?? []).filter(
+        (recording) =>
+          simple(recording.title) === wanted &&
+          (!artist || words(credit(recording)).some((word) => words(artist).includes(word))),
+      );
+      // The same song is recorded on many releases; some copies carry the tags.
+      const match = matches.find((recording) => recording.tags?.length) ?? matches[0];
+      if (!match) return { tags: [] };
+      if (match.tags?.length) return { tags: weighted(match.tags) };
+      const artistId = match['artist-credit']?.[0]?.artist?.id;
+      if (!artistId) return { tags: [] };
+      const byArtist = await getJson<{ genres?: Tag[]; tags?: Tag[] }>(
+        `${API}/artist/${artistId}?inc=genres+tags&fmt=json`,
+      );
+      return { tags: weighted(byArtist.genres?.length ? byArtist.genres : byArtist.tags) };
+    },
+  }),
+);

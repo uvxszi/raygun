@@ -140,6 +140,9 @@ export const DEFAULT_SETTINGS: Settings = {
   colors: { background: '', surface: '', foreground: '', muted: '' },
   disabledSources: [],
   autoLoad: { enabled: true, cooldownMs: 1500 },
+  windowFrame: 'app',
+  zoom: 100,
+  discovery: { region: '', tagSongs: true },
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,
@@ -165,6 +168,13 @@ export const EMPTY_LIBRARY: LibraryStatus = { roots: [], trackCount: 0, scanning
 export const bindingsMock = {
   commands: {
     appInfo: vi.fn(),
+    musicCharts: vi.fn(),
+    musicChart: vi.fn(),
+    musicTrackTags: vi.fn(),
+    musicTagsFor: vi.fn(),
+    musicTagSummary: vi.fn(),
+    musicTagSongs: vi.fn(),
+    musicTagVocabulary: vi.fn(),
     videoPlayerReport: vi.fn(),
     ttsReport: vi.fn(),
     ttsSetAvailable: vi.fn(),
@@ -415,6 +425,13 @@ export const seedBindings = () => {
   commands.playbackControl.mockResolvedValue(undefined);
   commands.playbackEngineReport.mockResolvedValue(undefined);
   const ok = <T>(data: T) => ({ status: 'ok' as const, data });
+  commands.musicCharts.mockResolvedValue(ok({ charts: [], errors: [] }));
+  commands.musicChart.mockResolvedValue(ok([]));
+  commands.musicTrackTags.mockResolvedValue(ok([]));
+  commands.musicTagsFor.mockResolvedValue(ok([]));
+  commands.musicTagSummary.mockResolvedValue(ok([]));
+  commands.musicTagSongs.mockResolvedValue(ok([]));
+  commands.musicTagVocabulary.mockResolvedValue([]);
   commands.libraryStatus.mockResolvedValue(ok(EMPTY_LIBRARY));
   commands.libraryConnectDeviceMusic.mockResolvedValue(ok(EMPTY_LIBRARY));
   commands.libraryAddRoot.mockResolvedValue(ok(EMPTY_LIBRARY));

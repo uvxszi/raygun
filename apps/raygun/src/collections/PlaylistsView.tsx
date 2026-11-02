@@ -8,7 +8,7 @@ import { Sheet } from '../shell/Sheet';
 import { PlaylistCover } from './PlaylistCover';
 import { useCreatePlaylist, usePlaylists } from './useCollections';
 
-const NewPlaylistForm: FC<{ onDone: () => void }> = ({ onDone }) => {
+export const NewPlaylistForm: FC<{ onDone: () => void }> = ({ onDone }) => {
   const { t } = useTranslation();
   const create = useCreatePlaylist();
   const [name, setName] = useState('');

@@ -5,6 +5,7 @@ import type {
   ScrollbarStyle,
   StartScreen,
   Theme,
+  WindowFrame,
 } from '@raygun/bindings';
 import { Check, Palette } from 'lucide-react';
 import { useRef } from 'react';
@@ -15,7 +16,8 @@ import { LANGUAGES, SYSTEM_LANGUAGE, nativeName, resolveLanguage } from '../i18n
 import { useLayout } from '../layout/useLayout';
 import { NAV_TABS, isNavTabId } from '../shell/navTabs';
 import { ColorSettings } from './ColorSettings';
-import { PrefBlock, PrefChoice, PrefGroup } from './prefs';
+import { useIsDesktop } from '../shell/useIsDesktop';
+import { PrefBlock, PrefChoice, PrefGroup, PrefSlider } from './prefs';
 import { useSettings, useUpdateSetting } from './useSettings';
 
 const THEMES: { value: Theme; labelKey: string; preview: [string, string, string] }[] = [
@@ -43,6 +45,7 @@ export const AppearanceCard: FC = () => {
   const updateSetting = useUpdateSetting();
   const data = settings.data;
   const layout = useLayout();
+  const desktop = useIsDesktop();
   const colorTimer = useRef<number | undefined>(undefined);
   if (!data) return null;
   // The picker reports every move; the colour is saved once it rests.
@@ -231,6 +234,32 @@ export const AppearanceCard: FC = () => {
           onChange={(value) => updateSetting.mutate({ key: 'scrollbars', value })}
         />
       </PrefGroup>
+      {desktop && (
+        <PrefGroup title={t('settings.window.title')}>
+          <PrefChoice<WindowFrame>
+            title={t('settings.window.frame')}
+            summary={t('settings.window.frameHint')}
+            value={data.windowFrame ?? 'app'}
+            disabled={busy}
+            options={(['app', 'system'] as const).map((value) => ({
+              value,
+              label: t(`settings.window.frames.${value}`),
+            }))}
+            onChange={(value) => updateSetting.mutate({ key: 'windowFrame', value })}
+          />
+          <PrefSlider
+            title={t('settings.window.zoom')}
+            summary={t('settings.window.zoomHint')}
+            value={data.zoom ?? 100}
+            min={50}
+            max={200}
+            step={10}
+            format={(value) => `${value}%`}
+            disabled={busy}
+            onChange={(value) => updateSetting.mutate({ key: 'zoom', value })}
+          />
+        </PrefGroup>
+      )}
       {updateSetting.isError && (
         <p role="alert" className="text-primary px-1 text-sm">
           {t('settings.saveFailed', { message: updateSetting.error.message })}

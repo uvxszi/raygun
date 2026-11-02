@@ -1,0 +1,15 @@
+{
+  "id": "dev.raygun.apple-charts",
+  "name": "Apple Music charts",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "The most played songs on Apple Music in your country, from Apple's public charts feed.",
+  "author": "Raygun",
+  "provides": ["music.charts"],
+  "permissions": {
+    "net": ["rss.marketingtools.apple.com"]
+  },
+  "contentRating": "safe"
+}

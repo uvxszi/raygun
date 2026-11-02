@@ -3,6 +3,49 @@
   "name": "Raygun Extensions",
   "extensions": [
     {
+      "id": "dev.raygun.apple-charts",
+      "name": "Apple Music charts",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "The most played songs on Apple Music in your country, from Apple's public charts feed.",
+      "author": "Raygun",
+      "provides": [
+        "music.charts"
+      ],
+      "permissions": {
+        "net": [
+          "rss.marketingtools.apple.com"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.apple-charts-1.0.0.zip",
+      "sha256": "c30d8cf1f3bc83c1a19f2fc6fcae914c08aa365853337d8c0366b078a9064515",
+      "size": 1510
+    },
+    {
+      "id": "dev.raygun.deezer",
+      "name": "Deezer",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Charts (the top songs and each genre's) and song genres from Deezer's public API.",
+      "author": "Raygun",
+      "provides": [
+        "music.charts",
+        "music.tags"
+      ],
+      "permissions": {
+        "net": [
+          "api.deezer.com"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.deezer-1.0.0.zip",
+      "sha256": "f3042adaf7f10271ff6c9ddbd5120ecf4264abc73e3ed08228ee61d31553de46",
+      "size": 1861
+    },
+    {
       "id": "dev.raygun.gutenberg",
       "name": "Project Gutenberg",
       "version": "1.0.0",
@@ -49,6 +92,27 @@
       "size": 4993
     },
     {
+      "id": "dev.raygun.listenbrainz",
+      "name": "ListenBrainz",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "The songs most listened to on the open ListenBrainz service this week, month and year.",
+      "author": "Raygun",
+      "provides": [
+        "music.charts"
+      ],
+      "permissions": {
+        "net": [
+          "api.listenbrainz.org"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.listenbrainz-1.0.0.zip",
+      "sha256": "a0b040ff98fc9cc041cc2a5c7f346d882d9e80626dbdf2f726fa6b2092bcae6c",
+      "size": 1373
+    },
+    {
       "id": "dev.raygun.lrclib",
       "name": "LRCLIB",
       "version": "1.0.2",
@@ -93,12 +157,13 @@
     {
       "id": "dev.raygun.musicbrainz",
       "name": "MusicBrainz",
-      "version": "1.0.1",
+      "version": "1.1.0",
       "apiVersion": 1,
-      "description": "Song search from the open MusicBrainz database. Results play through streaming extensions.",
+      "description": "Song search and song genres from the open MusicBrainz database. Results play through streaming extensions.",
       "author": "Raygun",
       "provides": [
-        "music.metadata"
+        "music.metadata",
+        "music.tags"
       ],
       "permissions": {
         "net": [
@@ -107,9 +172,9 @@
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.musicbrainz-1.0.1.zip",
-      "sha256": "b2e8e6345361f0ff5d6a66b3589cf3a5f43a69da7c3fc376b54c318fd5c8efc2",
-      "size": 1996
+      "package": "packages/dev.raygun.musicbrainz-1.1.0.zip",
+      "sha256": "181ff35ade627babbcf2df92f8ee2b95af79cd150920bd698e164c21ff54112a",
+      "size": 2461
     },
     {
       "id": "dev.raygun.podcast-directory",

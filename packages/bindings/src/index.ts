@@ -90,6 +90,20 @@ export const commands = {
 	collectionsSetSaves: (track: TrackInput, saves: TrackSaves) => typedError<null, string>(__TAURI_INVOKE("collections_set_saves", { track, saves })),
 	/**  An artist's page: popular songs from the sources, and the library's albums and songs by them. */
 	musicArtist: (name: string) => typedError<ArtistOverview, string>(__TAURI_INVOKE("music_artist", { name })),
+	/**  Every source's charts for a country (M46.9), cached for an hour. */
+	musicCharts: (region: string | null) => typedError<MusicCharts, string>(__TAURI_INVOKE("music_charts", { region })),
+	/**  A chart's songs (M46.9). */
+	musicChart: (providerId: string, chartId: string, region: string | null) => typedError<OnlineTrack[], string>(__TAURI_INVOKE("music_chart", { providerId, chartId, region })),
+	/**  A song's genres and moods, found now if they aren't stored yet (M46.9). */
+	musicTrackTags: (query: TrackQuery) => typedError<MusicTag[], string>(__TAURI_INVOKE("music_track_tags", { query })),
+	/**  Stored tags for songs by track key; songs without any are left out (M46.9). */
+	musicTagsFor: (keys: string[]) => typedError<TrackTags[], string>(__TAURI_INVOKE("music_tags_for", { keys })),
+	/**  The tags across the user's songs, the most common first (M46.9). */
+	musicTagSummary: () => typedError<TagCount[], string>(__TAURI_INVOKE("music_tag_summary")),
+	/**  Favorites and playlist songs with a tag (M46.9). */
+	musicTagSongs: (name: string) => typedError<SavedTrack[], string>(__TAURI_INVOKE("music_tag_songs", { name })),
+	/**  Every genre and mood Raygun knows, moods first (M46.9). */
+	musicTagVocabulary: () => __TAURI_INVOKE<MusicTag[]>("music_tag_vocabulary"),
 	/**  Whether a track (by its artist and title) is a favorite. */
 	favoriteGet: (track: TrackInput) => typedError<boolean, string>(__TAURI_INVOKE("favorite_get", { track })),
 	favoriteSet: (track: TrackInput, favorite: boolean) => typedError<null, string>(__TAURI_INVOKE("favorite_set", { track, favorite })),
@@ -724,6 +738,14 @@ export type DecoderMode =
 /**  Software first: slower, but plays what the hardware can't. */
 "software";
 
+/**  Charts and song tags (M46.9). */
+export type DiscoveryPrefs = {
+	/**  The charts' country, an ISO 3166 code in lowercase ("gb"); empty follows the app language. */
+	region?: string,
+	/**  Find genres and moods for saved songs in the background. */
+	tagSongs?: boolean,
+};
+
 export type DownloadState = "queued" | "downloading" | "done" | "failed";
 
 /**  An instruction for the active playback engine. */
@@ -1331,6 +1353,31 @@ export type MihonImport = {
  */
 export type MotionLevel = "off" | "calm" | "lively";
 
+/**  A chart a `music.charts` provider keeps (M46.9): its most played, trending, or a genre's top. */
+export type MusicChart = {
+	provider: ProviderInfo,
+	/**  The provider's own id, passed back for the songs. */
+	id: string,
+	name: string,
+	description: string | null,
+	artworkUrl: string | null,
+	/**  The genre the chart belongs to, in the app's spelling ("Hip-Hop"). */
+	tag: string | null,
+};
+
+/**  Every source's charts (M46.9), and the sources that failed. */
+export type MusicCharts = {
+	charts: MusicChart[],
+	/**  `<provider name>: <error>` for each source that didn't answer. */
+	errors: string[],
+};
+
+/**  One tag on a song (M46.9). */
+export type MusicTag = {
+	name: string,
+	kind: TagKind,
+};
+
 export type NavLabels = "always" | "selected";
 
 /**  What the novel reader needs for one chapter. */
@@ -1714,7 +1761,7 @@ export type SearchResults = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -1796,6 +1843,12 @@ export type Settings = {
 	disabledSources: string[],
 	/**  Loading a source's next page while scrolling (M46.8). */
 	autoLoad: AutoLoadPrefs,
+	/**  Who draws the desktop window's top edge (M46.9). */
+	windowFrame: WindowFrame,
+	/**  The desktop app's zoom in percent (M46.9): 50 to 200, in steps of 10. */
+	zoom: number,
+	/**  Charts and song tags (M46.9). */
+	discovery: DiscoveryPrefs,
 };
 
 /**  A setting changed outside the Settings screens (in the video player, M45); carries its key. */
@@ -2108,6 +2161,16 @@ export type SyncStatus = {
 	error: string | null,
 };
 
+/**  A tag across the user's saved songs, with how many have it (M46.9). */
+export type TagCount = {
+	name: string,
+	kind: TagKind,
+	count: number,
+};
+
+/**  What a song's tag says (M46.9): a genre a source gave, or a mood derived from genres. */
+export type TagKind = "genre" | "mood";
+
 /**  What a double tap on one part of the player does. */
 export type TapAction = "seek" | "playPause" | 
 /**  The previous episode on the left, the next on the right. */
@@ -2141,7 +2204,9 @@ export type TrackColumn = {
 };
 
 /**  A song table's optional columns; the title (with artists) always shows. */
-export type TrackColumnId = "album" | "added" | "plays" | "duration";
+export type TrackColumnId = "album" | "added" | "plays" | "duration" | 
+/**  The song's genres and moods (M46.9). */
+"tags";
 
 /**  A track to save, from the player, the library or a search result. */
 export type TrackInput = {
@@ -2195,6 +2260,12 @@ export type TrackTableView = {
 	view?: TrackListView,
 	/**  In display order. */
 	columns?: TrackColumn[],
+};
+
+/**  A song's stored tags (M46.9), by the resolver's track key. */
+export type TrackTags = {
+	trackKey: string,
+	tags: MusicTag[],
 };
 
 /**  Progress reading a chapter aloud (M33). */
@@ -2507,6 +2578,12 @@ export type WebsitePrefs = {
 	/**  Sites open in desktop mode. */
 	desktop?: boolean,
 };
+
+/**
+ *  The desktop window's top edge (M46.9): Raygun's own bar (menu, back and forward, home, search
+ *  and the window's buttons, as Spotify's), or the system's title bar with Raygun's bar under it.
+ */
+export type WindowFrame = "app" | "system";
 
 /**  A YouTube video to watch in its own player (trailers, YouTube streams; M46.4). */
 export type YouTubeVideo = {

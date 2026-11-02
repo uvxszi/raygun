@@ -824,6 +824,121 @@ async fn lyrics_prefer_synced_answers_and_validate_lines() {
     assert_eq!(host.lyrics(&query).await, Err("lyrics site is down".into()));
 }
 
+#[tokio::test]
+async fn charts_and_tags_come_from_their_providers() {
+    let host = test_host();
+    let manifest = manifest_json(json!({ "provides": ["music.charts", "music.tags"] }));
+    let code = r#"
+        raygun.providers.register({
+          kind: 'music.charts', id: 'charts', name: 'Charts',
+          charts: async ({ region }) => ({ charts: [
+            { id: 'top', name: ' Top songs ', description: region },
+            { id: 7, name: 'Rock', tag: 'Rock', artworkUrl: 'javascript:alert(1)' },
+            { id: '', name: 'No id' },
+            { id: 'x', name: '   ' },
+          ] }),
+          chart: async ({ id, region, limit }) => ({ tracks: [
+            { id: 1, title: `${id} ${region} ${limit}`, artist: 'A' },
+            { title: '' },
+          ] }),
+        });
+        raygun.providers.register({
+          kind: 'music.tags', id: 'tags', name: 'Tags',
+          tags: async ({ title }) => ({ tags: [
+            { name: ' Rock ' }, { name: 'Pop', weight: 0.4 }, { name: 'Loud', weight: 7 },
+            { name: '' }, { name: 'x'.repeat(61) }, { weight: 1 },
+          ] }),
+        });
+    "#;
+    host.load(vec![ExtensionSource::built_in(&[
+        ("raygun-extension.json", &manifest),
+        ("index.js", code),
+    ])])
+    .await;
+
+    let charts = host.music_charts(Some("gb")).await;
+    let (provider, answer) = &charts[0];
+    assert_eq!(provider.id, "dev.raygun.test/charts");
+    let charts = answer.as_ref().unwrap();
+    assert_eq!(
+        charts.len(),
+        2,
+        "charts without an id or a name are dropped"
+    );
+    assert_eq!(charts[0].name, "Top songs");
+    assert_eq!(charts[0].description.as_deref(), Some("gb"));
+    assert_eq!(charts[1].id, "7");
+    assert_eq!(charts[1].tag.as_deref(), Some("Rock"));
+    assert_eq!(charts[1].artwork_url, None, "only web artwork");
+
+    let songs = host
+        .music_chart("dev.raygun.test/charts", "top", Some("gb"), 20)
+        .await
+        .unwrap();
+    assert_eq!(songs.len(), 1);
+    assert_eq!(songs[0].title, "top gb 20");
+
+    let query = raygun_model::TrackQuery {
+        title: "Song".into(),
+        artist: Some("A".into()),
+        album: None,
+        duration_ms: None,
+    };
+    let tags = host.music_tags(&query).await;
+    assert_eq!(
+        tags[0].1.as_ref().unwrap(),
+        &vec![
+            ("Rock".to_owned(), 1.0),
+            ("Pop".to_owned(), 0.4),
+            ("Loud".to_owned(), 1.0)
+        ]
+    );
+}
+
+/// The chart and tag extensions against their real services:
+/// `cargo test -p raygun-ext-host -- --ignored discovery_live --nocapture`.
+#[tokio::test]
+#[ignore = "needs network access to Deezer, Apple, ListenBrainz and MusicBrainz"]
+async fn discovery_live_charts_and_tags() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(discover_installed(&dir)).await;
+
+    for (provider, answer) in host.music_charts(Some("gb")).await {
+        let charts = answer.unwrap_or_else(|error| panic!("{}: {error}", provider.name));
+        assert!(!charts.is_empty(), "{}", provider.name);
+        let first = &charts[0];
+        let songs = host
+            .music_chart(&provider.id, &first.id, Some("gb"), 10)
+            .await
+            .unwrap_or_else(|error| panic!("{} {}: {error}", provider.name, first.name));
+        println!(
+            "{}: {} charts; {}: {:?}",
+            provider.name,
+            charts.len(),
+            first.name,
+            songs
+                .iter()
+                .take(3)
+                .map(|song| (&song.title, &song.artist))
+                .collect::<Vec<_>>()
+        );
+        assert!(!songs.is_empty(), "{} {}", provider.name, first.name);
+    }
+
+    let query = raygun_model::TrackQuery {
+        title: "Get Lucky".into(),
+        artist: Some("Daft Punk".into()),
+        album: None,
+        duration_ms: Some(248_000),
+    };
+    for (provider, answer) in host.music_tags(&query).await {
+        let tags = answer.unwrap_or_else(|error| panic!("{}: {error}", provider.name));
+        println!("{}: {tags:?}", provider.name);
+        assert!(!tags.is_empty(), "{}", provider.name);
+    }
+}
+
 /// LRCLIB's real service: `cargo test -p raygun-ext-host -- --ignored lrclib_live`.
 #[tokio::test]
 #[ignore = "needs network access to lrclib.net"]

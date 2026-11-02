@@ -291,6 +291,18 @@ importers:
         specifier: ^5.0.5
         version: 5.0.5(@types/node@24.19.2)(jsdom@30.1.3)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.27.7)(jiti@2.7.0))
 
+  extensions/apple-charts:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
+  extensions/deezer:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
   extensions/gutenberg:
     devDependencies:
       '@raygun/sdk':
@@ -298,6 +310,12 @@ importers:
         version: link:../../packages/sdk
 
   extensions/internet-archive:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
+  extensions/listenbrainz:
     devDependencies:
       '@raygun/sdk':
         specifier: workspace:*

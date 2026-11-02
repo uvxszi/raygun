@@ -1,0 +1,17 @@
+{
+  "name": "dev.raygun.deezer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "build": "raygun-ext build",
+    "dev:android": "raygun-ext dev --android",
+    "lint": "eslint src",
+    "type-check": "tsc",
+    "pack:repo": "raygun-ext pack --repo ../../repo"
+  },
+  "devDependencies": {
+    "@raygun/sdk": "workspace:*"
+  }
+}

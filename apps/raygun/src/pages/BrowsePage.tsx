@@ -14,14 +14,16 @@ import { useMangaSources } from '../manga/useManga';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { Tabs } from '../shell/Tabs';
+import { BrowseAll } from '../music/BrowseAll';
 import { SearchPanel } from '../search/SearchPanel';
+import { useIsDesktop } from '../shell/useIsDesktop';
 import { SourceMenu } from '../search/SourceMenu';
 import { WebsitesSection } from '../websites/WebsitesSection';
 import type { SearchType } from '../search/searchTypes';
 import { useStremioAddons } from '../watch/useStremio';
 import { useVideoSources } from '../watch/useVideoSources';
 
-export type BrowseSection = 'search' | 'sources' | 'extensions';
+export type BrowseSection = 'search' | 'discover' | 'sources' | 'extensions';
 export type ExtensionList = 'installed' | 'available';
 
 type SourceRow = {
@@ -161,6 +163,7 @@ const SourcesList: FC = () => {
 
 const BROWSE_TAB_LABEL: Record<BrowseSection, string> = {
   search: 'search.title',
+  discover: 'discover.title',
   sources: 'browse.sources',
   extensions: 'extensions.title',
 };
@@ -182,11 +185,16 @@ export const BrowsePage: FC = () => {
     .filter((item) => item.visible)
     .map((item) => item.id)
     .filter(
-      (id): id is BrowseSection => id === 'search' || id === 'sources' || id === 'extensions',
+      (id): id is BrowseSection =>
+        id === 'search' || id === 'discover' || id === 'sources' || id === 'extensions',
     );
-  const firstTab: BrowseSection = shownTabs.includes('sources')
-    ? 'sources'
-    : (shownTabs[0] ?? 'search');
+  // Browse opens on Browse all, as Spotify's does (M46.9), else Sources, else the first shown.
+  const firstTab: BrowseSection =
+    (['discover', 'sources'] as const).find((id) => shownTabs.includes(id)) ??
+    shownTabs[0] ??
+    'search';
+  // On desktop the app bar holds the search field (M46.9).
+  const desktop = useIsDesktop();
   const { tab = firstTab, list = 'installed', q = '', type = 'all' } = current;
   const navigate = useNavigate({ from: '/browse' });
   const reload = useReloadExtensions();
@@ -222,71 +230,88 @@ export const BrowsePage: FC = () => {
     ...(type === 'all' ? {} : { type }),
   };
 
+  const menu = (
+    <OverflowMenu
+      items={[
+        ...(tab === 'extensions' && list === 'installed'
+          ? [
+              {
+                label: t('extensions.reload'),
+                icon: RefreshCw,
+                onSelect: () => reload.mutate(),
+              },
+            ]
+          : []),
+        ...(tab === 'extensions' && list === 'available'
+          ? [
+              {
+                label: t('extensions.refresh'),
+                icon: RefreshCw,
+                onSelect: () => refresh.mutate(),
+              },
+            ]
+          : []),
+        { label: t('watch.addons'), icon: Puzzle, to: '/watch/addons' },
+        { label: t('browse.repos'), icon: Package, to: '/extensions/repos' },
+        {
+          label: t('layout.editBrowse'),
+          icon: LayoutList,
+          to: '/settings/layout/browseSections',
+        },
+      ]}
+    />
+  );
+  const tabs = (
+    <Tabs
+      label={t('browse.title')}
+      active={tab}
+      items={shownTabs.concat(shownTabs.includes(tab) ? [] : [tab]).map((id) => ({
+        id,
+        label: t(BROWSE_TAB_LABEL[id]),
+        to: '/browse',
+        search: id === 'search' ? searchParams : id === firstTab ? {} : { tab: id },
+        testId: `browse-tab-${id}`,
+      }))}
+    />
+  );
+
   return (
     <section data-testid="browse-page" className="flex flex-col gap-3">
-      <header className="bg-background sticky top-0 z-30 -mx-4 flex min-h-16 items-center gap-1 px-3 py-2 lg:-mx-10 lg:px-8">
-        <h1 className="sr-only">{t('browse.title')}</h1>
-        <label className="bg-surface flex min-w-0 flex-1 items-center gap-3 rounded-full px-5 py-3">
-          <Search aria-hidden size={20} className="text-muted shrink-0" />
-          <input
-            type="search"
-            enterKeyHint="search"
-            value={input}
-            onChange={(event) => onInput(event.target.value)}
-            placeholder={t(`search.placeholderFor.${type}`)}
-            aria-label={t('search.title')}
-            className="placeholder:text-muted min-w-0 flex-1 bg-transparent outline-none"
-          />
-          {fetching && q && tab === 'search' && (
-            <LoaderCircle
-              aria-label={t('search.searching')}
-              role="status"
-              size={20}
-              className="text-muted shrink-0 animate-spin"
-            />
-          )}
-        </label>
-        <OverflowMenu
-          items={[
-            ...(tab === 'extensions' && list === 'installed'
-              ? [
-                  {
-                    label: t('extensions.reload'),
-                    icon: RefreshCw,
-                    onSelect: () => reload.mutate(),
-                  },
-                ]
-              : []),
-            ...(tab === 'extensions' && list === 'available'
-              ? [
-                  {
-                    label: t('extensions.refresh'),
-                    icon: RefreshCw,
-                    onSelect: () => refresh.mutate(),
-                  },
-                ]
-              : []),
-            { label: t('watch.addons'), icon: Puzzle, to: '/watch/addons' },
-            { label: t('browse.repos'), icon: Package, to: '/extensions/repos' },
-            {
-              label: t('layout.editBrowse'),
-              icon: LayoutList,
-              to: '/settings/layout/browseSections',
-            },
-          ]}
-        />
-      </header>
-      <Tabs
-        label={t('browse.title')}
-        active={tab}
-        items={shownTabs.concat(shownTabs.includes(tab) ? [] : [tab]).map((id) => ({
-          id,
-          label: t(BROWSE_TAB_LABEL[id]),
-          to: '/browse',
-          search: id === 'search' ? searchParams : id === firstTab ? {} : { tab: id },
-          testId: `browse-tab-${id}`,
-        }))}
-      />
+      <h1 className="sr-only">{t('browse.title')}</h1>
+      {desktop ? (
+        // The app bar holds the search field on desktop; the tabs take its row.
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">{tabs}</div>
+          {menu}
+        </div>
+      ) : (
+        <>
+          <header className="bg-background sticky top-0 z-30 -mx-4 flex min-h-16 items-center gap-1 px-3 py-2 lg:-mx-10 lg:px-8">
+            <label className="bg-surface flex min-w-0 flex-1 items-center gap-3 rounded-full px-5 py-3">
+              <Search aria-hidden size={20} className="text-muted shrink-0" />
+              <input
+                type="search"
+                enterKeyHint="search"
+                value={input}
+                onChange={(event) => onInput(event.target.value)}
+                placeholder={t(`search.placeholderFor.${type}`)}
+                aria-label={t('search.title')}
+                className="placeholder:text-muted min-w-0 flex-1 bg-transparent outline-none"
+              />
+              {fetching && q && tab === 'search' && (
+                <LoaderCircle
+                  aria-label={t('search.searching')}
+                  role="status"
+                  size={20}
+                  className="text-muted shrink-0 animate-spin"
+                />
+              )}
+            </label>
+            {menu}
+          </header>
+          {tabs}
+        </>
+      )}
       {(reload.error ?? refresh.error) && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
           {(reload.error ?? refresh.error)?.message}
@@ -299,6 +324,7 @@ export const BrowsePage: FC = () => {
         </p>
       )}
       {tab === 'search' && <SearchPanel query={q} type={type} onType={setType} />}
+      {tab === 'discover' && <BrowseAll />}
       {tab === 'sources' && <SourcesList />}
       {tab === 'extensions' && (
         <div className="flex flex-col gap-4">

@@ -16,8 +16,10 @@ import { useTranslation } from 'react-i18next';
 import { fromQueueItem, useAddToPlaylist, useCreatePlaylist } from '../collections/useCollections';
 import { Artwork } from '../library/Artwork';
 import { ArtistLinks } from '../music/ArtistLinks';
+import { TrackTagChips } from '../music/TrackTagChips';
 import { Marquee } from '../shell/Marquee';
-import { useWideScreen } from '../shell/useWideScreen';
+import { useIsDesktop } from '../shell/useIsDesktop';
+import { useWideScreen, useWindowWidth } from '../shell/useWideScreen';
 import { ResizeHandle } from '../shell/ResizeHandle';
 import { usePanelSizes } from '../shell/usePanelSizes';
 import { FavoriteButton } from './FavoriteButton';
@@ -39,12 +41,26 @@ export const SidePanel: FC = () => {
   const panel = usePlayerUiStore((state) => state.panel);
   const setPanel = usePlayerUiStore((state) => state.setPanel);
   const wide = useWideScreen();
+  const desktop = useIsDesktop();
+  const windowWidth = useWindowWidth();
   const { item } = useNowPlaying();
   const { panels, save } = usePanelSizes();
   const [dragging, setDragging] = useState<number | null>(null);
-  if (!panel || !wide || !item) return null;
-  // Dragged to a size (M46.8), or by screen: 18, 20 then 24 rem.
-  const width = dragging ?? (panels.sidePanelWidth || null);
+  // Desktop keeps the panel at every window size, narrower when the window is (M46.9).
+  if (!panel || !(wide || desktop) || !item) return null;
+  // Dragged to a size (M46.8), or by screen: 18, 20 then 24 rem; never more than 30 % of a
+  // desktop window, nor less than 13 rem.
+  const chosen = dragging ?? (panels.sidePanelWidth || null);
+  const width =
+    desktop && windowWidth > 0
+      ? Math.max(
+          208,
+          Math.min(
+            chosen ?? (windowWidth >= 1280 ? 384 : windowWidth >= 1024 ? 320 : 288),
+            Math.round(windowWidth * 0.3),
+          ),
+        )
+      : chosen;
 
   return (
     <>
@@ -136,6 +152,7 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
                 : t('player.via', { source: note.source })}
             </span>
           )}
+          <TrackTagChips track={item} className="pt-1.5" />
         </div>
         <FavoriteButton item={item} compact />
         <VideoToggle item={item} className="size-9" />

@@ -8,7 +8,9 @@ import { PlaylistCover } from '../collections/PlaylistCover';
 import { usePlaylists } from '../collections/useCollections';
 import { useNavTabs } from './navTabs';
 import { ResizeHandle } from './ResizeHandle';
+import { useIsDesktop } from './useIsDesktop';
 import { usePanelSizes } from './usePanelSizes';
+import { useSideRail } from './useWideScreen';
 
 /** The rail's default width, and its limits (72 shows icons and covers only, M46.8). */
 const RAIL_DEFAULT = 224;
@@ -27,7 +29,11 @@ export const SideRail: FC = () => {
   const playlists = usePlaylists();
   const { panels, save } = usePanelSizes();
   const [dragging, setDragging] = useState<number | null>(null);
-  const width = dragging ?? (panels.railWidth || RAIL_DEFAULT);
+  // On desktop the rail stays at every window size (M46.9): below `lg` it shows covers only.
+  const desktop = useIsDesktop();
+  const roomy = useSideRail();
+  const squeezed = desktop && !roomy && dragging === null;
+  const width = squeezed ? RAIL_MIN : (dragging ?? (panels.railWidth || RAIL_DEFAULT));
   const narrow = width < COVERS_ONLY_BELOW;
   const item = (current: boolean) =>
     `flex items-center rounded-xl font-medium ${narrow ? 'justify-center p-2.5' : 'gap-3 px-4 py-2.5'} ${
@@ -37,7 +43,7 @@ export const SideRail: FC = () => {
     }`;
 
   return (
-    <div className="hidden shrink-0 lg:flex">
+    <div className={desktop ? 'flex shrink-0' : 'hidden shrink-0 lg:flex'}>
       <nav
         aria-label={t('nav.main')}
         data-testid="side-rail"

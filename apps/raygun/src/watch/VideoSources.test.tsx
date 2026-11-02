@@ -130,7 +130,7 @@ describe('Video sources in Watch', () => {
       }),
     );
     commands.videoTitle.mockResolvedValue(ok(SERIES));
-    await AppShellWrapper.mount('/browse');
+    await AppShellWrapper.mount('/browse?tab=sources');
 
     // Video sources are listed in Browse under Movies & series, with a Latest shortcut.
     const section = await screen.findByRole('region', { name: 'Movies & series' });

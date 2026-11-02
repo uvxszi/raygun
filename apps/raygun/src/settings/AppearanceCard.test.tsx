@@ -59,6 +59,9 @@ const DEFAULT_SETTINGS: Settings = {
   colors: { background: '', surface: '', foreground: '', muted: '' },
   disabledSources: [],
   autoLoad: { enabled: true, cooldownMs: 1500 },
+  windowFrame: 'app',
+  zoom: 100,
+  discovery: { region: '', tagSongs: true },
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,

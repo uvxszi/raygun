@@ -28,8 +28,9 @@ mod tests;
 
 pub use content::ContentFilter;
 pub use host::{
-    CallError, ExtensionFiles, ExtensionHost, ExtensionSource, HostConfig, LYRICS, MUSIC_METADATA,
-    MUSIC_STREAM, ProviderCandidates, ResolvedStream, UserSettings, discover_installed,
+    CallError, ExtensionFiles, ExtensionHost, ExtensionSource, HostConfig, LYRICS, MUSIC_CHARTS,
+    MUSIC_METADATA, MUSIC_STREAM, MUSIC_TAGS, ProviderCandidates, ResolvedStream, UserSettings,
+    discover_installed,
 };
 pub use js::Limits;
 pub use manifest::{MANIFEST_FILE, Manifest, ManifestError};

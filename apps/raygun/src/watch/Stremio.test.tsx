@@ -138,6 +138,8 @@ describe('Stremio addons in Watch', () => {
     await AppShellWrapper.mount('/');
     // Addons with catalogues are sources in Browse; each opens its catalogue rows.
     await user.click(screen.getByTestId('nav-browse-tab'));
+    // Browse opens on Browse all; the addons are under Sources.
+    await user.click(await screen.findByTestId('browse-tab-sources'));
     await user.click(await screen.findByRole('link', { name: 'Cinemeta' }));
     await screen.findByTestId('stremio-addon-page');
 
@@ -276,7 +278,7 @@ describe('Stremio addons in Watch', () => {
         },
       ]),
     );
-    await AppShellWrapper.mount('/browse');
+    await AppShellWrapper.mount('/browse?tab=sources');
     await user.click(await screen.findByRole('button', { name: 'More options' }));
     await user.click(screen.getByRole('menuitem', { name: 'Addons' }));
     const page = await screen.findByTestId('watch-addons-page');

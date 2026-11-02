@@ -732,6 +732,17 @@
       "hidden": "Hidden"
     },
     "scrollbarsHiddenHint": "Scrolling still works with the wheel, touch and keys",
+    "window": {
+      "title": "Window",
+      "frame": "Top of the window",
+      "frameHint": "Raygun's bar holds the menu, Back and Forward, Home, search and the window's buttons",
+      "frames": {
+        "app": "Raygun's bar",
+        "system": "The system's title bar"
+      },
+      "zoom": "Zoom",
+      "zoomHint": "Everything larger or smaller (Ctrl+= and Ctrl+-, Ctrl+0 resets)"
+    },
     "colors": {
       "title": "Colours",
       "background": "Background",
@@ -1781,10 +1792,13 @@
       "continueWatching": "Continue watching",
       "continueReading": "Continue reading",
       "yourMusic": "Your music",
-      "recentlyPlayed": "Recently played"
+      "recentlyPlayed": "Recently played",
+      "popularMusic": "Popular now",
+      "trendingMusic": "Trending"
     },
     "browseTab": {
       "search": "Search",
+      "discover": "Browse all",
       "sources": "Sources",
       "extensions": "Extensions"
     },
@@ -1876,6 +1890,7 @@
       "album": "Album",
       "added": "Date added",
       "plays": "Plays",
+      "tags": "Genres & moods",
       "duration": "Duration"
     },
     "resetWidths": "Reset column widths",
@@ -1893,6 +1908,67 @@
   "rail": {
     "library": "Your library",
     "resize": "Drag to resize the side rail"
+  },
+  "discover": {
+    "title": "Browse all",
+    "start": "Start browsing",
+    "charts": "Charts",
+    "genres": "Genres & moods",
+    "yourTags": "In your songs",
+    "music": "Music",
+    "podcasts": "Podcasts",
+    "comics": "Comics",
+    "books": "Books",
+    "videos": "Movies & series",
+    "websites": "Websites",
+    "popularNow": "Popular now",
+    "trending": "Trending",
+    "seeAll": "Show all",
+    "chart": "Chart",
+    "playChart": "Play {{name}}",
+    "noCharts": "No chart sources answered. Turn on Deezer, Apple Music charts or ListenBrainz in Browse → Extensions.",
+    "chartsFailed": "Some charts couldn't load: {{errors}}",
+    "tag": "Genre",
+    "mood": "Mood",
+    "tagCharts": "{{name}} charts",
+    "tagSongs": "Your {{name}} songs",
+    "tagNoSongs": "None of your saved songs is tagged {{name}} yet. Raygun finds genres for saved songs in the background.",
+    "loading": "Loading charts",
+    "songs_one": "{{count}} song",
+    "songs_other": "{{count}} songs",
+    "allTags": "All",
+    "filterByTag": "Filter by genre or mood",
+    "tags": "Tags",
+    "region": "Charts country",
+    "regionHint": "Charts that follow a country show this one.",
+    "regionAuto": "From the app language ({{region}})",
+    "tagSongsTitle": "Find genres and moods for my songs",
+    "tagSongsHint": "Asks MusicBrainz and Deezer about your saved songs in the background, a few seconds apart."
+  },
+  "appBar": {
+    "menu": "Main menu",
+    "file": "File",
+    "edit": "Edit",
+    "view": "View",
+    "playback": "Playback",
+    "help": "Help",
+    "exit": "Exit",
+    "undo": "Undo",
+    "redo": "Redo",
+    "delete": "Delete",
+    "search": "Search",
+    "fullPlayer": "Full player",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "zoomReset": "Reset zoom",
+    "about": "About Raygun",
+    "searchPlaceholder": "What do you want to play?",
+    "browse": "Browse",
+    "minimize": "Minimize",
+    "maximize": "Maximize",
+    "restore": "Restore",
+    "close": "Close",
+    "importing": "Importing…"
   },
   "shortcuts": {
     "title": "Keyboard shortcuts",

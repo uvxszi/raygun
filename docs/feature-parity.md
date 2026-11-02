@@ -37,6 +37,9 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Nuclear plugins | Nuclear | ✅ M17 |
 | Shosetsu Lua scripts | Shosetsu | ✅ M32 (every script that works in Shosetsu: M46.9.1) |
 | Fixed copies of broken sources (Paraline Raygun) | — | ✅ M46.9.1 |
+| Charts: popular and trending, by country and genre | Spotify, Nuclear (dashboard) | ✅ M46.9 |
+| Genres and moods on songs, Browse all tiles, genre pages | Spotify, Nuclear (tags) | ✅ M46.9 |
+| Desktop top bar: menu, Back/Forward, Home, search, Browse, window buttons; zoom | Spotify desktop | ✅ M46.9 |
 | Stremio addons | Stremio | ✅ M41 |
 | LNReader JS plugins | LNReader | 🔜 M51 |
 | Mihon/Aniyomi APK extensions | Mihon, aniyomi | 🔜 M60 (Android dex runtime) |

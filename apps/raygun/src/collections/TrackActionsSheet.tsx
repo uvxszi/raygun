@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { TrackTagChips } from '../music/TrackTagChips';
 import { useCloseOnBack } from '../player/useCloseOnBack';
 import { Popover } from '../shell/Popover';
 import { useWideScreen } from '../shell/useWideScreen';
@@ -155,6 +156,7 @@ const TrackActions: FC<{ track: TrackInput; sheet?: boolean }> = ({ track, sheet
         <p className="text-muted truncate text-sm">
           {[track.artist, track.album].filter(Boolean).join(' · ')}
         </p>
+        <TrackTagChips track={track} onOpen={close} className="pt-2" />
       </div>
       <button
         type="button"

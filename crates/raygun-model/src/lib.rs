@@ -131,7 +131,35 @@ pub struct Settings {
     pub disabled_sources: Vec<String>,
     /// Loading a source's next page while scrolling (M46.8).
     pub auto_load: AutoLoadPrefs,
+    /// Who draws the desktop window's top edge (M46.9).
+    pub window_frame: WindowFrame,
+    /// The desktop app's zoom in percent (M46.9): 50 to 200, in steps of 10.
+    pub zoom: u32,
+    /// Charts and song tags (M46.9).
+    pub discovery: DiscoveryPrefs,
 }
+
+/// Charts and song tags (M46.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct DiscoveryPrefs {
+    /// The charts' country, an ISO 3166 code in lowercase ("gb"); empty follows the app language.
+    pub region: String,
+    /// Find genres and moods for saved songs in the background.
+    pub tag_songs: bool,
+}
+
+impl Default for DiscoveryPrefs {
+    fn default() -> Self {
+        Self {
+            region: String::new(),
+            tag_songs: true,
+        }
+    }
+}
+
+/// Zoom levels the desktop app offers, in percent (M46.9).
+pub const ZOOM_LEVELS: std::ops::RangeInclusive<u32> = 50..=200;
 
 /// Next pages load as a list's end comes near (M46.8), at most one per `cooldown_ms`, so sources
 /// don't rate-limit the user; off, a Load more button stays.
@@ -215,6 +243,8 @@ pub enum TrackColumnId {
     Added,
     Plays,
     Duration,
+    /// The song's genres and moods (M46.9).
+    Tags,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -252,6 +282,7 @@ impl Default for TrackTableView {
                 column(TrackColumnId::Album, true),
                 column(TrackColumnId::Added, true),
                 column(TrackColumnId::Plays, false),
+                column(TrackColumnId::Tags, false),
                 column(TrackColumnId::Duration, true),
             ],
         }
@@ -335,6 +366,16 @@ pub enum MotionLevel {
     Calm,
     #[default]
     Lively,
+}
+
+/// The desktop window's top edge (M46.9): Raygun's own bar (menu, back and forward, home, search
+/// and the window's buttons, as Spotify's), or the system's title bar with Raygun's bar under it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum WindowFrame {
+    #[default]
+    App,
+    System,
 }
 
 /// Scrollbars (M46.7): thin over a clear track by default, the system's width, or none at all
@@ -954,6 +995,9 @@ impl Default for Settings {
             colors: CustomColors::default(),
             disabled_sources: Vec::new(),
             auto_load: AutoLoadPrefs::default(),
+            window_frame: WindowFrame::App,
+            zoom: 100,
+            discovery: DiscoveryPrefs::default(),
         }
     }
 }
@@ -997,6 +1041,14 @@ impl Settings {
             SettingChange::Panels(prefs) => self.panels = prefs,
             SettingChange::DisabledSources(ids) => self.disabled_sources = ids,
             SettingChange::AutoLoad(prefs) => self.auto_load = prefs,
+            SettingChange::WindowFrame(frame) => self.window_frame = frame,
+            SettingChange::Zoom(percent) => self.zoom = percent,
+            SettingChange::Discovery(prefs) => {
+                self.discovery = DiscoveryPrefs {
+                    region: prefs.region.to_ascii_lowercase(),
+                    ..prefs
+                }
+            }
             SettingChange::Colors(colors) => {
                 self.colors = CustomColors {
                     background: colors.background.to_ascii_lowercase(),
@@ -1052,6 +1104,9 @@ pub enum SettingChange {
     Colors(CustomColors),
     DisabledSources(Vec<String>),
     AutoLoad(AutoLoadPrefs),
+    WindowFrame(WindowFrame),
+    Zoom(u32),
+    Discovery(DiscoveryPrefs),
 }
 
 impl SettingChange {
@@ -1095,6 +1150,9 @@ impl SettingChange {
             Self::Colors(_) => "colors",
             Self::DisabledSources(_) => "disabledSources",
             Self::AutoLoad(_) => "autoLoad",
+            Self::WindowFrame(_) => "windowFrame",
+            Self::Zoom(_) => "zoom",
+            Self::Discovery(_) => "discovery",
         }
     }
 
@@ -1114,7 +1172,25 @@ impl SettingChange {
             | Self::AutoSubtitles(_)
             | Self::AutoplayNext(_)
             | Self::Scrollbars(_)
-            | Self::Motion(_) => Ok(()),
+            | Self::Motion(_)
+            | Self::WindowFrame(_) => Ok(()),
+            Self::Discovery(prefs) => {
+                if prefs.region.is_empty()
+                    || (prefs.region.len() == 2
+                        && prefs.region.bytes().all(|byte| byte.is_ascii_alphabetic()))
+                {
+                    Ok(())
+                } else {
+                    Err(format!("{} isn't a country code", prefs.region))
+                }
+            }
+            Self::Zoom(percent) => {
+                if ZOOM_LEVELS.contains(percent) && percent % 10 == 0 {
+                    Ok(())
+                } else {
+                    Err(format!("{percent}% isn't an offered zoom"))
+                }
+            }
             Self::NextPromptSeconds(seconds) => {
                 if NEXT_PROMPT_SECONDS.contains(seconds) {
                     Ok(())
@@ -1835,6 +1911,64 @@ pub struct Lyrics {
     pub plain: Option<String>,
 }
 
+/// A chart a `music.charts` provider keeps (M46.9): its most played, trending, or a genre's top.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicChart {
+    pub provider: ProviderInfo,
+    /// The provider's own id, passed back for the songs.
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub artwork_url: Option<String>,
+    /// The genre the chart belongs to, in the app's spelling ("Hip-Hop").
+    pub tag: Option<String>,
+}
+
+/// Every source's charts (M46.9), and the sources that failed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicCharts {
+    pub charts: Vec<MusicChart>,
+    /// `<provider name>: <error>` for each source that didn't answer.
+    pub errors: Vec<String>,
+}
+
+/// What a song's tag says (M46.9): a genre a source gave, or a mood derived from genres.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Type,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum TagKind {
+    Genre,
+    Mood,
+}
+
+/// One tag on a song (M46.9).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicTag {
+    pub name: String,
+    pub kind: TagKind,
+}
+
+/// A song's stored tags (M46.9), by the resolver's track key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackTags {
+    pub track_key: String,
+    pub tags: Vec<MusicTag>,
+}
+
+/// A tag across the user's saved songs, with how many have it (M46.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TagCount {
+    pub name: String,
+    pub kind: TagKind,
+    pub count: u32,
+}
+
 /// One provider's answer to an online search.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -2470,14 +2604,20 @@ pub const LAYOUT_AUDIO_VIEWS: [(&str, bool); 7] = [
     ("artists", true),
     ("tracks", true),
 ];
-pub const LAYOUT_HOME_SECTIONS: [(&str, bool); 4] = [
+pub const LAYOUT_HOME_SECTIONS: [(&str, bool); 6] = [
     ("continueWatching", true),
     ("continueReading", true),
     ("yourMusic", true),
     ("recentlyPlayed", true),
+    ("popularMusic", true),
+    ("trendingMusic", true),
 ];
-pub const LAYOUT_BROWSE_TABS: [(&str, bool); 3] =
-    [("search", true), ("sources", true), ("extensions", true)];
+pub const LAYOUT_BROWSE_TABS: [(&str, bool); 4] = [
+    ("search", true),
+    ("discover", true),
+    ("sources", true),
+    ("extensions", true),
+];
 pub const LAYOUT_BROWSE_SECTIONS: [(&str, bool); 4] = [
     ("video", true),
     ("manga", true),

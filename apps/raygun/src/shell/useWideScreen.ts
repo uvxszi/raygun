@@ -20,3 +20,14 @@ export const useWideScreen = () => useMediaQuery('(min-width: 768px)');
 
 /** Whether the side rail replaces the bottom tabs: Tailwind's `lg`. */
 export const useSideRail = () => useMediaQuery('(min-width: 1024px)');
+
+/** The window's width in px, following changes (0 where there's no window size, as in tests). */
+export const useWindowWidth = () =>
+  useSyncExternalStore(
+    (onChange) => {
+      window.addEventListener('resize', onChange);
+      return () => window.removeEventListener('resize', onChange);
+    },
+    () => window.innerWidth,
+    () => 0,
+  );

@@ -17,6 +17,7 @@ pub mod streams;
 pub mod stremio;
 pub mod sync;
 pub mod titles;
+pub mod track_tags;
 pub mod video;
 pub mod video_downloads;
 pub mod websites;

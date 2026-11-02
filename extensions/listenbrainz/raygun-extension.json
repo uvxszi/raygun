@@ -1,0 +1,15 @@
+{
+  "id": "dev.raygun.listenbrainz",
+  "name": "ListenBrainz",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "The songs most listened to on the open ListenBrainz service this week, month and year.",
+  "author": "Raygun",
+  "provides": ["music.charts"],
+  "permissions": {
+    "net": ["api.listenbrainz.org"]
+  },
+  "contentRating": "safe"
+}

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useSettings } from '../settings/useSettings';
 import { useNavTabs } from './navTabs';
+import { useIsDesktop } from './useIsDesktop';
 
 /**
  * The phone's navigation bar (Material 3, as in Mihon): the active tab's icon sits in a pill. The
@@ -13,6 +14,8 @@ export const BottomTabs: FC = () => {
   const { t } = useTranslation();
   const selectedOnly = useSettings().data?.navLabels === 'selected';
   const { bar, active } = useNavTabs();
+  // Desktop keeps its side rail at every size (M46.9).
+  if (useIsDesktop()) return null;
   return (
     <nav
       aria-label={t('nav.main')}

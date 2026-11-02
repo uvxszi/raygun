@@ -1,4 +1,4 @@
-import type { StartScreen } from '@raygun/bindings';
+import type { StartScreen, WindowFrame } from '@raygun/bindings';
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { MotionConfig } from 'motion/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -25,6 +25,8 @@ import { useVideoPlayerEvents } from '../video/videoPlayerStore';
 import { useYouTubeVideoEvents } from '../video/trailerStore';
 import { YouTubeOverlay } from '../video/YouTubeOverlay';
 import { usePlayerLabels } from '../watch/usePlayerLabels';
+import { AppBar } from './AppBar';
+import { setAppZoom, setWindowDecorations, useWindowState } from './appWindow';
 import { BottomTabs } from './BottomTabs';
 import { ContextMenuHost } from './ContextMenu';
 import { HoverLabel } from './HoverLabel';
@@ -32,6 +34,7 @@ import { useHorizontalWheel } from './useHorizontalWheel';
 import { NAV_TABS } from './navTabs';
 import { toggleWindowFullscreen } from './useWindowFullscreen';
 import { SideRail } from './SideRail';
+import { useIsDesktop } from './useIsDesktop';
 
 /** Opens the start screen chosen in Settings (any tab, M46.5), once, when the app starts on Home. */
 const useStartScreen = (screen: StartScreen | undefined) => {
@@ -61,6 +64,16 @@ const useFullscreenKey = () => {
   }, []);
 };
 
+/** The desktop window's frame and zoom, from Settings (M46.9). */
+const useApplyWindow = (desktop: boolean, frame?: WindowFrame, zoom?: number) => {
+  useEffect(() => {
+    if (desktop && frame) void setWindowDecorations(frame === 'system');
+  }, [desktop, frame]);
+  useEffect(() => {
+    if (desktop && zoom) void setAppZoom(zoom / 100);
+  }, [desktop, zoom]);
+};
+
 export const AppShell: FC = () => {
   const settings = useSettings();
   useApplyTheme(settings.data?.theme, settings.data?.accent, settings.data?.accentColor);
@@ -69,6 +82,9 @@ export const AppShell: FC = () => {
   useStartScreen(settings.data?.startScreen);
   useSettingsEvents();
   useSyncLanguage(settings.data?.language);
+  const desktop = useIsDesktop();
+  const { fullscreen } = useWindowState();
+  useApplyWindow(desktop, settings.data?.windowFrame, settings.data?.zoom);
   useEngineHost();
   useSpeechHost();
   useFullscreenKey();
@@ -99,21 +115,30 @@ export const AppShell: FC = () => {
 
   return (
     <MotionConfig reducedMotion={settings.data?.motion === 'off' ? 'always' : 'user'}>
-      <div className="flex h-full">
-        <SideRail />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex min-h-0 flex-1">
-            <main
-              ref={mainRef}
-              data-testid="page-content"
-              className="min-w-0 flex-1 overflow-y-auto px-4 pt-[env(safe-area-inset-top)] pb-4 lg:px-10"
-            >
-              <Outlet />
-            </main>
-            {!immersive && <SidePanel />}
+      <div className="flex h-full flex-col">
+        {desktop && !fullscreen && (
+          <AppBar
+            frame={settings.data?.windowFrame ?? 'app'}
+            onShortcuts={openShortcuts}
+            immersive={immersive}
+          />
+        )}
+        <div className="flex min-h-0 flex-1">
+          <SideRail />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex min-h-0 flex-1">
+              <main
+                ref={mainRef}
+                data-testid="page-content"
+                className="min-w-0 flex-1 overflow-y-auto px-4 pt-[env(safe-area-inset-top)] pb-4 lg:px-10"
+              >
+                <Outlet />
+              </main>
+              {!immersive && <SidePanel />}
+            </div>
+            {!immersive && <MiniPlayer />}
+            {!immersive && <BottomTabs />}
           </div>
-          {!immersive && <MiniPlayer />}
-          {!immersive && <BottomTabs />}
         </div>
         <PlayerSheet />
         <TrackActionsSheet />

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { COVER_GRID_CLASS, coverGridStyle } from '../manga/coverGrid';
 import { MangaGrid } from '../manga/MangaGrid';
 import type { Medium } from '../manga/medium';
 import { useMangaSources } from '../manga/useManga';
@@ -14,6 +15,7 @@ import { SourceFiltersPanel } from './SourceFiltersPanel';
 import { useFilteredSearch, useSourceFilters, useSourceSearch } from './useCatalogSearch';
 import type { FilterValues } from './useCatalogSearch';
 import { LoadMore } from '../shell/LoadMore';
+import { useSettings } from '../settings/useSettings';
 
 const toGridItems = (items: MangaCard[]) =>
   items.map((item) => ({
@@ -69,14 +71,25 @@ export const SourceRow: FC<{
   );
 };
 
-/** Cover-shaped placeholders while a source's row loads, so the page doesn't jump. */
-const RowPlaceholder: FC<{ count?: number }> = ({ count = 6 }) => (
-  <div aria-hidden className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-    {Array.from({ length: count }, (_, index) => (
-      <span key={index} className="bg-surface aspect-[2/3] animate-pulse rounded-lg" />
-    ))}
-  </div>
-);
+/**
+ * Cover-shaped placeholders while a source's row loads, in the same grid as the covers that
+ * replace them (the cover size setting), so the page doesn't jump or show giant boxes.
+ */
+const RowPlaceholder: FC<{ count?: number }> = ({ count = 6 }) => {
+  const settings = useSettings().data;
+  return (
+    <div
+      aria-hidden
+      data-testid="row-placeholder"
+      className={COVER_GRID_CLASS}
+      style={coverGridStyle(settings?.gridColumns ?? 0, settings?.coverWidth ?? 0)}
+    >
+      {Array.from({ length: count }, (_, index) => (
+        <span key={index} className="bg-surface aspect-[2/3] animate-pulse rounded-lg" />
+      ))}
+    </div>
+  );
+};
 
 /**
  * A source's row that loads only when it comes near the window (M46.7), queued with the others,
