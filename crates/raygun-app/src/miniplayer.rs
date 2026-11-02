@@ -13,6 +13,7 @@ use tauri::AppHandle;
 pub const LABEL: &str = "miniplayer";
 
 /// Where the webviews keep their data: the miniplayer shares the main window's profile.
+#[cfg_attr(any(target_os = "android", target_os = "ios"), allow(dead_code))]
 pub struct MiniplayerDir(pub PathBuf);
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]

@@ -60,6 +60,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Song downloads for offline play; save as the original file, WAV or FLAC with tags; recording when only YouTube has a song | Spotify, Nuclear, RiPlay | ✅ M46.10 (recording on Windows; Android: queued) |
 | Music search by songs, artists and albums; album pages | Spotify, Nuclear | ✅ M46.11 |
 | Swipe the player bar to change songs; Connect (devices); a miniplayer window on top | Spotify | ✅ M46.13 (Connect shows synced devices; there's no casting) |
+| Cards under the player (Lyrics, About the artist, Credits); artist bios; rows that page with buttons | Spotify | ✅ M46.14 (MusicBrainz and Wikipedia; similar artists and samples not yet) |
 | Equalizer | RiPlay | ✅ M46.12 (10 fixed bands with presets on both platforms; bass boost, reverb, balance, mono) |
 | Crossfade, loudness normalization, per-song start/end trims and volume | Spotify, RiPlay, Nuclear (setting only) | ✅ M46.12 (true crossfade with two players; loudness measured as songs play) |
 | Sleep timer | RiPlay | 🔜 M52 |

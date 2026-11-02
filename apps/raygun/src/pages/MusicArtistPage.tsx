@@ -1,8 +1,8 @@
 import { commands } from '@raygun/bindings';
-import type { OnlineTrack } from '@raygun/bindings';
+import type { ArtistInfo, OnlineTrack } from '@raygun/bindings';
 import { useQuery } from '@tanstack/react-query';
 import { useSearch } from '@tanstack/react-router';
-import { LoaderCircle, Play, Shuffle, UserRound } from 'lucide-react';
+import { ExternalLink, LoaderCircle, Play, Shuffle, UserRound } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -15,6 +15,7 @@ import { Artwork } from '../library/Artwork';
 import { TrackRow } from '../library/TrackRow';
 import { playFromLibrary } from '../library/useLibrary';
 import { creditedArtists } from '../music/artists';
+import { artistFacts, useArtistInfo } from '../player/musicInfo';
 import { OnlineTrackRow } from '../search/OnlineTrackRow';
 import { playResults } from '../search/useOnlineSearch';
 import { TopBar } from '../shell/TopBar';
@@ -34,8 +35,8 @@ const Section: FC<{ title: string; children: React.ReactNode }> = ({ title, chil
 );
 
 /**
- * An artist's page (M46.8), reached from any artist name: popular songs from your sources, then
- * what your library and your saved songs have by them. Their story and facts come with M46.9.
+ * An artist's page (M46.8), reached from any artist name: popular songs from your sources, their
+ * story from open databases (M46.14), then what your library and your saved songs have by them.
  */
 export const MusicArtistPage: FC = () => {
   const { t } = useTranslation();
@@ -46,11 +47,13 @@ export const MusicArtistPage: FC = () => {
     enabled: name !== '',
     staleTime: 10 * 60_000,
   });
+  const info = useArtistInfo(name || undefined);
   const favorites = useFavorites();
   const [more, setMore] = useState(false);
   const popular = overview.data?.popular ?? [];
   const saved = (favorites.data ?? []).filter((track) => sameArtist(track.artist, name));
   const picture =
+    info.data?.imageUrl ??
     overview.data?.albums.find((album) => album.artworkUrl)?.artworkUrl ??
     popular.find((track) => track.artworkUrl)?.artworkUrl ??
     null;
@@ -157,6 +160,7 @@ export const MusicArtistPage: FC = () => {
       {overview.isSuccess && popular.length === 0 && (
         <p className="text-muted text-sm">{t('artist.noPopular')}</p>
       )}
+      {info.data && <AboutSection info={info.data} />}
       {(overview.data?.albums.length ?? 0) > 0 && (
         <Section title={t('artist.albums')}>
           <AlbumGrid albums={overview.data?.albums ?? []} />
@@ -207,5 +211,38 @@ export const MusicArtistPage: FC = () => {
         </Section>
       )}
     </section>
+  );
+};
+
+/** What open databases say about the artist (M46.14): their story, where from, who's in it. */
+const AboutSection: FC<{ info: ArtistInfo }> = ({ info }) => {
+  const { t } = useTranslation();
+  const facts = [info.kind, artistFacts(info)].filter(Boolean).join(' · ');
+  const url = info.url;
+  return (
+    <Section title={t('artist.about')}>
+      <div data-testid="artist-about" className="bg-surface flex flex-col gap-2 rounded-2xl p-4">
+        {facts && <p className="text-muted text-sm">{facts}</p>}
+        {info.bio && <p className="leading-relaxed whitespace-pre-line">{info.bio}</p>}
+        {info.members.length > 0 && (
+          <p className="text-muted text-sm">
+            {t('artist.members', { names: info.members.join(', ') })}
+          </p>
+        )}
+        <div className="text-muted flex items-center justify-between gap-3 text-xs">
+          <span>{t('artist.from', { source: info.providerName })}</span>
+          {url && (
+            <button
+              type="button"
+              onClick={() => void commands.musicOpenInfoPage(url)}
+              className="hover:text-foreground flex items-center gap-1 font-semibold"
+            >
+              <ExternalLink aria-hidden size={12} />
+              {t('artist.readMore')}
+            </button>
+          )}
+        </div>
+      </div>
+    </Section>
   );
 };

@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper, makeItem } from '../shell/AppShell.test-wrapper';
@@ -262,5 +262,103 @@ describe('Lyrics', () => {
     });
     const view = await openLyrics();
     expect(await within(view).findByRole('alert')).toHaveTextContent('LRCLIB answered HTTP 502');
+  });
+});
+
+describe('Cards under the player', () => {
+  const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
+
+  beforeEach(() => {
+    AppShellWrapper.seedCore();
+  });
+
+  const openPlayer = async () => {
+    await AppShellWrapper.mount();
+    AppShellWrapper.playing(QUEUE, 0);
+    await AppShellWrapper.miniPlayer.open();
+    return AppShellWrapper.playerSheet.element;
+  };
+
+  it('shows the lyrics, the artist and the credits, each opening more', async () => {
+    bindingsMock.commands.lyricsGet.mockResolvedValue(
+      ok({
+        providerName: 'LRCLIB',
+        synced: [
+          { timeMs: 1_000, text: 'First line' },
+          { timeMs: 60_000, text: 'Second line' },
+          { timeMs: 120_000, text: 'Third line' },
+        ],
+        plain: null,
+      }),
+    );
+    bindingsMock.commands.musicArtistInfo.mockResolvedValue(
+      ok({
+        name: 'Raygun',
+        kind: 'Group',
+        bio: 'A band from the tests.',
+        imageUrl: null,
+        url: 'https://en.wikipedia.org/wiki/Raygun',
+        origin: 'Detroit',
+        active: '1999–',
+        members: [],
+        providerName: 'MusicBrainz',
+      }),
+    );
+    bindingsMock.commands.musicSongCredits.mockResolvedValue(
+      ok({
+        credits: [
+          { role: 'Performed by', names: ['Raygun'] },
+          { role: 'Produced by', names: ['Someone Else'] },
+        ],
+        url: 'https://musicbrainz.org/recording/x',
+        providerName: 'MusicBrainz',
+      }),
+    );
+    const sheet = await openPlayer();
+
+    // The "Up next" pill names the next song.
+    expect(within(sheet).getByRole('button', { name: 'Up next' })).toHaveTextContent('Second');
+    // Synced lyrics show from the line playing (the wrapper sits at 1:05).
+    const lyrics = await within(sheet).findByTestId('lyrics-card');
+    expect(await within(lyrics).findByText('Second line')).toBeInTheDocument();
+    expect(lyrics).not.toHaveTextContent('First line');
+    const artist = within(sheet).getByTestId('artist-card');
+    expect(await within(artist).findByText('A band from the tests.')).toBeInTheDocument();
+    expect(artist).toHaveTextContent('Detroit · 1999–');
+    expect(bindingsMock.commands.musicArtistInfo).toHaveBeenCalledWith('Raygun');
+    const credits = within(sheet).getByTestId('credits-card');
+    expect(await within(credits).findByText('Someone Else')).toBeInTheDocument();
+    expect(credits).toHaveTextContent('Produced by');
+
+    await userEvent.click(credits);
+    const list = await screen.findByTestId('credits-list');
+    expect(within(list).getByRole('link', { name: 'Someone Else' })).toBeInTheDocument();
+    await userEvent.click(within(list).getByRole('button', { name: 'Open on MusicBrainz' }));
+    expect(bindingsMock.commands.musicOpenInfoPage).toHaveBeenCalledWith(
+      'https://musicbrainz.org/recording/x',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Lyrics' }));
+    expect(await within(sheet).findByTestId('lyrics-view')).toBeInTheDocument();
+    expect(within(sheet).queryByTestId('player-cards')).not.toBeInTheDocument();
+  });
+
+  it('credits the song to its artists when no source knows it', async () => {
+    const sheet = await openPlayer();
+    const credits = await within(sheet).findByTestId('credits-card');
+    await waitFor(() => expect(credits).toHaveTextContent('Performed by'));
+    expect(credits).toHaveTextContent('Raygun');
+    const artist = within(sheet).getByTestId('artist-card');
+    expect(await within(artist).findByText('See their songs and albums')).toBeInTheDocument();
+  });
+
+  it('leads to the artist page and closes the player', async () => {
+    const sheet = await openPlayer();
+    await userEvent.click(within(sheet).getByRole('button', { name: 'About Raygun' }));
+    expect(await screen.findByTestId('music-artist-page')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Now playing' })).not.toBeInTheDocument(),
+    );
   });
 });

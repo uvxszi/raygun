@@ -2170,6 +2170,45 @@ pub struct MusicChart {
     pub tag: Option<String>,
 }
 
+/// What open databases say about an artist (M46.14): the player's "About the artist" card.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtistInfo {
+    pub name: String,
+    /// "Person", "Group", "Orchestra"...
+    pub kind: Option<String>,
+    /// A few sentences, plain text.
+    pub bio: Option<String>,
+    pub image_url: Option<String>,
+    /// Where to read more (Wikipedia).
+    pub url: Option<String>,
+    /// Where they're from.
+    pub origin: Option<String>,
+    /// "1975–", "1962–1970".
+    pub active: Option<String>,
+    /// A group's members.
+    pub members: Vec<String>,
+    pub provider_name: String,
+}
+
+/// People with one role on a song (M46.14): "Written by", "Produced by", "Guitar"...
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreditGroup {
+    pub role: String,
+    pub names: Vec<String>,
+}
+
+/// Who made a song (M46.14): the player's Credits card.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SongCredits {
+    pub credits: Vec<CreditGroup>,
+    /// The song's page at the source.
+    pub url: Option<String>,
+    pub provider_name: String,
+}
+
 /// An artist a music source knows (M46.9): Search → Music → Artists.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

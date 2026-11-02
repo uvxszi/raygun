@@ -130,6 +130,13 @@ The user asked for the full depth of the reference apps ("its not meant to be a 
   - Not built: solving captchas or Cloudflare checks for sources, automatically or by moving the browser's cookies into a source; Royal Road, Scribble Hub and Webnovel block Raygun's requests, so Paraline has no copies of them.
 - M46.12 **Sound and lyrics editing** (asked 2026-11-01, started 2026-11-02): ✅ part 1, the sound: a 10-band equalizer with presets, bass boost, reverb, balance, mono, loudness normalization learned per song, crossfade, and each song's trims and volume, on desktop (Web Audio) and Android (Media3 processors). Part 2: the lyrics editor and subtitle cues.
 - M46.13 **The phone's player bar, Connect, and the desktop miniplayer** (asked 2026-11-02): swipe the phone's bar to change songs, Connect beside the song (devices that sync), and Spotify's miniplayer window on desktop.
+- M46.14 **Rows that page, and the phone's full player** (asked 2026-11-02): ✅
+  - rows with side buttons and Shift+wheel, and no scrollbars under rows, chips or tabs;
+  - the phone's player with an "Up next" pill under the cover and its controls higher up, then Lyrics, About the artist and Credits cards;
+  - artist facts and credits through the new `music.info` capability (MusicBrainz with Wikipedia), also shown on artist pages.
+- **Asked 2026-11-02, next:**
+  - M46.15 Connect: play on another device, with "Playing on …" on this one, which then works as a remote;
+  - M46.16 Audiobooks: a media type with its own pill in Library → Audio, from LibriVox and Internet Archive.
 - **Asked 2026-11-01, queued in this order** (each becomes a milestone with a spec):
   1. **Sound and lyrics editing** (now M46.12):
      - edit lyrics (words and timings) and shift them by an offset; the same for video subtitles;
@@ -137,7 +144,7 @@ The user asked for the full depth of the reference apps ("its not meant to be a 
      - loudness normalization, an equalizer and other sound effects for all songs;
      - crossfade into the next song, adjustable or off;
      - desktop through Web Audio, Android through Media3's audio processors. YouTube's embedded player can only change its volume.
-  2. **Artist and song info** (open sources, Spotify's "About the artist" and credits):
+  2. **Artist and song info** (open sources, Spotify's "About the artist" and credits). Mostly ✅ in M46.14: bio, picture, facts, members and credits; similar artists, an online discography, samples and covers are still to do.
      - an online artist page (bio, picture, facts, members, discography, similar artists);
      - song credits and facts (writers, producers, samples, covers);
      - from Wikipedia/Wikidata, MusicBrainz and ListenBrainz, through an extension capability;

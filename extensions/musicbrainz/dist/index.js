@@ -1,4 +1,4 @@
-// dev.raygun.musicbrainz 1.2.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.musicbrainz 1.3.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -165,6 +165,152 @@
           `${API}/artist/${artistId}?inc=genres+tags&fmt=json`
         );
         return { tags: weighted(byArtist.genres?.length ? byArtist.genres : byArtist.tags) };
+      }
+    })
+  );
+  var WIKI_HEADERS = HEADERS;
+  var unique = (names) => [...new Set(names.filter((name) => name.trim() !== ""))];
+  var year = (date) => date?.slice(0, 4) ?? "";
+  var wikipediaSummary = async (wikidataUrl) => {
+    const id = wikidataUrl.split("/").pop();
+    if (!id || !/^Q\d+$/.test(id)) return null;
+    const entity = await raygun.http.fetch(
+      `https://www.wikidata.org/wiki/Special:EntityData/${id}.json`,
+      { headers: WIKI_HEADERS }
+    );
+    if (!entity.ok) return null;
+    const data = await entity.json();
+    const title = data.entities?.[id]?.sitelinks?.enwiki?.title;
+    if (!title) return null;
+    const summary = await raygun.http.fetch(
+      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title.replace(/ /g, "_"))}`,
+      { headers: WIKI_HEADERS }
+    );
+    if (!summary.ok) return null;
+    const page = await summary.json();
+    return {
+      bio: page.extract ?? null,
+      imageUrl: page.thumbnail?.source ?? page.originalimage?.source ?? null,
+      url: page.content_urls?.desktop?.page ?? null
+    };
+  };
+  var capital = (text) => text.charAt(0).toUpperCase() + text.slice(1);
+  var roleOf = (relation) => {
+    const attribute = relation.attributes?.[0];
+    switch (relation.type) {
+      case "producer":
+        return "Produced by";
+      case "mix":
+        return "Mixed by";
+      case "mastering":
+        return "Mastered by";
+      case "engineer":
+      case "audio":
+      case "recording":
+      case "sound":
+        return "Engineered by";
+      case "remixer":
+        return "Remixed by";
+      case "arranger":
+      case "instrument arranger":
+      case "vocal arranger":
+        return "Arranged by";
+      case "composer":
+        return "Composed by";
+      case "lyricist":
+        return "Lyrics by";
+      case "writer":
+        return "Written by";
+      case "vocal":
+        return attribute ? capital(attribute) : "Vocals";
+      case "instrument":
+        return attribute ? capital(attribute) : "Instruments";
+      default:
+        return capital(relation.type);
+    }
+  };
+  var FIRST_ROLES = ["Performed by", "Written by", "Composed by", "Lyrics by", "Produced by"];
+  registerProvider(
+    defineProvider({
+      kind: "music.info",
+      id: "info",
+      name: "MusicBrainz",
+      async artist({ name }) {
+        const found = await getJson(
+          `${API}/artist?query=${encodeURIComponent(`artist:"${escapeQuery(name)}"`)}&limit=5&fmt=json`
+        );
+        const wanted = simple(name);
+        const candidates = found.artists ?? [];
+        const match = candidates.find((candidate) => simple(candidate.name) === wanted) ?? candidates.find((candidate) => (candidate.score ?? 0) >= 95);
+        if (!match) return { artist: null };
+        const details = await getJson(
+          `${API}/artist/${match.id}?inc=url-rels+artist-rels&fmt=json`
+        );
+        const relations = details.relations ?? [];
+        const members = unique(
+          relations.filter(
+            (relation) => relation.type === "member of band" && relation.direction === "backward"
+          ).map((relation) => relation.artist?.name ?? "")
+        );
+        const wikidata = relations.find((relation) => relation.type === "wikidata")?.url?.resource;
+        let summary = null;
+        if (wikidata) {
+          try {
+            summary = await wikipediaSummary(wikidata);
+          } catch (error) {
+            raygun.log.info(`Wikipedia had no summary: ${String(error)}`);
+          }
+        }
+        const span = details["life-span"];
+        const begin = year(span?.begin);
+        const active = begin ? `${begin}–${span?.ended ? year(span.end) : ""}` : null;
+        return {
+          artist: {
+            name: details.name,
+            kind: details.type ?? null,
+            bio: summary?.bio ?? null,
+            imageUrl: summary?.imageUrl ?? null,
+            url: summary?.url ?? `https://musicbrainz.org/artist/${details.id}`,
+            origin: details["begin-area"]?.name ?? details.area?.name ?? details.country ?? null,
+            active,
+            members
+          }
+        };
+      },
+      async credits({ title, artist }) {
+        const parts = [`recording:"${escapeQuery(title)}"`];
+        if (artist) parts.push(`artist:"${escapeQuery(artist)}"`);
+        const found = await getJson(
+          `${API}/recording?query=${encodeURIComponent(parts.join(" AND "))}&limit=10&fmt=json`
+        );
+        const wanted = simple(title);
+        const match = (found.recordings ?? []).find(
+          (recording) => simple(recording.title) === wanted && (!artist || words(credit(recording)).some((word) => words(artist).includes(word)))
+        );
+        if (!match) return { credits: [] };
+        const details = await getJson(
+          `${API}/recording/${match.id}?inc=artist-credits+artist-rels+work-rels+work-level-rels&fmt=json`
+        );
+        const groups = /* @__PURE__ */ new Map();
+        const add = (role, names) => groups.set(role, unique([...groups.get(role) ?? [], ...names]));
+        add(
+          "Performed by",
+          (details["artist-credit"] ?? []).map((part) => part.name)
+        );
+        for (const relation of details.relations ?? []) {
+          if (relation.artist) add(roleOf(relation), [relation.artist.name]);
+          for (const workRelation of relation.work?.relations ?? []) {
+            if (workRelation.artist) add(roleOf(workRelation), [workRelation.artist.name]);
+          }
+        }
+        const ordered = [
+          ...FIRST_ROLES.filter((role) => groups.has(role)),
+          ...[...groups.keys()].filter((role) => !FIRST_ROLES.includes(role))
+        ];
+        return {
+          credits: ordered.map((role) => ({ role, names: groups.get(role) ?? [] })),
+          url: `https://musicbrainz.org/recording/${details.id}`
+        };
       }
     })
   );

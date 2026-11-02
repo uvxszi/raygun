@@ -84,4 +84,32 @@ describe('Artists', () => {
       0,
     );
   });
+
+  it("tells the artist's story from open databases", async () => {
+    const user = userEvent.setup();
+    commands.musicArtistInfo.mockResolvedValue(
+      ok({
+        name: 'Daft Punk',
+        kind: 'Group',
+        bio: 'Daft Punk were a French electronic music duo.',
+        imageUrl: null,
+        url: 'https://en.wikipedia.org/wiki/Daft_Punk',
+        origin: 'Paris',
+        active: '1993–2021',
+        members: ['Thomas Bangalter', 'Guy-Manuel de Homem-Christo'],
+        providerName: 'MusicBrainz',
+      }),
+    );
+    await AppShellWrapper.mount('/artist?name=Daft+Punk');
+
+    const about = await screen.findByTestId('artist-about');
+    expect(about).toHaveTextContent('Group · Paris · 1993–2021');
+    expect(about).toHaveTextContent('Daft Punk were a French electronic music duo.');
+    expect(about).toHaveTextContent('Members: Thomas Bangalter, Guy-Manuel de Homem-Christo');
+    expect(commands.musicArtistInfo).toHaveBeenCalledWith('Daft Punk');
+    await user.click(within(about).getByRole('button', { name: 'Read more' }));
+    expect(commands.musicOpenInfoPage).toHaveBeenCalledWith(
+      'https://en.wikipedia.org/wiki/Daft_Punk',
+    );
+  });
 });

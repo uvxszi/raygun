@@ -60,6 +60,33 @@ export const commands = {
 	 *  on Windows a window made in a synchronous command never loads its page (it stays blank).
 	 */
 	miniplayerOpen: () => typedError<null, string>(__TAURI_INVOKE("miniplayer_open")),
+	/**  What open databases say about an artist (M46.14), or `null`. */
+	musicArtistInfo: (name: string) => typedError<{
+	name: string,
+	/**  "Person", "Group", "Orchestra"... */
+	kind: string | null,
+	/**  A few sentences, plain text. */
+	bio: string | null,
+	imageUrl: string | null,
+	/**  Where to read more (Wikipedia). */
+	url: string | null,
+	/**  Where they're from. */
+	origin: string | null,
+	/**  "1975–", "1962–1970". */
+	active: string | null,
+	/**  A group's members. */
+	members: string[],
+	providerName: string,
+} | null, string>(__TAURI_INVOKE("music_artist_info", { name })),
+	/**  Who made a song (M46.14), or `null`. */
+	musicSongCredits: (query: TrackQuery) => typedError<{
+	credits: CreditGroup[],
+	/**  The song's page at the source. */
+	url: string | null,
+	providerName: string,
+} | null, string>(__TAURI_INVOKE("music_song_credits", { query })),
+	/**  Opens where an artist's or a song's facts came from (M46.14) in Raygun's browser. */
+	musicOpenInfoPage: (url: string) => typedError<null, string>(__TAURI_INVOKE("music_open_info_page", { url })),
 	/**  Closes the miniplayer; with `show_main`, Raygun's main window comes forward. */
 	miniplayerClose: (showMain: boolean) => typedError<null, string>(__TAURI_INVOKE("miniplayer_close", { showMain })),
 	/**  Opens the site an extension's sources read in Raygun's browser (M46.11). */
@@ -592,6 +619,25 @@ export type AppInfo = {
 	debug: boolean,
 };
 
+/**  What open databases say about an artist (M46.14): the player's "About the artist" card. */
+export type ArtistInfo = {
+	name: string,
+	/**  "Person", "Group", "Orchestra"... */
+	kind: string | null,
+	/**  A few sentences, plain text. */
+	bio: string | null,
+	imageUrl: string | null,
+	/**  Where to read more (Wikipedia). */
+	url: string | null,
+	/**  Where they're from. */
+	origin: string | null,
+	/**  "1975–", "1962–1970". */
+	active: string | null,
+	/**  A group's members. */
+	members: string[],
+	providerName: string,
+};
+
 /**  An artist's page (M46.8): popular songs from the sources, and what the library has by them. */
 export type ArtistOverview = {
 	name: string,
@@ -763,6 +809,12 @@ export type ContinueWatching = {
 };
 
 export type CoverStyle = "compact" | "comfortable";
+
+/**  People with one role on a song (M46.14): "Written by", "Produced by", "Guitar"... */
+export type CreditGroup = {
+	role: string,
+	names: string[],
+};
 
 /**
  *  Colours the user picked instead of the theme's (M46.8): each `#rrggbb`, or empty for the
@@ -1985,6 +2037,14 @@ export type SkippedSource = {
 
 /**  The sleep timer (M46.8). */
 export type SleepTimer = { kind: "off" } | { kind: "minutes"; minutes: number } | { kind: "endOfTrack" };
+
+/**  Who made a song (M46.14): the player's Credits card. */
+export type SongCredits = {
+	credits: CreditGroup[],
+	/**  The song's page at the source. */
+	url: string | null,
+	providerName: string,
+};
 
 /**  Where saved songs are written (M46.10). */
 export type SongDestination = 

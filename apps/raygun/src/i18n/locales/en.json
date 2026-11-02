@@ -870,7 +870,21 @@
     },
     "saveQueue": "Save as playlist",
     "queueSavedName": "Queue from {{date}}",
-    "queueSaved": "Saved as “{{name}}”"
+    "queueSaved": "Saved as “{{name}}”",
+    "cards": {
+      "aboutArtist": "About the artist",
+      "aboutArtistNamed": "About {{name}}",
+      "artistLoading": "Looking them up…",
+      "artistOpen": "See their songs and albums",
+      "credits": "Credits",
+      "showAll": "Show all",
+      "performedBy": "Performed by",
+      "creditsLoading": "Looking up the credits…",
+      "lyricsFailed": "Couldn't load the lyrics.",
+      "lyricsNone": "No lyrics for this song yet. Tap to add them.",
+      "from": "From {{source}}",
+      "openSource": "Open on {{source}}"
+    }
   },
   "common": {
     "coreUnavailable": "Core unavailable: {{message}}"
@@ -1873,7 +1887,11 @@
     "noPopular": "Your sources found no songs by this artist.",
     "albums": "Albums in your library",
     "inLibrary": "Songs in your library",
-    "saved": "Your saved songs"
+    "saved": "Your saved songs",
+    "about": "About",
+    "members": "Members: {{names}}",
+    "readMore": "Read more",
+    "from": "From {{source}}"
   },
   "menu": {
     "title": "Options",

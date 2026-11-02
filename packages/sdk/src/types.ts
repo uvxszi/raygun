@@ -169,6 +169,35 @@ export type MusicTagsProvider = {
   tags(query: LyricsQuery): Promise<{ tags: MusicTag[] }>;
 };
 
+/** What open databases say about an artist (M46.14). */
+export type ArtistInfo = {
+  name: string;
+  /** "Person", "Group"... */
+  kind?: string | null;
+  /** A few sentences, plain text. */
+  bio?: string | null;
+  imageUrl?: string | null;
+  /** Where to read more. */
+  url?: string | null;
+  origin?: string | null;
+  /** "1975–", "1962–1970". */
+  active?: string | null;
+  members?: string[];
+};
+
+/** People with one role on a song: "Written by", "Produced by", "Guitar"... */
+export type CreditGroup = { role: string; names: string[] };
+
+/** Artist facts and song credits for the player's cards (M46.14). Answer null or no credits when
+ * unsure; the app asks the next provider. */
+export type MusicInfoProvider = {
+  kind: 'music.info';
+  id: string;
+  name?: string;
+  artist?(args: { name: string }): Promise<{ artist: ArtistInfo | null }>;
+  credits?(query: LyricsQuery): Promise<{ credits: CreditGroup[]; url?: string | null }>;
+};
+
 // ---- Manga (M24) ----
 
 /** A title in a catalogue list. */
@@ -382,6 +411,7 @@ export type Provider =
   | LyricsProvider
   | MusicChartsProvider
   | MusicTagsProvider
+  | MusicInfoProvider
   | MangaSourceProvider
   | NovelSourceProvider
   | PodcastDirectoryProvider

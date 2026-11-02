@@ -1012,6 +1012,71 @@ async fn artists_and_albums_come_from_sources_that_search_them() {
 }
 
 /// The chart and tag extensions against their real services:
+#[tokio::test]
+async fn artist_info_and_credits_come_from_music_info_providers() {
+    let host = test_host();
+    let code = "raygun.providers.register({ kind: 'music.info', id: 'p', name: 'Facts',         artist: async ({ name }) => name === 'Nobody' ? { artist: null } : ({ artist: { name,           kind: 'Group', bio: ' A band. ', imageUrl: 'https://img.example/a.jpg', url: 'ftp://no',           members: ['One', '', 'Two'] } }),         credits: async ({ title }) => ({ credits: [{ role: 'Written by', names: ['A', ' '] },           { role: 'Empty', names: [] }], url: 'https://mb.example/r' }) });";
+    let manifest = manifest_json(json!({ "provides": ["music.info"] }));
+    host.load(vec![ExtensionSource::built_in(&[
+        ("raygun-extension.json", &manifest),
+        ("index.js", code),
+    ])])
+    .await;
+
+    let info = host.artist_info("Daft Punk").await.unwrap();
+    assert_eq!(info.name, "Daft Punk");
+    assert_eq!(info.bio.as_deref(), Some("A band."));
+    assert_eq!(info.image_url.as_deref(), Some("https://img.example/a.jpg"));
+    assert_eq!(info.url, None);
+    assert_eq!(info.members, ["One", "Two"]);
+    assert_eq!(info.provider_name, "Facts");
+    assert!(host.artist_info("Nobody").await.is_none());
+
+    let credits = host
+        .song_credits(&raygun_model::TrackQuery {
+            title: "Song".into(),
+            artist: None,
+            album: None,
+            duration_ms: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(credits.credits.len(), 1);
+    assert_eq!(credits.credits[0].names, ["A"]);
+    assert_eq!(credits.url.as_deref(), Some("https://mb.example/r"));
+}
+
+/// `cargo test -p raygun-ext-host -- --ignored music_info_live --nocapture`.
+#[tokio::test]
+#[ignore = "needs network access to MusicBrainz, Wikidata and Wikipedia"]
+async fn music_info_live_artist_and_credits() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(discover_installed(&dir)).await;
+    let info = host
+        .artist_info("Ray Parker Jr.")
+        .await
+        .expect("artist info");
+    println!("{info:#?}");
+    assert!(info.bio.is_some_and(|bio| bio.len() > 40));
+    let credits = host
+        .song_credits(&raygun_model::TrackQuery {
+            title: "Ghostbusters".into(),
+            artist: Some("Ray Parker Jr.".into()),
+            album: None,
+            duration_ms: None,
+        })
+        .await
+        .expect("credits");
+    println!("{credits:#?}");
+    assert!(
+        credits
+            .credits
+            .iter()
+            .any(|group| group.role == "Performed by")
+    );
+}
+
 /// `cargo test -p raygun-ext-host -- --ignored discovery_live --nocapture`.
 #[tokio::test]
 #[ignore = "needs network access to Deezer, Apple, ListenBrainz and MusicBrainz"]

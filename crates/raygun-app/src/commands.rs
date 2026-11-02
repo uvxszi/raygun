@@ -687,6 +687,47 @@ pub async fn music_artist(
     })
 }
 
+/// What open databases say about an artist (M46.14), or `null`.
+#[tauri::command]
+#[specta::specta]
+pub async fn music_artist_info(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    images: tauri::State<'_, raygun_net::ImageLinks>,
+    name: String,
+) -> Result<Option<raygun_model::ArtistInfo>, String> {
+    Ok(extensions
+        .artist_info(&name)
+        .await
+        .map(|info| raygun_model::ArtistInfo {
+            image_url: info
+                .image_url
+                .as_deref()
+                .map(|url| images.cover(url, &Default::default())),
+            ..info
+        }))
+}
+
+/// Opens where an artist's or a song's facts came from (M46.14) in Raygun's browser.
+#[tauri::command]
+#[specta::specta]
+pub async fn music_open_info_page(websites: Websites<'_>, url: String) -> Result<(), String> {
+    websites
+        .inner()
+        .clone()
+        .open_page(&format!("{}music-info", crate::websites::PAGE_PREFIX), &url)
+        .await
+}
+
+/// Who made a song (M46.14), or `null`.
+#[tauri::command]
+#[specta::specta]
+pub async fn music_song_credits(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    query: TrackQuery,
+) -> Result<Option<raygun_model::SongCredits>, String> {
+    Ok(extensions.song_credits(&query).await)
+}
+
 /// Where a song is saved: Favorites and the playlists holding it (M46.8).
 #[tauri::command]
 #[specta::specta]

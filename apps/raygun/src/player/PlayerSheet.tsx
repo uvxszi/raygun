@@ -4,7 +4,6 @@ import {
   ImageIcon,
   ListMusic,
   ListPlus,
-  MicVocal,
   Pause,
   Play,
   Repeat,
@@ -14,7 +13,8 @@ import {
   SkipForward,
   SlidersHorizontal,
 } from 'lucide-react';
-import { AnimatePresence, motion } from 'motion/react';
+import { useRouterState } from '@tanstack/react-router';
+import { AnimatePresence, motion, useDragControls } from 'motion/react';
 import type { PanInfo } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, FC, ReactNode, SyntheticEvent } from 'react';
@@ -38,6 +38,7 @@ import { usePlayerView } from './playerView';
 import type { PlayerView } from './playerView';
 import { SoundButton } from '../sound/SoundButton';
 import { PlaybackExtras } from './PlaybackExtras';
+import { PlayerCards } from './PlayerCards';
 import { PlayerViewSettings } from './PlayerViewSettings';
 import { useCloseOnBack } from './useCloseOnBack';
 import { onSeekKey } from './seekKeys';
@@ -62,11 +63,13 @@ const columnWidth = (view: PlayerView, sideBySide: boolean) => ({
 });
 
 /**
- * Full-screen player. Drag down (or press Escape / the close button) to dismiss.
+ * Full-screen player. Drag it down (or press Escape / the close button) to dismiss.
  *
- * Its main area shows the artwork, the lyrics or what's next (M46.7), always the same size, so the
- * controls stay put. Side by side (wide windows by default), the artwork and controls sit on the
- * left and the lyrics or queue fill the right. Settings → Player arranges it.
+ * Side by side (wide windows by default), the artwork and controls sit on the left and the lyrics
+ * or queue fill the right (M46.7). Stacked (phones), it scrolls as Spotify's does (M46.14): the
+ * cover with an "Up next" pill under it and the controls high on the screen, then cards for the
+ * lyrics, the artist and the credits; the lyrics and the queue open full screen above the controls.
+ * Stacked, it drags from its header, so the rest can scroll. Settings → Player arranges it.
  */
 export const PlayerSheet: FC = () => {
   const { t } = useTranslation();
@@ -88,8 +91,17 @@ export const PlayerSheet: FC = () => {
   const isVideo = hasVideo(item) && videoShown;
   const [layoutAnchor, setLayoutAnchor] = useState<HTMLElement | null>(null);
   const [scrubbing, setScrubbing] = useState(false);
+  const dragControls = useDragControls();
+  const href = useRouterState({ select: (router) => router.location.href });
+  const openedAt = useRef(href);
 
   useCloseOnBack(sheetOpen, closeSheet);
+
+  useEffect(() => {
+    // Following a link from the player (an artist, a credit) shows that page instead.
+    if (sheetOpen && href !== openedAt.current) closeSheet();
+    openedAt.current = href;
+  }, [href, sheetOpen, closeSheet]);
 
   useEffect(() => {
     if (!sheetOpen) {
@@ -135,10 +147,10 @@ export const PlayerSheet: FC = () => {
         // A short window keeps the video small enough for the controls, at 16:9.
         sideBySide
           ? 'max-w-[min(100%,calc((100dvh-22rem)*16/9))]'
-          : 'max-w-[min(100%,calc((100dvh-26rem)*16/9))]'
+          : 'max-w-[min(100%,calc((100dvh-28rem)*16/9))]'
       }`}
       artworkClassName={`mx-auto aspect-square w-full rounded-2xl shadow-xl ${
-        sideBySide ? 'max-w-[min(100%,calc(100dvh-22rem))]' : 'max-w-[min(100%,calc(100dvh-26rem))]'
+        sideBySide ? 'max-w-[min(100%,calc(100dvh-22rem))]' : 'max-w-[min(100%,calc(100dvh-28rem))]'
       }`}
       iconSize={96}
     />
@@ -165,7 +177,8 @@ export const PlayerSheet: FC = () => {
           exit={{ y: '100%' }}
           transition={{ type: 'spring', damping: 32, stiffness: 320 }}
           drag="y"
-          dragListener={!scrubbing}
+          dragControls={dragControls}
+          dragListener={sideBySide && !scrubbing}
           dragConstraints={{ top: 0, bottom: 0 }}
           dragElastic={{ top: 0, bottom: 0.7 }}
           onDragEnd={handleDragEnd}
@@ -181,7 +194,11 @@ export const PlayerSheet: FC = () => {
               <div className="from-background/30 via-background/60 to-background absolute inset-0 bg-gradient-to-b" />
             </div>
           )}
-          <div className="flex items-center justify-between">
+          <div
+            data-testid="player-sheet-header"
+            onPointerDown={sideBySide ? undefined : (event) => dragControls.start(event)}
+            className={`flex items-center justify-between ${sideBySide ? '' : 'touch-none'}`}
+          >
             <button
               type="button"
               aria-label={t('player.closePlayer')}
@@ -197,10 +214,8 @@ export const PlayerSheet: FC = () => {
               <VideoToggle item={item} className="size-11" />
               {item &&
                 !sideBySide &&
-                viewButton('lyrics', t('player.lyrics'), <MicVocal aria-hidden size={22} />)}
-              {item &&
-                !sideBySide &&
-                viewButton('queue', t('player.upNextView'), <ListMusic aria-hidden size={22} />)}
+                view !== 'artwork' &&
+                viewButton(view, '', <ImageIcon aria-hidden size={22} />)}
               <button
                 type="button"
                 aria-label={t('player.view.open')}
@@ -285,13 +300,31 @@ export const PlayerSheet: FC = () => {
                   </div>
                 </section>
               </div>
+            ) : view === 'artwork' ? (
+              <div
+                data-testid="player-scroll"
+                className="no-scrollbar -mx-6 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-6 lg:-mx-10 lg:px-10"
+              >
+                <div className="flex shrink-0 flex-col items-center gap-4 pt-4">
+                  {media}
+                  {item && <UpNextPill next={upNext[0]} onOpen={() => setView('queue')} />}
+                </div>
+                <div className="shrink-0 pt-5">
+                  <Controls
+                    state={state}
+                    item={item}
+                    onScrub={setScrubbing}
+                    note={sourceNote(state, item)}
+                  />
+                </div>
+                {item && (
+                  <PlayerCards item={item} state={state} onLyrics={() => setView('lyrics')} />
+                )}
+              </div>
             ) : (
               <div className="flex min-h-0 flex-1 flex-col gap-5 pt-4">
-                <div
-                  onPointerDownCapture={view === 'artwork' ? undefined : keepDrag}
-                  className="flex min-h-0 flex-1 flex-col items-center justify-center"
-                >
-                  {view === 'lyrics' ? lyrics : view === 'queue' ? queue : media}
+                <div className="flex min-h-0 flex-1 flex-col items-center justify-center">
+                  {view === 'lyrics' ? lyrics : queue}
                 </div>
                 <Controls
                   state={state}
@@ -465,6 +498,23 @@ const Controls: FC<ControlsProps> = ({ state, item, note, onScrub }) => {
         </button>
       </div>
     </div>
+  );
+};
+
+/** A pill under the cover (M46.14): "Up next" and the song after this one; opens the queue. */
+const UpNextPill: FC<{ next: QueueItem | undefined; onOpen: () => void }> = ({ next, onOpen }) => {
+  const { t } = useTranslation();
+  return (
+    <button
+      type="button"
+      aria-label={t('player.upNextView')}
+      onClick={onOpen}
+      className="bg-surface/80 hover:bg-surface flex max-w-full items-center gap-2 rounded-full px-4 py-1.5 text-sm shadow-sm"
+    >
+      <ListMusic aria-hidden size={16} className="shrink-0" />
+      <span className="shrink-0 font-semibold">{t('player.upNextView')}</span>
+      {next && <span className="text-muted truncate">{next.title}</span>}
+    </button>
   );
 };
 

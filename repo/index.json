@@ -158,24 +158,27 @@
     {
       "id": "dev.raygun.musicbrainz",
       "name": "MusicBrainz",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "apiVersion": 1,
-      "description": "Song search and song genres from the open MusicBrainz database. Results play through streaming extensions.",
+      "description": "Song search, song genres, artist facts and song credits from the open MusicBrainz database, with artist summaries from Wikipedia. Results play through streaming extensions.",
       "author": "Raygun",
       "provides": [
         "music.metadata",
-        "music.tags"
+        "music.tags",
+        "music.info"
       ],
       "permissions": {
         "net": [
-          "musicbrainz.org"
+          "musicbrainz.org",
+          "www.wikidata.org",
+          "en.wikipedia.org"
         ],
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.musicbrainz-1.2.0.zip",
-      "sha256": "a9f892bb39c41148fb7179cad2adab2704fd7200f1dbc2fe7eea93d52381e978",
-      "size": 2908
+      "package": "packages/dev.raygun.musicbrainz-1.3.0.zip",
+      "sha256": "c278addadca18462d6c07fb20a8d39637a34f0be8c9187c7e44255d0df3f1236",
+      "size": 4438
     },
     {
       "id": "dev.raygun.podcast-directory",

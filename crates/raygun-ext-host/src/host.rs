@@ -32,6 +32,8 @@ pub const MUSIC_STREAM: &str = "music.stream";
 pub const LYRICS: &str = "lyrics";
 pub const MUSIC_CHARTS: &str = "music.charts";
 pub const MUSIC_TAGS: &str = "music.tags";
+/// Artist facts and song credits (M46.14).
+pub const MUSIC_INFO: &str = "music.info";
 
 /// Longest tag name kept from a provider.
 const MAX_TAG_CHARS: usize = 60;
@@ -542,6 +544,47 @@ impl ExtensionHost {
         futures_util::future::join_all(requests).await
     }
 
+    /// What the first `music.info` provider that knows the artist says about them (M46.14).
+    pub async fn artist_info(&self, name: &str) -> Option<raygun_model::ArtistInfo> {
+        for provider in self.providers(MUSIC_INFO).await {
+            let answer = self
+                .call(&provider.id, "artist", serde_json::json!({ "name": name }))
+                .await;
+            match answer {
+                Ok(value) => {
+                    if let Some(info) = parse_artist_info(&value, &provider.name) {
+                        return Some(info);
+                    }
+                }
+                Err(error) => {
+                    tracing::debug!(provider = %provider.id, %error, "no artist info");
+                }
+            }
+        }
+        None
+    }
+
+    /// Who made a song, from the first `music.info` provider that knows it (M46.14).
+    pub async fn song_credits(&self, query: &TrackQuery) -> Option<raygun_model::SongCredits> {
+        let args = serde_json::json!({
+            "title": query.title,
+            "artist": query.artist,
+            "album": query.album,
+            "durationMs": query.duration_ms,
+        });
+        for provider in self.providers(MUSIC_INFO).await {
+            match self.call(&provider.id, "credits", args.clone()).await {
+                Ok(value) => {
+                    if let Some(credits) = parse_credits(&value, &provider.name) {
+                        return Some(credits);
+                    }
+                }
+                Err(error) => tracing::debug!(provider = %provider.id, %error, "no credits"),
+            }
+        }
+        None
+    }
+
     /// Asks a provider for the stream behind one of its candidates.
     pub async fn resolve_stream(
         &self,
@@ -929,6 +972,80 @@ fn failed_info(
         icon: None,
         website: None,
     }
+}
+
+/// A short text field: trimmed, at most `limit` characters, none when empty.
+fn text_field(value: &serde_json::Value, key: &str, limit: usize) -> Option<String> {
+    let text = value.get(key)?.as_str()?.trim();
+    if text.is_empty() {
+        return None;
+    }
+    Some(text.chars().take(limit).collect())
+}
+
+/// An http(s) link field.
+fn link_field(value: &serde_json::Value, key: &str) -> Option<String> {
+    text_field(value, key, 2048).filter(|url| is_web_url(url))
+}
+
+fn parse_artist_info(
+    value: &serde_json::Value,
+    provider: &str,
+) -> Option<raygun_model::ArtistInfo> {
+    let info = value.get("artist").unwrap_or(value);
+    let name = text_field(info, "name", 200)?;
+    Some(raygun_model::ArtistInfo {
+        name,
+        kind: text_field(info, "kind", 40),
+        bio: text_field(info, "bio", 4000),
+        image_url: link_field(info, "imageUrl"),
+        url: link_field(info, "url"),
+        origin: text_field(info, "origin", 200),
+        active: text_field(info, "active", 60),
+        members: info
+            .get("members")
+            .and_then(serde_json::Value::as_array)
+            .map(|members| {
+                members
+                    .iter()
+                    .filter_map(|member| member.as_str().map(str::trim))
+                    .filter(|member| !member.is_empty())
+                    .take(40)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default(),
+        provider_name: provider.to_owned(),
+    })
+}
+
+fn parse_credits(value: &serde_json::Value, provider: &str) -> Option<raygun_model::SongCredits> {
+    let groups = value.get("credits")?.as_array()?;
+    let credits: Vec<raygun_model::CreditGroup> = groups
+        .iter()
+        .filter_map(|group| {
+            let role = text_field(group, "role", 80)?;
+            let names: Vec<String> = group
+                .get("names")?
+                .as_array()?
+                .iter()
+                .filter_map(|name| name.as_str().map(str::trim))
+                .filter(|name| !name.is_empty())
+                .take(40)
+                .map(str::to_owned)
+                .collect();
+            (!names.is_empty()).then_some(raygun_model::CreditGroup { role, names })
+        })
+        .take(40)
+        .collect();
+    if credits.is_empty() {
+        return None;
+    }
+    Some(raygun_model::SongCredits {
+        credits,
+        url: link_field(value, "url"),
+        provider_name: provider.to_owned(),
+    })
 }
 
 #[derive(Deserialize)]

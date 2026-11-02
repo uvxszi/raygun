@@ -143,6 +143,8 @@ pub struct ExtensionService {
     http: reqwest::Client,
     extensions_dir: PathBuf,
     storage_dir: PathBuf,
+    /// Artist facts and song credits already asked for (M46.14); `None` = nobody knew.
+    info_cache: Mutex<InfoCache>,
     /// Held for writing while extensions (re)load, so calls wait instead of seeing a partial set.
     loading: Arc<RwLock<()>>,
     /// One install or uninstall at a time.
@@ -150,6 +152,13 @@ pub struct ExtensionService {
     /// The installed files as of the last load, so the dev watcher skips the app's own changes.
     loaded_files: Mutex<Fingerprint>,
     indexes: Mutex<HashMap<String, (Instant, RepoIndex)>>,
+}
+
+/// What `music.info` providers answered this run (M46.14).
+#[derive(Default)]
+struct InfoCache {
+    artists: HashMap<String, Option<raygun_model::ArtistInfo>>,
+    credits: HashMap<String, Option<raygun_model::SongCredits>>,
 }
 
 impl ExtensionService {
@@ -171,6 +180,7 @@ impl ExtensionService {
             changing: tokio::sync::Mutex::new(()),
             loaded_files: Mutex::new(Vec::new()),
             indexes: Mutex::new(HashMap::new()),
+            info_cache: Mutex::new(InfoCache::default()),
         });
         // Take the lock now, before any command can run, and load in the background.
         let guard = service
@@ -300,6 +310,42 @@ impl ExtensionService {
     }
 
     /// Every chart source's charts (M46.9).
+    /// What open databases say about an artist (M46.14), remembered for this run.
+    pub async fn artist_info(&self, name: &str) -> Option<raygun_model::ArtistInfo> {
+        let key = name.trim().to_lowercase();
+        if let Some(known) = self.info_cache.lock().unwrap().artists.get(&key) {
+            return known.clone();
+        }
+        let info = {
+            let (_ready, host) = self.ready().await;
+            host.artist_info(name.trim()).await
+        };
+        self.info_cache
+            .lock()
+            .unwrap()
+            .artists
+            .insert(key, info.clone());
+        info
+    }
+
+    /// Who made a song (M46.14), remembered for this run.
+    pub async fn song_credits(&self, query: &TrackQuery) -> Option<raygun_model::SongCredits> {
+        let key = raygun_resolver::track_key(query);
+        if let Some(known) = self.info_cache.lock().unwrap().credits.get(&key) {
+            return known.clone();
+        }
+        let credits = {
+            let (_ready, host) = self.ready().await;
+            host.song_credits(query).await
+        };
+        self.info_cache
+            .lock()
+            .unwrap()
+            .credits
+            .insert(key, credits.clone());
+        credits
+    }
+
     pub async fn music_charts(
         &self,
         region: Option<&str>,
