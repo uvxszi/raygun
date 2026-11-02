@@ -1830,7 +1830,8 @@ pub async fn catalog_filters(
     catalog_for(&app, &medium)?.filters(&source_id).await
 }
 
-/// Searches one source with its filters; the query may be empty when filters are set.
+/// Searches one source with its filters; the query may be empty when filters are set, and with
+/// neither it lists the source's popular titles.
 #[tauri::command]
 #[specta::specta]
 pub async fn catalog_search(
@@ -1846,15 +1847,19 @@ pub async fn catalog_search(
         .await
 }
 
-/// The first page of every manga or novel source's results for `query`.
+/// The first page of every manga, novel or video source's results for `query` (their popular
+/// titles when it's blank), or only `sources`' when any are given (Search's source chips).
 #[tauri::command]
 #[specta::specta]
 pub async fn catalog_global_search(
     app: tauri::AppHandle,
     medium: String,
     query: String,
+    sources: Vec<String>,
 ) -> Result<Vec<raygun_model::SourceSearchResult>, String> {
-    catalog_for(&app, &medium)?.global_search(&query).await
+    catalog_for(&app, &medium)?
+        .global_search(&query, &sources)
+        .await
 }
 
 /// Tracks in the device's library matching `query` (title, artist or album).
@@ -2132,6 +2137,28 @@ pub async fn stremio_watch(
 ) -> Result<(), String> {
     let origin = crate::video_session::Origin::Stremio { kind, id };
     sessions.start(origin, video_id).await
+}
+
+/// A report from the webview's video player (desktop, M46.4), in the Android player's JSON.
+#[tauri::command]
+#[specta::specta]
+pub fn video_player_report(reports: tauri::State<'_, crate::video::VideoReports>, report: String) {
+    reports.send(report);
+}
+
+/// Plays a video in mpv or VLC (desktop, M46.4); returns the app's name.
+#[tauri::command]
+#[specta::specta]
+pub fn video_player_external(play: raygun_model::ExternalPlay) -> Result<String, String> {
+    #[cfg(not(target_os = "android"))]
+    {
+        crate::video_desktop::play_external(&play)
+    }
+    #[cfg(target_os = "android")]
+    {
+        let _ = play;
+        Err("Android picks another app from the player".into())
+    }
 }
 
 /// The video player's words in the app's language (episodes, sources, next episode...).

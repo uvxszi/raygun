@@ -39,6 +39,8 @@ mod system_ui;
 mod tts;
 mod uploads;
 mod video;
+#[cfg(not(target_os = "android"))]
+mod video_desktop;
 mod video_downloads;
 mod video_library;
 mod video_session;
@@ -256,7 +258,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::video_downloads_set_paused,
             commands::video_source_watch,
             commands::stremio_watch,
-            commands::video_set_player_labels
+            commands::video_set_player_labels,
+            commands::video_player_report,
+            commands::video_player_external
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,
@@ -273,7 +277,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::WatchChangedEvent,
             events::VideoDownloadsEvent,
             events::SettingsChangedEvent,
-            events::ExportEvent
+            events::ExportEvent,
+            events::VideoPlayerEvent,
+            events::YouTubeVideoEvent
         ])
 }
 

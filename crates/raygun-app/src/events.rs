@@ -66,3 +66,11 @@ pub struct SettingsChangedEvent(pub String);
 /// (M38).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct WatchChangedEvent(pub String);
+
+/// A message for the video player in the webview (desktop, M46.4).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct VideoPlayerEvent(pub raygun_model::VideoPlayerMessage);
+
+/// A YouTube video to open in its own full-window player (trailers, M46.4).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct YouTubeVideoEvent(pub raygun_model::YouTubeVideo);

@@ -68,7 +68,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 ## Manga (Mihon, aniyomi, TachiyomiAT, mihon_img_upscale)
 | Feature | From | Status |
 |---|---|---|
-| Sources: popular/latest/search with filters, global search | Mihon | ✅ M25, M40 (filters, global search) |
+| Sources: popular/latest/search with filters, global search | Mihon | ✅ M25, M40 (filters, global search), M46.4 (sources picked with chips, several at once; popular titles before anything is typed) |
 | Library with in-library toggle | Mihon | ✅ M24 |
 | Categories, per-category sort/filter/display, default category | Mihon | ✅ M39 (categories), M46 (per-category layout and sort, update one category) |
 | Library filters (downloaded, unread, started, completed, tracked), sort, badges, display modes | Mihon | ✅ M39 (filters, sort, tags), M46 (tri-state filters, nine sorts, search language, four layouts, columns per orientation, selection with bulk actions, continue buttons, random title; tracked: M59) |
@@ -86,6 +86,9 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | CBZ, Wi-Fi only, delete after reading, download ahead, auto-download new chapters, concurrency | Mihon | ✅ M46.1 (downloads also saved as CBZ or images to Downloads or a picked folder; retries with backoff and Retry-After; resumed chapters) / 🔜 M49 (the rest) |
 | Export titles as CBZ, PDF, image folders, EPUB, text or video files, waiting for downloads first | (none of the reference apps) | ✅ M46.1 |
 | Websites the user adds, in a built-in browser with an ad, tracker, popup and redirect blocker | CloudStream (WebView), browsers | ✅ M46.3 |
+| Video on desktop: HLS and DASH with headers, subtitles, tracks and quality, sessions, keys, full screen, mpv/VLC for other codecs | Stremio desktop, CloudStream | ✅ M46.4 |
+| Trailers in their own full-window player | Stremio, CloudStream | ✅ M46.4 |
+| Player bar with shuffle, repeat, seek, volume, lyrics and a queue panel | Spotify, Nuclear | ✅ M46.4 |
 | Cover cache kept for the library, cache sizes and clearing, extension icons | Mihon, CloudStream, RiPlay | ✅ M46.2 (separate cover and page caches with limits, background revalidation, Storage screen, repository icons) |
 | Chapter swipe actions, scanlator filter, bookmarks | Mihon | 🔜 M47 |
 | Trackers (AniList, MAL, Kitsu, MangaUpdates, Bangumi, Shikimori, Komga/Kavita) | Mihon | ⏸ M59 (accounts) |

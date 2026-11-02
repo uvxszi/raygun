@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import type { Medium } from '../manga/medium';
 import { PodcastResultList } from '../podcasts/PodcastResultList';
-import { usePodcastSearch } from '../podcasts/usePodcasts';
+import { usePodcastSearch, useTopPodcasts } from '../podcasts/usePodcasts';
 import { SourceRow } from './CatalogSearch';
 import { LibraryMatches } from './LibraryMatches';
 import { MusicResults } from './MusicResults';
@@ -36,7 +36,7 @@ const Section: FC<{
   );
 };
 
-/** The two sources with the most results, as short rows. */
+/** The two sources with the most results (or their popular titles), as short rows. */
 const CatalogPreview: FC<{ medium: Medium; query: string }> = ({ medium, query }) => {
   const { t } = useTranslation();
   const search = useGlobalSearch(medium, query);
@@ -62,7 +62,9 @@ const CatalogPreview: FC<{ medium: Medium; query: string }> = ({ medium, query }
 
 const PodcastPreview: FC<{ query: string }> = ({ query }) => {
   const { t } = useTranslation();
-  const search = usePodcastSearch(query);
+  const found = usePodcastSearch(query);
+  const top = useTopPodcasts(query === '');
+  const search = query ? found : top;
   if (search.error) {
     return (
       <p role="alert" className="text-primary text-sm wrap-anywhere">
@@ -76,20 +78,31 @@ const PodcastPreview: FC<{ query: string }> = ({ query }) => {
   return search.data ? <PodcastResultList results={search.data.slice(0, 3)} /> : null;
 };
 
-/** Search → All: a little of everything, each section leading to its full results. */
+/**
+ * Search → All: a little of everything, each section leading to its full results. Before
+ * anything is typed it shows what's popular: addons' catalogs, top podcasts, sources' popular
+ * titles.
+ */
 export const AllResults: FC<{ query: string; onType: (type: SearchType) => void }> = ({
   query,
   onType,
 }) => {
   const { t } = useTranslation();
+  const blank = query.trim() === '';
   return (
     <div data-testid="all-results" className="flex flex-col gap-8">
-      <Section title={t('search.inYourLibrary')} onMore={() => onType('library')}>
-        <LibraryMatches query={query} limit={4} />
-      </Section>
-      <Section title={t('library.media.music')} onMore={() => onType('music')}>
-        <MusicResults query={query} compact />
-      </Section>
+      {blank ? (
+        <p className="text-muted text-sm">{t('search.popularHint')}</p>
+      ) : (
+        <>
+          <Section title={t('search.inYourLibrary')} onMore={() => onType('library')}>
+            <LibraryMatches query={query} limit={4} />
+          </Section>
+          <Section title={t('library.media.music')} onMore={() => onType('music')}>
+            <MusicResults query={query} compact />
+          </Section>
+        </>
+      )}
       <Section title={t('library.media.podcast')} onMore={() => onType('podcast')}>
         <PodcastPreview query={query} />
       </Section>

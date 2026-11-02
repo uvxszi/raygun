@@ -2,12 +2,18 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { StremioRow } from '../watch/StremioRow';
-import { useStremioSearch } from '../watch/useStremio';
+import { useStremioHome, useStremioSearch } from '../watch/useStremio';
 
-/** Movies and series from every Stremio addon that searches, a row per catalog. */
+/**
+ * Movies and series from every Stremio addon that searches, a row per catalog; before anything
+ * is typed, the addons' own catalogs (popular, top rated…) so Search doesn't start empty.
+ */
 export const VideoResults: FC<{ query: string; limit?: number }> = ({ query, limit }) => {
   const { t } = useTranslation();
-  const search = useStremioSearch(query);
+  const blank = query.trim() === '';
+  const found = useStremioSearch(query);
+  const home = useStremioHome(blank);
+  const search = blank ? home : found;
   if (search.error) {
     return (
       <p role="alert" className="text-primary text-sm wrap-anywhere">
@@ -19,6 +25,8 @@ export const VideoResults: FC<{ query: string; limit?: number }> = ({ query, lim
     return <p className="text-muted text-sm">{t('search.searching')}</p>;
   }
   if (search.data.length === 0) {
+    // No addon has catalogs to show: nothing to say before a search.
+    if (blank) return null;
     return <p className="text-muted text-sm">{t('search.noResults', { query })}</p>;
   }
   return (

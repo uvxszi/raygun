@@ -1,5 +1,6 @@
 //! Watching video (M38): the native player on Android (Media3, in the audio plugin) and the
-//! progress it reports, for resuming and "continue watching". Elsewhere video isn't available yet.
+//! progress it reports, for resuming and "continue watching". On desktop the webview plays it
+//! (M46.4, `video_desktop`), with the same requests, updates and reports.
 //! Progress also goes to the library's episodes, and finished downloads play instead of the
 //! stream (M43). Episodes of a title play through a session (M44, `video_session`), which loads
 //! videos into the open player and answers its requests.
@@ -437,8 +438,8 @@ pub fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), S
 }
 
 #[cfg(not(target_os = "android"))]
-pub fn open_player(_app: &AppHandle, _payload: &serde_json::Value) -> Result<(), String> {
-    Err("Video playback is only available on Android for now".into())
+pub fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), String> {
+    crate::video_desktop::open(app, payload)
 }
 
 /// Sends an update to the open player (M44); nothing happens when none is open.
@@ -451,8 +452,18 @@ pub fn update_player(app: &AppHandle, update: &serde_json::Value) -> Result<(), 
 }
 
 #[cfg(not(target_os = "android"))]
-pub fn update_player(_app: &AppHandle, _update: &serde_json::Value) -> Result<(), String> {
-    Err("Video playback is only available on Android for now".into())
+pub fn update_player(app: &AppHandle, update: &serde_json::Value) -> Result<(), String> {
+    crate::video_desktop::update(app, update)
+}
+
+/// Where the player's reports go: from Android's player over JNI, and from the webview's player
+/// on desktop (`video_player_report`, M46.4).
+pub struct VideoReports(tokio::sync::mpsc::UnboundedSender<String>);
+
+impl VideoReports {
+    pub fn send(&self, json: String) {
+        let _ = self.0.send(json);
+    }
 }
 
 /// The player's reports become saved progress and `WatchChangedEvent`s.
@@ -460,6 +471,7 @@ pub fn install(app: &AppHandle) {
     // Reports are handled one at a time, in order: two at once (the end of a video sends several)
     // would race on the same rows.
     let (sender, mut reports) = tokio::sync::mpsc::unbounded_channel::<String>();
+    app.manage(VideoReports(sender.clone()));
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(json) = reports.recv().await {

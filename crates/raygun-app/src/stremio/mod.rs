@@ -13,15 +13,17 @@ use raygun_db::stremio::{self as store, AddonRow};
 use raygun_db::titles::{self, TitleFields, TitleRow, UnitFields};
 use raygun_db::video::{self as progress_store, VideoEntry};
 use raygun_model::{
-    MediaKind, MediaSource, QueueItemInput, StremioAddon, StremioCatalogRow, StremioItem,
-    StremioMeta, StremioPlayRequest, StremioStream, StremioStreamGroup, StremioStreamKind,
-    StremioSuggestion, StremioVideo, VideoRequest, VideoSubtitle,
+    PlaybackControl, StremioAddon, StremioCatalogRow, StremioItem, StremioMeta, StremioPlayRequest,
+    StremioStream, StremioStreamGroup, StremioStreamKind, StremioSuggestion, StremioVideo,
+    VideoRequest, VideoSubtitle, YouTubeVideo,
 };
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
+use tauri_specta::Event;
 
 use self::protocol::{Catalog, Manifest, MetaPreview, StreamSource};
 use crate::catalog::now_ms;
+use crate::events::YouTubeVideoEvent;
 use crate::extensions::ExtensionService;
 use crate::local_network::{self, LocalNetwork};
 use crate::playback::PlaybackService;
@@ -537,23 +539,25 @@ impl StremioService {
                     crate::video::play(&self.app, video).await
                 }
             }
+            // Trailers and YouTube streams get their own full-window player (M46.4); the music
+            // queue is left alone.
             StremioStreamKind::YouTube => {
-                self.app.state::<PlaybackService>().replace(
-                    vec![QueueItemInput {
-                        title: request.title.clone(),
-                        artist: request.subtitle.clone(),
-                        album: None,
-                        duration_ms: None,
-                        artwork_url: request.poster.clone(),
-                        media_kind: MediaKind::Video,
-                        source: MediaSource::YouTube {
-                            video_id: stream.target.clone(),
-                        },
-                    }],
-                    Some(0),
-                    false,
-                );
-                Ok(())
+                let embed_url = self
+                    .app
+                    .try_state::<raygun_net::MediaLinks>()
+                    .ok_or("The YouTube player isn't available")?
+                    .youtube_embed_url();
+                self.app
+                    .state::<PlaybackService>()
+                    .control(PlaybackControl::Pause);
+                YouTubeVideoEvent(YouTubeVideo {
+                    video_id: stream.target.clone(),
+                    title: request.title.clone(),
+                    subtitle: request.subtitle.clone(),
+                    embed_url,
+                })
+                .emit(&self.app)
+                .map_err(|error| error.to_string())
             }
             StremioStreamKind::External => Err("This stream opens outside Raygun".into()),
             StremioStreamKind::Torrent => Err("Torrent streams aren't supported yet".into()),

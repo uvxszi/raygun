@@ -10,8 +10,9 @@
 //! It also serves library artwork from one folder at `/art/<name>`, limited to names the caller's
 //! validator accepts, the YouTube embed host page at `/embed/youtube` (M08), remote images
 //! (manga pages, M24) at `/image/<token>`, covers, posters and icons from a lasting cache
-//! (M46.2) at `/cover/<token>`, and subtitle files for the video player (M41) at
-//! `/subtitle/<token>`.
+//! (M46.2) at `/cover/<token>`, subtitle files for the video player (M41) at
+//! `/subtitle/<token>`, and streams for the desktop video player (M46.4) at
+//! `/media/<token>/<scheme>/<host>/<path>`, with their playlists rewritten to lead back to it.
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::{Ipv4Addr, SocketAddr};
@@ -30,12 +31,15 @@ use raygun_model::MediaSource;
 
 use crate::cover_cache::CoverCache;
 use crate::images::{ImageError, fetch_image};
+use crate::manifest::{self, Manifest};
 use crate::page_cache::{PageCache, sniff_content_type};
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
 /// Older tokens are forgotten beyond this many registrations.
 const MAX_REGISTERED: usize = 64;
+/// The biggest playlist or manifest the `/media/` route rewrites.
+const MAX_MANIFEST_BYTES: usize = 16 * 1024 * 1024;
 /// Image links remembered (a few library pages of covers plus several chapters of pages).
 const MAX_IMAGES: usize = 4096;
 /// Longest a subtitle file may take to arrive, and its biggest size.
@@ -78,9 +82,18 @@ struct ImageRegistry {
     kept: std::collections::HashSet<String>,
 }
 
+/// The headers of each stream played through `/media/` (M46.4), by token.
+#[derive(Default)]
+struct MediaRegistry {
+    headers: HashMap<String, BTreeMap<String, String>>,
+    order: VecDeque<String>,
+}
+
 #[derive(Clone)]
 struct ProxyState {
+    address: SocketAddr,
     registry: Arc<Mutex<Registry>>,
+    media: Arc<Mutex<MediaRegistry>>,
     images: Arc<Mutex<ImageRegistry>>,
     client: reqwest::Client,
     artwork: Option<StaticFiles>,
@@ -106,6 +119,53 @@ pub struct StreamProxy {
     address: SocketAddr,
     registry: Arc<Mutex<Registry>>,
     images: ImageLinks,
+    media: MediaLinks,
+}
+
+/// Hands out `/media/` addresses for streams the webview plays (M46.4): every request under one
+/// is fetched with the stream's headers, and playlists are rewritten to stay in the route.
+#[derive(Clone)]
+pub struct MediaLinks {
+    address: SocketAddr,
+    registry: Arc<Mutex<MediaRegistry>>,
+}
+
+impl MediaLinks {
+    /// The proxy address for a stream at `url` that needs `headers`; `None` for an address that
+    /// isn't a web one.
+    pub fn link(&self, url: &str, headers: &BTreeMap<String, String>) -> Option<String> {
+        let url = reqwest::Url::parse(url).ok()?;
+        if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+            return None;
+        }
+        let token = uuid::Uuid::new_v4().simple().to_string();
+        let mut registry = self.registry.lock().expect("media registry poisoned");
+        registry.headers.insert(token.clone(), headers.clone());
+        registry.order.push_back(token.clone());
+        while registry.order.len() > MAX_REGISTERED {
+            if let Some(expired) = registry.order.pop_front() {
+                registry.headers.remove(&expired);
+            }
+        }
+        Some(format!(
+            "http://{}/media/{token}/{}",
+            self.address,
+            manifest::media_path(&url)
+        ))
+    }
+
+    /// Whether `url` already points at this proxy (a download, a subtitle…).
+    pub fn is_local(&self, url: &str) -> bool {
+        url.starts_with(&format!("http://{}/", self.address))
+    }
+
+    /// The YouTube embed host page with YouTube's own controls, for trailers.
+    pub fn youtube_embed_url(&self) -> String {
+        format!(
+            "http://localhost:{}/embed/youtube?controls=1",
+            self.address.port()
+        )
+    }
 }
 
 /// Hands out proxy URLs for remote images. Cheap to clone and share between services.
@@ -270,10 +330,16 @@ impl StreamProxy {
             covers,
             local,
         } = storage;
+        // Bound first: the `/media/` route links back to its own address.
+        let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
+        let address = listener.local_addr()?;
         let registry = Arc::new(Mutex::new(Registry::default()));
         let images = Arc::new(Mutex::new(ImageRegistry::default()));
+        let media = Arc::new(Mutex::new(MediaRegistry::default()));
         let state = ProxyState {
+            address,
             registry: registry.clone(),
+            media: media.clone(),
             images: images.clone(),
             client,
             artwork,
@@ -288,10 +354,12 @@ impl StreamProxy {
             .route("/subtitle/{token}", get(serve_subtitle))
             .route("/art/{name}", get(serve_artwork))
             .route("/local/{*path}", get(serve_local))
+            .route(
+                "/media/{token}/{*rest}",
+                get(serve_media).options(preflight),
+            )
             .route("/embed/youtube", get(youtube_embed))
             .with_state(state);
-        let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
-        let address = listener.local_addr()?;
         tokio::spawn(async move {
             if let Err(error) = axum::serve(listener, router).await {
                 tracing::error!(%error, "stream proxy stopped");
@@ -306,7 +374,16 @@ impl StreamProxy {
                 registry: images,
                 covers,
             },
+            media: MediaLinks {
+                address,
+                registry: media,
+            },
         })
+    }
+
+    /// The handle that links streams through `/media/` (M46.4).
+    pub fn media(&self) -> MediaLinks {
+        self.media.clone()
     }
 
     /// The handle other services use to link remote images through this proxy.
@@ -644,6 +721,144 @@ async fn forward(
     response
         .body(Body::from_stream(upstream.bytes_stream()))
         .unwrap_or_else(|_| StatusCode::BAD_GATEWAY.into_response())
+}
+
+/// A stream for the desktop video player: fetched with its token's headers; a playlist or
+/// manifest comes back rewritten so what it names is fetched through here too.
+async fn serve_media(State(state): State<ProxyState>, request: Request) -> Response {
+    let path = request.uri().path();
+    let Some((token, rest)) = path
+        .strip_prefix("/media/")
+        .and_then(|path| path.split_once('/'))
+    else {
+        return with_cors(StatusCode::NOT_FOUND.into_response());
+    };
+    let headers = state
+        .media
+        .lock()
+        .expect("media registry poisoned")
+        .headers
+        .get(token)
+        .cloned();
+    let Some(headers) = headers else {
+        return with_cors(StatusCode::NOT_FOUND.into_response());
+    };
+    let Some(upstream) = manifest::upstream_url(rest, request.uri().query()) else {
+        return with_cors(StatusCode::BAD_REQUEST.into_response());
+    };
+    let link_base = format!("http://{}/media/{token}/", state.address);
+    with_cors(forward_media(&state, &link_base, &upstream, &headers, request.headers()).await)
+}
+
+async fn forward_media(
+    state: &ProxyState,
+    link_base: &str,
+    url: &reqwest::Url,
+    source_headers: &BTreeMap<String, String>,
+    request_headers: &HeaderMap,
+) -> Response {
+    let mut upstream = state.client.get(url.clone());
+    for (name, value) in source_headers {
+        upstream = upstream.header(name, value);
+    }
+    if let Some(range) = request_headers.get(header::RANGE) {
+        upstream = upstream.header(header::RANGE, range);
+    }
+    let upstream = match upstream.send().await {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::warn!(%error, "media request failed");
+            return (StatusCode::BAD_GATEWAY, error.to_string()).into_response();
+        }
+    };
+    let status = upstream.status();
+    let final_url = upstream.url().clone();
+    let mut forwarded = Vec::new();
+    for name in FORWARDED_RESPONSE_HEADERS {
+        if let Some(value) = upstream.headers().get(&name) {
+            forwarded.push((name, value.clone()));
+        }
+    }
+
+    // The first bytes say whether this is a playlist to rewrite or media to pass on.
+    let mut body = upstream.bytes_stream();
+    let mut head = Vec::new();
+    while head.len() < manifest::SNIFF_BYTES {
+        match body.next().await {
+            Some(Ok(chunk)) => head.extend_from_slice(&chunk),
+            Some(Err(error)) => {
+                return (StatusCode::BAD_GATEWAY, error.to_string()).into_response();
+            }
+            None => break,
+        }
+    }
+    let kind = if status.is_success() {
+        manifest::sniff(&head)
+    } else {
+        None
+    };
+    let Some(kind) = kind else {
+        let mut response = Response::builder().status(status.as_u16());
+        for (name, value) in forwarded {
+            response = response.header(name, value);
+        }
+        let first = futures_util::stream::once(async move {
+            Ok::<_, reqwest::Error>(axum::body::Bytes::from(head))
+        });
+        return response
+            .body(Body::from_stream(first.chain(body)))
+            .unwrap_or_else(|_| StatusCode::BAD_GATEWAY.into_response());
+    };
+
+    let mut bytes = head;
+    while let Some(chunk) = body.next().await {
+        match chunk {
+            Ok(chunk) if bytes.len() + chunk.len() <= MAX_MANIFEST_BYTES => {
+                bytes.extend_from_slice(&chunk);
+            }
+            Ok(_) => return (StatusCode::BAD_GATEWAY, "playlist too large").into_response(),
+            Err(error) => return (StatusCode::BAD_GATEWAY, error.to_string()).into_response(),
+        }
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    let link = |target: &reqwest::Url| format!("{link_base}{}", manifest::media_path(target));
+    let (rewritten, content_type) = match kind {
+        Manifest::Hls => (
+            manifest::rewrite_hls(&text, &final_url, &link),
+            "application/vnd.apple.mpegurl",
+        ),
+        Manifest::Dash => (
+            manifest::rewrite_dash(&text, &final_url, final_url != *url, &link),
+            "application/dash+xml",
+        ),
+    };
+    (
+        [
+            (header::CONTENT_TYPE, content_type),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        rewritten,
+    )
+        .into_response()
+}
+
+/// Answers CORS preflights for `/media/` (hls.js and dash.js may ask with `Range`).
+async fn preflight() -> Response {
+    let mut response = StatusCode::NO_CONTENT.into_response();
+    let headers = response.headers_mut();
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_METHODS,
+        HeaderValue::from_static("GET, HEAD, OPTIONS"),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_HEADERS,
+        HeaderValue::from_static("range, content-type"),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_MAX_AGE,
+        HeaderValue::from_static("86400"),
+    );
+    with_cors(response)
 }
 
 fn with_cors(mut response: Response) -> Response {

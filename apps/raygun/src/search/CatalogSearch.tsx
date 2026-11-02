@@ -56,6 +56,25 @@ export const SourceRow: FC<{
   );
 };
 
+const SourceChip: FC<{ label: string; pressed: boolean; onClick: () => void }> = ({
+  label,
+  pressed,
+  onClick,
+}) => (
+  <button
+    type="button"
+    aria-pressed={pressed}
+    onClick={onClick}
+    className={
+      pressed
+        ? 'bg-primary/20 text-primary shrink-0 rounded-full px-4 py-1.5 text-sm font-semibold'
+        : 'bg-surface shrink-0 rounded-full px-4 py-1.5 text-sm'
+    }
+  >
+    {label}
+  </button>
+);
+
 const SourceSearch: FC<{ medium: Medium; sourceId: string; query: string }> = ({
   medium,
   sourceId,
@@ -86,11 +105,7 @@ const SourceSearch: FC<{ medium: Medium; sourceId: string; query: string }> = ({
       {open && filters.data && (
         <SourceFiltersPanel filters={filters.data} values={values} onChange={setValues} />
       )}
-      {!query.trim() && active === 0 && (
-        <p className="text-muted text-sm">
-          {t(hasFilters ? 'search.filters.typeOrFilter' : 'search.typeToSearch')}
-        </p>
-      )}
+      {!query.trim() && active === 0 && <h2 className="font-semibold">{t('search.popular')}</h2>}
       {search.error && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
           {search.error.message}
@@ -100,7 +115,9 @@ const SourceSearch: FC<{ medium: Medium; sourceId: string; query: string }> = ({
         <LoaderCircle aria-label={t('search.searching')} className="text-muted animate-spin" />
       )}
       {search.isSuccess && items.length === 0 && (
-        <p className="text-muted text-sm">{t('search.noResults', { query })}</p>
+        <p className="text-muted text-sm">
+          {query.trim() ? t('search.noResults', { query }) : t('search.providerEmpty')}
+        </p>
       )}
       {items.length > 0 && <MangaGrid medium={medium} items={toGridItems(items)} />}
       {search.hasNextPage && (
@@ -117,38 +134,91 @@ const SourceSearch: FC<{ medium: Medium; sourceId: string; query: string }> = ({
   );
 };
 
-/** Search → Manga or Novels: every source at once, or one source with its filters and tags. */
+/** Sources' chips before they fold; chosen ones always show. */
+const FOLDED_CHIPS = 12;
+
+const chosenKey = (medium: Medium) => `raygun.search.sources.${medium}`;
+
+const readChosen = (medium: Medium): string[] => {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(chosenKey(medium)) ?? '[]');
+    return Array.isArray(saved) ? saved.filter((id): id is string => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Search → Manga, Novels or Videos: sources picked with chips (several at once; none is every
+ * source). Several sources search together; one source searches with its filters and tags.
+ */
 export const CatalogSearch: FC<{ medium: Medium; query: string }> = ({ medium, query }) => {
   const { t } = useTranslation();
   const sources = useMangaSources(medium);
-  const [sourceId, setSourceId] = useState('');
-  const global = useGlobalSearch(medium, query, sourceId === '');
+  const [chosen, setChosenState] = useState(() => readChosen(medium));
+  const [unfolded, setUnfolded] = useState(false);
+  // Sources removed since they were chosen don't count.
+  const picked = sources.data
+    ? chosen.filter((id) => sources.data.some((source) => source.id === id))
+    : chosen;
+  const sourceId = picked.length === 1 ? picked[0]! : '';
+  const global = useGlobalSearch(medium, query, sourceId === '', picked);
+
+  const setChosen = (ids: string[]) => {
+    setChosenState(ids);
+    try {
+      localStorage.setItem(chosenKey(medium), JSON.stringify(ids));
+    } catch {
+      // A per-device convenience.
+    }
+  };
+  const toggle = (id: string) =>
+    setChosen(picked.includes(id) ? picked.filter((other) => other !== id) : [...picked, id]);
+  const all = sources.data ?? [];
+  const shown =
+    unfolded || all.length <= FOLDED_CHIPS
+      ? all
+      : all.filter((source, index) => index < FOLDED_CHIPS || picked.includes(source.id));
 
   return (
     <div data-testid={`${medium}-search`} className="flex flex-col gap-4">
       {sources.data?.length === 0 && (
         <p className="text-muted text-sm">{t('search.noCatalogSources')}</p>
       )}
-      {(sources.data?.length ?? 0) > 0 && (
-        <label className="flex items-center gap-2 text-sm">
-          <span className="text-muted">{t('search.source')}</span>
-          <select
-            value={sourceId}
-            onChange={(event) => setSourceId(event.target.value)}
-            className="bg-surface min-w-0 flex-1 rounded-lg px-3 py-2 outline-none"
-          >
-            <option value="">{t('search.allSources')}</option>
-            {sources.data?.map((source) => (
-              <option key={source.id} value={source.id}>
-                {source.name}
-              </option>
-            ))}
-          </select>
-        </label>
+      {all.length > 0 && (
+        <div role="group" aria-label={t('search.sources')} className="flex flex-wrap gap-2">
+          <SourceChip
+            label={t('search.allSources')}
+            pressed={picked.length === 0}
+            onClick={() => setChosen([])}
+          />
+          {shown.map((source) => (
+            <SourceChip
+              key={source.id}
+              label={source.name}
+              pressed={picked.includes(source.id)}
+              onClick={() => toggle(source.id)}
+            />
+          ))}
+          {all.length > FOLDED_CHIPS && (
+            <button
+              type="button"
+              aria-expanded={unfolded}
+              onClick={() => setUnfolded(!unfolded)}
+              className="text-primary shrink-0 rounded-full px-3 py-1.5 text-sm"
+            >
+              {unfolded
+                ? t('search.fewerSources')
+                : t('search.moreSources', { count: all.length - shown.length })}
+            </button>
+          )}
+        </div>
       )}
       {sourceId === '' ? (
         <>
-          {!query.trim() && <p className="text-muted text-sm">{t('search.typeToSearch')}</p>}
+          {!query.trim() && all.length > 0 && (
+            <h2 className="font-semibold">{t('search.popular')}</h2>
+          )}
           {global.isFetching && !global.data && (
             <LoaderCircle aria-label={t('search.searching')} className="text-muted animate-spin" />
           )}
@@ -162,7 +232,7 @@ export const CatalogSearch: FC<{ medium: Medium; query: string }> = ({ medium, q
               key={result.source.id}
               result={result}
               medium={medium}
-              onMore={() => setSourceId(result.source.id)}
+              onMore={() => setChosen([result.source.id])}
             />
           ))}
         </>

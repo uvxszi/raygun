@@ -148,8 +148,11 @@ impl Catalog {
         filters: &BTreeMap<String, FilterValue>,
     ) -> Result<MangaListingPage, String> {
         let query = query.trim();
+        // Nothing asked for yet: the source's popular titles, so Search never starts empty.
         if query.is_empty() && filters.is_empty() {
-            return Err("Type something to search for".into());
+            return self
+                .browse(source_id, MangaBrowseMode::Popular, None, page)
+                .await;
         }
         let listing = {
             let extensions = self.extensions();
@@ -161,18 +164,28 @@ impl Catalog {
     }
 
     /// The first page of every source's results for `query`, sources in parallel (Mihon's global
-    /// search). A source that fails reports its error and the others still show.
-    pub async fn global_search(&self, query: &str) -> Result<Vec<SourceSearchResult>, String> {
+    /// search), or only of the ones in `only` (Search's source chips, M46.4) when it isn't empty.
+    /// A blank query gives each source's popular titles. A source that fails reports its error
+    /// and the others still show.
+    pub async fn global_search(
+        &self,
+        query: &str,
+        only: &[String],
+    ) -> Result<Vec<SourceSearchResult>, String> {
         let query = query.trim();
-        if query.is_empty() {
-            return Ok(Vec::new());
+        let mut sources = self.sources().await;
+        if !only.is_empty() {
+            sources.retain(|source| only.contains(&source.id));
         }
-        let sources = self.sources().await;
         let searches = sources.into_iter().map(|source| async move {
             let result = {
                 let extensions = self.extensions();
                 let (_ready, host) = extensions.ready().await;
-                host.manga_search(&source.id, query, 1).await
+                if query.is_empty() {
+                    host.manga_list(&source.id, MangaList::Popular, 1).await
+                } else {
+                    host.manga_search(&source.id, query, 1).await
+                }
             };
             let page = match result {
                 Ok(listing) => self.listing_page(&source.id, listing).await,

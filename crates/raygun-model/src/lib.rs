@@ -2612,6 +2612,46 @@ pub struct VideoRequest {
     pub anime: Option<AnimeEpisode>,
 }
 
+/// Whether a message for the webview's video player (M46.4) opens it or changes what it plays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum VideoPlayerMessageKind {
+    Open,
+    Update,
+}
+
+/// A message for the video player in the webview (desktop, M46.4). `json` is exactly what the
+/// Android player receives: a request when opening, `{ "type": "load" | "loading" | … }` updates.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoPlayerMessage {
+    pub kind: VideoPlayerMessageKind,
+    pub json: String,
+}
+
+/// A YouTube video to watch in its own player (trailers, YouTube streams; M46.4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct YouTubeVideo {
+    pub video_id: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    /// The embed host page, with YouTube's own controls.
+    pub embed_url: String,
+}
+
+/// What the desktop player hands to mpv or VLC (M46.4).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalPlay {
+    /// The player's address for the stream (through the proxy).
+    pub url: String,
+    pub title: String,
+    /// Subtitle files' addresses; the first is passed on.
+    pub subtitles: Vec<String>,
+    pub start_ms: f64,
+}
+
 /// Something started and not finished.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

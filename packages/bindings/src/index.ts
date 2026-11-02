@@ -323,10 +323,16 @@ export const commands = {
 	websiteClearData: () => typedError<null, string>(__TAURI_INVOKE("website_clear_data")),
 	/**  The filters a manga or novel source offers for its search. */
 	catalogFilters: (medium: string, sourceId: string) => typedError<SourceFilter[], string>(__TAURI_INVOKE("catalog_filters", { medium, sourceId })),
-	/**  Searches one source with its filters; the query may be empty when filters are set. */
+	/**
+	 *  Searches one source with its filters; the query may be empty when filters are set, and with
+	 *  neither it lists the source's popular titles.
+	 */
 	catalogSearch: (medium: string, sourceId: string, query: string, page: number, filters: { [key in string]: FilterValue }) => typedError<MangaListingPage, string>(__TAURI_INVOKE("catalog_search", { medium, sourceId, query, page, filters })),
-	/**  The first page of every manga or novel source's results for `query`. */
-	catalogGlobalSearch: (medium: string, query: string) => typedError<SourceSearchResult[], string>(__TAURI_INVOKE("catalog_global_search", { medium, query })),
+	/**
+	 *  The first page of every manga, novel or video source's results for `query` (their popular
+	 *  titles when it's blank), or only `sources`' when any are given (Search's source chips).
+	 */
+	catalogGlobalSearch: (medium: string, query: string, sources: string[]) => typedError<SourceSearchResult[], string>(__TAURI_INVOKE("catalog_global_search", { medium, query, sources })),
 	/**  Tracks in the device's library matching `query` (title, artist or album). */
 	librarySearch: (query: string) => typedError<LibraryTrack[], string>(__TAURI_INVOKE("library_search", { query })),
 	stremioAddons: () => typedError<StremioAddon[], string>(__TAURI_INVOKE("stremio_addons")),
@@ -410,6 +416,10 @@ export const commands = {
 	stremioWatch: (kind: string, id: string, videoId: string | null) => typedError<null, string>(__TAURI_INVOKE("stremio_watch", { kind, id, videoId })),
 	/**  The video player's words in the app's language (episodes, sources, next episode...). */
 	videoSetPlayerLabels: (labels: { [key in string]: string }) => __TAURI_INVOKE<void>("video_set_player_labels", { labels }),
+	/**  A report from the webview's video player (desktop, M46.4), in the Android player's JSON. */
+	videoPlayerReport: (report: string) => __TAURI_INVOKE<void>("video_player_report", { report }),
+	/**  Plays a video in mpv or VLC (desktop, M46.4); returns the app's name. */
+	videoPlayerExternal: (play: ExternalPlay) => typedError<string, string>(__TAURI_INVOKE("video_player_external", { play })),
 };
 
 /** Events */
@@ -428,7 +438,9 @@ export const events = {
 	syncChangedEvent: makeEvent<SyncChangedEvent>("sync-changed-event"),
 	ttsEvent: makeEvent<TtsEvent>("tts-event"),
 	videoDownloadsEvent: makeEvent<VideoDownloadsEvent>("video-downloads-event"),
+	videoPlayerEvent: makeEvent<VideoPlayerEvent>("video-player-event"),
 	watchChangedEvent: makeEvent<WatchChangedEvent>("watch-changed-event"),
+	youTubeVideoEvent: makeEvent<YouTubeVideoEvent>("you-tube-video-event"),
 };
 
 /* Types */
@@ -820,6 +832,16 @@ export type ExtensionStatus = "loaded" | "failed";
 
 /**  Extensions were (re)loaded; carries the new list. */
 export type ExtensionsChangedEvent = ExtensionInfo[];
+
+/**  What the desktop player hands to mpv or VLC (M46.4). */
+export type ExternalPlay = {
+	/**  The player's address for the stream (through the proxy). */
+	url: string,
+	title: string,
+	/**  Subtitle files' addresses; the first is passed on. */
+	subtitles: string[],
+	startMs: number | null,
+};
 
 export type FilterOption = {
 	value: string,
@@ -1998,6 +2020,21 @@ export type VideoLinkView = {
 	chapters?: VideoChapter[],
 };
 
+/**  A message for the video player in the webview (desktop, M46.4). */
+export type VideoPlayerEvent = VideoPlayerMessage;
+
+/**
+ *  A message for the video player in the webview (desktop, M46.4). `json` is exactly what the
+ *  Android player receives: a request when opening, `{ "type": "load" | "loading" | … }` updates.
+ */
+export type VideoPlayerMessage = {
+	kind: VideoPlayerMessageKind,
+	json: string,
+};
+
+/**  Whether a message for the webview's video player (M46.4) opens it or changes what it plays. */
+export type VideoPlayerMessageKind = "open" | "update";
+
 /**
  *  The video player's controls, gestures, tracks and tools (M45). One stored row; fields missing
  *  from it keep their defaults, so later fields need no migration.
@@ -2195,6 +2232,18 @@ export type WebsitePrefs = {
 	/**  Sites open in desktop mode. */
 	desktop?: boolean,
 };
+
+/**  A YouTube video to watch in its own player (trailers, YouTube streams; M46.4). */
+export type YouTubeVideo = {
+	videoId: string,
+	title: string,
+	subtitle: string | null,
+	/**  The embed host page, with YouTube's own controls. */
+	embedUrl: string,
+};
+
+/**  A YouTube video to open in its own full-window player (trailers, M46.4). */
+export type YouTubeVideoEvent = YouTubeVideo;
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

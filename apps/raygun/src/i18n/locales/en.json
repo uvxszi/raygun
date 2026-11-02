@@ -291,13 +291,8 @@
       "video": "Movies and series"
     },
     "hintFor": {
-      "all": "Search every kind of media at once, or pick one above.",
       "music": "Search your library and every music source.",
-      "podcast": "Search the podcast directories.",
-      "manga": "Search every manga source.",
-      "novel": "Search every novel source.",
-      "library": "Search your music, manga, novels, podcasts and videos.",
-      "video": "Search the catalogs of your Stremio addons."
+      "library": "Search your music, manga, novels, podcasts and videos."
     },
     "inYourLibrary": "In your library",
     "seeAll": "See all",
@@ -322,7 +317,13 @@
         "exclude": "excluded"
       }
     },
-    "fromSources": "From your sources"
+    "fromSources": "From your sources",
+    "sources": "Sources",
+    "moreSources_one": "{{count}} more",
+    "moreSources_other": "{{count}} more",
+    "fewerSources": "Fewer",
+    "popular": "Popular",
+    "popularHint": "Popular now. Type above to search everything."
   },
   "settings": {
     "title": "Settings",
@@ -731,7 +732,17 @@
     "lyricsFrom": "Lyrics from {{source}}",
     "favorite": "Add to favorites",
     "unfavorite": "Remove from favorites",
-    "addToPlaylist": "Add to playlist"
+    "addToPlaylist": "Add to playlist",
+    "volume": "Volume",
+    "mute": "Mute",
+    "unmute": "Unmute",
+    "queue": "Queue",
+    "closeQueue": "Close the queue",
+    "clearQueue": "Clear",
+    "removeFromQueue": "Remove {{title}} from the queue",
+    "nowPlayingHeading": "Now playing",
+    "queueEmpty": "Nothing else is queued",
+    "showVideo": "Show the video"
   },
   "common": {
     "coreUnavailable": "Core unavailable: {{message}}"
@@ -1556,5 +1567,28 @@
     "cleared": "Cookies, logins and saved data of websites were cleared.",
     "desktop": "Open sites in desktop mode",
     "desktopHint": "Asks sites for their computer version. Each site can switch in its menu."
+  },
+  "desktopPlayer": {
+    "player": "Video player",
+    "close": "Close the player",
+    "closePanel": "Close",
+    "fullscreen": "Full screen",
+    "exitFullscreen": "Leave full screen",
+    "mute": "Mute",
+    "unmute": "Unmute",
+    "seekBack": "Back {{n}} s",
+    "seekForward": "Forward {{n}} s",
+    "volumeLevel": "Volume {{n}} %",
+    "quality": "Quality",
+    "auto": "Automatic",
+    "playElsewhere": "Play in mpv or VLC",
+    "playingIn": "Playing in {{app}}",
+    "retry": "Try again",
+    "cantPlayHere": "This video's format can't play here. mpv or VLC can play it.",
+    "playNow": "Play now",
+    "watched": "Watched",
+    "inTheVideo": "In the video",
+    "trailerPlayer": "Trailer player",
+    "trailerFailed": "YouTube doesn't let this video play outside its site."
   }
 }

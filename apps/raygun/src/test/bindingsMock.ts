@@ -12,6 +12,8 @@ import type {
   QueueSnapshot,
   Settings,
   StorageInfo,
+  VideoPlayerMessage,
+  YouTubeVideo,
 } from '@raygun/bindings';
 import { act } from '@testing-library/react';
 
@@ -42,6 +44,8 @@ type EventPayloads = {
   videoDownloadsEvent: string;
   settingsChangedEvent: string;
   exportEvent: ExportJob | null;
+  videoPlayerEvent: VideoPlayerMessage;
+  youTubeVideoEvent: YouTubeVideo;
 };
 type EventName = keyof EventPayloads;
 type Listener = (event: { payload: unknown }) => void;
@@ -143,6 +147,8 @@ export const EMPTY_LIBRARY: LibraryStatus = { roots: [], trackCount: 0, scanning
 export const bindingsMock = {
   commands: {
     appInfo: vi.fn(),
+    videoPlayerReport: vi.fn(),
+    videoPlayerExternal: vi.fn(),
     storageInfo: vi.fn(),
     settingsGet: vi.fn(),
     settingsUpdate: vi.fn(),
@@ -362,6 +368,8 @@ export const bindingsMock = {
     videoDownloadsEvent: makeEvent('videoDownloadsEvent'),
     settingsChangedEvent: makeEvent('settingsChangedEvent'),
     exportEvent: makeEvent('exportEvent'),
+    videoPlayerEvent: makeEvent('videoPlayerEvent'),
+    youTubeVideoEvent: makeEvent('youTubeVideoEvent'),
   },
 };
 
@@ -370,6 +378,8 @@ export const seedBindings = () => {
   listeners.clear();
   const { commands } = bindingsMock;
   commands.appInfo.mockResolvedValue(ANDROID_INFO);
+  commands.videoPlayerReport.mockResolvedValue(null);
+  commands.videoPlayerExternal.mockResolvedValue({ status: 'ok', data: 'mpv' });
   commands.storageInfo.mockResolvedValue(MOBILE_STORAGE);
   commands.settingsGet.mockResolvedValue({ status: 'ok', data: DEFAULT_SETTINGS });
   commands.playbackGetState.mockResolvedValue(IDLE_STATE);

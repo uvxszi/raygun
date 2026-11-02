@@ -19,6 +19,8 @@
     "@tanstack/react-router": "^1.170.46",
     "@tanstack/react-virtual": "^3.14.24",
     "@tauri-apps/api": "^2.8.0",
+    "dashjs": "^5.2.1",
+    "hls.js": "^1.7.4",
     "i18next": "^26.5.12",
     "lucide-react": "^1.66.0",
     "motion": "^14.9.0",

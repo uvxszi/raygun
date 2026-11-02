@@ -390,3 +390,122 @@ async fn subtitles_never_fail() {
     let unknown = format!("http://{}/subtitle/0000000000000000", proxy.address());
     assert_eq!(reqwest::get(unknown).await.unwrap().status(), 404);
 }
+
+/// A host serving an HLS stream that needs the Referer for everything: a playlist (disguised as
+/// text) naming one relative and one absolute segment, and the segments with byte ranges.
+async fn start_hls_origin() -> SocketAddr {
+    async fn playlist(headers: HeaderMap) -> Response {
+        if headers
+            .get(header::REFERER)
+            .and_then(|value| value.to_str().ok())
+            != Some(REQUIRED_REFERER)
+        {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+        let host = headers[header::HOST].to_str().unwrap().to_owned();
+        let body = format!(
+            "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nseg1.ts\n#EXTINF:4,\nhttp://{host}/other/seg2.ts\n#EXT-X-ENDLIST\n"
+        );
+        ([(header::CONTENT_TYPE, "text/plain")], body).into_response()
+    }
+    async fn segment(headers: HeaderMap) -> Response {
+        if headers
+            .get(header::REFERER)
+            .and_then(|value| value.to_str().ok())
+            != Some(REQUIRED_REFERER)
+        {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+        match headers
+            .get(header::RANGE)
+            .and_then(|value| value.to_str().ok())
+        {
+            Some("bytes=2-5") => Response::builder()
+                .status(StatusCode::PARTIAL_CONTENT)
+                .header(header::CONTENT_TYPE, "video/mp2t")
+                .header(header::CONTENT_RANGE, format!("bytes 2-5/{}", SONG.len()))
+                .body(Body::from(&SONG[2..6]))
+                .unwrap(),
+            _ => ([(header::CONTENT_TYPE, "video/mp2t")], SONG).into_response(),
+        }
+    }
+
+    let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let router = Router::new()
+            .route("/show/index.txt", get(playlist))
+            .route("/show/seg1.ts", get(segment))
+            .route("/other/seg2.ts", get(segment));
+        axum::serve(listener, router).await.unwrap();
+    });
+    address
+}
+
+#[tokio::test]
+async fn media_playlists_lead_back_into_the_proxy_with_their_headers() {
+    let origin = start_hls_origin().await;
+    let proxy = proxy().await;
+    let referer = BTreeMap::from([("Referer".to_owned(), REQUIRED_REFERER.to_owned())]);
+    let media = proxy.media();
+    let link = media
+        .link(&format!("http://{origin}/show/index.txt"), &referer)
+        .unwrap();
+    assert!(media.is_local(&link));
+    assert!(link.ends_with(&format!("/http/{origin}/show/index.txt")));
+
+    let response = reqwest::get(&link).await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.headers()[header::CONTENT_TYPE],
+        "application/vnd.apple.mpegurl"
+    );
+    assert_eq!(response.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*");
+    let playlist = response.text().await.unwrap();
+    let segments: Vec<&str> = playlist
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .collect();
+    let base = link.trim_end_matches("index.txt");
+    assert_eq!(segments[0], format!("{base}seg1.ts"));
+    assert_eq!(
+        segments[1],
+        link.replace("/show/index.txt", "/other/seg2.ts")
+    );
+
+    // Segments get the Referer too, and ranges pass through.
+    for segment in segments {
+        let whole = reqwest::get(segment).await.unwrap();
+        assert_eq!(whole.status(), 200);
+        assert_eq!(whole.bytes().await.unwrap().as_ref(), SONG);
+    }
+    let part = reqwest::Client::new()
+        .get(format!("{base}seg1.ts"))
+        .header(header::RANGE, "bytes=2-5")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(part.status(), 206);
+    assert_eq!(part.headers()[header::CONTENT_RANGE], "bytes 2-5/16");
+    assert_eq!(part.bytes().await.unwrap().as_ref(), b"2345");
+
+    // A preflight is answered; unknown tokens and other schemes are not served.
+    let preflight = reqwest::Client::new()
+        .request(reqwest::Method::OPTIONS, &link)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(preflight.status(), 204);
+    assert_eq!(
+        preflight.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN],
+        "*"
+    );
+    let unknown = format!(
+        "http://{}/media/nope/http/{origin}/show/index.txt",
+        proxy.address()
+    );
+    assert_eq!(reqwest::get(unknown).await.unwrap().status(), 404);
+    assert!(media.link("file:///etc/passwd", &referer).is_none());
+}

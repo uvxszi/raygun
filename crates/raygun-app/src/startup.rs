@@ -67,6 +67,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     )?));
     crate::caches::sweep_later(app.handle());
     app.manage(proxy.images());
+    app.manage(proxy.media());
     app.manage(crate::library::LibraryService::new(
         app.handle().clone(),
         art_dir,

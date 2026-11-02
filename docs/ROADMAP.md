@@ -102,6 +102,12 @@ The user asked for the full depth of the reference apps ("its not meant to be a 
   - covers, posters, thumbnails and extension icons kept on disk and refreshed when they change;
   - Settings → Data: cache sizes, limits and clear buttons per cache.
 - M46.3 **Websites, with an ad and popup blocker** (asked 2026-11-01): sites the user enters, opened in a built-in browser in its own process, with a downloaded ad and tracker blocklist and popup and redirect blocking. Raygun bundles no particular site.
+- M46.4 **Desktop video, trailers, the player bar and Search** (asked 2026-11-01 while testing the Windows build):
+  - Watch plays on desktop in the webview, speaking the Android player's protocol; streams go through the proxy's new `/media/` route, which rewrites HLS and DASH playlists; mpv or VLC take what the webview can't decode.
+  - Trailers open in a full-window player instead of the music queue.
+  - The player bar gets Spotify's controls and a queue panel on wide windows.
+  - Search picks sources with chips (several at once) and shows popular titles before anything is typed.
+- M46.5 **Customizable layout** (asked 2026-11-01: "make it very customizable, so you can add and move around tabs and options and such, similar to mihon"): tabs, library media tabs, Browse sections, Home sections and More entries that can be hidden and reordered, with a start screen and hidden tabs moving into More (research: aniyomi's NavStyle, Mihon's category editor, CloudStream's pinned providers).
 - M47 **Title pages and chapter/episode lists** (mihon §2; aniyomi §8; cloudstream §4; stremio §4; shosetsu novel screen):
   - **Lists:** filters, sort and display with defaults; selection with bulk actions (mark previous, download, delete, bookmark); bookmarks and fillers; swipe actions; download menus (next N, all unread).
   - **Title extras:** cover dialog and custom cover, notes, edit info, share, links (genres, authors and cast open Search).

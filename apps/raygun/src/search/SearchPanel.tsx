@@ -45,7 +45,8 @@ export const SearchPanel: FC<{
   onType: (type: SearchType) => void;
 }> = ({ query, type, onType }) => {
   const { t } = useTranslation();
-  const needsQuery = type !== 'manga' && type !== 'novel' && type !== 'video' && type !== 'podcast';
+  // Music and the library need something typed; the rest show what's popular until then.
+  const needsQuery = type === 'music' || type === 'library';
   const selected = useRef<HTMLButtonElement>(null);
 
   // A link can open a kind whose chip is off-screen (Library → Manga's "Find in Browse").
@@ -76,12 +77,12 @@ export const SearchPanel: FC<{
         ))}
       </div>
       {!query && needsQuery && <p className="text-muted text-sm">{t(`search.hintFor.${type}`)}</p>}
-      {query && type === 'all' && <AllResults query={query} onType={onType} />}
+      {type === 'all' && <AllResults query={query} onType={onType} />}
       {query && type === 'music' && <MusicResults query={query} />}
       {type === 'podcast' && <PodcastSearch query={query} />}
       {type === 'video' && (
         <>
-          {query && <VideoResults query={query} />}
+          <VideoResults query={query} />
           <section aria-label={t('search.fromSources')} className="flex flex-col gap-3">
             <h2 className="font-semibold">{t('search.fromSources')}</h2>
             <CatalogSearch key="video" medium="video" query={query} />

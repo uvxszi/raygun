@@ -10,9 +10,14 @@ import { useLibraryScanSync } from '../library/useLibrary';
 import { useExtensionsSync } from '../extensions/useExtensions';
 import { MiniPlayer } from '../player/MiniPlayer';
 import { PlayerSheet } from '../player/PlayerSheet';
+import { QueuePanel } from '../player/QueuePanel';
 import { usePlaybackSync } from '../player/usePlayback';
 import { useApplyTheme } from '../settings/useApplyTheme';
 import { useSettings, useSettingsEvents } from '../settings/useSettings';
+import { VideoPlayer } from '../video/VideoPlayer';
+import { useVideoPlayerEvents } from '../video/videoPlayerStore';
+import { useYouTubeVideoEvents } from '../video/trailerStore';
+import { YouTubeOverlay } from '../video/YouTubeOverlay';
 import { usePlayerLabels } from '../watch/usePlayerLabels';
 import { BottomTabs } from './BottomTabs';
 import { SideRail } from './SideRail';
@@ -43,6 +48,8 @@ export const AppShell: FC = () => {
   useExtensionsSync();
   useSyncChangedListener();
   usePlayerLabels();
+  useVideoPlayerEvents();
+  useYouTubeVideoEvents();
 
   // Pages scroll inside <main>, not the window, so start each page at the top.
   const mainRef = useRef<HTMLElement>(null);
@@ -70,7 +77,10 @@ export const AppShell: FC = () => {
         {!immersive && <BottomTabs />}
       </div>
       <PlayerSheet />
+      {!immersive && <QueuePanel />}
       <TrackActionsSheet />
+      <VideoPlayer />
+      <YouTubeOverlay />
       {/* Keeps scrolled content from showing through the transparent status bar on phones. */}
       <div
         aria-hidden

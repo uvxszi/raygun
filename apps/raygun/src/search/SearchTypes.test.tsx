@@ -86,8 +86,8 @@ describe('Search by type', () => {
     expect(await within(manga).findByText('Frieren')).toBeInTheDocument();
     const podcasts = within(all).getByRole('region', { name: 'Podcasts' });
     expect(await within(podcasts).findByText('Frieren Talk')).toBeInTheDocument();
-    expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('manga', 'frieren');
-    expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('novel', 'frieren');
+    expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('manga', 'frieren', []);
+    expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('novel', 'frieren', []);
 
     await user.click(within(manga).getByRole('button', { name: 'See all' }));
     expect(screen.getByRole('tab', { name: 'Manga' })).toHaveAttribute('aria-selected', 'true');
@@ -135,7 +135,7 @@ describe('Search by type', () => {
     expect(within(view).getByRole('button', { name: '3 filters' })).toBeInTheDocument();
   });
 
-  it('browses a source with filters alone, without typing', async () => {
+  it("shows a source's popular titles, then browses it with filters alone", async () => {
     const user = userEvent.setup();
     commands.catalogFilters.mockResolvedValue(ok(FILTERS));
     commands.catalogSearch.mockResolvedValue(
@@ -143,21 +143,94 @@ describe('Search by type', () => {
     );
     await AppShellWrapper.mount('/search?type=manga');
     const view = await screen.findByTestId('manga-search');
-    await user.selectOptions(
-      await within(view).findByRole('combobox', { name: 'Source' }),
-      MANGADEX.id,
+    const chips = await within(view).findByRole('group', { name: 'Sources' });
+    await user.click(within(chips).getByRole('button', { name: 'MangaDex' }));
+    expect(within(chips).getByRole('button', { name: 'MangaDex' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
     );
-    expect(
-      await within(view).findByText('Type a title, or choose filters to browse.'),
-    ).toBeInTheDocument();
-    expect(commands.catalogSearch).not.toHaveBeenCalled();
+    // Nothing typed: the source's popular titles.
+    expect(await within(view).findByRole('heading', { name: 'Popular' })).toBeInTheDocument();
+    expect(await within(view).findByText('Monster')).toBeInTheDocument();
+    expect(commands.catalogSearch).toHaveBeenCalledWith('manga', MANGADEX.id, '', 1, {});
 
     await user.click(within(view).getByRole('button', { name: 'Filters' }));
     await user.click(within(view).getByRole('button', { name: 'Horror: not used' }));
-    expect(await within(view).findByText('Monster')).toBeInTheDocument();
-    expect(commands.catalogSearch).toHaveBeenCalledWith('manga', MANGADEX.id, '', 1, {
+    expect(commands.catalogSearch).toHaveBeenLastCalledWith('manga', MANGADEX.id, '', 1, {
       tags: { include: ['t-horror'], exclude: [] },
     });
+  });
+
+  it("shows what's popular before anything is typed", async () => {
+    commands.catalogGlobalSearch.mockImplementation(async (medium: string) =>
+      ok(
+        medium === 'manga'
+          ? [{ source: MANGADEX, items: [card('m1', 'One Piece')], hasNextPage: true, error: null }]
+          : [],
+      ),
+    );
+    commands.podcastTop.mockResolvedValue(
+      ok([
+        {
+          title: 'Top Show',
+          author: 'Someone',
+          feedUrl: 'https://f.example/top.xml',
+          artworkUrl: null,
+          description: null,
+          subscribed: false,
+        },
+      ]),
+    );
+    await AppShellWrapper.mount('/search');
+    const all = await screen.findByTestId('all-results');
+    const manga = within(all).getByRole('region', { name: 'Manga' });
+    expect(await within(manga).findByText('One Piece')).toBeInTheDocument();
+    expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('manga', '', []);
+    const podcasts = within(all).getByRole('region', { name: 'Podcasts' });
+    expect(await within(podcasts).findByText('Top Show')).toBeInTheDocument();
+    expect(within(all).queryByRole('region', { name: 'In your library' })).not.toBeInTheDocument();
+  });
+
+  it('searches the sources chosen with chips, several at once', async () => {
+    const user = userEvent.setup();
+    commands.catalogGlobalSearch.mockResolvedValue(
+      ok([{ source: MANGADEX, items: [card('m1', 'Berserk')], hasNextPage: true, error: null }]),
+    );
+    commands.catalogFilters.mockResolvedValue(ok(FILTERS));
+    commands.catalogSearch.mockResolvedValue(
+      ok({ items: [card('m2', 'Claymore')], hasNextPage: false }),
+    );
+    await AppShellWrapper.mount('/search?type=manga&q=dark');
+    const view = await screen.findByTestId('manga-search');
+    const chips = await within(view).findByRole('group', { name: 'Sources' });
+    expect(within(chips).getByRole('button', { name: 'All sources' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    // Two sources search together, without filters.
+    await user.click(within(chips).getByRole('button', { name: 'MangaDex' }));
+    await user.click(within(chips).getByRole('button', { name: 'Other Source' }));
+    expect(commands.catalogGlobalSearch).toHaveBeenLastCalledWith('manga', 'dark', [
+      MANGADEX.id,
+      OTHER.id,
+    ]);
+    expect(within(chips).getByRole('button', { name: 'All sources' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    expect(within(view).queryByRole('button', { name: 'Filters' })).not.toBeInTheDocument();
+
+    // Taking one away leaves one source, searched with its filters.
+    await user.click(within(chips).getByRole('button', { name: 'Other Source' }));
+    expect(await within(view).findByText('Claymore')).toBeInTheDocument();
+    expect(commands.catalogSearch).toHaveBeenLastCalledWith('manga', MANGADEX.id, 'dark', 1, {});
+
+    // All sources again: every source's row (from the first search).
+    await user.click(within(chips).getByRole('button', { name: 'All sources' }));
+    const row = await within(view).findByRole('region', { name: 'MangaDex' });
+    expect(within(row).getByText('Berserk')).toBeInTheDocument();
+    expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('manga', 'dark', []);
   });
 
   it('finds what you already have', async () => {

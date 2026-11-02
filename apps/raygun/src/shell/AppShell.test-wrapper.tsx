@@ -7,6 +7,8 @@ import { usePlayerUiStore } from '../player/playerUiStore';
 import { createAppRouter } from '../router';
 import { EMPTY_QUEUE, IDLE_STATE, emitEvent, seedBindings } from '../test/bindingsMock';
 import { renderWithProviders } from '../test/renderWithProviders';
+import { useTrailerStore } from '../video/trailerStore';
+import { useVideoPlayerStore } from '../video/videoPlayerStore';
 
 export const makeItem = (title: string, artist: string | null = null): QueueItem => ({
   id: `id-${title}`,
@@ -22,7 +24,14 @@ export const makeItem = (title: string, artist: string | null = null): QueueItem
 export const AppShellWrapper = {
   seedCore() {
     seedBindings();
-    usePlayerUiStore.setState({ sheetOpen: false });
+    usePlayerUiStore.setState({
+      sheetOpen: false,
+      lyrics: false,
+      queueOpen: false,
+      unmutedVolume: 1,
+    });
+    useVideoPlayerStore.getState().close();
+    useTrailerStore.getState().close();
   },
 
   async mount(path = '/') {

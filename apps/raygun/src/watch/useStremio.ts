@@ -10,10 +10,11 @@ import { useSettings } from '../settings/useSettings';
 const STREMIO = ['stremio'];
 
 /** The Watch home: the first page of every addon catalog. */
-export const useStremioHome = () =>
+export const useStremioHome = (enabled = true) =>
   useQuery({
     queryKey: [...STREMIO, 'home'],
     queryFn: () => unwrapResult(commands.stremioHome()),
+    enabled,
     staleTime: 10 * 60 * 1000,
   });
 

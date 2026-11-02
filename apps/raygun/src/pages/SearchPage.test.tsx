@@ -39,11 +39,11 @@ describe('Search', () => {
     AppShellWrapper.seedCore();
   });
 
-  it('hints at online search before anything is typed', async () => {
+  it("shows what's popular before anything is typed", async () => {
     await AppShellWrapper.mount('/search');
 
     expect(
-      await screen.findByText('Search every kind of media at once, or pick one above.'),
+      await screen.findByText('Popular now. Type above to search everything.'),
     ).toBeInTheDocument();
     expect(bindingsMock.commands.onlineSearch).not.toHaveBeenCalled();
   });

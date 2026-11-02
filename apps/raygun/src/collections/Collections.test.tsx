@@ -190,7 +190,9 @@ describe('Favorites and playlists', () => {
     AppShellWrapper.playing([makeItem('Sinnerman', 'Nina Simone')], 0);
     await AppShellWrapper.miniPlayer.open();
 
-    const heart = await screen.findByRole('button', { name: 'Remove from favorites' });
+    // The player bar has a heart too; this one is the sheet's.
+    const sheet = await AppShellWrapper.playerSheet.element;
+    const heart = await within(sheet).findByRole('button', { name: 'Remove from favorites' });
     expect(heart).toHaveAttribute('aria-pressed', 'true');
     await userEvent.click(heart);
     expect(commands.favoriteSet).toHaveBeenCalledWith(

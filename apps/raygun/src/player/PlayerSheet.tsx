@@ -42,7 +42,8 @@ export const PlayerSheet: FC = () => {
   const { state, item, upNext } = useNowPlaying();
   const note = sourceNote(state, item);
   const [scrubMs, setScrubMs] = useState<number | null>(null);
-  const [showLyrics, setShowLyrics] = useState(false);
+  const showLyrics = usePlayerUiStore((state) => state.lyrics);
+  const setShowLyrics = usePlayerUiStore((state) => state.setLyrics);
   const isVideo = item?.source.kind === 'youTube';
   const videoSurfaceRef = useVideoSurface(sheetOpen && isVideo);
   const openTrackActions = useTrackActionsStore((store) => store.open);
@@ -124,7 +125,7 @@ export const PlayerSheet: FC = () => {
                 type="button"
                 aria-label={t(showLyrics ? 'player.showArtwork' : 'player.lyrics')}
                 aria-pressed={showLyrics}
-                onClick={() => setShowLyrics((shown) => !shown)}
+                onClick={() => setShowLyrics(!showLyrics)}
                 className={`grid size-11 place-items-center rounded-full ${showLyrics ? 'text-primary' : 'text-muted'}`}
               >
                 {showLyrics ? (
@@ -143,7 +144,7 @@ export const PlayerSheet: FC = () => {
               <div
                 ref={videoSurfaceRef}
                 data-testid="video-surface"
-                className="aspect-video w-full max-w-md rounded-2xl bg-black"
+                className="aspect-video w-full max-w-md rounded-2xl bg-black md:max-w-2xl lg:max-w-4xl"
               />
             ) : showLyrics && item ? (
               <LyricsView item={item} state={state} />
