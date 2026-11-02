@@ -98,6 +98,9 @@ The user asked for the full depth of the reference apps ("its not meant to be a 
   - **Storage:** where downloads go: app storage (the default) or a folder the user picks.
   - **Exports:** a chapter, a selection or a whole title, as an image folder, CBZ or PDF for manga; EPUB or text for novels; video files copied out. Missing chapters are downloaded first, at the source's pace.
   - **Pages:** save, share or set as cover from the reader.
+- M46.2 **Image cache and cache settings** (asked 2026-11-01: "extension icons and other shows and thumbnails … cache them so users dont have to keep loading them, and update when needed … have cache settings"):
+  - covers, posters, thumbnails and extension icons kept on disk and refreshed when they change;
+  - Settings → Data: cache sizes, limits and clear buttons per cache.
 - M47 **Title pages and chapter/episode lists** (mihon §2; aniyomi §8; cloudstream §4; stremio §4; shosetsu novel screen):
   - **Lists:** filters, sort and display with defaults; selection with bulk actions (mark previous, download, delete, bookmark); bookmarks and fillers; swipe actions; download menus (next N, all unread).
   - **Title extras:** cover dialog and custom cover, notes, edit info, share, links (genres, authors and cast open Search).

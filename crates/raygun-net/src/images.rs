@@ -1,7 +1,14 @@
 //! Fetching remote images whole: for the page cache (M27) and chapter downloads (M28).
+//!
+//! Chapter downloads are gentle with sources (M46.1): a page that fails with a network error,
+//! HTTP 429 or a 5xx is tried again three times, waiting 2, 4 and 8 s or as long as the server's
+//! `Retry-After` asks (up to a minute), and pages already saved are kept when a chapter fails or
+//! is paused, so the next attempt fetches only what's missing.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use futures_util::{StreamExt, stream};
 use reqwest::header;
@@ -12,6 +19,9 @@ use crate::page_cache::{MAX_IMAGE_BYTES, sniff_content_type};
 pub enum ImageError {
     #[error("the server answered HTTP {0}")]
     Status(u16),
+    /// HTTP 429 or 503 with a `Retry-After` in seconds.
+    #[error("the server is busy (HTTP {0})")]
+    Busy(u16, u64),
     #[error("the server didn't send an image")]
     NotImage,
     #[error("the image is larger than 30 MB")]
@@ -42,7 +52,15 @@ pub async fn fetch_image(
         .map_err(|error| ImageError::Network(error.to_string()))?;
     let status = response.status();
     if !status.is_success() {
-        return Err(ImageError::Status(status.as_u16()));
+        let retry_after = response
+            .headers()
+            .get(header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.trim().parse::<u64>().ok());
+        return Err(match (status.as_u16(), retry_after) {
+            (code @ (429 | 503), Some(seconds)) => ImageError::Busy(code, seconds),
+            (code, _) => ImageError::Status(code),
+        });
     }
     let content_type = response
         .headers()
@@ -108,10 +126,23 @@ pub struct RemoteImage {
     pub headers: BTreeMap<String, String>,
 }
 
-/// Downloads `images` into `dir` as `001.<ext>`, `002.<ext>`, ... with `concurrency` requests in
-/// flight. Files go to `<dir>.part` first, which is renamed to `dir` once every image is there, so
-/// `dir` only ever holds a complete set. `on_page` gets the count finished so far; `should_stop`
-/// is checked before each image.
+/// Tries after a retryable failure (so up to four attempts in all).
+const RETRIES: u32 = 3;
+/// The first wait before trying again; it doubles each time.
+#[cfg(not(test))]
+const BACKOFF: Duration = Duration::from_secs(2);
+#[cfg(test)]
+const BACKOFF: Duration = Duration::from_millis(10);
+/// The longest `Retry-After` honoured.
+const MAX_RETRY_AFTER: u64 = 60;
+/// Marks a partial folder with the page list it holds, so a changed list starts over.
+const LIST_MARK: &str = ".pages";
+
+/// Downloads `images` into `dir` as `001.<ext>`, `002.<ext>`, ... (more digits past 999 pages)
+/// with `concurrency` requests in flight. Files go to `<dir>.part` first, which is renamed to
+/// `dir` once every image is there, so `dir` only ever holds a complete set; a failed or stopped
+/// download keeps what it saved there, and the next call fetches only the rest. `on_page` gets the
+/// count finished so far; `should_stop` is checked before each image and while waiting to retry.
 pub async fn download_images(
     client: &reqwest::Client,
     images: &[RemoteImage],
@@ -121,7 +152,7 @@ pub async fn download_images(
     should_stop: impl Fn() -> bool,
 ) -> Result<(), DownloadError> {
     let partial = partial_dir(dir);
-    let result = download_into(
+    download_into(
         client,
         images,
         &partial,
@@ -129,16 +160,43 @@ pub async fn download_images(
         &on_page,
         &should_stop,
     )
-    .await;
-    if let Err(error) = result {
-        let _ = tokio::fs::remove_dir_all(&partial).await;
-        return Err(error);
-    }
+    .await?;
     let io = |error: std::io::Error| DownloadError::Io(error.to_string());
+    let _ = tokio::fs::remove_file(partial.join(LIST_MARK)).await;
     if tokio::fs::try_exists(dir).await.unwrap_or(false) {
         tokio::fs::remove_dir_all(dir).await.map_err(io)?;
     }
     tokio::fs::rename(&partial, dir).await.map_err(io)
+}
+
+/// The partial folder of a chapter download, for removing it with the chapter.
+pub fn partial_folder(dir: &Path) -> PathBuf {
+    partial_dir(dir)
+}
+
+fn list_signature(images: &[RemoteImage]) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    images.len().hash(&mut hasher);
+    for image in images {
+        image.url.hash(&mut hasher);
+    }
+    format!("{:016x}", hasher.finish())
+}
+
+/// Page indexes (0-based) already saved in a partial folder.
+fn saved_pages(partial: &Path) -> HashSet<usize> {
+    let Ok(entries) = std::fs::read_dir(partial) else {
+        return HashSet::new();
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|name| !name.ends_with(".tmp") && !name.starts_with('.'))
+        .filter_map(|name| {
+            let digits: String = name.chars().take_while(char::is_ascii_digit).collect();
+            digits.parse::<usize>().ok()?.checked_sub(1)
+        })
+        .collect()
 }
 
 async fn download_into(
@@ -150,18 +208,35 @@ async fn download_into(
     should_stop: &impl Fn() -> bool,
 ) -> Result<(), DownloadError> {
     let io = |error: std::io::Error| DownloadError::Io(error.to_string());
-    if tokio::fs::try_exists(partial).await.unwrap_or(false) {
+    let signature = list_signature(images);
+    let mark = partial.join(LIST_MARK);
+    let same_list = tokio::fs::read_to_string(&mark)
+        .await
+        .is_ok_and(|saved| saved == signature);
+    if !same_list && tokio::fs::try_exists(partial).await.unwrap_or(false) {
         tokio::fs::remove_dir_all(partial).await.map_err(io)?;
     }
     tokio::fs::create_dir_all(partial).await.map_err(io)?;
+    tokio::fs::write(&mark, &signature).await.map_err(io)?;
+    let saved = {
+        let partial = partial.to_owned();
+        tokio::task::spawn_blocking(move || saved_pages(&partial))
+            .await
+            .unwrap_or_default()
+    };
+    let width = images.len().to_string().len().max(3);
     // A named async fn (not a closure) keeps the stream's future `Send` for spawned callers.
     let fetches: Vec<_> = images
         .iter()
         .enumerate()
-        .map(|(index, image)| save_page(client, index, image, partial, should_stop))
+        .filter(|(index, _)| !saved.contains(index))
+        .map(|(index, image)| save_page(client, index, image, partial, width, should_stop))
         .collect();
+    let mut done = images.len() - fetches.len();
+    if done > 0 {
+        on_page(done);
+    }
     let mut pages = stream::iter(fetches).buffer_unordered(concurrency.max(1));
-    let mut done = 0;
     while let Some(result) = pages.next().await {
         result?;
         done += 1;
@@ -170,26 +245,57 @@ async fn download_into(
     Ok(())
 }
 
+fn retryable(error: &ImageError) -> bool {
+    match error {
+        ImageError::Network(_) | ImageError::Busy(..) => true,
+        ImageError::Status(code) => *code == 429 || (500..600).contains(code),
+        ImageError::NotImage | ImageError::TooLarge => false,
+    }
+}
+
 async fn save_page(
     client: &reqwest::Client,
     index: usize,
     image: &RemoteImage,
     partial: &Path,
+    width: usize,
     should_stop: &impl Fn() -> bool,
 ) -> Result<(), DownloadError> {
-    if should_stop() {
-        return Err(DownloadError::Stopped);
-    }
-    let fetched = fetch_image(client, &image.url, &image.headers)
+    let mut attempt = 0;
+    let fetched = loop {
+        if should_stop() {
+            return Err(DownloadError::Stopped);
+        }
+        match fetch_image(client, &image.url, &image.headers).await {
+            Ok(fetched) => break fetched,
+            Err(error) if attempt < RETRIES && retryable(&error) => {
+                let wait = match error {
+                    ImageError::Busy(_, seconds) => {
+                        Duration::from_secs(seconds.min(MAX_RETRY_AFTER))
+                    }
+                    _ => BACKOFF * 2u32.pow(attempt),
+                };
+                attempt += 1;
+                tokio::time::sleep(wait).await;
+            }
+            Err(error) => {
+                return Err(DownloadError::Page {
+                    page: index + 1,
+                    error,
+                });
+            }
+        }
+    };
+    let name = format!("{:0width$}.{}", index + 1, fetched.extension);
+    // Written beside its name first, so a page cut off mid-write is never taken as saved.
+    let temporary = partial.join(format!("{name}.tmp"));
+    let io = |error: std::io::Error| DownloadError::Io(error.to_string());
+    tokio::fs::write(&temporary, &fetched.bytes)
         .await
-        .map_err(|error| DownloadError::Page {
-            page: index + 1,
-            error,
-        })?;
-    let path = partial.join(format!("{:03}.{}", index + 1, fetched.extension));
-    tokio::fs::write(&path, &fetched.bytes)
+        .map_err(io)?;
+    tokio::fs::rename(&temporary, partial.join(name))
         .await
-        .map_err(|error| DownloadError::Io(error.to_string()))
+        .map_err(io)
 }
 
 fn partial_dir(dir: &Path) -> PathBuf {
@@ -225,6 +331,10 @@ mod tests {
     const PNG: &[u8] = b"\x89PNG\r\n\x1a\nrest";
     const JPEG: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 1, 2];
 
+    static COUNTED: AtomicUsize = AtomicUsize::new(0);
+    static FLAKY: AtomicUsize = AtomicUsize::new(0);
+    static LATE: AtomicUsize = AtomicUsize::new(0);
+
     async fn origin() -> SocketAddr {
         async fn png(headers: HeaderMap) -> Response {
             if headers.get("referer").is_none() {
@@ -239,6 +349,37 @@ mod tests {
         async fn html() -> Response {
             ([(header::CONTENT_TYPE, "text/html")], "<p>blocked</p>").into_response()
         }
+        async fn counted() -> Response {
+            COUNTED.fetch_add(1, Ordering::SeqCst);
+            ([(header::CONTENT_TYPE, "image/png")], PNG).into_response()
+        }
+        // Busy once (with Retry-After), failing once, then fine.
+        async fn flaky() -> Response {
+            match FLAKY.fetch_add(1, Ordering::SeqCst) {
+                0 => (
+                    axum::http::StatusCode::TOO_MANY_REQUESTS,
+                    [(header::RETRY_AFTER, "0")],
+                )
+                    .into_response(),
+                1 => axum::http::StatusCode::BAD_GATEWAY.into_response(),
+                _ => ([(header::CONTENT_TYPE, "image/png")], PNG).into_response(),
+            }
+        }
+        // Not an image the first time (a failure no retry fixes), an image afterwards.
+        async fn late() -> Response {
+            if LATE.fetch_add(1, Ordering::SeqCst) == 0 {
+                ([(header::CONTENT_TYPE, "text/html")], "<p>wait</p>").into_response()
+            } else {
+                ([(header::CONTENT_TYPE, "image/jpeg")], JPEG).into_response()
+            }
+        }
+        async fn always_busy() -> Response {
+            (
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                [(header::RETRY_AFTER, "0")],
+            )
+                .into_response()
+        }
         let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
             .await
             .unwrap();
@@ -246,7 +387,11 @@ mod tests {
         let router = Router::new()
             .route("/1.png", get(png))
             .route("/2", get(jpeg))
-            .route("/html", get(html));
+            .route("/html", get(html))
+            .route("/counted.png", get(counted))
+            .route("/flaky", get(flaky))
+            .route("/busy", get(always_busy))
+            .route("/late", get(late));
         tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         address
     }
@@ -281,14 +426,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_bad_page_fails_the_chapter_and_keeps_nothing() {
+    async fn a_bad_page_fails_the_chapter_and_the_next_try_fetches_only_the_rest() {
         let origin = origin().await;
         let temp = tempfile::TempDir::new().unwrap();
         let dir = temp.path().join("c1");
         let client = crate::http_client().unwrap();
         let error = download_images(
             &client,
-            &[image(origin, "/1.png"), image(origin, "/html")],
+            &[image(origin, "/counted.png"), image(origin, "/late")],
             &dir,
             1,
             |_| {},
@@ -304,7 +449,30 @@ mod tests {
             }
         );
         assert!(!dir.exists());
+        // The page it got is kept for the next attempt.
+        assert!(temp.path().join("c1.part/001.png").exists());
+        let before = COUNTED.load(Ordering::SeqCst);
+        let progress = AtomicUsize::new(0);
+        download_images(
+            &client,
+            &[image(origin, "/counted.png"), image(origin, "/late")],
+            &dir,
+            1,
+            |done| progress.store(done, Ordering::SeqCst),
+            || false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            COUNTED.load(Ordering::SeqCst),
+            before,
+            "page 1 wasn't fetched again"
+        );
+        assert_eq!(downloaded_pages(&dir).unwrap(), ["001.png", "002.jpg"]);
+        assert_eq!(progress.load(Ordering::SeqCst), 2);
         assert!(!temp.path().join("c1.part").exists());
+        assert!(!dir.join(".pages").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
 
         let missing = RemoteImage {
             url: format!("http://{origin}/1.png"),
@@ -332,6 +500,40 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(stopped, DownloadError::Stopped);
-        assert!(!temp.path().join("c1.part").exists());
+    }
+
+    #[tokio::test]
+    async fn busy_servers_are_retried_after_a_wait() {
+        let origin = origin().await;
+        let temp = tempfile::TempDir::new().unwrap();
+        let client = crate::http_client().unwrap();
+        download_images(
+            &client,
+            &[image(origin, "/flaky")],
+            &temp.path().join("c1"),
+            1,
+            |_| {},
+            || false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(FLAKY.load(Ordering::SeqCst), 3);
+        let error = download_images(
+            &client,
+            &[image(origin, "/busy")],
+            &temp.path().join("c2"),
+            1,
+            |_| {},
+            || false,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            error,
+            DownloadError::Page {
+                page: 1,
+                error: ImageError::Busy(503, 0)
+            }
+        );
     }
 }

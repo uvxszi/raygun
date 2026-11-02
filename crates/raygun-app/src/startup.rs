@@ -103,6 +103,14 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
             .build()?,
     );
     app.manage(video_downloads.clone());
+    app.manage(std::sync::Arc::new(crate::export::ExportService::new(
+        app.handle().clone(),
+        crate::export::Outputs::new(
+            app.handle().clone(),
+            paths.exports(),
+            paths.cache(raygun_paths::CacheKind::Share),
+        ),
+    )?));
     let podcasts = std::sync::Arc::new(crate::podcasts::PodcastService::new(
         app.handle().clone(),
         raygun_net::http_client()?,

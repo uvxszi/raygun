@@ -93,7 +93,7 @@ const routeTree = rootRoute.addChildren([
     path: '/downloads',
     component: DownloadsPage,
     validateSearch: (search: Record<string, unknown>): { tab?: DownloadsTab } =>
-      search.tab === 'videos' ? { tab: 'videos' } : {},
+      search.tab === 'videos' || search.tab === 'exports' ? { tab: search.tab } : {},
   }),
   createRoute({
     getParentRoute: () => rootRoute,

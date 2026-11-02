@@ -13,6 +13,7 @@ mod commands;
 mod device_sync;
 mod epub;
 mod events;
+mod export;
 mod extensions;
 mod history;
 mod library;
@@ -193,6 +194,16 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::upload_append,
             commands::upload_cancel,
             commands::manga_import_comic,
+            commands::save_pick_folder,
+            commands::save_folder_state,
+            commands::export_plan,
+            commands::export_start,
+            commands::export_cancel,
+            commands::export_dismiss,
+            commands::export_jobs,
+            commands::page_save,
+            commands::page_share,
+            commands::page_copy,
             commands::catalog_filters,
             commands::catalog_search,
             commands::catalog_global_search,
@@ -248,7 +259,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::PodcastsChangedEvent,
             events::WatchChangedEvent,
             events::VideoDownloadsEvent,
-            events::SettingsChangedEvent
+            events::SettingsChangedEvent,
+            events::ExportEvent
         ])
 }
 

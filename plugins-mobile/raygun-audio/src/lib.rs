@@ -109,7 +109,113 @@ pub struct LocalNetworkState {
     pub blocked: bool,
 }
 
+/// A folder chosen in the system picker (M46.1); both are missing when the user cancelled.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct PickedFolder {
+    pub uri: Option<String>,
+    pub name: Option<String>,
+}
+
+/// Whether Raygun may still write to a picked folder.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct FolderState {
+    pub granted: bool,
+    pub name: Option<String>,
+}
+
+/// Where a file made outside the app goes.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OutputRequest<'a> {
+    /// `downloads`, `pictures` or `tree`.
+    pub place: &'a str,
+    /// The picked folder, for `tree`.
+    pub tree: Option<&'a str>,
+    /// Sub-folders, made when missing.
+    pub path: &'a [String],
+    pub name: &'a str,
+    pub mime: &'a str,
+}
+
+/// A file made outside the app: its URI, and a descriptor the caller now owns and must close
+/// before [`NativeAudio::finish_output`].
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OutputFile {
+    pub uri: String,
+    pub fd: i32,
+}
+
 impl<R: Runtime> NativeAudio<R> {
+    /// Shows the system folder picker and keeps the grant. Blocks until the user answers.
+    #[cfg(target_os = "android")]
+    pub fn pick_folder(&self) -> Result<PickedFolder, String> {
+        self.handle
+            .run_mobile_plugin("pickFolder", ())
+            .map_err(|error| error.to_string())
+    }
+
+    #[cfg(target_os = "android")]
+    pub fn folder_state(&self, uri: &str) -> Result<FolderState, String> {
+        self.handle
+            .run_mobile_plugin("folderState", serde_json::json!({ "uri": uri }))
+            .map_err(|error| error.to_string())
+    }
+
+    /// Gives up the grant of a folder no longer used.
+    #[cfg(target_os = "android")]
+    pub fn release_folder(&self, uri: &str) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>(
+                "releaseFolder",
+                serde_json::json!({ "uri": uri }),
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    /// Makes (or replaces) a file outside the app and opens it for writing. Blocking.
+    #[cfg(target_os = "android")]
+    pub fn create_output(&self, request: &OutputRequest<'_>) -> Result<OutputFile, String> {
+        self.handle
+            .run_mobile_plugin("createOutput", request)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Publishes a written file (`ok`), or deletes it. Blocking.
+    #[cfg(target_os = "android")]
+    pub fn finish_output(&self, uri: &str, ok: bool) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>(
+                "finishOutput",
+                serde_json::json!({ "uri": uri, "ok": ok }),
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    /// Opens the share sheet for a file in the app's cache folder.
+    #[cfg(target_os = "android")]
+    pub fn share_file(&self, path: &str, mime: &str, title: &str) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>(
+                "shareFile",
+                serde_json::json!({ "path": path, "mime": mime, "title": title }),
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    /// Puts an image from the app's cache folder on the clipboard.
+    #[cfg(target_os = "android")]
+    pub fn copy_image(&self, path: &str, label: &str) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>(
+                "copyImage",
+                serde_json::json!({ "path": path, "title": label }),
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
     /// Whether the app may reach the local network. Blocks briefly on the main thread.
     #[cfg(target_os = "android")]
     pub fn local_network_state(&self) -> Result<LocalNetworkState, String> {

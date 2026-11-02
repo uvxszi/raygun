@@ -281,6 +281,28 @@ export const commands = {
 	uploadCancel: (id: string) => __TAURI_INVOKE<void>("upload_cancel", { id }),
 	/**  Imports an uploaded CBZ or ZIP as a chapter of a local comic; returns the title's source and id. */
 	mangaImportComic: (uploadId: string, fileName: string) => typedError<ImportedTitle, string>(__TAURI_INVOKE("manga_import_comic", { uploadId, fileName })),
+	/**
+	 *  Shows the system folder picker; the chosen folder becomes where downloads are saved. Returns
+	 *  the settings, unchanged when the user cancelled.
+	 */
+	savePickFolder: () => typedError<Settings, string>(__TAURI_INVOKE("save_pick_folder")),
+	/**  Whether Raygun may still write to the picked folder. */
+	saveFolderState: (uri: string) => typedError<SaveFolderState, string>(__TAURI_INVOKE("save_folder_state", { uri })),
+	/**  What an export would do: chapters, those to download first, files, or why it can't run. */
+	exportPlan: (request: ExportRequest) => typedError<ExportPlan, string>(__TAURI_INVOKE("export_plan", { request })),
+	/**  Starts an export in the background; progress comes as `ExportEvent`s. */
+	exportStart: (request: ExportRequest) => typedError<ExportJob, string>(__TAURI_INVOKE("export_start", { request })),
+	exportCancel: (id: string) => __TAURI_INVOKE<void>("export_cancel", { id }),
+	/**  Takes a finished export off the list. */
+	exportDismiss: (id: string) => __TAURI_INVOKE<void>("export_dismiss", { id }),
+	/**  Exports of this session, newest first. */
+	exportJobs: () => __TAURI_INVOKE<ExportJob[]>("export_jobs"),
+	/**  Saves a reader page to Pictures/Raygun; returns where it went. */
+	pageSave: (page: PageRef) => typedError<string, string>(__TAURI_INVOKE("page_save", { page })),
+	/**  Opens the share sheet for a reader page. */
+	pageShare: (page: PageRef) => typedError<null, string>(__TAURI_INVOKE("page_share", { page })),
+	/**  Puts a reader page on the clipboard. */
+	pageCopy: (page: PageRef) => typedError<null, string>(__TAURI_INVOKE("page_copy", { page })),
 	/**  The filters a manga or novel source offers for its search. */
 	catalogFilters: (medium: string, sourceId: string) => typedError<SourceFilter[], string>(__TAURI_INVOKE("catalog_filters", { medium, sourceId })),
 	/**  Searches one source with its filters; the query may be empty when filters are set. */
@@ -376,6 +398,7 @@ export const commands = {
 export const events = {
 	aiModelEvent: makeEvent<AiModelEvent>("ai-model-event"),
 	engineCommandEvent: makeEvent<EngineCommandEvent>("engine-command-event"),
+	exportEvent: makeEvent<ExportEvent>("export-event"),
 	extensionsChangedEvent: makeEvent<ExtensionsChangedEvent>("extensions-changed-event"),
 	libraryScanEvent: makeEvent<LibraryScanEvent>("library-scan-event"),
 	mangaDownloadsEvent: makeEvent<MangaDownloadsEvent>("manga-downloads-event"),
@@ -518,6 +541,11 @@ export type ChapterDownload = {
 	error: string | null,
 };
 
+/**  How a manga chapter is written out. */
+export type ChapterFormat = "cbz" | 
+/**  A folder of page images. */
+"images";
+
 /**  What a chapter of a video is, for the skip button. */
 export type ChapterKind = "opening" | "ending" | "recap" | "other";
 
@@ -598,6 +626,92 @@ export type EpisodeDownload = {
 };
 
 export type EpisodeDownloadState = "downloading" | "done" | "failed";
+
+/**  Where an export's files go. */
+export type ExportDestination = 
+/**  `Download/Raygun/`. */
+"downloads" | 
+/**  The folder picked in Settings → Downloads. */
+"folder" | 
+/**  The share sheet (one file). */
+"share";
+
+/**  An export job changed (M46.1); carries the job, or nothing when one was removed from the list. */
+export type ExportEvent = ExportJob | null;
+
+/**  What an export writes. */
+export type ExportFormat = 
+/**  Manga: one CBZ (with ComicInfo.xml) per chapter. */
+"cbz" | 
+/**  Manga: one PDF for everything chosen, a bookmark per chapter. */
+"pdf" | 
+/**  Manga: one PDF per chapter. */
+"pdfPerChapter" | 
+/**  Manga: a folder of page images per chapter. */
+"images" | 
+/**  Novels: one EPUB book. */
+"epub" | 
+/**  Novels: one text file. */
+"text" | 
+/**  Videos: each downloaded episode as one video file. */
+"video";
+
+/**  One export job, as Downloads → Exports lists it. */
+export type ExportJob = {
+	id: string,
+	/**  The title, or "3 titles". */
+	label: string,
+	medium: string,
+	format: ExportFormat,
+	destination: ExportDestination,
+	state: ExportState,
+	/**  Chapters downloaded so far / needed, while downloading. */
+	downloaded: number,
+	toDownload: number,
+	/**  Chapters written so far / to write. */
+	written: number,
+	toWrite: number,
+	/**  Names of the files written. */
+	files: string[],
+	/**  Chapters left out (their download failed). */
+	failedChapters: number,
+	/**  Pages left out of a PDF (formats it can't hold). */
+	skippedPages: number,
+	message: string | null,
+	startedAt: number | null,
+};
+
+/**  What an export would do, shown before it starts. */
+export type ExportPlan = {
+	chapters: number,
+	/**  Chapters that must download first. */
+	missing: number,
+	/**  Files the export will write. */
+	files: number,
+	/**  Why it can't run as asked, if so (e.g. a video stream with separate audio). */
+	problem: string | null,
+};
+
+export type ExportRequest = {
+	medium: string,
+	titleIds: string[],
+	scope: ExportScope,
+	format: ExportFormat,
+	destination: ExportDestination,
+};
+
+/**  Which chapters or episodes of each title an export takes. */
+export type ExportScope = { kind: "all" } | 
+/**  Only those already downloaded: nothing is fetched. */
+{ kind: "downloaded" } | { kind: "unread" } | 
+/**  From one chapter to another, inclusive, in reading order (one title). */
+{ kind: "range"; from: string; to: string } | 
+/**  Exactly these. */
+{ kind: "chosen"; ids: string[] };
+
+export type ExportState = 
+/**  Waiting for chapters to download. */
+"downloading" | "writing" | "done" | "failed" | "cancelled";
 
 export type ExtensionInfo = {
 	id: string,
@@ -1060,6 +1174,15 @@ export type OnlineTrack = {
 	source: MediaSource | null,
 };
 
+/**  A page of the manga reader, by its proxy URL. */
+export type PageRef = {
+	titleId: string,
+	chapterId: string,
+	/**  0-based. */
+	index: number,
+	url: string,
+};
+
 export type PlayRequest = {
 	selection: PlaySelection,
 	/**  Track to start with; otherwise the first (or a random one when shuffling). */
@@ -1266,6 +1389,33 @@ export type RepoCatalog = {
 	error: string | null,
 };
 
+/**  The picked folder as Android sees it now. */
+export type SaveFolderState = {
+	/**  Raygun may still write there. */
+	granted: boolean,
+	name: string | null,
+};
+
+/**  Where finished downloads are also saved. The app always keeps its own copy. */
+export type SaveLocation = 
+/**  Only in the app. */
+"app" | 
+/**  `Download/Raygun/` on the phone. */
+"downloads" | 
+/**  A folder the user picked. */
+"folder";
+
+/**  Saving downloads and pages outside the app. One stored row; missing fields keep defaults. */
+export type SavePrefs = {
+	location?: SaveLocation,
+	/**  The picked folder (a Storage Access Framework tree URI) and its name. */
+	folderUri?: string | null,
+	folderName?: string | null,
+	chapterFormat?: ChapterFormat,
+	/**  Saved pages go to `Pictures/Raygun/<Title>/` rather than `Pictures/Raygun/`. */
+	pagesPerTitle?: boolean,
+};
+
 /**
  *  A track as saved in favorites, a playlist or history. Artwork comes from the local library when
  *  the same song is there.
@@ -1301,7 +1451,7 @@ export type SearchResults = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -1353,6 +1503,8 @@ export type Settings = {
 	videoPlayer: VideoPlayerPrefs,
 	/**  How the manga, novel and video libraries look (M46). */
 	libraryDisplay: LibraryDisplayPrefs,
+	/**  Where downloads and pages are saved outside the app (M46.1). */
+	save: SavePrefs,
 };
 
 /**  A setting changed outside the Settings screens (in the video player, M45); carries its key. */

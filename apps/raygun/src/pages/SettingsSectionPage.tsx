@@ -26,6 +26,7 @@ import type { LibraryDisplay } from '../manga/libraryDisplay';
 import { useLibraryStatus } from '../library/useLibrary';
 import { AppearanceCard } from '../settings/AppearanceCard';
 import { BackupCard } from '../settings/BackupCard';
+import { DownloadSettings } from '../settings/DownloadSettings';
 import { McpCard } from '../settings/McpCard';
 import { PLAYER_PAGES, withDefaults } from '../settings/playerOptions';
 import type { PlayerPrefs } from '../settings/playerOptions';
@@ -506,6 +507,7 @@ const SECTIONS: Record<SettingsSection, FC> = {
   library: LibrarySettings,
   reader: ReaderSettings,
   player: PlayerSettings,
+  downloads: DownloadSettings,
   browse: BrowseSettings,
   data: () => (
     <PrefGroup>

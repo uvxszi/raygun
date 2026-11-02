@@ -67,7 +67,7 @@ export const PodcastsView: FC = () => {
   const hasSubscriptions = (subscriptions.data?.length ?? 0) > 0;
 
   return (
-    <div data-testid="podcasts-view" className="flex flex-col gap-5">
+    <div data-testid="podcasts-view" className="flex flex-col gap-4">
       <LibraryTop
         media="music"
         search={

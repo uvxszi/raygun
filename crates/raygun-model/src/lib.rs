@@ -101,6 +101,8 @@ pub struct Settings {
     pub video_player: VideoPlayerPrefs,
     /// How the manga, novel and video libraries look (M46).
     pub library_display: LibraryDisplayPrefs,
+    /// Where downloads and pages are saved outside the app (M46.1).
+    pub save: SavePrefs,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -537,6 +539,7 @@ impl Default for Settings {
             next_prompt_seconds: 10,
             video_player: VideoPlayerPrefs::default(),
             library_display: LibraryDisplayPrefs::default(),
+            save: SavePrefs::default(),
         }
     }
 }
@@ -566,6 +569,7 @@ impl Settings {
             SettingChange::NextPromptSeconds(seconds) => self.next_prompt_seconds = seconds,
             SettingChange::VideoPlayer(prefs) => self.video_player = *prefs,
             SettingChange::LibraryDisplay(prefs) => self.library_display = prefs,
+            SettingChange::Save(prefs) => self.save = prefs,
         }
     }
 }
@@ -598,6 +602,7 @@ pub enum SettingChange {
     /// Boxed: much larger than the other settings.
     VideoPlayer(Box<VideoPlayerPrefs>),
     LibraryDisplay(LibraryDisplayPrefs),
+    Save(SavePrefs),
 }
 
 impl SettingChange {
@@ -626,6 +631,7 @@ impl SettingChange {
             Self::NextPromptSeconds(_) => "nextPromptSeconds",
             Self::VideoPlayer(_) => "videoPlayer",
             Self::LibraryDisplay(_) => "libraryDisplay",
+            Self::Save(_) => "save",
         }
     }
 
@@ -673,6 +679,13 @@ impl SettingChange {
                 }
             }
             Self::VideoPlayer(prefs) => prefs.validate(),
+            Self::Save(prefs) => {
+                if prefs.location == SaveLocation::Folder && prefs.folder_uri.is_none() {
+                    Err("Pick a folder first".into())
+                } else {
+                    Ok(())
+                }
+            }
             Self::LibraryDisplay(prefs) => {
                 if GRID_COLUMNS.contains(&prefs.columns_landscape) {
                     Ok(())
@@ -1781,6 +1794,188 @@ pub enum LibraryTabs {
     /// Favorites and the lists (CloudStream).
     Lists,
     None,
+}
+
+// ---- Saving outside the app and exports (M46.1) ----
+
+/// Where finished downloads are also saved. The app always keeps its own copy.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SaveLocation {
+    /// Only in the app.
+    #[default]
+    App,
+    /// `Download/Raygun/` on the phone.
+    Downloads,
+    /// A folder the user picked.
+    Folder,
+}
+
+/// How a manga chapter is written out.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ChapterFormat {
+    #[default]
+    Cbz,
+    /// A folder of page images.
+    Images,
+}
+
+/// Saving downloads and pages outside the app. One stored row; missing fields keep defaults.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SavePrefs {
+    pub location: SaveLocation,
+    /// The picked folder (a Storage Access Framework tree URI) and its name.
+    pub folder_uri: Option<String>,
+    pub folder_name: Option<String>,
+    pub chapter_format: ChapterFormat,
+    /// Saved pages go to `Pictures/Raygun/<Title>/` rather than `Pictures/Raygun/`.
+    pub pages_per_title: bool,
+}
+
+impl Default for SavePrefs {
+    fn default() -> Self {
+        Self {
+            location: SaveLocation::App,
+            folder_uri: None,
+            folder_name: None,
+            chapter_format: ChapterFormat::Cbz,
+            pages_per_title: true,
+        }
+    }
+}
+
+/// The picked folder as Android sees it now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveFolderState {
+    /// Raygun may still write there.
+    pub granted: bool,
+    pub name: Option<String>,
+}
+
+/// What an export writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ExportFormat {
+    /// Manga: one CBZ (with ComicInfo.xml) per chapter.
+    Cbz,
+    /// Manga: one PDF for everything chosen, a bookmark per chapter.
+    Pdf,
+    /// Manga: one PDF per chapter.
+    PdfPerChapter,
+    /// Manga: a folder of page images per chapter.
+    Images,
+    /// Novels: one EPUB book.
+    Epub,
+    /// Novels: one text file.
+    Text,
+    /// Videos: each downloaded episode as one video file.
+    Video,
+}
+
+/// Which chapters or episodes of each title an export takes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ExportScope {
+    All,
+    /// Only those already downloaded: nothing is fetched.
+    Downloaded,
+    Unread,
+    /// From one chapter to another, inclusive, in reading order (one title).
+    Range {
+        from: String,
+        to: String,
+    },
+    /// Exactly these.
+    Chosen {
+        ids: Vec<String>,
+    },
+}
+
+/// Where an export's files go.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ExportDestination {
+    /// `Download/Raygun/`.
+    Downloads,
+    /// The folder picked in Settings → Downloads.
+    Folder,
+    /// The share sheet (one file).
+    Share,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportRequest {
+    pub medium: String,
+    pub title_ids: Vec<String>,
+    pub scope: ExportScope,
+    pub format: ExportFormat,
+    pub destination: ExportDestination,
+}
+
+/// What an export would do, shown before it starts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportPlan {
+    pub chapters: u32,
+    /// Chapters that must download first.
+    pub missing: u32,
+    /// Files the export will write.
+    pub files: u32,
+    /// Why it can't run as asked, if so (e.g. a video stream with separate audio).
+    pub problem: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ExportState {
+    /// Waiting for chapters to download.
+    Downloading,
+    Writing,
+    Done,
+    Failed,
+    Cancelled,
+}
+
+/// One export job, as Downloads → Exports lists it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportJob {
+    pub id: String,
+    /// The title, or "3 titles".
+    pub label: String,
+    pub medium: String,
+    pub format: ExportFormat,
+    pub destination: ExportDestination,
+    pub state: ExportState,
+    /// Chapters downloaded so far / needed, while downloading.
+    pub downloaded: u32,
+    pub to_download: u32,
+    /// Chapters written so far / to write.
+    pub written: u32,
+    pub to_write: u32,
+    /// Names of the files written.
+    pub files: Vec<String>,
+    /// Chapters left out (their download failed).
+    pub failed_chapters: u32,
+    /// Pages left out of a PDF (formats it can't hold).
+    pub skipped_pages: u32,
+    pub message: Option<String>,
+    pub started_at: f64,
+}
+
+/// A page of the manga reader, by its proxy URL.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PageRef {
+    pub title_id: String,
+    pub chapter_id: String,
+    /// 0-based.
+    pub index: u32,
+    pub url: String,
 }
 
 /// The manga, novel and video libraries' display (M46). One stored row; fields missing from it

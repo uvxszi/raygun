@@ -9,6 +9,7 @@ import { CategoryPicker } from '../manga/CategoryPicker';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { LibraryPill } from '../watch/LibraryPill';
+import { ExportButton } from '../export/ExportButton';
 import { TitleListActions } from '../manga/TitleListActions';
 import { useDuplicateCheck } from '../manga/useDuplicateCheck';
 import { ServerPicker } from '../watch/ServerPicker';
@@ -189,6 +190,7 @@ export const VideoTitlePage: FC = () => {
                 onClick={() => window.open(view.url ?? '', '_blank', 'noopener')}
               />
             )}
+            <ExportButton medium="video" titleIds={[view.id]} />
           </>
         )
       }

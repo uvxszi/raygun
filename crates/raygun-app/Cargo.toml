@@ -43,6 +43,11 @@ base64 = "0.22"
 uuid.workspace = true
 prost = { version = "0.13", default-features = false, features = ["derive", "std"] }
 quick-xml = "0.42"
+# Exports (M46.1): page images decoded for PDFs, HLS segments decrypted when joined.
+png = "0.18"
+image-webp = "0.2"
+aes = "0.8"
+cbc = "0.1"
 chrono = { version = "0.4", default-features = false, features = ["std", "alloc"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

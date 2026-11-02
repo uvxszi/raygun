@@ -106,6 +106,7 @@ impl MangaDownloadService {
             .lock()
             .expect("cancel set poisoned")
             .remove(&unit_id);
+        let finished = !cancelled && result.is_ok();
         let outcome = match result {
             _ if cancelled => {
                 self.delete_files(&row.title_id, &unit_id).await;
@@ -128,6 +129,9 @@ impl MangaDownloadService {
         };
         if let Err(error) = outcome {
             tracing::warn!(%error, "could not record a download's outcome");
+        } else if finished {
+            // Also saved outside the app when Settings → Downloads asks for it (M46.1).
+            crate::export::save_finished_chapter(&self.app, &row.title_id, &unit_id);
         }
         self.changed(&unit_id);
     }
@@ -276,10 +280,13 @@ impl MangaDownloadService {
         }
     }
 
-    /// Removes a chapter's downloaded files, manga or novel.
+    /// Removes a chapter's downloaded files, manga or novel, and pages kept from an unfinished
+    /// attempt.
     async fn delete_files(&self, title_id: &str, unit_id: &str) {
+        let chapter = self.chapter_dir(title_id, unit_id);
         for dir in [
-            self.chapter_dir(title_id, unit_id),
+            raygun_net::images::partial_folder(&chapter),
+            chapter,
             self.novel_dir(title_id, unit_id),
         ] {
             if tokio::fs::try_exists(&dir).await.unwrap_or(false)
@@ -401,6 +408,26 @@ impl MangaDownloadService {
                 })
                 .collect(),
         )
+    }
+
+    /// A downloaded chapter's page files in order, or None when it isn't (fully) on the device.
+    pub async fn page_files(&self, title_id: &str, chapter_id: &str) -> Option<Vec<PathBuf>> {
+        let row = manga_downloads::get(&self.db(), chapter_id).await.ok()??;
+        if row.state != manga_downloads::DONE {
+            return None;
+        }
+        let dir = self.chapter_dir(title_id, chapter_id);
+        let listed = dir.clone();
+        let names = tokio::task::spawn_blocking(move || downloaded_pages(&listed))
+            .await
+            .ok()?
+            .ok()?;
+        (!names.is_empty()).then(|| names.iter().map(|name| dir.join(name)).collect())
+    }
+
+    /// Whether the queue is paused (exports waiting on it say so).
+    pub fn is_paused(&self) -> bool {
+        self.paused.load(Ordering::SeqCst)
     }
 
     fn is_cancelled(&self, unit_id: &str) -> bool {

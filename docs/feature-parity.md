@@ -78,12 +78,13 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Reader: paged LTR/RTL, webtoon, zoom, tap zones, prefetch | Mihon | ✅ M27 |
 | Reader: vertical paged, continuous vertical, two-page spreads | Mihon | 🔜 M50 (was marked done; M27 left them out) |
 | Reader settings: scale types, zoom start, crop borders, split/rotate wide pages, tap-zone layouts and invert, volume keys, background colour, rotation lock, keep screen on, page number, e-ink flash, double-tap zoom, side padding, chapter transitions, skip read/filtered/duplicate chapters | Mihon | 🔜 M50 |
-| Page actions: save, share, set as cover | Mihon | 🔜 M50 |
+| Page actions: save, share, set as cover | Mihon | ✅ M46.1 (save to Pictures/Raygun[/title], share, copy) / 🔜 M47 (set as cover) |
 | Per-series reading mode and orientation | Mihon | ✅ M27 (mode) / 🔜 M50 (orientation) |
 | Updates feed, library update schedule | Mihon | ✅ M28 |
 | Update restrictions (Wi-Fi, charging), skip completed/unread/unstarted, smart update | Mihon | 🔜 M48 |
 | Downloads queue | Mihon | ✅ M28 |
-| CBZ, Wi-Fi only, delete after reading, download ahead, auto-download new chapters, concurrency | Mihon | 🔜 M49 |
+| CBZ, Wi-Fi only, delete after reading, download ahead, auto-download new chapters, concurrency | Mihon | ✅ M46.1 (downloads also saved as CBZ or images to Downloads or a picked folder; retries with backoff and Retry-After; resumed chapters) / 🔜 M49 (the rest) |
+| Export titles as CBZ, PDF, image folders, EPUB, text or video files, waiting for downloads first | (none of the reference apps) | ✅ M46.1 |
 | Chapter swipe actions, scanlator filter, bookmarks | Mihon | 🔜 M47 |
 | Trackers (AniList, MAL, Kitsu, MangaUpdates, Bangumi, Shikimori, Komga/Kavita) | Mihon | ⏸ M59 (accounts) |
 | Local source (CBZ/folders) | Mihon | ✅ M46 (CBZ/ZIP with ComicInfo; folders and RAR ✖, Android's picker gives files) |

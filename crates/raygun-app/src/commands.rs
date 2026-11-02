@@ -1533,6 +1533,170 @@ pub async fn manga_import_comic(
     })
 }
 
+// ---- Saving outside the app and exports (M46.1) ----
+
+/// Shows the system folder picker; the chosen folder becomes where downloads are saved. Returns
+/// the settings, unchanged when the user cancelled.
+#[tauri::command]
+#[specta::specta]
+pub async fn save_pick_folder(
+    app: tauri::AppHandle,
+    db: tauri::State<'_, AppDb>,
+) -> Result<Settings, String> {
+    let current = settings::load(&db.0)
+        .await
+        .map_err(|error| error.to_string())?;
+    let picked = pick_folder(&app).await?;
+    let Some(uri) = picked.uri else {
+        return Ok(current);
+    };
+    if let Some(old) = current.save.folder_uri.as_deref().filter(|old| *old != uri) {
+        release_folder(&app, old);
+    }
+    let prefs = raygun_model::SavePrefs {
+        location: raygun_model::SaveLocation::Folder,
+        folder_name: picked.name.or_else(|| Some("Folder".into())),
+        folder_uri: Some(uri),
+        ..current.save
+    };
+    settings::update(&db.0, SettingChange::Save(prefs))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "android")]
+async fn pick_folder(
+    app: &tauri::AppHandle,
+) -> Result<tauri_plugin_raygun_audio::PickedFolder, String> {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        app.state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+            .pick_folder()
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[cfg(not(target_os = "android"))]
+async fn pick_folder(
+    _app: &tauri::AppHandle,
+) -> Result<tauri_plugin_raygun_audio::PickedFolder, String> {
+    Err("Picking a folder works on Android only for now".into())
+}
+
+/// Gives up the grant of a folder no longer used.
+fn release_folder(_app: &tauri::AppHandle, _uri: &str) {
+    #[cfg(target_os = "android")]
+    {
+        use tauri::Manager;
+        let _ = _app
+            .state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+            .release_folder(_uri);
+    }
+}
+
+/// Whether Raygun may still write to the picked folder.
+#[tauri::command]
+#[specta::specta]
+pub async fn save_folder_state(
+    app: tauri::AppHandle,
+    uri: String,
+) -> Result<raygun_model::SaveFolderState, String> {
+    #[cfg(target_os = "android")]
+    {
+        let state = tauri::async_runtime::spawn_blocking(move || {
+            use tauri::Manager;
+            app.state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+                .folder_state(&uri)
+        })
+        .await
+        .map_err(|error| error.to_string())??;
+        Ok(raygun_model::SaveFolderState {
+            granted: state.granted,
+            name: state.name,
+        })
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, uri);
+        Ok(raygun_model::SaveFolderState {
+            granted: false,
+            name: None,
+        })
+    }
+}
+
+/// What an export would do: chapters, those to download first, files, or why it can't run.
+#[tauri::command]
+#[specta::specta]
+pub async fn export_plan(
+    exports: tauri::State<'_, Arc<crate::export::ExportService>>,
+    request: raygun_model::ExportRequest,
+) -> Result<raygun_model::ExportPlan, String> {
+    exports.plan(&request).await
+}
+
+/// Starts an export in the background; progress comes as `ExportEvent`s.
+#[tauri::command]
+#[specta::specta]
+pub async fn export_start(
+    exports: tauri::State<'_, Arc<crate::export::ExportService>>,
+    request: raygun_model::ExportRequest,
+) -> Result<raygun_model::ExportJob, String> {
+    exports.inner().clone().start(request).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn export_cancel(exports: tauri::State<'_, Arc<crate::export::ExportService>>, id: String) {
+    exports.cancel(&id);
+}
+
+/// Takes a finished export off the list.
+#[tauri::command]
+#[specta::specta]
+pub fn export_dismiss(exports: tauri::State<'_, Arc<crate::export::ExportService>>, id: String) {
+    exports.dismiss(&id);
+}
+
+/// Exports of this session, newest first.
+#[tauri::command]
+#[specta::specta]
+pub fn export_jobs(
+    exports: tauri::State<'_, Arc<crate::export::ExportService>>,
+) -> Vec<raygun_model::ExportJob> {
+    exports.jobs()
+}
+
+/// Saves a reader page to Pictures/Raygun; returns where it went.
+#[tauri::command]
+#[specta::specta]
+pub async fn page_save(
+    app: tauri::AppHandle,
+    page: raygun_model::PageRef,
+) -> Result<String, String> {
+    crate::export::pages::act(&app, &page, crate::export::pages::PageAction::Save).await
+}
+
+/// Opens the share sheet for a reader page.
+#[tauri::command]
+#[specta::specta]
+pub async fn page_share(app: tauri::AppHandle, page: raygun_model::PageRef) -> Result<(), String> {
+    crate::export::pages::act(&app, &page, crate::export::pages::PageAction::Share)
+        .await
+        .map(|_| ())
+}
+
+/// Puts a reader page on the clipboard.
+#[tauri::command]
+#[specta::specta]
+pub async fn page_copy(app: tauri::AppHandle, page: raygun_model::PageRef) -> Result<(), String> {
+    crate::export::pages::act(&app, &page, crate::export::pages::PageAction::Copy)
+        .await
+        .map(|_| ())
+}
+
 /// Everything watched or started, most recent first (the Videos library).
 #[tauri::command]
 #[specta::specta]

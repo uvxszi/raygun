@@ -2,6 +2,7 @@ import type {
   AiModelProgress,
   AppInfo,
   EngineCommand,
+  ExportJob,
   ExtensionInfo,
   LibraryScanProgress,
   LibraryStatus,
@@ -14,6 +15,7 @@ import type {
 } from '@raygun/bindings';
 import { act } from '@testing-library/react';
 
+import { SAVE_DEFAULTS } from '../export/saveDefaults';
 import { LIBRARY_DISPLAY_DEFAULTS } from '../manga/libraryDisplay';
 import { PLAYER_DEFAULTS } from '../settings/playerOptions';
 
@@ -38,6 +40,7 @@ type EventPayloads = {
   watchChangedEvent: string;
   videoDownloadsEvent: string;
   settingsChangedEvent: string;
+  exportEvent: ExportJob | null;
 };
 type EventName = keyof EventPayloads;
 type Listener = (event: { payload: unknown }) => void;
@@ -105,6 +108,7 @@ export const DEFAULT_SETTINGS: Settings = {
   nextPromptSeconds: 10,
   videoPlayer: PLAYER_DEFAULTS,
   libraryDisplay: LIBRARY_DISPLAY_DEFAULTS,
+  save: SAVE_DEFAULTS,
   mangaUpdateHours: 12,
   novelReader: {
     fontSize: 18,
@@ -270,6 +274,16 @@ export const bindingsMock = {
     uploadAppend: vi.fn(),
     uploadCancel: vi.fn(),
     mangaImportComic: vi.fn(),
+    savePickFolder: vi.fn(),
+    saveFolderState: vi.fn(),
+    exportPlan: vi.fn(),
+    exportStart: vi.fn(),
+    exportCancel: vi.fn(),
+    exportDismiss: vi.fn(),
+    exportJobs: vi.fn(),
+    pageSave: vi.fn(),
+    pageShare: vi.fn(),
+    pageCopy: vi.fn(),
     videoHistory: vi.fn(),
     videoSources: vi.fn(),
     videoBrowse: vi.fn(),
@@ -327,6 +341,7 @@ export const bindingsMock = {
     watchChangedEvent: makeEvent('watchChangedEvent'),
     videoDownloadsEvent: makeEvent('videoDownloadsEvent'),
     settingsChangedEvent: makeEvent('settingsChangedEvent'),
+    exportEvent: makeEvent('exportEvent'),
   },
 };
 
@@ -507,6 +522,16 @@ export const seedBindings = () => {
   commands.uploadBegin.mockResolvedValue(ok('upload-1'));
   commands.uploadAppend.mockResolvedValue(ok(0));
   commands.mangaImportComic.mockResolvedValue(ok({ sourceId: 'local.comics', remoteId: 'series' }));
+  commands.savePickFolder.mockResolvedValue(ok(DEFAULT_SETTINGS));
+  commands.saveFolderState.mockResolvedValue(ok({ granted: true, name: null }));
+  commands.exportPlan.mockResolvedValue(ok({ chapters: 0, missing: 0, files: 0, problem: null }));
+  commands.exportStart.mockResolvedValue({ status: 'error', error: 'not mocked' });
+  commands.exportCancel.mockResolvedValue(null);
+  commands.exportDismiss.mockResolvedValue(null);
+  commands.exportJobs.mockResolvedValue([]);
+  commands.pageSave.mockResolvedValue(ok('Pictures/Raygun/page.jpg'));
+  commands.pageShare.mockResolvedValue(ok(null));
+  commands.pageCopy.mockResolvedValue(ok(null));
   commands.videoHistory.mockResolvedValue(ok([]));
   commands.videoSources.mockResolvedValue(ok([]));
   commands.videoBrowse.mockResolvedValue(ok({ items: [], hasNextPage: false }));

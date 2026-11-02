@@ -11,6 +11,7 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import androidx.activity.result.ActivityResult
 import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -21,6 +22,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.core.view.WindowCompat
 import app.tauri.PermissionState
+import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.Permission
@@ -32,6 +34,7 @@ import org.json.JSONArray
 import app.tauri.plugin.Plugin
 import com.google.common.util.concurrent.MoreExecutors
 import org.json.JSONObject
+import kotlin.concurrent.thread
 
 @InvokeArg
 class LoadArgs {
@@ -60,6 +63,33 @@ class SpeakArgs {
 @InvokeArg
 class ThemeArgs {
     var theme: String = "system"
+}
+
+@InvokeArg
+class FolderArgs {
+    var uri: String = ""
+}
+
+@InvokeArg
+class OutputArgs {
+    var place: String = ""
+    var tree: String? = null
+    var path: Array<String> = emptyArray()
+    var name: String = ""
+    var mime: String = "application/octet-stream"
+}
+
+@InvokeArg
+class FinishArgs {
+    var uri: String = ""
+    var ok: Boolean = true
+}
+
+@InvokeArg
+class ShareArgs {
+    var path: String = ""
+    var mime: String = "application/octet-stream"
+    var title: String = ""
 }
 
 @InvokeArg
@@ -94,6 +124,7 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     private var loadId: Int? = null
     private var theme = "system"
     private val speech by lazy { Speech(activity.applicationContext) }
+    private val storage by lazy { Storage(activity.applicationContext) }
 
     private val progressTicker = object : Runnable {
         override fun run() {
@@ -319,6 +350,96 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     fun videoUpdate(invoke: Invoke) {
         VideoPlayerActivity.deliver(invoke.getArgs().toString())
         invoke.resolve()
+    }
+
+    // ---- Files outside the app (M46.1): see Storage ----
+
+    @Command
+    fun pickFolder(invoke: Invoke) {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
+        )
+        startActivityForResult(invoke, intent, "folderPicked")
+    }
+
+    @ActivityCallback
+    fun folderPicked(invoke: Invoke, result: ActivityResult) {
+        val uri = result.data?.data
+        if (result.resultCode != Activity.RESULT_OK || uri == null) {
+            invoke.resolve(JSObject())
+            return
+        }
+        val name = storage.keep(uri)
+        invoke.resolve(JSObject().put("uri", uri.toString()).put("name", name ?: uri.lastPathSegment))
+    }
+
+    @Command
+    fun folderState(invoke: Invoke) {
+        val args = invoke.parseArgs(FolderArgs::class.java)
+        val (granted, name) = storage.folderState(Uri.parse(args.uri))
+        invoke.resolve(JSObject().put("granted", granted).put("name", name))
+    }
+
+    @Command
+    fun releaseFolder(invoke: Invoke) {
+        val args = invoke.parseArgs(FolderArgs::class.java)
+        storage.release(Uri.parse(args.uri))
+        invoke.resolve()
+    }
+
+    /** Off the main thread: the Storage Access Framework may be slow (a cloud folder). */
+    @Command
+    fun createOutput(invoke: Invoke) {
+        val args = invoke.parseArgs(OutputArgs::class.java)
+        thread(name = "raygun-output") {
+            try {
+                val output = storage.create(args.place, args.tree, args.path.toList(), args.name, args.mime)
+                invoke.resolve(JSObject().put("uri", output.uri.toString()).put("fd", output.fd))
+            } catch (error: Exception) {
+                invoke.reject(error.message ?: "Couldn't make the file")
+            }
+        }
+    }
+
+    @Command
+    fun finishOutput(invoke: Invoke) {
+        val args = invoke.parseArgs(FinishArgs::class.java)
+        thread(name = "raygun-output") {
+            try {
+                storage.finish(Uri.parse(args.uri), args.ok)
+                invoke.resolve()
+            } catch (error: Exception) {
+                invoke.reject(error.message ?: "Couldn't finish the file")
+            }
+        }
+    }
+
+    @Command
+    fun shareFile(invoke: Invoke) {
+        val args = invoke.parseArgs(ShareArgs::class.java)
+        activity.runOnUiThread {
+            try {
+                activity.startActivity(storage.share(args.path, args.mime, args.title))
+                invoke.resolve()
+            } catch (error: Exception) {
+                invoke.reject(error.message ?: "Couldn't share the file")
+            }
+        }
+    }
+
+    @Command
+    fun copyImage(invoke: Invoke) {
+        val args = invoke.parseArgs(ShareArgs::class.java)
+        activity.runOnUiThread {
+            try {
+                storage.copyImage(args.path, args.title)
+                invoke.resolve()
+            } catch (error: Exception) {
+                invoke.reject(error.message ?: "Couldn't copy the image")
+            }
+        }
     }
 
     @Command

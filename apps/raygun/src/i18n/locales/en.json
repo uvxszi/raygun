@@ -404,6 +404,10 @@
         "title": "Player",
         "summary": "Controls, gestures, subtitles, audio, skipping intros"
       },
+      "downloads": {
+        "title": "Downloads",
+        "summary": "Saving to Downloads or a folder, chapter format, saved pages"
+      },
       "browse": {
         "title": "Browse",
         "summary": "Adult content, extensions, repositories, addons"
@@ -677,7 +681,28 @@
       "externalAsk": "Ask each time"
     },
     "libraryDisplay": "Library layout",
-    "browseCovers": "Covers in Browse"
+    "browseCovers": "Covers in Browse",
+    "saveGroup": "Save outside the app",
+    "saveLocation": "Save downloads to",
+    "saveLocationHint": "Raygun keeps its own copy for reading; finished chapters and episodes are also saved here.",
+    "saveLocations": {
+      "app": "Only in the app",
+      "downloads": "Downloads folder (Download/Raygun)",
+      "folder": "A folder you choose"
+    },
+    "pickFolder": "Choose a folder",
+    "changeFolder": "Change folder",
+    "pickFolderHint": "Any folder on the phone or a memory card",
+    "folderLost": "Raygun can't write to this folder any more. Choose it again.",
+    "chapterFormat": "Save chapters as",
+    "chapterFormatHint": "How chapters saved outside the app are stored",
+    "chapterFormats": {
+      "cbz": "CBZ files (comic readers open these)",
+      "images": "Folders of images"
+    },
+    "savedPages": "Saved pages",
+    "pagesPerTitle": "A folder per title",
+    "pagesPerTitleHint": "Pages saved from the reader go to Pictures/Raygun/<title>"
   },
   "player": {
     "nothingPlaying": "Nothing playing",
@@ -1378,5 +1403,78 @@
     "edgeDepressed": "Depressed",
     "bold": "Bold",
     "italic": "Italic"
+  },
+  "export": {
+    "title": "Export",
+    "tab": "Exports",
+    "chapters": "Chapters",
+    "episodes": "Episodes",
+    "scope": {
+      "all": "All chapters",
+      "downloaded": "Downloaded chapters only",
+      "unread": "Unread chapters",
+      "range": "From one chapter to another",
+      "downloadedVideo": "Downloaded episodes"
+    },
+    "from": "From",
+    "to": "To",
+    "format": "Format",
+    "formats": {
+      "cbz": "CBZ",
+      "pdf": "PDF",
+      "pdfPerChapter": "PDF per chapter",
+      "images": "Images",
+      "epub": "EPUB",
+      "text": "Text",
+      "video": "Video files"
+    },
+    "formatHints": {
+      "cbz": "One comic file per chapter, with its details",
+      "pdf": "One file, a bookmark per chapter",
+      "pdfPerChapter": "One file per chapter",
+      "images": "A folder of pages per chapter",
+      "epub": "One book for e-readers",
+      "text": "One plain text file",
+      "video": "Each downloaded episode as one file"
+    },
+    "destination": "Save to",
+    "downloads": "Downloads folder",
+    "folder": "Your folder",
+    "folderHint": "Choose one in Settings → Downloads",
+    "share": "Share",
+    "plan_one": "{{count}} chapter, {{files}} file(s).",
+    "plan_other": "{{count}} chapters, {{files}} file(s).",
+    "planVideo_one": "{{count}} episode.",
+    "planVideo_other": "{{count}} episodes.",
+    "downloadFirst_one": "{{count}} chapter downloads first, at the source's pace.",
+    "downloadFirst_other": "{{count}} chapters download first, one at a time, at the source's pace.",
+    "start": "Export",
+    "cancel": "Cancel",
+    "started": "Exporting {{name}}.",
+    "seeProgress": "See progress",
+    "state": {
+      "downloading": "Downloading chapters {{done}} of {{total}}",
+      "writing": "Writing {{done}} of {{total}}",
+      "done": "Done",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    },
+    "dismiss": "Remove {{name}} from the list",
+    "failedChapters_one": "{{count}} chapter couldn't be downloaded and was left out.",
+    "failedChapters_other": "{{count}} chapters couldn't be downloaded and were left out.",
+    "skippedPages_one": "{{count}} page is in a format PDF can't hold and was left out.",
+    "skippedPages_other": "{{count}} pages are in a format PDF can't hold and were left out.",
+    "moreFiles_one": "and {{count}} more file",
+    "moreFiles_other": "and {{count}} more files",
+    "noneTitle": "No exports yet",
+    "none": "Export a title from its page or from a selection in the library to keep its files."
+  },
+  "reader": {
+    "pageTitle": "Page {{page}}",
+    "savePage": "Save page",
+    "sharePage": "Share page",
+    "copyPage": "Copy page",
+    "savedTo": "Saved to {{place}}",
+    "copied": "Copied"
   }
 }

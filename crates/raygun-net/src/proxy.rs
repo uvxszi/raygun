@@ -150,6 +150,13 @@ impl ImageLinks {
     pub fn local(&self, relative: &str) -> String {
         format!("http://{}/local/{relative}", self.address)
     }
+
+    /// Whether `url` is one of this proxy's image or local-file URLs. Pages are saved by fetching
+    /// them back through the proxy, which knows their headers and cached copies (M46.1).
+    pub fn is_page(&self, url: &str) -> bool {
+        url.strip_prefix(&format!("http://{}/", self.address))
+            .is_some_and(|rest| rest.starts_with("image/") || rest.starts_with("local/"))
+    }
 }
 
 impl StreamProxy {
@@ -444,9 +451,11 @@ async fn cached_image(
             cache.write(token, &image.bytes).await;
             image_response(image.bytes)
         }
-        Err(ImageError::Status(status)) => StatusCode::from_u16(status)
-            .unwrap_or(StatusCode::BAD_GATEWAY)
-            .into_response(),
+        Err(ImageError::Status(status) | ImageError::Busy(status, _)) => {
+            StatusCode::from_u16(status)
+                .unwrap_or(StatusCode::BAD_GATEWAY)
+                .into_response()
+        }
         Err(error) => {
             tracing::warn!(%error, "image request failed");
             (StatusCode::BAD_GATEWAY, error.to_string()).into_response()

@@ -10,6 +10,7 @@ import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { DownloadButton } from '../manga/DownloadButton';
 import { MangaCover } from '../manga/MangaCover';
+import { ExportButton } from '../export/ExportButton';
 import { TitleListActions } from '../manga/TitleListActions';
 import { useDuplicateCheck } from '../manga/useDuplicateCheck';
 import { ROUTES, isLocalSource } from '../manga/medium';
@@ -96,14 +97,25 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
       plainTitle
       title={view?.sourceName ?? ''}
       actions={
-        view &&
-        !isLocalSource(view.sourceId) && (
-          <TopBarAction
-            label={t('manga.refresh')}
-            icon={RefreshCw}
-            disabled={refresh.isPending}
-            onClick={() => refresh.mutate({ sourceId: source, mangaId: id })}
-          />
+        view && (
+          <>
+            {!isLocalSource(view.sourceId) && (
+              <TopBarAction
+                label={t('manga.refresh')}
+                icon={RefreshCw}
+                disabled={refresh.isPending}
+                onClick={() => refresh.mutate({ sourceId: source, mangaId: id })}
+              />
+            )}
+            <ExportButton
+              medium={medium}
+              titleIds={[view.id]}
+              // The list is newest first; ranges go in reading order.
+              chapters={[...view.chapters]
+                .reverse()
+                .map((chapter) => ({ id: chapter.id, name: chapter.name }))}
+            />
+          </>
         )
       }
     />

@@ -9,6 +9,7 @@ import { CategoryPicker } from '../manga/CategoryPicker';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { LibraryPill } from '../watch/LibraryPill';
+import { ExportButton } from '../export/ExportButton';
 import { TitleListActions } from '../manga/TitleListActions';
 import { useDuplicateCheck } from '../manga/useDuplicateCheck';
 import type { PickIntent } from '../watch/ServerPicker';
@@ -265,11 +266,14 @@ export const WatchTitlePage: FC = () => {
         plainTitle
         title={view.addonName || t('watch.savedCopy')}
         actions={
-          <TopBarAction
-            label={t('watch.chooseSource')}
-            icon={ListVideo}
-            onClick={() => pick(nextVideo ? episodeTarget(nextVideo) : ownTarget, 'play')}
-          />
+          <>
+            <TopBarAction
+              label={t('watch.chooseSource')}
+              icon={ListVideo}
+              onClick={() => pick(nextVideo ? episodeTarget(nextVideo) : ownTarget, 'play')}
+            />
+            {view.titleId && <ExportButton medium="video" titleIds={[view.titleId]} />}
+          </>
         }
       />
       <TitleHero

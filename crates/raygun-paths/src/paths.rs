@@ -18,6 +18,8 @@ pub enum CacheKind {
     Streams,
     Pages,
     Enhanced,
+    /// Files handed to the share sheet or clipboard (M46.1).
+    Share,
 }
 
 impl CacheKind {
@@ -28,6 +30,7 @@ impl CacheKind {
             Self::Streams => "streams",
             Self::Pages => "pages",
             Self::Enhanced => "enhanced",
+            Self::Share => "share",
         }
     }
 }
@@ -81,6 +84,11 @@ impl Paths {
     /// Media the user downloaded.
     pub fn downloads(&self) -> PathBuf {
         self.root.join("downloads")
+    }
+
+    /// Saved and exported files where the platform has no shared Downloads/Pictures (M46.1).
+    pub fn exports(&self) -> PathBuf {
+        self.root.join("exports")
     }
 
     /// Webview profile: cookies, localStorage, IndexedDB.

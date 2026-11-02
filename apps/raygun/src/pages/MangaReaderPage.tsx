@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { FC, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { PageActionsSheet } from '../export/PageActionsSheet';
 import { unwrapResult } from '../lib/commandResult';
 import { Sheet } from '../shell/Sheet';
 import { MANGA, saveProgress, useMangaChapter } from '../manga/useManga';
@@ -86,6 +87,8 @@ type ViewProps = {
   onCurrent: (page: number) => void;
   onToggleChrome: () => void;
   onGo: (chapterId: string | null) => void;
+  /** A long press on a page (M46.1). */
+  onPageMenu: (page: number) => void;
 };
 
 /** One continuous strip; the page most in view is the current one. */
@@ -94,6 +97,7 @@ const WebtoonView: FC<ViewProps & { jumpTo: number | null }> = ({
   onCurrent,
   onToggleChrome,
   onGo,
+  onPageMenu,
   jumpTo,
 }) => {
   const { t } = useTranslation();
@@ -142,6 +146,10 @@ const WebtoonView: FC<ViewProps & { jumpTo: number | null }> = ({
             decoding="async"
             className="min-h-[60vh] w-full bg-neutral-900 object-contain"
             onLoad={(event) => event.currentTarget.classList.remove('min-h-[60vh]')}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              onPageMenu(index);
+            }}
           />
         ))}
       </button>
@@ -157,6 +165,7 @@ const PagedView: FC<ViewProps & { rtl: boolean }> = ({
   onCurrent,
   onToggleChrome,
   onGo,
+  onPageMenu,
   rtl,
 }) => {
   const { t } = useTranslation();
@@ -252,6 +261,10 @@ const PagedView: FC<ViewProps & { rtl: boolean }> = ({
         src={data.pages[current]}
         alt={t('manga.pageAlt', { page: current + 1 })}
         draggable={false}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          onPageMenu(current);
+        }}
         // Zoomed: twice the screen width at its own aspect ratio, panned by scrolling.
         className={zoomed ? 'h-auto max-w-none' : 'max-h-full max-w-full object-contain'}
         style={zoomed ? { width: '200%' } : undefined}
@@ -272,6 +285,7 @@ export const MangaReaderPage: FC = () => {
   const [chrome, setChrome] = useState(true);
   const [modeOverride, setModeOverride] = useState<ReaderMode | null>(null);
   const [jumpTo, setJumpTo] = useState<number | null>(null);
+  const [pageMenu, setPageMenu] = useState<number | null>(null);
   const data = loaded.data;
   const total = data?.pages.length ?? 0;
   const mode = modeOverride ?? data?.readerMode ?? 'webtoon';
@@ -383,6 +397,7 @@ export const MangaReaderPage: FC = () => {
           onCurrent={setCurrent}
           onToggleChrome={() => setChrome((shown) => !shown)}
           onGo={goTo}
+          onPageMenu={setPageMenu}
           jumpTo={jumpTo}
         />
       )}
@@ -393,6 +408,7 @@ export const MangaReaderPage: FC = () => {
           onCurrent={setCurrent}
           onToggleChrome={() => setChrome((shown) => !shown)}
           onGo={goTo}
+          onPageMenu={setPageMenu}
           rtl={mode === 'pagedRtl'}
         />
       )}
@@ -462,6 +478,17 @@ export const MangaReaderPage: FC = () => {
             ))}
           </div>
         </Sheet>
+      )}
+      {data && pageMenu !== null && data.pages[pageMenu] && (
+        <PageActionsSheet
+          page={{
+            titleId: data.titleId,
+            chapterId: data.chapter.id,
+            index: pageMenu,
+            url: data.pages[pageMenu],
+          }}
+          onClose={() => setPageMenu(null)}
+        />
       )}
     </section>
   );

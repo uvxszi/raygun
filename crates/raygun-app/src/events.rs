@@ -54,6 +54,10 @@ pub struct AiModelEvent(pub raygun_model::AiModelProgress);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct PodcastsChangedEvent(pub String);
 
+/// An export job changed (M46.1); carries the job, or nothing when one was removed from the list.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct ExportEvent(pub Option<raygun_model::ExportJob>);
+
 /// A setting changed outside the Settings screens (in the video player, M45); carries its key.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SettingsChangedEvent(pub String);

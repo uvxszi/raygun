@@ -7,6 +7,7 @@ import {
   Check,
   CheckCheck,
   Download,
+  FileDown,
   FolderCog,
   Heart,
   Minus,
@@ -20,6 +21,7 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { ExportSheet } from '../export/ExportSheet';
 import { Sheet } from '../shell/Sheet';
 import { LISTS, listKey } from './libraryDisplay';
 import type { Medium } from './medium';
@@ -315,7 +317,7 @@ const RemoveSheet: FC<{
   );
 };
 
-type Panel = 'categories' | 'list' | 'download' | 'remove' | null;
+type Panel = 'categories' | 'list' | 'download' | 'export' | 'remove' | null;
 
 /** The bottom bar of selection mode: what to do with the picked titles. */
 export const SelectionActions: FC<{
@@ -349,9 +351,9 @@ export const SelectionActions: FC<{
       title={label}
       aria-pressed={pressed}
       onClick={onClick}
-      className={`hover:bg-background grid size-10 shrink-0 place-items-center rounded-full ${pressed ? 'text-primary' : ''}`}
+      className={`hover:bg-background grid size-9 shrink-0 place-items-center rounded-full ${pressed ? 'text-primary' : ''}`}
     >
-      <Icon aria-hidden size={22} />
+      <Icon aria-hidden size={20} />
     </button>
   );
 
@@ -387,6 +389,7 @@ export const SelectionActions: FC<{
           () => markRead.mutate({ ids, read: false }, finish),
         )}
         {canDownload && action(t('library.select.download'), Download, () => setPanel('download'))}
+        {action(t('export.title'), FileDown, () => setPanel('export'))}
         {action(t('library.select.remove'), Trash2, () => setPanel('remove'))}
       </div>
       {error && (
@@ -422,6 +425,9 @@ export const SelectionActions: FC<{
           }}
           onClose={() => setPanel(null)}
         />
+      )}
+      {panel === 'export' && (
+        <ExportSheet medium={medium} titleIds={ids} onClose={() => setPanel(null)} />
       )}
       {panel === 'remove' && (
         <RemoveSheet

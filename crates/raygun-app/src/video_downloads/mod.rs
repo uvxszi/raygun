@@ -117,6 +117,7 @@ impl VideoDownloadService {
             .lock()
             .expect("cancel set poisoned")
             .remove(&row.id);
+        let finished = !cancelled && result.is_ok();
         let outcome = match result {
             _ if cancelled => {
                 self.delete_files(&row.id).await;
@@ -141,6 +142,9 @@ impl VideoDownloadService {
         };
         if let Err(error) = outcome {
             tracing::warn!(%error, "could not record a video download's outcome");
+        } else if finished {
+            // Also saved outside the app when Settings → Downloads asks for it (M46.1).
+            crate::export::video::save_finished(&self.app, &row.id);
         }
         self.changed(&row.id);
     }
