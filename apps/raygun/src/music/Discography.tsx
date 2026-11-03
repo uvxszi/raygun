@@ -1,13 +1,16 @@
 import { commands } from '@raygun/bindings';
 import type { MusicAlbum, ReleaseKind } from '@raygun/bindings';
 import { useQuery } from '@tanstack/react-query';
-import { LoaderCircle } from 'lucide-react';
+import { ArrowUpDown, Check, LoaderCircle } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
 import { AlbumTile } from '../search/MusicFinds';
+import { Sheet } from '../shell/Sheet';
+import { RELEASE_SORTS, readReleaseSorts, saveReleaseSorts, sortReleases } from './releaseSort';
+import type { ReleaseSort } from './releaseSort';
 
 /** The chips of an artist's discography (M46.36), in Spotify's order; singles and EPs share one. */
 type Shelf = 'all' | 'album' | 'single' | 'compilation' | 'live' | 'other';
@@ -40,13 +43,23 @@ const useArtistReleases = (name: string) =>
 
 /**
  * An artist's discography (M46.36): albums, singles and EPs, compilations and live albums from
- * the music sources (Deezer, MusicBrainz), newest first, picked with chips.
+ * the music sources (Deezer, MusicBrainz), picked with chips. Each chip has its own sort
+ * (M46.45: newest, oldest, title, most songs), remembered on this device.
  */
 export const Discography: FC<{ name: string; title: string }> = ({ name, title }) => {
   const { t } = useTranslation();
   const releases = useArtistReleases(name);
   const [shelf, setShelf] = useState<Shelf>('all');
   const [all, setAll] = useState(false);
+  const [sorts, setSorts] = useState(readReleaseSorts);
+  const [sortAnchor, setSortAnchor] = useState<HTMLElement | null>(null);
+  const sort: ReleaseSort = sorts[shelf] ?? 'newest';
+  const pickSort = (next: ReleaseSort) => {
+    const saved = { ...sorts, [shelf]: next };
+    setSorts(saved);
+    saveReleaseSorts(saved);
+    setSortAnchor(null);
+  };
   if (releases.isPending) {
     return (
       <section aria-label={title} className="flex flex-col gap-3">
@@ -66,12 +79,51 @@ export const Discography: FC<{ name: string; title: string }> = ({ name, title }
     counts.set(kind, (counts.get(kind) ?? 0) + 1);
   }
   const chips = SHELVES.filter((id) => id === 'all' || (counts.get(id) ?? 0) > 0);
-  const shown = list.filter((release) => shelf === 'all' || shelfOf(release.kind) === shelf);
+  const shown = sortReleases(
+    list.filter((release) => shelf === 'all' || shelfOf(release.kind) === shelf),
+    sort,
+  );
   const chip = (on: boolean) =>
     `shrink-0 rounded-full px-3 py-1.5 text-sm ${on ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`;
   return (
     <section aria-label={title} data-testid="discography" className="flex flex-col gap-3">
-      <h2 className="text-lg font-bold">{title}</h2>
+      <div className="flex items-center gap-2">
+        <h2 className="min-w-0 flex-1 truncate text-lg font-bold">{title}</h2>
+        <button
+          type="button"
+          aria-haspopup="dialog"
+          aria-label={t('artist.sortButton', { sort: t(`artist.sort.${sort}`) })}
+          onClick={(event) => setSortAnchor(sortAnchor ? null : event.currentTarget)}
+          className="text-muted hover:text-foreground flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm"
+        >
+          {t(`artist.sort.${sort}`)}
+          <ArrowUpDown aria-hidden size={15} />
+        </button>
+      </div>
+      {sortAnchor && (
+        <Sheet
+          title={t('tracks.sortBy')}
+          anchor={sortAnchor}
+          popoverWidth={220}
+          onClose={() => setSortAnchor(null)}
+        >
+          <div role="radiogroup" aria-label={t('tracks.sortBy')} className="-mx-2 flex flex-col">
+            {RELEASE_SORTS.map((key) => (
+              <button
+                key={key}
+                type="button"
+                role="radio"
+                aria-checked={sort === key}
+                onClick={() => pickSort(key)}
+                className={`hover:bg-background flex items-center justify-between rounded-lg px-3 py-2 text-sm ${sort === key ? 'text-primary' : ''}`}
+              >
+                {t(`artist.sort.${key}`)}
+                {sort === key && <Check aria-hidden size={14} />}
+              </button>
+            ))}
+          </div>
+        </Sheet>
+      )}
       {chips.length > 2 && (
         <div
           role="group"

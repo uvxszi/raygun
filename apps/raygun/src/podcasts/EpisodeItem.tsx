@@ -21,13 +21,15 @@ const ICON_BUTTON =
 
 /**
  * One episode: what it is, how far it was listened to, and play, played and download actions. An
- * audiobook's chapter passes `onPlay` to play the rest of the book after it (M46.22).
+ * audiobook's chapter passes `onPlay` to play the rest of the book after it (M46.22), and
+ * `tapToPlay` so tapping the chapter plays it (M46.45; its notes stay in its menu).
  */
 export const EpisodeItem: FC<{
   episode: PodcastEpisode;
   showPodcast?: boolean;
   onPlay?: () => void;
-}> = ({ episode, showPodcast = false, onPlay }) => {
+  tapToPlay?: boolean;
+}> = ({ episode, showPodcast = false, onPlay, tapToPlay = false }) => {
   const { t, i18n } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const play = usePlayEpisode();
@@ -76,9 +78,11 @@ export const EpisodeItem: FC<{
       <div className="flex items-start gap-3">
         <button
           type="button"
-          onClick={() => setExpanded(!expanded)}
-          aria-expanded={expanded}
-          className="flex min-w-0 flex-1 flex-col gap-0.5 text-left"
+          onClick={() =>
+            tapToPlay ? (onPlay ? onPlay() : play.mutate(episode.id)) : setExpanded(!expanded)
+          }
+          aria-expanded={tapToPlay ? undefined : expanded}
+          className={`flex min-w-0 flex-1 flex-col gap-0.5 text-left ${tapToPlay ? 'hover:text-primary' : ''}`}
         >
           {showPodcast && (
             <span className="text-muted truncate text-xs">{episode.podcastTitle}</span>

@@ -1,13 +1,14 @@
 import { Link } from '@tanstack/react-router';
-import { Import, Plus } from 'lucide-react';
+import { Merge, Plus } from 'lucide-react';
 import { useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Sheet } from '../shell/Sheet';
-import { ImportSheet } from './ImportSheet';
+import { useCollectionSheets } from './collectionSheets';
 import { PlaylistCover } from './PlaylistCover';
 import { useCreatePlaylist, usePlaylists } from './useCollections';
+import { usePlaylistMenu } from './usePlaylistMenu';
 
 export const NewPlaylistForm: FC<{ onDone: () => void }> = ({ onDone }) => {
   const { t } = useTranslation();
@@ -52,12 +53,12 @@ export const PlaylistsView: FC = () => {
   const { t } = useTranslation();
   const playlists = usePlaylists();
   const [creating, setCreating] = useState(false);
-  const [importing, setImporting] = useState(false);
+  const openMerge = useCollectionSheets((state) => state.openMerge);
+  const menu = usePlaylistMenu();
 
   return (
     <div data-testid="playlists-view" className="flex flex-col gap-3">
       {creating && <NewPlaylistForm onDone={() => setCreating(false)} />}
-      {importing && <ImportSheet onClose={() => setImporting(false)} />}
       {
         <button
           type="button"
@@ -70,16 +71,18 @@ export const PlaylistsView: FC = () => {
           {t('collections.newPlaylist')}
         </button>
       }
-      <button
-        type="button"
-        onClick={() => setImporting(true)}
-        className="flex h-14 items-center gap-3 text-left text-sm font-medium"
-      >
-        <span className="bg-surface text-primary grid size-12 place-items-center rounded-lg">
-          <Import aria-hidden size={22} />
-        </span>
-        {t('import.open')}
-      </button>
+      {(playlists.data?.length ?? 0) >= 2 && (
+        <button
+          type="button"
+          onClick={() => openMerge()}
+          className="flex h-14 items-center gap-3 text-left text-sm font-medium"
+        >
+          <span className="bg-surface text-primary grid size-12 place-items-center rounded-lg">
+            <Merge aria-hidden size={22} />
+          </span>
+          {t('collections.merge.title')}
+        </button>
+      )}
       {playlists.data?.length === 0 && (
         <p className="text-muted text-sm">{t('collections.noPlaylists')}</p>
       )}
@@ -90,9 +93,14 @@ export const PlaylistsView: FC = () => {
               to="/library/playlist"
               search={{ id: playlist.id }}
               data-testid="playlist-link"
+              onContextMenu={menu(playlist)}
               className="flex h-16 items-center gap-3"
             >
-              <PlaylistCover artworkUrls={playlist.artworkUrls} className="size-12 rounded-lg" />
+              <PlaylistCover
+                artworkUrls={playlist.artworkUrls}
+                coverUrl={playlist.coverUrl}
+                className="size-12 rounded-lg"
+              />
               <span className="flex min-w-0 flex-col">
                 <span className="truncate text-sm font-medium">{playlist.name}</span>
                 <span className="text-muted text-xs">

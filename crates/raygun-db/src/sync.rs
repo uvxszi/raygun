@@ -53,6 +53,7 @@ pub const TABLES: &[TableSpec] = &[
             "artwork_url",
             "source",
             "added_at",
+            "position",
             STAMP[0],
             STAMP[1],
             STAMP[2],

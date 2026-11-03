@@ -32,6 +32,7 @@ import type { PlayerPanel } from './playerUiStore';
 import { usePlayerUiStore } from './playerUiStore';
 import { sendControl, sourceNote, useNowPlaying } from './usePlayback';
 import { MediaArt, VideoToggle } from './MediaArt';
+import { songCover } from '../library/coverTargets';
 
 const TABS: PlayerPanel[] = ['nowPlaying', 'queue'];
 
@@ -432,7 +433,12 @@ const QueueRow: FC<{ item: QueueItem; current?: boolean }> = ({ item, current = 
         onClick={() => void sendControl({ type: 'playItem', itemId: item.id })}
         className="flex min-w-0 flex-1 items-center gap-3 py-1.5 pl-2 text-left"
       >
-        <Artwork url={item.artworkUrl} className="size-10 shrink-0 rounded-md" iconSize={18} />
+        <Artwork
+          url={item.artworkUrl}
+          fallback={songCover(item)}
+          className="size-10 shrink-0 rounded-md"
+          iconSize={18}
+        />
         <span className="flex min-w-0 flex-col">
           <span className={`truncate text-sm font-medium ${current ? 'text-primary' : ''}`}>
             {item.title}

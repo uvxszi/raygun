@@ -77,10 +77,10 @@ describe('Player bar', () => {
     await user.click(within(bar).getByRole('button', { name: 'Connect to a device' }));
     const sheet = await screen.findByTestId('connect-sheet');
     expect(within(sheet).getByText('Pixel')).toBeInTheDocument();
-    expect(await within(sheet).findByText('Desktop PC')).toBeInTheDocument();
-    expect(within(sheet).getByText(/Synced 5 minutes ago/)).toBeInTheDocument();
-    await user.click(within(sheet).getByRole('button', { name: 'Sync with Desktop PC now' }));
-    expect(commands.syncNow).toHaveBeenCalledWith('pc-1');
+    // Pairing, syncing and the remote live in one place now (M46.43), a link away.
+    expect(
+      within(sheet).getByRole('link', { name: 'Pair, sync and control from other devices' }),
+    ).toHaveAttribute('href', '/settings/devices');
   });
 
   it('opens the miniplayer from the desktop bar', async () => {

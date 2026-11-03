@@ -1,11 +1,12 @@
 import { commands } from '@raygun/bindings';
 import { useSearch } from '@tanstack/react-router';
-import { Folder, FolderCog, FolderPlus, FolderSearch, RefreshCw } from 'lucide-react';
+import { Folder, FolderCog, FolderPlus, FolderSearch, Import, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { AudiobooksView } from '../audiobooks/AudiobooksView';
+import { useCollectionSheets } from '../collections/collectionSheets';
 import { DownloadedView } from '../collections/DownloadedView';
 import { FavoritesView } from '../collections/FavoritesView';
 import { MangaLibraryView } from '../manga/MangaLibraryView';
@@ -32,6 +33,7 @@ import {
   useLibraryStatus,
 } from '../library/useLibrary';
 import { AllLibrary } from '../library/AllLibrary';
+import { FollowedArtistList } from '../music/FollowedArtistList';
 
 const AlbumsView: FC = () => {
   const albums = useAlbums();
@@ -71,6 +73,7 @@ const MusicLibrary: FC<{ view: LibraryView }> = ({ view }) => {
   const status = useLibraryStatus();
   const connect = useConnectDeviceMusic();
   const [adding, setAdding] = useState(false);
+  const openImport = useCollectionSheets((state) => state.openImport);
   const local = isLocalView(view);
   const hasFolders = (status.data?.roots.length ?? 0) > 0;
   const hasTracks = hasFolders && (status.data?.trackCount ?? 0) > 0;
@@ -79,7 +82,20 @@ const MusicLibrary: FC<{ view: LibraryView }> = ({ view }) => {
     <>
       <LibraryTop
         media="music"
+        // Import songs from anywhere in Audio (M46.45).
+        actions={
+          <button
+            type="button"
+            aria-label={t('import.open')}
+            onClick={openImport}
+            className="bg-surface hover:bg-background flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium"
+          >
+            <Import aria-hidden size={16} />
+            {t('import.short')}
+          </button>
+        }
         menu={[
+          { label: t('import.open'), icon: Import, onSelect: openImport },
           {
             label: t('library.findDeviceMusic'),
             icon: FolderSearch,
@@ -123,6 +139,7 @@ const MusicLibrary: FC<{ view: LibraryView }> = ({ view }) => {
         <p className="text-muted text-sm">{t('library.noTracksFound')}</p>
       )}
       {local && hasTracks && view === 'albums' && <AlbumsView />}
+      {view === 'artists' && <FollowedArtistList />}
       {local && hasTracks && view === 'artists' && <ArtistsView />}
       {local && hasTracks && view === 'tracks' && <TracksView />}
       {adding && <AddFolderSheet onClose={() => setAdding(false)} />}

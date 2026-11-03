@@ -9,11 +9,12 @@ import { savedRow } from '../music/tableView';
 import { TrackTable } from '../music/TrackTable';
 import { EmptyState } from '../shell/EmptyState';
 import { PlayButtons } from './PlayButtons';
-import { COLLECTIONS, playCollection, useFavorites } from './useCollections';
+import { COLLECTIONS, playCollection, useFavorites, useReorderFavorites } from './useCollections';
 
 export const FavoritesView: FC = () => {
   const { t } = useTranslation();
   const favorites = useFavorites();
+  const reorder = useReorderFavorites();
   const client = useQueryClient();
   if (!favorites.data) {
     return null;
@@ -33,7 +34,7 @@ export const FavoritesView: FC = () => {
       <TrackTable
         kind="favorites"
         tracks={rows}
-        customLabel={t('tracks.sort.addedOrder')}
+        onReorder={(change) => reorder.mutate(change)}
         toolbar={
           <PlayButtons
             onPlay={(shuffle) =>

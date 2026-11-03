@@ -182,6 +182,14 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
             tracing::warn!(%error, "couldn't scan the local folders");
         }
     });
+    // Followed artists and their new releases (M46.42).
+    let follows = crate::follows::ArtistFollows::new(app.handle().clone());
+    follows.start();
+    app.manage(follows);
+    // Covers from other sources when one's missing or fails (M46.40).
+    app.manage(crate::cover_fallback::CoverFallbacks::new(
+        app.handle().clone(),
+    ));
     // The user's own details for songs, albums and artists (M46.30).
     let details = crate::details::DetailService::new(app.handle().clone(), paths.downloads());
     app.manage(details.clone());

@@ -9,6 +9,8 @@ import { useTrackMenu } from '../music/useTrackMenu';
 import { Artwork } from './Artwork';
 import { NowPlayingBars } from '../player/NowPlayingBars';
 import { usePlayingMatch } from '../player/usePlayingMatch';
+import { songCover } from './coverTargets';
+import { SongMarks } from '../music/SongMarks';
 
 type TrackRowProps = {
   track: LibraryTrack;
@@ -32,7 +34,12 @@ export const TrackRow: FC<TrackRowProps> = ({ track, onPlay, variant = 'artwork'
         className="flex h-14 min-w-0 flex-1 items-center gap-3 text-left"
       >
         {variant === 'artwork' ? (
-          <Artwork url={track.artworkUrl} className="size-10 shrink-0 rounded" iconSize={18} />
+          <Artwork
+            url={track.artworkUrl}
+            fallback={songCover(track)}
+            className="size-10 shrink-0 rounded"
+            iconSize={18}
+          />
         ) : (
           <span className="text-muted w-6 shrink-0 text-right text-sm tabular-nums">
             {track.trackNo ?? ''}
@@ -44,6 +51,7 @@ export const TrackRow: FC<TrackRowProps> = ({ track, onPlay, variant = 'artwork'
           >
             {playing && <NowPlayingBars playing={playing === 'playing'} />}
             <span className="truncate">{track.title}</span>
+            <SongMarks title={track.title} artist={track.artist} />
           </span>
           <span className="text-muted block truncate text-xs">
             <ArtistLinks credit={track.artist} nested />

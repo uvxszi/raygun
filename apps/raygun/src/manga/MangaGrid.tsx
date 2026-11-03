@@ -29,10 +29,12 @@ export type MangaGridItem = {
  * Covers in a grid, each opening its title page. Compact puts the title over the cover's bottom
  * edge (Mihon's default); comfortable puts it underneath.
  */
-export const MangaGrid: FC<{ items: MangaGridItem[]; medium?: Medium }> = ({
-  items,
-  medium = 'manga',
-}) => {
+export const MangaGrid: FC<{
+  items: MangaGridItem[];
+  medium?: Medium;
+  /** Wide 16:9 thumbnails in wider columns (M46.45: video sites). */
+  landscape?: boolean;
+}> = ({ items, medium = 'manga', landscape = false }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const settings = useSettings().data;
@@ -65,7 +67,11 @@ export const MangaGrid: FC<{ items: MangaGridItem[]; medium?: Medium }> = ({
   return (
     <ul
       className={COVER_GRID_CLASS}
-      style={coverGridStyle(settings?.gridColumns ?? 0, settings?.coverWidth ?? 0)}
+      style={
+        landscape
+          ? { gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 13rem), 1fr))' }
+          : coverGridStyle(settings?.gridColumns ?? 0, settings?.coverWidth ?? 0)
+      }
     >
       {items.map((item) => (
         <li key={`${item.sourceId}:${item.id}`}>
@@ -77,7 +83,12 @@ export const MangaGrid: FC<{ items: MangaGridItem[]; medium?: Medium }> = ({
             className="flex flex-col gap-1"
           >
             <span className="relative overflow-hidden rounded-xl">
-              <MangaCover url={item.coverUrl} video={medium === 'video'} className="w-full" />
+              <MangaCover
+                url={item.coverUrl}
+                video={medium === 'video'}
+                landscape={landscape}
+                className="w-full"
+              />
               <span className="absolute top-1.5 left-1.5 flex gap-1">
                 {item.inLibrary && (
                   <span className="bg-primary text-background rounded-md px-1.5 py-0.5 text-[10px] font-bold">

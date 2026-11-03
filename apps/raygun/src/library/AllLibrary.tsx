@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { PlaylistCover } from '../collections/PlaylistCover';
 import { useFavorites, usePlaylists } from '../collections/useCollections';
+import { usePlaylistMenu } from '../collections/usePlaylistMenu';
 import { useLayout } from '../layout/useLayout';
 import { MangaCover } from '../manga/MangaCover';
 import { ROUTES } from '../manga/medium';
@@ -97,6 +98,7 @@ const AudioRow: FC = () => {
   const { t } = useTranslation();
   const favorites = useFavorites();
   const playlists = usePlaylists();
+  const playlistMenu = usePlaylistMenu();
   const podcasts = useSubscriptions();
   return (
     <Row title={t('library.tabs.music')} media="music">
@@ -113,9 +115,15 @@ const AudioRow: FC = () => {
       </li>
       {playlists.data?.slice(0, ROW_ITEMS).map((playlist) => (
         <li key={playlist.id} className="w-28 shrink-0">
-          <Link to="/library/playlist" search={{ id: playlist.id }} className={TILE}>
+          <Link
+            to="/library/playlist"
+            search={{ id: playlist.id }}
+            onContextMenu={playlistMenu(playlist)}
+            className={TILE}
+          >
             <PlaylistCover
               artworkUrls={playlist.artworkUrls}
+              coverUrl={playlist.coverUrl}
               className="aspect-square w-full rounded-xl"
             />
             <span className="truncate font-medium">{playlist.name}</span>

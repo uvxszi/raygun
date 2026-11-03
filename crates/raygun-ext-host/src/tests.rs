@@ -1312,6 +1312,30 @@ async fn playlists_live_search_featured_and_lyrics_sources() {
     );
 }
 
+/// `cargo test -p raygun-ext-host -- --ignored follow_live --nocapture`.
+#[tokio::test]
+#[ignore = "needs network access to MusicBrainz"]
+async fn follow_live_artist_events() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(discover_installed(&dir)).await;
+    let mut found = 0;
+    for artist in ["Barry Manilow", "Ray Wilson"] {
+        let events = host.artist_events(artist, 10).await;
+        for event in events.iter().take(3) {
+            println!(
+                "{artist}: {} · {} · {:?}",
+                event.date, event.name, event.place
+            );
+        }
+        found += events.len();
+    }
+    assert!(
+        found > 0,
+        "MusicBrainz lists coming events for touring artists"
+    );
+}
+
 /// `cargo test -p raygun-ext-host -- --ignored discovery_live --nocapture`.
 #[tokio::test]
 #[ignore = "needs network access to Deezer, Apple, ListenBrainz and MusicBrainz"]
@@ -1511,7 +1535,13 @@ async fn video_pills_live_search_and_play() {
             page.items.first().map(|item| &item.title)
         );
         assert!(!page.items.is_empty(), "{provider}");
-        let first = &page.items[0].id;
+        // A video (YouTube also lists channels and playlists, M46.45).
+        let first = &page
+            .items
+            .iter()
+            .find(|item| !item.id.contains(':'))
+            .unwrap()
+            .id;
         let servers = host.video_servers(provider, first).await.unwrap();
         let links: Vec<String> = servers
             .iter()
@@ -1526,6 +1556,83 @@ async fn video_pills_live_search_and_play() {
         println!("  links {:?}", links.iter().take(2).collect::<Vec<_>>());
         assert!(!links.is_empty(), "{provider}");
     }
+
+    // The app asks for a title's details and episodes at once (M46.45: this once never ended).
+    for (provider, query) in [
+        ("dev.raygun.youtube/videos", "nasa launch"),
+        ("dev.raygun.peertube/videos", "nasa"),
+    ] {
+        let page = host.manga_search(provider, query, 1).await.unwrap();
+        let id = &page
+            .items
+            .iter()
+            .find(|item| !item.id.contains(':'))
+            .unwrap()
+            .id;
+        let both = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            futures_util::future::join(
+                host.manga_details(provider, id),
+                host.video_episodes(provider, id),
+            ),
+        )
+        .await;
+        let (details, episodes) = both.expect("details and episodes together answer");
+        println!(
+            "  together {provider}: {:?}, {} episodes",
+            details.map(|details| details.title),
+            episodes.map(|episodes| episodes.len()).unwrap_or(0)
+        );
+    }
+
+    // YouTube's channels and playlists open as a series of their videos; videos have comments
+    // (M46.45).
+    let youtube = "dev.raygun.youtube/videos";
+    let page = host.manga_search(youtube, "nasa", 1).await.unwrap();
+    let playlists = host
+        .manga_search(youtube, "nasa playlist", 1)
+        .await
+        .unwrap();
+    for (prefix, page) in [("channel:", &page), ("playlist:", &playlists)] {
+        let Some(found) = page.items.iter().find(|item| item.id.starts_with(prefix)) else {
+            println!("  no {prefix} result for nasa");
+            continue;
+        };
+        let details = host.manga_details(youtube, &found.id).await.unwrap();
+        let episodes = host.video_episodes(youtube, &found.id).await.unwrap();
+        println!(
+            "  {prefix} {:?}: {:?}, {} videos, first {:?}",
+            found.id,
+            details.title,
+            episodes.len(),
+            episodes.first().map(|episode| &episode.name)
+        );
+        assert!(!episodes.is_empty(), "{prefix}");
+    }
+    assert!(
+        page.items
+            .iter()
+            .any(|item| item.id.starts_with("channel:"))
+    );
+    let comments = host
+        .video_comments(youtube, "dQw4w9WgXcQ", None)
+        .await
+        .unwrap();
+    println!(
+        "  comments {}, next {}, first {:?}",
+        comments.comments.len(),
+        comments.next.is_some(),
+        comments
+            .comments
+            .first()
+            .map(|comment| (&comment.author, &comment.likes))
+    );
+    assert!(!comments.comments.is_empty());
+    let more = host
+        .video_comments(youtube, "dQw4w9WgXcQ", comments.next.as_deref())
+        .await
+        .unwrap();
+    assert!(!more.comments.is_empty());
 }
 
 /// LRCLIB's real service: `cargo test -p raygun-ext-host -- --ignored lrclib_live`.
@@ -2024,4 +2131,26 @@ fn settings_without_labels_read_as_words() {
     );
     assert_eq!(crate::host::key_label("apiKey"), "Api key");
     assert_eq!(crate::host::key_label("quality"), "Quality");
+}
+
+/// Two calls into one extension at once, the quick one finishing first (M46.45): the slow one's
+/// timer still fires, as a title's details did not while its episodes came back at once.
+#[tokio::test]
+async fn a_call_still_finishes_when_another_into_the_same_extension_ends_first() {
+    let host = test_host();
+    let code = "raygun.providers.register({ kind: 'music.metadata', id: 'p', name: 'P', \
+        slow: async () => { await raygun.time.sleep(200); return 'slow'; }, \
+        quick: async () => 'quick' });";
+    host.load(vec![extension("dev.raygun.test", code)]).await;
+    let both = tokio::time::timeout(
+        Duration::from_secs(5),
+        futures_util::future::join(
+            host.call("dev.raygun.test/p", "slow", json!({})),
+            host.call("dev.raygun.test/p", "quick", json!({})),
+        ),
+    )
+    .await
+    .expect("both calls answer");
+    assert_eq!(both.0.unwrap(), json!("slow"));
+    assert_eq!(both.1.unwrap(), json!("quick"));
 }

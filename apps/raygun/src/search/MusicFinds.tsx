@@ -9,6 +9,7 @@ import { OnlineTrackRow } from './OnlineTrackRow';
 import { playResults } from './useOnlineSearch';
 import { rankSongs, useAlbumFinds, useArtistFinds } from './useMusicFinds';
 import { SourceIssue } from '../shell/SourceIssue';
+import { albumCover, artistCover } from '../library/coverTargets';
 
 /**
  * Every source's songs in one list (M46.9): the songs several sources agree on first, then the
@@ -60,7 +61,12 @@ export const ArtistFinds: FC<{ query: string }> = ({ query }) => {
             className="hover:bg-surface flex items-center gap-3 rounded-xl px-1 py-2"
           >
             {artist.imageUrl ? (
-              <Artwork url={artist.imageUrl} className="size-12 rounded-full" iconSize={20} />
+              <Artwork
+                url={artist.imageUrl}
+                fallback={artistCover(artist.name)}
+                className="size-12 rounded-full"
+                iconSize={20}
+              />
             ) : (
               <span className="bg-surface text-muted grid size-12 place-items-center rounded-full">
                 <UserRound aria-hidden size={22} />
@@ -114,7 +120,12 @@ export const AlbumTile: FC<{ album: MusicAlbum; detail?: string }> = ({ album, d
     search={{ provider: album.provider.id, id: album.id }}
     className="hover:bg-surface flex flex-col gap-1.5 rounded-xl p-2"
   >
-    <Artwork url={album.artworkUrl} className="w-full rounded-lg shadow" iconSize={36} />
+    <Artwork
+      url={album.artworkUrl}
+      fallback={albumCover(album)}
+      className="w-full rounded-lg shadow"
+      iconSize={36}
+    />
     <span className="truncate text-sm font-semibold">{album.title}</span>
     <span className="text-muted truncate text-xs">
       {detail ?? [album.year, album.artist, album.provider.name].filter(Boolean).join(' · ')}

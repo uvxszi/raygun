@@ -33,9 +33,17 @@ export type CatalogFilter = {
   kind: ExtensionKind | null;
   lang: string | null;
   repoId: string | null;
+  /** Only what isn't installed yet (M46.40). */
+  notInstalled: boolean;
 };
 
-export const NO_FILTER: CatalogFilter = { query: '', kind: null, lang: null, repoId: null };
+export const NO_FILTER: CatalogFilter = {
+  query: '',
+  kind: null,
+  lang: null,
+  repoId: null,
+  notInstalled: false,
+};
 
 const matches = (entry: CatalogEntry, filter: CatalogFilter) => {
   const query = filter.query.trim().toLowerCase();
@@ -47,6 +55,7 @@ const matches = (entry: CatalogEntry, filter: CatalogFilter) => {
     return false;
   }
   if (filter.kind && !kindsOf(entry).includes(filter.kind)) return false;
+  if (filter.notInstalled && entry.state !== 'available') return false;
   // Entries without a language (or with many) serve every language.
   if (filter.lang && entry.lang && entry.lang !== 'multi' && entry.lang !== filter.lang) {
     return false;
@@ -56,7 +65,9 @@ const matches = (entry: CatalogEntry, filter: CatalogFilter) => {
 
 /** The catalog with only matching entries; repositories left empty by the filter are dropped. */
 export const filterCatalog = (catalog: RepoCatalog[], filter: CatalogFilter): RepoCatalog[] => {
-  const filtering = filter !== NO_FILTER && (filter.query.trim() || filter.kind || filter.lang);
+  const filtering =
+    filter !== NO_FILTER &&
+    (filter.query.trim() || filter.kind || filter.lang || filter.notInstalled);
   return catalog
     .filter((listing) => !filter.repoId || listing.repo.id === filter.repoId)
     .map((listing) => ({

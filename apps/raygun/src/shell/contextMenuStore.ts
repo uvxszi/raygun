@@ -12,6 +12,8 @@ export type MenuItem =
       hint?: string;
       danger?: boolean;
       disabled?: boolean;
+      /** Asked first, in the menu's place (M46.45: "Delete “Road trip”?"). */
+      confirm?: string;
       onSelect: () => void;
     }
   | { kind: 'separator' }

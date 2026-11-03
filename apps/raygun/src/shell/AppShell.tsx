@@ -9,6 +9,7 @@ import { TrackActionsSheet } from '../collections/TrackActionsSheet';
 import { SongEditSheet } from '../sound/SongEditSheet';
 import { CoverSheet } from '../music/CoverSheet';
 import { SourcePickerSheet } from '../music/SourcePickerSheet';
+import { CollectionSheets } from '../collections/CollectionSheetsHost';
 import { useSyncChangedListener } from '../devices/useDeviceSync';
 import { useEngineHost } from '../engine/useEngineHost';
 import { useSpeechHost } from '../engine/useSpeechHost';
@@ -169,6 +170,7 @@ export const AppShell: FC = () => {
         <SongEditSheet />
         <CoverSheet />
         <SourcePickerSheet />
+        <CollectionSheets />
         <VideoPlayer />
         <YouTubeOverlay />
         <HoverLabel />

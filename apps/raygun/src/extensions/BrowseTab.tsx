@@ -60,6 +60,15 @@ const Filters: FC<{
         aria-label={t('extensions.kindFilter')}
         className="flex gap-2 no-scrollbar overflow-x-auto"
       >
+        {/* What isn't installed yet, beside the Installed tab (M46.40). */}
+        <button
+          type="button"
+          aria-pressed={filter.notInstalled}
+          onClick={() => onChange({ ...filter, notInstalled: !filter.notInstalled })}
+          className={`shrink-0 rounded-full px-3 py-1.5 text-sm ${filter.notInstalled ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
+        >
+          {t('extensions.notInstalled')}
+        </button>
         {chip(null, t('extensions.kind.all'))}
         {facets.kinds.map((kind) => chip(kind, t(`extensions.kind.${kind}`)))}
       </div>

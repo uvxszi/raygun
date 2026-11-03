@@ -7,8 +7,9 @@ import type {
   TrackSortKey,
   TrackTableView,
 } from '@raygun/bindings';
+import { useQueryClient } from '@tanstack/react-query';
 
-import { useSettings, useUpdateSetting } from '../settings/useSettings';
+import { SETTINGS_KEY, useSettings, useUpdateSetting } from '../settings/useSettings';
 
 /** Where a song table is (each kind keeps its own sort, view and columns, M46.8). */
 export type TrackTableKind =
@@ -30,6 +31,18 @@ export type TableTrack = {
   artworkUrl: string | null;
   input: TrackInput;
   playlistItemId?: string;
+};
+
+/**
+ * A row dragged to a new place (M46.44). `order` is the whole list as it now shows; `before` the
+ * row it now sits in front of (null: last). `whole` when the table was sorted or reversed: the
+ * shown order is then saved as the custom order, else only `moved` changes.
+ */
+export type TableReorder = {
+  order: TableTrack[];
+  moved: TableTrack;
+  before: TableTrack | null;
+  whole: boolean;
 };
 
 export type TableView = {
@@ -92,13 +105,15 @@ const merged = (saved: TrackTableView | undefined): TableView => {
 export const useTableView = (kind: TrackTableKind) => {
   const settings = useSettings().data;
   const update = useUpdateSetting();
+  const client = useQueryClient();
   const tables = settings?.trackTables?.tables ?? {};
   const view = merged(tables[kind]);
-  const set = (patch: Partial<TableView>) =>
-    update.mutate({
-      key: 'trackTables',
-      value: { tables: { ...tables, [kind]: { ...view, ...patch } } },
-    });
+  const set = (patch: Partial<TableView>) => {
+    const value = { tables: { ...tables, [kind]: { ...view, ...patch } } };
+    // Shown at once (a drag that switches to Custom order mustn't jump back meanwhile).
+    if (settings) client.setQueryData(SETTINGS_KEY, { ...settings, trackTables: value });
+    update.mutate({ key: 'trackTables', value });
+  };
   return { view, set };
 };
 
@@ -117,6 +132,26 @@ export const sortTracks = (tracks: TableTrack[], view: TableView): TableTrack[] 
   };
   if (view.sort !== 'custom') sorted.sort(by[view.sort]);
   return view.descending ? sorted.reverse() : sorted;
+};
+
+/**
+ * The whole list after shown row `from` is dropped on shown row `to` (M46.44). `sorted` is the
+ * whole list as sorted, filters left out: the row lands before the one it was dropped on when
+ * moving up, after it when moving down, and rows a filter hides keep their places.
+ */
+export const dragOrder = (
+  sorted: TableTrack[],
+  shown: TableTrack[],
+  from: number,
+  to: number,
+): TableTrack[] => {
+  const moved = shown[from];
+  const target = shown[to];
+  if (!moved || !target || moved.rowKey === target.rowKey) return sorted;
+  const rest = sorted.filter((row) => row.rowKey !== moved.rowKey);
+  const at = rest.findIndex((row) => row.rowKey === target.rowKey);
+  rest.splice(from < to ? at + 1 : at, 0, moved);
+  return rest;
 };
 
 /** Rows whose title, artist or album hold every word of `filter`. */

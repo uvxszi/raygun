@@ -43,8 +43,10 @@ import {
 import {
   useRefreshVideoTitle,
   useSetEpisodeWatched,
+  useVideoSources,
   useVideoTitle,
 } from '../watch/useVideoSources';
+import { VideoComments } from '../watch/VideoComments';
 import { SourceIssue } from '../shell/SourceIssue';
 
 const number = (value: number) => (Number.isInteger(value) ? String(value) : value.toFixed(1));
@@ -187,12 +189,24 @@ export const VideoTitlePage: FC = () => {
   const [picking, setPicking] = useState<{ target: ServerTarget; intent: PickIntent } | null>(null);
   const [expanded, setExpanded] = useState(false);
   const view = title.data;
+  // A video site's (its own Search pill: YouTube, PeerTube) thumbnails are 16:9 (M46.45).
+  const siteSource = Boolean(
+    useVideoSources().data?.find((each) => each.id === source)?.searchPill,
+  );
   // What the list already showed (M46.38), while the page loads or when the source fails.
   const known = useKnownCard('video', source, id);
   const knownHero = known && (
     <TitleHero
       art={known.coverUrl}
-      cover={<MangaCover url={known.coverUrl} video className="w-full rounded-xl shadow-lg" />}
+      wideCover={siteSource}
+      cover={
+        <MangaCover
+          url={known.coverUrl}
+          video
+          landscape={siteSource}
+          className="w-full rounded-xl shadow-lg"
+        />
+      }
       title={known.title}
     />
   );
@@ -303,7 +317,19 @@ export const VideoTitlePage: FC = () => {
       )}
       <TitleHero
         art={view.coverUrl}
-        cover={<StremioPoster url={view.coverUrl} className="w-full shadow-lg" />}
+        wideCover={siteSource}
+        cover={
+          siteSource ? (
+            <MangaCover
+              url={view.coverUrl}
+              video
+              landscape
+              className="w-full rounded-xl shadow-lg"
+            />
+          ) : (
+            <StremioPoster url={view.coverUrl} className="w-full shadow-lg" />
+          )
+        }
         title={view.title}
         facts={[
           view.mediaType && t(`watch.mediaType.${view.mediaType}`),
@@ -410,6 +436,10 @@ export const VideoTitlePage: FC = () => {
         <Episodes view={view} downloads={downloads} onPick={pick} />
       )}
       {view.episodes.length === 0 && <p className="text-muted text-sm">{t('watch.noEpisodes')}</p>}
+      {/* A single video's comments, when its source has them (M46.45: YouTube). */}
+      {view.episodes.length === 1 && (
+        <VideoComments sourceId={view.sourceId} videoId={view.remoteId} />
+      )}
       {next && !wide && (
         <ResumeFab
           label={t(

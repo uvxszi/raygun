@@ -24,6 +24,8 @@ reqwest.workspace = true
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 tauri-plugin-raygun-audio.workspace = true
 tauri.workspace = true
+# New releases from followed artists (M46.42), on desktop and Android.
+tauri-plugin-notification = "2"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

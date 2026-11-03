@@ -1,23 +1,33 @@
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import {
   SortableContext,
   arrayMove,
   horizontalListSortingStrategy,
+  sortableKeyboardCoordinates,
   useSortable,
+  verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { TrackColumnId, TrackSortKey } from '@raygun/bindings';
 import {
   ArrowDown,
-  ArrowDownCircle,
   ArrowUp,
   Check,
   ChevronDown,
   CircleSlash,
   Clock3,
   Download,
+  GripVertical,
   List,
+  ListChecks,
   ListEnd,
   ListStart,
   Play,
@@ -39,16 +49,25 @@ import { formatTime } from '../player/formatTime';
 import { Sheet } from '../shell/Sheet';
 import { useWideScreen } from '../shell/useWideScreen';
 import { ArtistLinks } from './ArtistLinks';
-import { COLUMN_TRACKS, SORT_KEYS, filterTracks, sortTracks, useTableView } from './tableView';
+import {
+  COLUMN_TRACKS,
+  SORT_KEYS,
+  dragOrder,
+  filterTracks,
+  sortTracks,
+  useTableView,
+} from './tableView';
 import { useTagsFor } from './useDiscovery';
 import { downloadSongs, useDownloadedKeys } from './useSongDownloads';
-import type { TableTrack, TableView, TrackTableKind } from './tableView';
+import type { TableReorder, TableTrack, TableView, TrackTableKind } from './tableView';
 import { useSourcePickerStore } from './sourcePickerStore';
 import { useTrackLengths } from './useTrackLengths';
 import { useUnavailable } from './useUnavailable';
 import { useTrackMenu } from './useTrackMenu';
+import { SongMarks } from './SongMarks';
 import { NowPlayingBars } from '../player/NowPlayingBars';
 import { usePlayingMatch } from '../player/usePlayingMatch';
+import { songCover } from '../library/coverTargets';
 
 const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
 
@@ -132,6 +151,18 @@ const HeaderCell: FC<{
   );
 };
 
+type RowSortable = ReturnType<typeof useSortable>;
+
+/** A row's drag state (M46.44), handed to the row it wraps; null when rows don't move. */
+const SortableRow: FC<{
+  id: string;
+  enabled: boolean;
+  children: (sortable: RowSortable | null) => ReactNode;
+}> = ({ id, enabled, children }) => {
+  const sortable = useSortable({ id, disabled: !enabled });
+  return children(enabled ? sortable : null);
+};
+
 type TrackTableProps = {
   kind: TrackTableKind;
   tracks: TableTrack[];
@@ -141,6 +172,8 @@ type TrackTableProps = {
   customLabel?: string;
   /** Takes rows out of this list (a playlist, Favorites). */
   onRemove?: (rows: TableTrack[]) => void;
+  /** Rows have a drag handle and keep the order they're dragged into (M46.44). */
+  onReorder?: (change: TableReorder) => void;
   /** Replaces a row's Plus and more button (a playlist's edit controls). */
   actions?: (track: TableTrack, index: number) => ReactNode;
   toolbar?: ReactNode;
@@ -163,6 +196,7 @@ export const TrackTable: FC<TrackTableProps> = ({
   onPlay,
   customLabel,
   onRemove,
+  onReorder,
   actions,
   toolbar,
 }) => {
@@ -180,9 +214,14 @@ export const TrackTable: FC<TrackTableProps> = ({
   const [sortAnchor, setSortAnchor] = useState<HTMLElement | null>(null);
   const [columnsAnchor, setColumnsAnchor] = useState<HTMLElement | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  // Rows move only by their grip, so a short drag is enough; the keyboard works too.
+  const rowSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 3 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
-  // Songs saved into the app are marked (M46.10).
-  const downloaded = useDownloadedKeys();
+  // Songs saved into the app are marked (M46.10): this table listens, so its marks follow.
+  useDownloadedKeys();
   // Genres and moods found for these songs (M46.9): chips filter the table by one.
   const trackKeys = useMemo(() => [...new Set(tracks.map((track) => track.trackKey))], [tracks]);
   const tagsFor = useTagsFor(trackKeys);
@@ -220,7 +259,8 @@ export const TrackTable: FC<TrackTableProps> = ({
   // Widths while a divider is dragged; saved when it's let go.
   const headerRow = useRef<HTMLDivElement>(null);
   const [liveWidths, setLiveWidths] = useState<Partial<Record<TrackColumnId, number>> | null>(null);
-  const template = `2.5rem minmax(12rem, 1.6fr) ${columns
+  // The first column holds the grip too when rows move.
+  const template = `${onReorder ? '3.25rem' : '2.5rem'} minmax(12rem, 1.6fr) ${columns
     .map((column) => {
       const width = liveWidths?.[column.id] ?? column.width;
       return width > 0 ? `${width}px` : COLUMN_TRACKS[column.id];
@@ -296,6 +336,20 @@ export const TrackTable: FC<TrackTableProps> = ({
     const to = view.columns.findIndex((column) => column.id === over.id);
     set({ columns: arrayMove(view.columns, from, to) });
   };
+  // A dropped row (M46.44): what's shown becomes the order, whatever the sort was.
+  const onRowDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!onReorder || !over || active.id === over.id) return;
+    const from = shown.findIndex((track) => track.rowKey === active.id);
+    const to = shown.findIndex((track) => track.rowKey === over.id);
+    const moved = shown[from];
+    if (!moved || to < 0) return;
+    const order = dragOrder(sortTracks(tracks, view), shown, from, to);
+    const at = order.findIndex((track) => track.rowKey === moved.rowKey);
+    const whole = view.sort !== 'custom' || view.descending;
+    onReorder({ order, moved, before: order[at + 1] ?? null, whole });
+    if (whole) set({ sort: 'custom', descending: false });
+  };
+  const selectAll = () => setSelected(new Set(shown.map((track) => track.rowKey)));
   const sortOf = (key: TrackSortKey) =>
     view.sort === key ? (view.descending ? 'desc' : 'asc') : null;
 
@@ -411,6 +465,16 @@ export const TrackTable: FC<TrackTableProps> = ({
       <div className="flex flex-wrap items-center gap-2">
         {toolbar}
         <div className="ml-auto flex items-center gap-1">
+          <button
+            type="button"
+            aria-label={t('tracks.selectAll')}
+            title={t('tracks.selectAll')}
+            disabled={shown.length === 0}
+            onClick={selectAll}
+            className="text-muted hover:text-foreground grid size-9 place-items-center rounded-full disabled:opacity-30"
+          >
+            <ListChecks aria-hidden size={18} />
+          </button>
           {filtering || filter ? (
             <label className="bg-surface flex items-center gap-2 rounded-full px-3 py-1.5">
               <Search aria-hidden size={14} className="text-muted" />
@@ -461,6 +525,15 @@ export const TrackTable: FC<TrackTableProps> = ({
           <span className="flex-1 text-sm font-medium">
             {t('tracks.selected', { count: chosen.length })}
           </span>
+          {chosen.length < shown.length && (
+            <button
+              type="button"
+              onClick={selectAll}
+              className="hover:bg-background flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm"
+            >
+              <ListChecks aria-hidden size={14} /> {t('tracks.selectAll')}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => onPlay(chosen, 0)}
@@ -516,6 +589,13 @@ export const TrackTable: FC<TrackTableProps> = ({
         aria-label={t('tracks.table')}
         aria-rowcount={shown.length}
         className="flex flex-col"
+        onKeyDown={(event) => {
+          // Ctrl+A selects every shown song, as in a file list.
+          if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+            event.preventDefault();
+            selectAll();
+          }
+        }}
       >
         {wide && (
           <div
@@ -524,7 +604,7 @@ export const TrackTable: FC<TrackTableProps> = ({
             style={{ gridTemplateColumns: template }}
             className="text-muted border-foreground/10 grid items-center gap-4 border-b px-2 pb-2 text-xs"
           >
-            <span role="columnheader" className="text-center">
+            <span role="columnheader" className={`text-center ${onReorder ? 'pl-4' : ''}`}>
               #
             </span>
             <div
@@ -577,144 +657,201 @@ export const TrackTable: FC<TrackTableProps> = ({
         {tracks.length > 0 && shown.length === 0 && (
           <p className="text-muted px-2 py-4 text-sm">{t('tracks.noMatch', { filter })}</p>
         )}
-        {shown.map((track, index) => {
-          const playing = playingMatch(track);
-          const isSelected = selected.has(track.rowKey);
-          const compact = view.view === 'compact';
-          return (
-            <div
-              key={track.rowKey}
-              role="row"
-              aria-selected={isSelected}
-              data-testid="track-table-row"
-              onClick={(event) => pick(event, index)}
-              onDoubleClick={() => onPlay(shown, index)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') onPlay(shown, index);
-              }}
-              onContextMenu={menu(track.input, {
-                onPlay: () => onPlay(shown, index),
-                playlistItemId: track.playlistItemId,
-              })}
-              tabIndex={0}
-              style={wide ? { gridTemplateColumns: template } : undefined}
-              className={`group grid items-center gap-4 rounded-lg px-2 outline-none ${compact ? 'py-1' : 'py-1.5'} ${
-                wide ? '' : 'grid-cols-[minmax(0,1fr)_auto]'
-              } ${isSelected ? 'bg-primary/15' : 'hover:bg-surface focus-visible:bg-surface'}`}
-            >
-              {wide && (
-                <span className="relative grid h-8 place-items-center text-sm tabular-nums">
-                  <span className="text-muted grid place-items-center group-hover:invisible">
-                    {playing ? <NowPlayingBars playing={playing === 'playing'} /> : index + 1}
-                  </span>
-                  <button
-                    type="button"
-                    aria-label={t('tracks.playRow', { title: track.title })}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onPlay(shown, index);
-                    }}
-                    className="absolute inset-0 hidden place-items-center group-hover:grid"
-                  >
-                    <Play aria-hidden size={14} fill="currentColor" />
-                  </button>
-                </span>
-              )}
-              <div className="flex min-w-0 items-center gap-3">
-                {!compact && (
-                  <Artwork
-                    url={track.artworkUrl}
-                    className="size-10 shrink-0 rounded"
-                    iconSize={18}
-                  />
-                )}
-                <div
-                  className={`flex min-w-0 flex-1 ${compact ? 'items-baseline gap-2' : 'flex-col'}`}
-                >
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      if (!wide) onPlay(shown, index);
-                      else pick(event, index);
-                    }}
-                    className={`flex min-w-0 items-center gap-1.5 truncate text-left text-sm font-medium ${playing ? 'text-primary' : ''}`}
-                  >
-                    {playing && !wide && <NowPlayingBars playing={playing === 'playing'} />}
-                    <span className="truncate">{track.title}</span>
-                    {downloaded.has(track.trackKey) && (
-                      <ArrowDownCircle
-                        role="img"
-                        aria-label={t('songs.downloaded')}
-                        size={13}
-                        className="text-primary shrink-0"
-                      />
-                    )}
-                  </button>
-                  {/* No source had it when imported (M46.31): choose one. */}
-                  {unavailable.has(track.trackKey) && (
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        useSourcePickerStore.getState().open(track.input);
-                      }}
-                      className="text-muted hover:text-foreground flex items-center gap-1 self-start text-xs"
-                    >
-                      <CircleSlash aria-hidden size={12} />
-                      {t('sourcePicker.unavailable')} · {t('sourcePicker.menu')}
-                    </button>
-                  )}
-                  <ArtistLinks
-                    credit={track.artist}
-                    className="text-muted block truncate text-xs"
-                  />
-                </div>
-              </div>
-              {wide &&
-                columns.map((column) => (
-                  <span
-                    key={column.id}
-                    role="cell"
-                    className="text-muted min-w-0 truncate text-sm tabular-nums"
-                  >
-                    {column.id === 'album' && (track.album ?? '')}
-                    {column.id === 'added' && ago(track.addedAt)}
-                    {column.id === 'plays' && (track.playCount > 0 ? track.playCount : '')}
-                    {column.id === 'duration' &&
-                      (track.durationMs ? formatTime(track.durationMs) : '')}
-                    {column.id === 'tags' &&
-                      (tagsFor.data?.get(track.trackKey) ?? [])
-                        .slice(0, 3)
-                        .map((found) => found.name)
-                        .join(' · ')}
-                  </span>
-                ))}
-              <span
-                className="flex items-center justify-end gap-0.5"
-                onClick={(event) => event.stopPropagation()}
-              >
-                {actions ? (
-                  actions(track, index)
-                ) : (
-                  <>
-                    <SaveButton
-                      track={track.input}
-                      compact
-                      className="opacity-0 group-hover:opacity-100 focus:opacity-100"
-                    />
-                    {!wide && track.durationMs ? (
-                      <span className="text-muted pr-1 text-xs tabular-nums">
-                        {formatTime(track.durationMs)}
-                      </span>
-                    ) : null}
-                    <TrackMoreButton track={track.input} playlistItemId={track.playlistItemId} />
-                  </>
-                )}
-              </span>
-            </div>
-          );
-        })}
+        <DndContext
+          sensors={rowSensors}
+          collisionDetection={closestCenter}
+          onDragEnd={onRowDragEnd}
+        >
+          <SortableContext
+            items={shown.map((track) => track.rowKey)}
+            strategy={verticalListSortingStrategy}
+          >
+            {shown.map((track, index) => {
+              const playing = playingMatch(track);
+              const isSelected = selected.has(track.rowKey);
+              const compact = view.view === 'compact';
+              return (
+                <SortableRow key={track.rowKey} id={track.rowKey} enabled={Boolean(onReorder)}>
+                  {(sortable) => {
+                    // The grip (M46.44): on hover with a mouse, always (dimmed) on touch screens.
+                    const grip = sortable && (
+                      <button
+                        type="button"
+                        ref={sortable.setActivatorNodeRef}
+                        {...sortable.attributes}
+                        {...sortable.listeners}
+                        aria-label={t('tracks.dragRow', { title: track.title })}
+                        onClick={(event) => event.stopPropagation()}
+                        className="text-muted hover:text-foreground grid h-8 w-4 shrink-0 cursor-grab touch-none place-items-center opacity-0 outline-none group-hover:opacity-100 focus-visible:opacity-100 active:cursor-grabbing [@media(hover:none)]:opacity-50"
+                      >
+                        <GripVertical aria-hidden size={16} />
+                      </button>
+                    );
+                    return (
+                      <div
+                        ref={sortable?.setNodeRef}
+                        role="row"
+                        aria-selected={isSelected}
+                        data-testid="track-table-row"
+                        onClick={(event) => pick(event, index)}
+                        onDoubleClick={() => onPlay(shown, index)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') onPlay(shown, index);
+                        }}
+                        onContextMenu={menu(track.input, {
+                          onPlay: () => onPlay(shown, index),
+                          playlistItemId: track.playlistItemId,
+                        })}
+                        tabIndex={0}
+                        style={{
+                          ...(wide ? { gridTemplateColumns: template } : {}),
+                          ...(sortable
+                            ? {
+                                transform: CSS.Translate.toString(sortable.transform),
+                                transition: sortable.transition,
+                              }
+                            : {}),
+                        }}
+                        className={`group grid items-center gap-4 rounded-lg px-2 outline-none ${compact ? 'py-1' : 'py-1.5'} ${
+                          wide ? '' : 'grid-cols-[minmax(0,1fr)_auto]'
+                        } ${
+                          sortable?.isDragging
+                            ? 'bg-surface relative z-10 shadow-lg shadow-black/30'
+                            : isSelected
+                              ? 'bg-primary/15'
+                              : 'hover:bg-surface focus-visible:bg-surface'
+                        }`}
+                      >
+                        {wide && (
+                          <span className="flex h-8 items-center text-sm tabular-nums">
+                            {grip}
+                            <span className="relative grid h-8 flex-1 place-items-center">
+                              <span className="text-muted grid place-items-center group-hover:invisible">
+                                {playing ? (
+                                  <NowPlayingBars playing={playing === 'playing'} />
+                                ) : (
+                                  index + 1
+                                )}
+                              </span>
+                              <button
+                                type="button"
+                                aria-label={t('tracks.playRow', { title: track.title })}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  onPlay(shown, index);
+                                }}
+                                className="absolute inset-0 hidden place-items-center group-hover:grid"
+                              >
+                                <Play aria-hidden size={14} fill="currentColor" />
+                              </button>
+                            </span>
+                          </span>
+                        )}
+                        <div className="flex min-w-0 items-center gap-3">
+                          {!wide && grip}
+                          {!compact && (
+                            <Artwork
+                              url={track.artworkUrl}
+                              fallback={songCover(track)}
+                              className="size-10 shrink-0 rounded"
+                              iconSize={18}
+                            />
+                          )}
+                          <div
+                            className={`flex min-w-0 flex-1 ${compact ? 'items-baseline gap-2' : 'flex-col'}`}
+                          >
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                if (!wide) onPlay(shown, index);
+                                else pick(event, index);
+                              }}
+                              className={`flex min-w-0 items-center gap-1.5 truncate text-left text-sm font-medium ${playing ? 'text-primary' : ''}`}
+                            >
+                              {playing && !wide && (
+                                <NowPlayingBars playing={playing === 'playing'} />
+                              )}
+                              <span className="truncate">{track.title}</span>
+                              <SongMarks
+                                title={track.title}
+                                artist={track.artist}
+                                trackKey={track.trackKey}
+                              />
+                            </button>
+                            {/* No source had it when imported (M46.31): choose one. */}
+                            {unavailable.has(track.trackKey) && (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  useSourcePickerStore.getState().open(track.input);
+                                }}
+                                className="text-muted hover:text-foreground flex items-center gap-1 self-start text-xs"
+                              >
+                                <CircleSlash aria-hidden size={12} />
+                                {t('sourcePicker.unavailable')} · {t('sourcePicker.menu')}
+                              </button>
+                            )}
+                            <ArtistLinks
+                              credit={track.artist}
+                              className="text-muted block truncate text-xs"
+                            />
+                          </div>
+                        </div>
+                        {wide &&
+                          columns.map((column) => (
+                            <span
+                              key={column.id}
+                              role="cell"
+                              className="text-muted min-w-0 truncate text-sm tabular-nums"
+                            >
+                              {column.id === 'album' && (track.album ?? '')}
+                              {column.id === 'added' && ago(track.addedAt)}
+                              {column.id === 'plays' &&
+                                (track.playCount > 0 ? track.playCount : '')}
+                              {column.id === 'duration' &&
+                                (track.durationMs ? formatTime(track.durationMs) : '')}
+                              {column.id === 'tags' &&
+                                (tagsFor.data?.get(track.trackKey) ?? [])
+                                  .slice(0, 3)
+                                  .map((found) => found.name)
+                                  .join(' · ')}
+                            </span>
+                          ))}
+                        <span
+                          className="flex items-center justify-end gap-0.5"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {actions ? (
+                            actions(track, index)
+                          ) : (
+                            <>
+                              <SaveButton
+                                track={track.input}
+                                compact
+                                className="opacity-0 group-hover:opacity-100 focus:opacity-100"
+                              />
+                              {!wide && track.durationMs ? (
+                                <span className="text-muted pr-1 text-xs tabular-nums">
+                                  {formatTime(track.durationMs)}
+                                </span>
+                              ) : null}
+                              <TrackMoreButton
+                                track={track.input}
+                                playlistItemId={track.playlistItemId}
+                              />
+                            </>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  }}
+                </SortableRow>
+              );
+            })}
+          </SortableContext>
+        </DndContext>
       </div>
       {sortSheet}
       {columnsSheet}

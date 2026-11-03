@@ -169,6 +169,10 @@ export const ContextMenuHost: FC = () => {
   const menu = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
   const [active, setActive] = useState(-1);
+  // An item that asks first (M46.45): the menu becomes its question.
+  const [confirming, setConfirming] = useState<Extract<MenuItem, { onSelect: unknown }> | null>(
+    null,
+  );
 
   useEffect(() => {
     const onContextMenu = (event: MouseEvent) => {
@@ -220,6 +224,7 @@ export const ContextMenuHost: FC = () => {
         index === 0 ? group : [{ kind: 'separator' } as MenuItem, ...group],
       );
       setActive(-1);
+      setConfirming(null);
       setPlace(null);
       show(event.clientX, event.clientY, items);
     };
@@ -267,6 +272,10 @@ export const ContextMenuHost: FC = () => {
     );
   const pick = (item: MenuItem) => {
     if ((item.kind ?? 'item') !== 'item' || !('onSelect' in item)) return;
+    if (item.confirm && confirming !== item) {
+      setConfirming(item);
+      return;
+    }
     close();
     item.onSelect();
   };
@@ -294,44 +303,74 @@ export const ContextMenuHost: FC = () => {
       style={{ left: place?.left ?? open.x, top: place?.top ?? open.y }}
       className="bg-surface motion-pop fixed z-[90] flex max-h-[80vh] min-w-56 flex-col overflow-y-auto rounded-xl p-1.5 shadow-2xl ring-1 shadow-black/40 ring-white/10 outline-none"
     >
-      {open.items.map((item, index) => {
-        if (item.kind === 'separator') {
-          return <div key={index} role="separator" className="bg-foreground/10 mx-2 my-1 h-px" />;
-        }
-        if (item.kind === 'heading') {
+      {confirming ? (
+        <div
+          role="alertdialog"
+          aria-label={confirming.confirm}
+          className="flex max-w-72 flex-col gap-3 p-2"
+        >
+          <p className="text-sm">{confirming.confirm}</p>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              autoFocus
+              onClick={close}
+              className="hover:bg-background rounded-full px-3 py-1.5 text-sm"
+            >
+              {t('collections.cancel')}
+            </button>
+            <button
+              type="button"
+              onClick={() => pick(confirming)}
+              className="bg-primary text-background rounded-full px-4 py-1.5 text-sm font-semibold"
+            >
+              {confirming.label}
+            </button>
+          </div>
+        </div>
+      ) : (
+        open.items.map((item, index) => {
+          if (item.kind === 'separator') {
+            return <div key={index} role="separator" className="bg-foreground/10 mx-2 my-1 h-px" />;
+          }
+          if (item.kind === 'heading') {
+            return (
+              <div
+                key={index}
+                className="text-muted truncate px-3 pt-1.5 pb-1 text-xs font-semibold"
+              >
+                {item.label}
+              </div>
+            );
+          }
+          const Icon = item.icon;
           return (
-            <div key={index} className="text-muted truncate px-3 pt-1.5 pb-1 text-xs font-semibold">
-              {item.label}
-            </div>
+            <button
+              key={index}
+              type="button"
+              role="menuitem"
+              disabled={item.disabled}
+              onMouseEnter={() => setActive(index)}
+              onClick={() => pick(item)}
+              className={`flex items-center gap-3 rounded-lg px-3 py-1.5 text-left text-sm disabled:opacity-40 ${
+                index === active ? 'bg-primary/15 text-foreground' : ''
+              } ${item.danger ? 'text-primary' : ''}`}
+            >
+              <span className="grid size-4 shrink-0 place-items-center">
+                {Icon && (
+                  <Icon
+                    aria-hidden
+                    size={15}
+                    className={index === active ? 'text-primary' : 'text-muted'}
+                  />
+                )}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+              {item.hint && <span className="text-muted shrink-0 pl-4 text-xs">{item.hint}</span>}
+            </button>
           );
-        }
-        const Icon = item.icon;
-        return (
-          <button
-            key={index}
-            type="button"
-            role="menuitem"
-            disabled={item.disabled}
-            onMouseEnter={() => setActive(index)}
-            onClick={() => pick(item)}
-            className={`flex items-center gap-3 rounded-lg px-3 py-1.5 text-left text-sm disabled:opacity-40 ${
-              index === active ? 'bg-primary/15 text-foreground' : ''
-            } ${item.danger ? 'text-primary' : ''}`}
-          >
-            <span className="grid size-4 shrink-0 place-items-center">
-              {Icon && (
-                <Icon
-                  aria-hidden
-                  size={15}
-                  className={index === active ? 'text-primary' : 'text-muted'}
-                />
-              )}
-            </span>
-            <span className="min-w-0 flex-1 truncate">{item.label}</span>
-            {item.hint && <span className="text-muted shrink-0 pl-4 text-xs">{item.hint}</span>}
-          </button>
-        );
-      })}
+        })
+      )}
     </div>,
     document.body,
   );

@@ -105,6 +105,11 @@ impl JsExtension {
         });
 
         let runtime = AsyncRuntime::new().map_err(|error| error.to_string())?;
+        // Drives the extension's own futures (its fetches) whatever call is waiting on them. Without
+        // it they're polled by the last call into the runtime: two calls at once (a title's details
+        // and episodes) left one waiting forever when the other finished first (M46.45). Ends when
+        // the runtime is dropped. The host runs extensions on a `LocalSet`.
+        tokio::task::spawn_local(runtime.drive());
         runtime.set_memory_limit(limits.memory_bytes).await;
         runtime.set_max_stack_size(limits.stack_bytes).await;
         runtime

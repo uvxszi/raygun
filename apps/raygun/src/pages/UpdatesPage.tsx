@@ -8,9 +8,10 @@ import { useMangaLiveEvents, useMangaUpdateStatus, useUpdateLibrary } from '../m
 import { Tabs } from '../shell/Tabs';
 import { TopBarAction } from '../shell/TopBar';
 import { EpisodeUpdates } from '../watch/EpisodeUpdates';
+import { ReleaseNews } from '../music/ReleaseNews';
 import { PageHeader } from './PageHeader';
 
-export type UpdatesTab = 'all' | 'chapters' | 'episodes';
+export type UpdatesTab = 'all' | 'chapters' | 'episodes' | 'releases';
 
 /**
  * Updates (More → Updates): what library updates found, chapters and episodes in their own tabs.
@@ -59,6 +60,12 @@ export const UpdatesPage: FC = () => {
             to: '/updates',
             search: { tab: 'episodes' },
           },
+          {
+            id: 'releases',
+            label: t('updates.releases'),
+            to: '/updates',
+            search: { tab: 'releases' },
+          },
         ]}
       />
       {(running || finished?.lastRunAt) && (
@@ -88,10 +95,13 @@ export const UpdatesPage: FC = () => {
           <ChapterUpdates />
           <h2 className="text-lg font-semibold">{t('updates.episodes')}</h2>
           <EpisodeUpdates />
+          <h2 className="text-lg font-semibold">{t('updates.releases')}</h2>
+          <ReleaseNews quiet />
         </>
       )}
       {tab === 'chapters' && <ChapterUpdates />}
       {tab === 'episodes' && <EpisodeUpdates />}
+      {tab === 'releases' && <ReleaseNews />}
     </section>
   );
 };

@@ -11,6 +11,7 @@ import { currentLine, trackQueryFor, useLyricsFor } from './lyricsQuery';
 import { useLivePosition } from './useLivePosition';
 import { sendControl } from './usePlayback';
 import { SourceIssue } from '../shell/SourceIssue';
+import { LyricsSourceMenu } from '../sound/LyricsSourceMenu';
 
 type LyricsViewProps = {
   item: QueueItem;
@@ -140,10 +141,9 @@ export const LyricsView: FC<LyricsViewProps> = ({
       <div
         className={`flex items-center gap-3 ${hasLines || variant === 'sheet' ? 'mt-6' : 'mt-2 justify-center'}`}
       >
-        {lyrics.data && (
-          <p className="text-muted text-xs">
-            {t('player.lyricsFrom', { source: lyrics.data.providerName })}
-          </p>
+        {/* One dropdown to switch where the lyrics come from (M46.45). */}
+        {query && !lyrics.isPending && (
+          <LyricsSourceMenu query={query} current={lyrics.data ?? undefined} />
         )}
         {!lyrics.isPending && (
           <button

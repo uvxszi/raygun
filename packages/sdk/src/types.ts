@@ -88,6 +88,10 @@ export type MusicMetadataProvider = {
   album?(args: { id: string }): Promise<{ album: Album; tracks: Track[] }>;
   /** An artist's releases, newest first (M46.36); `query` is the artist's name. */
   artistReleases?(args: SearchArgs): Promise<{ releases: Album[] }>;
+  /** An artist's coming events, soonest first (M46.42); `query` is the artist's name. */
+  artistEvents?(args: SearchArgs): Promise<{
+    events: { name: string; date: string; place?: string | null; url?: string | null }[];
+  }>;
   /** Playlists by name (M46.39); `featured` asks for the service's own only. */
   searchPlaylists?(args: SearchArgs & { featured: boolean }): Promise<{ playlists: Playlist[] }>;
   /** A playlist's songs, in order (M46.39). */
@@ -439,6 +443,18 @@ export type VideoTimestamp = {
   type?: 'opening' | 'ending' | 'recap' | 'mixedOp' | 'mixedEd' | 'other';
 };
 
+/** One comment on a video (M46.45). */
+export type VideoComment = {
+  author: string;
+  avatarUrl?: string | null;
+  text: string;
+  /** As the site shows it: "220K". */
+  likes?: string | null;
+  /** As the site shows it: "6 years ago". */
+  published?: string | null;
+  replies?: number | null;
+};
+
 /** A server (hoster) for an episode. Include `videos` when they cost nothing to resolve. */
 export type VideoServer = { id: string; name?: string; videos?: Video[] };
 
@@ -464,6 +480,14 @@ export type VideoSourceProvider = {
   episodes(args: { id: string }): Promise<{ episodes: VideoEpisode[] }>;
   servers(args: { episodeId: string }): Promise<{ servers: VideoServer[] }>;
   videos(args: { serverId: string }): Promise<{ videos: Video[] }>;
+  /**
+   * A title's comments, a page at a time (M46.45): `page` is the `next` the last page gave, left
+   * out for the first.
+   */
+  comments?(args: {
+    id: string;
+    page?: string | null;
+  }): Promise<{ comments: VideoComment[]; next?: string | null }>;
 };
 
 /**

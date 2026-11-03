@@ -204,6 +204,46 @@ const search = defineProvider({
     return { releases };
   },
 
+  async artistEvents({ query, limit }) {
+    const cleaned = escapeQuery(query);
+    if (cleaned === '') return { events: [] };
+    const found = await getJson<{ artists?: { id: string; name: string }[] }>(
+      `${API}/artist?query=${encodeURIComponent(`artist:"${cleaned}"`)}&limit=5&fmt=json`,
+    );
+    const wanted = simple(query);
+    const artist =
+      (found.artists ?? []).find((candidate) => simple(candidate.name) === wanted) ??
+      (found.artists ?? [])[0];
+    if (!artist) return { events: [] };
+    type MbEvent = {
+      id: string;
+      name: string;
+      cancelled?: boolean;
+      'life-span'?: { begin?: string };
+      relations?: { place?: { name?: string; area?: { name?: string } } }[];
+    };
+    // The search finds coming events by date (browsing lists them in no useful order).
+    const today = new Date().toISOString().slice(0, 10);
+    const search = `arid:${artist.id} AND begin:[${today} TO 2100-12-31]`;
+    const listed = await getJson<{ events?: MbEvent[] }>(
+      `${API}/event?query=${encodeURIComponent(search)}&limit=50&fmt=json`,
+    );
+    const events = (listed.events ?? [])
+      .filter((event) => !event.cancelled && (event['life-span']?.begin ?? '') >= today)
+      .sort((a, b) => (a['life-span']?.begin ?? '').localeCompare(b['life-span']?.begin ?? ''))
+      .slice(0, Math.max(limit, 1))
+      .map((event) => {
+        const place = event.relations?.find((relation) => relation.place)?.place;
+        return {
+          name: event.name,
+          date: event['life-span']?.begin ?? '',
+          place: [place?.name, place?.area?.name].filter(Boolean).join(', ') || null,
+          url: `https://musicbrainz.org/event/${event.id}`,
+        };
+      });
+    return { events };
+  },
+
   async album({ id }) {
     if (!/^[0-9a-f-]{36}$/.test(id)) throw new Error(`Unknown album ${id}`);
     const group = await getJson<ReleaseGroup>(

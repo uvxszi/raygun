@@ -3,6 +3,7 @@ import type { EngineCommand, EngineReport } from '@raygun/bindings';
 import { useEffect } from 'react';
 
 import { Html5Engine } from './html5Engine';
+import { registerSink } from './outputSink';
 import { WebAudioSound, elementSound } from './soundGraph';
 import type { SoundBackend } from './soundGraph';
 import { createVideoDock, removeVideoDock } from './videoDock';
@@ -14,7 +15,10 @@ type WebviewEngine = { handle: (command: EngineCommand) => void; dispose: () => 
 const soundBackend = (): SoundBackend => {
   if (typeof AudioContext === 'undefined') return elementSound();
   try {
-    return new WebAudioSound(new AudioContext({ latencyHint: 'playback' }));
+    const context = new AudioContext({ latencyHint: 'playback' });
+    // The output picked in Devices (M46.43).
+    registerSink(context);
+    return new WebAudioSound(context);
   } catch {
     return elementSound();
   }
@@ -38,6 +42,7 @@ export const useEngineHost = () => {
     for (const deck of decks) {
       deck.preload = 'auto';
       deck.crossOrigin = 'anonymous';
+      registerSink(deck);
     }
     const html5 = new Html5Engine(decks, report, undefined, soundBackend());
 

@@ -114,7 +114,7 @@ describe('Local network access (Android 17)', () => {
     commands.localNetworkAccess.mockResolvedValue(ok(ASK));
     commands.localNetworkRequest.mockResolvedValueOnce(ok(DENIED));
     commands.remoteSetEnabled.mockResolvedValue(ok(REMOTE_ON));
-    await AppShellWrapper.mount('/settings/connections');
+    await AppShellWrapper.mount('/settings/devices');
     const card = await screen.findByTestId('remote-card');
 
     await user.click(await within(card).findByRole('switch', { name: 'Remote control' }));
@@ -137,7 +137,7 @@ describe('Local network access (Android 17)', () => {
   it('turns the remote off without asking', async () => {
     const user = userEvent.setup();
     commands.remoteStatus.mockResolvedValue(ok(REMOTE_ON));
-    await AppShellWrapper.mount('/settings/connections');
+    await AppShellWrapper.mount('/settings/devices');
     const card = await screen.findByTestId('remote-card');
 
     await user.click(await within(card).findByRole('switch', { name: 'Remote control' }));

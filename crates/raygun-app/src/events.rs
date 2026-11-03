@@ -58,6 +58,10 @@ pub struct ImportEvent(pub String);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct CaptionsEvent(pub String);
 
+/// Followed artists or their release news changed (M46.42).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct ArtistReleasesEvent;
+
 /// A Local Files folder was added, scanned or removed; carries its id (M46.27).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct LocalFilesEvent(pub String);

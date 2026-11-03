@@ -142,6 +142,8 @@ pub struct Settings {
     pub discovery: DiscoveryPrefs,
     /// Captions for podcasts and audiobooks heard by AI (M46.32).
     pub transcription: TranscriptionPrefs,
+    /// What's remembered of listening (M46.41).
+    pub privacy: PrivacyPrefs,
     /// Sources that didn't answer lately go to the end of Browse and Search (M46.9).
     pub failing_sources_last: bool,
     /// The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default.
@@ -159,14 +161,44 @@ pub struct Settings {
 }
 
 /// The desktop sidebar's pins (M46.29): anything with a page, in the user's order or by when it
-/// was last played from or opened.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+/// was last played from or opened. Quick access (M46.41): what's added to the library is pinned
+/// too, up to `limit` automatic pins.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RailPrefs {
     pub pins: Vec<RailPin>,
     pub order: RailOrder,
     /// The first run's pins were added (Favorites, Downloaded, Local files and the playlists).
     pub seeded: bool,
+    /// Pin what's added to the library (M46.41).
+    #[serde(default = "pin_added")]
+    pub auto_add: bool,
+    /// Automatic pins kept at most, 1–1000; the oldest go first. Pins made by hand stay.
+    #[serde(default = "auto_pin_limit")]
+    pub limit: u32,
+}
+
+fn pin_added() -> bool {
+    true
+}
+
+fn auto_pin_limit() -> u32 {
+    20
+}
+
+/// Automatic quick access pins allowed at most (M46.41).
+pub const RAIL_AUTO_LIMIT_MAX: u32 = 1000;
+
+impl Default for RailPrefs {
+    fn default() -> Self {
+        Self {
+            pins: Vec::new(),
+            order: RailOrder::default(),
+            seeded: false,
+            auto_add: true,
+            limit: auto_pin_limit(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -185,6 +217,10 @@ pub struct RailPin {
     pub pinned_at: u32,
     pub played_at: u32,
     pub opened_at: u32,
+    /// Pinned because it was added to the library (M46.41), not by hand: it goes when it leaves
+    /// the library, or when newer automatic pins pass the limit.
+    #[serde(default)]
+    pub auto: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -199,7 +235,7 @@ pub enum RailOrder {
 }
 
 /// Pins the sidebar keeps, at most.
-pub const RAIL_MAX_PINS: usize = 300;
+pub const RAIL_MAX_PINS: usize = 1100;
 
 impl RailPrefs {
     pub fn validate(&self) -> Result<(), String> {
@@ -209,7 +245,31 @@ impl RailPrefs {
         if let Some(pin) = self.pins.iter().find(|pin| !pin.to.starts_with('/')) {
             return Err(format!("{:?} isn't a page of Raygun", pin.to));
         }
+        if !(1..=RAIL_AUTO_LIMIT_MAX).contains(&self.limit) {
+            return Err(format!(
+                "quick access keeps 1 to {RAIL_AUTO_LIMIT_MAX} automatic pins"
+            ));
+        }
         Ok(())
+    }
+}
+
+/// What's remembered of listening (M46.41); both on by default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PrivacyPrefs {
+    /// Plays go into the listening history (play counts, Made for You's taste).
+    pub history: bool,
+    /// Where plays started from is kept for Home (Recently played, Your music).
+    pub recently_played: bool,
+}
+
+impl Default for PrivacyPrefs {
+    fn default() -> Self {
+        Self {
+            history: true,
+            recently_played: true,
+        }
     }
 }
 
@@ -1408,6 +1468,7 @@ impl Default for Settings {
             zoom: 100,
             discovery: DiscoveryPrefs::default(),
             transcription: TranscriptionPrefs::default(),
+            privacy: PrivacyPrefs::default(),
             failing_sources_last: true,
             user_agent: String::new(),
             sound: SoundPrefs::default(),
@@ -1468,6 +1529,7 @@ impl Settings {
             SettingChange::ResumeOnStart(on) => self.resume_on_start = on,
             SettingChange::AudioQuality(prefs) => self.audio_quality = prefs,
             SettingChange::Rail(prefs) => self.rail = prefs,
+            SettingChange::Privacy(prefs) => self.privacy = prefs,
             SettingChange::Transcription(prefs) => {
                 self.transcription = TranscriptionPrefs {
                     online_model: prefs.online_model.trim().to_owned(),
@@ -1547,6 +1609,7 @@ pub enum SettingChange {
     AudioQuality(AudioQualityPrefs),
     Rail(RailPrefs),
     Transcription(TranscriptionPrefs),
+    Privacy(PrivacyPrefs),
 }
 
 impl SettingChange {
@@ -1602,6 +1665,7 @@ impl SettingChange {
             Self::AudioQuality(_) => "audioQuality",
             Self::Rail(_) => "rail",
             Self::Transcription(_) => "transcription",
+            Self::Privacy(_) => "privacy",
         }
     }
 
@@ -1627,7 +1691,8 @@ impl SettingChange {
             | Self::FailingSourcesLast(_)
             | Self::KeepMusicPlaying(_)
             | Self::ResumeOnStart(_)
-            | Self::AudioQuality(_) => Ok(()),
+            | Self::AudioQuality(_)
+            | Self::Privacy(_) => Ok(()),
             Self::Rail(prefs) => prefs.validate(),
             Self::Transcription(prefs) => {
                 if prefs.online_model.trim().len() > 200 {
@@ -2522,6 +2587,15 @@ pub struct ImportedList {
 
 /// A song after matching it against the music sources: what the best match added to it, which
 /// source that was, and its stream when the source plays it directly.
+/// Where imported songs go (M46.45): a new playlist, one the user has, or Favorites.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ImportTarget {
+    New { name: String },
+    Playlist { id: String },
+    Favorites,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct MatchedSong {
@@ -2747,6 +2821,61 @@ impl ReleaseKind {
     }
 }
 
+/// A place sound can come out of on this device (M46.43): the speaker, wired, Bluetooth or USB
+/// headphones, HDMI. Desktop lists its own in the webview.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioOutput {
+    pub id: String,
+    pub name: String,
+    /// `speaker`, `wired`, `bluetooth`, `usb` or `hdmi`.
+    pub kind: String,
+}
+
+/// This device's outputs and the one picked (`None`: the system's choice).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioOutputs {
+    pub outputs: Vec<AudioOutput>,
+    pub chosen: Option<String>,
+}
+
+/// An artist the user follows (M46.42): in the library and quick access, with alerts for new
+/// releases when `alerts` is on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FollowedArtist {
+    pub name: String,
+    pub image_url: Option<String>,
+    /// Unix ms.
+    pub followed_at: f64,
+    pub alerts: bool,
+}
+
+/// A release found for a followed artist since the last check (M46.42).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtistReleaseNews {
+    pub artist: String,
+    pub album: MusicAlbum,
+    /// Unix ms.
+    pub found_at: f64,
+}
+
+/// A concert or other event of an artist (M46.42), from a source's open data (MusicBrainz).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtistEvent {
+    pub name: String,
+    /// `YYYY-MM-DD` (or less, as the source knows it).
+    pub date: String,
+    /// The venue and its city, when known.
+    pub place: Option<String>,
+    /// The event's page at the source.
+    pub url: Option<String>,
+    pub source: String,
+}
+
 /// A playlist a music source has (M46.39): Search → Music → Playlists.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -2925,6 +3054,8 @@ pub struct PlaylistSummary {
     pub item_count: u32,
     /// Up to four distinct artworks of the first items, for the cover.
     pub artwork_urls: Vec<String>,
+    /// The cover the user picked (M46.45), shown instead of the artworks.
+    pub cover_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
@@ -3311,7 +3442,8 @@ pub struct CoverOption {
     pub of: Option<String>,
 }
 
-/// What the user edits the details of (M46.30): a song, an album or an artist.
+/// What the user edits the details of (M46.30): a song, an album or an artist; a playlist's
+/// cover (M46.45).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum DetailTarget {
@@ -3324,6 +3456,10 @@ pub enum DetailTarget {
     },
     Artist {
         name: String,
+    },
+    /// Only its cover is the user's (its name is renamed with the playlist).
+    Playlist {
+        id: String,
     },
 }
 
@@ -4915,6 +5051,18 @@ pub struct StremioVideo {
     pub downloaded: bool,
 }
 
+/// A rating and who gave it (M46.45): IMDb's, or another site an addon links.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TitleRating {
+    /// "IMDb", or the site's name as the addon gives it.
+    pub source: String,
+    /// As given: "7.8", "85%", "8/10".
+    pub value: String,
+    /// The title's page on that site.
+    pub url: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct StremioMeta {
@@ -4929,6 +5077,8 @@ pub struct StremioMeta {
     pub release_info: Option<String>,
     pub runtime: Option<String>,
     pub rating: Option<String>,
+    /// Ratings with their sources (M46.45), from the addon whose details these are.
+    pub ratings: Vec<TitleRating>,
     pub cast: Vec<String>,
     pub director: Vec<String>,
     pub trailer_yt_ids: Vec<String>,
@@ -5064,6 +5214,33 @@ pub struct VideoEpisodeView {
     pub watched: bool,
     /// Saved on the device (M43).
     pub downloaded: bool,
+}
+
+/// One comment on a video (M46.45), as the source shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoComment {
+    pub author: String,
+    #[serde(default)]
+    pub avatar_url: Option<String>,
+    pub text: String,
+    /// "220K".
+    #[serde(default)]
+    pub likes: Option<String>,
+    /// "6 years ago".
+    #[serde(default)]
+    pub published: Option<String>,
+    #[serde(default)]
+    pub replies: Option<u32>,
+}
+
+/// A page of a video's comments; `next` asks for the following one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoComments {
+    pub comments: Vec<VideoComment>,
+    #[serde(default)]
+    pub next: Option<String>,
 }
 
 /// A server (hoster) for an episode; `links` when the source resolved it already.

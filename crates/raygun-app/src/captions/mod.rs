@@ -406,11 +406,83 @@ impl CaptionService {
     }
 
     /// Goes back to an episode's own transcript (M46.36: the listener picks the captions'
-    /// source): what AI heard is forgotten and the feed's transcript is read again.
+    /// source). What AI heard is kept aside (M46.45), and the feed's transcript comes back from
+    /// where it was kept, else is read again.
     pub async fn use_feed(self: &Arc<Self>, episode_id: &str) -> Result<(), String> {
-        self.clear(episode_id).await?;
-        self.state().fetched.remove(episode_id);
+        self.switch(episode_id, AI_SHELF, FEED_SHELF).await?;
+        if !self.has_captions(episode_id).await {
+            self.state().fetched.remove(episode_id);
+        }
+        self.announce(episode_id);
         Ok(())
+    }
+
+    /// Captions heard by AI in place of the feed's transcript (M46.45): the feed's is kept
+    /// aside; what AI heard before comes back at once, else transcribing starts at `from_ms`.
+    pub async fn use_ai(self: &Arc<Self>, episode_id: &str, from_ms: u32) -> Result<(), String> {
+        self.switch(episode_id, FEED_SHELF, AI_SHELF).await?;
+        if self.has_captions(episode_id).await {
+            self.announce(episode_id);
+            Ok(())
+        } else {
+            self.transcribe(episode_id, from_ms).await
+        }
+    }
+
+    /// Keeps an episode's captions on `away`'s shelf and brings back `back`'s, if any.
+    async fn switch(&self, episode_id: &str, away: &str, back: &str) -> Result<(), String> {
+        self.stop(episode_id);
+        let db = self.db();
+        if self.has_captions(episode_id).await {
+            store::move_to(&db, episode_id, &format!("{episode_id}{away}"))
+                .await
+                .map_err(to_message)?;
+        }
+        let shelf = format!("{episode_id}{back}");
+        if store::progress(&db, &shelf)
+            .await
+            .map_err(to_message)?
+            .is_some()
+        {
+            store::move_to(&db, &shelf, episode_id)
+                .await
+                .map_err(to_message)?;
+        }
+        self.state().errors.remove(episode_id);
+        Ok(())
+    }
+
+    async fn has_captions(&self, episode_id: &str) -> bool {
+        store::progress(&self.db(), episode_id)
+            .await
+            .ok()
+            .flatten()
+            .is_some()
+    }
+
+    /// The words a transcription heard in a song, kept from its last run (M46.45): offered with
+    /// the lyrics sources' versions, so switching back costs nothing.
+    pub async fn song_transcript(
+        &self,
+        query: &raygun_model::TrackQuery,
+    ) -> Option<raygun_model::Lyrics> {
+        let cues = store::cues(&self.db(), &song_key(query)).await.ok()?;
+        if cues.is_empty() {
+            return None;
+        }
+        Some(raygun_model::Lyrics {
+            provider_name: TRANSCRIBED.to_owned(),
+            synced: cues
+                .into_iter()
+                .map(|cue| raygun_model::LyricLine {
+                    time_ms: clamp_ms(cue.start_ms),
+                    text: cue.text,
+                })
+                .collect(),
+            plain: None,
+            offset_ms: 0,
+            edited: false,
+        })
     }
 
     /// Runs a job for `key`, stopping any other; its outcome is announced and kept.
@@ -788,6 +860,12 @@ fn is_quiet(samples: &[f32]) -> bool {
 const SONG_TRIES: usize = 4;
 
 /// The captions key of a song's transcription (M46.36): `song:` and its track key.
+/// Where a source's captions wait while the listener uses the other (M46.45).
+const AI_SHELF: &str = "#ai";
+const FEED_SHELF: &str = "#feed";
+/// The lyrics source name of a song's transcription; the UI names it.
+pub const TRANSCRIBED: &str = "transcribed";
+
 pub fn song_key(query: &raygun_model::TrackQuery) -> String {
     format!("song:{}", raygun_resolver::track_key(query))
 }

@@ -1,4 +1,4 @@
-// dev.raygun.youtube 2.2.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.youtube 2.3.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -370,13 +370,51 @@
     if (!response.ok) throw new Error(`YouTube answered ${response.status}`);
     return await response.json();
   };
-  var videosIn = (items, out = []) => {
+  var PREFIX = { channel: "channel:", playlist: "playlist:" };
+  var imageUrl = (url) => {
+    if (!url) return null;
+    const full = url.startsWith("//") ? `https:${url}` : url;
+    return full.includes("ytimg.com") ? full.split("?")[0] ?? full : full;
+  };
+  var lockupImage = (lockup) => imageUrl(
+    (lockup.contentImage?.thumbnailViewModel ?? lockup.contentImage?.collectionThumbnailViewModel?.primaryThumbnail?.thumbnailViewModel)?.image?.sources?.at(-1)?.url
+  );
+  var entriesIn = (items, videosOnly = false, out = []) => {
     for (const item of items ?? []) {
-      if (item.videoRenderer?.videoId) out.push(item.videoRenderer);
-      if (item.itemSectionRenderer) videosIn(item.itemSectionRenderer.contents, out);
-      if (item.shelfRenderer)
-        videosIn(item.shelfRenderer.content?.expandedShelfContentsRenderer?.items, out);
-      if (item.richItemRenderer?.content) videosIn([item.richItemRenderer.content], out);
+      const video = item.videoRenderer;
+      if (video?.videoId) {
+        out.push({
+          id: video.videoId,
+          title: textOf(video.title),
+          coverUrl: imageUrl(video.thumbnail?.thumbnails?.at(-1)?.url)
+        });
+      }
+      const channel = item.channelRenderer;
+      if (channel?.channelId && !videosOnly) {
+        out.push({
+          id: `${PREFIX.channel}${channel.channelId}`,
+          title: textOf(channel.title),
+          coverUrl: imageUrl(channel.thumbnail?.thumbnails?.at(-1)?.url)
+        });
+      }
+      const lockup = item.lockupViewModel;
+      if (lockup?.contentId) {
+        const title = lockup.metadata?.lockupMetadataViewModel?.title?.content ?? "";
+        if (lockup.contentType === "LOCKUP_CONTENT_TYPE_VIDEO") {
+          out.push({ id: lockup.contentId, title, coverUrl: lockupImage(lockup) });
+        } else if (lockup.contentType === "LOCKUP_CONTENT_TYPE_PLAYLIST" && !videosOnly) {
+          out.push({
+            id: `${PREFIX.playlist}${lockup.contentId}`,
+            title,
+            coverUrl: lockupImage(lockup)
+          });
+        }
+      }
+      if (item.itemSectionRenderer) entriesIn(item.itemSectionRenderer.contents, videosOnly, out);
+      if (item.shelfRenderer) {
+        entriesIn(item.shelfRenderer.content?.expandedShelfContentsRenderer?.items, videosOnly, out);
+      }
+      if (item.richItemRenderer?.content) entriesIn([item.richItemRenderer.content], videosOnly, out);
     }
     return out;
   };
@@ -390,11 +428,7 @@
     return null;
   };
   var toPage = (found, next) => ({
-    items: found.map((video) => ({
-      id: video.videoId,
-      title: textOf(video.title),
-      coverUrl: video.thumbnail?.thumbnails?.at(-1)?.url?.split("?")[0] ?? null
-    })),
+    items: found,
     hasNextPage: next !== null
   });
   var pages = /* @__PURE__ */ new Map();
@@ -415,7 +449,64 @@
     const next = continuationIn(items);
     if (next) pages.set(key(page + 1), next);
     if (pages.size > 60) pages.delete(pages.keys().next().value);
-    return toPage(videosIn(items), next);
+    return toPage(entriesIn(items), next);
+  };
+  var CHANNEL_VIDEOS = "EgZ2aWRlb3PyBgQKAjoA";
+  var browsePage = (id) => id.startsWith(PREFIX.channel) ? webInnertube("browse", {
+    browseId: id.slice(PREFIX.channel.length),
+    params: CHANNEL_VIDEOS
+  }) : webInnertube("browse", {
+    browseId: `VL${id.slice(PREFIX.playlist.length)}`
+  });
+  var browseVideos = (page) => {
+    const tabs = page.contents?.twoColumnBrowseResultsRenderer?.tabs ?? [];
+    const tab = tabs.find((each) => each.tabRenderer?.selected) ?? tabs[0];
+    const content = tab?.tabRenderer?.content;
+    return entriesIn(
+      content?.richGridRenderer?.contents ?? content?.sectionListRenderer?.contents,
+      true
+    );
+  };
+  var isCollection = (id) => id.startsWith(PREFIX.channel) || id.startsWith(PREFIX.playlist);
+  var tokenOf = (item) => item?.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token ?? null;
+  var videoComments = async (id, page) => {
+    if (isCollection(id)) return { comments: [], next: null };
+    let token = page ?? null;
+    if (!token) {
+      const watch = await webInnertube("next", { videoId: id });
+      const sections = watch.contents?.twoColumnWatchNextResults?.results?.results?.contents ?? [];
+      const section = sections.find(
+        (each) => each.itemSectionRenderer?.targetId === "comments-section"
+      );
+      token = tokenOf(section?.itemSectionRenderer?.contents?.[0]);
+      if (!token) return { comments: [], next: null };
+    }
+    const answer = await webInnertube("next", { continuation: token });
+    const items = (answer.onResponseReceivedEndpoints ?? []).flatMap(
+      (endpoint) => (endpoint.reloadContinuationItemsCommand ?? endpoint.appendContinuationItemsAction)?.continuationItems ?? []
+    );
+    const payloads = /* @__PURE__ */ new Map();
+    for (const mutation of answer.frameworkUpdates?.entityBatchUpdate?.mutations ?? []) {
+      const payload = mutation.payload?.commentEntityPayload;
+      if (mutation.entityKey && payload) payloads.set(mutation.entityKey, payload);
+    }
+    const comments = items.flatMap((item) => {
+      const key = item.commentThreadRenderer?.commentViewModel?.commentViewModel?.commentKey;
+      const comment = key ? payloads.get(key) : void 0;
+      if (!comment) return [];
+      const replies = Number.parseInt(comment.toolbar?.replyCount ?? "", 10);
+      return [
+        {
+          author: comment.author?.displayName ?? "",
+          avatarUrl: comment.author?.avatarThumbnailUrl ?? null,
+          text: comment.properties?.content?.content ?? "",
+          likes: comment.toolbar?.likeCountNotliked?.trim() || null,
+          published: comment.properties?.publishedTime ?? null,
+          replies: Number.isFinite(replies) ? replies : null
+        }
+      ];
+    });
+    return { comments, next: tokenOf(items.at(-1)) };
   };
   var videos = defineProvider({
     kind: "video.source",
@@ -427,6 +518,21 @@
     latest: ({ page }) => searchWeb("live now", page),
     search: ({ query, page }) => searchWeb(query.trim() || "trending", page),
     async details({ id }) {
+      if (isCollection(id)) {
+        const page = await browsePage(id);
+        const channel = page.metadata?.channelMetadataRenderer;
+        const playlist = page.metadata?.playlistMetadataRenderer;
+        const own = id.startsWith(PREFIX.channel) ? `${WEB}/channel/${id.slice(PREFIX.channel.length)}` : `${WEB}/playlist?list=${id.slice(PREFIX.playlist.length)}`;
+        return {
+          id,
+          title: channel?.title ?? playlist?.title ?? id,
+          coverUrl: imageUrl(channel?.avatar?.thumbnails?.at(-1)?.url) ?? browseVideos(page)[0]?.coverUrl ?? null,
+          description: channel?.description ?? playlist?.description ?? null,
+          genres: [],
+          type: "series",
+          url: own
+        };
+      }
       const watch = `${WEB}/watch?v=${encodeURIComponent(id)}`;
       const response = await raygun.http.fetch(
         `${WEB}/oembed?format=json&url=${encodeURIComponent(watch)}`,
@@ -443,7 +549,18 @@
         url: watch
       };
     },
-    episodes: async ({ id }) => ({ episodes: [{ id, name: "Video" }] }),
+    episodes: async ({ id }) => {
+      if (!isCollection(id)) return { episodes: [{ id, name: "Video" }] };
+      const videos2 = browseVideos(await browsePage(id));
+      return {
+        episodes: videos2.map((video, index) => ({
+          id: video.id,
+          name: video.title,
+          number: index + 1
+        }))
+      };
+    },
+    comments: ({ id, page }) => videoComments(id, page),
     // Played in YouTube's embed: one link, no stream extraction.
     servers: async ({ episodeId }) => ({
       servers: [

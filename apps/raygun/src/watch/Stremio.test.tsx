@@ -65,6 +65,7 @@ const SERIES: StremioMeta = {
   releaseInfo: '2008–2013',
   runtime: '49 min',
   rating: '9.5',
+  ratings: [],
   cast: ['Bryan Cranston'],
   director: [],
   trailerYtIds: [],

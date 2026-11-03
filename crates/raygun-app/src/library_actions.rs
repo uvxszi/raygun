@@ -55,10 +55,11 @@ pub async fn set_mark(catalog: &Catalog, ids: &[String], mark: Mark) -> Result<(
     if adds {
         for id in ids {
             let row = titles::title(&db, id).await.map_err(to_message)?;
-            if row.is_some_and(|row| row.in_library_at.is_none()) {
+            if let Some(row) = row.filter(|row| row.in_library_at.is_none()) {
                 titles::set_in_library(&db, id, Some(now))
                     .await
                     .map_err(to_message)?;
+                crate::quick_access::add(catalog.app(), crate::quick_access::title_pin(&row)).await;
             }
         }
     }
@@ -93,6 +94,10 @@ pub async fn remove(
                 .map_err(to_message)?;
         }
         for id in ids {
+            if let Ok(Some(row)) = titles::title(&db, id).await {
+                let pin = crate::quick_access::title_pin(&row);
+                crate::quick_access::remove(app, &pin.to, &pin.search).await;
+            }
             titles::set_in_library(&db, id, None)
                 .await
                 .map_err(to_message)?;

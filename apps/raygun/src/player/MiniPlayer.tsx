@@ -51,6 +51,7 @@ import { useSpokenItem } from './spoken';
 import { SpokenByline } from './SpokenByline';
 import { useLivePosition } from './useLivePosition';
 import { isActive, sendControl, sourceNote, useNowPlaying, useQueue } from './usePlayback';
+import { songCover } from '../library/coverTargets';
 
 /** The song before the current one in play order (the last one with repeat all), to swipe back
  * to: unlike Previous, it never just restarts the song. */
@@ -158,6 +159,7 @@ const PhoneBar: FC<BarProps> = ({ state, item }) => {
           <Artwork
             key={item.artworkUrl ?? 'none'}
             url={item.artworkUrl}
+            fallback={songCover(item)}
             className="size-10 shrink-0 rounded-md"
             iconSize={22}
           />
@@ -200,6 +202,7 @@ const WideBar: FC<BarProps> = ({ state, item }) => {
           <Artwork
             key={item.artworkUrl ?? 'none'}
             url={item.artworkUrl}
+            fallback={songCover(item)}
             className="size-12 shrink-0 rounded-md"
             iconSize={24}
           />

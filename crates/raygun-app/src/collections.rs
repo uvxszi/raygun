@@ -182,7 +182,19 @@ impl CollectionsService {
             .await
             .map_err(to_message)?
             .ok_or_else(|| "The new playlist went missing".to_owned())?;
-        self.summary(row).await
+        let summary = self.summary(row).await?;
+        crate::quick_access::add(
+            &self.app,
+            crate::quick_access::page_pin(
+                "playlist",
+                "/library/playlist",
+                &summary.id,
+                &summary.name,
+                None,
+            ),
+        )
+        .await;
+        Ok(summary)
     }
 
     pub async fn rename_playlist(&self, id: &str, name: &str) -> Result<(), String> {
@@ -200,7 +212,51 @@ impl CollectionsService {
     pub async fn delete_playlist(&self, id: &str) -> Result<(), String> {
         collections::delete_playlist(self.db(), id)
             .await
-            .map_err(to_message)
+            .map_err(to_message)?;
+        let search = [("id".to_owned(), id.to_owned())].into_iter().collect();
+        crate::quick_access::remove(&self.app, "/library/playlist", &search).await;
+        Ok(())
+    }
+
+    /// A new playlist of `ids`' songs, playlist after playlist in the order given (M46.45);
+    /// `skip_duplicates` keeps each song once. The merged playlists stay unless `remove_merged`.
+    pub async fn merge_playlists(
+        &self,
+        ids: &[String],
+        name: &str,
+        skip_duplicates: bool,
+        remove_merged: bool,
+    ) -> Result<PlaylistSummary, String> {
+        if ids.len() < 2 {
+            return Err("Pick at least two playlists".into());
+        }
+        let db = self.db();
+        let mut fields: Vec<TrackFields> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for id in ids {
+            for item in collections::playlist_items(db, id)
+                .await
+                .map_err(to_message)?
+            {
+                if !skip_duplicates || seen.insert(item.track.track_key.clone()) {
+                    fields.push(item.track);
+                }
+            }
+        }
+        let summary = self.create_playlist(name).await?;
+        collections::add_to_playlist(db, &summary.id, &fields, now_ms())
+            .await
+            .map_err(to_message)?;
+        if remove_merged {
+            for id in ids {
+                self.delete_playlist(id).await?;
+            }
+        }
+        let row = collections::playlist(db, &summary.id)
+            .await
+            .map_err(to_message)?
+            .ok_or_else(|| "The new playlist went missing".to_owned())?;
+        self.summary(row).await
     }
 
     pub async fn add_to_playlist(&self, id: &str, tracks: Vec<TrackInput>) -> Result<(), String> {
@@ -230,6 +286,36 @@ impl CollectionsService {
         before_item_id: Option<&str>,
     ) -> Result<(), String> {
         collections::move_playlist_item(self.db(), item_id, before_item_id)
+            .await
+            .map_err(to_message)
+    }
+
+    /// Keys of every song in Favorites or a playlist (M46.45).
+    pub async fn saved_keys(&self) -> Result<Vec<String>, String> {
+        collections::saved_keys(self.db()).await.map_err(to_message)
+    }
+
+    /// Saves a playlist in the order of `item_ids` (M46.44).
+    pub async fn set_playlist_order(
+        &self,
+        playlist_id: &str,
+        item_ids: &[String],
+    ) -> Result<(), String> {
+        collections::set_playlist_order(self.db(), playlist_id, item_ids)
+            .await
+            .map_err(to_message)
+    }
+
+    /// Moves a favorite before another, or last (M46.44).
+    pub async fn move_favorite(&self, track_key: &str, before: Option<&str>) -> Result<(), String> {
+        collections::move_favorite(self.db(), track_key, before)
+            .await
+            .map_err(to_message)
+    }
+
+    /// Saves Favorites in the order of `track_keys` (M46.44).
+    pub async fn set_favorites_order(&self, track_keys: &[String]) -> Result<(), String> {
+        collections::set_favorites_order(self.db(), track_keys)
             .await
             .map_err(to_message)
     }
@@ -278,6 +364,13 @@ impl CollectionsService {
         if context.name.trim().is_empty() || !context.to.starts_with('/') {
             return Err("A play context needs a name and a page".into());
         }
+        let keep = crate::settings::load(self.db())
+            .await
+            .map(|settings| settings.privacy.recently_played)
+            .unwrap_or(true);
+        if !keep {
+            return Ok(());
+        }
         context.played_at = now_ms() as f64;
         let mut list = self.recent_contexts().await?;
         list.retain(|other| other.to != context.to || other.search != context.search);
@@ -289,11 +382,19 @@ impl CollectionsService {
             .map_err(to_message)
     }
 
-    /// Writes a play to history in the background; failures only log.
+    /// Writes a play to history in the background; failures only log. Nothing is written while
+    /// listening history is off (M46.41).
     pub fn record_play(&self, item: QueueItem) {
         let app = self.app.clone();
         tauri::async_runtime::spawn(async move {
             let service = app.state::<CollectionsService>();
+            let keep = crate::settings::load(service.db())
+                .await
+                .map(|settings| settings.privacy.history)
+                .unwrap_or(true);
+            if !keep {
+                return;
+            }
             let track = fields(TrackInput {
                 title: item.title,
                 artist: item.artist,
@@ -425,11 +526,18 @@ impl CollectionsService {
             }
         }
         artwork_urls.truncate(COVER_ARTWORKS);
+        // The user's own cover (M46.45).
+        let cover_url = self
+            .app
+            .state::<std::sync::Arc<crate::details::DetailService>>()
+            .get(&raygun_model::DetailTarget::Playlist { id: row.id.clone() })
+            .artwork_url;
         Ok(PlaylistSummary {
             id: row.id,
             name: row.name,
             item_count: row.item_count as u32,
             artwork_urls,
+            cover_url,
         })
     }
 }

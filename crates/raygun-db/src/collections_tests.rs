@@ -281,3 +281,69 @@ async fn a_found_source_fills_every_saved_copy_and_clears_the_mark() {
         vec!["b|other".to_owned()]
     );
 }
+
+fn favorite_titles(rows: &[FavoriteRow]) -> Vec<&str> {
+    rows.iter().map(|row| row.track.title.as_str()).collect()
+}
+
+#[tokio::test]
+async fn favorites_keep_the_order_they_are_dragged_into() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp).await;
+    for (at, key) in [(1, "x|a"), (2, "x|b"), (3, "x|c")] {
+        set_favorite(&db, &track(key), true, at).await.unwrap();
+    }
+    assert_eq!(
+        favorite_titles(&favorites(&db).await.unwrap()),
+        ["c", "b", "a"]
+    );
+
+    // One song moved: only it gets a position.
+    move_favorite(&db, "x|a", Some("x|c")).await.unwrap();
+    assert_eq!(
+        favorite_titles(&favorites(&db).await.unwrap()),
+        ["a", "c", "b"]
+    );
+    move_favorite(&db, "x|c", None).await.unwrap();
+    assert_eq!(
+        favorite_titles(&favorites(&db).await.unwrap()),
+        ["a", "b", "c"]
+    );
+
+    // A whole order, from a sorted table; unknown keys are ignored, missing ones follow.
+    set_favorites_order(&db, &["x|b".into(), "x|gone".into(), "x|c".into()])
+        .await
+        .unwrap();
+    assert_eq!(
+        favorite_titles(&favorites(&db).await.unwrap()),
+        ["b", "c", "a"]
+    );
+
+    // New favorites still arrive on top, and a revived one starts there again.
+    set_favorite(&db, &track("x|d"), true, 4).await.unwrap();
+    set_favorite(&db, &track("x|c"), false, 5).await.unwrap();
+    set_favorite(&db, &track("x|c"), true, 6).await.unwrap();
+    assert_eq!(
+        favorite_titles(&favorites(&db).await.unwrap()),
+        ["c", "d", "b", "a"]
+    );
+}
+
+#[tokio::test]
+async fn a_playlist_takes_a_whole_new_order() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp).await;
+    let id = create_playlist(&db, "Mix", 1).await.unwrap();
+    add_to_playlist(&db, &id, &[track("x|a"), track("x|b"), track("x|c")], 2)
+        .await
+        .unwrap();
+    let items = playlist_items(&db, &id).await.unwrap();
+    let ids: Vec<String> = items.iter().map(|item| item.id.clone()).collect();
+    set_playlist_order(&db, &id, &[ids[2].clone(), ids[0].clone()])
+        .await
+        .unwrap();
+    assert_eq!(
+        titles(&playlist_items(&db, &id).await.unwrap()),
+        ["c", "a", "b"]
+    );
+}

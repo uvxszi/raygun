@@ -13,12 +13,28 @@ export const TitleHero: FC<{
   cover: ReactNode;
   title: string;
   facts?: (string | number | null | undefined | false)[];
+  /** Shown after the facts, e.g. ratings that open their sources (M46.45). */
+  factsExtra?: ReactNode;
+  /** A wide 16:9 cover (M46.45: video sites' thumbnails) gets a wider column. */
+  wideCover?: boolean;
   genres?: string[];
   genresLabel?: string;
   children?: ReactNode;
   /** Shown over the backdrop's right side on wide windows, under the title on phones. */
   aside?: ReactNode;
-}> = ({ art, backdrop, cover, title, facts = [], genres = [], genresLabel, children, aside }) => {
+}> = ({
+  art,
+  backdrop,
+  cover,
+  title,
+  facts = [],
+  factsExtra,
+  wideCover = false,
+  genres = [],
+  genresLabel,
+  children,
+  aside,
+}) => {
   const shown = facts.filter(Boolean);
   return (
     <div className="relative isolate -mx-4 -mt-2 overflow-hidden px-4 pt-2 pb-4 lg:-mx-10 lg:px-10">
@@ -36,12 +52,18 @@ export const TitleHero: FC<{
         </div>
       )}
       <header className={`relative flex gap-4 ${backdrop ? '-mt-20' : ''}`}>
-        <div className="w-28 shrink-0 sm:w-36">{cover}</div>
+        <div className={`shrink-0 ${wideCover ? 'w-40 sm:w-64' : 'w-28 sm:w-36'}`}>{cover}</div>
         <div className="flex min-w-0 flex-col justify-end gap-2">
           <h1 className="text-xl leading-tight font-bold tracking-tight wrap-anywhere sm:text-2xl">
             {title}
           </h1>
-          {shown.length > 0 && <p className="text-muted text-sm">{shown.join(' · ')}</p>}
+          {(shown.length > 0 || factsExtra) && (
+            <p className="text-muted flex flex-wrap items-center gap-x-1.5 text-sm">
+              {shown.join(' · ')}
+              {factsExtra && shown.length > 0 && <span aria-hidden>·</span>}
+              {factsExtra}
+            </p>
+          )}
           {genres.length > 0 && (
             <ul aria-label={genresLabel} className="flex flex-wrap gap-1.5">
               {genres.slice(0, 6).map((genre) => (

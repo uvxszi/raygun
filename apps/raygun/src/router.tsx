@@ -100,7 +100,9 @@ const routeTree = rootRoute.addChildren([
     path: '/updates',
     component: UpdatesPage,
     validateSearch: (search: Record<string, unknown>): { tab?: UpdatesTab } =>
-      search.tab === 'episodes' || search.tab === 'chapters' ? { tab: search.tab } : {},
+      search.tab === 'episodes' || search.tab === 'chapters' || search.tab === 'releases'
+        ? { tab: search.tab }
+        : {},
   }),
   createRoute({
     getParentRoute: () => rootRoute,

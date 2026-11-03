@@ -2,13 +2,15 @@ import { commands } from '@raygun/bindings';
 import type { PlaylistDetail, PlaylistItem } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { ArrowDown, ArrowUp, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ImageIcon, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { TopBar } from '../shell/TopBar';
 import { PinButton } from '../shell/PinButton';
+import { Sheet } from '../shell/Sheet';
+import { DetailEditForm } from '../music/DetailEditForm';
 
 import { PlayButtons } from '../collections/PlayButtons';
 import { PlaylistCover } from '../collections/PlaylistCover';
@@ -23,6 +25,7 @@ import {
   usePlaylist,
   useRemovePlaylistItem,
   useRenamePlaylist,
+  useReorderPlaylist,
 } from '../collections/useCollections';
 import { usePlayContext } from '../music/playContext';
 
@@ -81,6 +84,7 @@ const PlaylistSettings: FC<{ detail: PlaylistDetail }> = ({ detail }) => {
   );
   const [name, setName] = useState(detail.playlist.name);
   const [confirming, setConfirming] = useState(false);
+  const [coverOpen, setCoverOpen] = useState(false);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -105,6 +109,25 @@ const PlaylistSettings: FC<{ detail: PlaylistDetail }> = ({ detail }) => {
           {t('collections.save')}
         </button>
       </form>
+      <button
+        type="button"
+        onClick={() => setCoverOpen(true)}
+        className="flex items-center gap-2 self-start text-sm"
+      >
+        <ImageIcon aria-hidden size={16} />
+        {t('collections.changeCover')}
+      </button>
+      {coverOpen && (
+        <Sheet title={t('collections.changeCover')} onClose={() => setCoverOpen(false)}>
+          <DetailEditForm
+            target={{ kind: 'playlist', id: detail.playlist.id }}
+            fields={[]}
+            titleLabel=""
+            original={{ artworkUrl: detail.playlist.artworkUrls[0] ?? null }}
+            onSaved={() => setCoverOpen(false)}
+          />
+        </Sheet>
+      )}
       {confirming ? (
         <div className="flex flex-col gap-2 text-sm">
           <p>{t('collections.deleteConfirm', { name: detail.playlist.name })}</p>
@@ -163,6 +186,7 @@ export const PlaylistPage: FC = () => {
       : null,
   );
   const client = useQueryClient();
+  const reorder = useReorderPlaylist(id);
   const [editing, setEditing] = useState(false);
 
   if (playlist.error) {
@@ -194,7 +218,7 @@ export const PlaylistPage: FC = () => {
               to: '/library/playlist',
               search: { id: detail.playlist.id },
               name: detail.playlist.name,
-              artworkUrl: detail.playlist.artworkUrls[0] ?? null,
+              artworkUrl: detail.playlist.coverUrl ?? detail.playlist.artworkUrls[0] ?? null,
             }}
           />
         }
@@ -202,6 +226,7 @@ export const PlaylistPage: FC = () => {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end">
         <PlaylistCover
           artworkUrls={detail.playlist.artworkUrls}
+          coverUrl={detail.playlist.coverUrl}
           className="size-48 self-center rounded-xl shadow-lg sm:self-auto"
         />
         <div className="flex flex-col gap-1 text-center sm:text-left">
@@ -234,6 +259,7 @@ export const PlaylistPage: FC = () => {
         <TrackTable
           kind="playlist"
           tracks={detail.items.map((item) => savedRow(item.track, item.id, item.id))}
+          onReorder={(change) => reorder.mutate(change)}
           // A sorted or filtered table plays in the order it shows (M46.8).
           onPlay={(ordered, index) =>
             void playCollection({

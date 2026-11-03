@@ -56,6 +56,7 @@ type EventPayloads = {
   captionsEvent: string;
   localFilesEvent: string;
   settingsChangedEvent: string;
+  artistReleasesEvent: null;
   exportEvent: ExportJob | null;
   videoPlayerEvent: VideoPlayerMessage;
   youTubeVideoEvent: YouTubeVideo;
@@ -122,6 +123,7 @@ export const DEFAULT_SETTINGS: Settings = {
   language: 'en',
   showNsfw: false,
   explicitMusic: true,
+  privacy: { history: true, recentlyPlayed: true },
   preferredVideoQuality: null,
   accent: 'red',
   startScreen: 'home',
@@ -265,6 +267,15 @@ export const bindingsMock = {
     musicAlbum: vi.fn(),
     musicArtistReleases: vi.fn(),
     musicFindAlbum: vi.fn(),
+    audioOutputs: vi.fn(),
+    audioOutputSet: vi.fn(),
+    artistsFollowed: vi.fn(),
+    artistFollow: vi.fn(),
+    artistUnfollow: vi.fn(),
+    artistSetAlerts: vi.fn(),
+    artistReleaseNews: vi.fn(),
+    musicArtistEvents: vi.fn(),
+    coverFallback: vi.fn(),
     musicSearchPlaylists: vi.fn(),
     musicPlaylist: vi.fn(),
     catalogOpenPage: vi.fn(),
@@ -535,6 +546,7 @@ export const bindingsMock = {
     captionsEvent: makeEvent('captionsEvent'),
     localFilesEvent: makeEvent('localFilesEvent'),
     settingsChangedEvent: makeEvent('settingsChangedEvent'),
+    artistReleasesEvent: makeEvent('artistReleasesEvent'),
     exportEvent: makeEvent('exportEvent'),
     videoPlayerEvent: makeEvent('videoPlayerEvent'),
     youTubeVideoEvent: makeEvent('youTubeVideoEvent'),
@@ -627,6 +639,15 @@ export const seedBindings = () => {
   commands.musicSearchAlbums.mockResolvedValue(ok([]));
   commands.musicArtistReleases.mockResolvedValue(ok([]));
   commands.musicFindAlbum.mockResolvedValue(ok(null));
+  commands.audioOutputs.mockResolvedValue({ outputs: [], chosen: null });
+  commands.audioOutputSet.mockResolvedValue(ok(null));
+  commands.artistsFollowed.mockResolvedValue(ok([]));
+  commands.artistFollow.mockResolvedValue(ok(null));
+  commands.artistUnfollow.mockResolvedValue(ok(null));
+  commands.artistSetAlerts.mockResolvedValue(ok(null));
+  commands.artistReleaseNews.mockResolvedValue(ok([]));
+  commands.musicArtistEvents.mockResolvedValue(ok([]));
+  commands.coverFallback.mockResolvedValue(ok(null));
   commands.musicSearchPlaylists.mockResolvedValue(ok([]));
   commands.catalogOpenPage.mockResolvedValue(ok(null));
   commands.recentContexts.mockResolvedValue(ok([]));

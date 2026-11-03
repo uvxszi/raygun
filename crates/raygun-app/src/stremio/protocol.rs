@@ -340,6 +340,8 @@ pub struct Video {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Meta {
     pub preview: MetaPreview,
+    /// Ratings with their sources (M46.45).
+    pub ratings: Vec<raygun_model::TitleRating>,
     pub background: Option<String>,
     pub logo: Option<String>,
     pub description: Option<String>,
@@ -350,6 +352,80 @@ pub struct Meta {
     pub trailer_yt_ids: Vec<String>,
     /// Episodes in season and episode order (specials, season 0, last).
     pub videos: Vec<Video>,
+}
+
+/// Link categories that never hold a rating.
+const NOT_RATINGS: [&str; 8] = [
+    "genres",
+    "genre",
+    "cast",
+    "directors",
+    "writers",
+    "share",
+    "similar",
+    "trailer",
+];
+
+/// Whether a link's name reads as a score: "7.8", "85%", "8/10".
+fn is_score(name: &str) -> bool {
+    let core = name.trim().trim_end_matches('%');
+    let core = core.split_once('/').map_or(core, |(score, _)| score);
+    !core.is_empty() && core.parse::<f32>().is_ok()
+}
+
+/// A title's ratings (M46.45): the links an addon gives with a score as their name (IMDb's,
+/// and any other site), else its `imdbRating`, linked to IMDb when the id is IMDb's.
+pub fn parse_ratings(
+    meta: &Value,
+    id: &str,
+    imdb_rating: Option<&str>,
+) -> Vec<raygun_model::TitleRating> {
+    let mut ratings: Vec<raygun_model::TitleRating> = Vec::new();
+    for link in meta
+        .get("links")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let (Some(category), Some(name)) = (text(link.get("category")), text(link.get("name")))
+        else {
+            continue;
+        };
+        let lower = category.to_lowercase();
+        if NOT_RATINGS.contains(&lower.as_str()) || !is_score(&name) {
+            continue;
+        }
+        let source = if lower == "imdb" {
+            "IMDb".to_owned()
+        } else {
+            category
+        };
+        if ratings.iter().any(|rating| rating.source == source) {
+            continue;
+        }
+        ratings.push(raygun_model::TitleRating {
+            source,
+            value: name.trim().to_owned(),
+            url: http(link.get("url")),
+        });
+    }
+    if let Some(value) = imdb_rating.filter(|value| is_score(value))
+        && !ratings.iter().any(|rating| rating.source == "IMDb")
+    {
+        let imdb_id = text(meta.get("imdb_id")).or_else(|| {
+            id.starts_with("tt")
+                .then(|| id.split(':').next().unwrap_or(id).to_owned())
+        });
+        ratings.insert(
+            0,
+            raygun_model::TitleRating {
+                source: "IMDb".into(),
+                value: value.to_owned(),
+                url: imdb_id.map(|imdb| format!("https://www.imdb.com/title/{imdb}/")),
+            },
+        );
+    }
+    ratings
 }
 
 /// A `meta` answer.
@@ -418,6 +494,7 @@ pub fn parse_meta(value: &Value, kind: &str) -> Option<Meta> {
         }
     };
     Some(Meta {
+        ratings: parse_ratings(meta, &preview.id, preview.rating.as_deref()),
         background: http(meta.get("background")),
         logo: http(meta.get("logo")),
         description: text(meta.get("description")),

@@ -518,9 +518,15 @@ pub async fn lyrics_get(
 #[specta::specta]
 pub async fn lyrics_options(
     extensions: tauri::State<'_, Arc<ExtensionService>>,
+    captions: tauri::State<'_, Arc<crate::captions::CaptionService>>,
     query: TrackQuery,
 ) -> Result<Vec<Lyrics>, String> {
-    extensions.all_lyrics(&query).await
+    let mut options = extensions.all_lyrics(&query).await?;
+    // What a transcription heard before stays one of the choices (M46.45).
+    if let Some(heard) = captions.song_transcript(&query).await {
+        options.push(heard);
+    }
+    Ok(options)
 }
 
 /// Hears a song's words with the transcription set up in Settings → AI, into its own synced
@@ -615,6 +621,106 @@ pub async fn music_search_albums(
     query: String,
 ) -> Result<Vec<raygun_model::MusicAlbum>, String> {
     Ok(extensions.search_albums(&query).await)
+}
+
+/// Where this device's sound can come out (M46.43). Android lists its outputs; desktop's are the
+/// webview's own, so this is empty there.
+#[tauri::command]
+#[specta::specta]
+pub fn audio_outputs(app: tauri::AppHandle) -> raygun_model::AudioOutputs {
+    #[cfg(target_os = "android")]
+    {
+        use tauri::Manager;
+        let answer = app
+            .state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+            .audio_outputs();
+        match answer.map(serde_json::from_value::<raygun_model::AudioOutputs>) {
+            Ok(Ok(outputs)) => return outputs,
+            Ok(Err(error)) => tracing::warn!(%error, "unreadable audio outputs"),
+            Err(error) => tracing::warn!(%error, "no audio outputs"),
+        }
+    }
+    let _ = app;
+    raygun_model::AudioOutputs::default()
+}
+
+/// Plays through one of this device's outputs, or the system's choice for `null` (M46.43).
+#[tauri::command]
+#[specta::specta]
+pub fn audio_output_set(app: tauri::AppHandle, id: Option<String>) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        use tauri::Manager;
+        return app
+            .state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+            .set_audio_output(id);
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, id);
+        Ok(())
+    }
+}
+
+/// Followed artists, the latest followed first (M46.42).
+#[tauri::command]
+#[specta::specta]
+pub async fn artists_followed(
+    follows: tauri::State<'_, Arc<crate::follows::ArtistFollows>>,
+) -> Result<Vec<raygun_model::FollowedArtist>, String> {
+    Ok(follows.list().await)
+}
+
+/// Follows an artist: the library and quick access (M46.42).
+#[tauri::command]
+#[specta::specta]
+pub async fn artist_follow(
+    follows: tauri::State<'_, Arc<crate::follows::ArtistFollows>>,
+    name: String,
+    image_url: Option<String>,
+) -> Result<(), String> {
+    follows.follow(&name, image_url).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn artist_unfollow(
+    follows: tauri::State<'_, Arc<crate::follows::ArtistFollows>>,
+    name: String,
+) -> Result<(), String> {
+    follows.unfollow(&name).await
+}
+
+/// Turns alerts for an artist's new releases on or off (M46.42).
+#[tauri::command]
+#[specta::specta]
+pub async fn artist_set_alerts(
+    follows: tauri::State<'_, Arc<crate::follows::ArtistFollows>>,
+    name: String,
+    on: bool,
+) -> Result<(), String> {
+    follows.set_alerts(&name, on).await
+}
+
+/// New releases found for followed artists, newest first (M46.42).
+#[tauri::command]
+#[specta::specta]
+pub async fn artist_release_news(
+    follows: tauri::State<'_, Arc<crate::follows::ArtistFollows>>,
+) -> Result<Vec<raygun_model::ArtistReleaseNews>, String> {
+    Ok(follows.news().await)
+}
+
+/// An artist's coming concerts and other events (M46.42).
+#[tauri::command]
+#[specta::specta]
+pub async fn music_artist_events(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    details: tauri::State<'_, Arc<crate::details::DetailService>>,
+    name: String,
+) -> Result<Vec<raygun_model::ArtistEvent>, String> {
+    let name = details.original_artist(name.trim());
+    Ok(extensions.artist_events(&name).await)
 }
 
 /// Playlists for a search from every source that searches them; `featured` keeps the services'
@@ -781,6 +887,15 @@ pub async fn songs_save(
     songs.save(ids, format, destination).await
 }
 
+/// Keys of every song in Favorites or a playlist, to mark them in lists (M46.45).
+#[tauri::command]
+#[specta::specta]
+pub async fn collections_saved_keys(
+    collections: tauri::State<'_, CollectionsService>,
+) -> Result<Vec<String>, String> {
+    collections.saved_keys().await
+}
+
 /// Keys of every downloaded song, to mark them in lists (M46.10).
 #[tauri::command]
 #[specta::specta]
@@ -886,6 +1001,29 @@ pub async fn captions_use_feed(
     episode_id: String,
 ) -> Result<(), String> {
     captions.use_feed(&episode_id).await
+}
+
+/// Every Stremio addon's ratings for a title, with their sites (M46.45).
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_ratings(
+    stremio: tauri::State<'_, Arc<crate::stremio::StremioService>>,
+    kind: String,
+    id: String,
+) -> Result<Vec<raygun_model::TitleRating>, String> {
+    stremio.ratings(&kind, &id).await
+}
+
+/// Uses AI captions instead of the feed's transcript (M46.45): what AI heard before comes
+/// back, else transcribing starts at `from_ms`; the feed's is kept to switch back to.
+#[tauri::command]
+#[specta::specta]
+pub async fn captions_use_ai(
+    captions: tauri::State<'_, std::sync::Arc<crate::captions::CaptionService>>,
+    episode_id: String,
+    from_ms: u32,
+) -> Result<(), String> {
+    captions.inner().use_ai(&episode_id, from_ms).await
 }
 
 /// Forgets an episode's captions, to transcribe it again (M46.32).
@@ -1053,9 +1191,27 @@ pub async fn detail_edit_set(
 pub async fn detail_cover_options(
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     details: tauri::State<'_, Arc<crate::details::DetailService>>,
+    collections: tauri::State<'_, CollectionsService>,
     target: raygun_model::DetailTarget,
 ) -> Result<Vec<raygun_model::CoverOption>, String> {
     use raygun_model::DetailTarget;
+    // A playlist's: the covers of its songs (M46.45).
+    if let DetailTarget::Playlist { id } = &target {
+        let detail = collections.playlist(id).await?;
+        let mut options: Vec<raygun_model::CoverOption> = Vec::new();
+        for item in detail.items {
+            if let Some(url) = item.track.artwork_url
+                && !options.iter().any(|option| option.url == url)
+            {
+                options.push(raygun_model::CoverOption {
+                    url,
+                    source: item.track.title,
+                    of: item.track.artist,
+                });
+            }
+        }
+        return Ok(options);
+    }
     // The names sources know, not the user's renames (M46.30).
     let target = match target {
         DetailTarget::Artist { name } => DetailTarget::Artist {
@@ -1064,6 +1220,20 @@ pub async fn detail_cover_options(
         other => other,
     };
     Ok(extensions.cover_options(&target).await)
+}
+
+/// Another source's cover for a song, an album or an artist whose own is missing or failed to
+/// load (M46.40), remembered on this device; `null` when no source has one.
+#[tauri::command]
+#[specta::specta]
+pub async fn cover_fallback(
+    fallbacks: tauri::State<'_, Arc<crate::cover_fallback::CoverFallbacks>>,
+    images: tauri::State<'_, raygun_net::ImageLinks>,
+    target: raygun_model::DetailTarget,
+) -> Result<Option<String>, String> {
+    let url = fallbacks.cover(&target).await;
+    // Through the cover cache, like every other cover (M46.2).
+    Ok(url.map(|url| images.cover(&url, &Default::default())))
 }
 
 /// Keeps a picked image (an upload) as a cover; returns its address for an edit.
@@ -1134,15 +1304,16 @@ pub async fn import_match(
     Ok(import.match_songs(songs).await)
 }
 
-/// Saves imported songs as a new playlist; returns its id (M46.21).
+/// Saves imported songs as a new playlist, into one, or into Favorites; returns the playlist's
+/// id or `favorites` (M46.21, M46.45).
 #[tauri::command]
 #[specta::specta]
 pub async fn import_save(
     import: tauri::State<'_, crate::import::ImportService>,
-    name: String,
+    target: raygun_model::ImportTarget,
     songs: Vec<raygun_model::MatchedSong>,
 ) -> Result<String, String> {
-    import.save(&name, songs).await
+    import.save(target, songs).await
 }
 
 /// Made for You (M46.20): today's mixes (made in the background when they're from another day,
@@ -1505,7 +1676,7 @@ pub async fn collections_set_saves(
     Ok(())
 }
 
-/// Favorite tracks, most recently added first.
+/// Favorite tracks in the user's order (newest first until some are moved, M46.44).
 #[tauri::command]
 #[specta::specta]
 pub async fn favorites_list(
@@ -1616,6 +1787,57 @@ pub async fn playlist_move_item(
     collections
         .move_playlist_item(&item_id, before_item_id.as_deref())
         .await
+}
+
+/// Merges playlists into a new one, in the order given (M46.45).
+#[tauri::command]
+#[specta::specta]
+pub async fn playlists_merge(
+    collections: tauri::State<'_, CollectionsService>,
+    ids: Vec<String>,
+    name: String,
+    skip_duplicates: bool,
+    remove_merged: bool,
+) -> Result<PlaylistSummary, String> {
+    collections
+        .merge_playlists(&ids, &name, skip_duplicates, remove_merged)
+        .await
+}
+
+/// Saves a playlist in the order given (M46.44: a sorted table dragged into shape).
+#[tauri::command]
+#[specta::specta]
+pub async fn playlist_set_order(
+    collections: tauri::State<'_, CollectionsService>,
+    playlist_id: String,
+    item_ids: Vec<String>,
+) -> Result<(), String> {
+    collections
+        .set_playlist_order(&playlist_id, &item_ids)
+        .await
+}
+
+/// Moves a favorite (by track key) before another, or last when `before_key` is null (M46.44).
+#[tauri::command]
+#[specta::specta]
+pub async fn favorite_move(
+    collections: tauri::State<'_, CollectionsService>,
+    track_key: String,
+    before_key: Option<String>,
+) -> Result<(), String> {
+    collections
+        .move_favorite(&track_key, before_key.as_deref())
+        .await
+}
+
+/// Saves Favorites in the order given (M46.44).
+#[tauri::command]
+#[specta::specta]
+pub async fn favorites_set_order(
+    collections: tauri::State<'_, CollectionsService>,
+    track_keys: Vec<String>,
+) -> Result<(), String> {
+    collections.set_favorites_order(&track_keys).await
 }
 
 /// The latest play of each recently played track, newest first.
@@ -3356,6 +3578,20 @@ pub async fn video_title(
     refresh: bool,
 ) -> Result<raygun_model::VideoTitleView, String> {
     sources.title(&source_id, &remote_id, refresh).await
+}
+
+/// A title's comments from its source, a page at a time (M46.45: YouTube's).
+#[tauri::command]
+#[specta::specta]
+pub async fn video_comments(
+    sources: VideoSources<'_>,
+    source_id: String,
+    remote_id: String,
+    page: Option<String>,
+) -> Result<raygun_model::VideoComments, String> {
+    sources
+        .comments(&source_id, &remote_id, page.as_deref())
+        .await
 }
 
 /// An episode's servers (`episode_id` is the source's id); resolved ones come with their links.

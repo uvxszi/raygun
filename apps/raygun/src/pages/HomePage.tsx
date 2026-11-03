@@ -17,6 +17,7 @@ import {
   useHistory,
   usePlaylists,
 } from '../collections/useCollections';
+import { usePlaylistMenu } from '../collections/usePlaylistMenu';
 import { unwrapResult } from '../lib/commandResult';
 import { Artwork } from '../library/Artwork';
 import { MangaCover } from '../manga/MangaCover';
@@ -28,6 +29,7 @@ import { MixCard } from '../music/MixCard';
 import { useTrackMenu } from '../music/useTrackMenu';
 import { pickChart, useMusicCharts } from '../music/useDiscovery';
 import { useMadeForYou } from '../music/useMadeForYou';
+import { useSettings } from '../settings/useSettings';
 import { HomeFixedTiles } from '../library/LocalFilesTile';
 import { MascotButton } from '../shell/MascotButton';
 import { OverflowMenu } from '../shell/OverflowMenu';
@@ -54,13 +56,16 @@ const FAVORITES_SHOWN = 12;
 const YourMusic: FC = () => {
   const { t } = useTranslation();
   const playlists = usePlaylists();
+  const playlistMenu = usePlaylistMenu();
   const recent = useQuery({
     queryKey: ['recentContexts'],
     queryFn: () => unwrapResult(commands.recentContexts()),
   });
   const favorites = useFavorites();
   const menu = useTrackMenu();
-  const contexts = (recent.data ?? []).slice(0, RECENT_SHOWN);
+  // Kept only while recently played is on (M46.41).
+  const keepRecent = useSettings().data?.privacy.recentlyPlayed !== false;
+  const contexts = keepRecent ? (recent.data ?? []).slice(0, RECENT_SHOWN) : [];
   const recentPlaylists = new Set(
     contexts.filter((context) => context.kind === 'playlist').map((context) => context.search.id),
   );
@@ -109,9 +114,15 @@ const YourMusic: FC = () => {
           .slice(0, HOME_PLAYLISTS)
           .map((playlist) => (
             <li key={playlist.id}>
-              <Link to="/library/playlist" search={{ id: playlist.id }} className={TILE_CLASS}>
+              <Link
+                to="/library/playlist"
+                search={{ id: playlist.id }}
+                onContextMenu={playlistMenu(playlist)}
+                className={TILE_CLASS}
+              >
                 <PlaylistCover
                   artworkUrls={playlist.artworkUrls}
+                  coverUrl={playlist.coverUrl}
                   className="aspect-square w-full rounded-lg"
                 />
                 <span className="truncate font-medium">{playlist.name}</span>
@@ -155,7 +166,9 @@ const RecentlyPlayed: FC = () => {
   const { t } = useTranslation();
   const history = useHistory(HOME_HISTORY_LIMIT);
   const clear = useClearHistory();
-  if (!history.data?.length) {
+  // Listening history off (M46.41): nothing of it shows.
+  const keep = useSettings().data?.privacy.history !== false;
+  if (!keep || !history.data?.length) {
     return null;
   }
   return (

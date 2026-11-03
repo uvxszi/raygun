@@ -48,11 +48,24 @@ impl VideoSourceService {
                 .ok_or("This video is no longer in Local Files")?;
             return self.title_view(row).await;
         }
+        tracing::info!(
+            source = source_id,
+            id = remote_id,
+            refresh,
+            "opening a video title"
+        );
         let row = self
             .catalog
             .title_row(source_id, remote_id, refresh)
             .await?;
-        self.title_view(row).await
+        let view = self.title_view(row).await;
+        tracing::info!(
+            source = source_id,
+            id = remote_id,
+            ok = view.is_ok(),
+            "video title ready"
+        );
+        view
     }
 
     async fn title_view(&self, row: TitleRow) -> Result<VideoTitleView, String> {
@@ -110,6 +123,18 @@ impl VideoSourceService {
             url: fields.url,
             in_library: row.in_library_at.is_some(),
         })
+    }
+
+    /// A title's comments from its source, a page at a time (M46.45).
+    pub async fn comments(
+        &self,
+        source_id: &str,
+        remote_id: &str,
+        page: Option<&str>,
+    ) -> Result<raygun_model::VideoComments, String> {
+        let extensions = self.catalog.extensions();
+        let (_ready, host) = extensions.ready().await;
+        host.video_comments(source_id, remote_id, page).await
     }
 
     /// An episode's servers; the ones the source resolved already come with their links.

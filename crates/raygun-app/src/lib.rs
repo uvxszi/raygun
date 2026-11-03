@@ -13,6 +13,7 @@ mod collections;
 mod comics;
 mod commands;
 mod connect;
+mod cover_fallback;
 mod details;
 mod device_sync;
 mod discovery;
@@ -21,6 +22,7 @@ mod epub;
 mod events;
 mod export;
 mod extensions;
+mod follows;
 mod genres;
 mod history;
 mod import;
@@ -41,6 +43,7 @@ mod novel;
 mod playback;
 mod podcast_feed;
 mod podcasts;
+mod quick_access;
 mod remote;
 mod resolution;
 mod resolver;
@@ -126,6 +129,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::lyrics_options,
             commands::lyrics_transcribe,
             commands::captions_use_feed,
+            commands::captions_use_ai,
+            commands::stremio_ratings,
             commands::song_edit_get,
             commands::song_edit_set,
             commands::favorites_list,
@@ -152,6 +157,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::detail_edit_set,
             commands::detail_cover_import,
             commands::detail_cover_options,
+            commands::cover_fallback,
             commands::local_folders,
             commands::local_folder_add,
             commands::local_folder_remove,
@@ -181,6 +187,14 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::music_album,
             commands::music_artist_releases,
             commands::music_search_playlists,
+            commands::artists_followed,
+            commands::audio_outputs,
+            commands::audio_output_set,
+            commands::artist_follow,
+            commands::artist_unfollow,
+            commands::artist_set_alerts,
+            commands::artist_release_news,
+            commands::music_artist_events,
             commands::music_playlist,
             commands::music_find_album,
             commands::songs_download,
@@ -200,6 +214,11 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::playlist_add,
             commands::playlist_remove_item,
             commands::playlist_move_item,
+            commands::playlist_set_order,
+            commands::playlists_merge,
+            commands::collections_saved_keys,
+            commands::favorite_move,
+            commands::favorites_set_order,
             commands::history_recent,
             commands::history_clear,
             commands::collection_play,
@@ -343,6 +362,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::video_browse,
             commands::video_title,
             commands::video_servers,
+            commands::video_comments,
             commands::video_links,
             commands::video_source_play,
             commands::video_set_episode_watched,
@@ -389,6 +409,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::LocalFilesEvent,
             events::ImportEvent,
             events::CaptionsEvent,
+            events::ArtistReleasesEvent,
             events::SettingsChangedEvent,
             events::ExportEvent,
             events::VideoPlayerEvent,
@@ -426,6 +447,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
     }));
     builder
         .plugin(tauri_plugin_raygun_audio::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(specta.invoke_handler())
         .setup(move |app| {
             specta.mount_events(app);

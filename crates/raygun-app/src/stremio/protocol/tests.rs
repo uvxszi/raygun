@@ -207,3 +207,29 @@ fn streams_and_subtitles() {
         "English first, repeats dropped, limited"
     );
 }
+
+#[test]
+fn ratings_name_their_sites_and_link_imdb() {
+    let meta = json!({
+        "links": [
+            { "name": "8.7", "category": "imdb", "url": "https://imdb.com/title/tt0133093" },
+            { "name": "Action", "category": "Genres", "url": "stremio:///discover/x" },
+            { "name": "88%", "category": "Rotten Tomatoes", "url": "https://www.rottentomatoes.com/m/matrix" },
+            { "name": "Keanu Reeves", "category": "Cast" }
+        ]
+    });
+    let ratings = parse_ratings(&meta, "tt0133093", Some("8.7"));
+    let sources: Vec<(&str, &str)> = ratings
+        .iter()
+        .map(|rating| (rating.source.as_str(), rating.value.as_str()))
+        .collect();
+    assert_eq!(sources, [("IMDb", "8.7"), ("Rotten Tomatoes", "88%")]);
+
+    // Without links, `imdbRating` is IMDb's, linked by the IMDb id.
+    let bare = parse_ratings(&json!({}), "tt0133093", Some("8.7"));
+    assert_eq!(
+        bare[0].url.as_deref(),
+        Some("https://www.imdb.com/title/tt0133093/")
+    );
+    assert!(parse_ratings(&json!({}), "kitsu:1", None).is_empty());
+}

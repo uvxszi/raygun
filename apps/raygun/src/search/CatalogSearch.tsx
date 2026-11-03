@@ -74,7 +74,11 @@ export const SourceRow: FC<{
       ) : result.items.length === 0 ? (
         <p className="text-muted text-xs">{t('search.providerEmpty')}</p>
       ) : (
-        <MangaGrid medium={medium} items={toGridItems(result.items.slice(0, limit))} />
+        <MangaGrid
+          medium={medium}
+          landscape={Boolean(result.source.searchPill)}
+          items={toGridItems(result.items.slice(0, limit))}
+        />
       )}
     </section>
   );
@@ -250,11 +254,12 @@ const SourceChip: FC<{ label: string; pressed: boolean; onClick: () => void }> =
   </button>
 );
 
-const SourceSearch: FC<{ medium: Medium; sourceId: string; query: string }> = ({
-  medium,
-  sourceId,
-  query,
-}) => {
+const SourceSearch: FC<{
+  medium: Medium;
+  sourceId: string;
+  query: string;
+  landscape?: boolean;
+}> = ({ medium, sourceId, query, landscape = false }) => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [values, setValues] = useState<FilterValues>({});
@@ -290,7 +295,9 @@ const SourceSearch: FC<{ medium: Medium; sourceId: string; query: string }> = ({
           {query.trim() ? t('search.noResults', { query }) : t('search.providerEmpty')}
         </p>
       )}
-      {items.length > 0 && <MangaGrid medium={medium} items={toGridItems(items)} />}
+      {items.length > 0 && (
+        <MangaGrid medium={medium} landscape={landscape} items={toGridItems(items)} />
+      )}
       <LoadMore
         hasNextPage={search.hasNextPage}
         fetching={search.isFetchingNextPage}
@@ -323,13 +330,17 @@ export const CatalogSearch: FC<{
   query: string;
   /** One source only, without chips: a video source's own pill (M46.35). */
   only?: string;
-}> = ({ medium, query, only }) => {
+  /** Sources with their own pill (YouTube, PeerTube…) among the chips too (M46.40). */
+  withPills?: boolean;
+}> = ({ medium, query, only, withPills = false }) => {
   const { t } = useTranslation();
   const listed = useMangaSources(medium);
   // A source with its own pill searches there, not among the rest (M46.35).
   const sources = {
     ...listed,
-    data: listed.data?.filter((source) => (only ? source.id === only : !source.searchPill)),
+    data: listed.data?.filter((source) =>
+      only ? source.id === only : withPills || !source.searchPill,
+    ),
   };
   const [chosen, setChosenState] = useState(() => readChosen(medium));
   const [unfolded, setUnfolded] = useState(false);
@@ -480,7 +491,14 @@ export const CatalogSearch: FC<{
           )}
         </>
       ) : (
-        <SourceSearch key={sourceId} medium={medium} sourceId={sourceId} query={query} />
+        <SourceSearch
+          key={sourceId}
+          medium={medium}
+          sourceId={sourceId}
+          query={query}
+          // Video sites' thumbnails are 16:9 (M46.45).
+          landscape={Boolean(all.find((source) => source.id === sourceId)?.searchPill)}
+        />
       )}
     </div>
   );

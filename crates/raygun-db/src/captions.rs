@@ -145,6 +145,30 @@ pub async fn replace(
     Ok(())
 }
 
+/// Moves an episode's captions and progress to another key (M46.45: a source the listener
+/// switched away from is kept, to switch back without hearing it again). What `to` held goes.
+pub async fn move_to(db: &Db, from: &str, to: &str) -> Result<(), DbError> {
+    let mut tx = db.pool().begin().await?;
+    for table in ["local_episode_caption", "local_caption_progress"] {
+        // The table names are the constants above.
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DELETE FROM {table} WHERE episode_id = ?"
+        )))
+        .bind(to)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE {table} SET episode_id = ?2 WHERE episode_id = ?1"
+        )))
+        .bind(from)
+        .bind(to)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 pub async fn clear(db: &Db, episode_id: &str) -> Result<(), DbError> {
     let mut tx = db.pool().begin().await?;
     sqlx::query("DELETE FROM local_episode_caption WHERE episode_id = ?")

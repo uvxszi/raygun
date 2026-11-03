@@ -2,12 +2,21 @@ import type { Captions, PlaybackState, SpokenItem, TextAlign } from '@raygun/bin
 import { Link } from '@tanstack/react-router';
 import { commands } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
-import { AudioLines, FileText, LoaderCircle, Square, Subtitles } from 'lucide-react';
+import {
+  AudioLines,
+  Check,
+  ChevronDown,
+  FileText,
+  LoaderCircle,
+  Square,
+  Subtitles,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
+import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
 import { currentCue, useCaptions, useStopCaptions, useTranscribe } from './spoken';
 import { useSongEdit } from '../sound/useSound';
@@ -125,6 +134,7 @@ const CaptionsFooter: FC<{
   const client = useQueryClient();
   const stop = useStopCaptions();
   const [confirming, setConfirming] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const book = spoken.kind === 'audiobook';
   const online = captions.engine === 'online';
   const confirmed = settings.data?.transcription.onlineConfirmed ?? false;
@@ -156,33 +166,70 @@ const CaptionsFooter: FC<{
         {t('captions.stop')}
       </button>
     );
-  } else if (captions.source === 'feed' && captions.canTranscribe) {
-    // The listener picks the captions' source (M46.36): AI in place of the feed's transcript.
-    action = (
+  } else if (captions.source && captions.hasFeed && captions.canTranscribe) {
+    // The captions' source as one dropdown (M46.36, M46.45): the feed's transcript or AI's;
+    // each is kept while the other shows, so switching back is instant.
+    const feed = captions.source === 'feed';
+    const choose = (ai: boolean) => {
+      setMenuAnchor(null);
+      if (ai === !feed) return;
+      if (ai && online && !confirmed) {
+        setConfirming(true);
+        return;
+      }
+      void (
+        ai
+          ? commands.captionsUseAi(spoken.episodeId, positionMs)
+          : commands.captionsUseFeed(spoken.episodeId)
+      ).then(() => client.invalidateQueries({ queryKey: ['captions', spoken.episodeId] }));
+    };
+    const option = (ai: boolean) => (
       <button
         type="button"
-        disabled={transcribe.isPending}
-        onClick={() => void commands.captionsClear(spoken.episodeId).then(() => start())}
-        className={button}
+        role="radio"
+        aria-checked={ai === !feed}
+        onClick={() => choose(ai)}
+        className="hover:bg-background flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm"
       >
-        <AudioLines aria-hidden size={13} />
-        {t('captions.useAi')}
+        {ai ? (
+          <AudioLines aria-hidden size={15} className="text-muted" />
+        ) : (
+          <FileText aria-hidden size={15} className="text-muted" />
+        )}
+        <span className="flex-1">{t(ai ? 'captions.sourceAi' : 'captions.sourceFeed')}</span>
+        {ai === !feed && <Check aria-hidden size={14} className="text-primary" />}
       </button>
     );
-  } else if (captions.source && captions.source !== 'feed' && captions.hasFeed) {
     action = (
-      <button
-        type="button"
-        onClick={() =>
-          void commands
-            .captionsUseFeed(spoken.episodeId)
-            .then(() => client.invalidateQueries({ queryKey: ['captions', spoken.episodeId] }))
-        }
-        className={button}
-      >
-        <FileText aria-hidden size={13} />
-        {t('captions.useFeed')}
-      </button>
+      <>
+        <button
+          type="button"
+          aria-haspopup="dialog"
+          aria-expanded={menuAnchor !== null}
+          onClick={(event) => setMenuAnchor(menuAnchor ? null : event.currentTarget)}
+          className={button}
+        >
+          {t('captions.source')}
+          <ChevronDown aria-hidden size={12} />
+        </button>
+        {menuAnchor && (
+          <Sheet
+            title={t('captions.source')}
+            anchor={menuAnchor}
+            popoverWidth={260}
+            onClose={() => setMenuAnchor(null)}
+          >
+            <div
+              role="radiogroup"
+              aria-label={t('captions.source')}
+              className="-mx-2 flex flex-col"
+            >
+              {option(false)}
+              {option(true)}
+            </div>
+          </Sheet>
+        )}
+      </>
     );
   } else if (!captions.complete && captions.source !== 'feed') {
     action = captions.canTranscribe ? (
@@ -231,7 +278,16 @@ const CaptionsFooter: FC<{
                     value: { ...prefs, onlineConfirmed: true },
                   });
                 }
-                transcribe.mutate({ episodeId: spoken.episodeId, fromMs: positionMs });
+                // From the feed's transcript, it's kept aside first (M46.45).
+                if (captions.source === 'feed') {
+                  void commands
+                    .captionsUseAi(spoken.episodeId, positionMs)
+                    .then(() =>
+                      client.invalidateQueries({ queryKey: ['captions', spoken.episodeId] }),
+                    );
+                } else {
+                  transcribe.mutate({ episodeId: spoken.episodeId, fromMs: positionMs });
+                }
               }}
               className="bg-primary text-background rounded-full px-3 py-1 font-semibold"
             >

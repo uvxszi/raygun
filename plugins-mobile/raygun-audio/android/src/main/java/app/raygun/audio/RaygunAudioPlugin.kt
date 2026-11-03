@@ -5,6 +5,8 @@ import android.app.Activity
 import android.content.ComponentName
 import android.content.Intent
 import android.content.res.Configuration
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
@@ -35,6 +37,7 @@ import app.tauri.annotation.Permission
 import app.tauri.annotation.PermissionCallback
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
+import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import org.json.JSONArray
 import app.tauri.plugin.Plugin
@@ -65,6 +68,11 @@ class LoadArgs {
 @InvokeArg
 class MulticastArgs {
     var hold: Boolean = false
+}
+
+@InvokeArg
+class AudioOutputArgs {
+    var id: String? = null
 }
 
 @InvokeArg
@@ -606,6 +614,49 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     // ---- Audio quality (M46.18): mobile data has its own setting ----
+
+    /** What an output is, for Devices (M46.43); outputs nobody picks (the earpiece, calls) are left out. */
+    private fun outputKind(type: Int): String? = when (type) {
+        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "speaker"
+        AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_WIRED_HEADSET -> "wired"
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "bluetooth"
+        AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET -> "usb"
+        AudioDeviceInfo.TYPE_HDMI, AudioDeviceInfo.TYPE_HDMI_ARC -> "hdmi"
+        else -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            (type == AudioDeviceInfo.TYPE_BLE_HEADSET || type == AudioDeviceInfo.TYPE_BLE_SPEAKER)
+        ) "bluetooth" else null
+    }
+
+    private fun outputs(): List<AudioDeviceInfo> {
+        val manager = activity.applicationContext.getSystemService(AudioManager::class.java) ?: return emptyList()
+        return manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).filter { outputKind(it.type) != null }
+    }
+
+    /** The outputs sound can go to now (M46.43): speaker, wired and Bluetooth headphones, USB, HDMI. */
+    @Command
+    fun audioOutputs(invoke: Invoke) {
+        val list = JSArray()
+        for (device in outputs()) {
+            list.put(
+                JSObject()
+                    .put("id", device.id.toString())
+                    .put("name", device.productName?.toString().orEmpty())
+                    .put("kind", outputKind(device.type)),
+            )
+        }
+        val chosen = RaygunSound.output?.id?.toString()
+        invoke.resolve(JSObject().put("outputs", list).put("chosen", chosen))
+    }
+
+    /** Plays through one output, or (no id) wherever Android sends sound. */
+    @Command
+    fun setAudioOutput(invoke: Invoke) {
+        val args = invoke.parseArgs(AudioOutputArgs::class.java)
+        val device = args.id?.let { id -> outputs().firstOrNull { it.id.toString() == id } }
+        RaygunSound.output = device
+        Handler(Looper.getMainLooper()).post { RaygunPlaybackService.instance?.applyOutput(device) }
+        invoke.resolve()
+    }
 
     @Command
     fun networkKind(invoke: Invoke) {

@@ -29,7 +29,7 @@ import { unwrapResult } from '../lib/commandResult';
 import { formatTime } from '../player/formatTime';
 import { playResults } from '../search/useOnlineSearch';
 import { SourceIssue } from '../shell/SourceIssue';
-import { COLLECTIONS } from './useCollections';
+import { COLLECTIONS, usePlaylists } from './useCollections';
 
 /** Songs matched at once, so the list fills in as it goes. */
 const MATCH_TOGETHER = 4;
@@ -244,6 +244,9 @@ export const ImportReview: FC<{ list: ImportedList; onClose: () => void }> = ({
   const navigate = useNavigate();
   const client = useQueryClient();
   const [name, setName] = useState(list.name);
+  // Where the songs go (M46.45): 'new', 'favorites' or a playlist's id.
+  const [destination, setDestination] = useState('new');
+  const playlists = usePlaylists();
   const [rows, setRows] = useState<Row[]>(() =>
     list.songs.map((song, id) => ({ id, song, skipped: false })),
   );
@@ -317,14 +320,22 @@ export const ImportReview: FC<{ list: ImportedList; onClose: () => void }> = ({
     mutationFn: () =>
       unwrapResult(
         commands.importSave(
-          name.trim() || list.name,
+          destination === 'new'
+            ? { kind: 'new', name: name.trim() || list.name }
+            : destination === 'favorites'
+              ? { kind: 'favorites' }
+              : { kind: 'playlist', id: destination },
           kept.map((row) => row.result ?? pendingOf(row.song)),
         ),
       ),
     onSuccess: (id) => {
       void client.invalidateQueries({ queryKey: [COLLECTIONS] });
       onClose();
-      void navigate({ to: '/library/playlist', search: { id } });
+      void navigate(
+        id === 'favorites'
+          ? { to: '/library', search: { view: 'favorites' } }
+          : { to: '/library/playlist', search: { id } },
+      );
     },
   });
   const matched = rows.filter((row) => row.result);
@@ -333,12 +344,30 @@ export const ImportReview: FC<{ list: ImportedList; onClose: () => void }> = ({
 
   return (
     <div data-testid="import-review" className="flex flex-col gap-3">
-      <input
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-        aria-label={t('collections.playlistName')}
-        className="bg-background rounded-xl px-4 py-3 text-sm outline-none"
-      />
+      <label className="flex items-center gap-2 text-sm">
+        <span className="text-muted shrink-0">{t('import.saveTo')}</span>
+        <select
+          value={destination}
+          onChange={(event) => setDestination(event.target.value)}
+          className="bg-background min-w-0 flex-1 rounded-xl px-3 py-2.5 text-sm outline-none"
+        >
+          <option value="new">{t('collections.newPlaylist')}</option>
+          <option value="favorites">{t('collections.favorites')}</option>
+          {playlists.data?.map((playlist) => (
+            <option key={playlist.id} value={playlist.id}>
+              {playlist.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {destination === 'new' && (
+        <input
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          aria-label={t('collections.playlistName')}
+          className="bg-background rounded-xl px-4 py-3 text-sm outline-none"
+        />
+      )}
       <p role="status" className="text-muted text-sm">
         {done
           ? found === rows.length
@@ -409,7 +438,15 @@ export const ImportReview: FC<{ list: ImportedList; onClose: () => void }> = ({
           onClick={() => save.mutate()}
           className="bg-primary text-background rounded-full px-5 py-2 text-sm font-semibold disabled:opacity-60"
         >
-          {t('import.create', { count: kept.length })}
+          {destination === 'new'
+            ? t('import.create', { count: kept.length })
+            : t('import.addTo', {
+                count: kept.length,
+                name:
+                  destination === 'favorites'
+                    ? t('collections.favorites')
+                    : (playlists.data?.find((playlist) => playlist.id === destination)?.name ?? ''),
+              })}
         </button>
       </div>
     </div>

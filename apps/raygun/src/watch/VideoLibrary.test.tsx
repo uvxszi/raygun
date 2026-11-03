@@ -83,6 +83,7 @@ const SERIES: StremioMeta = {
   releaseInfo: '2008–2013',
   runtime: null,
   rating: null,
+  ratings: [],
   cast: [],
   director: [],
   trailerYtIds: [],

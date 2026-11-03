@@ -3,6 +3,8 @@
 //! What a track is (portable sources, local matches) is decided by the app; this layer stores the
 //! fields it is given.
 
+use std::collections::HashSet;
+
 use sqlx::sqlite::SqliteRow;
 use sqlx::{Row, Sqlite, Transaction};
 use uuid::Uuid;
@@ -61,13 +63,33 @@ const MIN_POSITION_GAP: f64 = 1e-6;
 
 const TRACK_COLUMNS: &str = "track_key, title, artist, album, duration_ms, artwork_url, source";
 
+/// A favorite's place in the user's order (M46.44): its position once moved, else its added time
+/// reversed, so favorites nobody moved stay newest first and new ones arrive on top.
+const FAVORITE_PLACE: &str = "COALESCE(position, -CAST(added_at AS REAL))";
+
+/// The tables whose rows have a `position` (M46.44).
+#[derive(Clone, Copy)]
+enum Ordered {
+    PlaylistItems,
+    Favorites,
+}
+
+impl Ordered {
+    fn table(self) -> &'static str {
+        match self {
+            Ordered::PlaylistItems => "music_playlist_item",
+            Ordered::Favorites => "music_favorite",
+        }
+    }
+}
+
 // ---- Favorites ----
 
-/// Live favorites, most recently added first.
+/// Live favorites in the user's order (newest first until some are moved).
 pub async fn favorites(db: &Db) -> Result<Vec<FavoriteRow>, DbError> {
     let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT id, added_at, {TRACK_COLUMNS} FROM music_favorite WHERE deleted = 0
-         ORDER BY added_at DESC, id DESC"
+         ORDER BY {FAVORITE_PLACE}, id DESC"
     )))
     .fetch_all(db.pool())
     .await?;
@@ -135,7 +157,7 @@ pub async fn set_favorite(
          ON CONFLICT (id) DO UPDATE SET
              title = excluded.title, artist = excluded.artist, album = excluded.album,
              duration_ms = excluded.duration_ms, artwork_url = excluded.artwork_url,
-             source = excluded.source, added_at = excluded.added_at,
+             source = excluded.source, added_at = excluded.added_at, position = NULL,
              updated_at_hlc = excluded.updated_at_hlc, origin_device = excluded.origin_device,
              deleted = 0",
     )
@@ -153,6 +175,71 @@ pub async fn set_favorite(
     .execute(&mut *transaction)
     .await?;
     finish(transaction, stamp).await
+}
+
+/// Keys of every song in Favorites or a playlist (M46.45: the saved mark in lists).
+pub async fn saved_keys(db: &Db) -> Result<Vec<String>, DbError> {
+    let rows = sqlx::query(
+        "SELECT track_key FROM music_favorite WHERE deleted = 0
+         UNION SELECT track_key FROM music_playlist_item WHERE deleted = 0",
+    )
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows.iter().map(|row| row.get("track_key")).collect())
+}
+
+/// Live favorites as `(id, track key, place)`, in the user's order.
+async fn favorite_places(db: &Db) -> Result<Vec<(String, String, f64)>, DbError> {
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT id, track_key, {FAVORITE_PLACE} AS place FROM music_favorite WHERE deleted = 0
+         ORDER BY place, id DESC"
+    )))
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows
+        .iter()
+        .map(|row| (row.get("id"), row.get("track_key"), row.get("place")))
+        .collect())
+}
+
+/// Moves a favorite (by track key) before another, or last when `before` is None (M46.44).
+pub async fn move_favorite(db: &Db, track_key: &str, before: Option<&str>) -> Result<(), DbError> {
+    let places = favorite_places(db).await?;
+    let id_of = |key: &str| {
+        places
+            .iter()
+            .find(|(_, other, _)| other == key)
+            .map(|(id, _, _)| id.clone())
+    };
+    let Some(id) = id_of(track_key) else {
+        return Ok(());
+    };
+    let before = before.and_then(id_of);
+    let others = places
+        .iter()
+        .filter(|(other, _, _)| *other != id)
+        .map(|(id, _, place)| (id.clone(), *place))
+        .collect();
+    place_row(db, Ordered::Favorites, &id, before.as_deref(), others).await
+}
+
+/// Saves Favorites in the order of `track_keys` (M46.44: a sorted list dragged into shape).
+pub async fn set_favorites_order(db: &Db, track_keys: &[String]) -> Result<(), DbError> {
+    let places = favorite_places(db).await?;
+    let ids: Vec<String> = track_keys
+        .iter()
+        .filter_map(|key| {
+            places
+                .iter()
+                .find(|(_, other, _)| other == key)
+                .map(|(id, _, _)| id.clone())
+        })
+        .collect();
+    let current = places
+        .into_iter()
+        .map(|(id, _, place)| (id, place))
+        .collect();
+    set_order(db, Ordered::Favorites, current, &ids).await
 }
 
 // ---- Playlists ----
@@ -363,24 +450,83 @@ pub async fn move_playlist_item(
     else {
         return Ok(());
     };
-    let mut others: Vec<(String, f64)> = playlist_items(db, &playlist_id)
+    let others: Vec<(String, f64)> = playlist_items(db, &playlist_id)
         .await?
         .into_iter()
         .filter(|item| item.id != item_id)
         .map(|item| (item.id, item.position))
         .collect();
+    place_row(db, Ordered::PlaylistItems, item_id, before, others).await
+}
+
+/// Saves a playlist in the order of `item_ids` (M46.44: a sorted list dragged into shape).
+pub async fn set_playlist_order(
+    db: &Db,
+    playlist_id: &str,
+    item_ids: &[String],
+) -> Result<(), DbError> {
+    let current = playlist_items(db, playlist_id)
+        .await?
+        .into_iter()
+        .map(|item| (item.id, item.position))
+        .collect();
+    set_order(db, Ordered::PlaylistItems, current, item_ids).await
+}
+
+/// Puts row `id` before `before` among `others` (in order, without it). Only its row changes,
+/// unless the neighbours are too close to split and every row is spaced out first.
+async fn place_row(
+    db: &Db,
+    table: Ordered,
+    id: &str,
+    before: Option<&str>,
+    mut others: Vec<(String, f64)>,
+) -> Result<(), DbError> {
     let (mut transaction, stamp) = begin(db).await?;
     let mut position = new_position(&others, before);
     if position.is_none() {
-        // Neighbours too close to split: space every item out again, then place this one.
-        for (index, (id, position)) in others.iter_mut().enumerate() {
+        for (index, (other, position)) in others.iter_mut().enumerate() {
             *position = index as f64 + 1.0;
-            set_position(&mut transaction, &stamp, id, *position).await?;
+            set_position(&mut transaction, &stamp, table, other, *position).await?;
         }
         position = new_position(&others, before);
     }
     if let Some(position) = position {
-        set_position(&mut transaction, &stamp, item_id, position).await?;
+        set_position(&mut transaction, &stamp, table, id, position).await?;
+    }
+    finish(transaction, stamp).await
+}
+
+/// Numbers rows 1, 2, … in the order of `ids`; live rows not named follow in their own order.
+/// Rows already at their number aren't written, so sync sends only what moved.
+async fn set_order(
+    db: &Db,
+    table: Ordered,
+    current: Vec<(String, f64)>,
+    ids: &[String],
+) -> Result<(), DbError> {
+    let live: HashSet<&str> = current.iter().map(|(id, _)| id.as_str()).collect();
+    let mut placed: HashSet<&str> = HashSet::new();
+    let mut order: Vec<&str> = Vec::with_capacity(current.len());
+    for id in ids
+        .iter()
+        .map(String::as_str)
+        .chain(current.iter().map(|(id, _)| id.as_str()))
+    {
+        if live.contains(id) && placed.insert(id) {
+            order.push(id);
+        }
+    }
+    let (mut transaction, stamp) = begin(db).await?;
+    for (index, id) in order.iter().enumerate() {
+        let position = index as f64 + 1.0;
+        let was = current
+            .iter()
+            .find(|(other, _)| other == id)
+            .map(|(_, place)| *place);
+        if was != Some(position) {
+            set_position(&mut transaction, &stamp, table, id, position).await?;
+        }
     }
     finish(transaction, stamp).await
 }
@@ -409,13 +555,15 @@ fn new_position(others: &[(String, f64)], before: Option<&str>) -> Option<f64> {
 async fn set_position(
     transaction: &mut Transaction<'_, Sqlite>,
     stamp: &Stamp,
+    table: Ordered,
     id: &str,
     position: f64,
 ) -> Result<(), DbError> {
-    sqlx::query(
-        "UPDATE music_playlist_item SET position = ?2, updated_at_hlc = ?3, origin_device = ?4
-         WHERE id = ?1",
-    )
+    // The table name is one of `Ordered`'s, never from input.
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "UPDATE {} SET position = ?2, updated_at_hlc = ?3, origin_device = ?4 WHERE id = ?1",
+        table.table()
+    )))
     .bind(id)
     .bind(position)
     .bind(stamp.hlc)

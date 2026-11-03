@@ -17,6 +17,7 @@ import { TitleListActions } from '../manga/TitleListActions';
 import { useDuplicateCheck } from '../manga/useDuplicateCheck';
 import type { PickIntent } from '../watch/ServerPicker';
 import { StreamPicker } from '../watch/StreamPicker';
+import { TitleRatings } from '../watch/TitleRatings';
 import type { StreamTarget } from '../watch/StreamPicker';
 import { StremioPoster } from '../watch/StremioRow';
 import { VideoDownloadControl } from '../watch/VideoDownloadControl';
@@ -327,7 +328,16 @@ export const WatchTitlePage: FC = () => {
         backdrop={view.background}
         cover={<StremioPoster url={view.poster} className="w-full shadow-lg" />}
         title={view.name}
-        facts={[view.releaseInfo, view.runtime, view.rating && `★ ${view.rating}`]}
+        facts={[
+          view.releaseInfo,
+          view.runtime,
+          view.ratings.length === 0 && view.rating && `★ ${view.rating}`,
+        ]}
+        factsExtra={
+          view.ratings.length > 0 && (
+            <TitleRatings kind={view.kind} id={view.id} ratings={view.ratings} />
+          )
+        }
         genres={view.genres}
         genresLabel={t('watch.genres')}
         aside={

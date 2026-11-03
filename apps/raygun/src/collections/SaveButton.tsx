@@ -153,6 +153,7 @@ const SaveSheet: FC<{
               t('collections.songs', { count: playlist.itemCount }),
               <PlaylistCover
                 artworkUrls={playlist.artworkUrls}
+                coverUrl={playlist.coverUrl}
                 className="size-10 shrink-0 rounded"
               />,
               draft.playlistIds.includes(playlist.id),
@@ -171,6 +172,7 @@ const SaveSheet: FC<{
               t('collections.songs', { count: playlist.itemCount }),
               <PlaylistCover
                 artworkUrls={playlist.artworkUrls}
+                coverUrl={playlist.coverUrl}
                 className="size-10 shrink-0 rounded"
               />,
               draft.playlistIds.includes(playlist.id),

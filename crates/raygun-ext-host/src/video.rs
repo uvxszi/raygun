@@ -52,6 +52,9 @@ pub struct VideoTrack {
     pub label: Option<String>,
 }
 
+/// Comments kept from one page.
+const MAX_COMMENTS: usize = 100;
+
 impl ExtensionHost {
     /// A title's episodes, in the source's order; a movie has one.
     pub async fn video_episodes(
@@ -64,6 +67,30 @@ impl ExtensionHost {
             .await
             .map_err(|error| error.to_string())?;
         Ok(parse_units(&value, "episodes", "Episode"))
+    }
+
+    /// A title's comments, a page at a time (M46.45); a source without them has none.
+    pub async fn video_comments(
+        &self,
+        provider: &str,
+        id: &str,
+        page: Option<&str>,
+    ) -> Result<raygun_model::VideoComments, String> {
+        let value = self
+            .call_interactive(
+                provider,
+                "comments",
+                serde_json::json!({ "id": id, "page": page }),
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        let mut answer: raygun_model::VideoComments =
+            serde_json::from_value(value).map_err(|error| error.to_string())?;
+        answer
+            .comments
+            .retain(|comment| !comment.text.trim().is_empty());
+        answer.comments.truncate(MAX_COMMENTS);
+        Ok(answer)
     }
 
     /// An episode's servers, some perhaps already resolved.

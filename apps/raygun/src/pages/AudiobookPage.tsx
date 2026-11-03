@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useSearch } from '@tanstack/react-router';
 import { Check, LoaderCircle, Play, Plus, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
@@ -14,6 +15,7 @@ import { PinButton } from '../shell/PinButton';
 import { useSearchMode } from '../shell/useSearchMode';
 import { matchesSearch } from '../shell/useListSearch';
 import { usePlayContext } from '../music/playContext';
+import { findInCache } from '../shell/queryMemory';
 
 /**
  * An audiobook (M46.22): Resume where you left off or start over, add it to the library, and its
@@ -27,14 +29,25 @@ export const AudiobookPage: FC = () => {
   const play = usePlayAudiobook();
   const keep = useKeepAudiobook();
   const [expanded, setExpanded] = useState(false);
+  const client = useQueryClient();
   const view = book.data;
+  // A feed without its own picture shows the one the directory listed it with (M46.45).
+  const artworkUrl =
+    view?.artworkUrl ??
+    (view
+      ? findInCache(client, ['audiobooks', 'directory'], (record) =>
+          record.feedUrl === view.feedUrl && typeof record.artworkUrl === 'string'
+            ? record.artworkUrl
+            : null,
+        )
+      : null);
   usePlayContext(
     view
       ? {
           kind: 'audiobook',
           name: view.title,
           subtitle: view.author,
-          artworkUrl: view.artworkUrl,
+          artworkUrl,
           to: '/audiobook',
           search: { id },
         }
@@ -76,17 +89,17 @@ export const AudiobookPage: FC = () => {
                 to: '/audiobook',
                 search: { id: view.id },
                 name: view.title,
-                artworkUrl: view.artworkUrl ?? null,
+                artworkUrl: artworkUrl ?? null,
               }}
             />{' '}
           </>
         }
       />
       <header className="flex flex-col items-center gap-4 sm:flex-row sm:items-end sm:gap-6">
-        <PodcastArt url={view.artworkUrl} className="w-40 shrink-0 rounded-lg shadow-xl sm:w-48" />
+        <PodcastArt url={artworkUrl} className="w-40 shrink-0 rounded-lg shadow-xl sm:w-48" />
         <div className="flex min-w-0 flex-col items-center gap-2 sm:items-start">
           <span className="text-muted text-xs font-semibold tracking-wide uppercase">
-            {t('audiobooks.title')}
+            {t('audiobooks.one')}
           </span>
           <h1 className="text-center text-2xl font-black tracking-tight wrap-anywhere sm:text-left sm:text-4xl">
             {view.title}
@@ -160,6 +173,7 @@ export const AudiobookPage: FC = () => {
               <EpisodeItem
                 key={chapter.id}
                 episode={chapter}
+                tapToPlay
                 onPlay={() => play.mutate({ id: view.id, chapterId: chapter.id })}
               />
             ))}

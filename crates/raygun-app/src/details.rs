@@ -49,6 +49,7 @@ fn target_key(target: &DetailTarget) -> Key {
             ("album".into(), album_key(artist.as_deref(), album))
         }
         DetailTarget::Artist { name } => ("artist".into(), normalize(name)),
+        DetailTarget::Playlist { id } => ("playlist".into(), id.clone()),
     }
 }
 
@@ -103,7 +104,7 @@ impl DetailService {
     /// (pages show edited names, and editing again must find the same edit).
     fn key_of(&self, target: &DetailTarget) -> Key {
         let (kind, key) = target_key(target);
-        if self.row(&kind, &key).is_some() {
+        if self.row(&kind, &key).is_some() || kind == "playlist" {
             return (kind, key);
         }
         let edits = self.edits.read().unwrap_or_else(|p| p.into_inner());
@@ -130,7 +131,9 @@ impl DetailService {
                         match target {
                             DetailTarget::Album { album, .. } => normalize(album),
                             DetailTarget::Artist { name } => normalize(name),
-                            DetailTarget::Song { .. } => String::new(),
+                            DetailTarget::Song { .. } | DetailTarget::Playlist { .. } => {
+                                String::new()
+                            }
                         }
                         .as_str(),
                     )

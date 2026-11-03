@@ -22,6 +22,8 @@ use crate::startup::AppDb;
 /// Sources searched at the same time (M46.7): each runs a script and makes requests, so a search
 /// over many sources goes a few at a time instead of all at once.
 const SEARCH_CONCURRENCY: usize = 4;
+/// How long a title (details and chapters) may take before its page says the source failed.
+const TITLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 pub struct Catalog {
     app: AppHandle,
@@ -255,6 +257,12 @@ impl Catalog {
         remote_id: &str,
     ) -> Result<(TitleRow, usize), String> {
         let video = self.capability == VIDEO_SOURCE;
+        tracing::info!(
+            kind = self.kind,
+            source = source_id,
+            id = remote_id,
+            "fetching a title"
+        );
         let (details, chapters) = {
             let extensions = self.extensions();
             let (_ready, host) = extensions.ready().await;
@@ -265,7 +273,20 @@ impl Catalog {
                     host.manga_chapters(source_id, remote_id).await
                 }
             };
-            futures_util::future::join(host.manga_details(source_id, remote_id), units).await
+            // A source that never answers ends in an error, not a page loading forever (M46.45).
+            tokio::time::timeout(
+                TITLE_TIMEOUT,
+                futures_util::future::join(host.manga_details(source_id, remote_id), units),
+            )
+            .await
+            .map_err(|_| {
+                tracing::warn!(
+                    source = source_id,
+                    id = remote_id,
+                    "a title didn't load in time"
+                );
+                "The source didn't answer in time".to_owned()
+            })?
         };
         let details = details?;
         let chapters = chapters?;
@@ -385,6 +406,15 @@ impl Catalog {
                 titles::set_mark(&db, &ids, &mark)
                     .await
                     .map_err(to_message)?;
+            }
+        }
+        // Quick access follows the library (M46.41).
+        if let Ok(Some(row)) = titles::title(&db, title_id).await {
+            let pin = crate::quick_access::title_pin(&row);
+            if in_library {
+                crate::quick_access::add(&self.app, pin).await;
+            } else {
+                crate::quick_access::remove(&self.app, &pin.to, &pin.search).await;
             }
         }
         Ok(())

@@ -16,6 +16,7 @@ import {
   useUndoLastSync,
 } from '../devices/useDeviceSync';
 import { PageHeader } from './PageHeader';
+import { RemoteCard } from '../settings/RemoteCard';
 
 const KINDS: SyncKind[] = ['settings', 'library', 'history'];
 const CARD = 'bg-surface flex flex-col gap-3 rounded-xl px-5 py-4 text-sm';
@@ -335,6 +336,11 @@ export const DevicesPage: FC = () => {
   return (
     <section data-testid="devices-page" className="flex max-w-2xl flex-col gap-4">
       <PageHeader back fallback="/more" title={t('devices.title')} />
+      {/* One place for other devices (M46.43): playing and controlling (Connect, the browser
+          remote), then syncing. */}
+      <section className={CARD}>
+        <RemoteCard />
+      </section>
       <section className={CARD}>
         <div className="flex items-center justify-between gap-4">
           <div className="flex flex-col gap-0.5">

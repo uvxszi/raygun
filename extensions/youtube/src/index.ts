@@ -6,6 +6,10 @@
 // as Grayjay, NewPipe and FreeTube do, so no key is needed. With the user's own YouTube Data API
 // key set, the official API is used instead.
 //
+// M46.45: the video source also finds channels and playlists (each opens as a series of its
+// videos) and reads a video's comments. The response shapes (lockup view models, comment entity
+// payloads) were read from Grayjay's YouTube plugin (futo-org/grayjay-plugin-youtube, AGPL-3.0).
+//
 // Deliberately no direct stream extraction (signature deciphering, proof-of-origin tokens): those
 // defeat YouTube's bot checks. The embed pauses when Android backgrounds the app, so the resolver
 // prefers direct streams and keeps YouTube as the fallback.
@@ -514,13 +518,28 @@ const WEB = 'https://www.youtube.com';
 let webClientVersion = '2.20261028.01.00';
 
 type Text = { simpleText?: string; runs?: { text: string }[] };
+type Thumbnails = { thumbnails?: { url: string; width?: number }[] };
 type VideoRenderer = {
   videoId?: string;
   title?: Text;
-  thumbnail?: { thumbnails?: { url: string; width?: number }[] };
+  thumbnail?: Thumbnails;
+};
+/** YouTube's newer cards: videos in channels and playlists, playlists in search. */
+type Lockup = {
+  contentId?: string;
+  contentType?: string;
+  metadata?: { lockupMetadataViewModel?: { title?: { content?: string } } };
+  contentImage?: {
+    thumbnailViewModel?: { image?: { sources?: { url: string }[] } };
+    collectionThumbnailViewModel?: {
+      primaryThumbnail?: { thumbnailViewModel?: { image?: { sources?: { url: string }[] } } };
+    };
+  };
 };
 type Item = {
   videoRenderer?: VideoRenderer;
+  channelRenderer?: { channelId?: string; title?: Text; thumbnail?: Thumbnails };
+  lockupViewModel?: Lockup;
   itemSectionRenderer?: { contents?: Item[] };
   shelfRenderer?: { content?: { expandedShelfContentsRenderer?: { items?: Item[] } } };
   richItemRenderer?: { content?: Item };
@@ -580,14 +599,66 @@ const webInnertube = async <T>(endpoint: string, body: Record<string, unknown>):
   return (await response.json()) as T;
 };
 
-/** Every video in a list of items, however deeply YouTube nested it. */
-const videosIn = (items: Item[] | undefined, out: VideoRenderer[] = []): VideoRenderer[] => {
+type Entry = { id: string; title: string; coverUrl: string | null };
+
+const PREFIX = { channel: 'channel:', playlist: 'playlist:' } as const;
+
+/** A thumbnail's address without its size query; protocol-relative ones get https. */
+const imageUrl = (url: string | undefined) => {
+  if (!url) return null;
+  const full = url.startsWith('//') ? `https:${url}` : url;
+  return full.includes('ytimg.com') ? (full.split('?')[0] ?? full) : full;
+};
+
+const lockupImage = (lockup: Lockup) =>
+  imageUrl(
+    (
+      lockup.contentImage?.thumbnailViewModel ??
+      lockup.contentImage?.collectionThumbnailViewModel?.primaryThumbnail?.thumbnailViewModel
+    )?.image?.sources?.at(-1)?.url,
+  );
+
+/**
+ * Every video, channel and playlist in a list of items, however deeply YouTube nested them, in
+ * order (M46.45: channels and playlists open as a series of their videos). `videosOnly` for a
+ * channel's or a playlist's own videos.
+ */
+const entriesIn = (items: Item[] | undefined, videosOnly = false, out: Entry[] = []): Entry[] => {
   for (const item of items ?? []) {
-    if (item.videoRenderer?.videoId) out.push(item.videoRenderer);
-    if (item.itemSectionRenderer) videosIn(item.itemSectionRenderer.contents, out);
-    if (item.shelfRenderer)
-      videosIn(item.shelfRenderer.content?.expandedShelfContentsRenderer?.items, out);
-    if (item.richItemRenderer?.content) videosIn([item.richItemRenderer.content], out);
+    const video = item.videoRenderer;
+    if (video?.videoId) {
+      out.push({
+        id: video.videoId,
+        title: textOf(video.title),
+        coverUrl: imageUrl(video.thumbnail?.thumbnails?.at(-1)?.url),
+      });
+    }
+    const channel = item.channelRenderer;
+    if (channel?.channelId && !videosOnly) {
+      out.push({
+        id: `${PREFIX.channel}${channel.channelId}`,
+        title: textOf(channel.title),
+        coverUrl: imageUrl(channel.thumbnail?.thumbnails?.at(-1)?.url),
+      });
+    }
+    const lockup = item.lockupViewModel;
+    if (lockup?.contentId) {
+      const title = lockup.metadata?.lockupMetadataViewModel?.title?.content ?? '';
+      if (lockup.contentType === 'LOCKUP_CONTENT_TYPE_VIDEO') {
+        out.push({ id: lockup.contentId, title, coverUrl: lockupImage(lockup) });
+      } else if (lockup.contentType === 'LOCKUP_CONTENT_TYPE_PLAYLIST' && !videosOnly) {
+        out.push({
+          id: `${PREFIX.playlist}${lockup.contentId}`,
+          title,
+          coverUrl: lockupImage(lockup),
+        });
+      }
+    }
+    if (item.itemSectionRenderer) entriesIn(item.itemSectionRenderer.contents, videosOnly, out);
+    if (item.shelfRenderer) {
+      entriesIn(item.shelfRenderer.content?.expandedShelfContentsRenderer?.items, videosOnly, out);
+    }
+    if (item.richItemRenderer?.content) entriesIn([item.richItemRenderer.content], videosOnly, out);
   }
   return out;
 };
@@ -602,12 +673,8 @@ const continuationIn = (items: Item[] | undefined): string | null => {
   return null;
 };
 
-const toPage = (found: VideoRenderer[], next: string | null): MangaPage => ({
-  items: found.map((video) => ({
-    id: video.videoId!,
-    title: textOf(video.title),
-    coverUrl: video.thumbnail?.thumbnails?.at(-1)?.url?.split('?')[0] ?? null,
-  })),
+const toPage = (found: Entry[], next: string | null): MangaPage => ({
+  items: found,
   hasNextPage: next !== null,
 });
 
@@ -633,10 +700,141 @@ const searchWeb = async (query: string, page: number): Promise<MangaPage> => {
   const next = continuationIn(items);
   if (next) pages.set(key(page + 1), next);
   if (pages.size > 60) pages.delete(pages.keys().next().value!);
-  return toPage(videosIn(items), next);
+  return toPage(entriesIn(items), next);
 };
 
 type OEmbed = { title?: string; author_name?: string; thumbnail_url?: string };
+
+type BrowseResponse = {
+  metadata?: {
+    channelMetadataRenderer?: { title?: string; description?: string; avatar?: Thumbnails };
+    playlistMetadataRenderer?: { title?: string; description?: string };
+  };
+  contents?: {
+    twoColumnBrowseResultsRenderer?: {
+      tabs?: {
+        tabRenderer?: {
+          selected?: boolean;
+          content?: {
+            richGridRenderer?: { contents?: Item[] };
+            sectionListRenderer?: { contents?: Item[] };
+          };
+        };
+      }[];
+    };
+  };
+};
+
+/** The Videos tab, as youtube.com's channel page asks for it. */
+const CHANNEL_VIDEOS = 'EgZ2aWRlb3PyBgQKAjoA';
+
+/** A channel's (Videos tab) or a playlist's page. */
+const browsePage = (id: string) =>
+  id.startsWith(PREFIX.channel)
+    ? webInnertube<BrowseResponse>('browse', {
+        browseId: id.slice(PREFIX.channel.length),
+        params: CHANNEL_VIDEOS,
+      })
+    : webInnertube<BrowseResponse>('browse', {
+        browseId: `VL${id.slice(PREFIX.playlist.length)}`,
+      });
+
+/** The videos a channel's or a playlist's page lists. */
+const browseVideos = (page: BrowseResponse): Entry[] => {
+  const tabs = page.contents?.twoColumnBrowseResultsRenderer?.tabs ?? [];
+  const tab = tabs.find((each) => each.tabRenderer?.selected) ?? tabs[0];
+  const content = tab?.tabRenderer?.content;
+  return entriesIn(
+    content?.richGridRenderer?.contents ?? content?.sectionListRenderer?.contents,
+    true,
+  );
+};
+
+const isCollection = (id: string) =>
+  id.startsWith(PREFIX.channel) || id.startsWith(PREFIX.playlist);
+
+// ---- Comments (M46.45) ----
+
+type CommentPayload = {
+  author?: { displayName?: string; avatarThumbnailUrl?: string };
+  properties?: { content?: { content?: string }; publishedTime?: string };
+  toolbar?: { likeCountNotliked?: string; replyCount?: string };
+};
+type ThreadItem = Item & {
+  commentThreadRenderer?: {
+    commentViewModel?: { commentViewModel?: { commentKey?: string } };
+  };
+};
+type ContinuationItems = { continuationItems?: ThreadItem[] };
+type NextResponse = {
+  contents?: {
+    twoColumnWatchNextResults?: {
+      results?: {
+        results?: {
+          contents?: {
+            itemSectionRenderer?: { targetId?: string; contents?: Item[] };
+          }[];
+        };
+      };
+    };
+  };
+  onResponseReceivedEndpoints?: {
+    reloadContinuationItemsCommand?: ContinuationItems;
+    appendContinuationItemsAction?: ContinuationItems;
+  }[];
+  frameworkUpdates?: {
+    entityBatchUpdate?: {
+      mutations?: { entityKey?: string; payload?: { commentEntityPayload?: CommentPayload } }[];
+    };
+  };
+};
+
+const tokenOf = (item: Item | undefined) =>
+  item?.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token ?? null;
+
+/** A video's comments, a page at a time: `page` is the token the last page gave. */
+const videoComments = async (id: string, page?: string | null) => {
+  if (isCollection(id)) return { comments: [], next: null };
+  let token = page ?? null;
+  if (!token) {
+    const watch = await webInnertube<NextResponse>('next', { videoId: id });
+    const sections = watch.contents?.twoColumnWatchNextResults?.results?.results?.contents ?? [];
+    const section = sections.find(
+      (each) => each.itemSectionRenderer?.targetId === 'comments-section',
+    );
+    token = tokenOf(section?.itemSectionRenderer?.contents?.[0]);
+    // Turned off, or none yet.
+    if (!token) return { comments: [], next: null };
+  }
+  const answer = await webInnertube<NextResponse>('next', { continuation: token });
+  const items = (answer.onResponseReceivedEndpoints ?? []).flatMap(
+    (endpoint) =>
+      (endpoint.reloadContinuationItemsCommand ?? endpoint.appendContinuationItemsAction)
+        ?.continuationItems ?? [],
+  );
+  const payloads = new Map<string, CommentPayload>();
+  for (const mutation of answer.frameworkUpdates?.entityBatchUpdate?.mutations ?? []) {
+    const payload = mutation.payload?.commentEntityPayload;
+    if (mutation.entityKey && payload) payloads.set(mutation.entityKey, payload);
+  }
+  const comments = items.flatMap((item) => {
+    const key = item.commentThreadRenderer?.commentViewModel?.commentViewModel?.commentKey;
+    const comment = key ? payloads.get(key) : undefined;
+    if (!comment) return [];
+    const replies = Number.parseInt(comment.toolbar?.replyCount ?? '', 10);
+    return [
+      {
+        author: comment.author?.displayName ?? '',
+        avatarUrl: comment.author?.avatarThumbnailUrl ?? null,
+        text: comment.properties?.content?.content ?? '',
+        likes: comment.toolbar?.likeCountNotliked?.trim() || null,
+        published: comment.properties?.publishedTime ?? null,
+        replies: Number.isFinite(replies) ? replies : null,
+      },
+    ];
+  });
+  return { comments, next: tokenOf(items.at(-1)) };
+};
 
 const videos = defineProvider({
   kind: 'video.source',
@@ -652,6 +850,27 @@ const videos = defineProvider({
   search: ({ query, page }) => searchWeb(query.trim() || 'trending', page),
 
   async details({ id }) {
+    // A channel or a playlist (M46.45): a series of its videos.
+    if (isCollection(id)) {
+      const page = await browsePage(id);
+      const channel = page.metadata?.channelMetadataRenderer;
+      const playlist = page.metadata?.playlistMetadataRenderer;
+      const own = id.startsWith(PREFIX.channel)
+        ? `${WEB}/channel/${id.slice(PREFIX.channel.length)}`
+        : `${WEB}/playlist?list=${id.slice(PREFIX.playlist.length)}`;
+      return {
+        id,
+        title: channel?.title ?? playlist?.title ?? id,
+        coverUrl:
+          imageUrl(channel?.avatar?.thumbnails?.at(-1)?.url) ??
+          browseVideos(page)[0]?.coverUrl ??
+          null,
+        description: channel?.description ?? playlist?.description ?? null,
+        genres: [],
+        type: 'series' as const,
+        url: own,
+      };
+    }
     const watch = `${WEB}/watch?v=${encodeURIComponent(id)}`;
     const response = await raygun.http.fetch(
       `${WEB}/oembed?format=json&url=${encodeURIComponent(watch)}`,
@@ -669,7 +888,19 @@ const videos = defineProvider({
     };
   },
 
-  episodes: async ({ id }) => ({ episodes: [{ id, name: 'Video' }] }),
+  episodes: async ({ id }) => {
+    if (!isCollection(id)) return { episodes: [{ id, name: 'Video' }] };
+    const videos = browseVideos(await browsePage(id));
+    return {
+      episodes: videos.map((video, index) => ({
+        id: video.id,
+        name: video.title,
+        number: index + 1,
+      })),
+    };
+  },
+
+  comments: ({ id, page }) => videoComments(id, page),
 
   // Played in YouTube's embed: one link, no stream extraction.
   servers: async ({ episodeId }) => ({

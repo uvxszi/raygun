@@ -44,7 +44,6 @@ import {
   PrefSwitch,
   PrefText,
 } from '../settings/prefs';
-import { RemoteCard } from '../settings/RemoteCard';
 import { StorageSettings } from '../settings/StorageSettings';
 import { WebsiteSettings } from '../websites/WebsiteSettings';
 import { autoRegion } from '../music/useDiscovery';
@@ -80,6 +79,37 @@ const SaveError: FC = () => {
   ) : null;
 };
 
+/** How many automatic quick access pins are kept (M46.41). */
+const QUICK_ACCESS_LIMITS = [10, 20, 50, 100, 250, 500, 1000];
+
+/** What's remembered of listening (M46.41). */
+const PrivacySettings: FC = () => {
+  const { t } = useTranslation();
+  const { data, update, busy } = useSetting();
+  if (!data) return null;
+  const privacy = data.privacy;
+  return (
+    <PrefGroup title={t('settings.privacy.title')}>
+      <PrefSwitch
+        title={t('settings.privacy.history')}
+        summary={t('settings.privacy.historyHint')}
+        checked={privacy.history ?? true}
+        disabled={busy}
+        onChange={(history) => update.mutate({ key: 'privacy', value: { ...privacy, history } })}
+      />
+      <PrefSwitch
+        title={t('settings.privacy.recentlyPlayed')}
+        summary={t('settings.privacy.recentlyPlayedHint')}
+        checked={privacy.recentlyPlayed ?? true}
+        disabled={busy}
+        onChange={(recentlyPlayed) =>
+          update.mutate({ key: 'privacy', value: { ...privacy, recentlyPlayed } })
+        }
+      />
+    </PrefGroup>
+  );
+};
+
 const LibrarySettings: FC = () => {
   const { t } = useTranslation();
   const { data, update, busy } = useSetting();
@@ -88,8 +118,27 @@ const LibrarySettings: FC = () => {
   const libraryDisplay = withLibraryDisplay(data.libraryDisplay);
   const setLibraryDisplay = (change: Partial<LibraryDisplay>) =>
     update.mutate({ key: 'libraryDisplay', value: { ...libraryDisplay, ...change } });
+  const rail = data.rail;
   return (
     <>
+      {/* Quick access (M46.41): what's added to the library is pinned, up to a limit. */}
+      <PrefGroup title={t('settings.quickAccess.title')}>
+        <PrefSwitch
+          title={t('settings.quickAccess.autoAdd')}
+          summary={t('settings.quickAccess.autoAddHint')}
+          checked={rail.autoAdd ?? true}
+          disabled={busy}
+          onChange={(autoAdd) => update.mutate({ key: 'rail', value: { ...rail, autoAdd } })}
+        />
+        <PrefChoice<number>
+          title={t('settings.quickAccess.limit')}
+          summary={t('settings.quickAccess.limitHint')}
+          value={rail.limit ?? 20}
+          disabled={busy || rail.autoAdd === false}
+          options={QUICK_ACCESS_LIMITS.map((value) => ({ value, label: String(value) }))}
+          onChange={(limit) => update.mutate({ key: 'rail', value: { ...rail, limit } })}
+        />
+      </PrefGroup>
       <PrefGroup title={t('settings.libraryDisplay')}>
         <PrefChoice<LibraryDisplayMode>
           title={t('library.display.mode')}
@@ -682,9 +731,6 @@ const ConnectionSettings: FC = () => {
             </span>
           }
         />
-        <PrefBlock>
-          <RemoteCard />
-        </PrefBlock>
       </PrefGroup>
       <PrefGroup title={t('settings.assistants')}>
         <PrefLink
@@ -733,6 +779,7 @@ const SECTIONS: Record<SettingsSection, FC> = {
   browse: BrowseSettings,
   data: () => (
     <>
+      <PrivacySettings />
       <PrefGroup>
         <PrefBlock>
           <BackupCard />

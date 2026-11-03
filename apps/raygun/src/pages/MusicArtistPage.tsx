@@ -24,8 +24,9 @@ import { Sheet } from '../shell/Sheet';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { DetailEditForm } from '../music/DetailEditForm';
 import { useDetailEdit } from '../music/useDetailEdit';
-import { PinButton } from '../shell/PinButton';
 import { SourceIssue } from '../shell/SourceIssue';
+import { FollowButton } from '../music/FollowButton';
+import { ArtistEvents } from '../music/ArtistEvents';
 
 /** Popular songs shown before "Show more". */
 const POPULAR_SHOWN = 10;
@@ -107,15 +108,6 @@ export const MusicArtistPage: FC = () => {
               icon={Pencil}
               onClick={() => setEditing(true)}
             />
-            <PinButton
-              target={{
-                kind: 'artist',
-                to: '/artist',
-                search: { name },
-                name: own.data?.title ?? name,
-                artworkUrl: picture ?? null,
-              }}
-            />
           </>
         }
       />
@@ -158,7 +150,7 @@ export const MusicArtistPage: FC = () => {
           </p>
         </div>
       </header>
-      <div className="flex gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           disabled={popular.length === 0 && (overview.data?.tracks.length ?? 0) === 0}
@@ -177,6 +169,8 @@ export const MusicArtistPage: FC = () => {
           <Shuffle aria-hidden size={18} />
           {t('library.shuffle')}
         </button>
+        {/* Following pins the artist to quick access (M46.42), in place of a pin button. */}
+        {name && <FollowButton name={name} imageUrl={picture} />}
       </div>
       {overview.isPending && name !== '' && (
         <LoaderCircle aria-label={t('artist.loading')} className="text-muted animate-spin" />
@@ -214,6 +208,7 @@ export const MusicArtistPage: FC = () => {
         <p className="text-muted text-sm">{t('artist.noPopular')}</p>
       )}
       {name && <Discography name={name} title={t('artist.discography')} />}
+      {name && <ArtistEvents name={name} />}
       {info.data && <AboutSection info={info.data} />}
       {(overview.data?.albums.length ?? 0) > 0 && (
         <Section title={t('artist.albums')}>

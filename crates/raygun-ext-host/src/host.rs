@@ -12,8 +12,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use raygun_model::{
-    ExtensionInfo, ExtensionOrigin, ExtensionSetting, ExtensionStatus, LyricLine, Lyrics,
-    MediaSource, MusicAlbum, MusicAlbumDetail, MusicArtist, MusicChart, MusicPlaylist,
+    ArtistEvent, ExtensionInfo, ExtensionOrigin, ExtensionSetting, ExtensionStatus, LyricLine,
+    Lyrics, MediaSource, MusicAlbum, MusicAlbumDetail, MusicArtist, MusicChart, MusicPlaylist,
     MusicPlaylistDetail, OnlineTrack, ProviderInfo, ProviderSearchResult, SettingKind,
     SettingValue, TrackQuery,
 };
@@ -543,6 +543,40 @@ impl ExtensionHost {
                     .filter_map(move |playlist| parse_playlist(&provider, &playlist))
             })
             .filter(|playlist| !featured || playlist.featured)
+            .collect()
+    }
+
+    /// An artist's coming events (M46.42) from every `music.metadata` provider that lists them
+    /// (`artistEvents`, asked with the artist's name as `query`).
+    pub async fn artist_events(&self, name: &str, limit: u32) -> Vec<ArtistEvent> {
+        let answers = self.ask_metadata("artistEvents", name, limit).await;
+        answers
+            .into_iter()
+            .flat_map(|(provider, value)| {
+                value
+                    .get("events")
+                    .and_then(serde_json::Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(move |event| {
+                        let text = |key: &str| {
+                            event
+                                .get(key)
+                                .and_then(serde_json::Value::as_str)
+                                .map(str::trim)
+                                .filter(|text| !text.is_empty())
+                                .map(str::to_owned)
+                        };
+                        Some(ArtistEvent {
+                            name: text("name")?,
+                            date: text("date")?,
+                            place: text("place"),
+                            url: web_url(event.get("url")),
+                            source: provider.name.clone(),
+                        })
+                    })
+            })
             .collect()
     }
 

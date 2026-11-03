@@ -19,8 +19,8 @@ export const MUSIC_VIEWS: MusicView[] = [
 ];
 
 /** Movies & series' pills (M46.25). */
-export type VideoView = 'relevant' | 'movies' | 'series';
-export const VIDEO_VIEWS: VideoView[] = ['relevant', 'movies', 'series'];
+export type VideoView = 'relevant' | 'movies' | 'series' | 'sources';
+export const VIDEO_VIEWS: VideoView[] = ['relevant', 'movies', 'series', 'sources'];
 
 export type SearchView = MusicView | VideoView;
 

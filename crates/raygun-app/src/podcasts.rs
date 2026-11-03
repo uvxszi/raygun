@@ -304,6 +304,27 @@ impl PodcastService {
         store::set_subscribed(&self.db(), id, subscribed.then(now_ms))
             .await
             .map_err(to_message)?;
+        // Quick access follows (M46.41): a followed show or a book kept in the library.
+        if let Ok(row) = self.row(id).await {
+            let (kind, to) = if row.fields.kind == "audiobook" {
+                ("audiobook", "/audiobook")
+            } else {
+                ("podcast", "/podcast")
+            };
+            if subscribed {
+                let pin = crate::quick_access::page_pin(
+                    kind,
+                    to,
+                    id,
+                    &row.fields.title,
+                    row.fields.artwork.clone(),
+                );
+                crate::quick_access::add(&self.app, pin).await;
+            } else {
+                let search = [("id".to_owned(), id.to_owned())].into_iter().collect();
+                crate::quick_access::remove(&self.app, to, &search).await;
+            }
+        }
         self.changed(id);
         Ok(())
     }

@@ -11,7 +11,7 @@ import { PodcastArt } from '../podcasts/PodcastArt';
 import { LocalFilesTile } from './LocalFilesTile';
 import { openContextMenu } from '../shell/contextMenuStore';
 import { usePinMenuItem } from '../shell/usePinMenuItem';
-import { playlistPin } from '../shell/useRail';
+import { usePlaylistMenu } from '../collections/usePlaylistMenu';
 import { useSubscriptions } from '../podcasts/usePodcasts';
 import { Artwork } from './Artwork';
 import { FirstRunCard } from './FirstRunCard';
@@ -65,6 +65,7 @@ export const MusicOverview: FC<{
   const { t } = useTranslation();
   // Right-click a playlist, show or book: pin it to the sidebar (M46.29).
   const pinItems = usePinMenuItem();
+  const playlistMenu = usePlaylistMenu();
   const playlists = usePlaylists();
   const podcasts = useSubscriptions();
   const audiobooks = useAudiobooks();
@@ -129,7 +130,7 @@ export const MusicOverview: FC<{
               <li
                 key={playlist.id}
                 className="w-28 shrink-0"
-                onContextMenu={(event) => openContextMenu(event, pinItems(playlistPin(playlist)))}
+                onContextMenu={playlistMenu(playlist)}
               >
                 <Link
                   to="/library/playlist"
@@ -138,6 +139,7 @@ export const MusicOverview: FC<{
                 >
                   <PlaylistCover
                     artworkUrls={playlist.artworkUrls}
+                    coverUrl={playlist.coverUrl}
                     className="aspect-square w-full rounded-lg"
                   />
                   <span className="truncate text-sm font-medium">{playlist.name}</span>

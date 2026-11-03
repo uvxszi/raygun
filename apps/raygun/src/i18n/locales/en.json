@@ -366,6 +366,7 @@
       "relevant": "Relevant",
       "movies": "Movies",
       "series": "Series",
+      "sources": "Sources",
       "anyKind": "Your sources don't say which results are movies and which are series until you open one, so they're all here."
     },
     "topResult": "Top result",
@@ -858,7 +859,21 @@
       }
     },
     "explicitMusic": "Show explicit music",
-    "explicitMusicHint": "Off hides songs their sources mark explicit and music sources rated 18+. The 18+ switch doesn't change music."
+    "explicitMusicHint": "Off hides songs their sources mark explicit and music sources rated 18+. The 18+ switch doesn't change music.",
+    "quickAccess": {
+      "title": "Quick access",
+      "autoAdd": "Add what's added to the library",
+      "autoAddHint": "Comics, books, videos, playlists, podcasts, audiobooks and artists you follow are pinned to the sidebar too, and leave it when they leave the library.",
+      "limit": "Keep at most",
+      "limitHint": "The oldest automatic pins go when there are more. Pins you made yourself always stay."
+    },
+    "privacy": {
+      "title": "Privacy",
+      "history": "Keep listening history",
+      "historyHint": "Off: plays aren't recorded (history, play counts, Made for You). What's there stays until you clear it.",
+      "recentlyPlayed": "Keep recently played",
+      "recentlyPlayedHint": "Off: Home doesn't show or remember what you played from."
+    }
   },
   "player": {
     "nothingPlaying": "Nothing playing",
@@ -970,7 +985,8 @@
     "pausedMark": "Paused"
   },
   "common": {
-    "coreUnavailable": "Core unavailable: {{message}}"
+    "coreUnavailable": "Core unavailable: {{message}}",
+    "cancel": "Cancel"
   },
   "extensions": {
     "title": "Extensions",
@@ -1020,6 +1036,7 @@
     "nsfwHidden": "Hidden while NSFW content is off",
     "search": "Search extensions",
     "searchPlaceholder": "Search extensions…",
+    "notInstalled": "Not installed",
     "kindFilter": "Show",
     "kind": {
       "all": "All",
@@ -1099,7 +1116,18 @@
     "yourPlaylists": "Your playlists",
     "favoritesDetail": "Your favorite songs",
     "songs_one": "{{count}} song",
-    "songs_other": "{{count}} songs"
+    "songs_other": "{{count}} songs",
+    "changeCover": "Change cover",
+    "shuffle": "Shuffle",
+    "merge": {
+      "title": "Merge playlists",
+      "menu": "Merge with other playlists",
+      "name": "Name of the new playlist",
+      "skip": "Keep each song once",
+      "remove": "Remove the merged playlists",
+      "action_one": "Merge {{count}} playlist",
+      "action_other": "Merge {{count}} playlists"
+    }
   },
   "mcp": {
     "title": "MCP server",
@@ -1560,7 +1588,16 @@
     "trailerOf": "Trailer: {{title}}",
     "trailerFull": "Watch the trailer full size",
     "trailerStop": "Stop the trailer",
-    "findAddon": "Find an addon"
+    "findAddon": "Find an addon",
+    "ratings": "Ratings",
+    "ratingsOf": "Rated {{value}} on {{source}}, see all ratings",
+    "openRating": "Open on {{source}}",
+    "ratingsLoading": "Asking your addons…",
+    "comments": "Comments",
+    "commentsLoading": "Loading comments…",
+    "moreComments": "More comments",
+    "replies_one": "{{count}} reply",
+    "replies_other": "{{count}} replies"
   },
   "browse": {
     "title": "Browse",
@@ -1597,7 +1634,8 @@
   },
   "updates": {
     "chapters": "Chapters",
-    "episodes": "Episodes"
+    "episodes": "Episodes",
+    "releases": "Releases"
   },
   "downloads": {
     "videos": "Videos",
@@ -2076,6 +2114,13 @@
       "compilationOne": "Compilation",
       "liveOne": "Live",
       "otherOne": "Other"
+    },
+    "sortButton": "Sort releases: {{sort}}",
+    "sort": {
+      "newest": "Newest",
+      "oldest": "Oldest",
+      "title": "Title",
+      "tracks": "Most songs"
     }
   },
   "menu": {
@@ -2143,7 +2188,9 @@
     "clearSelection": "Clear the selection",
     "playRow": "Play {{title}}",
     "sortButton": "Sort and view: {{sort}}",
-    "resizeColumn": "Drag to resize {{name}}"
+    "resizeColumn": "Drag to resize {{name}}",
+    "selectAll": "Select all",
+    "dragRow": "Drag to move {{title}}"
   },
   "rail": {
     "library": "Your library",
@@ -2228,7 +2275,8 @@
       "failed": "Couldn't download"
     },
     "removeDownload": "Remove from downloads",
-    "explicit": "Explicit"
+    "explicit": "Explicit",
+    "saved": "Saved"
   },
   "audiobooks": {
     "title": "Audiobooks",
@@ -2253,7 +2301,8 @@
     "fromStart": "From the start",
     "add": "Add to library",
     "inLibrary": "In your library",
-    "findChapter": "Find a chapter"
+    "findChapter": "Find a chapter",
+    "one": "Audiobook"
   },
   "import": {
     "title": "Import songs",
@@ -2302,7 +2351,15 @@
     "using": "In use",
     "addTitle": "Add a song: title",
     "addArtist": "Artist",
-    "add": "Add the song"
+    "add": "Add the song",
+    "removeShot": "Remove {{name}}",
+    "addScreenshots": "Add more screenshots",
+    "readScreenshots_one": "Read {{count}} screenshot",
+    "readScreenshots_other": "Read {{count}} screenshots, in this order",
+    "short": "Import",
+    "saveTo": "Save to",
+    "addTo_one": "Add {{count}} song to {{name}}",
+    "addTo_other": "Add {{count}} songs to {{name}}"
   },
   "sourcePicker": {
     "title": "Choose a source",
@@ -2313,7 +2370,8 @@
     "use": "Use this",
     "used": "This song plays from {{source}} now.",
     "usedAny": "This song plays from your pick now.",
-    "unavailable": "Unavailable"
+    "unavailable": "Unavailable",
+    "search": "Search"
   },
   "systems": {
     "title": "What Raygun can run",
@@ -2714,7 +2772,9 @@
     "plain": "plain",
     "hear": "Hear the words with AI",
     "hearing": "Listening… {{n}} lines so far",
-    "hearSetUp": "Set up transcription in Settings → AI to hear the words."
+    "hearSetUp": "Set up transcription in Settings → AI to hear the words.",
+    "transcribedSource": "Transcribed by AI",
+    "automatic": "The sources' pick"
   },
   "cueEdit": {
     "title": "Lines",
@@ -2749,7 +2809,7 @@
     "synced": "Synced {{when}}",
     "neverSynced": "Not synced yet",
     "syncWith": "Sync with {{name}} now",
-    "manage": "Pair or manage devices",
+    "manage": "Pair, sync and control from other devices",
     "remote": "Control Raygun from another device",
     "playingOn": "Playing on {{name}}",
     "playingThere": "Playing there; this device controls it",
@@ -2829,7 +2889,10 @@
     "goToBook": "Go to the book",
     "goToShow": "Go to the show",
     "useAi": "Transcribe with AI instead",
-    "useFeed": "Use the feed's transcript"
+    "useFeed": "Use the feed's transcript",
+    "source": "Captions source",
+    "sourceFeed": "The show's own transcript",
+    "sourceAi": "AI transcription"
   },
   "barPopover": {
     "openUpdates": "Open Updates",
@@ -2884,5 +2947,30 @@
     "saved": "Saved playlist",
     "download": "Download",
     "loading": "Loading the playlist"
+  },
+  "follow": {
+    "follow": "Follow",
+    "following": "Following",
+    "alertsOn": "Tell me about new releases from {{name}}",
+    "alertsOff": "Stop telling me about new releases from {{name}}",
+    "alertsOnNote": "New releases are announced",
+    "followed": "Artists you follow",
+    "events": "Coming shows",
+    "noNews": "Nothing new from the artists you follow yet.",
+    "noNewsTitle": "No new releases yet",
+    "noNewsHint": "Follow an artist and turn on the bell beside Follow: their new albums and singles show up here, and you get a notification."
+  },
+  "outputs": {
+    "title": "Where the sound comes out",
+    "automatic": "Automatic",
+    "numbered": "Output {{n}}",
+    "kind": {
+      "speaker": "Speaker",
+      "wired": "Wired headphones",
+      "bluetooth": "Bluetooth",
+      "usb": "USB audio",
+      "hdmi": "HDMI",
+      "speakerPhone": "Phone speaker"
+    }
   }
 }

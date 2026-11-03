@@ -51,6 +51,7 @@ import { hasVideo } from './hasVideo';
 import { MediaArt, VideoToggle } from './MediaArt';
 import { isActive, sendControl, sourceNote, useNowPlaying } from './usePlayback';
 import { SourceIssue } from '../shell/SourceIssue';
+import { songCover } from '../library/coverTargets';
 
 const DISMISS_DISTANCE = 120;
 const DISMISS_VELOCITY = 500;
@@ -565,6 +566,7 @@ const UpNextList: FC<{ items: QueueItem[] }> = ({ items }) => {
               >
                 <Artwork
                   url={next.artworkUrl}
+                  fallback={songCover(next)}
                   className="size-12 shrink-0 rounded-md"
                   iconSize={20}
                 />

@@ -435,11 +435,24 @@ impl ExtensionService {
                     }
                 }
             }
+            // Its songs' covers come from the playlist itself (`detail_cover_options`).
+            DetailTarget::Playlist { .. } => {}
         }
         let mut seen = std::collections::HashSet::new();
         options.retain(|option| seen.insert(option.url.clone()));
         options.truncate(COVER_OPTIONS);
         options
+    }
+
+    /// An artist's coming events from every source that lists them (M46.42), soonest first.
+    pub async fn artist_events(&self, name: &str) -> Vec<raygun_model::ArtistEvent> {
+        let mut events = {
+            let _ready = self.loading.read().await;
+            self.host.artist_events(name, 25).await
+        };
+        events.sort_by(|a, b| a.date.cmp(&b.date));
+        events.dedup_by(|a, b| a.date == b.date && a.name == b.name);
+        events
     }
 
     /// Playlists for a search from every source that searches them (M46.39).

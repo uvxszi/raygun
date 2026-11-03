@@ -10,6 +10,7 @@ import { unwrapResult } from '../lib/commandResult';
 import { trackKey } from '../music/trackKey';
 import { useCaptions } from '../player/spoken';
 import { SourceIssue } from '../shell/SourceIssue';
+import { lyricsSourceName } from './lyricsSource';
 import type { FullSongEdit } from './soundPrefs';
 
 /**
@@ -71,7 +72,7 @@ export const LyricsSources: FC<{
                   className="hover:bg-surface flex w-full flex-col gap-0.5 rounded-xl px-3 py-2 text-left"
                 >
                   <span className="text-sm font-medium">
-                    {lyrics.providerName} ·{' '}
+                    {lyricsSourceName(lyrics.providerName, t)} ·{' '}
                     {t(lyrics.synced.length > 0 ? 'lyricsEdit.synced' : 'lyricsEdit.plain')}
                   </span>
                   <span className="text-muted truncate text-xs">{first}</span>

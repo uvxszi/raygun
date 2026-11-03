@@ -1,6 +1,7 @@
 package app.raygun.audio
 
 import android.content.Context
+import android.media.AudioDeviceInfo
 import android.media.audiofx.PresetReverb
 import android.os.Handler
 import android.os.Looper
@@ -69,6 +70,8 @@ class RaygunPlaybackService : MediaSessionService() {
                 .setHandleAudioBecomingNoisy(true)
                 .setWakeMode(C.WAKE_MODE_NETWORK)
                 .build()
+            // The output picked in Devices (M46.43), for players made after it.
+            RaygunSound.output?.let { player.setPreferredAudioDevice(it) }
             decks.add(Deck(player, processor))
         }
         session = MediaSession.Builder(this, RaygunSessionPlayer(decks[0].player)).build()
@@ -78,6 +81,11 @@ class RaygunPlaybackService : MediaSessionService() {
 
     /** The deck in the session: what plays now. */
     val deck: Deck get() = decks[current]
+
+    /** Plays through `device` (M46.43: Bluetooth headphones, the speaker…), or Android's choice. */
+    fun applyOutput(device: AudioDeviceInfo?) {
+        for (each in decks) each.player.setPreferredAudioDevice(device)
+    }
 
     /** New sound settings: every player's processor follows them, and the reverb. */
     fun applySound(config: SoundConfig, reverbPreset: Short?) {
@@ -188,4 +196,8 @@ object RaygunSound {
     /** A `PresetReverb` preset, or null for none. */
     @Volatile
     var reverb: Short? = null
+
+    /** The output picked in Devices (M46.43), or null for Android's own choice. */
+    @Volatile
+    var output: AudioDeviceInfo? = null
 }

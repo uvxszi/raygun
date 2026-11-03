@@ -3,6 +3,7 @@ import type {
   CollectionPlayRequest,
   LibraryTrack,
   OnlineTrack,
+  PlaylistDetail,
   QueueItem,
   SavedTrack,
   TrackInput,
@@ -12,6 +13,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { unwrapResult } from '../lib/commandResult';
 import { rememberPlay } from '../music/playContext';
+import type { TableReorder, TableTrack } from '../music/tableView';
 
 /** Every favorites, playlists and history query lives under this key. */
 export const COLLECTIONS = 'collections';
@@ -97,6 +99,63 @@ export const useMovePlaylistItem = () =>
   useCollectionMutation(
     ({ itemId, beforeItemId }: { itemId: string; beforeItemId: string | null }) =>
       unwrapResult(commands.playlistMoveItem(itemId, beforeItemId)),
+  );
+
+/**
+ * Keeps a dragged order (M46.44): shown at once in the cached list, then saved as one move, or
+ * as the whole order when the table was sorted.
+ */
+const useReorder = <Data>(
+  key: readonly unknown[],
+  save: (change: TableReorder) => Promise<unknown>,
+  reorder: (data: Data, order: TableTrack[]) => Data,
+) => {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: save,
+    onMutate: async (change: TableReorder) => {
+      await client.cancelQueries({ queryKey: key });
+      client.setQueryData<Data>(key, (data) => (data ? reorder(data, change.order) : data));
+    },
+    onSettled: () => client.invalidateQueries({ queryKey: [COLLECTIONS] }),
+  });
+};
+
+/** Picks `items` in the order of `order`, matched by `keyOf` and the rows' keys. */
+const inOrder = <Item>(items: Item[], order: TableTrack[], keyOf: (item: Item) => string) => {
+  const byKey = new Map(items.map((item) => [keyOf(item), item]));
+  const placed = order.flatMap((row) => {
+    const item = byKey.get(row.playlistItemId ?? row.trackKey);
+    return item ? [item] : [];
+  });
+  return placed.length === items.length ? placed : items;
+};
+
+export const useReorderPlaylist = (id: string) =>
+  useReorder<PlaylistDetail>(
+    [COLLECTIONS, 'playlist', id],
+    ({ order, moved, before, whole }) =>
+      unwrapResult(
+        whole
+          ? commands.playlistSetOrder(
+              id,
+              order.flatMap((row) => (row.playlistItemId ? [row.playlistItemId] : [])),
+            )
+          : commands.playlistMoveItem(moved.playlistItemId ?? '', before?.playlistItemId ?? null),
+      ),
+    (detail, order) => ({ ...detail, items: inOrder(detail.items, order, (item) => item.id) }),
+  );
+
+export const useReorderFavorites = () =>
+  useReorder<SavedTrack[]>(
+    [COLLECTIONS, 'favorites'],
+    ({ order, moved, before, whole }) =>
+      unwrapResult(
+        whole
+          ? commands.favoritesSetOrder(order.map((row) => row.trackKey))
+          : commands.favoriteMove(moved.trackKey, before?.trackKey ?? null),
+      ),
+    (favorites, order) => inOrder(favorites, order, (track) => track.trackKey),
   );
 
 export const useClearHistory = () =>

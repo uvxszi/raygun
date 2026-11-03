@@ -46,7 +46,13 @@ const setWide = () => {
 const titles = () =>
   screen
     .getAllByTestId('track-table-row')
-    .map((row) => within(row).getAllByRole('button')[1]?.textContent);
+    // The title is the row's button with words (the grip, Play and menus have none).
+    .map((row) =>
+      within(row)
+        .getAllByRole('button')
+        .map((button) => button.textContent ?? '')
+        .find((text) => text.trim() !== ''),
+    );
 
 describe('Song tables', () => {
   beforeEach(() => {

@@ -14,8 +14,8 @@ use raygun_db::titles::{self, TitleFields, TitleRow, UnitFields};
 use raygun_db::video::{self as progress_store, VideoEntry};
 use raygun_model::{
     StremioAddon, StremioCatalogRow, StremioItem, StremioMeta, StremioPlayRequest, StremioStream,
-    StremioStreamGroup, StremioStreamKind, StremioSuggestion, StremioVideo, VideoRequest,
-    VideoSubtitle, YouTubeVideo,
+    StremioStreamGroup, StremioStreamKind, StremioSuggestion, StremioVideo, TitleRating,
+    VideoRequest, VideoSubtitle, YouTubeVideo,
 };
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
@@ -383,6 +383,35 @@ impl StremioService {
         self.meta_view(meta, &addon_name, stored.as_ref()).await
     }
 
+    /// Every addon's ratings for a title (M46.45: the stars on its page open them), asked at
+    /// once; the same site's rating is listed once.
+    pub async fn ratings(&self, kind: &str, id: &str) -> Result<Vec<TitleRating>, String> {
+        let loaded = self.loaded().await?;
+        let asks = loaded
+            .iter()
+            .filter(|addon| {
+                addon
+                    .manifest()
+                    .is_some_and(|manifest| manifest.serves("meta", kind, id))
+            })
+            .map(|addon| {
+                let url = protocol::resource_url(&addon.row.transport_url, "meta", kind, id, &[]);
+                async move {
+                    let value = self.get_json(&url).await.ok()?;
+                    protocol::parse_meta(&value, kind).map(|meta| meta.ratings)
+                }
+            });
+        let mut ratings: Vec<TitleRating> = Vec::new();
+        for found in join_all(asks).await.into_iter().flatten() {
+            for rating in found {
+                if !ratings.iter().any(|have| have.source == rating.source) {
+                    ratings.push(rating);
+                }
+            }
+        }
+        Ok(ratings)
+    }
+
     /// A title's details as the first addon serving them has them, and that addon's name.
     async fn fetch_meta(&self, kind: &str, id: &str) -> Result<(protocol::Meta, String), String> {
         let loaded = self.loaded().await?;
@@ -481,6 +510,7 @@ impl StremioService {
             release_info: meta.preview.release_info,
             runtime: meta.runtime,
             rating: meta.preview.rating,
+            ratings: meta.ratings,
             cast: meta.cast,
             director: meta.director,
             trailer_yt_ids: meta.trailer_yt_ids,
@@ -898,6 +928,7 @@ async fn stored_meta(db: &raygun_db::Db, row: &TitleRow) -> Result<protocol::Met
     let movie = units.len() == 1 && units[0].fields.remote_id == id;
     let fields = &row.fields;
     Ok(protocol::Meta {
+        ratings: Vec::new(),
         preview: MetaPreview {
             kind: kind.to_owned(),
             id: id.to_owned(),

@@ -22,6 +22,7 @@ const DEFAULT_SETTINGS: Settings = {
   language: 'en',
   showNsfw: false,
   explicitMusic: true,
+  privacy: { history: true, recentlyPlayed: true },
   preferredVideoQuality: null,
   accent: 'red',
   startScreen: 'home',

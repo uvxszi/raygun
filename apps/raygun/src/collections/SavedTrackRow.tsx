@@ -9,6 +9,8 @@ import { TrackMoreButton } from './TrackMoreButton';
 import { fromSavedTrack } from './useCollections';
 import { NowPlayingBars } from '../player/NowPlayingBars';
 import { usePlayingMatch } from '../player/usePlayingMatch';
+import { songCover } from '../library/coverTargets';
+import { SongMarks } from '../music/SongMarks';
 
 type SavedTrackRowProps = {
   track: SavedTrack;
@@ -39,13 +41,19 @@ export const SavedTrackRow: FC<SavedTrackRowProps> = ({
         onClick={onPlay}
         className="flex h-14 min-w-0 flex-1 items-center gap-3 text-left"
       >
-        <Artwork url={track.artworkUrl} className="size-10 shrink-0 rounded" iconSize={18} />
+        <Artwork
+          url={track.artworkUrl}
+          fallback={songCover(track)}
+          className="size-10 shrink-0 rounded"
+          iconSize={18}
+        />
         <span className="flex min-w-0 flex-1 flex-col">
           <span
             className={`flex min-w-0 items-center gap-1.5 text-sm font-medium ${playing ? 'text-primary' : ''}`}
           >
             {playing && <NowPlayingBars playing={playing === 'playing'} />}
             <span className="truncate">{track.title}</span>
+            <SongMarks title={track.title} artist={track.artist} />
           </span>
           <span className="text-muted block truncate text-xs">
             <ArtistLinks credit={track.artist} nested />

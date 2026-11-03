@@ -2,7 +2,7 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from 
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import type { RailOrder, RailPin } from '@raygun/bindings';
+import type { PlaylistSummary, RailOrder, RailPin } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import {
   ArrowDown,
@@ -26,11 +26,14 @@ import { useEffect, useRef, useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { PlaylistCover } from '../collections/PlaylistCover';
 import { usePlaylists } from '../collections/useCollections';
+import { usePlaylistMenuItems } from '../collections/usePlaylistMenu';
+import type { MenuItem } from './contextMenuStore';
 import { Artwork } from '../library/Artwork';
 import { openContextMenu } from './contextMenuStore';
 import { Popover } from './Popover';
-import { playlistPin, useRail } from './useRail';
+import { useRail } from './useRail';
 
 const pinKey = (pin: Pick<RailPin, 'to' | 'search'>) =>
   `${pin.to}?${Object.entries(pin.search)
@@ -51,10 +54,12 @@ const KIND_ICON: Record<string, LucideIcon> = {
 };
 
 /** A pin's tile: the fixed ones coloured (Favorites red, Downloaded blue, Local files green). */
-export const PinArt: FC<{ pin: Pick<RailPin, 'kind' | 'artworkUrl'>; className: string }> = ({
-  pin,
-  className,
-}) => {
+export const PinArt: FC<{
+  pin: Pick<RailPin, 'kind' | 'artworkUrl'>;
+  /** A playlist pin's playlist: its cover now, not the one it had when pinned (M46.45). */
+  playlist?: PlaylistSummary;
+  className: string;
+}> = ({ pin, playlist, className }) => {
   const fixed: Record<string, { colour: string; icon: ReactNode }> = {
     favorites: {
       colour: 'from-primary/80 to-primary/30 bg-gradient-to-br text-background',
@@ -79,6 +84,15 @@ export const PinArt: FC<{ pin: Pick<RailPin, 'kind' | 'artworkUrl'>; className: 
       </span>
     );
   }
+  if (playlist) {
+    return (
+      <PlaylistCover
+        artworkUrls={playlist.artworkUrls}
+        coverUrl={playlist.coverUrl}
+        className={`shrink-0 rounded-md ${className}`}
+      />
+    );
+  }
   if (pin.artworkUrl) {
     return (
       <Artwork
@@ -101,9 +115,10 @@ export const PinArt: FC<{ pin: Pick<RailPin, 'kind' | 'artworkUrl'>; className: 
 const SortablePin: FC<{
   pin: RailPin;
   name: string;
+  playlist?: PlaylistSummary;
   narrow: boolean;
   onMenu: (event: React.MouseEvent) => void;
-}> = ({ pin, name, narrow, onMenu }) => {
+}> = ({ pin, name, playlist, narrow, onMenu }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: pinKey(pin),
   });
@@ -123,7 +138,7 @@ const SortablePin: FC<{
         onContextMenu={onMenu}
         className={`text-muted hover:bg-background hover:text-foreground flex items-center gap-3 rounded-xl ${narrow ? 'justify-center p-1.5' : 'px-2 py-1.5'}`}
       >
-        <PinArt pin={pin} className="size-10" />
+        <PinArt pin={pin} playlist={playlist} className="size-10" />
         {!narrow && <span className="text-foreground truncate text-sm">{name}</span>}
       </Link>
     </li>
@@ -138,6 +153,7 @@ export const RailPins: FC<{ narrow: boolean; shown: boolean }> = ({ narrow, show
   const { t } = useTranslation();
   const rail = useRail();
   const playlists = usePlaylists();
+  const playlistMenuItems = usePlaylistMenuItems();
   const [sortAnchor, setSortAnchor] = useState<HTMLButtonElement | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
@@ -146,29 +162,22 @@ export const RailPins: FC<{ narrow: boolean; shown: boolean }> = ({ narrow, show
     if (shown && rail.loaded && !rail.prefs.seeded && playlists.data) rail.seed(playlists.data);
   }, [rail, playlists.data, shown]);
 
-  // Playlists made while Raygun runs are pinned.
-  const known = useRef<Set<string> | null>(null);
-  useEffect(() => {
-    if (!shown || !playlists.data || !rail.prefs.seeded) return;
-    if (known.current === null) {
-      known.current = new Set(playlists.data.map((list) => list.id));
-      return;
-    }
-    for (const list of playlists.data) {
-      if (!known.current.has(list.id)) {
-        known.current.add(list.id);
-        rail.pin(playlistPin(list));
-      }
-    }
-  }, [playlists.data, rail, shown]);
-
-  // Pins of playlists that are gone (deleted here or on another device) go too.
+  // New playlists are pinned by Rust (M46.41: quick access, with its switch and limit).
+  // Pins of playlists that are gone (deleted here or on another device) go too: at start those
+  // the list doesn't have, later only ones the list had before (M46.45: a new playlist's pin
+  // can arrive before the list that has it).
+  const seen = useRef<Set<string> | null>(null);
   useEffect(() => {
     if (!shown || !playlists.data || !rail.prefs.seeded) return;
     const ids = new Set(playlists.data.map((list) => list.id));
-    const gone = rail.prefs.pins.filter(
-      (pin) => pin.kind === 'playlist' && !ids.has(pin.search.id ?? ''),
-    );
+    const first = seen.current === null;
+    const before = seen.current ?? new Set<string>();
+    for (const id of ids) before.add(id);
+    seen.current = before;
+    const gone = rail.prefs.pins.filter((pin) => {
+      const id = pin.search.id ?? '';
+      return pin.kind === 'playlist' && !ids.has(id) && (first || before.has(id));
+    });
     if (gone.length > 0) rail.drop(gone);
   }, [playlists.data, rail, shown]);
 
@@ -205,7 +214,18 @@ export const RailPins: FC<{ narrow: boolean; shown: boolean }> = ({ narrow, show
           ]
         : []),
       { label: t('rail.unpin'), icon: PinOff, onSelect: () => rail.unpin(pin) },
+      // A playlist's own items: play, merge, delete (M46.45).
+      ...playlistItemsOf(pin),
     ]);
+  const playlistItemsOf = (pin: RailPin): MenuItem[] => {
+    const playlist =
+      pin.kind === 'playlist'
+        ? playlists.data?.find((list) => list.id === pin.search.id)
+        : undefined;
+    return playlist
+      ? [{ kind: 'separator' }, ...playlistMenuItems(playlist, { pin: false }).slice(1)]
+      : [];
+  };
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     if (!over || active.id === over.id) return;
     const from = pins.findIndex((pin) => pinKey(pin) === active.id);
@@ -274,6 +294,11 @@ export const RailPins: FC<{ narrow: boolean; shown: boolean }> = ({ narrow, show
                 key={pinKey(pin)}
                 pin={pin}
                 name={nameOf(pin)}
+                playlist={
+                  pin.kind === 'playlist'
+                    ? playlists.data?.find((list) => list.id === pin.search.id)
+                    : undefined
+                }
                 narrow={narrow}
                 onMenu={menu(pin, index)}
               />

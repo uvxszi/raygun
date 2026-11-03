@@ -14,6 +14,7 @@ import { Carousel } from '../shell/Carousel';
 import { NowPlayingBars } from '../player/NowPlayingBars';
 import { usePlayingMatch } from '../player/usePlayingMatch';
 import { SourceIssue } from '../shell/SourceIssue';
+import { SongMarks } from './SongMarks';
 
 /** Songs shown in a row; the chart's page has the rest. */
 const ROW_SONGS = 20;
@@ -47,8 +48,11 @@ const SongCard: FC<{ song: OnlineTrack; songs: OnlineTrack[]; rank: number }> = 
             <Play aria-hidden size={18} fill="currentColor" />
           </span>
         </span>
-        <span className={`truncate text-sm font-semibold ${playing ? 'text-primary' : ''}`}>
-          {song.title}
+        <span
+          className={`flex min-w-0 items-center gap-1 text-sm font-semibold ${playing ? 'text-primary' : ''}`}
+        >
+          <span className="truncate">{song.title}</span>
+          <SongMarks title={song.title} artist={song.artist} />
         </span>
         <span className="text-muted -mt-1.5 truncate text-xs">{song.artist}</span>
       </button>

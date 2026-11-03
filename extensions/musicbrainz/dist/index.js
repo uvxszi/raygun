@@ -1,4 +1,4 @@
-// dev.raygun.musicbrainz 1.4.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.musicbrainz 1.5.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -123,6 +123,31 @@
       );
       const releases = (groups["release-groups"] ?? []).map(toAlbum).sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
       return { releases };
+    },
+    async artistEvents({ query, limit }) {
+      const cleaned = escapeQuery(query);
+      if (cleaned === "") return { events: [] };
+      const found = await getJson(
+        `${API}/artist?query=${encodeURIComponent(`artist:"${cleaned}"`)}&limit=5&fmt=json`
+      );
+      const wanted = simple(query);
+      const artist = (found.artists ?? []).find((candidate) => simple(candidate.name) === wanted) ?? (found.artists ?? [])[0];
+      if (!artist) return { events: [] };
+      const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+      const search2 = `arid:${artist.id} AND begin:[${today} TO 2100-12-31]`;
+      const listed = await getJson(
+        `${API}/event?query=${encodeURIComponent(search2)}&limit=50&fmt=json`
+      );
+      const events = (listed.events ?? []).filter((event) => !event.cancelled && (event["life-span"]?.begin ?? "") >= today).sort((a, b) => (a["life-span"]?.begin ?? "").localeCompare(b["life-span"]?.begin ?? "")).slice(0, Math.max(limit, 1)).map((event) => {
+        const place = event.relations?.find((relation) => relation.place)?.place;
+        return {
+          name: event.name,
+          date: event["life-span"]?.begin ?? "",
+          place: [place?.name, place?.area?.name].filter(Boolean).join(", ") || null,
+          url: `https://musicbrainz.org/event/${event.id}`
+        };
+      });
+      return { events };
     },
     async album({ id }) {
       if (!/^[0-9a-f-]{36}$/.test(id)) throw new Error(`Unknown album ${id}`);

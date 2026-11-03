@@ -27,7 +27,7 @@ describe('Remote control card', () => {
   it('turns the remote on and shows the pairing QR code and address', async () => {
     const user = userEvent.setup();
     commands.remoteSetEnabled.mockResolvedValue(ok(ON));
-    await AppShellWrapper.mount('/settings/connections');
+    await AppShellWrapper.mount('/settings/devices');
     const card = await screen.findByTestId('remote-card');
 
     const toggle = await within(card).findByRole('switch', { name: 'Remote control' });
@@ -45,7 +45,7 @@ describe('Remote control card', () => {
     const user = userEvent.setup();
     commands.remoteStatus.mockResolvedValue(ok({ ...ON, pairUrl: null, pairQrSvg: null }));
     commands.remoteNewCode.mockResolvedValue(ok(ON));
-    await AppShellWrapper.mount('/settings/connections');
+    await AppShellWrapper.mount('/settings/devices');
     const card = await screen.findByTestId('remote-card');
 
     expect(await within(card).findByText(/The pairing code was used/)).toBeInTheDocument();
@@ -56,7 +56,7 @@ describe('Remote control card', () => {
 
   it('picks up a device that paired from its browser', async () => {
     commands.remoteStatus.mockResolvedValue(ok(ON));
-    await AppShellWrapper.mount('/settings/connections');
+    await AppShellWrapper.mount('/settings/devices');
     const card = await screen.findByTestId('remote-card');
     expect(await within(card).findByText('No devices yet.')).toBeInTheDocument();
 
@@ -77,7 +77,7 @@ describe('Remote control card', () => {
     const laptop = { id: 'd1', name: 'Laptop', pairedAt: Date.UTC(2026, 9, 31) };
     commands.remoteStatus.mockResolvedValue(ok({ ...ON, devices: [laptop] }));
     commands.remoteForgetDevice.mockResolvedValue(ok(ON));
-    await AppShellWrapper.mount('/settings/connections');
+    await AppShellWrapper.mount('/settings/devices');
     const card = await screen.findByTestId('remote-card');
 
     expect(await within(card).findByText('Laptop')).toBeInTheDocument();

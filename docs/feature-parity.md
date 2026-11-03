@@ -93,6 +93,13 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Playlist search and featured playlists | Kreate, RiMusic, ViMusic | ✅ M46.39 (YouTube Music, Deezer; save to library) |
 | More lyrics sources (KuGou, YouTube Music) | Kreate, RiMusic | ✅ M46.39 (with LRCLIB; pick one per song since M46.36) |
 | YouTube audio through Piped or Invidious | Kreate, RiMusic | ❌ by choice (fetches YouTube's files outside its player; see M46.39) |
+| Follow artists, new-release alerts | Spotify, Apple Music | ✅ M46.42 (daily checks; concerts from MusicBrainz) |
+| Pick the audio output (speaker, headphones, Bluetooth) | Spotify Connect, Poweramp | ✅ M46.43 |
+| Drag songs into your own order (also from a sorted view) | Spotify, Musicolet | ✅ M46.44 |
+| Custom playlist covers, merge playlists | Spotify, Poweramp | ✅ M46.45 |
+| Saved and downloaded marks on every song | Spotify | ✅ M46.45 |
+| YouTube channels, playlists and comments | Grayjay, NewPipe | ✅ M46.45 (comments read-only) |
+| Rating sources on movie pages | Stremio, Letterboxd-style apps | ✅ M46.45 (IMDb and any site an addon links) |
 | Playlist import (from URLs/files) | Nuclear, RiPlay | ✅ M46.21 (Spotify links, CSV, pasted lists, screenshots; matched per song) |
 | Dashboard/discovery: new releases, moods, quick picks | Nuclear, RiPlay | ✅ M46.20 (Made for You: mixes from plays and favorites, Release Radar, moods; skip signals not yet) |
 | Lyrics translation | RiPlay | 🔜 M58 |

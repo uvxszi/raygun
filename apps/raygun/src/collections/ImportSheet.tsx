@@ -11,6 +11,8 @@ import { uploadFile } from '../manga/useImportComics';
 import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
 import { ImportReview } from './ImportReview';
+import { ScreenshotQueue } from './ScreenshotQueue';
+import { sortByTaken } from './screenshotOrder';
 
 type Way = 'link' | 'text' | 'screenshots';
 
@@ -31,6 +33,8 @@ export const ImportSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
   const [link, setLink] = useState('');
   const [text, setText] = useState('');
   const [list, setList] = useState<ImportedList | null>(null);
+  // Chosen screenshots wait in order (M46.40) until Read.
+  const [shots, setShots] = useState<File[]>([]);
   const files = useRef<HTMLInputElement>(null);
   const reader = useQuery({
     queryKey: ['import', 'reader'],
@@ -144,15 +148,30 @@ export const ImportSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
                 >
                   {t(prepare.isPending ? 'import.downloadingReader' : 'import.downloadReader')}
                 </button>
-              ) : (
+              ) : shots.length === 0 ? (
                 <button
                   type="button"
                   disabled={read.isPending || reader.data !== true}
                   onClick={() => files.current?.click()}
                   className="bg-primary text-background self-start rounded-full px-5 py-2 text-sm font-semibold disabled:opacity-60"
                 >
-                  {t(read.isPending ? 'import.reading' : 'import.chooseScreenshots')}
+                  {t('import.chooseScreenshots')}
                 </button>
+              ) : null}
+              {shots.length > 0 && (
+                <>
+                  <ScreenshotQueue files={shots} onChange={setShots} disabled={read.isPending} />
+                  <button
+                    type="button"
+                    disabled={read.isPending || reader.data !== true}
+                    onClick={() => read.mutate({ way: 'screenshots', files: shots })}
+                    className="bg-primary text-background self-start rounded-full px-5 py-2 text-sm font-semibold disabled:opacity-60"
+                  >
+                    {read.isPending
+                      ? t('import.reading')
+                      : t('import.readScreenshots', { count: shots.length })}
+                  </button>
+                </>
               )}
               <input
                 ref={files}
@@ -162,8 +181,9 @@ export const ImportSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
                 aria-label={t('import.chooseScreenshots')}
                 className="hidden"
                 onChange={(event) => {
-                  const chosen = [...(event.target.files ?? [])];
-                  if (chosen.length > 0) read.mutate({ way: 'screenshots', files: chosen });
+                  const chosen = sortByTaken([...(event.target.files ?? [])]);
+                  if (chosen.length > 0) setShots([...shots, ...chosen]);
+                  event.target.value = '';
                 }}
               />
               {prepare.error && <SourceIssue>{prepare.error.message}</SourceIssue>}

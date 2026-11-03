@@ -90,7 +90,7 @@ describe('Importing songs', () => {
     await user.clear(name);
     await user.type(name, 'Hits');
     await user.click(within(review).getByRole('button', { name: 'Make a playlist of 1 song' }));
-    expect(commands.importSave).toHaveBeenCalledWith('Hits', [
+    expect(commands.importSave).toHaveBeenCalledWith({ kind: 'new', name: 'Hits' }, [
       expect.objectContaining({
         song: expect.objectContaining({ title: 'Loser' }),
         matchedBy: 'Deezer',
@@ -135,7 +135,7 @@ describe('Importing songs', () => {
 
     // Imported at once; what isn't matched yet is matched by Rust afterwards.
     await user.click(within(review).getByRole('button', { name: 'Make a playlist of 3 songs' }));
-    expect(commands.importSave).toHaveBeenCalledWith("Today's Top Hits", [
+    expect(commands.importSave).toHaveBeenCalledWith({ kind: 'new', name: "Today's Top Hits" }, [
       expect.objectContaining({ song: expect.objectContaining({ title: 'Housewife (Live)' }) }),
       expect.objectContaining({ matchedBy: 'Audius' }),
       expect.objectContaining({

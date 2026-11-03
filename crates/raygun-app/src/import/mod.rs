@@ -30,6 +30,9 @@ pub struct ImportService {
     client: reqwest::Client,
 }
 
+/// What `save` returns when the songs went to Favorites.
+pub const FAVORITES: &str = "favorites";
+
 impl ImportService {
     pub fn new(app: AppHandle, client: reqwest::Client) -> Self {
         Self { app, client }
@@ -231,9 +234,20 @@ impl ImportService {
     /// Saves songs as a new playlist named `name`; returns its id. Songs still `pending` are
     /// matched in the background and filled in as they're found (M46.31); songs no source has
     /// are kept, marked unavailable.
-    pub async fn save(&self, name: &str, songs: Vec<MatchedSong>) -> Result<String, String> {
+    /// Saves the songs where `target` says, in their order; returns the playlist's id, or
+    /// `favorites` (M46.45).
+    pub async fn save(
+        &self,
+        target: raygun_model::ImportTarget,
+        songs: Vec<MatchedSong>,
+    ) -> Result<String, String> {
+        use raygun_model::ImportTarget;
         let collections = self.app.state::<CollectionsService>();
-        let playlist = collections.create_playlist(name).await?;
+        let id = match &target {
+            ImportTarget::New { name } => collections.create_playlist(name).await?.id,
+            ImportTarget::Playlist { id } => id.clone(),
+            ImportTarget::Favorites => FAVORITES.to_owned(),
+        };
         let db = self.app.state::<crate::startup::AppDb>().inner().0.clone();
         let key_of = |song: &ImportedSong| {
             raygun_resolver::track_key(&TrackQuery {
@@ -253,7 +267,7 @@ impl ImportService {
             .filter(|matched| matched.pending)
             .map(|matched| matched.song.clone())
             .collect();
-        let tracks = songs
+        let tracks: Vec<TrackInput> = songs
             .into_iter()
             .map(|matched| TrackInput {
                 title: matched.song.title,
@@ -264,11 +278,18 @@ impl ImportService {
                 source: matched.source,
             })
             .collect();
-        collections.add_to_playlist(&playlist.id, tracks).await?;
+        if target == ImportTarget::Favorites {
+            // Newest first: the first song is added last, so it comes out on top.
+            for track in tracks.into_iter().rev() {
+                collections.set_favorite(track, true).await?;
+            }
+        } else {
+            collections.add_to_playlist(&id, tracks).await?;
+        }
         let _ = raygun_db::collections::mark_unavailable(&db, &missing, now_ms()).await;
         if !pending.is_empty() {
             let app = self.app.clone();
-            let id = playlist.id.clone();
+            let id = id.clone();
             tauri::async_runtime::spawn(async move {
                 let import = app.state::<ImportService>();
                 for song in pending {
@@ -300,7 +321,7 @@ impl ImportService {
                 }
             });
         }
-        Ok(playlist.id)
+        Ok(id)
     }
 
     /// Gives every saved copy of a song the source the user picked (M46.31).

@@ -1,16 +1,7 @@
 import type { ConnectDevice } from '@raygun/bindings';
 import { commands } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
-import {
-  Laptop,
-  LoaderCircle,
-  MonitorSpeaker,
-  Plus,
-  QrCode,
-  RefreshCw,
-  Smartphone,
-  X,
-} from 'lucide-react';
+import { Laptop, LoaderCircle, MonitorSpeaker, Plus, QrCode, Smartphone, X } from 'lucide-react';
 import { useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -28,18 +19,7 @@ import { usePlatform } from '../lib/usePlatform';
 import { useLocalNetworkGate } from '../network/useLocalNetworkGate';
 import { useRemoteChange, useRemoteStatus } from '../settings/remoteQueries';
 import { Sheet } from '../shell/Sheet';
-import { useSyncNow, useSyncStatus } from './useDeviceSync';
-
-const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-
-/** "5 minutes ago", "yesterday": when a device last synced. */
-const ago = (at: number) => {
-  const minutes = Math.round((at - Date.now()) / 60_000);
-  if (minutes > -60) return relative.format(minutes, 'minute');
-  const hours = Math.round(minutes / 60);
-  if (hours > -24) return relative.format(hours, 'hour');
-  return relative.format(Math.round(hours / 24), 'day');
-};
+import { AudioOutputs } from './AudioOutputs';
 
 const ROW = 'flex items-center gap-3 rounded-xl px-2 py-2.5';
 const HEADING = 'text-muted px-2 pt-3 text-xs font-semibold tracking-wide uppercase';
@@ -149,6 +129,8 @@ const ConnectSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
           </button>
         )}
       </div>
+      {/* Where this device's sound comes out (M46.43), while it plays here. */}
+      {!session && <AudioOutputs />}
 
       <h3 className={HEADING}>{t('connect.selectDevice')}</h3>
       <ul data-testid="connect-devices" className="flex flex-col">
@@ -234,14 +216,14 @@ const ConnectSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
         </button>
       )}
       <AllowHere />
-      <SyncSection onClose={onClose} />
+      {/* Pairing, syncing and the browser remote are one place (M46.43). */}
       <Link
-        to="/settings/connections"
+        to="/settings/devices"
         onClick={onClose}
         className={`${ROW} hover:bg-background text-sm`}
       >
         <QrCode aria-hidden size={20} className="text-muted" />
-        {t('connect.remote')}
+        {t('connect.manage')}
       </Link>
       {network.sheet}
     </div>
@@ -342,77 +324,5 @@ const AllowHere: FC = () => {
       )}
       {network.sheet}
     </div>
-  );
-};
-
-/** Device sync (M21, M46.13): the paired devices, when each last synced, and a sync now. */
-const SyncSection: FC<{ onClose: () => void }> = ({ onClose }) => {
-  const { t } = useTranslation();
-  const status = useSyncStatus();
-  const syncNow = useSyncNow();
-  const enabled = status.data?.enabled ?? false;
-  const peers = status.data?.peers ?? [];
-  return (
-    <>
-      <h3 className={HEADING}>{t('connect.sync')}</h3>
-      {!enabled ? (
-        <div className="flex flex-col gap-2 px-2 py-1">
-          <p className="text-muted text-sm">{t('connect.syncOff')}</p>
-          <Link
-            to="/settings/devices"
-            onClick={onClose}
-            className="bg-surface hover:bg-background self-start rounded-full px-4 py-2 text-sm font-semibold"
-          >
-            {t('connect.setUp')}
-          </Link>
-        </div>
-      ) : (
-        <>
-          {peers.length === 0 && (
-            <p className="text-muted px-2 py-1 text-sm">{t('connect.noPeers')}</p>
-          )}
-          <ul className="flex flex-col">
-            {peers.map((peer) => (
-              <li key={peer.deviceId} className={ROW}>
-                <Laptop aria-hidden size={20} className="text-muted" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{peer.name}</p>
-                  <p className="text-muted text-xs">
-                    {peer.lastSyncAt
-                      ? t('connect.synced', { when: ago(peer.lastSyncAt) })
-                      : t('connect.neverSynced')}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  aria-label={t('connect.syncWith', { name: peer.name })}
-                  disabled={syncNow.isPending}
-                  onClick={() => syncNow.mutate(peer.deviceId)}
-                  className="hover:bg-background grid size-9 place-items-center rounded-full disabled:opacity-50"
-                >
-                  <RefreshCw
-                    aria-hidden
-                    size={16}
-                    className={syncNow.isPending ? 'animate-spin' : ''}
-                  />
-                </button>
-              </li>
-            ))}
-          </ul>
-          {status.data?.error && (
-            <p role="alert" className="text-primary px-2 text-xs wrap-anywhere">
-              {status.data.error}
-            </p>
-          )}
-          <Link
-            to="/settings/devices"
-            onClick={onClose}
-            className="text-muted hover:text-foreground px-2 py-1 text-sm"
-          >
-            {t('connect.manage')}
-          </Link>
-        </>
-      )}
-    </>
   );
 };

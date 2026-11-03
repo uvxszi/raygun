@@ -172,11 +172,18 @@ export const commands = {
 	lyricsTranscribe: (query: TrackQuery) => typedError<string, string>(__TAURI_INVOKE("lyrics_transcribe", { query })),
 	/**  Goes back to an episode's own transcript from what AI heard (M46.36). */
 	captionsUseFeed: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("captions_use_feed", { episodeId })),
+	/**
+	 *  Uses AI captions instead of the feed's transcript (M46.45): what AI heard before comes
+	 *  back, else transcribing starts at `from_ms`; the feed's is kept to switch back to.
+	 */
+	captionsUseAi: (episodeId: string, fromMs: number) => typedError<null, string>(__TAURI_INVOKE("captions_use_ai", { episodeId, fromMs })),
+	/**  Every Stremio addon's ratings for a title, with their sites (M46.45). */
+	stremioRatings: (kind: string, id: string) => typedError<TitleRating[], string>(__TAURI_INVOKE("stremio_ratings", { kind, id })),
 	/**  A song's own trims, volume and lyrics edits (M46.12); defaults when it has none. */
 	songEditGet: (query: TrackQuery) => __TAURI_INVOKE<SongEdit>("song_edit_get", { query }),
 	/**  Saves a song's edit; one with nothing changed forgets it. The playing song changes at once. */
 	songEditSet: (query: TrackQuery, edit: SongEdit) => typedError<SongEdit, string>(__TAURI_INVOKE("song_edit_set", { query, edit })),
-	/**  Favorite tracks, most recently added first. */
+	/**  Favorite tracks in the user's order (newest first until some are moved, M46.44). */
 	favoritesList: () => typedError<SavedTrack[], string>(__TAURI_INVOKE("favorites_list")),
 	/**  Songs downloaded into the app, as a collection (M46.18: Library → Audio → Downloaded). */
 	downloadedSongs: () => typedError<SavedTrack[], string>(__TAURI_INVOKE("downloaded_songs")),
@@ -254,6 +261,11 @@ export const commands = {
 	detailCoverImport: (uploadId: string) => typedError<string, string>(__TAURI_INVOKE("detail_cover_import", { uploadId })),
 	/**  Covers the music sources have for a song, an album or an artist (M46.36: Edit details). */
 	detailCoverOptions: (target: DetailTarget) => typedError<CoverOption[], string>(__TAURI_INVOKE("detail_cover_options", { target })),
+	/**
+	 *  Another source's cover for a song, an album or an artist whose own is missing or failed to
+	 *  load (M46.40), remembered on this device; `null` when no source has one.
+	 */
+	coverFallback: (target: DetailTarget) => typedError<string | null, string>(__TAURI_INVOKE("cover_fallback", { target })),
 	/**  The folders in Local Files and what each holds (M46.27). */
 	localFolders: () => typedError<LocalFolder[], string>(__TAURI_INVOKE("local_folders")),
 	/**  Adds a folder the user picks to Local Files and scans it; `None` when they cancelled. */
@@ -262,8 +274,11 @@ export const commands = {
 	localFolderRemove: (id: string) => typedError<LocalFolder[], string>(__TAURI_INVOKE("local_folder_remove", { id })),
 	/**  Scans every Local Files folder again. */
 	localFoldersRescan: () => typedError<null, string>(__TAURI_INVOKE("local_folders_rescan")),
-	/**  Saves imported songs as a new playlist; returns its id (M46.21). */
-	importSave: (name: string, songs: MatchedSong[]) => typedError<string, string>(__TAURI_INVOKE("import_save", { name, songs })),
+	/**
+	 *  Saves imported songs as a new playlist, into one, or into Favorites; returns the playlist's
+	 *  id or `favorites` (M46.21, M46.45).
+	 */
+	importSave: (target: ImportTarget, songs: MatchedSong[]) => typedError<string, string>(__TAURI_INVOKE("import_save", { target, songs })),
 	/**  Gives every saved copy of a song the source the user picked (M46.31). */
 	trackAssignSource: (song: TrackInput, chosen: OnlineTrack) => typedError<null, string>(__TAURI_INVOKE("track_assign_source", { song, chosen })),
 	/**  Which saved songs no source had when imported (M46.31). */
@@ -325,6 +340,24 @@ export const commands = {
 	 *  own (M46.39).
 	 */
 	musicSearchPlaylists: (query: string, featured: boolean) => typedError<MusicPlaylist_Serialize[], string>(__TAURI_INVOKE("music_search_playlists", { query, featured })),
+	/**  Followed artists, the latest followed first (M46.42). */
+	artistsFollowed: () => typedError<FollowedArtist[], string>(__TAURI_INVOKE("artists_followed")),
+	/**
+	 *  Where this device's sound can come out (M46.43). Android lists its outputs; desktop's are the
+	 *  webview's own, so this is empty there.
+	 */
+	audioOutputs: () => __TAURI_INVOKE<AudioOutputs>("audio_outputs"),
+	/**  Plays through one of this device's outputs, or the system's choice for `null` (M46.43). */
+	audioOutputSet: (id: string | null) => typedError<null, string>(__TAURI_INVOKE("audio_output_set", { id })),
+	/**  Follows an artist: the library and quick access (M46.42). */
+	artistFollow: (name: string, imageUrl: string | null) => typedError<null, string>(__TAURI_INVOKE("artist_follow", { name, imageUrl })),
+	artistUnfollow: (name: string) => typedError<null, string>(__TAURI_INVOKE("artist_unfollow", { name })),
+	/**  Turns alerts for an artist's new releases on or off (M46.42). */
+	artistSetAlerts: (name: string, on: boolean) => typedError<null, string>(__TAURI_INVOKE("artist_set_alerts", { name, on })),
+	/**  New releases found for followed artists, newest first (M46.42). */
+	artistReleaseNews: () => typedError<ArtistReleaseNews_Serialize[], string>(__TAURI_INVOKE("artist_release_news")),
+	/**  An artist's coming concerts and other events (M46.42). */
+	musicArtistEvents: (name: string) => typedError<ArtistEvent[], string>(__TAURI_INVOKE("music_artist_events", { name })),
 	/**  A source's playlist with its songs (M46.39). */
 	musicPlaylist: (providerId: string, playlistId: string) => typedError<MusicPlaylistDetail_Serialize, string>(__TAURI_INVOKE("music_playlist", { providerId, playlistId })),
 	/**  The album a song is on, from the sources' album search (M46.36: Go to album). */
@@ -366,6 +399,16 @@ export const commands = {
 	playlistRemoveItem: (itemId: string) => typedError<null, string>(__TAURI_INVOKE("playlist_remove_item", { itemId })),
 	/**  Moves an item before another one, or to the end when `before_item_id` is null. */
 	playlistMoveItem: (itemId: string, beforeItemId: string | null) => typedError<null, string>(__TAURI_INVOKE("playlist_move_item", { itemId, beforeItemId })),
+	/**  Saves a playlist in the order given (M46.44: a sorted table dragged into shape). */
+	playlistSetOrder: (playlistId: string, itemIds: string[]) => typedError<null, string>(__TAURI_INVOKE("playlist_set_order", { playlistId, itemIds })),
+	/**  Merges playlists into a new one, in the order given (M46.45). */
+	playlistsMerge: (ids: string[], name: string, skipDuplicates: boolean, removeMerged: boolean) => typedError<PlaylistSummary, string>(__TAURI_INVOKE("playlists_merge", { ids, name, skipDuplicates, removeMerged })),
+	/**  Keys of every song in Favorites or a playlist, to mark them in lists (M46.45). */
+	collectionsSavedKeys: () => typedError<string[], string>(__TAURI_INVOKE("collections_saved_keys")),
+	/**  Moves a favorite (by track key) before another, or last when `before_key` is null (M46.44). */
+	favoriteMove: (trackKey: string, beforeKey: string | null) => typedError<null, string>(__TAURI_INVOKE("favorite_move", { trackKey, beforeKey })),
+	/**  Saves Favorites in the order given (M46.44). */
+	favoritesSetOrder: (trackKeys: string[]) => typedError<null, string>(__TAURI_INVOKE("favorites_set_order", { trackKeys })),
 	/**  The latest play of each recently played track, newest first. */
 	historyRecent: (limit: number) => typedError<HistoryEntry[], string>(__TAURI_INVOKE("history_recent", { limit })),
 	historyClear: () => typedError<null, string>(__TAURI_INVOKE("history_clear")),
@@ -652,6 +695,8 @@ export const commands = {
 	discovery: DiscoveryPrefs,
 	/**  Captions for podcasts and audiobooks heard by AI (M46.32). */
 	transcription: TranscriptionPrefs,
+	/**  What's remembered of listening (M46.41). */
+	privacy: PrivacyPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
 	/**  The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default. */
@@ -756,6 +801,8 @@ export const commands = {
 	videoTitle: (sourceId: string, remoteId: string, refresh: boolean) => typedError<VideoTitleView, string>(__TAURI_INVOKE("video_title", { sourceId, remoteId, refresh })),
 	/**  An episode's servers (`episode_id` is the source's id); resolved ones come with their links. */
 	videoServers: (sourceId: string, episodeId: string) => typedError<VideoServerView[], string>(__TAURI_INVOKE("video_servers", { sourceId, episodeId })),
+	/**  A title's comments from its source, a page at a time (M46.45: YouTube's). */
+	videoComments: (sourceId: string, remoteId: string, page: string | null) => typedError<VideoComments, string>(__TAURI_INVOKE("video_comments", { sourceId, remoteId, page })),
 	/**  One server's links, the preferred quality first. */
 	videoLinks: (sourceId: string, serverId: string) => typedError<VideoLinkView[], string>(__TAURI_INVOKE("video_links", { sourceId, serverId })),
 	/**  Plays a link of a stored episode in the video player. */
@@ -825,6 +872,7 @@ export const commands = {
 /** Events */
 export const events = {
 	aiModelEvent: makeEvent<AiModelEvent>("ai-model-event"),
+	artistReleasesEvent: makeEvent<ArtistReleasesEvent>("artist-releases-event"),
 	captionsEvent: makeEvent<CaptionsEvent>("captions-event"),
 	connectEvent: makeEvent<ConnectEvent>("connect-event"),
 	connectRequestEvent: makeEvent<ConnectRequestEvent>("connect-request-event"),
@@ -927,6 +975,18 @@ export type AppInfo = {
 	debug: boolean,
 };
 
+/**  A concert or other event of an artist (M46.42), from a source's open data (MusicBrainz). */
+export type ArtistEvent = {
+	name: string,
+	/**  `YYYY-MM-DD` (or less, as the source knows it). */
+	date: string,
+	/**  The venue and its city, when known. */
+	place: string | null,
+	/**  The event's page at the source. */
+	url: string | null,
+	source: string,
+};
+
 /**  What open databases say about an artist (M46.14): the player's "About the artist" card. */
 export type ArtistInfo = {
 	name: string,
@@ -955,12 +1015,51 @@ export type ArtistOverview = {
 	tracks: LibraryTrack[],
 };
 
+/**  A release found for a followed artist since the last check (M46.42). */
+export type ArtistReleaseNews = ArtistReleaseNews_Serialize | ArtistReleaseNews_Deserialize;
+
+/**  A release found for a followed artist since the last check (M46.42). */
+export type ArtistReleaseNews_Deserialize = {
+	artist: string,
+	album: MusicAlbum_Deserialize,
+	/**  Unix ms. */
+	foundAt: number | null,
+};
+
+/**  A release found for a followed artist since the last check (M46.42). */
+export type ArtistReleaseNews_Serialize = {
+	artist: string,
+	album: MusicAlbum_Serialize,
+	/**  Unix ms. */
+	foundAt: number | null,
+};
+
+/**  Followed artists or their release news changed (M46.42). */
+export type ArtistReleasesEvent = null;
+
 /**  What a saved song is written out as (M46.10). */
 export type AudioFileFormat = 
 /**  The bytes as downloaded (or the recording's FLAC). */
 "original" | "wav" | "flac" | 
 /**  Encoded with LAME at the Downloads audio quality (M46.18); an MP3 download is copied. */
 "mp3";
+
+/**
+ *  A place sound can come out of on this device (M46.43): the speaker, wired, Bluetooth or USB
+ *  headphones, HDMI. Desktop lists its own in the webview.
+ */
+export type AudioOutput = {
+	id: string,
+	name: string,
+	/**  `speaker`, `wired`, `bluetooth`, `usb` or `hdmi`. */
+	kind: string,
+};
+
+/**  This device's outputs and the one picked (`None`: the system's choice). */
+export type AudioOutputs = {
+	outputs: AudioOutput[],
+	chosen: string | null,
+};
 
 /**
  *  How good a song should sound against how much data it takes, as Spotify offers it. Sources
@@ -1336,8 +1435,13 @@ export type DetailEdit = {
 	artworkUrl: string | null,
 };
 
-/**  What the user edits the details of (M46.30): a song, an album or an artist. */
-export type DetailTarget = { kind: "song"; query: TrackQuery } | { kind: "album"; artist: string | null; album: string } | { kind: "artist"; name: string };
+/**
+ *  What the user edits the details of (M46.30): a song, an album or an artist; a playlist's
+ *  cover (M46.45).
+ */
+export type DetailTarget = { kind: "song"; query: TrackQuery } | { kind: "album"; artist: string | null; album: string } | { kind: "artist"; name: string } | 
+/**  Only its cover is the user's (its name is renamed with the playlist). */
+{ kind: "playlist"; id: string };
 
 /**  Charts and song tags (M46.9). */
 export type DiscoveryPrefs = {
@@ -1617,6 +1721,18 @@ export type FilterOption = {
 /**  A filter's chosen value, keyed by the filter's `key`. */
 export type FilterValue = boolean | string | { include: string[]; exclude: string[] };
 
+/**
+ *  An artist the user follows (M46.42): in the library and quick access, with alerts for new
+ *  releases when `alerts` is on.
+ */
+export type FollowedArtist = {
+	name: string,
+	imageUrl: string | null,
+	/**  Unix ms. */
+	followedAt: number | null,
+	alerts: boolean,
+};
+
 /**  Subtitles found for a video in the player (M46.33). */
 export type FoundSubtitles = {
 	tracks: VideoSubtitle[],
@@ -1646,6 +1762,13 @@ export type ImageFileFormat = "png" | "jpeg" | "webp" |
 
 /**  An import matched another song in the background; carries the playlist's id (M46.31). */
 export type ImportEvent = string;
+
+/**
+ *  A song after matching it against the music sources: what the best match added to it, which
+ *  source that was, and its stream when the source plays it directly.
+ *  Where imported songs go (M46.45): a new playlist, one the user has, or Favorites.
+ */
+export type ImportTarget = { kind: "new"; name: string } | { kind: "playlist"; id: string } | { kind: "favorites" };
 
 /**  Where an imported book can be opened (M33). */
 export type ImportedBook = {
@@ -2094,10 +2217,6 @@ export type MangaUpdateStatus = {
 	lastRunAt: number | null,
 };
 
-/**
- *  A song after matching it against the music sources: what the best match added to it, which
- *  source that was, and its stream when the source plays it directly.
- */
 export type MatchedSong = {
 	song: ImportedSong,
 	matchedBy: string | null,
@@ -2563,6 +2682,8 @@ export type PlaylistSummary = {
 	itemCount: number,
 	/**  Up to four distinct artworks of the first items, for the cover. */
 	artworkUrls: string[],
+	/**  The cover the user picked (M46.45), shown instead of the artworks. */
+	coverUrl: string | null,
 };
 
 export type PodcastEpisode = {
@@ -2623,6 +2744,14 @@ export type PodcastView = {
  *  or an empty string when several changed (M37).
  */
 export type PodcastsChangedEvent = string;
+
+/**  What's remembered of listening (M46.41); both on by default. */
+export type PrivacyPrefs = {
+	/**  Plays go into the listening history (play counts, Made for You's taste). */
+	history?: boolean,
+	/**  Where plays started from is kept for Home (Recently played, Your music). */
+	recentlyPlayed?: boolean,
+};
 
 /**  A provider an extension registered, e.g. a `music.metadata` search. */
 export type ProviderInfo = ProviderInfo_Serialize | ProviderInfo_Deserialize;
@@ -2723,17 +2852,27 @@ export type RailPin = {
 	pinnedAt: number,
 	playedAt: number,
 	openedAt: number,
+	/**
+	 *  Pinned because it was added to the library (M46.41), not by hand: it goes when it leaves
+	 *  the library, or when newer automatic pins pass the limit.
+	 */
+	auto?: boolean,
 };
 
 /**
  *  The desktop sidebar's pins (M46.29): anything with a page, in the user's order or by when it
- *  was last played from or opened.
+ *  was last played from or opened. Quick access (M46.41): what's added to the library is pinned
+ *  too, up to `limit` automatic pins.
  */
 export type RailPrefs = {
 	pins: RailPin[],
 	order: RailOrder,
 	/**  The first run's pins were added (Favorites, Downloaded, Local files and the playlists). */
 	seeded: boolean,
+	/**  Pin what's added to the library (M46.41). */
+	autoAdd?: boolean,
+	/**  Automatic pins kept at most, 1–1000; the oldest go first. Pins made by hand stay. */
+	limit?: number,
 };
 
 /**  How a title is read (M27). */
@@ -2866,7 +3005,7 @@ export type SearchResults_Serialize = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -2961,6 +3100,8 @@ export type Settings = {
 	discovery: DiscoveryPrefs,
 	/**  Captions for podcasts and audiobooks heard by AI (M46.32). */
 	transcription: TranscriptionPrefs,
+	/**  What's remembered of listening (M46.41). */
+	privacy: PrivacyPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
 	/**  The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default. */
@@ -3255,6 +3396,8 @@ export type StremioMeta = {
 	releaseInfo: string | null,
 	runtime: string | null,
 	rating: string | null,
+	/**  Ratings with their sources (M46.45), from the addon whose details these are. */
+	ratings: TitleRating[],
 	cast: string[],
 	director: string[],
 	trailerYtIds: string[],
@@ -3489,6 +3632,16 @@ export type TitleMarks = {
 	pinned: boolean,
 };
 
+/**  A rating and who gave it (M46.45): IMDb's, or another site an addon links. */
+export type TitleRating = {
+	/**  "IMDb", or the site's name as the addon gives it. */
+	source: string,
+	/**  As given: "7.8", "85%", "8/10". */
+	value: string,
+	/**  The title's page on that site. */
+	url: string | null,
+};
+
 export type TrackColumn = {
 	id: TrackColumnId,
 	visible: boolean,
@@ -3631,6 +3784,24 @@ export type VideoChapter = {
 	endMs: number | null,
 	name: string | null,
 	kind: ChapterKind,
+};
+
+/**  One comment on a video (M46.45), as the source shows it. */
+export type VideoComment = {
+	author: string,
+	avatarUrl?: string | null,
+	text: string,
+	/**  "220K". */
+	likes?: string | null,
+	/**  "6 years ago". */
+	published?: string | null,
+	replies?: number | null,
+};
+
+/**  A page of a video's comments; `next` asks for the following one. */
+export type VideoComments = {
+	comments: VideoComment[],
+	next?: string | null,
 };
 
 /**  One video download. */

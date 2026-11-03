@@ -192,6 +192,26 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(|error| error.to_string())
     }
 
+    /// The outputs sound can go to (M46.43) and the one picked, if any: `{outputs, chosen}`.
+    #[cfg(target_os = "android")]
+    pub fn audio_outputs(&self) -> Result<serde_json::Value, String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>("audioOutputs", ())
+            .map_err(|error| error.to_string())
+    }
+
+    /// Plays through one output, or Android's choice for `None` (M46.43).
+    #[cfg(target_os = "android")]
+    pub fn set_audio_output(&self, id: Option<String>) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>(
+                "setAudioOutput",
+                serde_json::json!({ "id": id }),
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
     /// The active network's kind: `cellular`, `wifi`, `ethernet`, `other` or `none` (M46.18:
     /// the Audio quality for mobile data).
     #[cfg(target_os = "android")]

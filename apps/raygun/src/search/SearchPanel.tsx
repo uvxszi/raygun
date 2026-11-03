@@ -34,15 +34,24 @@ const VideoSearch: FC<{ query: string; view: VideoView; onView: (view: VideoView
           </button>
         ))}
       </div>
-      <VideoResults
-        query={query}
-        kind={view === 'movies' ? 'movie' : view === 'series' ? 'series' : undefined}
-      />
-      <section aria-label={t('search.fromSources')} className="flex flex-col gap-3">
-        <h2 className="font-semibold">{t('search.fromSources')}</h2>
-        {view !== 'relevant' && <p className="text-muted text-sm">{t('search.video.anyKind')}</p>}
-        <CatalogSearch key="video" medium="video" query={query} />
-      </section>
+      {view === 'sources' ? (
+        // Every video source by its chip, the ones with their own pill too (M46.40).
+        <CatalogSearch key="video-sources" medium="video" query={query} withPills />
+      ) : (
+        <>
+          <VideoResults
+            query={query}
+            kind={view === 'movies' ? 'movie' : view === 'series' ? 'series' : undefined}
+          />
+          <section aria-label={t('search.fromSources')} className="flex flex-col gap-3">
+            <h2 className="font-semibold">{t('search.fromSources')}</h2>
+            {view !== 'relevant' && (
+              <p className="text-muted text-sm">{t('search.video.anyKind')}</p>
+            )}
+            <CatalogSearch key="video" medium="video" query={query} />
+          </section>
+        </>
+      )}
     </div>
   );
 };
@@ -69,7 +78,8 @@ export const SearchPanel: FC<{
   // The library needs something typed; the rest show what's popular or a hint until then.
   const needsQuery = type === 'library';
   const musicView = (view ?? 'relevant') as MusicView;
-  const videoView: VideoView = view === 'movies' || view === 'series' ? view : 'relevant';
+  const videoView: VideoView =
+    view === 'movies' || view === 'series' || view === 'sources' ? view : 'relevant';
   const selected = useRef<HTMLButtonElement>(null);
 
   // A link can open a kind whose chip is off-screen (Library → Manga's "Find in Browse").
