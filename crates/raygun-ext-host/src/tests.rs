@@ -1280,6 +1280,13 @@ async fn discovery_live_charts_and_tags() {
     let similar = host.similar_artists("Daft Punk", 8).await;
     println!("similar to Daft Punk: {similar:?}");
     assert!(!similar.is_empty());
+    // Deezer lists a little-known namesake first; the famous one is meant.
+    let similar = host.similar_artists("Michael Jackson", 8).await;
+    println!("similar to Michael Jackson: {similar:?}");
+    assert!(
+        similar.iter().any(|name| name.contains("Jackson")),
+        "{similar:?}"
+    );
     let top = host
         .recommended_tracks("topTracks", json!({ "artist": "Daft Punk", "limit": 5 }))
         .await;
@@ -1333,6 +1340,38 @@ async fn discovery_live_charts_and_tags() {
         let tags = answer.unwrap_or_else(|error| panic!("{}: {error}", provider.name));
         println!("{}: {tags:?}", provider.name);
         assert!(!tags.is_empty(), "{}", provider.name);
+    }
+}
+
+/// LibriVox's books through the Internet Archive (M46.22):
+/// `cargo test -p raygun-ext-host -- --ignored librivox_live --nocapture`.
+#[tokio::test]
+#[ignore = "needs network access to archive.org"]
+async fn librivox_live_finds_books_with_feeds() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(discover_installed(&dir)).await;
+    let provider = "dev.raygun.librivox/books";
+    for (list, query) in [
+        ("search", "pride and prejudice"),
+        ("popular", ""),
+        ("latest", ""),
+    ] {
+        let page = host.audiobooks(provider, list, query, 1).await.unwrap();
+        println!(
+            "{list}: {} books, more {}; first {:?}",
+            page.books.len(),
+            page.has_more,
+            page.books
+                .first()
+                .map(|book| (&book.title, &book.author, &book.feed_url))
+        );
+        assert!(!page.books.is_empty(), "{list}");
+        assert!(
+            page.books
+                .iter()
+                .all(|book| book.feed_url.starts_with("https://librivox.org/rss/"))
+        );
     }
 }
 

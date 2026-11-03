@@ -1,5 +1,6 @@
 // Nuclear providers as Raygun providers: metadata → music.metadata, streaming → music.stream,
-// lyrics → lyrics. Method shapes follow Nuclear's plugin-sdk types (AGPL-3.0).
+// lyrics → lyrics, dashboard → music.charts and discovery → music.recommend (M46.23). Method shapes
+// follow Nuclear's plugin-sdk types (AGPL-3.0).
 import type { LyricsResult, Provider, StreamCandidate, Track } from '@raygun/sdk';
 
 import type {
@@ -15,6 +16,8 @@ export const KIND_MAP: Record<string, Provider['kind']> = {
   metadata: 'music.metadata',
   streaming: 'music.stream',
   lyrics: 'lyrics',
+  dashboard: 'music.charts',
+  discovery: 'music.recommend',
 };
 
 /** Raygun provider ids are `[a-z0-9][a-z0-9_-]*`. */
@@ -188,6 +191,53 @@ export const wrapProvider = (provider: NuclearProvider): Provider | null => {
           {},
         );
         return toRaygunLyrics(lyrics);
+      },
+    };
+  }
+
+  // A dashboard's top tracks become a chart (its albums, artists and playlists have no place in
+  // Raygun's charts yet).
+  if (kind === 'music.charts') {
+    return {
+      kind,
+      id,
+      name,
+      async charts() {
+        if (!has(provider, 'fetchTopTracks')) return { charts: [] };
+        return {
+          charts: [
+            {
+              id: 'topTracks',
+              name: `Top songs on ${name}`,
+              description: `${name}'s most played songs`,
+              group: 'top',
+            },
+          ],
+        };
+      },
+      async chart({ id: chart, limit }) {
+        if (chart !== 'topTracks') throw new Error(`Unknown chart ${chart}`);
+        const tracks = await call<NuclearTrack[]>(provider, 'fetchTopTracks');
+        return { tracks: (tracks ?? []).slice(0, limit).map(toRaygunTrack) };
+      },
+    };
+  }
+
+  // Discovery's recommendations become radios: songs like the artist's (and the song's).
+  if (kind === 'music.recommend') {
+    return {
+      kind,
+      id,
+      name,
+      async radio({ artist, title, limit }) {
+        const context = [
+          toNuclearTrack({ title: title ?? '', artist, album: null, durationMs: null }),
+        ];
+        const tracks = await call<NuclearTrack[]>(provider, 'getRecommendations', context, {
+          variety: 0.5,
+          limit,
+        });
+        return { tracks: (tracks ?? []).slice(0, limit).map(toRaygunTrack) };
       },
     };
   }

@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { PlaylistCover } from '../collections/PlaylistCover';
 import { useFavorites, usePlaylists } from '../collections/useCollections';
 import { useDownloadedSongs } from '../music/useSongDownloads';
+import { useAudiobooks } from '../audiobooks/useAudiobooks';
 import { PodcastArt } from '../podcasts/PodcastArt';
 import { useSubscriptions } from '../podcasts/usePodcasts';
 import { Artwork } from './Artwork';
@@ -60,6 +61,7 @@ export const MusicOverview: FC<{
   const { t } = useTranslation();
   const playlists = usePlaylists();
   const podcasts = useSubscriptions();
+  const audiobooks = useAudiobooks();
   const favorites = useFavorites();
   const downloaded = useDownloadedSongs();
   const albums = useAlbums();
@@ -144,6 +146,20 @@ export const MusicOverview: FC<{
                 <Link to="/podcast" search={{ id: podcast.id }} className="flex flex-col gap-1.5">
                   <PodcastArt url={podcast.artworkUrl} className="w-full rounded-lg" />
                   <span className="line-clamp-2 text-sm font-medium">{podcast.title}</span>
+                </Link>
+              </li>
+            ))}
+          </Row>
+        </Section>
+      )}
+      {audiobooks.data && audiobooks.data.length > 0 && (
+        <Section view="audiobooks" count={audiobooks.data.length}>
+          <Row>
+            {audiobooks.data.map((book) => (
+              <li key={book.id} className="w-28 shrink-0">
+                <Link to="/audiobook" search={{ id: book.id }} className="flex flex-col gap-1.5">
+                  <PodcastArt url={book.artworkUrl} className="w-full rounded-lg" />
+                  <span className="line-clamp-2 text-sm font-medium">{book.title}</span>
                 </Link>
               </li>
             ))}

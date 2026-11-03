@@ -72,6 +72,8 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Sleep timer | RiPlay | 🔜 M52 |
 | Blacklist (artists/tracks) | RiPlay | 🔜 M52 |
 | Listening stats, "Rewind" yearly recap | RiPlay | 🔜 M52 |
+| Audiobooks (free public-domain books, chapters in order, resume) | — (asked) | ✅ M46.22 (LibriVox via the Internet Archive) |
+| Plugins from other players | Nuclear | ✅ M46.23 (metadata, streams, lyrics, dashboards as charts, discovery as radios; QuietPlay and Musike have none) |
 | Playlist import (from URLs/files) | Nuclear, RiPlay | ✅ M46.21 (Spotify links, CSV, pasted lists, screenshots; matched per song) |
 | Dashboard/discovery: new releases, moods, quick picks | Nuclear, RiPlay | ✅ M46.20 (Made for You: mixes from plays and favorites, Release Radar, moods; skip signals not yet) |
 | Lyrics translation | RiPlay | 🔜 M58 |

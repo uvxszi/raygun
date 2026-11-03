@@ -16,6 +16,8 @@ pub struct PodcastFields {
     pub description: Option<String>,
     pub artwork: Option<String>,
     pub link: Option<String>,
+    /// `podcast` or `audiobook` (M46.22).
+    pub kind: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +49,8 @@ pub struct EpisodeFields {
     pub duration_ms: Option<i64>,
     pub published_at: Option<i64>,
     pub artwork: Option<String>,
+    /// Its number in a serial feed (an audiobook's chapter), M46.22.
+    pub number: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,7 +63,10 @@ pub struct EpisodeRow {
     pub found_at: i64,
     /// From the podcast, for lists that mix podcasts.
     pub podcast_title: String,
+    pub podcast_author: Option<String>,
     pub podcast_artwork: Option<String>,
+    /// `podcast` or `audiobook`.
+    pub podcast_kind: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,13 +81,13 @@ pub struct EpisodeDownload {
 }
 
 const PODCAST_COLUMNS: &str = "p.id, p.feed_url, p.remote_title, p.remote_author, \
-     p.remote_description, p.remote_artwork, p.remote_link, p.user_subscribed_at, \
+     p.remote_description, p.remote_artwork, p.remote_link, p.remote_kind, p.user_subscribed_at, \
      p.state_refreshed_at";
 
 const EPISODE_COLUMNS: &str = "e.id, e.podcast_id, e.guid, e.remote_title, e.remote_description, \
      e.remote_audio_url, e.remote_audio_type, e.remote_duration_ms, e.remote_published_at, \
-     e.remote_artwork, e.user_position_ms, e.user_played_at, e.state_found_at, \
-     p.remote_title AS podcast_title, p.remote_artwork AS podcast_artwork";
+     e.remote_artwork, e.remote_number, e.user_position_ms, e.user_played_at, e.state_found_at, \
+     p.remote_title AS podcast_title, p.remote_author AS podcast_author,      p.remote_artwork AS podcast_artwork, p.remote_kind AS podcast_kind";
 
 fn podcast_row(row: &SqliteRow) -> PodcastRow {
     PodcastRow {
@@ -92,6 +99,7 @@ fn podcast_row(row: &SqliteRow) -> PodcastRow {
             description: row.get("remote_description"),
             artwork: row.get("remote_artwork"),
             link: row.get("remote_link"),
+            kind: row.get("remote_kind"),
         },
         subscribed_at: row.get("user_subscribed_at"),
         refreshed_at: row.get("state_refreshed_at"),
@@ -111,12 +119,15 @@ fn episode_row(row: &SqliteRow) -> EpisodeRow {
             duration_ms: row.get("remote_duration_ms"),
             published_at: row.get("remote_published_at"),
             artwork: row.get("remote_artwork"),
+            number: row.get("remote_number"),
         },
         position_ms: row.get("user_position_ms"),
         played_at: row.get("user_played_at"),
         found_at: row.get("state_found_at"),
         podcast_title: row.get("podcast_title"),
+        podcast_author: row.get("podcast_author"),
         podcast_artwork: row.get("podcast_artwork"),
+        podcast_kind: row.get("podcast_kind"),
     }
 }
 
@@ -137,12 +148,14 @@ pub async fn upsert_podcast(
     let id = existing.unwrap_or_else(|| Uuid::now_v7().to_string());
     sqlx::query(
         "INSERT INTO podcast (id, feed_url, remote_title, remote_author, remote_description,
-             remote_artwork, remote_link, state_refreshed_at, updated_at_hlc, origin_device, deleted)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0)
+             remote_artwork, remote_link, state_refreshed_at, updated_at_hlc, origin_device, deleted,
+             remote_kind)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, ?11)
          ON CONFLICT (id) DO UPDATE SET
              remote_title = excluded.remote_title, remote_author = excluded.remote_author,
              remote_description = excluded.remote_description,
              remote_artwork = excluded.remote_artwork, remote_link = excluded.remote_link,
+             remote_kind = excluded.remote_kind,
              state_refreshed_at = excluded.state_refreshed_at,
              updated_at_hlc = excluded.updated_at_hlc, origin_device = excluded.origin_device",
     )
@@ -156,6 +169,7 @@ pub async fn upsert_podcast(
     .bind(now_ms)
     .bind(stamp as i64)
     .bind(db.device_id().to_string())
+    .bind(&fields.kind)
     .execute(&mut *transaction)
     .await?;
     persist_hlc(&mut *transaction, stamp).await?;
@@ -189,9 +203,11 @@ pub async fn sync_episodes(
         sqlx::query(
             "INSERT INTO podcast_episode (id, podcast_id, guid, remote_title, remote_description,
                  remote_audio_url, remote_audio_type, remote_duration_ms, remote_published_at,
-                 remote_artwork, state_found_at, updated_at_hlc, origin_device, deleted)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 0)
+                 remote_artwork, state_found_at, updated_at_hlc, origin_device, deleted,
+                 remote_number)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 0, ?14)
              ON CONFLICT (id) DO UPDATE SET
+                 remote_number = excluded.remote_number,
                  remote_title = excluded.remote_title,
                  remote_description = excluded.remote_description,
                  remote_audio_url = excluded.remote_audio_url,
@@ -214,6 +230,7 @@ pub async fn sync_episodes(
         .bind(now_ms)
         .bind(stamp as i64)
         .bind(&device)
+        .bind(episode.number)
         .execute(&mut *transaction)
         .await?;
     }
@@ -281,7 +298,7 @@ pub async fn subscriptions(db: &Db) -> Result<Vec<Subscription>, DbError> {
              MAX(e.remote_published_at) AS latest
          FROM podcast p
          LEFT JOIN podcast_episode e ON e.podcast_id = p.id AND e.deleted = 0
-         WHERE p.user_subscribed_at IS NOT NULL AND p.deleted = 0
+         WHERE p.user_subscribed_at IS NOT NULL AND p.deleted = 0 AND p.remote_kind = 'podcast'
          GROUP BY p.id
          ORDER BY latest IS NULL, latest DESC, p.remote_title"
     )))
@@ -303,7 +320,10 @@ pub async fn episodes(db: &Db, podcast_id: &str) -> Result<Vec<EpisodeRow>, DbEr
     let rows = sqlx::query(AssertSqlSafe(format!(
         "SELECT {EPISODE_COLUMNS} FROM podcast_episode e JOIN podcast p ON p.id = e.podcast_id
          WHERE e.podcast_id = ?1 AND e.deleted = 0
-         ORDER BY e.remote_published_at IS NULL, e.remote_published_at DESC, e.state_found_at DESC"
+         ORDER BY
+             -- A book's chapters in order (M46.22); a podcast's newest first.
+             CASE WHEN p.remote_kind = 'audiobook' THEN COALESCE(e.remote_number, 0) END,
+             e.remote_published_at IS NULL, e.remote_published_at DESC, e.state_found_at DESC"
     )))
     .bind(podcast_id)
     .fetch_all(db.pool())
@@ -311,11 +331,48 @@ pub async fn episodes(db: &Db, podcast_id: &str) -> Result<Vec<EpisodeRow>, DbEr
     Ok(rows.iter().map(episode_row).collect())
 }
 
+/// A book in the library with how far it was listened (M46.22).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BookRow {
+    pub podcast: PodcastRow,
+    pub chapters: i64,
+    pub finished: i64,
+    /// When a chapter was last finished (unix ms).
+    pub listened_at: Option<i64>,
+}
+
+/// The audiobooks in the library, the last listened first.
+pub async fn audiobooks(db: &Db) -> Result<Vec<BookRow>, DbError> {
+    let rows = sqlx::query(AssertSqlSafe(format!(
+        "SELECT {PODCAST_COLUMNS},
+             COUNT(e.id) AS chapters,
+             COALESCE(SUM(e.user_played_at IS NOT NULL), 0) AS finished,
+             MAX(e.user_played_at) AS listened
+         FROM podcast p
+         LEFT JOIN podcast_episode e ON e.podcast_id = p.id AND e.deleted = 0
+         WHERE p.user_subscribed_at IS NOT NULL AND p.deleted = 0 AND p.remote_kind = 'audiobook'
+         GROUP BY p.id
+         ORDER BY listened IS NULL, listened DESC, p.user_subscribed_at DESC"
+    )))
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows
+        .iter()
+        .map(|row| BookRow {
+            podcast: podcast_row(row),
+            chapters: row.get("chapters"),
+            finished: row.get("finished"),
+            listened_at: row.get("listened"),
+        })
+        .collect())
+}
+
 /// The newest episodes across subscriptions.
 pub async fn latest_episodes(db: &Db, limit: u32) -> Result<Vec<EpisodeRow>, DbError> {
     let rows = sqlx::query(AssertSqlSafe(format!(
         "SELECT {EPISODE_COLUMNS} FROM podcast_episode e JOIN podcast p ON p.id = e.podcast_id
          WHERE p.user_subscribed_at IS NOT NULL AND p.deleted = 0 AND e.deleted = 0
+             AND p.remote_kind = 'podcast'
          ORDER BY e.remote_published_at IS NULL, e.remote_published_at DESC
          LIMIT ?1"
     )))

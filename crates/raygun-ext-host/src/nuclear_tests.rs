@@ -161,13 +161,13 @@ fn ui_only_plugins_are_rejected_with_a_reason() {
     let mut files = BTreeMap::new();
     files.insert(
         "package.json".to_owned(),
-        json!({ "name": "nuclear-plugin-dash", "version": "1.0.0", "main": "index.js",
-                "nuclear": { "categories": ["dashboard"] } })
+        json!({ "name": "nuclear-plugin-queue", "version": "1.0.0", "main": "index.js",
+                "nuclear": { "categories": ["queue"] } })
         .to_string(),
     );
     files.insert("index.js".to_owned(), "module.exports = {};".to_owned());
     let error = nuclear::convert(&files).unwrap_err();
-    assert!(error.contains("it provides dashboard"), "{error}");
+    assert!(error.contains("it provides queue"), "{error}");
 }
 
 #[tokio::test]

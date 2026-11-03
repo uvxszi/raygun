@@ -58,6 +58,7 @@
       "playlists": "Playlists",
       "favorites": "Favorites",
       "downloaded": "Downloaded",
+      "audiobooks": "Audiobooks",
       "podcasts": "Podcasts"
     },
     "downloaded": {
@@ -2093,6 +2094,30 @@
       "failed": "Couldn't download"
     }
   },
+  "audiobooks": {
+    "title": "Audiobooks",
+    "loading": "Loading the book…",
+    "loadingBooks": "Loading books…",
+    "emptyTitle": "No audiobooks yet",
+    "emptyBody": "Find free public-domain audiobooks read by LibriVox volunteers, and add them here.",
+    "browse": "Find audiobooks",
+    "search": "Search audiobooks",
+    "searchPlaceholder": "Title or author",
+    "results": "Books found",
+    "noResults": "No audiobooks found for that.",
+    "popular": "Popular",
+    "latest": "Newest",
+    "opening": "Opening the book…",
+    "chapters_one": "{{count}} chapter",
+    "chapters_other": "{{count}} chapters",
+    "chapterOf": "Chapter {{chapter}} of {{count}}",
+    "finished": "Finished",
+    "play": "Play",
+    "resume": "Resume chapter {{chapter}}",
+    "fromStart": "From the start",
+    "add": "Add to library",
+    "inLibrary": "In your library"
+  },
   "import": {
     "title": "Import songs",
     "open": "Import songs",
@@ -2121,6 +2146,53 @@
     "notFound": "Not found yet",
     "create_one": "Make a playlist of {{count}} song",
     "create_other": "Make a playlist of {{count}} songs"
+  },
+  "systems": {
+    "title": "What Raygun can run",
+    "intro": "Raygun loads add-ons from several players and apps, and reads lists and feeds from many more. Each is listed with what it brings.",
+    "manage": "Manage",
+    "items": {
+      "raygun": {
+        "name": "Raygun extensions",
+        "what": "Music search and streams, lyrics, charts, genres, recommendations, song facts, manga, novels, films and series, podcast and audiobook directories.",
+        "how": "JavaScript in a sandbox, installed from repositories (Raygun's own, Paraline Raygun, or any you add)."
+      },
+      "nuclear": {
+        "name": "Nuclear plugins",
+        "what": "Music search, streams, lyrics, dashboards (as charts) and discovery (as song radios).",
+        "how": "Converted when installed, from Nuclear's plugin registry or any repository listing them. Playlists, queue and UI parts don't run."
+      },
+      "shosetsu": {
+        "name": "Shosetsu sources",
+        "what": "Light novels: hundreds of sites, read chapter by chapter.",
+        "how": "Lua scripts run in Raygun's Shosetsu runtime, from Shosetsu repositories."
+      },
+      "stremio": {
+        "name": "Stremio addons",
+        "what": "Film and series catalogues, streams, subtitles and live channels.",
+        "how": "Added by their manifest address. Torrent streams aren't played; outside links open in the browser."
+      },
+      "feeds": {
+        "name": "Podcast and audiobook feeds",
+        "what": "Any podcast's RSS or Atom feed, and LibriVox audiobooks chapter by chapter.",
+        "how": "Found through directories or added by address."
+      },
+      "websites": {
+        "name": "Websites",
+        "what": "Any site, in Raygun's own browser with an ad and popup blocker.",
+        "how": "Added in Browse → Sources → Websites."
+      },
+      "imports": {
+        "name": "Imports",
+        "what": "Mihon and Tachiyomi backups, CBZ and ZIP comics, EPUB books, Spotify playlist links, CSV song lists and screenshots of song lists.",
+        "how": "From the Library's import buttons."
+      },
+      "others": {
+        "name": "Other players",
+        "what": "QuietPlay and Musike have no add-ons to load. What they offer is built in: Made for You and moods from Deezer and Apple Music (QuietPlay), and YouTube Music search and radios (Musike).",
+        "how": "Nothing to install."
+      }
+    }
   },
   "forYou": {
     "title": "Made for You",
@@ -2180,6 +2252,7 @@
     }
   },
   "discover": {
+    "audiobooks": "Audiobooks",
     "madeForYou": "Made for You",
     "groups": {
       "top": "Top charts",

@@ -19,7 +19,13 @@ type DeezerTrack = {
   album?: { id: number; title: string; cover_xl?: string; cover_big?: string };
 };
 type DeezerGenre = { id: number; name: string; picture_xl?: string; picture_big?: string };
-type DeezerArtist = { id: number; name: string; picture_xl?: string; picture_big?: string };
+type DeezerArtist = {
+  id: number;
+  name: string;
+  picture_xl?: string;
+  picture_big?: string;
+  nb_fan?: number;
+};
 type DeezerAlbum = {
   id: number;
   title: string;
@@ -325,17 +331,27 @@ registerProvider(
 // Artists already looked up, so making mixes asks Deezer about each name once.
 const artists = new Map<string, DeezerArtist | null>();
 
-/** The Deezer artist with this name: the first search hit whose name matches, else the first. */
+/**
+ * The Deezer artist with this name: of the hits whose name matches, the one with the most fans
+ * (Deezer often lists a little-known namesake first), else the first hit.
+ */
 const artistNamed = async (name: string): Promise<DeezerArtist | null> => {
   const wanted = simple(name);
-  if (artists.has(wanted)) return artists.get(wanted) ?? null;
+  const known = artists.get(wanted);
+  if (known) return known;
   const found = await get<DeezerList<DeezerArtist>>(
-    `/search/artist?q=${encodeURIComponent(name)}&limit=5`,
+    `/search/artist?q=${encodeURIComponent(name)}&limit=10`,
   );
   const list = found.data ?? [];
-  const artist = list.find((candidate) => simple(candidate.name) === wanted) ?? list[0] ?? null;
-  if (artists.size > 500) artists.clear();
-  artists.set(wanted, artist);
+  const named = list
+    .filter((candidate) => simple(candidate.name) === wanted)
+    .sort((a, b) => (b.nb_fan ?? 0) - (a.nb_fan ?? 0));
+  const artist = named[0] ?? list[0] ?? null;
+  // Only finds are kept: a miss (or a slow answer) is asked again next time.
+  if (artist) {
+    if (artists.size > 500) artists.clear();
+    artists.set(wanted, artist);
+  }
   return artist;
 };
 

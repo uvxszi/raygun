@@ -3379,9 +3379,10 @@ pub const LAYOUT_LIBRARY_MEDIA: [(&str, bool); 4] = [
     ("novel", true),
     ("video", true),
 ];
-pub const LAYOUT_AUDIO_VIEWS: [(&str, bool); 8] = [
+pub const LAYOUT_AUDIO_VIEWS: [(&str, bool); 9] = [
     ("all", true),
     ("podcasts", true),
+    ("audiobooks", true),
     ("playlists", true),
     ("favorites", true),
     ("downloaded", true),
@@ -4206,6 +4207,58 @@ pub struct PodcastView {
     pub subscribed: bool,
     /// Newest first.
     pub episodes: Vec<PodcastEpisode>,
+}
+
+// ---- Audiobooks (M46.22) ----
+
+/// A book in the library, with how far it was listened.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AudiobookSummary {
+    pub id: String,
+    pub title: String,
+    pub author: Option<String>,
+    pub artwork_url: Option<String>,
+    pub chapters: u32,
+    /// Chapters listened to the end.
+    pub finished: u32,
+}
+
+/// A book with its chapters in order.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AudiobookView {
+    pub id: String,
+    pub feed_url: String,
+    pub title: String,
+    pub author: Option<String>,
+    pub description: Option<String>,
+    pub artwork_url: Option<String>,
+    pub link: Option<String>,
+    pub in_library: bool,
+    pub chapters: Vec<PodcastEpisode>,
+}
+
+/// A book an audiobook directory found.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AudiobookResult {
+    pub title: String,
+    pub author: Option<String>,
+    pub feed_url: String,
+    pub artwork_url: Option<String>,
+    pub runtime: Option<String>,
+    pub language: Option<String>,
+    pub description: Option<String>,
+    pub source: String,
+}
+
+/// A page of books from the directories.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AudiobookPage {
+    pub books: Vec<AudiobookResult>,
+    pub has_more: bool,
 }
 
 /// A podcast a directory found.

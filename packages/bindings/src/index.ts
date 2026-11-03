@@ -219,6 +219,16 @@ export const commands = {
 	importMatch: (songs: ImportedSong[]) => typedError<MatchedSong[], string>(__TAURI_INVOKE("import_match", { songs })),
 	/**  Saves imported songs as a new playlist; returns its id (M46.21). */
 	importSave: (name: string, songs: MatchedSong[]) => typedError<string, string>(__TAURI_INVOKE("import_save", { name, songs })),
+	/**  The audiobooks in the library (M46.22). */
+	audiobooks: () => typedError<AudiobookSummary[], string>(__TAURI_INVOKE("audiobooks")),
+	/**  A book with its chapters in order (M46.22). */
+	audiobook: (id: string) => typedError<AudiobookView, string>(__TAURI_INVOKE("audiobook", { id })),
+	/**  Opens a book by its chapter feed; returns its id (M46.22). */
+	audiobookOpen: (feedUrl: string) => typedError<string, string>(__TAURI_INVOKE("audiobook_open", { feedUrl })),
+	/**  Plays a book from a chapter, or where it was left, with the rest after it (M46.22). */
+	audiobookPlay: (id: string, chapterId: string | null) => typedError<null, string>(__TAURI_INVOKE("audiobook_play", { id, chapterId })),
+	/**  A page of books from the audiobook directories (M46.22). */
+	audiobookDirectory: (list: string, query: string, page: number) => typedError<AudiobookPage, string>(__TAURI_INVOKE("audiobook_directory", { list, query, page })),
 	/**  A song's genres and moods, found now if they aren't stored yet (M46.9). */
 	musicTrackTags: (query: TrackQuery) => typedError<MusicTag[], string>(__TAURI_INVOKE("music_track_tags", { query })),
 	/**  Stored tags for songs by track key; songs without any are left out (M46.9). */
@@ -854,6 +864,48 @@ export type AudioQualityPrefs = {
 	/**  Used instead of `streaming` while the phone is on mobile data. */
 	cellular: AudioQuality,
 	download: AudioQuality,
+};
+
+/**  A page of books from the directories. */
+export type AudiobookPage = {
+	books: AudiobookResult[],
+	hasMore: boolean,
+};
+
+/**  A book an audiobook directory found. */
+export type AudiobookResult = {
+	title: string,
+	author: string | null,
+	feedUrl: string,
+	artworkUrl: string | null,
+	runtime: string | null,
+	language: string | null,
+	description: string | null,
+	source: string,
+};
+
+/**  A book in the library, with how far it was listened. */
+export type AudiobookSummary = {
+	id: string,
+	title: string,
+	author: string | null,
+	artworkUrl: string | null,
+	chapters: number,
+	/**  Chapters listened to the end. */
+	finished: number,
+};
+
+/**  A book with its chapters in order. */
+export type AudiobookView = {
+	id: string,
+	feedUrl: string,
+	title: string,
+	author: string | null,
+	description: string | null,
+	artworkUrl: string | null,
+	link: string | null,
+	inLibrary: boolean,
+	chapters: PodcastEpisode[],
 };
 
 /**

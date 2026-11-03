@@ -1,0 +1,16 @@
+{
+  "id": "dev.raygun.librivox",
+  "name": "LibriVox",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Free public-domain audiobooks read by LibriVox volunteers, found through the Internet Archive and played chapter by chapter.",
+  "author": "Raygun",
+  "website": "https://librivox.org",
+  "provides": ["audiobook.directory"],
+  "permissions": {
+    "net": ["archive.org", "librivox.org"]
+  },
+  "contentRating": "safe"
+}

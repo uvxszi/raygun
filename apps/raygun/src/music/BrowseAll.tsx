@@ -2,6 +2,7 @@ import type { MusicChart } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import {
   AudioLines,
+  BookAudio,
   BookOpen,
   Clapperboard,
   Globe,
@@ -141,6 +142,7 @@ export const BrowseAll: FC = () => {
     [
       { title: t('discover.madeForYou'), icon: Sparkles, to: '/music/for-you' },
       { title: t('discover.music'), icon: Music, to: '/music/charts' },
+      { title: t('discover.audiobooks'), icon: BookAudio, to: '/audiobooks' },
       {
         title: t('discover.podcasts'),
         icon: Mic,

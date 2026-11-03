@@ -5,6 +5,7 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { AudiobooksView } from '../audiobooks/AudiobooksView';
 import { DownloadedView } from '../collections/DownloadedView';
 import { FavoritesView } from '../collections/FavoritesView';
 import { MangaLibraryView } from '../manga/MangaLibraryView';
@@ -113,6 +114,7 @@ const MusicLibrary: FC<{ view: LibraryView }> = ({ view }) => {
       {view === 'playlists' && <PlaylistsView />}
       {view === 'favorites' && <FavoritesView />}
       {view === 'downloaded' && <DownloadedView />}
+      {view === 'audiobooks' && <AudiobooksView />}
       {local && status.data && !hasFolders && <FirstRunCard />}
       {local && hasFolders && status.data?.trackCount === 0 && !status.data.scanning && (
         <p className="text-muted text-sm">{t('library.noTracksFound')}</p>

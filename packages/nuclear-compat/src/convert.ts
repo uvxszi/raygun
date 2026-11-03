@@ -7,6 +7,9 @@ export const CATEGORY_KINDS: Record<string, string> = {
   metadata: 'music.metadata',
   streaming: 'music.stream',
   lyrics: 'lyrics',
+  // M46.23: dashboards' top songs as charts, discovery as song radios.
+  dashboard: 'music.charts',
+  discovery: 'music.recommend',
 };
 
 /** API domains the shim stubs (keep in step with shim/api.ts). */
@@ -86,7 +89,7 @@ const slug = (name: string) =>
  * plugins converted by an older one as updates (M46.9.1); keep `CONVERTER_VERSION` in
  * `raygun-ext-host::nuclear` equal to it.
  */
-export const CONVERTER_VERSION = 2;
+export const CONVERTER_VERSION = 3;
 
 const SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
 
@@ -148,9 +151,11 @@ export const convertPlugin = (files: Record<string, string>, shimSource: string)
   const registered = [
     ...new Set(
       code.flatMap((source) =>
-        [...source.matchAll(/\bkind\s*:\s*['"](metadata|streaming|lyrics)['"]/g)].map(
-          ([, kind]) => kind as string,
-        ),
+        [
+          ...source.matchAll(
+            /\bkind\s*:\s*['"](metadata|streaming|lyrics|dashboard|discovery)['"]/g,
+          ),
+        ].map(([, kind]) => kind as string),
       ),
     ),
   ];

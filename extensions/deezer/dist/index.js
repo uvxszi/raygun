@@ -1,4 +1,4 @@
-// dev.raygun.deezer 1.3.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.deezer 1.3.2. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -265,14 +265,18 @@
   var artists = /* @__PURE__ */ new Map();
   var artistNamed = async (name) => {
     const wanted = simple(name);
-    if (artists.has(wanted)) return artists.get(wanted) ?? null;
+    const known = artists.get(wanted);
+    if (known) return known;
     const found = await get(
-      `/search/artist?q=${encodeURIComponent(name)}&limit=5`
+      `/search/artist?q=${encodeURIComponent(name)}&limit=10`
     );
     const list = found.data ?? [];
-    const artist = list.find((candidate) => simple(candidate.name) === wanted) ?? list[0] ?? null;
-    if (artists.size > 500) artists.clear();
-    artists.set(wanted, artist);
+    const named = list.filter((candidate) => simple(candidate.name) === wanted).sort((a, b) => (b.nb_fan ?? 0) - (a.nb_fan ?? 0));
+    const artist = named[0] ?? list[0] ?? null;
+    if (artist) {
+      if (artists.size > 500) artists.clear();
+      artists.set(wanted, artist);
+    }
     return artist;
   };
   var DAY_MS = 24 * 60 * 60 * 1e3;

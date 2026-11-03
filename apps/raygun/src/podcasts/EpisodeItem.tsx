@@ -19,11 +19,15 @@ import { SourceIssue } from '../shell/SourceIssue';
 const ICON_BUTTON =
   'bg-background grid size-9 shrink-0 place-items-center rounded-full disabled:opacity-60';
 
-/** One episode: what it is, how far it was listened to, and play, played and download actions. */
-export const EpisodeItem: FC<{ episode: PodcastEpisode; showPodcast?: boolean }> = ({
-  episode,
-  showPodcast = false,
-}) => {
+/**
+ * One episode: what it is, how far it was listened to, and play, played and download actions. An
+ * audiobook's chapter passes `onPlay` to play the rest of the book after it (M46.22).
+ */
+export const EpisodeItem: FC<{
+  episode: PodcastEpisode;
+  showPodcast?: boolean;
+  onPlay?: () => void;
+}> = ({ episode, showPodcast = false, onPlay }) => {
   const { t, i18n } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const play = usePlayEpisode();
@@ -56,7 +60,7 @@ export const EpisodeItem: FC<{ episode: PodcastEpisode; showPodcast?: boolean }>
         openContextMenu(
           event,
           episodeMenu(episode, t, {
-            play: () => play.mutate(episode.id),
+            play: () => (onPlay ? onPlay() : play.mutate(episode.id)),
             setPlayed: (played) => setPlayed.mutate({ id: episode.id, played }),
             download: () => download.mutate(episode.id),
             removeDownload: () => removeDownload.mutate(episode.id),
@@ -91,7 +95,7 @@ export const EpisodeItem: FC<{ episode: PodcastEpisode; showPodcast?: boolean }>
           type="button"
           aria-label={t('podcasts.play', { title: episode.title })}
           disabled={play.isPending}
-          onClick={() => play.mutate(episode.id)}
+          onClick={() => (onPlay ? onPlay() : play.mutate(episode.id))}
           className="bg-primary text-background grid size-9 shrink-0 place-items-center rounded-full disabled:opacity-60"
         >
           <Play aria-hidden size={16} />

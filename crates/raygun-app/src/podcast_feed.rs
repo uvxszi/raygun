@@ -21,9 +21,13 @@ struct Item {
     published: Option<String>,
     image: Option<String>,
     link: Option<String>,
+    /// `itunes:episode` (M46.22: a book's chapter number).
+    number: Option<String>,
 }
 
 /// What the feed says about the podcast and its episodes, newest first as the feed lists them.
+/// Episodes of a serial feed (an audiobook's chapters) carry their number: `itunes:episode`, else
+/// their place in the feed.
 pub fn parse(bytes: &[u8], feed_url: &str) -> Result<(PodcastFields, Vec<EpisodeFields>), String> {
     // Text isn't trimmed per event: entity references split it, and spaces around them count.
     let mut reader = Reader::from_reader(bytes);
@@ -36,6 +40,7 @@ pub fn parse(bytes: &[u8], feed_url: &str) -> Result<(PodcastFields, Vec<Episode
     let mut current: Option<Item> = None;
     let mut text = String::new();
     let mut is_feed = false;
+    let mut serial = false;
 
     loop {
         let event = reader
@@ -77,6 +82,7 @@ pub fn parse(bytes: &[u8], feed_url: &str) -> Result<(PodcastFields, Vec<Episode
                     continue;
                 }
                 let parent = path.last().map(String::as_str).unwrap_or_default();
+                let in_item = current.is_some();
                 let target = current.as_mut().unwrap_or(&mut channel);
                 match name.as_str() {
                     "title" if matches!(parent, "channel" | "item" | "entry" | "feed") => {
@@ -99,6 +105,10 @@ pub fn parse(bytes: &[u8], feed_url: &str) -> Result<(PodcastFields, Vec<Episode
                         target.summary.get_or_insert(value);
                     }
                     "itunes:duration" => target.duration = Some(value),
+                    "itunes:episode" => target.number = Some(value),
+                    "itunes:type" if !in_item => {
+                        serial = value.eq_ignore_ascii_case("serial");
+                    }
                     "pubdate" | "published" | "updated" | "dc:date" => {
                         target.published.get_or_insert(value);
                     }
@@ -141,10 +151,12 @@ pub fn parse(bytes: &[u8], feed_url: &str) -> Result<(PodcastFields, Vec<Episode
             .map(|text| clean_text(&text)),
         artwork: channel.image.clone().filter(|url| is_http(url)),
         link: channel.link.clone().filter(|url| is_http(url)),
+        kind: "podcast".into(),
     };
     let episodes = items
         .into_iter()
-        .filter_map(|item| {
+        .enumerate()
+        .filter_map(|(index, item)| {
             let (audio_url, audio_type) = item.enclosure?;
             if !is_http(&audio_url) {
                 return None;
@@ -161,6 +173,11 @@ pub fn parse(bytes: &[u8], feed_url: &str) -> Result<(PodcastFields, Vec<Episode
                 duration_ms: item.duration.as_deref().and_then(duration_ms),
                 published_at: item.published.as_deref().and_then(published_ms),
                 artwork: item.image.filter(|url| is_http(url)),
+                number: item
+                    .number
+                    .as_deref()
+                    .and_then(|number| number.trim().parse::<i64>().ok())
+                    .or_else(|| serial.then_some(index as i64 + 1)),
             })
         })
         .collect();
@@ -395,5 +412,29 @@ mod tests {
         assert_eq!(duration_ms("02:30"), Some(150_000));
         assert_eq!(duration_ms("1:00:00"), Some(3_600_000));
         assert_eq!(duration_ms("soon"), None);
+    }
+
+    #[test]
+    fn a_serial_feed_numbers_its_chapters() {
+        let feed = br#"<?xml version="1.0"?>
+<rss xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" version="2.0"><channel>
+  <title><![CDATA[Pride and Prejudice by Jane Austen]]></title>
+  <itunes:type>serial</itunes:type>
+  <item><title>Chapters 1-3</title><itunes:episode><![CDATA[1]]></itunes:episode>
+    <enclosure url="https://archive.org/download/pp/pp_01_64kb.mp3" type="audio/mpeg"/>
+    <itunes:duration><![CDATA[00:18:52]]></itunes:duration></item>
+  <item><title>Chapters 4-5</title>
+    <enclosure url="https://archive.org/download/pp/pp_02_64kb.mp3" type="audio/mpeg"/></item>
+</channel></rss>"#;
+        let (book, chapters) = parse(feed, "https://librivox.org/rss/253").unwrap();
+        assert_eq!(book.title, "Pride and Prejudice by Jane Austen");
+        assert_eq!(chapters[0].number, Some(1));
+        assert_eq!(chapters[0].duration_ms, Some(1_132_000));
+        assert_eq!(
+            chapters[1].number,
+            Some(2),
+            "no number: its place in a serial feed"
+        );
+        assert_eq!(chapters[1].published_at, None);
     }
 }

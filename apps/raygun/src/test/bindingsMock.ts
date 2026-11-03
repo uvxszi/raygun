@@ -219,6 +219,11 @@ export const bindingsMock = {
     importReadScreenshots: vi.fn(),
     importMatch: vi.fn(),
     importSave: vi.fn(),
+    audiobooks: vi.fn(),
+    audiobook: vi.fn(),
+    audiobookOpen: vi.fn(),
+    audiobookPlay: vi.fn(),
+    audiobookDirectory: vi.fn(),
     musicTagVocabulary: vi.fn(),
     songsDownload: vi.fn(),
     musicSearchArtists: vi.fn(),
@@ -531,6 +536,9 @@ export const seedBindings = () => {
   commands.madeForYouSave.mockResolvedValue(ok('playlist-1'));
   commands.importReaderReady.mockResolvedValue(true);
   commands.importMatch.mockResolvedValue(ok([]));
+  commands.audiobooks.mockResolvedValue(ok([]));
+  commands.audiobookDirectory.mockResolvedValue(ok({ books: [], hasMore: false }));
+  commands.audiobookPlay.mockResolvedValue(ok(null));
   commands.musicTagVocabulary.mockResolvedValue([]);
   commands.songsDownload.mockResolvedValue(ok(null));
   commands.musicSearchArtists.mockResolvedValue(ok([]));

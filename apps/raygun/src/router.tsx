@@ -17,11 +17,14 @@ import { MusicChartPage } from './pages/MusicChartPage';
 import { MusicChartsPage } from './pages/MusicChartsPage';
 import { MusicTagPage } from './pages/MusicTagPage';
 import { MadeForYouPage } from './pages/MadeForYouPage';
+import { AudiobookPage } from './pages/AudiobookPage';
+import { AudiobooksBrowsePage } from './pages/AudiobooksBrowsePage';
 import { MixPage } from './pages/MixPage';
 import { BrowsePage } from './pages/BrowsePage';
 import type { BrowseSection, ExtensionList } from './pages/BrowsePage';
 import { MorePage } from './pages/MorePage';
 import { ReposPage } from './pages/ReposPage';
+import { ExtensionSystemsPage } from './pages/ExtensionSystemsPage';
 import { StremioAddonPage } from './pages/StremioAddonPage';
 import { WatchHistoryPage } from './pages/WatchHistoryPage';
 import { WatchTitlePage } from './pages/WatchTitlePage';
@@ -237,6 +240,17 @@ const routeTree = rootRoute.addChildren([
   }),
   createRoute({
     getParentRoute: () => rootRoute,
+    path: '/audiobooks',
+    component: AudiobooksBrowsePage,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/audiobook',
+    component: AudiobookPage,
+    validateSearch: (search: Record<string, unknown>) => ({ id: text(search.id) }),
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
     path: '/music/mix',
     component: MixPage,
     validateSearch: (search: Record<string, unknown>) => ({ id: text(search.id) }),
@@ -339,6 +353,11 @@ const routeTree = rootRoute.addChildren([
   createRoute({ getParentRoute: () => rootRoute, path: '/more', component: MorePage }),
   createRoute({ getParentRoute: () => rootRoute, path: '/about', component: AboutPage }),
   createRoute({ getParentRoute: () => rootRoute, path: '/extensions/repos', component: ReposPage }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/extensions/systems',
+    component: ExtensionSystemsPage,
+  }),
   createRoute({
     getParentRoute: () => rootRoute,
     path: '/watch/title',

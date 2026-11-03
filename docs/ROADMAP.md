@@ -162,9 +162,12 @@ The user asked for the full depth of the reference apps ("its not meant to be a 
   - Spotify playlist, album and song links (the public embed page), CSV exports and pasted lists.
   - Screenshots of song lists, read by Windows' OCR or ocrs (downloaded once).
   - Matched against the sources (covers, albums, lengths), then saved as a playlist.
-- **Asked 2026-11-02, next** (each a milestone):
-  - the extension systems Raygun supports, listed (QuietPlay and Musike have none to load);
-  - Audiobooks: a media type with its own pill in Library → Audio, from LibriVox and Internet Archive.
+- M46.22 **Audiobooks** (asked 2026-11-01): ✅
+  - A kind of its own: Library → Audio → Audiobooks with progress, book pages with Resume and chapters in order, and a browse page.
+  - LibriVox through the Internet Archive (new `audiobook.directory` kind).
+- M46.23 **What Raygun can run** (asked 2026-11-02): ✅
+  - A page listing every add-on system and what replaces QuietPlay's and Musike's (neither has add-ons).
+  - Nuclear dashboards and discovery plugins now run (as charts and song radios).
 - **Asked 2026-11-01, queued in this order** (each becomes a milestone with a spec):
   1. **Sound and lyrics editing** (now M46.12):
      - edit lyrics (words and timings) and shift them by an offset; the same for video subtitles;

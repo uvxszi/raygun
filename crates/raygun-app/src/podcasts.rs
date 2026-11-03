@@ -8,10 +8,12 @@ use std::sync::{Arc, Mutex};
 
 use futures_util::StreamExt;
 use raygun_db::podcasts::{self as store, EpisodeRow, PodcastRow};
+use raygun_ext_host::audiobook::AUDIOBOOK_DIRECTORY;
 use raygun_ext_host::podcast::PODCAST_DIRECTORY;
 use raygun_model::{
-    EpisodeDownload, EpisodeDownloadState, MediaKind, MediaSource, PlaybackState, PlaybackStatus,
-    PodcastEpisode, PodcastSearchResult, PodcastSummary, PodcastView, QueueItem, QueueItemInput,
+    AudiobookPage, AudiobookResult, AudiobookSummary, AudiobookView, EpisodeDownload,
+    EpisodeDownloadState, MediaKind, MediaSource, PlaybackState, PlaybackStatus, PodcastEpisode,
+    PodcastSearchResult, PodcastSummary, PodcastView, QueueItem, QueueItemInput,
 };
 use raygun_net::ImageLinks;
 use tauri::{AppHandle, Manager};
@@ -43,6 +45,9 @@ const MAX_EPISODE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const PROGRESS_STEP: u64 = 1024 * 1024;
 /// Most directory results asked for.
 const SEARCH_LIMIT: u32 = 30;
+
+/// `remote_kind` of an audiobook (M46.22).
+const AUDIOBOOK: &str = "audiobook";
 
 pub struct PodcastService {
     app: AppHandle,
@@ -129,16 +134,160 @@ impl PodcastService {
 
     /// A podcast by its feed address: stored (and refreshed) on first sight, not subscribed.
     pub async fn open_feed(&self, feed_url: &str) -> Result<PodcastView, String> {
+        let id = self.open_as(feed_url, None).await?;
+        self.view(&id).await
+    }
+
+    /// Stores a feed on first sight (as `kind`, when given) and returns its id.
+    async fn open_as(&self, feed_url: &str, kind: Option<&str>) -> Result<String, String> {
         let feed_url = normalize_feed_url(feed_url)?;
         let db = self.db();
         let known = store::podcast_by_feed(&db, &feed_url)
             .await
             .map_err(to_message)?;
-        let id = match known {
-            Some(row) if row.refreshed_at.is_some_and(|at| now_ms() - at < FRESH_MS) => row.id,
-            _ => self.refresh_feed(&feed_url).await?.0,
+        Ok(match known {
+            Some(row)
+                if row.refreshed_at.is_some_and(|at| now_ms() - at < FRESH_MS)
+                    && kind.is_none_or(|kind| kind == row.fields.kind) =>
+            {
+                row.id
+            }
+            _ => self.refresh_feed_as(&feed_url, kind).await?.0,
+        })
+    }
+
+    // ---- Audiobooks (M46.22) ----
+
+    /// The books in the library, the last listened first.
+    pub async fn audiobooks(&self) -> Result<Vec<AudiobookSummary>, String> {
+        let rows = store::audiobooks(&self.db()).await.map_err(to_message)?;
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                // Books stored before titles were tidied on refresh read the same.
+                let (title, author) = book_title(
+                    &row.podcast.fields.title,
+                    row.podcast.fields.author.as_deref(),
+                );
+                AudiobookSummary {
+                    artwork_url: self.kept_artwork(row.podcast.fields.artwork.as_deref()),
+                    id: row.podcast.id,
+                    title,
+                    author,
+                    chapters: row.chapters as u32,
+                    finished: row.finished as u32,
+                }
+            })
+            .collect())
+    }
+
+    /// Opens a book by its chapter feed (stored as an audiobook on first sight); returns its id.
+    pub async fn open_audiobook(&self, feed_url: &str) -> Result<String, String> {
+        self.open_as(feed_url, Some(AUDIOBOOK)).await
+    }
+
+    /// A book with its chapters in order.
+    pub async fn audiobook(&self, id: &str) -> Result<AudiobookView, String> {
+        let view = self.view(id).await?;
+        let (title, author) = book_title(&view.title, view.author.as_deref());
+        Ok(AudiobookView {
+            id: view.id,
+            feed_url: view.feed_url,
+            title,
+            author,
+            description: view.description,
+            artwork_url: view.artwork_url,
+            link: view.link,
+            in_library: view.subscribed,
+            chapters: view.episodes,
+        })
+    }
+
+    /// Plays a book from `chapter` (else the first chapter not finished, where it stopped), with
+    /// the rest of the book queued after it.
+    pub async fn play_audiobook(&self, id: &str, chapter: Option<&str>) -> Result<(), String> {
+        let chapters = store::episodes(&self.db(), id).await.map_err(to_message)?;
+        let start = match chapter {
+            Some(chapter) => chapters
+                .iter()
+                .position(|row| row.id == chapter)
+                .ok_or_else(|| "This chapter is no longer in the book".to_owned())?,
+            None => chapters
+                .iter()
+                .position(|row| row.played_at.is_none())
+                .unwrap_or(0),
         };
-        self.view(&id).await
+        let mut items = Vec::new();
+        let mut start_ms = 0.0;
+        for (index, row) in chapters.iter().enumerate().skip(start) {
+            let (item, resume) = self.queue_item(&row.id).await?;
+            if index == start {
+                start_ms = resume;
+            }
+            items.push(item);
+        }
+        if items.is_empty() {
+            return Err("This book has no chapters".into());
+        }
+        self.app
+            .state::<PlaybackService>()
+            .replace_from(items, start_ms);
+        Ok(())
+    }
+
+    /// A page of books from the audiobook directories: `popular`, `latest`, `search` or
+    /// `subject` (`query` for the last two).
+    pub async fn audiobook_directory(
+        &self,
+        list: &str,
+        query: &str,
+        page: u32,
+    ) -> Result<AudiobookPage, String> {
+        let extensions = self.app.state::<Arc<ExtensionService>>();
+        let (_ready, host) = extensions.ready().await;
+        let providers = host.providers(AUDIOBOOK_DIRECTORY).await;
+        if providers.is_empty() {
+            return Err("No audiobook source is installed".into());
+        }
+        let mut found = AudiobookPage {
+            books: Vec::new(),
+            has_more: false,
+        };
+        let mut errors = Vec::new();
+        for provider in providers {
+            match host
+                .audiobooks(&provider.id, list, query.trim(), page.max(1))
+                .await
+            {
+                Ok(books) => {
+                    found.has_more |= books.has_more;
+                    for book in books.books {
+                        if found
+                            .books
+                            .iter()
+                            .any(|known| known.feed_url == book.feed_url)
+                        {
+                            continue;
+                        }
+                        found.books.push(AudiobookResult {
+                            artwork_url: self.artwork(book.artwork_url.as_deref()),
+                            title: book.title,
+                            author: book.author,
+                            feed_url: book.feed_url,
+                            runtime: book.runtime,
+                            language: book.language,
+                            description: book.description,
+                            source: provider.name.clone(),
+                        });
+                    }
+                }
+                Err(error) => errors.push(format!("{}: {error}", provider.name)),
+            }
+        }
+        if found.books.is_empty() && !errors.is_empty() {
+            return Err(errors.join("; "));
+        }
+        Ok(found)
     }
 
     /// A stored podcast; `refresh` reads its feed again first.
@@ -183,13 +332,34 @@ impl PodcastService {
 
     /// Fetches and stores a feed; returns the podcast's id and how many episodes were new.
     async fn refresh_feed(&self, feed_url: &str) -> Result<(String, u32), String> {
+        self.refresh_feed_as(feed_url, None).await
+    }
+
+    /// Reads a feed and stores it: as `kind` when given, else as it was (a podcast when new).
+    async fn refresh_feed_as(
+        &self,
+        feed_url: &str,
+        kind: Option<&str>,
+    ) -> Result<(String, u32), String> {
         let bytes = self.fetch_feed(feed_url).await?;
         let url = feed_url.to_owned();
-        let (podcast, episodes) =
+        let (mut podcast, episodes) =
             tauri::async_runtime::spawn_blocking(move || podcast_feed::parse(&bytes, &url))
                 .await
                 .map_err(to_message)??;
         let db = self.db();
+        podcast.kind = match kind {
+            Some(kind) => kind.to_owned(),
+            None => store::podcast_by_feed(&db, feed_url)
+                .await
+                .map_err(to_message)?
+                .map_or(podcast.kind, |row| row.fields.kind),
+        };
+        if podcast.kind == AUDIOBOOK {
+            let (title, author) = book_title(&podcast.title, podcast.author.as_deref());
+            podcast.title = title;
+            podcast.author = author;
+        }
         let now = now_ms();
         let id = store::upsert_podcast(&db, &podcast, now)
             .await
@@ -411,10 +581,18 @@ impl PodcastService {
             .audio_type
             .as_deref()
             .is_some_and(|kind| kind.starts_with("video/"));
+        // A book's chapters play as its author's, on an album named after the book.
+        let (artist, album) = if episode.podcast_kind == AUDIOBOOK {
+            let (book, author) =
+                book_title(&episode.podcast_title, episode.podcast_author.as_deref());
+            (author.or_else(|| Some(book.clone())), Some(book))
+        } else {
+            (Some(episode.podcast_title.clone()), None)
+        };
         let item = QueueItemInput {
             title: episode.fields.title.clone(),
-            artist: Some(episode.podcast_title.clone()),
-            album: None,
+            artist,
+            album,
             duration_ms: episode.fields.duration_ms.map(|ms| ms as u32),
             artwork_url: self.artwork(
                 episode
@@ -791,8 +969,51 @@ fn to_message(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
+/// A book's own title and author from a feed that names the reader's project instead: LibriVox
+/// titles its feeds "Pride and Prejudice by Jane Austen (1775 - 1817)" with the author "LibriVox".
+fn book_title(title: &str, author: Option<&str>) -> (String, Option<String>) {
+    let generic = author.is_none_or(|author| author.trim().eq_ignore_ascii_case("librivox"));
+    if generic && let Some((book, writer)) = title.rsplit_once(" by ") {
+        let writer = match writer.trim_end().strip_suffix(')') {
+            Some(dated) => dated.rsplit_once('(').map_or(writer, |(name, _)| name),
+            None => writer,
+        }
+        .trim();
+        if !book.trim().is_empty() && !writer.is_empty() {
+            return (book.trim().to_owned(), Some(writer.to_owned()));
+        }
+    }
+    (title.to_owned(), author.map(str::to_owned))
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn librivox_titles_give_the_book_and_its_author() {
+        assert_eq!(
+            super::book_title(
+                "Pride and Prejudice by Jane Austen (1775 - 1817)",
+                Some("LibriVox")
+            ),
+            (
+                "Pride and Prejudice".to_owned(),
+                Some("Jane Austen".to_owned())
+            )
+        );
+        assert_eq!(
+            super::book_title("Stand by Me", Some("Ben E. King")),
+            ("Stand by Me".to_owned(), Some("Ben E. King".to_owned())),
+            "a real author is kept"
+        );
+        assert_eq!(
+            super::book_title("Short Poetry Collection 281", Some("LibriVox")),
+            (
+                "Short Poetry Collection 281".to_owned(),
+                Some("LibriVox".to_owned())
+            )
+        );
+    }
+
     use super::*;
 
     #[test]

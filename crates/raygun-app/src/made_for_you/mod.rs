@@ -224,6 +224,11 @@ impl MadeForYouService {
         let service = self.clone();
         tauri::async_runtime::spawn(async move {
             match service.make(utc_offset_minutes).await {
+                // Nothing made although there is listening to go on: the sources didn't answer,
+                // so the last mixes stay and the next visit tries again.
+                Ok(stored) if stored.mixes.is_empty() && stored.stats.songs_known > 0 => {
+                    tracing::warn!("no mixes made; the sources may not have answered");
+                }
                 Ok(stored) => {
                     tracing::info!(mixes = stored.mixes.len(), "made for you");
                     match serde_json::to_string(&stored) {
@@ -385,6 +390,12 @@ impl MadeForYouService {
             .map(|credit| main_artist(credit).to_lowercase())
             .collect();
         let seeds = taste.top_artists(SEED_ARTISTS);
+        tracing::info!(
+            songs = taste.songs.len(),
+            plays = taste.plays.len(),
+            ?seeds,
+            "making mixes"
+        );
         let mut asked = Asked::default();
         let mut mixes: Vec<Mix> = Vec::new();
 

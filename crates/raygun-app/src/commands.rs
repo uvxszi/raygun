@@ -635,6 +635,55 @@ pub async fn music_charts(
     Ok(discovery.charts(region).await)
 }
 
+/// The audiobooks in the library (M46.22).
+#[tauri::command]
+#[specta::specta]
+pub async fn audiobooks(
+    podcasts: Podcasts<'_>,
+) -> Result<Vec<raygun_model::AudiobookSummary>, String> {
+    podcasts.audiobooks().await
+}
+
+/// A book with its chapters in order (M46.22).
+#[tauri::command]
+#[specta::specta]
+pub async fn audiobook(
+    podcasts: Podcasts<'_>,
+    id: String,
+) -> Result<raygun_model::AudiobookView, String> {
+    podcasts.audiobook(&id).await
+}
+
+/// Opens a book by its chapter feed; returns its id (M46.22).
+#[tauri::command]
+#[specta::specta]
+pub async fn audiobook_open(podcasts: Podcasts<'_>, feed_url: String) -> Result<String, String> {
+    podcasts.open_audiobook(&feed_url).await
+}
+
+/// Plays a book from a chapter, or where it was left, with the rest after it (M46.22).
+#[tauri::command]
+#[specta::specta]
+pub async fn audiobook_play(
+    podcasts: Podcasts<'_>,
+    id: String,
+    chapter_id: Option<String>,
+) -> Result<(), String> {
+    podcasts.play_audiobook(&id, chapter_id.as_deref()).await
+}
+
+/// A page of books from the audiobook directories (M46.22).
+#[tauri::command]
+#[specta::specta]
+pub async fn audiobook_directory(
+    podcasts: Podcasts<'_>,
+    list: String,
+    query: String,
+    page: u32,
+) -> Result<raygun_model::AudiobookPage, String> {
+    podcasts.audiobook_directory(&list, &query, page).await
+}
+
 /// The songs a Spotify playlist, album or song link points at (M46.21).
 #[tauri::command]
 #[specta::specta]

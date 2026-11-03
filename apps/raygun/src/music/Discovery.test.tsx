@@ -130,6 +130,7 @@ describe('Music discovery', () => {
     ).toEqual([
       'Made for You',
       'Music',
+      'Audiobooks',
       'Podcasts',
       'Comics',
       'Books',

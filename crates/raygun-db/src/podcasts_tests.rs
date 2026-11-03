@@ -14,6 +14,7 @@ fn show(title: &str) -> PodcastFields {
         description: Some("A show".into()),
         artwork: Some("https://img.example/show.jpg".into()),
         link: None,
+        kind: "podcast".into(),
     }
 }
 
@@ -27,6 +28,7 @@ fn item(guid: &str, published_at: i64) -> EpisodeFields {
         duration_ms: Some(1_800_000),
         published_at: Some(published_at),
         artwork: None,
+        number: None,
     }
 }
 
@@ -146,4 +148,57 @@ async fn downloads_are_stored_per_episode() {
     );
     remove_download(&db, "e1").await.unwrap();
     assert_eq!(super::download(&db, "e1").await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn books_keep_their_chapter_order_and_stay_out_of_podcast_lists() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp).await;
+    let book = PodcastFields {
+        feed_url: "https://librivox.org/rss/253".into(),
+        kind: "audiobook".into(),
+        ..show("Pride and Prejudice")
+    };
+    let id = upsert_podcast(&db, &book, 1).await.unwrap();
+    let chapter = |guid: &str, number: i64| EpisodeFields {
+        published_at: None,
+        number: Some(number),
+        ..item(guid, 0)
+    };
+    // The feed lists them out of order; the book reads them by number.
+    sync_episodes(
+        &db,
+        &id,
+        &[chapter("c2", 2), chapter("c1", 1), chapter("c3", 3)],
+        2,
+    )
+    .await
+    .unwrap();
+    set_subscribed(&db, &id, Some(3)).await.unwrap();
+    let show_id = upsert_podcast(&db, &show("A show"), 1).await.unwrap();
+    set_subscribed(&db, &show_id, Some(3)).await.unwrap();
+
+    let order: Vec<String> = episodes(&db, &id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| row.fields.guid)
+        .collect();
+    assert_eq!(order, ["c1", "c2", "c3"]);
+    let books = audiobooks(&db).await.unwrap();
+    assert_eq!(books.len(), 1);
+    assert_eq!(books[0].chapters, 3);
+    assert_eq!(books[0].podcast.fields.kind, "audiobook");
+    let shows = subscriptions(&db).await.unwrap();
+    assert_eq!(shows.len(), 1, "books aren't podcasts");
+    assert_eq!(shows[0].podcast.fields.title, "A show");
+    assert!(
+        latest_episodes(&db, 10).await.unwrap().is_empty() || {
+            latest_episodes(&db, 10)
+                .await
+                .unwrap()
+                .iter()
+                .all(|row| row.podcast_id != id)
+        }
+    );
 }

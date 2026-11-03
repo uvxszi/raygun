@@ -321,6 +321,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
 
+  extensions/librivox:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
   extensions/listenbrainz:
     devDependencies:
       '@raygun/sdk':

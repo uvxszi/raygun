@@ -15,7 +15,7 @@ const PACKAGE = {
   description: 'A sample',
   author: { name: 'Someone' },
   main: 'src/index.ts',
-  nuclear: { displayName: 'Sample', categories: ['metadata', 'streaming', 'lyrics', 'dashboard'] },
+  nuclear: { displayName: 'Sample', categories: ['metadata', 'streaming', 'lyrics', 'playlists'] },
 };
 
 /** A small multi-file plugin in Nuclear's style: TS, relative imports, a default export. */
@@ -77,7 +77,7 @@ const pluginFiles = (pkg: object = PACKAGE): Record<string, string> => ({
             ] };
           },
         });
-        api.Providers.register({ id: 'dash', kind: 'dashboard', name: 'Dash' });
+        api.Providers.register({ id: 'lists', kind: 'playlists', name: 'Lists' });
       },
     };
     export default plugin;`,
@@ -91,6 +91,9 @@ type Registered = Pick<Provider, 'kind' | 'id' | 'name'> & {
   candidates(args: unknown): Promise<unknown>;
   resolve(args: unknown): Promise<unknown>;
   lyrics(args: unknown): Promise<unknown>;
+  charts(args: unknown): Promise<{ charts: unknown[] }>;
+  chart(args: unknown): Promise<{ tracks: { title: string }[] }>;
+  radio(args: unknown): Promise<{ tracks: { title: string }[] }>;
 };
 
 /** Runs a converted bundle with a fake `raygun` global; resolves with the registered providers. */
@@ -143,7 +146,7 @@ describe('convertPlugin', () => {
     });
     expect(report).toEqual({
       supported: ['music.metadata', 'music.stream', 'lyrics'],
-      unsupportedCategories: ['dashboard'],
+      unsupportedCategories: ['playlists'],
       stubbedApis: [],
       uiImports: [],
       hosts: ['api.sample.org', 'cdn.sample.org', 'img.sample.org'],
@@ -250,13 +253,39 @@ describe('convertPlugin', () => {
     expect(providers.map((provider) => provider.kind)).toEqual(['lyrics']);
   });
 
+  it('runs dashboards as charts and discovery as song radios (M46.23)', async () => {
+    const files = pluginFiles({ ...PACKAGE, nuclear: { categories: ['dashboard', 'discovery'] } });
+    files['sample-1.2.3/src/index.ts'] = `
+      const track = (title) => ({ title, artists: [{ name: 'A', roles: ['main'] }], source: { provider: 'p', id: title } });
+      export default {
+        onEnable(api) {
+          api.Providers.register({ id: 'top', kind: 'dashboard', name: 'Top', capabilities: ['topTracks'],
+            fetchTopTracks: async () => [track('One'), track('Two'), track('Three')] });
+          api.Providers.register({ id: 'like', kind: 'discovery', name: 'Like',
+            getRecommendations: async (context, options) =>
+              [track(context[0].artists[0].name + ' ' + options.limit)] });
+        },
+      };`;
+    const { manifest, bundle } = convertPlugin(files, shim);
+    expect(manifest.provides).toEqual(expect.arrayContaining(['music.charts', 'music.recommend']));
+    const { providers } = await runBundle(bundle);
+    const charts = providers.find((provider) => provider.kind === 'music.charts') as Registered;
+    const { charts: list } = await charts.charts({ region: null });
+    expect(list).toEqual([expect.objectContaining({ id: 'topTracks', group: 'top' })]);
+    const top = await charts.chart({ id: 'topTracks', region: null, limit: 2 });
+    expect(top.tracks.map((song) => song.title)).toEqual(['One', 'Two']);
+    const radio = providers.find((provider) => provider.kind === 'music.recommend') as Registered;
+    const songs = await radio.radio({ artist: 'Nina', title: null, limit: 5 });
+    expect(songs.tracks[0]?.title).toBe('Nina 5');
+  });
+
   it('rejects plugins Raygun has nothing to run for', () => {
-    const files = pluginFiles({ ...PACKAGE, nuclear: { categories: ['dashboard', 'playlists'] } });
+    const files = pluginFiles({ ...PACKAGE, nuclear: { categories: ['playlists', 'queue'] } });
     // Its code registers nothing Raygun runs either.
     files['sample-1.2.3/src/index.ts'] =
       `export default { onEnable(api) { api.Logger.info('hi'); } };`;
     expect(() => convertPlugin(files, shim)).toThrow(
-      "Raygun can't run this Nuclear plugin yet: it provides dashboard, playlists",
+      "Raygun can't run this Nuclear plugin yet: it provides playlists, queue",
     );
     expect(() => convertPlugin({ 'x/readme.md': '' }, shim)).toThrow('there is no package.json');
   });

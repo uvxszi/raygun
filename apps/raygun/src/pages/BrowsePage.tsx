@@ -2,6 +2,7 @@ import type { MangaSource } from '@raygun/bindings';
 import { useIsFetching } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
+  Blocks,
   LayoutList,
   LoaderCircle,
   Package,
@@ -279,6 +280,7 @@ export const BrowsePage: FC = () => {
         },
         { label: t('watch.addons'), icon: Puzzle, to: '/watch/addons' },
         { label: t('browse.repos'), icon: Package, to: '/extensions/repos' },
+        { label: t('systems.title'), icon: Blocks, to: '/extensions/systems' },
         {
           label: t('layout.editBrowse'),
           icon: LayoutList,

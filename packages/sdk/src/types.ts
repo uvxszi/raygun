@@ -460,7 +460,38 @@ export type MusicRecommendProvider = {
   }): Promise<{ tracks: Track[] }>;
 };
 
+/** A book an audiobook directory lists (M46.22); `feedUrl` is its chapter feed (RSS). */
+export type Audiobook = {
+  id: string;
+  title: string;
+  author?: string | null;
+  feedUrl: string;
+  /** http(s) only. */
+  artworkUrl?: string | null;
+  /** Its length as the source writes it ("13:06:44"). */
+  runtime?: string | null;
+  language?: string | null;
+  description?: string | null;
+};
+
+export type AudiobookPage = { books: Audiobook[]; hasMore: boolean };
+
+/**
+ * Audiobooks to find (M46.22): searches and lists, a page at a time (from 1). The app reads each
+ * book's chapter feed itself.
+ */
+export type AudiobookDirectoryProvider = {
+  kind: 'audiobook.directory';
+  id: string;
+  name?: string;
+  search(args: { query: string; page: number }): Promise<AudiobookPage>;
+  popular(args: { page: number }): Promise<AudiobookPage>;
+  latest?(args: { page: number }): Promise<AudiobookPage>;
+  subject?(args: { subject: string; page: number }): Promise<AudiobookPage>;
+};
+
 export type Provider =
+  | AudiobookDirectoryProvider
   | MusicRecommendProvider
   | MusicMetadataProvider
   | MusicStreamProvider
