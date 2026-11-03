@@ -10,7 +10,7 @@ use raygun_model::{
     VideoSubtitle, VideoTitleView,
 };
 use raygun_net::ImageLinks;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 use crate::catalog::{Catalog, is_adult, to_message};
 
@@ -40,6 +40,14 @@ impl VideoSourceService {
         remote_id: &str,
         refresh: bool,
     ) -> Result<VideoTitleView, String> {
+        // Local Files' videos (M46.27) are stored by the scan; there's no source to ask.
+        if source_id == crate::local_files::LOCAL_VIDEO {
+            let row = titles::find_title(&self.catalog.db(), source_id, remote_id)
+                .await
+                .map_err(to_message)?
+                .ok_or("This video is no longer in Local Files")?;
+            return self.title_view(row).await;
+        }
         let row = self
             .catalog
             .title_row(source_id, remote_id, refresh)
@@ -60,7 +68,16 @@ impl VideoSourceService {
             .await
             .into_iter()
             .find(|source| source.id == row.fields.source_id)
-            .map_or_else(|| row.fields.source_id.clone(), |source| source.name);
+            .map_or_else(
+                || {
+                    if row.fields.source_id == crate::local_files::LOCAL_VIDEO {
+                        "Local files".to_owned()
+                    } else {
+                        row.fields.source_id.clone()
+                    }
+                },
+                |source| source.name,
+            );
         let hidden_nsfw = !self.catalog.extensions().show_nsfw() && is_adult(&row.fields.genres);
         let keys: Vec<String> = units
             .iter()
@@ -101,6 +118,10 @@ impl VideoSourceService {
         source_id: &str,
         episode_remote_id: &str,
     ) -> Result<Vec<VideoServerView>, String> {
+        // A Local Files video (M46.27) plays its file through the stream proxy.
+        if source_id == crate::local_files::LOCAL_VIDEO {
+            return self.local_servers(episode_remote_id).await;
+        }
         let servers = {
             let extensions = self.catalog.extensions();
             let (_ready, host) = extensions.ready().await;
@@ -199,6 +220,36 @@ impl VideoSourceService {
             .find(|unit| unit.id == episode_id)
             .ok_or_else(|| "This episode is no longer listed".to_owned())?;
         Ok((row, unit, single))
+    }
+
+    async fn local_servers(&self, episode_remote_id: &str) -> Result<Vec<VideoServerView>, String> {
+        let app = self.catalog.app();
+        let path = app
+            .state::<std::sync::Arc<crate::local_files::LocalFilesService>>()
+            .video_path(episode_remote_id)
+            .await?;
+        if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
+            return Err("This video file is gone".into());
+        }
+        let url = app
+            .state::<crate::playback::PlaybackService>()
+            .register_source(&raygun_model::MediaSource::LocalFile {
+                path: path.to_string_lossy().into_owned(),
+            });
+        let video = VideoLink {
+            url,
+            label: Some("File".into()),
+            quality: None,
+            headers: Default::default(),
+            format: None,
+            subtitles: Vec::new(),
+            chapters: Vec::new(),
+        };
+        Ok(vec![VideoServerView {
+            id: "local".into(),
+            name: "This device".into(),
+            links: Some(link_views(vec![video], None)),
+        }])
     }
 
     async fn preferred_quality(&self) -> Option<u32> {

@@ -307,7 +307,14 @@ pub enum RepoError {
 /// Repository URLs must be `https`, except plain `http` to this machine or the Android emulator's
 /// host alias (`10.0.2.2`), which serve local test repositories.
 pub fn check_index_url(url: &str) -> Result<Url, RepoError> {
-    let parsed = Url::parse(url.trim()).map_err(|error| RepoError::Url(error.to_string()))?;
+    // On desktop a repository can be an index on this computer (M46.28): a plain path or a
+    // `file:` address, its packages read from beside it.
+    let trimmed = url.trim();
+    if cfg!(not(target_os = "android")) && std::path::Path::new(trimmed).is_absolute() {
+        return Url::from_file_path(trimmed)
+            .map_err(|()| RepoError::Url(format!("{trimmed} isn't a usable path")));
+    }
+    let parsed = Url::parse(trimmed).map_err(|error| RepoError::Url(error.to_string()))?;
     let local = match parsed.host() {
         Some(url::Host::Domain(domain)) => domain == "localhost",
         Some(url::Host::Ipv4(ip)) => IpAddr::V4(ip).is_loopback() || ip.octets() == [10, 0, 2, 2],
@@ -320,6 +327,7 @@ pub fn check_index_url(url: &str) -> Result<Url, RepoError> {
         "http" => Err(RepoError::Url(
             "use https (plain http is only allowed for local test repositories)".to_owned(),
         )),
+        "file" if cfg!(not(target_os = "android")) => Ok(parsed),
         other => Err(RepoError::Url(format!("unsupported scheme {other:?}"))),
     }
 }

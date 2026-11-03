@@ -217,6 +217,24 @@ export const commands = {
 	importReadScreenshots: (uploadIds: string[]) => typedError<ImportedList, string>(__TAURI_INVOKE("import_read_screenshots", { uploadIds })),
 	/**  Matches imported songs against the music sources (M46.21). */
 	importMatch: (songs: ImportedSong[]) => typedError<MatchedSong[], string>(__TAURI_INVOKE("import_match", { songs })),
+	/**
+	 *  Song lengths Raygun knows for `tracks`, in their order; the rest are looked up in the
+	 *  background and arrive as `TrackDurationsEvent`s (M46.26).
+	 */
+	trackDurations: (tracks: TrackQuery[]) => typedError<TrackDuration[], string>(__TAURI_INVOKE("track_durations", { tracks })),
+	/**
+	 *  Saves a cover image (a song's, an album's, an artist's picture) at the source's largest size, as
+	 *  PNG, JPEG or WebP; returns where it went (M46.26).
+	 */
+	coverSave: (url: string, title: string, format: ImageFileFormat, destination: ImageDestination) => typedError<string, string>(__TAURI_INVOKE("cover_save", { url, title, format, destination })),
+	/**  The folders in Local Files and what each holds (M46.27). */
+	localFolders: () => typedError<LocalFolder[], string>(__TAURI_INVOKE("local_folders")),
+	/**  Adds a folder the user picks to Local Files and scans it; `None` when they cancelled. */
+	localFolderAdd: () => typedError<LocalFolder[] | null, string>(__TAURI_INVOKE("local_folder_add")),
+	/**  Takes a folder out of Local Files. */
+	localFolderRemove: (id: string) => typedError<LocalFolder[], string>(__TAURI_INVOKE("local_folder_remove", { id })),
+	/**  Scans every Local Files folder again. */
+	localFoldersRescan: () => typedError<null, string>(__TAURI_INVOKE("local_folders_rescan")),
 	/**  Saves imported songs as a new playlist; returns its id (M46.21). */
 	importSave: (name: string, songs: MatchedSong[]) => typedError<string, string>(__TAURI_INVOKE("import_save", { name, songs })),
 	/**  The audiobooks in the library (M46.22). */
@@ -715,6 +733,7 @@ export const events = {
 	exportEvent: makeEvent<ExportEvent>("export-event"),
 	extensionsChangedEvent: makeEvent<ExtensionsChangedEvent>("extensions-changed-event"),
 	libraryScanEvent: makeEvent<LibraryScanEvent>("library-scan-event"),
+	localFilesEvent: makeEvent<LocalFilesEvent>("local-files-event"),
 	madeForYouEvent: makeEvent<MadeForYouEvent>("made-for-you-event"),
 	mangaDownloadsEvent: makeEvent<MangaDownloadsEvent>("manga-downloads-event"),
 	mangaUpdateEvent: makeEvent<MangaUpdateEvent>("manga-update-event"),
@@ -725,6 +744,7 @@ export const events = {
 	songDownloadsEvent: makeEvent<SongDownloadsEvent>("song-downloads-event"),
 	speechCommandEvent: makeEvent<SpeechCommandEvent>("speech-command-event"),
 	syncChangedEvent: makeEvent<SyncChangedEvent>("sync-changed-event"),
+	trackDurationsEvent: makeEvent<TrackDurationsEvent>("track-durations-event"),
 	ttsEvent: makeEvent<TtsEvent>("tts-event"),
 	videoDownloadsEvent: makeEvent<VideoDownloadsEvent>("video-downloads-event"),
 	videoPlayerEvent: makeEvent<VideoPlayerEvent>("video-player-event"),
@@ -1407,6 +1427,16 @@ export type HistoryEntry = {
 	playedAt: number | null,
 };
 
+/**  Where a saved cover image goes (M46.26). */
+export type ImageDestination = 
+/**  `Pictures/Raygun/`. */
+"pictures" | 
+/**  The folder picked for saving (Settings → Downloads). */
+"folder";
+
+/**  The file type a saved cover image gets (M46.26). */
+export type ImageFileFormat = "png" | "jpeg" | "webp";
+
 /**  Where an imported book can be opened (M33). */
 export type ImportedBook = {
 	sourceId: string,
@@ -1587,6 +1617,28 @@ export type ListeningStats = {
 	peakHour: number | null,
 	/**  Songs the user has played or saved. */
 	songsKnown: number,
+};
+
+export type LocalCounts = {
+	songs: number,
+	comics: number,
+	books: number,
+	videos: number,
+};
+
+/**  A Local Files folder was added, scanned or removed; carries its id (M46.27). */
+export type LocalFilesEvent = string;
+
+/**  A folder in Local Files (M46.27) and what its last scan found. */
+export type LocalFolder = {
+	id: string,
+	name: string,
+	/**  Its path (or, without one, the address the picker gave). */
+	location: string,
+	counts: LocalCounts,
+	/**  Unix ms. */
+	scannedAt: number | null,
+	scanning: boolean,
 };
 
 /**
@@ -2054,6 +2106,8 @@ export type PanelPrefs = {
 	sidePanelWidth?: number,
 	/**  The full player's left column, 30 to 70 % (side by side). */
 	playerSplit?: number,
+	/**  Songs the side panel's "Next in queue" card shows, 1 to 10 (M46.24). */
+	nextUpRows?: number,
 };
 
 export type PlayRequest = {
@@ -2954,6 +3008,18 @@ export type TrackColumn = {
 export type TrackColumnId = "album" | "added" | "plays" | "duration" | 
 /**  The song's genres and moods (M46.9). */
 "tags";
+
+/**
+ *  A song's length as Raygun learned it (M46.26), by the resolver's track key; `None` while
+ *  unknown.
+ */
+export type TrackDuration = {
+	trackKey: string,
+	durationMs: number | null,
+};
+
+/**  Song lengths Raygun just learned (M46.26). */
+export type TrackDurationsEvent = TrackDuration[];
 
 /**  A track to save, from the player, the library or a search result. */
 export type TrackInput = {

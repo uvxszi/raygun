@@ -11,6 +11,7 @@
 
 pub mod book;
 pub mod cbz;
+pub mod covers;
 pub mod names;
 pub mod output;
 pub mod pages;

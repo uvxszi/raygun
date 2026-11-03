@@ -7,6 +7,10 @@ import { TrackRow } from '../library/TrackRow';
 import { playFromLibrary } from '../library/useLibrary';
 import { AlbumFinds, ArtistFinds, BestSongs } from './MusicFinds';
 import { OnlineTrackRow } from './OnlineTrackRow';
+import { PodcastSearch } from './PodcastSearch';
+import { RelevantMusic } from './RelevantMusic';
+import { MUSIC_VIEWS, pill } from './searchTypes';
+import type { MusicView } from './searchTypes';
 import { SourceMenu } from './SourceMenu';
 import { playResults, useOnlineSearch } from './useOnlineSearch';
 import { SourceIssue } from '../shell/SourceIssue';
@@ -95,8 +99,6 @@ const TopResults: FC<{ tracks: OnlineTrack[] }> = ({ tracks }) => {
   );
 };
 
-type MusicView = 'songs' | 'artists' | 'albums';
-
 const GROUPED_KEY = 'raygun.search.grouped.music';
 
 const readGrouped = () => {
@@ -107,19 +109,20 @@ const readGrouped = () => {
   }
 };
 
-const pill = (on: boolean) =>
-  on
-    ? 'bg-primary/20 text-primary rounded-full px-4 py-1.5 text-sm font-semibold'
-    : 'bg-surface rounded-full px-4 py-1.5 text-sm';
-
 /**
- * Music results (M46.9): songs, artists or albums. Songs are your library's, then the best
- * matches from every source (each naming its source), or each source's own list.
- * `compact` keeps it short for the All view (top results, else the first provider's).
+ * Music results (M46.9): Relevant (M46.25: a bit of everything), songs, artists, albums or
+ * podcasts. Songs are your library's, then the best matches from every source (each naming its
+ * source), or each source's own list. `compact` keeps it short for the All view (top results,
+ * else the first provider's). The pill lives in the address (`view`).
  */
-export const MusicResults: FC<{ query: string; compact?: boolean }> = ({ query, compact }) => {
+export const MusicResults: FC<{
+  query: string;
+  compact?: boolean;
+  view?: MusicView;
+  onView?: (view: MusicView) => void;
+}> = ({ query, compact, view = 'relevant', onView = () => undefined }) => {
   const { t } = useTranslation();
-  const [view, setView] = useState<MusicView>('songs');
+  const setView = onView;
   const [grouped, setGroupedState] = useState(readGrouped);
   const setGrouped = (next: boolean) => {
     setGroupedState(next);
@@ -139,7 +142,7 @@ export const MusicResults: FC<{ query: string; compact?: boolean }> = ({ query, 
     results.length > 0 &&
     results.every((result) => !result.error && result.tracks.length === 0);
 
-  if (search.error) {
+  if (compact && search.error) {
     return (
       <SourceIssue>{t('common.coreUnavailable', { message: search.error.message })}</SourceIssue>
     );
@@ -154,12 +157,16 @@ export const MusicResults: FC<{ query: string; compact?: boolean }> = ({ query, 
       <p className="text-muted text-sm">{t('search.searching')}</p>
     );
   }
-  const views: MusicView[] = ['songs', 'artists', 'albums'];
+  const blank = query.trim() === '';
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center gap-2">
-        <div role="group" aria-label={t('search.music.kind')} className="flex gap-2">
-          {views.map((option) => (
+        <div
+          role="group"
+          aria-label={t('search.music.kind')}
+          className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:px-0"
+        >
+          {MUSIC_VIEWS.map((option) => (
             <button
               key={option}
               type="button"
@@ -191,9 +198,17 @@ export const MusicResults: FC<{ query: string; compact?: boolean }> = ({ query, 
           </div>
         )}
       </div>
-      {view === 'artists' && <ArtistFinds query={query} />}
-      {view === 'albums' && <AlbumFinds query={query} />}
-      {view === 'songs' && (
+      {view === 'podcasts' && <PodcastSearch query={query} />}
+      {blank && view !== 'podcasts' && (
+        <p className="text-muted text-sm">{t('search.hintFor.music')}</p>
+      )}
+      {!blank && view === 'relevant' && <RelevantMusic query={query} onView={setView} />}
+      {!blank && view === 'artists' && <ArtistFinds query={query} />}
+      {!blank && view === 'albums' && <AlbumFinds query={query} />}
+      {!blank && view === 'songs' && search.error && (
+        <SourceIssue>{t('common.coreUnavailable', { message: search.error.message })}</SourceIssue>
+      )}
+      {!blank && view === 'songs' && !search.error && (
         <>
           {search.isSuccess && results.length === 0 && library.length === 0 && (
             <p className="text-muted text-sm">{t('search.noSources')}</p>

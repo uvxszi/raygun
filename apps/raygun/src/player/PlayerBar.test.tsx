@@ -70,6 +70,8 @@ describe('Player bar', () => {
     expect(swipeAction({ x: -90, y: 8 }, { x: 0, y: 0 })).toBe('next');
     expect(swipeAction({ x: 20, y: 2 }, { x: 600, y: 0 })).toBe('previous');
     expect(swipeAction({ x: 4, y: -60 }, { x: 0, y: 0 })).toBe('open');
+    expect(swipeAction({ x: 4, y: 60 }, { x: 0, y: 0 })).toBe('close');
+    expect(swipeAction({ x: 2, y: 12 }, { x: 0, y: 500 })).toBe('close');
     expect(swipeAction({ x: 30, y: 5 }, { x: 50, y: 0 })).toBeNull();
 
     await user.click(within(bar).getByRole('button', { name: 'Connect to a device' }));
@@ -179,6 +181,70 @@ describe('Player bar', () => {
     expect(screen.getByRole('complementary', { name: 'Queue' })).toBeInTheDocument();
     await user.click(within(bar).getByRole('button', { name: 'Queue' }));
     expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
+  });
+
+  it('grows Next in queue by rows, shrinks an empty lyrics card and closes the player', async () => {
+    setWide(true);
+    const user = userEvent.setup();
+    commands.lyricsGet.mockResolvedValue({ status: 'ok', data: null });
+    await AppShellWrapper.mount();
+    AppShellWrapper.playing(QUEUE, 0);
+    await AppShellWrapper.miniPlayer.title;
+    const bar = AppShellWrapper.miniPlayer.element;
+
+    await user.click(within(bar).getByRole('button', { name: 'Now playing view' }));
+    const panel = screen.getByRole('complementary', { name: 'Now playing' });
+    // No lyrics: the card is a line, not 26 rem tall (M46.24).
+    expect(await within(panel).findByText('No lyrics found for this track.')).toBeInTheDocument();
+    expect(within(panel).getByTestId('lyrics-view').className).not.toContain('h-[26rem]');
+
+    // One song by default; the handle's arrow keys show more, saved in the panels setting.
+    const nextUp = within(panel).getByRole('region', { name: 'Next in queue' });
+    expect(within(nextUp).getAllByRole('listitem')).toHaveLength(1);
+    const handle = within(nextUp).getByRole('separator', {
+      name: 'Drag to show more or fewer songs',
+    });
+    handle.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(commands.settingsUpdate).toHaveBeenLastCalledWith({
+      key: 'panels',
+      value: expect.objectContaining({ nextUpRows: 2 }),
+    });
+
+    // The × after the seek bar closes the player: the queue empties.
+    await user.click(
+      within(bar).getByRole('button', { name: 'Close the player and stop playing' }),
+    );
+    expect(commands.playbackControl).toHaveBeenLastCalledWith({ type: 'clear' });
+  });
+
+  it('shows the cover large from the artwork and saves it as an image (M46.26)', async () => {
+    setWide(true);
+    const user = userEvent.setup();
+    const withArt = {
+      ...makeItem('Intro', 'Raygun'),
+      artworkUrl: 'https://img.example/600x600bb.jpg',
+    };
+    await AppShellWrapper.mount();
+    AppShellWrapper.playing([withArt, ...QUEUE.slice(1)], 0);
+    await AppShellWrapper.miniPlayer.title;
+    await user.click(
+      within(AppShellWrapper.miniPlayer.element).getByRole('button', { name: 'Now playing view' }),
+    );
+    const panel = screen.getByRole('complementary', { name: 'Now playing' });
+    await user.click(within(panel).getByRole('button', { name: 'Show the cover large' }));
+    const sheet = await screen.findByTestId('cover-sheet');
+    await user.click(within(sheet).getByRole('button', { name: 'PNG' }));
+    await user.click(within(sheet).getByRole('button', { name: 'Save image' }));
+    expect(commands.coverSave).toHaveBeenCalledWith(
+      'https://img.example/600x600bb.jpg',
+      'Raygun - Intro',
+      'png',
+      'pictures',
+    );
+    expect(await within(sheet).findByRole('status')).toHaveTextContent(
+      'Saved to Pictures/Raygun/Cover.png',
+    );
   });
 
   it('shows the queue beside the bar, to play, remove and clear', async () => {

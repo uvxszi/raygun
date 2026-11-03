@@ -49,6 +49,14 @@ pub struct VideoDownloadsEvent(pub String);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SongDownloadsEvent(pub String);
 
+/// A Local Files folder was added, scanned or removed; carries its id (M46.27).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct LocalFilesEvent(pub String);
+
+/// Song lengths Raygun just learned (M46.26).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct TrackDurationsEvent(pub Vec<raygun_model::TrackDuration>);
+
 /// New Made for You mixes are ready (M46.20).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct MadeForYouEvent;

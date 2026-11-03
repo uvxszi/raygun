@@ -168,6 +168,14 @@ The user asked for the full depth of the reference apps ("its not meant to be a 
 - M46.23 **What Raygun can run** (asked 2026-11-02): ✅
   - A page listing every add-on system and what replaces QuietPlay's and Musike's (neither has add-ons).
   - Nuclear dashboards and discovery plugins now run (as charts and song radios).
+- M46.24 **Player and shell polish** (asked 2026-11-02): ✅
+  - Cards no longer cut off; a slim lyrics card when there are none; no Show video overlay.
+  - Close the player (swipe down on phones, × on desktop); Next in queue grows by rows.
+  - Ctrl+scroll zoom and an Interface size on phones; a mascot button ("coming soon").
+- M46.25 **Search pills** (asked 2026-11-02): ✅ Music with Relevant, Songs, Artists, Albums and Podcasts (podcasts merged in); Movies & series with Relevant, Movies and Series.
+- M46.26 **Song lengths and cover images** (asked 2026-11-02): ✅ lengths learned and looked up for every list; covers shown large and saved as PNG, JPEG or WebP; downloaded songs keep their cover offline.
+- M46.27 **Local Files** (asked 2026-11-02): ✅ folders scanned for songs, comics, books and videos alike, on desktop and Android.
+- M46.28 **Paraline Community** (asked 2026-11-02): ✅ a local-only test repository of sources, and local repositories in Raygun.
 - **Asked 2026-11-01, queued in this order** (each becomes a milestone with a spec):
   1. **Sound and lyrics editing** (now M46.12):
      - edit lyrics (words and timings) and shift them by an offset; the same for video subtitles;

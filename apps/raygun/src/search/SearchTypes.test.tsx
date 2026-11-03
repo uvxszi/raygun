@@ -201,6 +201,45 @@ describe('Search by type', () => {
     expect(within(all).queryByRole('region', { name: 'In your library' })).not.toBeInTheDocument();
   });
 
+  it('narrows movies and series with pills (M46.25)', async () => {
+    const user = userEvent.setup();
+    const row = (kind: string, name: string) => ({
+      addonId: 'cinemeta',
+      addonName: 'Cinemeta',
+      kind,
+      catalogId: 'top',
+      name: 'Popular',
+      items: [
+        {
+          kind,
+          id: `tt-${name}`,
+          name,
+          poster: null,
+          posterShape: 'poster',
+          releaseInfo: null,
+          rating: null,
+        },
+      ],
+      genres: [],
+      hasMore: false,
+      error: null,
+    });
+    commands.stremioSearch.mockResolvedValue(
+      ok([row('movie', 'Sintel'), row('series', 'Big Buck Series')]),
+    );
+    await AppShellWrapper.mount('/browse?tab=search&type=video&q=b');
+    const results = await screen.findByTestId('video-results');
+    expect(within(results).getByText('Sintel')).toBeInTheDocument();
+    expect(within(results).getByText('Big Buck Series')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Series' }));
+    await vi.waitFor(() =>
+      expect(screen.getByTestId('video-results')).not.toHaveTextContent('Sintel'),
+    );
+    expect(screen.getByTestId('video-results')).toHaveTextContent('Big Buck Series');
+    expect(screen.getByText(/don't say which results are movies/)).toBeInTheDocument();
+  });
+
   it('searches the sources chosen with chips, several at once', async () => {
     const user = userEvent.setup();
     commands.catalogGlobalSearch.mockImplementation(async (_medium, _query, sources) =>

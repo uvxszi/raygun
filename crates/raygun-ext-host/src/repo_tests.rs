@@ -68,7 +68,12 @@ fn index_urls_must_be_https_or_local() {
         repo::check_index_url("http://example.org/index.json"),
         Err(RepoError::Url(message)) if message.contains("https")
     ));
-    assert!(repo::check_index_url("file:///index.json").is_err());
+    // Local files are repositories on desktop only (M46.28).
+    assert_eq!(
+        repo::check_index_url("file:///index.json").is_ok(),
+        cfg!(not(target_os = "android"))
+    );
+    assert!(repo::check_index_url("ftp://example.org/index.json").is_err());
     assert!(repo::check_index_url("not a url").is_err());
 }
 
@@ -317,5 +322,25 @@ fn nuclear_downloads_are_checked_when_the_registry_lists_a_hash() {
     assert!(
         package::check_nuclear_download(&bytes, &entry).is_ok(),
         "no hash listed"
+    );
+}
+
+#[cfg(not(target_os = "android"))]
+#[test]
+fn local_repositories_are_files_on_desktop() {
+    let folder = tempfile::TempDir::new().unwrap();
+    let index = folder.path().join("index.json");
+    let from_path = repo::check_index_url(index.to_str().unwrap()).unwrap();
+    assert_eq!(from_path.scheme(), "file");
+    assert_eq!(from_path.to_file_path().unwrap(), index);
+    assert_eq!(
+        repo::check_index_url(from_path.as_str()).unwrap(),
+        from_path
+    );
+    // Packages sit beside the index.
+    let package = from_path.join("packages/a.zip").unwrap();
+    assert_eq!(
+        package.to_file_path().unwrap(),
+        folder.path().join("packages").join("a.zip")
     );
 }

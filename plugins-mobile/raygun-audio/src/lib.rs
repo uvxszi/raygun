@@ -158,6 +158,18 @@ pub struct OutputFile {
     pub fd: i32,
 }
 
+/// A file under a picked folder (M46.27).
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct TreeFile {
+    /// Its document address, to open it.
+    pub uri: String,
+    /// Its path inside the folder, with `/`.
+    pub path: String,
+    pub size: i64,
+    /// Unix ms.
+    pub modified: i64,
+}
+
 impl<R: Runtime> NativeAudio<R> {
     /// Opens a website in the built-in browser (M46.3).
     #[cfg(target_os = "android")]
@@ -215,6 +227,41 @@ impl<R: Runtime> NativeAudio<R> {
     pub fn folder_state(&self, uri: &str) -> Result<FolderState, String> {
         self.handle
             .run_mobile_plugin("folderState", serde_json::json!({ "uri": uri }))
+            .map_err(|error| error.to_string())
+    }
+
+    /// Asks to read the device's songs and videos (M46.27). Blocks until the user answers.
+    #[cfg(target_os = "android")]
+    pub fn request_media_access(&self) -> Result<bool, String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>("requestMediaAccess", ())
+            .map(|value| value["granted"].as_bool().unwrap_or(false))
+            .map_err(|error| error.to_string())
+    }
+
+    /// Every file under a picked folder (M46.27). Blocking.
+    #[cfg(target_os = "android")]
+    pub fn list_tree(&self, uri: &str) -> Result<Vec<TreeFile>, String> {
+        #[derive(serde::Deserialize)]
+        struct Listing {
+            files: Vec<TreeFile>,
+        }
+        self.handle
+            .run_mobile_plugin::<Listing>("listTree", serde_json::json!({ "uri": uri }))
+            .map(|listing| listing.files)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Opens a picked file for reading; the caller owns (and closes) the descriptor. Blocking.
+    #[cfg(target_os = "android")]
+    pub fn open_input(&self, uri: &str) -> Result<i32, String> {
+        #[derive(serde::Deserialize)]
+        struct Opened {
+            fd: i32,
+        }
+        self.handle
+            .run_mobile_plugin::<Opened>("openInput", serde_json::json!({ "uri": uri }))
+            .map(|opened| opened.fd)
             .map_err(|error| error.to_string())
     }
 

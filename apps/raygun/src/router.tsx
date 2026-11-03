@@ -25,12 +25,13 @@ import type { BrowseSection, ExtensionList } from './pages/BrowsePage';
 import { MorePage } from './pages/MorePage';
 import { ReposPage } from './pages/ReposPage';
 import { ExtensionSystemsPage } from './pages/ExtensionSystemsPage';
+import { LocalFilesPage } from './pages/LocalFilesPage';
 import { StremioAddonPage } from './pages/StremioAddonPage';
 import { WatchHistoryPage } from './pages/WatchHistoryPage';
 import { WatchTitlePage } from './pages/WatchTitlePage';
 import { VideoTitlePage } from './pages/VideoTitlePage';
-import { isSearchType } from './search/searchTypes';
-import type { SearchType } from './search/searchTypes';
+import { isSearchType, isSearchView } from './search/searchTypes';
+import type { SearchType, SearchView } from './search/searchTypes';
 import { DevicesPage } from './pages/DevicesPage';
 import { ExtensionDetailPage } from './pages/ExtensionDetailPage';
 import { MusicArtistPage } from './pages/MusicArtistPage';
@@ -284,6 +285,10 @@ const routeTree = rootRoute.addChildren([
           tab: 'search',
           ...(text(search.q) ? { q: text(search.q) } : {}),
           ...(isSearchType(search.type) && search.type !== 'all' ? { type: search.type } : {}),
+          ...(isSearchView(search.view) && search.view !== 'relevant' ? { view: search.view } : {}),
+          ...(search.type === 'podcast'
+            ? { type: 'music' as const, view: 'podcasts' as const }
+            : {}),
         },
         replace: true,
       });
@@ -338,7 +343,13 @@ const routeTree = rootRoute.addChildren([
     component: BrowsePage,
     validateSearch: (
       search: Record<string, unknown>,
-    ): { tab?: BrowseSection; list?: ExtensionList; q?: string; type?: SearchType } => ({
+    ): {
+      tab?: BrowseSection;
+      list?: ExtensionList;
+      q?: string;
+      type?: SearchType;
+      view?: SearchView;
+    } => ({
       ...(search.tab === 'extensions' ||
       search.tab === 'search' ||
       search.tab === 'sources' ||
@@ -348,6 +359,9 @@ const routeTree = rootRoute.addChildren([
       ...(search.list === 'available' ? { list: 'available' as const } : {}),
       ...(text(search.q) ? { q: text(search.q) } : {}),
       ...(isSearchType(search.type) && search.type !== 'all' ? { type: search.type } : {}),
+      ...(isSearchView(search.view) && search.view !== 'relevant' ? { view: search.view } : {}),
+      // Podcasts were a search type of their own before they joined Music (M46.25).
+      ...(search.type === 'podcast' ? { type: 'music' as const, view: 'podcasts' as const } : {}),
     }),
   }),
   createRoute({ getParentRoute: () => rootRoute, path: '/more', component: MorePage }),
@@ -358,6 +372,7 @@ const routeTree = rootRoute.addChildren([
     path: '/extensions/systems',
     component: ExtensionSystemsPage,
   }),
+  createRoute({ getParentRoute: () => rootRoute, path: '/local-files', component: LocalFilesPage }),
   createRoute({
     getParentRoute: () => rootRoute,
     path: '/watch/title',

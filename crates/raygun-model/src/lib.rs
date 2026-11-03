@@ -584,6 +584,8 @@ pub struct PanelPrefs {
     pub side_panel_width: u32,
     /// The full player's left column, 30 to 70 % (side by side).
     pub player_split: u32,
+    /// Songs the side panel's "Next in queue" card shows, 1 to 10 (M46.24).
+    pub next_up_rows: u32,
 }
 
 impl PanelPrefs {
@@ -597,6 +599,12 @@ impl PanelPrefs {
         }
         if !within(self.player_split, 30, 70) {
             return Err(format!("{}% isn't a player split", self.player_split));
+        }
+        if !within(self.next_up_rows, 1, 10) {
+            return Err(format!(
+                "{} isn't a number of next-up rows",
+                self.next_up_rows
+            ));
         }
         Ok(())
     }
@@ -1660,6 +1668,15 @@ pub struct TrackQuery {
     pub title: String,
     pub artist: Option<String>,
     pub album: Option<String>,
+    pub duration_ms: Option<u32>,
+}
+
+/// A song's length as Raygun learned it (M46.26), by the resolver's track key; `None` while
+/// unknown.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackDuration {
+    pub track_key: String,
     pub duration_ms: Option<u32>,
 }
 
@@ -3025,6 +3042,48 @@ pub enum AudioFileFormat {
     Mp3,
 }
 
+/// A folder in Local Files (M46.27) and what its last scan found.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalFolder {
+    pub id: String,
+    pub name: String,
+    /// Its path (or, without one, the address the picker gave).
+    pub location: String,
+    pub counts: LocalCounts,
+    /// Unix ms.
+    pub scanned_at: Option<f64>,
+    pub scanning: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalCounts {
+    pub songs: u32,
+    pub comics: u32,
+    pub books: u32,
+    pub videos: u32,
+}
+
+/// The file type a saved cover image gets (M46.26).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ImageFileFormat {
+    Png,
+    Jpeg,
+    Webp,
+}
+
+/// Where a saved cover image goes (M46.26).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ImageDestination {
+    /// `Pictures/Raygun/`.
+    Pictures,
+    /// The folder picked for saving (Settings → Downloads).
+    Folder,
+}
+
 /// Where saved songs are written (M46.10).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -3405,11 +3464,13 @@ pub const LAYOUT_BROWSE_TABS: [(&str, bool); 4] = [
     ("sources", true),
     ("extensions", true),
 ];
-pub const LAYOUT_BROWSE_SECTIONS: [(&str, bool); 4] = [
+pub const LAYOUT_BROWSE_SECTIONS: [(&str, bool); 5] = [
     ("video", true),
     ("manga", true),
     ("novel", true),
     ("websites", true),
+    // Local Files (M46.27).
+    ("localFiles", true),
 ];
 pub const LAYOUT_MORE_ENTRIES: [(&str, bool); 9] = [
     ("updates", true),

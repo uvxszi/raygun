@@ -96,6 +96,14 @@ impl NovelService {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(contents.trim())
             .map_err(|_| "The file couldn't be read".to_owned())?;
+        self.import_epub_bytes(bytes).await
+    }
+
+    /// Imports an EPUB's bytes (an upload, or a file in a Local Files folder, M46.27).
+    pub async fn import_epub_bytes(&self, bytes: Vec<u8>) -> Result<(String, String), String> {
+        if bytes.len() > epub::MAX_FILE_BYTES {
+            return Err("This book is larger than 64 MB".into());
+        }
         let dir = self.downloads_dir.join(BOOKS);
         let (hash, book) = tauri::async_runtime::spawn_blocking(move || -> Result<_, String> {
             let hash = raygun_ext_host::package::sha256_hex(&bytes);

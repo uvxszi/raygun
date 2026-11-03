@@ -147,7 +147,7 @@ export const BrowseAll: FC = () => {
         title: t('discover.podcasts'),
         icon: Mic,
         to: '/browse',
-        search: { tab: 'search', type: 'podcast' },
+        search: { tab: 'search', type: 'music', view: 'podcasts' },
       },
       {
         title: t('discover.comics'),

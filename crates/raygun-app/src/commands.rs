@@ -486,6 +486,7 @@ const SEARCH_LIBRARY_LIMIT: u32 = 8;
 pub async fn online_search(
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     library: tauri::State<'_, LibraryService>,
+    durations: tauri::State<'_, Arc<crate::durations::DurationService>>,
     query: String,
 ) -> Result<SearchResults, String> {
     let (local, providers) = futures_util::future::join(
@@ -497,6 +498,10 @@ pub async fn online_search(
         tracing::warn!(%message, "library search failed");
         Vec::new()
     });
+    // Lengths the sources sent are kept for lists that lack them (M46.26).
+    for result in &providers {
+        durations.learn_tracks(&result.tracks);
+    }
     Ok(SearchResults {
         library,
         top: crate::search::merge_top(&providers),
@@ -532,10 +537,13 @@ pub async fn music_search_albums(
 #[specta::specta]
 pub async fn music_album(
     extensions: tauri::State<'_, Arc<ExtensionService>>,
+    durations: tauri::State<'_, Arc<crate::durations::DurationService>>,
     provider_id: String,
     album_id: String,
 ) -> Result<raygun_model::MusicAlbumDetail, String> {
-    extensions.music_album(&provider_id, &album_id).await
+    let detail = extensions.music_album(&provider_id, &album_id).await?;
+    durations.learn_tracks(&detail.tracks);
+    Ok(detail)
 }
 
 /// Queues songs to save into the app (M46.10).
@@ -731,6 +739,68 @@ pub async fn import_read_screenshots(
     import.read_screenshots(upload_ids).await
 }
 
+/// The folders in Local Files and what each holds (M46.27).
+#[tauri::command]
+#[specta::specta]
+pub async fn local_folders(
+    local: tauri::State<'_, Arc<crate::local_files::LocalFilesService>>,
+) -> Result<Vec<raygun_model::LocalFolder>, String> {
+    local.folders().await
+}
+
+/// Adds a folder the user picks to Local Files and scans it; `None` when they cancelled.
+#[tauri::command]
+#[specta::specta]
+pub async fn local_folder_add(
+    local: tauri::State<'_, Arc<crate::local_files::LocalFilesService>>,
+) -> Result<Option<Vec<raygun_model::LocalFolder>>, String> {
+    local.inner().add().await
+}
+
+/// Takes a folder out of Local Files.
+#[tauri::command]
+#[specta::specta]
+pub async fn local_folder_remove(
+    local: tauri::State<'_, Arc<crate::local_files::LocalFilesService>>,
+    id: String,
+) -> Result<Vec<raygun_model::LocalFolder>, String> {
+    local.remove(&id).await
+}
+
+/// Scans every Local Files folder again.
+#[tauri::command]
+#[specta::specta]
+pub async fn local_folders_rescan(
+    local: tauri::State<'_, Arc<crate::local_files::LocalFilesService>>,
+) -> Result<(), String> {
+    local.inner().rescan_all().await
+}
+
+/// Saves a cover image (a song's, an album's, an artist's picture) at the source's largest size, as
+/// PNG, JPEG or WebP; returns where it went (M46.26).
+#[tauri::command]
+#[specta::specta]
+pub async fn cover_save(
+    app: tauri::AppHandle,
+    url: String,
+    title: String,
+    format: raygun_model::ImageFileFormat,
+    destination: raygun_model::ImageDestination,
+) -> Result<String, String> {
+    crate::export::covers::save(&app, &url, &title, format, destination).await
+}
+
+/// Song lengths Raygun knows for `tracks`, in their order; the rest are looked up in the
+/// background and arrive as `TrackDurationsEvent`s (M46.26).
+#[tauri::command]
+#[specta::specta]
+pub async fn track_durations(
+    durations: tauri::State<'_, Arc<crate::durations::DurationService>>,
+    tracks: Vec<TrackQuery>,
+) -> Result<Vec<raygun_model::TrackDuration>, String> {
+    durations.lookup(tracks).await
+}
+
 /// Matches imported songs against the music sources (M46.21).
 #[tauri::command]
 #[specta::specta]
@@ -790,10 +860,15 @@ pub async fn made_for_you_save(
 #[specta::specta]
 pub async fn music_tag_sources(
     discovery: tauri::State<'_, Arc<DiscoveryService>>,
+    durations: tauri::State<'_, Arc<crate::durations::DurationService>>,
     name: String,
     region: Option<String>,
 ) -> Result<raygun_model::MusicTagSources, String> {
-    Ok(discovery.tag_sources(name, region).await)
+    let sources = discovery.tag_sources(name, region).await;
+    for row in &sources.rows {
+        durations.learn_tracks(&row.tracks);
+    }
+    Ok(sources)
 }
 
 /// A chart's songs (M46.9).
@@ -801,11 +876,14 @@ pub async fn music_tag_sources(
 #[specta::specta]
 pub async fn music_chart(
     discovery: tauri::State<'_, Arc<DiscoveryService>>,
+    durations: tauri::State<'_, Arc<crate::durations::DurationService>>,
     provider_id: String,
     chart_id: String,
     region: Option<String>,
 ) -> Result<Vec<raygun_model::OnlineTrack>, String> {
-    discovery.chart(&provider_id, &chart_id, region).await
+    let tracks = discovery.chart(&provider_id, &chart_id, region).await?;
+    durations.learn_tracks(&tracks);
+    Ok(tracks)
 }
 
 /// A song's genres and moods, found now if they aren't stored yet (M46.9).
@@ -2367,6 +2445,59 @@ async fn pick_folder(
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+/// A folder for Local Files (M46.27): the system picker on Android, a folder dialog on desktop.
+#[cfg(target_os = "android")]
+pub(crate) async fn pick_local_folder(
+    app: &tauri::AppHandle,
+) -> Result<tauri_plugin_raygun_audio::PickedFolder, String> {
+    pick_folder(app).await
+}
+
+#[cfg(not(target_os = "android"))]
+pub(crate) async fn pick_local_folder(
+    _app: &tauri::AppHandle,
+) -> Result<tauri_plugin_raygun_audio::PickedFolder, String> {
+    let picked = rfd::AsyncFileDialog::new()
+        .set_title("Add a folder to Local Files")
+        .pick_folder()
+        .await;
+    Ok(match picked {
+        Some(folder) => {
+            let path = folder.path().to_path_buf();
+            tauri_plugin_raygun_audio::PickedFolder {
+                name: path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .or_else(|| Some(path.to_string_lossy().into_owned())),
+                uri: Some(path.to_string_lossy().into_owned()),
+            }
+        }
+        None => tauri_plugin_raygun_audio::PickedFolder {
+            uri: None,
+            name: None,
+        },
+    })
+}
+
+/// Asks to read the device's songs and videos (Android); desktop needs nothing.
+#[cfg(target_os = "android")]
+pub(crate) async fn request_media_access(app: &tauri::AppHandle) -> bool {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        app.state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+            .request_media_access()
+            .unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "android"))]
+pub(crate) async fn request_media_access(_app: &tauri::AppHandle) -> bool {
+    true
 }
 
 /// The system's folder dialog on desktop (M46.6); a picked folder is a plain path there.

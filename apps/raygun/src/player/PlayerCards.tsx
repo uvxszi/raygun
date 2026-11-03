@@ -18,7 +18,8 @@ const PREVIEW_LINES = 5;
 /** Credit roles the card shows before "Show all". */
 const CREDITS_SHOWN = 3;
 
-const CARD = 'flex w-full flex-col gap-3 overflow-hidden rounded-2xl text-left';
+// Cards keep their height in a scrolling column (M46.24: shrinking cut their last lines).
+const CARD = 'flex w-full shrink-0 flex-col gap-3 overflow-hidden rounded-2xl text-left';
 
 type PlayerCardsProps = {
   item: QueueItem;
@@ -73,6 +74,26 @@ const LyricsCard: FC<{ item: QueueItem; state: PlaybackState | undefined; onOpen
         ? t('player.cards.lyricsNone')
         : null;
 
+  // Nothing to show: one slim line instead of a tall card (M46.24).
+  if (note) {
+    return (
+      <button
+        type="button"
+        aria-labelledby={heading}
+        data-testid="lyrics-card"
+        data-empty="true"
+        onClick={onOpen}
+        className={`${CARD} bg-surface flex-row items-center gap-3 px-4 py-3`}
+      >
+        <span id={heading} className="shrink-0 font-bold">
+          {t('player.lyrics')}
+        </span>
+        <span className="text-muted min-w-0 flex-1 truncate text-sm">{note}</span>
+        <Maximize2 aria-hidden size={16} className="text-muted shrink-0" />
+      </button>
+    );
+  }
+
   return (
     <button
       type="button"
@@ -87,22 +108,18 @@ const LyricsCard: FC<{ item: QueueItem; state: PlaybackState | undefined; onOpen
         </span>
         <Maximize2 aria-hidden size={18} className="text-muted" />
       </span>
-      {note ? (
-        <span className="text-muted text-sm">{note}</span>
-      ) : (
-        <span className="flex flex-col gap-1.5 text-xl leading-snug font-bold">
-          {lines.map((line) => (
-            <span
-              key={line.key}
-              className={`line-clamp-2 transition-colors ${
-                line.playing || synced.length === 0 ? 'text-foreground' : 'text-foreground/45'
-              }`}
-            >
-              {line.text}
-            </span>
-          ))}
-        </span>
-      )}
+      <span className="flex flex-col gap-1.5 text-xl leading-snug font-bold">
+        {lines.map((line) => (
+          <span
+            key={line.key}
+            className={`line-clamp-2 transition-colors ${
+              line.playing || synced.length === 0 ? 'text-foreground' : 'text-foreground/45'
+            }`}
+          >
+            {line.text}
+          </span>
+        ))}
+      </span>
     </button>
   );
 };

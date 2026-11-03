@@ -17,6 +17,7 @@ import {
   Volume1,
   Volume2,
   VolumeX,
+  X,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { PanInfo } from 'motion/react';
@@ -99,6 +100,8 @@ const PhoneBar: FC<BarProps> = ({ state, item }) => {
   const handleDragEnd = (_event: PointerEvent, info: PanInfo) => {
     const action = swipeAction(info.offset, info.velocity);
     if (action === 'open') openSheet();
+    // Down closes the player: playback stops and the queue empties (M46.24).
+    if (action === 'close') void sendControl({ type: 'clear' });
     if (action === 'next') void sendControl({ type: 'next' });
     if (action === 'previous') {
       const before = previousItem(queue, state);
@@ -111,11 +114,12 @@ const PhoneBar: FC<BarProps> = ({ state, item }) => {
   return (
     <motion.div
       data-testid="mini-player"
-      // Up opens the full player; sideways changes the song (M46.13), the bar following the finger.
+      // Up opens the full player, down closes it (M46.24); sideways changes the song (M46.13),
+      // the bar following the finger.
       drag
       dragDirectionLock
       dragConstraints={{ top: 0, bottom: 0, left: 0, right: 0 }}
-      dragElastic={{ top: 0.25, bottom: 0, left: 0.4, right: 0.4 }}
+      dragElastic={{ top: 0.25, bottom: 0.5, left: 0.4, right: 0.4 }}
       dragSnapToOrigin
       onPointerDown={() => {
         draggedRef.current = false;
@@ -225,7 +229,19 @@ const WideBar: FC<BarProps> = ({ state, item }) => {
             )}
           </BarButton>
         </div>
-        <SeekBar state={state} />
+        <div className="flex w-full items-center gap-1">
+          <SeekBar state={state} />
+          {/* Closes the player: playback stops and the queue empties (M46.24). */}
+          <button
+            type="button"
+            aria-label={t('player.close')}
+            title={t('player.close')}
+            onClick={() => void sendControl({ type: 'clear' })}
+            className="text-muted hover:text-foreground grid size-6 shrink-0 place-items-center rounded-full"
+          >
+            <X aria-hidden size={14} />
+          </button>
+        </div>
       </div>
 
       <div className="flex min-w-0 items-center justify-end gap-1">
@@ -341,7 +357,7 @@ const SeekBar: FC<{ state: PlaybackState | undefined }> = ({ state }) => {
     }
   };
   return (
-    <div className="text-muted flex w-full items-center gap-2 text-[11px] tabular-nums">
+    <div className="text-muted flex w-full min-w-0 flex-1 items-center gap-2 text-[11px] tabular-nums">
       <span data-testid="bar-position" className="w-10 text-right">
         {formatTime(positionMs)}
       </span>

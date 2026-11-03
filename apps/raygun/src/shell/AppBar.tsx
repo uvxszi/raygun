@@ -23,6 +23,7 @@ import { useImportEpub } from '../novel/useImportEpub';
 import { SEARCH_DEBOUNCE_MS } from '../pages/BrowsePage';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { AppMenu } from './AppMenu';
+import { MascotButton } from './MascotButton';
 import { closeWindow, minimizeWindow, toggleMaximizeWindow, useWindowState } from './appWindow';
 import { useAppMenuGroups } from './useAppMenuGroups';
 import { useHistoryNav } from './useHistoryNav';
@@ -212,6 +213,20 @@ export const AppBar: FC<{ frame: WindowFrame; onShortcuts: () => void; immersive
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+  // Ctrl+scroll zooms too (M46.24), a step per wheel notch; the readers zoom their pages with it.
+  useEffect(() => {
+    let pending = 0;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey || keys.current.immersive) return;
+      event.preventDefault();
+      pending += event.deltaY;
+      if (Math.abs(pending) < 50) return;
+      keys.current.zoom(pending < 0 ? 10 : -10);
+      pending = 0;
+    };
+    window.addEventListener('wheel', onWheel, { passive: false });
+    return () => window.removeEventListener('wheel', onWheel);
+  }, []);
 
   const importing = comics.importFiles.isPending || epub.importBook.isPending;
   const importError = comics.importFiles.error ?? epub.importBook.error;
@@ -255,6 +270,7 @@ export const AppBar: FC<{ frame: WindowFrame; onShortcuts: () => void; immersive
         </Link>
         <AppSearch inputRef={searchRef} />
       </div>
+      <MascotButton className={roundButton} iconSize={20} />
       <Link
         to="/updates"
         aria-label={t('nav.updates')}

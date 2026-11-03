@@ -9,7 +9,12 @@ import { SourceIssue } from '../shell/SourceIssue';
  * Movies and series from every Stremio addon that searches, a row per catalog; before anything
  * is typed, the addons' own catalogs (popular, top rated…) so Search doesn't start empty.
  */
-export const VideoResults: FC<{ query: string; limit?: number }> = ({ query, limit }) => {
+export const VideoResults: FC<{
+  query: string;
+  limit?: number;
+  /** Only the addons' rows of this kind (M46.25: the Movies and Series pills). */
+  kind?: 'movie' | 'series';
+}> = ({ query, limit, kind }) => {
   const { t } = useTranslation();
   const blank = query.trim() === '';
   const found = useStremioSearch(query);
@@ -21,14 +26,15 @@ export const VideoResults: FC<{ query: string; limit?: number }> = ({ query, lim
   if (search.isPending) {
     return <p className="text-muted text-sm">{t('search.searching')}</p>;
   }
-  if (search.data.length === 0) {
+  const rows = kind ? search.data.filter((row) => row.kind === kind) : search.data;
+  if (rows.length === 0) {
     // No addon has catalogs to show: nothing to say before a search.
     if (blank) return null;
     return <p className="text-muted text-sm">{t('search.noResults', { query })}</p>;
   }
   return (
     <div data-testid="video-results" className="flex flex-col gap-5">
-      {search.data.slice(0, limit).map((row) => (
+      {rows.slice(0, limit).map((row) => (
         <StremioRow key={`${row.addonId}-${row.kind}-${row.catalogId}`} row={row} browse={blank} />
       ))}
     </div>

@@ -7,6 +7,7 @@ import type { CSSProperties, FC } from 'react';
 
 import { TrackActionsSheet } from '../collections/TrackActionsSheet';
 import { SongEditSheet } from '../sound/SongEditSheet';
+import { CoverSheet } from '../music/CoverSheet';
 import { useSyncChangedListener } from '../devices/useDeviceSync';
 import { useEngineHost } from '../engine/useEngineHost';
 import { useSpeechHost } from '../engine/useSpeechHost';
@@ -77,6 +78,10 @@ const useApplyWindow = (desktop: boolean, frame?: WindowFrame, zoom?: number) =>
   }, [desktop, frame]);
   useEffect(() => {
     if (desktop && zoom) void setAppZoom(zoom / 100);
+    // Phones scale the root font size instead (M46.24): sizes and spacing are in rem.
+    if (!desktop) {
+      document.documentElement.style.fontSize = zoom && zoom !== 100 ? `${zoom}%` : '';
+    }
   }, [desktop, zoom]);
 };
 
@@ -158,6 +163,7 @@ export const AppShell: FC = () => {
         <PlayerSheet />
         <TrackActionsSheet />
         <SongEditSheet />
+        <CoverSheet />
         <VideoPlayer />
         <YouTubeOverlay />
         <HoverLabel />

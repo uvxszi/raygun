@@ -3,7 +3,7 @@ import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
-import { bindingsMock, DEFAULT_SETTINGS } from '../test/bindingsMock';
+import { bindingsMock, DEFAULT_SETTINGS, emitEvent } from '../test/bindingsMock';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -102,6 +102,26 @@ describe('Song tables', () => {
       ).value.tables?.favorites?.columns;
       expect(after?.find((column) => column.id === 'album')?.width).toBe(136);
     });
+  });
+
+  it('fills lengths the sources left out, as Raygun learns them (M46.26)', async () => {
+    setWide();
+    commands.favoritesList.mockResolvedValue(
+      ok([{ ...song('Bravo', 'Zed', 3_000), durationMs: null }, song('Alpha', 'Mia', 2_000)]),
+    );
+    commands.trackDurations.mockResolvedValue(ok([{ trackKey: 'zed|bravo', durationMs: null }]));
+    await AppShellWrapper.mount('/library?view=favorites');
+    await screen.findByTestId('track-table');
+    await vi.waitFor(() =>
+      expect(commands.trackDurations).toHaveBeenCalledWith([
+        { title: 'Bravo', artist: 'Zed', album: 'Bravo album', durationMs: null },
+      ]),
+    );
+    const bravo = () => screen.getAllByTestId('track-table-row')[0];
+    expect(bravo()).not.toHaveTextContent('3:35');
+    // The lookup found it in the background.
+    emitEvent('trackDurationsEvent', [{ trackKey: 'zed|bravo', durationMs: 215_000 }]);
+    await vi.waitFor(() => expect(bravo()).toHaveTextContent('3:35'));
   });
 
   it('sorts, filters, shows columns and plays in the order shown', async () => {

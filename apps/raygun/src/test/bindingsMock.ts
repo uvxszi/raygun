@@ -9,12 +9,13 @@ import type {
   LibraryScanProgress,
   LibraryStatus,
   MangaUpdateStatus,
-  TtsUpdate,
   PlaybackState,
   QueueSnapshot,
   Settings,
   SpeechCommand,
   StorageInfo,
+  TrackDuration,
+  TtsUpdate,
   VideoPlayerMessage,
   YouTubeVideo,
 } from '@raygun/bindings';
@@ -50,6 +51,8 @@ type EventPayloads = {
   videoDownloadsEvent: string;
   songDownloadsEvent: string;
   madeForYouEvent: null;
+  trackDurationsEvent: TrackDuration[];
+  localFilesEvent: string;
   settingsChangedEvent: string;
   exportEvent: ExportJob | null;
   videoPlayerEvent: VideoPlayerMessage;
@@ -150,7 +153,7 @@ export const DEFAULT_SETTINGS: Settings = {
   scrollbars: 'thin',
   motion: 'lively',
   trackTables: { tables: {} },
-  panels: { railWidth: 0, sidePanelWidth: 0, playerSplit: 0 },
+  panels: { railWidth: 0, sidePanelWidth: 0, playerSplit: 0, nextUpRows: 0 },
   colors: { background: '', surface: '', foreground: '', muted: '' },
   disabledSources: [],
   autoLoad: { enabled: true, cooldownMs: 1500 },
@@ -218,6 +221,12 @@ export const bindingsMock = {
     importPrepareReader: vi.fn(),
     importReadScreenshots: vi.fn(),
     importMatch: vi.fn(),
+    trackDurations: vi.fn(),
+    coverSave: vi.fn(),
+    localFolders: vi.fn(),
+    localFolderAdd: vi.fn(),
+    localFolderRemove: vi.fn(),
+    localFoldersRescan: vi.fn(),
     importSave: vi.fn(),
     audiobooks: vi.fn(),
     audiobook: vi.fn(),
@@ -486,6 +495,8 @@ export const bindingsMock = {
     videoDownloadsEvent: makeEvent('videoDownloadsEvent'),
     songDownloadsEvent: makeEvent('songDownloadsEvent'),
     madeForYouEvent: makeEvent('madeForYouEvent'),
+    trackDurationsEvent: makeEvent('trackDurationsEvent'),
+    localFilesEvent: makeEvent('localFilesEvent'),
     settingsChangedEvent: makeEvent('settingsChangedEvent'),
     exportEvent: makeEvent('exportEvent'),
     videoPlayerEvent: makeEvent('videoPlayerEvent'),
@@ -536,6 +547,12 @@ export const seedBindings = () => {
   commands.madeForYouSave.mockResolvedValue(ok('playlist-1'));
   commands.importReaderReady.mockResolvedValue(true);
   commands.importMatch.mockResolvedValue(ok([]));
+  commands.trackDurations.mockResolvedValue(ok([]));
+  commands.coverSave.mockResolvedValue(ok('Pictures/Raygun/Cover.png'));
+  commands.localFolders.mockResolvedValue(ok([]));
+  commands.localFolderAdd.mockResolvedValue(ok(null));
+  commands.localFolderRemove.mockResolvedValue(ok([]));
+  commands.localFoldersRescan.mockResolvedValue(ok(null));
   commands.audiobooks.mockResolvedValue(ok([]));
   commands.audiobookDirectory.mockResolvedValue(ok({ books: [], hasMore: false }));
   commands.audiobookPlay.mockResolvedValue(ok(null));

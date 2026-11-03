@@ -226,6 +226,11 @@ impl PlaybackService {
         self.lock().core.state()
     }
 
+    /// A playable address for `source` through the stream proxy (Local Files' videos, M46.27).
+    pub fn register_source(&self, source: &MediaSource) -> String {
+        self.proxy.register(source)
+    }
+
     pub fn queue(&self) -> QueueSnapshot {
         self.lock().core.queue()
     }
@@ -639,6 +644,12 @@ impl PlaybackService {
                 .try_state::<std::sync::Arc<crate::music_downloads::SongDownloadService>>()
             {
                 songs.on_playback(&state, outbox.current.as_ref());
+            }
+            if let Some(durations) = self
+                .app
+                .try_state::<std::sync::Arc<crate::durations::DurationService>>()
+            {
+                durations.on_playback(&state, outbox.current.as_ref());
             }
             if let (Some(discord), Some(images)) = (
                 self.app.try_state::<Arc<crate::discord::DiscordPresence>>(),

@@ -15,6 +15,7 @@ mod connect;
 mod device_sync;
 mod discord;
 mod discovery;
+mod durations;
 mod epub;
 mod events;
 mod export;
@@ -25,6 +26,7 @@ mod import;
 mod last_played;
 mod library;
 mod library_actions;
+mod local_files;
 mod local_network;
 mod made_for_you;
 mod manga;
@@ -137,6 +139,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::import_prepare_reader,
             commands::import_read_screenshots,
             commands::import_match,
+            commands::track_durations,
+            commands::cover_save,
+            commands::local_folders,
+            commands::local_folder_add,
+            commands::local_folder_remove,
+            commands::local_folders_rescan,
             commands::import_save,
             commands::audiobooks,
             commands::audiobook,
@@ -350,6 +358,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::VideoDownloadsEvent,
             events::SongDownloadsEvent,
             events::MadeForYouEvent,
+            events::TrackDurationsEvent,
+            events::LocalFilesEvent,
             events::SettingsChangedEvent,
             events::ExportEvent,
             events::VideoPlayerEvent,

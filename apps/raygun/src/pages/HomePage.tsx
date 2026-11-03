@@ -21,7 +21,9 @@ import { ChartRow } from '../music/ChartRow';
 import { MixCard } from '../music/MixCard';
 import { pickChart, useMusicCharts } from '../music/useDiscovery';
 import { useMadeForYou } from '../music/useMadeForYou';
+import { MascotButton } from '../shell/MascotButton';
 import { OverflowMenu } from '../shell/OverflowMenu';
+import { useIsDesktop } from '../shell/useIsDesktop';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { ContinueWatchingRow } from '../watch/ContinueWatchingRow';
 import { useContinueWatching } from '../watch/useWatch';
@@ -246,6 +248,7 @@ const HOME_SECTIONS: Record<string, FC> = {
 
 export const HomePage: FC = () => {
   const { t } = useTranslation();
+  const desktop = useIsDesktop();
   const layout = useLayout();
   const watching = useContinueWatching();
   const history = useHistory(HOME_HISTORY_LIMIT);
@@ -262,6 +265,13 @@ export const HomePage: FC = () => {
         title={t('home.heading')}
         actions={
           <>
+            {/* The desktop bar has its own (M46.24). */}
+            {!desktop && (
+              <MascotButton
+                className="hover:bg-surface grid size-11 place-items-center rounded-full"
+                iconSize={22}
+              />
+            )}
             <TopBarAction
               label={t('search.title')}
               icon={Search}

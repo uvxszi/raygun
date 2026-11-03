@@ -55,7 +55,7 @@ describe('Music search: songs, artists and albums', () => {
         ],
       }),
     );
-    await AppShellWrapper.mount('/browse?tab=search&type=music&q=get%20lucky');
+    await AppShellWrapper.mount('/browse?tab=search&type=music&view=songs&q=get%20lucky');
     const best = await screen.findByTestId('best-songs');
     const rows = within(best).getAllByTestId('online-track-row');
     expect(rows[0]).toHaveTextContent('Get Lucky');
@@ -110,5 +110,66 @@ describe('Music search: songs, artists and albums', () => {
       expect.objectContaining({ title: 'Give Life Back to Music' }),
       expect.objectContaining({ title: 'Get Lucky' }),
     ]);
+  });
+
+  it('starts on Relevant: the best match of any kind, then songs, artists, albums, podcasts', async () => {
+    const user = userEvent.setup();
+    commands.onlineSearch.mockResolvedValue(
+      ok({
+        library: [],
+        top: [],
+        providers: [{ provider: DEEZER, tracks: [song('Get Lucky', 'Daft Punk')], error: null }],
+      }),
+    );
+    commands.musicSearchArtists.mockResolvedValue(
+      ok([{ id: '27', name: 'Daft Punk', imageUrl: null, provider: DEEZER }]),
+    );
+    commands.musicSearchAlbums.mockResolvedValue(ok([ALBUM]));
+    commands.podcastSearch.mockResolvedValue(
+      ok([
+        {
+          title: 'Daft Punk Talks',
+          author: 'Fans',
+          feedUrl: 'https://example.com/feed.xml',
+          artworkUrl: null,
+          description: null,
+          subscribed: false,
+        },
+      ]),
+    );
+    await AppShellWrapper.mount('/browse?tab=search&type=music&q=daft%20punk');
+
+    const relevant = await screen.findByTestId('relevant-music');
+    expect(screen.getByRole('button', { name: 'Relevant' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    // The artist's name answers the query best.
+    expect(await within(relevant).findByTestId('top-result')).toHaveTextContent('Daft Punk');
+    expect(within(relevant).getByTestId('top-result')).toHaveTextContent('Artist');
+    expect(await within(relevant).findByRole('region', { name: 'Albums' })).toHaveTextContent(
+      'Random Access Memories',
+    );
+    expect(await within(relevant).findByRole('region', { name: 'Podcasts' })).toHaveTextContent(
+      'Daft Punk Talks',
+    );
+
+    // See all moves to that pill.
+    const songs = await within(relevant).findByRole('region', { name: 'Songs' });
+    await user.click(within(songs).getByRole('button', { name: 'See all' }));
+    expect(await screen.findByRole('button', { name: 'Songs' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it("opens podcasts from old links on Music's Podcasts pill", async () => {
+    commands.podcastTop.mockResolvedValue(ok([]));
+    await AppShellWrapper.mount('/browse?tab=search&type=podcast');
+    expect(await screen.findByTestId('podcast-search')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Podcasts' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   });
 });

@@ -1,6 +1,6 @@
 import { commands } from '@raygun/bindings';
 import { useSearch } from '@tanstack/react-router';
-import { FolderCog, FolderPlus, FolderSearch, RefreshCw } from 'lucide-react';
+import { Folder, FolderCog, FolderPlus, FolderSearch, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -95,6 +95,8 @@ const MusicLibrary: FC<{ view: LibraryView }> = ({ view }) => {
               ]
             : []),
           { label: t('library.manageFolders'), icon: FolderCog, to: '/settings/library' },
+          // Folders of songs, comics, books and videos alike (M46.27).
+          { label: t('localFiles.title'), icon: Folder, to: '/local-files' },
         ]}
       />
       <ScanBanner />

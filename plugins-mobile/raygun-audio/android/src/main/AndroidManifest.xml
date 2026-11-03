@@ -12,6 +12,8 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- Reading the device's music library (M07). -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <!-- Playing videos from folders added to Local Files (M46.27). -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />

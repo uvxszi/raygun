@@ -631,6 +631,21 @@ impl ExtensionService {
     }
 
     async fn download(&self, url: &str, limit: u64) -> Result<Vec<u8>, String> {
+        // A repository on this computer (M46.28: Paraline Community, desktop only).
+        if let Ok(parsed) = reqwest::Url::parse(url)
+            && parsed.scheme() == "file"
+        {
+            let path = parsed
+                .to_file_path()
+                .map_err(|()| format!("{url} isn't a usable path"))?;
+            let bytes = tokio::fs::read(&path)
+                .await
+                .map_err(|error| format!("could not read {}: {error}", path.display()))?;
+            if bytes.len() as u64 > limit {
+                return Err(format!("{url} is larger than {limit} bytes"));
+            }
+            return Ok(bytes);
+        }
         let mut response = self
             .http
             .get(url)

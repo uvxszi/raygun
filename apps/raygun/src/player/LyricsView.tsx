@@ -24,7 +24,8 @@ type LyricsViewProps = {
 const CONTAINER = {
   // The whole column scrolls, so its scrollbar sits at the column's edge, away from the words.
   sheet: 'w-full flex-1 pr-4',
-  panel: 'h-[26rem] w-full px-4',
+  // Tall only once there are lines to show (M46.24); see `hasLines`.
+  panel: 'w-full px-4',
 } as const;
 
 /** Line sizes by screen when no size is chosen. */
@@ -54,6 +55,9 @@ export const LyricsView: FC<LyricsViewProps> = ({
 
   const alignClass = align === 'center' ? 'text-center' : 'text-left';
   const synced = lyrics.data?.synced ?? [];
+  const hasLines = synced.length > 0 || Boolean(lyrics.data?.plain);
+  // The panel's card shrinks to a line while loading, without lyrics or after an error.
+  const height = variant === 'panel' ? (hasLines ? 'h-[26rem]' : 'h-auto') : '';
   const current = currentLine(synced, positionMs, offsetMs);
 
   useEffect(() => {
@@ -90,7 +94,7 @@ export const LyricsView: FC<LyricsViewProps> = ({
           },
         ])
       }
-      className={`relative flex min-h-0 flex-col overflow-y-auto py-4 ${CONTAINER[variant]} ${
+      className={`relative flex min-h-0 flex-col overflow-y-auto ${hasLines || variant === 'sheet' ? 'py-4' : 'py-3'} ${CONTAINER[variant]} ${height} ${
         selectable ? 'selectable' : ''
       }`}
     >
@@ -129,7 +133,9 @@ export const LyricsView: FC<LyricsViewProps> = ({
           </p>
         )
       )}
-      <div className="mt-6 flex items-center gap-3">
+      <div
+        className={`flex items-center gap-3 ${hasLines || variant === 'sheet' ? 'mt-6' : 'mt-2 justify-center'}`}
+      >
         {lyrics.data && (
           <p className="text-muted text-xs">
             {t('player.lyricsFrom', { source: lyrics.data.providerName })}

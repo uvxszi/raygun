@@ -8,6 +8,7 @@ import android.content.res.Configuration
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Environment
@@ -180,6 +181,7 @@ private fun soundConfig(sound: JSONObject): SoundConfig {
 @TauriPlugin(
     permissions = [
         Permission(strings = [Manifest.permission.READ_MEDIA_AUDIO], alias = "audio"),
+        Permission(strings = [Manifest.permission.READ_MEDIA_VIDEO], alias = "video"),
         Permission(strings = [Manifest.permission.READ_EXTERNAL_STORAGE], alias = "storage"),
         Permission(strings = [Manifest.permission.ACCESS_LOCAL_NETWORK], alias = "localNetwork"),
     ],
@@ -653,6 +655,88 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         val args = invoke.parseArgs(FolderArgs::class.java)
         val (granted, name) = storage.folderState(Uri.parse(args.uri))
         invoke.resolve(JSObject().put("granted", granted).put("name", name))
+    }
+
+    // ---- Local Files (M46.27): reading folders the user picked ----
+
+    /** Asks to read the device's songs and videos (Android 13+), which Local Files plays by path. */
+    @Command
+    fun requestMediaAccess(invoke: Invoke) {
+        val aliases = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) arrayOf("audio", "video") else arrayOf("storage")
+        if (aliases.all { getPermissionState(it) == PermissionState.GRANTED }) {
+            invoke.resolve(JSObject().put("granted", true))
+        } else {
+            requestPermissionForAliases(aliases, invoke, "mediaAccessResult")
+        }
+    }
+
+    @PermissionCallback
+    fun mediaAccessResult(invoke: Invoke) {
+        val aliases = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) arrayOf("audio", "video") else arrayOf("storage")
+        invoke.resolve(JSObject().put("granted", aliases.all { getPermissionState(it) == PermissionState.GRANTED }))
+    }
+
+    /** Every file under a picked folder: its document address, path inside the folder, size and time. */
+    @Command
+    fun listTree(invoke: Invoke) {
+        val args = invoke.parseArgs(FolderArgs::class.java)
+        thread(name = "raygun-local-files") {
+            try {
+                val tree = Uri.parse(args.uri)
+                val resolver = activity.contentResolver
+                val files = JSONArray()
+                val pending = ArrayDeque<Pair<String, String>>()
+                pending.add(DocumentsContract.getTreeDocumentId(tree) to "")
+                val columns = arrayOf(
+                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    DocumentsContract.Document.COLUMN_MIME_TYPE,
+                    DocumentsContract.Document.COLUMN_SIZE,
+                    DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+                )
+                while (pending.isNotEmpty() && files.length() < 20000) {
+                    val (parent, prefix) = pending.removeFirst()
+                    val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parent)
+                    resolver.query(children, columns, null, null, null)?.use { cursor ->
+                        while (cursor.moveToNext()) {
+                            val id = cursor.getString(0) ?: continue
+                            val name = cursor.getString(1) ?: continue
+                            val mime = cursor.getString(2) ?: ""
+                            val path = if (prefix.isEmpty()) name else "$prefix/$name"
+                            if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+                                if (!name.startsWith(".")) pending.add(id to path)
+                            } else {
+                                files.put(
+                                    JSObject()
+                                        .put("uri", DocumentsContract.buildDocumentUriUsingTree(tree, id).toString())
+                                        .put("path", path)
+                                        .put("size", if (cursor.isNull(3)) 0L else cursor.getLong(3))
+                                        .put("modified", if (cursor.isNull(4)) 0L else cursor.getLong(4)),
+                                )
+                            }
+                        }
+                    }
+                }
+                invoke.resolve(JSObject().put("files", files))
+            } catch (error: Exception) {
+                invoke.reject(error.message ?: "Couldn't read the folder")
+            }
+        }
+    }
+
+    /** Opens a picked file for reading and hands its descriptor to Rust, which closes it. */
+    @Command
+    fun openInput(invoke: Invoke) {
+        val args = invoke.parseArgs(FolderArgs::class.java)
+        thread(name = "raygun-local-files") {
+            try {
+                val descriptor = activity.contentResolver.openFileDescriptor(Uri.parse(args.uri), "r")
+                    ?: throw IllegalStateException("The file is gone")
+                invoke.resolve(JSObject().put("fd", descriptor.detachFd()))
+            } catch (error: Exception) {
+                invoke.reject(error.message ?: "Couldn't open the file")
+            }
+        }
     }
 
     @Command

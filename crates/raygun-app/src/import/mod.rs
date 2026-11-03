@@ -189,28 +189,7 @@ impl ImportService {
             album: song.album.clone(),
             duration_ms: song.duration_ms,
         };
-        let terms = [song.artist.as_deref().unwrap_or_default(), &song.title].join(" ");
-        let results = self.extensions().search(terms.trim()).await;
-        let mut best: Option<(i32, String, raygun_model::OnlineTrack)> = None;
-        for result in results {
-            for track in result.tracks {
-                let candidate = Candidate {
-                    provider_id: result.provider.id.clone(),
-                    provider_name: result.provider.name.clone(),
-                    id: track.title.clone(),
-                    title: track.title.clone(),
-                    artist: track.artist.clone(),
-                    duration_ms: track.duration_ms,
-                    quality: None,
-                    bitrate_kbps: None,
-                    source: track.source.clone(),
-                };
-                let points = score(&query, &candidate, &History::default());
-                if best.as_ref().is_none_or(|(top, _, _)| points > *top) {
-                    best = Some((points, result.provider.name.clone(), track));
-                }
-            }
-        }
+        let best = find_song(&self.extensions(), &query).await;
         match best {
             Some((points, provider, track)) if points >= MIN_SCORE => {
                 // A stream only counts when it plays anywhere (not the YouTube embed, which is a
@@ -255,6 +234,37 @@ impl ImportService {
         collections.add_to_playlist(&playlist.id, tracks).await?;
         Ok(playlist.id)
     }
+}
+
+/// The sources' best answer for a song: `(points, source name, track)`, searching by artist and
+/// title and scoring with the resolver. Imports (M46.21) and length lookups (M46.26) use it.
+pub(crate) async fn find_song(
+    extensions: &ExtensionService,
+    query: &TrackQuery,
+) -> Option<(i32, String, raygun_model::OnlineTrack)> {
+    let terms = [query.artist.as_deref().unwrap_or_default(), &query.title].join(" ");
+    let results = extensions.search(terms.trim()).await;
+    let mut best: Option<(i32, String, raygun_model::OnlineTrack)> = None;
+    for result in results {
+        for track in result.tracks {
+            let candidate = Candidate {
+                provider_id: result.provider.id.clone(),
+                provider_name: result.provider.name.clone(),
+                id: track.title.clone(),
+                title: track.title.clone(),
+                artist: track.artist.clone(),
+                duration_ms: track.duration_ms,
+                quality: None,
+                bitrate_kbps: None,
+                source: track.source.clone(),
+            };
+            let points = score(query, &candidate, &History::default());
+            if best.as_ref().is_none_or(|(top, _, _)| points > *top) {
+                best = Some((points, result.provider.name.clone(), track));
+            }
+        }
+    }
+    best
 }
 
 #[cfg(test)]

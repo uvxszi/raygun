@@ -163,6 +163,12 @@ async fn kept_tokens(app: &AppHandle) -> Result<HashSet<String>, raygun_db::DbEr
             kept.insert(proxy_image_token(artwork, &Default::default()));
         }
     }
+    // Downloaded songs' covers show offline (M46.26).
+    for row in raygun_db::music_downloads::all(&db).await? {
+        if let Some(artwork) = &row.song.artwork_url {
+            kept.insert(proxy_image_token(artwork, &Default::default()));
+        }
+    }
     // Installed extensions' icons and addons' logos come as kept cover links already.
     let token_of = |link: &str| {
         link.contains("/cover/")

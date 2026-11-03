@@ -6,6 +6,7 @@ import {
   Download,
   Heart,
   HeartOff,
+  ImageDown,
   ListEnd,
   ListMinus,
   ListPlus,
@@ -23,6 +24,7 @@ import { unwrapResult } from '../lib/commandResult';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { useSongEditStore } from '../sound/songEditStore';
 import { creditedArtists } from './artists';
+import { coverTitle, useCoverSheetStore } from './coverSheetStore';
 
 /** A spot at the pointer for popovers opened from the menu (they need something to sit by). */
 const pointAnchor = (x: number, y: number) => {
@@ -100,6 +102,19 @@ export const trackMenu = (track: TrackInput, options: TrackMenuOptions): MenuIte
       icon: Download,
       onSelect: () => void unwrapResult(commands.songsDownload([track])),
     },
+    // The cover large, to save as an image (M46.26).
+    ...(track.artworkUrl
+      ? [
+          {
+            label: t('cover.menu'),
+            icon: ImageDown,
+            onSelect: () =>
+              useCoverSheetStore
+                .getState()
+                .open({ url: track.artworkUrl as string, title: coverTitle(track) }),
+          },
+        ]
+      : []),
     {
       label: t('menu.editSong'),
       icon: Scissors,

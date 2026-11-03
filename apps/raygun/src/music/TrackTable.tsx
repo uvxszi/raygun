@@ -42,6 +42,7 @@ import { COLUMN_TRACKS, SORT_KEYS, filterTracks, sortTracks, useTableView } from
 import { useTagsFor } from './useDiscovery';
 import { downloadSongs, useDownloadedKeys } from './useSongDownloads';
 import type { TableTrack, TableView, TrackTableKind } from './tableView';
+import { useTrackLengths } from './useTrackLengths';
 import { useTrackMenu } from './useTrackMenu';
 import { NowPlayingBars } from '../player/NowPlayingBars';
 import { usePlayingMatch } from '../player/usePlayingMatch';
@@ -155,7 +156,7 @@ const TAG_CHIPS = 12;
  */
 export const TrackTable: FC<TrackTableProps> = ({
   kind,
-  tracks,
+  tracks: givenTracks,
   onPlay,
   customLabel,
   onRemove,
@@ -163,6 +164,8 @@ export const TrackTable: FC<TrackTableProps> = ({
   toolbar,
 }) => {
   const { t } = useTranslation();
+  // Songs whose source sent no length get the one Raygun learned (M46.26).
+  const tracks = useTrackLengths(givenTracks);
   const wide = useWideScreen();
   const menu = useTrackMenu();
   const playingMatch = usePlayingMatch();

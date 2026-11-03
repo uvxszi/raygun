@@ -12,7 +12,7 @@ import { SourceRow } from './CatalogSearch';
 import { LibraryMatches } from './LibraryMatches';
 import { MusicResults } from './MusicResults';
 import { VideoResults } from './VideoResults';
-import type { SearchType } from './searchTypes';
+import type { SearchType, SearchView } from './searchTypes';
 import { sourceSearchOptions } from './useCatalogSearch';
 import { SourceIssue } from '../shell/SourceIssue';
 
@@ -121,10 +121,10 @@ const PodcastPreview: FC<{ query: string }> = ({ query }) => {
  * anything is typed it shows what's popular: addons' catalogs, top podcasts, sources' popular
  * titles.
  */
-export const AllResults: FC<{ query: string; onType: (type: SearchType) => void }> = ({
-  query,
-  onType,
-}) => {
+export const AllResults: FC<{
+  query: string;
+  onType: (type: SearchType, view?: SearchView) => void;
+}> = ({ query, onType }) => {
   const { t } = useTranslation();
   const blank = query.trim() === '';
   return (
@@ -141,7 +141,7 @@ export const AllResults: FC<{ query: string; onType: (type: SearchType) => void 
           </Section>
         </>
       )}
-      <Section title={t('library.media.podcast')} onMore={() => onType('podcast')}>
+      <Section title={t('library.media.podcast')} onMore={() => onType('music', 'podcasts')}>
         <PodcastPreview query={query} />
       </Section>
       <Section title={t('search.type.video')} onMore={() => onType('video')}>

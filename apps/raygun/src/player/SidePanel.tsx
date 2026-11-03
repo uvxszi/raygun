@@ -10,7 +10,7 @@ import { CSS } from '@dnd-kit/utilities';
 import type { QueueItem } from '@raygun/bindings';
 import { ListMusic, Maximize2, X } from 'lucide-react';
 import { useState } from 'react';
-import type { FC } from 'react';
+import type { FC, KeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { fromQueueItem, useAddToPlaylist, useCreatePlaylist } from '../collections/useCollections';
@@ -31,6 +31,10 @@ import { sendControl, sourceNote, useNowPlaying } from './usePlayback';
 import { MediaArt, VideoToggle } from './MediaArt';
 
 const TABS: PlayerPanel[] = ['nowPlaying', 'queue'];
+
+/** Songs "Next in queue" can show (M46.24), and one row's height in px for dragging. */
+const NEXT_UP_MAX = 10;
+const NEXT_UP_ROW = 52;
 
 /**
  * The panel at the right of the page on wide windows (M46.7), like Spotify's: what plays (the
@@ -127,10 +131,14 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
   const openSheet = usePlayerUiStore((store) => store.openSheet);
   const setPanel = usePlayerUiStore((store) => store.setPanel);
   const note = sourceNote(state, item);
-  const next = upNext[0];
+  const { panels, save } = usePanelSizes();
+  const [rowsPreview, setRowsPreview] = useState<number | null>(null);
+  const rows = rowsPreview ?? (panels.nextUpRows || 1);
+  const shown = upNext.slice(0, rows);
 
   return (
-    <div className="flex flex-col gap-4 px-4 pt-3 pb-4">
+    // Its parts keep their height and the panel scrolls: shrinking cut the cards' last lines.
+    <div className="flex shrink-0 flex-col gap-4 px-4 pt-3 pb-4 [&>*]:shrink-0">
       {/* The one video dock shows here unless the full player has it. */}
       <MediaArt
         item={item}
@@ -191,15 +199,91 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
             {t('player.panel.openQueue')}
           </button>
         </header>
-        {next ? (
-          <QueueRow item={next} />
+        {shown.length > 0 ? (
+          <ul data-testid="next-up-list" className="flex flex-col">
+            {shown.map((next) => (
+              <li key={next.id}>
+                <QueueRow item={next} />
+              </li>
+            ))}
+          </ul>
         ) : (
           <p className="text-muted text-sm">{t('player.queueEmpty')}</p>
         )}
+        <RowsHandle
+          rows={rows}
+          onPreview={setRowsPreview}
+          onCommit={(nextUpRows) => {
+            setRowsPreview(null);
+            save({ nextUpRows });
+          }}
+        />
       </section>
       {/* The artist and the credits, as under the phone's player (M46.16). */}
       <ArtistCard credit={item.artist} />
       <CreditsCard item={item} />
+    </div>
+  );
+};
+
+/**
+ * The lower edge of "Next in queue" (M46.24): dragging it shows more or fewer songs, a whole row
+ * at a time; arrow keys do the same.
+ */
+const RowsHandle: FC<{
+  rows: number;
+  onPreview: (rows: number) => void;
+  onCommit: (rows: number) => void;
+}> = ({ rows, onPreview, onCommit }) => {
+  const { t } = useTranslation();
+  const clamp = (next: number) => Math.min(NEXT_UP_MAX, Math.max(1, next));
+  const start = (event: ReactPointerEvent) => {
+    event.preventDefault();
+    const from = event.clientY;
+    let latest = rows;
+    const move = (moved: PointerEvent) => {
+      latest = clamp(rows + Math.round((moved.clientY - from) / NEXT_UP_ROW));
+      onPreview(latest);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      document.body.style.cursor = '';
+      onCommit(latest);
+    };
+    document.body.style.cursor = 'row-resize';
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  const key = (event: KeyboardEvent) => {
+    const next =
+      event.key === 'ArrowDown'
+        ? rows + 1
+        : event.key === 'ArrowUp'
+          ? rows - 1
+          : event.key === 'Home'
+            ? 1
+            : event.key === 'End'
+              ? NEXT_UP_MAX
+              : null;
+    if (next === null) return;
+    event.preventDefault();
+    onCommit(clamp(next));
+  };
+  return (
+    <div
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label={t('player.panel.nextUpSize')}
+      aria-valuenow={rows}
+      aria-valuemin={1}
+      aria-valuemax={NEXT_UP_MAX}
+      tabIndex={0}
+      onPointerDown={start}
+      onKeyDown={key}
+      className="group -mb-2 flex h-4 cursor-row-resize touch-none items-center justify-center focus:outline-none"
+    >
+      <span className="bg-muted/40 group-hover:bg-muted group-focus-visible:bg-primary h-1 w-10 rounded-full transition-colors" />
     </div>
   );
 };

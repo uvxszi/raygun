@@ -31,7 +31,8 @@ import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { useIsDesktop } from '../shell/useIsDesktop';
 import { SourceMenu } from '../search/SourceMenu';
 import { WebsitesSection } from '../websites/WebsitesSection';
-import type { SearchType } from '../search/searchTypes';
+import { LocalFilesSection } from './LocalFilesPage';
+import type { SearchType, SearchView } from '../search/searchTypes';
 import { useStremioAddons } from '../watch/useStremio';
 import { useVideoSources } from '../watch/useVideoSources';
 import { SourceIssue } from '../shell/SourceIssue';
@@ -167,6 +168,7 @@ const SourcesList: FC = () => {
       />
     ),
     websites: <WebsitesSection />,
+    localFiles: <LocalFilesSection />,
   };
   return (
     <div data-testid="browse-sources" className="flex flex-col gap-2">
@@ -216,7 +218,7 @@ export const BrowsePage: FC = () => {
   const desktop = useIsDesktop();
   const updateSetting = useUpdateSetting();
   const failingAtEnd = useSettings().data?.failingSourcesLast ?? true;
-  const { tab = firstTab, list = 'installed', q = '', type = 'all' } = current;
+  const { tab = firstTab, list = 'installed', q = '', type = 'all', view } = current;
   const navigate = useNavigate({ from: '/browse' });
   const reload = useReloadExtensions();
   const refresh = useRefreshCatalog();
@@ -241,9 +243,15 @@ export const BrowsePage: FC = () => {
       void navigate({ search: { ...current, tab: 'search' }, replace: true });
     }
   };
-  const setType = (next: SearchType) =>
+  // A new type starts on its Relevant pill unless one is named (M46.25).
+  const setType = (next: SearchType, nextView?: SearchView) =>
     void navigate({
-      search: { ...current, tab: 'search', type: next === 'all' ? undefined : next },
+      search: {
+        ...current,
+        tab: 'search',
+        type: next === 'all' ? undefined : next,
+        view: nextView && nextView !== 'relevant' ? nextView : undefined,
+      },
       replace: true,
     });
   const searchParams = {
@@ -349,7 +357,7 @@ export const BrowsePage: FC = () => {
           {t(reload.isPending ? 'extensions.reload' : 'extensions.refresh')}
         </p>
       )}
-      {tab === 'search' && <SearchPanel query={q} type={type} onType={setType} />}
+      {tab === 'search' && <SearchPanel query={q} type={type} view={view} onType={setType} />}
       {tab === 'discover' && <BrowseAll />}
       {tab === 'sources' && <SourcesList />}
       {tab === 'extensions' && (

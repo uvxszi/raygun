@@ -535,11 +535,12 @@ impl SongDownloadService {
             .into_iter()
             .map(|row| SongDownload {
                 state: SongDownloadState::parse(&row.state),
+                // Kept covers show offline (M46.26).
                 artwork_url: row
                     .song
                     .artwork_url
                     .as_deref()
-                    .map(|url| self.images.cover(url, &Default::default())),
+                    .map(|url| self.images.kept_cover(url, &Default::default())),
                 format: row
                     .file
                     .as_deref()
@@ -878,12 +879,14 @@ impl SongDownloadService {
         (bytes.len() < 8 * 1024 * 1024).then(|| bytes.to_vec())
     }
 
-    /// Also writes a finished song out when Settings → Downloads asks for it.
+    /// Keeps a finished song's cover for offline (M46.26), and also writes the song out when
+    /// Settings → Downloads asks for it.
     fn save_finished(&self, id: &str) {
         let app = self.app.clone();
         let id = id.to_owned();
         tauri::async_runtime::spawn(async move {
             let service = app.state::<Arc<SongDownloadService>>().inner().clone();
+            service.keep_cover(&id).await;
             let Ok(settings) = crate::settings::load(&service.db()).await else {
                 return;
             };
@@ -903,6 +906,28 @@ impl SongDownloadService {
                 Err(error) => tracing::warn!(%error, "couldn't save a song as a file"),
             }
         });
+    }
+
+    /// Fetches the song's cover into the image cache's kept part, which is never evicted, so it
+    /// shows offline. Covers are kept by address, and an album's songs share one, so an album
+    /// keeps one file whatever number of its songs is downloaded.
+    async fn keep_cover(&self, id: &str) {
+        let Ok(Some(row)) = store::get(&self.db(), id).await else {
+            return;
+        };
+        let Some(url) = row.song.artwork_url.as_deref() else {
+            return;
+        };
+        let link = self.images.kept_cover(url, &Default::default());
+        if let Err(error) = self
+            .client
+            .get(&link)
+            .send()
+            .await
+            .and_then(|response| response.error_for_status())
+        {
+            tracing::info!(%error, "couldn't keep a downloaded song's cover");
+        }
     }
 
     fn dir(&self, id: &str) -> PathBuf {

@@ -140,6 +140,22 @@ describe('The desktop app bar', () => {
     );
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
     expect(within(bar).getByRole('searchbox', { name: 'Search' })).toHaveFocus();
+    // Ctrl and the wheel zoom too (M46.24); plain scrolling doesn't.
+    fireEvent.wheel(window, { deltaY: -100, ctrlKey: true });
+    await vi.waitFor(() =>
+      expect(commands.settingsUpdate).toHaveBeenLastCalledWith({ key: 'zoom', value: 110 }),
+    );
+    const calls = commands.settingsUpdate.mock.calls.length;
+    fireEvent.wheel(window, { deltaY: 100 });
+    expect(commands.settingsUpdate).toHaveBeenCalledTimes(calls);
+  });
+
+  it("has the mascot's button, which says mascots are coming", async () => {
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/');
+    const bar = await screen.findByTestId('app-bar');
+    await user.click(within(bar).getByRole('button', { name: 'Mascot' }));
+    expect(await screen.findByTestId('mascot-soon')).toHaveTextContent('Mascots are coming soon');
   });
 
   it('offers the frame and zoom in Settings → Appearance', async () => {

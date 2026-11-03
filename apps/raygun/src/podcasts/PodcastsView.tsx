@@ -122,7 +122,7 @@ export const PodcastsView: FC = () => {
             label: t('library.findInSearch'),
             icon: Search,
             to: '/browse',
-            search: { tab: 'search', type: 'podcast' },
+            search: { tab: 'search', type: 'music', view: 'podcasts' },
           }}
         />
       )}

@@ -290,7 +290,6 @@
     "type": {
       "all": "All",
       "music": "Music",
-      "podcast": "Podcasts",
       "manga": "Manga",
       "novel": "Novels",
       "library": "Your library",
@@ -298,15 +297,14 @@
     },
     "placeholderFor": {
       "all": "Search music, podcasts, films, manga, novels…",
-      "music": "Songs, artists, albums",
-      "podcast": "Podcasts by name or topic",
+      "music": "Songs, artists, albums, podcasts",
       "manga": "Manga titles",
       "novel": "Novel titles",
       "library": "Things you already have",
       "video": "Movies and series"
     },
     "hintFor": {
-      "music": "Search your library and every music source.",
+      "music": "Search songs, artists, albums and podcasts from your library and every source.",
       "library": "Search your music, manga, novels, podcasts and videos."
     },
     "inYourLibrary": "In your library",
@@ -340,9 +338,23 @@
     "findSource": "Find a source",
     "music": {
       "kind": "What to find",
+      "relevant": "Relevant",
       "songs": "Songs",
       "artists": "Artists",
-      "albums": "Albums"
+      "albums": "Albums",
+      "podcasts": "Podcasts"
+    },
+    "video": {
+      "kind": "What to find",
+      "relevant": "Relevant",
+      "movies": "Movies",
+      "series": "Series",
+      "anyKind": "Your sources don't say which results are movies and which are series until you open one, so they're all here."
+    },
+    "topResult": "Top result",
+    "kind": {
+      "song": "Song",
+      "podcast": "Podcast"
     },
     "noArtists": "No artists named like “{{query}}”",
     "noAlbums": "No albums for “{{query}}”",
@@ -768,7 +780,10 @@
         "system": "The system's title bar"
       },
       "zoom": "Zoom",
-      "zoomHint": "Everything larger or smaller (Ctrl+= and Ctrl+-, Ctrl+0 resets)"
+      "zoomHint": "Everything larger or smaller (Ctrl+= and Ctrl+-, or Ctrl and the mouse wheel; Ctrl+0 resets)",
+      "interface": "Interface",
+      "interfaceSize": "Interface size",
+      "interfaceSizeHint": "Text and spacing larger or smaller"
     },
     "colors": {
       "title": "Colours",
@@ -828,6 +843,7 @@
     "nothingPlaying": "Nothing playing",
     "openPlayer": "Open player",
     "closePlayer": "Close player",
+    "close": "Close the player and stop playing",
     "play": "Play",
     "previous": "Previous",
     "next": "Next",
@@ -870,7 +886,8 @@
       "fullLyrics": "Full screen",
       "nextUp": "Next in queue",
       "openQueue": "Open the queue",
-      "resize": "Drag to resize the side panel"
+      "resize": "Drag to resize the side panel",
+      "nextUpSize": "Drag to show more or fewer songs"
     },
     "upNextView": "Up next",
     "view": {
@@ -1905,7 +1922,8 @@
       "video": "Movies & series",
       "manga": "Manga",
       "novel": "Novels",
-      "websites": "Websites"
+      "websites": "Websites",
+      "localFiles": "Local files"
     },
     "moreEntry": {
       "updates": "Updates",
@@ -2193,6 +2211,54 @@
         "how": "Nothing to install."
       }
     }
+  },
+  "localFiles": {
+    "title": "Local files",
+    "intro": "Folders on this device. Songs join your music library, comics (CBZ, ZIP or a folder of pictures) and EPUB books are added to Comics and Books, and videos to Videos. Folders are scanned again when Raygun starts.",
+    "blurb": "Songs, comics, books and videos from this device's folders",
+    "add": "Add a folder",
+    "rescan": "Scan the folders again",
+    "remove": "Remove {{name}}",
+    "empty": "No folders yet",
+    "scanning": "Scanning…",
+    "nothingYet": "Nothing found yet",
+    "folders_one": "{{count}} folder",
+    "folders_other": "{{count}} folders",
+    "count": {
+      "songs_one": "{{count}} song",
+      "songs_other": "{{count}} songs",
+      "comics_one": "{{count}} comic",
+      "comics_other": "{{count}} comics",
+      "books_one": "{{count}} book",
+      "books_other": "{{count}} books",
+      "videos_one": "{{count}} video",
+      "videos_other": "{{count}} videos"
+    }
+  },
+  "cover": {
+    "title": "Cover",
+    "open": "Show the cover large",
+    "menu": "Save cover image",
+    "size": "{{width}} × {{height}} px",
+    "largest": "saved at the largest size the source has",
+    "format": "Save as",
+    "formats": {
+      "jpeg": "JPEG",
+      "png": "PNG",
+      "webp": "WebP"
+    },
+    "where": "Where",
+    "pictures": "Pictures/Raygun",
+    "chooseFolder": "Choose a folder",
+    "otherFolder": "Another folder",
+    "save": "Save image",
+    "saving": "Saving…",
+    "saved": "Saved to {{place}}"
+  },
+  "mascot": {
+    "label": "Mascot",
+    "soon": "Mascots are coming soon",
+    "what": "They'll dance and sing along to what you're playing."
   },
   "forYou": {
     "title": "Made for You",

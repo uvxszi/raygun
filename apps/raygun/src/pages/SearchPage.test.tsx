@@ -59,7 +59,7 @@ describe('Search', () => {
         error: null,
       },
     ]);
-    await AppShellWrapper.mount('/search?type=music');
+    await AppShellWrapper.mount('/search?type=music&view=songs');
 
     await userEvent.type(screen.getByRole('searchbox', { name: 'Search' }), 'armstrong');
 
@@ -79,7 +79,7 @@ describe('Search', () => {
         error: null,
       },
     ]);
-    await AppShellWrapper.mount('/search?type=music&q=blues');
+    await AppShellWrapper.mount('/search?type=music&view=songs&q=blues');
 
     const rows = await screen.findAllByTestId('online-track-row');
     await userEvent.click(rows[1]!);
@@ -110,7 +110,7 @@ describe('Search', () => {
         error: 'offline',
       },
     ]);
-    await AppShellWrapper.mount('/search?type=music&q=blues');
+    await AppShellWrapper.mount('/search?type=music&view=songs&q=blues');
 
     expect(await screen.findByRole('alert')).toHaveTextContent('This source failed: offline');
     expect(screen.getAllByTestId('online-track-row')).toHaveLength(1);
@@ -125,7 +125,7 @@ describe('Search', () => {
         error: null,
       },
     ]);
-    await AppShellWrapper.mount('/search?type=music&q=blues');
+    await AppShellWrapper.mount('/search?type=music&view=songs&q=blues');
 
     const headings = await screen.findAllByRole('heading', { level: 3 });
     expect(headings.map((heading) => heading.textContent)).toEqual([
@@ -136,13 +136,13 @@ describe('Search', () => {
 
   it('says when nothing was found, or no sources exist', async () => {
     answer([{ provider: PROVIDER, tracks: [], error: null }]);
-    await AppShellWrapper.mount('/search?type=music&q=zzzz');
+    await AppShellWrapper.mount('/search?type=music&view=songs&q=zzzz');
     expect(await screen.findByText('Nothing found for “zzzz”.')).toBeInTheDocument();
   });
 
   it('says when no search sources are installed', async () => {
     answer([]);
-    await AppShellWrapper.mount('/search?type=music&q=zzzz');
+    await AppShellWrapper.mount('/search?type=music&view=songs&q=zzzz');
     expect(await screen.findByText('No search sources are installed.')).toBeInTheDocument();
   });
 });

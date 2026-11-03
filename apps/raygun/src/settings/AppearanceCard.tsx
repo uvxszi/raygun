@@ -260,6 +260,21 @@ export const AppearanceCard: FC = () => {
           />
         </PrefGroup>
       )}
+      {!desktop && (
+        <PrefGroup title={t('settings.window.interface')}>
+          <PrefSlider
+            title={t('settings.window.interfaceSize')}
+            summary={t('settings.window.interfaceSizeHint')}
+            value={data.zoom ?? 100}
+            min={80}
+            max={150}
+            step={10}
+            format={(value) => `${value}%`}
+            disabled={busy}
+            onChange={(value) => updateSetting.mutate({ key: 'zoom', value })}
+          />
+        </PrefGroup>
+      )}
       {updateSetting.isError && (
         <p role="alert" className="text-primary px-1 text-sm">
           {t('settings.saveFailed', { message: updateSetting.error.message })}

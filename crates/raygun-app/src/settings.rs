@@ -513,6 +513,7 @@ mod tests {
             rail_width: 72,
             side_panel_width: 400,
             player_split: 40,
+            next_up_rows: 4,
         };
         assert_eq!(
             update(&db, SettingChange::Panels(panels))

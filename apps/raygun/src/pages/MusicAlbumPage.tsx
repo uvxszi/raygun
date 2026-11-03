@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { fromOnlineTrack } from '../collections/useCollections';
 import { unwrapResult } from '../lib/commandResult';
 import { Artwork } from '../library/Artwork';
+import { useCoverSheetStore } from '../music/coverSheetStore';
 import { ArtistLinks } from '../music/ArtistLinks';
 import { downloadSongs } from '../music/useSongDownloads';
 import { OnlineTrackRow } from '../search/OnlineTrackRow';
@@ -38,11 +39,28 @@ export const MusicAlbumPage: FC = () => {
     <section data-testid="music-album-page" className="flex flex-col gap-6">
       <TopBar back fallback="/browse" plainTitle title={t('album.title')} />
       <header className="flex flex-col items-center gap-4 sm:flex-row sm:items-end sm:gap-6">
-        <Artwork
-          url={info?.artworkUrl ?? tracks[0]?.artworkUrl ?? null}
-          className="size-40 rounded-lg shadow-xl sm:size-48"
-          iconSize={56}
-        />
+        {/* The cover large, to save as an image (M46.26). */}
+        <button
+          type="button"
+          aria-label={t('cover.open')}
+          disabled={!(info?.artworkUrl ?? tracks[0]?.artworkUrl)}
+          onClick={() => {
+            const url = info?.artworkUrl ?? tracks[0]?.artworkUrl;
+            if (url) {
+              useCoverSheetStore.getState().open({
+                url,
+                title: [info?.artist, info?.title].filter(Boolean).join(' - '),
+              });
+            }
+          }}
+          className="shrink-0 cursor-zoom-in disabled:cursor-default"
+        >
+          <Artwork
+            url={info?.artworkUrl ?? tracks[0]?.artworkUrl ?? null}
+            className="size-40 rounded-lg shadow-xl sm:size-48"
+            iconSize={56}
+          />
+        </button>
         <div className="flex min-w-0 flex-col items-center gap-2 sm:items-start">
           <span className="text-muted text-xs font-semibold tracking-wide uppercase">
             {t('album.kind')}

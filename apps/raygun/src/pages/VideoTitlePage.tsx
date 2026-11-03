@@ -16,6 +16,9 @@ import { ServerPicker } from '../watch/ServerPicker';
 import type { PickIntent, ServerTarget } from '../watch/ServerPicker';
 import { StremioPoster } from '../watch/StremioRow';
 import { VideoDownloadControl } from '../watch/VideoDownloadControl';
+
+/** Videos from Local Files folders (M46.27): already on this device. */
+const LOCAL_VIDEO = 'local.video';
 import { episodeLabel } from '../watch/episodeLabel';
 import {
   sourceKey,
@@ -122,12 +125,14 @@ const Episodes: FC<{
                 )}
                 <Progress episode={episode} />
               </button>
-              <VideoDownloadControl
-                item={downloads.get(sourceKey(view.sourceId, episode.remoteId))}
-                downloaded={episode.downloaded}
-                name={label}
-                onDownload={() => onPick(episode, 'download')}
-              />
+              {view.sourceId !== LOCAL_VIDEO && (
+                <VideoDownloadControl
+                  item={downloads.get(sourceKey(view.sourceId, episode.remoteId))}
+                  downloaded={episode.downloaded}
+                  name={label}
+                  onDownload={() => onPick(episode, 'download')}
+                />
+              )}
               <button
                 type="button"
                 aria-pressed={episode.watched}
@@ -301,7 +306,7 @@ export const VideoTitlePage: FC = () => {
                 {t(movie.watched ? 'watch.watched' : 'watch.markWatchedShort')}
               </button>
             )}
-            {movie && (
+            {movie && view.sourceId !== LOCAL_VIDEO && (
               <span className="bg-surface/80 rounded-full">
                 <VideoDownloadControl
                   item={downloads.get(sourceKey(view.sourceId, movie.remoteId))}

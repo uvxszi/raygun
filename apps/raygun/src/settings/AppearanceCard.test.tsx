@@ -55,7 +55,7 @@ const DEFAULT_SETTINGS: Settings = {
   scrollbars: 'thin',
   motion: 'lively',
   trackTables: { tables: {} },
-  panels: { railWidth: 0, sidePanelWidth: 0, playerSplit: 0 },
+  panels: { railWidth: 0, sidePanelWidth: 0, playerSplit: 0, nextUpRows: 0 },
   colors: { background: '', surface: '', foreground: '', muted: '' },
   disabledSources: [],
   autoLoad: { enabled: true, cooldownMs: 1500 },

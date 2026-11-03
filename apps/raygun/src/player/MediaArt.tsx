@@ -4,6 +4,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
+import { coverTitle, useCoverSheetStore } from '../music/coverSheetStore';
 import { hasVideo } from './hasVideo';
 import { usePlayerUiStore } from './playerUiStore';
 import { useVideoSurface } from './useVideoSurface';
@@ -23,7 +24,6 @@ export const MediaArt: FC<{
 }> = ({ item, active, artworkClassName, videoClassName, iconSize, testId }) => {
   const { t } = useTranslation();
   const videoShown = usePlayerUiStore((store) => store.videoShown);
-  const setVideoShown = usePlayerUiStore((store) => store.setVideoShown);
   const showing = hasVideo(item) && videoShown;
   const videoRef = useVideoSurface(active && showing);
 
@@ -33,22 +33,29 @@ export const MediaArt: FC<{
     );
   }
   return (
+    // The video toggle sits beside the title (M46.24: the button over the artwork was in the way).
+    // Clicking the artwork shows it large, to save (M46.26).
     <div className="relative w-full">
-      <Artwork
-        key={item.artworkUrl ?? 'none'}
-        url={item.artworkUrl}
-        className={artworkClassName}
-        iconSize={iconSize}
-      />
-      {hasVideo(item) && (
+      {item.artworkUrl ? (
         <button
           type="button"
-          onClick={() => setVideoShown(true)}
-          className="absolute right-3 bottom-3 flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur"
+          aria-label={t('cover.open')}
+          onClick={() =>
+            useCoverSheetStore
+              .getState()
+              .open({ url: item.artworkUrl as string, title: coverTitle(item) })
+          }
+          className="block w-full cursor-zoom-in"
         >
-          <MonitorPlay aria-hidden size={14} />
-          {t('player.showVideo')}
+          <Artwork
+            key={item.artworkUrl}
+            url={item.artworkUrl}
+            className={artworkClassName}
+            iconSize={iconSize}
+          />
         </button>
+      ) : (
+        <Artwork key="none" url={null} className={artworkClassName} iconSize={iconSize} />
       )}
     </div>
   );
