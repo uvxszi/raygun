@@ -153,6 +153,77 @@ fn built_in() -> Vec<ExtensionSource> {
                 include_str!("../../../extensions/mangadex/dist/index.js"),
             ),
         ]),
+        // Official free comics and openly licensed or public-domain ones.
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/webtoons/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/webtoons/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/tapas/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/tapas/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/mangaplus-creators/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/mangaplus-creators/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/naver-webtoon/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/naver-webtoon/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/archive-comics/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/archive-comics/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/peppercarrot/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/peppercarrot/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/xkcd/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/xkcd/dist/index.js"),
+            ),
+        ]),
         ExtensionSource::built_in(&[
             (
                 "raygun-extension.json",
