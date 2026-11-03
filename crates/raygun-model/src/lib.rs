@@ -3507,7 +3507,27 @@ impl SongDownloadState {
     }
 }
 
-/// A song saved (or being saved) into the app to play offline (M46.10).
+/// How a song download is made: a source's file (yt-dlp's copy of a YouTube video included), or a
+/// recording of the song as it plays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SongDownloadKind {
+    File,
+    Recording,
+}
+
+impl SongDownloadKind {
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "file" => Some(Self::File),
+            "recording" => Some(Self::Recording),
+            _ => None,
+        }
+    }
+}
+
+/// A song saved (or being saved) into the app to play offline (M46.10). It is also the payload of
+/// `SongDownloadProgressEvent`, sent on every change of state or source and while it downloads.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SongDownload {
@@ -3520,17 +3540,33 @@ pub struct SongDownload {
     /// A cover link through the image cache.
     pub artwork_url: Option<String>,
     pub state: SongDownloadState,
-    /// `file` (a source's stream) or `recording`, once done.
-    pub kind: Option<String>,
-    /// Where the audio came from.
+    /// How it's made: `file` while downloading, `recording` while recorded, and how it was made
+    /// once done.
+    pub kind: Option<SongDownloadKind>,
+    /// Where the audio came from once done; while downloading, the source being tried now; while
+    /// queued, the source picked for it, if any.
     pub provider: Option<String>,
     /// The saved file's extension ("mp3", "flac"...), once done.
     pub format: Option<String>,
+    /// While downloading, what came so far; once done, the file's size.
     pub done_bytes: f64,
     pub total_bytes: Option<f64>,
+    /// How far it is, 0–1, when known: the file's bytes, or how much of a recording has played.
+    pub fraction: Option<f64>,
+    /// How fast it downloads now, while it does.
+    pub bytes_per_second: Option<f64>,
+    /// Time left in ms, when known: from the speed and the size, or the song left to record.
+    pub eta_ms: Option<f64>,
+    /// What went wrong, in a line for the listener.
     pub error: Option<String>,
+    /// Each source's own error behind `error` ("More info").
+    pub error_detail: Option<String>,
     /// This device can record what plays (Windows for now).
     pub can_record: bool,
+    /// Its place in the queue (unix ms): queued songs download earliest first.
+    pub queued_at: f64,
+    /// When it finished, or stopped with an error (unix ms).
+    pub finished_at: Option<f64>,
 }
 
 /// yt-dlp on this device (M46.47): YouTube downloads on desktop, and songs only YouTube has.

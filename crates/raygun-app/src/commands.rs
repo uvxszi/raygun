@@ -888,6 +888,16 @@ pub async fn song_downloads(
     songs.list().await
 }
 
+/// One song download as it is now; `None` once it was removed.
+#[tauri::command]
+#[specta::specta]
+pub async fn song_download(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+    id: String,
+) -> Result<Option<raygun_model::SongDownload>, String> {
+    songs.get(&id).await
+}
+
 /// Removes a song download and its file (M46.10).
 #[tauri::command]
 #[specta::specta]
@@ -898,7 +908,17 @@ pub async fn song_download_remove(
     songs.remove(&id).await
 }
 
-/// Queues a failed song download again (M46.10).
+/// Removes several song downloads and their files at once (cancels waiting ones).
+#[tauri::command]
+#[specta::specta]
+pub async fn song_downloads_remove(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+    ids: Vec<String>,
+) -> Result<(), String> {
+    songs.remove_many(&ids).await
+}
+
+/// Queues a failed song download again, first in the queue (M46.10).
 #[tauri::command]
 #[specta::specta]
 pub async fn song_download_retry(
@@ -906,6 +926,39 @@ pub async fn song_download_retry(
     id: String,
 ) -> Result<(), String> {
     songs.retry(&id).await
+}
+
+/// Queues every failed song download again; returns how many.
+#[tauri::command]
+#[specta::specta]
+pub async fn song_downloads_retry_failed(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+) -> Result<u32, String> {
+    songs.retry_failed().await
+}
+
+/// Puts the queued song downloads in this order, first to download first.
+#[tauri::command]
+#[specta::specta]
+pub async fn song_downloads_reorder(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+    ids: Vec<String>,
+) -> Result<(), String> {
+    songs.reorder(&ids).await
+}
+
+/// Whether song downloads are paused.
+#[tauri::command]
+#[specta::specta]
+pub fn song_downloads_paused(songs: tauri::State<'_, Arc<SongDownloadService>>) -> bool {
+    songs.paused()
+}
+
+/// Pauses song downloads (the running one waits, keeping what it saved) or resumes them.
+#[tauri::command]
+#[specta::specta]
+pub fn song_downloads_set_paused(songs: tauri::State<'_, Arc<SongDownloadService>>, paused: bool) {
+    songs.set_paused(paused);
 }
 
 /// Plays a song only YouTube has and records it as it plays (M46.10).
@@ -939,16 +992,18 @@ pub async fn collections_saved_keys(
     collections.saved_keys().await
 }
 
-/// Downloads a song from a source the user picked (M46.47: Choose a source on a failed or
-/// YouTube-only download); the others are tried after it if it fails.
+/// Downloads a song from a picked source (M46.47: Choose a source on a failed or YouTube-only
+/// download), first in the queue; the others are tried after it if it fails. `source` is the
+/// source's name, shown while it downloads and in what went wrong.
 #[tauri::command]
 #[specta::specta]
 pub async fn song_download_use_source(
     songs: tauri::State<'_, Arc<SongDownloadService>>,
     id: String,
     track: raygun_model::OnlineTrack,
+    source: Option<String>,
 ) -> Result<(), String> {
-    songs.use_source(&id, track).await
+    songs.use_source(&id, track, source).await
 }
 
 /// A YouTube address typed in Search (M46.47): what it points at, with the video's title and

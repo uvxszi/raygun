@@ -13,6 +13,7 @@ import type {
   PlaybackState,
   QueueSnapshot,
   Settings,
+  SongDownload,
   SpeechCommand,
   StorageInfo,
   TrackDuration,
@@ -52,6 +53,7 @@ type EventPayloads = {
   watchChangedEvent: string;
   videoDownloadsEvent: string;
   songDownloadsEvent: string;
+  songDownloadProgressEvent: SongDownload;
   madeForYouEvent: null;
   trackDurationsEvent: TrackDuration[];
   importEvent: string;
@@ -311,8 +313,14 @@ export const bindingsMock = {
     devicesSetSharing: vi.fn(),
     captionsUseFeed: vi.fn(),
     songDownloads: vi.fn(),
+    songDownload: vi.fn(),
     songDownloadRemove: vi.fn(),
+    songDownloadsRemove: vi.fn(),
     songDownloadRetry: vi.fn(),
+    songDownloadsRetryFailed: vi.fn(),
+    songDownloadsReorder: vi.fn(),
+    songDownloadsPaused: vi.fn(),
+    songDownloadsSetPaused: vi.fn(),
     songDownloadRecord: vi.fn(),
     songsSave: vi.fn(),
     songDownloadedKeys: vi.fn(),
@@ -566,6 +574,7 @@ export const bindingsMock = {
     watchChangedEvent: makeEvent('watchChangedEvent'),
     videoDownloadsEvent: makeEvent('videoDownloadsEvent'),
     songDownloadsEvent: makeEvent('songDownloadsEvent'),
+    songDownloadProgressEvent: makeEvent('songDownloadProgressEvent'),
     madeForYouEvent: makeEvent('madeForYouEvent'),
     trackDurationsEvent: makeEvent('trackDurationsEvent'),
     importEvent: makeEvent('importEvent'),
@@ -732,8 +741,14 @@ export const seedBindings = () => {
   commands.devicesSetSharing.mockResolvedValue(ok(null));
   commands.captionsUseFeed.mockResolvedValue(ok(null));
   commands.songDownloads.mockResolvedValue(ok([]));
+  commands.songDownload.mockResolvedValue(ok(null));
   commands.songDownloadRemove.mockResolvedValue(ok(null));
+  commands.songDownloadsRemove.mockResolvedValue(ok(null));
   commands.songDownloadRetry.mockResolvedValue(ok(null));
+  commands.songDownloadsRetryFailed.mockResolvedValue(ok(0));
+  commands.songDownloadsReorder.mockResolvedValue(ok(null));
+  commands.songDownloadsPaused.mockResolvedValue(false);
+  commands.songDownloadsSetPaused.mockResolvedValue(null);
   commands.songDownloadRecord.mockResolvedValue(ok(null));
   commands.songsSave.mockResolvedValue(ok({ saved: [], failed: [] }));
   commands.songDownloadedKeys.mockResolvedValue([]);

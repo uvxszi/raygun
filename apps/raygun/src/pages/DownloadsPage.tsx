@@ -58,7 +58,8 @@ export const DownloadsPage: FC = () => {
         <div className="flex flex-col gap-6">
           <section aria-label={t('songs.tab')} className="flex flex-col gap-2">
             <h2 className="text-lg font-semibold">{t('songs.tab')}</h2>
-            <SongDownloadsList />
+            {/* Finished songs are a line here; the Music tab lists them. */}
+            <SongDownloadsList compact />
           </section>
           <section aria-label={t('updates.chapters')} className="flex flex-col gap-2">
             <h2 className="text-lg font-semibold">{t('updates.chapters')}</h2>
