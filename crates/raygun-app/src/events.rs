@@ -90,6 +90,10 @@ pub struct TtsEvent(pub raygun_model::TtsUpdate);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct ExtensionsChangedEvent(pub Vec<raygun_model::ExtensionInfo>);
 
+/// One source answered a music search that's still waiting for others; one event per source.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct SearchProgressEvent(pub raygun_model::SearchProgress);
+
 /// A model download's progress (M34).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct AiModelEvent(pub raygun_model::AiModelProgress);

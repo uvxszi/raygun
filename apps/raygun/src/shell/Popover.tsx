@@ -94,6 +94,11 @@ export const Popover: FC<PopoverProps> = ({ anchor, label, onClose, children, wi
     // Escape closes the newest popover only, and nothing behind it (a sheet it sits in).
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || open.at(-1) !== panel.current) return;
+      // A search field with text empties first (TextField); the next Escape closes.
+      const field = event.target;
+      if (field instanceof HTMLInputElement && field.value !== '' && field.dataset.clearsOnEscape) {
+        return;
+      }
       event.stopPropagation();
       onClose();
       anchor.focus();

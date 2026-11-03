@@ -26,6 +26,7 @@ import { unwrapResult } from '../lib/commandResult';
 import { useLocalNetworkGate } from '../network/useLocalNetworkGate';
 import { useRemoteStatus } from '../settings/remoteQueries';
 import { SourceIssue } from '../shell/SourceIssue';
+import { TextField } from '../shell/TextField';
 import { useSyncNow, useSyncStatus } from './useDeviceSync';
 
 const BUTTON =
@@ -234,12 +235,17 @@ export const LinkedDevices: FC = () => {
           </ul>
         )}
         <form onSubmit={submit} className="mt-1 flex items-center gap-2">
-          <input
+          <TextField
             value={address}
-            onChange={(event) => setAddress(event.target.value)}
+            onChange={setAddress}
+            inputMode="url"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             aria-label={t('link.address')}
             placeholder={t('link.addressHint')}
-            className="bg-background min-w-0 flex-1 rounded-lg px-3 py-2 text-sm outline-none"
+            className="bg-background flex-1 rounded-lg pr-0.5 pl-3"
+            inputClassName="py-2 text-sm"
           />
           <button
             type="submit"

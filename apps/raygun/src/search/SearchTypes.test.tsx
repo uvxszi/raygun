@@ -237,7 +237,66 @@ describe('Search by type', () => {
       expect(screen.getByTestId('video-results')).not.toHaveTextContent('Sintel'),
     );
     expect(screen.getByTestId('video-results')).toHaveTextContent('Big Buck Series');
-    expect(screen.getByText(/don't say which results are movies/)).toBeInTheDocument();
+    // The sources' answers stay, whatever they are.
+    expect(screen.getByRole('region', { name: 'From your sources' })).toBeInTheDocument();
+  });
+
+  it("puts a video site's own pill beside Videos, and its best answers on Relevant", async () => {
+    const user = userEvent.setup();
+    const youtube = {
+      id: 'dev.raygun.youtube/videos',
+      name: 'YouTube',
+      extensionId: 'dev.raygun.youtube',
+      enabled: true,
+      searchPill: 'YouTube',
+    };
+    const archive = {
+      id: 'dev.raygun.ia/films',
+      name: 'Internet Archive',
+      extensionId: 'dev.raygun.ia',
+      enabled: true,
+    };
+    commands.videoSources.mockResolvedValue(ok([youtube, archive]));
+    commands.catalogGlobalSearch.mockImplementation(async (_medium, _query, sources) =>
+      ok(
+        sources[0] === youtube.id
+          ? [
+              {
+                source: youtube,
+                items: [card('y1', 'Sintel trailer', youtube.id)],
+                hasNextPage: false,
+                error: null,
+              },
+            ]
+          : [
+              {
+                source: archive,
+                items: [card('a1', 'Sintel', archive.id)],
+                hasNextPage: false,
+                error: null,
+              },
+            ],
+      ),
+    );
+    await AppShellWrapper.mount('/browse?tab=search&type=video&q=sintel');
+    const pills = await screen.findByRole('tablist', { name: 'Search in' });
+    await within(pills).findByRole('tab', { name: 'YouTube' });
+    expect(
+      within(pills)
+        .getAllByRole('tab')
+        .map((tab) => tab.textContent),
+    ).toEqual(['All', 'Audio', 'Videos', 'YouTube', 'Comics', 'Books', 'Your library']);
+
+    // Relevant: the sources' best answers, and a row of the site's with its pill a tap away.
+    const sources = await screen.findByRole('region', { name: 'From your sources' });
+    expect(await within(sources).findByText('Sintel')).toBeInTheDocument();
+    expect(await screen.findByText('Sintel trailer')).toBeInTheDocument();
+    const site = screen.getByRole('region', { name: 'YouTube' });
+    await user.click(within(site).getByRole('button', { name: 'More' }));
+    expect(within(pills).getByRole('tab', { name: 'YouTube' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
   });
 
   it('searches the sources chosen with chips, several at once', async () => {

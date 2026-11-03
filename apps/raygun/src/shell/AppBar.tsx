@@ -1,9 +1,11 @@
 import type { WindowFrame } from '@raygun/bindings';
 import { Link, useNavigate, useRouter, useRouterState } from '@tanstack/react-router';
+import type { RecentSearch } from '@raygun/bindings';
 import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  History,
   House,
   Inbox,
   Minus,
@@ -13,7 +15,7 @@ import {
   RotateCw,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { FC, RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -21,6 +23,10 @@ import { NewPlaylistForm } from '../collections/PlaylistsView';
 import { useImportComics } from '../manga/useImportComics';
 import { useImportEpub } from '../novel/useImportEpub';
 import { SEARCH_DEBOUNCE_MS } from '../pages/BrowsePage';
+import { kindOf, useRecentSearches, useRememberSearch } from '../search/useRecentSearches';
+import { isSearchType } from '../search/searchTypes';
+import type { SearchType } from '../search/searchTypes';
+import { TextField } from './TextField';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { AppMenu } from './AppMenu';
 import { MascotButton } from './MascotButton';
@@ -37,6 +43,8 @@ const roundButton =
 /**
  * The search field in the middle of the bar: typing searches everything (Browse → Search), and
  * it follows the address, so Back shows what was searched. The button at its end opens Browse.
+ * Focused while empty, it lists the searches made lately: the arrow keys move through them,
+ * Enter searches again. Escape clears what's typed, then leaves the field.
  */
 const AppSearch: FC<{ inputRef: RefObject<HTMLInputElement | null> }> = ({ inputRef }) => {
   const { t } = useTranslation();
@@ -45,21 +53,38 @@ const AppSearch: FC<{ inputRef: RefObject<HTMLInputElement | null> }> = ({ input
   const search = location.search as BrowseSearch;
   const searching = location.pathname === '/browse' && search.tab === 'search';
   const q = searching ? (search.q ?? '') : '';
+  const kind = searching && isSearchType(search.type) ? search.type : 'all';
+  const remember = useRememberSearch();
+  const recent = useRecentSearches();
   const [input, setInput] = useState(q);
+  // The address's query last seen, and the one this field last searched for.
   const [shown, setShown] = useState(q);
-  // A search changed elsewhere (Back, a link) shows here.
+  const [sent, setSent] = useState(q);
+  const [focused, setFocused] = useState(false);
+  const [picked, setPicked] = useState(-1);
+  const listId = useId();
   if (q !== shown) {
     setShown(q);
-    setInput(q);
+    // A search changed elsewhere (Back, a link) shows here; this field's own search arriving
+    // leaves what's been typed since alone.
+    if (q !== sent) {
+      setSent(q);
+      setInput(q);
+    }
   }
 
-  const go = (text: string) => {
+  const go = (text: string, type?: SearchType) => {
     const next = text.trim();
-    if (next === q) return;
-    setShown(next);
+    if (next === q && (!type || type === kind)) return;
+    setSent(next);
     void navigate({
       to: '/browse',
-      search: { ...(searching ? search : {}), tab: 'search', q: next || undefined },
+      search: {
+        ...(searching ? search : {}),
+        tab: 'search',
+        q: next || undefined,
+        ...(type ? { type: type === 'all' ? undefined : type, view: undefined } : {}),
+      },
       // Refining a search keeps one history entry; starting one from elsewhere adds one.
       replace: searching,
     });
@@ -71,34 +96,114 @@ const AppSearch: FC<{ inputRef: RefObject<HTMLInputElement | null> }> = ({ input
     return () => clearTimeout(timer);
   });
 
+  // The searches made lately, while the field is focused and empty.
+  const kept = focused && input === '' ? (recent.data ?? []).slice(0, 8) : [];
+  const choose = (choice: RecentSearch) => {
+    const type = kindOf(choice);
+    setInput(choice.query);
+    setPicked(-1);
+    remember(choice.query, type);
+    go(choice.query, type);
+  };
+
   return (
-    <label className="bg-surface focus-within:ring-foreground/60 hover:ring-foreground/20 flex h-11 max-w-[480px] min-w-0 flex-1 items-center gap-3 rounded-full pr-1.5 pl-4 ring-1 ring-transparent">
-      <Search aria-hidden size={20} className="text-muted shrink-0" />
-      <input
+    <div className="relative flex h-11 max-w-[480px] min-w-0 flex-1">
+      <TextField
         ref={inputRef}
         type="search"
-        enterKeyHint="search"
         value={input}
-        onChange={(event) => setInput(event.target.value)}
+        onChange={(value) => {
+          setInput(value);
+          setPicked(-1);
+        }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => {
+          setFocused(false);
+          setPicked(-1);
+        }}
         onKeyDown={(event) => {
-          if (event.key === 'Enter') go(input);
+          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            if (kept.length === 0) return;
+            event.preventDefault();
+            // Down past the last, or up past the first, comes back to what's typed.
+            const step = event.key === 'ArrowDown' ? 1 : -1;
+            setPicked((at) => {
+              const next = at + step;
+              if (next >= kept.length) return -1;
+              return next < -1 ? kept.length - 1 : next;
+            });
+            return;
+          }
+          if (event.key === 'Enter') {
+            const choice = kept[picked];
+            if (choice) {
+              choose(choice);
+              return;
+            }
+            remember(input, kind);
+            go(input);
+          }
           if (event.key === 'Escape') event.currentTarget.blur();
         }}
+        icon={Search}
+        iconSize={20}
+        autoComplete="off"
+        aria-controls={kept.length > 0 ? listId : undefined}
+        aria-activedescendant={picked >= 0 ? `${listId}-${picked}` : undefined}
         placeholder={t('appBar.searchPlaceholder')}
         aria-label={t('search.title')}
-        className="placeholder:text-muted min-w-0 flex-1 bg-transparent outline-none"
+        className="bg-surface focus-within:ring-foreground/60 hover:ring-foreground/20 w-full gap-3 rounded-full pr-1.5 pl-4 ring-1 ring-transparent"
+        inputClassName="h-full"
+        trailing={
+          <>
+            <span aria-hidden className="bg-foreground/20 h-6 w-px shrink-0" />
+            <Link
+              to="/browse"
+              search={{ tab: 'discover' }}
+              aria-label={t('appBar.browse')}
+              data-hint={t('appBar.browse')}
+              className={roundButton}
+            >
+              <Inbox aria-hidden size={20} />
+            </Link>
+          </>
+        }
       />
-      <span aria-hidden className="bg-foreground/20 h-6 w-px shrink-0" />
-      <Link
-        to="/browse"
-        search={{ tab: 'discover' }}
-        aria-label={t('appBar.browse')}
-        data-hint={t('appBar.browse')}
-        className={roundButton}
-      >
-        <Inbox aria-hidden size={20} />
-      </Link>
-    </label>
+      {kept.length > 0 && (
+        <ul
+          id={listId}
+          role="listbox"
+          aria-label={t('search.recent.title')}
+          className="bg-surface motion-pop absolute top-full right-0 left-0 z-50 mt-1 flex flex-col rounded-2xl py-1.5 shadow-xl shadow-black/30"
+        >
+          {kept.map((choice, index) => {
+            const type = kindOf(choice);
+            return (
+              <li
+                key={`${choice.kind}:${choice.query}`}
+                id={`${listId}-${index}`}
+                role="option"
+                aria-selected={index === picked}
+                // Chosen on press, before the field loses focus and the list goes.
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  choose(choice);
+                }}
+                className={`flex cursor-pointer items-center gap-3 px-4 py-2 ${index === picked ? 'bg-foreground/10' : 'hover:bg-foreground/5'}`}
+              >
+                <History aria-hidden size={16} className="text-muted shrink-0" />
+                <span className="truncate">{choice.query}</span>
+                {type !== 'all' && (
+                  <span className="text-muted ml-auto shrink-0 text-xs">
+                    {t(`search.type.${type}`)}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 };
 

@@ -13,6 +13,7 @@ import {
   useReorderCategories,
 } from '../manga/useCategories';
 import { Sheet } from '../shell/Sheet';
+import { SHEET_FIELD, SHEET_INPUT, TextField } from '../shell/TextField';
 import { TopBarAction } from '../shell/TopBar';
 import { PageHeader } from './PageHeader';
 import { useSearchMode } from '../shell/useSearchMode';
@@ -92,12 +93,13 @@ export const CategoriesPage: FC = () => {
             <li key={item.id} aria-label={item.name} className="flex items-center gap-2 px-4 py-3">
               {editing?.id === item.id ? (
                 <form onSubmit={onRename} className="flex min-w-0 flex-1 gap-2">
-                  <input
+                  <TextField
                     value={editing.name}
-                    onChange={(event) => setEditing({ id: item.id, name: event.target.value })}
+                    onChange={(name) => setEditing({ id: item.id, name })}
                     aria-label={t('library.categories.name')}
                     maxLength={40}
-                    className="bg-background min-w-0 flex-1 rounded-lg px-3 py-2 text-sm outline-none"
+                    className="bg-background flex-1 rounded-lg pr-0.5 pl-3"
+                    inputClassName="py-2 text-sm"
                   />
                   <button type="submit" aria-label={t('library.categories.save')} className={ICON}>
                     <Check aria-hidden size={16} />
@@ -162,14 +164,15 @@ export const CategoriesPage: FC = () => {
       {creating && (
         <Sheet title={t('library.categories.add')} onClose={() => setCreating(false)}>
           <form onSubmit={onCreate} className="flex flex-col gap-3 text-sm">
-            <input
+            <TextField
               autoFocus
               value={name}
-              onChange={(event) => setName(event.target.value)}
+              onChange={setName}
               placeholder={t('library.categories.newPlaceholder')}
               aria-label={t('library.categories.newName')}
               maxLength={40}
-              className="bg-background placeholder:text-muted rounded-xl px-4 py-3 outline-none"
+              className={SHEET_FIELD}
+              inputClassName={SHEET_INPUT}
             />
             {create.error && (
               <p role="alert" className="text-primary wrap-anywhere">

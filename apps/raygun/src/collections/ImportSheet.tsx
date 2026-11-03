@@ -10,6 +10,7 @@ import { unwrapResult } from '../lib/commandResult';
 import { uploadFile } from '../manga/useImportComics';
 import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
+import { SHEET_FIELD, SHEET_INPUT, TextField } from '../shell/TextField';
 import { ImportReview } from './ImportReview';
 import { ScreenshotQueue } from './ScreenshotQueue';
 import { sortByTaken } from './screenshotOrder';
@@ -84,12 +85,18 @@ export const ImportSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
                 read.mutate({ way: 'link' });
               }}
             >
-              <input
+              <TextField
+                type="url"
+                inputMode="url"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
                 value={link}
-                onChange={(event) => setLink(event.target.value)}
+                onChange={setLink}
                 aria-label={t('import.linkLabel')}
                 placeholder="https://open.spotify.com/playlist/…"
-                className="bg-background placeholder:text-muted rounded-xl px-4 py-3 text-sm outline-none"
+                className={SHEET_FIELD}
+                inputClassName={`${SHEET_INPUT} text-sm`}
               />
               <p className="text-muted text-xs">{t('import.linkHint')}</p>
               <button

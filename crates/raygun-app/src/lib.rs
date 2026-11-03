@@ -46,6 +46,7 @@ mod playback;
 mod podcast_feed;
 mod podcasts;
 mod quick_access;
+mod recent_searches;
 mod remote;
 mod resolution;
 mod resolver;
@@ -123,12 +124,17 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::extension_repos,
             commands::extension_suggested_repos,
             commands::extension_repo_add,
+            commands::extension_repo_preview,
             commands::extension_repo_remove,
             commands::extension_catalog,
             commands::extension_install,
             commands::extension_uninstall,
             commands::extension_setting_set,
             commands::online_search,
+            commands::search_recent,
+            commands::search_recent_add,
+            commands::search_recent_remove,
+            commands::search_recent_clear,
             commands::lyrics_get,
             commands::lyrics_options,
             commands::lyrics_transcribe,
@@ -420,6 +426,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::QueueEvent,
             events::LibraryScanEvent,
             events::ExtensionsChangedEvent,
+            events::SearchProgressEvent,
             events::SyncChangedEvent,
             events::MangaUpdateEvent,
             events::MangaDownloadsEvent,

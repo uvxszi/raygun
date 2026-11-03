@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useLocalNetworkGate } from '../network/useLocalNetworkGate';
 import { Sheet } from '../shell/Sheet';
+import { SHEET_FIELD, SHEET_INPUT, TextField } from '../shell/TextField';
 import { TopBarAction } from '../shell/TopBar';
 import {
   useAddAddon,
@@ -183,7 +184,7 @@ export const WatchAddonsPage: FC = () => {
       {addingByUrl && (
         <Sheet title={t('watch.addAddon')} onClose={() => setAddingByUrl(false)}>
           <form onSubmit={onAdd} className="flex flex-col gap-3 text-sm">
-            <input
+            <TextField
               type="text"
               inputMode="url"
               autoCapitalize="off"
@@ -191,10 +192,11 @@ export const WatchAddonsPage: FC = () => {
               spellCheck={false}
               autoFocus
               value={url}
-              onChange={(event) => setUrl(event.target.value)}
+              onChange={setUrl}
               placeholder="https://…/manifest.json"
               aria-label={t('watch.addAddon')}
-              className="bg-background placeholder:text-muted rounded-xl px-4 py-3 outline-none"
+              className={SHEET_FIELD}
+              inputClassName={SHEET_INPUT}
             />
             {add.error && (
               <p role="alert" className="text-primary text-xs wrap-anywhere">

@@ -136,6 +136,11 @@ export const commands = {
 	extensionSuggestedRepos: () => typedError<SuggestedRepo[], string>(__TAURI_INVOKE("extension_suggested_repos")),
 	/**  Adds a repository by its `index.json` URL, after checking the index can be read. */
 	extensionRepoAdd: (url: string) => typedError<ExtensionRepo[], string>(__TAURI_INVOKE("extension_repo_add", { url })),
+	/**
+	 *  What a repository holds, read from its index without adding it (the repository's `id` is
+	 *  empty).
+	 */
+	extensionRepoPreview: (url: string) => typedError<RepoCatalog, string>(__TAURI_INVOKE("extension_repo_preview", { url })),
 	extensionRepoRemove: (id: string) => typedError<ExtensionRepo[], string>(__TAURI_INVOKE("extension_repo_remove", { id })),
 	/**
 	 *  Every repository's extensions, marked against what this device has. Indexes are cached for a
@@ -149,9 +154,18 @@ export const commands = {
 	extensionSettingSet: (extensionId: string, key: string, value: SettingValue) => typedError<ExtensionInfo_Serialize[], string>(__TAURI_INVOKE("extension_setting_set", { extensionId, key, value })),
 	/**
 	 *  Searches the local library and every online music provider at once. Each provider answers
-	 *  with tracks or an error; songs several providers found are merged into `top`.
+	 *  with tracks or an error; songs several providers found are merged into `top`. Each answer is
+	 *  also sent as a [`crate::events::SearchProgressEvent`] as it comes, in the order they came.
 	 */
 	onlineSearch: (query: string) => typedError<SearchResults_Serialize, string>(__TAURI_INVOKE("online_search", { query })),
+	/**  Searches kept on this device, newest first. */
+	searchRecent: () => typedError<RecentSearch[], string>(__TAURI_INVOKE("search_recent")),
+	/**  Remembers a search (`kind` is Search's kind); answers with the searches kept. */
+	searchRecentAdd: (query: string, kind: string) => typedError<RecentSearch[], string>(__TAURI_INVOKE("search_recent_add", { query, kind })),
+	/**  Forgets one kept search; answers with the searches left. */
+	searchRecentRemove: (query: string, kind: string) => typedError<RecentSearch[], string>(__TAURI_INVOKE("search_recent_remove", { query, kind })),
+	/**  Forgets every kept search. */
+	searchRecentClear: () => typedError<null, string>(__TAURI_INVOKE("search_recent_clear")),
 	/**
 	 *  Lyrics for a track, or `null` when no provider has any. The song's own lyrics (M46.12) win, and
 	 *  its lyrics offset comes along.
@@ -330,9 +344,15 @@ export const commands = {
 	musicTagSongs: (name: string) => typedError<SavedTrack[], string>(__TAURI_INVOKE("music_tag_songs", { name })),
 	/**  Every genre and mood Raygun knows, moods first (M46.9). */
 	musicTagVocabulary: () => __TAURI_INVOKE<MusicTag[]>("music_tag_vocabulary"),
-	/**  Artists for a search, from every source that searches artists (M46.9). */
+	/**
+	 *  Artists for a search, from every source that searches artists (M46.9); each source's are also
+	 *  sent as a [`crate::events::SearchProgressEvent`] as they come.
+	 */
 	musicSearchArtists: (query: string) => typedError<MusicArtist_Serialize[], string>(__TAURI_INVOKE("music_search_artists", { query })),
-	/**  Albums for a search, from every source that searches albums (M46.9). */
+	/**
+	 *  Albums for a search, from every source that searches albums (M46.9); each source's are also
+	 *  sent as a [`crate::events::SearchProgressEvent`] as they come.
+	 */
 	musicSearchAlbums: (query: string) => typedError<MusicAlbum_Serialize[], string>(__TAURI_INVOKE("music_search_albums", { query })),
 	/**  An album's songs from the source that knows it (M46.9). */
 	musicAlbum: (providerId: string, albumId: string) => typedError<MusicAlbumDetail_Serialize, string>(__TAURI_INVOKE("music_album", { providerId, albumId })),
@@ -340,7 +360,8 @@ export const commands = {
 	musicArtistReleases: (name: string) => typedError<MusicAlbum_Serialize[], string>(__TAURI_INVOKE("music_artist_releases", { name })),
 	/**
 	 *  Playlists for a search from every source that searches them; `featured` keeps the services'
-	 *  own (M46.39).
+	 *  own (M46.39). Each source's are also sent as a [`crate::events::SearchProgressEvent`] as they
+	 *  come.
 	 */
 	musicSearchPlaylists: (query: string, featured: boolean) => typedError<MusicPlaylist_Serialize[], string>(__TAURI_INVOKE("music_search_playlists", { query, featured })),
 	/**  Followed artists, the latest followed first (M46.42). */
@@ -960,6 +981,7 @@ export const events = {
 	playbackStateEvent: makeEvent<PlaybackStateEvent>("playback-state-event"),
 	podcastsChangedEvent: makeEvent<PodcastsChangedEvent>("podcasts-changed-event"),
 	queueEvent: makeEvent<QueueEvent>("queue-event"),
+	searchProgressEvent: makeEvent<SearchProgressEvent_Deserialize>("search-progress-event"),
 	settingsChangedEvent: makeEvent<SettingsChangedEvent>("settings-changed-event"),
 	songDownloadsEvent: makeEvent<SongDownloadsEvent>("song-downloads-event"),
 	speechCommandEvent: makeEvent<SpeechCommandEvent>("speech-command-event"),
@@ -2893,6 +2915,8 @@ export type PrivacyPrefs = {
 	history?: boolean,
 	/**  Where plays started from is kept for Home (Recently played, Your music). */
 	recentlyPlayed?: boolean,
+	/**  Searches are kept for Search's recent searches. */
+	searchHistory?: boolean,
 };
 
 /**  A provider an extension registered, e.g. a `music.metadata` search. */
@@ -3026,6 +3050,18 @@ export type ReaderMode =
 /**  One page at a time, right to left (most manga). */
 "pagedRtl";
 
+/**  A search someone made, kept on this device for Search's recent searches. */
+export type RecentSearch = {
+	query: string,
+	/**
+	 *  What it looked through: Search's kind (`all`, `music`, `video`, `manga`, `novel`,
+	 *  `library`).
+	 */
+	kind: string,
+	/**  Unix ms. */
+	searchedAt: number | null,
+};
+
 /**  A release's kind (M46.36), as MusicBrainz and Deezer name them. */
 export type ReleaseKind = "album" | "single" | "ep" | "compilation" | "live" | "other";
 
@@ -3119,6 +3155,54 @@ export type ScanPhase = "discovering" | "reading" | "done" | "failed";
  *  (scrolling still works).
  */
 export type ScrollbarStyle = "thin" | "wide" | "hidden";
+
+/**  What one source answered, by kind of search. */
+export type SearchPart = SearchPart_Serialize | SearchPart_Deserialize;
+
+/**  What one source answered, by kind of search. */
+export type SearchPart_Deserialize = ({ kind: "songs"; result: ProviderSearchResult_Deserialize }) & { albums?: never; artists?: never; featured?: never; playlists?: never; provider?: never } | ({ kind: "artists"; provider: ProviderInfo_Deserialize; artists: MusicArtist_Deserialize[] }) & { albums?: never; featured?: never; playlists?: never; result?: never } | ({ kind: "albums"; provider: ProviderInfo_Deserialize; albums: MusicAlbum_Deserialize[] }) & { artists?: never; featured?: never; playlists?: never; result?: never } | ({ kind: "playlists"; provider: ProviderInfo_Deserialize; featured: boolean; playlists: MusicPlaylist_Deserialize[] }) & { albums?: never; artists?: never; result?: never };
+
+/**  What one source answered, by kind of search. */
+export type SearchPart_Serialize = ({ kind: "songs"; result: ProviderSearchResult_Serialize }) & { albums?: never; artists?: never; featured?: never; playlists?: never; provider?: never } | ({ kind: "artists"; provider: ProviderInfo_Serialize; artists: MusicArtist_Serialize[] }) & { albums?: never; featured?: never; playlists?: never; result?: never } | ({ kind: "albums"; provider: ProviderInfo_Serialize; albums: MusicAlbum_Serialize[] }) & { artists?: never; featured?: never; playlists?: never; result?: never } | ({ kind: "playlists"; provider: ProviderInfo_Serialize; featured: boolean; playlists: MusicPlaylist_Serialize[] }) & { albums?: never; artists?: never; result?: never };
+
+/**
+ *  One source's answer while a search still waits for the others, so Search shows the first
+ *  answers without waiting for the slowest source.
+ */
+export type SearchProgress = SearchProgress_Serialize | SearchProgress_Deserialize;
+
+/**  One source answered a music search that's still waiting for others; one event per source. */
+export type SearchProgressEvent = SearchProgressEvent_Serialize | SearchProgressEvent_Deserialize;
+
+/**  One source answered a music search that's still waiting for others; one event per source. */
+export type SearchProgressEvent_Deserialize = SearchProgress_Deserialize;
+
+/**  One source answered a music search that's still waiting for others; one event per source. */
+export type SearchProgressEvent_Serialize = SearchProgress_Serialize;
+
+/**
+ *  One source's answer while a search still waits for the others, so Search shows the first
+ *  answers without waiting for the slowest source.
+ */
+export type SearchProgress_Deserialize = {
+	/**  What was searched for, trimmed as the search command trims it. */
+	query: string,
+	/**  How many sources the search asks. */
+	total: number,
+	part: SearchPart_Deserialize,
+};
+
+/**
+ *  One source's answer while a search still waits for the others, so Search shows the first
+ *  answers without waiting for the slowest source.
+ */
+export type SearchProgress_Serialize = {
+	/**  What was searched for, trimmed as the search command trims it. */
+	query: string,
+	/**  How many sources the search asks. */
+	total: number,
+	part: SearchPart_Serialize,
+};
 
 /**  Everything a search found (M18). */
 export type SearchResults = SearchResults_Serialize | SearchResults_Deserialize;

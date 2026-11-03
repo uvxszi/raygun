@@ -1,28 +1,36 @@
-import { commands } from '@raygun/bindings';
-import { useQuery } from '@tanstack/react-query';
+import type { MusicPlaylist } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
-import { LoaderCircle } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { unwrapResult } from '../lib/commandResult';
 import { Artwork } from '../library/Artwork';
 import { SourceIssue } from '../shell/SourceIssue';
-import { titleScore } from './rankResults';
+import { Asking } from './MusicFinds';
+import { usePlaylistFinds } from './useMusicFinds';
 
-/** The sources' playlists for a search (M46.39); `featured` keeps the services' own. */
-const usePlaylistFinds = (query: string, featured: boolean) => {
-  const playlists = useQuery({
-    queryKey: ['music', 'searchPlaylists', query.trim(), featured],
-    queryFn: () => unwrapResult(commands.musicSearchPlaylists(query.trim(), featured)),
-    enabled: query.trim() !== '',
-    staleTime: 5 * 60_000,
-  });
-  const list = [...(playlists.data ?? [])].sort(
-    (a, b) => titleScore(b.title, query) - titleScore(a.title, query),
+/** A source's playlist as a cover with its name, author, size and source. */
+export const PlaylistTile: FC<{ playlist: MusicPlaylist }> = ({ playlist }) => {
+  const { t } = useTranslation();
+  return (
+    <Link
+      to="/music/playlist"
+      search={{ provider: playlist.provider.id, id: playlist.id }}
+      className="hover:bg-surface flex flex-col gap-1.5 rounded-xl p-2"
+    >
+      <Artwork url={playlist.artworkUrl} className="w-full rounded-lg shadow" iconSize={36} />
+      <span className="line-clamp-2 text-sm font-semibold">{playlist.title}</span>
+      <span className="text-muted truncate text-xs">
+        {[
+          playlist.author,
+          playlist.trackCount ? t('library.trackCount', { count: playlist.trackCount }) : null,
+          playlist.provider.name,
+        ]
+          .filter(Boolean)
+          .join(' · ')}
+      </span>
+    </Link>
   );
-  return { ...playlists, list };
 };
 
 /**
@@ -51,45 +59,28 @@ export const PlaylistFinds: FC<{ query: string }> = ({ query }) => {
           </button>
         ))}
       </div>
-      {playlists.isPending ? (
-        <LoaderCircle aria-label={t('search.searching')} className="text-muted animate-spin" />
-      ) : playlists.error ? (
+      {playlists.error ? (
         <SourceIssue>{playlists.error.message}</SourceIssue>
       ) : playlists.list.length === 0 ? (
-        <p className="text-muted text-sm">{t('search.playlists.none', { query })}</p>
+        playlists.isFetching ? (
+          <Asking progress={playlists.progress} />
+        ) : (
+          <p className="text-muted text-sm">{t('search.playlists.none', { query })}</p>
+        )
       ) : (
-        <ul
-          data-testid="playlist-finds"
-          className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3"
-        >
-          {playlists.list.map((playlist) => (
-            <li key={`${playlist.provider.id}:${playlist.id}`}>
-              <Link
-                to="/music/playlist"
-                search={{ provider: playlist.provider.id, id: playlist.id }}
-                className="hover:bg-surface flex flex-col gap-1.5 rounded-xl p-2"
-              >
-                <Artwork
-                  url={playlist.artworkUrl}
-                  className="w-full rounded-lg shadow"
-                  iconSize={36}
-                />
-                <span className="line-clamp-2 text-sm font-semibold">{playlist.title}</span>
-                <span className="text-muted truncate text-xs">
-                  {[
-                    playlist.author,
-                    playlist.trackCount
-                      ? t('library.trackCount', { count: playlist.trackCount })
-                      : null,
-                    playlist.provider.name,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul
+            data-testid="playlist-finds"
+            className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3"
+          >
+            {playlists.list.map((playlist) => (
+              <li key={`${playlist.provider.id}:${playlist.id}`}>
+                <PlaylistTile playlist={playlist} />
+              </li>
+            ))}
+          </ul>
+          {playlists.progress && <Asking progress={playlists.progress} />}
+        </>
       )}
     </div>
   );

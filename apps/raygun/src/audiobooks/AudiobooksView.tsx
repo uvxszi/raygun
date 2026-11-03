@@ -4,6 +4,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { PodcastArt } from '../podcasts/PodcastArt';
+import { searchLink } from '../search/searchTypes';
 import { EmptyState } from '../shell/EmptyState';
 import { useAudiobooks } from './useAudiobooks';
 
@@ -18,7 +19,7 @@ export const AudiobooksView: FC = () => {
         icon={BookAudio}
         title={t('audiobooks.emptyTitle')}
         body={t('audiobooks.emptyBody')}
-        action={{ label: t('audiobooks.browse'), to: '/audiobooks' }}
+        action={{ label: t('audiobooks.browse'), ...searchLink('music', 'audiobooks') }}
       />
     );
   }

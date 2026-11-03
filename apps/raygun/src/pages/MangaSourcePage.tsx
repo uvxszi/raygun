@@ -11,6 +11,7 @@ import type { Medium } from '../manga/medium';
 import { useMangaBrowse, useMangaSources } from '../manga/useManga';
 import { PageHeader } from './PageHeader';
 import { LoadMore } from '../shell/LoadMore';
+import { TextField } from '../shell/TextField';
 import { SourceIssue } from '../shell/SourceIssue';
 
 const LISTS: MangaBrowseMode[] = ['popular', 'latest'];
@@ -41,16 +42,18 @@ export const MangaSourcePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) =
   return (
     <section data-testid="manga-source-page" className="flex flex-col gap-4">
       <PageHeader back fallback="/browse" title={source?.name ?? t('manga.source')} />
-      <form onSubmit={submit} className="bg-surface flex items-center gap-3 rounded-xl px-4 py-3">
-        <Search aria-hidden size={20} className="text-muted" />
-        <input
+      <form onSubmit={submit}>
+        <TextField
           type="search"
-          enterKeyHint="search"
           value={input}
-          onChange={(event) => setInput(event.target.value)}
+          onChange={setInput}
+          icon={Search}
+          iconSize={20}
+          autoComplete="off"
           placeholder={t('manga.searchPlaceholder')}
           aria-label={t('manga.search')}
-          className="placeholder:text-muted w-full bg-transparent outline-none"
+          className="bg-surface gap-3 rounded-xl py-1.5 pr-2 pl-4"
+          inputClassName="py-1.5"
         />
       </form>
       <nav className="flex gap-2" aria-label={t('manga.lists')}>

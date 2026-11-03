@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { Sheet } from '../shell/Sheet';
+import { SHEET_FIELD, SHEET_INPUT, TextField } from '../shell/TextField';
 import { matchesSearch } from '../shell/useListSearch';
 import {
   useAddWebsite,
@@ -16,8 +17,6 @@ import {
   useResetWebsite,
   useWebsites,
 } from './useWebsites';
-
-const FIELD = 'bg-background placeholder:text-muted rounded-xl px-4 py-3 outline-none';
 
 /** Add a site, or change one: its address and an optional name. */
 const WebsiteSheet: FC<{ site?: Website; onClose: () => void }> = ({ site, onClose }) => {
@@ -39,7 +38,7 @@ const WebsiteSheet: FC<{ site?: Website; onClose: () => void }> = ({ site, onClo
   return (
     <Sheet title={site ? t('websites.edit') : t('websites.add')} onClose={onClose}>
       <form onSubmit={onSubmit} className="flex flex-col gap-3 text-sm">
-        <input
+        <TextField
           type="text"
           inputMode="url"
           autoCapitalize="off"
@@ -47,18 +46,20 @@ const WebsiteSheet: FC<{ site?: Website; onClose: () => void }> = ({ site, onClo
           spellCheck={false}
           autoFocus
           value={url}
-          onChange={(event) => setUrl(event.target.value)}
+          onChange={setUrl}
           placeholder="example.com"
           aria-label={t('websites.address')}
-          className={FIELD}
+          className={SHEET_FIELD}
+          inputClassName={SHEET_INPUT}
         />
-        <input
+        <TextField
           type="text"
           value={name}
-          onChange={(event) => setName(event.target.value)}
+          onChange={setName}
           placeholder={t('websites.namePlaceholder')}
           aria-label={t('websites.name')}
-          className={FIELD}
+          className={SHEET_FIELD}
+          inputClassName={SHEET_INPUT}
         />
         <p className="text-muted text-xs">{t('websites.blockerNote')}</p>
         {error && (

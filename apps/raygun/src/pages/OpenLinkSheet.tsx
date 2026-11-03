@@ -5,12 +5,14 @@ import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Sheet } from '../shell/Sheet';
+import { SHEET_FIELD, SHEET_INPUT, TextField } from '../shell/TextField';
 import { usePlayLink } from '../watch/useWatch';
 import { toQueueItem } from './toQueueItem';
 
 type Kind = 'video' | 'audio';
 
-const FIELD = 'bg-background placeholder:text-muted rounded-xl px-4 py-3 text-sm outline-none';
+/** The fields' text: the sheet's size. */
+const INPUT = `${SHEET_INPUT} text-sm`;
 
 /**
  * Plays any address: a video in the player (with an optional subtitle file) or audio in the music
@@ -75,21 +77,22 @@ export const OpenLinkSheet: FC<{ onClose: () => void; initialKind?: Kind }> = ({
         ))}
       </div>
       <form onSubmit={onSubmit} data-testid="open-media-form" className="flex flex-col gap-3">
-        <input
+        <TextField
           autoFocus
           value={location}
-          onChange={(event) => setLocation(event.target.value)}
+          onChange={setLocation}
           placeholder={kind === 'video' ? 'https://…/video.m3u8' : t('library.openPlaceholder')}
           aria-label={kind === 'video' ? t('watch.videoUrl') : t('library.openLocation')}
           inputMode="url"
           autoCapitalize="off"
           autoCorrect="off"
           spellCheck={false}
-          className={FIELD}
+          className={SHEET_FIELD}
+          inputClassName={INPUT}
         />
-        <input
+        <TextField
           value={extra}
-          onChange={(event) => setExtra(event.target.value)}
+          onChange={setExtra}
           placeholder={
             kind === 'video' ? t('watch.subtitlePlaceholder') : t('library.openRefererPlaceholder')
           }
@@ -98,7 +101,8 @@ export const OpenLinkSheet: FC<{ onClose: () => void; initialKind?: Kind }> = ({
           autoCapitalize="off"
           autoCorrect="off"
           spellCheck={false}
-          className={FIELD}
+          className={SHEET_FIELD}
+          inputClassName={INPUT}
         />
         <p className="text-muted text-xs">
           {kind === 'video' ? t('watch.playLinkHint') : t('library.openAudioHint')}

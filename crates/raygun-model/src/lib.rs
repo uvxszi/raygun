@@ -366,6 +366,8 @@ pub struct PrivacyPrefs {
     pub history: bool,
     /// Where plays started from is kept for Home (Recently played, Your music).
     pub recently_played: bool,
+    /// Searches are kept for Search's recent searches.
+    pub search_history: bool,
 }
 
 impl Default for PrivacyPrefs {
@@ -373,6 +375,7 @@ impl Default for PrivacyPrefs {
         Self {
             history: true,
             recently_played: true,
+            search_history: true,
         }
     }
 }
@@ -3081,6 +3084,52 @@ pub struct SearchResults {
     /// Tracks merged across providers, best first; empty unless two or more providers found some.
     pub top: Vec<OnlineTrack>,
     pub providers: Vec<ProviderSearchResult>,
+}
+
+/// One source's answer while a search still waits for the others, so Search shows the first
+/// answers without waiting for the slowest source.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchProgress {
+    /// What was searched for, trimmed as the search command trims it.
+    pub query: String,
+    /// How many sources the search asks.
+    pub total: u32,
+    pub part: SearchPart,
+}
+
+/// What one source answered, by kind of search.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum SearchPart {
+    Songs {
+        result: ProviderSearchResult,
+    },
+    Artists {
+        provider: ProviderInfo,
+        artists: Vec<MusicArtist>,
+    },
+    Albums {
+        provider: ProviderInfo,
+        albums: Vec<MusicAlbum>,
+    },
+    Playlists {
+        provider: ProviderInfo,
+        featured: bool,
+        playlists: Vec<MusicPlaylist>,
+    },
+}
+
+/// A search someone made, kept on this device for Search's recent searches.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentSearch {
+    pub query: String,
+    /// What it looked through: Search's kind (`all`, `music`, `video`, `manga`, `novel`,
+    /// `library`).
+    pub kind: String,
+    /// Unix ms.
+    pub searched_at: f64,
 }
 
 // ---- Favorites, playlists, history (M18) ----
