@@ -8,6 +8,8 @@ import type {
   ExportJob,
   ExtensionInfo,
   IncognitoStatus,
+  HiddenItem,
+  HiddenPrefs,
   LibraryScanProgress,
   LibraryStatus,
   MangaUpdateStatus,
@@ -135,6 +137,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showNsfw: false,
   explicitMusic: true,
   privacy: { history: true, recentlyPlayed: true },
+  hidden: { artists: [], items: [] },
   lyricsCache: { forgetAfterDays: 30, keepFavorites: true, keepDownloaded: true, keepLocal: true },
   preferredVideoQuality: null,
   accent: 'red',
@@ -239,6 +242,9 @@ export const bindingsMock = {
     madeForYou: vi.fn(),
     madeForYouMix: vi.fn(),
     madeForYouSave: vi.fn(),
+    hiddenArtistSet: vi.fn(),
+    hiddenItemSet: vi.fn(),
+    hiddenClear: vi.fn(),
     importReadLink: vi.fn(),
     importReadText: vi.fn(),
     importReaderReady: vi.fn(),
@@ -665,6 +671,36 @@ export const seedBindings = () => {
     }),
   );
   commands.madeForYouSave.mockResolvedValue(ok('playlist-1'));
+  // Hiding saves into the settings, as Rust does, and answers with them.
+  const hide = async (change: (hidden: HiddenPrefs) => HiddenPrefs) => {
+    const answer = (await commands.settingsGet()) as { data?: Settings } | undefined;
+    const current = answer?.data ?? DEFAULT_SETTINGS;
+    const next = { ...current, hidden: change(current.hidden) };
+    commands.settingsGet.mockResolvedValue(ok(next));
+    return ok(next);
+  };
+  const same = (left: string, right: string) => left.toLowerCase() === right.toLowerCase();
+  commands.hiddenArtistSet.mockImplementation((name: string, hidden: boolean) =>
+    hide((prefs) => ({
+      ...prefs,
+      artists: [
+        ...prefs.artists.filter((artist) => !same(artist.name, name)),
+        ...(hidden ? [{ name, hiddenAt: 1 }] : []),
+      ],
+    })),
+  );
+  commands.hiddenItemSet.mockImplementation((item: HiddenItem, hidden: boolean) =>
+    hide((prefs) => ({
+      ...prefs,
+      items: [...prefs.items.filter((other) => other.key !== item.key), ...(hidden ? [item] : [])],
+    })),
+  );
+  commands.hiddenClear.mockImplementation((artists: boolean, items: boolean) =>
+    hide((prefs) => ({
+      artists: artists ? [] : prefs.artists,
+      items: items ? [] : prefs.items,
+    })),
+  );
   commands.importReaderReady.mockResolvedValue(true);
   commands.importMatch.mockResolvedValue(ok([]));
   commands.trackDurations.mockResolvedValue(ok([]));

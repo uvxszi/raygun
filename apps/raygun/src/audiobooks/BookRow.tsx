@@ -1,6 +1,6 @@
 import type { AudiobookResult } from '@raygun/bindings';
 import { LoaderCircle } from 'lucide-react';
-import type { FC } from 'react';
+import type { FC, MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { PodcastArt } from '../podcasts/PodcastArt';
@@ -10,14 +10,17 @@ import { useBookDirectory } from './useAudiobooks';
 import type { BookList } from './useAudiobooks';
 
 /** A book from a directory, as a card (M46.22; also on Home since M46.47). */
-export const BookCard: FC<{ book: AudiobookResult; onOpen: (book: AudiobookResult) => void }> = ({
-  book,
-  onOpen,
-}) => (
+export const BookCard: FC<{
+  book: AudiobookResult;
+  onOpen: (book: AudiobookResult) => void;
+  /** Its right-click and long-press menu. */
+  onMenu?: (event: MouseEvent) => void;
+}> = ({ book, onOpen, onMenu }) => (
   <li className="w-32 shrink-0 sm:w-40">
     <button
       type="button"
       onClick={() => onOpen(book)}
+      onContextMenu={onMenu}
       data-testid="book-card"
       className="hover:bg-surface flex w-full flex-col gap-1.5 rounded-xl p-2 text-left"
     >

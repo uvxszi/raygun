@@ -59,12 +59,17 @@ pub async fn settings_get(db: tauri::State<'_, AppDb>) -> Result<Settings, Strin
 }
 
 /// What was played from lately: albums, playlists, mixes, artists, podcasts, books (M46.37).
+/// Hidden artists' pages and tiles marked Not interested are left out.
 #[tauri::command]
 #[specta::specta]
 pub async fn recent_contexts(
+    db: tauri::State<'_, AppDb>,
     collections: tauri::State<'_, CollectionsService>,
 ) -> Result<Vec<raygun_model::PlayContext>, String> {
-    collections.recent_contexts().await
+    let mut contexts = collections.recent_contexts().await?;
+    let hidden = crate::hidden::Hidden::load(&db.0).await;
+    contexts.retain(|context| !hidden.hides_context(context));
+    Ok(contexts)
 }
 
 /// Remembers where a play started (the page the user played from), for Home's Your music.
@@ -1609,10 +1614,45 @@ pub async fn made_for_you_save(
     service.save(&id, &name).await
 }
 
-/// Every chart source's songs for a genre or a mood (M46.19).
+/// Hides an artist from Home, Made for You, charts, genre rows and recommendations, or shows
+/// them again; returns the settings as saved.
+#[tauri::command]
+#[specta::specta]
+pub async fn hidden_artist_set(
+    app: tauri::AppHandle,
+    name: String,
+    hidden: bool,
+) -> Result<Settings, String> {
+    crate::hidden::set_artist(&app, &name, hidden).await
+}
+
+/// Marks a song, album, podcast or other Home item Not interested, or takes the mark away.
+#[tauri::command]
+#[specta::specta]
+pub async fn hidden_item_set(
+    app: tauri::AppHandle,
+    item: raygun_model::HiddenItem,
+    hidden: bool,
+) -> Result<Settings, String> {
+    crate::hidden::set_item(&app, item, hidden).await
+}
+
+/// Shows every hidden artist, every hidden item, or both, again.
+#[tauri::command]
+#[specta::specta]
+pub async fn hidden_clear(
+    app: tauri::AppHandle,
+    artists: bool,
+    items: bool,
+) -> Result<Settings, String> {
+    crate::hidden::clear(&app, artists, items).await
+}
+
+/// Every chart source's songs for a genre or a mood (M46.19), without hidden artists' songs.
 #[tauri::command]
 #[specta::specta]
 pub async fn music_tag_sources(
+    db: tauri::State<'_, AppDb>,
     discovery: tauri::State<'_, Arc<DiscoveryService>>,
     durations: tauri::State<'_, Arc<crate::durations::DurationService>>,
     name: String,
@@ -1620,17 +1660,21 @@ pub async fn music_tag_sources(
 ) -> Result<raygun_model::MusicTagSources, String> {
     let mut sources = discovery.tag_sources(name, region).await;
     let details = tauri::Manager::state::<Arc<crate::details::DetailService>>(durations.app());
+    let hidden = crate::hidden::Hidden::load(&db.0).await;
     for row in &mut sources.rows {
         durations.learn_tracks(&row.tracks);
         details.apply_online(&mut row.tracks);
+        hidden.retain_tracks(&mut row.tracks);
     }
+    sources.rows.retain(|row| !row.tracks.is_empty());
     Ok(sources)
 }
 
-/// A chart's songs (M46.9).
+/// A chart's songs (M46.9), without hidden artists' songs.
 #[tauri::command]
 #[specta::specta]
 pub async fn music_chart(
+    db: tauri::State<'_, AppDb>,
     discovery: tauri::State<'_, Arc<DiscoveryService>>,
     durations: tauri::State<'_, Arc<crate::durations::DurationService>>,
     provider_id: String,
@@ -1641,6 +1685,9 @@ pub async fn music_chart(
     durations.learn_tracks(&tracks);
     tauri::Manager::state::<Arc<crate::details::DetailService>>(durations.app())
         .apply_online(&mut tracks);
+    crate::hidden::Hidden::load(&db.0)
+        .await
+        .retain_tracks(&mut tracks);
     Ok(tracks)
 }
 

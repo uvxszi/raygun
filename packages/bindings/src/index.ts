@@ -14,7 +14,10 @@ export const commands = {
 	settingsGet: () => typedError<Settings, string>(__TAURI_INVOKE("settings_get")),
 	/**  Changes one setting and returns the updated settings. */
 	settingsUpdate: (change: SettingChange) => typedError<Settings, string>(__TAURI_INVOKE("settings_update", { change })),
-	/**  What was played from lately: albums, playlists, mixes, artists, podcasts, books (M46.37). */
+	/**
+	 *  What was played from lately: albums, playlists, mixes, artists, podcasts, books (M46.37).
+	 *  Hidden artists' pages and tiles marked Not interested are left out.
+	 */
 	recentContexts: () => typedError<PlayContext[], string>(__TAURI_INVOKE("recent_contexts")),
 	/**  Remembers where a play started (the page the user played from), for Home's Your music. */
 	recentContextsAdd: (context: PlayContext) => typedError<null, string>(__TAURI_INVOKE("recent_contexts_add", { context })),
@@ -241,9 +244,9 @@ export const commands = {
 	musicArtist: (name: string) => typedError<ArtistOverview, string>(__TAURI_INVOKE("music_artist", { name })),
 	/**  Every source's charts for a country (M46.9), cached for an hour. */
 	musicCharts: (region: string | null) => typedError<MusicCharts_Serialize, string>(__TAURI_INVOKE("music_charts", { region })),
-	/**  A chart's songs (M46.9). */
+	/**  A chart's songs (M46.9), without hidden artists' songs. */
 	musicChart: (providerId: string, chartId: string, region: string | null) => typedError<OnlineTrack[], string>(__TAURI_INVOKE("music_chart", { providerId, chartId, region })),
-	/**  Every chart source's songs for a genre or a mood (M46.19). */
+	/**  Every chart source's songs for a genre or a mood (M46.19), without hidden artists' songs. */
 	musicTagSources: (name: string, region: string | null) => typedError<MusicTagSources_Serialize, string>(__TAURI_INVOKE("music_tag_sources", { name, region })),
 	/**
 	 *  Made for You (M46.20): today's mixes (made in the background when they're from another day,
@@ -254,6 +257,15 @@ export const commands = {
 	madeForYouMix: (id: string) => typedError<Mix, string>(__TAURI_INVOKE("made_for_you_mix", { id })),
 	/**  Saves a mix as a playlist named `name`; returns the playlist's id (M46.20). */
 	madeForYouSave: (id: string, name: string) => typedError<string, string>(__TAURI_INVOKE("made_for_you_save", { id, name })),
+	/**
+	 *  Hides an artist from Home, Made for You, charts, genre rows and recommendations, or shows
+	 *  them again; returns the settings as saved.
+	 */
+	hiddenArtistSet: (name: string, hidden: boolean) => typedError<Settings, string>(__TAURI_INVOKE("hidden_artist_set", { name, hidden })),
+	/**  Marks a song, album, podcast or other Home item Not interested, or takes the mark away. */
+	hiddenItemSet: (item: HiddenItem, hidden: boolean) => typedError<Settings, string>(__TAURI_INVOKE("hidden_item_set", { item, hidden })),
+	/**  Shows every hidden artist, every hidden item, or both, again. */
+	hiddenClear: (artists: boolean, items: boolean) => typedError<Settings, string>(__TAURI_INVOKE("hidden_clear", { artists, items })),
 	/**  The songs a Spotify playlist, album or song link points at (M46.21). */
 	importReadLink: (link: string) => typedError<ImportedList, string>(__TAURI_INVOKE("import_read_link", { link })),
 	/**  Songs in a CSV export or pasted lines (M46.21). */
@@ -847,6 +859,8 @@ export const commands = {
 	transcription: TranscriptionPrefs,
 	/**  What's remembered of listening (M46.41). */
 	privacy: PrivacyPrefs,
+	/**  Artists and things not to show on Home and in recommendations. */
+	hidden: HiddenPrefs,
 	/**  How long lyrics stay kept (M46.46). */
 	lyricsCache: LyricsCachePrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
@@ -1929,6 +1943,41 @@ export type FoundSubtitles = {
 	note: string | null,
 };
 
+/**  An artist not shown (Don't show this artist). */
+export type HiddenArtist = {
+	/**  As it was shown; compared without case. */
+	name: string,
+	/**  Unix seconds. */
+	hiddenAt: number,
+};
+
+/**  Something Home doesn't show again (Not interested). */
+export type HiddenItem = {
+	/**  One of [`HIDDEN_KINDS`]. */
+	kind: string,
+	/**
+	 *  What it's known by: a song's track key, the address of its page
+	 *  (`/music/album?id=…&provider=…`), or its feed (`feed:<url>`).
+	 */
+	key: string,
+	/**  Its name, artist or show and cover as last seen, for the list in Settings. */
+	name: string,
+	subtitle: string | null,
+	artworkUrl: string | null,
+	/**  Unix seconds. */
+	hiddenAt: number,
+};
+
+/**
+ *  What the listener asked not to be shown, as Spotify's "Don't play this artist" and "Not
+ *  interested": artists left out of Home, Made for You, charts, genre rows and recommendations,
+ *  and things Home doesn't show again. Searches and an artist's own page still find them.
+ */
+export type HiddenPrefs = {
+	artists: HiddenArtist[],
+	items: HiddenItem[],
+};
+
 export type HistoryEntry = {
 	track: SavedTrack,
 	/**  Unix ms. */
@@ -2160,6 +2209,11 @@ export type ListeningStats = {
 	peakHour: number | null,
 	/**  Songs the user has played or saved. */
 	songsKnown: number,
+	/**
+	 *  The artists played most now, the most first (Home's Your top artists), without hidden
+	 *  ones.
+	 */
+	topArtists?: string[],
 };
 
 export type LocalCounts = {
@@ -3242,7 +3296,7 @@ export type SearchResults_Serialize = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -3339,6 +3393,8 @@ export type Settings = {
 	transcription: TranscriptionPrefs,
 	/**  What's remembered of listening (M46.41). */
 	privacy: PrivacyPrefs,
+	/**  Artists and things not to show on Home and in recommendations. */
+	hidden: HiddenPrefs,
 	/**  How long lyrics stay kept (M46.46). */
 	lyricsCache: LyricsCachePrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */

@@ -9,8 +9,13 @@ import { useDownloadedSongs } from '../music/useSongDownloads';
 import { useAudiobooks } from '../audiobooks/useAudiobooks';
 import { PodcastArt } from '../podcasts/PodcastArt';
 import { LocalFilesTile } from './LocalFilesTile';
-import { openContextMenu } from '../shell/contextMenuStore';
-import { usePinMenuItem } from '../shell/usePinMenuItem';
+import {
+  menuHandler,
+  useAlbumMenuItems,
+  useArtistMenuItems,
+  useBookMenuItems,
+  usePodcastMenuItems,
+} from '../music/cardMenus';
 import { usePlaylistMenu } from '../collections/usePlaylistMenu';
 import { useSubscriptions } from '../podcasts/usePodcasts';
 import { Artwork } from './Artwork';
@@ -63,9 +68,12 @@ export const MusicOverview: FC<{
   ready: boolean;
 }> = ({ hasFolders, trackCount, ready }) => {
   const { t } = useTranslation();
-  // Right-click a playlist, show or book: pin it to the sidebar (M46.29).
-  const pinItems = usePinMenuItem();
+  // Every card's menu has its kind's basic items (play, save, pin…).
   const playlistMenu = usePlaylistMenu();
+  const podcastMenu = usePodcastMenuItems();
+  const bookMenu = useBookMenuItems();
+  const albumMenu = useAlbumMenuItems();
+  const artistMenu = useArtistMenuItems();
   const playlists = usePlaylists();
   const podcasts = useSubscriptions();
   const audiobooks = useAudiobooks();
@@ -159,18 +167,16 @@ export const MusicOverview: FC<{
               <li
                 key={podcast.id}
                 className="w-28 shrink-0"
-                onContextMenu={(event) =>
-                  openContextMenu(
-                    event,
-                    pinItems({
-                      kind: 'podcast',
-                      to: '/podcast',
-                      search: { id: podcast.id },
-                      name: podcast.title,
-                      artworkUrl: podcast.artworkUrl ?? null,
-                    }),
-                  )
-                }
+                onContextMenu={menuHandler(() =>
+                  podcastMenu({
+                    title: podcast.title,
+                    author: podcast.author,
+                    feedUrl: podcast.feedUrl,
+                    artworkUrl: podcast.artworkUrl,
+                    id: podcast.id,
+                    subscribed: true,
+                  }),
+                )}
               >
                 <Link to="/podcast" search={{ id: podcast.id }} className="flex flex-col gap-1.5">
                   <PodcastArt url={podcast.artworkUrl} className="w-full rounded-lg" />
@@ -188,18 +194,15 @@ export const MusicOverview: FC<{
               <li
                 key={book.id}
                 className="w-28 shrink-0"
-                onContextMenu={(event) =>
-                  openContextMenu(
-                    event,
-                    pinItems({
-                      kind: 'audiobook',
-                      to: '/audiobook',
-                      search: { id: book.id },
-                      name: book.title,
-                      artworkUrl: book.artworkUrl ?? null,
-                    }),
-                  )
-                }
+                onContextMenu={menuHandler(() =>
+                  bookMenu({
+                    title: book.title,
+                    author: book.author,
+                    artworkUrl: book.artworkUrl,
+                    id: book.id,
+                    kept: true,
+                  }),
+                )}
               >
                 <Link to="/audiobook" search={{ id: book.id }} className="flex flex-col gap-1.5">
                   <PodcastArt url={book.artworkUrl} className="w-full rounded-lg" />
@@ -218,7 +221,17 @@ export const MusicOverview: FC<{
         <Section view="albums" count={albums.data.length}>
           <Row>
             {albums.data.map((album) => (
-              <li key={`${album.artist}\u001f${album.title}`} className="w-28 shrink-0">
+              <li
+                key={`${album.artist}\u001f${album.title}`}
+                className="w-28 shrink-0"
+                onContextMenu={menuHandler(() =>
+                  albumMenu({
+                    title: album.title,
+                    artist: album.artist,
+                    artworkUrl: album.artworkUrl,
+                  }),
+                )}
+              >
                 <Link
                   to="/library/album"
                   search={{ artist: album.artist, album: album.title }}
@@ -237,7 +250,13 @@ export const MusicOverview: FC<{
         <Section view="artists" count={artists.data.length}>
           <Row>
             {artists.data.map((artist) => (
-              <li key={artist.name} className="w-24 shrink-0">
+              <li
+                key={artist.name}
+                className="w-24 shrink-0"
+                onContextMenu={menuHandler(() =>
+                  artistMenu({ name: artist.name, imageUrl: artist.artworkUrl }),
+                )}
+              >
                 <Link
                   to="/library/artist"
                   search={{ name: artist.name }}
