@@ -20,6 +20,7 @@ import type { TrackColumnId, TrackSortKey } from '@raygun/bindings';
 import {
   ArrowDown,
   ArrowUp,
+  AudioLines,
   Check,
   ChevronDown,
   CircleSlash,
@@ -40,6 +41,7 @@ import { useMemo, useRef, useState } from 'react';
 import type { FC, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { commands } from '@raygun/bindings';
+import { useMutation } from '@tanstack/react-query';
 
 import { SaveButton } from '../collections/SaveButton';
 import { TrackMoreButton } from '../collections/TrackMoreButton';
@@ -58,7 +60,7 @@ import {
   useTableView,
 } from './tableView';
 import { useTagsFor } from './useDiscovery';
-import { downloadSongs, useDownloadedKeys } from './useSongDownloads';
+import { downloadSongs, useDownloadedKeys, useDownloadingKeys } from './useSongDownloads';
 import type { TableReorder, TableTrack, TableView, TrackTableKind } from './tableView';
 import { useSourcePickerStore } from './sourcePickerStore';
 import { useTrackLengths } from './useTrackLengths';
@@ -220,8 +222,9 @@ export const TrackTable: FC<TrackTableProps> = ({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  // Songs saved into the app are marked (M46.10): this table listens, so its marks follow.
-  useDownloadedKeys();
+  // Songs saved into the app are marked (M46.10); a selection's Download skips them (M46.46).
+  const downloadedKeys = useDownloadedKeys();
+  const downloadingKeys = useDownloadingKeys();
   // Genres and moods found for these songs (M46.9): chips filter the table by one.
   const trackKeys = useMemo(() => [...new Set(tracks.map((track) => track.trackKey))], [tracks]);
   const tagsFor = useTagsFor(trackKeys);
@@ -303,6 +306,24 @@ export const TrackTable: FC<TrackTableProps> = ({
     saveWidths({ ...widths, [id]: clampColumn((widths[id] ?? COLUMN_FALLBACK) + by) });
   };
   const chosen = shown.filter((track) => selected.has(track.rowKey));
+  // Saved or on their way already: left out of the selection's Download (M46.46).
+  const toDownload = chosen.filter(
+    (track) => !downloadedKeys.has(track.trackKey) && !downloadingKeys.has(track.trackKey),
+  );
+  const allSelected = shown.length > 0 && shown.every((track) => selected.has(track.rowKey));
+  const transcribe = useMutation({
+    mutationFn: (rows: TableTrack[]) =>
+      unwrapResult(
+        commands.lyricsTranscribeMany(
+          rows.map((row) => ({
+            title: row.title,
+            artist: row.artist,
+            album: row.album,
+            durationMs: row.durationMs,
+          })),
+        ),
+      ),
+  });
 
   const pick = (event: MouseEvent, index: number) => {
     const key = shown[index]?.rowKey;
@@ -350,6 +371,8 @@ export const TrackTable: FC<TrackTableProps> = ({
     if (whole) set({ sort: 'custom', descending: false });
   };
   const selectAll = () => setSelected(new Set(shown.map((track) => track.rowKey)));
+  // The toolbar's Select all, pressed again, clears the selection and closes its bar (M46.46).
+  const toggleAll = () => (allSelected ? setSelected(new Set()) : selectAll());
   const sortOf = (key: TrackSortKey) =>
     view.sort === key ? (view.descending ? 'desc' : 'asc') : null;
 
@@ -468,10 +491,11 @@ export const TrackTable: FC<TrackTableProps> = ({
           <button
             type="button"
             aria-label={t('tracks.selectAll')}
-            title={t('tracks.selectAll')}
+            aria-pressed={allSelected}
+            title={t(allSelected ? 'tracks.clearSelection' : 'tracks.selectAll')}
             disabled={shown.length === 0}
-            onClick={selectAll}
-            className="text-muted hover:text-foreground grid size-9 place-items-center rounded-full disabled:opacity-30"
+            onClick={toggleAll}
+            className={`grid size-9 place-items-center rounded-full disabled:opacity-30 ${allSelected ? 'text-primary' : 'text-muted hover:text-foreground'}`}
           >
             <ListChecks aria-hidden size={18} />
           </button>
@@ -557,10 +581,24 @@ export const TrackTable: FC<TrackTableProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => void downloadSongs(chosen.map((track) => track.input))}
+            disabled={toDownload.length === 0}
+            onClick={() => void downloadSongs(toDownload.map((track) => track.input))}
+            className="hover:bg-background flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm disabled:opacity-40"
+          >
+            <Download aria-hidden size={14} />{' '}
+            {toDownload.length === 0
+              ? t('songs.allDownloaded')
+              : toDownload.length === chosen.length
+                ? t('songs.downloadSelected')
+                : t('songs.downloadSome', { count: toDownload.length })}
+          </button>
+          <button
+            type="button"
+            disabled={transcribe.isPending}
+            onClick={() => transcribe.mutate(chosen)}
             className="hover:bg-background flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm"
           >
-            <Download aria-hidden size={14} /> {t('songs.downloadSelected')}
+            <AudioLines aria-hidden size={14} /> {t('lyricsEdit.transcribeSelected')}
           </button>
           {onRemove && (
             <button
@@ -573,6 +611,16 @@ export const TrackTable: FC<TrackTableProps> = ({
             >
               <Trash2 aria-hidden size={14} /> {t('tracks.remove')}
             </button>
+          )}
+          {transcribe.isSuccess && (
+            <span role="status" className="text-muted w-full px-3 text-xs">
+              {t('lyricsEdit.transcribeQueued', { count: transcribe.variables.length })}
+            </span>
+          )}
+          {transcribe.error && (
+            <span role="alert" className="text-primary w-full px-3 text-xs">
+              {transcribe.error.message}
+            </span>
           )}
           <button
             type="button"

@@ -13,6 +13,7 @@ pub mod extensions;
 pub mod hlc;
 pub mod local_folders;
 pub mod local_music;
+pub mod lyrics_cache;
 pub mod manga_downloads;
 pub mod music_downloads;
 pub mod podcasts;

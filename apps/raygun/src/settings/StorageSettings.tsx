@@ -8,6 +8,7 @@ import { unwrapResult } from '../lib/commandResult';
 import { formatBytes } from '../lib/formatBytes';
 import { CACHE_SIZES_MB, COVER_REFRESH_DAYS, withCache } from './cacheDefaults';
 import type { Cache } from './cacheDefaults';
+import { LyricsStorage } from './LyricsStorage';
 import { PrefBlock, PrefChoice, PrefGroup, PrefSwitch } from './prefs';
 import { useSettings, useUpdateSetting } from './useSettings';
 
@@ -148,6 +149,7 @@ export const StorageSettings: FC = () => {
           />
         </PrefGroup>
       )}
+      <LyricsStorage />
     </>
   );
 };

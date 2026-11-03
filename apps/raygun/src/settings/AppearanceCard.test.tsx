@@ -23,6 +23,7 @@ const DEFAULT_SETTINGS: Settings = {
   showNsfw: false,
   explicitMusic: true,
   privacy: { history: true, recentlyPlayed: true },
+  lyricsCache: { forgetAfterDays: 30, keepFavorites: true, keepDownloaded: true, keepLocal: true },
   preferredVideoQuality: null,
   accent: 'red',
   startScreen: 'home',

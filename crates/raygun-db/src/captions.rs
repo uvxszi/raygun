@@ -169,6 +169,15 @@ pub async fn move_to(db: &Db, from: &str, to: &str) -> Result<(), DbError> {
     Ok(())
 }
 
+/// The songs with a transcription (`song:<track key>`, M46.46).
+pub async fn song_keys(db: &Db) -> Result<Vec<String>, DbError> {
+    let rows =
+        sqlx::query("SELECT episode_id FROM local_caption_progress WHERE episode_id LIKE 'song:%'")
+            .fetch_all(db.pool())
+            .await?;
+    Ok(rows.iter().map(|row| row.get("episode_id")).collect())
+}
+
 pub async fn clear(db: &Db, episode_id: &str) -> Result<(), DbError> {
     let mut tx = db.pool().begin().await?;
     sqlx::query("DELETE FROM local_episode_caption WHERE episode_id = ?")

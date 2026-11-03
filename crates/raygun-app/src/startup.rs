@@ -186,6 +186,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     let follows = crate::follows::ArtistFollows::new(app.handle().clone());
     follows.start();
     app.manage(follows);
+    // Lyrics kept on the device, forgotten when not played for a while (M46.46).
+    let lyrics = crate::lyrics_store::LyricsStore::new(app.handle().clone());
+    lyrics.start();
+    app.manage(lyrics);
     // Covers from other sources when one's missing or fails (M46.40).
     app.manage(crate::cover_fallback::CoverFallbacks::new(
         app.handle().clone(),

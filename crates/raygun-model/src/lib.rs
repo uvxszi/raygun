@@ -144,6 +144,8 @@ pub struct Settings {
     pub transcription: TranscriptionPrefs,
     /// What's remembered of listening (M46.41).
     pub privacy: PrivacyPrefs,
+    /// How long lyrics stay kept (M46.46).
+    pub lyrics_cache: LyricsCachePrefs,
     /// Sources that didn't answer lately go to the end of Browse and Search (M46.9).
     pub failing_sources_last: bool,
     /// The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default.
@@ -252,6 +254,52 @@ impl RailPrefs {
         }
         Ok(())
     }
+}
+
+/// How long lyrics stay kept on the device (M46.46).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LyricsCachePrefs {
+    /// Lyrics of songs not played for this many days are forgotten; 0 keeps them.
+    pub forget_after_days: u32,
+    /// Favorites' lyrics stay whatever the days.
+    pub keep_favorites: bool,
+    /// Downloaded songs' lyrics stay.
+    pub keep_downloaded: bool,
+    /// Local files' lyrics stay.
+    pub keep_local: bool,
+}
+
+impl Default for LyricsCachePrefs {
+    fn default() -> Self {
+        Self {
+            forget_after_days: 30,
+            keep_favorites: true,
+            keep_downloaded: true,
+            keep_local: true,
+        }
+    }
+}
+
+/// How many songs have lyrics kept, and transcriptions (M46.46).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LyricsCacheUsage {
+    pub songs: u32,
+    pub transcriptions: u32,
+}
+
+/// Whose kept lyrics a clear takes (M46.46).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum LyricsClearScope {
+    All,
+    /// Songs not in Favorites, a playlist, downloads or local files.
+    NotSaved,
+    Favorites,
+    /// Favorites and playlists.
+    Saved,
+    Downloaded,
 }
 
 /// What's remembered of listening (M46.41); both on by default.
@@ -1469,6 +1517,7 @@ impl Default for Settings {
             discovery: DiscoveryPrefs::default(),
             transcription: TranscriptionPrefs::default(),
             privacy: PrivacyPrefs::default(),
+            lyrics_cache: LyricsCachePrefs::default(),
             failing_sources_last: true,
             user_agent: String::new(),
             sound: SoundPrefs::default(),
@@ -1530,6 +1579,7 @@ impl Settings {
             SettingChange::AudioQuality(prefs) => self.audio_quality = prefs,
             SettingChange::Rail(prefs) => self.rail = prefs,
             SettingChange::Privacy(prefs) => self.privacy = prefs,
+            SettingChange::LyricsCache(prefs) => self.lyrics_cache = prefs,
             SettingChange::Transcription(prefs) => {
                 self.transcription = TranscriptionPrefs {
                     online_model: prefs.online_model.trim().to_owned(),
@@ -1610,6 +1660,7 @@ pub enum SettingChange {
     Rail(RailPrefs),
     Transcription(TranscriptionPrefs),
     Privacy(PrivacyPrefs),
+    LyricsCache(LyricsCachePrefs),
 }
 
 impl SettingChange {
@@ -1666,6 +1717,7 @@ impl SettingChange {
             Self::Rail(_) => "rail",
             Self::Transcription(_) => "transcription",
             Self::Privacy(_) => "privacy",
+            Self::LyricsCache(_) => "lyricsCache",
         }
     }
 
@@ -1693,6 +1745,10 @@ impl SettingChange {
             | Self::ResumeOnStart(_)
             | Self::AudioQuality(_)
             | Self::Privacy(_) => Ok(()),
+            Self::LyricsCache(prefs) if prefs.forget_after_days > 3650 => {
+                Err("Lyrics can be kept for at most ten years".into())
+            }
+            Self::LyricsCache(_) => Ok(()),
             Self::Rail(prefs) => prefs.validate(),
             Self::Transcription(prefs) => {
                 if prefs.online_model.trim().len() > 200 {

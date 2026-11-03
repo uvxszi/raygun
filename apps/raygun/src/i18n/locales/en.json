@@ -1127,7 +1127,9 @@
       "remove": "Remove the merged playlists",
       "action_one": "Merge {{count}} playlist",
       "action_other": "Merge {{count}} playlists"
-    }
+    },
+    "rowButtons": "Move and remove buttons",
+    "editPlaylist": "Edit playlist"
   },
   "mcp": {
     "title": "MCP server",
@@ -2276,7 +2278,15 @@
     },
     "removeDownload": "Remove from downloads",
     "explicit": "Explicit",
-    "saved": "Saved"
+    "saved": "Saved",
+    "downloading": "Downloading",
+    "allDownloaded": "All downloaded",
+    "downloadSome_one": "Download {{count}} not saved yet",
+    "downloadSome_other": "Download {{count}} not saved yet",
+    "recordingNow": "Recording",
+    "recordingProgress": "How far the recording is",
+    "recordingLocked": "The player is locked while it records: the song plays from its start trim to its end trim.",
+    "recordingCancel": "Stop without keeping it"
   },
   "audiobooks": {
     "title": "Audiobooks",
@@ -2774,7 +2784,11 @@
     "hearing": "Listening… {{n}} lines so far",
     "hearSetUp": "Set up transcription in Settings → AI to hear the words.",
     "transcribedSource": "Transcribed by AI",
-    "automatic": "The sources' pick"
+    "automatic": "The sources' pick",
+    "transcribeSelected": "Transcribe lyrics",
+    "transcribeQueued_one": "{{count}} song is being transcribed.",
+    "transcribeQueued_other": "{{count}} songs are being transcribed, one after another.",
+    "forget": "Delete saved lyrics"
   },
   "cueEdit": {
     "title": "Lines",
@@ -2972,5 +2986,29 @@
       "hdmi": "HDMI",
       "speakerPhone": "Phone speaker"
     }
+  },
+  "lyricsCache": {
+    "title": "Lyrics",
+    "usage": "Lyrics kept for {{songs}} songs · {{transcriptions}} transcriptions",
+    "clearFor": "Clear for",
+    "scope": {
+      "all": "All songs",
+      "notSaved": "Songs not in your library",
+      "favorites": "Favorites",
+      "saved": "Favorites and playlists",
+      "downloaded": "Downloaded songs"
+    },
+    "clearLyrics": "Clear lyrics",
+    "clearBoth": "Clear lyrics and transcriptions",
+    "cleared_one": "Cleared {{count}} song.",
+    "cleared_other": "Cleared {{count}} songs.",
+    "forget": "Forget lyrics of songs not played for",
+    "forgetHint": "Their kept lyrics and transcriptions go; the switches below keep some always.",
+    "never": "Never",
+    "days_one": "{{count}} day",
+    "days_other": "{{count}} days",
+    "keepFavorites": "Always keep Favorites' lyrics",
+    "keepDownloaded": "Always keep downloaded songs' lyrics",
+    "keepLocal": "Always keep local files' lyrics"
   }
 }

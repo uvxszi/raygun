@@ -2,7 +2,7 @@ import { commands } from '@raygun/bindings';
 import type { PlaylistDetail, PlaylistItem } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { ArrowDown, ArrowUp, ImageIcon, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ImageIcon, Pencil, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -74,8 +74,14 @@ const EditControls: FC<{ items: PlaylistItem[]; index: number }> = ({ items, ind
   );
 };
 
-/** Rename and delete, shown while editing. */
-const PlaylistSettings: FC<{ detail: PlaylistDetail }> = ({ detail }) => {
+/**
+ * The Edit popover (M46.46): rename, change cover, the rows' move and remove buttons, delete.
+ */
+const PlaylistSettings: FC<{
+  detail: PlaylistDetail;
+  editing: boolean;
+  onEditing: (on: boolean) => void;
+}> = ({ detail, editing, onEditing }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const rename = useRenamePlaylist();
@@ -93,7 +99,7 @@ const PlaylistSettings: FC<{ detail: PlaylistDetail }> = ({ detail }) => {
   const error = rename.error ?? remove.error;
 
   return (
-    <div className="bg-surface flex flex-col gap-3 rounded-xl p-4">
+    <div data-testid="playlist-edit" className="flex flex-col gap-3">
       <form onSubmit={submit} className="flex items-center gap-2">
         <input
           value={name}
@@ -116,6 +122,21 @@ const PlaylistSettings: FC<{ detail: PlaylistDetail }> = ({ detail }) => {
       >
         <ImageIcon aria-hidden size={16} />
         {t('collections.changeCover')}
+      </button>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={editing}
+        onClick={() => onEditing(!editing)}
+        className="flex items-center justify-between gap-3 text-left text-sm"
+      >
+        {t('collections.rowButtons')}
+        <span
+          aria-hidden
+          className={`flex h-5 w-9 items-center rounded-full p-0.5 transition ${editing ? 'bg-primary justify-end' : 'bg-background justify-start'}`}
+        >
+          <span className="bg-foreground size-4 rounded-full" />
+        </span>
       </button>
       {coverOpen && (
         <Sheet title={t('collections.changeCover')} onClose={() => setCoverOpen(false)}>
@@ -188,6 +209,7 @@ export const PlaylistPage: FC = () => {
   const client = useQueryClient();
   const reorder = useReorderPlaylist(id);
   const [editing, setEditing] = useState(false);
+  const [editAnchor, setEditAnchor] = useState<HTMLElement | null>(null);
 
   if (playlist.error) {
     return (
@@ -243,16 +265,28 @@ export const PlaylistPage: FC = () => {
           disabled={detail.items.length === 0}
           onPlay={(shuffle) => void playCollection({ collection, startIndex: null, shuffle })}
         />
+        {/* A full pill with its options beside it (M46.46). */}
         <button
           type="button"
-          aria-pressed={editing}
-          onClick={() => setEditing((on) => !on)}
-          className="text-muted px-3 py-2.5 text-sm"
+          aria-haspopup="dialog"
+          aria-expanded={editAnchor !== null}
+          onClick={(event) => setEditAnchor(editAnchor ? null : event.currentTarget)}
+          className="bg-surface hover:bg-background flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold"
         >
-          {t(editing ? 'collections.done' : 'collections.edit')}
+          <Pencil aria-hidden size={16} />
+          {t('collections.edit')}
         </button>
       </div>
-      {editing && <PlaylistSettings detail={detail} />}
+      {editAnchor && (
+        <Sheet
+          title={t('collections.editPlaylist')}
+          anchor={editAnchor}
+          popoverWidth={360}
+          onClose={() => setEditAnchor(null)}
+        >
+          <PlaylistSettings detail={detail} editing={editing} onEditing={setEditing} />
+        </Sheet>
+      )}
       {detail.items.length === 0 ? (
         <p className="text-muted text-sm">{t('collections.emptyPlaylist')}</p>
       ) : (

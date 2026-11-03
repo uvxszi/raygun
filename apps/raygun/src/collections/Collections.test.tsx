@@ -137,7 +137,11 @@ describe('Favorites and playlists', () => {
       order: ['nina simone|one', 'nina simone|two', 'nina simone|three'],
     });
 
+    // Edit opens its options; the rows' move and remove buttons are one of them (M46.46).
     await userEvent.click(within(page).getByRole('button', { name: 'Edit' }));
+    const options = await screen.findByTestId('playlist-edit');
+    await userEvent.click(within(options).getByRole('switch', { name: 'Move and remove buttons' }));
+    await userEvent.keyboard('{Escape}');
     expect(within(page).getByRole('button', { name: 'Move One up' })).toBeDisabled();
     await userEvent.click(within(page).getByRole('button', { name: 'Move One down' }));
     expect(commands.playlistMoveItem).toHaveBeenCalledWith('i1', 'i3');

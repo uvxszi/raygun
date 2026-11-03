@@ -8,8 +8,11 @@ import { unwrapResult } from '../lib/commandResult';
 const SONGS = ['songs', 'downloads'];
 const KEYS = ['songs', 'downloaded'];
 
-/** Keeps the song downloads and the downloaded marks current from Rust's events (M46.10). */
-const useSongDownloadEvents = (listen = true) => {
+/**
+ * Keeps the song downloads and the downloaded marks current from Rust's events (M46.10). The
+ * shell listens once for every list (M46.46).
+ */
+export const useSongDownloadEvents = (listen = true) => {
   const client = useQueryClient();
   useEffect(() => {
     if (!listen) return;
@@ -30,6 +33,20 @@ export const useSongDownloads = () => {
     queryKey: SONGS,
     queryFn: () => unwrapResult(commands.songDownloads()),
   });
+};
+
+/** Keys of songs queued, downloading or being recorded (M46.46: the mark in lists). */
+export const useDownloadingKeys = () => {
+  const list = useQuery({
+    queryKey: SONGS,
+    queryFn: () => unwrapResult(commands.songDownloads()),
+    staleTime: 5_000,
+  });
+  return new Set(
+    (list.data ?? [])
+      .filter((song) => ['queued', 'downloading', 'recording'].includes(song.state))
+      .map((song) => song.trackKey),
+  );
 };
 
 /**

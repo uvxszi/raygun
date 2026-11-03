@@ -177,6 +177,31 @@ pub async fn set_favorite(
     finish(transaction, stamp).await
 }
 
+/// Every saved song (Favorites and playlists) as `(track key, artist, album, artwork)`, once each
+/// (M46.46: their covers stay cached).
+pub async fn saved_songs(
+    db: &Db,
+) -> Result<Vec<(String, Option<String>, Option<String>, Option<String>)>, DbError> {
+    let rows = sqlx::query(
+        "SELECT track_key, artist, album, artwork_url FROM music_favorite WHERE deleted = 0
+         UNION SELECT track_key, artist, album, artwork_url FROM music_playlist_item
+         WHERE deleted = 0",
+    )
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows
+        .iter()
+        .map(|row| {
+            (
+                row.get("track_key"),
+                row.get("artist"),
+                row.get("album"),
+                row.get("artwork_url"),
+            )
+        })
+        .collect())
+}
+
 /// Keys of every song in Favorites or a playlist (M46.45: the saved mark in lists).
 pub async fn saved_keys(db: &Db) -> Result<Vec<String>, DbError> {
     let rows = sqlx::query(

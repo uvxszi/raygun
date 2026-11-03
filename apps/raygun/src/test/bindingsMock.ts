@@ -124,6 +124,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showNsfw: false,
   explicitMusic: true,
   privacy: { history: true, recentlyPlayed: true },
+  lyricsCache: { forgetAfterDays: 30, keepFavorites: true, keepDownloaded: true, keepLocal: true },
   preferredVideoQuality: null,
   accent: 'red',
   startScreen: 'home',
@@ -283,6 +284,11 @@ export const bindingsMock = {
     recentContextsAdd: vi.fn(),
     lyricsOptions: vi.fn(),
     lyricsTranscribe: vi.fn(),
+    lyricsTranscribeMany: vi.fn(),
+    lyricsForget: vi.fn(),
+    lyricsCacheUsage: vi.fn(),
+    lyricsCacheClear: vi.fn(),
+    songDownloadCancelRecording: vi.fn(),
     captionsUseFeed: vi.fn(),
     songDownloads: vi.fn(),
     songDownloadRemove: vi.fn(),
@@ -655,6 +661,11 @@ export const seedBindings = () => {
   commands.detailCoverOptions.mockResolvedValue(ok([]));
   commands.lyricsOptions.mockResolvedValue(ok([]));
   commands.lyricsTranscribe.mockResolvedValue(ok('song:|'));
+  commands.lyricsTranscribeMany.mockResolvedValue(ok(null));
+  commands.lyricsForget.mockResolvedValue(ok(null));
+  commands.lyricsCacheUsage.mockResolvedValue(ok({ songs: 0, transcriptions: 0 }));
+  commands.lyricsCacheClear.mockResolvedValue(ok(0));
+  commands.songDownloadCancelRecording.mockResolvedValue(null);
   commands.captionsUseFeed.mockResolvedValue(ok(null));
   commands.songDownloads.mockResolvedValue(ok([]));
   commands.songDownloadRemove.mockResolvedValue(ok(null));

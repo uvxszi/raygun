@@ -269,6 +269,15 @@ pub async fn keyless_tracks(db: &Db) -> Result<Vec<(String, String, Option<Strin
         .collect())
 }
 
+/// Every local track's song key (M46.46: their kept lyrics stay).
+pub async fn track_keys(db: &Db) -> Result<Vec<String>, DbError> {
+    let rows =
+        sqlx::query("SELECT DISTINCT track_key FROM local_track WHERE track_key IS NOT NULL")
+            .fetch_all(db.pool())
+            .await?;
+    Ok(rows.iter().map(|row| row.get("track_key")).collect())
+}
+
 /// Stores computed keys as `(id, track_key)` pairs.
 pub async fn set_track_keys(db: &Db, keys: &[(String, String)]) -> Result<(), DbError> {
     let mut transaction = db.pool().begin().await?;

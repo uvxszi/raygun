@@ -93,11 +93,26 @@ impl DetailService {
     }
 
     /// A stored cover as an address the webview can load.
+    /// A cover the user picked, as it shows: a picked file through `/local/`, an address through
+    /// the cover cache as a kept cover (M46.46: it stays cached whatever the size limit).
     fn shown_artwork(&self, artwork: &str) -> String {
+        let images = self.app.state::<raygun_net::ImageLinks>();
         match artwork.strip_prefix(LOCAL) {
-            Some(path) => self.app.state::<raygun_net::ImageLinks>().local(path),
+            Some(path) => images.local(path),
+            None if artwork.starts_with("http") => images.kept_cover(artwork, &Default::default()),
             None => artwork.to_owned(),
         }
+    }
+
+    /// Every cover address the user picked (M46.46: the cache sweep keeps them).
+    pub fn picked_cover_addresses(&self) -> Vec<String> {
+        self.edits
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .values()
+            .filter_map(|row| row.artwork.clone())
+            .filter(|art| art.starts_with("http"))
+            .collect()
     }
 
     /// The stored key for a target, also when it names an album or artist by its edited name
@@ -178,10 +193,12 @@ impl DetailService {
     pub async fn set(&self, target: &DetailTarget, edit: DetailEdit) -> Result<DetailEdit, String> {
         let (kind, key) = self.key_of(target);
         // A cover shown through the proxy is stored as the file it names.
-        let local_prefix = self.app.state::<raygun_net::ImageLinks>().local("");
+        let images = self.app.state::<raygun_net::ImageLinks>();
+        let local_prefix = images.local("");
+        // Stored as the source's address, never the cache's link (M46.46).
         let artwork = some(edit.artwork_url).map(|art| match art.strip_prefix(&local_prefix) {
             Some(path) => format!("{LOCAL}{path}"),
-            None => art,
+            None => images.original(&art),
         });
         let row = DetailEditRow {
             kind: kind.clone(),

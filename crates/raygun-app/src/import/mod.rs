@@ -210,7 +210,9 @@ impl ImportService {
                     .filter(|source| matches!(source, MediaSource::Url { .. }));
                 MatchedSong {
                     song: ImportedSong {
-                        album: song.album.or(track.album),
+                        album: agreed_album(song.album.as_deref(), &candidates)
+                            .or(song.album)
+                            .or(track.album),
                         duration_ms: song.duration_ms.or(track.duration_ms),
                         artwork_url: song.artwork_url.or(track.artwork_url),
                         ..song
@@ -370,6 +372,75 @@ impl ImportService {
 /// Sources' answers kept per imported song (M46.31).
 const CANDIDATES: usize = 5;
 
+/// The album an imported song gets (M46.46): the one its matches name, spelled as they spell it.
+/// An imported album that none of them names (a misread screenshot) gives way to the album most
+/// of them give; without matches that name albums, the imported one stays.
+fn agreed_album(
+    imported: Option<&str>,
+    candidates: &[raygun_model::SongCandidate],
+) -> Option<String> {
+    let albums: Vec<&str> = candidates
+        .iter()
+        .filter(|candidate| candidate.points >= MIN_SCORE)
+        .filter_map(|candidate| candidate.track.album.as_deref())
+        .map(str::trim)
+        .filter(|album| !album.is_empty())
+        .collect();
+    let imported = imported.map(str::trim).filter(|album| !album.is_empty());
+    if let Some(imported) = imported {
+        if let Some(near) = albums.iter().find(|album| near_album(imported, album)) {
+            return Some((*near).to_owned());
+        }
+        if albums.is_empty() {
+            return Some(imported.to_owned());
+        }
+    }
+    // The album most matches give; a tie goes to the better match's.
+    let mut counts: Vec<(String, usize, &str)> = Vec::new();
+    for album in &albums {
+        let key = raygun_resolver::normalize(album);
+        match counts.iter_mut().find(|(other, _, _)| *other == key) {
+            Some((_, count, _)) => *count += 1,
+            None => counts.push((key, 1, album)),
+        }
+    }
+    let best = counts.iter().map(|(_, count, _)| *count).max()?;
+    counts
+        .iter()
+        .find(|(_, count, _)| *count == best)
+        .map(|(_, _, album)| (*album).to_owned())
+}
+
+/// Two album names that are the same album, give or take a misread letter or an edition.
+fn near_album(a: &str, b: &str) -> bool {
+    let (a, b) = (raygun_resolver::normalize(a), raygun_resolver::normalize(b));
+    if a.is_empty() || b.is_empty() {
+        return false;
+    }
+    a == b || a.contains(&b) || b.contains(&a) || bigram_dice(&a, &b) >= 0.75
+}
+
+/// How alike two texts are by their letter pairs (0 to 1).
+fn bigram_dice(a: &str, b: &str) -> f64 {
+    let pairs = |text: &str| -> Vec<(char, char)> {
+        let chars: Vec<char> = text.chars().filter(|c| !c.is_whitespace()).collect();
+        chars.windows(2).map(|pair| (pair[0], pair[1])).collect()
+    };
+    let (left, mut right) = (pairs(a), pairs(b));
+    if left.is_empty() || right.is_empty() {
+        return 0.0;
+    }
+    let total = left.len() + right.len();
+    let mut shared = 0;
+    for pair in left {
+        if let Some(at) = right.iter().position(|other| *other == pair) {
+            right.swap_remove(at);
+            shared += 1;
+        }
+    }
+    (2 * shared) as f64 / total as f64
+}
+
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -453,6 +524,57 @@ pub(crate) async fn find_song(
         }
     }
     best
+}
+
+#[cfg(test)]
+mod album_tests {
+    use super::*;
+
+    fn candidate(album: Option<&str>, points: i32) -> raygun_model::SongCandidate {
+        raygun_model::SongCandidate {
+            provider_id: "p".into(),
+            provider_name: "P".into(),
+            points,
+            track: raygun_model::OnlineTrack {
+                album: album.map(str::to_owned),
+                ..serde_json::from_value(serde_json::json!({
+                    "provider": { "id": "p", "extensionId": "p", "kind": "music.metadata", "name": "P" },
+                    "id": "1", "title": "Song", "artist": "Someone", "album": null,
+                    "durationMs": null, "artworkUrl": null, "source": null
+                }))
+                .unwrap()
+            },
+        }
+    }
+
+    #[test]
+    fn the_matches_album_wins_over_a_misread_one() {
+        let matches = [
+            candidate(Some("Random Access Memories"), 90),
+            candidate(Some("Random Access Memories"), 80),
+            candidate(Some("Get Lucky (Remixes)"), 85),
+        ];
+        // A misread album no match names gives way.
+        assert_eq!(
+            agreed_album(Some("Randon Acces Memoirs 2"), &matches[2..]).as_deref(),
+            Some("Get Lucky (Remixes)")
+        );
+        // Near enough: the sources' spelling.
+        assert_eq!(
+            agreed_album(Some("random acess memories"), &matches).as_deref(),
+            Some("Random Access Memories")
+        );
+        // None imported: the album most matches give.
+        assert_eq!(
+            agreed_album(None, &matches).as_deref(),
+            Some("Random Access Memories")
+        );
+        // Matches without albums keep the imported one.
+        assert_eq!(
+            agreed_album(Some("Mine"), &[candidate(None, 90)]).as_deref(),
+            Some("Mine")
+        );
+    }
 }
 
 #[cfg(test)]

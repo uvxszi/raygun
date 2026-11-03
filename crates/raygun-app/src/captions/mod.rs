@@ -460,6 +460,32 @@ impl CaptionService {
             .is_some()
     }
 
+    /// Hears several songs' words, one after another in the order given (M46.46: songs
+    /// selected in a list). Fails at once when transcription isn't set up.
+    pub async fn transcribe_songs(
+        self: &Arc<Self>,
+        queries: Vec<raygun_model::TrackQuery>,
+    ) -> Result<(), String> {
+        let prefs = self.prefs().await;
+        self.engine(&prefs).await?;
+        let service = self.clone();
+        tauri::async_runtime::spawn(async move {
+            // One list at a time; a second waits for the first.
+            let _turn = SONG_BATCH.lock().await;
+            for query in queries {
+                let key = song_key(&query);
+                if let Err(error) = service.transcribe_song(query).await {
+                    tracing::warn!(%error, song = %key, "couldn't transcribe a song");
+                    continue;
+                }
+                while service.is_running(&key) {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                }
+            }
+        });
+        Ok(())
+    }
+
     /// The words a transcription heard in a song, kept from its last run (M46.45): offered with
     /// the lyrics sources' versions, so switching back costs nothing.
     pub async fn song_transcript(
@@ -860,6 +886,9 @@ fn is_quiet(samples: &[f32]) -> bool {
 const SONG_TRIES: usize = 4;
 
 /// The captions key of a song's transcription (M46.36): `song:` and its track key.
+/// Songs heard one list at a time (M46.46).
+static SONG_BATCH: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// Where a source's captions wait while the listener uses the other (M46.45).
 const AI_SHELF: &str = "#ai";
 const FEED_SHELF: &str = "#feed";

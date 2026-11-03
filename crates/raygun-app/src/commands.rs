@@ -501,16 +501,59 @@ pub async fn extension_setting_set(
 #[tauri::command]
 #[specta::specta]
 pub async fn lyrics_get(
-    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    lyrics: tauri::State<'_, Arc<crate::lyrics_store::LyricsStore>>,
     sound: tauri::State<'_, Arc<crate::sound::SoundService>>,
     query: TrackQuery,
 ) -> Result<Option<Lyrics>, String> {
+    // Kept on the device, and asked again with simpler words when none come (M46.46).
     let fetched = if sound.has_own_lyrics(&query) {
+        lyrics.touch(&query).await;
         None
     } else {
-        extensions.lyrics(&query).await?
+        lyrics.lyrics(&query).await?
     };
     Ok(sound.lyrics(&query, fetched))
+}
+
+/// Forgets a song's kept lyrics, transcription and own lyrics (M46.46: Delete saved lyrics).
+#[tauri::command]
+#[specta::specta]
+pub async fn lyrics_forget(
+    lyrics: tauri::State<'_, Arc<crate::lyrics_store::LyricsStore>>,
+    query: TrackQuery,
+) -> Result<(), String> {
+    lyrics.forget(&query).await
+}
+
+/// How many songs have lyrics and transcriptions kept (M46.46).
+#[tauri::command]
+#[specta::specta]
+pub async fn lyrics_cache_usage(
+    lyrics: tauri::State<'_, Arc<crate::lyrics_store::LyricsStore>>,
+) -> Result<raygun_model::LyricsCacheUsage, String> {
+    lyrics.usage().await
+}
+
+/// Clears kept lyrics (and transcriptions when asked) of the songs `scope` names; returns how
+/// many songs lost something (M46.46).
+#[tauri::command]
+#[specta::specta]
+pub async fn lyrics_cache_clear(
+    lyrics: tauri::State<'_, Arc<crate::lyrics_store::LyricsStore>>,
+    scope: raygun_model::LyricsClearScope,
+    transcriptions: bool,
+) -> Result<u32, String> {
+    lyrics.clear(scope, transcriptions).await
+}
+
+/// Hears several songs' words one after another, in order (M46.46).
+#[tauri::command]
+#[specta::specta]
+pub async fn lyrics_transcribe_many(
+    captions: tauri::State<'_, Arc<crate::captions::CaptionService>>,
+    queries: Vec<TrackQuery>,
+) -> Result<(), String> {
+    captions.transcribe_songs(queries).await
 }
 
 /// Every lyrics source's lyrics for a song (M46.36): the user picks which to keep.
@@ -896,6 +939,13 @@ pub async fn collections_saved_keys(
     collections.saved_keys().await
 }
 
+/// Stops the song being recorded without keeping it (M46.46: the recording window's Cancel).
+#[tauri::command]
+#[specta::specta]
+pub fn song_download_cancel_recording(songs: tauri::State<'_, Arc<SongDownloadService>>) {
+    songs.cancel_recording();
+}
+
 /// Keys of every downloaded song, to mark them in lists (M46.10).
 #[tauri::command]
 #[specta::specta]
@@ -1228,12 +1278,28 @@ pub async fn detail_cover_options(
 #[specta::specta]
 pub async fn cover_fallback(
     fallbacks: tauri::State<'_, Arc<crate::cover_fallback::CoverFallbacks>>,
+    collections: tauri::State<'_, CollectionsService>,
     images: tauri::State<'_, raygun_net::ImageLinks>,
     target: raygun_model::DetailTarget,
 ) -> Result<Option<String>, String> {
     let url = fallbacks.cover(&target).await;
-    // Through the cover cache, like every other cover (M46.2).
-    Ok(url.map(|url| images.cover(&url, &Default::default())))
+    // Through the cover cache, like every other cover (M46.2); a saved song's stays there
+    // whatever the size limit (M46.46).
+    let saved = match &target {
+        raygun_model::DetailTarget::Song { query } => collections
+            .saved_keys()
+            .await
+            .unwrap_or_default()
+            .contains(&raygun_resolver::track_key(query)),
+        _ => false,
+    };
+    Ok(url.map(|url| {
+        if saved {
+            images.kept_cover(&url, &Default::default())
+        } else {
+            images.cover(&url, &Default::default())
+        }
+    }))
 }
 
 /// Keeps a picked image (an upload) as a cover; returns its address for an edit.

@@ -41,7 +41,22 @@ const FOLDER: &str = "music";
 /// How often progress is written and reported while a song downloads.
 const PROGRESS_EVERY: Duration = Duration::from_millis(700);
 /// Streams tried before giving up on finding a file (YouTube picks are skipped, not counted).
-const RESOLVE_TRIES: usize = 6;
+const RESOLVE_TRIES: usize = 10;
+/// A stream that drops or answers 5xx/429/408 is tried again after these waits, continuing from
+/// what it saved (M46.46, as Kreate's downloads retry).
+const STREAM_RETRIES: [Duration; 3] = [
+    Duration::from_secs(1),
+    Duration::from_secs(3),
+    Duration::from_secs(8),
+];
+/// A stream that sends nothing for this long has dropped.
+const STALL: Duration = Duration::from_secs(30);
+/// A song that failed for network reasons goes back to the queue after these waits.
+const AUTO_RETRIES: [Duration; 3] = [
+    Duration::from_secs(30),
+    Duration::from_secs(120),
+    Duration::from_secs(600),
+];
 /// Biggest song file accepted.
 const MAX_SONG_BYTES: u64 = 1024 * 1024 * 1024;
 
@@ -68,6 +83,8 @@ pub struct SongDownloadService {
     /// Finished songs by key: the saved file. Playback asks it for every song it loads.
     offline: Mutex<HashMap<String, PathBuf>>,
     recording: Mutex<Option<Recording>>,
+    /// Network retries already made, by download (M46.46); reset when one succeeds.
+    auto_retries: Mutex<HashMap<String, usize>>,
 }
 
 impl SongDownloadService {
@@ -86,6 +103,7 @@ impl SongDownloadService {
             cancelled: Mutex::new(HashSet::new()),
             offline: Mutex::new(HashMap::new()),
             recording: Mutex::new(None),
+            auto_retries: Mutex::new(HashMap::new()),
         })
     }
 
@@ -197,6 +215,10 @@ impl SongDownloadService {
             }
             Ok(saved) => {
                 tracing::info!(song = %row.song.track_key, file = %saved.file, "song downloaded");
+                self.auto_retries
+                    .lock()
+                    .expect("retries poisoned")
+                    .remove(&row.id);
                 self.offline.lock().expect("offline index poisoned").insert(
                     row.song.track_key.clone(),
                     self.dir(&row.id).join(&saved.file),
@@ -226,6 +248,12 @@ impl SongDownloadService {
                 tracing::warn!(song = %row.song.track_key, %message, "song download failed");
                 store::set_failed(&db, &row.id, store::FAILED, &message).await
             }
+            Err(Failure::Transient(message)) => {
+                tracing::warn!(song = %row.song.track_key, %message, "song download failed for now");
+                let failed = store::set_failed(&db, &row.id, store::FAILED, &message).await;
+                self.retry_later(&row.id);
+                failed
+            }
         };
         if let Err(error) = outcome {
             tracing::warn!(%error, "could not record a song download's outcome");
@@ -251,17 +279,23 @@ impl SongDownloadService {
         tokio::fs::create_dir_all(&dir).await.map_err(io_failure)?;
 
         // A source's own stream first, then whatever the resolver finds, skipping YouTube (its
-        // embed has no file to fetch).
+        // embed has no file to fetch). The source's own failing falls back to the others (M46.46).
+        let mut last_error = None;
+        let mut transient = false;
         if let Some(MediaSource::Url { url, headers }) = &asked {
-            return self
-                .save_stream(row, &dir, url, headers, None)
-                .await
-                .map_err(|failure| match failure {
-                    Failure::Error(message) if message.contains("HLS") => {
-                        Failure::NeedsRecording(asked.clone(), message)
-                    }
-                    other => other,
-                });
+            match self.save_retrying(row, &dir, url, headers, None).await {
+                Ok(saved) => return Ok(saved),
+                Err(Failure::Error(message)) if message.contains("HLS") => {
+                    return Err(Failure::NeedsRecording(asked.clone(), message));
+                }
+                Err(Failure::Transient(message)) => {
+                    transient = true;
+                    last_error = Some(message);
+                }
+                Err(Failure::Error(message)) => last_error = Some(message),
+                Err(other) => return Err(other),
+            }
+            tracing::info!(song = %row.song.track_key, "the source's own stream failed; trying others");
         }
         let mut youtube = match &asked {
             Some(source @ MediaSource::YouTube { .. }) => Some(source.clone()),
@@ -277,7 +311,6 @@ impl SongDownloadService {
             quality: Some(quality),
             ..Exclusions::default()
         };
-        let mut last_error = None;
         for _ in 0..RESOLVE_TRIES {
             let pick = match resolver.resolve(&query, &exclusions).await {
                 Ok(pick) => pick,
@@ -303,7 +336,7 @@ impl SongDownloadService {
             match &pick.source {
                 MediaSource::Url { url, headers } => {
                     match self
-                        .save_stream(row, &dir, url, headers, Some(pick.provider_name.clone()))
+                        .save_retrying(row, &dir, url, headers, Some(pick.provider_name.clone()))
                         .await
                     {
                         Ok(saved) => {
@@ -312,6 +345,11 @@ impl SongDownloadService {
                         }
                         Err(Failure::Error(message)) => {
                             resolver.mark_failed(&pick, &message).await;
+                            last_error = Some(message);
+                        }
+                        Err(Failure::Transient(message)) => {
+                            resolver.mark_failed(&pick, &message).await;
+                            transient = true;
                             last_error = Some(message);
                         }
                         Err(other) => return Err(other),
@@ -330,9 +368,84 @@ impl SongDownloadService {
                     .into(),
             ));
         }
-        Err(Failure::Error(last_error.unwrap_or_else(|| {
-            "No source has a file of this song".into()
-        })))
+        let message = last_error.unwrap_or_else(|| "No source has a file of this song".into());
+        Err(if transient {
+            Failure::Transient(message)
+        } else {
+            Failure::Error(message)
+        })
+    }
+
+    /// [`Self::save_stream`], tried again when the stream drops or the server is busy, each time
+    /// continuing from what it saved (M46.46).
+    async fn save_retrying(
+        &self,
+        row: &SongDownloadRow,
+        dir: &Path,
+        url: &str,
+        headers: &std::collections::BTreeMap<String, String>,
+        provider: Option<String>,
+    ) -> Result<Saved, Failure> {
+        let mut waits = STREAM_RETRIES.iter();
+        loop {
+            match self
+                .save_stream(row, dir, url, headers, provider.clone())
+                .await
+            {
+                Err(Failure::Transient(message)) => {
+                    let removed = self
+                        .cancelled
+                        .lock()
+                        .expect("cancel set poisoned")
+                        .contains(&row.id);
+                    match waits.next() {
+                        Some(wait) if !removed => {
+                            tracing::info!(song = %row.song.track_key, %message, "trying the stream again");
+                            tokio::time::sleep(*wait).await;
+                        }
+                        _ => return Err(Failure::Transient(message)),
+                    }
+                }
+                other => return other,
+            }
+        }
+    }
+
+    /// Puts a song that failed for network reasons back in the queue later, a few times.
+    fn retry_later(&self, id: &str) {
+        let attempt = {
+            let mut retries = self.auto_retries.lock().expect("retries poisoned");
+            let count = retries.entry(id.to_owned()).or_insert(0);
+            *count += 1;
+            *count
+        };
+        let Some(wait) = AUTO_RETRIES.get(attempt - 1).copied() else {
+            return;
+        };
+        let (app, id) = (self.app.clone(), id.to_owned());
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(wait).await;
+            let service = app.state::<Arc<SongDownloadService>>().inner().clone();
+            // Only if it's still failed (not removed, retried or recorded meanwhile).
+            let still_failed = store::get(&service.db(), &id)
+                .await
+                .ok()
+                .flatten()
+                .is_some_and(|row| row.state == store::FAILED);
+            if still_failed {
+                tracing::info!(%id, attempt, "trying a failed song download again");
+                let _ = service.requeue(&id).await;
+            }
+        });
+    }
+
+    async fn requeue(&self, id: &str) -> Result<(), String> {
+        store::set_state(&self.db(), id, store::QUEUED)
+            .await
+            .map_err(to_message)?;
+        self.wake.notify_one();
+        self.changed(id);
+        Ok(())
     }
 
     /// Downloads a stream into `dir`, continuing a partial one with a Range request, and checks
@@ -362,7 +475,10 @@ impl SongDownloadService {
         if have > 0 {
             request = request.header(RANGE, format!("bytes={have}-"));
         }
-        let response = request.send().await.map_err(network_failure)?;
+        let response = tokio::time::timeout(STALL, request.send())
+            .await
+            .map_err(|_| Failure::Transient("The server didn't answer".into()))?
+            .map_err(network_failure)?;
         let status = response.status();
         let content_type = response
             .headers()
@@ -378,7 +494,16 @@ impl SongDownloadService {
         let already_whole = have > 0 && status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE;
         if !already_whole {
             if !status.is_success() {
-                return Err(Failure::Error(format!("The server answered {status}")));
+                let message = format!("The server answered {status}");
+                // Busy or briefly down: worth another try (M46.46).
+                let busy = status.is_server_error()
+                    || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                    || status == reqwest::StatusCode::REQUEST_TIMEOUT;
+                return Err(if busy {
+                    Failure::Transient(message)
+                } else {
+                    Failure::Error(message)
+                });
             }
             let resumed = status == reqwest::StatusCode::PARTIAL_CONTENT;
             let start = if resumed { have } else { 0 };
@@ -463,7 +588,15 @@ impl SongDownloadService {
             .await
             .map_err(io_failure)?;
         let mut body = response.bytes_stream();
-        while let Some(chunk) = body.next().await {
+        loop {
+            // A stream that goes quiet has dropped (M46.46); what came is kept for the retry.
+            let Ok(next) = tokio::time::timeout(STALL, body.next()).await else {
+                file.flush().await.map_err(io_failure)?;
+                return Err(Failure::Transient("The download stalled".into()));
+            };
+            let Some(chunk) = next else {
+                break;
+            };
             if self
                 .cancelled
                 .lock()
@@ -510,12 +643,11 @@ impl SongDownloadService {
 
     /// Queues a failed download again; it continues with what it saved.
     pub async fn retry(&self, id: &str) -> Result<(), String> {
-        store::set_state(&self.db(), id, store::QUEUED)
-            .await
-            .map_err(to_message)?;
-        self.wake.notify_one();
-        self.changed(id);
-        Ok(())
+        self.auto_retries
+            .lock()
+            .expect("retries poisoned")
+            .remove(id);
+        self.requeue(id).await
     }
 
     /// Every download, newest first.
@@ -595,6 +727,8 @@ impl SongDownloadService {
         let capture = record::Capture::start(&dir.join("capture.wav"), process)?;
 
         let playback = self.app.state::<PlaybackService>();
+        // What was playing stops; the recorded song plays alone (M46.46).
+        playback.control_here(PlaybackControl::Pause);
         let rate = playback.state().rate;
         if (rate - 1.0).abs() > f64::EPSILON {
             playback.control(PlaybackControl::SetRate { rate: 1.0 });
@@ -671,12 +805,40 @@ impl SongDownloadService {
         }
     }
 
-    /// Ends the running recording: `keep` encodes it into the saved copy, else it's dropped.
+    /// Whether `control` is refused because a recording runs (M46.46): it can't be paused,
+    /// sought, skipped or changed; volume, repeat, shuffle and the sleep timer still work.
+    pub fn locks(&self, control: &PlaybackControl) -> bool {
+        let guard = self.recording.lock().expect("recording poisoned");
+        let Some(recording) = guard.as_ref() else {
+            return false;
+        };
+        match control {
+            PlaybackControl::PlayItem { item_id } => *item_id != recording.item_id,
+            PlaybackControl::Play
+            | PlaybackControl::SetVolume { .. }
+            | PlaybackControl::SetRepeat { .. }
+            | PlaybackControl::SetShuffle { .. }
+            | PlaybackControl::SetSleepTimer { .. } => false,
+            _ => true,
+        }
+    }
+
+    /// Stops the running recording without keeping it (its window's Cancel).
+    pub fn cancel_recording(&self) {
+        self.stop_recording(false);
+    }
+
+    /// Ends the running recording: `keep` encodes it into the saved copy, else it's dropped. The
+    /// recorded song leaves the queue and the player stays paused (M46.46).
     fn stop_recording(&self, keep: bool) {
         let Some(recording) = self.recording.lock().expect("recording poisoned").take() else {
             return;
         };
         let playback = self.app.state::<PlaybackService>();
+        playback.control_here(PlaybackControl::Pause);
+        playback.control_here(PlaybackControl::Remove {
+            item_id: recording.item_id.clone(),
+        });
         if (recording.rate - 1.0).abs() > f64::EPSILON {
             playback.control(PlaybackControl::SetRate {
                 rate: recording.rate,
@@ -694,10 +856,21 @@ impl SongDownloadService {
         let id = recording.id.clone();
         let dir = self.dir(&id);
         let row = store::get(&db, &id).await.ok().flatten();
-        let expected_ms = row
-            .as_ref()
-            .and_then(|row| row.song.duration_ms)
-            .unwrap_or(0);
+        // What plays is the trimmed song (M46.46).
+        let expected_ms = row.as_ref().map_or(0, |row| {
+            let edit =
+                self.app
+                    .state::<Arc<crate::sound::SoundService>>()
+                    .edit(&crate::sound::key(&TrackQuery {
+                        title: row.song.title.clone(),
+                        artist: row.song.artist.clone(),
+                        album: row.song.album.clone(),
+                        duration_ms: None,
+                    }));
+            let full = row.song.duration_ms.unwrap_or(0);
+            let end = edit.end_ms.map_or(full, i64::from).min(full.max(1));
+            (end - i64::from(edit.start_ms)).max(0)
+        });
         let result = tokio::task::spawn_blocking(move || {
             let stats = recording.capture.finish()?;
             if !keep {
@@ -1034,6 +1207,8 @@ enum Failure {
     /// No file anywhere; the song can be recorded as `source` plays.
     NeedsRecording(Option<MediaSource>, String),
     Error(String),
+    /// The network or a busy server (M46.46): tried again.
+    Transient(String),
 }
 
 fn io_failure(error: std::io::Error) -> Failure {
@@ -1041,7 +1216,7 @@ fn io_failure(error: std::io::Error) -> Failure {
 }
 
 fn network_failure(error: reqwest::Error) -> Failure {
-    Failure::Error(format!("The download stopped: {error}"))
+    Failure::Transient(format!("The download stopped: {error}"))
 }
 
 /// A song file's extension from its type, else its address; MP3 when neither says.

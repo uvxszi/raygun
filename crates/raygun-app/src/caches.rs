@@ -169,6 +169,26 @@ async fn kept_tokens(app: &AppHandle) -> Result<HashSet<String>, raygun_db::DbEr
             kept.insert(proxy_image_token(artwork, &Default::default()));
         }
     }
+    // Saved songs' covers, the covers the user picked (playlists, songs, albums, artists) and
+    // the covers found for saved songs elsewhere (M46.46).
+    let saved = raygun_db::collections::saved_songs(&db).await?;
+    for (_, _, _, artwork) in &saved {
+        if let Some(artwork) = artwork.as_deref().filter(|art| art.starts_with("http")) {
+            kept.insert(proxy_image_token(artwork, &Default::default()));
+        }
+    }
+    let details = app.state::<std::sync::Arc<crate::details::DetailService>>();
+    for address in details.picked_cover_addresses() {
+        kept.insert(proxy_image_token(&address, &Default::default()));
+    }
+    let fallbacks = app.state::<std::sync::Arc<crate::cover_fallback::CoverFallbacks>>();
+    let songs: Vec<(String, Option<String>, Option<String>)> = saved
+        .into_iter()
+        .map(|(key, artist, album, _)| (key, artist, album))
+        .collect();
+    for address in fallbacks.kept_addresses(&songs).await {
+        kept.insert(proxy_image_token(&address, &Default::default()));
+    }
     // Installed extensions' icons and addons' logos come as kept cover links already.
     let token_of = |link: &str| {
         link.contains("/cover/")

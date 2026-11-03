@@ -100,6 +100,8 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Saved and downloaded marks on every song | Spotify | ✅ M46.45 |
 | YouTube channels, playlists and comments | Grayjay, NewPipe | ✅ M46.45 (comments read-only) |
 | Rating sources on movie pages | Stremio, Letterboxd-style apps | ✅ M46.45 (IMDb and any site an addon links) |
+| Download retries and fallbacks | Kreate, RiMusic (Media3 DownloadManager) | ✅ M46.46 (retry with resume, other sources, requeue later) |
+| Lyrics kept offline, cleared after a while | Musixmatch, Kreate (lyrics in its database) | ✅ M46.46 (30 days by default; favorites, downloads and local files kept) |
 | Playlist import (from URLs/files) | Nuclear, RiPlay | ✅ M46.21 (Spotify links, CSV, pasted lists, screenshots; matched per song) |
 | Dashboard/discovery: new releases, moods, quick picks | Nuclear, RiPlay | ✅ M46.20 (Made for You: mixes from plays and favorites, Release Radar, moods; skip signals not yet) |
 | Lyrics translation | RiPlay | 🔜 M58 |

@@ -282,6 +282,15 @@ impl PlaybackService {
     }
 
     pub fn control(&self, control: PlaybackControl) {
+        // A recording runs (M46.46): the player can't be paused, sought or changed.
+        if self
+            .app
+            .try_state::<std::sync::Arc<crate::music_downloads::SongDownloadService>>()
+            .is_some_and(|songs| songs.locks(&control))
+        {
+            tracing::info!(?control, "ignored while a song is recorded");
+            return;
+        }
         if let Some(send) = self.redirect() {
             return send(ConnectCommand::Control { control });
         }

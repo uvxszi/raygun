@@ -31,6 +31,7 @@ mod library;
 mod library_actions;
 mod local_files;
 mod local_network;
+mod lyrics_store;
 mod made_for_you;
 mod manga;
 mod manga_downloads;
@@ -217,6 +218,11 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::playlist_set_order,
             commands::playlists_merge,
             commands::collections_saved_keys,
+            commands::song_download_cancel_recording,
+            commands::lyrics_forget,
+            commands::lyrics_cache_usage,
+            commands::lyrics_cache_clear,
+            commands::lyrics_transcribe_many,
             commands::favorite_move,
             commands::favorites_set_order,
             commands::history_recent,

@@ -112,6 +112,35 @@ impl CoverFallbacks {
         }
     }
 
+    /// The covers found for songs in Favorites, playlists or downloads, and for their albums and
+    /// artists (M46.46): the cache sweep keeps them.
+    pub async fn kept_addresses(
+        &self,
+        saved: &[(String, Option<String>, Option<String>)],
+    ) -> Vec<String> {
+        self.load().await;
+        let mut keys: Vec<String> = Vec::new();
+        for (track_key, artist, album) in saved {
+            keys.push(format!("song:{track_key}"));
+            if let Some(artist) = artist {
+                keys.push(format!("artist:{}", raygun_resolver::normalize(artist)));
+            }
+            if let Some(album) = album {
+                keys.push(format!(
+                    "album:{}",
+                    crate::details::album_key(artist.as_deref(), album)
+                ));
+            }
+        }
+        let remembered = self.remembered.lock().unwrap_or_else(|p| p.into_inner());
+        let Some(map) = remembered.as_ref() else {
+            return Vec::new();
+        };
+        keys.iter()
+            .filter_map(|key| map.get(key).and_then(|(url, _)| url.clone()))
+            .collect()
+    }
+
     /// Another source's cover for `target`, or `None` when no source has one.
     pub async fn cover(&self, target: &DetailTarget) -> Option<String> {
         // A playlist's cover is its songs' (or the user's).

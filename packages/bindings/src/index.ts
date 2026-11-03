@@ -405,6 +405,19 @@ export const commands = {
 	playlistsMerge: (ids: string[], name: string, skipDuplicates: boolean, removeMerged: boolean) => typedError<PlaylistSummary, string>(__TAURI_INVOKE("playlists_merge", { ids, name, skipDuplicates, removeMerged })),
 	/**  Keys of every song in Favorites or a playlist, to mark them in lists (M46.45). */
 	collectionsSavedKeys: () => typedError<string[], string>(__TAURI_INVOKE("collections_saved_keys")),
+	/**  Stops the song being recorded without keeping it (M46.46: the recording window's Cancel). */
+	songDownloadCancelRecording: () => __TAURI_INVOKE<void>("song_download_cancel_recording"),
+	/**  Forgets a song's kept lyrics, transcription and own lyrics (M46.46: Delete saved lyrics). */
+	lyricsForget: (query: TrackQuery) => typedError<null, string>(__TAURI_INVOKE("lyrics_forget", { query })),
+	/**  How many songs have lyrics and transcriptions kept (M46.46). */
+	lyricsCacheUsage: () => typedError<LyricsCacheUsage, string>(__TAURI_INVOKE("lyrics_cache_usage")),
+	/**
+	 *  Clears kept lyrics (and transcriptions when asked) of the songs `scope` names; returns how
+	 *  many songs lost something (M46.46).
+	 */
+	lyricsCacheClear: (scope: LyricsClearScope, transcriptions: boolean) => typedError<number, string>(__TAURI_INVOKE("lyrics_cache_clear", { scope, transcriptions })),
+	/**  Hears several songs' words one after another, in order (M46.46). */
+	lyricsTranscribeMany: (queries: TrackQuery[]) => typedError<null, string>(__TAURI_INVOKE("lyrics_transcribe_many", { queries })),
 	/**  Moves a favorite (by track key) before another, or last when `before_key` is null (M46.44). */
 	favoriteMove: (trackKey: string, beforeKey: string | null) => typedError<null, string>(__TAURI_INVOKE("favorite_move", { trackKey, beforeKey })),
 	/**  Saves Favorites in the order given (M46.44). */
@@ -697,6 +710,8 @@ export const commands = {
 	transcription: TranscriptionPrefs,
 	/**  What's remembered of listening (M46.41). */
 	privacy: PrivacyPrefs,
+	/**  How long lyrics stay kept (M46.46). */
+	lyricsCache: LyricsCachePrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
 	/**  The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default. */
@@ -2007,6 +2022,31 @@ export type Lyrics = {
 	edited?: boolean,
 };
 
+/**  How long lyrics stay kept on the device (M46.46). */
+export type LyricsCachePrefs = {
+	/**  Lyrics of songs not played for this many days are forgotten; 0 keeps them. */
+	forgetAfterDays?: number,
+	/**  Favorites' lyrics stay whatever the days. */
+	keepFavorites?: boolean,
+	/**  Downloaded songs' lyrics stay. */
+	keepDownloaded?: boolean,
+	/**  Local files' lyrics stay. */
+	keepLocal?: boolean,
+};
+
+/**  How many songs have lyrics kept, and transcriptions (M46.46). */
+export type LyricsCacheUsage = {
+	songs: number,
+	transcriptions: number,
+};
+
+/**  Whose kept lyrics a clear takes (M46.46). */
+export type LyricsClearScope = "all" | 
+/**  Songs not in Favorites, a playlist, downloads or local files. */
+"notSaved" | "favorites" | 
+/**  Favorites and playlists. */
+"saved" | "downloaded";
+
 /**  Made for You: today's mixes, and whether new ones are being made. */
 export type MadeForYou = {
 	mixes: MixSummary[],
@@ -3005,7 +3045,7 @@ export type SearchResults_Serialize = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -3102,6 +3142,8 @@ export type Settings = {
 	transcription: TranscriptionPrefs,
 	/**  What's remembered of listening (M46.41). */
 	privacy: PrivacyPrefs,
+	/**  How long lyrics stay kept (M46.46). */
+	lyricsCache: LyricsCachePrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
 	/**  The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default. */

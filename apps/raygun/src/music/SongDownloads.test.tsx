@@ -85,14 +85,16 @@ describe('Song downloads', () => {
       expect.objectContaining({ title: 'Get Lucky', artist: 'Daft Punk' }),
     ]);
 
-    // Several at once from the selection bar.
-    await user.click(within(rows[0] as HTMLElement).getByRole('button', { name: 'Get Lucky' }));
-    fireEvent.click(within(rows[1] as HTMLElement).getAllByRole('button')[1] as HTMLElement, {
-      ctrlKey: true,
-    });
+    // Several at once from the selection bar; a song saved already is left out (M46.46).
+    await user.click(screen.getByRole('button', { name: 'Select all' }));
     const bar = await screen.findByRole('toolbar');
-    await user.click(within(bar).getByRole('button', { name: 'Download' }));
-    expect(commands.songsDownload).toHaveBeenLastCalledWith(expect.any(Array));
+    await user.click(within(bar).getByRole('button', { name: 'Download 1 not saved yet' }));
+    expect(commands.songsDownload).toHaveBeenLastCalledWith([
+      expect.objectContaining({ title: 'Get Lucky' }),
+    ]);
+    // Select all again clears the selection and closes its bar.
+    await user.click(screen.getByRole('button', { name: 'Select all' }));
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
   });
 
   it('lists downloads with progress, records YouTube-only songs and saves files', async () => {

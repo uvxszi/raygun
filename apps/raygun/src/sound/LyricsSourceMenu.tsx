@@ -1,7 +1,7 @@
 import { commands } from '@raygun/bindings';
 import type { Lyrics, TrackQuery } from '@raygun/bindings';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AudioLines, Check, ChevronDown, LoaderCircle, RotateCcw } from 'lucide-react';
+import { AudioLines, Check, ChevronDown, LoaderCircle, RotateCcw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -54,6 +54,17 @@ export const LyricsSourceMenu: FC<{ query: TrackQuery; current: Lyrics | undefin
       }),
   });
   const name = (provider: string) => lyricsSourceName(provider, t);
+  // Everything kept of this song's lyrics goes (M46.46): the source's, the transcription, its own.
+  const forget = useMutation({
+    mutationFn: () => unwrapResult(commands.lyricsForget(query)),
+    onSettled: () => {
+      setAnchor(null);
+      void client.invalidateQueries({ queryKey: ['lyrics'] });
+      void client.invalidateQueries({ queryKey: ['songEdit'] });
+      void client.invalidateQueries({ queryKey: ['lyricsOptions'] });
+      void client.invalidateQueries({ queryKey: ['captions'] });
+    },
+  });
   const chosen = edit.data?.lyrics ?? null;
   const pick = (lyrics: Lyrics | null) => {
     if (edit.data) {
@@ -145,6 +156,15 @@ export const LyricsSourceMenu: FC<{ query: TrackQuery; current: Lyrics | undefin
             >
               <AudioLines aria-hidden size={15} className="text-muted shrink-0" />
               <span className="flex-1">{t('lyricsEdit.hear')}</span>
+            </button>
+            <button
+              type="button"
+              disabled={forget.isPending}
+              onClick={() => forget.mutate()}
+              className={`${row} text-primary disabled:opacity-60`}
+            >
+              <Trash2 aria-hidden size={15} className="shrink-0" />
+              <span className="flex-1">{t('lyricsEdit.forget')}</span>
             </button>
           </div>
         </Sheet>
