@@ -1,6 +1,17 @@
 import { commands, events } from '@raygun/bindings';
-import type { StremioPlayRequest } from '@raygun/bindings';
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type {
+  StremioCatalogInfo,
+  StremioCatalogRow,
+  StremioExtraValue,
+  StremioPlayRequest,
+} from '@raygun/bindings';
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -9,26 +20,46 @@ import { useSettings } from '../settings/useSettings';
 
 const STREMIO = ['stremio'];
 
-/** The Watch home: the first page of every addon catalog. */
-export const useStremioHome = (enabled = true) =>
+/** Every catalog of the addons that answer: board rows, searches and what Discover browses. */
+export const useStremioCatalogs = () =>
   useQuery({
-    queryKey: [...STREMIO, 'home'],
-    queryFn: () => unwrapResult(commands.stremioHome()),
-    enabled,
+    queryKey: [...STREMIO, 'catalogs'],
+    queryFn: () => unwrapResult(commands.stremioCatalogs()),
     staleTime: 10 * 60 * 1000,
   });
 
-/** One catalog, page after page, optionally for a genre. */
+/** A catalog's first page, once its row is about to be seen (`enabled`). */
+export const useStremioRow = (catalog: StremioCatalogInfo, enabled: boolean) =>
+  useQuery({
+    queryKey: [
+      ...STREMIO,
+      'catalog',
+      catalog.addonId,
+      catalog.kind,
+      catalog.catalogId,
+      [],
+      'first',
+    ],
+    queryFn: () =>
+      unwrapResult(
+        commands.stremioCatalog(catalog.addonId, catalog.kind, catalog.catalogId, [], 0),
+      ),
+    enabled,
+    staleTime: 10 * 60 * 1000,
+    retry: false,
+  });
+
+/** One catalog, page after page, with the extras chosen (a genre, a year...). */
 export const useStremioCatalog = (
   addonId: string,
   kind: string,
   catalogId: string,
-  genre: string | null,
+  extra: StremioExtraValue[],
 ) =>
   useInfiniteQuery({
-    queryKey: [...STREMIO, 'catalog', addonId, kind, catalogId, genre],
+    queryKey: [...STREMIO, 'catalog', addonId, kind, catalogId, extra],
     queryFn: ({ pageParam }) =>
-      unwrapResult(commands.stremioCatalog(addonId, kind, catalogId, genre, pageParam)),
+      unwrapResult(commands.stremioCatalog(addonId, kind, catalogId, extra, pageParam)),
     initialPageParam: 0,
     getNextPageParam: (last, pages) =>
       last.hasMore && last.items.length > 0
@@ -38,13 +69,43 @@ export const useStremioCatalog = (
     staleTime: 10 * 60 * 1000,
   });
 
-export const useStremioSearch = (query: string) =>
-  useQuery({
-    queryKey: [...STREMIO, 'search', query],
-    queryFn: () => unwrapResult(commands.stremioSearch(query)),
-    enabled: query.trim() !== '',
-    staleTime: 5 * 60 * 1000,
+export type SearchRows = {
+  /** Rows with results, in the catalogs' order (failing addons last), as they arrive. */
+  rows: StremioCatalogRow[];
+  /** Some catalog hasn't answered yet. */
+  pending: boolean;
+  /** Every catalog answered (or failed) and none found anything. */
+  empty: boolean;
+};
+
+/**
+ * Every searching catalog's results for `query`, each asked on its own so a slow addon holds
+ * nothing up; a newer query stops the older searches in Rust.
+ */
+export const useStremioSearchRows = (query: string): SearchRows => {
+  const catalogs = useStremioCatalogs();
+  const trimmed = query.trim();
+  const searchable = trimmed ? (catalogs.data ?? []).filter((catalog) => catalog.searchable) : [];
+  return useQueries({
+    queries: searchable.map((catalog) => ({
+      queryKey: [...STREMIO, 'search', catalog.addonId, catalog.kind, catalog.catalogId, trimmed],
+      queryFn: () =>
+        unwrapResult(
+          commands.stremioSearchCatalog(catalog.addonId, catalog.kind, catalog.catalogId, trimmed),
+        ),
+      staleTime: 5 * 60 * 1000,
+      retry: false,
+    })),
+    combine: (results) => {
+      const pending =
+        catalogs.isPending || (trimmed !== '' && results.some((result) => result.isPending));
+      const rows = results.flatMap((result) =>
+        result.data && result.data.items.length > 0 ? [result.data] : [],
+      );
+      return { rows, pending, empty: !pending && rows.length === 0 };
+    },
   });
+};
 
 /** A title's details; progress shown on it follows the player. */
 export const useStremioMeta = (kind: string, id: string) => {
@@ -64,11 +125,11 @@ export const useStremioMeta = (kind: string, id: string) => {
   });
 };
 
-/** Streams for a movie or episode; `videoId` is null until one is picked. */
-export const useStremioStreams = (kind: string, videoId: string | null) =>
+/** Streams for a movie or episode of the title `metaId`; `videoId` is null until one is picked. */
+export const useStremioStreams = (kind: string, metaId: string, videoId: string | null) =>
   useQuery({
-    queryKey: [...STREMIO, 'streams', kind, videoId],
-    queryFn: () => unwrapResult(commands.stremioStreams(kind, videoId ?? '')),
+    queryKey: [...STREMIO, 'streams', kind, metaId, videoId],
+    queryFn: () => unwrapResult(commands.stremioStreams(kind, metaId || null, videoId ?? '')),
     enabled: videoId !== null,
     staleTime: 5 * 60 * 1000,
   });
@@ -82,6 +143,10 @@ export const useStremioPlay = () => {
       unwrapResult(commands.stremioPlay(request, subtitleLanguage)),
   });
 };
+
+/** Opens a web page or (desktop) a magnet link with the system. */
+export const useOpenStremioLink = () =>
+  useMutation({ mutationFn: (url: string) => unwrapResult(commands.stremioOpenLink(url)) });
 
 export type WatchedMark = {
   kind: string;
@@ -122,8 +187,16 @@ export const useStremioSuggestions = () =>
     queryFn: () => unwrapResult(commands.stremioSuggestions()),
   });
 
-/** Adding or removing an addon changes every catalog, search and title. */
-const useAddonChange = <T>(mutationFn: (value: string) => Promise<T>) => {
+/** What an addon is before it's added: what it provides, whether it must be set up first. */
+export const useAddonPreview = () =>
+  useMutation({ mutationFn: (url: string) => unwrapResult(commands.stremioPreview(url)) });
+
+/** Opens an addon's setup page in the browser. */
+export const useConfigureAddon = () =>
+  useMutation({ mutationFn: (url: string) => unwrapResult(commands.stremioConfigure(url)) });
+
+/** Adding, removing, turning off or reordering addons changes every catalog, search and title. */
+const useAddonChange = <T, V>(mutationFn: (value: V) => Promise<T>) => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn,
@@ -136,3 +209,11 @@ export const useAddAddon = () =>
 
 export const useRemoveAddon = () =>
   useAddonChange((id: string) => unwrapResult(commands.stremioRemove(id)));
+
+export const useSetAddonEnabled = () =>
+  useAddonChange(({ id, enabled }: { id: string; enabled: boolean }) =>
+    unwrapResult(commands.stremioSetEnabled(id, enabled)),
+  );
+
+export const useSetAddonOrder = () =>
+  useAddonChange((ids: string[]) => unwrapResult(commands.stremioSetOrder(ids)));

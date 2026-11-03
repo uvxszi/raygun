@@ -3676,7 +3676,19 @@ pub async fn stremio_suggestions(
     stremio.suggestions().await
 }
 
-/// Adds an addon by its address (`.../manifest.json`, `stremio://...` or a bare host).
+/// What the addon at an address is, before adding it: its name, what it provides, whether it
+/// must be set up first (`id` is empty unless it's added).
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_preview(
+    stremio: Stremio<'_>,
+    url: String,
+) -> Result<raygun_model::StremioAddon, String> {
+    stremio.preview(&url).await
+}
+
+/// Adds an addon by its address (`.../manifest.json`, `stremio://...` or a bare host). The same
+/// addon set up again under a new address takes the old one's place.
 #[tauri::command]
 #[specta::specta]
 pub async fn stremio_add(
@@ -3692,6 +3704,48 @@ pub async fn stremio_remove(stremio: Stremio<'_>, id: String) -> Result<(), Stri
     stremio.remove(&id).await
 }
 
+/// Turns an addon on or off; one that's off is asked for nothing.
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_set_enabled(
+    stremio: Stremio<'_>,
+    id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    stremio.set_enabled(&id, enabled).await
+}
+
+/// Puts the addons in this order: details come from the first that has them.
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_set_order(stremio: Stremio<'_>, ids: Vec<String>) -> Result<(), String> {
+    stremio.set_order(&ids).await
+}
+
+/// Opens the setup page of the addon at `url` in the browser.
+#[tauri::command]
+#[specta::specta]
+pub fn stremio_configure(stremio: Stremio<'_>, url: String) -> Result<(), String> {
+    stremio.configure(&url)
+}
+
+/// Opens a stream's web page in the browser, or (on desktop) a torrent's magnet link in the
+/// torrent app.
+#[tauri::command]
+#[specta::specta]
+pub fn stremio_open_link(stremio: Stremio<'_>, url: String) -> Result<(), String> {
+    stremio.open_link(&url)
+}
+
+/// Every catalog of the addons that answer: board rows, searches and what Discover browses.
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_catalogs(
+    stremio: Stremio<'_>,
+) -> Result<Vec<raygun_model::StremioCatalogInfo>, String> {
+    stremio.catalogs().await
+}
+
 /// The Watch home: the first page of every browsable catalog.
 #[tauri::command]
 #[specta::specta]
@@ -3701,7 +3755,7 @@ pub async fn stremio_home(
     stremio.home().await
 }
 
-/// One catalog's page, optionally for a genre, `skip` items in.
+/// One catalog's page with the extras chosen (a genre, a year...), `skip` items in.
 #[tauri::command]
 #[specta::specta]
 pub async fn stremio_catalog(
@@ -3709,11 +3763,11 @@ pub async fn stremio_catalog(
     addon_id: String,
     kind: String,
     catalog_id: String,
-    genre: Option<String>,
+    extra: Vec<raygun_model::StremioExtraValue>,
     skip: u32,
 ) -> Result<raygun_model::StremioCatalogRow, String> {
     stremio
-        .catalog(&addon_id, &kind, &catalog_id, genre.as_deref(), skip)
+        .catalog(&addon_id, &kind, &catalog_id, &extra, skip)
         .await
 }
 
@@ -3727,6 +3781,21 @@ pub async fn stremio_search(
     stremio.search(&query).await
 }
 
+/// One searchable catalog's results for `query`; a search for another query stops it.
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_search_catalog(
+    stremio: Stremio<'_>,
+    addon_id: String,
+    kind: String,
+    catalog_id: String,
+    query: String,
+) -> Result<raygun_model::StremioCatalogRow, String> {
+    stremio
+        .search_catalog(&addon_id, &kind, &catalog_id, &query)
+        .await
+}
+
 /// A title's details, seasons and episodes, with watching progress.
 #[tauri::command]
 #[specta::specta]
@@ -3738,15 +3807,16 @@ pub async fn stremio_meta(
     stremio.meta(&kind, &id).await
 }
 
-/// Streams for a movie or an episode, grouped by addon.
+/// Streams for a movie or an episode of the title `meta_id`, grouped by addon.
 #[tauri::command]
 #[specta::specta]
 pub async fn stremio_streams(
     stremio: Stremio<'_>,
     kind: String,
+    meta_id: Option<String>,
     video_id: String,
 ) -> Result<Vec<raygun_model::StremioStreamGroup>, String> {
-    stremio.streams(&kind, &video_id).await
+    stremio.streams(&kind, meta_id.as_deref(), &video_id).await
 }
 
 /// Plays a stream; `language` puts its subtitles first.

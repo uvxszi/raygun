@@ -405,11 +405,13 @@ const routeTree = rootRoute.addChildren([
     component: WatchCatalogPage,
     validateSearch: (
       search: Record<string, unknown>,
-    ): { addon: string; type: string; catalog: string; genre?: string } => ({
-      addon: text(search.addon),
-      type: text(search.type),
-      catalog: text(search.catalog),
+    ): { addon?: string; type?: string; catalog?: string; genre?: string; extra?: string } => ({
+      ...(text(search.addon) ? { addon: text(search.addon) } : {}),
+      ...(text(search.type) ? { type: text(search.type) } : {}),
+      ...(text(search.catalog) ? { catalog: text(search.catalog) } : {}),
       ...(text(search.genre) ? { genre: text(search.genre) } : {}),
+      // Discover's other choices (a year...), as a query string.
+      ...(text(search.extra) ? { extra: text(search.extra) } : {}),
     }),
   }),
   createRoute({
