@@ -551,6 +551,34 @@ impl StremioService {
         protocol::order_subtitles(all, language, MAX_SUBTITLES)
     }
 
+    /// Subtitles for a movie or episode from every added addon that has them, in `language`
+    /// first (M46.33: Find subtitles in the player); and whether any added addon serves
+    /// subtitles at all.
+    pub async fn find_subtitles(
+        &self,
+        kind: &str,
+        video_id: &str,
+        language: &str,
+    ) -> (Vec<VideoSubtitle>, bool) {
+        let serves = self.loaded().await.is_ok_and(|loaded| {
+            loaded
+                .iter()
+                .filter_map(|addon| addon.manifest())
+                .any(|manifest| manifest.serves("subtitles", kind, video_id))
+        });
+        let found = self.subtitles(kind, video_id, language).await;
+        (addon_subtitles(found), serves)
+    }
+
+    /// The suggested subtitles addon (OpenSubtitles v3) when it isn't added (M46.33).
+    pub async fn subtitles_suggestion(&self) -> Option<StremioSuggestion> {
+        self.suggestions()
+            .await
+            .ok()?
+            .into_iter()
+            .find(|suggestion| suggestion.url.contains("opensubtitles") && !suggestion.added)
+    }
+
     /// Plays a stream: direct ones in Raygun's player (with subtitles), YouTube ones in the
     /// embedded player.
     pub async fn play(&self, request: StremioPlayRequest, language: &str) -> Result<(), String> {

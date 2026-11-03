@@ -1,6 +1,7 @@
 import type { StremioMeta, StremioVideo, VideoDownloadItem } from '@raygun/bindings';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSearch } from '@tanstack/react-router';
-import { Check, Eye, EyeOff, Film, ListVideo, LoaderCircle } from 'lucide-react';
+import { Check, Eye, EyeOff, Film, ListVideo, LoaderCircle, Play } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -8,6 +9,8 @@ import { useTranslation } from 'react-i18next';
 import { CategoryPicker } from '../manga/CategoryPicker';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
+import { useWideScreen } from '../shell/useWideScreen';
+import { TrailerWindow } from '../video/TrailerWindow';
 import { LibraryPill } from '../watch/LibraryPill';
 import { ExportButton } from '../export/ExportButton';
 import { TitleListActions } from '../manga/TitleListActions';
@@ -24,6 +27,7 @@ import {
   useSetStremioInLibrary,
   useWatchStremio,
 } from '../watch/useVideoLibrary';
+import { findInCache } from '../shell/queryMemory';
 import { SourceIssue } from '../shell/SourceIssue';
 
 /** "S1 E2 · Pilot", or the title alone when it isn't numbered. */
@@ -176,6 +180,7 @@ const Episodes: FC<{
 /** A movie or series from an addon: details, episodes, and streams to play. */
 export const WatchTitlePage: FC = () => {
   const { t } = useTranslation();
+  const wide = useWideScreen();
   const { type, id } = useSearch({ from: '/watch/title' });
   const meta = useStremioMeta(type, id);
   const setWatched = useSetWatched();
@@ -200,6 +205,27 @@ export const WatchTitlePage: FC = () => {
   };
   const [expanded, setExpanded] = useState(false);
   const view = meta.data;
+  const client = useQueryClient();
+  // The catalogue's card for it (M46.40): its name and poster at once, and when addons fail.
+  const known = useMemo(
+    () =>
+      findInCache(client, [], (record) =>
+        record.id === id && typeof record.name === 'string' && 'poster' in record
+          ? {
+              name: record.name,
+              poster: typeof record.poster === 'string' ? record.poster : null,
+            }
+          : null,
+      ),
+    [client, id],
+  );
+  const knownHero = known && (
+    <TitleHero
+      art={known.poster}
+      cover={<StremioPoster url={known.poster} className="w-full rounded-xl shadow-lg" />}
+      title={known.name}
+    />
+  );
 
   // A saved title opened from storage (no addon answered) has no addon to name.
   const top = (
@@ -213,16 +239,18 @@ export const WatchTitlePage: FC = () => {
 
   if (meta.error && !view) {
     return (
-      <section data-testid="watch-title-page">
+      <section data-testid="watch-title-page" className="flex flex-col gap-5">
         {top}
+        {knownHero}
         <SourceIssue>{meta.error.message}</SourceIssue>
       </section>
     );
   }
   if (!view) {
     return (
-      <section data-testid="watch-title-page">
+      <section data-testid="watch-title-page" className="flex flex-col gap-5">
         {top}
+        {knownHero}
         <LoaderCircle
           aria-label={t('watch.loading')}
           className="text-muted mx-auto my-12 animate-spin"
@@ -256,6 +284,25 @@ export const WatchTitlePage: FC = () => {
     ? (view.videos.find((video) => !video.watched && (video.season ?? 0) > 0) ?? view.videos[0])
     : null;
   const resumable = nextVideo ? (nextVideo.positionMs ?? 0) > 0 : (view.positionMs ?? 0) > 0;
+  const playLabel = t(resumable ? 'watch.resume' : hasEpisodes ? 'watch.start' : 'watch.play');
+  const playNow = () => pick(nextVideo ? episodeTarget(nextVideo) : ownTarget);
+  const playTrailer = (videoId: string) =>
+    trailer.mutate({
+      kind: ownTarget.kind,
+      videoId: ownTarget.videoId,
+      title: ownTarget.title,
+      poster: ownTarget.poster,
+      subtitle: t('watch.trailer'),
+      stream: {
+        kind: 'youTube',
+        name: null,
+        description: null,
+        target: videoId,
+        headers: {},
+        subtitles: [],
+        bingeGroup: null,
+      },
+    });
 
   return (
     <section data-testid="watch-title-page" className="flex min-h-full flex-col gap-5">
@@ -283,8 +330,29 @@ export const WatchTitlePage: FC = () => {
         facts={[view.releaseInfo, view.runtime, view.rating && `★ ${view.rating}`]}
         genres={view.genres}
         genresLabel={t('watch.genres')}
+        aside={
+          trailerId ? (
+            <TrailerWindow
+              key={trailerId}
+              videoId={trailerId}
+              title={view.name}
+              onFull={() => playTrailer(trailerId)}
+            />
+          ) : undefined
+        }
       >
         <div className="flex flex-wrap items-center gap-2">
+          {/* Play is on the first screen (M46.34); phones keep the floating button. */}
+          {wide && (
+            <button
+              type="button"
+              onClick={playNow}
+              className="bg-primary text-background flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold"
+            >
+              <Play aria-hidden size={16} fill="currentColor" />
+              {playLabel}
+            </button>
+          )}
           <LibraryPill
             inLibrary={view.inLibrary}
             busy={setInLibrary.isPending || duplicates.checking}
@@ -332,24 +400,7 @@ export const WatchTitlePage: FC = () => {
             <button
               type="button"
               disabled={trailer.isPending}
-              onClick={() =>
-                trailer.mutate({
-                  kind: ownTarget.kind,
-                  videoId: ownTarget.videoId,
-                  title: ownTarget.title,
-                  poster: ownTarget.poster,
-                  subtitle: t('watch.trailer'),
-                  stream: {
-                    kind: 'youTube',
-                    name: null,
-                    description: null,
-                    target: trailerId,
-                    headers: {},
-                    subtitles: [],
-                    bingeGroup: null,
-                  },
-                })
-              }
+              onClick={() => playTrailer(trailerId)}
               className="bg-surface/80 flex items-center gap-2 rounded-full px-4 py-2 text-sm disabled:opacity-60"
             >
               <Film aria-hidden size={16} />
@@ -397,10 +448,7 @@ export const WatchTitlePage: FC = () => {
         </SourceIssue>
       )}
       {hasEpisodes && <Episodes meta={view} downloads={downloads} onPick={pick} />}
-      <ResumeFab
-        label={t(resumable ? 'watch.resume' : hasEpisodes ? 'watch.start' : 'watch.play')}
-        onClick={() => pick(nextVideo ? episodeTarget(nextVideo) : ownTarget)}
-      />
+      {!wide && <ResumeFab label={playLabel} onClick={playNow} />}
       {picking && (
         <StreamPicker
           target={picking.target}

@@ -46,9 +46,20 @@ pub(crate) struct Decoding {
 
 pub(crate) fn open(path: &Path) -> Result<Decoding, String> {
     let file = File::open(path).map_err(|error| error.to_string())?;
-    let stream = MediaSourceStream::new(Box::new(file), Default::default());
+    open_source(
+        Box::new(file),
+        path.extension().and_then(|extension| extension.to_str()),
+    )
+}
+
+/// Opens audio from any source (memory, an HTTP range reader), `extension` hinting its format.
+pub(crate) fn open_source(
+    source: Box<dyn symphonia::core::io::MediaSource>,
+    extension: Option<&str>,
+) -> Result<Decoding, String> {
+    let stream = MediaSourceStream::new(source, Default::default());
     let mut hint = Hint::new();
-    if let Some(extension) = path.extension().and_then(|extension| extension.to_str()) {
+    if let Some(extension) = extension {
         hint.with_extension(extension);
     }
     let format = symphonia::default::get_probe()

@@ -80,6 +80,19 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Edit song titles, artists, albums and covers | Musicolet, Poweramp, Spotify (local files) | ✅ M46.30 (songs, albums and artists; kept on top of the source's data) |
 | Review an imported playlist (fix names, add, reorder, pick sources) | Soundiiz, TuneMyMusic | ✅ M46.31 (also keeps songs no source has, to fix later) |
 | Podcast transcripts and captions | Apple Podcasts, Pocket Casts, Podcasting 2.0 apps | ✅ M46.32 (feed transcripts, or Whisper on the device or online) |
+| AI subtitles for videos, external player choice, volume boost | mpv, VLC, MX Player, Kodi | ✅ M46.33 (Whisper on the device or online; mpv, VLC, MPC, PotPlayer) |
+| Trailer on a movie's page | Stremio, Netflix-style apps | ✅ M46.34 (small, muted, can be turned off) |
+| Plugin-made search pills (YouTube, PeerTube) | CloudStream (providers per type) | ✅ M46.35 |
+| Explicit filter separate from adult content | Spotify, Apple Music | ✅ M46.36 |
+| Artist discography (albums, singles, compilations) | Spotify, Nuclear | ✅ M46.36 (Deezer, MusicBrainz) |
+| Pick another lyrics source, lyrics by speech recognition | Musixmatch, RiPlay | ✅ M46.36 |
+| All tab in library and downloads | Spotify (Your Library), Mihon | ✅ M46.37 |
+| Chapter sort and filter on title pages | Mihon, Aniyomi | ✅ M46.38 (number, upload date, source order; unread, started, downloaded) |
+| Search a title in other sources | Mihon (migrate), Shosetsu | ✅ M46.38 (open or add; moving progress not yet) |
+| JPEG XL images | Mihon (reader), modern browsers | ✅ M46.38 (read from sources; saved covers) |
+| Playlist search and featured playlists | Kreate, RiMusic, ViMusic | ✅ M46.39 (YouTube Music, Deezer; save to library) |
+| More lyrics sources (KuGou, YouTube Music) | Kreate, RiMusic | ✅ M46.39 (with LRCLIB; pick one per song since M46.36) |
+| YouTube audio through Piped or Invidious | Kreate, RiMusic | ❌ by choice (fetches YouTube's files outside its player; see M46.39) |
 | Playlist import (from URLs/files) | Nuclear, RiPlay | ✅ M46.21 (Spotify links, CSV, pasted lists, screenshots; matched per song) |
 | Dashboard/discovery: new releases, moods, quick picks | Nuclear, RiPlay | ✅ M46.20 (Made for You: mixes from plays and favorites, Release Radar, moods; skip signals not yet) |
 | Lyrics translation | RiPlay | 🔜 M58 |

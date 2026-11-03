@@ -15,6 +15,7 @@ import { VideoResults } from './VideoResults';
 import type { SearchType, SearchView } from './searchTypes';
 import { sourceSearchOptions } from './useCatalogSearch';
 import { SourceIssue } from '../shell/SourceIssue';
+import { RankedResults } from './CatalogSearch';
 
 const Section: FC<{
   title: string;
@@ -42,6 +43,9 @@ const Section: FC<{
 
 /** Rows a section of Search → All shows. */
 const PREVIEW_ROWS = 2;
+/** Search → All's ranked comics and books: from this many sources, this many titles (M46.35). */
+const PREVIEW_SOURCES = 6;
+const PREVIEW_ITEMS = 12;
 
 /**
  * The first two sources with results (or popular titles), as short rows. Sources are asked in
@@ -53,6 +57,19 @@ const CatalogPreview: FC<{ medium: Medium; query: string }> = ({ medium, query }
   if (!sources.data) return <p className="text-muted text-sm">{t('search.searching')}</p>;
   if (sources.data.length === 0) {
     return <p className="text-muted text-sm">{t('search.noCatalogSources')}</p>;
+  }
+  // Comics and books: one list ranked across the first sources (M46.35), not a few per source.
+  if (medium !== 'video') {
+    const enabled = sources.data.filter((source) => source.enabled).slice(0, PREVIEW_SOURCES);
+    return (
+      <RankedResults
+        key={query.trim()}
+        sources={enabled}
+        medium={medium}
+        query={query}
+        limit={PREVIEW_ITEMS}
+      />
+    );
   }
   return <PreviewRows key={query.trim()} medium={medium} query={query} sources={sources.data} />;
 };
@@ -113,7 +130,7 @@ const PodcastPreview: FC<{ query: string }> = ({ query }) => {
   if (search.data?.length === 0) {
     return <p className="text-muted text-sm">{t('podcasts.noResults')}</p>;
   }
-  return search.data ? <PodcastResultList results={search.data.slice(0, 3)} /> : null;
+  return search.data ? <PodcastResultList results={search.data.slice(0, 12)} grid /> : null;
 };
 
 /**

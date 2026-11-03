@@ -72,6 +72,8 @@ fn format_of(bytes: &[u8]) -> Option<ImageFileFormat> {
         Some(ImageFileFormat::Jpeg)
     } else if bytes.len() > 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
         Some(ImageFileFormat::Webp)
+    } else if raygun_net::images::is_jxl(bytes) {
+        Some(ImageFileFormat::Jxl)
     } else {
         None
     }
@@ -82,6 +84,7 @@ fn extension(format: ImageFileFormat) -> &'static str {
         ImageFileFormat::Png => "png",
         ImageFileFormat::Jpeg => "jpg",
         ImageFileFormat::Webp => "webp",
+        ImageFileFormat::Jxl => "jxl",
     }
 }
 
@@ -90,6 +93,7 @@ fn mime(format: ImageFileFormat) -> &'static str {
         ImageFileFormat::Png => "image/png",
         ImageFileFormat::Jpeg => "image/jpeg",
         ImageFileFormat::Webp => "image/webp",
+        ImageFileFormat::Jxl => "image/jxl",
     }
 }
 
@@ -98,6 +102,12 @@ pub fn convert(bytes: Vec<u8>, format: ImageFileFormat) -> Result<Vec<u8>, Strin
     if format_of(&bytes) == Some(format) {
         return Ok(bytes);
     }
+    // A JPEG XL picture is read through PNG; the image crate can't read it itself.
+    let bytes = if format_of(&bytes) == Some(ImageFileFormat::Jxl) {
+        raygun_net::images::jxl_to_png(&bytes)?
+    } else {
+        bytes
+    };
     let image = image::load_from_memory(&bytes)
         .map_err(|error| format!("couldn't read the image: {error}"))?;
     let mut out = std::io::Cursor::new(Vec::new());
@@ -119,8 +129,28 @@ pub fn convert(bytes: Vec<u8>, format: ImageFileFormat) -> Result<Vec<u8>, Strin
                 .write_with_encoder(encoder)
                 .map_err(|error| error.to_string())?;
         }
+        ImageFileFormat::Jxl => return encode_jxl(&image),
     }
     Ok(out.into_inner())
+}
+
+/// A lossless JPEG XL of `image` (M46.38), by zune-jpegxl.
+fn encode_jxl(image: &image::DynamicImage) -> Result<Vec<u8>, String> {
+    use zune_core::bit_depth::BitDepth;
+    use zune_core::colorspace::ColorSpace;
+    use zune_core::options::EncoderOptions;
+    let rgba = image.to_rgba8();
+    let options = EncoderOptions::new(
+        rgba.width() as usize,
+        rgba.height() as usize,
+        ColorSpace::RGBA,
+        BitDepth::Eight,
+    );
+    let mut out = Vec::new();
+    zune_jpegxl::JxlSimpleEncoder::new(rgba.as_raw(), options)
+        .encode(&mut out)
+        .map_err(|error| format!("couldn't write JPEG XL: {error:?}"))?;
+    Ok(out)
 }
 
 /// Saves the cover at `url` (a source address or Raygun's link to one) as `format`. Returns
@@ -215,6 +245,11 @@ mod tests {
             .unwrap();
         let png = png.into_inner();
         assert_eq!(convert(png.clone(), ImageFileFormat::Png).unwrap(), png);
+        // JPEG XL out, and read back in (M46.38).
+        let jxl = convert(png.clone(), ImageFileFormat::Jxl).unwrap();
+        assert_eq!(format_of(&jxl), Some(ImageFileFormat::Jxl));
+        let back = convert(jxl, ImageFileFormat::Png).unwrap();
+        assert_eq!(format_of(&back), Some(ImageFileFormat::Png));
         let jpeg = convert(png.clone(), ImageFileFormat::Jpeg).unwrap();
         assert_eq!(format_of(&jpeg), Some(ImageFileFormat::Jpeg));
         let webp = convert(png, ImageFileFormat::Webp).unwrap();

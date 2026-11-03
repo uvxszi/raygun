@@ -124,6 +124,8 @@ export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
           return loaded(update.request, state);
         case 'loading':
           return { loadingText: update.text, notice: null };
+        case 'close':
+          return { ...CLOSED };
         case 'error':
           return {
             loadingText: null,

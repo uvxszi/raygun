@@ -18,6 +18,31 @@ pub fn parse(kind: &str, text: &str) -> Option<Vec<CaptionRow>> {
     }
 }
 
+/// Cues as a WebVTT file (M46.33: AI subtitles for the players).
+pub fn to_vtt(rows: &[CaptionRow]) -> String {
+    let stamp = |ms: i64| {
+        let ms = ms.max(0);
+        format!(
+            "{:02}:{:02}:{:02}.{:03}",
+            ms / 3_600_000,
+            ms / 60_000 % 60,
+            ms / 1000 % 60,
+            ms % 1000
+        )
+    };
+    let mut out = String::from("WEBVTT\n");
+    for row in rows {
+        let end = row.end_ms.max(row.start_ms + 500);
+        out.push_str(&format!(
+            "\n{} --> {}\n{}\n",
+            stamp(row.start_ms),
+            stamp(end),
+            row.text.replace("-->", "->")
+        ));
+    }
+    out
+}
+
 /// WebVTT and SRT: cues are blocks with a `start --> end` line, then text.
 fn parse_timed_text(text: &str) -> Vec<CaptionRow> {
     let text = text.replace("\r\n", "\n").replace('\r', "\n");
@@ -187,6 +212,27 @@ mod tests {
         let texts: Vec<&str> = rows.iter().map(|row| row.text.as_str()).collect();
         assert_eq!(texts, ["Hello there.", "So", "Hi!"]);
         assert_eq!((rows[0].start_ms, rows[0].end_ms), (500, 1_400));
+    }
+
+    #[test]
+    fn cues_become_webvtt_and_read_back() {
+        let rows = vec![
+            CaptionRow {
+                start_ms: 3_723_040,
+                end_ms: 3_725_000,
+                text: "Chapter Two".into(),
+            },
+            CaptionRow {
+                start_ms: 3_725_000,
+                end_ms: 3_725_000,
+                text: "It rained.".into(),
+            },
+        ];
+        let vtt = to_vtt(&rows);
+        assert!(vtt.starts_with("WEBVTT\n\n01:02:03.040 --> 01:02:05.000\nChapter Two\n"));
+        let back = parse("text/vtt", &vtt).unwrap();
+        assert_eq!(back[1].end_ms, 3_725_500);
+        assert_eq!(back[0].text, "Chapter Two");
     }
 
     #[test]

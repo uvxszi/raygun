@@ -97,9 +97,39 @@ struct PlayerReport {
 /// A session that was playing ends.
 pub async fn play(app: &AppHandle, request: VideoRequest) -> Result<(), String> {
     app.state::<VideoSessions>().end();
+    if let Some(video_id) = request.url.strip_prefix(YOUTUBE_LINK) {
+        return play_youtube(app, video_id, &request.title, request.subtitle.clone()).await;
+    }
     let mut payload = prepare(app, &request, None, None).await?;
     payload["labels"] = app.state::<VideoSessions>().labels();
     open_player(app, &payload)
+}
+
+/// A video source's link to a YouTube video (M46.35): `youtube:<video id>`.
+pub const YOUTUBE_LINK: &str = "youtube:";
+
+/// Plays a YouTube video in YouTube's embed with its own controls, as trailers do (M46.4); the
+/// video player isn't used.
+pub async fn play_youtube(
+    app: &AppHandle,
+    video_id: &str,
+    title: &str,
+    subtitle: Option<String>,
+) -> Result<(), String> {
+    use tauri_specta::Event;
+    let embed_url = app
+        .try_state::<raygun_net::MediaLinks>()
+        .ok_or("The YouTube player isn't available")?
+        .youtube_embed_url();
+    crate::playback::other_media_started(app).await;
+    crate::events::YouTubeVideoEvent(raygun_model::YouTubeVideo {
+        video_id: video_id.to_owned(),
+        title: title.to_owned(),
+        subtitle,
+        embed_url,
+    })
+    .emit(app)
+    .map_err(|error| error.to_string())
 }
 
 /// Plays `request` in another app (M45): the player hands it over at once and saves the position
@@ -172,6 +202,13 @@ pub async fn prepare(
                 proxied_subtitles(app, &request.subtitles),
             ),
         };
+    // AI subtitles made for this video (M46.33) play like any other track.
+    let mut subtitles = subtitles;
+    if let Some(captions) = app.try_state::<std::sync::Arc<crate::captions::CaptionService>>()
+        && let Some(track) = captions.video_track(&request.key).await
+    {
+        subtitles.push(track);
+    }
     // The title's memory, and AniSkip unless the source's own chapters are enough.
     let group = request.group.clone().unwrap_or_else(|| request.key.clone());
     let title_state = title_state(&db, &group).await;
@@ -400,7 +437,10 @@ pub async fn mark(db: &raygun_db::Db, entry: &VideoEntry, watched: bool) -> Resu
 /// Subtitle files through the stream proxy, which serves an empty track for one that can't be
 /// fetched (the player would give up on the whole video) and lets release builds load plain-HTTP
 /// ones. The proxied URL has no extension, so the format is guessed from the original first.
-fn proxied_subtitles(app: &AppHandle, subtitles: &[VideoSubtitle]) -> Vec<VideoSubtitle> {
+pub(crate) fn proxied_subtitles(
+    app: &AppHandle,
+    subtitles: &[VideoSubtitle],
+) -> Vec<VideoSubtitle> {
     let Some(links) = app.try_state::<ImageLinks>() else {
         return subtitles.to_vec();
     };

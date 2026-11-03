@@ -1,7 +1,7 @@
 import { commands } from '@raygun/bindings';
 import type { DetailEdit, DetailTarget } from '@raygun/bindings';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ImagePlus, RotateCcw } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ImagePlus, LoaderCircle, RotateCcw, Search } from 'lucide-react';
 import { useRef, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -126,6 +126,11 @@ export const DetailEditForm: FC<{
           />
         </div>
       </div>
+      <SourceCovers
+        target={target}
+        picked={current.artworkUrl}
+        onPick={(url) => setDraft({ ...current, artworkUrl: url })}
+      />
       {(save.error ?? cover.error) && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
           {(save.error ?? cover.error)?.message}
@@ -153,5 +158,78 @@ export const DetailEditForm: FC<{
         </button>
       </div>
     </form>
+  );
+};
+
+/**
+ * Covers from the music sources (M46.36): when one doesn't load, or the user prefers another
+ * source's picture. Asked only on request, since it searches every source.
+ */
+const SourceCovers: FC<{
+  target: DetailTarget;
+  picked: string | null;
+  onPick: (url: string) => void;
+}> = ({ target, picked, onPick }) => {
+  const { t } = useTranslation();
+  const [asked, setAsked] = useState(false);
+  const options = useQuery({
+    queryKey: ['detailCoverOptions', JSON.stringify(target)],
+    queryFn: () => unwrapResult(commands.detailCoverOptions(target)),
+    enabled: asked,
+    staleTime: 10 * 60_000,
+  });
+  if (!asked) {
+    return (
+      <button
+        type="button"
+        onClick={() => setAsked(true)}
+        className="bg-background flex items-center gap-1.5 self-start rounded-full px-3 py-1.5 text-sm"
+      >
+        <Search aria-hidden size={15} />
+        {t('details.coverFind')}
+      </button>
+    );
+  }
+  if (options.isPending) {
+    return (
+      <p className="text-muted flex items-center gap-2 text-sm">
+        <LoaderCircle aria-hidden size={15} className="animate-spin" />
+        {t('details.coverFinding')}
+      </p>
+    );
+  }
+  const list = options.data ?? [];
+  if (list.length === 0) {
+    return <p className="text-muted text-sm">{t('details.coverNone')}</p>;
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-muted text-xs font-semibold uppercase">
+        {t('details.coverSources')}
+      </span>
+      <ul
+        data-testid="source-covers"
+        className="grid max-h-56 grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-2 overflow-y-auto"
+      >
+        {list.map((option) => {
+          const label = [option.source, option.of].filter(Boolean).join(' · ');
+          return (
+            <li key={option.url}>
+              <button
+                type="button"
+                aria-pressed={picked === option.url}
+                aria-label={t('details.coverFrom', { source: label })}
+                title={label}
+                onClick={() => onPick(option.url)}
+                className={`flex w-full flex-col gap-1 rounded-lg p-1 text-left ${picked === option.url ? 'ring-primary ring-2' : 'hover:bg-background'}`}
+              >
+                <Artwork url={option.url} className="w-full rounded-md" iconSize={20} />
+                <span className="text-muted truncate text-[0.625rem]">{option.source}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 };

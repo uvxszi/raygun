@@ -15,9 +15,16 @@ pub enum SettingsError {
     Invalid(String),
 }
 
+/// Keys of removed settings, which old rows may still hold.
+const RETIRED: &[&str] = &["discord"];
+
 pub async fn load(db: &Db) -> Result<Settings, SettingsError> {
     let mut settings = Settings::default();
     for (key, value) in settings::load(db).await? {
+        // Settings that no longer exist (M46.36: Discord presence) are left alone.
+        if RETIRED.contains(&key.as_str()) {
+            continue;
+        }
         match parse_row(&key, &value) {
             Ok(change) => settings.apply(change),
             Err(error) => tracing::warn!(%key, %value, %error, "ignoring unreadable setting"),
@@ -290,7 +297,9 @@ mod tests {
             layout.more_entries.len(),
             raygun_model::LAYOUT_MORE_ENTRIES.len()
         );
-        assert_eq!(layout.home_sections[0].id, "continueWatching");
+        // "Nothing to pick up yet" leads Home (M46.37), then the rows as before.
+        assert_eq!(layout.home_sections[0].id, "getStarted");
+        assert_eq!(layout.home_sections[1].id, "continueWatching");
     }
 
     #[tokio::test]

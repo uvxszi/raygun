@@ -11,6 +11,7 @@ import { playResults } from '../search/useOnlineSearch';
 import { SourceIssue } from '../shell/SourceIssue';
 import { TopBar } from '../shell/TopBar';
 import { PinButton } from '../shell/PinButton';
+import { usePlayContext } from '../music/playContext';
 
 /** A Made for You mix (M46.20): its songs, played from any of them, and saved as a playlist. */
 export const MixPage: FC = () => {
@@ -20,6 +21,18 @@ export const MixPage: FC = () => {
   const save = useSaveMix();
   const list = mix.data?.tracks ?? [];
   const title = mix.data ? mixTitle(t, mix.data) : t('forYou.title');
+  usePlayContext(
+    mix.data
+      ? {
+          kind: 'mix',
+          name: title,
+          subtitle: mix.data.artists.slice(0, 3).join(', ') || null,
+          artworkUrl: mix.data.artworkUrls[0] ?? null,
+          to: '/music/mix',
+          search: { id },
+        }
+      : null,
+  );
   const play = (shuffle: boolean) => {
     if (list.length === 0) return;
     const start = shuffle ? list[Math.floor(Math.random() * list.length)] : list[0];

@@ -69,6 +69,8 @@ export type PlayerUpdate =
   | { type: 'load'; request: PlayerRequest }
   | { type: 'loading'; text: string }
   | { type: 'error'; text: string; showSources?: boolean }
+  /** The session's link plays elsewhere (a YouTube video in its embed, M46.35). */
+  | { type: 'close' }
   | {
       type: 'episodes';
       items: EpisodeItem[];

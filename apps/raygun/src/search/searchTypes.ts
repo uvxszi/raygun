@@ -8,8 +8,15 @@ export const isSearchType = (value: unknown): value is SearchType =>
   typeof value === 'string' && (SEARCH_TYPES as string[]).includes(value);
 
 /** Music's pills (M46.25): a bit of everything first, then one kind each. */
-export type MusicView = 'relevant' | 'songs' | 'artists' | 'albums' | 'podcasts';
-export const MUSIC_VIEWS: MusicView[] = ['relevant', 'songs', 'artists', 'albums', 'podcasts'];
+export type MusicView = 'relevant' | 'songs' | 'artists' | 'albums' | 'playlists' | 'podcasts';
+export const MUSIC_VIEWS: MusicView[] = [
+  'relevant',
+  'songs',
+  'artists',
+  'albums',
+  'playlists',
+  'podcasts',
+];
 
 /** Movies & series' pills (M46.25). */
 export type VideoView = 'relevant' | 'movies' | 'series';

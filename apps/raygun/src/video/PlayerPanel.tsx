@@ -2,17 +2,29 @@ import { Check, X } from 'lucide-react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
-type Props = { title: string; onClose: () => void; children: ReactNode };
+type Props = {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  /** Beside the top bar's buttons, or above the control bar's (where it was opened from). */
+  at?: 'top' | 'bottom';
+};
 
-/** A side panel over the picture: episodes, sources, speed, tracks, quality, aspect. */
-export const PlayerPanel: FC<Props> = ({ title, onClose, children }) => {
+/**
+ * A popup over the picture (M46.33): episodes, sources, speed, tracks, quality, aspect, players
+ * and keys. It sits by the buttons that open it, as tall as its content up to about 60 % of the
+ * player, and scrolls.
+ */
+export const PlayerPanel: FC<Props> = ({ title, onClose, children, at = 'bottom' }) => {
   const { t } = useTranslation();
   return (
     <section
       aria-label={title}
       onClick={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
-      className="absolute inset-y-3 right-3 z-20 flex w-80 max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-2xl bg-neutral-900/95 shadow-2xl ring-1 ring-white/10 backdrop-blur"
+      className={`absolute right-3 z-20 flex max-h-[min(60%,34rem)] w-80 max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-2xl bg-neutral-900/95 shadow-2xl ring-1 ring-white/10 backdrop-blur ${
+        at === 'top' ? 'top-16' : 'bottom-24'
+      }`}
     >
       <header className="flex items-center justify-between gap-2 px-4 pt-3 pb-2">
         <h2 className="truncate text-base font-semibold">{title}</h2>

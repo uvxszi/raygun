@@ -4,26 +4,40 @@ import { useNavigate } from '@tanstack/react-router';
 import type { MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useFavorites } from '../collections/useCollections';
 import { openContextMenu } from '../shell/contextMenuStore';
+import type { MenuItem } from '../shell/contextMenuStore';
+import { trackKey } from './trackKey';
 import { trackMenu } from './trackMenu';
+import { useDownloadedKeys } from './useSongDownloads';
 
 type Extras = { onPlay?: () => void; playlistItemId?: string; favorite?: boolean };
 
-/** `onContextMenu` for a song: its right-click options (M46.8). */
-export const useTrackMenu = () => {
+/** A song's menu items (M46.8), for the right-click menu or the phone's ⋮ sheet (M46.36). */
+export const useTrackMenuItems = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const client = useQueryClient();
+  const downloaded = useDownloadedKeys(false);
+  const favorites = useFavorites();
+  return (track: TrackInput, extras: Extras, at: { x: number; y: number }): MenuItem[] => {
+    const key = trackKey(track.title, track.artist);
+    return trackMenu(track, {
+      t,
+      client,
+      navigate: (target) => void navigate(target as never),
+      at,
+      downloaded: downloaded.has(key),
+      favorite: (favorites.data ?? []).some((saved) => saved.trackKey === key),
+      ...extras,
+    });
+  };
+};
+
+/** `onContextMenu` for a song: its right-click options (M46.8). */
+export const useTrackMenu = () => {
+  const items = useTrackMenuItems();
   return (track: TrackInput, extras: Extras = {}) =>
     (event: MouseEvent) =>
-      openContextMenu(
-        event,
-        trackMenu(track, {
-          t,
-          client,
-          navigate: (target) => void navigate(target as never),
-          at: { x: event.clientX, y: event.clientY },
-          ...extras,
-        }),
-      );
+      openContextMenu(event, items(track, extras, { x: event.clientX, y: event.clientY }));
 };

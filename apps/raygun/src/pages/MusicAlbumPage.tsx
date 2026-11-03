@@ -1,9 +1,9 @@
 import { commands } from '@raygun/bindings';
-import type { OnlineTrack } from '@raygun/bindings';
-import { useQuery } from '@tanstack/react-query';
+import type { MusicAlbum, OnlineTrack } from '@raygun/bindings';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearch } from '@tanstack/react-router';
 import { Download, LoaderCircle, Pencil, Play, Shuffle } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -20,6 +20,8 @@ import { TopBar, TopBarAction } from '../shell/TopBar';
 import { DetailEditForm } from '../music/DetailEditForm';
 import { PinButton } from '../shell/PinButton';
 import { SourceIssue } from '../shell/SourceIssue';
+import { usePlayContext } from '../music/playContext';
+import { findInCache } from '../shell/queryMemory';
 
 /** An album from a music source (M46.9): its songs in order, to play, save or download. */
 export const MusicAlbumPage: FC = () => {
@@ -32,7 +34,33 @@ export const MusicAlbumPage: FC = () => {
     staleTime: 30 * 60_000,
   });
   const tracks = album.data?.tracks ?? [];
-  const info = album.data?.album;
+  const client = useQueryClient();
+  // The album as the search, chart or discography showed it (M46.40), until its songs come.
+  const known = useMemo(
+    () =>
+      findInCache(client, ['music'], (record) =>
+        typeof record.title === 'string' &&
+        record.id === id &&
+        (record.provider as { id?: string } | undefined)?.id === provider &&
+        'year' in record
+          ? (record as unknown as MusicAlbum)
+          : null,
+      ),
+    [client, provider, id],
+  );
+  const info = album.data?.album ?? known ?? undefined;
+  usePlayContext(
+    info
+      ? {
+          kind: 'album',
+          name: info.title,
+          subtitle: info.artist,
+          artworkUrl: info.artworkUrl,
+          to: '/music/album',
+          search: { provider, id },
+        }
+      : null,
+  );
   // Edit album (M46.30): its title and cover over what the source said.
   const [editing, setEditing] = useState(false);
   const play = (shuffle: boolean) => {

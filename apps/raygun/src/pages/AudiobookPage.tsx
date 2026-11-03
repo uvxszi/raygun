@@ -11,6 +11,9 @@ import { PodcastArt } from '../podcasts/PodcastArt';
 import { SourceIssue } from '../shell/SourceIssue';
 import { TopBar } from '../shell/TopBar';
 import { PinButton } from '../shell/PinButton';
+import { useSearchMode } from '../shell/useSearchMode';
+import { matchesSearch } from '../shell/useListSearch';
+import { usePlayContext } from '../music/playContext';
 
 /**
  * An audiobook (M46.22): Resume where you left off or start over, add it to the library, and its
@@ -18,12 +21,25 @@ import { PinButton } from '../shell/PinButton';
  */
 export const AudiobookPage: FC = () => {
   const { t } = useTranslation();
+  const find = useSearchMode(t('audiobooks.findChapter'));
   const { id } = useSearch({ from: '/audiobook' });
   const book = useAudiobook(id);
   const play = usePlayAudiobook();
   const keep = useKeepAudiobook();
   const [expanded, setExpanded] = useState(false);
   const view = book.data;
+  usePlayContext(
+    view
+      ? {
+          kind: 'audiobook',
+          name: view.title,
+          subtitle: view.author,
+          artworkUrl: view.artworkUrl,
+          to: '/audiobook',
+          search: { id },
+        }
+      : null,
+  );
 
   if (book.error && !view) {
     return (
@@ -50,16 +66,20 @@ export const AudiobookPage: FC = () => {
         fallback="/library"
         plainTitle
         title={t('audiobooks.title')}
+        search={find.search}
         actions={
-          <PinButton
-            target={{
-              kind: 'audiobook',
-              to: '/audiobook',
-              search: { id: view.id },
-              name: view.title,
-              artworkUrl: view.artworkUrl ?? null,
-            }}
-          />
+          <>
+            {find.action}
+            <PinButton
+              target={{
+                kind: 'audiobook',
+                to: '/audiobook',
+                search: { id: view.id },
+                name: view.title,
+                artworkUrl: view.artworkUrl ?? null,
+              }}
+            />{' '}
+          </>
         }
       />
       <header className="flex flex-col items-center gap-4 sm:flex-row sm:items-end sm:gap-6">
@@ -134,13 +154,15 @@ export const AudiobookPage: FC = () => {
           {t('audiobooks.chapters', { count: view.chapters.length })}
         </h2>
         <ul className="bg-surface flex flex-col gap-4 rounded-xl px-4 py-3">
-          {view.chapters.map((chapter) => (
-            <EpisodeItem
-              key={chapter.id}
-              episode={chapter}
-              onPlay={() => play.mutate({ id: view.id, chapterId: chapter.id })}
-            />
-          ))}
+          {view.chapters
+            .filter((chapter) => matchesSearch(find.query, [chapter.title]))
+            .map((chapter) => (
+              <EpisodeItem
+                key={chapter.id}
+                episode={chapter}
+                onPlay={() => play.mutate({ id: view.id, chapterId: chapter.id })}
+              />
+            ))}
         </ul>
       </section>
     </section>

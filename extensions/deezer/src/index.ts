@@ -4,7 +4,7 @@
 // (M46.20). Charts follow the country Deezer sees the request from. Songs carry no stream; Raygun
 // finds one through `music.stream` providers when they play.
 import { defineProvider, registerProvider } from '@raygun/sdk';
-import type { Album, Artist, Chart, LyricsQuery, MusicTag, Track } from '@raygun/sdk';
+import type { Album, Artist, Chart, LyricsQuery, MusicTag, Playlist, Track } from '@raygun/sdk';
 
 const API = 'https://api.deezer.com';
 // Deezer allows 50 requests in 5 seconds; one retry covers a brief "quota" answer.
@@ -17,6 +17,7 @@ type DeezerTrack = {
   duration?: number;
   artist?: { name: string };
   album?: { id: number; title: string; cover_xl?: string; cover_big?: string };
+  explicit_lyrics?: boolean;
 };
 type DeezerGenre = { id: number; name: string; picture_xl?: string; picture_big?: string };
 type DeezerArtist = {
@@ -34,6 +35,7 @@ type DeezerAlbum = {
   nb_tracks?: number;
   release_date?: string;
   artist?: { name: string };
+  record_type?: string;
 };
 type DeezerList<T> = { data?: T[]; error?: { message?: string; code?: number } };
 type DeezerPlaylist = {
@@ -129,6 +131,7 @@ const toTrack = (track: DeezerTrack): Track => ({
   album: track.album?.title ?? null,
   durationMs: track.duration ? track.duration * 1000 : null,
   artworkUrl: track.album?.cover_xl ?? track.album?.cover_big ?? null,
+  explicit: track.explicit_lyrics ?? null,
 });
 
 registerProvider(
@@ -276,7 +279,46 @@ const toAlbum = (album: DeezerAlbum): Album => ({
   year: album.release_date ? Number(album.release_date.slice(0, 4)) || null : null,
   artworkUrl: album.cover_xl ?? album.cover_big ?? null,
   trackCount: album.nb_tracks ?? null,
+  kind: kindOf(album.record_type),
 });
+
+/** A public playlist (M46.39); Deezer's editors' own count as featured. */
+type DeezerPublicPlaylist = {
+  id: number;
+  title: string;
+  nb_tracks?: number;
+  picture_xl?: string;
+  picture_big?: string;
+  user?: { name?: string };
+  creator?: { name?: string };
+};
+
+const toPlaylist = (playlist: DeezerPublicPlaylist): Playlist => {
+  const author = playlist.user?.name ?? playlist.creator?.name ?? null;
+  return {
+    id: String(playlist.id),
+    title: playlist.title,
+    author,
+    artworkUrl: playlist.picture_xl ?? playlist.picture_big ?? null,
+    trackCount: playlist.nb_tracks ?? null,
+    // Deezer's editors sign as "Rudy - Deezer Moods Editor".
+    featured: /\bdeezer\b/i.test(author ?? ''),
+  };
+};
+
+/** Deezer's `record_type` as a release kind (M46.36). */
+const kindOf = (type: string | undefined): Album['kind'] => {
+  switch (type) {
+    case 'album':
+    case 'single':
+    case 'ep':
+      return type;
+    case 'compile':
+      return 'compilation';
+    default:
+      return null;
+  }
+};
 
 const limitOf = (limit: number) => Math.min(Math.max(limit, 1), 50);
 
@@ -324,6 +366,34 @@ registerProvider(
         }),
       );
       return { album: toAlbum(album), tracks };
+    },
+    async searchPlaylists({ query, limit, featured }) {
+      const found = await get<DeezerList<DeezerPublicPlaylist>>(
+        `/search/playlist?q=${encodeURIComponent(query)}&limit=${featured ? 50 : limitOf(limit)}`,
+      );
+      const playlists = (found.data ?? [])
+        .map(toPlaylist)
+        .filter((playlist) => !featured || playlist.featured)
+        .slice(0, limitOf(limit));
+      return { playlists };
+    },
+    async playlist({ id }) {
+      if (!/^\d+$/.test(id)) throw new Error(`Unknown playlist ${id}`);
+      const playlist = await get<DeezerPublicPlaylist & { tracks?: { data?: DeezerTrack[] } }>(
+        `/playlist/${id}`,
+      );
+      return { playlist: toPlaylist(playlist), tracks: (playlist.tracks?.data ?? []).map(toTrack) };
+    },
+    async artistReleases({ query, limit }) {
+      const artist = await artistNamed(query);
+      if (!artist) return { releases: [] };
+      const found = await get<DeezerList<DeezerAlbum>>(
+        `/artist/${artist.id}/albums?limit=${Math.min(Math.max(limit, 1), 100)}`,
+      );
+      const releases = (found.data ?? []).map((album) =>
+        toAlbum({ ...album, artist: album.artist ?? { name: artist.name } }),
+      );
+      return { releases };
     },
   }),
 );

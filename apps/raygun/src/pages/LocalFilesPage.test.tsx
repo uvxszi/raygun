@@ -48,7 +48,7 @@ describe('Local Files (M46.27)', () => {
 
   it('is a green block in the Library, always there (M46.29)', async () => {
     commands.localFolders.mockResolvedValue(ok([MEDIA]));
-    await AppShellWrapper.mount('/library');
+    await AppShellWrapper.mount('/library?media=music');
     const overview = await screen.findByTestId('music-overview');
     expect(await within(overview).findByRole('link', { name: /Local files/ })).toHaveAttribute(
       'href',

@@ -142,5 +142,34 @@
         "size": 151061672
       }
     ]
+  },
+  {
+    "id": "whisper-base",
+    "name": "Speech to text (Whisper base)",
+    "kind": "speech",
+    "description": "More accurate captions and subtitles than tiny, about twice as slow. Runs on this device, in about 99 languages.",
+    "license": "Apache-2.0",
+    "licenseUrl": "https://huggingface.co/openai/whisper-base",
+    "sourceUrl": "https://github.com/openai/whisper",
+    "files": [
+      {
+        "name": "config.json",
+        "url": "https://huggingface.co/openai/whisper-base/resolve/e37978b90ca9030d5170a5c07aadb050351a65bb/config.json",
+        "sha256": "a153c53883a6799b6f056b4a8d1a515c9926d03994682ba88a7616618d7da0c1",
+        "size": 1983
+      },
+      {
+        "name": "tokenizer.json",
+        "url": "https://huggingface.co/openai/whisper-base/resolve/e37978b90ca9030d5170a5c07aadb050351a65bb/tokenizer.json",
+        "sha256": "27fc476bfe7f17299480be2273fc0608e4d5a99aba2ab5dec5374b4482d1a566",
+        "size": 2480466
+      },
+      {
+        "name": "model.safetensors",
+        "url": "https://huggingface.co/openai/whisper-base/resolve/e37978b90ca9030d5170a5c07aadb050351a65bb/model.safetensors",
+        "sha256": "07cadb9f25677c8d50df603e66a98fbd842cce45047139baeb16e6219a1e807b",
+        "size": 290403936
+      }
+    ]
   }
 ]

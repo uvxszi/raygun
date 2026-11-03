@@ -663,21 +663,6 @@ impl PlaybackService {
             {
                 durations.on_playback(&state, outbox.current.as_ref());
             }
-            if let (Some(discord), Some(images)) = (
-                self.app.try_state::<Arc<crate::discord::DiscordPresence>>(),
-                self.app.try_state::<raygun_net::ImageLinks>(),
-            ) {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|elapsed| elapsed.as_millis() as i64)
-                    .unwrap_or_default();
-                discord.show(crate::discord::presence(
-                    &state,
-                    outbox.current.as_ref(),
-                    &|url| images.original(url),
-                    now,
-                ));
-            }
             log_emit(PlaybackStateEvent(state).emit(&self.app));
         }
         if outbox.verified.is_some() || outbox.failed.is_some() {

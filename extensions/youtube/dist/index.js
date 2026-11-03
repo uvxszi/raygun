@@ -1,4 +1,4 @@
-// dev.raygun.youtube 2.0.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.youtube 2.2.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -88,7 +88,10 @@
       artist: channelArtist(artist),
       album,
       durationMs: duration ?? null,
-      artworkUrl: thumbnail ? largeThumbnail(thumbnail) : null
+      artworkUrl: thumbnail ? largeThumbnail(thumbnail) : null,
+      explicit: (item.badges ?? []).some(
+        (badge) => badge.musicInlineBadgeRenderer?.icon?.iconType === "MUSIC_EXPLICIT_BADGE"
+      )
     };
   };
   var searchMusic = async (query, filter) => {
@@ -102,8 +105,8 @@
     const songs = await searchMusic(query, "songs");
     if (songs.length >= limit) return songs.slice(0, limit);
     const seen = new Set(songs.map((song) => song.videoId));
-    const videos = await searchMusic(query, "videos").catch(() => []);
-    return [...songs, ...videos.filter((video) => !seen.has(video.videoId))].slice(0, limit);
+    const videos2 = await searchMusic(query, "videos").catch(() => []);
+    return [...songs, ...videos2.filter((video) => !seen.has(video.videoId))].slice(0, limit);
   };
   var API = "https://www.googleapis.com/youtube/v3";
   var MUSIC_CATEGORY = "10";
@@ -149,12 +152,12 @@
     });
     const items = (search2.items ?? []).filter((item) => item.id.videoId);
     if (items.length === 0) return [];
-    const videos = await call("videos", {
+    const videos2 = await call("videos", {
       part: "contentDetails",
       id: items.map((item) => item.id.videoId).join(",")
     });
     const lengths = new Map(
-      (videos.items ?? []).map((video) => [video.id, isoDuration(video.contentDetails?.duration)])
+      (videos2.items ?? []).map((video) => [video.id, isoDuration(video.contentDetails?.duration)])
     );
     return items.map((item) => {
       const videoId = item.id.videoId;
@@ -171,21 +174,138 @@
   };
   var searchVideos = (query, limit) => apiKey() ? searchWithKey(query, limit) : searchKeyless(query, Math.max(limit, 1));
   var embed = (videoId) => ({ kind: "youTube", videoId });
+  var PLAYLIST_FILTER = {
+    community: "EgeKAQQoAEABagoQAxAEEAoQCRAF",
+    featured: "EgeKAQQoADgBagwQDhAKEAMQBRAJEAQ="
+  };
+  var listItems = (value, found = [], depth = 0) => {
+    if (depth > 14 || value === null || typeof value !== "object") return found;
+    if (Array.isArray(value)) {
+      for (const item of value) listItems(item, found, depth + 1);
+      return found;
+    }
+    for (const [key, child] of Object.entries(value)) {
+      if (key === "musicResponsiveListItemRenderer") found.push(child);
+      else listItems(child, found, depth + 1);
+    }
+    return found;
+  };
+  var findKey = (value, key, depth = 0) => {
+    if (depth > 14 || value === null || typeof value !== "object") return null;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = findKey(item, key, depth + 1);
+        if (found) return found;
+      }
+      return null;
+    }
+    const record = value;
+    if (key in record && record[key] && typeof record[key] === "object") {
+      return record[key];
+    }
+    for (const child of Object.values(record)) {
+      const found = findKey(child, key, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  };
+  var runsText = (value) => (value?.runs ?? []).map((run) => run.text).join("");
+  var thumbnailOf = (value) => {
+    const thumbs = findKey(value, "musicThumbnailRenderer")?.thumbnail?.thumbnails ?? [];
+    const url = thumbs.at(-1)?.url;
+    return url ? largeThumbnail(url) : null;
+  };
+  var parsePlaylist = (item, featured) => {
+    const browseId = item.navigationEndpoint?.browseEndpoint?.browseId;
+    const columns = (item.flexColumns ?? []).map(
+      (column) => column.musicResponsiveListItemFlexColumnRenderer?.text?.runs ?? []
+    );
+    const title = columns[0]?.[0]?.text;
+    if (!browseId || !title) return null;
+    const details = (columns[1] ?? []).map((run) => run.text.trim()).filter(Boolean);
+    const parts = details.filter((part) => part !== "•" && part !== "Playlist");
+    const count = parts.map((part) => /^([\d,.]+)\s+(songs?|tracks?)$/i.exec(part)).find(Boolean);
+    return {
+      id: browseId,
+      title,
+      author: parts.find((part) => !/views?$|songs?$|tracks?$/i.test(part)) ?? null,
+      artworkUrl: thumbnailOf(item),
+      trackCount: count ? Number(count[1]?.replace(/[,.]/g, "")) : null,
+      featured
+    };
+  };
+  var searchPlaylists = async (query, featured, limit) => {
+    const response = await innertube("search", {
+      query,
+      params: featured ? PLAYLIST_FILTER.featured : PLAYLIST_FILTER.community
+    });
+    return listItems(response).map((item) => parsePlaylist(item, featured)).filter((playlist) => playlist !== null).slice(0, limit);
+  };
+  var playlistPage = async (id) => {
+    const browseId = id.startsWith("VL") || id.startsWith("MPRE") ? id : `VL${id}`;
+    const response = await innertube("browse", { browseId });
+    const header = findKey(response, "musicResponsiveHeaderRenderer") ?? findKey(response, "musicDetailHeaderRenderer") ?? findKey(response, "musicEditablePlaylistDetailHeaderRenderer");
+    const songs = listItems(response).map(parseItem).filter((video) => video !== null);
+    const playlist = {
+      id: browseId,
+      title: runsText(header?.title) || "Playlist",
+      author: runsText(header?.straplineTextOne) || runsText(header?.subtitle) || null,
+      artworkUrl: thumbnailOf(header) ?? songs[0]?.artworkUrl ?? null,
+      trackCount: songs.length,
+      featured: false
+    };
+    return { playlist, songs };
+  };
+  var toTrack = (video) => ({
+    id: video.videoId,
+    title: video.title,
+    artist: video.artist,
+    album: video.album,
+    durationMs: video.durationMs,
+    artworkUrl: video.artworkUrl,
+    source: embed(video.videoId),
+    explicit: video.explicit ?? null
+  });
+  var simpleWords = (text) => text.toLowerCase().replace(/\(.*?\)|\[.*?\]/g, " ").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  var youTubeLyrics = async (query) => {
+    const words = [query.artist, query.title].filter(Boolean).join(" ");
+    const songs = await searchMusic(words, "songs");
+    const wanted = simpleWords(query.title);
+    const song = songs.find((candidate) => simpleWords(candidate.title).includes(wanted));
+    if (!song) return null;
+    const next = await innertube("next", { videoId: song.videoId, isAudioOnly: true });
+    const tabs = findKey(next, "watchNextTabbedResultsRenderer")?.tabs ?? [];
+    const browseId = tabs.map((tab) => tab.tabRenderer?.endpoint?.browseEndpoint?.browseId).find((id) => id?.startsWith("MPLY"));
+    if (!browseId) return null;
+    const page = await innertube("browse", { browseId });
+    const shelf = findKey(page, "musicDescriptionShelfRenderer");
+    const text = runsText(shelf?.description).trim();
+    return text ? { synced: [], plain: text } : null;
+  };
   var search = defineProvider({
     kind: "music.metadata",
     id: "search",
     name: "YouTube",
+    async searchPlaylists({ query, limit, featured }) {
+      if (!query.trim()) return { playlists: [] };
+      return { playlists: await searchPlaylists(query, featured, Math.max(limit, 1)) };
+    },
+    async playlist({ id }) {
+      const { playlist, songs } = await playlistPage(id);
+      return { playlist, tracks: songs.map(toTrack) };
+    },
     async search({ query, limit }) {
       if (!query.trim()) return { tracks: [] };
-      const videos = await searchVideos(query, limit);
-      const tracks = videos.map((video) => ({
+      const videos2 = await searchVideos(query, limit);
+      const tracks = videos2.map((video) => ({
         id: video.videoId,
         title: video.title,
         artist: video.artist,
         album: video.album,
         durationMs: video.durationMs,
         artworkUrl: video.artworkUrl,
-        source: embed(video.videoId)
+        source: embed(video.videoId),
+        explicit: video.explicit ?? null
       }));
       return { tracks };
     }
@@ -196,12 +316,12 @@
     name: "YouTube",
     async candidates({ title, artist, limit }) {
       if (!title.trim()) return { candidates: [] };
-      const videos = await searchVideos(
+      const videos2 = await searchVideos(
         [artist, title].filter(Boolean).join(" "),
         Math.min(limit, 5)
       );
       return {
-        candidates: videos.map((video) => ({
+        candidates: videos2.map((video) => ({
           id: video.videoId,
           title: video.title,
           artist: video.artist,
@@ -212,6 +332,141 @@
       };
     }
   });
+  var WEB = "https://www.youtube.com";
+  var webClientVersion = "2.20261028.01.00";
+  var textOf = (text) => text?.simpleText ?? text?.runs?.map((run) => run.text).join("") ?? "";
+  var webInnertube = async (endpoint, body) => {
+    const send = () => raygun.http.fetch(`${WEB}/youtubei/v1/${endpoint}?prettyPrint=false`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": USER_AGENT,
+        Origin: WEB,
+        Referer: `${WEB}/`,
+        "X-YouTube-Client-Name": "1",
+        "X-YouTube-Client-Version": webClientVersion
+      },
+      body: JSON.stringify({
+        context: {
+          client: {
+            clientName: "WEB",
+            clientVersion: webClientVersion,
+            hl: "en",
+            ...region() ? { gl: region() } : {}
+          }
+        },
+        ...body
+      })
+    });
+    let response = await send();
+    if (response.status === 400) {
+      const page = await raygun.http.fetch(`${WEB}/`, { headers: { "User-Agent": USER_AGENT } });
+      const version = /"INNERTUBE_CLIENT_VERSION":"([\d.]+)"/.exec(await page.text())?.[1];
+      if (version && version !== webClientVersion) {
+        webClientVersion = version;
+        response = await send();
+      }
+    }
+    if (!response.ok) throw new Error(`YouTube answered ${response.status}`);
+    return await response.json();
+  };
+  var videosIn = (items, out = []) => {
+    for (const item of items ?? []) {
+      if (item.videoRenderer?.videoId) out.push(item.videoRenderer);
+      if (item.itemSectionRenderer) videosIn(item.itemSectionRenderer.contents, out);
+      if (item.shelfRenderer)
+        videosIn(item.shelfRenderer.content?.expandedShelfContentsRenderer?.items, out);
+      if (item.richItemRenderer?.content) videosIn([item.richItemRenderer.content], out);
+    }
+    return out;
+  };
+  var continuationIn = (items) => {
+    for (const item of items ?? []) {
+      const token = item.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token;
+      if (token) return token;
+      const nested = continuationIn(item.itemSectionRenderer?.contents);
+      if (nested) return nested;
+    }
+    return null;
+  };
+  var toPage = (found, next) => ({
+    items: found.map((video) => ({
+      id: video.videoId,
+      title: textOf(video.title),
+      coverUrl: video.thumbnail?.thumbnails?.at(-1)?.url?.split("?")[0] ?? null
+    })),
+    hasNextPage: next !== null
+  });
+  var pages = /* @__PURE__ */ new Map();
+  var searchWeb = async (query, page) => {
+    const key = (n) => `${query}|${n}`;
+    let items;
+    if (page > 1) {
+      const token = pages.get(key(page));
+      if (!token) return { items: [], hasNextPage: false };
+      const response = await webInnertube("search", { continuation: token });
+      items = response.onResponseReceivedCommands?.flatMap(
+        (command) => command.appendContinuationItemsAction?.continuationItems ?? []
+      );
+    } else {
+      const response = await webInnertube("search", { query });
+      items = response.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents;
+    }
+    const next = continuationIn(items);
+    if (next) pages.set(key(page + 1), next);
+    if (pages.size > 60) pages.delete(pages.keys().next().value);
+    return toPage(videosIn(items), next);
+  };
+  var videos = defineProvider({
+    kind: "video.source",
+    id: "videos",
+    name: "YouTube",
+    searchPill: "YouTube",
+    // With nothing typed: what's trending.
+    popular: ({ page }) => searchWeb("trending", page),
+    latest: ({ page }) => searchWeb("live now", page),
+    search: ({ query, page }) => searchWeb(query.trim() || "trending", page),
+    async details({ id }) {
+      const watch = `${WEB}/watch?v=${encodeURIComponent(id)}`;
+      const response = await raygun.http.fetch(
+        `${WEB}/oembed?format=json&url=${encodeURIComponent(watch)}`,
+        { headers: { "User-Agent": USER_AGENT } }
+      );
+      const meta = response.ok ? await response.json() : {};
+      return {
+        id,
+        title: meta.title ?? id,
+        coverUrl: meta.thumbnail_url ?? `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+        description: meta.author_name ? `By ${meta.author_name}` : null,
+        genres: [],
+        type: "movie",
+        url: watch
+      };
+    },
+    episodes: async ({ id }) => ({ episodes: [{ id, name: "Video" }] }),
+    // Played in YouTube's embed: one link, no stream extraction.
+    servers: async ({ episodeId }) => ({
+      servers: [
+        {
+          id: episodeId,
+          name: "YouTube",
+          videos: [{ url: `youtube:${episodeId}`, label: "YouTube" }]
+        }
+      ]
+    }),
+    videos: async ({ serverId }) => ({
+      videos: [{ url: `youtube:${serverId}`, label: "YouTube" }]
+    })
+  });
   registerProvider(search);
   registerProvider(streams);
+  registerProvider(videos);
+  registerProvider(
+    defineProvider({
+      kind: "lyrics",
+      id: "lyrics",
+      name: "YouTube Music",
+      lyrics: youTubeLyrics
+    })
+  );
 })();

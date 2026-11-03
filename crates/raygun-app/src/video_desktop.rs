@@ -72,30 +72,80 @@ fn for_webview(media: &MediaLinks, payload: &Value) -> Value {
 }
 
 /// The apps that can take a video over, best first: mpv plays nearly everything and takes
-/// subtitle addresses.
+/// subtitle addresses (M46.33: the user picks one from those installed).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExternalApp {
     Mpv,
     Vlc,
+    MpcHc,
+    MpcBe,
+    PotPlayer,
 }
 
 impl ExternalApp {
+    const ALL: [Self; 5] = [
+        Self::Mpv,
+        Self::Vlc,
+        Self::MpcHc,
+        Self::MpcBe,
+        Self::PotPlayer,
+    ];
+
+    fn id(self) -> &'static str {
+        match self {
+            Self::Mpv => "mpv",
+            Self::Vlc => "vlc",
+            Self::MpcHc => "mpc-hc",
+            Self::MpcBe => "mpc-be",
+            Self::PotPlayer => "potplayer",
+        }
+    }
+
     fn name(self) -> &'static str {
         match self {
             Self::Mpv => "mpv",
             Self::Vlc => "VLC",
+            Self::MpcHc => "MPC-HC",
+            Self::MpcBe => "MPC-BE",
+            Self::PotPlayer => "PotPlayer",
         }
     }
 }
 
-/// Plays `play` in mpv or VLC; returns the app's name. Nothing is passed through a shell.
-pub fn play_external(play: &ExternalPlay) -> Result<String, String> {
+/// The players installed here, best first, each once.
+pub fn external_players() -> Vec<raygun_model::ExternalPlayer> {
+    let mut seen = Vec::new();
+    for (app, path) in candidates() {
+        if !seen.contains(&app) && path.is_file() {
+            seen.push(app);
+        }
+    }
+    seen.into_iter()
+        .map(|app| raygun_model::ExternalPlayer {
+            id: app.id().to_owned(),
+            name: app.name().to_owned(),
+        })
+        .collect()
+}
+
+/// Plays `play` in the chosen player (`player`, else the first installed); returns its name.
+/// Nothing is passed through a shell.
+pub fn play_external(play: &ExternalPlay, player: Option<&str>) -> Result<String, String> {
     let web = |address: &str| address.starts_with("http://") || address.starts_with("https://");
     if !web(&play.url) {
         return Err("Only web addresses can be played".into());
     }
-    let (app, path) =
-        find_external().ok_or("Install mpv or VLC to play videos this player can't".to_owned())?;
+    let installed = candidates()
+        .into_iter()
+        .filter(|(_, path)| path.is_file())
+        .collect::<Vec<_>>();
+    let chosen = player
+        .and_then(|wanted| installed.iter().find(|(app, _)| app.id() == wanted))
+        .or_else(|| installed.first())
+        .cloned();
+    let (app, path) = chosen.ok_or_else(|| {
+        "Install mpv, VLC, MPC-HC or PotPlayer to play videos this player can't".to_owned()
+    })?;
     std::process::Command::new(&path)
         .args(arguments(app, play))
         .stdin(std::process::Stdio::null())
@@ -107,7 +157,8 @@ pub fn play_external(play: &ExternalPlay) -> Result<String, String> {
 }
 
 fn arguments(app: ExternalApp, play: &ExternalPlay) -> Vec<String> {
-    let start = (play.start_ms.max(0.0) / 1000.0).floor() as u64;
+    let start_ms = play.start_ms.max(0.0) as u64;
+    let start = start_ms / 1000;
     let subtitle = play
         .subtitles
         .iter()
@@ -123,6 +174,7 @@ fn arguments(app: ExternalApp, play: &ExternalPlay) -> Vec<String> {
                 arguments.push(format!("--sub-file={subtitle}"));
             }
             arguments.push("--".into());
+            arguments.push(play.url.clone());
         }
         ExternalApp::Vlc => {
             arguments.push(format!("--meta-title={}", play.title));
@@ -132,15 +184,38 @@ fn arguments(app: ExternalApp, play: &ExternalPlay) -> Vec<String> {
             if let Some(subtitle) = subtitle {
                 arguments.push(format!("--sub-file={subtitle}"));
             }
+            arguments.push(play.url.clone());
+        }
+        // MPC-HC and MPC-BE: the address first, then switches; `/start` is in milliseconds.
+        ExternalApp::MpcHc | ExternalApp::MpcBe => {
+            arguments.push(play.url.clone());
+            arguments.push("/play".into());
+            if start > 0 {
+                arguments.push("/start".into());
+                arguments.push((start * 1000).to_string());
+            }
+            if let Some(subtitle) = subtitle {
+                arguments.push("/sub".into());
+                arguments.push(subtitle.clone());
+            }
+        }
+        ExternalApp::PotPlayer => {
+            arguments.push(play.url.clone());
+            if start > 0 {
+                arguments.push(format!(
+                    "/seek={:02}:{:02}:{:02}",
+                    start / 3600,
+                    start / 60 % 60,
+                    start % 60
+                ));
+            }
+            if let Some(subtitle) = subtitle {
+                arguments.push(format!("/sub={subtitle}"));
+            }
+            arguments.push(format!("/title={}", play.title));
         }
     }
-    arguments.push(play.url.clone());
     arguments
-}
-
-/// The first installed of mpv and VLC: on `PATH`, then where their installers put them.
-fn find_external() -> Option<(ExternalApp, PathBuf)> {
-    candidates().into_iter().find(|(_, path)| path.is_file())
 }
 
 fn candidates() -> Vec<(ExternalApp, PathBuf)> {
@@ -155,7 +230,12 @@ fn candidates() -> Vec<(ExternalApp, PathBuf)> {
         .map(|path| std::env::split_paths(&path).collect())
         .unwrap_or_default();
     let mut found = Vec::new();
-    for (app, name) in [(ExternalApp::Mpv, "mpv"), (ExternalApp::Vlc, "vlc")] {
+    for (app, name) in [
+        (ExternalApp::Mpv, "mpv"),
+        (ExternalApp::Vlc, "vlc"),
+        (ExternalApp::MpcHc, "mpc-hc64"),
+        (ExternalApp::MpcBe, "mpc-be64"),
+    ] {
         for folder in &on_path {
             found.push((app, folder.join(executable(name))));
         }
@@ -170,6 +250,31 @@ fn candidates() -> Vec<(ExternalApp, PathBuf)> {
             found.push((
                 ExternalApp::Vlc,
                 root.join("VideoLAN").join("VLC").join("vlc.exe"),
+            ));
+            found.push((ExternalApp::MpcHc, root.join("MPC-HC").join("mpc-hc64.exe")));
+            found.push((ExternalApp::MpcHc, root.join("MPC-HC").join("mpc-hc.exe")));
+            found.push((
+                ExternalApp::MpcHc,
+                root.join("K-Lite Codec Pack")
+                    .join("MPC-HC64")
+                    .join("mpc-hc64.exe"),
+            ));
+            found.push((
+                ExternalApp::MpcBe,
+                root.join("MPC-BE x64").join("mpc-be64.exe"),
+            ));
+            found.push((ExternalApp::MpcBe, root.join("MPC-BE").join("mpc-be.exe")));
+            found.push((
+                ExternalApp::PotPlayer,
+                root.join("DAUM")
+                    .join("PotPlayer")
+                    .join("PotPlayerMini64.exe"),
+            ));
+            found.push((
+                ExternalApp::PotPlayer,
+                root.join("DAUM")
+                    .join("PotPlayer")
+                    .join("PotPlayerMini.exe"),
             ));
         }
         if let Some(local) = env("LOCALAPPDATA") {
@@ -194,8 +299,8 @@ fn candidates() -> Vec<(ExternalApp, PathBuf)> {
             PathBuf::from("/Applications/VLC.app/Contents/MacOS/VLC"),
         ));
     }
-    // mpv anywhere before VLC anywhere.
-    found.sort_by_key(|(app, _)| *app == ExternalApp::Vlc);
+    // Best app first, wherever it is.
+    found.sort_by_key(|(app, _)| ExternalApp::ALL.iter().position(|known| known == app));
     found
 }
 
@@ -242,12 +347,31 @@ mod tests {
     }
 
     #[test]
+    fn mpc_and_potplayer_get_their_own_switches() {
+        assert_eq!(
+            arguments(ExternalApp::MpcHc, &play()),
+            [
+                "http://127.0.0.1:1/media/t/https/cdn.example/a.mkv",
+                "/play",
+                "/start",
+                "61000",
+                "/sub",
+                "http://127.0.0.1:1/subtitle/s",
+            ]
+        );
+        assert_eq!(
+            arguments(ExternalApp::PotPlayer, &play())[1..3],
+            ["/seek=00:01:01", "/sub=http://127.0.0.1:1/subtitle/s"]
+        );
+    }
+
+    #[test]
     fn only_web_addresses_are_handed_over() {
         let local = ExternalPlay {
             url: "C:\\Windows\\system32\\calc.exe".into(),
             ..play()
         };
-        assert!(play_external(&local).is_err());
+        assert!(play_external(&local, None).is_err());
     }
 
     #[test]

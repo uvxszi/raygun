@@ -1,5 +1,6 @@
 // YouTube (M15, keyless since M46.7): music search and stream candidates that play in YouTube's
-// own embedded player.
+// own embedded player. Since M46.35 also a video source with its own Search pill: videos and live
+// streams found through YouTube's web search, played in the same embed (`youtube:<id>` links).
 //
 // Search goes through YouTube Music's web API (InnerTube, the requests music.youtube.com makes),
 // as Grayjay, NewPipe and FreeTube do, so no key is needed. With the user's own YouTube Data API
@@ -9,7 +10,7 @@
 // defeat YouTube's bot checks. The embed pauses when Android backgrounds the app, so the resolver
 // prefers direct streams and keeps YouTube as the fallback.
 import { defineProvider, registerProvider } from '@raygun/sdk';
-import type { MediaSource, Track } from '@raygun/sdk';
+import type { LyricsQuery, MangaPage, MediaSource, Playlist, Track } from '@raygun/sdk';
 
 type Video = {
   videoId: string;
@@ -18,6 +19,8 @@ type Video = {
   album: string | null;
   durationMs: number | null;
   artworkUrl: string | null;
+  /** YouTube Music's E badge (M46.36). */
+  explicit?: boolean;
 };
 
 /** Auto-generated artist channels are named "Artist - Topic". */
@@ -49,7 +52,9 @@ type Run = {
 };
 type ListItem = {
   flexColumns?: { musicResponsiveListItemFlexColumnRenderer?: { text?: { runs?: Run[] } } }[];
+  navigationEndpoint?: { browseEndpoint?: { browseId?: string } };
   playlistItemData?: { videoId?: string };
+  badges?: { musicInlineBadgeRenderer?: { icon?: { iconType?: string } } }[];
   thumbnail?: {
     musicThumbnailRenderer?: { thumbnail?: { thumbnails?: { url: string; width?: number }[] } };
   };
@@ -168,6 +173,9 @@ const parseItem = (item: ListItem): Video | null => {
     album,
     durationMs: duration ?? null,
     artworkUrl: thumbnail ? largeThumbnail(thumbnail) : null,
+    explicit: (item.badges ?? []).some(
+      (badge) => badge.musicInlineBadgeRenderer?.icon?.iconType === 'MUSIC_EXPLICIT_BADGE',
+    ),
   };
 };
 
@@ -291,10 +299,173 @@ const searchVideos = (query: string, limit: number) =>
 
 const embed = (videoId: string): MediaSource => ({ kind: 'youTube', videoId });
 
+// ---- Playlists and lyrics (M46.39), read the way Kreate and RiMusic read them ----
+
+/** music.youtube.com's Community playlists and Featured playlists search chips. */
+const PLAYLIST_FILTER = {
+  community: 'EgeKAQQoAEABagoQAxAEEAoQCRAF',
+  featured: 'EgeKAQQoADgBagwQDhAKEAMQBRAJEAQ=',
+} as const;
+
+/** Every list row anywhere in an answer, in order: playlist pages nest them differently. */
+const listItems = (value: unknown, found: ListItem[] = [], depth = 0): ListItem[] => {
+  if (depth > 14 || value === null || typeof value !== 'object') return found;
+  if (Array.isArray(value)) {
+    for (const item of value) listItems(item, found, depth + 1);
+    return found;
+  }
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (key === 'musicResponsiveListItemRenderer') found.push(child as ListItem);
+    else listItems(child, found, depth + 1);
+  }
+  return found;
+};
+
+/** The first object under `key` anywhere in an answer. */
+const findKey = (value: unknown, key: string, depth = 0): Record<string, unknown> | null => {
+  if (depth > 14 || value === null || typeof value !== 'object') return null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findKey(item, key, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  if (key in record && record[key] && typeof record[key] === 'object') {
+    return record[key] as Record<string, unknown>;
+  }
+  for (const child of Object.values(record)) {
+    const found = findKey(child, key, depth + 1);
+    if (found) return found;
+  }
+  return null;
+};
+
+const runsText = (value: unknown) =>
+  ((value as { runs?: Run[] } | undefined)?.runs ?? []).map((run) => run.text).join('');
+
+const thumbnailOf = (value: unknown) => {
+  const thumbs =
+    (
+      findKey(value, 'musicThumbnailRenderer') as {
+        thumbnail?: { thumbnails?: { url: string }[] };
+      } | null
+    )?.thumbnail?.thumbnails ?? [];
+  const url = thumbs.at(-1)?.url;
+  return url ? largeThumbnail(url) : null;
+};
+
+/** A playlist row of a search: "Playlist • Author • 1.2M views" or "YouTube Music • 50 songs". */
+const parsePlaylist = (item: ListItem, featured: boolean): Playlist | null => {
+  const browseId = item.navigationEndpoint?.browseEndpoint?.browseId;
+  const columns = (item.flexColumns ?? []).map(
+    (column) => column.musicResponsiveListItemFlexColumnRenderer?.text?.runs ?? [],
+  );
+  const title = columns[0]?.[0]?.text;
+  if (!browseId || !title) return null;
+  const details = (columns[1] ?? []).map((run) => run.text.trim()).filter(Boolean);
+  const parts = details.filter((part) => part !== '•' && part !== 'Playlist');
+  const count = parts.map((part) => /^([\d,.]+)\s+(songs?|tracks?)$/i.exec(part)).find(Boolean);
+  return {
+    id: browseId,
+    title,
+    author: parts.find((part) => !/views?$|songs?$|tracks?$/i.test(part)) ?? null,
+    artworkUrl: thumbnailOf(item),
+    trackCount: count ? Number(count[1]?.replace(/[,.]/g, '')) : null,
+    featured,
+  };
+};
+
+const searchPlaylists = async (query: string, featured: boolean, limit: number) => {
+  const response = await innertube<unknown>('search', {
+    query,
+    params: featured ? PLAYLIST_FILTER.featured : PLAYLIST_FILTER.community,
+  });
+  return listItems(response)
+    .map((item) => parsePlaylist(item, featured))
+    .filter((playlist): playlist is Playlist => playlist !== null)
+    .slice(0, limit);
+};
+
+/** A playlist's page: its header and every song row. */
+const playlistPage = async (id: string) => {
+  const browseId = id.startsWith('VL') || id.startsWith('MPRE') ? id : `VL${id}`;
+  const response = await innertube<unknown>('browse', { browseId });
+  const header =
+    findKey(response, 'musicResponsiveHeaderRenderer') ??
+    findKey(response, 'musicDetailHeaderRenderer') ??
+    findKey(response, 'musicEditablePlaylistDetailHeaderRenderer');
+  const songs = listItems(response)
+    .map(parseItem)
+    .filter((video): video is Video => video !== null);
+  const playlist: Playlist = {
+    id: browseId,
+    title: runsText(header?.title) || 'Playlist',
+    author: runsText(header?.straplineTextOne) || runsText(header?.subtitle) || null,
+    artworkUrl: thumbnailOf(header) ?? songs[0]?.artworkUrl ?? null,
+    trackCount: songs.length,
+    featured: false,
+  };
+  return { playlist, songs };
+};
+
+const toTrack = (video: Video): Track => ({
+  id: video.videoId,
+  title: video.title,
+  artist: video.artist,
+  album: video.album,
+  durationMs: video.durationMs,
+  artworkUrl: video.artworkUrl,
+  source: embed(video.videoId),
+  explicit: video.explicit ?? null,
+});
+
+const simpleWords = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/\(.*?\)|\[.*?\]/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+
+/** YouTube Music's own lyrics for a song (plain): its Lyrics tab, found through `next`. */
+const youTubeLyrics = async (query: LyricsQuery) => {
+  const words = [query.artist, query.title].filter(Boolean).join(' ');
+  const songs = await searchMusic(words, 'songs');
+  const wanted = simpleWords(query.title);
+  const song = songs.find((candidate) => simpleWords(candidate.title).includes(wanted));
+  if (!song) return null;
+  const next = await innertube<unknown>('next', { videoId: song.videoId, isAudioOnly: true });
+  const tabs =
+    (
+      findKey(next, 'watchNextTabbedResultsRenderer') as {
+        tabs?: { tabRenderer?: { endpoint?: { browseEndpoint?: { browseId?: string } } } }[];
+      } | null
+    )?.tabs ?? [];
+  const browseId = tabs
+    .map((tab) => tab.tabRenderer?.endpoint?.browseEndpoint?.browseId)
+    .find((id) => id?.startsWith('MPLY'));
+  if (!browseId) return null;
+  const page = await innertube<unknown>('browse', { browseId });
+  const shelf = findKey(page, 'musicDescriptionShelfRenderer');
+  const text = runsText(shelf?.description).trim();
+  return text ? { synced: [], plain: text } : null;
+};
+
 const search = defineProvider({
   kind: 'music.metadata',
   id: 'search',
   name: 'YouTube',
+
+  async searchPlaylists({ query, limit, featured }) {
+    if (!query.trim()) return { playlists: [] };
+    return { playlists: await searchPlaylists(query, featured, Math.max(limit, 1)) };
+  },
+
+  async playlist({ id }) {
+    const { playlist, songs } = await playlistPage(id);
+    return { playlist, tracks: songs.map(toTrack) };
+  },
 
   async search({ query, limit }) {
     if (!query.trim()) return { tracks: [] };
@@ -307,6 +478,7 @@ const search = defineProvider({
       durationMs: video.durationMs,
       artworkUrl: video.artworkUrl,
       source: embed(video.videoId),
+      explicit: video.explicit ?? null,
     }));
     return { tracks };
   },
@@ -336,5 +508,193 @@ const streams = defineProvider({
   },
 });
 
+// ---- Videos and live streams (www.youtube.com's InnerTube, M46.35) ----
+
+const WEB = 'https://www.youtube.com';
+let webClientVersion = '2.20261028.01.00';
+
+type Text = { simpleText?: string; runs?: { text: string }[] };
+type VideoRenderer = {
+  videoId?: string;
+  title?: Text;
+  thumbnail?: { thumbnails?: { url: string; width?: number }[] };
+};
+type Item = {
+  videoRenderer?: VideoRenderer;
+  itemSectionRenderer?: { contents?: Item[] };
+  shelfRenderer?: { content?: { expandedShelfContentsRenderer?: { items?: Item[] } } };
+  richItemRenderer?: { content?: Item };
+  continuationItemRenderer?: {
+    continuationEndpoint?: { continuationCommand?: { token?: string } };
+  };
+};
+type WebResponse = {
+  contents?: {
+    twoColumnSearchResultsRenderer?: {
+      primaryContents?: { sectionListRenderer?: { contents?: Item[] } };
+    };
+  };
+  onResponseReceivedCommands?: {
+    appendContinuationItemsAction?: { continuationItems?: Item[] };
+  }[];
+};
+
+const textOf = (text: Text | undefined) =>
+  text?.simpleText ?? text?.runs?.map((run) => run.text).join('') ?? '';
+
+const webInnertube = async <T>(endpoint: string, body: Record<string, unknown>): Promise<T> => {
+  const send = () =>
+    raygun.http.fetch(`${WEB}/youtubei/v1/${endpoint}?prettyPrint=false`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': USER_AGENT,
+        Origin: WEB,
+        Referer: `${WEB}/`,
+        'X-YouTube-Client-Name': '1',
+        'X-YouTube-Client-Version': webClientVersion,
+      },
+      body: JSON.stringify({
+        context: {
+          client: {
+            clientName: 'WEB',
+            clientVersion: webClientVersion,
+            hl: 'en',
+            ...(region() ? { gl: region() } : {}),
+          },
+        },
+        ...body,
+      }),
+    });
+  let response = await send();
+  if (response.status === 400) {
+    // An outdated client version: read the current one from the page and try once more.
+    const page = await raygun.http.fetch(`${WEB}/`, { headers: { 'User-Agent': USER_AGENT } });
+    const version = /"INNERTUBE_CLIENT_VERSION":"([\d.]+)"/.exec(await page.text())?.[1];
+    if (version && version !== webClientVersion) {
+      webClientVersion = version;
+      response = await send();
+    }
+  }
+  if (!response.ok) throw new Error(`YouTube answered ${response.status}`);
+  return (await response.json()) as T;
+};
+
+/** Every video in a list of items, however deeply YouTube nested it. */
+const videosIn = (items: Item[] | undefined, out: VideoRenderer[] = []): VideoRenderer[] => {
+  for (const item of items ?? []) {
+    if (item.videoRenderer?.videoId) out.push(item.videoRenderer);
+    if (item.itemSectionRenderer) videosIn(item.itemSectionRenderer.contents, out);
+    if (item.shelfRenderer)
+      videosIn(item.shelfRenderer.content?.expandedShelfContentsRenderer?.items, out);
+    if (item.richItemRenderer?.content) videosIn([item.richItemRenderer.content], out);
+  }
+  return out;
+};
+
+const continuationIn = (items: Item[] | undefined): string | null => {
+  for (const item of items ?? []) {
+    const token = item.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token;
+    if (token) return token;
+    const nested = continuationIn(item.itemSectionRenderer?.contents);
+    if (nested) return nested;
+  }
+  return null;
+};
+
+const toPage = (found: VideoRenderer[], next: string | null): MangaPage => ({
+  items: found.map((video) => ({
+    id: video.videoId!,
+    title: textOf(video.title),
+    coverUrl: video.thumbnail?.thumbnails?.at(-1)?.url?.split('?')[0] ?? null,
+  })),
+  hasNextPage: next !== null,
+});
+
+// Each search's next-page token, by query and page.
+const pages = new Map<string, string>();
+
+const searchWeb = async (query: string, page: number): Promise<MangaPage> => {
+  const key = (n: number) => `${query}|${n}`;
+  let items: Item[] | undefined;
+  if (page > 1) {
+    const token = pages.get(key(page));
+    if (!token) return { items: [], hasNextPage: false };
+    const response = await webInnertube<WebResponse>('search', { continuation: token });
+    items = response.onResponseReceivedCommands?.flatMap(
+      (command) => command.appendContinuationItemsAction?.continuationItems ?? [],
+    );
+  } else {
+    const response = await webInnertube<WebResponse>('search', { query });
+    items =
+      response.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer
+        ?.contents;
+  }
+  const next = continuationIn(items);
+  if (next) pages.set(key(page + 1), next);
+  if (pages.size > 60) pages.delete(pages.keys().next().value!);
+  return toPage(videosIn(items), next);
+};
+
+type OEmbed = { title?: string; author_name?: string; thumbnail_url?: string };
+
+const videos = defineProvider({
+  kind: 'video.source',
+  id: 'videos',
+  name: 'YouTube',
+  searchPill: 'YouTube',
+
+  // With nothing typed: what's trending.
+  popular: ({ page }) => searchWeb('trending', page),
+
+  latest: ({ page }) => searchWeb('live now', page),
+
+  search: ({ query, page }) => searchWeb(query.trim() || 'trending', page),
+
+  async details({ id }) {
+    const watch = `${WEB}/watch?v=${encodeURIComponent(id)}`;
+    const response = await raygun.http.fetch(
+      `${WEB}/oembed?format=json&url=${encodeURIComponent(watch)}`,
+      { headers: { 'User-Agent': USER_AGENT } },
+    );
+    const meta = response.ok ? ((await response.json()) as OEmbed) : {};
+    return {
+      id,
+      title: meta.title ?? id,
+      coverUrl: meta.thumbnail_url ?? `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+      description: meta.author_name ? `By ${meta.author_name}` : null,
+      genres: [],
+      type: 'movie' as const,
+      url: watch,
+    };
+  },
+
+  episodes: async ({ id }) => ({ episodes: [{ id, name: 'Video' }] }),
+
+  // Played in YouTube's embed: one link, no stream extraction.
+  servers: async ({ episodeId }) => ({
+    servers: [
+      {
+        id: episodeId,
+        name: 'YouTube',
+        videos: [{ url: `youtube:${episodeId}`, label: 'YouTube' }],
+      },
+    ],
+  }),
+
+  videos: async ({ serverId }) => ({
+    videos: [{ url: `youtube:${serverId}`, label: 'YouTube' }],
+  }),
+});
+
 registerProvider(search);
 registerProvider(streams);
+registerProvider(videos);
+registerProvider(
+  defineProvider({
+    kind: 'lyrics',
+    id: 'lyrics',
+    name: 'YouTube Music',
+    lyrics: youTubeLyrics,
+  }),
+);

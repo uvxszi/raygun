@@ -153,8 +153,78 @@ describe('desktop video player', () => {
     expect(screen.getByRole('region', { name: 'Sources' })).toBeInTheDocument();
   });
 
-  it('offers mpv or VLC when the webview can’t play the format', async () => {
+  it('types a subtitle delay, finds subtitles, makes AI ones and lists its keys', async () => {
     const user = userEvent.setup();
+    commands.aiModels.mockResolvedValue([
+      {
+        id: 'whisper-tiny',
+        name: 'Speech to text (Whisper tiny)',
+        kind: 'speech',
+        description: '',
+        license: 'Apache-2.0',
+        licenseUrl: '',
+        sourceUrl: '',
+        sizeBytes: 1,
+        installed: true,
+        downloading: null,
+      },
+    ]);
+    commands.videoFindSubtitles.mockResolvedValue({
+      status: 'ok',
+      data: {
+        tracks: [],
+        suggestion: {
+          url: 'https://subs.example/manifest.json',
+          name: 'OpenSubtitles v3',
+          description: '',
+          added: false,
+        },
+        note: null,
+      },
+    });
+    await AppShellWrapper.mount('/');
+    open(MOVIE);
+    const player = await screen.findByRole('dialog', { name: 'Video player' });
+    await within(player).findByTestId('desktop-video');
+
+    await user.click(within(player).getByRole('button', { name: 'Subtitles' }));
+    const panel = await within(player).findByRole('region', { name: 'Subtitles' });
+    // The delay is typed (M46.33).
+    const delay = within(panel).getByRole('textbox', { name: 'Subtitle delay in seconds' });
+    await user.clear(delay);
+    await user.type(delay, '-1.25{Enter}');
+    expect(reports()).toContainEqual(
+      expect.objectContaining({ action: 'state', change: { subtitleDelayMs: -1250 } }),
+    );
+
+    // No addon has subtitles: OpenSubtitles is offered.
+    await user.click(within(panel).getByRole('menuitemradio', { name: 'Look in your addons' }));
+    expect(commands.videoFindSubtitles).toHaveBeenCalledWith(MOVIE.id);
+    expect(
+      await within(panel).findByRole('button', { name: 'Add OpenSubtitles v3' }),
+    ).toBeInTheDocument();
+
+    // AI subtitles from where the viewer is, with the chosen model.
+    await user.click(within(panel).getByRole('button', { name: 'Make subtitles from here' }));
+    expect(commands.captionsVideoTranscribe).toHaveBeenCalledWith(
+      MOVIE.id,
+      MOVIE.url,
+      'mp4',
+      expect.any(Number),
+    );
+
+    // ? lists the shortcuts.
+    fireEvent.keyDown(window, { key: '?' });
+    const keys = await within(player).findByRole('region', { name: 'Keyboard shortcuts' });
+    expect(keys).toHaveTextContent('Subtitles on or off');
+  });
+
+  it('offers another player when the webview can’t play the format', async () => {
+    const user = userEvent.setup();
+    commands.videoExternalPlayers.mockResolvedValue([
+      { id: 'mpv', name: 'mpv' },
+      { id: 'vlc', name: 'VLC' },
+    ]);
     await AppShellWrapper.mount('/');
     open({ ...MOVIE, titleState: null });
     const player = await screen.findByRole('dialog', { name: 'Video player' });
@@ -175,13 +245,19 @@ describe('desktop video player', () => {
       expect.objectContaining({ state: 'error', error: 'DEMUXER_ERROR' }),
     );
 
-    await user.click(within(notice).getByRole('button', { name: 'Play in mpv or VLC' }));
-    expect(commands.videoPlayerExternal).toHaveBeenCalledWith({
-      url: MOVIE.url,
-      title: 'The Movie',
-      subtitles: [],
-      startMs: 0,
-    });
+    // It asks which player (M46.33).
+    await user.click(within(notice).getByRole('button', { name: 'Play in another player' }));
+    const players = await within(player).findByRole('region', { name: 'Play in' });
+    await user.click(await within(players).findByRole('menuitemradio', { name: 'VLC' }));
+    expect(commands.videoPlayerExternal).toHaveBeenCalledWith(
+      {
+        url: MOVIE.url,
+        title: 'The Movie',
+        subtitles: [],
+        startMs: 0,
+      },
+      'vlc',
+    );
     expect(await within(player).findByRole('alert')).toHaveTextContent('Playing in mpv');
   });
 

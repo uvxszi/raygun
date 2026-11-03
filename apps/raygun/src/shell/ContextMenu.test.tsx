@@ -72,6 +72,69 @@ describe('Right-click menu', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
+  it('offers removing a downloaded song, going to its album, and one set of copy items (M46.36)', async () => {
+    const user = userEvent.setup();
+    commands.songDownloadedKeys.mockResolvedValue(['daft punk|get lucky']);
+    commands.songDownloadFor.mockResolvedValue(ok({ id: 'dl-1' }) as never);
+    commands.songDownloadRemove.mockResolvedValue(ok(null));
+    commands.musicFindAlbum.mockResolvedValue(
+      ok({
+        provider: { id: 'x/y', extensionId: 'x', kind: 'music.metadata', name: 'Source' },
+        id: 'ram',
+        title: 'Random Access Memories',
+        artist: 'Daft Punk',
+        year: 2013,
+        artworkUrl: null,
+        trackCount: 13,
+      }),
+    );
+    commands.musicAlbum.mockReturnValue(new Promise(() => undefined));
+    commands.onlineSearch.mockResolvedValue(
+      ok({
+        library: [],
+        top: [],
+        providers: [
+          {
+            provider: { id: 'x/y', extensionId: 'x', kind: 'music.metadata', name: 'Source' },
+            tracks: [
+              {
+                externalId: null,
+                title: 'Get Lucky (Radio Edit)',
+                artist: 'Daft Punk',
+                album: 'Random Access Memories',
+                durationMs: 200_000,
+                artworkUrl: null,
+                source: null,
+                explicit: false,
+              },
+            ],
+            error: null,
+          },
+        ],
+      }),
+    );
+    await AppShellWrapper.mount('/browse?tab=search&type=music&q=get+lucky');
+    const row = await screen.findByTestId('online-track-row');
+    // The downloaded marks load once per app, not per row.
+    await vi.waitFor(() => expect(commands.songDownloadedKeys).toHaveBeenCalled());
+
+    fireEvent.contextMenu(row, { clientX: 40, clientY: 40 });
+    const menu = await screen.findByRole('menu');
+    expect(within(menu).queryByRole('menuitem', { name: 'Download' })).not.toBeInTheDocument();
+    // Copy title and Copy artist, without "Copy “Get Lucky…”" for the words under the pointer.
+    expect(within(menu).getByRole('menuitem', { name: 'Copy title' })).toBeInTheDocument();
+    expect(within(menu).queryByRole('menuitem', { name: /^Copy “/ })).not.toBeInTheDocument();
+    await user.click(within(menu).getByRole('menuitem', { name: 'Remove from downloads' }));
+    await vi.waitFor(() => expect(commands.songDownloadRemove).toHaveBeenCalledWith('dl-1'));
+
+    fireEvent.contextMenu(row, { clientX: 40, clientY: 40 });
+    await user.click(
+      within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Go to album' }),
+    );
+    expect(commands.musicFindAlbum).toHaveBeenCalledWith('Random Access Memories', 'Daft Punk');
+    await vi.waitFor(() => expect(commands.musicAlbum).toHaveBeenCalledWith('x/y', 'ram'));
+  });
+
   it('replaces the webview menu everywhere, with the page options', async () => {
     await AppShellWrapper.mount('/');
     const page = await screen.findByTestId('page-content');

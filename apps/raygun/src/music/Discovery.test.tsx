@@ -134,7 +134,7 @@ describe('Music discovery', () => {
       'Podcasts',
       'Comics',
       'Books',
-      'Movies & series',
+      'Videos',
       'Websites',
     ]);
     const charts = await within(all).findByRole('region', { name: 'Charts' });

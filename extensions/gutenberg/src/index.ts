@@ -47,12 +47,19 @@ const fetchText = async (url: string) => {
 const entries = (xml: string) =>
   [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)].map((match) => match[1] ?? '');
 
-/** A page of books from an OPDS feed (author and subject entries are skipped). */
+/**
+ * The tail of the icon Gutenberg's feeds give audio recordings. They have no text to read (their
+ * HTML edition is missing), so book lists leave them out; LibriVox has them as audiobooks.
+ */
+const AUDIO_ICON = 'ZHlxyWU8AAAAAElFTkSuQmCC';
+
+/** A page of books from an OPDS feed (author and subject entries, and recordings, are skipped). */
 const feed = async (params: string, page: number): Promise<MangaPage> => {
   const start = (page - 1) * FEED_PAGE + 1;
   const { text } = await fetchText(`${BOOKS}/ebooks/search.opds/?${params}&start_index=${start}`);
   const all = entries(text);
   const items: MangaSummary[] = all.flatMap((entry) => {
+    if (entry.includes(AUDIO_ICON)) return [];
     const id = /<id>[^<]*\/ebooks\/(\d+)\.opds<\/id>/.exec(entry)?.[1];
     const title = /<title>([\s\S]*?)<\/title>/.exec(entry)?.[1];
     return id && title ? [{ id, title: decode(title.trim()), coverUrl: cover(id) }] : [];

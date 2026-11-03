@@ -50,7 +50,7 @@
     {
       "id": "dev.raygun.deezer",
       "name": "Deezer",
-      "version": "1.3.2",
+      "version": "1.4.0",
       "apiVersion": 1,
       "description": "Song, artist and album search, charts (the top songs, each genre's and the decades'), songs for any genre or mood, song genres, and similar artists, new releases and radios for Made for You, from Deezer's public API.",
       "author": "Raygun",
@@ -67,14 +67,14 @@
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.deezer-1.3.2.zip",
-      "sha256": "8b96d5c774ab85d305cc67086ed020f8aa8581742961c588930462312fa84fa8",
-      "size": 3922
+      "package": "packages/dev.raygun.deezer-1.4.0.zip",
+      "sha256": "5d60ecefb11a7026377dd8d7d4148045c7ecb2c1d3763a12c5ae2a3507095d71",
+      "size": 4333
     },
     {
       "id": "dev.raygun.gutenberg",
       "name": "Project Gutenberg",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "apiVersion": 1,
       "description": "Over 70,000 free public-domain books from Project Gutenberg, split into chapters to read like a novel.",
       "author": "Raygun",
@@ -89,9 +89,9 @@
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.gutenberg-1.0.0.zip",
-      "sha256": "d11fa9c8eac1dd47fec31bd3d2c146643cd9db0a9af5fa4286174d53123a418c",
-      "size": 2812
+      "package": "packages/dev.raygun.gutenberg-1.0.1.zip",
+      "sha256": "bb5d72f6c20dc2c020f18161081229759e3f8cf970d16103132255e716cf20e2",
+      "size": 2873
     },
     {
       "id": "dev.raygun.internet-archive",
@@ -116,6 +116,28 @@
       "package": "packages/dev.raygun.internet-archive-1.3.0.zip",
       "sha256": "1d5f97db89d6ad0524ae6cf667ce67ae7b692d26a045c7742e12745da255e497",
       "size": 5352
+    },
+    {
+      "id": "dev.raygun.kugou",
+      "name": "KuGou lyrics",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Synced lyrics from KuGou's lyric service, as Kreate and RiMusic use it: strong on Chinese, Japanese and Korean songs, and many others.",
+      "author": "Raygun",
+      "provides": [
+        "lyrics"
+      ],
+      "permissions": {
+        "net": [
+          "krcs.kugou.com",
+          "mobileservice.kugou.com"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.kugou-1.0.0.zip",
+      "sha256": "0788d451324249c1823085be56136bc64cde9730a819f308e9cb0a05e03bf2ae",
+      "size": 2506
     },
     {
       "id": "dev.raygun.librivox",
@@ -205,7 +227,7 @@
     {
       "id": "dev.raygun.musicbrainz",
       "name": "MusicBrainz",
-      "version": "1.3.0",
+      "version": "1.4.0",
       "apiVersion": 1,
       "description": "Song search, song genres, artist facts and song credits from the open MusicBrainz database, with artist summaries from Wikipedia. Results play through streaming extensions.",
       "author": "Raygun",
@@ -223,9 +245,30 @@
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.musicbrainz-1.3.0.zip",
-      "sha256": "c278addadca18462d6c07fb20a8d39637a34f0be8c9187c7e44255d0df3f1236",
-      "size": 4438
+      "package": "packages/dev.raygun.musicbrainz-1.4.0.zip",
+      "sha256": "bc92e0b410083e9054d1e609615940b4eda5a71c45f978830626063c48c3bfa5",
+      "size": 4680
+    },
+    {
+      "id": "dev.raygun.peertube",
+      "name": "PeerTube",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Videos and live streams from PeerTube's federated instances, found through SepiaSearch. Its own pill in Search.",
+      "author": "Raygun",
+      "provides": [
+        "video.source"
+      ],
+      "permissions": {
+        "net": [
+          "*"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.peertube-1.0.0.zip",
+      "sha256": "eca71066e36b0f99768e5f0e56e959f95c38fec75f3199f875f0ccb814332501",
+      "size": 2178
     },
     {
       "id": "dev.raygun.podcast-directory",
@@ -273,25 +316,28 @@
     {
       "id": "dev.raygun.youtube",
       "name": "YouTube",
-      "version": "2.0.0",
+      "version": "2.2.0",
       "apiVersion": 1,
-      "description": "Music search through YouTube Music, played in YouTube's own embedded player. No key needed; add your own YouTube Data API key to use the official API instead.",
+      "description": "Music search, playlists (community and featured) and lyrics through YouTube Music, and videos and live streams in Search's YouTube pill, all played in YouTube's own embedded player. No key needed; add your own YouTube Data API key to use the official API for music instead.",
       "author": "Raygun",
       "provides": [
         "music.metadata",
-        "music.stream"
+        "music.stream",
+        "video.source",
+        "lyrics"
       ],
       "permissions": {
         "net": [
           "music.youtube.com",
+          "www.youtube.com",
           "www.googleapis.com"
         ],
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.youtube-2.0.0.zip",
-      "sha256": "a7da07a221ba166a3662ff9f3f97778dbb6214951dcfb993bd43a34bbf3e9fbd",
-      "size": 3861
+      "package": "packages/dev.raygun.youtube-2.2.0.zip",
+      "sha256": "26975c9218897ea656ec173998b5aa2ef297113596dacd89a59a4ea59c2e3d58",
+      "size": 6549
     }
   ]
 }

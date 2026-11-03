@@ -26,6 +26,7 @@ export const LAYOUT_ENTRIES: Record<LayoutSurface, readonly (readonly [string, b
     ['settings', false],
   ],
   libraryMedia: [
+    ['all', true],
     ['music', true],
     ['manga', true],
     ['novel', true],
@@ -43,6 +44,7 @@ export const LAYOUT_ENTRIES: Record<LayoutSurface, readonly (readonly [string, b
     ['tracks', true],
   ],
   homeSections: [
+    ['getStarted', true],
     ['continueWatching', true],
     ['continueReading', true],
     ['madeForYou', true],

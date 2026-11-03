@@ -241,7 +241,7 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
       )}
       {podcasts.data && podcasts.data.length > 0 && (
         <Part title={t('search.music.podcasts')} onMore={() => onView('podcasts')}>
-          <PodcastResultList results={podcasts.data.slice(0, 4)} />
+          <PodcastResultList results={podcasts.data.slice(0, 12)} grid />
         </Part>
       )}
     </div>

@@ -31,6 +31,7 @@ import {
   useConnectDeviceMusic,
   useLibraryStatus,
 } from '../library/useLibrary';
+import { AllLibrary } from '../library/AllLibrary';
 
 const AlbumsView: FC = () => {
   const albums = useAlbums();
@@ -143,6 +144,7 @@ export const LibraryPage: FC = () => {
   const view: LibraryView = search.view ?? (isLibraryView(firstView) ? firstView : 'all');
   return (
     <section data-testid="library-page" className="flex min-h-full flex-col gap-4">
+      {media === 'all' && <AllLibrary />}
       {media === 'music' && view === 'podcasts' && <PodcastsView />}
       {media === 'music' && view !== 'podcasts' && <MusicLibrary view={view} />}
       {(media === 'manga' || media === 'novel' || media === 'video') && (

@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { create } from 'zustand';
 
 import { unwrapResult } from '../lib/commandResult';
+import { rememberPlay } from '../music/playContext';
 
 /** Every library query lives under this key, so a finished scan can refresh them all. */
 const LIBRARY = 'library';
@@ -89,5 +90,7 @@ export const useRemoveRoot = () => {
   });
 };
 
-export const playFromLibrary = (request: PlayRequest) =>
-  unwrapResult(commands.libraryPlay(request));
+export const playFromLibrary = (request: PlayRequest) => {
+  rememberPlay();
+  return unwrapResult(commands.libraryPlay(request));
+};

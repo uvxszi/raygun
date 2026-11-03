@@ -10,6 +10,7 @@ import { usePlayerUiStore } from './playerUiStore';
 import { currentLine, trackQueryFor, useLyricsFor } from './lyricsQuery';
 import { useLivePosition } from './useLivePosition';
 import { sendControl } from './usePlayback';
+import { SourceIssue } from '../shell/SourceIssue';
 
 type LyricsViewProps = {
   item: QueueItem;
@@ -99,8 +100,11 @@ export const LyricsView: FC<LyricsViewProps> = ({
       }`}
     >
       {lyrics.isPending && message(t('player.lyricsLoading'))}
-      {lyrics.error &&
-        message(t('player.lyricsFailed', { message: lyrics.error.message }), 'alert')}
+      {lyrics.error && (
+        <div className="px-4">
+          <SourceIssue>{lyrics.error.message}</SourceIssue>
+        </div>
+      )}
       {lyrics.isSuccess && !lyrics.data && message(t('player.lyricsNone'))}
       {synced.length > 0 ? (
         <ol className="flex flex-col gap-3">

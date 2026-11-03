@@ -22,6 +22,10 @@ const COVER_ARTWORKS: usize = 4;
 /// Longest playlist name kept.
 const MAX_NAME_CHARS: usize = 100;
 
+/// The `local_meta` key of what was played from lately (M46.37), and how many are kept.
+const RECENT_CONTEXTS: &str = "music.recentContexts";
+const RECENT_CONTEXTS_KEPT: usize = 24;
+
 pub struct CollectionsService {
     app: AppHandle,
 }
@@ -252,6 +256,35 @@ impl CollectionsService {
 
     pub async fn clear_history(&self) -> Result<(), String> {
         collections::clear_history(self.db())
+            .await
+            .map_err(to_message)
+    }
+
+    /// What was played from lately (M46.37), newest first: device-local, like history's order.
+    pub async fn recent_contexts(&self) -> Result<Vec<raygun_model::PlayContext>, String> {
+        let stored = raygun_db::local_value(self.db(), RECENT_CONTEXTS)
+            .await
+            .map_err(to_message)?;
+        Ok(stored
+            .and_then(|json| serde_json::from_str(&json).ok())
+            .unwrap_or_default())
+    }
+
+    /// Remembers that something was played from `context`: first in the list, once.
+    pub async fn add_recent_context(
+        &self,
+        mut context: raygun_model::PlayContext,
+    ) -> Result<(), String> {
+        if context.name.trim().is_empty() || !context.to.starts_with('/') {
+            return Err("A play context needs a name and a page".into());
+        }
+        context.played_at = now_ms() as f64;
+        let mut list = self.recent_contexts().await?;
+        list.retain(|other| other.to != context.to || other.search != context.search);
+        list.insert(0, context);
+        list.truncate(RECENT_CONTEXTS_KEPT);
+        let json = serde_json::to_string(&list).map_err(to_message)?;
+        raygun_db::set_local_value(self.db(), RECENT_CONTEXTS, &json)
             .await
             .map_err(to_message)
     }

@@ -117,6 +117,24 @@ fn parses_indexes_and_skips_unusable_entries() {
 }
 
 #[test]
+fn other_apps_repositories_are_named() {
+    let mihon = r#"[{"name":"Tachiyomi: X","pkg":"eu.kanade.x","apk":"x.apk","lang":"en","code":1,"version":"1.4.1","nsfw":0,"sources":[]}]"#;
+    let cloudstream = r#"{"name":"Repo","description":"","manifestVersion":1,"pluginLists":["https://example.com/plugins.json"]}"#;
+    let lnreader = r#"[{"id":"x","name":"X","site":"https://example.com","lang":"English","version":"1.0.0","url":"https://example.com/x.js","iconUrl":"https://example.com/x.png"}]"#;
+    for (json, word) in [
+        (mihon, "Mihon"),
+        (cloudstream, "CloudStream"),
+        (lnreader, "LNReader"),
+    ] {
+        match repo::parse_index(json) {
+            Err(RepoError::Foreign(message)) => assert!(message.contains(word), "{message}"),
+            other => panic!("{word}: {other:?}"),
+        }
+    }
+    assert!(matches!(repo::parse_index("{}"), Err(RepoError::Index(_))));
+}
+
+#[test]
 fn verifies_packages_against_their_entry() {
     let bytes = good_package();
     let entry = entry_for(&bytes);

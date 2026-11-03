@@ -191,13 +191,11 @@ impl Manifest {
             .permissions
             .net
             .iter()
+            // `*` is any public host: Shosetsu scripts, Nuclear conversions (below) and sources
+            // spread over many servers, like PeerTube's federated instances (M46.35). Never this
+            // machine or the local network; the install sheet says it reaches any site.
             .map(|pattern| {
-                HostPattern::parse(pattern)
-                    // Any-host access is for Shosetsu scripts (Nuclear conversions get it below).
-                    .filter(|parsed| {
-                        *parsed != HostPattern::AnyPublic || runtime == Runtime::Shosetsu
-                    })
-                    .ok_or_else(|| ManifestError::Net(pattern.clone()))
+                HostPattern::parse(pattern).ok_or_else(|| ManifestError::Net(pattern.clone()))
             })
             .collect::<Result<Vec<_>, _>>()?;
         let mut keys = HashSet::new();

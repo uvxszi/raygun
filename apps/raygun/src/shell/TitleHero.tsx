@@ -16,14 +16,17 @@ export const TitleHero: FC<{
   genres?: string[];
   genresLabel?: string;
   children?: ReactNode;
-}> = ({ art, backdrop, cover, title, facts = [], genres = [], genresLabel, children }) => {
+  /** Shown over the backdrop's right side on wide windows, under the title on phones. */
+  aside?: ReactNode;
+}> = ({ art, backdrop, cover, title, facts = [], genres = [], genresLabel, children, aside }) => {
   const shown = facts.filter(Boolean);
   return (
     <div className="relative isolate -mx-4 -mt-2 overflow-hidden px-4 pt-2 pb-4 lg:-mx-10 lg:px-10">
       {backdrop && (
-        <div aria-hidden className="relative -mx-4 -mt-2 aspect-video lg:-mx-10">
-          <img src={backdrop} alt="" className="size-full object-cover" />
-          <div className="to-background absolute inset-0 bg-gradient-to-b from-transparent from-40%" />
+        // At most about half the window (M46.34), so the title, facts and Play show at once.
+        <div aria-hidden className="relative -mx-4 -mt-2 h-[min(56.25vw,52vh)] lg:-mx-10">
+          <img src={backdrop} alt="" className="size-full object-cover object-[50%_25%]" />
+          <div className="to-background absolute inset-0 bg-gradient-to-b from-transparent from-30%" />
         </div>
       )}
       {art && !backdrop && (
@@ -51,6 +54,17 @@ export const TitleHero: FC<{
         </div>
       </header>
       {children && <div className="mt-4">{children}</div>}
+      {aside && (
+        <div
+          className={
+            backdrop
+              ? 'mt-4 md:absolute md:top-6 md:right-10 md:mt-0 md:w-[min(26rem,36%)]'
+              : 'mt-4'
+          }
+        >
+          {aside}
+        </div>
+      )}
     </div>
   );
 };

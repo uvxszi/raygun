@@ -321,6 +321,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
 
+  extensions/kugou:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
   extensions/librivox:
     devDependencies:
       '@raygun/sdk':
@@ -346,6 +352,12 @@ importers:
         version: link:../../packages/sdk
 
   extensions/musicbrainz:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
+  extensions/peertube:
     devDependencies:
       '@raygun/sdk':
         specifier: workspace:*

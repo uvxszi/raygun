@@ -26,6 +26,8 @@ export type Track = {
   /** http(s) only. */
   artworkUrl?: string | null;
   source?: MediaSource | null;
+  /** The source marks it explicit (M46.36): hidden while the user's Explicit music is off. */
+  explicit?: boolean | null;
 };
 
 // ---- Providers ----
@@ -52,6 +54,22 @@ export type Album = {
   /** http(s) only. */
   artworkUrl?: string | null;
   trackCount?: number | null;
+  /** The release's kind (M46.36): an artist's discography groups by it. */
+  kind?: 'album' | 'single' | 'ep' | 'compilation' | 'live' | 'other' | null;
+};
+
+/** A playlist a source has (M46.39). */
+export type Playlist = {
+  /** The source's own id, passed back to `playlist`. */
+  id: string;
+  title: string;
+  /** Who made it. */
+  author?: string | null;
+  /** http(s) only. */
+  artworkUrl?: string | null;
+  trackCount?: number | null;
+  /** One of the service's own (editorial) playlists. */
+  featured?: boolean | null;
 };
 
 /** Online music search. The app asks every `music.metadata` provider at once. */
@@ -68,6 +86,12 @@ export type MusicMetadataProvider = {
   searchAlbums?(args: SearchArgs): Promise<{ albums: Album[] }>;
   /** An album's songs, in order (M46.9). */
   album?(args: { id: string }): Promise<{ album: Album; tracks: Track[] }>;
+  /** An artist's releases, newest first (M46.36); `query` is the artist's name. */
+  artistReleases?(args: SearchArgs): Promise<{ releases: Album[] }>;
+  /** Playlists by name (M46.39); `featured` asks for the service's own only. */
+  searchPlaylists?(args: SearchArgs & { featured: boolean }): Promise<{ playlists: Playlist[] }>;
+  /** A playlist's songs, in order (M46.39). */
+  playlist?(args: { id: string }): Promise<{ playlist: Playlist; tracks: Track[] }>;
 };
 
 /** The track the app wants a stream for (M14). */
@@ -426,6 +450,11 @@ export type VideoSourceProvider = {
   kind: 'video.source';
   id: string;
   name?: string;
+  /**
+   * Gives the source its own pill in Search (M46.35), named this ("YouTube"); its results then
+   * stay out of the Videos pill.
+   */
+  searchPill?: string;
   popular(args: { page: number }): Promise<MangaPage>;
   latest?(args: { page: number }): Promise<MangaPage>;
   search(args: CatalogSearchArgs): Promise<MangaPage>;

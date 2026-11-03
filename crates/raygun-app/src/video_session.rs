@@ -878,6 +878,22 @@ impl VideoSessions {
             )
         };
         let (request, resume, start_at, origin, remembered, downloaded) = prepared;
+        // A YouTube link plays in YouTube's embed: the player that opened for it closes.
+        if let Some(video_id) = request.url.strip_prefix(crate::video::YOUTUBE_LINK) {
+            let _ = crate::video::update_player(&self.app, &json!({ "type": "close" }));
+            self.end();
+            if let Err(error) = crate::video::play_youtube(
+                &self.app,
+                video_id,
+                &request.title,
+                request.subtitle.clone(),
+            )
+            .await
+            {
+                tracing::warn!(%error, "couldn't open the YouTube player");
+            }
+            return;
+        }
         let resume = serde_json::to_string(&resume).ok();
         match crate::video::prepare(&self.app, &request, resume, start_at).await {
             Ok(payload) => {

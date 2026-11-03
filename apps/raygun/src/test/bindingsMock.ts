@@ -121,6 +121,7 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   language: 'en',
   showNsfw: false,
+  explicitMusic: true,
   preferredVideoQuality: null,
   accent: 'red',
   startScreen: 'home',
@@ -166,7 +167,6 @@ export const DEFAULT_SETTINGS: Settings = {
   userAgent: '',
   keepMusicPlaying: false,
   resumeOnStart: true,
-  discord: { enabled: false, appId: '' },
   audioQuality: { streaming: 'high', cellular: 'normal', download: 'veryHigh' },
   rail: { pins: [], order: 'custom', seeded: false },
   transcription: {
@@ -237,12 +237,17 @@ export const bindingsMock = {
     trackAssignSource: vi.fn(),
     spokenItem: vi.fn(),
     captions: vi.fn(),
+    captionsVideoTranscribe: vi.fn(),
+    captionsVideoMake: vi.fn(),
+    videoExternalPlayers: vi.fn(),
+    videoFindSubtitles: vi.fn(),
     captionsTranscribe: vi.fn(),
     captionsStop: vi.fn(),
     captionsClear: vi.fn(),
     tracksUnavailable: vi.fn(),
     detailEditSet: vi.fn(),
     detailCoverImport: vi.fn(),
+    detailCoverOptions: vi.fn(),
     localFolders: vi.fn(),
     localFolderAdd: vi.fn(),
     localFolderRemove: vi.fn(),
@@ -258,6 +263,16 @@ export const bindingsMock = {
     musicSearchArtists: vi.fn(),
     musicSearchAlbums: vi.fn(),
     musicAlbum: vi.fn(),
+    musicArtistReleases: vi.fn(),
+    musicFindAlbum: vi.fn(),
+    musicSearchPlaylists: vi.fn(),
+    musicPlaylist: vi.fn(),
+    catalogOpenPage: vi.fn(),
+    recentContexts: vi.fn(),
+    recentContextsAdd: vi.fn(),
+    lyricsOptions: vi.fn(),
+    lyricsTranscribe: vi.fn(),
+    captionsUseFeed: vi.fn(),
     songDownloads: vi.fn(),
     songDownloadRemove: vi.fn(),
     songDownloadRetry: vi.fn(),
@@ -580,6 +595,24 @@ export const seedBindings = () => {
   commands.captionsTranscribe.mockResolvedValue(ok(null));
   commands.captionsStop.mockResolvedValue(null);
   commands.captionsClear.mockResolvedValue(ok(null));
+  commands.captions.mockImplementation(async (episodeId: string) =>
+    ok({
+      episodeId,
+      cues: [],
+      source: null,
+      covered: [],
+      complete: false,
+      running: false,
+      preparing: false,
+      error: null,
+      canTranscribe: false,
+      engine: 'off',
+    }),
+  );
+  commands.captionsVideoTranscribe.mockResolvedValue(ok(null));
+  commands.captionsVideoMake.mockResolvedValue(ok(null));
+  commands.videoExternalPlayers.mockResolvedValue([]);
+  commands.videoFindSubtitles.mockResolvedValue(ok({ tracks: [], suggestion: null, note: null }));
   commands.detailEditSet.mockImplementation(async (_target: unknown, edit: unknown) => ok(edit));
   commands.localFolders.mockResolvedValue(ok([]));
   commands.localFolderAdd.mockResolvedValue(ok(null));
@@ -592,6 +625,16 @@ export const seedBindings = () => {
   commands.songsDownload.mockResolvedValue(ok(null));
   commands.musicSearchArtists.mockResolvedValue(ok([]));
   commands.musicSearchAlbums.mockResolvedValue(ok([]));
+  commands.musicArtistReleases.mockResolvedValue(ok([]));
+  commands.musicFindAlbum.mockResolvedValue(ok(null));
+  commands.musicSearchPlaylists.mockResolvedValue(ok([]));
+  commands.catalogOpenPage.mockResolvedValue(ok(null));
+  commands.recentContexts.mockResolvedValue(ok([]));
+  commands.recentContextsAdd.mockResolvedValue(ok(null));
+  commands.detailCoverOptions.mockResolvedValue(ok([]));
+  commands.lyricsOptions.mockResolvedValue(ok([]));
+  commands.lyricsTranscribe.mockResolvedValue(ok('song:|'));
+  commands.captionsUseFeed.mockResolvedValue(ok(null));
   commands.songDownloads.mockResolvedValue(ok([]));
   commands.songDownloadRemove.mockResolvedValue(ok(null));
   commands.songDownloadRetry.mockResolvedValue(ok(null));

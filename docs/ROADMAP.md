@@ -180,6 +180,13 @@ The user asked for the full depth of the reference apps ("its not meant to be a 
 - M46.30 **Edit details** (asked 2026-11-02): ✅ your own titles, names and covers for songs, albums and artists, shown everywhere, with Reset.
 - M46.31 **Import review** (asked 2026-11-02): ✅ edit, add and reorder songs, compare sources with previews, import while matching continues, keep unavailable songs and find them a source later.
 - M46.32 **Spoken word** (asked 2026-11-02): ✅ audiobook authors and podcast shows link to their pages; captions from feeds or transcribed by Whisper on the device or an online provider, in 30-second batches.
+- M46.33 **Video player tools** (asked 2026-11-02): ✅ panels that fit and scroll; subtitles found in addons, typed delay, AI subtitles while watching or for a download; volume to 200 %; pick the external player; keys and a sheet listing them.
+- M46.34 **Title pages and trailers** (asked 2026-11-02): ✅ content higher on the backdrop; a small trailer plays beside it, paused, stopped or turned off in Settings.
+- M46.35 **Browse and search** (asked 2026-11-02): ✅ Comics, Books and Videos pills starting on Relevant; YouTube and PeerTube pills from their extensions; Sources by kind with a name field; search in more lists; Search → All's comics and books ranked across sources.
+- M46.36 **Music menus, explicit songs, artists** (asked 2026-11-02): ✅ Remove from downloads, Go to album, one set of copy items; Explicit music apart from 18+; discographies; Discord presence removed; lyrics and captions follow trims, lyrics from any source or heard by AI, captions from the feed or AI; covers from other sources; podcasts as a grid.
+- M46.37 **Shell** (asked 2026-11-02): ✅ Updates and Downloads popovers; All tabs in Library, Downloads and Updates; Your music with what was played from lately and the latest favorites; a closable "Nothing to pick up yet"; panels that don't jump; covers that stay shown.
+- M46.39 **Playlists and lyrics sources** (asked 2026-11-02): ✅ playlist search with a Featured chip (YouTube Music, Deezer), playlist pages saved to the library, KuGou and YouTube Music lyrics beside LRCLIB, as Kreate and RiMusic have them.
+- M46.38 **Comics and books** (asked 2026-11-02): ✅ chapter sort and filters; a working website button; paged novels as narrow as scrolled ones; find a title in other sources; JPEG XL read from sources and saved as covers; other apps' repositories named. The reader's AI switches wait for the upscale and bubble-translation engines (item 8 above).
 - **Asked 2026-11-01, queued in this order** (each becomes a milestone with a spec):
   1. **Sound and lyrics editing** (now M46.12):
      - edit lyrics (words and timings) and shift them by an offset; the same for video subtitles;

@@ -12,7 +12,7 @@ import { Sheet } from '../shell/Sheet';
 import { useCoverSheetStore } from './coverSheetStore';
 import type { CoverToSave } from './coverSheetStore';
 
-const FORMATS: ImageFileFormat[] = ['jpeg', 'png', 'webp'];
+const FORMATS: ImageFileFormat[] = ['jpeg', 'png', 'webp', 'jxl'];
 
 const chip = (on: boolean) =>
   `rounded-full px-4 py-1.5 text-sm ${on ? 'bg-primary/20 text-primary font-semibold' : 'bg-background'}`;

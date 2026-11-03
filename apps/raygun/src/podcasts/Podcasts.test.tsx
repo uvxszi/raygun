@@ -70,7 +70,7 @@ describe('Podcasts', () => {
       ]),
     );
     commands.podcastOpenFeed.mockResolvedValue(ok(SHOW));
-    await AppShellWrapper.mount('/library');
+    await AppShellWrapper.mount('/library?media=music');
 
     await user.click(await screen.findByTestId('library-view-podcasts'));
     const view = await screen.findByTestId('podcasts-view');

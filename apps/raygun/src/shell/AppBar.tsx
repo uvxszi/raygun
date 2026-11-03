@@ -1,8 +1,6 @@
 import type { WindowFrame } from '@raygun/bindings';
-import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
+import { Link, useNavigate, useRouter, useRouterState } from '@tanstack/react-router';
 import {
-  ArrowDownToLine,
-  Bell,
   ChevronLeft,
   ChevronRight,
   Copy,
@@ -12,7 +10,9 @@ import {
   Search,
   Square,
   X,
+  RotateCw,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import type { FC, RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -27,6 +27,7 @@ import { MascotButton } from './MascotButton';
 import { closeWindow, minimizeWindow, toggleMaximizeWindow, useWindowState } from './appWindow';
 import { useAppMenuGroups } from './useAppMenuGroups';
 import { useHistoryNav } from './useHistoryNav';
+import { BarPopoverButtons } from './BarPopovers';
 
 type BrowseSearch = { tab?: string; q?: string; type?: string };
 
@@ -149,6 +150,8 @@ export const AppBar: FC<{ frame: WindowFrame; onShortcuts: () => void; immersive
   const { t } = useTranslation();
   const navigate = useNavigate();
   const nav = useHistoryNav();
+  const router = useRouter();
+  const client = useQueryClient();
   const settings = useSettings();
   const updateSetting = useUpdateSetting();
   const searchRef = useRef<HTMLInputElement>(null);
@@ -258,6 +261,18 @@ export const AppBar: FC<{ frame: WindowFrame; onShortcuts: () => void; immersive
       >
         <ChevronRight aria-hidden size={22} />
       </button>
+      <button
+        type="button"
+        aria-label={t('menu.reload')}
+        data-hint={t('menu.reload')}
+        onClick={() => {
+          void router.invalidate();
+          void client.invalidateQueries();
+        }}
+        className={roundButton}
+      >
+        <RotateCw aria-hidden size={18} />
+      </button>
       <div className="flex min-w-0 flex-1 items-center justify-center gap-2 px-2">
         <Link
           to="/"
@@ -271,22 +286,7 @@ export const AppBar: FC<{ frame: WindowFrame; onShortcuts: () => void; immersive
         <AppSearch inputRef={searchRef} />
       </div>
       <MascotButton className={roundButton} iconSize={20} />
-      <Link
-        to="/updates"
-        aria-label={t('nav.updates')}
-        data-hint={t('nav.updates')}
-        className={roundButton}
-      >
-        <Bell aria-hidden size={19} />
-      </Link>
-      <Link
-        to="/downloads"
-        aria-label={t('nav.downloads')}
-        data-hint={t('nav.downloads')}
-        className={roundButton}
-      >
-        <ArrowDownToLine aria-hidden size={19} />
-      </Link>
+      <BarPopoverButtons className={roundButton} />
       {frame === 'app' ? <WindowButtons /> : <span className="w-2" />}
       {creating && <NewPlaylistForm onDone={() => setCreating(false)} />}
       {comics.input}

@@ -1,13 +1,26 @@
+import { commands } from '@raygun/bindings';
 import type { VideoDownloadItem, VideoEpisodeView, VideoTitleView } from '@raygun/bindings';
 import { useSearch } from '@tanstack/react-router';
-import { Check, ExternalLink, Eye, EyeOff, ListVideo, LoaderCircle, RefreshCw } from 'lucide-react';
+import {
+  Check,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  ListVideo,
+  LoaderCircle,
+  Play,
+  RefreshCw,
+} from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { CategoryPicker } from '../manga/CategoryPicker';
+import { MangaCover } from '../manga/MangaCover';
+import { useKnownCard } from '../manga/knownCard';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
+import { useWideScreen } from '../shell/useWideScreen';
 import { PinButton } from '../shell/PinButton';
 import { LibraryPill } from '../watch/LibraryPill';
 import { ExportButton } from '../export/ExportButton';
@@ -162,6 +175,7 @@ const Episodes: FC<{
 /** A title from a video source: details, episodes, and servers to play from. */
 export const VideoTitlePage: FC = () => {
   const { t } = useTranslation();
+  const wide = useWideScreen();
   const { source, id } = useSearch({ from: '/watch/video' });
   const title = useVideoTitle(source, id);
   const refresh = useRefreshVideoTitle();
@@ -173,6 +187,15 @@ export const VideoTitlePage: FC = () => {
   const [picking, setPicking] = useState<{ target: ServerTarget; intent: PickIntent } | null>(null);
   const [expanded, setExpanded] = useState(false);
   const view = title.data;
+  // What the list already showed (M46.38), while the page loads or when the source fails.
+  const known = useKnownCard('video', source, id);
+  const knownHero = known && (
+    <TitleHero
+      art={known.coverUrl}
+      cover={<MangaCover url={known.coverUrl} video className="w-full rounded-xl shadow-lg" />}
+      title={known.title}
+    />
+  );
 
   const header = (choose?: ReactNode) => (
     <TopBar
@@ -203,7 +226,8 @@ export const VideoTitlePage: FC = () => {
               <TopBarAction
                 label={t('watch.openInBrowser')}
                 icon={ExternalLink}
-                onClick={() => window.open(view.url ?? '', '_blank', 'noopener')}
+                // Raygun's browser (M46.38): a new window does nothing in the app.
+                onClick={() => void commands.catalogOpenPage(view.sourceId, view.url)}
               />
             )}
             <ExportButton medium="video" titleIds={[view.id]} />
@@ -216,16 +240,18 @@ export const VideoTitlePage: FC = () => {
 
   if (title.error && !view) {
     return (
-      <section data-testid="video-title-page">
+      <section data-testid="video-title-page" className="flex flex-col gap-5">
         {top}
+        {knownHero}
         <SourceIssue>{title.error.message}</SourceIssue>
       </section>
     );
   }
   if (!view) {
     return (
-      <section data-testid="video-title-page">
+      <section data-testid="video-title-page" className="flex flex-col gap-5">
         {top}
+        {knownHero}
         <LoaderCircle
           aria-label={t('watch.loading')}
           className="text-muted mx-auto my-12 animate-spin"
@@ -289,6 +315,23 @@ export const VideoTitlePage: FC = () => {
       >
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
+            {next && wide && (
+              // Play is on the first screen (M46.34); phones keep the floating button.
+              <button
+                type="button"
+                onClick={() => pick(next)}
+                className="bg-primary text-background flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold"
+              >
+                <Play aria-hidden size={16} fill="currentColor" />
+                {t(
+                  (next.positionMs ?? 0) > 0
+                    ? 'watch.resume'
+                    : movie
+                      ? 'watch.play'
+                      : 'watch.start',
+                )}
+              </button>
+            )}
             <LibraryPill
               inLibrary={view.inLibrary}
               busy={setInLibrary.isPending || duplicates.checking}
@@ -367,7 +410,7 @@ export const VideoTitlePage: FC = () => {
         <Episodes view={view} downloads={downloads} onPick={pick} />
       )}
       {view.episodes.length === 0 && <p className="text-muted text-sm">{t('watch.noEpisodes')}</p>}
-      {next && (
+      {next && !wide && (
         <ResumeFab
           label={t(
             (next.positionMs ?? 0) > 0 ? 'watch.resume' : movie ? 'watch.play' : 'watch.start',

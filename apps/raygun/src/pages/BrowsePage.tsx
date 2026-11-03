@@ -22,6 +22,8 @@ import { useExtensions, useRefreshCatalog, useReloadExtensions } from '../extens
 import { useLayout } from '../layout/useLayout';
 import { useMangaSources } from '../manga/useManga';
 import { LetterAvatar } from '../shell/LetterAvatar';
+import { ListSearchField } from '../shell/ListSearchField';
+import { matchesSearch } from '../shell/useListSearch';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { Tabs } from '../shell/Tabs';
 import { BrowseAll } from '../music/BrowseAll';
@@ -101,10 +103,39 @@ const SourceSection: FC<{ title: string; rows: SourceRow[] }> = ({ title, rows }
   );
 };
 
-/** Browse → Sources: every catalogue to browse, by kind (Aniyomi's Browse). */
+type SourceKind = 'all' | 'video' | 'manga' | 'novel' | 'websites';
+const SOURCE_KIND_KEY = 'raygun.browse.sourceKind';
+
+const readKind = (): SourceKind => {
+  try {
+    const saved = localStorage.getItem(SOURCE_KIND_KEY);
+    return saved === 'video' || saved === 'manga' || saved === 'novel' || saved === 'websites'
+      ? saved
+      : 'all';
+  } catch {
+    return 'all';
+  }
+};
+
+/**
+ * Browse → Sources: every catalogue to browse, by kind (Aniyomi's Browse). Chips pick one kind
+ * and a field finds sources by name (M46.35), so a long list stays short.
+ */
 const SourcesList: FC = () => {
   const { t } = useTranslation();
   const layout = useLayout();
+  const [kind, setKindState] = useState<SourceKind>(readKind);
+  const [query, setQuery] = useState('');
+  const setKind = (next: SourceKind) => {
+    setKindState(next);
+    try {
+      localStorage.setItem(SOURCE_KIND_KEY, next);
+    } catch {
+      // A per-device convenience.
+    }
+  };
+  const found = (rows: SourceRow[]) =>
+    rows.filter((row) => matchesSearch(query, [row.name, row.detail]));
   const extensions = useExtensions();
   const addons = useStremioAddons();
   const video = useVideoSources();
@@ -151,28 +182,58 @@ const SourcesList: FC = () => {
     (manga.data?.length ?? 0) === 0 &&
     (novel.data?.length ?? 0) === 0;
 
-  // The sections in the user's order (M46.5).
+  const mangaRows = catalogue(manga.data, '/manga/source');
+  const novelRows = catalogue(novel.data, '/novel/source');
+  // The sections in the user's order (M46.5), narrowed by kind and name (M46.35).
   const sections: Record<string, ReactNode> = {
-    video: <SourceSection title={t('browse.kind.video')} rows={videoRows} />,
-    manga: (
-      <SourceSection
-        title={t('library.media.manga')}
-        rows={catalogue(manga.data, '/manga/source')}
-      />
-    ),
-    novel: (
-      <SourceSection
-        title={t('library.media.novel')}
-        rows={catalogue(novel.data, '/novel/source')}
-      />
-    ),
-    websites: <WebsitesSection />,
+    video: <SourceSection title={t('browse.kind.video')} rows={found(videoRows)} />,
+    manga: <SourceSection title={t('library.media.manga')} rows={found(mangaRows)} />,
+    novel: <SourceSection title={t('library.media.novel')} rows={found(novelRows)} />,
+    websites: <WebsitesSection query={query} />,
   };
+  const visible = layout.browseSections.filter((item) => item.visible);
+  const counts: Record<string, number | null> = {
+    video: videoRows.length,
+    manga: mangaRows.length,
+    novel: novelRows.length,
+    websites: null,
+  };
+  const chip = (on: boolean) =>
+    `shrink-0 rounded-full px-3 py-1.5 text-sm ${on ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`;
   return (
     <div data-testid="browse-sources" className="flex flex-col gap-2">
       {empty && <p className="text-muted px-1 text-sm">{t('browse.noSources')}</p>}
-      {layout.browseSections
-        .filter((item) => item.visible)
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        <div
+          role="group"
+          aria-label={t('browse.sourceKinds')}
+          className="-mx-4 flex min-w-0 gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
+        >
+          {(['all', ...visible.map((item) => item.id)] as SourceKind[]).map((id) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={kind === id}
+              onClick={() => setKind(id)}
+              className={chip(kind === id)}
+            >
+              {id === 'all'
+                ? t('browse.allKinds')
+                : id === 'websites'
+                  ? t('websites.title')
+                  : `${t(id === 'video' ? 'browse.kind.video' : `library.media.${id}`)} · ${counts[id] ?? 0}`}
+            </button>
+          ))}
+        </div>
+        <ListSearchField
+          value={query}
+          onChange={setQuery}
+          label={t('browse.findSource')}
+          className="w-full sm:ml-auto sm:w-64"
+        />
+      </div>
+      {visible
+        .filter((item) => kind === 'all' || item.id === kind)
         .map((item) => (
           <Fragment key={item.id}>{sections[item.id]}</Fragment>
         ))}
@@ -216,7 +277,7 @@ export const BrowsePage: FC = () => {
   const desktop = useIsDesktop();
   const updateSetting = useUpdateSetting();
   const failingAtEnd = useSettings().data?.failingSourcesLast ?? true;
-  const { tab = firstTab, list = 'installed', q = '', type = 'all', view } = current;
+  const { tab = firstTab, list = 'installed', q = '', type = 'all', view, pill } = current;
   const navigate = useNavigate({ from: '/browse' });
   const reload = useReloadExtensions();
   const refresh = useRefreshCatalog();
@@ -242,13 +303,14 @@ export const BrowsePage: FC = () => {
     }
   };
   // A new type starts on its Relevant pill unless one is named (M46.25).
-  const setType = (next: SearchType, nextView?: SearchView) =>
+  const setType = (next: SearchType, nextView?: SearchView, pill?: string) =>
     void navigate({
       search: {
         ...current,
         tab: 'search',
         type: next === 'all' ? undefined : next,
         view: nextView && nextView !== 'relevant' ? nextView : undefined,
+        pill: next === 'video' ? pill : undefined,
       },
       replace: true,
     });
@@ -355,7 +417,9 @@ export const BrowsePage: FC = () => {
           {t(reload.isPending ? 'extensions.reload' : 'extensions.refresh')}
         </p>
       )}
-      {tab === 'search' && <SearchPanel query={q} type={type} view={view} onType={setType} />}
+      {tab === 'search' && (
+        <SearchPanel query={q} type={type} view={view} pill={pill} onType={setType} />
+      )}
       {tab === 'discover' && <BrowseAll />}
       {tab === 'sources' && <SourcesList />}
       {tab === 'extensions' && (

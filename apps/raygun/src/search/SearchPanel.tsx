@@ -6,6 +6,7 @@ import { AllResults } from './AllResults';
 import { CatalogSearch } from './CatalogSearch';
 import { LibraryMatches } from './LibraryMatches';
 import { MusicResults } from './MusicResults';
+import { useMangaSources } from '../manga/useManga';
 import { pill, SEARCH_TYPES, VIDEO_VIEWS } from './searchTypes';
 import type { MusicView, SearchType, SearchView, VideoView } from './searchTypes';
 import { VideoResults } from './VideoResults';
@@ -54,11 +55,17 @@ const VideoSearch: FC<{ query: string; view: VideoView; onView: (view: VideoView
 export const SearchPanel: FC<{
   query: string;
   type: SearchType;
-  onType: (type: SearchType, view?: SearchView) => void;
+  onType: (type: SearchType, view?: SearchView, pill?: string) => void;
   /** The pill within Music or Movies & series (M46.25). */
   view?: SearchView;
-}> = ({ query, type, onType, view }) => {
+  /** A video source's own pill (M46.35): its id. */
+  pill?: string;
+}> = ({ query, type, onType, view, pill }) => {
   const { t } = useTranslation();
+  // Video sources that bring their own pill (YouTube, PeerTube…), enabled ones only.
+  const videoSources = useMangaSources('video');
+  const pills = (videoSources.data ?? []).filter((source) => source.searchPill && source.enabled);
+  const pillSource = type === 'video' ? pills.find((source) => source.id === pill) : undefined;
   // The library needs something typed; the rest show what's popular or a hint until then.
   const needsQuery = type === 'library';
   const musicView = (view ?? 'relevant') as MusicView;
@@ -78,26 +85,47 @@ export const SearchPanel: FC<{
         aria-label={t('search.typeLabel')}
         className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
       >
-        {SEARCH_TYPES.map((option) => (
-          <button
-            key={option}
-            ref={type === option ? selected : undefined}
-            type="button"
-            role="tab"
-            aria-selected={type === option}
-            onClick={() => onType(option)}
-            className={`shrink-0 rounded-full px-4 py-1.5 text-sm ${type === option ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
-          >
-            {t(`search.type.${option}`)}
-          </button>
-        ))}
+        {SEARCH_TYPES.map((option) => {
+          const current = type === option && !(option === 'video' && pillSource);
+          return (
+            <button
+              key={option}
+              ref={current ? selected : undefined}
+              type="button"
+              role="tab"
+              aria-selected={current}
+              onClick={() => onType(option)}
+              className={`shrink-0 rounded-full px-4 py-1.5 text-sm ${current ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
+            >
+              {t(`search.type.${option}`)}
+            </button>
+          );
+        })}
+        {pills.map((source) => {
+          const current = pillSource?.id === source.id;
+          return (
+            <button
+              key={source.id}
+              type="button"
+              role="tab"
+              aria-selected={current}
+              onClick={() => onType('video', undefined, source.id)}
+              className={`shrink-0 rounded-full px-4 py-1.5 text-sm ${current ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
+            >
+              {source.searchPill}
+            </button>
+          );
+        })}
       </div>
       {!query && needsQuery && <p className="text-muted text-sm">{t(`search.hintFor.${type}`)}</p>}
       {type === 'all' && <AllResults query={query} onType={onType} />}
       {type === 'music' && (
         <MusicResults query={query} view={musicView} onView={(next) => onType('music', next)} />
       )}
-      {type === 'video' && (
+      {type === 'video' && pillSource && (
+        <CatalogSearch key={pillSource.id} medium="video" query={query} only={pillSource.id} />
+      )}
+      {type === 'video' && !pillSource && (
         <VideoSearch query={query} view={videoView} onView={(next) => onType('video', next)} />
       )}
       {query && type === 'library' && <LibraryMatches query={query} />}

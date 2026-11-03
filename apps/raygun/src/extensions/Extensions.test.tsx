@@ -412,7 +412,7 @@ describe('Extensions', () => {
     expect(await names()).toEqual(['Radio Browser', 'MangaDex', 'NovelFull', 'Kakuyomu']);
 
     const kinds = screen.getByRole('group', { name: 'Show' });
-    await user.click(within(kinds).getByRole('button', { name: 'Novels' }));
+    await user.click(within(kinds).getByRole('button', { name: 'Books' }));
     expect(await names()).toEqual(['NovelFull', 'Kakuyomu']);
     await user.selectOptions(screen.getByRole('combobox', { name: 'Language' }), 'ja');
     expect(await names()).toEqual(['Kakuyomu']);

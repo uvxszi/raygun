@@ -16,10 +16,14 @@ import {
   useSetSubscribed,
 } from '../podcasts/usePodcasts';
 import { SourceIssue } from '../shell/SourceIssue';
+import { useSearchMode } from '../shell/useSearchMode';
+import { matchesSearch } from '../shell/useListSearch';
+import { usePlayContext } from '../music/playContext';
 
 /** A podcast: subscribe, read about it, and play or download its episodes. */
 export const PodcastPage: FC = () => {
   const { t } = useTranslation();
+  const find = useSearchMode(t('podcasts.findEpisode'));
   usePodcastEvents();
   const { id } = useSearch({ from: '/podcast' });
   const podcast = usePodcast(id);
@@ -27,6 +31,18 @@ export const PodcastPage: FC = () => {
   const setSubscribed = useSetSubscribed();
   const [expanded, setExpanded] = useState(false);
   const view = podcast.data;
+  usePlayContext(
+    view
+      ? {
+          kind: 'podcast',
+          name: view.title,
+          subtitle: view.author,
+          artworkUrl: view.artworkUrl,
+          to: '/podcast',
+          search: { id },
+        }
+      : null,
+  );
 
   if (podcast.error && !view) {
     return (
@@ -50,16 +66,20 @@ export const PodcastPage: FC = () => {
         fallback="/library"
         plainTitle
         title={t('library.media.podcast')}
+        search={find.search}
         actions={
-          <PinButton
-            target={{
-              kind: 'podcast',
-              to: '/podcast',
-              search: { id: view.id },
-              name: view.title,
-              artworkUrl: view.artworkUrl ?? null,
-            }}
-          />
+          <>
+            {find.action}
+            <PinButton
+              target={{
+                kind: 'podcast',
+                to: '/podcast',
+                search: { id: view.id },
+                name: view.title,
+                artworkUrl: view.artworkUrl ?? null,
+              }}
+            />{' '}
+          </>
         }
       />
       <header className="flex gap-4">
@@ -115,9 +135,11 @@ export const PodcastPage: FC = () => {
           <p className="text-muted text-sm">{t('podcasts.noEpisodes')}</p>
         ) : (
           <ul className="bg-surface flex flex-col gap-4 rounded-xl px-4 py-3">
-            {view.episodes.map((episode) => (
-              <EpisodeItem key={episode.id} episode={episode} />
-            ))}
+            {view.episodes
+              .filter((episode) => matchesSearch(find.query, [episode.title, episode.description]))
+              .map((episode) => (
+                <EpisodeItem key={episode.id} episode={episode} />
+              ))}
           </ul>
         )}
       </section>

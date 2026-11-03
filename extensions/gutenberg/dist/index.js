@@ -1,4 +1,4 @@
-// dev.raygun.gutenberg 1.0.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.gutenberg 1.0.1. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -25,11 +25,13 @@
     return { text: await response.text(), url: response.url };
   };
   var entries = (xml) => [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)].map((match) => match[1] ?? "");
+  var AUDIO_ICON = "ZHlxyWU8AAAAAElFTkSuQmCC";
   var feed = async (params, page) => {
     const start = (page - 1) * FEED_PAGE + 1;
     const { text } = await fetchText(`${BOOKS}/ebooks/search.opds/?${params}&start_index=${start}`);
     const all = entries(text);
     const items = all.flatMap((entry) => {
+      if (entry.includes(AUDIO_ICON)) return [];
       const id = /<id>[^<]*\/ebooks\/(\d+)\.opds<\/id>/.exec(entry)?.[1];
       const title = /<title>([\s\S]*?)<\/title>/.exec(entry)?.[1];
       return id && title ? [{ id, title: decode(title.trim()), coverUrl: cover(id) }] : [];

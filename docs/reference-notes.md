@@ -263,3 +263,11 @@ async function getStreams(tmdbId /*string*/, mediaType /*"movie"|"tv"|"series"*/
   - It needs `onSettings` and the three globals.
 - The same rule as Miru applies: scrapers only from repositories the user adds; Raygun ships and pre-adds none.
 - Stremio additions worth taking: `showInHome`, `audioDelayMs`, the subtitle hash extras, and MDBList ratings (a user key, like OMDb).
+
+## Kreate and RiMusic (M46.39, `reference/Kreate`, `reference/RiMusic`)
+
+Android music players (ViMusic forks, Kotlin, GPL-3.0). What they draw on:
+- **YouTube Music's web API** (`extensions/environment` in RiMusic, `modules/innertube` in Kreate): search filters for songs, videos, albums, artists, community playlists (`EgeKAQQoAEABagoQAxAEEAoQCRAF`) and featured playlists (`EgeKAQQoADgBagwQDhAKEAMQBRAJEAQ%3D`); playlists by `browse` `VL<id>`; endpoint names are obfuscated constants in `Environment.kt`.
+- **Lyrics:** LRCLIB (`extensions/lrclib`), KuGou (`extensions/kugou/KuGou.kt`: `mobileservice.kugou.com/api/v3/search/song` → by hash within 5 s, else keyword → `krcs.kugou.com/download` LRC in base64, credit lines dropped), and YouTube Music's own (`requests/Lyrics.kt`: `next` → second tab's `browseId` → `browse` → `musicDescriptionShelfRenderer`).
+- **Streams:** Piped and Invidious instances (`extensions/piped`, `extensions/invidious`). Raygun doesn't use them (M46.39 Decisions).
+- **Discord:** Kizzy (`modules/kizzy`), the user's own token. Raygun doesn't (M46.36).

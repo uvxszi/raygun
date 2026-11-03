@@ -15,7 +15,6 @@ mod commands;
 mod connect;
 mod details;
 mod device_sync;
-mod discord;
 mod discovery;
 mod durations;
 mod epub;
@@ -75,6 +74,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::storage_info,
             commands::settings_get,
             commands::settings_update,
+            commands::recent_contexts,
+            commands::recent_contexts_add,
             commands::playback_get_state,
             commands::playback_get_queue,
             commands::playback_enqueue,
@@ -111,6 +112,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::connect_answer,
             commands::miniplayer_close,
             commands::extension_open_website,
+            commands::catalog_open_page,
             commands::extension_repos,
             commands::extension_suggested_repos,
             commands::extension_repo_add,
@@ -121,6 +123,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::extension_setting_set,
             commands::online_search,
             commands::lyrics_get,
+            commands::lyrics_options,
+            commands::lyrics_transcribe,
+            commands::captions_use_feed,
             commands::song_edit_get,
             commands::song_edit_set,
             commands::favorites_list,
@@ -146,6 +151,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::detail_edit,
             commands::detail_edit_set,
             commands::detail_cover_import,
+            commands::detail_cover_options,
             commands::local_folders,
             commands::local_folder_add,
             commands::local_folder_remove,
@@ -162,6 +168,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::captions_transcribe,
             commands::captions_stop,
             commands::captions_clear,
+            commands::captions_video_transcribe,
+            commands::captions_video_make,
             commands::spoken_item,
             commands::music_track_tags,
             commands::music_tags_for,
@@ -171,6 +179,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::music_search_artists,
             commands::music_search_albums,
             commands::music_album,
+            commands::music_artist_releases,
+            commands::music_search_playlists,
+            commands::music_playlist,
+            commands::music_find_album,
             commands::songs_download,
             commands::song_downloads,
             commands::song_download_remove,
@@ -351,6 +363,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::video_set_player_labels,
             commands::video_player_report,
             commands::video_player_external,
+            commands::video_external_players,
+            commands::video_find_subtitles,
+            commands::youtube_embed_url,
             commands::tts_report,
             commands::tts_set_available
         ])

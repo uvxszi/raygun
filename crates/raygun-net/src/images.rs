@@ -84,11 +84,46 @@ pub async fn fetch_image(
     if bytes.len() > MAX_IMAGE_BYTES {
         return Err(ImageError::TooLarge);
     }
+    // Webviews can't show JPEG XL (M46.38): such pictures are kept and served as PNG.
+    if is_jxl(&bytes) {
+        let png = tokio::task::spawn_blocking({
+            let bytes = bytes.to_vec();
+            move || jxl_to_png(&bytes)
+        })
+        .await
+        .map_err(|error| ImageError::Network(error.to_string()))?
+        .map_err(ImageError::Network)?;
+        return Ok(Image {
+            bytes: png,
+            extension: "png",
+        });
+    }
     let extension = extension_for(sniff_content_type(&bytes), &content_type);
     Ok(Image {
         bytes: bytes.to_vec(),
         extension,
     })
+}
+
+/// Whether `bytes` are a JPEG XL picture: a bare codestream or the ISO BMFF container.
+pub fn is_jxl(bytes: &[u8]) -> bool {
+    bytes.starts_with(&[0xFF, 0x0A])
+        || bytes.starts_with(&[
+            0, 0, 0, 0x0C, b'J', b'X', b'L', b' ', 0x0D, 0x0A, 0x87, 0x0A,
+        ])
+}
+
+/// A JPEG XL picture as PNG (M46.38), decoded by jxl-oxide.
+pub fn jxl_to_png(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    let decoder = jxl_oxide::integration::JxlDecoder::new(std::io::Cursor::new(bytes))
+        .map_err(|error| format!("couldn't read the JPEG XL picture: {error}"))?;
+    let image = image::DynamicImage::from_decoder(decoder)
+        .map_err(|error| format!("couldn't read the JPEG XL picture: {error}"))?;
+    let mut png = std::io::Cursor::new(Vec::new());
+    image
+        .write_to(&mut png, image::ImageFormat::Png)
+        .map_err(|error| error.to_string())?;
+    Ok(png.into_inner())
 }
 
 fn extension_for(sniffed: &str, declared: &str) -> &'static str {

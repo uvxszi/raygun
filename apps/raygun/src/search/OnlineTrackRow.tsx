@@ -9,6 +9,7 @@ import { useTrackMenu } from '../music/useTrackMenu';
 import { formatTime } from '../player/formatTime';
 import { NowPlayingBars } from '../player/NowPlayingBars';
 import { usePlayingMatch } from '../player/usePlayingMatch';
+import { ExplicitMark } from '../music/ExplicitMark';
 
 type OnlineTrackRowProps = {
   track: OnlineTrack;
@@ -39,6 +40,7 @@ export const OnlineTrackRow: FC<OnlineTrackRowProps> = ({ track, onPlay, source 
           >
             {playing && <NowPlayingBars playing={playing === 'playing'} />}
             <span className="truncate">{track.title}</span>
+            {track.explicit && <ExplicitMark />}
           </span>
           <span className="text-muted block truncate text-xs">
             <ArtistLinks credit={track.artist} nested />

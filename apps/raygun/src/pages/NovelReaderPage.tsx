@@ -53,6 +53,8 @@ const LONG_PRESS_MS = 500;
 const PRESS_SLOP_PX = 10;
 /** Side margin of a page in paged mode. */
 const PAGE_PADDING = 20;
+/** A page's widest, by the Width setting (M46.38): the scrolled column's width and a little more. */
+const PAGE_WIDTH = { narrow: '46rem', wide: '64rem' } as const;
 
 const FONTS: Record<NovelReaderPrefs['font'], string> = {
   serif: 'Georgia, "Noto Serif", "Times New Roman", serif',
@@ -621,13 +623,15 @@ const ChapterView: FC<{
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
         {...pressHandlers}
-        className={`h-dvh overflow-hidden outline-none select-none [-webkit-touch-callout:none] lg:[--reader-scale:1.2] ${chrome ? 'pt-16 pb-16' : 'pt-6 pb-6'}`}
+        // Pages as wide as the column the scrolled text reads in (M46.38), not the whole window.
+        style={{ maxWidth: PAGE_WIDTH[prefs.width] }}
+        className={`mx-auto h-dvh overflow-hidden outline-none select-none [-webkit-touch-callout:none] lg:[--reader-scale:1.2] ${chrome ? 'pt-16 pb-16' : 'pt-6 pb-6'}`}
       >
         <div
           style={{
             ...textStyle,
             height: '100%',
-            columnWidth: `calc(100vw - ${PAGE_PADDING * 2}px)`,
+            columnWidth: `calc(min(100vw, ${PAGE_WIDTH[prefs.width]}) - ${PAGE_PADDING * 2}px)`,
             columnGap: `${PAGE_PADDING * 2}px`,
             columnFill: 'auto',
             padding: `0 ${PAGE_PADDING}px`,

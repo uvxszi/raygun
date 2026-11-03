@@ -16,6 +16,7 @@ import {
 import { playResults } from '../search/useOnlineSearch';
 import { SourceIssue } from '../shell/SourceIssue';
 import { TopBar } from '../shell/TopBar';
+import { usePlayContext } from '../music/playContext';
 
 const asOnline = (track: SavedTrack): OnlineTrack => ({
   externalId: null,
@@ -38,6 +39,18 @@ export const MusicTagPage: FC = () => {
   const charts = useMusicCharts();
   const songs = useTagSongs(name);
   const sources = useTagSources(name);
+  usePlayContext(
+    name
+      ? {
+          kind: 'tag',
+          name,
+          subtitle: null,
+          artworkUrl: null,
+          to: '/music/tag',
+          search: { name },
+        }
+      : null,
+  );
   const kind = vocabulary.data?.find((tag) => tag.name === name)?.kind ?? 'genre';
   const tagCharts = (charts.data?.charts ?? []).filter((chart) => chart.tag === name);
   const list = songs.data ?? [];

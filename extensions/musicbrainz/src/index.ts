@@ -114,6 +114,7 @@ type ReleaseGroup = {
   title: string;
   'first-release-date'?: string;
   'primary-type'?: string;
+  'secondary-types'?: string[];
   'artist-credit'?: { name: string; joinphrase?: string }[];
 };
 
@@ -136,7 +137,27 @@ const toAlbum = (group: ReleaseGroup): Album => ({
   artist: creditOf(group['artist-credit']) || null,
   year: Number(group['first-release-date']?.slice(0, 4)) || null,
   artworkUrl: `https://coverartarchive.org/release-group/${group.id}/front-250`,
+  kind: kindOf(group),
 });
+
+/** A release group's kind (M46.36): compilations and live albums by their secondary type. */
+const kindOf = (group: ReleaseGroup): Album['kind'] => {
+  const secondary = group['secondary-types'] ?? [];
+  if (secondary.includes('Compilation')) return 'compilation';
+  if (secondary.includes('Live')) return 'live';
+  switch (group['primary-type']) {
+    case 'Album':
+      return 'album';
+    case 'Single':
+      return 'single';
+    case 'EP':
+      return 'ep';
+    case undefined:
+      return null;
+    default:
+      return 'other';
+  }
+};
 
 const search = defineProvider({
   kind: 'music.metadata',
@@ -161,6 +182,26 @@ const search = defineProvider({
       `${API}/release-group?query=${encodeURIComponent(cleaned)}&limit=${Math.min(limit, 25)}&fmt=json`,
     );
     return { albums: (found['release-groups'] ?? []).map(toAlbum) };
+  },
+
+  async artistReleases({ query, limit }) {
+    const cleaned = escapeQuery(query);
+    if (cleaned === '') return { releases: [] };
+    const found = await getJson<{ artists?: { id: string; name: string; score?: number }[] }>(
+      `${API}/artist?query=${encodeURIComponent(`artist:"${cleaned}"`)}&limit=5&fmt=json`,
+    );
+    const wanted = simple(query);
+    const artist =
+      (found.artists ?? []).find((candidate) => simple(candidate.name) === wanted) ??
+      (found.artists ?? [])[0];
+    if (!artist) return { releases: [] };
+    const groups = await getJson<{ 'release-groups'?: ReleaseGroup[] }>(
+      `${API}/release-group?artist=${artist.id}&inc=artist-credits&limit=${Math.min(Math.max(limit, 1), 100)}&fmt=json`,
+    );
+    const releases = (groups['release-groups'] ?? [])
+      .map(toAlbum)
+      .sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
+    return { releases };
   },
 
   async album({ id }) {

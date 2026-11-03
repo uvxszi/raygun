@@ -8,6 +8,7 @@ import { currentLine, useLyricsFor } from '../player/lyricsQuery';
 import { useLivePosition } from '../player/useLivePosition';
 import { sendControl, useNowPlaying } from '../player/usePlayback';
 import { formatTrim, parseTrim } from './format';
+import { LyricsSources } from './LyricsSources';
 import type { FullSongEdit } from './soundPrefs';
 
 /** How far one press moves the lyrics, ms (Nuclear's step). */
@@ -137,6 +138,7 @@ export const LyricsEditor: FC<{
             {t('lyricsEdit.makeSynced')}
           </button>
         </div>
+        <LyricsSources song={song} edit={edit} save={save} />
         <SourceLink
           edited={lyrics.data?.edited ?? false}
           onUndo={() => save({ ...edit, lyrics: null })}
@@ -327,6 +329,7 @@ export const LyricsEditor: FC<{
           {t('lyricsEdit.editText')}
         </button>
       </div>
+      <LyricsSources song={song} edit={edit} save={save} />
       <SourceLink
         edited={lyrics.data?.edited ?? false}
         onUndo={() => save({ ...edit, lyrics: null })}

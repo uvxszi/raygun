@@ -99,8 +99,12 @@ describe('Ranked search across sources', () => {
       within(ranked).getByText(/Couldn't search Broken Site \(HTTP 403\)/),
     ).toBeInTheDocument();
 
-    // By source: the failing source goes last.
-    await user.click(screen.getByRole('button', { name: 'By source' }));
+    // Relevant is the default chip (M46.35); All sources groups by source, the failing one last.
+    expect(screen.getByRole('button', { name: 'Relevant' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await user.click(screen.getByRole('button', { name: 'All sources' }));
     const rows = await screen.findAllByTestId('source-row');
     await vi.waitFor(() =>
       expect(rows.map((row) => within(row).getByRole('region').getAttribute('aria-label'))).toEqual(

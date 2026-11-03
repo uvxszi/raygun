@@ -1,8 +1,20 @@
+import { commands } from '@raygun/bindings';
 import type { VideoDownloadItem } from '@raygun/bindings';
-import { CircleAlert, Clapperboard, Pause, Play, RotateCw, Trash2, X } from 'lucide-react';
+import {
+  CircleAlert,
+  Clapperboard,
+  Pause,
+  Play,
+  RotateCw,
+  Sparkles,
+  Trash2,
+  X,
+} from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useCaptions } from '../player/spoken';
+import { openContextMenu } from '../shell/contextMenuStore';
 import { EmptyState } from '../shell/EmptyState';
 import { formatBytes } from './episodeLabel';
 import {
@@ -66,10 +78,25 @@ const Row: FC<{ item: VideoDownloadItem; paused: boolean }> = ({ item, paused })
   const name = [item.title, item.subtitle].filter(Boolean).join(' · ');
   const share = downloadShare(item);
   const running = item.state === 'queued' || item.state === 'downloading';
+  // AI subtitles for a saved video, made offline from its menu (M46.33).
+  const captions = useCaptions(item.key);
+  const transcribing = captions.data?.running ?? false;
+  const menu = (event: React.MouseEvent) => {
+    if (item.state !== 'done') return;
+    openContextMenu(event, [
+      { kind: 'heading', label: name },
+      {
+        label: t('downloads.makeSubtitles'),
+        icon: Sparkles,
+        onSelect: () => void commands.captionsVideoMake(item.key),
+      },
+    ]);
+  };
   return (
     <li
       data-testid="video-download-row"
       aria-label={name}
+      onContextMenu={menu}
       className="bg-surface flex flex-col gap-2 rounded-xl p-3"
     >
       <div className="flex items-center gap-3">
@@ -102,6 +129,11 @@ const Row: FC<{ item: VideoDownloadItem; paused: boolean }> = ({ item, paused })
           <span className="truncate text-sm font-medium">{item.title}</span>
           {item.subtitle && <span className="text-muted truncate text-xs">{item.subtitle}</span>}
           <span className="text-muted truncate text-xs">{stateLine(item)}</span>
+          {transcribing && (
+            <span role="status" className="text-muted truncate text-xs">
+              {t('downloads.makingSubtitles')}
+            </span>
+          )}
         </span>
         {item.state === 'failed' && (
           <button

@@ -235,6 +235,7 @@ mod artist_tests {
             duration_ms: None,
             artwork_url: None,
             source: None,
+            explicit: false,
         };
         let provider = |id: &str, tracks| ProviderSearchResult {
             provider: ProviderInfo {
@@ -242,6 +243,7 @@ mod artist_tests {
                 extension_id: id.into(),
                 kind: "music.metadata".into(),
                 name: id.into(),
+                search_pill: None,
             },
             tracks,
             error: None,
@@ -287,6 +289,7 @@ mod tests {
             duration_ms: None,
             artwork_url: None,
             source: None,
+            explicit: false,
         }
     }
 
@@ -297,6 +300,7 @@ mod tests {
                 extension_id: provider.into(),
                 kind: "music.metadata".into(),
                 name: provider.into(),
+                search_pill: None,
             },
             tracks,
             error: None,

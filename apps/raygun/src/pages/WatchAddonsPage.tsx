@@ -14,6 +14,8 @@ import {
   useStremioSuggestions,
 } from '../watch/useStremio';
 import { PageHeader } from './PageHeader';
+import { useSearchMode } from '../shell/useSearchMode';
+import { matchesSearch } from '../shell/useListSearch';
 
 const AddonLogo: FC<{ url: string | null }> = ({ url }) =>
   url ? (
@@ -74,6 +76,7 @@ const AddonItem: FC<{ addon: StremioAddon }> = ({ addon }) => {
 /** Stremio addons: what's installed, well-known ones, and "+" to add one by its address. */
 export const WatchAddonsPage: FC = () => {
   const { t } = useTranslation();
+  const find = useSearchMode(t('watch.findAddon'));
   const addons = useStremioAddons();
   const suggestions = useStremioSuggestions();
   const add = useAddAddon();
@@ -105,12 +108,16 @@ export const WatchAddonsPage: FC = () => {
         back
         fallback="/browse"
         title={t('watch.addons')}
+        search={find.search}
         actions={
-          <TopBarAction
-            label={t('watch.addAddon')}
-            icon={Plus}
-            onClick={() => setAddingByUrl(true)}
-          />
+          <>
+            {find.action}
+            <TopBarAction
+              label={t('watch.addAddon')}
+              icon={Plus}
+              onClick={() => setAddingByUrl(true)}
+            />
+          </>
         }
       />
       <p className="text-muted text-sm">{t('watch.addonsHint')}</p>
@@ -132,9 +139,11 @@ export const WatchAddonsPage: FC = () => {
       )}
       {addons.data && addons.data.length > 0 && (
         <ul aria-label={t('watch.installedAddons')} className="flex flex-col gap-2">
-          {addons.data.map((addon) => (
-            <AddonItem key={addon.id} addon={addon} />
-          ))}
+          {addons.data
+            .filter((addon) => matchesSearch(find.query, [addon.name, addon.description]))
+            .map((addon) => (
+              <AddonItem key={addon.id} addon={addon} />
+            ))}
         </ul>
       )}
       {missing.length > 0 && (

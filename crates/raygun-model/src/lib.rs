@@ -65,8 +65,11 @@ pub struct Settings {
     pub manga_update_hours: u32,
     /// How novels are set (M31).
     pub novel_reader: NovelReaderPrefs,
-    /// Shows NSFW (18+) extensions and content; off by default (M35).
+    /// Shows NSFW (18+) extensions and content; off by default (M35). Music isn't covered since
+    /// M46.36: that's `explicit_music`.
     pub show_nsfw: bool,
+    /// Shows songs marked explicit and music sources rated 18+ (M46.36); on by default.
+    pub explicit_music: bool,
     /// The video height links are picked by (M42); `None` picks the highest.
     pub preferred_video_quality: Option<u32>,
     /// The colour of buttons, tabs and highlights (M42.1).
@@ -149,8 +152,6 @@ pub struct Settings {
     pub keep_music_playing: bool,
     /// Opening Raygun shows what played last, paused where it was (M46.16).
     pub resume_on_start: bool,
-    /// What plays shows in Discord's status (desktop).
-    pub discord: DiscordPrefs,
     /// How good songs sound against the data they use, streaming and downloading.
     pub audio_quality: AudioQualityPrefs,
     /// What the desktop sidebar shows and in what order (M46.29).
@@ -210,16 +211,6 @@ impl RailPrefs {
         }
         Ok(())
     }
-}
-
-/// Discord presence (desktop): off by default, and it needs the ID of a Discord application the
-/// user made (Discord's local IPC asks for one; Raygun has none of its own).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct DiscordPrefs {
-    pub enabled: bool,
-    /// The application's ID from discord.com/developers/applications (digits).
-    pub app_id: String,
 }
 
 /// How good a song should sound against how much data it takes, as Spotify offers it. Sources
@@ -534,6 +525,9 @@ pub struct Captions {
     /// Transcription is set up (a model downloaded, or a provider picked).
     pub can_transcribe: bool,
     pub engine: TranscriptionEngine,
+    /// The episode's feed has a transcript of its own (M46.36: the listener can go back to it).
+    #[serde(default)]
+    pub has_feed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -1243,6 +1237,8 @@ pub struct VideoPlayerPrefs {
     pub external_player: bool,
     /// That app's package; empty asks each time.
     pub external_package: String,
+    /// Movie and series pages play their trailer in a small window (M46.34).
+    pub title_trailers: bool,
     /// The player's Sources list shows servers that failed or had nothing.
     pub show_failed_sources: bool,
     pub show_empty_sources: bool,
@@ -1268,7 +1264,7 @@ impl Default for VideoPlayerPrefs {
             double_tap_center: TapAction::PlayPause,
             double_tap_right: TapAction::Seek,
             media_keys: MediaKeyAction::SwitchEpisode,
-            volume_boost: 30,
+            volume_boost: 100,
             skip_button: true,
             intro_seconds: 85,
             auto_skip: false,
@@ -1287,6 +1283,7 @@ impl Default for VideoPlayerPrefs {
             decoder: DecoderMode::Auto,
             external_player: false,
             external_package: String::new(),
+            title_trailers: true,
             show_failed_sources: true,
             show_empty_sources: true,
         }
@@ -1374,6 +1371,7 @@ impl Default for Settings {
             manga_update_hours: 12,
             novel_reader: NovelReaderPrefs::default(),
             show_nsfw: false,
+            explicit_music: true,
             preferred_video_quality: None,
             accent: Accent::Red,
             start_screen: StartScreen::Home,
@@ -1415,7 +1413,6 @@ impl Default for Settings {
             sound: SoundPrefs::default(),
             keep_music_playing: false,
             resume_on_start: true,
-            discord: DiscordPrefs::default(),
             audio_quality: AudioQualityPrefs::default(),
             rail: RailPrefs::default(),
         }
@@ -1430,6 +1427,7 @@ impl Settings {
             SettingChange::MangaUpdateHours(hours) => self.manga_update_hours = hours,
             SettingChange::NovelReader(prefs) => self.novel_reader = prefs,
             SettingChange::ShowNsfw(show) => self.show_nsfw = show,
+            SettingChange::ExplicitMusic(show) => self.explicit_music = show,
             SettingChange::PreferredVideoQuality(height) => self.preferred_video_quality = height,
             SettingChange::Accent(accent) => self.accent = accent,
             SettingChange::StartScreen(screen) => self.start_screen = screen,
@@ -1468,12 +1466,6 @@ impl Settings {
             SettingChange::Sound(prefs) => self.sound = prefs,
             SettingChange::KeepMusicPlaying(on) => self.keep_music_playing = on,
             SettingChange::ResumeOnStart(on) => self.resume_on_start = on,
-            SettingChange::Discord(prefs) => {
-                self.discord = DiscordPrefs {
-                    app_id: prefs.app_id.trim().to_owned(),
-                    ..prefs
-                }
-            }
             SettingChange::AudioQuality(prefs) => self.audio_quality = prefs,
             SettingChange::Rail(prefs) => self.rail = prefs,
             SettingChange::Transcription(prefs) => {
@@ -1510,6 +1502,7 @@ pub enum SettingChange {
     MangaUpdateHours(u32),
     NovelReader(NovelReaderPrefs),
     ShowNsfw(bool),
+    ExplicitMusic(bool),
     PreferredVideoQuality(Option<u32>),
     Accent(Accent),
     StartScreen(StartScreen),
@@ -1551,7 +1544,6 @@ pub enum SettingChange {
     Sound(SoundPrefs),
     KeepMusicPlaying(bool),
     ResumeOnStart(bool),
-    Discord(DiscordPrefs),
     AudioQuality(AudioQualityPrefs),
     Rail(RailPrefs),
     Transcription(TranscriptionPrefs),
@@ -1566,6 +1558,7 @@ impl SettingChange {
             Self::MangaUpdateHours(_) => "mangaUpdateHours",
             Self::NovelReader(_) => "novelReader",
             Self::ShowNsfw(_) => "showNsfw",
+            Self::ExplicitMusic(_) => "explicitMusic",
             Self::PreferredVideoQuality(_) => "preferredVideoQuality",
             Self::Accent(_) => "accent",
             Self::StartScreen(_) => "startScreen",
@@ -1606,7 +1599,6 @@ impl SettingChange {
             Self::Sound(_) => "sound",
             Self::KeepMusicPlaying(_) => "keepMusicPlaying",
             Self::ResumeOnStart(_) => "resumeOnStart",
-            Self::Discord(_) => "discord",
             Self::AudioQuality(_) => "audioQuality",
             Self::Rail(_) => "rail",
             Self::Transcription(_) => "transcription",
@@ -1618,6 +1610,7 @@ impl SettingChange {
         match self {
             Self::Theme(_)
             | Self::ShowNsfw(_)
+            | Self::ExplicitMusic(_)
             | Self::PreferredVideoQuality(None)
             | Self::Accent(_)
             | Self::StartScreen(_)
@@ -1641,14 +1634,6 @@ impl SettingChange {
                     Err("a model name is at most 200 characters".to_owned())
                 } else {
                     Ok(())
-                }
-            }
-            Self::Discord(prefs) => {
-                let id = prefs.app_id.trim();
-                if id.len() <= 32 && id.bytes().all(|byte| byte.is_ascii_digit()) {
-                    Ok(())
-                } else {
-                    Err("a Discord application ID is digits only".to_owned())
                 }
             }
             Self::Sound(prefs) => prefs.validate(),
@@ -2246,6 +2231,10 @@ pub struct ProviderInfo {
     pub extension_id: String,
     pub kind: String,
     pub name: String,
+    /// A video source's own Search pill (M46.35: "YouTube", "PeerTube").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub search_pill: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
@@ -2424,6 +2413,9 @@ pub struct OnlineTrack {
     pub artwork_url: Option<String>,
     /// Directly playable source, when the provider knows one (M14 resolves the others).
     pub source: Option<MediaSource>,
+    /// The source marks it explicit (M46.36); hidden while Explicit music is off.
+    #[serde(default)]
+    pub explicit: bool,
 }
 
 /// One timed line of synced lyrics.
@@ -2723,6 +2715,59 @@ pub struct MusicAlbum {
     pub year: Option<u32>,
     pub artwork_url: Option<String>,
     pub track_count: Option<u32>,
+    /// What kind of release it is, when the source says (M46.36: an artist's discography).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub kind: Option<ReleaseKind>,
+}
+
+/// A release's kind (M46.36), as MusicBrainz and Deezer name them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ReleaseKind {
+    Album,
+    Single,
+    Ep,
+    Compilation,
+    Live,
+    Other,
+}
+
+impl ReleaseKind {
+    /// Reads a source's word for it leniently; unknown words are `Other`.
+    pub fn parse(word: &str) -> Self {
+        match word.trim().to_ascii_lowercase().as_str() {
+            "album" => Self::Album,
+            "single" => Self::Single,
+            "ep" => Self::Ep,
+            "compilation" | "compile" => Self::Compilation,
+            "live" => Self::Live,
+            _ => Self::Other,
+        }
+    }
+}
+
+/// A playlist a music source has (M46.39): Search → Music → Playlists.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicPlaylist {
+    pub provider: ProviderInfo,
+    pub id: String,
+    pub title: String,
+    /// Who made it (a user, or the service for its own).
+    pub author: Option<String>,
+    pub artwork_url: Option<String>,
+    pub track_count: Option<u32>,
+    /// One of the service's own (editorial) playlists.
+    pub featured: bool,
+}
+
+/// A playlist with its songs, in order (M46.39).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicPlaylistDetail {
+    pub playlist: MusicPlaylist,
+    pub tracks: Vec<OnlineTrack>,
 }
 
 /// An album with its songs, in order (M46.9).
@@ -2810,6 +2855,24 @@ pub struct TrackInput {
     pub artwork_url: Option<String>,
     /// Local files and lookups aren't stored; the track is found again by its key.
     pub source: Option<MediaSource>,
+}
+
+/// Where something was played from (M46.37: Home's Your music shows the latest): an album, a
+/// playlist, a mix, an artist, a chart, a podcast or a book, with the page that opens it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayContext {
+    /// `album`, `playlist`, `mix`, `artist`, `chart`, `tag`, `podcast` or `audiobook`.
+    pub kind: String,
+    pub name: String,
+    pub subtitle: Option<String>,
+    pub artwork_url: Option<String>,
+    /// The page's path (`/music/album`) and its search parameters.
+    pub to: String,
+    pub search: std::collections::BTreeMap<String, String>,
+    /// Unix ms; set when it's remembered.
+    #[serde(default)]
+    pub played_at: f64,
 }
 
 /// A track as saved in favorites, a playlist or history. Artwork comes from the local library when
@@ -3118,6 +3181,10 @@ pub struct MangaSource {
     pub extension_id: String,
     /// False when the user disabled it: it stays listed, but searches skip it (M46.8).
     pub enabled: bool,
+    /// Its own Search pill, when the source declares one (M46.35).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub search_pill: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -3232,6 +3299,18 @@ pub enum AudioFileFormat {
     Mp3,
 }
 
+/// A cover a source has for a song, an album or an artist (M46.36), offered in Edit details.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CoverOption {
+    /// The image's address at the source (stored as is when picked).
+    pub url: String,
+    /// The source's name.
+    pub source: String,
+    /// What it's the cover of, when that isn't the thing edited (a song's album).
+    pub of: Option<String>,
+}
+
 /// What the user edits the details of (M46.30): a song, an album or an artist.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -3289,6 +3368,8 @@ pub enum ImageFileFormat {
     Png,
     Jpeg,
     Webp,
+    /// JPEG XL, lossless (M46.38).
+    Jxl,
 }
 
 /// Where a saved cover image goes (M46.26).
@@ -3649,7 +3730,9 @@ pub const LAYOUT_TABS: [(&str, bool); 13] = [
     ("downloads", false),
     ("settings", false),
 ];
-pub const LAYOUT_LIBRARY_MEDIA: [(&str, bool); 4] = [
+pub const LAYOUT_LIBRARY_MEDIA: [(&str, bool); 5] = [
+    // Every kind at once (M46.37), first so the Library opens on it.
+    ("all", true),
     ("music", true),
     ("manga", true),
     ("novel", true),
@@ -3666,7 +3749,9 @@ pub const LAYOUT_AUDIO_VIEWS: [(&str, bool); 9] = [
     ("artists", true),
     ("tracks", true),
 ];
-pub const LAYOUT_HOME_SECTIONS: [(&str, bool); 7] = [
+pub const LAYOUT_HOME_SECTIONS: [(&str, bool); 8] = [
+    // "Nothing to pick up yet" (M46.37): shown while nothing is under way; closing it hides it.
+    ("getStarted", true),
     ("continueWatching", true),
     ("continueReading", true),
     ("madeForYou", true),
@@ -4653,11 +4738,32 @@ pub struct YouTubeVideo {
 #[serde(rename_all = "camelCase")]
 pub struct ExternalPlay {
     /// The player's address for the stream (through the proxy).
+    /// (M46.33: which app is the command's `player` argument.)
     pub url: String,
     pub title: String,
     /// Subtitle files' addresses; the first is passed on.
     pub subtitles: Vec<String>,
     pub start_ms: f64,
+}
+
+/// Subtitles found for a video in the player (M46.33).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FoundSubtitles {
+    pub tracks: Vec<VideoSubtitle>,
+    /// The suggested subtitles addon to add, when no added addon serves subtitles.
+    pub suggestion: Option<StremioSuggestion>,
+    /// Why nothing could be looked for (a video from a source that names no film or series).
+    pub note: Option<String>,
+}
+
+/// A video player installed on this computer (M46.33).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalPlayer {
+    /// `mpv`, `vlc`, `mpc-hc`, `mpc-be` or `potplayer`.
+    pub id: String,
+    pub name: String,
 }
 
 /// Something started and not finished.

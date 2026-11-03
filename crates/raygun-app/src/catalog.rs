@@ -72,6 +72,7 @@ impl Catalog {
                 id: provider.id,
                 name: provider.name,
                 extension_id: provider.extension_id,
+                search_pill: provider.search_pill,
             })
             .collect()
     }
@@ -367,10 +368,26 @@ impl Catalog {
         })
     }
 
+    /// Adds a title to the library or takes it out. Taking it out also drops its list, favorite
+    /// and pin (M46.38): a favorite is always in the library, so it never goes missing from it.
     pub async fn set_in_library(&self, title_id: &str, in_library: bool) -> Result<(), String> {
-        titles::set_in_library(&self.db(), title_id, in_library.then(now_ms))
+        let db = self.db();
+        titles::set_in_library(&db, title_id, in_library.then(now_ms))
             .await
-            .map_err(to_message)
+            .map_err(to_message)?;
+        if !in_library {
+            let ids = [title_id.to_owned()];
+            for mark in [
+                titles::TitleMark::List(None),
+                titles::TitleMark::Favorite(None),
+                titles::TitleMark::Pinned(None),
+            ] {
+                titles::set_mark(&db, &ids, &mark)
+                    .await
+                    .map_err(to_message)?;
+            }
+        }
+        Ok(())
     }
 
     /// A source's name for people: its provider's, or what the app's own sources are called.

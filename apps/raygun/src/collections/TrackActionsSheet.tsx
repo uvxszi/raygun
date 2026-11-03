@@ -5,6 +5,7 @@ import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { TrackTagChips } from '../music/TrackTagChips';
+import { useTrackMenuItems } from '../music/useTrackMenu';
 import { useCloseOnBack } from '../player/useCloseOnBack';
 import { Popover } from '../shell/Popover';
 import { useWideScreen } from '../shell/useWideScreen';
@@ -190,6 +191,7 @@ const TrackActions: FC<{ track: TrackInput; sheet?: boolean }> = ({ track, sheet
         </button>
       )}
       <PlaylistPicker track={track} onDone={close} />
+      {sheet && <MoreActions track={track} onDone={close} />}
       {sheet && (
         <button
           type="button"
@@ -200,5 +202,55 @@ const TrackActions: FC<{ track: TrackInput; sheet?: boolean }> = ({ track, sheet
         </button>
       )}
     </>
+  );
+};
+
+/**
+ * The rest of a song's menu on phones (M46.36): what a long press offers (play next, download,
+ * go to the album or artist, edit, copy...), minus what the sheet already has above.
+ */
+const MoreActions: FC<{ track: TrackInput; onDone: () => void }> = ({ track, onDone }) => {
+  const { t } = useTranslation();
+  const menu = useTrackMenuItems();
+  const above = new Set([
+    t('collections.favorite'),
+    t('collections.unfavorite'),
+    t('collections.addToPlaylist'),
+    t('collections.removeFromPlaylist'),
+  ]);
+  const items = menu(track, {}, { x: window.innerWidth / 2, y: window.innerHeight / 2 }).filter(
+    (item) => item.kind !== 'heading' && !('label' in item && above.has(item.label)),
+  );
+  return (
+    <div
+      data-testid="track-more-actions"
+      className="-mx-1 flex max-h-[40dvh] flex-col overflow-y-auto border-t border-white/10 pt-1"
+    >
+      {items.map((item, index) => {
+        if (item.kind === 'separator') {
+          // A line between groups, never first or doubled.
+          return index > 0 && items[index - 1]?.kind !== 'separator' ? (
+            <hr key={index} className="my-1 border-white/10" />
+          ) : null;
+        }
+        if (item.kind === 'heading') return null;
+        const Icon = item.icon;
+        return (
+          <button
+            key={index}
+            type="button"
+            disabled={item.disabled}
+            onClick={() => {
+              onDone();
+              item.onSelect();
+            }}
+            className={`${ROW_CLASS} ${item.danger ? 'text-red-400' : ''}`}
+          >
+            {Icon && <Icon aria-hidden size={18} className="text-muted" />}
+            <span className="truncate">{item.label}</span>
+          </button>
+        );
+      })}
+    </div>
   );
 };

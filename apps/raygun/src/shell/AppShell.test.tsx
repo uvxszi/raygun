@@ -62,7 +62,7 @@ describe('AppShell', () => {
     await AppShellWrapper.mount('/search?type=manga&q=frieren');
     const browse = await AppShellWrapper.page('browse');
     expect(within(browse).getByRole('searchbox', { name: 'Search' })).toHaveValue('frieren');
-    expect(within(browse).getByRole('tab', { name: 'Manga' })).toHaveAttribute(
+    expect(within(browse).getByRole('tab', { name: 'Comics' })).toHaveAttribute(
       'aria-selected',
       'true',
     );

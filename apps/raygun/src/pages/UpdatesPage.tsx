@@ -10,7 +10,7 @@ import { TopBarAction } from '../shell/TopBar';
 import { EpisodeUpdates } from '../watch/EpisodeUpdates';
 import { PageHeader } from './PageHeader';
 
-export type UpdatesTab = 'chapters' | 'episodes';
+export type UpdatesTab = 'all' | 'chapters' | 'episodes';
 
 /**
  * Updates (More → Updates): what library updates found, chapters and episodes in their own tabs.
@@ -18,7 +18,8 @@ export type UpdatesTab = 'chapters' | 'episodes';
  */
 export const UpdatesPage: FC = () => {
   const { t, i18n } = useTranslation();
-  const { tab = 'chapters' } = useSearch({ from: '/updates' });
+  // All first (M46.37): chapters and episodes together.
+  const { tab = 'all' } = useSearch({ from: '/updates' });
   useMangaLiveEvents();
   const status = useMangaUpdateStatus();
   const update = useUpdateLibrary();
@@ -45,6 +46,7 @@ export const UpdatesPage: FC = () => {
         label={t('manga.updates')}
         active={tab}
         items={[
+          { id: 'all', label: t('library.tabs.all'), to: '/updates', search: {} },
           {
             id: 'chapters',
             label: t('updates.chapters'),
@@ -80,7 +82,16 @@ export const UpdatesPage: FC = () => {
           )}
         </div>
       )}
-      {tab === 'chapters' ? <ChapterUpdates /> : <EpisodeUpdates />}
+      {tab === 'all' && (
+        <>
+          <h2 className="text-lg font-semibold">{t('updates.chapters')}</h2>
+          <ChapterUpdates />
+          <h2 className="text-lg font-semibold">{t('updates.episodes')}</h2>
+          <EpisodeUpdates />
+        </>
+      )}
+      {tab === 'chapters' && <ChapterUpdates />}
+      {tab === 'episodes' && <EpisodeUpdates />}
     </section>
   );
 };

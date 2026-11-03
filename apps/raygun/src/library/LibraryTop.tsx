@@ -11,11 +11,18 @@ import { Tabs } from '../shell/Tabs';
 import { TopBar } from '../shell/TopBar';
 import type { TopBarSearch } from '../shell/TopBar';
 
-/** Audio (music and podcasts), Comics (manga, manhwa, comics), Books (novels, books), Videos. */
-export type LibraryMediaTab = 'music' | 'manga' | 'novel' | 'video';
+/**
+ * All (M46.37), Audio (music and podcasts), Comics (manga, manhwa, comics), Books (novels,
+ * books), Videos.
+ */
+export type LibraryMediaTab = 'all' | 'music' | 'manga' | 'novel' | 'video';
 
 const isMediaTab = (value: string): value is LibraryMediaTab =>
-  value === 'music' || value === 'manga' || value === 'novel' || value === 'video';
+  value === 'all' ||
+  value === 'music' ||
+  value === 'manga' ||
+  value === 'novel' ||
+  value === 'video';
 
 /**
  * The Library's top bar and media tabs. Each media view passes its own actions and menu items;
@@ -73,7 +80,7 @@ export const LibraryTop: FC<{
       />
       {opening && (
         <OpenLinkSheet
-          initialKind={media === 'music' ? 'audio' : 'video'}
+          initialKind={media === 'music' || media === 'all' ? 'audio' : 'video'}
           onClose={() => setOpening(false)}
         />
       )}

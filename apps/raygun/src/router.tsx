@@ -13,6 +13,7 @@ import { WatchAddonsPage } from './pages/WatchAddonsPage';
 import { WatchCatalogPage } from './pages/WatchCatalogPage';
 import { AboutPage } from './pages/AboutPage';
 import { MusicAlbumPage } from './pages/MusicAlbumPage';
+import { MusicPlaylistPage } from './pages/MusicPlaylistPage';
 import { MusicChartPage } from './pages/MusicChartPage';
 import { MusicChartsPage } from './pages/MusicChartsPage';
 import { MusicTagPage } from './pages/MusicTagPage';
@@ -76,9 +77,11 @@ const routeTree = rootRoute.addChildren([
     component: LibraryPage,
     validateSearch: (
       search: Record<string, unknown>,
-    ): { view?: LibraryView; media?: LibraryMedia | 'music' } => ({
+    ): { view?: LibraryView; media?: LibraryMedia | 'music' | 'all' } => ({
       ...(isLibraryView(search.view) ? { view: search.view } : {}),
-      ...(isLibraryMedia(search.media) || search.media === 'music' ? { media: search.media } : {}),
+      ...(isLibraryMedia(search.media) || search.media === 'music' || search.media === 'all'
+        ? { media: search.media }
+        : {}),
       // Podcasts were a media tab of their own before they joined Audio.
       ...(search.media === 'podcast' ? { view: 'podcasts' as const } : {}),
     }),
@@ -97,7 +100,7 @@ const routeTree = rootRoute.addChildren([
     path: '/updates',
     component: UpdatesPage,
     validateSearch: (search: Record<string, unknown>): { tab?: UpdatesTab } =>
-      search.tab === 'episodes' ? { tab: 'episodes' } : {},
+      search.tab === 'episodes' || search.tab === 'chapters' ? { tab: search.tab } : {},
   }),
   createRoute({
     getParentRoute: () => rootRoute,
@@ -236,6 +239,15 @@ const routeTree = rootRoute.addChildren([
   }),
   createRoute({
     getParentRoute: () => rootRoute,
+    path: '/music/playlist',
+    component: MusicPlaylistPage,
+    validateSearch: (search: Record<string, unknown>) => ({
+      provider: text(search.provider),
+      id: text(search.id),
+    }),
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
     path: '/music/for-you',
     component: MadeForYouPage,
   }),
@@ -349,6 +361,8 @@ const routeTree = rootRoute.addChildren([
       q?: string;
       type?: SearchType;
       view?: SearchView;
+      /** A video source's own Search pill (M46.35). */
+      pill?: string;
     } => ({
       ...(search.tab === 'extensions' ||
       search.tab === 'search' ||
@@ -360,6 +374,7 @@ const routeTree = rootRoute.addChildren([
       ...(text(search.q) ? { q: text(search.q) } : {}),
       ...(isSearchType(search.type) && search.type !== 'all' ? { type: search.type } : {}),
       ...(isSearchView(search.view) && search.view !== 'relevant' ? { view: search.view } : {}),
+      ...(text(search.pill) ? { pill: text(search.pill) } : {}),
       // Podcasts were a search type of their own before they joined Music (M46.25).
       ...(search.type === 'podcast' ? { type: 'music' as const, view: 'podcasts' as const } : {}),
     }),

@@ -8,6 +8,7 @@ import { TopBar } from '../shell/TopBar';
 import { Artwork } from '../library/Artwork';
 import { TrackRow } from '../library/TrackRow';
 import { playFromLibrary, useAlbumTracks } from '../library/useLibrary';
+import { usePlayContext } from '../music/playContext';
 
 export const AlbumPage: FC = () => {
   const { t } = useTranslation();
@@ -15,6 +16,18 @@ export const AlbumPage: FC = () => {
   const tracks = useAlbumTracks(artist, album);
   const selection = { kind: 'album' as const, artist, album };
   const first = tracks.data?.[0];
+  usePlayContext(
+    album
+      ? {
+          kind: 'album',
+          name: album,
+          subtitle: artist || null,
+          artworkUrl: first?.artworkUrl ?? null,
+          to: '/library/album',
+          search: { artist, album },
+        }
+      : null,
+  );
 
   return (
     <section data-testid="album-page" className="flex flex-col gap-5">

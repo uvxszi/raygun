@@ -1,5 +1,13 @@
 import { commands } from '@raygun/bindings';
-import type { VideoAspect, VideoChapter } from '@raygun/bindings';
+import type {
+  ExternalPlayer,
+  FoundSubtitles,
+  VideoAspect,
+  VideoChapter,
+  VideoSubtitle,
+} from '@raygun/bindings';
+import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   ArrowLeft,
@@ -7,6 +15,7 @@ import {
   Captions,
   ExternalLink,
   FastForward,
+  Keyboard,
   Layers,
   ListVideo,
   LoaderCircle,
@@ -20,6 +29,7 @@ import {
   Server,
   SkipBack,
   SkipForward,
+  Sparkles,
   Volume1,
   Volume2,
   VolumeX,
@@ -29,7 +39,10 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import type { FC, ReactNode, RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useAiModels } from '../ai/useAi';
 import { formatTime } from '../player/formatTime';
+import { useCaptions, useStopCaptions } from '../player/spoken';
+import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { attachMedia, embeddedCueLines, engineKind } from './mediaEngine';
 import type { MediaEngine } from './mediaEngine';
 import { PanelHeading, PanelOption, PlayerPanel } from './PlayerPanel';
@@ -46,9 +59,37 @@ import { choiceOf, matchChoice, pickByLanguage } from './trackPicking';
 import type { TrackOption } from './trackPicking';
 import { useVideoPlayerStore } from './videoPlayerStore';
 
-type PanelKind = 'episodes' | 'sources' | 'speed' | 'subtitles' | 'audio' | 'quality' | 'aspect';
+type PanelKind =
+  | 'episodes'
+  | 'sources'
+  | 'speed'
+  | 'subtitles'
+  | 'audio'
+  | 'quality'
+  | 'aspect'
+  | 'players'
+  | 'keys';
 
 const VOLUME_KEY = 'raygun.video.volume';
+/** The other player last picked (M46.33). */
+const PLAYER_KEY = 'raygun.video.externalPlayer';
+/** Up to 200 % of the original sound (M46.33). */
+const MAX_VOLUME = 2;
+
+const readPlayer = () => {
+  try {
+    return localStorage.getItem(PLAYER_KEY);
+  } catch {
+    return null;
+  }
+};
+const savePlayer = (id: string) => {
+  try {
+    localStorage.setItem(PLAYER_KEY, id);
+  } catch {
+    // Remembering is a convenience.
+  }
+};
 const REPORT_INTERVAL_MS = 5_000;
 const FRAME_SECONDS = 1 / 30;
 const ASPECTS: VideoAspect[] = ['fit', 'crop', 'stretch'];
@@ -321,7 +362,19 @@ const VideoStage: FC<StageProps> = ({
   const heading = request.subtitle
     ? `${request.title ?? ''} · ${request.subtitle}`
     : (request.title ?? '');
-  const maxVolume = 1 + prefs.volumeBoost / 100;
+  const maxVolume = MAX_VOLUME;
+
+  // ---- AI subtitles (M46.33): the lines so far, a track like any other ----
+  const ai = useCaptions(id);
+  const aiCues: Cue[] = (ai.data?.cues ?? []).map((cue) => ({
+    startMs: cue.startMs,
+    endMs: cue.endMs,
+    lines: [cue.text],
+  }));
+  const aiOptions: SubtitleOption[] =
+    aiCues.length > 0 || ai.data?.running
+      ? [{ key: 'ai', label: t('desktopPlayer.ai.track'), language: null, cues: aiCues }]
+      : [];
 
   // ---- What can be chosen ----
   const fileOptions: SubtitleOption[] = (request.subtitles ?? []).map((subtitle, index) => ({
@@ -335,7 +388,11 @@ const VideoStage: FC<StageProps> = ({
       label: track.label,
       language: track.language,
     })),
-    ...fileOptions,
+    // The saved AI track is the live one when that's there.
+    ...fileOptions.filter(
+      (option) => !(aiOptions.length > 0 && option.label === t('desktopPlayer.ai.track')),
+    ),
+    ...aiOptions,
     ...added,
   ];
 
@@ -406,14 +463,18 @@ const VideoStage: FC<StageProps> = ({
     const option = subtitleOptions(engineRef.current).find((candidate) => candidate.key === key);
     remember({ subtitle: option ? choiceOf(option) : { off: true } });
   };
-  const playElsewhere = async () => {
+  const playElsewhere = async (player: string | null = readPlayer()) => {
     const video = videoRef.current;
-    const result = await commands.videoPlayerExternal({
-      url: request.url ?? '',
-      title: heading,
-      subtitles: (request.subtitles ?? []).map((subtitle) => subtitle.url),
-      startMs: positionOf(video).positionMs,
-    });
+    if (player) savePlayer(player);
+    const result = await commands.videoPlayerExternal(
+      {
+        url: request.url ?? '',
+        title: heading,
+        subtitles: (request.subtitles ?? []).map((subtitle) => subtitle.url),
+        startMs: positionOf(video).positionMs,
+      },
+      player,
+    );
     if (result.status === 'ok') {
       video?.pause();
       setNotice({ text: t('desktopPlayer.playingIn', { app: result.data }) });
@@ -771,6 +832,9 @@ const VideoStage: FC<StageProps> = ({
       case '.':
         if (video?.paused) video.currentTime += event.key === '.' ? FRAME_SECONDS : -FRAME_SECONDS;
         break;
+      case '?':
+        setPanel(panel === 'keys' ? null : 'keys');
+        break;
       case 's':
       case 'S': {
         const chapter = skippableAt(chapters, timeMs, durationMs);
@@ -795,11 +859,14 @@ const VideoStage: FC<StageProps> = ({
   }, []);
 
   // ---- What shows ----
-  const originalCues = subtitleKey?.startsWith('added:')
-    ? (added.find((option) => option.key === subtitleKey)?.cues ?? [])
-    : loadedCues?.key === subtitleKey
-      ? loadedCues.cues
-      : [];
+  const originalCues =
+    subtitleKey === 'ai'
+      ? aiCues
+      : subtitleKey?.startsWith('added:')
+        ? (added.find((option) => option.key === subtitleKey)?.cues ?? [])
+        : loadedCues?.key === subtitleKey
+          ? loadedCues.cues
+          : [];
   // Lines changed by hand (M46.12) are kept for this episode and this track.
   const trackOption = subtitleOptions(engine).find((option) => option.key === subtitleKey);
   const trackEditKey = trackOption ? editKey(id, trackOption.label, trackOption.language) : null;
@@ -884,7 +951,7 @@ const VideoStage: FC<StageProps> = ({
                     .getState()
                     .apply({ type: 'load', request: { ...request, startMs: timeMs } })
             }
-            onElsewhere={notice.elsewhere ? () => void playElsewhere() : undefined}
+            onElsewhere={notice.elsewhere ? () => setPanel('players') : undefined}
           />
         ) : busy ? (
           <Spinner text={loadingText ?? undefined} />
@@ -948,7 +1015,7 @@ const VideoStage: FC<StageProps> = ({
           onClose={onClose}
           setPanel={setPanel}
           positionMs={timeMs}
-          onElsewhere={() => void playElsewhere()}
+          onElsewhere={() => setPanel(panel === 'players' ? null : 'players')}
         />
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent px-5 pt-12 pb-3">
           <TimeBar
@@ -1091,6 +1158,16 @@ const VideoStage: FC<StageProps> = ({
       {(panel === 'episodes' || panel === 'sources') && (
         <SessionPanel kind={panel} positionMs={timeMs} onClose={() => setPanel(null)} />
       )}
+      {panel === 'players' && (
+        <PlayersPanel
+          onPick={(player) => {
+            setPanel(null);
+            void playElsewhere(player);
+          }}
+          onClose={() => setPanel(null)}
+        />
+      )}
+      {panel === 'keys' && <KeysPanel onClose={() => setPanel(null)} />}
       {panel === 'speed' && (
         <PlayerPanel title={t('videoPlayer.speed')} onClose={() => setPanel(null)}>
           {[...prefs.speedPresets]
@@ -1161,6 +1238,24 @@ const VideoStage: FC<StageProps> = ({
               }}
             />
           </label>
+          <FindSubtitles
+            videoKey={id}
+            onPick={(label, language, cues) => {
+              const key = `added:${added.length}`;
+              setAdded([...added, { key, label, language, cues }]);
+              setSubtitleKey(key);
+              setLastSubtitle(key);
+              engineRef.current?.setTextTrack(-1);
+            }}
+          />
+          <AiSubtitles
+            videoKey={id}
+            url={request.url ?? ''}
+            format={request.format ?? null}
+            positionMs={timeMs}
+            onStarted={() => selectSubtitle('ai')}
+            onClose={onClose}
+          />
           <PanelHeading>{t('videoPlayer.delay')}</PanelHeading>
           <div className="flex items-center gap-2 px-3 py-1">
             <button
@@ -1170,9 +1265,7 @@ const VideoStage: FC<StageProps> = ({
             >
               −0.1 s
             </button>
-            <span className="flex-1 text-center text-sm tabular-nums">
-              {(delayMs / 1000).toFixed(1)} s
-            </span>
+            <DelayField delayMs={delayMs} onChange={changeDelay} />
             <button
               type="button"
               onClick={() => changeDelay(delayMs + 100)}
@@ -1326,7 +1419,338 @@ const TopBar: FC<TopBarProps> = ({ onClose, setPanel, onElsewhere }) => {
           <ExternalLink aria-hidden size={20} />
         </IconButton>
       )}
+      <IconButton label={t('desktopPlayer.keys.title')} onClick={() => setPanel('keys')}>
+        <Keyboard aria-hidden size={20} />
+      </IconButton>
     </div>
+  );
+};
+
+/** The installed players to hand the video to (M46.33); the last one picked is ticked. */
+const PlayersPanel: FC<{ onPick: (player: string) => void; onClose: () => void }> = ({
+  onPick,
+  onClose,
+}) => {
+  const { t } = useTranslation();
+  const players = useQuery({
+    queryKey: ['externalPlayers'],
+    queryFn: (): Promise<ExternalPlayer[]> => commands.videoExternalPlayers(),
+  });
+  const last = readPlayer();
+  return (
+    <PlayerPanel title={t('desktopPlayer.players.title')} onClose={onClose} at="top">
+      {players.data?.length === 0 && (
+        <p className="px-3 py-2 text-sm text-white/70">{t('desktopPlayer.players.none')}</p>
+      )}
+      {players.data?.map((player) => (
+        <PanelOption
+          key={player.id}
+          label={player.name}
+          selected={player.id === last}
+          onSelect={() => onPick(player.id)}
+        />
+      ))}
+    </PlayerPanel>
+  );
+};
+
+const KEYS: [string, string][] = [
+  ['Space · K', 'playPause'],
+  ['← →', 'seek'],
+  ['J · L', 'seek10'],
+  ['↑ ↓', 'volume'],
+  ['M', 'mute'],
+  ['F', 'fullscreen'],
+  ['C', 'subtitles'],
+  ['[ ]', 'speed'],
+  ['Shift+N · Shift+P', 'episodes'],
+  [', .', 'frame'],
+  ['S', 'skip'],
+  ['0–9', 'jump'],
+  ['?', 'keys'],
+  ['Esc', 'close'],
+];
+
+/** The player's keyboard shortcuts (M46.33). */
+const KeysPanel: FC<{ onClose: () => void }> = ({ onClose }) => {
+  const { t } = useTranslation();
+  return (
+    <PlayerPanel title={t('desktopPlayer.keys.title')} onClose={onClose} at="top">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 px-3 py-2 text-sm">
+        {KEYS.map(([keys, action]) => (
+          <div key={action} className="contents">
+            <dt className="font-mono text-xs text-white/80">{keys}</dt>
+            <dd className="text-white/70">{t(`desktopPlayer.keys.${action}`)}</dd>
+          </div>
+        ))}
+      </dl>
+    </PlayerPanel>
+  );
+};
+
+/** The subtitle delay as a typed number of seconds (M46.33), −60 to 60. */
+const DelayField: FC<{ delayMs: number; onChange: (ms: number) => void }> = ({
+  delayMs,
+  onChange,
+}) => {
+  const { t } = useTranslation();
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    const seconds = Number(draft.replace(',', '.'));
+    if (Number.isFinite(seconds)) {
+      onChange(Math.round(Math.max(-60, Math.min(60, seconds)) * 1000));
+    }
+    setDraft(null);
+  };
+  return (
+    <label className="flex flex-1 items-center justify-center gap-1 text-sm tabular-nums">
+      <input
+        type="text"
+        inputMode="decimal"
+        aria-label={t('desktopPlayer.delaySeconds')}
+        value={draft ?? (delayMs / 1000).toFixed(2)}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            commit();
+            (event.target as HTMLInputElement).blur();
+          }
+          event.stopPropagation();
+        }}
+        className="w-16 rounded-md bg-white/10 px-2 py-1 text-center outline-none focus:ring-1 focus:ring-white/40"
+      />
+      s
+    </label>
+  );
+};
+
+/**
+ * Find subtitles (M46.33): every added addon's subtitles for this film or episode; with no addon
+ * that has subtitles, the suggested one (OpenSubtitles) can be added in one tap.
+ */
+const FindSubtitles: FC<{
+  videoKey: string;
+  onPick: (label: string, language: string | null, cues: Cue[]) => void;
+}> = ({ videoKey, onPick }) => {
+  const { t } = useTranslation();
+  const [found, setFound] = useState<FoundSubtitles | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const look = async () => {
+    setBusy(true);
+    setError(null);
+    const result = await commands.videoFindSubtitles(videoKey);
+    setBusy(false);
+    if (result.status === 'ok') setFound(result.data);
+    else setError(result.error);
+  };
+  const addSuggested = async (url: string) => {
+    setBusy(true);
+    const added = await commands.stremioAdd(url);
+    if (added.status === 'error') {
+      setBusy(false);
+      setError(added.error);
+      return;
+    }
+    await look();
+  };
+  const pick = async (track: VideoSubtitle) => {
+    const text = await fetch(track.url)
+      .then((response) => response.text())
+      .catch(() => '');
+    onPick(
+      track.label ?? track.lang ?? t('desktopPlayer.find.track'),
+      track.lang,
+      parseSubtitles(text, track.format),
+    );
+  };
+  return (
+    <>
+      <PanelHeading>{t('desktopPlayer.find.title')}</PanelHeading>
+      {!found ? (
+        <PanelOption
+          label={busy ? t('desktopPlayer.find.looking') : t('desktopPlayer.find.look')}
+          disabled={busy}
+          onSelect={() => void look()}
+        />
+      ) : (
+        <>
+          {found.note && <p className="px-3 py-1 text-xs text-white/60">{found.note}</p>}
+          {found.tracks.length === 0 && !found.note && (
+            <p className="px-3 py-1 text-xs text-white/60">{t('desktopPlayer.find.none')}</p>
+          )}
+          {found.tracks.map((track, index) => (
+            <PanelOption
+              key={`${track.url}-${index}`}
+              label={track.label ?? track.lang ?? t('desktopPlayer.find.track')}
+              hint={track.lang}
+              onSelect={() => void pick(track)}
+            />
+          ))}
+          {found.suggestion && (
+            <div className="flex flex-col gap-1 px-3 py-1.5 text-xs text-white/70">
+              <p>{t('desktopPlayer.find.suggest', { name: found.suggestion.name })}</p>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void addSuggested(found.suggestion?.url ?? '')}
+                className="bg-primary text-background self-start rounded-full px-3 py-1.5 font-semibold disabled:opacity-50"
+              >
+                {t('desktopPlayer.find.add', { name: found.suggestion.name })}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+      {error && (
+        <p role="alert" className="px-3 pb-1 text-xs text-white/70">
+          {error}
+        </p>
+      )}
+    </>
+  );
+};
+
+type AiSubtitlesProps = {
+  videoKey: string;
+  url: string;
+  format: string | null;
+  positionMs: number;
+  onStarted: () => void;
+  onClose: () => void;
+};
+
+/**
+ * AI subtitles while watching (M46.33): pick the speech model, then make subtitles from here on;
+ * lines appear as each part is heard. Needs a downloaded model (or the online provider).
+ */
+const AiSubtitles: FC<AiSubtitlesProps> = ({
+  videoKey,
+  url,
+  format,
+  positionMs,
+  onStarted,
+  onClose,
+}) => {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const settings = useSettings();
+  const update = useUpdateSetting();
+  const models = useAiModels();
+  const captions = useCaptions(videoKey);
+  const stop = useStopCaptions();
+  const [error, setError] = useState<string | null>(null);
+  const prefs = settings.data?.transcription;
+  const speech = (models.data ?? []).filter((model) => model.kind === 'speech' && model.installed);
+  const running = captions.data?.running ?? false;
+  const online = prefs?.engine === 'online' && Boolean(prefs.providerId);
+
+  const start = async () => {
+    setError(null);
+    const result = await commands.captionsVideoTranscribe(
+      videoKey,
+      url,
+      format,
+      Math.round(positionMs),
+    );
+    if (result.status === 'error') setError(result.error);
+    else onStarted();
+  };
+  // While it runs, it keeps up with where the viewer is.
+  const latest = useRef(positionMs);
+  useEffect(() => {
+    latest.current = positionMs;
+  });
+  useEffect(() => {
+    if (!running || !url) return;
+    const timer = window.setInterval(() => {
+      void commands.captionsVideoTranscribe(videoKey, url, format, Math.round(latest.current));
+    }, 15_000);
+    return () => window.clearInterval(timer);
+  }, [running, videoKey, url, format]);
+
+  const pick = (model: string) => {
+    if (!prefs) return;
+    update.mutate({
+      key: 'transcription',
+      value: { ...prefs, engine: 'local', localModel: model },
+    });
+  };
+
+  return (
+    <>
+      <PanelHeading>{t('desktopPlayer.ai.title')}</PanelHeading>
+      {speech.length === 0 && !online ? (
+        <div className="flex flex-col gap-2 px-3 py-1 text-xs text-white/70">
+          <p>{t('desktopPlayer.ai.needsModel')}</p>
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              void navigate({ to: '/settings/ai', hash: 'transcription' });
+            }}
+            className="text-primary self-start font-semibold"
+          >
+            {t('desktopPlayer.ai.setUp')}
+          </button>
+        </div>
+      ) : (
+        <>
+          {speech.map((model) => (
+            <PanelOption
+              key={model.id}
+              label={model.name}
+              selected={prefs?.engine === 'local' && prefs.localModel === model.id}
+              onSelect={() => pick(model.id)}
+            />
+          ))}
+          {online && prefs && (
+            <PanelOption
+              label={t('desktopPlayer.ai.online')}
+              hint={prefs.onlineModel}
+              selected
+              onSelect={() => undefined}
+            />
+          )}
+          <div className="flex items-center gap-2 px-3 py-1.5">
+            {running ? (
+              <>
+                <LoaderCircle aria-hidden size={14} className="animate-spin text-white/70" />
+                <span className="flex-1 text-xs text-white/70">
+                  {t('desktopPlayer.ai.listening', { n: captions.data?.cues.length ?? 0 })}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => stop.mutate(videoKey)}
+                  className="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20"
+                >
+                  {t('captions.stop')}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                disabled={!url}
+                onClick={() => void start()}
+                className="bg-primary text-background flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+              >
+                <Sparkles aria-hidden size={13} />
+                {(captions.data?.cues.length ?? 0) > 0
+                  ? t('desktopPlayer.ai.continue')
+                  : t('desktopPlayer.ai.make')}
+              </button>
+            )}
+          </div>
+          {(error ?? captions.data?.error) && (
+            <p role="alert" className="px-3 pb-1 text-xs text-white/70">
+              {error ?? captions.data?.error}
+            </p>
+          )}
+        </>
+      )}
+    </>
   );
 };
 
@@ -1342,7 +1766,7 @@ const SessionPanel: FC<SessionPanelProps> = ({ kind, positionMs, onClose }) => {
   const prefs = useVideoPlayerStore((state) => state.prefs);
   if (kind === 'episodes') {
     return (
-      <PlayerPanel title={t('videoPlayer.episodes')} onClose={onClose}>
+      <PlayerPanel title={t('videoPlayer.episodes')} onClose={onClose} at="top">
         <PanelOption
           label={autoplay ? t('videoPlayer.autoplayOn') : t('videoPlayer.autoplayOff')}
           selected={autoplay}
@@ -1380,7 +1804,7 @@ const SessionPanel: FC<SessionPanelProps> = ({ kind, positionMs, onClose }) => {
         (group.state !== 'empty' || prefs.showEmptySources),
     );
   return (
-    <PlayerPanel title={t('videoPlayer.sources')} onClose={onClose}>
+    <PlayerPanel title={t('videoPlayer.sources')} onClose={onClose} at="top">
       {shown.map(({ group, index }) => (
         <div key={`${index}-${group.name}`} className="flex flex-col">
           <PanelHeading>

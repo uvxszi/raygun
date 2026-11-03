@@ -58,6 +58,25 @@ pub async fn settings_get(db: tauri::State<'_, AppDb>) -> Result<Settings, Strin
         .map_err(|error| error.to_string())
 }
 
+/// What was played from lately: albums, playlists, mixes, artists, podcasts, books (M46.37).
+#[tauri::command]
+#[specta::specta]
+pub async fn recent_contexts(
+    collections: tauri::State<'_, CollectionsService>,
+) -> Result<Vec<raygun_model::PlayContext>, String> {
+    collections.recent_contexts().await
+}
+
+/// Remembers where a play started (the page the user played from), for Home's Your music.
+#[tauri::command]
+#[specta::specta]
+pub async fn recent_contexts_add(
+    collections: tauri::State<'_, CollectionsService>,
+    context: raygun_model::PlayContext,
+) -> Result<(), String> {
+    collections.add_recent_context(context).await
+}
+
 /// Changes one setting and returns the updated settings.
 #[tauri::command]
 #[specta::specta]
@@ -67,13 +86,15 @@ pub async fn settings_update(
     change: SettingChange,
 ) -> Result<Settings, String> {
     let theme_changed = matches!(change, SettingChange::Theme(_));
-    let nsfw_changed = matches!(change, SettingChange::ShowNsfw(_));
+    let nsfw_changed = matches!(
+        change,
+        SettingChange::ShowNsfw(_) | SettingChange::ExplicitMusic(_)
+    );
     let cache_changed = matches!(change, SettingChange::Cache(_));
     let sources_changed = matches!(change, SettingChange::DisabledSources(_));
     let discovery_changed = matches!(change, SettingChange::Discovery(_));
     let agent_changed = matches!(change, SettingChange::UserAgent(_));
     let sound_changed = matches!(change, SettingChange::Sound(_));
-    let discord_changed = matches!(change, SettingChange::Discord(_));
     let settings = settings::update(&db.0, change)
         .await
         .map_err(|error| error.to_string())?;
@@ -87,11 +108,6 @@ pub async fn settings_update(
     if agent_changed {
         raygun_net::set_user_agent(&settings.user_agent);
     }
-    if discord_changed {
-        use tauri::Manager;
-        app.state::<Arc<crate::discord::DiscordPresence>>()
-            .set_prefs(settings.discord.clone());
-    }
     if sound_changed {
         use tauri::Manager;
         app.state::<crate::playback::PlaybackService>()
@@ -100,7 +116,7 @@ pub async fn settings_update(
     if nsfw_changed {
         use tauri::Manager;
         app.state::<Arc<ExtensionService>>()
-            .set_show_nsfw(settings.show_nsfw)
+            .set_content(settings.show_nsfw, settings.explicit_music)
             .await;
     }
     if cache_changed {
@@ -358,6 +374,48 @@ pub async fn extension_open_website(
         .await
 }
 
+/// Opens a title's page at its source in Raygun's browser (M46.38: the website button on comic,
+/// book and video pages): the source's address for it, joined to the source's website when it's
+/// only a path; without one, the website itself.
+#[tauri::command]
+#[specta::specta]
+pub async fn catalog_open_page(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    websites: Websites<'_>,
+    source_id: String,
+    url: Option<String>,
+) -> Result<(), String> {
+    let extension_id = source_id.split('/').next().unwrap_or(&source_id).to_owned();
+    let website = extensions.website(&extension_id).await;
+    let address = page_address(url.as_deref(), website.as_deref())
+        .ok_or("This source doesn't name its website")?;
+    websites
+        .inner()
+        .clone()
+        .open_page(
+            &format!("{}{extension_id}", crate::websites::PAGE_PREFIX),
+            &address,
+        )
+        .await
+}
+
+/// A title's page: `url` when it's a web address, else joined to `website`; else the website.
+fn page_address(url: Option<&str>, website: Option<&str>) -> Option<String> {
+    let url = url.map(str::trim).filter(|url| !url.is_empty());
+    match url {
+        Some(url) => match reqwest::Url::parse(url) {
+            Ok(parsed) if matches!(parsed.scheme(), "http" | "https") => Some(parsed.to_string()),
+            _ => reqwest::Url::parse(website?)
+                .ok()?
+                .join(url)
+                .ok()
+                .filter(|joined| matches!(joined.scheme(), "http" | "https"))
+                .map(|joined| joined.to_string()),
+        },
+        None => website.map(str::to_owned),
+    }
+}
+
 /// Repositories extensions can be installed from.
 #[tauri::command]
 #[specta::specta]
@@ -455,6 +513,28 @@ pub async fn lyrics_get(
     Ok(sound.lyrics(&query, fetched))
 }
 
+/// Every lyrics source's lyrics for a song (M46.36): the user picks which to keep.
+#[tauri::command]
+#[specta::specta]
+pub async fn lyrics_options(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    query: TrackQuery,
+) -> Result<Vec<Lyrics>, String> {
+    extensions.all_lyrics(&query).await
+}
+
+/// Hears a song's words with the transcription set up in Settings → AI, into its own synced
+/// lyrics (M46.36). Follow it with `captions` on the key it returns (`song:<track key>`).
+#[tauri::command]
+#[specta::specta]
+pub async fn lyrics_transcribe(
+    captions: tauri::State<'_, Arc<crate::captions::CaptionService>>,
+    query: TrackQuery,
+) -> Result<String, String> {
+    captions.transcribe_song(query.clone()).await?;
+    Ok(crate::captions::song_key(&query))
+}
+
 /// A song's own trims, volume and lyrics edits (M46.12); defaults when it has none.
 #[tauri::command]
 #[specta::specta]
@@ -535,6 +615,67 @@ pub async fn music_search_albums(
     query: String,
 ) -> Result<Vec<raygun_model::MusicAlbum>, String> {
     Ok(extensions.search_albums(&query).await)
+}
+
+/// Playlists for a search from every source that searches them; `featured` keeps the services'
+/// own (M46.39).
+#[tauri::command]
+#[specta::specta]
+pub async fn music_search_playlists(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    query: String,
+    featured: bool,
+) -> Result<Vec<raygun_model::MusicPlaylist>, String> {
+    Ok(extensions.search_playlists(&query, featured).await)
+}
+
+/// A source's playlist with its songs (M46.39).
+#[tauri::command]
+#[specta::specta]
+pub async fn music_playlist(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    durations: tauri::State<'_, Arc<crate::durations::DurationService>>,
+    details: tauri::State<'_, Arc<crate::details::DetailService>>,
+    provider_id: String,
+    playlist_id: String,
+) -> Result<raygun_model::MusicPlaylistDetail, String> {
+    let mut detail = extensions
+        .music_playlist(&provider_id, &playlist_id)
+        .await?;
+    durations.learn_tracks(&detail.tracks);
+    details.apply_online(&mut detail.tracks);
+    Ok(detail)
+}
+
+/// An artist's albums, singles and more from every source that lists them (M46.36).
+#[tauri::command]
+#[specta::specta]
+pub async fn music_artist_releases(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    details: tauri::State<'_, Arc<crate::details::DetailService>>,
+    name: String,
+) -> Result<Vec<raygun_model::MusicAlbum>, String> {
+    let name = details.original_artist(name.trim());
+    if name.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(extensions.artist_releases(&name).await)
+}
+
+/// The album a song is on, from the sources' album search (M46.36: Go to album).
+#[tauri::command]
+#[specta::specta]
+pub async fn music_find_album(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    album: String,
+    artist: Option<String>,
+) -> Result<Option<raygun_model::MusicAlbum>, String> {
+    if album.trim().is_empty() {
+        return Ok(None);
+    }
+    Ok(extensions
+        .find_album(album.trim(), artist.as_deref().map(str::trim))
+        .await)
 }
 
 /// An album's songs from the source that knows it (M46.9).
@@ -737,6 +878,16 @@ pub fn captions_stop(
     captions.stop(&episode_id);
 }
 
+/// Goes back to an episode's own transcript from what AI heard (M46.36).
+#[tauri::command]
+#[specta::specta]
+pub async fn captions_use_feed(
+    captions: tauri::State<'_, std::sync::Arc<crate::captions::CaptionService>>,
+    episode_id: String,
+) -> Result<(), String> {
+    captions.use_feed(&episode_id).await
+}
+
 /// Forgets an episode's captions, to transcribe it again (M46.32).
 #[tauri::command]
 #[specta::specta]
@@ -745,6 +896,40 @@ pub async fn captions_clear(
     episode_id: String,
 ) -> Result<(), String> {
     captions.clear(&episode_id).await
+}
+
+/// Makes AI subtitles for the video playing at `url` (the player's address), staying ahead of
+/// `from_ms`; called again as the viewer moves on (M46.33).
+#[tauri::command]
+#[specta::specta]
+pub async fn captions_video_transcribe(
+    captions: tauri::State<'_, std::sync::Arc<crate::captions::CaptionService>>,
+    key: String,
+    url: String,
+    format: Option<String>,
+    from_ms: u32,
+) -> Result<(), String> {
+    captions
+        .inner()
+        .transcribe_video(&key, &url, format, from_ms, false)
+        .await
+}
+
+/// Makes AI subtitles for a downloaded video, the whole of it, in the background (M46.33).
+#[tauri::command]
+#[specta::specta]
+pub async fn captions_video_make(
+    app: tauri::AppHandle,
+    captions: tauri::State<'_, std::sync::Arc<crate::captions::CaptionService>>,
+    key: String,
+) -> Result<(), String> {
+    let offline = crate::video_downloads::offline(&app, &key)
+        .await
+        .ok_or_else(|| "This video isn't downloaded".to_owned())?;
+    captions
+        .inner()
+        .transcribe_video(&key, &offline.url, offline.format, 0, true)
+        .await
 }
 
 /// Whether a queue item is a podcast episode or a book's chapter, and whose (M46.32).
@@ -860,6 +1045,25 @@ pub async fn detail_edit_set(
     edit: raygun_model::DetailEdit,
 ) -> Result<raygun_model::DetailEdit, String> {
     details.set(&target, edit).await
+}
+
+/// Covers the music sources have for a song, an album or an artist (M46.36: Edit details).
+#[tauri::command]
+#[specta::specta]
+pub async fn detail_cover_options(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    details: tauri::State<'_, Arc<crate::details::DetailService>>,
+    target: raygun_model::DetailTarget,
+) -> Result<Vec<raygun_model::CoverOption>, String> {
+    use raygun_model::DetailTarget;
+    // The names sources know, not the user's renames (M46.30).
+    let target = match target {
+        DetailTarget::Artist { name } => DetailTarget::Artist {
+            name: details.original_artist(&name),
+        },
+        other => other,
+    };
+    Ok(extensions.cover_options(&target).await)
 }
 
 /// Keeps a picked image (an upload) as a cover; returns its address for an edit.
@@ -1759,6 +1963,22 @@ fn to_storage_info(paths: &raygun_paths::Paths) -> StorageInfo {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn title_pages_resolve_against_the_website() {
+        let site = Some("https://example.com/novels/");
+        assert_eq!(
+            page_address(Some("/book/12"), site).as_deref(),
+            Some("https://example.com/book/12")
+        );
+        assert_eq!(
+            page_address(Some("https://other.org/x"), site).as_deref(),
+            Some("https://other.org/x")
+        );
+        assert_eq!(page_address(None, site).as_deref(), site);
+        assert_eq!(page_address(Some("/book/12"), None), None);
+        assert_eq!(page_address(Some("javascript:alert(1)"), site), None);
+    }
+
     use std::path::PathBuf;
 
     use super::*;
@@ -3219,18 +3439,88 @@ pub fn video_player_report(reports: tauri::State<'_, crate::video::VideoReports>
     reports.send(report);
 }
 
-/// Plays a video in mpv or VLC (desktop, M46.4); returns the app's name.
+/// Plays a video in another app (desktop, M46.4): `player` is one of `video_external_players`,
+/// else the first installed (M46.33). Returns the app's name.
 #[tauri::command]
 #[specta::specta]
-pub fn video_player_external(play: raygun_model::ExternalPlay) -> Result<String, String> {
+pub fn video_player_external(
+    play: raygun_model::ExternalPlay,
+    player: Option<String>,
+) -> Result<String, String> {
     #[cfg(not(target_os = "android"))]
     {
-        crate::video_desktop::play_external(&play)
+        crate::video_desktop::play_external(&play, player.as_deref())
     }
     #[cfg(target_os = "android")]
     {
-        let _ = play;
+        let _ = (play, player);
         Err("Android picks another app from the player".into())
+    }
+}
+
+/// Looks for subtitles for what plays under `key` (`stremio:<type>:<id>`) in every added addon
+/// (M46.33); offers OpenSubtitles when no addon serves subtitles.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_find_subtitles(
+    app: tauri::AppHandle,
+    stremio: tauri::State<'_, Arc<crate::stremio::StremioService>>,
+    key: String,
+) -> Result<raygun_model::FoundSubtitles, String> {
+    let Some((kind, video_id)) = key
+        .strip_prefix("stremio:")
+        .and_then(|rest| rest.split_once(':'))
+    else {
+        return Ok(raygun_model::FoundSubtitles {
+            tracks: Vec::new(),
+            suggestion: None,
+            note: Some("Subtitles can be looked for in addons for movies and series".into()),
+        });
+    };
+    let db = tauri::Manager::state::<crate::startup::AppDb>(&app)
+        .0
+        .clone();
+    let language = crate::video::subtitle_language(&db).await;
+    let (tracks, serves) = stremio.find_subtitles(kind, video_id, &language).await;
+    let suggestion = if serves {
+        None
+    } else {
+        stremio.subtitles_suggestion().await
+    };
+    Ok(raygun_model::FoundSubtitles {
+        tracks: crate::video::proxied_subtitles(&app, &tracks),
+        suggestion,
+        note: None,
+    })
+}
+
+/// The YouTube embed host page (M08), with YouTube's controls or without (M46.34: trailers on
+/// title pages play in a small window of Raygun's own).
+#[tauri::command]
+#[specta::specta]
+pub fn youtube_embed_url(
+    media: tauri::State<'_, raygun_net::MediaLinks>,
+    controls: bool,
+) -> String {
+    let url = media.youtube_embed_url();
+    if controls {
+        url
+    } else {
+        url.replace("?controls=1", "")
+    }
+}
+
+/// The video players installed on this computer, best first (desktop, M46.33).
+#[tauri::command]
+#[specta::specta]
+pub fn video_external_players() -> Vec<raygun_model::ExternalPlayer> {
+    #[cfg(not(target_os = "android"))]
+    {
+        crate::video_desktop::external_players()
+    }
+    #[cfg(target_os = "android")]
+    {
+        Vec::new()
     }
 }
 

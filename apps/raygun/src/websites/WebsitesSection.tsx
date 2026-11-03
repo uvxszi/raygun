@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { Sheet } from '../shell/Sheet';
+import { matchesSearch } from '../shell/useListSearch';
 import {
   useAddWebsite,
   useEditWebsite,
@@ -81,9 +82,10 @@ const WebsiteSheet: FC<{ site?: Website; onClose: () => void }> = ({ site, onClo
  * Browse → Sources → Websites (M46.3): sites the user added, opened in Raygun's built-in
  * browser with its ad and popup blocker.
  */
-export const WebsitesSection: FC = () => {
+export const WebsitesSection: FC<{ query?: string }> = ({ query = '' }) => {
   const { t } = useTranslation();
   const websites = useWebsites();
+  const shown = websites.data?.filter((site) => matchesSearch(query, [site.name, site.url]));
   const open = useOpenWebsite();
   const remove = useRemoveWebsite();
   const reset = useResetWebsite();
@@ -108,7 +110,7 @@ export const WebsitesSection: FC = () => {
         <p className="text-muted px-1 pb-2 text-sm">{t('websites.empty')}</p>
       )}
       <ul className="flex flex-col">
-        {websites.data?.map((site) => (
+        {shown?.map((site) => (
           <li key={site.id} className="flex items-center gap-1">
             <button
               type="button"

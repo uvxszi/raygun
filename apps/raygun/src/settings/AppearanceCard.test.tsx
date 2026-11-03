@@ -21,6 +21,7 @@ const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   language: 'en',
   showNsfw: false,
+  explicitMusic: true,
   preferredVideoQuality: null,
   accent: 'red',
   startScreen: 'home',
@@ -66,7 +67,6 @@ const DEFAULT_SETTINGS: Settings = {
   userAgent: '',
   keepMusicPlaying: false,
   resumeOnStart: true,
-  discord: { enabled: false, appId: '' },
   audioQuality: { streaming: 'high', cellular: 'normal', download: 'veryHigh' },
   rail: { pins: [], order: 'custom', seeded: false },
   transcription: {

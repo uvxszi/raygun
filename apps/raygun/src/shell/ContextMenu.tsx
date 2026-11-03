@@ -36,8 +36,17 @@ const editable = (target: EventTarget | null): HTMLInputElement | HTMLTextAreaEl
   return null;
 };
 
-/** What every right click offers for the spot it's on: fields, selected text, links, images. */
-const spotItems = (event: MouseEvent, t: TFunction, search: (text: string) => void): MenuItem[] => {
+/**
+ * What every right click offers for the spot it's on: fields, selected text, links, images.
+ * `words` adds the text under the pointer; it's left out when the menu already copies (a song's
+ * Copy title and Copy artist would otherwise show twice, M46.36).
+ */
+const spotItems = (
+  event: MouseEvent,
+  t: TFunction,
+  search: (text: string) => void,
+  words: boolean,
+): MenuItem[] => {
   const items: MenuItem[] = [];
   const target = event.target as Element | null;
   const field = editable(target);
@@ -101,18 +110,23 @@ const spotItems = (event: MouseEvent, t: TFunction, search: (text: string) => vo
     );
   }
   // Text isn't selectable in the app, so the words under the pointer can be copied as they are.
-  if (!field && !selected) {
-    const words = target
-      ?.closest('h1, h2, h3, h4, h5, h6, p, span, a, li, td, th, label, button, dd, dt')
-      ?.textContent?.replace(/\s+/g, ' ')
+  if (words && !field && !selected) {
+    const spot = target?.closest(
+      'h1, h2, h3, h4, h5, h6, p, span, a, li, td, th, label, button, dd, dt',
+    );
+    // As shown: a title and an artist on two lines stay two words apart.
+    const text = (
+      spot instanceof HTMLElement ? spot.innerText || spot.textContent : spot?.textContent
+    )
+      ?.replace(/\s+/g, ' ')
       .trim();
-    if (words && words.length <= 300) {
+    if (text && text.length <= 300) {
       items.push({
         label: t('menu.copyText', {
-          text: words.length > 28 ? `${words.slice(0, 28)}…` : words,
+          text: text.length > 28 ? `${text.slice(0, 28)}…` : text,
         }),
         icon: Copy,
-        onSelect: () => copy(words),
+        onSelect: () => copy(text),
       });
     }
   }
@@ -165,32 +179,42 @@ export const ContextMenuHost: FC = () => {
       }
       event.preventDefault();
       const own = menuFromEvent(event) ?? [];
+      const copies = own.some(
+        (item) => (item.kind ?? 'item') === 'item' && 'icon' in item && item.icon === Copy,
+      );
       const spot = spotItems(
         event,
         t,
         (text) => void navigate({ to: '/browse', search: { tab: 'search', q: text } as never }),
+        !copies,
       );
-      const page: MenuItem[] = [
-        {
-          label: t('menu.back'),
-          icon: ArrowLeft,
-          hint: 'Alt+←',
-          onSelect: () => router.history.back(),
-        },
-        {
-          label: t('menu.forward'),
-          icon: ArrowRight,
-          hint: 'Alt+→',
-          onSelect: () => router.history.forward(),
-        },
-        { label: t('menu.reload'), icon: RotateCw, onSelect: () => void router.invalidate() },
-        {
-          label: t('menu.fullscreen'),
-          icon: Maximize,
-          hint: 'F11',
-          onSelect: () => void toggleWindowFullscreen(),
-        },
-      ];
+      // On a touch screen a long press on something shows only its own options: Back, Forward,
+      // Reload and full screen are what the page's own buttons do there.
+      const touch = window.matchMedia?.('(pointer: coarse)').matches ?? false;
+      const page: MenuItem[] =
+        touch && own.length > 0
+          ? []
+          : [
+              {
+                label: t('menu.back'),
+                icon: ArrowLeft,
+                hint: 'Alt+←',
+                onSelect: () => router.history.back(),
+              },
+              {
+                label: t('menu.forward'),
+                icon: ArrowRight,
+                hint: 'Alt+→',
+                onSelect: () => router.history.forward(),
+              },
+              { label: t('menu.reload'), icon: RotateCw, onSelect: () => void router.invalidate() },
+              {
+                label: t('menu.fullscreen'),
+                icon: Maximize,
+                hint: 'F11',
+                onSelect: () => void toggleWindowFullscreen(),
+              },
+            ];
       const groups = [own, spot, page].filter((group) => group.length > 0);
       const items = groups.flatMap((group, index) =>
         index === 0 ? group : [{ kind: 'separator' } as MenuItem, ...group],
@@ -219,15 +243,19 @@ export const ContextMenuHost: FC = () => {
       if (!menu.current?.contains(event.target as Node)) close();
     };
     const gone = () => close();
+    // Scrolling the page closes the menu; scrolling a long menu itself doesn't (M46.40).
+    const scrolled = (event: Event) => {
+      if (!menu.current?.contains(event.target as Node)) close();
+    };
     window.addEventListener('pointerdown', away, true);
     window.addEventListener('blur', gone);
     window.addEventListener('resize', gone);
-    document.addEventListener('scroll', gone, true);
+    document.addEventListener('scroll', scrolled, true);
     return () => {
       window.removeEventListener('pointerdown', away, true);
       window.removeEventListener('blur', gone);
       window.removeEventListener('resize', gone);
-      document.removeEventListener('scroll', gone, true);
+      document.removeEventListener('scroll', scrolled, true);
     };
   }, [open, close]);
 

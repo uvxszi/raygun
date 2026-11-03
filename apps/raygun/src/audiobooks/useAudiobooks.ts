@@ -3,6 +3,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useEffect } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
+import { rememberPlay } from '../music/playContext';
 
 const BOOKS = ['audiobooks'] as const;
 
@@ -47,8 +48,10 @@ export const useOpenAudiobook = () =>
 /** Plays a book from a chapter (or where it was left), with the rest of the book after it. */
 export const usePlayAudiobook = () =>
   useMutation({
-    mutationFn: ({ id, chapterId }: { id: string; chapterId: string | null }) =>
-      unwrapResult(commands.audiobookPlay(id, chapterId)),
+    mutationFn: ({ id, chapterId }: { id: string; chapterId: string | null }) => {
+      rememberPlay();
+      return unwrapResult(commands.audiobookPlay(id, chapterId));
+    },
   });
 
 /** Adds a book to the library or takes it out. */

@@ -550,6 +550,15 @@ const AdvancedScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
           onChange={(decoder) => set({ decoder })}
         />
       </PrefGroup>
+      <PrefGroup title={t('settings.player.titlePages')}>
+        <PrefSwitch
+          title={t('settings.player.titleTrailers')}
+          summary={t('settings.player.titleTrailersHint')}
+          checked={prefs.titleTrailers}
+          disabled={busy}
+          onChange={(titleTrailers) => set({ titleTrailers })}
+        />
+      </PrefGroup>
       <PrefGroup title={t('settings.player.otherApps')}>
         <PrefSwitch
           title={t('settings.player.externalPlayer')}

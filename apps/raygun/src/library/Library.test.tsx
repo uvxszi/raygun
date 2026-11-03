@@ -58,7 +58,7 @@ describe('Library', () => {
   });
 
   it('offers to find music on the device when there are no folders', async () => {
-    await AppShellWrapper.mount('/library');
+    await AppShellWrapper.mount('/library?media=music');
 
     await userEvent.click(await screen.findByRole('button', { name: 'Find music on this device' }));
 
@@ -70,7 +70,7 @@ describe('Library', () => {
       status: 'error',
       error: 'Raygun needs permission to read your music.',
     });
-    await AppShellWrapper.mount('/library');
+    await AppShellWrapper.mount('/library?media=music');
 
     await userEvent.click(await screen.findByRole('button', { name: 'Find music on this device' }));
 
@@ -79,7 +79,7 @@ describe('Library', () => {
 
   it('shows everything under All by default and albums with artwork', async () => {
     seedLibrary();
-    await AppShellWrapper.mount('/library');
+    await AppShellWrapper.mount('/library?media=music');
 
     const overview = await screen.findByTestId('music-overview');
     expect(screen.getByTestId('library-view-all')).toHaveAttribute('aria-current', 'page');
@@ -101,7 +101,7 @@ describe('Library', () => {
 
   it('switches to the artists and tracks views', async () => {
     seedLibrary();
-    await AppShellWrapper.mount('/library');
+    await AppShellWrapper.mount('/library?media=music');
 
     await userEvent.click(await screen.findByTestId('library-view-artists'));
     expect(await screen.findByTestId('artist-list')).toHaveTextContent('1 albums · 2 tracks');
@@ -125,7 +125,7 @@ describe('Library', () => {
 
   it('opens an album and plays it from a track or shuffled', async () => {
     seedLibrary();
-    await AppShellWrapper.mount('/library');
+    await AppShellWrapper.mount('/library?media=music');
 
     await userEvent.click(await screen.findByRole('link', { name: /Pew Pew/ }));
     const albumPage = await screen.findByTestId('album-page');

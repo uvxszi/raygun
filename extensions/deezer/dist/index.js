@@ -1,4 +1,4 @@
-// dev.raygun.deezer 1.3.2. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.deezer 1.4.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -88,7 +88,8 @@
     artist: track.artist?.name ?? null,
     album: track.album?.title ?? null,
     durationMs: track.duration ? track.duration * 1e3 : null,
-    artworkUrl: track.album?.cover_xl ?? track.album?.cover_big ?? null
+    artworkUrl: track.album?.cover_xl ?? track.album?.cover_big ?? null,
+    explicit: track.explicit_lyrics ?? null
   });
   registerProvider(
     defineProvider({
@@ -213,8 +214,33 @@
     artist: album.artist?.name ?? null,
     year: album.release_date ? Number(album.release_date.slice(0, 4)) || null : null,
     artworkUrl: album.cover_xl ?? album.cover_big ?? null,
-    trackCount: album.nb_tracks ?? null
+    trackCount: album.nb_tracks ?? null,
+    kind: kindOf(album.record_type)
   });
+  var toPlaylist = (playlist) => {
+    const author = playlist.user?.name ?? playlist.creator?.name ?? null;
+    return {
+      id: String(playlist.id),
+      title: playlist.title,
+      author,
+      artworkUrl: playlist.picture_xl ?? playlist.picture_big ?? null,
+      trackCount: playlist.nb_tracks ?? null,
+      // Deezer's editors sign as "Rudy - Deezer Moods Editor".
+      featured: /\bdeezer\b/i.test(author ?? "")
+    };
+  };
+  var kindOf = (type) => {
+    switch (type) {
+      case "album":
+      case "single":
+      case "ep":
+        return type;
+      case "compile":
+        return "compilation";
+      default:
+        return null;
+    }
+  };
   var limitOf = (limit) => Math.min(Math.max(limit, 1), 50);
   registerProvider(
     defineProvider({
@@ -259,6 +285,31 @@
           })
         );
         return { album: toAlbum(album), tracks };
+      },
+      async searchPlaylists({ query, limit, featured }) {
+        const found = await get(
+          `/search/playlist?q=${encodeURIComponent(query)}&limit=${featured ? 50 : limitOf(limit)}`
+        );
+        const playlists = (found.data ?? []).map(toPlaylist).filter((playlist) => !featured || playlist.featured).slice(0, limitOf(limit));
+        return { playlists };
+      },
+      async playlist({ id }) {
+        if (!/^\d+$/.test(id)) throw new Error(`Unknown playlist ${id}`);
+        const playlist = await get(
+          `/playlist/${id}`
+        );
+        return { playlist: toPlaylist(playlist), tracks: (playlist.tracks?.data ?? []).map(toTrack) };
+      },
+      async artistReleases({ query, limit }) {
+        const artist = await artistNamed(query);
+        if (!artist) return { releases: [] };
+        const found = await get(
+          `/artist/${artist.id}/albums?limit=${Math.min(Math.max(limit, 1), 100)}`
+        );
+        const releases = (found.data ?? []).map(
+          (album) => toAlbum({ ...album, artist: album.artist ?? { name: artist.name } })
+        );
+        return { releases };
       }
     })
   );

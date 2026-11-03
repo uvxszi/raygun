@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
+import { rememberPlay } from '../music/playContext';
 
 const PODCASTS = 'podcasts';
 const LATEST_LIMIT = 20;
@@ -92,7 +93,12 @@ export const useRefreshAll = () =>
   usePodcastMutation(() => unwrapResult(commands.podcastRefreshAll()));
 
 export const usePlayEpisode = () =>
-  useMutation({ mutationFn: (id: string) => unwrapResult(commands.podcastPlay(id)) });
+  useMutation({
+    mutationFn: (id: string) => {
+      rememberPlay();
+      return unwrapResult(commands.podcastPlay(id));
+    },
+  });
 
 export const useSetPlayed = () =>
   usePodcastMutation(({ id, played }: { id: string; played: boolean }) =>

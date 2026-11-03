@@ -88,7 +88,7 @@ describe('Search by type', () => {
     await AppShellWrapper.mount('/search?q=frieren');
     const all = await screen.findByTestId('all-results');
 
-    const manga = within(all).getByRole('region', { name: 'Manga' });
+    const manga = within(all).getByRole('region', { name: 'Comics' });
     expect(await within(manga).findByText('Frieren')).toBeInTheDocument();
     const podcasts = within(all).getByRole('region', { name: 'Podcasts' });
     expect(await within(podcasts).findByText('Frieren Talk')).toBeInTheDocument();
@@ -100,7 +100,7 @@ describe('Search by type', () => {
     ).toBe(true);
 
     await user.click(within(manga).getByRole('button', { name: 'See all' }));
-    expect(screen.getByRole('tab', { name: 'Manga' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Comics' })).toHaveAttribute('aria-selected', 'true');
     expect(await screen.findByTestId('manga-search')).toBeInTheDocument();
   });
 
@@ -193,7 +193,7 @@ describe('Search by type', () => {
     );
     await AppShellWrapper.mount('/search');
     const all = await screen.findByTestId('all-results');
-    const manga = within(all).getByRole('region', { name: 'Manga' });
+    const manga = within(all).getByRole('region', { name: 'Comics' });
     expect(await within(manga).findByText('One Piece')).toBeInTheDocument();
     expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('manga', '', [MANGADEX.id]);
     const podcasts = within(all).getByRole('region', { name: 'Podcasts' });

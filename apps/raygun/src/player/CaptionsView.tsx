@@ -1,6 +1,8 @@
 import type { Captions, PlaybackState, SpokenItem, TextAlign } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
-import { AudioLines, LoaderCircle, Square, Subtitles } from 'lucide-react';
+import { commands } from '@raygun/bindings';
+import { useQueryClient } from '@tanstack/react-query';
+import { AudioLines, FileText, LoaderCircle, Square, Subtitles } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -8,8 +10,10 @@ import { useTranslation } from 'react-i18next';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { SourceIssue } from '../shell/SourceIssue';
 import { currentCue, useCaptions, useStopCaptions, useTranscribe } from './spoken';
+import { useSongEdit } from '../sound/useSound';
+import { trackQueryFor } from './lyricsQuery';
 import { useLivePosition } from './useLivePosition';
-import { sendControl } from './usePlayback';
+import { sendControl, useNowPlaying } from './usePlayback';
 
 type CaptionsViewProps = {
   spoken: SpokenItem;
@@ -43,7 +47,11 @@ export const CaptionsView: FC<CaptionsViewProps> = ({
   const positionMs = useLivePosition(state);
   const containerRef = useRef<HTMLDivElement>(null);
   const currentRef = useRef<HTMLButtonElement>(null);
-  const cues = captions.data?.cues ?? [];
+  const trims = useTrims();
+  // Only what plays shows (M46.36): lines the item's trims cut off are left out.
+  const cues = (captions.data?.cues ?? []).filter(
+    (cue) => cue.endMs > trims.startMs && (trims.endMs === null || cue.startMs < trims.endMs),
+  );
   const current = currentCue(cues, positionMs);
   const hasLines = cues.length > 0;
   const alignClass = align === 'center' ? 'text-center' : 'text-left';
@@ -114,6 +122,7 @@ const CaptionsFooter: FC<{
   const settings = useSettings();
   const update = useUpdateSetting();
   const transcribe = useTranscribe();
+  const client = useQueryClient();
   const stop = useStopCaptions();
   const [confirming, setConfirming] = useState(false);
   const book = spoken.kind === 'audiobook';
@@ -145,6 +154,34 @@ const CaptionsFooter: FC<{
       <button type="button" onClick={() => stop.mutate(spoken.episodeId)} className={button}>
         <Square aria-hidden size={11} />
         {t('captions.stop')}
+      </button>
+    );
+  } else if (captions.source === 'feed' && captions.canTranscribe) {
+    // The listener picks the captions' source (M46.36): AI in place of the feed's transcript.
+    action = (
+      <button
+        type="button"
+        disabled={transcribe.isPending}
+        onClick={() => void commands.captionsClear(spoken.episodeId).then(() => start())}
+        className={button}
+      >
+        <AudioLines aria-hidden size={13} />
+        {t('captions.useAi')}
+      </button>
+    );
+  } else if (captions.source && captions.source !== 'feed' && captions.hasFeed) {
+    action = (
+      <button
+        type="button"
+        onClick={() =>
+          void commands
+            .captionsUseFeed(spoken.episodeId)
+            .then(() => client.invalidateQueries({ queryKey: ['captions', spoken.episodeId] }))
+        }
+        className={button}
+      >
+        <FileText aria-hidden size={13} />
+        {t('captions.useFeed')}
       </button>
     );
   } else if (!captions.complete && captions.source !== 'feed') {
@@ -215,4 +252,16 @@ const CaptionsFooter: FC<{
       )}
     </div>
   );
+};
+
+/** The playing item's trims (M46.36), so captions show only what plays. */
+const useTrims = () => {
+  const { item } = useNowPlaying();
+  const edit = useSongEdit(
+    item ? trackQueryFor(item) : { title: '', artist: null, album: null, durationMs: null },
+  );
+  return {
+    startMs: item ? (edit.edit.data?.startMs ?? 0) : 0,
+    endMs: item ? (edit.edit.data?.endMs ?? null) : null,
+  };
 };

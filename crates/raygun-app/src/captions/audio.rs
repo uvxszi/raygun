@@ -1,20 +1,24 @@
 //! Windows of an episode's audio for transcription (M46.32): decoded with symphonia, mixed to
-//! mono and brought to Whisper's 16 kHz. Blocking: call from `spawn_blocking`.
+//! mono and brought to Whisper's 16 kHz. Blocking: call from `spawn_blocking`. Videos' sound
+//! (M46.33) comes through the same reader, from any source.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use symphonia::core::errors::Error as DecodeError;
 use symphonia::core::formats::{SeekMode, SeekTo};
 use symphonia::core::units::{Time, Timestamp};
 
-use crate::music_downloads::transcode::{Decoding, open};
+use crate::music_downloads::transcode::{Decoding, open, open_source};
+
+/// Opens the audio again from its start (a source that can't seek is read anew).
+pub type Opener = Box<dyn Fn() -> Result<Decoding, String> + Send>;
 
 /// Skipping further ahead than this seeks instead of decoding through.
 const SEEK_AFTER_MS: u64 = 5_000;
 const TARGET_RATE: u64 = raygun_ai::speech::SAMPLE_RATE as u64;
 
 pub struct AudioReader {
-    path: PathBuf,
+    opener: Opener,
     decoding: Decoding,
     /// Mono samples at the file's rate, the first one at source frame `start_frame`.
     pending: Vec<f32>,
@@ -24,9 +28,14 @@ pub struct AudioReader {
 
 impl AudioReader {
     pub fn open(path: &Path) -> Result<Self, String> {
+        let path = path.to_owned();
+        Self::from_opener(Box::new(move || open(&path)))
+    }
+
+    pub fn from_opener(opener: Opener) -> Result<Self, String> {
         Ok(Self {
-            path: path.to_owned(),
-            decoding: open(path)?,
+            decoding: opener()?,
+            opener,
             pending: Vec::new(),
             start_frame: 0,
             ended: false,
@@ -78,7 +87,7 @@ impl AudioReader {
             }
             // Not seekable: read again from the start.
             Err(_) => {
-                self.decoding = open(&self.path)?;
+                self.decoding = (self.opener)()?;
                 self.start_frame = 0;
             }
         }
@@ -140,6 +149,26 @@ impl AudioReader {
             None => u64::try_from(ts.get()).ok(),
         }
     }
+}
+
+/// Decodes a whole source (an HLS segment) to 16 kHz mono.
+pub fn decode_all(
+    source: Box<dyn symphonia::core::io::MediaSource>,
+    extension: Option<&str>,
+) -> Result<Vec<f32>, String> {
+    let decoding = open_source(source, extension)?;
+    let mut reader = AudioReader {
+        opener: Box::new(|| Err("a segment can't be read again".to_owned())),
+        decoding,
+        pending: Vec::new(),
+        start_frame: 0,
+        ended: false,
+    };
+    while !reader.ended {
+        reader.decode_more()?;
+    }
+    let rate = u64::from(reader.decoding.rate.max(1));
+    Ok(downsample(&reader.pending, rate))
 }
 
 /// Brings mono samples at `rate` to 16 kHz: each output sample is the mean of the input

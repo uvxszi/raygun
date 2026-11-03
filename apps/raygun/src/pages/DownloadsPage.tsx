@@ -10,13 +10,13 @@ import { Tabs } from '../shell/Tabs';
 import { VideoDownloadsList } from '../watch/VideoDownloadsList';
 import { PageHeader } from './PageHeader';
 
-export type DownloadsTab = 'music' | 'chapters' | 'videos' | 'exports';
+export type DownloadsTab = 'all' | 'music' | 'chapters' | 'videos' | 'exports';
 
 /** Downloads (More → Downloads): songs, the chapter queue, saved videos and exports, in tabs. */
 export const DownloadsPage: FC = () => {
   const { t } = useTranslation();
-  // Songs first (M46.10): the tab most people download into.
-  const { tab = 'music' } = useSearch({ from: '/downloads' });
+  // All first (M46.37): every kind of download on one page, each with its own list.
+  const { tab = 'all' } = useSearch({ from: '/downloads' });
   useMangaLiveEvents();
 
   return (
@@ -26,6 +26,7 @@ export const DownloadsPage: FC = () => {
         label={t('manga.downloads')}
         active={tab}
         items={[
+          { id: 'all', label: t('library.tabs.all'), to: '/downloads', search: {} },
           {
             id: 'music',
             label: t('songs.tab'),
@@ -52,6 +53,26 @@ export const DownloadsPage: FC = () => {
           },
         ]}
       />
+      {tab === 'all' && (
+        <div className="flex flex-col gap-6">
+          <section aria-label={t('songs.tab')} className="flex flex-col gap-2">
+            <h2 className="text-lg font-semibold">{t('songs.tab')}</h2>
+            <SongDownloadsList />
+          </section>
+          <section aria-label={t('updates.chapters')} className="flex flex-col gap-2">
+            <h2 className="text-lg font-semibold">{t('updates.chapters')}</h2>
+            <ChapterDownloads />
+          </section>
+          <section aria-label={t('downloads.videos')} className="flex flex-col gap-2">
+            <h2 className="text-lg font-semibold">{t('downloads.videos')}</h2>
+            <VideoDownloadsList />
+          </section>
+          <section aria-label={t('export.tab')} className="flex flex-col gap-2">
+            <h2 className="text-lg font-semibold">{t('export.tab')}</h2>
+            <ExportsList />
+          </section>
+        </div>
+      )}
       {tab === 'music' && <SongDownloadsList />}
       {tab === 'chapters' && <ChapterDownloads />}
       {tab === 'videos' && <VideoDownloadsList />}

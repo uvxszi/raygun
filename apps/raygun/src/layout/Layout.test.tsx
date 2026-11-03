@@ -122,6 +122,7 @@ describe('Customizable layout', () => {
   it('opens the first library tab shown, and Audio on its first view', async () => {
     withLayout({
       libraryMedia: [
+        { id: 'all', visible: false },
         { id: 'video', visible: true },
         { id: 'music', visible: true },
         { id: 'manga', visible: false },

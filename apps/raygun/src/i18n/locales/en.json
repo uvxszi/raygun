@@ -27,11 +27,25 @@
     "heading": "Home",
     "continueReading": "Continue reading",
     "startTitle": "Nothing to pick up yet",
-    "startBody": "Find films, series, manga, novels, podcasts and music in Browse, or add your own music in the Library. What you start shows up here."
+    "startBody": "Find films, series, comics, books, podcasts and music in Browse, or add your own music in the Library. What you start shows up here.",
+    "startClose": "Don't show this again",
+    "latestFavorites": "Latest favorites",
+    "played": {
+      "album": "Album",
+      "playlist": "Playlist",
+      "mix": "Mix",
+      "artist": "Artist",
+      "chart": "Chart",
+      "tag": "Genre",
+      "podcast": "Podcast",
+      "audiobook": "Audiobook"
+    }
   },
   "library": {
     "title": "Library",
     "emptyTitle": "Your library is empty",
+    "allEmptyHint": "Songs, podcasts, comics, books and videos you save show up here.",
+    "findInBrowse": "Find something in Browse",
     "openTitle": "Open link or file",
     "openLocation": "URL or file path",
     "openPlaceholder": "https://… or a file path",
@@ -78,12 +92,13 @@
     "media": {
       "label": "What to show",
       "music": "Music",
-      "manga": "Manga",
-      "novel": "Novels",
+      "manga": "Comics",
+      "novel": "Books",
       "podcast": "Podcasts",
       "video": "Videos"
     },
     "tabs": {
+      "all": "All",
       "music": "Audio",
       "manga": "Comics",
       "novel": "Books",
@@ -165,7 +180,8 @@
       "moveDown": "Move {{name}} down",
       "choose": "Add to categories",
       "noneYet": "Make categories to sort your library into tabs.",
-      "videoTitle": "Video categories"
+      "videoTitle": "Video categories",
+      "find": "Find a category"
     },
     "videos": {
       "empty": "Save movies and series from their pages to keep them here, with new episodes as they come out.",
@@ -290,16 +306,16 @@
     "type": {
       "all": "All",
       "music": "Music",
-      "manga": "Manga",
-      "novel": "Novels",
+      "manga": "Comics",
+      "novel": "Books",
       "library": "Your library",
-      "video": "Movies & series"
+      "video": "Videos"
     },
     "placeholderFor": {
-      "all": "Search music, podcasts, films, manga, novels…",
+      "all": "Search music, podcasts, films, comics, books…",
       "music": "Songs, artists, albums, podcasts",
-      "manga": "Manga titles",
-      "novel": "Novel titles",
+      "manga": "Comic titles",
+      "novel": "Book titles",
       "library": "Things you already have",
       "video": "Movies and series"
     },
@@ -342,7 +358,8 @@
       "songs": "Songs",
       "artists": "Artists",
       "albums": "Albums",
-      "podcasts": "Podcasts"
+      "podcasts": "Podcasts",
+      "playlists": "Playlists"
     },
     "video": {
       "kind": "What to find",
@@ -364,7 +381,15 @@
     "sourcesAnswered": "{{done}} of {{total}} sources answered",
     "someFailed": "Couldn't search {{sources}}",
     "popular": "Popular",
-    "popularHint": "Popular now. Type above to search everything."
+    "popularHint": "Popular now. Type above to search everything.",
+    "relevant": "Relevant",
+    "clear": "Clear",
+    "playlists": {
+      "which": "Which playlists",
+      "all": "All",
+      "featured": "Featured",
+      "none": "No playlists found for “{{query}}”."
+    }
   },
   "settings": {
     "title": "Settings",
@@ -424,7 +449,7 @@
     "languageHint": "Translations come from the community; untranslated text stays in English.",
     "content": "Content",
     "showNsfw": "Show NSFW (18+) content",
-    "showNsfwHint": "Off hides adult extensions, sources and titles everywhere in the app.",
+    "showNsfwHint": "Off hides adult extensions, sources and titles: comics, books and videos. Music has its own switch.",
     "videoQuality": "Preferred video quality",
     "videoQualityHighest": "Highest available",
     "videoQualityUpTo": "Up to {{height}}p",
@@ -727,7 +752,10 @@
       "externalPlayerHint": "Videos open in the app below instead of Raygun's player",
       "externalPackage": "Other app",
       "externalPackageHint": "It must be installed; position and progress come back when it closes",
-      "externalAsk": "Ask each time"
+      "externalAsk": "Ask each time",
+      "titlePages": "Movie and series pages",
+      "titleTrailers": "Trailers on title pages",
+      "titleTrailersHint": "A title's trailer plays, muted, in a small window on its page. It can be paused or stopped there."
     },
     "libraryDisplay": "Library layout",
     "browseCovers": "Covers in Browse",
@@ -829,15 +857,8 @@
         "best": "The best a source has, lossless included"
       }
     },
-    "discord": {
-      "title": "Discord",
-      "enabled": "Show what plays in Discord",
-      "hint": "“Listening to” with the song, its cover and a progress bar in your Discord status, while Discord is open. Nothing shows while paused.",
-      "needsId": "Discord asks apps for an application ID: make one named Raygun at discord.com/developers/applications and paste its ID below.",
-      "appId": "Discord application ID",
-      "appIdHint": "From your Discord application’s General Information page.",
-      "appIdInvalid": "An application ID is digits only"
-    }
+    "explicitMusic": "Show explicit music",
+    "explicitMusicHint": "Off hides songs their sources mark explicit and music sources rated 18+. The 18+ switch doesn't change music."
   },
   "player": {
     "nothingPlaying": "Nothing playing",
@@ -863,7 +884,6 @@
     "showArtwork": "Show artwork",
     "lyricsLoading": "Loading lyrics…",
     "lyricsNone": "No lyrics found for this track.",
-    "lyricsFailed": "Couldn't load lyrics: {{message}}",
     "lyricsFrom": "Lyrics from {{source}}",
     "favorite": "Add to favorites",
     "unfavorite": "Remove from favorites",
@@ -1004,9 +1024,9 @@
     "kind": {
       "all": "All",
       "music": "Music",
-      "manga": "Manga",
-      "novel": "Novels",
-      "video": "Video",
+      "manga": "Comics",
+      "novel": "Books",
+      "video": "Videos",
       "podcast": "Podcasts",
       "lyrics": "Lyrics",
       "other": "Other"
@@ -1418,7 +1438,8 @@
       "unfollow": "Unfollow",
       "copyName": "Copy name",
       "copyFeed": "Copy feed address"
-    }
+    },
+    "findEpisode": "Find an episode"
   },
   "watch": {
     "title": "Watch",
@@ -1535,7 +1556,11 @@
     "chooseSource": "Choose a source",
     "linkActions": "More for {{name}}",
     "openElsewhere": "Open in another app",
-    "copyLink": "Copy link"
+    "copyLink": "Copy link",
+    "trailerOf": "Trailer: {{title}}",
+    "trailerFull": "Watch the trailer full size",
+    "trailerStop": "Stop the trailer",
+    "findAddon": "Find an addon"
   },
   "browse": {
     "title": "Browse",
@@ -1544,9 +1569,12 @@
     "latestOf": "Latest from {{name}}",
     "stremioAddon": "Stremio addon",
     "kind": {
-      "video": "Movies & series"
+      "video": "Videos"
     },
-    "noSources": "No sources yet. Add extensions in the Extensions tab, or Stremio addons from the menu."
+    "noSources": "No sources yet. Add extensions in the Extensions tab, or Stremio addons from the menu.",
+    "sourceKinds": "Kinds of sources",
+    "allKinds": "All",
+    "findSource": "Find a source"
   },
   "more": {
     "updates": "Updates",
@@ -1554,7 +1582,7 @@
     "downloads": "Downloads",
     "downloadsHint": "Chapters and videos saved to this device",
     "categories": "Categories",
-    "categoriesHint": "Group your manga, novels and videos",
+    "categoriesHint": "Group your comics, books and videos",
     "addonsHint": "Catalogues, streams and subtitles for movies and series",
     "reposHint": "Where extensions come from",
     "ai": "AI",
@@ -1572,7 +1600,9 @@
     "episodes": "Episodes"
   },
   "downloads": {
-    "videos": "Videos"
+    "videos": "Videos",
+    "makeSubtitles": "Make subtitles with AI",
+    "makingSubtitles": "Making subtitles…"
   },
   "videoPlayer": {
     "episodes": "Episodes",
@@ -1874,15 +1904,56 @@
     "volumeLevel": "Volume {{n}} %",
     "quality": "Quality",
     "auto": "Automatic",
-    "playElsewhere": "Play in mpv or VLC",
+    "playElsewhere": "Play in another player",
     "playingIn": "Playing in {{app}}",
     "retry": "Try again",
-    "cantPlayHere": "This video's format can't play here. mpv or VLC can play it.",
+    "cantPlayHere": "This video's format can't play here. Another player (mpv, VLC, MPC-HC or PotPlayer) can play it.",
     "playNow": "Play now",
     "watched": "Watched",
     "inTheVideo": "In the video",
     "trailerPlayer": "Trailer player",
-    "trailerFailed": "YouTube doesn't let this video play outside its site."
+    "trailerFailed": "YouTube doesn't let this video play outside its site.",
+    "delaySeconds": "Subtitle delay in seconds",
+    "players": {
+      "title": "Play in",
+      "none": "No other player found. Install mpv, VLC, MPC-HC or PotPlayer."
+    },
+    "keys": {
+      "title": "Keyboard shortcuts",
+      "playPause": "Play or pause",
+      "seek": "Back or forward by the seek step",
+      "seek10": "Back or forward 10 s",
+      "volume": "Volume down or up (to 200 %)",
+      "mute": "Mute",
+      "fullscreen": "Full screen",
+      "subtitles": "Subtitles on or off",
+      "speed": "Slower or faster",
+      "episodes": "Next or previous episode",
+      "frame": "A frame back or forward (paused)",
+      "skip": "Skip the intro or credits",
+      "jump": "Jump to that tenth of the video",
+      "keys": "These shortcuts",
+      "close": "Close a panel, full screen, or the player"
+    },
+    "ai": {
+      "title": "AI subtitles",
+      "track": "AI subtitles",
+      "needsModel": "Download a speech model, or set up an online provider, to make subtitles as you watch.",
+      "setUp": "Set up in Settings → AI",
+      "online": "Online provider",
+      "make": "Make subtitles from here",
+      "continue": "Keep making subtitles",
+      "listening": "Listening… {{n}} lines so far"
+    },
+    "find": {
+      "title": "Find subtitles",
+      "look": "Look in your addons",
+      "looking": "Looking…",
+      "none": "No addon had subtitles for this.",
+      "track": "Subtitles",
+      "suggest": "None of your addons has subtitles. {{name}} has them for most films and series.",
+      "add": "Add {{name}}"
+    }
   },
   "layout": {
     "title": "Layout",
@@ -1920,6 +1991,7 @@
     "editBrowse": "Edit Browse",
     "editLibraryTabs": "Edit library tabs",
     "home": {
+      "getStarted": "Nothing to pick up yet",
       "madeForYou": "Made for you",
       "continueWatching": "Continue watching",
       "continueReading": "Continue reading",
@@ -1935,9 +2007,9 @@
       "extensions": "Extensions"
     },
     "browseSection": {
-      "video": "Movies & series",
-      "manga": "Manga",
-      "novel": "Novels",
+      "video": "Videos",
+      "manga": "Comics",
+      "novel": "Books",
       "websites": "Websites"
     },
     "moreEntry": {
@@ -1987,7 +2059,24 @@
     "about": "About",
     "members": "Members: {{names}}",
     "readMore": "Read more",
-    "from": "From {{source}}"
+    "from": "From {{source}}",
+    "discography": "Discography",
+    "releaseKinds": "Kinds of release",
+    "loadingReleases": "Loading the discography",
+    "showAll": "Show all {{count}}",
+    "release": {
+      "all": "All",
+      "album": "Albums",
+      "single": "Singles and EPs",
+      "compilation": "Compilations",
+      "live": "Live",
+      "other": "Other",
+      "albumOne": "Album",
+      "singleOne": "Single",
+      "compilationOne": "Compilation",
+      "liveOne": "Live",
+      "otherOne": "Other"
+    }
   },
   "menu": {
     "title": "Options",
@@ -2014,7 +2103,8 @@
     "copyTitle": "Copy title",
     "editSong": "Edit sound and lyrics",
     "copyText": "Copy “{{text}}”",
-    "copyArtist": "Copy artist"
+    "copyArtist": "Copy artist",
+    "goToAlbum": "Go to album"
   },
   "tracks": {
     "table": "Songs",
@@ -2136,7 +2226,9 @@
       "done": "On this device",
       "needsRecording": "Only YouTube has it",
       "failed": "Couldn't download"
-    }
+    },
+    "removeDownload": "Remove from downloads",
+    "explicit": "Explicit"
   },
   "audiobooks": {
     "title": "Audiobooks",
@@ -2160,7 +2252,8 @@
     "resume": "Resume chapter {{chapter}}",
     "fromStart": "From the start",
     "add": "Add to library",
-    "inLibrary": "In your library"
+    "inLibrary": "In your library",
+    "findChapter": "Find a chapter"
   },
   "import": {
     "title": "Import songs",
@@ -2316,7 +2409,12 @@
     "save": "Save",
     "editAlbum": "Edit album",
     "editArtist": "Edit artist",
-    "editSong": "Edit details"
+    "editSong": "Edit details",
+    "coverFind": "Find covers in your sources",
+    "coverFinding": "Looking in your sources…",
+    "coverNone": "Your sources had no other covers for this.",
+    "coverSources": "From your sources",
+    "coverFrom": "Use the cover from {{source}}"
   },
   "cover": {
     "title": "Cover",
@@ -2328,7 +2426,8 @@
     "formats": {
       "jpeg": "JPEG",
       "png": "PNG",
-      "webp": "WebP"
+      "webp": "WebP",
+      "jxl": "JPEG XL"
     },
     "where": "Where",
     "pictures": "Pictures/Raygun",
@@ -2422,7 +2521,7 @@
     "podcasts": "Podcasts",
     "comics": "Comics",
     "books": "Books",
-    "videos": "Movies & series",
+    "videos": "Videos",
     "websites": "Websites",
     "popularNow": "Popular now",
     "trending": "Trending",
@@ -2575,7 +2674,8 @@
       "sound": "Sound",
       "lyrics": "Lyrics",
       "details": "Details"
-    }
+    },
+    "moveLyrics": "Move the lyrics with the start"
   },
   "lyricsEdit": {
     "fix": "Fix the lyrics",
@@ -2606,7 +2706,15 @@
     "noneHint": "No source has lyrics for this song. Type or paste them, then time them line by line.",
     "placeholder": "One line per line of the song",
     "makeSynced": "Time them line by line",
-    "useSource": "Use the source’s lyrics again"
+    "useSource": "Use the source’s lyrics again",
+    "sources": "Lyrics from your sources",
+    "sourcesLoading": "Asking your lyrics sources…",
+    "sourcesNone": "None of your lyrics sources has this song.",
+    "synced": "synced",
+    "plain": "plain",
+    "hear": "Hear the words with AI",
+    "hearing": "Listening… {{n}} lines so far",
+    "hearSetUp": "Set up transcription in Settings → AI to hear the words."
   },
   "cueEdit": {
     "title": "Lines",
@@ -2719,6 +2827,62 @@
     "setUp": "Set up transcription",
     "onlineCost": "This sends the audio to your transcription provider, which may charge for it. Raygun stays at most 10 minutes ahead of you.",
     "goToBook": "Go to the book",
-    "goToShow": "Go to the show"
+    "goToShow": "Go to the show",
+    "useAi": "Transcribe with AI instead",
+    "useFeed": "Use the feed's transcript"
+  },
+  "barPopover": {
+    "openUpdates": "Open Updates",
+    "openDownloads": "Open Downloads",
+    "noUpdates": "No new chapters or episodes. Library updates find them.",
+    "noDownloads": "Nothing downloaded yet.",
+    "song": "Song",
+    "state": {
+      "queued": "Waiting",
+      "downloading": "Downloading",
+      "recording": "Recording",
+      "done": "Done",
+      "failed": "Failed",
+      "needsRecording": "Needs recording"
+    }
+  },
+  "chapterOrder": {
+    "title": "Sort and filter chapters",
+    "sortBy": "Sort by",
+    "show": "Show only",
+    "ascending": "Oldest first",
+    "descending": "Newest first",
+    "asListed": "As the source lists them",
+    "reversed": "Reversed",
+    "reset": "Back to the source's order",
+    "sort": {
+      "source": "Source order",
+      "number": "Chapter number",
+      "uploaded": "Upload date"
+    },
+    "filter": {
+      "unread": "Unread",
+      "started": "Started",
+      "downloaded": "Downloaded"
+    }
+  },
+  "otherSources": {
+    "find": "Find in other sources",
+    "title": "In other sources",
+    "none": "No other source has it under this name.",
+    "noSources": "Add more sources in Browse → Extensions to look in them.",
+    "open": "Open",
+    "add": "Add the copy from {{source}} to the library",
+    "added": "The copy from {{source}} is in the library",
+    "addShort": "Add"
+  },
+  "playlist": {
+    "title": "Playlist",
+    "kind": "Playlist",
+    "featuredKind": "Featured playlist",
+    "save": "Save to library",
+    "saved": "Saved playlist",
+    "download": "Download",
+    "loading": "Loading the playlist"
   }
 }

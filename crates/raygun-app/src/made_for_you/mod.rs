@@ -95,6 +95,7 @@ fn online(track: TrackFields) -> OnlineTrack {
             .source
             .and_then(|json| serde_json::from_str::<MediaSource>(&json).ok())
             .and_then(crate::collections::portable),
+        explicit: false,
     }
 }
 
@@ -558,6 +559,7 @@ mod tests {
             duration_ms: None,
             artwork_url: None,
             source: None,
+            explicit: false,
         }
     }
 

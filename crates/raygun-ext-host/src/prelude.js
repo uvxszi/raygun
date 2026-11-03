@@ -92,8 +92,8 @@
     }),
     providers: Object.freeze({
       register: (provider) => {
-        const { kind, id, name } = provider ?? {};
-        unwrap(native.registerProvider(JSON.stringify({ kind, id, name })));
+        const { kind, id, name, searchPill } = provider ?? {};
+        unwrap(native.registerProvider(JSON.stringify({ kind, id, name, searchPill })));
         providers.set(id, provider);
       },
     }),

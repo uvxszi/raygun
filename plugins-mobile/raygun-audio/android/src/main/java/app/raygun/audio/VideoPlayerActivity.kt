@@ -508,6 +508,11 @@ class VideoPlayerActivity : AppCompatActivity() {
         Log.d("RaygunVideo", "update ${update.optString("type")}")
         when (update.optString("type")) {
             "load" -> update.optJSONObject("request")?.let { load(it) }
+            // The session's link plays elsewhere: a YouTube video in its embed (M46.35).
+            "close" -> {
+                report("closed")
+                finish()
+            }
             "loading" -> {
                 // Another episode is on its way: the current one stops here.
                 if (player.isPlaying) {

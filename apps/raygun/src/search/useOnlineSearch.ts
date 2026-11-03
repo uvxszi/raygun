@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { ONLINE_SEARCH } from '../extensions/useExtensions';
 import { unwrapResult } from '../lib/commandResult';
+import { rememberPlay } from '../music/playContext';
 
 /** Results stay fresh for a while, so going back to Search doesn't re-run the query. */
 const RESULTS_STALE_MS = 5 * 60_000;
@@ -36,5 +37,7 @@ export const toQueueItem = (track: OnlineTrack): QueueItemInput => ({
 });
 
 /** Replaces the queue with a provider's results, starting at `track`. */
-export const playResults = (tracks: OnlineTrack[], track: OnlineTrack) =>
-  commands.playbackReplace(tracks.map(toQueueItem), Math.max(tracks.indexOf(track), 0));
+export const playResults = (tracks: OnlineTrack[], track: OnlineTrack) => {
+  rememberPlay();
+  return commands.playbackReplace(tracks.map(toQueueItem), Math.max(tracks.indexOf(track), 0));
+};

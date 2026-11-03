@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { TrackRow } from '../library/TrackRow';
 import { playFromLibrary } from '../library/useLibrary';
 import { AlbumFinds, ArtistFinds, BestSongs } from './MusicFinds';
+import { PlaylistFinds } from './PlaylistFinds';
 import { OnlineTrackRow } from './OnlineTrackRow';
 import { PodcastSearch } from './PodcastSearch';
 import { RelevantMusic } from './RelevantMusic';
@@ -205,6 +206,7 @@ export const MusicResults: FC<{
       {!blank && view === 'relevant' && <RelevantMusic query={query} onView={setView} />}
       {!blank && view === 'artists' && <ArtistFinds query={query} />}
       {!blank && view === 'albums' && <AlbumFinds query={query} />}
+      {!blank && view === 'playlists' && <PlaylistFinds query={query} />}
       {!blank && view === 'songs' && search.error && (
         <SourceIssue>{t('common.coreUnavailable', { message: search.error.message })}</SourceIssue>
       )}

@@ -1204,6 +1204,114 @@ async fn music_info_live_artist_and_credits() {
     );
 }
 
+/// `cargo test -p raygun-ext-host -- --ignored discography_live --nocapture`.
+#[tokio::test]
+#[ignore = "needs network access to Deezer and MusicBrainz"]
+async fn discography_live_releases_and_explicit_songs() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(discover_installed(&dir)).await;
+    let releases = host.artist_releases("Daft Punk", 100).await;
+    for release in releases.iter().take(12) {
+        println!(
+            "{} · {:?} · {:?} · {:?}",
+            release.provider.name, release.title, release.year, release.kind
+        );
+    }
+    assert!(releases.iter().any(|release| release.title == "Discovery"));
+    assert!(
+        releases
+            .iter()
+            .any(|release| release.kind == Some(raygun_model::ReleaseKind::Single))
+    );
+    // Explicit songs drop out while explicit music is off (M46.36).
+    let shown = host.search_music("Eminem Lose Yourself", 10).await;
+    let explicit = shown
+        .iter()
+        .flat_map(|result| &result.tracks)
+        .filter(|track| track.explicit)
+        .count();
+    println!("explicit among shown: {explicit}");
+    assert!(explicit > 0);
+    host.content().set_show_explicit_music(false);
+    let hidden = host.search_music("Eminem Lose Yourself", 10).await;
+    assert!(
+        hidden
+            .iter()
+            .flat_map(|result| &result.tracks)
+            .all(|track| !track.explicit)
+    );
+}
+
+/// `cargo test -p raygun-ext-host -- --ignored playlists_live --nocapture`.
+#[tokio::test]
+#[ignore = "needs network access to YouTube Music, Deezer and KuGou"]
+async fn playlists_live_search_featured_and_lyrics_sources() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(discover_installed(&dir)).await;
+    let found = host.search_playlists("workout", false, 10).await;
+    for playlist in found.iter().take(8) {
+        println!(
+            "{} · {} · {:?} · {:?} · featured {}",
+            playlist.provider.name,
+            playlist.title,
+            playlist.author,
+            playlist.track_count,
+            playlist.featured
+        );
+    }
+    assert!(
+        found.iter().any(|p| p.provider.name == "YouTube"),
+        "YouTube playlists"
+    );
+    assert!(
+        found.iter().any(|p| p.provider.name == "Deezer"),
+        "Deezer playlists"
+    );
+    let featured = host.search_playlists("workout", true, 10).await;
+    println!("featured: {}", featured.len());
+    assert!(!featured.is_empty() && featured.iter().all(|p| p.featured));
+    for provider in ["YouTube", "Deezer"] {
+        let first = found.iter().find(|p| p.provider.name == provider).unwrap();
+        let detail = host
+            .music_playlist(&first.provider.id, &first.id)
+            .await
+            .expect("playlist");
+        println!(
+            "{provider}: {} with {} songs",
+            detail.playlist.title,
+            detail.tracks.len()
+        );
+        assert!(detail.tracks.len() > 3);
+    }
+    let query = raygun_model::TrackQuery {
+        title: "Shape of You".into(),
+        artist: Some("Ed Sheeran".into()),
+        album: None,
+        duration_ms: Some(233_000),
+    };
+    let lyrics = host.all_lyrics(&query).await.expect("lyrics");
+    for answer in &lyrics {
+        println!(
+            "{}: {} synced lines, plain {}",
+            answer.provider_name,
+            answer.synced.len(),
+            answer.plain.as_ref().map_or(0, String::len)
+        );
+    }
+    assert!(
+        lyrics
+            .iter()
+            .any(|l| l.provider_name == "KuGou" && l.synced.len() > 10)
+    );
+    assert!(
+        lyrics
+            .iter()
+            .any(|l| l.provider_name == "YouTube Music" && l.plain.is_some())
+    );
+}
+
 /// `cargo test -p raygun-ext-host -- --ignored discovery_live --nocapture`.
 #[tokio::test]
 #[ignore = "needs network access to Deezer, Apple, ListenBrainz and MusicBrainz"]
@@ -1372,6 +1480,51 @@ async fn librivox_live_finds_books_with_feeds() {
                 .iter()
                 .all(|book| book.feed_url.starts_with("https://librivox.org/rss/"))
         );
+    }
+}
+
+/// The video sources with their own Search pill (M46.35), against the real services:
+/// `cargo test -p raygun-ext-host -- --ignored video_pills_live --nocapture`.
+#[tokio::test]
+#[ignore = "needs network access to YouTube and PeerTube"]
+async fn video_pills_live_search_and_play() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(discover_installed(&dir)).await;
+    for (provider, query) in [
+        ("dev.raygun.youtube/videos", "nasa launch"),
+        ("dev.raygun.peertube/videos", "nasa"),
+    ] {
+        let info = host
+            .listed_providers("video.source")
+            .await
+            .into_iter()
+            .find(|info| info.id == provider)
+            .unwrap();
+        println!("{provider}: pill {:?}", info.search_pill);
+        assert!(info.search_pill.is_some());
+        let page = host.manga_search(provider, query, 1).await.unwrap();
+        println!(
+            "  {} results, more {}; first {:?}",
+            page.items.len(),
+            page.has_next_page,
+            page.items.first().map(|item| &item.title)
+        );
+        assert!(!page.items.is_empty(), "{provider}");
+        let first = &page.items[0].id;
+        let servers = host.video_servers(provider, first).await.unwrap();
+        let links: Vec<String> = servers
+            .iter()
+            .flat_map(|server| {
+                server
+                    .videos
+                    .iter()
+                    .flatten()
+                    .map(|video| video.url.clone())
+            })
+            .collect();
+        println!("  links {:?}", links.iter().take(2).collect::<Vec<_>>());
+        assert!(!links.is_empty(), "{provider}");
     }
 }
 
@@ -1708,19 +1861,32 @@ async fn shosetsu_survey() {
 #[tokio::test]
 async fn nsfw_switch_hides_nsfw_providers_and_reaches_extensions() {
     let host = test_host();
-    let code = "raygun.providers.register({ kind: 'music.metadata', id: 'p', name: 'P', run: async () => raygun.content.showNsfw() });";
+    // A lyrics provider (not music.*, which follows Explicit music since M46.36) and a music one.
+    let code = "raygun.providers.register({ kind: 'lyrics', id: 'p', name: 'P', run: async () => raygun.content.showNsfw() }); raygun.providers.register({ kind: 'music.metadata', id: 'm', name: 'M', run: async () => true });";
     let adult = ExtensionSource::built_in(&[
         (
             "raygun-extension.json",
-            &manifest_json(
-                json!({ "id": "dev.raygun.adult", "name": "Adult", "contentRating": "nsfw" }),
-            ),
+            &manifest_json(json!({
+                "id": "dev.raygun.adult",
+                "name": "Adult",
+                "contentRating": "nsfw",
+                "provides": ["lyrics", "music.metadata"],
+            })),
         ),
         ("index.js", code),
     ]);
-    let infos = host
-        .load(vec![extension("dev.raygun.safe", code), adult])
-        .await;
+    let safe = ExtensionSource::built_in(&[
+        (
+            "raygun-extension.json",
+            &manifest_json(json!({
+                "id": "dev.raygun.safe",
+                "name": "Safe",
+                "provides": ["lyrics", "music.metadata"],
+            })),
+        ),
+        ("index.js", code),
+    ]);
+    let infos = host.load(vec![safe, adult]).await;
     let rating = |id: &str| {
         infos
             .iter()
@@ -1734,15 +1900,23 @@ async fn nsfw_switch_hides_nsfw_providers_and_reaches_extensions() {
         providers.into_iter().map(|p| p.id).collect::<Vec<_>>()
     };
     assert_eq!(
-        ids(host.providers("music.metadata").await),
+        ids(host.providers("lyrics").await),
         ["dev.raygun.safe/p"],
         "off by default"
+    );
+    // Music follows Explicit music, on by default, whatever the NSFW switch says.
+    assert_eq!(host.providers("music.metadata").await.len(), 2);
+    host.content().set_show_explicit_music(false);
+    assert_eq!(
+        ids(host.providers("music.metadata").await),
+        ["dev.raygun.safe/m"]
     );
     let call = |id: &'static str| host.call(id, "run", json!({}));
     assert_eq!(call("dev.raygun.safe/p").await.unwrap(), json!(false));
 
     host.content().set_show_nsfw(true);
-    assert_eq!(host.providers("music.metadata").await.len(), 2);
+    assert_eq!(host.providers("lyrics").await.len(), 2);
+    assert_eq!(host.providers("music.metadata").await.len(), 1);
     assert_eq!(call("dev.raygun.safe/p").await.unwrap(), json!(true));
 }
 

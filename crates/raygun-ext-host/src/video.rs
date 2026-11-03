@@ -125,6 +125,16 @@ pub fn parse_servers(value: &Value) -> Vec<VideoServer> {
 }
 
 /// A `videos` answer.
+/// `youtube:<video id>` (M46.35): a YouTube video, played in YouTube's embed.
+fn youtube_link(value: Option<&Value>) -> Option<String> {
+    let id = value?.as_str()?.strip_prefix("youtube:")?;
+    let valid = id.len() == 11
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_');
+    valid.then(|| format!("youtube:{id}"))
+}
+
 pub fn parse_videos(value: &Value) -> Vec<VideoLink> {
     value.get("videos").map(videos_of).unwrap_or_default()
 }
@@ -140,7 +150,7 @@ fn videos_of(list: &Value) -> Vec<VideoLink> {
                 .filter(|height| (1..=10_000).contains(height))
                 .map(|height| height as u32);
             Some(VideoLink {
-                url: url(video.get("url"))?,
+                url: url(video.get("url")).or_else(|| youtube_link(video.get("url")))?,
                 label: label(video.get("label"))
                     .or_else(|| quality.map(|height| format!("{height}p"))),
                 quality,
@@ -216,6 +226,19 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn youtube_videos_are_links_too() {
+        let links = parse_videos(&json!({
+            "videos": [
+                { "url": "youtube:dQw4w9WgXcQ", "label": "YouTube" },
+                { "url": "youtube:../../etc" },
+                { "url": "javascript:alert(1)" }
+            ]
+        }));
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].url, "youtube:dQw4w9WgXcQ");
+    }
 
     #[test]
     fn timestamps_become_chapters() {

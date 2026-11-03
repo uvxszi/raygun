@@ -47,10 +47,6 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         tauri::async_runtime::block_on(crate::settings::load(&app.state::<AppDb>().0))
             .unwrap_or_default();
     let cache_prefs = startup_settings.cache;
-    // Discord presence (M46.16), desktop only and off unless asked for.
-    app.manage(std::sync::Arc::new(crate::discord::DiscordPresence::start(
-        startup_settings.discord.clone(),
-    )));
     let caches = crate::caches::Caches::new(&paths, &cache_prefs);
     let proxy = tauri::async_runtime::block_on(raygun_net::StreamProxy::start_with(
         raygun_net::http_client()?,

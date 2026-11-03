@@ -11,6 +11,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { unwrapResult } from '../lib/commandResult';
+import { rememberPlay } from '../music/playContext';
 
 /** Every favorites, playlists and history query lives under this key. */
 export const COLLECTIONS = 'collections';
@@ -101,8 +102,10 @@ export const useMovePlaylistItem = () =>
 export const useClearHistory = () =>
   useCollectionMutation(() => unwrapResult(commands.historyClear()));
 
-export const playCollection = (request: CollectionPlayRequest) =>
-  unwrapResult(commands.collectionPlay(request));
+export const playCollection = (request: CollectionPlayRequest) => {
+  rememberPlay();
+  return unwrapResult(commands.collectionPlay(request));
+};
 
 // ---- Tracks from anywhere, as something to save ----
 

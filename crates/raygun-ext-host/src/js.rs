@@ -403,6 +403,9 @@ struct ProviderMeta {
     kind: Option<String>,
     id: Option<String>,
     name: Option<String>,
+    /// A video source's own Search pill (M46.35).
+    #[serde(rename = "searchPill")]
+    search_pill: Option<String>,
 }
 
 fn register(shared: &Shared, meta: &str) -> Result<(), String> {
@@ -431,11 +434,16 @@ fn register(shared: &Shared, meta: &str) -> Result<(), String> {
         .map(|name| name.trim().to_owned())
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| manifest.name.clone());
+    let search_pill = meta
+        .search_pill
+        .map(|pill| pill.trim().chars().take(24).collect::<String>())
+        .filter(|pill| !pill.is_empty() && kind == "video.source");
     providers.push(ProviderInfo {
         id: full_id,
         extension_id: manifest.id.clone(),
         kind,
         name,
+        search_pill,
     });
     Ok(())
 }

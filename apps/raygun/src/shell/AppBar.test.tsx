@@ -47,7 +47,9 @@ describe('The desktop app bar', () => {
     expect(within(bar).getByRole('button', { name: 'Close' })).toBeInTheDocument();
     expect(within(bar).getByRole('button', { name: 'Minimize' })).toBeInTheDocument();
 
-    await user.click(within(bar).getByRole('link', { name: 'Downloads' }));
+    // Downloads opens a popover first (M46.37), with a way to the page.
+    await user.click(within(bar).getByRole('button', { name: 'Downloads' }));
+    await user.click(await screen.findByRole('link', { name: 'Open Downloads' }));
     await screen.findByTestId('downloads-page');
     expect(back).toBeEnabled();
     await user.click(back);

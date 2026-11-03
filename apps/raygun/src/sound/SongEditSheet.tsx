@@ -81,6 +81,16 @@ const TrimField: FC<{
   );
 };
 
+const MOVE_LYRICS_KEY = 'raygun.songEdit.moveLyrics';
+
+const readMoveLyrics = () => {
+  try {
+    return localStorage.getItem(MOVE_LYRICS_KEY) !== '0';
+  } catch {
+    return true;
+  }
+};
+
 /** The sound half of the editor: trims and the song's own volume. */
 const SoundTab: FC<{
   song: TrackQuery;
@@ -100,6 +110,17 @@ const SoundTab: FC<{
     setGain(edit.gain);
   }
   const endTooEarly = edit.endMs !== null && edit.endMs <= edit.startMs;
+  // The lyrics move with the start (M46.36): a video's cut intro takes its seconds off the
+  // lyrics' timing too. Remembered on this device.
+  const [moveLyrics, setMoveLyrics] = useState(readMoveLyrics);
+  const setStart = (startMs: number) =>
+    save({
+      ...edit,
+      startMs,
+      lyricsOffsetMs: moveLyrics
+        ? edit.lyricsOffsetMs + (startMs - edit.startMs)
+        : edit.lyricsOffsetMs,
+    });
   return (
     <div className="flex flex-col gap-5">
       <p className="text-muted text-sm">{t('songEdit.trimHint')}</p>
@@ -109,7 +130,7 @@ const SoundTab: FC<{
           value={edit.startMs > 0 ? edit.startMs : null}
           placeholder="0:00.0"
           now={playing ? position : null}
-          onChange={(startMs) => save({ ...edit, startMs: startMs ?? 0 })}
+          onChange={(startMs) => setStart(startMs ?? 0)}
         />
         <TrimField
           label={t('songEdit.end')}
@@ -119,6 +140,22 @@ const SoundTab: FC<{
           onChange={(endMs) => save({ ...edit, endMs })}
         />
       </div>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={moveLyrics}
+          onChange={(event) => {
+            setMoveLyrics(event.target.checked);
+            try {
+              localStorage.setItem(MOVE_LYRICS_KEY, event.target.checked ? '1' : '0');
+            } catch {
+              // A per-device convenience.
+            }
+          }}
+          className="accent-primary size-4"
+        />
+        {t('songEdit.moveLyrics')}
+      </label>
       {endTooEarly && (
         <p role="alert" className="text-primary text-sm">
           {t('songEdit.endBeforeStart')}

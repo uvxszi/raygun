@@ -132,8 +132,8 @@ describe('Video sources in Watch', () => {
     commands.videoTitle.mockResolvedValue(ok(SERIES));
     await AppShellWrapper.mount('/browse?tab=sources');
 
-    // Video sources are listed in Browse under Movies & series, with a Latest shortcut.
-    const section = await screen.findByRole('region', { name: 'Movies & series' });
+    // Video sources are listed in Browse under Videos, with a Latest shortcut.
+    const section = await screen.findByRole('region', { name: 'Videos' });
     expect(within(section).getByRole('link', { name: 'Latest from Archive Films' })).toBeVisible();
     await user.click(within(section).getByRole('link', { name: 'Archive Films' }));
     const source = await screen.findByTestId('manga-source-page');

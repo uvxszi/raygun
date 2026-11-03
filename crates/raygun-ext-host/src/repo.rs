@@ -302,6 +302,9 @@ pub enum RepoError {
     Index(String),
     #[error("repository format {0} is not supported (this Raygun reads format {INDEX_FORMAT})")]
     Format(u32),
+    /// Another app's repository (M46.38): named, so the user knows why it can't be added.
+    #[error("{0}")]
+    Foreign(String),
 }
 
 /// Repository URLs must be `https`, except plain `http` to this machine or the Android emulator's
@@ -341,8 +344,9 @@ pub fn parse_index(json: &str) -> Result<RepoIndex, RepoError> {
     if let Ok(index) = serde_json::from_str::<ShosetsuIndex>(json) {
         return Ok(from_shosetsu(index));
     }
-    let mut index: RepoIndex =
-        serde_json::from_str(json).map_err(|error| RepoError::Index(error.to_string()))?;
+    let mut index: RepoIndex = serde_json::from_str(json).map_err(|error| {
+        foreign_format(json).map_or_else(|| RepoError::Index(error.to_string()), RepoError::Foreign)
+    })?;
     if index.format_version != INDEX_FORMAT {
         return Err(RepoError::Format(index.format_version));
     }
@@ -359,6 +363,32 @@ pub fn parse_index(json: &str) -> Result<RepoIndex, RepoError> {
         usable
     });
     Ok(index)
+}
+
+/// What another app's repository is, by the shape of its index (M46.38), with what Raygun can do
+/// about it; `None` for anything else.
+fn foreign_format(json: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(json).ok()?;
+    let first = value.as_array().and_then(|items| items.first());
+    let has = |object: Option<&serde_json::Value>, keys: &[&str]| {
+        object
+            .and_then(serde_json::Value::as_object)
+            .is_some_and(|fields| keys.iter().all(|key| fields.contains_key(*key)))
+    };
+    let message = if has(first, &["pkg", "apk", "sources"]) {
+        "This is a Mihon or Aniyomi extension repository: its extensions are Android packages, which Raygun can't run"
+    } else if has(Some(&value), &["pluginLists", "manifestVersion"]) {
+        "This is a CloudStream repository: its plugins are Kotlin code, which Raygun can't run"
+    } else if has(first, &["site", "url", "iconUrl", "lang"]) {
+        "This is an LNReader plugin list: Raygun can't run LNReader plugins yet"
+    } else if has(first, &["package", "type", "webSite"]) {
+        "This is a Miru extension repository: Raygun can't run Miru extensions yet"
+    } else if has(Some(&value), &["resources", "types", "id"]) {
+        "This is a Stremio addon, not a repository: add it in Browse → Sources → Addons"
+    } else {
+        return None;
+    };
+    Some(message.to_owned())
 }
 
 /// Where an entry's icon is, resolved against the index URL; http(s) only (M46.2).

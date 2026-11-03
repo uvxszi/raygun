@@ -78,7 +78,10 @@ internal class Storage(private val context: Context) {
     }
 
     private fun createInMediaStore(place: String, path: List<String>, name: String, mime: String): Output {
-        val pictures = place == "pictures" && mime.startsWith("image/")
+        // MediaStore's picture collection refuses types Android doesn't know, such as JPEG XL
+        // (M46.38): those go to Download/Raygun.
+        val pictures = place == "pictures" && mime.startsWith("image/") &&
+            android.webkit.MimeTypeMap.getSingleton().hasMimeType(mime)
         // Saved songs go to Music/Raygun/<artist>/, where music players look (M46.10).
         val music = place == "music" && mime.startsWith("audio/")
         val collection = when {

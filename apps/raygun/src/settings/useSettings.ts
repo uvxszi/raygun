@@ -5,7 +5,7 @@ import { useEffect } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
 
-const SETTINGS_KEY = ['settings'] as const;
+export const SETTINGS_KEY = ['settings'] as const;
 
 export const useSettings = () =>
   useQuery({

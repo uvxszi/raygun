@@ -217,6 +217,10 @@ impl ExtensionService {
                     loader
                         .host
                         .content()
+                        .set_show_explicit_music(settings.explicit_music);
+                    loader
+                        .host
+                        .content()
                         .set_disabled(&settings.disabled_sources);
                 }
                 Err(error) => tracing::warn!(%error, "could not read the NSFW setting"),
@@ -269,9 +273,11 @@ impl ExtensionService {
         self.host.content().show_nsfw()
     }
 
-    /// Turns NSFW content on or off and tells the UI, whose source lists depend on it.
-    pub async fn set_show_nsfw(&self, show: bool) {
-        self.host.content().set_show_nsfw(show);
+    /// Turns NSFW content and explicit music (M46.36) on or off and tells the UI, whose source
+    /// lists depend on them.
+    pub async fn set_content(&self, show_nsfw: bool, explicit_music: bool) {
+        self.host.content().set_show_nsfw(show_nsfw);
+        self.host.content().set_show_explicit_music(explicit_music);
         let infos = self.list().await;
         if let Err(error) = ExtensionsChangedEvent(infos).emit(&self.app) {
             tracing::warn!(%error, "could not announce extension changes");
@@ -311,6 +317,12 @@ impl ExtensionService {
         self.host.lyrics(query).await
     }
 
+    /// Every lyrics source's lyrics for a song (M46.36).
+    pub async fn all_lyrics(&self, query: &TrackQuery) -> Result<Vec<Lyrics>, String> {
+        let _ready = self.loading.read().await;
+        self.host.all_lyrics(query).await
+    }
+
     /// Artists for a search, from every source that searches artists (M46.9).
     pub async fn search_artists(&self, query: &str) -> Vec<raygun_model::MusicArtist> {
         let _ready = self.loading.read().await;
@@ -321,6 +333,138 @@ impl ExtensionService {
     pub async fn search_albums(&self, query: &str) -> Vec<raygun_model::MusicAlbum> {
         let _ready = self.loading.read().await;
         self.host.search_albums(query, SEARCH_LIMIT).await
+    }
+
+    /// An artist's discography (M46.36): every source's releases credited to them, one of each
+    /// (the copy with artwork and a year wins), newest first.
+    pub async fn artist_releases(&self, name: &str) -> Vec<raygun_model::MusicAlbum> {
+        let found = {
+            let _ready = self.loading.read().await;
+            self.host.artist_releases(name, RELEASES_LIMIT).await
+        };
+        releases_of(found, name)
+    }
+
+    /// The album a song is on (M46.36: Go to album): the best of the sources' album hits named
+    /// like `album`, by the song's artist when it has one.
+    pub async fn find_album(
+        &self,
+        album: &str,
+        artist: Option<&str>,
+    ) -> Option<raygun_model::MusicAlbum> {
+        let query = match artist {
+            Some(artist) if !artist.trim().is_empty() => format!("{album} {artist}"),
+            _ => album.to_owned(),
+        };
+        let found = {
+            let _ready = self.loading.read().await;
+            self.host.search_albums(&query, SEARCH_LIMIT).await
+        };
+        best_album(found, album, artist)
+    }
+
+    /// Covers the sources have for a song, an album or an artist (M46.36): the songs, albums and
+    /// artists they find by that name, each picture once. A song also gets its album's covers.
+    pub async fn cover_options(
+        &self,
+        target: &raygun_model::DetailTarget,
+    ) -> Vec<raygun_model::CoverOption> {
+        use raygun_model::DetailTarget;
+        let _ready = self.loading.read().await;
+        let mut options = Vec::new();
+        match target {
+            DetailTarget::Song { query } => {
+                let artist = query.artist.as_deref().unwrap_or_default();
+                let songs_query = format!("{artist} {}", query.title);
+                let album_query = query
+                    .album
+                    .as_deref()
+                    .map(|album| format!("{album} {artist}"));
+                let (songs, albums) = futures_util::future::join(
+                    self.host
+                        .search_music(songs_query.trim(), COVER_SEARCH_LIMIT),
+                    async {
+                        match &album_query {
+                            Some(text) => {
+                                self.host
+                                    .search_albums(text.trim(), COVER_SEARCH_LIMIT)
+                                    .await
+                            }
+                            None => Vec::new(),
+                        }
+                    },
+                )
+                .await;
+                let title = raygun_resolver::core_title(&query.title);
+                for result in songs {
+                    for track in result.tracks {
+                        let same = raygun_resolver::core_title(&track.title) == title
+                            && credited(track.artist.as_deref(), query.artist.as_deref());
+                        if let (true, Some(url)) = (same, track.artwork_url) {
+                            options.push(raygun_model::CoverOption {
+                                url,
+                                source: result.provider.name.clone(),
+                                of: track.album.filter(|album| !album.is_empty()),
+                            });
+                        }
+                    }
+                }
+                if let Some(album) = &query.album {
+                    options.extend(album_covers(albums, album, query.artist.as_deref()));
+                }
+            }
+            DetailTarget::Album { artist, album } => {
+                let text = format!("{album} {}", artist.as_deref().unwrap_or_default());
+                let albums = self
+                    .host
+                    .search_albums(text.trim(), COVER_SEARCH_LIMIT)
+                    .await;
+                options.extend(album_covers(albums, album, artist.as_deref()));
+            }
+            DetailTarget::Artist { name } => {
+                let wanted = raygun_resolver::normalize(name);
+                for artist in self.host.search_artists(name, COVER_SEARCH_LIMIT).await {
+                    if raygun_resolver::normalize(&artist.name) == wanted
+                        && let Some(url) = artist.image_url
+                    {
+                        options.push(raygun_model::CoverOption {
+                            url,
+                            source: artist.provider.name,
+                            of: None,
+                        });
+                    }
+                }
+            }
+        }
+        let mut seen = std::collections::HashSet::new();
+        options.retain(|option| seen.insert(option.url.clone()));
+        options.truncate(COVER_OPTIONS);
+        options
+    }
+
+    /// Playlists for a search from every source that searches them (M46.39).
+    pub async fn search_playlists(
+        &self,
+        query: &str,
+        featured: bool,
+    ) -> Vec<raygun_model::MusicPlaylist> {
+        let _ready = self.loading.read().await;
+        self.host
+            .search_playlists(query, featured, SEARCH_LIMIT)
+            .await
+    }
+
+    /// A playlist's songs (M46.39).
+    pub async fn music_playlist(
+        &self,
+        provider_id: &str,
+        playlist_id: &str,
+    ) -> Result<raygun_model::MusicPlaylistDetail, String> {
+        let _ready = self.loading.read().await;
+        self.host
+            .music_playlist(provider_id, playlist_id)
+            .await
+            .map_err(|error| error.to_string())
     }
 
     /// An album's songs (M46.9).
@@ -1015,8 +1159,234 @@ fn with_version(manifest: &str, version: &str) -> Result<String, String> {
     Ok(value.to_string())
 }
 
+/// Releases asked of each source for an artist's discography (M46.36).
+const RELEASES_LIMIT: u32 = 100;
+
+/// An artist's releases from every source (M46.36): only those credited to `name`, one per title
+/// and kind, editions ("(Deluxe Edition)") folded into the plain title. The copy kept is the plain
+/// one, then one with artwork, a year, a kind, the most songs; its year is the earliest. Newest
+/// first.
+fn releases_of(found: Vec<raygun_model::MusicAlbum>, name: &str) -> Vec<raygun_model::MusicAlbum> {
+    let mut kept: Vec<raygun_model::MusicAlbum> = Vec::new();
+    for album in found {
+        if let Some(artist) = &album.artist
+            && !crate::search::credits_include(artist, name)
+        {
+            continue;
+        }
+        let key = raygun_resolver::core_title(&album.title);
+        let fuller = |a: &raygun_model::MusicAlbum| {
+            (
+                raygun_resolver::normalize(&a.title) == raygun_resolver::core_title(&a.title),
+                a.artwork_url.is_some(),
+                a.year.is_some(),
+                a.kind.is_some(),
+                a.track_count.unwrap_or(0),
+            )
+        };
+        match kept.iter_mut().find(|other| {
+            raygun_resolver::core_title(&other.title) == key
+                && (other.kind == album.kind || other.kind.is_none() || album.kind.is_none())
+        }) {
+            Some(other) => {
+                let year = match (other.year, album.year) {
+                    (Some(one), Some(two)) => Some(one.min(two)),
+                    (one, two) => one.or(two),
+                };
+                if fuller(&album) > fuller(other) {
+                    let kind = album.kind.or(other.kind);
+                    *other = raygun_model::MusicAlbum {
+                        year,
+                        kind,
+                        ..album
+                    };
+                } else {
+                    other.year = year;
+                    other.kind = other.kind.or(album.kind);
+                }
+            }
+            None => kept.push(album),
+        }
+    }
+    // Newest first; undated last, in the sources' order.
+    kept.sort_by_key(|album| std::cmp::Reverse(album.year.unwrap_or(0)));
+    kept
+}
+
+/// The album hit that is `album` (M46.36): the same core title, by the artist when one is named;
+/// among several, the one with artwork.
+fn best_album(
+    found: Vec<raygun_model::MusicAlbum>,
+    album: &str,
+    artist: Option<&str>,
+) -> Option<raygun_model::MusicAlbum> {
+    let wanted = raygun_resolver::core_title(album);
+    if wanted.is_empty() {
+        return None;
+    }
+    let by_artist = |candidate: &raygun_model::MusicAlbum| match (artist, &candidate.artist) {
+        (Some(artist), Some(credited)) if !artist.trim().is_empty() => {
+            crate::search::credits_include(credited, artist)
+                || crate::search::credits_include(artist, credited)
+        }
+        _ => true,
+    };
+    let same_title: Vec<_> = found
+        .into_iter()
+        .filter(|candidate| raygun_resolver::core_title(&candidate.title) == wanted)
+        .collect();
+    // A song on a compilation is credited to its artist, the album to "Various Artists": then the
+    // album's exact title will do.
+    let compilation = |candidate: &raygun_model::MusicAlbum| {
+        candidate.artist.as_deref().is_some_and(|credit| {
+            matches!(
+                raygun_resolver::normalize(credit).as_str(),
+                "various artists" | "various" | "va"
+            )
+        }) && raygun_resolver::normalize(&candidate.title) == raygun_resolver::normalize(album)
+    };
+    let mut matches: Vec<_> = same_title
+        .iter()
+        .filter(|c| by_artist(c))
+        .cloned()
+        .collect();
+    if matches.is_empty() {
+        matches = same_title.into_iter().filter(compilation).collect();
+    }
+    matches.sort_by_key(|candidate| candidate.artwork_url.is_none());
+    matches.into_iter().next()
+}
+
+/// Results asked of each source when looking for covers (M46.36), and covers offered at most.
+const COVER_SEARCH_LIMIT: u32 = 10;
+const COVER_OPTIONS: usize = 24;
+
+/// Whether a source's credit is the wanted artist's (either way round); no wanted artist agrees.
+fn credited(credit: Option<&str>, wanted: Option<&str>) -> bool {
+    match (credit, wanted) {
+        (Some(credit), Some(wanted)) if !wanted.trim().is_empty() => {
+            crate::search::credits_include(credit, wanted)
+                || crate::search::credits_include(wanted, credit)
+        }
+        _ => true,
+    }
+}
+
+/// The covers of the album hits that are `album` by `artist` (M46.36).
+fn album_covers(
+    found: Vec<raygun_model::MusicAlbum>,
+    album: &str,
+    artist: Option<&str>,
+) -> Vec<raygun_model::CoverOption> {
+    let wanted = raygun_resolver::core_title(album);
+    found
+        .into_iter()
+        .filter(|candidate| raygun_resolver::core_title(&candidate.title) == wanted)
+        .filter(|candidate| credited(candidate.artist.as_deref(), artist))
+        .filter_map(|candidate| {
+            Some(raygun_model::CoverOption {
+                url: candidate.artwork_url?,
+                source: candidate.provider.name,
+                of: Some(candidate.title),
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn album_covers_need_the_title_and_artist() {
+        let mut right = album("deezer", "Discovery", "Daft Punk", None);
+        right.artwork_url = Some("https://example.com/a.jpg".into());
+        let mut wrong = album("deezer", "Discovery", "Someone Else", None);
+        wrong.artwork_url = Some("https://example.com/b.jpg".into());
+        let covers = album_covers(vec![right, wrong], "Discovery", Some("Daft Punk"));
+        assert_eq!(covers.len(), 1);
+        assert_eq!(covers[0].url, "https://example.com/a.jpg");
+    }
+
+    fn album(
+        provider: &str,
+        title: &str,
+        artist: &str,
+        year: Option<u32>,
+    ) -> raygun_model::MusicAlbum {
+        raygun_model::MusicAlbum {
+            provider: raygun_model::ProviderInfo {
+                id: provider.into(),
+                extension_id: provider.into(),
+                name: provider.into(),
+                kind: "music.metadata".into(),
+                search_pill: None,
+            },
+            id: title.into(),
+            title: title.into(),
+            artist: Some(artist.into()),
+            year,
+            artwork_url: None,
+            track_count: None,
+            kind: None,
+        }
+    }
+
+    #[test]
+    fn releases_keep_the_artist_once_each_newest_first() {
+        let mut deezer = album("deezer", "Discovery", "Daft Punk", None);
+        deezer.artwork_url = Some("https://example.com/d.jpg".into());
+        deezer.kind = Some(raygun_model::ReleaseKind::Album);
+        let mut deluxe = album(
+            "deezer",
+            "Homework (25th Anniversary Edition)",
+            "Daft Punk",
+            Some(2022),
+        );
+        deluxe.artwork_url = Some("https://example.com/h.jpg".into());
+        let found = vec![
+            deluxe,
+            album("mb", "Homework", "Daft Punk", Some(1997)),
+            album("mb", "Discovery", "Daft Punk", Some(2001)),
+            deezer,
+            album("mb", "Something Else", "Another Band", Some(2020)),
+        ];
+        let releases = releases_of(found, "Daft Punk");
+        let titles: Vec<_> = releases.iter().map(|a| a.title.as_str()).collect();
+        assert_eq!(titles, ["Discovery", "Homework"]);
+        // The copy with artwork wins and keeps the other's year.
+        assert_eq!(releases[0].provider.id, "deezer");
+        assert_eq!(releases[0].year, Some(2001));
+        assert_eq!(releases[0].kind, Some(raygun_model::ReleaseKind::Album));
+        // The plain title stands for its editions, with the first year.
+        assert_eq!(releases[1].title, "Homework");
+        assert_eq!(releases[1].year, Some(1997));
+    }
+
+    #[test]
+    fn the_album_of_a_song_needs_its_title_and_artist() {
+        let found = vec![
+            album("mb", "Discovery (Remastered)", "Someone Else", None),
+            album("mb", "Discovery", "Daft Punk", Some(2001)),
+        ];
+        let best = best_album(found.clone(), "Discovery", Some("Daft Punk")).unwrap();
+        assert_eq!(best.artist.as_deref(), Some("Daft Punk"));
+        assert!(best_album(found, "Homework", Some("Daft Punk")).is_none());
+        // A compilation credits "Various Artists".
+        let various = vec![album(
+            "dz",
+            "Alternative Times, Volume 111",
+            "Various Artists",
+            None,
+        )];
+        assert!(
+            best_album(
+                various,
+                "Alternative Times, Volume 111",
+                Some("Julian Casablancas")
+            )
+            .is_some()
+        );
+    }
+
     use super::*;
 
     #[test]

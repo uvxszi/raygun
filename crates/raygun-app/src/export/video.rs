@@ -165,7 +165,7 @@ fn safe_join(dir: &Path, name: &str) -> std::io::Result<PathBuf> {
     Ok(dir.join(name))
 }
 
-fn attribute(list: &str, name: &str) -> Option<String> {
+pub(crate) fn attribute(list: &str, name: &str) -> Option<String> {
     let mut rest = list;
     while !rest.is_empty() {
         let (key, after) = rest.split_once('=')?;
@@ -186,7 +186,7 @@ fn attribute(list: &str, name: &str) -> Option<String> {
     None
 }
 
-fn parse_iv(value: &str) -> Result<[u8; 16], String> {
+pub(crate) fn parse_iv(value: &str) -> Result<[u8; 16], String> {
     let hex = value
         .trim()
         .trim_start_matches("0x")

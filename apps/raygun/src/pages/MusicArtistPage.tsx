@@ -15,6 +15,8 @@ import { Artwork } from '../library/Artwork';
 import { TrackRow } from '../library/TrackRow';
 import { playFromLibrary } from '../library/useLibrary';
 import { creditedArtists } from '../music/artists';
+import { Discography } from '../music/Discography';
+import { usePlayContext } from '../music/playContext';
 import { artistFacts, useArtistInfo } from '../player/musicInfo';
 import { OnlineTrackRow } from '../search/OnlineTrackRow';
 import { playResults } from '../search/useOnlineSearch';
@@ -66,6 +68,18 @@ export const MusicArtistPage: FC = () => {
     overview.data?.albums.find((album) => album.artworkUrl)?.artworkUrl ??
     popular.find((track) => track.artworkUrl)?.artworkUrl ??
     null;
+  usePlayContext(
+    name
+      ? {
+          kind: 'artist',
+          name: own.data?.title ?? name,
+          subtitle: null,
+          artworkUrl: picture,
+          to: '/artist',
+          search: { name },
+        }
+      : null,
+  );
   const play = (shuffle: boolean) => {
     if (popular.length > 0) {
       const start = shuffle ? popular[Math.floor(Math.random() * popular.length)] : popular[0];
@@ -199,6 +213,7 @@ export const MusicArtistPage: FC = () => {
       {overview.isSuccess && popular.length === 0 && (
         <p className="text-muted text-sm">{t('artist.noPopular')}</p>
       )}
+      {name && <Discography name={name} title={t('artist.discography')} />}
       {info.data && <AboutSection info={info.data} />}
       {(overview.data?.albums.length ?? 0) > 0 && (
         <Section title={t('artist.albums')}>

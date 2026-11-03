@@ -1,11 +1,27 @@
+import { commands } from '@raygun/bindings';
 import type { MangaChapterInfo } from '@raygun/bindings';
+import { useMutation } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { BookOpen, Check, Download, Globe, Heart, LoaderCircle, RefreshCw } from 'lucide-react';
+import {
+  BookOpen,
+  Check,
+  Download,
+  Globe,
+  Heart,
+  LoaderCircle,
+  RefreshCw,
+  SearchCheck,
+} from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { CategoryPicker } from '../manga/CategoryPicker';
+import { useKnownCard } from '../manga/knownCard';
+import { ChapterOrderButton } from '../manga/ChapterOrderButton';
+import { orderChapters, useChapterOrder } from '../manga/chapterOrder';
+import { OtherSources } from '../manga/OtherSources';
+import { unwrapResult } from '../lib/commandResult';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { PinButton } from '../shell/PinButton';
@@ -90,8 +106,26 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
   const setInLibrary = useSetInLibrary(medium);
   const duplicates = useDuplicateCheck(medium);
   const [expanded, setExpanded] = useState(false);
+  const [finding, setFinding] = useState(false);
   const navigate = useNavigate();
   const view = refresh.data && refresh.data.remoteId === id ? refresh.data : title.data;
+  const [order, setOrder] = useChapterOrder(view?.id ?? '');
+  // What the search or list already showed (M46.38): the header shows at once, and stays when
+  // the source then fails.
+  const known = useKnownCard(medium, source, id);
+  const knownHero = known && (
+    <TitleHero
+      art={known.coverUrl}
+      cover={<MangaCover url={known.coverUrl} className="w-full rounded-xl shadow-lg" />}
+      title={known.title}
+    />
+  );
+  // The website button (M46.38) opens the title's page in Raygun's browser: a plain link does
+  // nothing in the app's window.
+  const website = useMutation({
+    mutationFn: () =>
+      unwrapResult(commands.catalogOpenPage(view?.sourceId ?? source, view?.url ?? null)),
+  });
   const top = (
     <TopBar
       back
@@ -134,16 +168,18 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
 
   if (title.error && !view) {
     return (
-      <section data-testid="manga-title-page">
+      <section data-testid="manga-title-page" className="flex flex-col gap-5">
         {top}
+        {knownHero}
         <SourceIssue>{title.error.message}</SourceIssue>
       </section>
     );
   }
   if (!view) {
     return (
-      <section data-testid="manga-title-page">
+      <section data-testid="manga-title-page" className="flex flex-col gap-5">
         {top}
+        {knownHero}
         <LoaderCircle
           aria-label={t('manga.loading')}
           className="text-muted mx-auto my-12 animate-spin"
@@ -240,26 +276,38 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
                 : t('manga.downloadAction')}
             </button>
           )}
-          {view.url && (
-            <a
-              href={view.url}
-              target="_blank"
-              rel="noopener"
+          {!isLocalSource(view.sourceId) && (
+            <button
+              type="button"
+              disabled={website.isPending}
+              onClick={() => website.mutate()}
               className="flex flex-1 flex-col items-center gap-1 rounded-xl px-2 py-2 text-xs font-medium disabled:opacity-60"
             >
               <Globe aria-hidden size={22} />
               {t('manga.openInBrowser')}
-            </a>
+            </button>
           )}
         </div>
       </TitleHero>
       {view.inLibrary && <CategoryPicker medium={medium} titleId={view.id} />}
       {duplicates.dialog}
-      {(refresh.error ?? setInLibrary.error ?? download.error) && (
+      {(refresh.error ?? setInLibrary.error ?? download.error ?? website.error) && (
         <SourceIssue>
-          {(refresh.error ?? setInLibrary.error ?? download.error)?.message}
+          {(refresh.error ?? setInLibrary.error ?? download.error ?? website.error)?.message}
         </SourceIssue>
       )}
+      {!isLocalSource(view.sourceId) && (
+        <button
+          type="button"
+          aria-expanded={finding}
+          onClick={() => setFinding(!finding)}
+          className="bg-surface hover:bg-primary/15 flex items-center gap-2 self-start rounded-full px-4 py-2 text-sm font-medium"
+        >
+          <SearchCheck aria-hidden size={16} />
+          {t('otherSources.find')}
+        </button>
+      )}
+      {finding && <OtherSources medium={medium} title={view.title} sourceId={view.sourceId} />}
       {view.description && (
         <button
           type="button"
@@ -271,12 +319,15 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
         </button>
       )}
       <div className="flex flex-col gap-1">
-        <h2 className="font-semibold">{t('manga.chapters', { count: view.chapters.length })}</h2>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="font-semibold">{t('manga.chapters', { count: view.chapters.length })}</h2>
+          {view.chapters.length > 1 && <ChapterOrderButton order={order} onChange={setOrder} />}
+        </div>
         {view.chapters.length === 0 ? (
           <p className="text-muted text-sm">{t('manga.noChapters')}</p>
         ) : (
           <ul className="flex flex-col">
-            {view.chapters.map((chapter) => (
+            {orderChapters(view.chapters, order).map((chapter) => (
               <li key={chapter.id}>
                 <ChapterRow
                   titleId={view.id}

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use raygun_db::song_edits::{self as store, SongEditRow};
-use raygun_model::{EditedLyrics, Lyrics, SongEdit, SoundPrefs, TrackQuery};
+use raygun_model::{EditedLyrics, LyricLine, Lyrics, SongEdit, SoundPrefs, TrackQuery};
 use tauri::{AppHandle, Manager};
 
 use crate::catalog::{now_ms, to_message};
@@ -161,20 +161,26 @@ impl SoundService {
             .insert(key, rounded);
     }
 
-    /// The song's own lyrics when it has them, else `fetched` (a source's) with its offset.
+    /// The song's own lyrics when it has them, else `fetched` (a source's) with its offset. Synced
+    /// lines its trims cut off are left out (M46.36): only what plays shows.
     pub fn lyrics(&self, query: &TrackQuery, fetched: Option<Lyrics>) -> Option<Lyrics> {
         let edit = self.edit(&key(query));
-        if let Some(own) = edit.lyrics {
-            return Some(Lyrics {
+        let lyrics = if let Some(own) = edit.lyrics.clone() {
+            Lyrics {
                 provider_name: OWN_LYRICS.to_owned(),
                 synced: own.synced,
                 plain: own.plain,
                 offset_ms: edit.lyrics_offset_ms,
                 edited: true,
-            });
-        }
-        fetched.map(|lyrics| Lyrics {
-            offset_ms: edit.lyrics_offset_ms,
+            }
+        } else {
+            Lyrics {
+                offset_ms: edit.lyrics_offset_ms,
+                ..fetched?
+            }
+        };
+        Some(Lyrics {
+            synced: within_trims(lyrics.synced, lyrics.offset_ms, &edit),
             ..lyrics
         })
     }
@@ -183,6 +189,28 @@ impl SoundService {
     pub fn has_own_lyrics(&self, query: &TrackQuery) -> bool {
         self.edit(&key(query)).lyrics.is_some()
     }
+}
+
+/// Synced lines that show while the trimmed song plays (M46.36): the one already showing at the
+/// start trim and every one that begins before the end trim. Times are as shown (`offset_ms` on).
+fn within_trims(lines: Vec<LyricLine>, offset_ms: i32, edit: &SongEdit) -> Vec<LyricLine> {
+    if edit.start_ms == 0 && edit.end_ms.is_none() {
+        return lines;
+    }
+    let shown = |line: &LyricLine| i64::from(line.time_ms) + i64::from(offset_ms);
+    let start = i64::from(edit.start_ms);
+    let end = edit.end_ms.map(i64::from).unwrap_or(i64::MAX);
+    // The last line beginning at or before the start is showing when the song starts.
+    let first = lines
+        .iter()
+        .rposition(|line| shown(line) <= start)
+        .unwrap_or(0);
+    lines
+        .into_iter()
+        .enumerate()
+        .filter(|(index, line)| *index >= first && shown(line) < end)
+        .map(|(_, line)| line)
+        .collect()
 }
 
 fn from_row(row: SongEditRow) -> SongEdit {
@@ -216,6 +244,42 @@ fn to_row(key: &str, edit: &SongEdit) -> Result<SongEditRow, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn trims_leave_out_the_lines_they_cut() {
+        let line = |time_ms: u32| LyricLine {
+            time_ms,
+            text: time_ms.to_string(),
+        };
+        let lines = vec![
+            line(0),
+            line(5_000),
+            line(12_000),
+            line(20_000),
+            line(30_000),
+        ];
+        let edit = SongEdit {
+            start_ms: 10_000,
+            end_ms: Some(25_000),
+            ..SongEdit::default()
+        };
+        let kept: Vec<u32> = within_trims(lines.clone(), 0, &edit)
+            .iter()
+            .map(|line| line.time_ms)
+            .collect();
+        // 5 s is still showing at the 10 s start; 30 s comes after the end.
+        assert_eq!(kept, [5_000, 12_000, 20_000]);
+        // An offset moves the lines before they're cut.
+        let moved: Vec<u32> = within_trims(lines.clone(), 6_000, &edit)
+            .iter()
+            .map(|line| line.time_ms)
+            .collect();
+        assert_eq!(moved, [0, 5_000, 12_000]);
+        assert_eq!(
+            within_trims(lines.clone(), 0, &SongEdit::default()).len(),
+            5
+        );
+    }
+
     use super::*;
 
     #[test]

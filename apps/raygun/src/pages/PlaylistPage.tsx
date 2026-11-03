@@ -24,6 +24,7 @@ import {
   useRemovePlaylistItem,
   useRenamePlaylist,
 } from '../collections/useCollections';
+import { usePlayContext } from '../music/playContext';
 
 const ICON_BUTTON =
   'text-muted grid size-9 shrink-0 place-items-center rounded-full disabled:opacity-30';
@@ -148,6 +149,19 @@ export const PlaylistPage: FC = () => {
   const { t } = useTranslation();
   const { id } = useSearch({ from: '/library/playlist' });
   const playlist = usePlaylist(id);
+  const summary = playlist.data?.playlist;
+  usePlayContext(
+    summary
+      ? {
+          kind: 'playlist',
+          name: summary.name,
+          subtitle: null,
+          artworkUrl: summary.artworkUrls[0] ?? null,
+          to: '/library/playlist',
+          search: { id },
+        }
+      : null,
+  );
   const client = useQueryClient();
   const [editing, setEditing] = useState(false);
 

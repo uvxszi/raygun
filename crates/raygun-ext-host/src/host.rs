@@ -13,8 +13,9 @@ use std::time::Duration;
 
 use raygun_model::{
     ExtensionInfo, ExtensionOrigin, ExtensionSetting, ExtensionStatus, LyricLine, Lyrics,
-    MediaSource, MusicAlbum, MusicAlbumDetail, MusicArtist, MusicChart, OnlineTrack, ProviderInfo,
-    ProviderSearchResult, SettingKind, SettingValue, TrackQuery,
+    MediaSource, MusicAlbum, MusicAlbumDetail, MusicArtist, MusicChart, MusicPlaylist,
+    MusicPlaylistDetail, OnlineTrack, ProviderInfo, ProviderSearchResult, SettingKind,
+    SettingValue, TrackQuery,
 };
 use raygun_resolver::Candidate;
 use serde::Deserialize;
@@ -245,16 +246,26 @@ impl ExtensionHost {
     }
 
     /// Providers of `kind` to list, disabled ones included (the user turns them back on there,
-    /// M46.8); NSFW-rated extensions' only while NSFW content is shown.
+    /// M46.8); NSFW-rated extensions' only while NSFW content is shown (music: while explicit
+    /// music is, M46.36).
     pub async fn listed_providers(&self, kind: &str) -> Vec<ProviderInfo> {
-        let show_nsfw = self.content.show_nsfw();
+        let allowed = self.content.allows("nsfw", kind);
         self.list()
             .await
             .into_iter()
-            .filter(|extension| show_nsfw || extension.content_rating != "nsfw")
+            .filter(|extension| allowed || extension.content_rating != "nsfw")
             .flat_map(|extension| extension.providers)
             .filter(|provider| provider.kind == kind)
             .collect()
+    }
+
+    /// A provider's songs, without explicit ones while Explicit music is off (M46.36).
+    fn tracks(&self, value: serde_json::Value) -> Vec<OnlineTrack> {
+        let mut tracks = parse_tracks(value);
+        if !self.content.show_explicit_music() {
+            tracks.retain(|track| !track.explicit);
+        }
+        tracks
     }
 
     /// Calls `method` on a provider (its full `<extension>/<provider>` id), JSON in and out.
@@ -298,7 +309,7 @@ impl ExtensionHost {
                 let started = std::time::Instant::now();
                 match self.call_interactive(&provider.id, "search", args).await {
                     Ok(value) => {
-                        let tracks = parse_tracks(value);
+                        let tracks = self.tracks(value);
                         tracing::info!(
                             provider = %provider.id,
                             tracks = tracks.len(),
@@ -363,9 +374,14 @@ impl ExtensionHost {
     /// then providers keep their order. `Ok(None)` when no provider has any; an error only when
     /// every provider failed.
     pub async fn lyrics(&self, query: &TrackQuery) -> Result<Option<Lyrics>, String> {
+        Ok(self.all_lyrics(query).await?.into_iter().next())
+    }
+
+    /// Every lyrics provider's lyrics for a song (M46.36: the user picks one), synced ones first.
+    pub async fn all_lyrics(&self, query: &TrackQuery) -> Result<Vec<Lyrics>, String> {
         let providers = self.providers(LYRICS).await;
         if providers.is_empty() {
-            return Ok(None);
+            return Ok(Vec::new());
         }
         let args = serde_json::json!({
             "title": query.title,
@@ -397,7 +413,7 @@ impl ExtensionHost {
         }
         // Stable sort keeps provider order among equals.
         found.sort_by_key(|lyrics| lyrics.synced.is_empty());
-        Ok(found.into_iter().next())
+        Ok(found)
     }
 
     /// Every `music.charts` provider's charts at once (M46.9); each answers with charts or an
@@ -466,6 +482,99 @@ impl ExtensionHost {
             .collect()
     }
 
+    /// An artist's releases (M46.36: albums, singles, EPs...) from every `music.metadata` provider
+    /// that lists them (`artistReleases`, asked with the artist's name as `query`).
+    pub async fn artist_releases(&self, name: &str, limit: u32) -> Vec<MusicAlbum> {
+        let answers = self.ask_metadata("artistReleases", name, limit).await;
+        answers
+            .into_iter()
+            .flat_map(|(provider, value)| {
+                value
+                    .get("releases")
+                    .and_then(serde_json::Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(move |album| parse_album(&provider, &album))
+            })
+            .collect()
+    }
+
+    /// Playlists for `query` from every `music.metadata` provider that searches them (M46.39);
+    /// `featured` asks for the services' own playlists only.
+    pub async fn search_playlists(
+        &self,
+        query: &str,
+        featured: bool,
+        limit: u32,
+    ) -> Vec<MusicPlaylist> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Vec::new();
+        }
+        let providers = self.providers(MUSIC_METADATA).await;
+        let args = serde_json::json!({ "query": query, "limit": limit, "featured": featured });
+        let requests = providers.into_iter().map(|provider| {
+            let args = args.clone();
+            async move {
+                match self
+                    .call_interactive(&provider.id, "searchPlaylists", args)
+                    .await
+                {
+                    Ok(value) => Some((provider, value)),
+                    Err(error) => {
+                        log_unless_missing(&provider, "searchPlaylists", &error);
+                        None
+                    }
+                }
+            }
+        });
+        futures_util::future::join_all(requests)
+            .await
+            .into_iter()
+            .flatten()
+            .flat_map(|(provider, value)| {
+                value
+                    .get("playlists")
+                    .and_then(serde_json::Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(move |playlist| parse_playlist(&provider, &playlist))
+            })
+            .filter(|playlist| !featured || playlist.featured)
+            .collect()
+    }
+
+    /// A playlist's songs from the provider that has it (M46.39).
+    pub async fn music_playlist(
+        &self,
+        provider_id: &str,
+        playlist_id: &str,
+    ) -> Result<MusicPlaylistDetail, CallError> {
+        let provider = self
+            .providers(MUSIC_METADATA)
+            .await
+            .into_iter()
+            .find(|provider| provider.id == provider_id)
+            .ok_or_else(|| CallError::Script("That source isn't available".to_owned()))?;
+        let value = self
+            .call(
+                provider_id,
+                "playlist",
+                serde_json::json!({ "id": playlist_id }),
+            )
+            .await?;
+        let playlist = value
+            .get("playlist")
+            .and_then(|playlist| parse_playlist(&provider, playlist))
+            .ok_or_else(|| CallError::Script("The source gave no playlist".to_owned()))?;
+        Ok(MusicPlaylistDetail {
+            playlist,
+            tracks: self.tracks(value),
+        })
+    }
+
     /// An album's songs from the provider that knows it (M46.9).
     pub async fn music_album(
         &self,
@@ -487,7 +596,7 @@ impl ExtensionHost {
             .ok_or_else(|| CallError::Script("The source gave no album".to_owned()))?;
         Ok(MusicAlbumDetail {
             album,
-            tracks: parse_tracks(value),
+            tracks: self.tracks(value),
         })
     }
 
@@ -559,7 +668,7 @@ impl ExtensionHost {
                             .and_then(serde_json::Value::as_str)
                             .map(|name| name.trim().to_owned())
                             .filter(|name| !name.is_empty());
-                        Some((provider, Ok((name, parse_tracks(value)))))
+                        Some((provider, Ok((name, self.tracks(value)))))
                     }
                     Err(error) => {
                         let message = error.to_string();
@@ -614,7 +723,7 @@ impl ExtensionHost {
         for provider in self.providers(MUSIC_RECOMMEND).await {
             match self.call(&provider.id, method, args.clone()).await {
                 Ok(value) => {
-                    let tracks = parse_tracks(value);
+                    let tracks = self.tracks(value);
                     if !tracks.is_empty() {
                         return tracks;
                     }
@@ -636,7 +745,7 @@ impl ExtensionHost {
         let args = serde_json::json!({ "id": chart_id, "region": region, "limit": limit });
         self.call(provider_id, "chart", args)
             .await
-            .map(parse_tracks)
+            .map(|value| self.tracks(value))
     }
 
     /// Every `music.tags` provider's genres for a song at once (M46.9): `(name, weight)` pairs as
@@ -1186,6 +1295,8 @@ struct RawTrack {
     artwork_url: Option<String>,
     #[serde(default)]
     source: Option<MediaSource>,
+    #[serde(default)]
+    explicit: Option<bool>,
 }
 
 fn is_web_url(url: &str) -> bool {
@@ -1216,6 +1327,7 @@ fn parse_tracks(value: serde_json::Value) -> Vec<OnlineTrack> {
                 .map(|ms| ms as u32),
             artwork_url: track.artwork_url.filter(|url| is_web_url(url)),
             source: track.source.filter(allowed_source),
+            explicit: track.explicit.unwrap_or(false),
         })
         .collect()
 }
@@ -1259,6 +1371,34 @@ fn web_url(value: Option<&serde_json::Value>) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// Reads `{ id, title, author?, artworkUrl?, trackCount?, featured? }` (M46.39).
+fn parse_playlist(provider: &ProviderInfo, playlist: &serde_json::Value) -> Option<MusicPlaylist> {
+    let title = playlist.get("title")?.as_str()?.trim().to_owned();
+    if title.is_empty() {
+        return None;
+    }
+    Some(MusicPlaylist {
+        provider: provider.clone(),
+        id: json_id(playlist.get("id"))?,
+        title,
+        author: playlist
+            .get("author")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|author| !author.is_empty())
+            .map(str::to_owned),
+        artwork_url: web_url(playlist.get("artworkUrl")),
+        track_count: playlist
+            .get("trackCount")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|count| u32::try_from(count).ok()),
+        featured: playlist
+            .get("featured")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+    })
+}
+
 /// Reads `{ id, title, artist?, year?, artworkUrl?, trackCount? }`.
 fn parse_album(provider: &ProviderInfo, album: &serde_json::Value) -> Option<MusicAlbum> {
     let title = album.get("title")?.as_str()?.trim().to_owned();
@@ -1284,6 +1424,10 @@ fn parse_album(provider: &ProviderInfo, album: &serde_json::Value) -> Option<Mus
         year: number("year"),
         artwork_url: web_url(album.get("artworkUrl")),
         track_count: number("trackCount"),
+        kind: album
+            .get("kind")
+            .and_then(serde_json::Value::as_str)
+            .map(raygun_model::ReleaseKind::parse),
     })
 }
 

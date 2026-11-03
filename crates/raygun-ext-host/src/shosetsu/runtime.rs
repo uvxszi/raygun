@@ -115,6 +115,7 @@ impl ShosetsuExtension {
             extension_id: self.manifest.id.clone(),
             kind: NOVEL_SOURCE.to_owned(),
             name: self.manifest.name.clone(),
+            search_pill: None,
         }]
     }
 

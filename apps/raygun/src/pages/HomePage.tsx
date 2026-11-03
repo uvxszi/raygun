@@ -1,6 +1,8 @@
+import { commands } from '@raygun/bindings';
 import type { MangaLibraryEntry } from '@raygun/bindings';
+import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Heart, LayoutList, Library, Search } from 'lucide-react';
+import { Heart, LayoutList, Library, Search, X } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -9,16 +11,21 @@ import { SavedTrackRow } from '../collections/SavedTrackRow';
 import {
   HOME_HISTORY_LIMIT,
   playCollection,
+  fromSavedTrack,
   useClearHistory,
+  useFavorites,
   useHistory,
   usePlaylists,
 } from '../collections/useCollections';
+import { unwrapResult } from '../lib/commandResult';
+import { Artwork } from '../library/Artwork';
 import { MangaCover } from '../manga/MangaCover';
 import { ROUTES } from '../manga/medium';
 import { useMangaLibrary } from '../manga/useManga';
-import { useLayout } from '../layout/useLayout';
+import { useLayout, useSaveLayout } from '../layout/useLayout';
 import { ChartRow } from '../music/ChartRow';
 import { MixCard } from '../music/MixCard';
+import { useTrackMenu } from '../music/useTrackMenu';
 import { pickChart, useMusicCharts } from '../music/useDiscovery';
 import { useMadeForYou } from '../music/useMadeForYou';
 import { HomeFixedTiles } from '../library/LocalFilesTile';
@@ -35,11 +42,33 @@ const HOME_PLAYLISTS = 5;
 
 const TILE_CLASS = 'bg-surface flex w-32 shrink-0 flex-col gap-2 rounded-xl p-2 text-sm';
 
+/** Recently played from (M46.37) and favorite songs shown in Your music. */
+const RECENT_SHOWN = 12;
+const FAVORITES_SHOWN = 12;
+
+/**
+ * Your music (M46.37): Favorites, Downloaded and Local files, then what was played from lately
+ * (albums, playlists, mixes, artists, charts, podcasts, books), then playlists not among them,
+ * and a row of the latest favorite songs.
+ */
 const YourMusic: FC = () => {
   const { t } = useTranslation();
   const playlists = usePlaylists();
+  const recent = useQuery({
+    queryKey: ['recentContexts'],
+    queryFn: () => unwrapResult(commands.recentContexts()),
+  });
+  const favorites = useFavorites();
+  const menu = useTrackMenu();
+  const contexts = (recent.data ?? []).slice(0, RECENT_SHOWN);
+  const recentPlaylists = new Set(
+    contexts.filter((context) => context.kind === 'playlist').map((context) => context.search.id),
+  );
+  const latest = [...(favorites.data ?? [])]
+    .sort((a, b) => (b.addedAt ?? 0) - (a.addedAt ?? 0))
+    .slice(0, FAVORITES_SHOWN);
   return (
-    <section className="flex flex-col gap-2">
+    <section data-testid="your-music" className="flex flex-col gap-2">
       <h2 className="text-lg font-semibold">{t('home.yourMusic')}</h2>
       <Carousel className="-mx-4 gap-3 px-4 lg:mx-0 lg:px-0">
         <li>
@@ -51,18 +80,73 @@ const YourMusic: FC = () => {
           </Link>
         </li>
         <HomeFixedTiles className={TILE_CLASS} />
-        {playlists.data?.slice(0, HOME_PLAYLISTS).map((playlist) => (
-          <li key={playlist.id}>
-            <Link to="/library/playlist" search={{ id: playlist.id }} className={TILE_CLASS}>
-              <PlaylistCover
-                artworkUrls={playlist.artworkUrls}
-                className="aspect-square w-full rounded-lg"
+        {contexts.map((context) => (
+          <li key={`${context.to}?${JSON.stringify(context.search)}`}>
+            <Link
+              to={context.to}
+              search={context.search as never}
+              aria-label={`${context.name} · ${t(`home.played.${context.kind}`, { defaultValue: '' })}`}
+              className={TILE_CLASS}
+            >
+              <Artwork
+                url={context.artworkUrl}
+                className={`w-full ${context.kind === 'artist' ? 'rounded-full' : 'rounded-lg'}`}
+                iconSize={32}
               />
-              <span className="truncate font-medium">{playlist.name}</span>
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate font-medium">{context.name}</span>
+                <span className="text-muted truncate text-xs">
+                  {[t(`home.played.${context.kind}`, { defaultValue: '' }), context.subtitle]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </span>
+              </span>
             </Link>
           </li>
         ))}
+        {playlists.data
+          ?.filter((playlist) => !recentPlaylists.has(playlist.id))
+          .slice(0, HOME_PLAYLISTS)
+          .map((playlist) => (
+            <li key={playlist.id}>
+              <Link to="/library/playlist" search={{ id: playlist.id }} className={TILE_CLASS}>
+                <PlaylistCover
+                  artworkUrls={playlist.artworkUrls}
+                  className="aspect-square w-full rounded-lg"
+                />
+                <span className="truncate font-medium">{playlist.name}</span>
+              </Link>
+            </li>
+          ))}
       </Carousel>
+      {latest.length > 0 && (
+        <>
+          <h3 className="text-muted mt-2 text-sm font-semibold">{t('home.latestFavorites')}</h3>
+          <Carousel className="-mx-4 gap-3 px-4 lg:mx-0 lg:px-0">
+            {latest.map((track) => (
+              <li key={track.trackKey} className="w-28 shrink-0">
+                <button
+                  type="button"
+                  // The same menu as anywhere a song is listed (M46.40).
+                  onContextMenu={menu(fromSavedTrack(track), { favorite: true })}
+                  onClick={() =>
+                    void playCollection({
+                      collection: { kind: 'favorites' },
+                      startIndex: (favorites.data ?? []).indexOf(track),
+                      shuffle: false,
+                    })
+                  }
+                  className="hover:bg-surface flex w-full flex-col gap-1.5 rounded-xl p-1.5 text-left"
+                >
+                  <Artwork url={track.artworkUrl} className="w-full rounded-lg" iconSize={28} />
+                  <span className="truncate text-sm font-medium">{track.title}</span>
+                  <span className="text-muted truncate text-xs">{track.artist}</span>
+                </button>
+              </li>
+            ))}
+          </Carousel>
+        </>
+      )}
     </section>
   );
 };
@@ -160,12 +244,37 @@ const ContinueReading: FC = () => {
   );
 };
 
-/** Shown while there's nothing to continue: where to start. */
+/**
+ * Shown while there's nothing to continue: where to start. × hides it for good (M46.37); Edit
+ * Home brings it back.
+ */
 const GetStarted: FC = () => {
   const { t } = useTranslation();
+  const layout = useLayout();
+  const { save, isPending } = useSaveLayout();
   return (
-    <section className="bg-surface flex flex-col gap-3 rounded-3xl px-5 py-6">
-      <h2 className="text-lg font-semibold">{t('home.startTitle')}</h2>
+    <section
+      data-testid="get-started"
+      className="bg-surface relative flex flex-col gap-3 rounded-3xl px-5 py-6"
+    >
+      <button
+        type="button"
+        aria-label={t('home.startClose')}
+        title={t('home.startClose')}
+        disabled={isPending}
+        onClick={() =>
+          save(
+            'homeSections',
+            layout.homeSections.map((item) =>
+              item.id === 'getStarted' ? { ...item, visible: false } : item,
+            ),
+          )
+        }
+        className="text-muted hover:text-foreground hover:bg-background absolute top-3 right-3 grid size-9 place-items-center rounded-full"
+      >
+        <X aria-hidden size={18} />
+      </button>
+      <h2 className="pr-10 text-lg font-semibold">{t('home.startTitle')}</h2>
       <p className="text-muted text-sm">{t('home.startBody')}</p>
       <div className="flex flex-wrap gap-2">
         <Link
@@ -292,10 +401,10 @@ export const HomePage: FC = () => {
           </>
         }
       />
-      {nothingYet && <GetStarted />}
       {layout.homeSections
         .filter((item) => item.visible)
         .map((item) => {
+          if (item.id === 'getStarted') return nothingYet ? <GetStarted key={item.id} /> : null;
           const Section = HOME_SECTIONS[item.id];
           return Section ? <Section key={item.id} /> : null;
         })}

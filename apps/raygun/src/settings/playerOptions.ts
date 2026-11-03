@@ -155,7 +155,7 @@ export const PLAYER_DEFAULTS: PlayerPrefs = {
   doubleTapCenter: 'playPause',
   doubleTapRight: 'seek',
   mediaKeys: 'switchEpisode',
-  volumeBoost: 30,
+  volumeBoost: 100,
   skipButton: true,
   introSeconds: 85,
   autoSkip: false,
@@ -174,6 +174,7 @@ export const PLAYER_DEFAULTS: PlayerPrefs = {
   decoder: 'auto',
   externalPlayer: false,
   externalPackage: '',
+  titleTrailers: true,
   showFailedSources: true,
   showEmptySources: true,
 };

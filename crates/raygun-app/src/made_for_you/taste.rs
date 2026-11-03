@@ -415,6 +415,7 @@ mod tests {
                 duration_ms: Some(200_000),
                 artwork_url: Some(format!("https://img.example/{title}.jpg")),
                 source: None,
+                explicit: false,
             },
             genres: genre.map(str::to_owned).into_iter().collect(),
             moods: mood.map(str::to_owned).into_iter().collect(),

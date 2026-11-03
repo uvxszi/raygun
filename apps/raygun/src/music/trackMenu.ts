@@ -3,6 +3,7 @@ import type { TrackInput } from '@raygun/bindings';
 import type { QueryClient } from '@tanstack/react-query';
 import {
   Copy,
+  Disc3,
   Download,
   Heart,
   HeartOff,
@@ -16,6 +17,7 @@ import {
   Scissors,
   Search,
   SearchCheck,
+  Trash2,
   UserRound,
 } from 'lucide-react';
 import type { TFunction } from 'i18next';
@@ -57,6 +59,41 @@ type TrackMenuOptions = {
   /** On a playlist page: the item, so it can be taken out. */
   playlistItemId?: string;
   favorite?: boolean;
+  /** The song is downloaded (M46.36): the menu offers to remove it instead. */
+  downloaded?: boolean;
+};
+
+/**
+ * Opens the album a song is on (M46.36): a library album for a file on this device, else the
+ * sources' copy of it, else a search for it.
+ */
+export const goToAlbum = async (
+  track: TrackInput,
+  navigate: TrackMenuOptions['navigate'],
+): Promise<void> => {
+  const album = track.album?.trim();
+  if (!album) return;
+  if (track.source?.kind === 'localFile') {
+    navigate({ to: '/library/album', search: { album, artist: track.artist ?? '' } });
+    return;
+  }
+  const found = await commands.musicFindAlbum(album, track.artist).catch(() => null);
+  if (found?.status === 'ok' && found.data) {
+    navigate({
+      to: '/music/album',
+      search: { provider: found.data.provider.id, id: found.data.id },
+    });
+    return;
+  }
+  const q = [album, track.artist].filter(Boolean).join(' ');
+  navigate({ to: '/browse', search: { tab: 'search', type: 'music', view: 'albums', q } });
+};
+
+/** Takes a song's download out of the app (M46.36), by finding its download first. */
+const removeDownload = async (track: TrackInput, client: QueryClient) => {
+  const download = await unwrapResult(commands.songDownloadFor(track));
+  if (download) await unwrapResult(commands.songDownloadRemove(download.id));
+  void client.invalidateQueries({ queryKey: ['songs'] });
 };
 
 /**
@@ -64,7 +101,7 @@ type TrackMenuOptions = {
  * artists, find it, copy its name; on a playlist, take it out.
  */
 export const trackMenu = (track: TrackInput, options: TrackMenuOptions): MenuItem[] => {
-  const { t, navigate, client, at, onPlay, playlistItemId, favorite } = options;
+  const { t, navigate, client, at, onPlay, playlistItemId, favorite, downloaded } = options;
   const refresh = () => void client.invalidateQueries({ queryKey: [COLLECTIONS] });
   const name = [track.artist, track.title].filter(Boolean).join(' – ');
   const items: MenuItem[] = [{ kind: 'heading', label: track.title }];
@@ -100,11 +137,17 @@ export const trackMenu = (track: TrackInput, options: TrackMenuOptions): MenuIte
         },
   );
   items.push(
-    {
-      label: t('songs.download'),
-      icon: Download,
-      onSelect: () => void unwrapResult(commands.songsDownload([track])),
-    },
+    downloaded
+      ? {
+          label: t('songs.removeDownload'),
+          icon: Trash2,
+          onSelect: () => void removeDownload(track, client),
+        }
+      : {
+          label: t('songs.download'),
+          icon: Download,
+          onSelect: () => void unwrapResult(commands.songsDownload([track])),
+        },
     // The cover large, to save as an image (M46.26).
     ...(track.artworkUrl
       ? [
@@ -161,7 +204,14 @@ export const trackMenu = (track: TrackInput, options: TrackMenuOptions): MenuIte
     });
   }
   const artists = creditedArtists(track.artist);
-  if (artists.length > 0) items.push({ kind: 'separator' });
+  if (artists.length > 0 || track.album) items.push({ kind: 'separator' });
+  if (track.album?.trim()) {
+    items.push({
+      label: t('menu.goToAlbum', { name: track.album.trim() }),
+      icon: Disc3,
+      onSelect: () => void goToAlbum(track, navigate),
+    });
+  }
   for (const artist of artists) {
     items.push({
       label: t('menu.goToArtist', { name: artist }),
@@ -176,11 +226,6 @@ export const trackMenu = (track: TrackInput, options: TrackMenuOptions): MenuIte
       icon: Search,
       onSelect: () =>
         navigate({ to: '/browse', search: { tab: 'search', type: 'music', q: name } }),
-    },
-    {
-      label: t('menu.copyName'),
-      icon: Copy,
-      onSelect: () => void navigator.clipboard?.writeText(name).catch(() => undefined),
     },
     {
       label: t('menu.copyTitle'),

@@ -14,6 +14,10 @@ export const commands = {
 	settingsGet: () => typedError<Settings, string>(__TAURI_INVOKE("settings_get")),
 	/**  Changes one setting and returns the updated settings. */
 	settingsUpdate: (change: SettingChange) => typedError<Settings, string>(__TAURI_INVOKE("settings_update", { change })),
+	/**  What was played from lately: albums, playlists, mixes, artists, podcasts, books (M46.37). */
+	recentContexts: () => typedError<PlayContext[], string>(__TAURI_INVOKE("recent_contexts")),
+	/**  Remembers where a play started (the page the user played from), for Home's Your music. */
+	recentContextsAdd: (context: PlayContext) => typedError<null, string>(__TAURI_INVOKE("recent_contexts_add", { context })),
 	/**  Current player state. Afterwards, changes arrive as `PlaybackStateEvent`. */
 	playbackGetState: () => __TAURI_INVOKE<PlaybackState>("playback_get_state"),
 	/**  Current queue. Afterwards, changes arrive as `QueueEvent`. */
@@ -50,11 +54,11 @@ export const commands = {
 	/**  Replaces the queue with `items` and starts playing at `start_index` (default: the first). */
 	playbackReplace: (items: QueueItemInput[], startIndex: number | null) => __TAURI_INVOKE<void>("playback_replace", { items, startIndex }),
 	/**  Installed and built-in extensions, with their status and providers. */
-	extensionsList: () => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extensions_list")),
+	extensionsList: () => typedError<ExtensionInfo_Serialize[], string>(__TAURI_INVOKE("extensions_list")),
 	/**  Reloads all extensions, picking up any copied into the `extensions/` folder. */
-	extensionsReload: () => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extensions_reload")),
+	extensionsReload: () => typedError<ExtensionInfo_Serialize[], string>(__TAURI_INVOKE("extensions_reload")),
 	/**  Forgets an extension's cookies and stored data (M46.11), then reloads it. */
-	extensionClearData: (id: string) => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extension_clear_data", { id })),
+	extensionClearData: (id: string) => typedError<ExtensionInfo_Serialize[], string>(__TAURI_INVOKE("extension_clear_data", { id })),
 	/**
 	 *  Opens the miniplayer (M46.13): a small window on top with the song and its controls. Async:
 	 *  on Windows a window made in a synchronous command never loads its page (it stays blank).
@@ -117,6 +121,12 @@ export const commands = {
 	miniplayerClose: (showMain: boolean) => typedError<null, string>(__TAURI_INVOKE("miniplayer_close", { showMain })),
 	/**  Opens the site an extension's sources read in Raygun's browser (M46.11). */
 	extensionOpenWebsite: (id: string) => typedError<null, string>(__TAURI_INVOKE("extension_open_website", { id })),
+	/**
+	 *  Opens a title's page at its source in Raygun's browser (M46.38: the website button on comic,
+	 *  book and video pages): the source's address for it, joined to the source's website when it's
+	 *  only a path; without one, the website itself.
+	 */
+	catalogOpenPage: (sourceId: string, url: string | null) => typedError<null, string>(__TAURI_INVOKE("catalog_open_page", { sourceId, url })),
 	/**  Repositories extensions can be installed from. */
 	extensionRepos: () => typedError<ExtensionRepo[], string>(__TAURI_INVOKE("extension_repos")),
 	/**  Well-known repositories to add with one tap, marked when already added. */
@@ -130,15 +140,15 @@ export const commands = {
 	 */
 	extensionCatalog: (refresh: boolean) => typedError<RepoCatalog[], string>(__TAURI_INVOKE("extension_catalog", { refresh })),
 	/**  Installs, or updates to, the version a repository lists. */
-	extensionInstall: (repoId: string, extensionId: string) => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extension_install", { repoId, extensionId })),
-	extensionUninstall: (extensionId: string) => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extension_uninstall", { extensionId })),
+	extensionInstall: (repoId: string, extensionId: string) => typedError<ExtensionInfo_Serialize[], string>(__TAURI_INVOKE("extension_install", { repoId, extensionId })),
+	extensionUninstall: (extensionId: string) => typedError<ExtensionInfo_Serialize[], string>(__TAURI_INVOKE("extension_uninstall", { extensionId })),
 	/**  Saves one of an extension's settings and reloads it. */
-	extensionSettingSet: (extensionId: string, key: string, value: SettingValue) => typedError<ExtensionInfo[], string>(__TAURI_INVOKE("extension_setting_set", { extensionId, key, value })),
+	extensionSettingSet: (extensionId: string, key: string, value: SettingValue) => typedError<ExtensionInfo_Serialize[], string>(__TAURI_INVOKE("extension_setting_set", { extensionId, key, value })),
 	/**
 	 *  Searches the local library and every online music provider at once. Each provider answers
 	 *  with tracks or an error; songs several providers found are merged into `top`.
 	 */
-	onlineSearch: (query: string) => typedError<SearchResults, string>(__TAURI_INVOKE("online_search", { query })),
+	onlineSearch: (query: string) => typedError<SearchResults_Serialize, string>(__TAURI_INVOKE("online_search", { query })),
 	/**
 	 *  Lyrics for a track, or `null` when no provider has any. The song's own lyrics (M46.12) win, and
 	 *  its lyrics offset comes along.
@@ -153,6 +163,15 @@ export const commands = {
 	/**  These are the person's own lyrics, not a source's (M46.12). */
 	edited?: boolean,
 } | null, string>(__TAURI_INVOKE("lyrics_get", { query })),
+	/**  Every lyrics source's lyrics for a song (M46.36): the user picks which to keep. */
+	lyricsOptions: (query: TrackQuery) => typedError<Lyrics[], string>(__TAURI_INVOKE("lyrics_options", { query })),
+	/**
+	 *  Hears a song's words with the transcription set up in Settings → AI, into its own synced
+	 *  lyrics (M46.36). Follow it with `captions` on the key it returns (`song:<track key>`).
+	 */
+	lyricsTranscribe: (query: TrackQuery) => typedError<string, string>(__TAURI_INVOKE("lyrics_transcribe", { query })),
+	/**  Goes back to an episode's own transcript from what AI heard (M46.36). */
+	captionsUseFeed: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("captions_use_feed", { episodeId })),
 	/**  A song's own trims, volume and lyrics edits (M46.12); defaults when it has none. */
 	songEditGet: (query: TrackQuery) => __TAURI_INVOKE<SongEdit>("song_edit_get", { query }),
 	/**  Saves a song's edit; one with nothing changed forgets it. The playing song changes at once. */
@@ -191,11 +210,11 @@ export const commands = {
 	/**  An artist's page: popular songs from the sources, and the library's albums and songs by them. */
 	musicArtist: (name: string) => typedError<ArtistOverview, string>(__TAURI_INVOKE("music_artist", { name })),
 	/**  Every source's charts for a country (M46.9), cached for an hour. */
-	musicCharts: (region: string | null) => typedError<MusicCharts, string>(__TAURI_INVOKE("music_charts", { region })),
+	musicCharts: (region: string | null) => typedError<MusicCharts_Serialize, string>(__TAURI_INVOKE("music_charts", { region })),
 	/**  A chart's songs (M46.9). */
 	musicChart: (providerId: string, chartId: string, region: string | null) => typedError<OnlineTrack[], string>(__TAURI_INVOKE("music_chart", { providerId, chartId, region })),
 	/**  Every chart source's songs for a genre or a mood (M46.19). */
-	musicTagSources: (name: string, region: string | null) => typedError<MusicTagSources, string>(__TAURI_INVOKE("music_tag_sources", { name, region })),
+	musicTagSources: (name: string, region: string | null) => typedError<MusicTagSources_Serialize, string>(__TAURI_INVOKE("music_tag_sources", { name, region })),
 	/**
 	 *  Made for You (M46.20): today's mixes (made in the background when they're from another day,
 	 *  or when `refresh`) and the listening numbers. `utc_offset_minutes` is the user's clock.
@@ -233,6 +252,8 @@ export const commands = {
 	detailEditSet: (target: DetailTarget, edit: DetailEdit) => typedError<DetailEdit, string>(__TAURI_INVOKE("detail_edit_set", { target, edit })),
 	/**  Keeps a picked image (an upload) as a cover; returns its address for an edit. */
 	detailCoverImport: (uploadId: string) => typedError<string, string>(__TAURI_INVOKE("detail_cover_import", { uploadId })),
+	/**  Covers the music sources have for a song, an album or an artist (M46.36: Edit details). */
+	detailCoverOptions: (target: DetailTarget) => typedError<CoverOption[], string>(__TAURI_INVOKE("detail_cover_options", { target })),
 	/**  The folders in Local Files and what each holds (M46.27). */
 	localFolders: () => typedError<LocalFolder[], string>(__TAURI_INVOKE("local_folders")),
 	/**  Adds a folder the user picks to Local Files and scans it; `None` when they cancelled. */
@@ -265,6 +286,13 @@ export const commands = {
 	captionsStop: (episodeId: string) => __TAURI_INVOKE<void>("captions_stop", { episodeId }),
 	/**  Forgets an episode's captions, to transcribe it again (M46.32). */
 	captionsClear: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("captions_clear", { episodeId })),
+	/**
+	 *  Makes AI subtitles for the video playing at `url` (the player's address), staying ahead of
+	 *  `from_ms`; called again as the viewer moves on (M46.33).
+	 */
+	captionsVideoTranscribe: (key: string, url: string, format: string | null, fromMs: number) => typedError<null, string>(__TAURI_INVOKE("captions_video_transcribe", { key, url, format, fromMs })),
+	/**  Makes AI subtitles for a downloaded video, the whole of it, in the background (M46.33). */
+	captionsVideoMake: (key: string) => typedError<null, string>(__TAURI_INVOKE("captions_video_make", { key })),
 	/**  Whether a queue item is a podcast episode or a book's chapter, and whose (M46.32). */
 	spokenItem: (source: MediaSource) => typedError<{
 	kind: SpokenKind,
@@ -285,11 +313,32 @@ export const commands = {
 	/**  Every genre and mood Raygun knows, moods first (M46.9). */
 	musicTagVocabulary: () => __TAURI_INVOKE<MusicTag[]>("music_tag_vocabulary"),
 	/**  Artists for a search, from every source that searches artists (M46.9). */
-	musicSearchArtists: (query: string) => typedError<MusicArtist[], string>(__TAURI_INVOKE("music_search_artists", { query })),
+	musicSearchArtists: (query: string) => typedError<MusicArtist_Serialize[], string>(__TAURI_INVOKE("music_search_artists", { query })),
 	/**  Albums for a search, from every source that searches albums (M46.9). */
-	musicSearchAlbums: (query: string) => typedError<MusicAlbum[], string>(__TAURI_INVOKE("music_search_albums", { query })),
+	musicSearchAlbums: (query: string) => typedError<MusicAlbum_Serialize[], string>(__TAURI_INVOKE("music_search_albums", { query })),
 	/**  An album's songs from the source that knows it (M46.9). */
-	musicAlbum: (providerId: string, albumId: string) => typedError<MusicAlbumDetail, string>(__TAURI_INVOKE("music_album", { providerId, albumId })),
+	musicAlbum: (providerId: string, albumId: string) => typedError<MusicAlbumDetail_Serialize, string>(__TAURI_INVOKE("music_album", { providerId, albumId })),
+	/**  An artist's albums, singles and more from every source that lists them (M46.36). */
+	musicArtistReleases: (name: string) => typedError<MusicAlbum_Serialize[], string>(__TAURI_INVOKE("music_artist_releases", { name })),
+	/**
+	 *  Playlists for a search from every source that searches them; `featured` keeps the services'
+	 *  own (M46.39).
+	 */
+	musicSearchPlaylists: (query: string, featured: boolean) => typedError<MusicPlaylist_Serialize[], string>(__TAURI_INVOKE("music_search_playlists", { query, featured })),
+	/**  A source's playlist with its songs (M46.39). */
+	musicPlaylist: (providerId: string, playlistId: string) => typedError<MusicPlaylistDetail_Serialize, string>(__TAURI_INVOKE("music_playlist", { providerId, playlistId })),
+	/**  The album a song is on, from the sources' album search (M46.36: Go to album). */
+	musicFindAlbum: (album: string, artist: string | null) => typedError<{
+	provider: ProviderInfo_Serialize,
+	id: string,
+	title: string,
+	artist: string | null,
+	year: number | null,
+	artworkUrl: string | null,
+	trackCount: number | null,
+	/**  What kind of release it is, when the source says (M46.36: an artist's discography). */
+	kind?: ReleaseKind | null,
+} | null, string>(__TAURI_INVOKE("music_find_album", { album, artist })),
 	/**  Queues songs to save into the app (M46.10). */
 	songsDownload: (tracks: TrackInput[]) => typedError<null, string>(__TAURI_INVOKE("songs_download", { tracks })),
 	/**  Every song download, newest first (M46.10). */
@@ -351,7 +400,7 @@ export const commands = {
 	/**  Undoes the newest sync that changed something on this device. */
 	syncUndoLast: () => typedError<SyncStatus, string>(__TAURI_INVOKE("sync_undo_last")),
 	/**  Installed manga sources (`manga.source` providers). */
-	mangaSources: () => typedError<MangaSource[], string>(__TAURI_INVOKE("manga_sources")),
+	mangaSources: () => typedError<MangaSource_Serialize[], string>(__TAURI_INVOKE("manga_sources")),
 	/**  A page of a source's popular, latest or search results. */
 	mangaBrowse: (sourceId: string, mode: MangaBrowseMode, query: string | null, page: number) => typedError<MangaListingPage, string>(__TAURI_INVOKE("manga_browse", { sourceId, mode, query, page })),
 	/**  A title with its chapters; `refresh` asks the source again instead of using stored data. */
@@ -390,7 +439,7 @@ export const commands = {
 	/**  Restores a Raygun backup or imports a Mihon backup from a picked file (base64 contents). */
 	backupImport: (contents: string) => typedError<BackupOutcome, string>(__TAURI_INVOKE("backup_import", { contents })),
 	/**  Installed novel sources (`novel.source` providers). */
-	novelSources: () => typedError<MangaSource[], string>(__TAURI_INVOKE("novel_sources")),
+	novelSources: () => typedError<MangaSource_Serialize[], string>(__TAURI_INVOKE("novel_sources")),
 	/**  A page of a novel source's catalogue: popular, latest, or search results. */
 	novelBrowse: (sourceId: string, mode: MangaBrowseMode, query: string | null, page: number) => typedError<MangaListingPage, string>(__TAURI_INVOKE("novel_browse", { sourceId, mode, query, page })),
 	/**  A novel with its chapters; `refresh` fetches it from the source again. */
@@ -524,8 +573,13 @@ export const commands = {
 	mangaUpdateHours: number,
 	/**  How novels are set (M31). */
 	novelReader: NovelReaderPrefs,
-	/**  Shows NSFW (18+) extensions and content; off by default (M35). */
+	/**
+	 *  Shows NSFW (18+) extensions and content; off by default (M35). Music isn't covered since
+	 *  M46.36: that's `explicit_music`.
+	 */
 	showNsfw: boolean,
+	/**  Shows songs marked explicit and music sources rated 18+ (M46.36); on by default. */
+	explicitMusic: boolean,
 	/**  The video height links are picked by (M42); `None` picks the highest. */
 	preferredVideoQuality: number | null,
 	/**  The colour of buttons, tabs and highlights (M42.1). */
@@ -608,8 +662,6 @@ export const commands = {
 	keepMusicPlaying: boolean,
 	/**  Opening Raygun shows what played last, paused where it was (M46.16). */
 	resumeOnStart: boolean,
-	/**  What plays shows in Discord's status (desktop). */
-	discord: DiscordPrefs,
 	/**  How good songs sound against the data they use, streaming and downloading. */
 	audioQuality: AudioQualityPrefs,
 	/**  What the desktop sidebar shows and in what order (M46.29). */
@@ -661,7 +713,7 @@ export const commands = {
 	 *  The first page of every manga, novel or video source's results for `query` (their popular
 	 *  titles when it's blank), or only `sources`' when any are given (Search's source chips).
 	 */
-	catalogGlobalSearch: (medium: string, query: string, sources: string[]) => typedError<SourceSearchResult[], string>(__TAURI_INVOKE("catalog_global_search", { medium, query, sources })),
+	catalogGlobalSearch: (medium: string, query: string, sources: string[]) => typedError<SourceSearchResult_Serialize[], string>(__TAURI_INVOKE("catalog_global_search", { medium, query, sources })),
 	/**  Tracks in the device's library matching `query` (title, artist or album). */
 	librarySearch: (query: string) => typedError<LibraryTrack[], string>(__TAURI_INVOKE("library_search", { query })),
 	stremioAddons: () => typedError<StremioAddon[], string>(__TAURI_INVOKE("stremio_addons")),
@@ -697,7 +749,7 @@ export const commands = {
 	 */
 	localNetworkOpenSettings: () => typedError<null, string>(__TAURI_INVOKE("local_network_open_settings")),
 	/**  Installed video sources (`video.source` providers). */
-	videoSources: () => typedError<MangaSource[], string>(__TAURI_INVOKE("video_sources")),
+	videoSources: () => typedError<MangaSource_Serialize[], string>(__TAURI_INVOKE("video_sources")),
 	/**  A page of a video source's catalogue: popular, latest, or search results. */
 	videoBrowse: (sourceId: string, mode: MangaBrowseMode, query: string | null, page: number) => typedError<MangaListingPage, string>(__TAURI_INVOKE("video_browse", { sourceId, mode, query, page })),
 	/**  A video title with its episodes and watching progress; `refresh` asks the source again. */
@@ -747,8 +799,23 @@ export const commands = {
 	videoSetPlayerLabels: (labels: { [key in string]: string }) => __TAURI_INVOKE<void>("video_set_player_labels", { labels }),
 	/**  A report from the webview's video player (desktop, M46.4), in the Android player's JSON. */
 	videoPlayerReport: (report: string) => __TAURI_INVOKE<void>("video_player_report", { report }),
-	/**  Plays a video in mpv or VLC (desktop, M46.4); returns the app's name. */
-	videoPlayerExternal: (play: ExternalPlay) => typedError<string, string>(__TAURI_INVOKE("video_player_external", { play })),
+	/**
+	 *  Plays a video in another app (desktop, M46.4): `player` is one of `video_external_players`,
+	 *  else the first installed (M46.33). Returns the app's name.
+	 */
+	videoPlayerExternal: (play: ExternalPlay, player: string | null) => typedError<string, string>(__TAURI_INVOKE("video_player_external", { play, player })),
+	/**  The video players installed on this computer, best first (desktop, M46.33). */
+	videoExternalPlayers: () => __TAURI_INVOKE<ExternalPlayer[]>("video_external_players"),
+	/**
+	 *  Looks for subtitles for what plays under `key` (`stremio:<type>:<id>`) in every added addon
+	 *  (M46.33); offers OpenSubtitles when no addon serves subtitles.
+	 */
+	videoFindSubtitles: (key: string) => typedError<FoundSubtitles, string>(__TAURI_INVOKE("video_find_subtitles", { key })),
+	/**
+	 *  The YouTube embed host page (M08), with YouTube's controls or without (M46.34: trailers on
+	 *  title pages play in a small window of Raygun's own).
+	 */
+	youtubeEmbedUrl: (controls: boolean) => __TAURI_INVOKE<string>("youtube_embed_url", { controls }),
 	/**  A report from the webview's speech engine (desktop, M46.6), in the Android engine's JSON. */
 	ttsReport: (report: string) => __TAURI_INVOKE<void>("tts_report", { report }),
 	/**  Whether the webview can speak (desktop, M46.6); its speech engine says so when it starts. */
@@ -763,7 +830,7 @@ export const events = {
 	connectRequestEvent: makeEvent<ConnectRequestEvent>("connect-request-event"),
 	engineCommandEvent: makeEvent<EngineCommandEvent>("engine-command-event"),
 	exportEvent: makeEvent<ExportEvent>("export-event"),
-	extensionsChangedEvent: makeEvent<ExtensionsChangedEvent>("extensions-changed-event"),
+	extensionsChangedEvent: makeEvent<ExtensionsChangedEvent_Deserialize>("extensions-changed-event"),
 	importEvent: makeEvent<ImportEvent>("import-event"),
 	libraryScanEvent: makeEvent<LibraryScanEvent>("library-scan-event"),
 	localFilesEvent: makeEvent<LocalFilesEvent>("local-files-event"),
@@ -1045,6 +1112,8 @@ export type Captions = {
 	/**  Transcription is set up (a model downloaded, or a provider picked). */
 	canTranscribe: boolean,
 	engine: TranscriptionEngine,
+	/**  The episode's feed has a transcript of its own (M46.36: the listener can go back to it). */
+	hasFeed?: boolean,
 };
 
 /**
@@ -1216,6 +1285,16 @@ export type ContinueWatching = {
 	watched: boolean,
 };
 
+/**  A cover a source has for a song, an album or an artist (M46.36), offered in Edit details. */
+export type CoverOption = {
+	/**  The image's address at the source (stored as is when picked). */
+	url: string,
+	/**  The source's name. */
+	source: string,
+	/**  What it's the cover of, when that isn't the thing edited (a song's album). */
+	of: string | null,
+};
+
 export type CoverStyle = "compact" | "comfortable";
 
 /**  People with one role on a song (M46.14): "Written by", "Produced by", "Guitar"... */
@@ -1259,16 +1338,6 @@ export type DetailEdit = {
 
 /**  What the user edits the details of (M46.30): a song, an album or an artist. */
 export type DetailTarget = { kind: "song"; query: TrackQuery } | { kind: "album"; artist: string | null; album: string } | { kind: "artist"; name: string };
-
-/**
- *  Discord presence (desktop): off by default, and it needs the ID of a Discord application the
- *  user made (Discord's local IPC asks for one; Raygun has none of its own).
- */
-export type DiscordPrefs = {
-	enabled: boolean,
-	/**  The application's ID from discord.com/developers/applications (digits). */
-	appId: string,
-};
 
 /**  Charts and song tags (M46.9). */
 export type DiscoveryPrefs = {
@@ -1426,7 +1495,9 @@ export type ExportState =
 /**  Waiting for chapters to download. */
 "downloading" | "writing" | "done" | "failed" | "cancelled";
 
-export type ExtensionInfo = {
+export type ExtensionInfo = ExtensionInfo_Serialize | ExtensionInfo_Deserialize;
+
+export type ExtensionInfo_Deserialize = {
 	id: string,
 	name: string,
 	version: string,
@@ -1440,7 +1511,34 @@ export type ExtensionInfo = {
 	provides: string[],
 	/**  Host patterns the extension may reach (`archive.org`, `*.archive.org`). */
 	net: string[],
-	providers: ProviderInfo[],
+	providers: ProviderInfo_Deserialize[],
+	settings: ExtensionSetting[],
+	/**  For a converted Nuclear plugin (M17): what works and what doesn't. */
+	compatibility: CompatReport | null,
+	/**  The icon its repository lists, through the cover cache (M46.2). */
+	icon: string | null,
+	/**
+	 *  The site its sources read (the manifest's `website` or a Shosetsu script's `baseURL`),
+	 *  opened in Raygun's browser from a source's menu (M46.11).
+	 */
+	website: string | null,
+};
+
+export type ExtensionInfo_Serialize = {
+	id: string,
+	name: string,
+	version: string,
+	description: string | null,
+	/**  `safe`, `suggestive` or `nsfw`; providers of `nsfw` ones are hidden while NSFW is off. */
+	contentRating: string,
+	origin: ExtensionOrigin,
+	status: ExtensionStatus,
+	/**  Why the extension failed to load, when it did. */
+	error: string | null,
+	provides: string[],
+	/**  Host patterns the extension may reach (`archive.org`, `*.archive.org`). */
+	net: string[],
+	providers: ProviderInfo_Serialize[],
 	settings: ExtensionSetting[],
 	/**  For a converted Nuclear plugin (M17): what works and what doesn't. */
 	compatibility: CompatReport | null,
@@ -1483,16 +1581,32 @@ export type ExtensionSetting = {
 export type ExtensionStatus = "loaded" | "failed";
 
 /**  Extensions were (re)loaded; carries the new list. */
-export type ExtensionsChangedEvent = ExtensionInfo[];
+export type ExtensionsChangedEvent = ExtensionsChangedEvent_Serialize | ExtensionsChangedEvent_Deserialize;
+
+/**  Extensions were (re)loaded; carries the new list. */
+export type ExtensionsChangedEvent_Deserialize = ExtensionInfo_Deserialize[];
+
+/**  Extensions were (re)loaded; carries the new list. */
+export type ExtensionsChangedEvent_Serialize = ExtensionInfo_Serialize[];
 
 /**  What the desktop player hands to mpv or VLC (M46.4). */
 export type ExternalPlay = {
-	/**  The player's address for the stream (through the proxy). */
+	/**
+	 *  The player's address for the stream (through the proxy).
+	 *  (M46.33: which app is the command's `player` argument.)
+	 */
 	url: string,
 	title: string,
 	/**  Subtitle files' addresses; the first is passed on. */
 	subtitles: string[],
 	startMs: number | null,
+};
+
+/**  A video player installed on this computer (M46.33). */
+export type ExternalPlayer = {
+	/**  `mpv`, `vlc`, `mpc-hc`, `mpc-be` or `potplayer`. */
+	id: string,
+	name: string,
 };
 
 export type FilterOption = {
@@ -1502,6 +1616,15 @@ export type FilterOption = {
 
 /**  A filter's chosen value, keyed by the filter's `key`. */
 export type FilterValue = boolean | string | { include: string[]; exclude: string[] };
+
+/**  Subtitles found for a video in the player (M46.33). */
+export type FoundSubtitles = {
+	tracks: VideoSubtitle[],
+	/**  The suggested subtitles addon to add, when no added addon serves subtitles. */
+	suggestion: StremioSuggestion | null,
+	/**  Why nothing could be looked for (a video from a source that names no film or series). */
+	note: string | null,
+};
 
 export type HistoryEntry = {
 	track: SavedTrack,
@@ -1517,7 +1640,9 @@ export type ImageDestination =
 "folder";
 
 /**  The file type a saved cover image gets (M46.26). */
-export type ImageFileFormat = "png" | "jpeg" | "webp";
+export type ImageFileFormat = "png" | "jpeg" | "webp" | 
+/**  JPEG XL, lossless (M46.38). */
+"jxl";
 
 /**  An import matched another song in the background; carries the playlist's id (M46.31). */
 export type ImportEvent = string;
@@ -1897,13 +2022,28 @@ export type MangaReaderPrefs = {
 	preloadPages?: number,
 };
 
-export type MangaSource = {
+export type MangaSource = MangaSource_Serialize | MangaSource_Deserialize;
+
+export type MangaSource_Deserialize = {
 	/**  `<extension>/<provider>`. */
 	id: string,
 	name: string,
 	extensionId: string,
 	/**  False when the user disabled it: it stays listed, but searches skip it (M46.8). */
 	enabled: boolean,
+	/**  Its own Search pill, when the source declares one (M46.35). */
+	searchPill?: string | null,
+};
+
+export type MangaSource_Serialize = {
+	/**  `<extension>/<provider>`. */
+	id: string,
+	name: string,
+	extensionId: string,
+	/**  False when the user disabled it: it stays listed, but searches skip it (M46.8). */
+	enabled: boolean,
+	/**  Its own Search pill, when the source declares one (M46.35). */
+	searchPill?: string | null,
 };
 
 export type MangaTitleView = {
@@ -2064,33 +2204,88 @@ export type MixSummary = {
 export type MotionLevel = "off" | "calm" | "lively";
 
 /**  An album a music source knows (M46.9): Search → Music → Albums. */
-export type MusicAlbum = {
-	provider: ProviderInfo,
+export type MusicAlbum = MusicAlbum_Serialize | MusicAlbum_Deserialize;
+
+/**  An album with its songs, in order (M46.9). */
+export type MusicAlbumDetail = MusicAlbumDetail_Serialize | MusicAlbumDetail_Deserialize;
+
+/**  An album with its songs, in order (M46.9). */
+export type MusicAlbumDetail_Deserialize = {
+	album: MusicAlbum_Deserialize,
+	tracks: OnlineTrack[],
+};
+
+/**  An album with its songs, in order (M46.9). */
+export type MusicAlbumDetail_Serialize = {
+	album: MusicAlbum_Serialize,
+	tracks: OnlineTrack[],
+};
+
+/**  An album a music source knows (M46.9): Search → Music → Albums. */
+export type MusicAlbum_Deserialize = {
+	provider: ProviderInfo_Deserialize,
 	id: string,
 	title: string,
 	artist: string | null,
 	year: number | null,
 	artworkUrl: string | null,
 	trackCount: number | null,
+	/**  What kind of release it is, when the source says (M46.36: an artist's discography). */
+	kind?: ReleaseKind | null,
 };
 
-/**  An album with its songs, in order (M46.9). */
-export type MusicAlbumDetail = {
-	album: MusicAlbum,
-	tracks: OnlineTrack[],
+/**  An album a music source knows (M46.9): Search → Music → Albums. */
+export type MusicAlbum_Serialize = {
+	provider: ProviderInfo_Serialize,
+	id: string,
+	title: string,
+	artist: string | null,
+	year: number | null,
+	artworkUrl: string | null,
+	trackCount: number | null,
+	/**  What kind of release it is, when the source says (M46.36: an artist's discography). */
+	kind?: ReleaseKind | null,
 };
 
 /**  An artist a music source knows (M46.9): Search → Music → Artists. */
-export type MusicArtist = {
-	provider: ProviderInfo,
+export type MusicArtist = MusicArtist_Serialize | MusicArtist_Deserialize;
+
+/**  An artist a music source knows (M46.9): Search → Music → Artists. */
+export type MusicArtist_Deserialize = {
+	provider: ProviderInfo_Deserialize,
+	id: string,
+	name: string,
+	imageUrl: string | null,
+};
+
+/**  An artist a music source knows (M46.9): Search → Music → Artists. */
+export type MusicArtist_Serialize = {
+	provider: ProviderInfo_Serialize,
 	id: string,
 	name: string,
 	imageUrl: string | null,
 };
 
 /**  A chart a `music.charts` provider keeps (M46.9): its most played, trending, or a genre's top. */
-export type MusicChart = {
-	provider: ProviderInfo,
+export type MusicChart = MusicChart_Serialize | MusicChart_Deserialize;
+
+/**  A chart a `music.charts` provider keeps (M46.9): its most played, trending, or a genre's top. */
+export type MusicChart_Deserialize = {
+	provider: ProviderInfo_Deserialize,
+	/**  The provider's own id, passed back for the songs. */
+	id: string,
+	name: string,
+	description: string | null,
+	artworkUrl: string | null,
+	/**  The genre the chart belongs to, in the app's spelling ("Hip-Hop"). */
+	tag: string | null,
+	/**  What kind of chart it is (M46.19). */
+	group: ChartGroup,
+};
+
+/**  A chart a `music.charts` provider keeps (M46.9): its most played, trending, or a genre's top. */
+export type MusicChart_Serialize = {
+	provider: ProviderInfo_Serialize,
 	/**  The provider's own id, passed back for the songs. */
 	id: string,
 	name: string,
@@ -2103,10 +2298,64 @@ export type MusicChart = {
 };
 
 /**  Every source's charts (M46.9), and the sources that failed. */
-export type MusicCharts = {
-	charts: MusicChart[],
+export type MusicCharts = MusicCharts_Serialize | MusicCharts_Deserialize;
+
+/**  Every source's charts (M46.9), and the sources that failed. */
+export type MusicCharts_Deserialize = {
+	charts: MusicChart_Deserialize[],
 	/**  `<provider name>: <error>` for each source that didn't answer. */
 	errors: string[],
+};
+
+/**  Every source's charts (M46.9), and the sources that failed. */
+export type MusicCharts_Serialize = {
+	charts: MusicChart_Serialize[],
+	/**  `<provider name>: <error>` for each source that didn't answer. */
+	errors: string[],
+};
+
+/**  A playlist a music source has (M46.39): Search → Music → Playlists. */
+export type MusicPlaylist = MusicPlaylist_Serialize | MusicPlaylist_Deserialize;
+
+/**  A playlist with its songs, in order (M46.39). */
+export type MusicPlaylistDetail = MusicPlaylistDetail_Serialize | MusicPlaylistDetail_Deserialize;
+
+/**  A playlist with its songs, in order (M46.39). */
+export type MusicPlaylistDetail_Deserialize = {
+	playlist: MusicPlaylist_Deserialize,
+	tracks: OnlineTrack[],
+};
+
+/**  A playlist with its songs, in order (M46.39). */
+export type MusicPlaylistDetail_Serialize = {
+	playlist: MusicPlaylist_Serialize,
+	tracks: OnlineTrack[],
+};
+
+/**  A playlist a music source has (M46.39): Search → Music → Playlists. */
+export type MusicPlaylist_Deserialize = {
+	provider: ProviderInfo_Deserialize,
+	id: string,
+	title: string,
+	/**  Who made it (a user, or the service for its own). */
+	author: string | null,
+	artworkUrl: string | null,
+	trackCount: number | null,
+	/**  One of the service's own (editorial) playlists. */
+	featured: boolean,
+};
+
+/**  A playlist a music source has (M46.39): Search → Music → Playlists. */
+export type MusicPlaylist_Serialize = {
+	provider: ProviderInfo_Serialize,
+	id: string,
+	title: string,
+	/**  Who made it (a user, or the service for its own). */
+	author: string | null,
+	artworkUrl: string | null,
+	trackCount: number | null,
+	/**  One of the service's own (editorial) playlists. */
+	featured: boolean,
 };
 
 /**  One tag on a song (M46.9). */
@@ -2116,8 +2365,17 @@ export type MusicTag = {
 };
 
 /**  Every source's songs for a genre or a mood (M46.19). */
-export type MusicTagSources = {
-	rows: TagSongsRow[],
+export type MusicTagSources = MusicTagSources_Serialize | MusicTagSources_Deserialize;
+
+/**  Every source's songs for a genre or a mood (M46.19). */
+export type MusicTagSources_Deserialize = {
+	rows: TagSongsRow_Deserialize[],
+	failures: SourceFailure[],
+};
+
+/**  Every source's songs for a genre or a mood (M46.19). */
+export type MusicTagSources_Serialize = {
+	rows: TagSongsRow_Serialize[],
 	failures: SourceFailure[],
 };
 
@@ -2165,6 +2423,8 @@ export type OnlineTrack = {
 	artworkUrl: string | null,
 	/**  Directly playable source, when the provider knows one (M14 resolves the others). */
 	source: MediaSource | null,
+	/**  The source marks it explicit (M46.36); hidden while Explicit music is off. */
+	explicit?: boolean,
 };
 
 /**  A page of the manga reader, by its proxy URL. */
@@ -2197,6 +2457,23 @@ export type PanelPrefs = {
 	playerSplit?: number,
 	/**  Songs the side panel's "Next in queue" card shows, 1 to 10 (M46.24). */
 	nextUpRows?: number,
+};
+
+/**
+ *  Where something was played from (M46.37: Home's Your music shows the latest): an album, a
+ *  playlist, a mix, an artist, a chart, a podcast or a book, with the page that opens it.
+ */
+export type PlayContext = {
+	/**  `album`, `playlist`, `mix`, `artist`, `chart`, `tag`, `podcast` or `audiobook`. */
+	kind: string,
+	name: string,
+	subtitle: string | null,
+	artworkUrl: string | null,
+	/**  The page's path (`/music/album`) and its search parameters. */
+	to: string,
+	search: { [key in string]: string },
+	/**  Unix ms; set when it's remembered. */
+	playedAt?: number | null,
 };
 
 export type PlayRequest = {
@@ -2348,17 +2625,43 @@ export type PodcastView = {
 export type PodcastsChangedEvent = string;
 
 /**  A provider an extension registered, e.g. a `music.metadata` search. */
-export type ProviderInfo = {
+export type ProviderInfo = ProviderInfo_Serialize | ProviderInfo_Deserialize;
+
+/**  A provider an extension registered, e.g. a `music.metadata` search. */
+export type ProviderInfo_Deserialize = {
 	/**  Unique across extensions: `<extension id>/<provider id>`. */
 	id: string,
 	extensionId: string,
 	kind: string,
 	name: string,
+	/**  A video source's own Search pill (M46.35: "YouTube", "PeerTube"). */
+	searchPill?: string | null,
+};
+
+/**  A provider an extension registered, e.g. a `music.metadata` search. */
+export type ProviderInfo_Serialize = {
+	/**  Unique across extensions: `<extension id>/<provider id>`. */
+	id: string,
+	extensionId: string,
+	kind: string,
+	name: string,
+	/**  A video source's own Search pill (M46.35: "YouTube", "PeerTube"). */
+	searchPill?: string | null,
 };
 
 /**  One provider's answer to an online search. */
-export type ProviderSearchResult = {
-	provider: ProviderInfo,
+export type ProviderSearchResult = ProviderSearchResult_Serialize | ProviderSearchResult_Deserialize;
+
+/**  One provider's answer to an online search. */
+export type ProviderSearchResult_Deserialize = {
+	provider: ProviderInfo_Deserialize,
+	tracks: OnlineTrack[],
+	error: string | null,
+};
+
+/**  One provider's answer to an online search. */
+export type ProviderSearchResult_Serialize = {
+	provider: ProviderInfo_Serialize,
 	tracks: OnlineTrack[],
 	error: string | null,
 };
@@ -2441,6 +2744,9 @@ export type ReaderMode =
 "pagedLtr" | 
 /**  One page at a time, right to left (most manga). */
 "pagedRtl";
+
+/**  A release's kind (M46.36), as MusicBrainz and Deezer name them. */
+export type ReleaseKind = "album" | "single" | "ep" | "compilation" | "live" | "other";
 
 export type RemoteDevice = {
 	id: string,
@@ -2534,21 +2840,33 @@ export type ScanPhase = "discovering" | "reading" | "done" | "failed";
 export type ScrollbarStyle = "thin" | "wide" | "hidden";
 
 /**  Everything a search found (M18). */
-export type SearchResults = {
+export type SearchResults = SearchResults_Serialize | SearchResults_Deserialize;
+
+/**  Everything a search found (M18). */
+export type SearchResults_Deserialize = {
 	/**  Local library tracks matching every word of the query. */
 	library: LibraryTrack[],
 	/**  Tracks merged across providers, best first; empty unless two or more providers found some. */
 	top: OnlineTrack[],
-	providers: ProviderSearchResult[],
+	providers: ProviderSearchResult_Deserialize[],
+};
+
+/**  Everything a search found (M18). */
+export type SearchResults_Serialize = {
+	/**  Local library tracks matching every word of the query. */
+	library: LibraryTrack[],
+	/**  Tracks merged across providers, best first; empty unless two or more providers found some. */
+	top: OnlineTrack[],
+	providers: ProviderSearchResult_Serialize[],
 };
 
 /**
  *  A change to a single setting. The tagged shape (`{ key, value }`) lets the UI send only valid
  *  key/value pairs, and doubles as the format of a stored row.
  */
-export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
+export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "discord"; value: DiscordPrefs } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -2564,8 +2882,13 @@ export type Settings = {
 	mangaUpdateHours: number,
 	/**  How novels are set (M31). */
 	novelReader: NovelReaderPrefs,
-	/**  Shows NSFW (18+) extensions and content; off by default (M35). */
+	/**
+	 *  Shows NSFW (18+) extensions and content; off by default (M35). Music isn't covered since
+	 *  M46.36: that's `explicit_music`.
+	 */
 	showNsfw: boolean,
+	/**  Shows songs marked explicit and music sources rated 18+ (M46.36); on by default. */
+	explicitMusic: boolean,
 	/**  The video height links are picked by (M42); `None` picks the highest. */
 	preferredVideoQuality: number | null,
 	/**  The colour of buttons, tabs and highlights (M42.1). */
@@ -2648,8 +2971,6 @@ export type Settings = {
 	keepMusicPlaying: boolean,
 	/**  Opening Raygun shows what played last, paused where it was (M46.16). */
 	resumeOnStart: boolean,
-	/**  What plays shows in Discord's status (desktop). */
-	discord: DiscordPrefs,
 	/**  How good songs sound against the data they use, streaming and downloading. */
 	audioQuality: AudioQualityPrefs,
 	/**  What the desktop sidebar shows and in what order (M46.29). */
@@ -2789,8 +3110,19 @@ export type SourceFilter =
 { kind: "tags"; key: string; label: string; options: FilterOption[] } | { kind: "toggle"; key: string; label: string; default: boolean };
 
 /**  One source's first page of results in a search across sources. */
-export type SourceSearchResult = {
-	source: MangaSource,
+export type SourceSearchResult = SourceSearchResult_Serialize | SourceSearchResult_Deserialize;
+
+/**  One source's first page of results in a search across sources. */
+export type SourceSearchResult_Deserialize = {
+	source: MangaSource_Deserialize,
+	items: MangaCard[],
+	hasNextPage: boolean,
+	error: string | null,
+};
+
+/**  One source's first page of results in a search across sources. */
+export type SourceSearchResult_Serialize = {
+	source: MangaSource_Serialize,
 	items: MangaCard[],
 	hasNextPage: boolean,
 	error: string | null,
@@ -3102,8 +3434,19 @@ export type TagCount = {
 export type TagKind = "genre" | "mood";
 
 /**  One source's songs for a genre or a mood (M46.19). */
-export type TagSongsRow = {
-	provider: ProviderInfo,
+export type TagSongsRow = TagSongsRow_Serialize | TagSongsRow_Deserialize;
+
+/**  One source's songs for a genre or a mood (M46.19). */
+export type TagSongsRow_Deserialize = {
+	provider: ProviderInfo_Deserialize,
+	/**  What the source calls them ("Breakcore on ListenBrainz"). */
+	name: string,
+	tracks: OnlineTrack[],
+};
+
+/**  One source's songs for a genre or a mood (M46.19). */
+export type TagSongsRow_Serialize = {
+	provider: ProviderInfo_Serialize,
 	/**  What the source calls them ("Breakcore on ListenBrainz"). */
 	name: string,
 	tracks: OnlineTrack[],
@@ -3429,6 +3772,8 @@ export type VideoPlayerPrefs = {
 	externalPlayer?: boolean,
 	/**  That app's package; empty asks each time. */
 	externalPackage?: string,
+	/**  Movie and series pages play their trailer in a small window (M46.34). */
+	titleTrailers?: boolean,
 	/**  The player's Sources list shows servers that failed or had nothing. */
 	showFailedSources?: boolean,
 	showEmptySources?: boolean,

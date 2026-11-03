@@ -46,11 +46,14 @@ quick-xml = "0.42"
 # Exports (M46.1): page images decoded for PDFs, HLS segments decrypted when joined.
 png = "0.18"
 image-webp = "0.2"
+# Saving covers as JPEG XL (M46.38): a lossless encoder in safe Rust.
+zune-jpegxl = "0.5"
+zune-core = "0.5"
 aes = "0.8"
 cbc = "0.1"
 chrono = { version = "0.4", default-features = false, features = ["std", "alloc"] }
 # Music downloads (M46.10): decoding to save as WAV or FLAC, and tags on saved files.
-symphonia = { version = "0.6", default-features = false, features = ["mp3", "aac", "isomp4", "flac", "ogg", "vorbis", "wav", "pcm", "opt-simd"] }
+symphonia = { version = "0.6", default-features = false, features = ["mp3", "aac", "isomp4", "mkv", "flac", "ogg", "vorbis", "wav", "pcm", "opt-simd"] }
 hound = "3.5"
 flacenc = "0.5"
 lofty = "0.25"
@@ -69,8 +72,6 @@ rten-imageproc = "0.26"
 rfd.workspace = true
 # One running copy on desktop (M46.11): two would share one database.
 tauri-plugin-single-instance = "2.5"
-# Discord presence (M46.16): its local IPC.
-discord-rich-presence = "1.1"
 # Copying a page to the clipboard on desktop (M46.6).
 arboard = { version = "3", default-features = false, features = ["image-data"] }
 

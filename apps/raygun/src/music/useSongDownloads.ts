@@ -9,9 +9,10 @@ const SONGS = ['songs', 'downloads'];
 const KEYS = ['songs', 'downloaded'];
 
 /** Keeps the song downloads and the downloaded marks current from Rust's events (M46.10). */
-const useSongDownloadEvents = () => {
+const useSongDownloadEvents = (listen = true) => {
   const client = useQueryClient();
   useEffect(() => {
+    if (!listen) return;
     const unlisten = events.songDownloadsEvent.listen(() => {
       void client.invalidateQueries({ queryKey: SONGS });
       void client.invalidateQueries({ queryKey: KEYS });
@@ -19,7 +20,7 @@ const useSongDownloadEvents = () => {
     return () => {
       void unlisten.then((stop) => stop());
     };
-  }, [client]);
+  }, [client, listen]);
 };
 
 /** Every song download, newest first. */
@@ -31,9 +32,12 @@ export const useSongDownloads = () => {
   });
 };
 
-/** Keys of downloaded songs, to mark them in song lists. */
-export const useDownloadedKeys = () => {
-  useSongDownloadEvents();
+/**
+ * Keys of downloaded songs, to mark them in song lists. Rows' menus pass `listen` false (M46.36):
+ * one shared answer, without an event listener per row.
+ */
+export const useDownloadedKeys = (listen = true) => {
+  useSongDownloadEvents(listen);
   const keys = useQuery({
     queryKey: KEYS,
     queryFn: () => commands.songDownloadedKeys(),

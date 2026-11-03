@@ -1,4 +1,4 @@
-import type { OnlineTrack, ProviderSearchResult } from '@raygun/bindings';
+import type { MusicAlbum, OnlineTrack, ProviderSearchResult } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import { LoaderCircle, UserRound } from 'lucide-react';
 import type { FC } from 'react';
@@ -100,19 +100,24 @@ export const AlbumFinds: FC<{ query: string }> = ({ query }) => {
     >
       {list.map((album) => (
         <li key={`${album.provider.id}:${album.id}`}>
-          <Link
-            to="/music/album"
-            search={{ provider: album.provider.id, id: album.id }}
-            className="hover:bg-surface flex flex-col gap-1.5 rounded-xl p-2"
-          >
-            <Artwork url={album.artworkUrl} className="w-full rounded-lg shadow" iconSize={36} />
-            <span className="truncate text-sm font-semibold">{album.title}</span>
-            <span className="text-muted truncate text-xs">
-              {[album.year, album.artist, album.provider.name].filter(Boolean).join(' · ')}
-            </span>
-          </Link>
+          <AlbumTile album={album} />
         </li>
       ))}
     </ul>
   );
 };
+
+/** An album a source knows, opening its page (M46.9); `detail` replaces the line under it. */
+export const AlbumTile: FC<{ album: MusicAlbum; detail?: string }> = ({ album, detail }) => (
+  <Link
+    to="/music/album"
+    search={{ provider: album.provider.id, id: album.id }}
+    className="hover:bg-surface flex flex-col gap-1.5 rounded-xl p-2"
+  >
+    <Artwork url={album.artworkUrl} className="w-full rounded-lg shadow" iconSize={36} />
+    <span className="truncate text-sm font-semibold">{album.title}</span>
+    <span className="text-muted truncate text-xs">
+      {detail ?? [album.year, album.artist, album.provider.name].filter(Boolean).join(' · ')}
+    </span>
+  </Link>
+);

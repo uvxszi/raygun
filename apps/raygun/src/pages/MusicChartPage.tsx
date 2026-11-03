@@ -10,6 +10,7 @@ import { OnlineTrackRow } from '../search/OnlineTrackRow';
 import { playResults } from '../search/useOnlineSearch';
 import { TopBar } from '../shell/TopBar';
 import { SourceIssue } from '../shell/SourceIssue';
+import { usePlayContext } from '../music/playContext';
 
 /** A chart's page (M46.9): its songs in order, played from any of them. */
 export const MusicChartPage: FC = () => {
@@ -21,6 +22,18 @@ export const MusicChartPage: FC = () => {
   );
   const songs = useChartSongs(provider, id);
   const list = songs.data ?? [];
+  usePlayContext(
+    chart
+      ? {
+          kind: 'chart',
+          name: chart.name,
+          subtitle: chart.provider.name,
+          artworkUrl: chart.artworkUrl ?? list[0]?.artworkUrl ?? null,
+          to: '/music/chart',
+          search: { provider, id },
+        }
+      : null,
+  );
   const play = (shuffle: boolean) => {
     if (list.length === 0) return;
     const start = shuffle ? list[Math.floor(Math.random() * list.length)] : list[0];

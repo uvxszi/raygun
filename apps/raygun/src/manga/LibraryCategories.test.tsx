@@ -54,7 +54,7 @@ describe('Library categories and filters', () => {
 
   it('shows every media type and splits the manga library into category tabs', async () => {
     const user = userEvent.setup();
-    await AppShellWrapper.mount('/library');
+    await AppShellWrapper.mount('/library?media=music');
     const names = { music: 'Audio', manga: 'Comics', novel: 'Books', video: 'Videos' };
     for (const [media, name] of Object.entries(names)) {
       expect(await screen.findByTestId(`library-media-${media}`)).toHaveTextContent(name);

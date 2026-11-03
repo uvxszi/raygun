@@ -154,11 +154,13 @@ const useHealthReport = (
  * Every searched source's results in one list (M46.9), the best answers first, each with its
  * source's name. Sources answer a few at a time; the list grows as they do.
  */
-const RankedResults: FC<{ sources: MangaSource[]; medium: Medium; query: string }> = ({
-  sources,
-  medium,
-  query,
-}) => {
+export const RankedResults: FC<{
+  sources: MangaSource[];
+  medium: Medium;
+  query: string;
+  /** Show at most this many (Search → All's preview, M46.35). */
+  limit?: number;
+}> = ({ sources, medium, query, limit }) => {
   const { t } = useTranslation();
   const { failed, worked } = useSourceHealth();
   const searches = useQueries({
@@ -202,7 +204,7 @@ const RankedResults: FC<{ sources: MangaSource[]; medium: Medium; query: string 
       {ranked.length > 0 && (
         <MangaGrid
           medium={medium}
-          items={ranked.map(({ card, sourceName }) => ({
+          items={ranked.slice(0, limit ?? ranked.length).map(({ card, sourceName }) => ({
             ...toGridItems([card])[0]!,
             subtitle: sourceName,
           }))}
@@ -316,9 +318,19 @@ const readChosen = (medium: Medium): string[] => {
  * Search → Manga, Novels or Videos: sources picked with chips (several at once; none is every
  * source). Several sources search together; one source searches with its filters and tags.
  */
-export const CatalogSearch: FC<{ medium: Medium; query: string }> = ({ medium, query }) => {
+export const CatalogSearch: FC<{
+  medium: Medium;
+  query: string;
+  /** One source only, without chips: a video source's own pill (M46.35). */
+  only?: string;
+}> = ({ medium, query, only }) => {
   const { t } = useTranslation();
-  const sources = useMangaSources(medium);
+  const listed = useMangaSources(medium);
+  // A source with its own pill searches there, not among the rest (M46.35).
+  const sources = {
+    ...listed,
+    data: listed.data?.filter((source) => (only ? source.id === only : !source.searchPill)),
+  };
   const [chosen, setChosenState] = useState(() => readChosen(medium));
   const [unfolded, setUnfolded] = useState(false);
   const [finding, setFinding] = useState('');
@@ -334,9 +346,11 @@ export const CatalogSearch: FC<{ medium: Medium; query: string }> = ({ medium, q
     }
   };
   // Sources removed since they were chosen don't count.
-  const picked = sources.data
-    ? chosen.filter((id) => sources.data.some((source) => source.id === id))
-    : chosen;
+  const picked = only
+    ? [only]
+    : sources.data
+      ? chosen.filter((id) => sources.data?.some((source) => source.id === id))
+      : chosen;
   const sourceId = picked.length === 1 ? picked[0]! : '';
 
   const setChosen = (ids: string[]) => {
@@ -371,7 +385,7 @@ export const CatalogSearch: FC<{ medium: Medium; query: string }> = ({ medium, q
       {sources.data?.length === 0 && (
         <p className="text-muted text-sm">{t('search.noCatalogSources')}</p>
       )}
-      {all.length > 0 && (
+      {all.length > 0 && !only && (
         <div role="group" aria-label={t('search.sources')} className="flex flex-wrap gap-2">
           {all.length > FOLDED_CHIPS && (
             <label className="bg-surface flex items-center gap-2 rounded-full px-3 py-1.5">
@@ -386,10 +400,22 @@ export const CatalogSearch: FC<{ medium: Medium; query: string }> = ({ medium, q
               />
             </label>
           )}
+          {/* Relevant (M46.35): every source's answers ranked as one list; the default. */}
+          <SourceChip
+            label={t('search.relevant')}
+            pressed={picked.length === 0 && !grouped}
+            onClick={() => {
+              setChosen([]);
+              setGrouped(false);
+            }}
+          />
           <SourceChip
             label={t('search.allSources')}
-            pressed={picked.length === 0}
-            onClick={() => setChosen([])}
+            pressed={picked.length === 0 && grouped}
+            onClick={() => {
+              setChosen([]);
+              setGrouped(true);
+            }}
           />
           {shown.map((source) => (
             <SourceChip
@@ -419,7 +445,7 @@ export const CatalogSearch: FC<{ medium: Medium; query: string }> = ({ medium, q
             {!query.trim() && all.length > 0 && (
               <h2 className="font-semibold">{t('search.popular')}</h2>
             )}
-            {searched.length > 1 && (
+            {picked.length > 1 && (
               <div
                 role="group"
                 aria-label={t('search.arrange')}
