@@ -574,6 +574,9 @@
     "nextPromptBefore_one": "{{count}} second before the end",
     "nextPromptBefore_other": "{{count}} seconds before the end",
     "save": "Save",
+    "useDefault": "Use default",
+    "sizeValue": "{{name}}",
+    "sizeReset": "Reset {{name}}",
     "player": {
       "section": {
         "controls": {
