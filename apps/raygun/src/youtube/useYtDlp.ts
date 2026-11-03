@@ -31,12 +31,15 @@ export const useYtDlpStatus = (enabled = true) =>
     enabled,
   });
 
-/** yt-dlp's downloads; follows its events while shown. */
+/**
+ * yt-dlp's downloads; follows its events while shown. An event names the job that changed, or
+ * nothing when yt-dlp or FFmpeg was being fetched.
+ */
 export const useYtDlpJobs = () => {
   const client = useQueryClient();
   useEffect(() => {
-    const unlisten = events.ytDlpEvent.listen(() => {
-      void client.invalidateQueries({ queryKey: ['ytdlp'] });
+    const unlisten = events.ytDlpEvent.listen(({ payload }) => {
+      void client.invalidateQueries({ queryKey: payload ? JOBS : STATUS });
     });
     return () => {
       void unlisten.then((stop) => stop());

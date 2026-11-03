@@ -179,7 +179,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(local_files.clone());
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-        if let Err(error) = local_files.rescan_all().await {
+        if let Err(error) = local_files.rescan(None, false).await {
             tracing::warn!(%error, "couldn't scan the local folders");
         }
     });

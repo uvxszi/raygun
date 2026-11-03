@@ -173,7 +173,7 @@ describe('Video library', () => {
 
     await user.click(within(library).getByRole('button', { name: 'More options' }));
     const menu = within(library).getByRole('menu');
-    for (const name of ['Updates', 'Downloads', 'History', 'Edit categories']) {
+    for (const name of ['Updates', 'Downloads', 'History', 'Local files', 'Edit categories']) {
       expect(within(menu).getByRole('menuitem', { name })).toBeInTheDocument();
     }
     // The library is what you have: finding more happens in Search.
@@ -337,10 +337,19 @@ describe('Video library', () => {
       within(failed).getByRole('button', { name: 'Retry downloading Breaking Bad · S1 E3' }),
     );
     expect(commands.videoDownloadRetry).toHaveBeenCalledWith('3');
+    // 50 MB would be lost: cancelling takes a second tap.
     await user.click(
       within(running).getByRole('button', { name: 'Cancel the download of Breaking Bad · S1 E2' }),
     );
+    expect(commands.videoDownloadRemove).not.toHaveBeenCalled();
+    await user.click(within(running).getByRole('button', { name: 'Cancel' }));
     expect(commands.videoDownloadRemove).toHaveBeenCalledWith('2');
+    // A finished download is deleted the same way.
+    await user.click(
+      within(saved).getByRole('button', { name: 'Delete the download of Breaking Bad · S1 E1' }),
+    );
+    await user.click(within(saved).getByRole('button', { name: 'Delete' }));
+    expect(commands.videoDownloadRemove).toHaveBeenCalledWith('1');
     await user.click(within(saved).getByRole('button', { name: 'Play Breaking Bad · S1 E1' }));
     expect(commands.videoDownloadPlay).toHaveBeenCalledWith('1');
 

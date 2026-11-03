@@ -104,12 +104,13 @@ describe('Novels', () => {
     const library = await screen.findByTestId('novel-library');
     const card = await within(library).findByTestId('library-item');
     expect(card.getAttribute('href')).toMatch(/^\/novel\/title\?source=dev\.raygun\.gutenberg/);
-    // Library actions are in the top bar's menu: no Updates for novels (they don't update).
+    // Library actions are in the top bar's menu; books are updated with comics and videos.
     await user.click(within(library).getByRole('button', { name: 'More options' }));
     const menu = within(library).getByRole('menu');
     expect(within(menu).getByRole('menuitem', { name: 'Downloads' })).toBeInTheDocument();
     expect(within(menu).getByRole('menuitem', { name: 'Import EPUB' })).toBeInTheDocument();
-    expect(within(menu).queryByRole('menuitem', { name: 'Updates' })).not.toBeInTheDocument();
+    expect(within(menu).getByRole('menuitem', { name: 'Updates' })).toBeInTheDocument();
+    expect(within(menu).getByRole('menuitem', { name: 'Update library' })).toBeInTheDocument();
   });
 
   it('shows a novel with reading percentages and download controls', async () => {

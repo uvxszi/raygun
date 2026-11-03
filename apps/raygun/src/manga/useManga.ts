@@ -186,6 +186,9 @@ export const useMangaLiveEvents = () => {
           queryClient.invalidateQueries({ queryKey: [MANGA, 'library'] }),
           queryClient.invalidateQueries({ queryKey: [MANGA, 'updates'] }),
           queryClient.invalidateQueries({ queryKey: [MANGA, 'title'] }),
+          // Books are updated with comics.
+          queryClient.invalidateQueries({ queryKey: ['novel', 'library'] }),
+          queryClient.invalidateQueries({ queryKey: ['novel', 'title'] }),
           // The update covers saved movies and series too (M43).
           queryClient.invalidateQueries({ queryKey: ['video', 'library'] }),
           queryClient.invalidateQueries({ queryKey: ['video', 'updates'] }),

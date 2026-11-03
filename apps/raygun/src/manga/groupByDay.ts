@@ -11,9 +11,9 @@ export const dayStart = (ms: number) => {
 };
 
 /** Groups updates by the local day they were found (or `when` says), keeping their order. */
-export const groupByDay = <Item extends { foundAt: number | null }>(
+export const groupByDay = <Item extends object>(
   items: Item[],
-  when: (item: Item) => number = (item) => item.foundAt ?? 0,
+  when: (item: Item) => number = (item) => (item as { foundAt?: number | null }).foundAt ?? 0,
 ) => {
   const groups: { day: number; items: Item[] }[] = [];
   for (const item of items) {

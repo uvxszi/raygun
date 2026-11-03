@@ -150,7 +150,12 @@ const LinkCard: FC<{ link: YouTubeLink }> = ({ link }) => {
         </p>
       )}
       {(download.error ?? installFfmpeg.error) && (
-        <SourceIssue compact>{(download.error ?? installFfmpeg.error)?.message}</SourceIssue>
+        <SourceIssue
+          compact
+          title={t(download.error ? 'youtube.downloadFailed' : 'youtube.ffmpegFailed')}
+        >
+          {(download.error ?? installFfmpeg.error)?.message}
+        </SourceIssue>
       )}
       {mine.length > 0 && (
         <ul className="flex flex-col gap-2">

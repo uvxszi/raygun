@@ -10,6 +10,7 @@ import {
   Dices,
   Download,
   FileArchive,
+  Folder,
   FolderCog,
   History,
   ListFilter,
@@ -278,28 +279,28 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
     },
   };
   const menu: OverflowItem[] = [
+    // Books are updated with comics and videos.
     ...(medium === 'novel'
       ? [{ label: t('novel.importEpub'), icon: BookPlus, onSelect: epub.pick }]
-      : [
-          update,
-          ...(category
-            ? [
-                {
-                  label: t('library.updateCategory', { name: category.name }),
-                  icon: RefreshCw,
-                  onSelect: () => {
-                    if (!updating) updateCategory.mutate(category.id);
-                  },
-                },
-              ]
-            : []),
+      : []),
+    update,
+    ...(category
+      ? [
           {
-            label: t('manga.updates'),
-            icon: Bell,
-            to: '/updates',
-            ...(video ? { search: { tab: 'episodes' } } : {}),
+            label: t('library.updateCategory', { name: category.name }),
+            icon: RefreshCw,
+            onSelect: () => {
+              if (!updating) updateCategory.mutate(category.id);
+            },
           },
-        ]),
+        ]
+      : []),
+    {
+      label: t('manga.updates'),
+      icon: Bell,
+      to: '/updates',
+      search: { tab: video ? 'episodes' : 'chapters' },
+    },
     ...(medium === 'manga'
       ? [{ label: t('manga.importComics'), icon: FileArchive, onSelect: comics.pick }]
       : []),
@@ -310,7 +311,13 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
       to: '/downloads',
       ...(video ? { search: { tab: 'videos' } } : {}),
     },
-    ...(video ? [{ label: t('library.videos.history'), icon: History, to: '/watch/history' }] : []),
+    ...(video
+      ? [
+          { label: t('library.videos.history'), icon: History, to: '/watch/history' },
+          // Videos on this device come in through Local Files (M46.27).
+          { label: t('localFiles.title'), icon: Folder, to: '/local-files' },
+        ]
+      : []),
     {
       label: t('library.categories.edit'),
       icon: FolderCog,

@@ -124,13 +124,23 @@ impl WebsiteService {
             .collect())
     }
 
-    pub async fn add(&self, name: Option<String>, url: &str) -> Result<Website, String> {
+    /// Adds a site; one added before at the same address is given back instead of a second copy.
+    /// The blocklist is fetched now if it's missing, so it's there when the site first opens.
+    pub async fn add(self: &Arc<Self>, name: Option<String>, url: &str) -> Result<Website, String> {
         let url = normalize(url)?;
         let name = name
             .map(|name| name.trim().to_owned())
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| default_name(&url));
         let db = self.db();
+        if let Some(site) = store::list(&db)
+            .await
+            .map_err(to_message)?
+            .into_iter()
+            .find(|site| site.url == url.as_str())
+        {
+            return Ok(self.view(site));
+        }
         let id = store::add(&db, &name, url.as_str())
             .await
             .map_err(to_message)?;
@@ -138,6 +148,7 @@ impl WebsiteService {
             .await
             .map_err(to_message)?
             .ok_or("The site wasn't saved")?;
+        self.refresh_list_later().await;
         Ok(self.view(site))
     }
 
@@ -154,6 +165,18 @@ impl WebsiteService {
 
     pub async fn remove(&self, id: &str) -> Result<(), String> {
         store::remove(&self.db(), id).await.map_err(to_message)
+    }
+
+    /// Turns a site's own ad blocker on or off, as its menu in the browser does.
+    pub async fn set_block_ads(&self, id: &str, on: bool) -> Result<(), String> {
+        let db = self.db();
+        let site = store::get(&db, id)
+            .await
+            .map_err(to_message)?
+            .ok_or("The site was removed")?;
+        store::set_state(&db, id, site.last_url.as_deref(), on)
+            .await
+            .map_err(to_message)
     }
 
     /// Forgets where a site was left: it opens at its address again.
@@ -194,14 +217,7 @@ impl WebsiteService {
     ) -> Result<(), String> {
         let prefs = self.prefs().await;
         let list = self.dir.join(LIST_FILE);
-        if prefs.block_ads && self.list_is_old().await {
-            let service = self.clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(error) = service.update_blocklist().await {
-                    tracing::info!(%error, "blocklist not updated");
-                }
-            });
-        }
+        self.refresh_list_later().await;
         let request = serde_json::json!({
             "id": id,
             "url": url,
@@ -229,6 +245,23 @@ impl WebsiteService {
         desktop::open(&self.app, request, move |json| {
             let _ = reports.send(json);
         })
+    }
+
+    /// Downloads the blocklist in the background when the blocker is on and the list is missing,
+    /// a week old, or another list was chosen. A download already running isn't started twice.
+    async fn refresh_list_later(self: &Arc<Self>) {
+        if !self.prefs().await.block_ads || !self.list_is_old().await {
+            return;
+        }
+        if self.updating.try_lock().is_err() {
+            return;
+        }
+        let service = self.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = service.update_blocklist().await {
+                tracing::info!(%error, "blocklist not updated");
+            }
+        });
     }
 
     /// Clears the browser's cookies, storage and cache.
@@ -354,6 +387,27 @@ struct Report {
     block_ads: bool,
 }
 
+/// The site's own blocker after a report. With the blocker off in Settings the browser opens
+/// every site unblocked and reports it so; that says nothing about the site's own switch, which
+/// stays as it was unless the site's menu turned it on.
+async fn site_blocks_ads(db: &raygun_db::Db, id: &str, reported: bool) -> bool {
+    if reported {
+        return true;
+    }
+    let everywhere = crate::settings::load(db)
+        .await
+        .map(|settings| settings.websites.block_ads)
+        .unwrap_or(true);
+    if everywhere {
+        return false;
+    }
+    store::get(db, id)
+        .await
+        .ok()
+        .flatten()
+        .is_none_or(|site| site.block_ads)
+}
+
 /// Where the browser's reports go: Android's over JNI, the desktop windows' when they close.
 /// Only the desktop windows hold the sender.
 #[cfg_attr(target_os = "android", allow(dead_code))]
@@ -378,9 +432,8 @@ pub fn install(app: &AppHandle) {
                 .url
                 .filter(|url| url.starts_with("https://") || url.starts_with("http://"));
             let db = app.state::<AppDb>().inner().0.clone();
-            if let Err(error) =
-                store::set_state(&db, &report.id, url.as_deref(), report.block_ads).await
-            {
+            let block_ads = site_blocks_ads(&db, &report.id, report.block_ads).await;
+            if let Err(error) = store::set_state(&db, &report.id, url.as_deref(), block_ads).await {
                 tracing::warn!(%error, "could not store a site's state");
             }
         }
@@ -412,5 +465,36 @@ mod tests {
             default_name(&normalize("www.wikipedia.org").unwrap()),
             "wikipedia.org"
         );
+    }
+
+    #[tokio::test]
+    async fn a_report_with_the_blocker_off_everywhere_keeps_the_sites_own_switch() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = raygun_db::Db::open(&temp.path().join("raygun.db"))
+            .await
+            .unwrap();
+        let id = store::add(&db, "Archive", "https://archive.org/")
+            .await
+            .unwrap();
+
+        // The blocker is on in Settings: the browser's word goes.
+        assert!(!site_blocks_ads(&db, &id, false).await);
+        assert!(site_blocks_ads(&db, &id, true).await);
+
+        // Off in Settings, every site opens unblocked and is reported so: its switch stays.
+        crate::settings::update(
+            &db,
+            raygun_model::SettingChange::Websites(WebsitePrefs {
+                block_ads: false,
+                ..WebsitePrefs::default()
+            }),
+        )
+        .await
+        .unwrap();
+        assert!(site_blocks_ads(&db, &id, false).await);
+        store::set_state(&db, &id, None, false).await.unwrap();
+        assert!(!site_blocks_ads(&db, &id, false).await);
+        // Turned on in the site's menu, it's on.
+        assert!(site_blocks_ads(&db, &id, true).await);
     }
 }

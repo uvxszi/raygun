@@ -31,6 +31,8 @@ use crate::video_library;
 use crate::video_sources::VideoSourceService;
 
 const KIND: &str = "manga";
+/// Books in the library are updated with comics and videos.
+const NOVEL_KIND: &str = "novel";
 /// Titles refreshed at once during a library update.
 const UPDATE_CONCURRENCY: usize = 2;
 /// The newest updates the feed shows.
@@ -316,16 +318,25 @@ impl MangaService {
         self.catalog.set_read(unit_id, read).await
     }
 
-    /// Chapters library updates found, newest first.
+    /// Chapters library updates found, comics' and books' together, newest first.
     pub async fn updates(&self) -> Result<Vec<MangaUpdateItem>, String> {
-        let rows = titles::updates(&self.db(), KIND, FEED_LIMIT)
+        let db = self.db();
+        let mut rows = titles::updates(&db, KIND, FEED_LIMIT)
             .await
             .map_err(to_message)?;
+        rows.extend(
+            titles::updates(&db, NOVEL_KIND, FEED_LIMIT)
+                .await
+                .map_err(to_message)?,
+        );
+        rows.sort_by_key(|row| std::cmp::Reverse(row.found_at));
+        rows.truncate(FEED_LIMIT as usize);
         let ids: Vec<String> = rows.iter().map(|row| row.unit.id.clone()).collect();
         let downloads = self.downloads().for_chapters(&ids).await;
         Ok(rows
             .into_iter()
             .map(|row| MangaUpdateItem {
+                medium: row.title.fields.kind.clone(),
                 chapter: chapter_info(&row.unit, &downloads),
                 cover_url: row.title.fields.cover.as_deref().map(|url| {
                     self.catalog
@@ -388,12 +399,10 @@ impl MangaService {
         let started = std::time::Instant::now();
         let db = self.db();
         let mut library = titles::library(&db, KIND).await.map_err(to_message)?;
-        // Followed series and saved movies too (M43).
-        library.extend(
-            titles::library(&db, video_library::KIND)
-                .await
-                .map_err(to_message)?,
-        );
+        // Books, and followed series and saved movies too (M43).
+        for kind in [NOVEL_KIND, video_library::KIND] {
+            library.extend(titles::library(&db, kind).await.map_err(to_message)?);
+        }
         let due: Vec<TitleRow> = library
             .into_iter()
             .map(|entry| entry.title)
@@ -459,6 +468,10 @@ impl MangaService {
     /// Stremio); returns how many chapters or episodes were new.
     async fn refresh_title(&self, title: &TitleRow) -> Result<usize, String> {
         let (source_id, remote_id) = (&title.fields.source_id, &title.fields.remote_id);
+        if title.fields.kind == NOVEL_KIND {
+            let novels = self.app.state::<crate::novel::NovelService>();
+            return Ok(novels.catalog().fetch_title(source_id, remote_id).await?.1);
+        }
         if title.fields.kind != video_library::KIND {
             return Ok(self.catalog.fetch_title(source_id, remote_id).await?.1);
         }

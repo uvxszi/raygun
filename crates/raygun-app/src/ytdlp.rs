@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use raygun_model::{YouTubeLink, YouTubeLinkKind, YtDlpJob, YtDlpKind, YtDlpState, YtDlpStatus};
 use tauri::AppHandle;
@@ -41,6 +41,8 @@ const MAX_TOOL_BYTES: u64 = 400 << 20;
 const SONG_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// Finished jobs kept in the list.
 const KEPT_JOBS: usize = 40;
+/// How often a running download's progress is announced at most.
+const PROGRESS_EVERY: Duration = Duration::from_millis(400);
 /// Marks Raygun's own lines among yt-dlp's output.
 const PROGRESS: &str = "RAYGUN_PROGRESS";
 const FILE: &str = "RAYGUN_FILE";
@@ -450,8 +452,21 @@ impl YtDlpService {
             .arg(url);
         let service = self.clone();
         let job = id.to_owned();
-        run(command, cancel, move |progress| {
-            service.update(&job, |job| job.info.progress = Some(progress));
+        // A video above 360p is two downloads (picture, then sound) that FFmpeg joins.
+        let parts = if kind == YtDlpKind::Video && ffmpeg.is_some() {
+            2
+        } else {
+            1
+        };
+        let overall = Mutex::new(Overall::new(parts));
+        run(command, cancel, move |share| {
+            let shown = overall
+                .lock()
+                .expect("yt-dlp progress poisoned")
+                .next(share);
+            if let Some(progress) = shown {
+                service.update(&job, |job| job.info.progress = Some(progress));
+            }
         })
         .await
     }
@@ -692,6 +707,50 @@ fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
+/// yt-dlp's progress through each file it fetches (each going 0 → 1) as one share of the whole
+/// download that only moves forward, given when it moved a percent and a moment has passed.
+struct Overall {
+    parts: u32,
+    part: u32,
+    last: f64,
+    shown: f64,
+    announced: Option<Instant>,
+}
+
+impl Overall {
+    fn new(parts: u32) -> Self {
+        Self {
+            parts: parts.max(1),
+            part: 0,
+            last: 0.0,
+            shown: 0.0,
+            announced: None,
+        }
+    }
+
+    fn next(&mut self, share: f64) -> Option<f64> {
+        // Starting again from the bottom: the next file.
+        if share + 0.5 < self.last && self.part + 1 < self.parts {
+            self.part += 1;
+        }
+        self.last = share;
+        let overall = ((f64::from(self.part) + share) / f64::from(self.parts)).clamp(0.0, 1.0);
+        if overall < self.shown + 0.01 {
+            return None;
+        }
+        if self
+            .announced
+            .is_some_and(|at| at.elapsed() < PROGRESS_EVERY)
+            && overall < 1.0
+        {
+            return None;
+        }
+        self.shown = overall;
+        self.announced = Some(Instant::now());
+        Some(overall)
+    }
+}
+
 /// "downloaded total estimate" as a share, from whichever size yt-dlp knows.
 fn progress_share(numbers: &str) -> Option<f64> {
     let mut parts = numbers
@@ -859,5 +918,26 @@ mod tests {
         assert_eq!(progress_share("50 200 NA"), Some(0.25));
         assert_eq!(progress_share("50 NA 100"), Some(0.5));
         assert_eq!(progress_share("50 NA NA"), None);
+    }
+
+    #[test]
+    fn progress_of_a_picture_and_its_sound_only_moves_forward() {
+        let mut overall = Overall::new(2);
+        assert_eq!(overall.next(0.5), Some(0.25));
+        // Too soon after the last one, and too small a step: not announced.
+        assert_eq!(overall.next(0.51), None);
+        overall.announced = None;
+        assert_eq!(overall.next(1.0), Some(0.5));
+        // The sound starts from zero: the whole goes on from half.
+        overall.announced = None;
+        assert_eq!(overall.next(0.1), Some(0.55));
+        overall.announced = None;
+        assert_eq!(overall.next(1.0), Some(1.0));
+
+        // One file: a second drop doesn't go past the end.
+        let mut single = Overall::new(1);
+        assert_eq!(single.next(0.8), Some(0.8));
+        single.announced = None;
+        assert_eq!(single.next(0.1), None, "never backwards");
     }
 }
