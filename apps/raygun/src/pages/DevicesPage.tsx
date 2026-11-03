@@ -9,13 +9,13 @@ import {
   useOpenPairing,
   useRemovePeer,
   useRenameDevice,
-  useSetSyncEnabled,
   useSetSyncKinds,
   useSyncNow,
   useSyncStatus,
   useUndoLastSync,
 } from '../devices/useDeviceSync';
 import { PageHeader } from './PageHeader';
+import { LinkedDevices } from '../devices/LinkedDevices';
 import { RemoteCard } from '../settings/RemoteCard';
 
 const KINDS: SyncKind[] = ['settings', 'library', 'history'];
@@ -326,60 +326,43 @@ const SyncLog: FC<{ status: SyncStatus }> = ({ status }) => {
   );
 };
 
-/** Pair devices and keep them in sync (M21). */
+/**
+ * Devices (M21; one link since M46.47): your devices first (linking, playing on one, syncing),
+ * then this device's name, what syncs and the log, linking with a code, and the web remote.
+ */
 export const DevicesPage: FC = () => {
   const { t } = useTranslation();
   const status = useSyncStatus();
-  const setEnabled = useSetSyncEnabled();
   const data = status.data;
 
   return (
     <section data-testid="devices-page" className="flex max-w-2xl flex-col gap-4">
       <PageHeader back fallback="/more" title={t('devices.title')} />
-      {/* One place for other devices (M46.43): playing and controlling (Connect, the browser
-          remote), then syncing. */}
+      <LinkedDevices />
       <section className={CARD}>
-        <RemoteCard />
-      </section>
-      <section className={CARD}>
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex flex-col gap-0.5">
-            <h2 id="sync-title" className="font-medium">
-              {t('devices.sync')}
-            </h2>
-            <p className="text-muted text-xs">{t('devices.description')}</p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={data?.enabled ?? false}
-            aria-labelledby="sync-title"
-            disabled={!data || setEnabled.isPending}
-            onClick={() => data && setEnabled.mutate(!data.enabled)}
-            className={`relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-60 ${data?.enabled ? 'bg-primary' : 'bg-background'}`}
-          >
-            <span
-              aria-hidden
-              className={`bg-foreground absolute top-1 size-5 rounded-full transition-all ${data?.enabled ? 'left-6' : 'left-1'}`}
-            />
-          </button>
-        </div>
         {data && <ThisDevice status={data} />}
-        {(data?.error || status.error || setEnabled.error) && (
+        {(data?.error || status.error) && (
           <p role="alert" className="text-primary wrap-anywhere">
-            {data?.error ?? status.error?.message ?? setEnabled.error?.message}
+            {data?.error ?? status.error?.message}
           </p>
         )}
       </section>
       {data?.enabled && (
         <>
-          <PairedDevices status={data} />
-          <PairDevice status={data} />
-          <JoinDevice />
           <WhatSyncs status={data} />
           <SyncLog status={data} />
+          <details className={CARD}>
+            <summary className="cursor-pointer font-medium">{t('link.withCode')}</summary>
+            <p className="text-muted mt-2 text-xs">{t('link.withCodeHint')}</p>
+            <div className="mt-3 flex flex-col gap-4">
+              <PairedDevices status={data} />
+              <PairDevice status={data} />
+              <JoinDevice />
+            </div>
+          </details>
         </>
       )}
+      <RemoteCard browserOnly />
     </section>
   );
 };

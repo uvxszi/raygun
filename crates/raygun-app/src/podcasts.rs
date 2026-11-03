@@ -255,19 +255,25 @@ impl PodcastService {
             has_more: false,
         };
         let mut errors = Vec::new();
-        for provider in providers {
-            match host
-                .audiobooks(&provider.id, list, query.trim(), page.max(1))
-                .await
-            {
+        // Every source at once (M46.47); a book two sources share shows once, from the first.
+        let answers = futures_util::future::join_all(
+            providers
+                .iter()
+                .map(|provider| host.audiobooks(&provider.id, list, query.trim(), page.max(1))),
+        )
+        .await;
+        for (provider, answer) in providers.into_iter().zip(answers) {
+            match answer {
                 Ok(books) => {
                     found.has_more |= books.has_more;
                     for book in books.books {
-                        if found
-                            .books
-                            .iter()
-                            .any(|known| known.feed_url == book.feed_url)
-                        {
+                        if found.books.iter().any(|known| {
+                            known.feed_url == book.feed_url
+                                || same_book(
+                                    (&known.title, known.author.as_deref()),
+                                    (&book.title, book.author.as_deref()),
+                                )
+                        }) {
                             continue;
                         }
                         found.books.push(AudiobookResult {
@@ -1050,6 +1056,18 @@ fn book_title(title: &str, author: Option<&str>) -> (String, Option<String>) {
         }
     }
     (title.to_owned(), author.map(str::to_owned))
+}
+
+/// Two sources' copies of one book (M46.47): the same title and author, ignoring case and marks.
+fn same_book(a: (&str, Option<&str>), b: (&str, Option<&str>)) -> bool {
+    let simple = |text: &str| {
+        text.chars()
+            .filter(|letter| letter.is_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect::<String>()
+    };
+    let author = |name: Option<&str>| simple(name.unwrap_or_default());
+    simple(a.0) == simple(b.0) && (author(a.1) == author(b.1) || a.1.is_none() || b.1.is_none())
 }
 
 #[cfg(test)]

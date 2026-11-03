@@ -10,6 +10,7 @@ import { useMangaSources } from '../manga/useManga';
 import { pill, SEARCH_TYPES, VIDEO_VIEWS } from './searchTypes';
 import type { MusicView, SearchType, SearchView, VideoView } from './searchTypes';
 import { VideoResults } from './VideoResults';
+import { YouTubeLinkCard } from '../youtube/YouTubeLinkCard';
 
 /** Movies & series (M46.25): Relevant, Movies or Series. Video sources don't say what a result
  * is until it's opened, so their results stay under every pill, after the addons' rows. */
@@ -127,6 +128,8 @@ export const SearchPanel: FC<{
           );
         })}
       </div>
+      {/* A YouTube address plays or downloads as it is (M46.47). */}
+      <YouTubeLinkCard query={query} />
       {!query && needsQuery && <p className="text-muted text-sm">{t(`search.hintFor.${type}`)}</p>}
       {type === 'all' && <AllResults query={query} onType={onType} />}
       {type === 'music' && (

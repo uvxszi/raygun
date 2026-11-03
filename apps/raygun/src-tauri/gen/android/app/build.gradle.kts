@@ -14,6 +14,16 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// Release signing (M46.47): `keystore.properties` beside this project (never committed; the
+// release workflow writes it from GitHub secrets). Every release must use the same key, or
+// phones refuse the APK as an update.
+val keystoreProperties = Properties().apply {
+    val propFile = rootProject.file("keystore.properties")
+    if (propFile.exists()) {
+        propFile.inputStream().use { load(it) }
+    }
+}
+
 android {
     compileSdk = 37
     namespace = "app.raygun.player"
@@ -24,6 +34,16 @@ android {
         targetSdk = 37
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+    }
+    signingConfigs {
+        if (!keystoreProperties.isEmpty) {
+            create("release") {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
     }
     buildTypes {
         getByName("debug") {
@@ -39,6 +59,9 @@ android {
             }
         }
         getByName("release") {
+            if (!keystoreProperties.isEmpty) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             optimization {
                enable = true
             }

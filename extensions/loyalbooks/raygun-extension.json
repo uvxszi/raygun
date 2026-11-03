@@ -1,0 +1,16 @@
+{
+  "id": "dev.raygun.loyalbooks",
+  "name": "Loyal Books",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Free public-domain audiobooks from Loyal Books (Books Should Be Free), by popularity and genre, played chapter by chapter from each book's feed.",
+  "author": "Raygun",
+  "website": "https://www.loyalbooks.com",
+  "provides": ["audiobook.directory"],
+  "permissions": {
+    "net": ["www.loyalbooks.com", "loyalbooks.com"]
+  },
+  "contentRating": "safe"
+}

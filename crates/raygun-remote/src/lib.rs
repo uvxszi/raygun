@@ -61,6 +61,16 @@ pub trait Backend: Send + Sync + 'static {
     /// Asks this device's user whether `name` may play here: false when they say no or don't
     /// answer in time.
     fn ask(&self, name: &str) -> impl Future<Output = bool> + Send;
+    /// The allowed device's link card, if it sent one (M46.47: sync and Connect both ways),
+    /// with the id of the token it was just given; answers with this device's card.
+    fn link(
+        &self,
+        card: Option<&Value>,
+        granted: &str,
+    ) -> impl Future<Output = Option<Value>> + Send {
+        let _ = (card, granted);
+        async { None }
+    }
 }
 
 /// Pairing state shared with the app, plus how to save it after the server changes it.
@@ -341,6 +351,9 @@ async fn device<B: Backend>(State(shared): State<Arc<Shared<B>>>) -> Response {
 struct HelloRequest {
     #[serde(default)]
     name: String,
+    /// The asking device's link card (M46.47).
+    #[serde(default)]
+    link: Option<Value>,
 }
 
 /// Another Raygun asks to play here: this device's user decides, and an allowed device gets a
@@ -373,10 +386,12 @@ async fn hello<B: Backend>(
     };
     tracing::info!(name = %device.name, "a device may play here");
     (access.on_change)(devices);
+    let link = shared.backend.link(request.link.as_ref(), &device.id).await;
     Json(json!({
         "token": device.token,
         "deviceId": device.id,
         "device": shared.backend.device(),
+        "link": link,
     }))
     .into_response()
 }

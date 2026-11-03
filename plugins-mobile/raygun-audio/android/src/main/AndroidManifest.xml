@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- The reverb (M46.12) is an effect on the output mix. -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Installing Raygun's own updates from its GitHub releases (M46.47). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Reading the device's music library (M07). -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <!-- Playing videos from folders added to Local Files (M46.27). -->

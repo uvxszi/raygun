@@ -17,6 +17,8 @@ const PC = {
   kind: 'computer',
   paired: true,
   found: true,
+  syncId: null,
+  lastSyncAt: null,
 };
 
 /** Playing on the PC, which plays "Over There". */
@@ -41,10 +43,9 @@ describe('Connect', () => {
 
   it('plays on another device, then shows and controls it from here', async () => {
     const user = userEvent.setup();
-    commands.connectDevices.mockResolvedValue([
-      PC,
-      { ...PC, id: 'tablet', name: 'Tablet', kind: 'phone', paired: false, found: false },
-    ]);
+    commands.connectDevices.mockResolvedValue(
+      ok([PC, { ...PC, id: 'tablet', name: 'Tablet', kind: 'phone', paired: false, found: false }]),
+    );
     commands.connectTo.mockResolvedValue(ok(SESSION));
     await AppShellWrapper.mount();
     AppShellWrapper.playing(QUEUE, 0);
@@ -76,7 +77,7 @@ describe('Connect', () => {
   it('brings playback back here, or leaves it playing there', async () => {
     const user = userEvent.setup();
     commands.connectStatus.mockResolvedValue(SESSION);
-    commands.connectDevices.mockResolvedValue([PC]);
+    commands.connectDevices.mockResolvedValue(ok([PC]));
     await AppShellWrapper.mount();
     AppShellWrapper.playing(QUEUE, 0);
     await AppShellWrapper.miniPlayer.title;
@@ -119,8 +120,8 @@ describe('Connect', () => {
 
     emitEvent('connectRequestEvent', { id: 'q1', name: 'Pixel 4', open: true });
     const prompt = await screen.findByTestId('connect-prompt');
-    expect(prompt).toHaveTextContent('Pixel 4 wants to play on this device');
-    await user.click(within(prompt).getByRole('button', { name: 'Allow' }));
+    expect(prompt).toHaveTextContent('Link with Pixel 4?');
+    await user.click(within(prompt).getByRole('button', { name: 'Link' }));
     expect(commands.connectAnswer).toHaveBeenCalledWith('q1', true);
     expect(screen.queryByTestId('connect-prompt')).not.toBeInTheDocument();
 

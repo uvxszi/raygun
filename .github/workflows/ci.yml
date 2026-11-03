@@ -76,7 +76,7 @@ jobs:
 
       - uses: android-actions/setup-android@v4
       - name: Install Android platform and NDK
-        run: sdkmanager "platforms;android-37" "ndk;${NDK_VERSION}"
+        run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0" "ndk;${NDK_VERSION}"
 
       - run: pnpm install --frozen-lockfile
 

@@ -18,6 +18,62 @@ pub struct AppInfo {
     pub debug: bool,
 }
 
+/// How this copy of Raygun was installed (M46.47), which decides how it updates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum InstallKind {
+    /// The portable exe: updates are a download from the release page.
+    Portable,
+    /// Installed with the setup exe (NSIS): the new setup runs over it.
+    Setup,
+    /// Installed with the MSI: the new MSI runs over it.
+    Msi,
+    /// Android: the new APK, through Android's installer.
+    Android,
+    /// Anything else (Linux, macOS, a development build): the release page.
+    Other,
+}
+
+/// Where an update stands (M46.47).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum UpdateState {
+    Idle,
+    Checking,
+    Downloading,
+    /// The installer is open (or about to take over).
+    Installing,
+    /// Android needs "Install unknown apps" for Raygun first; its settings page was opened.
+    NeedsPermission,
+    Failed,
+}
+
+/// Raygun's newest release next to this copy's version (M46.47), from GitHub.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUpdate {
+    pub current: String,
+    /// The newest release's version, once checked.
+    pub latest: Option<String>,
+    /// The newest release is newer than this copy.
+    pub available: bool,
+    /// The release's notes (Markdown).
+    pub notes: Option<String>,
+    /// The release's page.
+    pub page_url: String,
+    pub repo_url: String,
+    pub install_kind: InstallKind,
+    /// The release file this copy updates itself from; `None` means the page is the way.
+    pub asset_name: Option<String>,
+    pub asset_size: Option<f64>,
+    /// Unix ms of the last check.
+    pub checked_at: Option<f64>,
+    pub state: UpdateState,
+    /// 0 to 1 while downloading.
+    pub progress: Option<f64>,
+    pub message: Option<String>,
+}
+
 /// How the data folder was chosen (ARCHITECTURE §3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -3263,6 +3319,10 @@ pub struct ConnectDevice {
     pub paired: bool,
     /// Heard on the network, or reached at its address, this run.
     pub found: bool,
+    /// Linked (M46.47): its sync id; the two keep each other in sync.
+    pub sync_id: Option<String>,
+    /// When the two last synced (Unix ms).
+    pub last_sync_at: Option<f64>,
 }
 
 /// Playing on another device (M46.15): which one, and its player as it last reported.
@@ -3471,6 +3531,79 @@ pub struct SongDownload {
     pub error: Option<String>,
     /// This device can record what plays (Windows for now).
     pub can_record: bool,
+}
+
+/// yt-dlp on this device (M46.47): YouTube downloads on desktop, and songs only YouTube has.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct YtDlpStatus {
+    /// Desktop only: phones have no yt-dlp.
+    pub supported: bool,
+    /// Its version, when found (Raygun's `tools` folder or the PATH).
+    pub version: Option<String>,
+    /// FFmpeg found: videos above 360p need it to join picture and sound.
+    pub ffmpeg: bool,
+    /// yt-dlp or FFmpeg is being fetched now.
+    pub installing: bool,
+    /// Why the last fetch failed.
+    pub message: Option<String>,
+}
+
+/// What a YouTube address points at (M46.47).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum YouTubeLinkKind {
+    Video,
+    Playlist,
+    Channel,
+}
+
+/// A YouTube address typed or pasted in Search (M46.47).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct YouTubeLink {
+    pub kind: YouTubeLinkKind,
+    /// The video's, playlist's or channel's id.
+    pub id: String,
+    /// The address, tidied (`https://www.youtube.com/watch?v=<id>`).
+    pub url: String,
+    pub title: Option<String>,
+    pub author: Option<String>,
+    pub thumbnail_url: Option<String>,
+}
+
+/// What a yt-dlp download keeps (M46.47).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum YtDlpKind {
+    Audio,
+    Video,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum YtDlpState {
+    Queued,
+    Downloading,
+    Done,
+    Failed,
+    Cancelled,
+}
+
+/// A YouTube video or its sound being saved with yt-dlp (M46.47), as Downloads lists it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct YtDlpJob {
+    pub id: String,
+    pub url: String,
+    pub title: String,
+    pub kind: YtDlpKind,
+    pub state: YtDlpState,
+    /// 0 to 1, once yt-dlp knows the size.
+    pub progress: Option<f64>,
+    /// Where the file went, as the user sees it.
+    pub file: Option<String>,
+    pub message: Option<String>,
 }
 
 /// What a saved song is written out as (M46.10).
@@ -3941,7 +4074,7 @@ pub const LAYOUT_AUDIO_VIEWS: [(&str, bool); 9] = [
     ("artists", true),
     ("tracks", true),
 ];
-pub const LAYOUT_HOME_SECTIONS: [(&str, bool); 8] = [
+pub const LAYOUT_HOME_SECTIONS: [(&str, bool); 18] = [
     // "Nothing to pick up yet" (M46.37): shown while nothing is under way; closing it hides it.
     ("getStarted", true),
     ("continueWatching", true),
@@ -3951,6 +4084,17 @@ pub const LAYOUT_HOME_SECTIONS: [(&str, bool); 8] = [
     ("recentlyPlayed", true),
     ("popularMusic", true),
     ("trendingMusic", true),
+    // More rows from Browse all's kinds (M46.47).
+    ("newReleases", true),
+    ("popularVideos", true),
+    ("popularComics", true),
+    ("popularBooks", true),
+    ("popularAudiobooks", true),
+    ("charts", true),
+    ("viralMusic", true),
+    ("genres", true),
+    ("decades", true),
+    ("undergroundMusic", true),
 ];
 pub const LAYOUT_BROWSE_TABS: [(&str, bool); 4] = [
     ("search", true),

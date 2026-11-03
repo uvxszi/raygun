@@ -39,7 +39,11 @@
       "tag": "Genre",
       "podcast": "Podcast",
       "audiobook": "Audiobook"
-    }
+    },
+    "popularVideos": "Popular videos",
+    "popularComics": "Popular comics",
+    "popularBooks": "Popular books",
+    "popularAudiobooks": "Popular audiobooks"
   },
   "library": {
     "title": "Library",
@@ -305,7 +309,7 @@
     "typeLabel": "Search in",
     "type": {
       "all": "All",
-      "music": "Music",
+      "music": "Audio",
       "manga": "Comics",
       "novel": "Books",
       "library": "Your library",
@@ -390,7 +394,8 @@
       "all": "All",
       "featured": "Featured",
       "none": "No playlists found for “{{query}}”."
-    }
+    },
+    "seenWhileSearching": "Seen before · still searching"
   },
   "settings": {
     "title": "Settings",
@@ -1040,7 +1045,7 @@
     "kindFilter": "Show",
     "kind": {
       "all": "All",
-      "music": "Music",
+      "music": "Audio",
       "manga": "Comics",
       "novel": "Books",
       "video": "Videos",
@@ -1627,7 +1632,7 @@
     "ai": "AI",
     "aiHint": "Translators and on-device models",
     "devices": "Devices",
-    "devicesHint": "Pair and sync with your other devices",
+    "devicesHint": "Link your devices: they sync, and each plays on the others",
     "settingsHint": "Appearance, library, reader, player and more",
     "about": "About",
     "aboutHint": "Version and where Raygun keeps its data",
@@ -2038,7 +2043,17 @@
       "yourMusic": "Your music",
       "recentlyPlayed": "Recently played",
       "popularMusic": "Popular now",
-      "trendingMusic": "Trending"
+      "trendingMusic": "Trending",
+      "newReleases": "New releases",
+      "popularVideos": "Popular videos",
+      "popularComics": "Popular comics",
+      "popularBooks": "Popular books",
+      "popularAudiobooks": "Popular audiobooks",
+      "charts": "Charts",
+      "viralMusic": "Viral",
+      "genres": "Genres & moods",
+      "decades": "Decades",
+      "undergroundMusic": "Underground"
     },
     "browseTab": {
       "search": "Search",
@@ -2260,7 +2275,8 @@
       "keep": "Keep",
       "remove": "Remove",
       "cancel": "Cancel download",
-      "retry": "Try again"
+      "retry": "Try again",
+      "chooseSource": "Choose a source"
     },
     "save": "Save",
     "saving": "Saving…",
@@ -2286,7 +2302,8 @@
     "recordingNow": "Recording",
     "recordingProgress": "How far the recording is",
     "recordingLocked": "The player is locked while it records: the song plays from its start trim to its end trim.",
-    "recordingCancel": "Stop without keeping it"
+    "recordingCancel": "Stop without keeping it",
+    "chooseSource": "Choose a source for {{title}}"
   },
   "audiobooks": {
     "title": "Audiobooks",
@@ -2381,7 +2398,9 @@
     "used": "This song plays from {{source}} now.",
     "usedAny": "This song plays from your pick now.",
     "unavailable": "Unavailable",
-    "search": "Search"
+    "search": "Search",
+    "downloadTitle": "Download from another source",
+    "downloadFrom": "Download from this"
   },
   "systems": {
     "title": "What Raygun can run",
@@ -2585,7 +2604,7 @@
     "charts": "Charts",
     "genres": "Genres & moods",
     "yourTags": "In your songs",
-    "music": "Music",
+    "music": "Audio",
     "podcasts": "Podcasts",
     "comics": "Comics",
     "books": "Books",
@@ -2849,10 +2868,10 @@
     "allowHereAddress": "Other devices find this one on your network, or at {{address}}.",
     "sync": "Device sync",
     "ask": {
-      "title": "Play on this device?",
-      "question": "{{name}} wants to play on this device",
-      "explain": "Allow it, and {{name}} can play here and control what plays, from now on. You can remove it in Settings → Remote.",
-      "allow": "Allow",
+      "title": "Link a device",
+      "question": "Link with {{name}}?",
+      "explain": "{{name}} wants to link with this device. Linked devices keep your library, playlists, history and settings in sync, and each can play on the other. You can unlink it in Devices.",
+      "allow": "Link",
       "deny": "Don’t allow"
     }
   },
@@ -2880,7 +2899,10 @@
     "add": "Add test sources",
     "adding": "Adding…",
     "report": "{{added}} added, {{already}} already there, {{failed}} couldn’t be added.",
-    "installAll": "Install everything from repositories ({{count}})"
+    "installAll": "Install everything from repositories ({{count}})",
+    "remove": "Remove test sources",
+    "removed_one": "Removed {{count}} test source.",
+    "removed_other": "Removed {{count}} test sources."
   },
   "captions": {
     "title": "Captions",
@@ -3010,5 +3032,89 @@
     "keepFavorites": "Always keep Favorites' lyrics",
     "keepDownloaded": "Always keep downloaded songs' lyrics",
     "keepLocal": "Always keep local files' lyrics"
+  },
+  "youtube": {
+    "link": "YouTube address",
+    "linkKind": {
+      "video": "YouTube video",
+      "playlist": "YouTube playlist",
+      "channel": "YouTube channel"
+    },
+    "play": "Play",
+    "playAsMusic": "Play as music",
+    "downloadVideo": "Download video",
+    "downloadAudio": "Download audio",
+    "open": {
+      "playlist": "Open the playlist",
+      "channel": "Open the channel"
+    },
+    "needsExtension": "Install the YouTube extension (Browse → Extensions) to open playlists and channels.",
+    "desktopOnly": "Downloading from YouTube needs Raygun on a computer (yt-dlp).",
+    "ytdlpVersion": "Downloads with yt-dlp {{version}}.",
+    "ytdlpFetched": "yt-dlp is fetched from its GitHub releases the first time you download.",
+    "noFfmpeg": "Videos save at up to 360p without FFmpeg.",
+    "getFfmpeg": "Get FFmpeg for HD",
+    "gettingFfmpeg": "Getting FFmpeg…",
+    "downloads": "From YouTube",
+    "showFile": "Show file",
+    "kind": {
+      "audio": "Audio",
+      "video": "Video"
+    },
+    "state": {
+      "queued": "Waiting",
+      "downloading": "Downloading",
+      "done": "Saved",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    }
+  },
+  "updater": {
+    "title": "Updates",
+    "available": "Raygun {{latest}} is out (you have {{current}}).",
+    "newest": "You have the newest Raygun ({{current}}).",
+    "notChecked": "This is Raygun {{current}}.",
+    "check": "Check for updates",
+    "install": "Update to {{latest}}",
+    "openRelease": "Get {{latest}} from GitHub",
+    "tryAgain": "Install the update",
+    "repo": "Raygun on GitHub",
+    "downloading": "Downloading the update",
+    "installing": "The installer is starting. Raygun closes while it updates and opens again after.",
+    "needsPermission": "Allow Raygun to install unknown apps in the settings page that opened, then tap Install the update.",
+    "portableHint": "This is the portable Raygun: download the new portable exe and put it in place of this one. Your data stays in its raygun-data folder.",
+    "showNotes": "What's new",
+    "hideNotes": "Hide what's new",
+    "banner": "Raygun {{latest}} is out: see what's new and update",
+    "dismiss": "Hide until the next release"
+  },
+  "link": {
+    "title": "Your devices",
+    "description": "Link your phones and computers once: they keep each other in sync, and you can play on any of them from the others.",
+    "sharing": "Let your devices find this one",
+    "sharingOn": "Your other devices can find this one, link with it, sync with it and play on it.",
+    "sharingOff": "Turn this on to link devices. Linked devices sync as soon as something changes, and every few minutes.",
+    "linked": "Linked",
+    "noneLinked": "Nothing linked yet. Turn this on here and on your other device, then press Link next to it below.",
+    "nearby": "On this network",
+    "noneNearby": "No other Raygun here yet. Open Raygun on your other device and turn on the switch above there too.",
+    "turnOnToFind": "Turn on the switch above to look for your other devices.",
+    "link": "Link",
+    "waiting": "Allow it on {{name}}…",
+    "playThere": "Play there",
+    "syncNow": "Sync now",
+    "unlink": "Unlink {{name}}",
+    "synced": "Synced {{when}}",
+    "notSynced": "Not synced yet",
+    "here": "on this network",
+    "away": "not around",
+    "address": "Address of a device",
+    "addressHint": "192.168.1.20:8820",
+    "add": "Add",
+    "withCode": "Link with a code instead",
+    "withCodeHint": "For devices that can't find each other: show a code on one and type it on the other. This links syncing only.",
+    "browserTitle": "Control from a web browser",
+    "browserHint": "Scan the code with any phone on this network to control playback from its browser.",
+    "browserOff": "Turn on \"Let your devices find this one\" above to control playback from a browser."
   }
 }

@@ -939,6 +939,140 @@ pub async fn collections_saved_keys(
     collections.saved_keys().await
 }
 
+/// Downloads a song from a source the user picked (M46.47: Choose a source on a failed or
+/// YouTube-only download); the others are tried after it if it fails.
+#[tauri::command]
+#[specta::specta]
+pub async fn song_download_use_source(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+    id: String,
+    track: raygun_model::OnlineTrack,
+) -> Result<(), String> {
+    songs.use_source(&id, track).await
+}
+
+/// A YouTube address typed in Search (M46.47): what it points at, with the video's title and
+/// channel when YouTube says; `None` for anything else.
+#[tauri::command]
+#[specta::specta]
+pub async fn youtube_link(text: String) -> Result<Option<raygun_model::YouTubeLink>, String> {
+    let Some(link) = crate::ytdlp::parse_link(&text) else {
+        return Ok(None);
+    };
+    let client = raygun_net::http_client().map_err(|error| error.to_string())?;
+    Ok(Some(crate::ytdlp::describe(&client, link).await))
+}
+
+/// Plays a YouTube video from an address typed in Search, in YouTube's embed (M46.47).
+#[tauri::command]
+#[specta::specta]
+pub async fn youtube_play(
+    app: tauri::AppHandle,
+    video_id: String,
+    title: String,
+    channel: Option<String>,
+) -> Result<(), String> {
+    crate::video::play_youtube(&app, &video_id, &title, channel).await
+}
+
+/// Raygun's newest release next to this copy (M46.47); `refresh` asks GitHub now.
+#[tauri::command]
+#[specta::specta]
+pub async fn app_update(
+    updates: tauri::State<'_, Arc<crate::updates::UpdateService>>,
+    refresh: bool,
+) -> Result<raygun_model::AppUpdate, String> {
+    if refresh {
+        updates.check().await
+    } else {
+        Ok(updates.current())
+    }
+}
+
+/// Downloads the newest release and starts its installer, or opens its page (M46.47).
+#[tauri::command]
+#[specta::specta]
+pub async fn app_update_install(
+    updates: tauri::State<'_, Arc<crate::updates::UpdateService>>,
+) -> Result<raygun_model::AppUpdate, String> {
+    updates.install().await
+}
+
+/// Opens Raygun's release page or repository in the system's browser (M46.47).
+#[tauri::command]
+#[specta::specta]
+pub fn app_open_page(
+    updates: tauri::State<'_, Arc<crate::updates::UpdateService>>,
+    url: String,
+) -> Result<(), String> {
+    updates.open_page(&url)
+}
+
+/// yt-dlp and FFmpeg on this device (M46.47).
+#[tauri::command]
+#[specta::specta]
+pub async fn ytdlp_status(
+    ytdlp: tauri::State<'_, Arc<crate::ytdlp::YtDlpService>>,
+) -> Result<raygun_model::YtDlpStatus, String> {
+    Ok(ytdlp.status().await)
+}
+
+/// Fetches yt-dlp's latest release (checked against its checksums) (M46.47).
+#[tauri::command]
+#[specta::specta]
+pub async fn ytdlp_install(
+    ytdlp: tauri::State<'_, Arc<crate::ytdlp::YtDlpService>>,
+) -> Result<raygun_model::YtDlpStatus, String> {
+    ytdlp.install().await
+}
+
+/// Fetches FFmpeg for YouTube videos above 360p (Windows) (M46.47).
+#[tauri::command]
+#[specta::specta]
+pub async fn ytdlp_install_ffmpeg(
+    ytdlp: tauri::State<'_, Arc<crate::ytdlp::YtDlpService>>,
+) -> Result<raygun_model::YtDlpStatus, String> {
+    ytdlp.install_ffmpeg().await
+}
+
+/// Saves a YouTube video or its sound to Downloads/Raygun/YouTube (M46.47); the job's id.
+#[tauri::command]
+#[specta::specta]
+pub fn ytdlp_download(
+    ytdlp: tauri::State<'_, Arc<crate::ytdlp::YtDlpService>>,
+    url: String,
+    title: String,
+    kind: raygun_model::YtDlpKind,
+) -> Result<String, String> {
+    ytdlp.download(&url, &title, kind)
+}
+
+/// yt-dlp's downloads, newest first (M46.47).
+#[tauri::command]
+#[specta::specta]
+pub fn ytdlp_jobs(
+    ytdlp: tauri::State<'_, Arc<crate::ytdlp::YtDlpService>>,
+) -> Vec<raygun_model::YtDlpJob> {
+    ytdlp.jobs()
+}
+
+/// Stops a yt-dlp download, or takes a finished one off the list (M46.47).
+#[tauri::command]
+#[specta::specta]
+pub fn ytdlp_cancel(ytdlp: tauri::State<'_, Arc<crate::ytdlp::YtDlpService>>, id: String) {
+    ytdlp.cancel(&id);
+}
+
+/// Shows a finished yt-dlp download in the file manager (M46.47).
+#[tauri::command]
+#[specta::specta]
+pub fn ytdlp_reveal(
+    ytdlp: tauri::State<'_, Arc<crate::ytdlp::YtDlpService>>,
+    id: String,
+) -> Result<(), String> {
+    ytdlp.reveal(&id)
+}
+
 /// Stops the song being recorded without keeping it (M46.46: the recording window's Cancel).
 #[tauri::command]
 #[specta::specta]
@@ -1628,6 +1762,41 @@ pub async fn dev_add_test_sources(
     Ok(report)
 }
 
+/// Takes the test sources off again (M46.47): Raygun's test repository, its extensions and its
+/// Stremio addon. The suggested repositories and the legal addons stay.
+#[tauri::command]
+#[specta::specta]
+pub async fn dev_remove_test_sources(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    stremio: Stremio<'_>,
+) -> Result<u32, String> {
+    let mut removed = 0;
+    for info in extensions.list().await {
+        if info.id.starts_with("dev.raygun.test.") {
+            extensions.uninstall(&info.id).await?;
+            removed += 1;
+        }
+    }
+    for repo in extensions.repos().await? {
+        if repo.url.eq_ignore_ascii_case(TEST_REPO) {
+            extensions.remove_repo(&repo.id).await?;
+            removed += 1;
+        }
+    }
+    let test_addon = TEST_ADDONS[0].trim_end_matches("/manifest.json");
+    for addon in stremio.addons().await.unwrap_or_default() {
+        if addon
+            .url
+            .trim_end_matches("/manifest.json")
+            .eq_ignore_ascii_case(test_addon)
+        {
+            stremio.remove(&addon.id).await?;
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
 /// Where this device's player plays (M46.15).
 #[tauri::command]
 #[specta::specta]
@@ -1637,13 +1806,46 @@ pub fn connect_status(
     connect.status()
 }
 
-/// Other Raygun devices to play on: heard on the network, added by address, or allowed before.
+/// Other Raygun devices to play on: heard on the network, added by address, or allowed before;
+/// linked ones say when they last synced (M46.47).
 #[tauri::command]
 #[specta::specta]
-pub fn connect_devices(
+pub async fn connect_devices(
     connect: tauri::State<'_, Arc<crate::connect::ConnectService>>,
-) -> Vec<raygun_model::ConnectDevice> {
-    connect.inner().devices()
+    sync: tauri::State<'_, crate::device_sync::SyncService>,
+) -> Result<Vec<raygun_model::ConnectDevice>, String> {
+    let synced = sync.last_synced().await;
+    Ok(connect
+        .inner()
+        .devices()
+        .into_iter()
+        .map(|mut device| {
+            device.last_sync_at = device
+                .sync_id
+                .as_ref()
+                .and_then(|id| synced.get(id))
+                .map(|at| *at as f64);
+            device
+        })
+        .collect())
+}
+
+/// Links with a device (M46.47): it's asked once; then the two sync and either plays on the other.
+#[tauri::command]
+#[specta::specta]
+pub async fn connect_link(
+    connect: tauri::State<'_, Arc<crate::connect::ConnectService>>,
+    id: String,
+) -> Result<Vec<raygun_model::ConnectDevice>, String> {
+    connect.inner().link(&id).await
+}
+
+/// Lets other devices find, link with and play on this one, and sync with it (M46.47): the
+/// remote server and the sync server together.
+#[tauri::command]
+#[specta::specta]
+pub async fn devices_set_sharing(app: tauri::AppHandle, on: bool) -> Result<(), String> {
+    crate::device_link::set_sharing(&app, on).await
 }
 
 /// Adds a device by its address (`192.168.1.20:8820`).

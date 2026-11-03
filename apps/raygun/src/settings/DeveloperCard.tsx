@@ -1,6 +1,6 @@
 import { commands } from '@raygun/bindings';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { FlaskConical, PackagePlus } from 'lucide-react';
+import { FlaskConical, PackagePlus, Trash2 } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -24,6 +24,15 @@ export const DeveloperCard: FC = () => {
   const queue = useInstallQueue();
   const add = useMutation({
     mutationFn: () => unwrapResult(commands.devAddTestSources()),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: CATALOG });
+      void queryClient.invalidateQueries({ queryKey: EXTENSIONS });
+      void queryClient.invalidateQueries({ queryKey: ['stremio'] });
+    },
+  });
+  // M46.47: the test repository, its extensions and the test addon go again.
+  const remove = useMutation({
+    mutationFn: () => unwrapResult(commands.devRemoveTestSources()),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: CATALOG });
       void queryClient.invalidateQueries({ queryKey: EXTENSIONS });
@@ -71,6 +80,21 @@ export const DeveloperCard: FC = () => {
         </SourceIssue>
       ))}
       {add.error && <SourceIssue>{add.error.message}</SourceIssue>}
+      <button
+        type="button"
+        disabled={remove.isPending}
+        onClick={() => remove.mutate()}
+        className={BUTTON}
+      >
+        <Trash2 aria-hidden size={16} />
+        {t('developer.remove')}
+      </button>
+      {remove.isSuccess && (
+        <p role="status" data-testid="developer-removed" className="text-muted text-xs">
+          {t('developer.removed', { count: remove.data })}
+        </p>
+      )}
+      {remove.error && <SourceIssue>{remove.error.message}</SourceIssue>}
       <button
         type="button"
         disabled={missing.length === 0}

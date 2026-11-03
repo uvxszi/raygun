@@ -15,6 +15,7 @@ mod commands;
 mod connect;
 mod cover_fallback;
 mod details;
+mod device_link;
 mod device_sync;
 mod discovery;
 mod durations;
@@ -55,6 +56,7 @@ mod startup;
 mod stremio;
 mod system_ui;
 mod tts;
+mod updates;
 mod uploads;
 mod video;
 #[cfg(not(target_os = "android"))]
@@ -64,6 +66,7 @@ mod video_library;
 mod video_session;
 mod video_sources;
 mod websites;
+mod ytdlp;
 
 use std::path::Path;
 
@@ -219,6 +222,22 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::playlists_merge,
             commands::collections_saved_keys,
             commands::song_download_cancel_recording,
+            commands::song_download_use_source,
+            commands::youtube_link,
+            commands::youtube_play,
+            commands::ytdlp_status,
+            commands::ytdlp_install,
+            commands::ytdlp_install_ffmpeg,
+            commands::ytdlp_download,
+            commands::ytdlp_jobs,
+            commands::ytdlp_cancel,
+            commands::ytdlp_reveal,
+            commands::dev_remove_test_sources,
+            commands::app_update,
+            commands::connect_link,
+            commands::devices_set_sharing,
+            commands::app_update_install,
+            commands::app_open_page,
             commands::lyrics_forget,
             commands::lyrics_cache_usage,
             commands::lyrics_cache_clear,
@@ -410,6 +429,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::WatchChangedEvent,
             events::VideoDownloadsEvent,
             events::SongDownloadsEvent,
+            events::YtDlpEvent,
+            events::AppUpdateEvent,
             events::MadeForYouEvent,
             events::TrackDurationsEvent,
             events::LocalFilesEvent,

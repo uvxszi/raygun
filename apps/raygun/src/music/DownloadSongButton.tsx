@@ -6,6 +6,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Popover } from '../shell/Popover';
+import { chooseDownloadSource } from './sourcePickerStore';
 import { downloadSongs, useSongDownloadActions, useSongDownloadFor } from './useSongDownloads';
 
 const BUTTON = 'rounded-full px-4 py-1.5 text-sm font-semibold disabled:opacity-60';
@@ -149,7 +150,7 @@ export const DownloadSongButton: FC<{
                 {remove.error.message}
               </p>
             )}
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <button type="button" onClick={close} className={`${BUTTON} bg-background`}>
                 {t(state === 'done' || busy ? 'songs.button.keep' : 'collections.cancel')}
               </button>
@@ -161,6 +162,18 @@ export const DownloadSongButton: FC<{
                   className={`${BUTTON} bg-background`}
                 >
                   {t('songs.record')}
+                </button>
+              )}
+              {(state === 'failed' || state === 'needsRecording') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    close();
+                    chooseDownloadSource(found);
+                  }}
+                  className={`${BUTTON} bg-background`}
+                >
+                  {t('songs.button.chooseSource')}
                 </button>
               )}
               {(state === 'failed' || state === 'needsRecording') && (

@@ -36,21 +36,57 @@ describe('Devices', () => {
     AppShellWrapper.seedCore();
   });
 
-  it('turns sync on from Settings and shows this device', async () => {
+  it('lets devices find this one from Settings, then links one and plays there', async () => {
     const user = userEvent.setup();
-    commands.syncSetEnabled.mockResolvedValue(ok(ON));
     await AppShellWrapper.mount('/settings/connections');
     expect(await screen.findByTestId('devices-card')).toHaveTextContent('Off');
     await user.click(screen.getByTestId('devices-card'));
 
     const page = await screen.findByTestId('devices-page');
-    await user.click(await within(page).findByRole('switch', { name: 'Device sync' }));
-    expect(commands.syncSetEnabled).toHaveBeenCalledWith(true);
-    expect(
-      await within(page).findByText('No devices yet. Pair one with a code from either device.'),
-    ).toBeInTheDocument();
     expect(within(page).getByTestId('device-name')).toHaveTextContent('Android phone');
-    expect(within(page).getByText('Key ab12 cd34 ef56 7890')).toBeInTheDocument();
+    commands.localNetworkAccess.mockResolvedValue(
+      ok({ needed: false, granted: true, blocked: false }),
+    );
+    commands.syncStatus.mockResolvedValue(ok(ON));
+    commands.remoteStatus.mockResolvedValue(
+      ok({
+        enabled: true,
+        url: 'http://10.0.2.15:8820',
+        pairUrl: null,
+        pairQrSvg: null,
+        devices: [],
+        error: null,
+      }),
+    );
+    const nearby = {
+      id: 'pc',
+      name: 'Living room PC',
+      address: '10.0.2.2:8820',
+      kind: 'computer',
+      paired: false,
+      found: true,
+      syncId: null,
+      lastSyncAt: null,
+    };
+    commands.connectDevices.mockResolvedValue(ok([nearby]));
+    await user.click(
+      await within(page).findByRole('switch', { name: 'Let your devices find this one' }),
+    );
+    expect(commands.devicesSetSharing).toHaveBeenCalledWith(true);
+
+    const card = within(page).getByTestId('linked-devices');
+    const row = await within(card).findByTestId('nearby-device');
+    commands.connectDevices.mockResolvedValue(
+      ok([{ ...nearby, paired: true, syncId: 'sync-pc', lastSyncAt: Date.now() - 120_000 }]),
+    );
+    await user.click(within(row).getByRole('button', { name: 'Link' }));
+    expect(commands.connectLink).toHaveBeenCalledWith('pc');
+    const linked = await within(card).findByTestId('linked-device');
+    expect(linked).toHaveTextContent('Synced 2 minutes ago');
+    await user.click(within(linked).getByRole('button', { name: 'Sync now' }));
+    expect(commands.syncNow).toHaveBeenCalledWith('sync-pc');
+    await user.click(within(linked).getByRole('button', { name: 'Play there' }));
+    expect(commands.connectTo).toHaveBeenCalledWith('pc');
   });
 
   it('shows a pairing code and joins with pasted text', async () => {

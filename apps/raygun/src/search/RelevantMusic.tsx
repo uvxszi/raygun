@@ -12,6 +12,7 @@ import { Carousel } from '../shell/Carousel';
 import { rankSongs, useAlbumFinds, useArtistFinds } from './useMusicFinds';
 import { OnlineTrackRow } from './OnlineTrackRow';
 import { titleScore } from './rankResults';
+import { useSeenSongs } from './seenBefore';
 import type { MusicView } from './searchTypes';
 import { playResults, useOnlineSearch } from './useOnlineSearch';
 
@@ -59,11 +60,22 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
   const albums = useAlbumFinds(query);
   const podcasts = usePodcastSearch(query);
 
-  const ranked = rankSongs(
-    query,
-    songs.data?.top ?? [],
-    (songs.data?.providers ?? []).filter((result) => !result.error),
-  );
+  // Songs already seen (Home, charts, earlier searches) show until the sources answer (M46.47).
+  const seen = useSeenSongs(query);
+  const ranked = songs.data
+    ? rankSongs(
+        query,
+        songs.data.top,
+        songs.data.providers.filter((result) => !result.error),
+      )
+    : seen.map((track) => ({
+        track,
+        source: undefined,
+        score: Math.max(
+          titleScore(track.title, query),
+          titleScore(`${track.artist ?? ''} ${track.title}`, query),
+        ),
+      }));
   const tracks = ranked.map((entry) => entry.track);
 
   // The top result: whichever name answers the query best; songs win a tie.
@@ -99,7 +111,7 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
   const top = [...candidates].sort((a, b) => b.score - a.score)[0];
 
   const searching = songs.isPending && artists.isPending && albums.isPending && podcasts.isPending;
-  if (searching) {
+  if (searching && ranked.length === 0) {
     return <LoaderCircle aria-label={t('search.searching')} className="text-muted animate-spin" />;
   }
   const settled =
@@ -136,6 +148,12 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
 
   return (
     <div data-testid="relevant-music" className="flex flex-col gap-6">
+      {songs.isPending && (
+        <p role="status" className="text-muted flex items-center gap-2 text-sm">
+          <LoaderCircle aria-hidden size={14} className="animate-spin" />
+          {t('search.seenWhileSearching')}
+        </p>
+      )}
       {top && (
         <section aria-label={t('search.topResult')} className="flex flex-col gap-2">
           <h2 className="text-lg font-bold">{t('search.topResult')}</h2>

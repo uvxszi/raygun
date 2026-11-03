@@ -1,6 +1,7 @@
 import type {
   AiModelProgress,
   AppInfo,
+  AppUpdate,
   ConnectRequest,
   ConnectStatus,
   EngineCommand,
@@ -18,6 +19,7 @@ import type {
   TtsUpdate,
   VideoPlayerMessage,
   YouTubeVideo,
+  YtDlpStatus,
 } from '@raygun/bindings';
 import { act } from '@testing-library/react';
 
@@ -61,6 +63,8 @@ type EventPayloads = {
   videoPlayerEvent: VideoPlayerMessage;
   youTubeVideoEvent: YouTubeVideo;
   speechCommandEvent: SpeechCommand;
+  appUpdateEvent: AppUpdate;
+  ytDlpEvent: string;
 };
 type EventName = keyof EventPayloads;
 type Listener = (event: { payload: unknown }) => void;
@@ -289,6 +293,22 @@ export const bindingsMock = {
     lyricsCacheUsage: vi.fn(),
     lyricsCacheClear: vi.fn(),
     songDownloadCancelRecording: vi.fn(),
+    songDownloadUseSource: vi.fn(),
+    youtubeLink: vi.fn(),
+    youtubePlay: vi.fn(),
+    ytdlpStatus: vi.fn(),
+    ytdlpInstall: vi.fn(),
+    ytdlpInstallFfmpeg: vi.fn(),
+    ytdlpDownload: vi.fn(),
+    ytdlpJobs: vi.fn(),
+    ytdlpCancel: vi.fn(),
+    ytdlpReveal: vi.fn(),
+    devRemoveTestSources: vi.fn(),
+    appUpdate: vi.fn(),
+    appUpdateInstall: vi.fn(),
+    appOpenPage: vi.fn(),
+    connectLink: vi.fn(),
+    devicesSetSharing: vi.fn(),
     captionsUseFeed: vi.fn(),
     songDownloads: vi.fn(),
     songDownloadRemove: vi.fn(),
@@ -557,7 +577,35 @@ export const bindingsMock = {
     videoPlayerEvent: makeEvent('videoPlayerEvent'),
     youTubeVideoEvent: makeEvent('youTubeVideoEvent'),
     speechCommandEvent: makeEvent('speechCommandEvent'),
+    appUpdateEvent: makeEvent('appUpdateEvent'),
+    ytDlpEvent: makeEvent('ytDlpEvent'),
   },
+};
+
+/** yt-dlp on a phone: not there (M46.47). */
+const YTDLP_OFF: YtDlpStatus = {
+  supported: false,
+  version: null,
+  ffmpeg: false,
+  installing: false,
+  message: null,
+};
+
+/** No release newer than this copy (M46.47). */
+export const NO_UPDATE: AppUpdate = {
+  current: '1.0.0',
+  latest: null,
+  available: false,
+  notes: null,
+  pageUrl: 'https://github.com/uvxszi/raygun/releases/latest',
+  repoUrl: 'https://github.com/uvxszi/raygun',
+  installKind: 'android',
+  assetName: null,
+  assetSize: null,
+  checkedAt: null,
+  state: 'idle',
+  progress: null,
+  message: null,
 };
 
 /** Default answers for every command, as an idle app on Android would give. */
@@ -666,6 +714,22 @@ export const seedBindings = () => {
   commands.lyricsCacheUsage.mockResolvedValue(ok({ songs: 0, transcriptions: 0 }));
   commands.lyricsCacheClear.mockResolvedValue(ok(0));
   commands.songDownloadCancelRecording.mockResolvedValue(null);
+  commands.songDownloadUseSource.mockResolvedValue(ok(null));
+  commands.youtubeLink.mockResolvedValue(ok(null));
+  commands.youtubePlay.mockResolvedValue(ok(null));
+  commands.ytdlpStatus.mockResolvedValue(ok(YTDLP_OFF));
+  commands.ytdlpInstall.mockResolvedValue(ok(YTDLP_OFF));
+  commands.ytdlpInstallFfmpeg.mockResolvedValue(ok(YTDLP_OFF));
+  commands.ytdlpDownload.mockResolvedValue(ok('job'));
+  commands.ytdlpJobs.mockResolvedValue([]);
+  commands.ytdlpCancel.mockResolvedValue(null);
+  commands.ytdlpReveal.mockResolvedValue(ok(null));
+  commands.devRemoveTestSources.mockResolvedValue(ok(0));
+  commands.appUpdate.mockResolvedValue(ok(NO_UPDATE));
+  commands.appUpdateInstall.mockResolvedValue(ok(NO_UPDATE));
+  commands.appOpenPage.mockResolvedValue(ok(null));
+  commands.connectLink.mockResolvedValue(ok([]));
+  commands.devicesSetSharing.mockResolvedValue(ok(null));
   commands.captionsUseFeed.mockResolvedValue(ok(null));
   commands.songDownloads.mockResolvedValue(ok([]));
   commands.songDownloadRemove.mockResolvedValue(ok(null));
@@ -719,7 +783,7 @@ export const seedBindings = () => {
   });
   commands.podcastQueue.mockResolvedValue({ status: 'ok', data: null });
   commands.connectStatus.mockResolvedValue(CONNECT_IDLE);
-  commands.connectDevices.mockResolvedValue([]);
+  commands.connectDevices.mockResolvedValue(ok([]));
   commands.connectAdd.mockResolvedValue({ status: 'error', error: 'not mocked' });
   commands.connectTo.mockResolvedValue(ok(CONNECT_IDLE));
   commands.connectDisconnect.mockResolvedValue(ok(CONNECT_IDLE));

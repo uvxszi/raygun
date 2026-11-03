@@ -45,6 +45,14 @@ pub struct MangaDownloadsEvent(pub String);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct VideoDownloadsEvent(pub String);
 
+/// Raygun's own update changed: checked, downloading, installing (M46.47).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct AppUpdateEvent(pub raygun_model::AppUpdate);
+
+/// yt-dlp's downloads or its install changed; carries the job's id when one did (M46.47).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct YtDlpEvent(pub String);
+
 /// The song downloads changed; carries the download's id when one did (else empty) (M46.10).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SongDownloadsEvent(pub String);

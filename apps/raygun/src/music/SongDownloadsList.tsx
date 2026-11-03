@@ -1,5 +1,5 @@
 import type { SongDownload } from '@raygun/bindings';
-import { CircleAlert, Disc3, FileDown, Mic, RotateCw, Trash2 } from 'lucide-react';
+import { CircleAlert, Disc3, FileDown, ListMusic, Mic, RotateCw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -8,6 +8,7 @@ import { Artwork } from '../library/Artwork';
 import { EmptyState } from '../shell/EmptyState';
 import { formatBytes } from '../watch/episodeLabel';
 import { SaveSongsSheet } from './SaveSongsSheet';
+import { chooseDownloadSource } from './sourcePickerStore';
 import { useSongDownloadActions, useSongDownloads } from './useSongDownloads';
 
 const ICON =
@@ -100,6 +101,17 @@ const Row: FC<{ item: SongDownload; onSave: () => void }> = ({ item, onSave }) =
         >
           <Mic aria-hidden size={14} />
           {t('songs.record')}
+        </button>
+      )}
+      {(item.state === 'failed' || item.state === 'needsRecording') && (
+        <button
+          type="button"
+          aria-label={t('songs.chooseSource', { title: item.title })}
+          data-hint={t('songs.chooseSource', { title: item.title })}
+          onClick={() => chooseDownloadSource(item)}
+          className={ICON}
+        >
+          <ListMusic aria-hidden size={18} />
         </button>
       )}
       {item.state === 'failed' && (

@@ -31,10 +31,19 @@ import { pickChart, useMusicCharts } from '../music/useDiscovery';
 import { useMadeForYou } from '../music/useMadeForYou';
 import { useSettings } from '../settings/useSettings';
 import { HomeFixedTiles } from '../library/LocalFilesTile';
+import {
+  AudiobooksSection,
+  ChartGroupSection,
+  ChartTilesSection,
+  DecadesSection,
+  GenresSection,
+  PopularTitlesSection,
+} from '../home/MoreRows';
 import { MascotButton } from '../shell/MascotButton';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { useIsDesktop } from '../shell/useIsDesktop';
 import { TopBar, TopBarAction } from '../shell/TopBar';
+import { UpdateBanner } from '../updates/UpdateBanner';
 import { ContinueWatchingRow } from '../watch/ContinueWatchingRow';
 import { useContinueWatching } from '../watch/useWatch';
 import { Carousel } from '../shell/Carousel';
@@ -310,8 +319,6 @@ const GetStarted: FC = () => {
   );
 };
 
-/** Home: picking up where you left off, in everything. */
-/** Home's sections by their layout id (M46.5). */
 /** Popular now and Trending (M46.9): the charts that fit, as rows. */
 const ChartSection: FC<{ which: 'popular' | 'trending' }> = ({ which }) => {
   const { t } = useTranslation();
@@ -360,6 +367,7 @@ const MadeForYouRow: FC = () => {
   );
 };
 
+/** Home's sections by their layout id (M46.5; more rows from Browse all's kinds in M46.47). */
 const HOME_SECTIONS: Record<string, FC> = {
   continueWatching: () => <ContinueWatchingRow />,
   continueReading: () => <ContinueReading />,
@@ -368,6 +376,16 @@ const HOME_SECTIONS: Record<string, FC> = {
   recentlyPlayed: () => <RecentlyPlayed />,
   popularMusic: () => <ChartSection which="popular" />,
   trendingMusic: () => <ChartSection which="trending" />,
+  newReleases: () => <ChartGroupSection group="new" />,
+  popularVideos: () => <PopularTitlesSection medium="video" />,
+  popularComics: () => <PopularTitlesSection medium="manga" />,
+  popularBooks: () => <PopularTitlesSection medium="novel" />,
+  popularAudiobooks: () => <AudiobooksSection />,
+  charts: () => <ChartTilesSection />,
+  viralMusic: () => <ChartGroupSection group="viral" />,
+  genres: () => <GenresSection />,
+  decades: () => <DecadesSection />,
+  undergroundMusic: () => <ChartGroupSection group="underground" />,
 };
 
 export const HomePage: FC = () => {
@@ -414,6 +432,7 @@ export const HomePage: FC = () => {
           </>
         }
       />
+      <UpdateBanner />
       {layout.homeSections
         .filter((item) => item.visible)
         .map((item) => {

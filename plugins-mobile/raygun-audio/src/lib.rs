@@ -317,6 +317,37 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(|error| error.to_string())
     }
 
+    /// Opens Android's installer for a downloaded update (M46.47); `false` when Raygun first
+    /// needs "Install unknown apps" (its settings page was opened instead).
+    #[cfg(target_os = "android")]
+    pub fn install_apk(&self, path: &str) -> Result<bool, String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>(
+                "installApk",
+                serde_json::json!({ "path": path }),
+            )
+            .map(|value| value["started"].as_bool().unwrap_or(false))
+            .map_err(|error| error.to_string())
+    }
+
+    /// Whether Raygun may install its own updates (M46.47).
+    #[cfg(target_os = "android")]
+    pub fn can_install_packages(&self) -> Result<bool, String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>("canInstallPackages", ())
+            .map(|value| value["allowed"].as_bool().unwrap_or(false))
+            .map_err(|error| error.to_string())
+    }
+
+    /// Opens an https address in the phone's browser (M46.47).
+    #[cfg(target_os = "android")]
+    pub fn open_url(&self, url: &str) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>("openUrl", serde_json::json!({ "url": url }))
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
     /// Opens the share sheet for a file in the app's cache folder.
     #[cfg(target_os = "android")]
     pub fn share_file(&self, path: &str, mime: &str, title: &str) -> Result<(), String> {

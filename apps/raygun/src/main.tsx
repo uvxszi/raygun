@@ -7,13 +7,16 @@ import { createRoot } from 'react-dom/client';
 import './i18n';
 import { MiniplayerApp } from './miniplayer/MiniplayerApp';
 import { createAppRouter } from './router';
+import { persistQueryCache, restoreQueryCache } from './shell/queryPersist';
 import './styles.css';
 
 // Queries are IPC calls into the local core, not network requests: they must run offline too
 // (the default 'online' mode pauses them while the device has no connection).
+// Answers stay in memory for hours (M46.47): pages opened again show at once, and the saved cache
+// holds what was seen lately.
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { networkMode: 'always' },
+    queries: { networkMode: 'always', gcTime: 3 * 60 * 60_000 },
     mutations: { networkMode: 'always' },
   },
 });
@@ -31,14 +34,26 @@ const isMiniplayerWindow = () => {
 };
 const miniplayer = isMiniplayerWindow();
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      {miniplayer ? (
-        <MiniplayerApp />
-      ) : (
-        <RouterProvider router={createAppRouter(createHashHistory())} />
-      )}
-    </QueryClientProvider>
-  </StrictMode>,
-);
+const render = () =>
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <QueryClientProvider client={queryClient}>
+        {miniplayer ? (
+          <MiniplayerApp />
+        ) : (
+          <RouterProvider router={createAppRouter(createHashHistory())} />
+        )}
+      </QueryClientProvider>
+    </StrictMode>,
+  );
+
+// The main window starts from last time's answers and saves them as they change (M46.47); the
+// miniplayer follows playback only.
+if (miniplayer) {
+  render();
+} else {
+  void restoreQueryCache(queryClient).finally(() => {
+    persistQueryCache(queryClient);
+    render();
+  });
+}

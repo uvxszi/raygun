@@ -40,7 +40,7 @@ export const useConnectSession = (): ConnectSession | null =>
 export const useConnectDevices = (shown: boolean) =>
   useQuery({
     queryKey: DEVICES_KEY,
-    queryFn: () => commands.connectDevices(),
+    queryFn: () => unwrapResult(commands.connectDevices()),
     enabled: shown,
     refetchInterval: shown ? DEVICES_REFRESH_MS : false,
   });

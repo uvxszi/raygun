@@ -58,6 +58,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
             pages: Some(caches.pages.clone()),
             covers: Some(caches.covers.clone()),
             local: Some(paths.downloads()),
+            port_file: Some(paths.root().join("proxy-port")),
         },
     ))?;
     app.manage(caches);
@@ -206,6 +207,20 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         app.handle().clone(),
         raygun_net::http_client()?,
     ));
+    // Raygun's own updates from its GitHub releases (M46.47).
+    let updates = crate::updates::UpdateService::new(
+        app.handle().clone(),
+        paths.root().join("cache"),
+        raygun_net::http_client()?,
+    );
+    updates.start();
+    app.manage(updates);
+    // yt-dlp (M46.47): YouTube downloads on desktop and songs only YouTube has.
+    app.manage(crate::ytdlp::YtDlpService::new(
+        app.handle().clone(),
+        paths.root(),
+        raygun_net::http_client()?,
+    ));
     let songs = crate::music_downloads::SongDownloadService::new(
         app.handle().clone(),
         paths.downloads(),
@@ -230,6 +245,8 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         app.handle().clone(),
     ))?;
     app.manage(sync);
+    // Linked devices keep each other in sync (M46.47).
+    crate::device_link::start_auto_sync(app.handle().clone());
 
     create_main_window(app, &paths)?;
     // The miniplayer window (M46.13) shares the main window's webview profile.

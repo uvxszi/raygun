@@ -101,6 +101,11 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | YouTube channels, playlists and comments | Grayjay, NewPipe | ✅ M46.45 (comments read-only) |
 | Rating sources on movie pages | Stremio, Letterboxd-style apps | ✅ M46.45 (IMDb and any site an addon links) |
 | Download retries and fallbacks | Kreate, RiMusic (Media3 DownloadManager) | ✅ M46.46 (retry with resume, other sources, requeue later) |
+| Pick a download's source, with previews | Seal, Kreate | ✅ M46.47 |
+| YouTube downloads with yt-dlp | Seal, Stacher | ✅ M46.47 (desktop; addresses in Search, songs only YouTube has) |
+| In-app updates from GitHub releases | Mihon, Kreate, Seal | ✅ M46.47 (setup exe, MSI, Android; portable gets the page) |
+| One device link: sync and Spotify-style Connect | Spotify Connect, Syncthing | ✅ M46.47 |
+| Opens on last time's data | Spotify, Mihon (cached library) | ✅ M46.47 (saved query cache) |
 | Lyrics kept offline, cleared after a while | Musixmatch, Kreate (lyrics in its database) | ✅ M46.46 (30 days by default; favorites, downloads and local files kept) |
 | Playlist import (from URLs/files) | Nuclear, RiPlay | ✅ M46.21 (Spotify links, CSV, pasted lists, screenshots; matched per song) |
 | Dashboard/discovery: new releases, moods, quick picks | Nuclear, RiPlay | ✅ M46.20 (Made for You: mixes from plays and favorites, Release Radar, moods; skip signals not yet) |

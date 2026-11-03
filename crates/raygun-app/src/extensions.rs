@@ -112,6 +112,17 @@ fn built_in() -> Vec<ExtensionSource> {
                 include_str!("../../../extensions/librivox/dist/index.js"),
             ),
         ]),
+        // A second audiobook source (M46.47).
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/loyalbooks/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/loyalbooks/dist/index.js"),
+            ),
+        ]),
         ExtensionSource::built_in(&[
             (
                 "raygun-extension.json",
@@ -1041,7 +1052,7 @@ pub fn suggested_repo_urls() -> Vec<&'static str> {
 }
 
 /// Repositories offered with one tap: Raygun's own and the ecosystems Raygun can run.
-const SUGGESTED_REPOS: [(&str, &str, &str); 4] = [
+const SUGGESTED_REPOS: [(&str, &str, &str); 5] = [
     (
         "https://raw.githubusercontent.com/uvxszi/raygun/main/repo/index.json",
         "Raygun Extensions",
@@ -1051,6 +1062,11 @@ const SUGGESTED_REPOS: [(&str, &str, &str); 4] = [
         "https://raw.githubusercontent.com/uvxszi/paraline-raygun/main/shosetsu/index.json",
         "Paraline Raygun",
         "Fixed copies of novel sources whose sites changed (Syosetsu, Wattpad); they install as updates.",
+    ),
+    (
+        "https://raw.githubusercontent.com/uvxszi/paraline-raygun/main/raygun/index.json",
+        "Paraline Raygun sources",
+        "Community sources for Raygun: Openverse's openly licensed music, and more as they come.",
     ),
     (
         "https://gitlab.com/shosetsuorg/extensions/-/raw/dev/index.json",

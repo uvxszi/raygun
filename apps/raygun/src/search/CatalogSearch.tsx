@@ -14,6 +14,8 @@ import { useInView } from '../shell/useInView';
 import { SourceMenu } from './SourceMenu';
 import { SourceFiltersPanel } from './SourceFiltersPanel';
 import { rankResults } from './rankResults';
+import type { RankedCard } from './rankResults';
+import { useSeenTitles } from './seenBefore';
 import { failingLast, useSourceHealth } from './sourceHealth';
 import {
   sourceSearchOptions,
@@ -174,10 +176,30 @@ export const RankedResults: FC<{
   const results = searches
     .map((search) => search.data)
     .filter((result): result is SourceSearchResult => Boolean(result));
-  const ranked = rankResults(
+  const answers = rankResults(
     results.filter((result) => !result.error),
     query,
   );
+  // Titles already seen (Home, sources' pages, the library) show until every source has
+  // answered (M46.47), after the answers that came.
+  const seen = useSeenTitles(medium, query);
+  const searchedIds = new Set(sources.map((source) => source.id));
+  const named = new Map(sources.map((source) => [source.id, source.name]));
+  const ranked: RankedCard[] =
+    answered < sources.length
+      ? [
+          ...answers,
+          ...seen
+            .filter(
+              (card) =>
+                searchedIds.has(card.sourceId) &&
+                !answers.some(
+                  (answer) => answer.card.sourceId === card.sourceId && answer.card.id === card.id,
+                ),
+            )
+            .map((card) => ({ card, sourceName: named.get(card.sourceId) ?? '' })),
+        ]
+      : answers;
   const errors = results.filter((result) => result.error);
   const errorKey = searches
     .map((search, index) => `${sources[index]?.id}:${search.status}:${search.data?.error ?? ''}`)

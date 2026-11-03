@@ -153,7 +153,7 @@ export const AllResults: FC<{
           <Section title={t('search.inYourLibrary')} onMore={() => onType('library')}>
             <LibraryMatches query={query} limit={4} />
           </Section>
-          <Section title={t('library.media.music')} onMore={() => onType('music')}>
+          <Section title={t('search.type.music')} onMore={() => onType('music')}>
             <MusicResults query={query} compact />
           </Section>
         </>

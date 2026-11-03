@@ -17,9 +17,9 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use raygun_db::music_downloads::{self as store, NewSong, SongDownloadRow};
 use raygun_model::{
-    AudioFileFormat, MediaKind, MediaSource, PlaybackControl, PlaybackState, PlaybackStatus,
-    QueueItem, QueueItemInput, SaveLocation, SongDestination, SongDownload, SongDownloadState,
-    SongsSaved, TrackInput, TrackQuery,
+    AudioFileFormat, MediaKind, MediaSource, OnlineTrack, PlaybackControl, PlaybackState,
+    PlaybackStatus, QueueItem, QueueItemInput, SaveLocation, SongDestination, SongDownload,
+    SongDownloadState, SongsSaved, TrackInput, TrackQuery,
 };
 use raygun_net::ImageLinks;
 use reqwest::header::{CONTENT_RANGE, CONTENT_TYPE, RANGE};
@@ -280,8 +280,25 @@ impl SongDownloadService {
 
         // A source's own stream first, then whatever the resolver finds, skipping YouTube (its
         // embed has no file to fetch). The source's own failing falls back to the others (M46.46).
+        // A YouTube video the song came from (or the user picked) is saved with yt-dlp on
+        // desktop first (M46.47).
         let mut last_error = None;
         let mut transient = false;
+        let mut ytdlp_error = None;
+        if let Some(MediaSource::YouTube { video_id }) = &asked
+            && crate::ytdlp::supported()
+        {
+            match self.save_with_ytdlp(&dir, video_id).await {
+                Ok(saved) => return Ok(saved),
+                Err(message) => {
+                    tracing::info!(song = %row.song.track_key, %message, "yt-dlp couldn't save it; trying others");
+                    ytdlp_error = Some(message);
+                }
+            }
+        }
+        // What the other sources did, to say why only YouTube is left.
+        let mut failed_files = 0_u32;
+        let mut loose = 0_u32;
         if let Some(MediaSource::Url { url, headers }) = &asked {
             match self.save_retrying(row, &dir, url, headers, None).await {
                 Ok(saved) => return Ok(saved),
@@ -331,6 +348,7 @@ impl SongDownloadService {
                 || !names_artist(query.artist.as_deref(), &credited)
             {
                 tracing::info!(song = %row.song.track_key, offered = %pick.title, "skipping a loose match");
+                loose += 1;
                 continue;
             }
             match &pick.source {
@@ -345,12 +363,14 @@ impl SongDownloadService {
                         }
                         Err(Failure::Error(message)) => {
                             resolver.mark_failed(&pick, &message).await;
-                            last_error = Some(message);
+                            failed_files += 1;
+                            last_error = Some(format!("{}: {message}", pick.provider_name));
                         }
                         Err(Failure::Transient(message)) => {
                             resolver.mark_failed(&pick, &message).await;
+                            failed_files += 1;
                             transient = true;
-                            last_error = Some(message);
+                            last_error = Some(format!("{}: {message}", pick.provider_name));
                         }
                         Err(other) => return Err(other),
                     }
@@ -361,18 +381,70 @@ impl SongDownloadService {
                 _ => {}
             }
         }
-        if youtube.is_some() {
-            return Err(Failure::NeedsRecording(
-                youtube,
-                "Only YouTube has this song, and its player gives no file: record it as it plays"
-                    .into(),
-            ));
+        if let Some(source) = youtube {
+            // yt-dlp saves YouTube's copy as a file on desktop (M46.47), unless it just failed.
+            if let MediaSource::YouTube { video_id } = &source
+                && crate::ytdlp::supported()
+                && ytdlp_error.is_none()
+            {
+                match self.save_with_ytdlp(&dir, video_id).await {
+                    Ok(saved) => return Ok(saved),
+                    Err(message) => ytdlp_error = Some(message),
+                }
+            }
+            // Say what really happened: other sources may have had it and failed.
+            let mut message = if failed_files > 0 {
+                format!(
+                    "{failed_files} other source(s) had it but their files failed ({}). YouTube has it",
+                    last_error.as_deref().unwrap_or("no answer")
+                )
+            } else if loose > 0 {
+                "Other sources only had different songs by that name. YouTube has it".to_owned()
+            } else {
+                "Only YouTube has this song".to_owned()
+            };
+            match &ytdlp_error {
+                Some(error) => {
+                    message.push_str(&format!(", and yt-dlp couldn't save it ({error})"))
+                }
+                None if !crate::ytdlp::supported() => {
+                    message.push_str(", and its player gives no file on phones");
+                }
+                None => {}
+            }
+            message.push_str(": choose another source, or record it as it plays");
+            return Err(Failure::NeedsRecording(Some(source), message));
         }
         let message = last_error.unwrap_or_else(|| "No source has a file of this song".into());
         Err(if transient {
             Failure::Transient(message)
         } else {
             Failure::Error(message)
+        })
+    }
+
+    /// A YouTube video's sound saved with yt-dlp (M46.47), checked like any other file.
+    async fn save_with_ytdlp(&self, dir: &Path, video_id: &str) -> Result<Saved, String> {
+        let ytdlp = self
+            .app
+            .state::<Arc<crate::ytdlp::YtDlpService>>()
+            .inner()
+            .clone();
+        let file = ytdlp.fetch_song(video_id, dir).await?;
+        let path = dir.join(&file);
+        let check = path.clone();
+        let audio = tokio::task::spawn_blocking(move || transcode::probe(&check))
+            .await
+            .map_err(|error| error.to_string())?;
+        if let Err(error) = audio {
+            let _ = tokio::fs::remove_file(&path).await;
+            return Err(format!(
+                "yt-dlp saved something that can't be read ({error})"
+            ));
+        }
+        Ok(Saved {
+            file,
+            provider: Some("YouTube (yt-dlp)".into()),
         })
     }
 
@@ -639,6 +711,27 @@ impl SongDownloadService {
         self.delete_files(id).await;
         self.changed("");
         Ok(())
+    }
+
+    /// Downloads the song from a source the user picked (M46.47): the track's stream first,
+    /// then the others as usual. What was saved from another stream is dropped.
+    pub async fn use_source(&self, id: &str, track: OnlineTrack) -> Result<(), String> {
+        let row = store::get(&self.db(), id)
+            .await
+            .map_err(to_message)?
+            .ok_or("That download is gone")?;
+        if row.state == store::DONE {
+            return Err("That song is already saved".into());
+        }
+        let source = track
+            .source
+            .ok_or("That answer has no stream of its own: pick one that plays")?;
+        let json = serde_json::to_string(&source).map_err(|error| error.to_string())?;
+        store::set_source(&self.db(), id, &json)
+            .await
+            .map_err(to_message)?;
+        let _ = tokio::fs::remove_file(self.dir(id).join("track.part")).await;
+        self.retry(id).await
     }
 
     /// Queues a failed download again; it continues with what it saved.

@@ -242,6 +242,22 @@ impl CoverCache {
         }
     }
 
+    /// The copy on disk for `token`, kept or not, without fetching or checking it: for a link
+    /// whose address this run doesn't know (one the UI saved from an earlier start, M46.47).
+    pub async fn stored(&self, token: &str) -> Option<Vec<u8>> {
+        if !Self::valid(token) {
+            return None;
+        }
+        for kept in [true, false] {
+            let path = self.file(token, kept);
+            if let Ok(bytes) = tokio::fs::read(&path).await {
+                let _ = tokio::task::spawn_blocking(move || touch(&path)).await;
+                return Some(bytes);
+            }
+        }
+        None
+    }
+
     /// The image for `token`: from disk (checked again in the background when old), or fetched.
     pub async fn get(
         &self,

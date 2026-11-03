@@ -56,11 +56,21 @@ type TileProps = {
   image?: string | null;
   icon?: LucideIcon;
   testId?: string;
+  /** The list item's classes: its width in a carousel (Home's rows, M46.47). */
+  className?: string;
 };
 
 /** A coloured tile with its title and a tilted picture in the corner (Spotify's Browse all). */
-const Tile: FC<TileProps> = ({ title, to, search, image, icon: Icon, testId }) => (
-  <li>
+export const BrowseTile: FC<TileProps> = ({
+  title,
+  to,
+  search,
+  image,
+  icon: Icon,
+  testId,
+  className,
+}) => (
+  <li className={className}>
     <Link
       to={to}
       search={search}
@@ -101,7 +111,7 @@ const Grid: FC<{ title: string; children: React.ReactNode }> = ({ title, childre
 );
 
 const chartTile = (chart: MusicChart) => (
-  <Tile
+  <BrowseTile
     key={chartKey(chart)}
     title={chart.name}
     to="/music/chart"
@@ -174,7 +184,7 @@ export const BrowseAll: FC = () => {
     <div data-testid="browse-all" className="flex flex-col gap-8">
       <Grid title={t('discover.start')}>
         {kinds.map((kind) => (
-          <Tile key={kind.title} {...kind} testId="kind-tile" />
+          <BrowseTile key={kind.title} {...kind} testId="kind-tile" />
         ))}
       </Grid>
       {mainCharts.length > 0 && (
@@ -186,7 +196,7 @@ export const BrowseAll: FC = () => {
       {yours.length > 0 && (
         <Grid title={t('discover.yourTags')}>
           {yours.map((tag) => (
-            <Tile
+            <BrowseTile
               key={tag.name}
               title={tag.name}
               to="/music/tag"
@@ -199,7 +209,7 @@ export const BrowseAll: FC = () => {
       )}
       <Grid title={t('discover.genres')}>
         {[...moods, ...genres].map((tag) => (
-          <Tile
+          <BrowseTile
             key={tag.name}
             title={tag.name}
             to="/music/tag"

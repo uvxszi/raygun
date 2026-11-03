@@ -113,6 +113,40 @@ pub struct ProxyStorage {
     pub covers: Option<CoverCache>,
     /// A folder served at `/local/<path>`, e.g. downloaded chapters (M28).
     pub local: Option<PathBuf>,
+    /// Where the port is remembered (M46.47): the next start binds the same one when it's free,
+    /// so links the UI kept from last time (its saved query cache) still work.
+    pub port_file: Option<PathBuf>,
+}
+
+/// Binds the remembered port when it's free, else any, and remembers the one bound.
+async fn bind_remembered(
+    port_file: Option<&std::path::Path>,
+) -> std::io::Result<tokio::net::TcpListener> {
+    let remembered = match port_file {
+        Some(file) => tokio::fs::read_to_string(file)
+            .await
+            .ok()
+            .and_then(|text| text.trim().parse::<u16>().ok())
+            .filter(|port| *port >= 1024),
+        None => None,
+    };
+    let listener = match remembered {
+        Some(port) => match tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await {
+            Ok(listener) => listener,
+            Err(_) => tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?,
+        },
+        None => tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?,
+    };
+    if let Some(file) = port_file {
+        let port = listener.local_addr()?.port();
+        if remembered != Some(port) {
+            if let Some(parent) = file.parent() {
+                let _ = tokio::fs::create_dir_all(parent).await;
+            }
+            let _ = tokio::fs::write(file, port.to_string()).await;
+        }
+    }
+    Ok(listener)
 }
 
 pub struct StreamProxy {
@@ -329,9 +363,10 @@ impl StreamProxy {
             pages,
             covers,
             local,
+            port_file,
         } = storage;
         // Bound first: the `/media/` route links back to its own address.
-        let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
+        let listener = bind_remembered(port_file.as_deref()).await?;
         let address = listener.local_addr()?;
         let registry = Arc::new(Mutex::new(Registry::default()));
         let images = Arc::new(Mutex::new(ImageRegistry::default()));
@@ -552,7 +587,15 @@ async fn serve_cover(
             .map(|(url, headers)| (url, headers, registry.kept.contains(&token)))
     };
     let Some((url, headers, kept)) = entry else {
-        return with_cors(StatusCode::NOT_FOUND.into_response());
+        // A link from an earlier start (the UI's saved cache, M46.47): its copy on disk, if any.
+        let stored = match &state.covers {
+            Some(covers) => covers.stored(&token).await,
+            None => None,
+        };
+        return with_cors(match stored {
+            Some(bytes) => image_response(bytes),
+            None => StatusCode::NOT_FOUND.into_response(),
+        });
     };
     let Some(covers) = &state.covers else {
         return serve_image(State(state), Path(token), request).await;

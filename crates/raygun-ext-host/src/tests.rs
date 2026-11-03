@@ -1507,6 +1507,41 @@ async fn librivox_live_finds_books_with_feeds() {
     }
 }
 
+/// Loyal Books (M46.47) against the site: `cargo test -p raygun-ext-host -- --ignored
+/// loyalbooks_live --nocapture`.
+#[tokio::test]
+#[ignore = "needs network access to loyalbooks.com"]
+async fn loyalbooks_live_lists_and_finds_books_with_feeds() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(discover_installed(&dir)).await;
+    let provider = "dev.raygun.loyalbooks/books";
+    for (list, query) in [
+        ("popular", ""),
+        ("search", "sherlock holmes"),
+        ("subject", "Mystery"),
+    ] {
+        let page = host.audiobooks(provider, list, query, 1).await.unwrap();
+        println!(
+            "{list}: {} books, more {}; first {:?}",
+            page.books.len(),
+            page.has_more,
+            page.books.first().map(|book| (
+                &book.title,
+                &book.author,
+                &book.feed_url,
+                &book.artwork_url
+            ))
+        );
+        assert!(!page.books.is_empty(), "{list}");
+        assert!(page.books.iter().all(|book| {
+            book.feed_url
+                .starts_with("https://www.loyalbooks.com/book/")
+                && book.feed_url.ends_with("/feed")
+        }));
+    }
+}
+
 /// The video sources with their own Search pill (M46.35), against the real services:
 /// `cargo test -p raygun-ext-host -- --ignored video_pills_live --nocapture`.
 #[tokio::test]

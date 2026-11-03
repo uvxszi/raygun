@@ -138,6 +138,35 @@ impl RemoteService {
         self.status().await
     }
 
+    /// Starts the server for a link (M46.47) when it isn't running.
+    pub async fn ensure_running(&self) -> Result<(), String> {
+        if self.lock().running.is_some() {
+            return Ok(());
+        }
+        self.set_enabled(true).await.map(|_| ())
+    }
+
+    /// Where Connect reaches this device: `<lan ip>:<port>`, while the server runs.
+    pub fn address(&self) -> Option<String> {
+        let port = self.lock().running.as_ref()?.port;
+        Some(format!("{}:{port}", raygun_remote::lan_ip()?))
+    }
+
+    /// A token for a linked device (M46.47), so it plays here without asking; `(id, token)`.
+    pub async fn grant(&self, name: &str) -> Option<(String, String)> {
+        // Only while the server runs: the token is for reaching it.
+        self.lock().running.as_ref()?;
+        let (device, devices) = {
+            let mut pairing = self.pairing.lock().expect("pairing poisoned");
+            let device = pairing.admit(name, now_ms());
+            (device, pairing.devices().to_vec())
+        };
+        if let Err(message) = save_devices(self.db(), &devices).await {
+            tracing::warn!(%message, "failed to save a linked device's token");
+        }
+        Some((device.id, device.token))
+    }
+
     /// Removes a paired device; its browser loses access at once.
     pub async fn forget(&self, id: &str) -> Result<RemoteStatus, String> {
         let devices = {
@@ -383,6 +412,15 @@ impl Backend for RemoteBackend {
     async fn ask(&self, name: &str) -> bool {
         let connect = self.app.state::<Arc<ConnectService>>().inner().clone();
         connect.ask(name).await
+    }
+
+    /// A device just allowed here sent its link card (M46.47): keep it for sync and Connect,
+    /// and answer with this device's.
+    async fn link(&self, card: Option<&Value>, granted: &str) -> Option<Value> {
+        let card: crate::device_link::LinkCard = serde_json::from_value(card?.clone()).ok()?;
+        crate::device_link::accept(&self.app, &card, Some(granted)).await;
+        let mine = crate::device_link::card_for(&self.app, &card.name, false).await?;
+        serde_json::to_value(mine.0).ok()
     }
 }
 

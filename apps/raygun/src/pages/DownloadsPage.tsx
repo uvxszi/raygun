@@ -9,6 +9,7 @@ import { useMangaLiveEvents } from '../manga/useManga';
 import { Tabs } from '../shell/Tabs';
 import { VideoDownloadsList } from '../watch/VideoDownloadsList';
 import { PageHeader } from './PageHeader';
+import { YtDlpJobs } from '../youtube/YtDlpJobs';
 
 export type DownloadsTab = 'all' | 'music' | 'chapters' | 'videos' | 'exports';
 
@@ -69,6 +70,7 @@ export const DownloadsPage: FC = () => {
           </section>
           <section aria-label={t('export.tab')} className="flex flex-col gap-2">
             <h2 className="text-lg font-semibold">{t('export.tab')}</h2>
+            <YtDlpJobs />
             <ExportsList />
           </section>
         </div>
@@ -76,7 +78,12 @@ export const DownloadsPage: FC = () => {
       {tab === 'music' && <SongDownloadsList />}
       {tab === 'chapters' && <ChapterDownloads />}
       {tab === 'videos' && <VideoDownloadsList />}
-      {tab === 'exports' && <ExportsList />}
+      {tab === 'exports' && (
+        <>
+          <YtDlpJobs />
+          <ExportsList />
+        </>
+      )}
     </section>
   );
 };

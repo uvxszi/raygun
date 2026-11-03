@@ -105,8 +105,11 @@ export const commands = {
 	podcastQueue: (episodeId: string, next: boolean) => typedError<null, string>(__TAURI_INVOKE("podcast_queue", { episodeId, next })),
 	/**  Where this device's player plays (M46.15). */
 	connectStatus: () => __TAURI_INVOKE<ConnectStatus>("connect_status"),
-	/**  Other Raygun devices to play on: heard on the network, added by address, or allowed before. */
-	connectDevices: () => __TAURI_INVOKE<ConnectDevice[]>("connect_devices"),
+	/**
+	 *  Other Raygun devices to play on: heard on the network, added by address, or allowed before;
+	 *  linked ones say when they last synced (M46.47).
+	 */
+	connectDevices: () => typedError<ConnectDevice[], string>(__TAURI_INVOKE("connect_devices")),
 	/**  Adds a device by its address (`192.168.1.20:8820`). */
 	connectAdd: (address: string) => typedError<ConnectDevice, string>(__TAURI_INVOKE("connect_add", { address })),
 	/**  Plays on another device: asks it the first time, then moves the queue there. */
@@ -407,6 +410,59 @@ export const commands = {
 	collectionsSavedKeys: () => typedError<string[], string>(__TAURI_INVOKE("collections_saved_keys")),
 	/**  Stops the song being recorded without keeping it (M46.46: the recording window's Cancel). */
 	songDownloadCancelRecording: () => __TAURI_INVOKE<void>("song_download_cancel_recording"),
+	/**
+	 *  Downloads a song from a source the user picked (M46.47: Choose a source on a failed or
+	 *  YouTube-only download); the others are tried after it if it fails.
+	 */
+	songDownloadUseSource: (id: string, track: OnlineTrack) => typedError<null, string>(__TAURI_INVOKE("song_download_use_source", { id, track })),
+	/**
+	 *  A YouTube address typed in Search (M46.47): what it points at, with the video's title and
+	 *  channel when YouTube says; `None` for anything else.
+	 */
+	youtubeLink: (text: string) => typedError<{
+	kind: YouTubeLinkKind,
+	/**  The video's, playlist's or channel's id. */
+	id: string,
+	/**  The address, tidied (`https://www.youtube.com/watch?v=<id>`). */
+	url: string,
+	title: string | null,
+	author: string | null,
+	thumbnailUrl: string | null,
+} | null, string>(__TAURI_INVOKE("youtube_link", { text })),
+	/**  Plays a YouTube video from an address typed in Search, in YouTube's embed (M46.47). */
+	youtubePlay: (videoId: string, title: string, channel: string | null) => typedError<null, string>(__TAURI_INVOKE("youtube_play", { videoId, title, channel })),
+	/**  yt-dlp and FFmpeg on this device (M46.47). */
+	ytdlpStatus: () => typedError<YtDlpStatus, string>(__TAURI_INVOKE("ytdlp_status")),
+	/**  Fetches yt-dlp's latest release (checked against its checksums) (M46.47). */
+	ytdlpInstall: () => typedError<YtDlpStatus, string>(__TAURI_INVOKE("ytdlp_install")),
+	/**  Fetches FFmpeg for YouTube videos above 360p (Windows) (M46.47). */
+	ytdlpInstallFfmpeg: () => typedError<YtDlpStatus, string>(__TAURI_INVOKE("ytdlp_install_ffmpeg")),
+	/**  Saves a YouTube video or its sound to Downloads/Raygun/YouTube (M46.47); the job's id. */
+	ytdlpDownload: (url: string, title: string, kind: YtDlpKind) => typedError<string, string>(__TAURI_INVOKE("ytdlp_download", { url, title, kind })),
+	/**  yt-dlp's downloads, newest first (M46.47). */
+	ytdlpJobs: () => __TAURI_INVOKE<YtDlpJob[]>("ytdlp_jobs"),
+	/**  Stops a yt-dlp download, or takes a finished one off the list (M46.47). */
+	ytdlpCancel: (id: string) => __TAURI_INVOKE<void>("ytdlp_cancel", { id }),
+	/**  Shows a finished yt-dlp download in the file manager (M46.47). */
+	ytdlpReveal: (id: string) => typedError<null, string>(__TAURI_INVOKE("ytdlp_reveal", { id })),
+	/**
+	 *  Takes the test sources off again (M46.47): Raygun's test repository, its extensions and its
+	 *  Stremio addon. The suggested repositories and the legal addons stay.
+	 */
+	devRemoveTestSources: () => typedError<number, string>(__TAURI_INVOKE("dev_remove_test_sources")),
+	/**  Raygun's newest release next to this copy (M46.47); `refresh` asks GitHub now. */
+	appUpdate: (refresh: boolean) => typedError<AppUpdate, string>(__TAURI_INVOKE("app_update", { refresh })),
+	/**  Links with a device (M46.47): it's asked once; then the two sync and either plays on the other. */
+	connectLink: (id: string) => typedError<ConnectDevice[], string>(__TAURI_INVOKE("connect_link", { id })),
+	/**
+	 *  Lets other devices find, link with and play on this one, and sync with it (M46.47): the
+	 *  remote server and the sync server together.
+	 */
+	devicesSetSharing: (on: boolean) => typedError<null, string>(__TAURI_INVOKE("devices_set_sharing", { on })),
+	/**  Downloads the newest release and starts its installer, or opens its page (M46.47). */
+	appUpdateInstall: () => typedError<AppUpdate, string>(__TAURI_INVOKE("app_update_install")),
+	/**  Opens Raygun's release page or repository in the system's browser (M46.47). */
+	appOpenPage: (url: string) => typedError<null, string>(__TAURI_INVOKE("app_open_page", { url })),
 	/**  Forgets a song's kept lyrics, transcription and own lyrics (M46.46: Delete saved lyrics). */
 	lyricsForget: (query: TrackQuery) => typedError<null, string>(__TAURI_INVOKE("lyrics_forget", { query })),
 	/**  How many songs have lyrics and transcriptions kept (M46.46). */
@@ -887,6 +943,7 @@ export const commands = {
 /** Events */
 export const events = {
 	aiModelEvent: makeEvent<AiModelEvent>("ai-model-event"),
+	appUpdateEvent: makeEvent<AppUpdateEvent>("app-update-event"),
 	artistReleasesEvent: makeEvent<ArtistReleasesEvent>("artist-releases-event"),
 	captionsEvent: makeEvent<CaptionsEvent>("captions-event"),
 	connectEvent: makeEvent<ConnectEvent>("connect-event"),
@@ -913,6 +970,7 @@ export const events = {
 	videoPlayerEvent: makeEvent<VideoPlayerEvent>("video-player-event"),
 	watchChangedEvent: makeEvent<WatchChangedEvent>("watch-changed-event"),
 	youTubeVideoEvent: makeEvent<YouTubeVideoEvent>("you-tube-video-event"),
+	ytDlpEvent: makeEvent<YtDlpEvent>("yt-dlp-event"),
 };
 
 /* Types */
@@ -989,6 +1047,33 @@ export type AppInfo = {
 	arch: string,
 	debug: boolean,
 };
+
+/**  Raygun's newest release next to this copy's version (M46.47), from GitHub. */
+export type AppUpdate = {
+	current: string,
+	/**  The newest release's version, once checked. */
+	latest: string | null,
+	/**  The newest release is newer than this copy. */
+	available: boolean,
+	/**  The release's notes (Markdown). */
+	notes: string | null,
+	/**  The release's page. */
+	pageUrl: string,
+	repoUrl: string,
+	installKind: InstallKind,
+	/**  The release file this copy updates itself from; `None` means the page is the way. */
+	assetName: string | null,
+	assetSize: number | null,
+	/**  Unix ms of the last check. */
+	checkedAt: number | null,
+	state: UpdateState,
+	/**  0 to 1 while downloading. */
+	progress: number | null,
+	message: string | null,
+};
+
+/**  Raygun's own update changed: checked, downloading, installing (M46.47). */
+export type AppUpdateEvent = AppUpdate;
 
 /**  A concert or other event of an artist (M46.42), from a source's open data (MusicBrainz). */
 export type ArtistEvent = {
@@ -1349,6 +1434,10 @@ export type ConnectDevice = {
 	paired: boolean,
 	/**  Heard on the network, or reached at its address, this run. */
 	found: boolean,
+	/**  Linked (M46.47): its sync id; the two keep each other in sync. */
+	syncId: string | null,
+	/**  When the two last synced (Unix ms). */
+	lastSyncAt: number | null,
 };
 
 /**  Where this device's player plays changed, or the device it plays on reported (M46.15). */
@@ -1814,6 +1903,19 @@ export type ImportedTitle = {
 	sourceId: string,
 	remoteId: string,
 };
+
+/**  How this copy of Raygun was installed (M46.47), which decides how it updates. */
+export type InstallKind = 
+/**  The portable exe: updates are a download from the release page. */
+"portable" | 
+/**  Installed with the setup exe (NSIS): the new setup runs over it. */
+"setup" | 
+/**  Installed with the MSI: the new MSI runs over it. */
+"msi" | 
+/**  Android: the new APK, through Android's installer. */
+"android" | 
+/**  Anything else (Linux, macOS, a development build): the release page. */
+"other";
 
 /**  One entry of a list the user arranges (M46.5): a tab, a section, a chip, a menu entry. */
 export type LayoutItem = {
@@ -3809,6 +3911,13 @@ export type TtsUpdate = {
 	paragraph: number,
 };
 
+/**  Where an update stands (M46.47). */
+export type UpdateState = "idle" | "checking" | "downloading" | 
+/**  The installer is open (or about to take over). */
+"installing" | 
+/**  Android needs "Install unknown apps" for Raygun first; its settings page was opened. */
+"needsPermission" | "failed";
+
 /**  How the picture fills the screen. */
 export type VideoAspect = 
 /**  All of the picture, with bars. */
@@ -4126,6 +4235,21 @@ export type WebsitePrefs = {
  */
 export type WindowFrame = "app" | "system";
 
+/**  A YouTube address typed or pasted in Search (M46.47). */
+export type YouTubeLink = {
+	kind: YouTubeLinkKind,
+	/**  The video's, playlist's or channel's id. */
+	id: string,
+	/**  The address, tidied (`https://www.youtube.com/watch?v=<id>`). */
+	url: string,
+	title: string | null,
+	author: string | null,
+	thumbnailUrl: string | null,
+};
+
+/**  What a YouTube address points at (M46.47). */
+export type YouTubeLinkKind = "video" | "playlist" | "channel";
+
 /**  A YouTube video to watch in its own player (trailers, YouTube streams; M46.4). */
 export type YouTubeVideo = {
 	videoId: string,
@@ -4137,6 +4261,42 @@ export type YouTubeVideo = {
 
 /**  A YouTube video to open in its own full-window player (trailers, M46.4). */
 export type YouTubeVideoEvent = YouTubeVideo;
+
+/**  yt-dlp's downloads or its install changed; carries the job's id when one did (M46.47). */
+export type YtDlpEvent = string;
+
+/**  A YouTube video or its sound being saved with yt-dlp (M46.47), as Downloads lists it. */
+export type YtDlpJob = {
+	id: string,
+	url: string,
+	title: string,
+	kind: YtDlpKind,
+	state: YtDlpState,
+	/**  0 to 1, once yt-dlp knows the size. */
+	progress: number | null,
+	/**  Where the file went, as the user sees it. */
+	file: string | null,
+	message: string | null,
+};
+
+/**  What a yt-dlp download keeps (M46.47). */
+export type YtDlpKind = "audio" | "video";
+
+export type YtDlpState = "queued" | "downloading" | "done" | "failed" | "cancelled";
+
+/**  yt-dlp on this device (M46.47): YouTube downloads on desktop, and songs only YouTube has. */
+export type YtDlpStatus = {
+	/**  Desktop only: phones have no yt-dlp. */
+	supported: boolean,
+	/**  Its version, when found (Raygun's `tools` folder or the PATH). */
+	version: string | null,
+	/**  FFmpeg found: videos above 360p need it to join picture and sound. */
+	ffmpeg: boolean,
+	/**  yt-dlp or FFmpeg is being fetched now. */
+	installing: boolean,
+	/**  Why the last fetch failed. */
+	message: string | null,
+};
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

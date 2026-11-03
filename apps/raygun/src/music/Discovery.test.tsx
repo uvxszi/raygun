@@ -129,7 +129,7 @@ describe('Music discovery', () => {
         .map((tile) => tile.textContent),
     ).toEqual([
       'Made for You',
-      'Music',
+      'Audio',
       'Audiobooks',
       'Podcasts',
       'Comics',

@@ -23,14 +23,28 @@ import { SourceIssue } from '../shell/SourceIssue';
  */
 export const SourcePickerSheet: FC = () => {
   const song = useSourcePickerStore((store) => store.song);
+  const download = useSourcePickerStore((store) => store.download);
   const close = useSourcePickerStore((store) => store.close);
   if (!song) return null;
   return (
-    <SourcePickerBody key={`${song.artist ?? ''}|${song.title}`} song={song} onClose={close} />
+    <SourcePickerBody
+      key={`${song.artist ?? ''}|${song.title}|${download ?? ''}`}
+      song={song}
+      download={download}
+      onClose={close}
+    />
   );
 };
 
-const SourcePickerBody: FC<{ song: TrackInput; onClose: () => void }> = ({ song, onClose }) => {
+/**
+ * With `download` (M46.47), a failed or YouTube-only download's sources: only answers with a
+ * stream of their own, each with a preview and Download from this.
+ */
+const SourcePickerBody: FC<{ song: TrackInput; download: string | null; onClose: () => void }> = ({
+  song,
+  download,
+  onClose,
+}) => {
   const { t } = useTranslation();
   const client = useQueryClient();
   const [names, setNames] = useState({ title: song.title, artist: song.artist ?? '' });
@@ -40,7 +54,8 @@ const SourcePickerBody: FC<{ song: TrackInput; onClose: () => void }> = ({ song,
   const providers = (search.data?.providers ?? []).filter((result) => !result.error);
   // The merged top results don't say where they're from: find them in a source's own list.
   const ranked = rankSongs(query, search.data?.top ?? [], providers)
-    .slice(0, 12)
+    .filter((entry) => !download || entry.track.source !== null)
+    .slice(0, download ? 20 : 12)
     .map((entry) => ({
       ...entry,
       source:
@@ -53,6 +68,14 @@ const SourcePickerBody: FC<{ song: TrackInput; onClose: () => void }> = ({ song,
           ),
         )?.provider.name,
     }));
+  const downloadFrom = useMutation({
+    mutationFn: (chosen: { track: OnlineTrack; source: string | undefined }) =>
+      unwrapResult(commands.songDownloadUseSource(download ?? '', chosen.track)),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['songs'] });
+      onClose();
+    },
+  });
   const use = useMutation({
     mutationFn: async (chosen: { track: OnlineTrack; source: string | undefined }) => {
       await unwrapResult(commands.trackAssignSource(song, chosen.track));
@@ -78,7 +101,10 @@ const SourcePickerBody: FC<{ song: TrackInput; onClose: () => void }> = ({ song,
   });
 
   return (
-    <Sheet title={t('sourcePicker.title')} onClose={onClose}>
+    <Sheet
+      title={download ? t('sourcePicker.downloadTitle') : t('sourcePicker.title')}
+      onClose={onClose}
+    >
       <div data-testid="source-picker" className="flex flex-col gap-3">
         <form
           className="flex flex-wrap items-center gap-2"
@@ -142,14 +168,25 @@ const SourcePickerBody: FC<{ song: TrackInput; onClose: () => void }> = ({ song,
               >
                 <Play aria-hidden size={15} />
               </button>
-              <button
-                type="button"
-                disabled={use.isPending}
-                onClick={() => use.mutate(entry)}
-                className="bg-background rounded-full px-3 py-1 text-xs font-semibold"
-              >
-                {t('sourcePicker.use')}
-              </button>
+              {download ? (
+                <button
+                  type="button"
+                  disabled={downloadFrom.isPending}
+                  onClick={() => downloadFrom.mutate(entry)}
+                  className="bg-primary text-background rounded-full px-3 py-1 text-xs font-semibold disabled:opacity-60"
+                >
+                  {t('sourcePicker.downloadFrom')}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={use.isPending}
+                  onClick={() => use.mutate(entry)}
+                  className="bg-background rounded-full px-3 py-1 text-xs font-semibold"
+                >
+                  {t('sourcePicker.use')}
+                </button>
+              )}
             </li>
           ))}
         </ul>
@@ -161,6 +198,7 @@ const SourcePickerBody: FC<{ song: TrackInput; onClose: () => void }> = ({ song,
           </p>
         )}
         {use.error && <SourceIssue>{use.error.message}</SourceIssue>}
+        {downloadFrom.error && <SourceIssue>{downloadFrom.error.message}</SourceIssue>}
       </div>
     </Sheet>
   );

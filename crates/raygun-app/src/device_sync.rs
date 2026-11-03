@@ -219,6 +219,80 @@ impl SyncService {
         self.status().await
     }
 
+    /// This device for a link (M46.47): its sync id, public key and address, while sync runs.
+    pub fn link_info(&self) -> Option<(String, String, Option<String>)> {
+        let port = self.engine.port()?;
+        Some((
+            self.engine.device_id().to_owned(),
+            to_hex(&self.engine.identity().public),
+            Some(std::net::SocketAddr::new(lan_ip(), port).to_string()),
+        ))
+    }
+
+    /// Keeps a linked device as a sync peer (M46.47): trusted by its key, no code needed. A
+    /// device linked again with the same key keeps what it already received.
+    pub async fn link_peer(&self, card: &crate::device_link::LinkCard) -> Result<(), String> {
+        if card.sync_id == self.engine.device_id() {
+            return Err("That's this device".into());
+        }
+        if raygun_sync::channel::from_hex(&card.public_key).is_none() {
+            return Err("The other device's key can't be read".into());
+        }
+        let db = self.db();
+        let known = store::peer(&db, &card.sync_id).await.map_err(to_message)?;
+        match known {
+            Some(peer) if peer.public_key == card.public_key => {
+                store::peer_seen(&db, &card.sync_id, card.sync_address.as_deref(), None)
+                    .await
+                    .map_err(to_message)?;
+            }
+            _ => {
+                store::save_peer(
+                    &db,
+                    &store::Peer {
+                        device_id: card.sync_id.clone(),
+                        name: card.name.clone(),
+                        public_key: card.public_key.clone(),
+                        address: card.sync_address.clone(),
+                        paired_at: crate::catalog::now_ms(),
+                        last_sync_at: None,
+                        sent_seq: 0,
+                        kinds: Vec::new(),
+                    },
+                )
+                .await
+                .map_err(to_message)?;
+                tracing::info!(device = %card.name, "linked for sync");
+            }
+        }
+        Ok(())
+    }
+
+    /// Sync is on and some device is linked.
+    pub async fn has_linked(&self) -> bool {
+        self.enabled().await.unwrap_or(false)
+            && store::peers(&self.db())
+                .await
+                .is_ok_and(|peers| !peers.is_empty())
+    }
+
+    /// Syncs with every linked device, one after another; failures only go to the log.
+    pub async fn sync_quietly(&self) {
+        if let Err(message) = self.sync_all().await {
+            tracing::info!(%message, "sync with linked devices failed");
+        }
+    }
+
+    /// When each linked device last synced, by its sync id.
+    pub async fn last_synced(&self) -> std::collections::HashMap<String, i64> {
+        store::peers(&self.db())
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|peer| peer.last_sync_at.map(|at| (peer.device_id, at)))
+            .collect()
+    }
+
     async fn sync_all(&self) -> Result<(), String> {
         for peer in store::peers(&self.db()).await.map_err(to_message)? {
             if let Err(error) = self.engine.sync_with(&peer.device_id).await {

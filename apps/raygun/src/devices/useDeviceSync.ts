@@ -52,10 +52,11 @@ export const useUndoLastSync = () => useSyncChange(() => unwrapResult(commands.s
 export const useSyncChangedListener = () => {
   const queryClient = useQueryClient();
   useEffect(() => {
+    // Linked devices sync on their own (M46.47): whatever is shown may have changed, so every
+    // shown answer is asked again (library, playlists, settings, websites…).
     const unlisten = events.syncChangedEvent.listen(() => {
       void queryClient.invalidateQueries({ queryKey: [COLLECTIONS] });
-      void queryClient.invalidateQueries({ queryKey: ['settings'] });
-      void queryClient.invalidateQueries({ queryKey: SYNC });
+      void queryClient.invalidateQueries();
     });
     return () => {
       void unlisten.then((stop) => stop());

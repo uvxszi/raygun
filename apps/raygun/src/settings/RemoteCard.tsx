@@ -7,8 +7,12 @@ import { unwrapResult } from '../lib/commandResult';
 import { useLocalNetworkGate } from '../network/useLocalNetworkGate';
 import { useRemoteChange, useRemoteStatus } from './remoteQueries';
 
-/** Lets browsers on the same network control playback after pairing with a QR code (M20). */
-export const RemoteCard: FC = () => {
+/**
+ * Lets browsers on the same network control playback after pairing with a QR code (M20). With
+ * `browserOnly` (the Devices page, M46.47) the server's switch is the devices' sharing switch
+ * above it, so only the browser part shows.
+ */
+export const RemoteCard: FC<{ browserOnly?: boolean }> = ({ browserOnly = false }) => {
   const { t, i18n } = useTranslation();
   const status = useRemoteStatus();
   const setEnabled = useRemoteChange((enabled: boolean) =>
@@ -30,29 +34,37 @@ export const RemoteCard: FC = () => {
       <div className="flex items-center justify-between gap-4">
         <div className="flex flex-col gap-0.5">
           <h2 id="remote-title" className="font-medium">
-            {t('remote.title')}
+            {browserOnly ? t('link.browserTitle') : t('remote.title')}
           </h2>
-          <p className="text-muted text-xs">{t('remote.description')}</p>
+          <p className="text-muted text-xs">
+            {browserOnly
+              ? data?.enabled
+                ? t('link.browserHint')
+                : t('link.browserOff')
+              : t('remote.description')}
+          </p>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={data?.enabled ?? false}
-          aria-labelledby="remote-title"
-          disabled={!data || setEnabled.isPending || localNetwork.checking}
-          onClick={() => {
-            if (!data) return;
-            // Devices on the network reach the remote only with Android 17's local network access.
-            if (data.enabled) setEnabled.mutate(false);
-            else void localNetwork.guard(null, () => setEnabled.mutate(true));
-          }}
-          className={`relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-60 ${data?.enabled ? 'bg-primary' : 'bg-background'}`}
-        >
-          <span
-            aria-hidden
-            className={`bg-foreground absolute top-1 size-5 rounded-full transition-all ${data?.enabled ? 'left-6' : 'left-1'}`}
-          />
-        </button>
+        {!browserOnly && (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={data?.enabled ?? false}
+            aria-labelledby="remote-title"
+            disabled={!data || setEnabled.isPending || localNetwork.checking}
+            onClick={() => {
+              if (!data) return;
+              // Devices on the network reach the remote only with Android 17's local network access.
+              if (data.enabled) setEnabled.mutate(false);
+              else void localNetwork.guard(null, () => setEnabled.mutate(true));
+            }}
+            className={`relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-60 ${data?.enabled ? 'bg-primary' : 'bg-background'}`}
+          >
+            <span
+              aria-hidden
+              className={`bg-foreground absolute top-1 size-5 rounded-full transition-all ${data?.enabled ? 'left-6' : 'left-1'}`}
+            />
+          </button>
+        )}
       </div>
       {data?.enabled && (
         <div className="flex flex-col gap-3">

@@ -149,6 +149,16 @@ class RateArgs {
     var rate: Double? = null
 }
 
+@InvokeArg
+class PathArgs {
+    lateinit var path: String
+}
+
+@InvokeArg
+class UrlArgs {
+    lateinit var url: String
+}
+
 private const val PROGRESS_INTERVAL_MS = 500L
 /** A song measured this long reports its loudness, s; one that ends sooner, if it played this long. */
 private const val MEASURED_ENOUGH_S = 45.0
@@ -514,6 +524,71 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
             Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", activity.packageName, null)),
         )
         invoke.resolve()
+    }
+
+    /**
+     * Installs a downloaded update (M46.47): Android's installer for the APK in the app's cache.
+     * Without "Install unknown apps" for Raygun, its settings page opens instead and
+     * `needsPermission` comes back; the user allows it and tries again.
+     */
+    @Command
+    fun installApk(invoke: Invoke) {
+        val args = invoke.parseArgs(PathArgs::class.java)
+        activity.runOnUiThread {
+            try {
+                val pm = activity.packageManager
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !pm.canRequestPackageInstalls()) {
+                    activity.startActivity(
+                        Intent(
+                            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            Uri.parse("package:${activity.packageName}"),
+                        ),
+                    )
+                    invoke.resolve(JSObject().put("started", false).put("needsPermission", true))
+                    return@runOnUiThread
+                }
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    activity,
+                    "${activity.packageName}.fileprovider",
+                    java.io.File(args.path),
+                )
+                activity.startActivity(
+                    Intent(Intent.ACTION_VIEW)
+                        .setDataAndType(uri, "application/vnd.android.package-archive")
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+                invoke.resolve(JSObject().put("started", true).put("needsPermission", false))
+            } catch (error: Exception) {
+                invoke.reject(error.message ?: "The installer didn't open")
+            }
+        }
+    }
+
+    /** Whether Raygun may install its own updates ("Install unknown apps"). */
+    @Command
+    fun canInstallPackages(invoke: Invoke) {
+        val allowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+            activity.packageManager.canRequestPackageInstalls()
+        invoke.resolve(JSObject().put("allowed", allowed))
+    }
+
+    /** Opens a web address in the phone's browser (the release page, the repository). */
+    @Command
+    fun openUrl(invoke: Invoke) {
+        val args = invoke.parseArgs(UrlArgs::class.java)
+        val uri = Uri.parse(args.url)
+        if (uri.scheme != "https") {
+            invoke.reject("Only https addresses open")
+            return
+        }
+        activity.runOnUiThread {
+            try {
+                activity.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                invoke.resolve()
+            } catch (error: Exception) {
+                invoke.reject(error.message ?: "No browser opened it")
+            }
+        }
     }
 
     /** Whether the phone can read aloud (starts its text-to-speech engine the first time). */

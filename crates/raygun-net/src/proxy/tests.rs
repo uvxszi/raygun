@@ -366,6 +366,71 @@ async fn cached_images_are_served_from_disk_after_the_first_fetch() {
 }
 
 #[tokio::test]
+async fn covers_from_an_earlier_start_come_from_disk_and_the_port_is_remembered() {
+    async fn cover() -> Response {
+        Response::builder()
+            .header(header::CONTENT_TYPE, "image/png")
+            .body(Body::from(&b"\x89PNG cover"[..]))
+            .unwrap()
+    }
+    let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let origin = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, Router::new().route("/cover.png", get(cover)))
+            .await
+            .unwrap();
+    });
+    let temp = tempfile::TempDir::new().unwrap();
+    let storage = || ProxyStorage {
+        covers: Some(crate::CoverCache::new(
+            temp.path().join("covers"),
+            1 << 20,
+            std::time::Duration::from_secs(3600),
+        )),
+        port_file: Some(temp.path().join("proxy-port")),
+        ..ProxyStorage::default()
+    };
+
+    let first = StreamProxy::start_with(crate::http_client().unwrap(), storage())
+        .await
+        .unwrap();
+    let remembered: u16 = std::fs::read_to_string(temp.path().join("proxy-port"))
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_eq!(remembered, first.address().port());
+    let link = first
+        .images()
+        .cover(&format!("http://{origin}/cover.png"), &BTreeMap::new());
+    assert_eq!(reqwest::get(&link).await.unwrap().status(), 200);
+
+    // The first one still holds its port, so this one binds another and remembers it.
+    let second = StreamProxy::start_with(crate::http_client().unwrap(), storage())
+        .await
+        .unwrap();
+    let token = link.rsplit('/').next().unwrap();
+    let again = reqwest::get(format!("http://{}/cover/{token}", second.address()))
+        .await
+        .unwrap();
+    assert_eq!(
+        again.status(),
+        200,
+        "served from disk without knowing the address"
+    );
+    assert_eq!(again.bytes().await.unwrap().as_ref(), b"\x89PNG cover");
+    let unknown = reqwest::get(format!("http://{}/cover/00ff", second.address()))
+        .await
+        .unwrap();
+    assert_eq!(unknown.status(), 404);
+    assert_eq!(
+        std::fs::read_to_string(temp.path().join("proxy-port")).unwrap(),
+        second.address().port().to_string()
+    );
+}
+
+#[tokio::test]
 async fn subtitles_never_fail() {
     let origin = start_origin().await;
     let proxy = proxy().await;

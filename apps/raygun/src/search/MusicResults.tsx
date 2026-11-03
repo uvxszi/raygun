@@ -1,4 +1,5 @@
 import type { LibraryTrack, OnlineTrack, ProviderSearchResult } from '@raygun/bindings';
+import { LoaderCircle } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -10,6 +11,7 @@ import { PlaylistFinds } from './PlaylistFinds';
 import { OnlineTrackRow } from './OnlineTrackRow';
 import { PodcastSearch } from './PodcastSearch';
 import { RelevantMusic } from './RelevantMusic';
+import { useSeenSongs } from './seenBefore';
 import { MUSIC_VIEWS, pill } from './searchTypes';
 import type { MusicView } from './searchTypes';
 import { SourceMenu } from './SourceMenu';
@@ -134,6 +136,8 @@ export const MusicResults: FC<{
     }
   };
   const search = useOnlineSearch(query);
+  // Songs already seen show while the sources are asked (M46.47).
+  const seen = useSeenSongs(query);
   const results = search.data?.providers ?? [];
   const library = search.data?.library ?? [];
   const top = search.data?.top ?? [];
@@ -216,6 +220,15 @@ export const MusicResults: FC<{
             <p className="text-muted text-sm">{t('search.noSources')}</p>
           )}
           {library.length > 0 && <LibraryResults tracks={library} />}
+          {search.isPending && (
+            <p role="status" className="text-muted flex items-center gap-2 text-sm">
+              <LoaderCircle aria-hidden size={14} className="animate-spin" />
+              {seen.length > 0 ? t('search.seenWhileSearching') : t('search.searching')}
+            </p>
+          )}
+          {search.isPending && seen.length > 0 && (
+            <BestSongs query={query} top={seen} results={[]} />
+          )}
           {nothingFound ? (
             <p className="text-muted text-sm">{t('search.noResults', { query })}</p>
           ) : grouped ? (

@@ -17,6 +17,8 @@ struct Fake {
     asked: Mutex<Vec<String>>,
     /// Connect commands received.
     commands: Mutex<Vec<Value>>,
+    /// Link cards received (M46.47), with the id of the token each device got.
+    links: Mutex<Vec<(Value, String)>>,
 }
 
 impl Backend for Arc<Fake> {
@@ -68,6 +70,12 @@ impl Backend for Arc<Fake> {
     async fn ask(&self, name: &str) -> bool {
         self.asked.lock().unwrap().push(name.to_owned());
         self.allow.load(Ordering::SeqCst)
+    }
+
+    async fn link(&self, card: Option<&Value>, granted: &str) -> Option<Value> {
+        let card = card?.clone();
+        self.links.lock().unwrap().push((card, granted.to_owned()));
+        Some(json!({ "syncId": "sync-pc", "name": "Living room PC" }))
     }
 }
 
@@ -294,6 +302,44 @@ fn lan_addresses_exclude_loopback_and_unspecified() {
     assert!(!usable_lan_ip("127.0.0.1".parse().unwrap()));
     assert!(!usable_lan_ip("0.0.0.0".parse().unwrap()));
     assert!(!usable_lan_ip("::1".parse().unwrap()));
+}
+
+#[tokio::test]
+async fn linking_swaps_cards_and_names_the_token_given() {
+    let setup = setup();
+    setup.fake.allow.store(true, Ordering::SeqCst);
+    let card = json!({ "syncId": "sync-phone", "name": "Pixel 4" });
+    let (status, answer) = send(
+        &setup.app,
+        post_json(
+            "/api/connect/hello",
+            None,
+            json!({ "name": "Pixel 4", "link": card }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        answer["link"]["syncId"], "sync-pc",
+        "this device's card comes back"
+    );
+    let links = setup.fake.links.lock().unwrap().clone();
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].0, card);
+    assert_eq!(
+        links[0].1, answer["deviceId"],
+        "the token given is named, to take it back"
+    );
+
+    // An older Raygun sends no card: it plays here, nothing is linked.
+    let (status, answer) = send(
+        &setup.app,
+        post_json("/api/connect/hello", None, json!({ "name": "Old phone" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(answer["link"].is_null());
+    assert_eq!(setup.fake.links.lock().unwrap().len(), 1);
 }
 
 #[tokio::test]

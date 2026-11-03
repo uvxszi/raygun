@@ -109,15 +109,17 @@ describe('Local network access (Android 17)', () => {
     expect(screen.queryByRole('dialog', { name: 'Local network access' })).not.toBeInTheDocument();
   });
 
-  it('turns the LAN remote on only with access, and says why not', async () => {
+  it('lets devices find this one only with access, and says why not', async () => {
     const user = userEvent.setup();
     commands.localNetworkAccess.mockResolvedValue(ok(ASK));
     commands.localNetworkRequest.mockResolvedValueOnce(ok(DENIED));
-    commands.remoteSetEnabled.mockResolvedValue(ok(REMOTE_ON));
     await AppShellWrapper.mount('/settings/devices');
+    const devices = await screen.findByTestId('linked-devices');
     const card = await screen.findByTestId('remote-card');
 
-    await user.click(await within(card).findByRole('switch', { name: 'Remote control' }));
+    await user.click(
+      await within(devices).findByRole('switch', { name: 'Let your devices find this one' }),
+    );
     expect(commands.localNetworkAccess).toHaveBeenCalledWith(null);
     const sheet = await screen.findByRole('dialog', { name: 'Local network access' });
     expect(within(sheet).getByText(/Phones and computers on your Wi-Fi/)).toBeInTheDocument();
@@ -126,22 +128,40 @@ describe('Local network access (Android 17)', () => {
     expect(await within(sheet).findByRole('alert')).toHaveTextContent(
       'Allow local network access so devices on your network can reach the remote.',
     );
-    expect(commands.remoteSetEnabled).not.toHaveBeenCalled();
+    expect(commands.devicesSetSharing).not.toHaveBeenCalled();
 
     commands.localNetworkRequest.mockResolvedValueOnce(ok(GRANTED));
+    commands.remoteStatus.mockResolvedValue(ok(REMOTE_ON));
     await user.click(within(sheet).getByRole('button', { name: 'Continue' }));
-    expect(commands.remoteSetEnabled).toHaveBeenCalledWith(true);
+    expect(commands.devicesSetSharing).toHaveBeenCalledWith(true);
     expect(await within(card).findByTestId('remote-qr')).toBeInTheDocument();
   });
 
-  it('turns the remote off without asking', async () => {
+  it('stops sharing without asking', async () => {
     const user = userEvent.setup();
     commands.remoteStatus.mockResolvedValue(ok(REMOTE_ON));
+    commands.syncStatus.mockResolvedValue(
+      ok({
+        enabled: true,
+        deviceName: 'Android phone',
+        fingerprint: 'ab12',
+        pairingText: null,
+        pairingQrSvg: null,
+        kinds: ['settings', 'library', 'history'],
+        peers: [],
+        log: [],
+        error: null,
+      }),
+    );
     await AppShellWrapper.mount('/settings/devices');
-    const card = await screen.findByTestId('remote-card');
+    const devices = await screen.findByTestId('linked-devices');
 
-    await user.click(await within(card).findByRole('switch', { name: 'Remote control' }));
-    expect(commands.remoteSetEnabled).toHaveBeenCalledWith(false);
+    const toggle = await within(devices).findByRole('switch', {
+      name: 'Let your devices find this one',
+    });
+    await vi.waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'true'));
+    await user.click(toggle);
+    expect(commands.devicesSetSharing).toHaveBeenCalledWith(false);
     expect(commands.localNetworkAccess).not.toHaveBeenCalled();
   });
 });

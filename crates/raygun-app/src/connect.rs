@@ -85,6 +85,12 @@ struct Known {
     address: String,
     #[serde(default)]
     token: Option<String>,
+    /// Its sync id once linked (M46.47).
+    #[serde(default)]
+    sync_id: Option<String>,
+    /// The token this device minted for it, to take back when they unlink.
+    #[serde(default)]
+    granted: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -99,6 +105,9 @@ struct DeviceInfo {
 struct Welcome {
     token: String,
     device: DeviceInfo,
+    /// The other device's link card (M46.47); older versions send none.
+    #[serde(default)]
+    link: Option<crate::device_link::LinkCard>,
 }
 
 /// Why a request to another device failed.
@@ -255,6 +264,8 @@ impl ConnectService {
             kind: kind_or_default(info.kind),
             address,
             token: None,
+            sync_id: None,
+            granted: None,
         };
         let (paired, known) = {
             let mut inner = self.lock();
@@ -276,15 +287,98 @@ impl ConnectService {
         Ok(view(&device, paired, true))
     }
 
-    /// Forgets a device: its token, and the address it was added by.
+    /// Forgets a device: its token, and the address it was added by. A linked device is
+    /// unlinked too (M46.47): no more syncing with it, and its token here stops working.
     pub async fn forget(self: &Arc<Self>, id: &str) -> Vec<ConnectDevice> {
+        let (gone, known) = {
+            let mut inner = self.lock();
+            let gone = inner.known.iter().find(|known| known.id == id).cloned();
+            inner.known.retain(|known| known.id != id);
+            // Still on the network, but not linked anymore.
+            if let Some(found) = inner.found.get_mut(id) {
+                found.sync_id = None;
+                found.granted = None;
+            }
+            (gone, inner.known.clone())
+        };
+        self.save(&known).await;
+        if let Some(gone) = gone {
+            if let Some(sync_id) = &gone.sync_id {
+                let _ = self
+                    .app
+                    .state::<crate::device_sync::SyncService>()
+                    .remove_peer(sync_id)
+                    .await;
+            }
+            if let Some(granted) = &gone.granted {
+                let _ = self
+                    .app
+                    .state::<crate::remote::RemoteService>()
+                    .forget(granted)
+                    .await;
+            }
+        }
+        self.devices()
+    }
+
+    /// Links with a device (M46.47): asks it once, then both sync and either plays on the other.
+    pub async fn link(self: &Arc<Self>, id: &str) -> Result<Vec<ConnectDevice>, String> {
+        let device = {
+            let inner = self.lock();
+            inner
+                .found
+                .get(id)
+                .or_else(|| inner.known.iter().find(|known| known.id == id))
+                .cloned()
+        }
+        .ok_or("That device isn't around anymore")?;
+        self.check_network(&device.address).await?;
+        let result = self.hello(device).await;
+        let mut inner = self.lock();
+        inner.asking = None;
+        inner.error = result.as_ref().err().cloned();
+        drop(inner);
+        self.emit();
+        result.map(|_| self.devices())
+    }
+
+    /// A device that linked with this one (M46.47, this side of its question): it plays here by
+    /// the token `granted` names, and this one plays there with the token it sent.
+    pub async fn remember_link(&self, card: &crate::device_link::LinkCard, granted: Option<&str>) {
+        let Some(address) = card.connect_address.clone() else {
+            return;
+        };
         let known = {
             let mut inner = self.lock();
-            inner.known.retain(|known| known.id != id);
+            let granted = granted.map(str::to_owned).or_else(|| {
+                inner
+                    .known
+                    .iter()
+                    .find(|known| known.id == card.connect_id)
+                    .and_then(|known| known.granted.clone())
+            });
+            inner.known.retain(|known| known.id != card.connect_id);
+            let device = Known {
+                id: card.connect_id.clone(),
+                name: card.name.clone(),
+                kind: kind_or_default(card.kind.clone()),
+                address,
+                token: card.token.clone(),
+                sync_id: Some(card.sync_id.clone()),
+                granted,
+            };
+            inner.found.insert(
+                device.id.clone(),
+                Known {
+                    token: None,
+                    ..device.clone()
+                },
+            );
+            inner.known.push(device);
             inner.known.clone()
         };
         self.save(&known).await;
-        self.devices()
+        self.emit();
     }
 
     /// Plays on another device: asks it first if it never allowed this one, moves the queue and
@@ -395,10 +489,13 @@ impl ConnectService {
     async fn hello(&self, device: Known) -> Result<Known, String> {
         self.lock().asking = Some(device.id.clone());
         self.emit();
+        // The link card (M46.47): the other device syncs with this one and may play here too.
+        let card = crate::device_link::card_for(&self.app, &device.name, true).await;
+        let (card, granted) = card.unzip();
         let response = self
             .http
             .post(format!("http://{}/api/connect/hello", device.address))
-            .json(&json!({ "name": self.me.name }))
+            .json(&json!({ "name": self.me.name, "link": card }))
             .timeout(HELLO_TIMEOUT)
             .send()
             .await
@@ -412,12 +509,35 @@ impl ConnectService {
                 device.name
             )
         })?;
+        let sync_id = match &welcome.link {
+            Some(link) => {
+                let sync = self.app.state::<crate::device_sync::SyncService>();
+                match sync.link_peer(link).await {
+                    Ok(()) => {
+                        let app = self.app.clone();
+                        let peer = link.sync_id.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let sync = app.state::<crate::device_sync::SyncService>();
+                            let _ = sync.sync_now(Some(&peer)).await;
+                        });
+                        Some(link.sync_id.clone())
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, "couldn't keep the linked device for sync");
+                        None
+                    }
+                }
+            }
+            None => None,
+        };
         let device = Known {
             id: welcome.device.id,
             name: welcome.device.name,
             kind: kind_or_default(welcome.device.kind),
             address: device.address,
             token: Some(welcome.token),
+            sync_id,
+            granted: granted.flatten(),
         };
         let known = {
             let mut inner = self.lock();
@@ -764,6 +884,8 @@ impl ConnectService {
                         kind: kind_or_default(found.kind),
                         address: found.address,
                         token: None,
+                        sync_id: None,
+                        granted: None,
                     };
                     service.lock().found.insert(device.id.clone(), device);
                 }
@@ -813,6 +935,8 @@ fn view(device: &Known, paired: bool, found: bool) -> ConnectDevice {
         kind: device.kind.clone(),
         paired,
         found,
+        sync_id: device.sync_id.clone(),
+        last_sync_at: None,
     }
 }
 

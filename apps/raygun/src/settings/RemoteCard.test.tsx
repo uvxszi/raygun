@@ -24,17 +24,23 @@ describe('Remote control card', () => {
     AppShellWrapper.seedCore();
   });
 
-  it('turns the remote on and shows the pairing QR code and address', async () => {
+  it('shows the pairing QR code and address once devices may find this one', async () => {
     const user = userEvent.setup();
-    commands.remoteSetEnabled.mockResolvedValue(ok(ON));
+    commands.localNetworkAccess.mockResolvedValue(
+      ok({ needed: false, granted: true, blocked: false }),
+    );
     await AppShellWrapper.mount('/settings/devices');
     const card = await screen.findByTestId('remote-card');
-
-    const toggle = await within(card).findByRole('switch', { name: 'Remote control' });
+    expect(within(card).queryByRole('switch')).not.toBeInTheDocument();
     expect(within(card).queryByTestId('remote-qr')).not.toBeInTheDocument();
-    await user.click(toggle);
 
-    expect(commands.remoteSetEnabled).toHaveBeenCalledWith(true);
+    commands.remoteStatus.mockResolvedValue(ok(ON));
+    const devices = screen.getByTestId('linked-devices');
+    await user.click(
+      await within(devices).findByRole('switch', { name: 'Let your devices find this one' }),
+    );
+
+    expect(commands.devicesSetSharing).toHaveBeenCalledWith(true);
     const qr = await within(card).findByRole('img', { name: 'QR code to pair a device' });
     expect(qr.getAttribute('src')).toMatch(/^data:image\/svg\+xml;utf8,%3Csvg/);
     expect(within(card).getByTestId('remote-pair-url')).toHaveTextContent(ON.pairUrl as string);

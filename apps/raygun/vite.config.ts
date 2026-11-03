@@ -16,6 +16,8 @@ export default defineConfig({
     watch: { ignored: ['**/src-tauri/**'] },
   },
   envPrefix: ['VITE_', 'TAURI_ENV_'],
+  // The saved query cache belongs to one build (M46.47).
+  define: { __RAYGUN_BUILD__: JSON.stringify(String(Date.now())) },
   build: {
     target: 'es2022',
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
