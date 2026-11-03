@@ -198,7 +198,7 @@ The **mixed queue** holds audio and video items side by side; each `QueueItem` s
   "website": "https://mangadex.org"     // optional; opened from a source's menu (M46.11)
 }
 ```
-Repositories use an `index.json` listing extensions and shared libraries (the Shosetsu and Mihon repo format).
+Repositories use an `index.json` listing extensions and shared libraries (the Shosetsu and Mihon repo format). Raygun's own format may mix package formats (`format`: `raygun`, `nuclear`, `shosetsu`), name packages by absolute address in another repository, and list Shosetsu `libraries`, read from `lib/<name>.lua` beside the index; Paraline (`uvxszi/paraline-raygun`) is such an index.
 
 ### 7.2 Runtimes
 | Runtime | Engine | Purpose |

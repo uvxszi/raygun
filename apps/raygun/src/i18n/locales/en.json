@@ -1012,12 +1012,14 @@
     "upToDate": "Installed",
     "newerInstalled": "Newer version installed",
     "noRepos": "No repositories. Add one under Repositories.",
+    "noReposYet": "No repositories yet.",
     "repoFailed": "Couldn't load this repository: {{message}}",
     "repoEmpty": "This repository has no extensions for this version of Raygun.",
     "permissionsTitle": "Network access",
     "noNetwork": "No network access",
     "cancel": "Cancel",
     "removeRepo": "Remove {{name}}",
+    "removeRepoConfirm": "Tap again to remove",
     "repoUrl": "Repository URL",
     "repoUrlPlaceholder": "https://…/index.json",
     "addRepo": "Add repository",
@@ -2410,7 +2412,7 @@
       "raygun": {
         "name": "Raygun extensions",
         "what": "Music search and streams, lyrics, charts, genres, recommendations, song facts, manga, novels, films and series, podcast and audiobook directories.",
-        "how": "JavaScript in a sandbox, installed from repositories (Raygun's own, Paraline Raygun, or any you add)."
+        "how": "JavaScript in a sandbox, installed from repositories: Raygun's own (Paraline) or any you add."
       },
       "nuclear": {
         "name": "Nuclear plugins",
