@@ -686,8 +686,24 @@ impl ExtensionService {
 
     /// Adds a repository after checking that its index can be read.
     pub async fn add_repo(&self, url: &str) -> Result<Vec<ExtensionRepo>, String> {
-        let url = repo::check_index_url(url).map_err(|error| error.to_string())?;
-        let index = self.fetch_index(url.as_str(), true).await?;
+        let mut url = repo::check_index_url(url).map_err(|error| error.to_string())?;
+        let index = match self.fetch_index(url.as_str(), true).await {
+            Ok(index) => index,
+            // Shosetsu repositories are shared by their folder; the index is `index.json` in it.
+            Err(error) if !url.path().ends_with(".json") => {
+                let mut folder = url.clone();
+                if !folder.path().ends_with('/') {
+                    folder.set_path(&format!("{}/", folder.path()));
+                }
+                let Ok(inside) = folder.join("index.json") else {
+                    return Err(error);
+                };
+                let index = self.fetch_index(inside.as_str(), true).await.map_err(|_| error)?;
+                url = inside;
+                index
+            }
+            Err(error) => return Err(error),
+        };
         store::add_repo(self.db(), url.as_str(), &index.name)
             .await
             .map_err(|error| error.to_string())?;
@@ -789,13 +805,37 @@ impl ExtensionService {
             return Ok(index.clone());
         }
         let bytes = self.download(url, MAX_INDEX_BYTES).await?;
-        let index = repo::parse_index(&String::from_utf8_lossy(&bytes))
+        let mut index = repo::parse_index(&String::from_utf8_lossy(&bytes))
             .map_err(|error| error.to_string())?;
+        // A Shosetsu index names no repository: it's named as suggested, else from where it is.
+        if index.name == repo::SHOSETSU_INDEX_NAME
+            && let Ok(parsed) = reqwest::Url::parse(url)
+        {
+            index.name = SUGGESTED_REPOS
+                .iter()
+                .find(|(known, _, _)| same_url(known, url))
+                .map_or_else(|| repo::shosetsu_repo_name(&parsed), |(_, name, _)| (*name).to_owned());
+        }
         self.indexes
             .lock()
             .unwrap()
             .insert(url.to_owned(), (Instant::now(), index.clone()));
         Ok(index)
+    }
+
+    /// A repository file, asked for again after a pause when the host says too many requests
+    /// (GitLab limits raw downloads, and a Shosetsu script comes with its libraries).
+    async fn download_patiently(&self, url: &str, limit: u64) -> Result<Vec<u8>, String> {
+        let mut attempt = 0;
+        loop {
+            match self.download(url, limit).await {
+                Err(error) if error.ends_with("answered HTTP 429") && attempt < 3 => {
+                    attempt += 1;
+                    tokio::time::sleep(Duration::from_secs(2 * attempt)).await;
+                }
+                other => return other,
+            }
+        }
     }
 
     async fn download(&self, url: &str, limit: u64) -> Result<Vec<u8>, String> {
@@ -877,7 +917,7 @@ impl ExtensionService {
         } else {
             entry.size.min(MAX_PACKAGE_BYTES)
         };
-        let bytes = self.download(package_url.as_str(), limit).await?;
+        let bytes = self.download_patiently(package_url.as_str(), limit).await?;
 
         let verified = match entry.format {
             PackageFormat::Raygun => {
@@ -906,32 +946,32 @@ impl ExtensionService {
                 verified
             }
             PackageFormat::Shosetsu => {
-                let script = shosetsu::package::verify_script(&bytes, entry)
-                    .map_err(|error| error.to_string())?;
-                // The libraries it needs, and theirs, each checked against the index.
-                let mut queue = shosetsu::package::dependencies(&script);
-                let mut libraries: Vec<(String, String)> = Vec::new();
-                while let Some(name) = queue.pop() {
-                    if libraries.iter().any(|(known, _)| *known == name) {
+                // The libraries it needs, and theirs: from its own repository, else (as Shosetsu
+                // shares every repository's libraries) from the other Shosetsu ones added.
+                let mut others: Vec<(reqwest::Url, RepoIndex)> = Vec::new();
+                for other in self.repos().await? {
+                    if other.id == repo.id {
                         continue;
                     }
-                    if libraries.len() >= shosetsu::package::MAX_LIBRARIES
-                        || !shosetsu::package::is_library_name(&name)
+                    if let (Ok(url), Ok(index)) = (
+                        other.url.parse::<reqwest::Url>(),
+                        self.fetch_index(&other.url, false).await,
+                    ) && !index.libraries.is_empty()
                     {
-                        return Err(format!("{} needs an unusable library {name}", entry.name));
+                        others.push((url, index));
                     }
-                    let url = index_url
-                        .join(&format!("lib/{name}.lua"))
-                        .map_err(|error| error.to_string())?;
-                    let bytes = self.download(url.as_str(), MAX_PACKAGE_BYTES).await?;
-                    let code = shosetsu::package::verify_library(&name, &bytes, &index)
-                        .map_err(|error| format!("library {name}: {error}"))?;
-                    queue.extend(shosetsu::package::dependencies(&code));
-                    libraries.push((name, code));
                 }
-                tracing::info!(extension = %entry.id, libraries = libraries.len(), "Shosetsu script fetched");
-                shosetsu::package::package(entry, script, libraries)
-                    .map_err(|error| error.to_string())?
+                let mut sources = vec![shosetsu::package::LibrarySource {
+                    index_url: &index_url,
+                    index: &index,
+                }];
+                sources.extend(others.iter().map(|(index_url, index)| {
+                    shosetsu::package::LibrarySource { index_url, index }
+                }));
+                shosetsu::package::assemble(entry, &bytes, &sources, |url| async move {
+                    self.download_patiently(url.as_str(), MAX_PACKAGE_BYTES).await
+                })
+                .await?
             }
         };
         let extensions_dir = self.extensions_dir.clone();

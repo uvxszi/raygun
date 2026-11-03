@@ -4,7 +4,7 @@ use axum::Router;
 use axum::extract::Path;
 use axum::http::Uri;
 use axum::http::header;
-use axum::response::{IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use serde_json::json;
 
@@ -81,6 +81,54 @@ fn serve() -> SocketAddr {
                       <p>The end.</p>
                     </div></body></html>"#
                 ))
+            }),
+        )
+        // Bodies in another charset, as Russian and Japanese sites send them.
+        .route(
+            "/cp1251",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "text/html; charset=windows-1251")],
+                    [b"<p>".as_slice(), &[0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2], b"</p>"].concat(),
+                )
+                    .into_response()
+            }),
+        )
+        // A bot check in the site's place.
+        .route(
+            "/guarded",
+            get(|| async {
+                (
+                    axum::http::StatusCode::FORBIDDEN,
+                    [(header::SERVER, "cloudflare")],
+                    Html("<title>Just a moment...</title><script src=\"/cdn-cgi/challenge-platform/x\"></script>"),
+                )
+                    .into_response()
+            }),
+        )
+        .route(
+            "/api",
+            get(|headers: axum::http::HeaderMap| async move {
+                let agreed = headers
+                    .get("x-agreed")
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or("no")
+                    .to_owned();
+                (
+                    [(header::CONTENT_TYPE, "application/json")],
+                    json!({ "agreed": agreed, "items": [{ "title": "Über", "n": 3 }, null] }).to_string(),
+                )
+                    .into_response()
+            }),
+        )
+        .route(
+            "/login",
+            get(|| async {
+                (
+                    [(header::SET_COOKIE, "session=abc123; Path=/")],
+                    Html("<p>in</p>"),
+                )
+                    .into_response()
             }),
         );
     std::thread::spawn(move || {
@@ -249,11 +297,12 @@ async fn a_shosetsu_script_serves_novel_source_calls() {
         .call("novel", "chapters", &json!({ "id": "/novel/x" }))
         .await
         .unwrap();
+    // Newest first, as the app's "source order" expects; reading follows the numbers.
     assert_eq!(
         chapters["chapters"],
         json!([
-            { "id": "/chapter/x-1", "name": "Chapter 1", "number": 0.0 },
-            { "id": "/chapter/x-2", "name": "Chapter 2", "number": 1.0 },
+            { "id": "/chapter/x-2", "name": "Chapter 2", "number": 1.0, "dateUpload": null },
+            { "id": "/chapter/x-1", "name": "Chapter 1", "number": 0.0, "dateUpload": null },
         ])
     );
 
@@ -293,8 +342,9 @@ async fn the_sandbox_holds() {
             "local t = {} for i = 1, 1e9 do t[i] = ('x'):rep(100) end",
             "memory",
         ),
-        ("return Require('../secret')", "Missing Library"),
+        ("return Require('../secret')", "needs the library ../secret"),
         ("return { name = 'x' }", "listings"),
+        ("return loadstring(string.char(27) .. 'Lua')()", "binary"),
     ] {
         let error = match load(code, &[]).await {
             Ok(_) => panic!("{code} loaded"),
@@ -320,4 +370,282 @@ fn lua53_escapes_become_lua52_ones() {
         "an escaped backslash stays as it is"
     );
     assert_eq!(super::runtime::lua52_for_tests("plain"), "plain");
+}
+
+/// A script using what kotlin-lib gives beyond the basics: listings picked by name, filters, an
+/// OkHttp client with an interceptor, `HttpUrl`, the cookie jar, dkjson, `os.date`, a string
+/// chapter type, and a site answering with a bot check.
+fn script_two(base: &str) -> String {
+    format!(
+        r##"-- {{"id":9002,"ver":"1.0.0","libVer":"1.0.0","dep":["dkjson>=1.0.0"]}}
+local json = Require("dkjson")
+local baseURL = "{base}"
+
+local agree = Interceptor(function(chain)
+    local request = chain:request()
+    local url = request:url():newBuilder():addQueryParameter("agree", "1"):build()
+    return chain:proceed(request:newBuilder():url(url):header("X-Agreed", "yes"):build())
+end)
+local client = HttpClientBuilder():addInterceptor(agree):connectTimeout(10):build()
+
+local function describe(data)
+    return "order=" .. tostring(data[2]) .. " action=" .. tostring(data[10])
+        .. " drama=" .. tostring(data[11]) .. " mature=" .. tostring(data[20])
+        .. " author=" .. tostring(data[30]) .. " query=" .. tostring(data[QUERY])
+        .. " page=" .. tostring(data[PAGE])
+end
+
+return {{
+    id = 9002,
+    name = "Second Source",
+    baseURL = baseURL,
+    chapterType = ChapterType.STRING,
+    searchFilters = {{
+        DropdownFilter(2, "Order", {{ "Newest", "Rating" }}),
+        FilterGroup("Genres", {{ CheckboxFilter(10, "Action"), CheckboxFilter(11, "Drama") }}),
+        TriStateFilter(20, "Mature"),
+        TextFilter(30, "Author"),
+    }},
+    listings = {{
+        Listing("Latest", true, function(data)
+            return {{ Novel {{ title = "latest " .. describe(data), link = "/latest" }} }}
+        end),
+        -- A site that ignores the page number: the same page every time.
+        Listing("Popular", true, function(data)
+            return {{ Novel {{ title = describe(data), link = "/same" }} }}
+        end),
+    }},
+    search = function(data)
+        local response = client:newCall(GET(baseURL .. "/api")):execute()
+        local answer = json.decode(response:body():string())
+        local seen = response:request():url():queryParameter("agree")
+        return {{ Novel {{ title = answer.agreed .. " " .. tostring(seen) .. " " .. answer.items[1].title
+            .. " " .. describe(data), link = "/found" }} }}
+    end,
+    parseNovel = function(url)
+        GETDocument(baseURL .. "/login")
+        local cookies = CookieJar():loadForRequest(HttpUrl(baseURL))
+        local session = cookies:size() > 0 and cookies:get(0):value() or "none"
+        local text = GETDocument(baseURL .. "/cp1251"):selectFirst("p"):text()
+        return NovelInfo {{
+            title = text,
+            description = session .. " " .. os.date("!%Y-%m-%d", 86400),
+            chapters = {{
+                NovelChapter {{ title = "One", link = "one", release = "2024-05-01" }},
+                NovelChapter {{ title = "Guarded", link = "guarded" }},
+            }},
+        }}
+    end,
+    getPassage = function(url)
+        if url == "guarded" then return GETDocument(baseURL .. "/guarded"):text() end
+        if url == "probe" then
+            local f, err = (loadstring or load)(string.char(27) .. "LuaR\0", "x")
+            return tostring(f) .. " " .. tostring(err)
+        end
+        return "First line\nSecond <line> & more\n\nThird line"
+    end,
+    expandURL = function(url) return baseURL .. "/" .. url end,
+}}
+"##
+    )
+}
+
+/// dkjson's shape, with a decoder that only says it ran: the native one should answer.
+const FAKE_DKJSON: &str = r#"-- {"ver":"1.0.1"}
+local json = { version = "dkjson 2.5" }
+function json.decode() return { agreed = "lua", items = { { title = "lua" } } } end
+return json
+"#;
+
+#[tokio::test(flavor = "multi_thread")]
+async fn shosetsu_calls_follow_the_app() {
+    let address = serve();
+    let base = format!("http://{address}");
+    let extension = load(&script_two(&base), &[("lib/dkjson.lua", FAKE_DKJSON)])
+        .await
+        .unwrap();
+    let call = |method: &'static str, args: serde_json::Value| {
+        let extension = &extension;
+        async move { extension.call("novel", method, &args).await }
+    };
+
+    // "Popular" is the listing named so, not the first; listings get no query, and the filters'
+    // defaults.
+    let popular = call("popular", json!({ "page": 1 })).await.unwrap();
+    assert_eq!(
+        popular["items"][0]["title"],
+        "order=0 action=false drama=false mature=0 author= query=nil page=1"
+    );
+    assert_eq!(popular["hasNextPage"], true);
+    // The site repeats its page: paging stops there.
+    let again = call("popular", json!({ "page": 2 })).await.unwrap();
+    assert_eq!(again["items"], json!([]));
+    assert_eq!(again["hasNextPage"], false);
+    let latest = call("latest", json!({ "page": 1 })).await.unwrap();
+    assert!(latest["items"][0]["title"].as_str().unwrap().starts_with("latest "));
+
+    // The filters as the app shows them.
+    let filters = call("filters", json!({})).await.unwrap();
+    let parsed = crate::manga::parse_filters(&filters);
+    let keys: Vec<String> = parsed
+        .iter()
+        .map(|filter| match filter {
+            raygun_model::SourceFilter::Select { key, .. }
+            | raygun_model::SourceFilter::Tags { key, .. }
+            | raygun_model::SourceFilter::Toggle { key, .. } => key.clone(),
+        })
+        .collect();
+    assert_eq!(keys, ["listing", "2", "g10", "20"]);
+    assert!(matches!(
+        &parsed[0],
+        raygun_model::SourceFilter::Select { default: Some(default), .. } if default == "2"
+    ));
+
+    // Chosen filters reach the script by id; an empty search shows the chosen listing.
+    let chosen = json!({
+        "listing": "1", "2": "1",
+        "g10": { "include": ["11"], "exclude": [] },
+        "20": { "include": [], "exclude": ["20"] },
+    });
+    let filtered = call("search", json!({ "query": "", "page": 1, "filters": chosen }))
+        .await
+        .unwrap();
+    assert_eq!(
+        filtered["items"][0]["title"],
+        "latest order=1 action=false drama=true mature=2 author= query=nil page=1"
+    );
+
+    // A search through the script's own client: the interceptor's header and query, dkjson.
+    let found = call("search", json!({ "query": "elf", "page": 1 })).await.unwrap();
+    assert_eq!(
+        found["items"][0]["title"],
+        "yes 1 Über order=0 action=false drama=false mature=0 author= query=elf page=1"
+    );
+
+    // Cookies the site set, a windows-1251 page, os.date, chapter dates, newest first.
+    let details = call("details", json!({ "id": "/n" })).await.unwrap();
+    assert_eq!(details["title"], "Привет");
+    assert_eq!(details["description"], "abc123 1970-01-02");
+    let chapters = call("chapters", json!({ "id": "/n" })).await.unwrap();
+    assert_eq!(chapters["chapters"][1]["id"], "one", "unnumbered: the list reversed");
+    assert_eq!(chapters["chapters"][1]["dateUpload"], 1_714_521_600_000_i64);
+
+    // A string chapter: a paragraph per line, as Shosetsu shows it.
+    let passage = call("passage", json!({ "chapterId": "one" })).await.unwrap();
+    assert_eq!(
+        crate::novel::parse_passage(&passage),
+        [
+            crate::novel::PassageBlock::Paragraph("First line".into()),
+            crate::novel::PassageBlock::Paragraph("Second <line> & more".into()),
+            crate::novel::PassageBlock::Paragraph("Third line".into()),
+        ]
+    );
+    // Text-only loading, whichever loader a script reaches for.
+    let probe = call("passage", json!({ "chapterId": "probe" })).await.unwrap();
+    let probe = probe["html"].as_str().unwrap();
+    assert!(probe.contains("nil") && probe.contains("mode"), "{probe}");
+
+    // A bot check says so, in words.
+    let guarded = call("passage", json!({ "chapterId": "guarded" }))
+        .await
+        .unwrap_err();
+    assert!(
+        guarded.starts_with("Test Source wants a browser check"),
+        "{guarded}"
+    );
+}
+
+#[test]
+fn jsoup_edits_work_on_the_tree() {
+    let lua = mlua::Lua::new();
+    super::dom::install(&lua, &lua.globals()).unwrap();
+    let results: Vec<String> = lua
+        .load(
+            r##"
+            local doc = Document([[<div id="c"><p class="Note">One<br>two</p><img data-src="/a.png"><span>x</span></div>
+                <div id="other"><b>moved</b></div>]])
+            local c = doc:selectFirst("#c")
+            local img = c:selectFirst("img")
+            img:attr("src", "https://img.example" .. img:attr("data-src")):removeAttr("data-src")
+            c:selectFirst("p"):addClass("seen")
+            local span = c:selectFirst("span")
+            span:text("<b>not a tag</b>")
+            c:select("p"):after("<hr>")
+            c:appendChild(doc:selectFirst("#other b"))
+            local made = doc:createElement("em")
+            made:text("new")
+            c:prependChild(made)
+            local foreign = Document("<i>far</i>"):selectFirst("i")
+            c:appendChild(foreign)
+            return {
+                img:outerHtml(),
+                tostring(c:selectFirst(".note") ~= nil),
+                c:selectFirst("p"):attr("class"),
+                span:html(),
+                c:selectFirst("p"):wholeText(),
+                tostring(#doc:select("#other b")),
+                c:child(0):text(),
+                c:selectLast("i"):text(),
+                c:selectFirst("img"):lastElementSibling():tagName(),
+                tostring(c:selectFirst("b"):parents():size()),
+                tostring(c:selectFirst("p") == doc:selectFirst("#c > p")),
+                tostring(c:selectFirst("[src~=(?i)\\.PNG$]") ~= nil),
+                tostring(c:selectFirst("[^data-]") == nil),
+                Document("<script>var a = 1</script><p>text</p>"):data(),
+            }
+            "##,
+        )
+        .eval()
+        .unwrap();
+    assert_eq!(
+        results,
+        [
+            r#"<img src="https://img.example/a.png">"#,
+            "true",
+            "Note seen",
+            "&lt;b&gt;not a tag&lt;/b&gt;",
+            "One\ntwo",
+            "0",
+            "new",
+            "far",
+            "i",
+            "3",
+            "true",
+            "true",
+            "true",
+            "var a = 1",
+        ]
+    );
+}
+
+#[test]
+fn chapters_and_dates_read_as_the_app_needs() {
+    let lua = mlua::Lua::new();
+    let numbered = super::runtime::chapters_for_tests(
+        &lua,
+        r#"return {
+            { link = "b", title = "B", order = 2 },
+            { link = "a", title = "A", order = "1" },
+            { link = "c", title = "C", order = 3 },
+        }"#,
+    );
+    let ids: Vec<&str> = numbered
+        .iter()
+        .map(|chapter| chapter["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, ["c", "b", "a"], "by order, newest first");
+    for (text, expected) in [
+        ("2024-05-01", Some(1_714_521_600_000)),
+        ("2024-05-01 00:00:10", Some(1_714_521_610_000)),
+        ("01.05.2024", Some(1_714_521_600_000)),
+        ("May 1, 2024", Some(1_714_521_600_000)),
+        ("1714521600", Some(1_714_521_600_000)),
+        ("5 days ago", None),
+    ] {
+        assert_eq!(super::runtime::release_for_tests(text), expected, "{text}");
+    }
+    assert_eq!(
+        super::runtime::lines_as_html_for_tests("a\n\n b < c \r\n"),
+        "<p>a</p><p>b &lt; c</p>"
+    );
 }

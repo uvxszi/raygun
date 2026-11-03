@@ -44,7 +44,8 @@ enum AttrOp {
     Prefix(String),
     Suffix(String),
     Contains(String),
-    Word(String),
+    /// Jsoup's `[attr~=regex]`: the value matches a regular expression (not CSS's word match).
+    Matches(Regex),
     Dash(String),
     NotEquals(String),
 }
@@ -54,6 +55,7 @@ enum Condition {
     Id(String),
     Class(String),
     Attr(String, AttrOp),
+    AttrPrefix(String),
     Has(Box<Selector>),
     Not(Box<Selector>),
     Contains(String),
@@ -92,6 +94,20 @@ impl Selector {
             ));
         }
         Ok(selector)
+    }
+
+    /// Elements with this class (Jsoup's `getElementsByClass`), however it's spelled.
+    pub fn class(name: &str) -> Self {
+        Self {
+            alternatives: vec![Complex {
+                leading: None,
+                compounds: vec![Compound {
+                    tag: None,
+                    conditions: vec![Condition::Class(name.to_owned())],
+                }],
+                combinators: Vec::new(),
+            }],
+        }
     }
 
     /// Elements that match: `scope` itself and those under it, in document order (Jsoup's
@@ -206,7 +222,10 @@ impl Condition {
     ) -> bool {
         match self {
             Self::Id(id) => element.id() == Some(id.as_str()),
-            Self::Class(class) => element.classes().any(|candidate| candidate == class),
+            // Jsoup matches class names whatever their case.
+            Self::Class(class) => element
+                .classes()
+                .any(|candidate| candidate.eq_ignore_ascii_case(class)),
             Self::Attr(name, op) => {
                 let value = element
                     .attrs()
@@ -226,15 +245,16 @@ impl Condition {
                     (AttrOp::Contains(expected), Some(value)) => {
                         !expected.is_empty() && lower(value).contains(&lower(expected))
                     }
-                    (AttrOp::Word(expected), Some(value)) => value
-                        .split_whitespace()
-                        .any(|word| word.eq_ignore_ascii_case(expected)),
+                    (AttrOp::Matches(pattern), Some(value)) => pattern.is_match(value),
                     (AttrOp::Dash(expected), Some(value)) => {
                         value.eq_ignore_ascii_case(expected)
                             || lower(value).starts_with(&format!("{}-", lower(expected)))
                     }
                 }
             }
+            Self::AttrPrefix(prefix) => element
+                .attrs()
+                .any(|(name, _)| name.to_ascii_lowercase().starts_with(prefix.as_str())),
             // Jsoup's :has looks at descendants, or at whatever a relative selector names.
             Self::Has(inner) => {
                 let siblings = inner.alternatives.iter().any(|complex| {
@@ -568,8 +588,44 @@ impl Parser {
         value
     }
 
+    /// A regular expression up to the `]` that closes the attribute selector, brackets inside
+    /// it balanced (`[href~=[0-9]+$]`).
+    fn balanced_until_bracket(&mut self) -> String {
+        let mut depth = 0;
+        let mut value = String::new();
+        while let Some(c) = self.peek() {
+            match c {
+                '\\' => {
+                    value.push(c);
+                    self.position += 1;
+                    if let Some(escaped) = self.peek() {
+                        value.push(escaped);
+                        self.position += 1;
+                    }
+                    continue;
+                }
+                '[' => depth += 1,
+                ']' if depth == 0 => break,
+                ']' => depth -= 1,
+                _ => {}
+            }
+            value.push(c);
+            self.position += 1;
+        }
+        value
+    }
+
     fn attribute(&mut self) -> Result<Condition, String> {
         self.skip_whitespace();
+        // Jsoup's `[^data-]`: any attribute whose name starts so.
+        if self.eat('^') {
+            let prefix = self.identifier().to_ascii_lowercase();
+            self.skip_whitespace();
+            if prefix.is_empty() || !self.eat(']') {
+                return Err("bad attribute prefix selector".into());
+            }
+            return Ok(Condition::AttrPrefix(prefix));
+        }
         let name = self.identifier();
         if name.is_empty() {
             return Err("attribute selector without a name".into());
@@ -599,6 +655,10 @@ impl Parser {
         };
         let op = match op {
             None => AttrOp::Exists,
+            Some("~=") => {
+                let value = self.balanced_until_bracket();
+                AttrOp::Matches(Regex::new(value.trim()).map_err(|error| error.to_string())?)
+            }
             Some(op) => {
                 let value = self.quoted_or_bare(']');
                 match op {
@@ -606,7 +666,6 @@ impl Parser {
                     "^=" => AttrOp::Prefix(value),
                     "$=" => AttrOp::Suffix(value),
                     "*=" => AttrOp::Contains(value),
-                    "~=" => AttrOp::Word(value),
                     "|=" => AttrOp::Dash(value),
                     _ => AttrOp::NotEquals(value),
                 }

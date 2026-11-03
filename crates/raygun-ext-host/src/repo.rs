@@ -21,13 +21,20 @@ pub struct RepoIndex {
     pub libraries: Vec<RepoLibrary>,
 }
 
-/// A Shosetsu library: `lib/<name>.lua`, with its SHA-256.
+/// A Shosetsu library: `lib/<name>.lua`, with its SHA-256 (which community repositories often
+/// leave out).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepoLibrary {
     pub name: String,
     #[serde(default)]
     pub ver: String,
+    #[serde(default, deserialize_with = "text_or_null")]
     pub hash: String,
+}
+
+/// A string field that may be `null`.
+fn text_or_null<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,12 +90,13 @@ pub enum PackageFormat {
     Shosetsu,
 }
 
-/// Shosetsu's repository index (`index.json` with `scripts` and `libraries`).
+/// Shosetsu's repository index (`index.json` with `scripts` and `libraries`). Entries are read one
+/// by one, so one malformed script or library doesn't hide the rest of the repository.
 #[derive(Debug, Deserialize)]
 struct ShosetsuIndex {
-    scripts: Vec<ShosetsuScript>,
+    scripts: Vec<serde_json::Value>,
     #[serde(default)]
-    libraries: Vec<RepoLibrary>,
+    libraries: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -100,7 +108,9 @@ struct ShosetsuScript {
     ver: String,
     #[serde(default)]
     lib_ver: String,
-    /// Despite the name, a SHA-256.
+    /// Despite the name, a SHA-256 in Shosetsu's own repository; community repositories leave it
+    /// empty or put an MD5 there. Shosetsu only compares it to spot updates.
+    #[serde(default, deserialize_with = "text_or_null")]
     md5: String,
     #[serde(rename = "type", default)]
     kind: Option<String>,
@@ -110,6 +120,56 @@ struct ShosetsuScript {
 
 /// The kotlin-lib major version Raygun's Shosetsu runtime stands in for.
 const SHOSETSU_LIB_MAJOR: u64 = 1;
+
+/// The name a Shosetsu index gets: its file names no repository.
+pub const SHOSETSU_INDEX_NAME: &str = "Shosetsu extensions";
+
+/// A name for a Shosetsu repository from where it is: `owner/repository` for the code hosts
+/// people publish them on, else the host. Shosetsu's own keeps [`SHOSETSU_INDEX_NAME`].
+pub fn shosetsu_repo_name(index_url: &Url) -> String {
+    let host = index_url.host_str().unwrap_or_default();
+    let parts: Vec<&str> = index_url
+        .path_segments()
+        .map(|segments| segments.filter(|part| !part.is_empty()).collect())
+        .unwrap_or_default();
+    let named = match host {
+        "raw.githubusercontent.com" | "github.com" if parts.len() >= 2 => {
+            Some(format!("{}/{}", parts[0], parts[1]))
+        }
+        "gitlab.com" => parts
+            .iter()
+            .position(|part| *part == "-")
+            .filter(|end| *end >= 2)
+            .map(|end| format!("{}/{}", parts[end - 2], parts[end - 1])),
+        "cdn.jsdelivr.net" if parts.len() >= 3 && parts[0] == "gh" => {
+            let repository = parts[2].split('@').next().unwrap_or(parts[2]);
+            Some(format!("{}/{repository}", parts[1]))
+        }
+        // A folder on this computer (M46.28): the one holding the index.
+        "" => parts
+            .len()
+            .checked_sub(2)
+            .and_then(|folder| parts.get(folder))
+            .map(|folder| folder.replace("%20", " ")),
+        _ => host
+            .strip_suffix(".github.io")
+            .or_else(|| host.strip_suffix(".gitlab.io"))
+            .map(|owner| match parts.first() {
+                Some(repository) if !repository.ends_with(".json") => {
+                    format!("{owner}/{repository}")
+                }
+                _ => owner.to_owned(),
+            }),
+    };
+    match named {
+        Some(name) if name.eq_ignore_ascii_case("shosetsuorg/extensions") => {
+            SHOSETSU_INDEX_NAME.to_owned()
+        }
+        Some(name) => name,
+        None if host.is_empty() => SHOSETSU_INDEX_NAME.to_owned(),
+        None => host.trim_start_matches("www.").to_owned(),
+    }
+}
 
 /// A label for an extension id: lower case, other characters as `-`.
 fn id_label(text: &str) -> String {
@@ -126,14 +186,21 @@ fn from_shosetsu(index: ShosetsuIndex) -> RepoIndex {
         .scripts
         .into_iter()
         .filter_map(|script| {
+            let script: ShosetsuScript = serde_json::from_value(script)
+                .inspect_err(|error| tracing::warn!(%error, "skipping a malformed Shosetsu script"))
+                .ok()?;
             let lua = script
                 .kind
                 .as_deref()
                 .is_none_or(|kind| kind == "LuaScript");
             let lib_ok = semver::Version::parse(&script.lib_ver)
                 .is_ok_and(|version| version.major == SHOSETSU_LIB_MAJOR);
-            let hash_ok =
-                script.md5.len() == 64 && script.md5.bytes().all(|b| b.is_ascii_hexdigit());
+            // Only a SHA-256 can be checked; anything else (none, an MD5) is checked by what the
+            // file is when it's installed (`shosetsu::package::verify_script`).
+            let sha256 = (script.md5.len() == 64
+                && script.md5.bytes().all(|b| b.is_ascii_hexdigit()))
+            .then(|| script.md5.to_ascii_lowercase())
+            .unwrap_or_default();
             let id = format!(
                 "shosetsu.{}.{}",
                 id_label(&script.lang),
@@ -141,7 +208,6 @@ fn from_shosetsu(index: ShosetsuIndex) -> RepoIndex {
             );
             let usable = lua
                 && lib_ok
-                && hash_ok
                 && semver::Version::parse(&script.ver).is_ok()
                 && is_extension_id(&id)
                 && !script.file_name.contains(['/', '\\'])
@@ -169,7 +235,7 @@ fn from_shosetsu(index: ShosetsuIndex) -> RepoIndex {
                 lang: Some(script.lang.clone()),
                 package: format!("src/{}/{}.lua", script.lang, script.file_name),
                 icon: script.image_url.filter(|url| !url.trim().is_empty()),
-                sha256: script.md5.to_ascii_lowercase(),
+                sha256,
                 size: 0,
                 format: PackageFormat::Shosetsu,
             })
@@ -177,9 +243,14 @@ fn from_shosetsu(index: ShosetsuIndex) -> RepoIndex {
         .collect();
     RepoIndex {
         format_version: INDEX_FORMAT,
-        name: "Shosetsu extensions".to_owned(),
+        name: SHOSETSU_INDEX_NAME.to_owned(),
         extensions,
-        libraries: index.libraries,
+        libraries: index
+            .libraries
+            .into_iter()
+            .filter_map(|library| serde_json::from_value::<RepoLibrary>(library).ok())
+            .filter(|library| crate::shosetsu::package::is_library_name(&library.name))
+            .collect(),
     }
 }
 
