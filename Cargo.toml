@@ -74,6 +74,11 @@ opt-level = 3
 [profile.dev.package.gemm-f32]
 opt-level = 3
 
+# Its half-float assembly only builds for 64-bit ARM when inlined into the fp16 functions, which
+# needs optimizing (M46.47: CI's arm64 debug APK failed with "instruction requires: fullfp16").
+[profile.dev.package.gemm-f16]
+opt-level = 3
+
 [profile.dev.package.gemm]
 opt-level = 3
 
