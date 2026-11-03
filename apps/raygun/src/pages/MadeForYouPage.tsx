@@ -4,6 +4,7 @@ import type { LucideIcon } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useMixCardMenu } from '../music/cardMenus';
 import { MixCard } from '../music/MixCard';
 import { SHELVES, useMadeForYou, useRefreshMadeForYou } from '../music/useMadeForYou';
 import { Carousel } from '../shell/Carousel';
@@ -65,6 +66,7 @@ export const MadeForYouPage: FC = () => {
   const { t } = useTranslation();
   const overview = useMadeForYou();
   const refresh = useRefreshMadeForYou();
+  const mixMenu = useMixCardMenu();
   const data = overview.data;
   const mixes = data?.mixes ?? [];
   const making = (data?.making ?? false) || refresh.isPending;
@@ -110,7 +112,7 @@ export const MadeForYouPage: FC = () => {
             <h2 className="text-xl font-bold">{t(`forYou.shelves.${shelf.id}`)}</h2>
             <Carousel className="-mx-4 gap-1 px-2 lg:-mx-2">
               {shown.map((mix) => (
-                <MixCard key={mix.id} mix={mix} />
+                <MixCard key={mix.id} mix={mix} onMenu={mixMenu(mix)} />
               ))}
             </Carousel>
           </section>

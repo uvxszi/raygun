@@ -8,7 +8,7 @@ import type {
 } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
-import { Bot, LayoutList, Package, Puzzle, Smartphone, Tag } from 'lucide-react';
+import { Bot, EyeOff, LayoutList, Package, Puzzle, Smartphone, Tag } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -587,6 +587,20 @@ const BrowseSettings: FC = () => {
               // Music searches, charts, mixes and sources depend on it (M46.36).
               { onSuccess: () => void queryClient.invalidateQueries() },
             )
+          }
+        />
+        {/* Don't show this artist and Not interested, to show again. */}
+        <PrefLink
+          icon={EyeOff}
+          to="/settings/hidden"
+          title={t('hidden.title')}
+          summary={
+            data.hidden.artists.length + data.hidden.items.length === 0
+              ? t('hidden.none')
+              : [
+                  t('hidden.summaryArtists', { count: data.hidden.artists.length }),
+                  t('hidden.summaryItems', { count: data.hidden.items.length }),
+                ].join(' · ')
           }
         />
       </PrefGroup>

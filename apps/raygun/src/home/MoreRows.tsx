@@ -2,7 +2,7 @@ import type { ChartGroup, MangaCard } from '@raygun/bindings';
 import { useQueries } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { CalendarClock, TrendingUp } from 'lucide-react';
-import type { FC, ReactNode } from 'react';
+import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { BookCard } from '../audiobooks/BookRow';
@@ -12,12 +12,14 @@ import { ROUTES } from '../manga/medium';
 import type { Medium } from '../manga/medium';
 import { useMangaSources } from '../manga/useManga';
 import { BrowseTile } from '../music/BrowseAll';
-import { ChartRow } from '../music/ChartRow';
+import { menuHandler, titlePage, useBookMenuItems, useTitleMenuItems } from '../music/cardMenus';
+import { HomeChartRow } from '../music/ChartRow';
+import { feedKey, pageKey, useHidden } from '../music/hidden';
 import { chartKey, useMusicCharts, useTagSummary, useTagVocabulary } from '../music/useDiscovery';
 import { useSourceHealth } from '../search/sourceHealth';
 import { sourceSearchOptions } from '../search/useCatalogSearch';
-import { Carousel } from '../shell/Carousel';
 import { useInView } from '../shell/useInView';
+import { HomeCarousel, HomeSection, RowSkeleton } from './HomeSection';
 
 /** Tiles in Home's genre and decade rows. */
 const TILES = 16;
@@ -28,46 +30,17 @@ const HOME_SOURCES = 4;
 
 const TILE_CLASS = 'w-40 shrink-0 sm:w-48';
 
-/** A Home row (M46.47): its heading with Show all, then a carousel. */
-const Row: FC<{
-  title: string;
-  all: { to: string; search?: Record<string, unknown> };
-  testId: string;
-  children: ReactNode;
-}> = ({ title, all, testId, children }) => {
-  const { t } = useTranslation();
-  return (
-    <section aria-label={title} data-testid={testId} className="flex flex-col gap-1">
-      <div className="flex items-baseline gap-3">
-        <h2 className="min-w-0 truncate text-lg font-semibold">
-          <Link to={all.to} search={all.search as never} className="hover:underline">
-            {title}
-          </Link>
-        </h2>
-        <Link
-          to={all.to}
-          search={all.search as never}
-          className="text-muted hover:text-foreground ml-auto shrink-0 text-sm font-semibold"
-        >
-          {t('discover.seeAll')}
-        </Link>
-      </div>
-      <Carousel className="-mx-4 gap-3 px-4 lg:mx-0 lg:px-0">{children}</Carousel>
-    </section>
-  );
-};
-
 /** The first chart of a kind (new releases, viral, underground) as a row of songs (M46.47). */
-export const ChartGroupSection: FC<{ group: ChartGroup }> = ({ group }) => {
+export const ChartGroupSection: FC<{ id: string; group: ChartGroup }> = ({ id, group }) => {
   const { t } = useTranslation();
   const charts = useMusicCharts();
   const chart = (charts.data?.charts ?? []).find((each) => each.group === group);
   if (!chart) return null;
-  return <ChartRow chart={chart} title={t(`discover.groups.${group}`)} />;
+  return <HomeChartRow chart={chart} title={t(`discover.groups.${group}`)} homeId={id} />;
 };
 
 /** Genres and moods as Browse all's tiles (M46.47): the user's own first, then the charts'. */
-export const GenresSection: FC = () => {
+export const GenresSection: FC<{ id: string }> = ({ id }) => {
   const { t } = useTranslation();
   const charts = useMusicCharts();
   const summary = useTagSummary();
@@ -87,46 +60,60 @@ export const GenresSection: FC = () => {
   const shown = [...new Set(names)].slice(0, TILES);
   if (shown.length === 0) return null;
   return (
-    <Row title={t('discover.genres')} all={{ to: '/browse' }} testId="home-genres">
-      {shown.map((name) => (
-        <BrowseTile
-          key={name}
-          title={name}
-          to="/music/tag"
-          search={{ name }}
-          image={picture.get(name)}
-          className={TILE_CLASS}
-        />
-      ))}
-    </Row>
+    <HomeSection
+      id={id}
+      title={t('discover.genres')}
+      all={{ to: '/browse', search: { tab: 'discover' } }}
+      testId="home-genres"
+    >
+      <HomeCarousel>
+        {shown.map((name) => (
+          <BrowseTile
+            key={name}
+            title={name}
+            to="/music/tag"
+            search={{ name }}
+            image={picture.get(name)}
+            className={TILE_CLASS}
+          />
+        ))}
+      </HomeCarousel>
+    </HomeSection>
   );
 };
 
 /** Charts by decade as Browse all's tiles (M46.47). */
-export const DecadesSection: FC = () => {
+export const DecadesSection: FC<{ id: string }> = ({ id }) => {
   const { t } = useTranslation();
   const charts = useMusicCharts();
   const decades = (charts.data?.charts ?? []).filter((chart) => chart.group === 'decade');
   if (decades.length === 0) return null;
   return (
-    <Row title={t('discover.groups.decade')} all={{ to: '/music/charts' }} testId="home-decades">
-      {decades.slice(0, TILES).map((chart) => (
-        <BrowseTile
-          key={chartKey(chart)}
-          title={chart.name}
-          to="/music/chart"
-          search={{ provider: chart.provider.id, id: chart.id }}
-          image={chart.artworkUrl}
-          icon={CalendarClock}
-          className={TILE_CLASS}
-        />
-      ))}
-    </Row>
+    <HomeSection
+      id={id}
+      title={t('discover.groups.decade')}
+      all={{ to: '/music/charts' }}
+      testId="home-decades"
+    >
+      <HomeCarousel>
+        {decades.slice(0, TILES).map((chart) => (
+          <BrowseTile
+            key={chartKey(chart)}
+            title={chart.name}
+            to="/music/chart"
+            search={{ provider: chart.provider.id, id: chart.id }}
+            image={chart.artworkUrl}
+            icon={CalendarClock}
+            className={TILE_CLASS}
+          />
+        ))}
+      </HomeCarousel>
+    </HomeSection>
   );
 };
 
 /** Other charts (top, trending…) as tiles, past the two shown as rows (M46.47). */
-export const ChartTilesSection: FC = () => {
+export const ChartTilesSection: FC<{ id: string }> = ({ id }) => {
   const { t } = useTranslation();
   const charts = useMusicCharts();
   const main = (charts.data?.charts ?? []).filter(
@@ -134,49 +121,85 @@ export const ChartTilesSection: FC = () => {
   );
   if (main.length === 0) return null;
   return (
-    <Row title={t('discover.charts')} all={{ to: '/music/charts' }} testId="home-charts">
-      {main.slice(0, TILES).map((chart) => (
-        <BrowseTile
-          key={chartKey(chart)}
-          title={chart.name}
-          to="/music/chart"
-          search={{ provider: chart.provider.id, id: chart.id }}
-          image={chart.artworkUrl}
-          icon={TrendingUp}
-          className={TILE_CLASS}
-        />
-      ))}
-    </Row>
+    <HomeSection
+      id={id}
+      title={t('discover.charts')}
+      all={{ to: '/music/charts' }}
+      testId="home-charts"
+    >
+      <HomeCarousel>
+        {main.slice(0, TILES).map((chart) => (
+          <BrowseTile
+            key={chartKey(chart)}
+            title={chart.name}
+            to="/music/chart"
+            search={{ provider: chart.provider.id, id: chart.id }}
+            image={chart.artworkUrl}
+            icon={TrendingUp}
+            className={TILE_CLASS}
+          />
+        ))}
+      </HomeCarousel>
+    </HomeSection>
   );
 };
 
-/** Popular audiobooks from the audiobook sources (M46.47). */
-export const AudiobooksSection: FC = () => {
-  const [ref, seen] = useInView<HTMLDivElement>();
-  return <div ref={ref}>{seen && <PopularBooks />}</div>;
-};
-
-const PopularBooks: FC = () => {
+/**
+ * Popular audiobooks from the audiobook sources (M46.47). What's cached shows at once; the
+ * sources are asked once the row comes near the window.
+ */
+export const AudiobooksSection: FC<{ id: string }> = ({ id }) => {
   const { t } = useTranslation();
+  const [ref, seen] = useInView<HTMLDivElement>();
   const navigate = useNavigate();
   const { mutate: open } = useOpenAudiobook();
-  const books = useBookDirectory('popular');
-  const list = books.data?.pages.flatMap((page) => page.books) ?? [];
-  if (list.length === 0) return null;
+  const books = useBookDirectory('popular', '', seen);
+  const hidden = useHidden();
+  const menu = useBookMenuItems();
+  const list = (books.data?.pages.flatMap((page) => page.books) ?? []).filter(
+    (book) => !hidden.hidesItem(feedKey(book.feedUrl)),
+  );
+  const settled = books.isError || (books.isSuccess && !books.isFetching);
+  if (list.length === 0 && settled) return <div ref={ref} />;
   return (
-    <Row title={t('home.popularAudiobooks')} all={{ to: '/audiobooks' }} testId="home-audiobooks">
-      {list.slice(0, TITLES).map((book) => (
-        <BookCard
-          key={book.feedUrl}
-          book={book}
-          onOpen={(chosen) =>
-            open(chosen.feedUrl, {
-              onSuccess: (id) => void navigate({ to: '/audiobook', search: { id } }),
-            })
-          }
-        />
-      ))}
-    </Row>
+    <div ref={ref}>
+      <HomeSection
+        id={id}
+        title={t('home.popularAudiobooks')}
+        all={{ to: '/audiobooks' }}
+        testId="home-audiobooks"
+      >
+        {list.length > 0 ? (
+          <HomeCarousel tight>
+            {list.slice(0, TITLES).map((book) => (
+              <BookCard
+                key={book.feedUrl}
+                book={book}
+                onMenu={menuHandler(() =>
+                  menu(
+                    {
+                      title: book.title,
+                      author: book.author,
+                      artworkUrl: book.artworkUrl,
+                      feedUrl: book.feedUrl,
+                    },
+                    { notInterested: true },
+                  ),
+                )}
+                onOpen={(chosen) =>
+                  open(chosen.feedUrl, {
+                    onSuccess: (bookId) =>
+                      void navigate({ to: '/audiobook', search: { id: bookId } }),
+                  })
+                }
+              />
+            ))}
+          </HomeCarousel>
+        ) : (
+          <RowSkeleton card="w-32 sm:w-40" />
+        )}
+      </HomeSection>
+    </div>
   );
 };
 
@@ -190,22 +213,24 @@ const POPULAR_TITLE: Record<Medium, string> = {
 /**
  * Popular comics, books or videos (M46.47): a few working sources' popular pages, the same
  * requests (and cache) as Browse → Search with nothing typed, taken in turns so one source
- * doesn't fill the row. It asks once it comes near the window.
+ * doesn't fill the row. What's cached shows at once; the sources are asked once the row comes
+ * near the window. Titles marked Not interested stay out.
  */
-export const PopularTitlesSection: FC<{ medium: Medium }> = ({ medium }) => {
-  const [ref, seen] = useInView<HTMLDivElement>();
-  return <div ref={ref}>{seen && <PopularTitles medium={medium} />}</div>;
-};
-
-const PopularTitles: FC<{ medium: Medium }> = ({ medium }) => {
+export const PopularTitlesSection: FC<{ id: string; medium: Medium }> = ({ id, medium }) => {
   const { t } = useTranslation();
+  const [ref, seen] = useInView<HTMLDivElement>();
   const sources = useMangaSources(medium);
   const failures = useSourceHealth((state) => state.failures);
+  const hidden = useHidden();
+  const menu = useTitleMenuItems();
   const picked = (sources.data ?? [])
     .filter((source) => source.enabled && !source.searchPill && !(source.id in failures))
     .slice(0, HOME_SOURCES);
   const results = useQueries({
-    queries: picked.map((source) => sourceSearchOptions(medium, source.id, '')),
+    queries: picked.map((source) => ({
+      ...sourceSearchOptions(medium, source.id, ''),
+      enabled: seen,
+    })),
   });
   const pages = results.map((result) => result.data?.items ?? []);
   const items: MangaCard[] = [];
@@ -213,30 +238,60 @@ const PopularTitles: FC<{ medium: Medium }> = ({ medium }) => {
   for (let round = 0; round < longest; round += 1) {
     for (const page of pages) {
       const item = page[round];
-      if (item) items.push(item);
+      if (
+        item &&
+        !hidden.hidesItem(pageKey(ROUTES[medium].title, { source: item.sourceId, id: item.id }))
+      ) {
+        items.push(item);
+      }
     }
   }
-  if (items.length === 0) return null;
+  // Nothing to wait for: no sources, or every one has answered.
+  const settled =
+    sources.isSuccess &&
+    (picked.length === 0 || results.every((result) => result.isSuccess || result.isError));
+  if (items.length === 0 && (settled || sources.isError)) return <div ref={ref} />;
   const video = medium === 'video';
+  const card = 'w-28 shrink-0 sm:w-32';
   return (
-    <Row
-      title={t(POPULAR_TITLE[medium])}
-      all={{ to: '/browse', search: { tab: 'search', type: medium } }}
-      testId={`home-popular-${medium}`}
-    >
-      {items.slice(0, TITLES).map((item) => (
-        <li key={`${item.sourceId}:${item.id}`} className="w-28 shrink-0 sm:w-32">
-          <Link
-            to={ROUTES[medium].title}
-            search={{ source: item.sourceId, id: item.id }}
-            aria-label={item.title}
-            className="flex flex-col gap-1.5"
-          >
-            <MangaCover url={item.coverUrl} video={video} className="w-full rounded-xl" />
-            <span className="line-clamp-2 text-sm font-medium">{item.title}</span>
-          </Link>
-        </li>
-      ))}
-    </Row>
+    <div ref={ref}>
+      <HomeSection
+        id={id}
+        title={t(POPULAR_TITLE[medium])}
+        all={{ to: '/browse', search: { tab: 'search', type: medium } }}
+        testId={`home-popular-${medium}`}
+      >
+        {items.length > 0 ? (
+          <HomeCarousel>
+            {items.slice(0, TITLES).map((item) => {
+              const title = {
+                medium,
+                sourceId: item.sourceId,
+                id: item.id,
+                title: item.title,
+                coverUrl: item.coverUrl,
+              };
+              const page = titlePage(title);
+              return (
+                <li key={`${item.sourceId}:${item.id}`} className={card}>
+                  <Link
+                    to={page.to}
+                    search={page.search}
+                    aria-label={item.title}
+                    onContextMenu={menuHandler(() => menu(title, { notInterested: true }))}
+                    className="flex flex-col gap-1.5"
+                  >
+                    <MangaCover url={item.coverUrl} video={video} className="w-full rounded-xl" />
+                    <span className="line-clamp-2 text-sm font-medium">{item.title}</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </HomeCarousel>
+        ) : (
+          <RowSkeleton card={card} shape="poster" />
+        )}
+      </HomeSection>
+    </div>
   );
 };

@@ -25,6 +25,7 @@ mod export;
 mod extensions;
 mod follows;
 mod genres;
+mod hidden;
 mod history;
 mod import;
 mod last_played;
@@ -149,6 +150,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::made_for_you,
             commands::made_for_you_mix,
             commands::made_for_you_save,
+            commands::hidden_artist_set,
+            commands::hidden_item_set,
+            commands::hidden_clear,
             commands::import_read_link,
             commands::import_read_text,
             commands::import_reader_ready,

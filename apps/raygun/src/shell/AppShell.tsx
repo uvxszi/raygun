@@ -8,6 +8,7 @@ import type { CSSProperties, FC } from 'react';
 import { TrackActionsSheet } from '../collections/TrackActionsSheet';
 import { SongEditSheet } from '../sound/SongEditSheet';
 import { CoverSheet } from '../music/CoverSheet';
+import { MenuSheets } from '../music/MenuSheets';
 import { SourcePickerSheet } from '../music/SourcePickerSheet';
 import { CollectionSheets } from '../collections/CollectionSheetsHost';
 import { RecordingWindow } from '../music/RecordingWindow';
@@ -36,6 +37,7 @@ import { setAppZoom, setWindowDecorations, useWindowState } from './appWindow';
 import { BottomTabs } from './BottomTabs';
 import { ConnectPrompt } from '../connect/ConnectPrompt';
 import { ContextMenuHost } from './ContextMenu';
+import { ToastHost } from './Toast';
 import { HoverLabel } from './HoverLabel';
 import { useHorizontalWheel } from './useHorizontalWheel';
 import { NAV_TABS } from './navTabs';
@@ -176,7 +178,9 @@ export const AppShell: FC = () => {
         <VideoPlayer />
         <YouTubeOverlay />
         <HoverLabel />
+        <MenuSheets />
         <ContextMenuHost />
+        <ToastHost />
         <ConnectPrompt />
         {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
         {/* Keeps scrolled content from showing through the transparent status bar on phones. */}

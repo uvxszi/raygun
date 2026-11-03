@@ -34,6 +34,7 @@ import { VideoTitlePage } from './pages/VideoTitlePage';
 import { isSearchType, isSearchView } from './search/searchTypes';
 import type { SearchType, SearchView } from './search/searchTypes';
 import { DevicesPage } from './pages/DevicesPage';
+import { HiddenPage } from './pages/HiddenPage';
 import { ExtensionDetailPage } from './pages/ExtensionDetailPage';
 import { MusicArtistPage } from './pages/MusicArtistPage';
 import { HomePage } from './pages/HomePage';
@@ -335,6 +336,11 @@ const routeTree = rootRoute.addChildren([
     getParentRoute: () => rootRoute,
     path: '/settings/devices',
     component: DevicesPage,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/settings/hidden',
+    component: HiddenPage,
   }),
   createRoute({ getParentRoute: () => rootRoute, path: '/settings/ai', component: AiPage }),
   // Watch was a tab until M42.1; what it held now lives in Library → Videos and Browse.
