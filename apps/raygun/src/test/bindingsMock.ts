@@ -7,6 +7,7 @@ import type {
   EngineCommand,
   ExportJob,
   ExtensionInfo,
+  IncognitoStatus,
   LibraryScanProgress,
   LibraryStatus,
   MangaUpdateStatus,
@@ -58,6 +59,7 @@ type EventPayloads = {
   captionsEvent: string;
   localFilesEvent: string;
   settingsChangedEvent: string;
+  incognitoEvent: IncognitoStatus;
   artistReleasesEvent: null;
   exportEvent: ExportJob | null;
   videoPlayerEvent: VideoPlayerMessage;
@@ -106,6 +108,9 @@ export const IDLE_STATE: PlaybackState = {
 };
 
 export const EMPTY_QUEUE: QueueSnapshot = { items: [], order: [] };
+
+/** Incognito off (M47). */
+export const INCOGNITO_OFF: IncognitoStatus = { on: false, sinceMs: null };
 
 export const ANDROID_INFO: AppInfo = {
   name: 'Raygun',
@@ -389,6 +394,8 @@ export const bindingsMock = {
     playlistMoveItem: vi.fn(),
     historyRecent: vi.fn(),
     historyClear: vi.fn(),
+    incognitoStatus: vi.fn(),
+    incognitoSetEnabled: vi.fn(),
     collectionPlay: vi.fn(),
     mcpStatus: vi.fn(),
     mcpSetEnabled: vi.fn(),
@@ -572,6 +579,7 @@ export const bindingsMock = {
     captionsEvent: makeEvent('captionsEvent'),
     localFilesEvent: makeEvent('localFilesEvent'),
     settingsChangedEvent: makeEvent('settingsChangedEvent'),
+    incognitoEvent: makeEvent('incognitoEvent'),
     artistReleasesEvent: makeEvent('artistReleasesEvent'),
     exportEvent: makeEvent('exportEvent'),
     videoPlayerEvent: makeEvent('videoPlayerEvent'),
@@ -804,6 +812,10 @@ export const seedBindings = () => {
   commands.playlistMoveItem.mockResolvedValue(ok(null));
   commands.historyRecent.mockResolvedValue(ok([]));
   commands.historyClear.mockResolvedValue(ok(null));
+  commands.incognitoStatus.mockResolvedValue(INCOGNITO_OFF);
+  commands.incognitoSetEnabled.mockImplementation(async (on: boolean) =>
+    ok(on ? { on, sinceMs: Date.now() } : INCOGNITO_OFF),
+  );
   commands.collectionPlay.mockResolvedValue(ok(null));
   const mcpOff = { enabled: false, url: null, token: 'token-1', error: null };
   commands.mcpStatus.mockResolvedValue(ok(mcpOff));

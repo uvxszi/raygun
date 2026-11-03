@@ -95,6 +95,8 @@ pub async fn settings_update(
     let discovery_changed = matches!(change, SettingChange::Discovery(_));
     let agent_changed = matches!(change, SettingChange::UserAgent(_));
     let sound_changed = matches!(change, SettingChange::Sound(_));
+    // Incognito (M47): the sidebar doesn't remember pages opened or played from.
+    let change = crate::privacy::without_new_stamps(&app, &db.0, change).await;
     let settings = settings::update(&db.0, change)
         .await
         .map_err(|error| error.to_string())?;
@@ -2124,6 +2126,26 @@ pub async fn history_clear(
     collections: tauri::State<'_, CollectionsService>,
 ) -> Result<(), String> {
     collections.clear_history().await
+}
+
+/// Whether incognito is on (M47). Afterwards, changes arrive as `IncognitoEvent`.
+#[tauri::command]
+#[specta::specta]
+pub fn incognito_status(
+    privacy: tauri::State<'_, crate::privacy::Privacy>,
+) -> raygun_model::IncognitoStatus {
+    privacy.status()
+}
+
+/// Turns incognito on or off (M47): while it's on, nothing records what's played, watched, read
+/// or searched.
+#[tauri::command]
+#[specta::specta]
+pub async fn incognito_set_enabled(
+    app: tauri::AppHandle,
+    enabled: bool,
+) -> Result<raygun_model::IncognitoStatus, String> {
+    crate::privacy::set_incognito(&app, enabled).await
 }
 
 /// The MCP server's switch, address and token.

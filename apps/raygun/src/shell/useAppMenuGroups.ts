@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { usePlayerUiStore } from '../player/playerUiStore';
+import { useIncognito } from '../privacy/useIncognito';
 import { runPlaybackAction } from '../player/usePlaybackKeys';
 import type { PlaybackAction } from '../player/usePlaybackKeys';
 import type { AppMenuGroup, AppMenuItem } from './AppMenu';
@@ -53,6 +54,7 @@ export const useAppMenuGroups = (actions: AppMenuActions) => {
   const navigate = useNavigate();
   const client = useQueryClient();
   const lastField = useLastField();
+  const incognito = useIncognito();
   const [{ field, selected }, setSeen] = useState({ field: null as Field | null, selected: '' });
 
   const snapshot = () => {
@@ -84,6 +86,11 @@ export const useAppMenuGroups = (actions: AppMenuActions) => {
         { label: t('collections.newPlaylist'), hint: 'Ctrl+N', onSelect: actions.newPlaylist },
         { label: t('manga.importComics'), onSelect: actions.importComics },
         { label: t('novel.importEpub'), onSelect: actions.importBook },
+        { kind: 'separator' },
+        {
+          label: t(incognito.on ? 'incognito.turnOff' : 'incognito.turnOn'),
+          onSelect: () => incognito.set(!incognito.on),
+        },
         { kind: 'separator' },
         {
           label: t('settings.title'),
