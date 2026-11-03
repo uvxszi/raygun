@@ -160,6 +160,31 @@ impl AiService {
         }
     }
 
+    /// An OpenAI-compatible provider's address and key, for transcription (M46.32).
+    pub async fn transcriber(&self, id: &str) -> Result<(String, Option<String>), String> {
+        let provider = self
+            .stored_providers()
+            .await?
+            .into_iter()
+            .find(|provider| provider.id == id)
+            .ok_or_else(|| "The transcription provider was removed".to_owned())?;
+        if provider.kind != ProviderKind::OpenAiCompatible {
+            return Err(format!(
+                "{} can't transcribe; pick an OpenAI-compatible provider",
+                provider.name
+            ));
+        }
+        let base = provider
+            .base_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|base| !base.is_empty())
+            .unwrap_or(translate::OPENAI_BASE)
+            .trim_end_matches('/')
+            .to_owned();
+        Ok((base, self.vault.get(&secret_name(id))))
+    }
+
     fn view(&self, provider: &Provider) -> AiProvider {
         let secret = secret_name(&provider.id);
         AiProvider {

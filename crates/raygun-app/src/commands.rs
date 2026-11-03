@@ -502,6 +502,11 @@ pub async fn online_search(
     for result in &providers {
         durations.learn_tracks(&result.tracks);
     }
+    let details = tauri::Manager::state::<Arc<crate::details::DetailService>>(durations.app());
+    let mut providers = providers;
+    for result in &mut providers {
+        details.apply_online(&mut result.tracks);
+    }
     Ok(SearchResults {
         library,
         top: crate::search::merge_top(&providers),
@@ -541,8 +546,17 @@ pub async fn music_album(
     provider_id: String,
     album_id: String,
 ) -> Result<raygun_model::MusicAlbumDetail, String> {
-    let detail = extensions.music_album(&provider_id, &album_id).await?;
+    let mut detail = extensions.music_album(&provider_id, &album_id).await?;
     durations.learn_tracks(&detail.tracks);
+    // The user's own details (M46.30).
+    let details = tauri::Manager::state::<Arc<crate::details::DetailService>>(durations.app());
+    details.apply_online(&mut detail.tracks);
+    let artist = detail.album.artist.clone();
+    details.apply_album(
+        artist.as_deref(),
+        &mut detail.album.title,
+        &mut detail.album.artwork_url,
+    );
     Ok(detail)
 }
 
@@ -692,6 +706,57 @@ pub async fn audiobook_directory(
     podcasts.audiobook_directory(&list, &query, page).await
 }
 
+/// An episode's or chapter's captions, with where transcribing stands (M46.32).
+#[tauri::command]
+#[specta::specta]
+pub async fn captions(
+    captions: tauri::State<'_, std::sync::Arc<crate::captions::CaptionService>>,
+    episode_id: String,
+) -> Result<raygun_model::Captions, String> {
+    captions.inner().captions(&episode_id).await
+}
+
+/// Transcribes an episode from `from_ms` with the engine set up in Settings → AI (M46.32).
+#[tauri::command]
+#[specta::specta]
+pub async fn captions_transcribe(
+    captions: tauri::State<'_, std::sync::Arc<crate::captions::CaptionService>>,
+    episode_id: String,
+    from_ms: u32,
+) -> Result<(), String> {
+    captions.inner().transcribe(&episode_id, from_ms).await
+}
+
+/// Stops transcribing an episode; what was heard stays (M46.32).
+#[tauri::command]
+#[specta::specta]
+pub fn captions_stop(
+    captions: tauri::State<'_, std::sync::Arc<crate::captions::CaptionService>>,
+    episode_id: String,
+) {
+    captions.stop(&episode_id);
+}
+
+/// Forgets an episode's captions, to transcribe it again (M46.32).
+#[tauri::command]
+#[specta::specta]
+pub async fn captions_clear(
+    captions: tauri::State<'_, std::sync::Arc<crate::captions::CaptionService>>,
+    episode_id: String,
+) -> Result<(), String> {
+    captions.clear(&episode_id).await
+}
+
+/// Whether a queue item is a podcast episode or a book's chapter, and whose (M46.32).
+#[tauri::command]
+#[specta::specta]
+pub async fn spoken_item(
+    podcasts: Podcasts<'_>,
+    source: raygun_model::MediaSource,
+) -> Result<Option<raygun_model::SpokenItem>, String> {
+    podcasts.spoken_item(&source).await
+}
+
 /// The songs a Spotify playlist, album or song link points at (M46.21).
 #[tauri::command]
 #[specta::specta]
@@ -776,6 +841,39 @@ pub async fn local_folders_rescan(
     local.inner().rescan_all().await
 }
 
+/// The user's own details for a song, an album or an artist (M46.30).
+#[tauri::command]
+#[specta::specta]
+pub async fn detail_edit(
+    details: tauri::State<'_, Arc<crate::details::DetailService>>,
+    target: raygun_model::DetailTarget,
+) -> Result<raygun_model::DetailEdit, String> {
+    Ok(details.get(&target))
+}
+
+/// Saves the user's details for a song, an album or an artist; an empty edit resets them.
+#[tauri::command]
+#[specta::specta]
+pub async fn detail_edit_set(
+    details: tauri::State<'_, Arc<crate::details::DetailService>>,
+    target: raygun_model::DetailTarget,
+    edit: raygun_model::DetailEdit,
+) -> Result<raygun_model::DetailEdit, String> {
+    details.set(&target, edit).await
+}
+
+/// Keeps a picked image (an upload) as a cover; returns its address for an edit.
+#[tauri::command]
+#[specta::specta]
+pub async fn detail_cover_import(
+    details: tauri::State<'_, Arc<crate::details::DetailService>>,
+    uploads: tauri::State<'_, crate::uploads::Uploads>,
+    upload_id: String,
+) -> Result<String, String> {
+    let path = uploads.take(&upload_id)?;
+    details.import_cover(path).await
+}
+
 /// Saves a cover image (a song's, an album's, an artist's picture) at the source's largest size, as
 /// PNG, JPEG or WebP; returns where it went (M46.26).
 #[tauri::command]
@@ -799,6 +897,27 @@ pub async fn track_durations(
     tracks: Vec<TrackQuery>,
 ) -> Result<Vec<raygun_model::TrackDuration>, String> {
     durations.lookup(tracks).await
+}
+
+/// Gives every saved copy of a song the source the user picked (M46.31).
+#[tauri::command]
+#[specta::specta]
+pub async fn track_assign_source(
+    import: tauri::State<'_, crate::import::ImportService>,
+    song: TrackInput,
+    chosen: raygun_model::OnlineTrack,
+) -> Result<(), String> {
+    import.assign_source(song, chosen).await
+}
+
+/// Which saved songs no source had when imported (M46.31).
+#[tauri::command]
+#[specta::specta]
+pub async fn tracks_unavailable(
+    import: tauri::State<'_, crate::import::ImportService>,
+    keys: Vec<String>,
+) -> Result<Vec<String>, String> {
+    import.unavailable(keys).await
 }
 
 /// Matches imported songs against the music sources (M46.21).
@@ -839,9 +958,12 @@ pub async fn made_for_you(
 #[specta::specta]
 pub async fn made_for_you_mix(
     service: tauri::State<'_, Arc<crate::made_for_you::MadeForYouService>>,
+    details: tauri::State<'_, Arc<crate::details::DetailService>>,
     id: String,
 ) -> Result<raygun_model::Mix, String> {
-    service.mix(&id).await
+    let mut mix = service.mix(&id).await?;
+    details.apply_online(&mut mix.tracks);
+    Ok(mix)
 }
 
 /// Saves a mix as a playlist named `name`; returns the playlist's id (M46.20).
@@ -864,9 +986,11 @@ pub async fn music_tag_sources(
     name: String,
     region: Option<String>,
 ) -> Result<raygun_model::MusicTagSources, String> {
-    let sources = discovery.tag_sources(name, region).await;
-    for row in &sources.rows {
+    let mut sources = discovery.tag_sources(name, region).await;
+    let details = tauri::Manager::state::<Arc<crate::details::DetailService>>(durations.app());
+    for row in &mut sources.rows {
         durations.learn_tracks(&row.tracks);
+        details.apply_online(&mut row.tracks);
     }
     Ok(sources)
 }
@@ -881,8 +1005,10 @@ pub async fn music_chart(
     chart_id: String,
     region: Option<String>,
 ) -> Result<Vec<raygun_model::OnlineTrack>, String> {
-    let tracks = discovery.chart(&provider_id, &chart_id, region).await?;
+    let mut tracks = discovery.chart(&provider_id, &chart_id, region).await?;
     durations.learn_tracks(&tracks);
+    tauri::Manager::state::<Arc<crate::details::DetailService>>(durations.app())
+        .apply_online(&mut tracks);
     Ok(tracks)
 }
 
@@ -938,9 +1064,11 @@ pub fn music_tag_vocabulary() -> Vec<raygun_model::MusicTag> {
 pub async fn music_artist(
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     library: tauri::State<'_, LibraryService>,
+    details: tauri::State<'_, Arc<crate::details::DetailService>>,
     name: String,
 ) -> Result<raygun_model::ArtistOverview, String> {
-    let name = name.trim().to_owned();
+    // A renamed artist is found by the name sources know (M46.30).
+    let name = details.original_artist(name.trim());
     if name.is_empty() {
         return Err("No artist named".into());
     }
@@ -958,8 +1086,10 @@ pub async fn music_artist(
                 || crate::search::credits_include(&track.album_artist, &name)
         })
         .collect();
+    let mut popular = crate::search::artist_tracks(&providers, &name, ARTIST_POPULAR_LIMIT);
+    details.apply_online(&mut popular);
     Ok(raygun_model::ArtistOverview {
-        popular: crate::search::artist_tracks(&providers, &name, ARTIST_POPULAR_LIMIT),
+        popular,
         albums: albums.unwrap_or_default(),
         tracks,
         name,
@@ -972,8 +1102,10 @@ pub async fn music_artist(
 pub async fn music_artist_info(
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     images: tauri::State<'_, raygun_net::ImageLinks>,
+    details: tauri::State<'_, Arc<crate::details::DetailService>>,
     name: String,
 ) -> Result<Option<raygun_model::ArtistInfo>, String> {
+    let name = details.original_artist(&name);
     Ok(extensions
         .artist_info(&name)
         .await

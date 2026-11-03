@@ -10,6 +10,7 @@ import { formatLength } from '../podcasts/formatLength';
 import { PodcastArt } from '../podcasts/PodcastArt';
 import { SourceIssue } from '../shell/SourceIssue';
 import { TopBar } from '../shell/TopBar';
+import { PinButton } from '../shell/PinButton';
 
 /**
  * An audiobook (M46.22): Resume where you left off or start over, add it to the library, and its
@@ -44,7 +45,23 @@ export const AudiobookPage: FC = () => {
 
   return (
     <section data-testid="audiobook-page" className="flex flex-col gap-5">
-      <TopBar back fallback="/library" plainTitle title={t('audiobooks.title')} />
+      <TopBar
+        back
+        fallback="/library"
+        plainTitle
+        title={t('audiobooks.title')}
+        actions={
+          <PinButton
+            target={{
+              kind: 'audiobook',
+              to: '/audiobook',
+              search: { id: view.id },
+              name: view.title,
+              artworkUrl: view.artworkUrl ?? null,
+            }}
+          />
+        }
+      />
       <header className="flex flex-col items-center gap-4 sm:flex-row sm:items-end sm:gap-6">
         <PodcastArt url={view.artworkUrl} className="w-40 shrink-0 rounded-lg shadow-xl sm:w-48" />
         <div className="flex min-w-0 flex-col items-center gap-2 sm:items-start">

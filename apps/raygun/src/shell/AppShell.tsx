@@ -8,6 +8,7 @@ import type { CSSProperties, FC } from 'react';
 import { TrackActionsSheet } from '../collections/TrackActionsSheet';
 import { SongEditSheet } from '../sound/SongEditSheet';
 import { CoverSheet } from '../music/CoverSheet';
+import { SourcePickerSheet } from '../music/SourcePickerSheet';
 import { useSyncChangedListener } from '../devices/useDeviceSync';
 import { useEngineHost } from '../engine/useEngineHost';
 import { useSpeechHost } from '../engine/useSpeechHost';
@@ -39,6 +40,7 @@ import { NAV_TABS } from './navTabs';
 import { toggleWindowFullscreen } from './useWindowFullscreen';
 import { SideRail } from './SideRail';
 import { useIsDesktop } from './useIsDesktop';
+import { useRailStamps } from './useRail';
 
 /** Engines start listening right after the shell mounts; the last queue comes back then. */
 const RESTORE_DELAY_MS = 600;
@@ -97,6 +99,8 @@ export const AppShell: FC = () => {
   const { fullscreen } = useWindowState();
   useApplyWindow(desktop, settings.data?.windowFrame, settings.data?.zoom);
   useEngineHost();
+  // The sidebar is the desktop's (M46.29).
+  useRailStamps(desktop);
   useSpeechHost();
   useFullscreenKey();
   useHorizontalWheel();
@@ -164,6 +168,7 @@ export const AppShell: FC = () => {
         <TrackActionsSheet />
         <SongEditSheet />
         <CoverSheet />
+        <SourcePickerSheet />
         <VideoPlayer />
         <YouTubeOverlay />
         <HoverLabel />

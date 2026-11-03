@@ -130,6 +130,13 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         paths.downloads(),
     ));
     app.manage(podcasts.clone());
+    // Captions for podcasts and audiobooks (M46.32).
+    app.manage(crate::captions::CaptionService::new(
+        app.handle().clone(),
+        raygun_net::http_client()?,
+        paths.downloads(),
+        paths.cache(raygun_paths::CacheKind::Captions),
+    ));
     app.manage(crate::local_network::LocalNetwork::new(
         app.handle().clone(),
     ));
@@ -179,6 +186,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
             tracing::warn!(%error, "couldn't scan the local folders");
         }
     });
+    // The user's own details for songs, albums and artists (M46.30).
+    let details = crate::details::DetailService::new(app.handle().clone(), paths.downloads());
+    app.manage(details.clone());
+    tauri::async_runtime::block_on(details.start());
     // Song lengths (M46.26): learned from playback, sources and lookups.
     let durations = crate::durations::DurationService::new(app.handle().clone());
     durations.start();

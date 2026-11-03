@@ -10,6 +10,7 @@ import { Sheet } from '../shell/Sheet';
 import { formatDb, formatTrim, parseTrim } from './format';
 import { LyricsEditor } from './LyricsEditor';
 import { useSongEditStore } from './songEditStore';
+import { DetailEditForm } from '../music/DetailEditForm';
 import type { SongEditTab } from './songEditStore';
 import type { FullSongEdit } from './soundPrefs';
 import { useSongEdit } from './useSound';
@@ -166,7 +167,7 @@ export const SongEditSheet: FC = () => {
   );
 };
 
-const TABS: SongEditTab[] = ['sound', 'lyrics'];
+const TABS: SongEditTab[] = ['sound', 'lyrics', 'details'];
 
 const SongEditBody: FC<{ song: TrackQuery }> = ({ song }) => {
   const { t } = useTranslation();
@@ -202,10 +203,20 @@ const SongEditBody: FC<{ song: TrackQuery }> = ({ song }) => {
           </button>
         ))}
       </div>
-      {tab === 'sound' ? (
+      {tab === 'sound' && (
         <SoundTab song={song} edit={current} save={(next) => save.mutate(next)} />
-      ) : (
+      )}
+      {tab === 'lyrics' && (
         <LyricsEditor song={song} edit={current} save={(next) => save.mutate(next)} />
+      )}
+      {/* Title, artist, album and cover over what the source said (M46.30). */}
+      {tab === 'details' && (
+        <DetailEditForm
+          target={{ kind: 'song', query: song }}
+          fields={['title', 'artist', 'album']}
+          original={{ title: song.title, artist: song.artist, album: song.album }}
+          titleLabel={t('details.songTitle')}
+        />
       )}
       {save.error && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">

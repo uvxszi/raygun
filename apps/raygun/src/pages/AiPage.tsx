@@ -1,4 +1,10 @@
-import type { AiModel, AiProvider, AiProviderKind } from '@raygun/bindings';
+import type {
+  AiModel,
+  AiProvider,
+  AiProviderKind,
+  TranscriptionEngine,
+  TranscriptionPrefs,
+} from '@raygun/bindings';
 import { Download, Languages, LoaderCircle, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import type { FC, FormEvent } from 'react';
@@ -13,11 +19,13 @@ import {
   useSaveAiProvider,
   useTestAiProvider,
 } from '../ai/useAi';
+import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { PageHeader } from './PageHeader';
 
 const CARD = 'bg-surface flex flex-col gap-3 rounded-xl px-5 py-4 text-sm';
 const INPUT = 'bg-background min-w-0 rounded-lg px-3 py-2 outline-none';
 const KINDS: AiProviderKind[] = ['claude', 'openAiCompatible', 'deepl'];
+const ENGINES: TranscriptionEngine[] = ['off', 'local', 'online'];
 
 const ErrorText: FC<{ error: Error | null | undefined }> = ({ error }) =>
   error ? (
@@ -264,6 +272,111 @@ const ModelRow: FC<{ model: AiModel }> = ({ model }) => {
   );
 };
 
+/**
+ * Captions for podcasts and audiobooks (M46.32): Whisper on this device (its model below), or an
+ * OpenAI-compatible provider from the translators above. Players link here ("Set up
+ * transcription"), so the section has an anchor.
+ */
+const TranscriptionSection: FC<{ providers: AiProvider[]; models: AiModel[] }> = ({
+  providers,
+  models,
+}) => {
+  const { t } = useTranslation();
+  const settings = useSettings();
+  const update = useUpdateSetting();
+  const prefs = settings.data?.transcription;
+  const [modelName, setModelName] = useState<string | null>(null);
+  if (!prefs) return null;
+  const save = (change: Partial<TranscriptionPrefs>) =>
+    update.mutate({ key: 'transcription', value: { ...prefs, ...change } });
+  const speech = models.filter((model) => model.kind === 'speech');
+  const local = speech.find((model) => model.id === prefs.localModel) ?? speech[0];
+  const compatible = providers.filter((provider) => provider.kind === 'openAiCompatible');
+
+  return (
+    <section
+      id="transcription"
+      data-testid="ai-transcription"
+      className={CARD}
+      aria-labelledby="ai-transcription"
+    >
+      <h2 id="ai-transcription" className="text-muted">
+        {t('ai.transcription.title')}
+      </h2>
+      <p className="text-muted text-xs">{t('ai.transcription.hint')}</p>
+      <div
+        role="radiogroup"
+        aria-label={t('ai.transcription.engine')}
+        className="flex flex-wrap gap-2"
+      >
+        {ENGINES.map((engine) => (
+          <button
+            key={engine}
+            type="button"
+            role="radio"
+            aria-checked={prefs.engine === engine}
+            onClick={() => save({ engine })}
+            className={`rounded-full px-4 py-1.5 font-medium ${
+              prefs.engine === engine ? 'bg-primary text-background' : 'bg-background'
+            }`}
+          >
+            {t(`ai.transcription.engines.${engine}`)}
+          </button>
+        ))}
+      </div>
+      {prefs.engine === 'local' && local && (
+        <>
+          <p className="text-muted text-xs">
+            {t(local.installed ? 'ai.transcription.localReady' : 'ai.transcription.localNeeds')}
+          </p>
+          <ul>
+            <ModelRow model={local} />
+          </ul>
+        </>
+      )}
+      {prefs.engine === 'online' && (
+        <>
+          {compatible.length === 0 ? (
+            <p className="text-muted text-xs">{t('ai.transcription.noProvider')}</p>
+          ) : (
+            <label className="flex flex-col gap-1">
+              <span className="text-muted text-xs">{t('ai.transcription.provider')}</span>
+              <select
+                value={prefs.providerId ?? ''}
+                onChange={(event) => save({ providerId: event.target.value || null })}
+                className={INPUT}
+              >
+                <option value="">{t('ai.transcription.pickProvider')}</option>
+                {compatible.map((provider) => (
+                  <option key={provider.id} value={provider.id}>
+                    {provider.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="flex flex-col gap-1">
+            <span className="text-muted text-xs">{t('ai.model')}</span>
+            <input
+              value={modelName ?? prefs.onlineModel}
+              onChange={(event) => setModelName(event.target.value)}
+              onBlur={() => {
+                if (modelName !== null && modelName.trim() !== prefs.onlineModel) {
+                  save({ onlineModel: modelName.trim() || 'whisper-1' });
+                }
+                setModelName(null);
+              }}
+              placeholder="whisper-1"
+              className={INPUT}
+            />
+          </label>
+          <p className="text-muted text-xs">{t('ai.transcription.onlineHint')}</p>
+        </>
+      )}
+    </section>
+  );
+};
+
 /** Settings → AI: translators (with their keys) and downloadable models. */
 export const AiPage: FC = () => {
   const { t } = useTranslation();
@@ -299,6 +412,7 @@ export const AiPage: FC = () => {
         )}
         <ErrorText error={providers.error} />
       </section>
+      <TranscriptionSection providers={providers.data ?? []} models={models.data ?? []} />
       <section className={CARD} aria-labelledby="ai-models">
         <h2 id="ai-models" className="text-muted">
           {t('ai.models')}

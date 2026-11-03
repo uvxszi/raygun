@@ -13,7 +13,8 @@ use raygun_ext_host::podcast::PODCAST_DIRECTORY;
 use raygun_model::{
     AudiobookPage, AudiobookResult, AudiobookSummary, AudiobookView, EpisodeDownload,
     EpisodeDownloadState, MediaKind, MediaSource, PlaybackState, PlaybackStatus, PodcastEpisode,
-    PodcastSearchResult, PodcastSummary, PodcastView, QueueItem, QueueItemInput,
+    PodcastSearchResult, PodcastSummary, PodcastView, QueueItem, QueueItemInput, SpokenItem,
+    SpokenKind,
 };
 use raygun_net::ImageLinks;
 use tauri::{AppHandle, Manager};
@@ -662,17 +663,61 @@ impl PodcastService {
         });
     }
 
+    /// How an episode is looked up from what a queue item plays.
+    fn key_of(&self, source: &MediaSource) -> Option<Key> {
+        match source {
+            MediaSource::Url { url, .. } => Some(Key::Audio(url.clone())),
+            MediaSource::LocalFile { path } => Path::new(path)
+                .strip_prefix(&self.downloads_dir)
+                .ok()
+                .map(|relative| Key::Download(relative.to_string_lossy().replace('\\', "/"))),
+            _ => None,
+        }
+    }
+
+    /// What a queue item is when it's a podcast episode or a book's chapter (M46.32).
+    pub async fn spoken_item(&self, source: &MediaSource) -> Result<Option<SpokenItem>, String> {
+        let Some(key) = self.key_of(source) else {
+            return Ok(None);
+        };
+        let db = self.db();
+        let found = match key {
+            Key::Audio(url) => store::episode_by_audio(&db, &url).await,
+            Key::Download(path) => store::episode_by_download(&db, &path).await,
+        }
+        .map_err(to_message)?;
+        let Some(episode_id) = found else {
+            return Ok(None);
+        };
+        let Some(episode) = store::episode(&db, &episode_id).await.map_err(to_message)? else {
+            return Ok(None);
+        };
+        Ok(Some(SpokenItem {
+            kind: if episode.podcast_kind == "audiobook" {
+                SpokenKind::Audiobook
+            } else {
+                SpokenKind::Podcast
+            },
+            podcast_id: episode.podcast_id,
+            episode_id,
+            show: episode.podcast_title,
+            author: episode.podcast_author,
+        }))
+    }
+
+    /// The episode playing now, if any (M46.32).
+    pub fn playing_episode(&self) -> Option<String> {
+        self.follow
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .episode_id
+            .clone()
+    }
+
     /// Finds which episode (if any) a new queue item plays.
     fn look_up(&self, item: &QueueItem) {
-        let key = match &item.source {
-            MediaSource::Url { url, .. } => Key::Audio(url.clone()),
-            MediaSource::LocalFile { path } => {
-                match Path::new(path).strip_prefix(&self.downloads_dir) {
-                    Ok(relative) => Key::Download(relative.to_string_lossy().replace('\\', "/")),
-                    Err(_) => return,
-                }
-            }
-            _ => return,
+        let Some(key) = self.key_of(&item.source) else {
+            return;
         };
         let db = self.db();
         let follow = self.follow.clone();

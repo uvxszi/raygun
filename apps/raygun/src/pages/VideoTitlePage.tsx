@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { CategoryPicker } from '../manga/CategoryPicker';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
+import { PinButton } from '../shell/PinButton';
 import { LibraryPill } from '../watch/LibraryPill';
 import { ExportButton } from '../export/ExportButton';
 import { TitleListActions } from '../manga/TitleListActions';
@@ -182,6 +183,15 @@ export const VideoTitlePage: FC = () => {
       actions={
         view && (
           <>
+            <PinButton
+              target={{
+                kind: 'video',
+                to: '/watch/video',
+                search: { source, id },
+                name: view.title,
+                artworkUrl: view.coverUrl ?? null,
+              }}
+            />
             {choose}
             <TopBarAction
               label={t('watch.refresh')}

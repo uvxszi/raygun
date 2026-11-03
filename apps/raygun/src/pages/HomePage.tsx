@@ -21,6 +21,7 @@ import { ChartRow } from '../music/ChartRow';
 import { MixCard } from '../music/MixCard';
 import { pickChart, useMusicCharts } from '../music/useDiscovery';
 import { useMadeForYou } from '../music/useMadeForYou';
+import { HomeFixedTiles } from '../library/LocalFilesTile';
 import { MascotButton } from '../shell/MascotButton';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { useIsDesktop } from '../shell/useIsDesktop';
@@ -49,6 +50,7 @@ const YourMusic: FC = () => {
             <span className="truncate font-medium">{t('collections.favorites')}</span>
           </Link>
         </li>
+        <HomeFixedTiles className={TILE_CLASS} />
         {playlists.data?.slice(0, HOME_PLAYLISTS).map((playlist) => (
           <li key={playlist.id}>
             <Link to="/library/playlist" search={{ id: playlist.id }} className={TILE_CLASS}>

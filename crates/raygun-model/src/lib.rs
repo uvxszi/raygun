@@ -137,6 +137,8 @@ pub struct Settings {
     pub zoom: u32,
     /// Charts and song tags (M46.9).
     pub discovery: DiscoveryPrefs,
+    /// Captions for podcasts and audiobooks heard by AI (M46.32).
+    pub transcription: TranscriptionPrefs,
     /// Sources that didn't answer lately go to the end of Browse and Search (M46.9).
     pub failing_sources_last: bool,
     /// The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default.
@@ -151,6 +153,63 @@ pub struct Settings {
     pub discord: DiscordPrefs,
     /// How good songs sound against the data they use, streaming and downloading.
     pub audio_quality: AudioQualityPrefs,
+    /// What the desktop sidebar shows and in what order (M46.29).
+    pub rail: RailPrefs,
+}
+
+/// The desktop sidebar's pins (M46.29): anything with a page, in the user's order or by when it
+/// was last played from or opened.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RailPrefs {
+    pub pins: Vec<RailPin>,
+    pub order: RailOrder,
+    /// The first run's pins were added (Favorites, Downloaded, Local files and the playlists).
+    pub seeded: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RailPin {
+    /// `favorites`, `downloaded`, `localFiles`, `playlist`, `album`, `artist`, `podcast`,
+    /// `audiobook`, `manga`, `novel`, `video`, `mix`.
+    pub kind: String,
+    /// The page it opens: a route and its search parameters.
+    pub to: String,
+    pub search: std::collections::BTreeMap<String, String>,
+    /// Its name and cover as last seen.
+    pub name: String,
+    pub artwork_url: Option<String>,
+    /// Unix seconds; 0 when never.
+    pub pinned_at: u32,
+    pub played_at: u32,
+    pub opened_at: u32,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum RailOrder {
+    #[default]
+    Custom,
+    /// The last time something was played from it.
+    Played,
+    /// The last time its page was opened.
+    Opened,
+}
+
+/// Pins the sidebar keeps, at most.
+pub const RAIL_MAX_PINS: usize = 300;
+
+impl RailPrefs {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.pins.len() > RAIL_MAX_PINS {
+            return Err(format!("the sidebar holds at most {RAIL_MAX_PINS} pins"));
+        }
+        if let Some(pin) = self.pins.iter().find(|pin| !pin.to.starts_with('/')) {
+            return Err(format!("{:?} isn't a page of Raygun", pin.to));
+        }
+        Ok(())
+    }
 }
 
 /// Discord presence (desktop): off by default, and it needs the ID of a Discord application the
@@ -399,6 +458,101 @@ impl Default for DiscoveryPrefs {
             tag_songs: true,
         }
     }
+}
+
+/// Who hears podcasts and audiobooks for captions (M46.32).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TranscriptionEngine {
+    Off,
+    /// Whisper on this device, from the AI models.
+    Local,
+    /// An OpenAI-compatible translator's `audio/transcriptions`.
+    Online,
+}
+
+/// Captions heard by AI (M46.32).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TranscriptionPrefs {
+    pub engine: TranscriptionEngine,
+    /// The AI model used on this device (`whisper-tiny`).
+    pub local_model: String,
+    /// The OpenAI-compatible provider (from Settings → AI) used online.
+    pub provider_id: Option<String>,
+    /// The online model (`whisper-1`, `whisper-large-v3`…).
+    pub online_model: String,
+    /// Online: confirmed once that batches cost money.
+    pub online_confirmed: bool,
+}
+
+impl Default for TranscriptionPrefs {
+    fn default() -> Self {
+        Self {
+            engine: TranscriptionEngine::Off,
+            local_model: "whisper-tiny".into(),
+            provider_id: None,
+            online_model: "whisper-1".into(),
+            online_confirmed: false,
+        }
+    }
+}
+
+/// One caption line, timed in milliseconds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Caption {
+    pub start_ms: u32,
+    pub end_ms: u32,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum CaptionSource {
+    /// The feed's own transcript.
+    Feed,
+    Local,
+    Online,
+}
+
+/// An episode's captions and where transcribing stands (M46.32).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Captions {
+    pub episode_id: String,
+    pub cues: Vec<Caption>,
+    pub source: Option<CaptionSource>,
+    /// Stretches with captions, `[start, end]` in ms.
+    pub covered: Vec<(u32, u32)>,
+    pub complete: bool,
+    /// Transcribing now.
+    pub running: bool,
+    /// Getting the audio before the first batch.
+    pub preparing: bool,
+    pub error: Option<String>,
+    /// Transcription is set up (a model downloaded, or a provider picked).
+    pub can_transcribe: bool,
+    pub engine: TranscriptionEngine,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SpokenKind {
+    Podcast,
+    Audiobook,
+}
+
+/// What a queue item is when it's spoken word: a podcast episode or a book's chapter (M46.32).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SpokenItem {
+    pub kind: SpokenKind,
+    pub podcast_id: String,
+    pub episode_id: String,
+    /// The show's or the book's title.
+    pub show: String,
+    pub author: Option<String>,
 }
 
 /// Zoom levels the desktop app offers, in percent (M46.9).
@@ -1255,6 +1409,7 @@ impl Default for Settings {
             window_frame: WindowFrame::App,
             zoom: 100,
             discovery: DiscoveryPrefs::default(),
+            transcription: TranscriptionPrefs::default(),
             failing_sources_last: true,
             user_agent: String::new(),
             sound: SoundPrefs::default(),
@@ -1262,6 +1417,7 @@ impl Default for Settings {
             resume_on_start: true,
             discord: DiscordPrefs::default(),
             audio_quality: AudioQualityPrefs::default(),
+            rail: RailPrefs::default(),
         }
     }
 }
@@ -1319,6 +1475,13 @@ impl Settings {
                 }
             }
             SettingChange::AudioQuality(prefs) => self.audio_quality = prefs,
+            SettingChange::Rail(prefs) => self.rail = prefs,
+            SettingChange::Transcription(prefs) => {
+                self.transcription = TranscriptionPrefs {
+                    online_model: prefs.online_model.trim().to_owned(),
+                    ..prefs
+                }
+            }
             SettingChange::Discovery(prefs) => {
                 self.discovery = DiscoveryPrefs {
                     region: prefs.region.to_ascii_lowercase(),
@@ -1390,6 +1553,8 @@ pub enum SettingChange {
     ResumeOnStart(bool),
     Discord(DiscordPrefs),
     AudioQuality(AudioQualityPrefs),
+    Rail(RailPrefs),
+    Transcription(TranscriptionPrefs),
 }
 
 impl SettingChange {
@@ -1443,6 +1608,8 @@ impl SettingChange {
             Self::ResumeOnStart(_) => "resumeOnStart",
             Self::Discord(_) => "discord",
             Self::AudioQuality(_) => "audioQuality",
+            Self::Rail(_) => "rail",
+            Self::Transcription(_) => "transcription",
         }
     }
 
@@ -1468,6 +1635,14 @@ impl SettingChange {
             | Self::KeepMusicPlaying(_)
             | Self::ResumeOnStart(_)
             | Self::AudioQuality(_) => Ok(()),
+            Self::Rail(prefs) => prefs.validate(),
+            Self::Transcription(prefs) => {
+                if prefs.online_model.trim().len() > 200 {
+                    Err("a model name is at most 200 characters".to_owned())
+                } else {
+                    Ok(())
+                }
+            }
             Self::Discord(prefs) => {
                 let id = prefs.app_id.trim();
                 if id.len() <= 32 && id.bytes().all(|byte| byte.is_ascii_digit()) {
@@ -2361,6 +2536,21 @@ pub struct MatchedSong {
     pub song: ImportedSong,
     pub matched_by: Option<String>,
     pub source: Option<MediaSource>,
+    /// Every source that has the song, best first (M46.31: the user can pick another).
+    pub candidates: Vec<SongCandidate>,
+    /// Not matched yet: importing keeps matching it in the background (M46.31).
+    pub pending: bool,
+}
+
+/// One source's answer for an imported song (M46.31).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SongCandidate {
+    pub provider_id: String,
+    pub provider_name: String,
+    pub track: OnlineTrack,
+    /// The resolver's score; higher is a closer match.
+    pub points: i32,
 }
 
 // ---- Made for You (M46.20) ----
@@ -3042,6 +3232,33 @@ pub enum AudioFileFormat {
     Mp3,
 }
 
+/// What the user edits the details of (M46.30): a song, an album or an artist.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum DetailTarget {
+    Song {
+        query: TrackQuery,
+    },
+    Album {
+        artist: Option<String>,
+        album: String,
+    },
+    Artist {
+        name: String,
+    },
+}
+
+/// The user's own details (M46.30); `None` keeps what the source said. For an album `title` is
+/// its title, for an artist their name; `artist` and `album` are songs' only.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DetailEdit {
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub artwork_url: Option<String>,
+}
+
 /// A folder in Local Files (M46.27) and what its last scan found.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -3464,13 +3681,11 @@ pub const LAYOUT_BROWSE_TABS: [(&str, bool); 4] = [
     ("sources", true),
     ("extensions", true),
 ];
-pub const LAYOUT_BROWSE_SECTIONS: [(&str, bool); 5] = [
+pub const LAYOUT_BROWSE_SECTIONS: [(&str, bool); 4] = [
     ("video", true),
     ("manga", true),
     ("novel", true),
     ("websites", true),
-    // Local Files (M46.27).
-    ("localFiles", true),
 ];
 pub const LAYOUT_MORE_ENTRIES: [(&str, bool); 9] = [
     ("updates", true),

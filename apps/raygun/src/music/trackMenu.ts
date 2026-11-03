@@ -11,9 +11,11 @@ import {
   ListMinus,
   ListPlus,
   ListStart,
+  Pencil,
   Play,
   Scissors,
   Search,
+  SearchCheck,
   UserRound,
 } from 'lucide-react';
 import type { TFunction } from 'i18next';
@@ -25,6 +27,7 @@ import type { MenuItem } from '../shell/contextMenuStore';
 import { useSongEditStore } from '../sound/songEditStore';
 import { creditedArtists } from './artists';
 import { coverTitle, useCoverSheetStore } from './coverSheetStore';
+import { useSourcePickerStore } from './sourcePickerStore';
 
 /** A spot at the pointer for popovers opened from the menu (they need something to sit by). */
 const pointAnchor = (x: number, y: number) => {
@@ -115,6 +118,25 @@ export const trackMenu = (track: TrackInput, options: TrackMenuOptions): MenuIte
           },
         ]
       : []),
+    {
+      label: t('sourcePicker.menu'),
+      icon: SearchCheck,
+      onSelect: () => useSourcePickerStore.getState().open(track),
+    },
+    {
+      label: t('details.editSong'),
+      icon: Pencil,
+      onSelect: () =>
+        useSongEditStore.getState().open(
+          {
+            title: track.title,
+            artist: track.artist,
+            album: track.album,
+            durationMs: track.durationMs,
+          },
+          { tab: 'details' },
+        ),
+    },
     {
       label: t('menu.editSong'),
       icon: Scissors,

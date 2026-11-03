@@ -8,6 +8,10 @@ import { useFavorites, usePlaylists } from '../collections/useCollections';
 import { useDownloadedSongs } from '../music/useSongDownloads';
 import { useAudiobooks } from '../audiobooks/useAudiobooks';
 import { PodcastArt } from '../podcasts/PodcastArt';
+import { LocalFilesTile } from './LocalFilesTile';
+import { openContextMenu } from '../shell/contextMenuStore';
+import { usePinMenuItem } from '../shell/usePinMenuItem';
+import { playlistPin } from '../shell/useRail';
 import { useSubscriptions } from '../podcasts/usePodcasts';
 import { Artwork } from './Artwork';
 import { FirstRunCard } from './FirstRunCard';
@@ -59,6 +63,8 @@ export const MusicOverview: FC<{
   ready: boolean;
 }> = ({ hasFolders, trackCount, ready }) => {
   const { t } = useTranslation();
+  // Right-click a playlist, show or book: pin it to the sidebar (M46.29).
+  const pinItems = usePinMenuItem();
   const playlists = usePlaylists();
   const podcasts = useSubscriptions();
   const audiobooks = useAudiobooks();
@@ -74,10 +80,11 @@ export const MusicOverview: FC<{
 
   return (
     <div data-testid="music-overview" className="flex flex-col gap-6">
-      {(playlistCount > 0 || favoriteCount > 0 || downloadedCount > 0) && (
+      {/* Favorites, Downloaded and Local files are always the first three (M46.29). */}
+      {
         <Section view="playlists" count={playlistCount}>
           <Row>
-            {favoriteCount > 0 && (
+            {
               <li className="w-28 shrink-0">
                 <Link
                   to="/library"
@@ -94,8 +101,8 @@ export const MusicOverview: FC<{
                   </span>
                 </Link>
               </li>
-            )}
-            {downloadedCount > 0 && (
+            }
+            {
               <li className="w-28 shrink-0">
                 <Link
                   to="/library"
@@ -103,8 +110,8 @@ export const MusicOverview: FC<{
                   replace
                   className="flex flex-col gap-1.5"
                 >
-                  <span className="bg-primary/20 text-primary grid aspect-square w-full place-items-center rounded-lg">
-                    <span className="bg-primary text-background grid size-12 place-items-center rounded-full">
+                  <span className="grid aspect-square w-full place-items-center rounded-lg bg-sky-500/20 text-sky-500">
+                    <span className="grid size-12 place-items-center rounded-full bg-sky-500 text-white">
                       <ArrowDown aria-hidden size={28} strokeWidth={3} />
                     </span>
                   </span>
@@ -116,9 +123,14 @@ export const MusicOverview: FC<{
                   </span>
                 </Link>
               </li>
-            )}
+            }
+            <LocalFilesTile />
             {playlists.data?.map((playlist) => (
-              <li key={playlist.id} className="w-28 shrink-0">
+              <li
+                key={playlist.id}
+                className="w-28 shrink-0"
+                onContextMenu={(event) => openContextMenu(event, pinItems(playlistPin(playlist)))}
+              >
                 <Link
                   to="/library/playlist"
                   search={{ id: playlist.id }}
@@ -137,12 +149,27 @@ export const MusicOverview: FC<{
             ))}
           </Row>
         </Section>
-      )}
+      }
       {podcasts.data && podcasts.data.length > 0 && (
         <Section view="podcasts" count={podcasts.data.length}>
           <Row>
             {podcasts.data.map((podcast) => (
-              <li key={podcast.id} className="w-28 shrink-0">
+              <li
+                key={podcast.id}
+                className="w-28 shrink-0"
+                onContextMenu={(event) =>
+                  openContextMenu(
+                    event,
+                    pinItems({
+                      kind: 'podcast',
+                      to: '/podcast',
+                      search: { id: podcast.id },
+                      name: podcast.title,
+                      artworkUrl: podcast.artworkUrl ?? null,
+                    }),
+                  )
+                }
+              >
                 <Link to="/podcast" search={{ id: podcast.id }} className="flex flex-col gap-1.5">
                   <PodcastArt url={podcast.artworkUrl} className="w-full rounded-lg" />
                   <span className="line-clamp-2 text-sm font-medium">{podcast.title}</span>
@@ -156,7 +183,22 @@ export const MusicOverview: FC<{
         <Section view="audiobooks" count={audiobooks.data.length}>
           <Row>
             {audiobooks.data.map((book) => (
-              <li key={book.id} className="w-28 shrink-0">
+              <li
+                key={book.id}
+                className="w-28 shrink-0"
+                onContextMenu={(event) =>
+                  openContextMenu(
+                    event,
+                    pinItems({
+                      kind: 'audiobook',
+                      to: '/audiobook',
+                      search: { id: book.id },
+                      name: book.title,
+                      artworkUrl: book.artworkUrl ?? null,
+                    }),
+                  )
+                }
+              >
                 <Link to="/audiobook" search={{ id: book.id }} className="flex flex-col gap-1.5">
                   <PodcastArt url={book.artworkUrl} className="w-full rounded-lg" />
                   <span className="line-clamp-2 text-sm font-medium">{book.title}</span>

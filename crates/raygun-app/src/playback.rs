@@ -227,6 +227,14 @@ impl PlaybackService {
     }
 
     /// A playable address for `source` through the stream proxy (Local Files' videos, M46.27).
+    /// Queue items with the user's own details (M46.30).
+    fn with_details(&self, mut items: Vec<QueueItemInput>) -> Vec<QueueItemInput> {
+        if let Some(details) = self.app.try_state::<Arc<crate::details::DetailService>>() {
+            details.apply_queue(&mut items);
+        }
+        items
+    }
+
     pub fn register_source(&self, source: &MediaSource) -> String {
         self.proxy.register(source)
     }
@@ -236,6 +244,7 @@ impl PlaybackService {
     }
 
     pub fn enqueue(&self, items: Vec<QueueItemInput>, play_now: bool) {
+        let items = self.with_details(items);
         if let Some(send) = self.redirect() {
             return send(ConnectCommand::Enqueue { items, play_now });
         }
@@ -244,6 +253,7 @@ impl PlaybackService {
 
     /// Replaces the queue and starts playing (see `PlaybackCore::replace`).
     pub fn replace(&self, items: Vec<QueueItemInput>, start_index: Option<usize>, shuffle: bool) {
+        let items = self.with_details(items);
         if let Some(send) = self.redirect() {
             return send(ConnectCommand::Replace {
                 items,
@@ -258,6 +268,7 @@ impl PlaybackService {
 
     /// Replaces the queue and starts its first item at `start_ms` (a podcast episode resuming).
     pub fn replace_from(&self, items: Vec<QueueItemInput>, start_ms: f64) {
+        let items = self.with_details(items);
         if let Some(send) = self.redirect() {
             return send(ConnectCommand::Replace {
                 items,
@@ -322,6 +333,7 @@ impl PlaybackService {
 
     /// Queues items right after the current one (Play next, M46.8).
     pub fn enqueue_next(&self, items: Vec<QueueItemInput>) {
+        let items = self.with_details(items);
         if let Some(send) = self.redirect() {
             return send(ConnectCommand::EnqueueNext { items });
         }

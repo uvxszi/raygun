@@ -52,6 +52,8 @@ type EventPayloads = {
   songDownloadsEvent: string;
   madeForYouEvent: null;
   trackDurationsEvent: TrackDuration[];
+  importEvent: string;
+  captionsEvent: string;
   localFilesEvent: string;
   settingsChangedEvent: string;
   exportEvent: ExportJob | null;
@@ -166,6 +168,14 @@ export const DEFAULT_SETTINGS: Settings = {
   resumeOnStart: true,
   discord: { enabled: false, appId: '' },
   audioQuality: { streaming: 'high', cellular: 'normal', download: 'veryHigh' },
+  rail: { pins: [], order: 'custom', seeded: false },
+  transcription: {
+    engine: 'off',
+    localModel: 'whisper-tiny',
+    providerId: null,
+    onlineModel: 'whisper-1',
+    onlineConfirmed: false,
+  },
   sound: {
     eqEnabled: false,
     eqPreset: 'flat',
@@ -223,6 +233,16 @@ export const bindingsMock = {
     importMatch: vi.fn(),
     trackDurations: vi.fn(),
     coverSave: vi.fn(),
+    detailEdit: vi.fn(),
+    trackAssignSource: vi.fn(),
+    spokenItem: vi.fn(),
+    captions: vi.fn(),
+    captionsTranscribe: vi.fn(),
+    captionsStop: vi.fn(),
+    captionsClear: vi.fn(),
+    tracksUnavailable: vi.fn(),
+    detailEditSet: vi.fn(),
+    detailCoverImport: vi.fn(),
     localFolders: vi.fn(),
     localFolderAdd: vi.fn(),
     localFolderRemove: vi.fn(),
@@ -496,6 +516,8 @@ export const bindingsMock = {
     songDownloadsEvent: makeEvent('songDownloadsEvent'),
     madeForYouEvent: makeEvent('madeForYouEvent'),
     trackDurationsEvent: makeEvent('trackDurationsEvent'),
+    importEvent: makeEvent('importEvent'),
+    captionsEvent: makeEvent('captionsEvent'),
     localFilesEvent: makeEvent('localFilesEvent'),
     settingsChangedEvent: makeEvent('settingsChangedEvent'),
     exportEvent: makeEvent('exportEvent'),
@@ -549,6 +571,16 @@ export const seedBindings = () => {
   commands.importMatch.mockResolvedValue(ok([]));
   commands.trackDurations.mockResolvedValue(ok([]));
   commands.coverSave.mockResolvedValue(ok('Pictures/Raygun/Cover.png'));
+  commands.detailEdit.mockResolvedValue(
+    ok({ title: null, artist: null, album: null, artworkUrl: null }),
+  );
+  commands.tracksUnavailable.mockResolvedValue(ok([]));
+  commands.trackAssignSource.mockResolvedValue(ok(null));
+  commands.spokenItem.mockResolvedValue(ok(null));
+  commands.captionsTranscribe.mockResolvedValue(ok(null));
+  commands.captionsStop.mockResolvedValue(null);
+  commands.captionsClear.mockResolvedValue(ok(null));
+  commands.detailEditSet.mockImplementation(async (_target: unknown, edit: unknown) => ok(edit));
   commands.localFolders.mockResolvedValue(ok([]));
   commands.localFolderAdd.mockResolvedValue(ok(null));
   commands.localFolderRemove.mockResolvedValue(ok([]));

@@ -23,8 +23,11 @@ import { useWideScreen, useWindowWidth } from '../shell/useWideScreen';
 import { ResizeHandle } from '../shell/ResizeHandle';
 import { usePanelSizes } from '../shell/usePanelSizes';
 import { FavoriteButton } from './FavoriteButton';
+import { CaptionsView } from './CaptionsView';
 import { LyricsView } from './LyricsView';
 import { ArtistCard, CreditsCard } from './PlayerCards';
+import { useSpokenItem } from './spoken';
+import { SpokenByline } from './SpokenByline';
 import type { PlayerPanel } from './playerUiStore';
 import { usePlayerUiStore } from './playerUiStore';
 import { sendControl, sourceNote, useNowPlaying } from './usePlayback';
@@ -131,6 +134,8 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
   const openSheet = usePlayerUiStore((store) => store.openSheet);
   const setPanel = usePlayerUiStore((store) => store.setPanel);
   const note = sourceNote(state, item);
+  // Podcasts and audiobooks show their show or book and captions, not artists and lyrics (M46.32).
+  const spoken = useSpokenItem(item);
   const { panels, save } = usePanelSizes();
   const [rowsPreview, setRowsPreview] = useState<number | null>(null);
   const rows = rowsPreview ?? (panels.nextUpRows || 1);
@@ -151,8 +156,12 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
       <div className="flex items-center gap-1">
         <div className="flex min-w-0 flex-1 flex-col">
           <Marquee testId="side-panel-title" text={item.title} className="text-xl font-bold" />
-          {item.artist && (
-            <ArtistLinks credit={item.artist} className="text-muted block truncate text-sm" />
+          {spoken ? (
+            <SpokenByline spoken={spoken} className="text-muted block truncate text-sm" />
+          ) : (
+            item.artist && (
+              <ArtistLinks credit={item.artist} className="text-muted block truncate text-sm" />
+            )
           )}
           {note && (
             <span className="text-muted text-xs">
@@ -161,9 +170,9 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
                 : t('player.via', { source: note.source })}
             </span>
           )}
-          <TrackTagChips track={item} className="pt-1.5" />
+          {!spoken && <TrackTagChips track={item} className="pt-1.5" />}
         </div>
-        <FavoriteButton item={item} compact download />
+        {!spoken && <FavoriteButton item={item} compact download />}
         <VideoToggle item={item} className="size-9" />
         <button
           type="button"
@@ -174,18 +183,27 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
           <Maximize2 aria-hidden size={18} />
         </button>
       </div>
-      <section aria-label={t('player.lyrics')} className="bg-background/50 rounded-xl">
+      <section
+        aria-label={spoken ? t('captions.title') : t('player.lyrics')}
+        className="bg-background/50 rounded-xl"
+      >
         <header className="flex items-center justify-between px-4 pt-3">
-          <h3 className="text-sm font-semibold">{t('player.lyrics')}</h3>
+          <h3 className="text-sm font-semibold">
+            {spoken ? t('captions.title') : t('player.lyrics')}
+          </h3>
           <button
             type="button"
             onClick={() => openSheet({ view: 'lyrics' })}
             className="text-muted hover:text-foreground text-xs font-medium"
           >
-            {t('player.panel.fullLyrics')}
+            {spoken ? t('captions.full') : t('player.panel.fullLyrics')}
           </button>
         </header>
-        <LyricsView item={item} state={state} variant="panel" />
+        {spoken ? (
+          <CaptionsView spoken={spoken} state={state} variant="panel" />
+        ) : (
+          <LyricsView item={item} state={state} variant="panel" />
+        )}
       </section>
       <section aria-label={t('player.panel.nextUp')} className="bg-background/50 rounded-xl p-3">
         <header className="flex items-center justify-between pb-2">
@@ -220,8 +238,12 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
         />
       </section>
       {/* The artist and the credits, as under the phone's player (M46.16). */}
-      <ArtistCard credit={item.artist} />
-      <CreditsCard item={item} />
+      {!spoken && (
+        <>
+          <ArtistCard credit={item.artist} />
+          <CreditsCard item={item} />
+        </>
+      )}
     </div>
   );
 };

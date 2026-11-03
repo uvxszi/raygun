@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { CategoryPicker } from '../manga/CategoryPicker';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
+import { PinButton } from '../shell/PinButton';
 import { DownloadButton } from '../manga/DownloadButton';
 import { MangaCover } from '../manga/MangaCover';
 import { ExportButton } from '../export/ExportButton';
@@ -100,6 +101,15 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
       actions={
         view && (
           <>
+            <PinButton
+              target={{
+                kind: medium,
+                to: medium === 'novel' ? '/novel/title' : '/manga/title',
+                search: { source, id },
+                name: view.title,
+                artworkUrl: view.coverUrl ?? null,
+              }}
+            />
             {!isLocalSource(view.sourceId) && (
               <TopBarAction
                 label={t('manga.refresh')}

@@ -5,8 +5,10 @@
 //! runtime (`sqlx::query`), so building never needs a live database or offline query data.
 
 pub mod backup;
+pub mod captions;
 pub mod categories;
 pub mod collections;
+pub mod detail_edits;
 pub mod extensions;
 pub mod hlc;
 pub mod local_folders;

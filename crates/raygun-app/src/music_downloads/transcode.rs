@@ -32,15 +32,19 @@ pub struct SongTags {
     pub cover: Option<Vec<u8>>,
 }
 
-struct Decoding {
-    format: Box<dyn FormatReader>,
-    decoder: Box<dyn AudioDecoder>,
-    track_id: u32,
-    rate: u32,
-    channels: usize,
+/// An open audio file and its decoder; captions read windows of it too (M46.32).
+pub(crate) struct Decoding {
+    pub(crate) format: Box<dyn FormatReader>,
+    pub(crate) decoder: Box<dyn AudioDecoder>,
+    pub(crate) track_id: u32,
+    pub(crate) rate: u32,
+    pub(crate) channels: usize,
+    pub(crate) time_base: Option<symphonia::core::units::TimeBase>,
+    /// The track's length, when the container says.
+    pub(crate) duration_ms: Option<u64>,
 }
 
-fn open(path: &Path) -> Result<Decoding, String> {
+pub(crate) fn open(path: &Path) -> Result<Decoding, String> {
     let file = File::open(path).map_err(|error| error.to_string())?;
     let stream = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
@@ -65,6 +69,16 @@ fn open(path: &Path) -> Result<Decoding, String> {
         .ok_or("its sound can't be read")?
         .clone();
     let track_id = track.id;
+    let time_base = track.time_base;
+    let duration_ms = time_base
+        .zip(track.duration)
+        .and_then(|(base, duration)| base.calc_duration(duration))
+        .and_then(|time| u64::try_from(time.as_millis()).ok())
+        .or_else(|| {
+            let frames = track.num_frames?;
+            let rate = u64::from(params.sample_rate?);
+            (rate > 0).then(|| frames * 1000 / rate)
+        });
     let decoder = symphonia::default::get_codecs()
         .make_audio_decoder(&params, &AudioDecoderOptions::default())
         .map_err(|error| format!("its sound can't be read ({error})"))?;
@@ -77,6 +91,8 @@ fn open(path: &Path) -> Result<Decoding, String> {
             .channels
             .as_ref()
             .map_or(2, |channels| channels.count()),
+        time_base,
+        duration_ms,
     })
 }
 

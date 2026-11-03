@@ -31,10 +31,13 @@ import { usePanelSizes } from '../shell/usePanelSizes';
 import { useSideRail, useWideScreen } from '../shell/useWideScreen';
 import { FavoriteButton } from './FavoriteButton';
 import { formatTime } from './formatTime';
+import { CaptionsView } from './CaptionsView';
 import { LyricsView } from './LyricsView';
 import type { SheetView } from './playerUiStore';
 import { usePlayerUiStore } from './playerUiStore';
 import { usePlayerView } from './playerView';
+import { useSpokenItem } from './spoken';
+import { SpokenByline } from './SpokenByline';
 import type { PlayerView } from './playerView';
 import { SoundButton } from '../sound/SoundButton';
 import { PlaybackExtras } from './PlaybackExtras';
@@ -80,6 +83,7 @@ export const PlayerSheet: FC = () => {
   const view = usePlayerUiStore((state) => state.sheetView);
   const setView = usePlayerUiStore((state) => state.setSheetView);
   const { state, item, upNext } = useNowPlaying();
+  const spoken = useSpokenItem(item ?? undefined);
   const { view: layout } = usePlayerView();
   const { panels, save: savePanels } = usePanelSizes();
   const [split, setSplit] = useState<number | null>(null);
@@ -159,9 +163,18 @@ export const PlayerSheet: FC = () => {
   ) : (
     <Artwork url={null} className="aspect-square w-full max-w-xs rounded-2xl" iconSize={96} />
   );
-  const lyrics = item ? (
+  // Podcasts and audiobooks show captions here (M46.32).
+  const lyrics = !item ? null : spoken ? (
+    <CaptionsView
+      spoken={spoken}
+      state={state}
+      size={layout.lyricsSize}
+      align={layout.lyricsAlign}
+    />
+  ) : (
     <LyricsView item={item} state={state} size={layout.lyricsSize} align={layout.lyricsAlign} />
-  ) : null;
+  );
+  const textLabel = spoken ? t('captions.title') : t('player.lyrics');
   const queue = <UpNextList items={upNext} />;
 
   return (
@@ -274,7 +287,7 @@ export const PlayerSheet: FC = () => {
                   }}
                 />
                 <section
-                  aria-label={view === 'queue' ? t('player.upNextView') : t('player.lyrics')}
+                  aria-label={view === 'queue' ? t('player.upNextView') : textLabel}
                   className="flex min-h-0 min-w-0 flex-1 flex-col"
                 >
                   <div role="tablist" className="flex gap-1 pb-2">
@@ -293,7 +306,7 @@ export const PlayerSheet: FC = () => {
                               : 'text-muted hover:text-foreground'
                           }`}
                         >
-                          {tab === 'queue' ? t('player.upNextView') : t('player.lyrics')}
+                          {tab === 'queue' ? t('player.upNextView') : textLabel}
                         </button>
                       );
                     })}
@@ -321,7 +334,12 @@ export const PlayerSheet: FC = () => {
                   />
                 </div>
                 {item && (
-                  <PlayerCards item={item} state={state} onLyrics={() => setView('lyrics')} />
+                  <PlayerCards
+                    item={item}
+                    state={state}
+                    spoken={spoken}
+                    onLyrics={() => setView('lyrics')}
+                  />
                 )}
               </div>
             ) : (
@@ -365,6 +383,7 @@ type ControlsProps = {
 /** Title, seek bar and buttons: the same in both layouts, and never moved by the views. */
 const Controls: FC<ControlsProps> = ({ state, item, note, onScrub }) => {
   const { t } = useTranslation();
+  const spoken = useSpokenItem(item ?? undefined);
   const openTrackActions = useTrackActionsStore((store) => store.open);
   const [scrubMs, setScrubMs] = useState<number | null>(null);
   const livePositionMs = useLivePosition(state);
@@ -391,11 +410,15 @@ const Controls: FC<ControlsProps> = ({ state, item, note, onScrub }) => {
             text={item?.title ?? t('player.nothingPlaying')}
             className="w-full text-2xl font-bold"
           />
-          {item?.artist && (
-            <ArtistLinks
-              credit={item.artist}
-              className="text-muted block w-full truncate text-lg"
-            />
+          {spoken ? (
+            <SpokenByline spoken={spoken} className="text-muted block w-full truncate text-lg" />
+          ) : (
+            item?.artist && (
+              <ArtistLinks
+                credit={item.artist}
+                className="text-muted block w-full truncate text-lg"
+              />
+            )
           )}
           {note && (
             <p data-testid="sheet-source-note" className="text-muted text-xs">
@@ -406,8 +429,8 @@ const Controls: FC<ControlsProps> = ({ state, item, note, onScrub }) => {
           )}
           {state?.status === 'error' && state.error && <SourceIssue>{state.error}</SourceIssue>}
         </div>
-        {item && <FavoriteButton item={item} download />}
-        {item ? (
+        {item && !spoken && <FavoriteButton item={item} download />}
+        {item && !spoken ? (
           <button
             type="button"
             aria-label={t('player.addToPlaylist')}

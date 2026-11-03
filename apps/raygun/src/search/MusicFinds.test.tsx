@@ -112,6 +112,22 @@ describe('Music search: songs, artists and albums', () => {
     ]);
   });
 
+  it('edits an album: its title over what the source said (M46.30)', async () => {
+    const user = userEvent.setup();
+    commands.musicAlbum.mockResolvedValue(ok({ album: ALBUM, tracks: [] }));
+    await AppShellWrapper.mount(`/music/album?provider=${DEEZER.id}&id=6575789`);
+    await user.click(await screen.findByRole('button', { name: 'Edit album' }));
+    const form = await screen.findByTestId('detail-edit');
+    const title = within(form).getByRole('textbox', { name: 'Album title' });
+    expect(title).toHaveAttribute('placeholder', 'Random Access Memories');
+    await user.type(title, 'RAM');
+    await user.click(within(form).getByRole('button', { name: 'Save' }));
+    expect(commands.detailEditSet).toHaveBeenCalledWith(
+      { kind: 'album', artist: 'Daft Punk', album: 'Random Access Memories' },
+      { title: 'RAM', artist: null, album: null, artworkUrl: null },
+    );
+  });
+
   it('starts on Relevant: the best match of any kind, then songs, artists, albums, podcasts', async () => {
     const user = userEvent.setup();
     commands.onlineSearch.mockResolvedValue(

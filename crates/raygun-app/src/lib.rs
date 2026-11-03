@@ -7,11 +7,13 @@ mod ai;
 mod aniskip;
 mod backup;
 mod caches;
+mod captions;
 mod catalog;
 mod collections;
 mod comics;
 mod commands;
 mod connect;
+mod details;
 mod device_sync;
 mod discord;
 mod discovery;
@@ -141,16 +143,26 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::import_match,
             commands::track_durations,
             commands::cover_save,
+            commands::detail_edit,
+            commands::detail_edit_set,
+            commands::detail_cover_import,
             commands::local_folders,
             commands::local_folder_add,
             commands::local_folder_remove,
             commands::local_folders_rescan,
             commands::import_save,
+            commands::track_assign_source,
+            commands::tracks_unavailable,
             commands::audiobooks,
             commands::audiobook,
             commands::audiobook_open,
             commands::audiobook_play,
             commands::audiobook_directory,
+            commands::captions,
+            commands::captions_transcribe,
+            commands::captions_stop,
+            commands::captions_clear,
+            commands::spoken_item,
             commands::music_track_tags,
             commands::music_tags_for,
             commands::music_tag_summary,
@@ -360,6 +372,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::MadeForYouEvent,
             events::TrackDurationsEvent,
             events::LocalFilesEvent,
+            events::ImportEvent,
+            events::CaptionsEvent,
             events::SettingsChangedEvent,
             events::ExportEvent,
             events::VideoPlayerEvent,

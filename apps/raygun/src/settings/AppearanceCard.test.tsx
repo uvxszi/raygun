@@ -68,6 +68,14 @@ const DEFAULT_SETTINGS: Settings = {
   resumeOnStart: true,
   discord: { enabled: false, appId: '' },
   audioQuality: { streaming: 'high', cellular: 'normal', download: 'veryHigh' },
+  rail: { pins: [], order: 'custom', seeded: false },
+  transcription: {
+    engine: 'off',
+    localModel: 'whisper-tiny',
+    providerId: null,
+    onlineModel: 'whisper-1',
+    onlineConfirmed: false,
+  },
   sound: {
     eqEnabled: false,
     eqPreset: 'flat',

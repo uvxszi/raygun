@@ -176,6 +176,10 @@ The user asked for the full depth of the reference apps ("its not meant to be a 
 - M46.26 **Song lengths and cover images** (asked 2026-11-02): ✅ lengths learned and looked up for every list; covers shown large and saved as PNG, JPEG or WebP; downloaded songs keep their cover offline.
 - M46.27 **Local Files** (asked 2026-11-02): ✅ folders scanned for songs, comics, books and videos alike, on desktop and Android.
 - M46.28 **Paraline Community** (asked 2026-11-02): ✅ a local-only test repository of sources, and local repositories in Raygun.
+- M46.29 **Library blocks and a sidebar you arrange** (asked 2026-11-02): ✅ Downloaded (blue) and Local files (green) always shown; pin anything to the sidebar, drag it, or sort by recently played or opened; Local Files opens from the Library, not Browse.
+- M46.30 **Edit details** (asked 2026-11-02): ✅ your own titles, names and covers for songs, albums and artists, shown everywhere, with Reset.
+- M46.31 **Import review** (asked 2026-11-02): ✅ edit, add and reorder songs, compare sources with previews, import while matching continues, keep unavailable songs and find them a source later.
+- M46.32 **Spoken word** (asked 2026-11-02): ✅ audiobook authors and podcast shows link to their pages; captions from feeds or transcribed by Whisper on the device or an online provider, in 30-second batches.
 - **Asked 2026-11-01, queued in this order** (each becomes a milestone with a spec):
   1. **Sound and lyrics editing** (now M46.12):
      - edit lyrics (words and timings) and shift them by an offset; the same for video subtitles;

@@ -2,7 +2,7 @@ import { commands } from '@raygun/bindings';
 import type { ArtistInfo, OnlineTrack } from '@raygun/bindings';
 import { useQuery } from '@tanstack/react-query';
 import { useSearch } from '@tanstack/react-router';
-import { ExternalLink, LoaderCircle, Play, Shuffle, UserRound } from 'lucide-react';
+import { ExternalLink, LoaderCircle, Pencil, Play, Shuffle, UserRound } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -18,7 +18,11 @@ import { creditedArtists } from '../music/artists';
 import { artistFacts, useArtistInfo } from '../player/musicInfo';
 import { OnlineTrackRow } from '../search/OnlineTrackRow';
 import { playResults } from '../search/useOnlineSearch';
-import { TopBar } from '../shell/TopBar';
+import { Sheet } from '../shell/Sheet';
+import { TopBar, TopBarAction } from '../shell/TopBar';
+import { DetailEditForm } from '../music/DetailEditForm';
+import { useDetailEdit } from '../music/useDetailEdit';
+import { PinButton } from '../shell/PinButton';
 import { SourceIssue } from '../shell/SourceIssue';
 
 /** Popular songs shown before "Show more". */
@@ -53,7 +57,11 @@ export const MusicArtistPage: FC = () => {
   const [more, setMore] = useState(false);
   const popular = overview.data?.popular ?? [];
   const saved = (favorites.data ?? []).filter((track) => sameArtist(track.artist, name));
+  // The user's own name and picture for this artist (M46.30).
+  const [editing, setEditing] = useState(false);
+  const own = useDetailEdit(name ? { kind: 'artist', name } : null);
   const picture =
+    own.data?.artworkUrl ??
     info.data?.imageUrl ??
     overview.data?.albums.find((album) => album.artworkUrl)?.artworkUrl ??
     popular.find((track) => track.artworkUrl)?.artworkUrl ??
@@ -73,7 +81,41 @@ export const MusicArtistPage: FC = () => {
 
   return (
     <section data-testid="music-artist-page" className="flex flex-col gap-6">
-      <TopBar back fallback="/browse" plainTitle title={t('artist.title')} />
+      <TopBar
+        back
+        fallback="/browse"
+        plainTitle
+        title={t('artist.title')}
+        actions={
+          <>
+            <TopBarAction
+              label={t('details.editArtist')}
+              icon={Pencil}
+              onClick={() => setEditing(true)}
+            />
+            <PinButton
+              target={{
+                kind: 'artist',
+                to: '/artist',
+                search: { name },
+                name: own.data?.title ?? name,
+                artworkUrl: picture ?? null,
+              }}
+            />
+          </>
+        }
+      />
+      {editing && (
+        <Sheet title={t('details.editArtist')} onClose={() => setEditing(false)}>
+          <DetailEditForm
+            target={{ kind: 'artist', name }}
+            fields={['title']}
+            original={{ title: name, artworkUrl: info.data?.imageUrl ?? null }}
+            titleLabel={t('details.artistName')}
+            onSaved={() => setEditing(false)}
+          />
+        </Sheet>
+      )}
       <header className="flex flex-col items-center gap-4 sm:flex-row sm:items-end sm:gap-6">
         {picture ? (
           <Artwork
@@ -91,7 +133,7 @@ export const MusicArtistPage: FC = () => {
             {t('artist.kind')}
           </span>
           <h1 className="text-center text-3xl font-black tracking-tight sm:text-left sm:text-5xl">
-            {name}
+            {own.data?.title ?? name}
           </h1>
           <p className="text-muted text-sm">
             {t('artist.summary', {

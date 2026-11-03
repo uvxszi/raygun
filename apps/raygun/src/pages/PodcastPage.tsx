@@ -5,6 +5,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { TopBar } from '../shell/TopBar';
+import { PinButton } from '../shell/PinButton';
 
 import { EpisodeItem } from '../podcasts/EpisodeItem';
 import { PodcastArt } from '../podcasts/PodcastArt';
@@ -44,7 +45,23 @@ export const PodcastPage: FC = () => {
 
   return (
     <section data-testid="podcast-page" className="flex flex-col gap-5">
-      <TopBar back fallback="/library" plainTitle title={t('library.media.podcast')} />
+      <TopBar
+        back
+        fallback="/library"
+        plainTitle
+        title={t('library.media.podcast')}
+        actions={
+          <PinButton
+            target={{
+              kind: 'podcast',
+              to: '/podcast',
+              search: { id: view.id },
+              name: view.title,
+              artworkUrl: view.artworkUrl ?? null,
+            }}
+          />
+        }
+      />
       <header className="flex gap-4">
         <PodcastArt url={view.artworkUrl} className="w-28 shrink-0 rounded-lg shadow-lg sm:w-40" />
         <div className="flex min-w-0 flex-col gap-2">

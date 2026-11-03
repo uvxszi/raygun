@@ -62,6 +62,10 @@ impl DurationService {
         &self.app.state::<AppDb>().inner().0
     }
 
+    pub fn app(&self) -> &AppHandle {
+        &self.app
+    }
+
     /// The lengths known for `tracks`, in their order (`track_key` names each). Songs without one
     /// are queued for a lookup, unless one found nothing lately.
     pub async fn lookup(&self, tracks: Vec<TrackQuery>) -> Result<Vec<TrackDuration>, String> {
@@ -162,6 +166,8 @@ impl DurationService {
         let key = track_key(&query);
         let service = self.clone();
         tauri::async_runtime::spawn(async move {
+            // It played, so a source has it after all (M46.31).
+            let _ = raygun_db::collections::clear_unavailable(service.db(), &key).await;
             service.store(vec![(key, ms)], "playback", true).await;
         });
     }

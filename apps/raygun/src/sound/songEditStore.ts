@@ -1,7 +1,7 @@
 import type { TrackQuery } from '@raygun/bindings';
 import { create } from 'zustand';
 
-export type SongEditTab = 'sound' | 'lyrics';
+export type SongEditTab = 'sound' | 'lyrics' | 'details';
 
 type SongEditState = {
   /** The song being edited (M46.12). */

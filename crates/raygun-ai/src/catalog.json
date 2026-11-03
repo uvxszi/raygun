@@ -113,5 +113,34 @@
         "size": 9713177
       }
     ]
+  },
+  {
+    "id": "whisper-tiny",
+    "name": "Speech to text (Whisper tiny)",
+    "kind": "speech",
+    "description": "Turns podcasts and audiobooks into captions on this device, in about 99 languages.",
+    "license": "Apache-2.0",
+    "licenseUrl": "https://huggingface.co/openai/whisper-tiny",
+    "sourceUrl": "https://github.com/openai/whisper",
+    "files": [
+      {
+        "name": "config.json",
+        "url": "https://huggingface.co/openai/whisper-tiny/resolve/169d4a4341b33bc18d8881c4b69c2e104e1cc0af/config.json",
+        "sha256": "ffdccec4f3211f4c63310f2b7098f309fe70f3952cedc5e4d11e43f5b2379b98",
+        "size": 1983
+      },
+      {
+        "name": "tokenizer.json",
+        "url": "https://huggingface.co/openai/whisper-tiny/resolve/169d4a4341b33bc18d8881c4b69c2e104e1cc0af/tokenizer.json",
+        "sha256": "27fc476bfe7f17299480be2273fc0608e4d5a99aba2ab5dec5374b4482d1a566",
+        "size": 2480466
+      },
+      {
+        "name": "model.safetensors",
+        "url": "https://huggingface.co/openai/whisper-tiny/resolve/169d4a4341b33bc18d8881c4b69c2e104e1cc0af/model.safetensors",
+        "sha256": "7ebd0e69e78190ffe1438491fa05cc1f5c1aa3a4c4db3bc1723adbb551ea2395",
+        "size": 151061672
+      }
+    ]
   }
 ]

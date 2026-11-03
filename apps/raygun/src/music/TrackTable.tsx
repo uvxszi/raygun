@@ -14,6 +14,7 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
+  CircleSlash,
   Clock3,
   Download,
   List,
@@ -42,7 +43,9 @@ import { COLUMN_TRACKS, SORT_KEYS, filterTracks, sortTracks, useTableView } from
 import { useTagsFor } from './useDiscovery';
 import { downloadSongs, useDownloadedKeys } from './useSongDownloads';
 import type { TableTrack, TableView, TrackTableKind } from './tableView';
+import { useSourcePickerStore } from './sourcePickerStore';
 import { useTrackLengths } from './useTrackLengths';
+import { useUnavailable } from './useUnavailable';
 import { useTrackMenu } from './useTrackMenu';
 import { NowPlayingBars } from '../player/NowPlayingBars';
 import { usePlayingMatch } from '../player/usePlayingMatch';
@@ -183,6 +186,8 @@ export const TrackTable: FC<TrackTableProps> = ({
   // Genres and moods found for these songs (M46.9): chips filter the table by one.
   const trackKeys = useMemo(() => [...new Set(tracks.map((track) => track.trackKey))], [tracks]);
   const tagsFor = useTagsFor(trackKeys);
+  // Songs no source had when imported (M46.31).
+  const unavailable = useUnavailable(trackKeys);
   const [tag, setTag] = useState<string | null>(null);
   const tagChips = useMemo(() => {
     const counts = new Map<string, number>();
@@ -646,6 +651,20 @@ export const TrackTable: FC<TrackTableProps> = ({
                       />
                     )}
                   </button>
+                  {/* No source had it when imported (M46.31): choose one. */}
+                  {unavailable.has(track.trackKey) && (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        useSourcePickerStore.getState().open(track.input);
+                      }}
+                      className="text-muted hover:text-foreground flex items-center gap-1 self-start text-xs"
+                    >
+                      <CircleSlash aria-hidden size={12} />
+                      {t('sourcePicker.unavailable')} · {t('sourcePicker.menu')}
+                    </button>
+                  )}
                   <ArtistLinks
                     credit={track.artist}
                     className="text-muted block truncate text-xs"

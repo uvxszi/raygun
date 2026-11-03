@@ -8,6 +8,7 @@ import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { TopBar } from '../shell/TopBar';
+import { PinButton } from '../shell/PinButton';
 
 import { PlayButtons } from '../collections/PlayButtons';
 import { PlaylistCover } from '../collections/PlaylistCover';
@@ -74,7 +75,9 @@ const PlaylistSettings: FC<{ detail: PlaylistDetail }> = ({ detail }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const rename = useRenamePlaylist();
-  const remove = useDeletePlaylist();
+  const remove = useDeletePlaylist(() =>
+    navigate({ to: '/library', search: { view: 'playlists' } }),
+  );
   const [name, setName] = useState(detail.playlist.name);
   const [confirming, setConfirming] = useState(false);
 
@@ -108,11 +111,7 @@ const PlaylistSettings: FC<{ detail: PlaylistDetail }> = ({ detail }) => {
             <button
               type="button"
               disabled={remove.isPending}
-              onClick={() =>
-                remove.mutate(detail.playlist.id, {
-                  onSuccess: () => void navigate({ to: '/library', search: { view: 'playlists' } }),
-                })
-              }
+              onClick={() => remove.mutate(detail.playlist.id)}
               className="bg-primary text-background rounded-full px-4 py-2 font-semibold"
             >
               {t('collections.delete')}
@@ -169,7 +168,23 @@ export const PlaylistPage: FC = () => {
 
   return (
     <section data-testid="playlist-page" className="flex flex-col gap-5">
-      <TopBar back fallback="/library" plainTitle title={t('library.view.playlists')} />
+      <TopBar
+        back
+        fallback="/library"
+        plainTitle
+        title={t('library.view.playlists')}
+        actions={
+          <PinButton
+            target={{
+              kind: 'playlist',
+              to: '/library/playlist',
+              search: { id: detail.playlist.id },
+              name: detail.playlist.name,
+              artworkUrl: detail.playlist.artworkUrls[0] ?? null,
+            }}
+          />
+        }
+      />
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end">
         <PlaylistCover
           artworkUrls={detail.playlist.artworkUrls}

@@ -74,8 +74,15 @@ export const useRenamePlaylist = () =>
     unwrapResult(commands.playlistRename(id, name)),
   );
 
-export const useDeletePlaylist = () =>
-  useCollectionMutation((id: string) => unwrapResult(commands.playlistDelete(id)));
+/**
+ * Deletes a playlist, then runs `after` (leaving its page) before lists refresh: refreshing first
+ * would fetch the deleted playlist again, with retries, and hold the page for seconds.
+ */
+export const useDeletePlaylist = (after?: () => unknown) =>
+  useCollectionMutation(async (id: string) => {
+    await unwrapResult(commands.playlistDelete(id));
+    await after?.();
+  });
 
 export const useAddToPlaylist = () =>
   useCollectionMutation(({ id, tracks }: { id: string; tracks: TrackInput[] }) =>

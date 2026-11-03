@@ -54,6 +54,27 @@ export const LocalFilesPage: FC = () => {
         }
       />
       <p className="text-muted text-sm">{t('localFiles.intro')}</p>
+      {list.length > 0 && (
+        <nav aria-label={t('localFiles.goTo')} className="flex flex-wrap gap-2">
+          {(
+            [
+              ['songs', '/library', { view: 'tracks' }],
+              ['comics', '/library', { media: 'manga' }],
+              ['books', '/library', { media: 'novel' }],
+              ['videos', '/library', { media: 'video' }],
+            ] as const
+          ).map(([kind, to, search]) => (
+            <Link
+              key={kind}
+              to={to}
+              search={search as never}
+              className="bg-surface rounded-full px-4 py-1.5 text-sm"
+            >
+              {t(`localFiles.kinds.${kind}`)}
+            </Link>
+          ))}
+        </nav>
+      )}
       {(add.error ?? remove.error) && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
           {(add.error ?? remove.error)?.message}
@@ -110,40 +131,3 @@ export const LocalFilesPage: FC = () => {
     </section>
   );
 };
-
-/** Browse → Sources' Local Files block (M46.27): the folders, and a way in. */
-export const LocalFilesSection: FC = () => {
-  const { t } = useTranslation();
-  const folders = useLocalFolders();
-  const list = folders.data ?? [];
-  return (
-    <section aria-label={t('localFiles.title')} className="flex flex-col gap-1 pt-2">
-      <h2 className="text-muted px-1 text-xs font-semibold tracking-wide uppercase">
-        {t('localFiles.title')}
-      </h2>
-      <LocalFilesLink
-        label={
-          list.length > 0 ? t('localFiles.folders', { count: list.length }) : t('localFiles.add')
-        }
-        summary={
-          list.length > 0 ? list.map((folder) => folder.name).join(', ') : t('localFiles.blurb')
-        }
-      />
-    </section>
-  );
-};
-
-const LocalFilesLink: FC<{ label: string; summary: string }> = ({ label, summary }) => (
-  <Link
-    to="/local-files"
-    className="hover:bg-surface flex items-center gap-3 rounded-xl px-2 py-2.5"
-  >
-    <span className="bg-surface text-primary grid size-11 shrink-0 place-items-center rounded-xl">
-      <Folder aria-hidden size={20} />
-    </span>
-    <span className="flex min-w-0 flex-col">
-      <span className="truncate font-medium">{label}</span>
-      <span className="text-muted truncate text-xs">{summary}</span>
-    </span>
-  </Link>
-);

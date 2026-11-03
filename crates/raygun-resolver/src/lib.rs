@@ -257,6 +257,26 @@ fn contains_phrase(text: &str, phrase: &str) -> bool {
 }
 
 /// How well `candidate` matches `query`; higher is better. See the M14 spec for the weights.
+/// Whether a candidate is by the query's artist (M46.31): credited, or named in its title when it
+/// credits nobody. True when the query names no artist. Imports need this on top of the score,
+/// so an unknown song isn't filled with a stranger's track of a similar name.
+pub fn artist_agrees(query: &TrackQuery, candidate: &Candidate) -> bool {
+    let query_artist = normalize(query.artist.as_deref().unwrap_or_default());
+    let artist_words = tokens(&query_artist);
+    if artist_words.is_empty() {
+        return true;
+    }
+    let named_in = |text: &str| {
+        let words = tokens(text);
+        artist_words.intersection(&words).count() * 2 >= artist_words.len()
+    };
+    let candidate_artist = normalize(candidate.artist.as_deref().unwrap_or_default());
+    let full_title = normalize(&candidate.title);
+    named_in(&candidate_artist)
+        || contains_phrase(&full_title, &query_artist)
+        || (candidate_artist.is_empty() && named_in(&full_title))
+}
+
 pub fn score(query: &TrackQuery, candidate: &Candidate, history: &History) -> i32 {
     let query_title = core_title(&query.title);
     let query_artist = normalize(query.artist.as_deref().unwrap_or_default());

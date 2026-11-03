@@ -1351,12 +1351,28 @@
     "edit": "Edit",
     "delete": "Delete",
     "models": "Models",
-    "modelsHint": "Image upscalers for the manga reader. Files are checked after downloading.",
+    "modelsHint": "Upscalers for the manga reader, the text reader for screenshots and speech to text for captions. Files are checked after downloading.",
     "megabytes": "{{size}} MB",
     "installed": "Installed",
     "downloadModel": "Download {{name}}",
     "deleteModel": "Delete {{name}}",
-    "downloading": "Downloading {{name}}"
+    "downloading": "Downloading {{name}}",
+    "transcription": {
+      "title": "Transcription",
+      "hint": "Captions for podcasts and audiobooks that have none: the audio is heard in 30-second parts from where you are, ahead of playback, and kept.",
+      "engine": "Who listens",
+      "engines": {
+        "off": "Off",
+        "local": "On this device",
+        "online": "Online"
+      },
+      "localReady": "Whisper runs on this device: nothing leaves it. Faster on newer phones.",
+      "localNeeds": "Download the speech model to start. It runs on this device: nothing leaves it.",
+      "provider": "Provider",
+      "pickProvider": "Pick a provider",
+      "noProvider": "Add an OpenAI-compatible translator above with its address (such as https://api.openai.com/v1 or Groq’s) and key, then pick it here.",
+      "onlineHint": "The audio is sent to the provider, which may charge for it. Raygun asks once before the first chapter, and stays at most 10 minutes ahead of you."
+    }
   },
   "podcasts": {
     "subscriptions": "Subscriptions",
@@ -1922,8 +1938,7 @@
       "video": "Movies & series",
       "manga": "Manga",
       "novel": "Novels",
-      "websites": "Websites",
-      "localFiles": "Local files"
+      "websites": "Websites"
     },
     "moreEntry": {
       "updates": "Updates",
@@ -2042,7 +2057,18 @@
   },
   "rail": {
     "library": "Your library",
-    "resize": "Drag to resize the side rail"
+    "resize": "Drag to resize the side rail",
+    "pin": "Pin to sidebar",
+    "unpin": "Unpin from sidebar",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "order": "Sort the sidebar",
+    "orders": {
+      "custom": "Custom order",
+      "played": "Recently played from",
+      "opened": "Recently opened"
+    },
+    "empty": "Right-click a playlist, album, artist, show or book to pin it here."
   },
   "album": {
     "title": "Album",
@@ -2163,7 +2189,38 @@
     "foundOn": "Found on {{source}}",
     "notFound": "Not found yet",
     "create_one": "Make a playlist of {{count}} song",
-    "create_other": "Make a playlist of {{count}} songs"
+    "create_other": "Make a playlist of {{count}} songs",
+    "matchedSome": "Found {{found}} of {{count}} in your sources. The rest are kept as unavailable: choose a source for them later.",
+    "keepsLooking": "You can make the playlist now: Raygun keeps looking for the rest and fills them in.",
+    "drag": "Drag to move",
+    "keep": "Keep {{title}}",
+    "songTitle": "Song title",
+    "songArtist": "Artist",
+    "noArtist": "No artist",
+    "sources_one": "{{count}} source",
+    "sources_other": "{{count}} sources",
+    "sourcesOf": "Sources for {{title}}",
+    "searching": "Looking for it",
+    "unavailable": "Unavailable for now",
+    "moveUp": "Move {{title}} up",
+    "moveDown": "Move {{title}} down",
+    "preview": "Preview on {{source}}",
+    "use": "Use this",
+    "using": "In use",
+    "addTitle": "Add a song: title",
+    "addArtist": "Artist",
+    "add": "Add the song"
+  },
+  "sourcePicker": {
+    "title": "Choose a source",
+    "menu": "Find a source…",
+    "searching": "Looking in your sources…",
+    "none": "No source has this song. Try fixing its title or artist (Edit details).",
+    "preview": "Preview",
+    "use": "Use this",
+    "used": "This song plays from {{source}} now.",
+    "usedAny": "This song plays from your pick now.",
+    "unavailable": "Unavailable"
   },
   "systems": {
     "title": "What Raygun can run",
@@ -2222,6 +2279,15 @@
     "empty": "No folders yet",
     "scanning": "Scanning…",
     "nothingYet": "Nothing found yet",
+    "items_one": "{{count}} item",
+    "items_other": "{{count}} items",
+    "goTo": "Open in the library",
+    "kinds": {
+      "songs": "Songs",
+      "comics": "Comics",
+      "books": "Books",
+      "videos": "Videos"
+    },
     "folders_one": "{{count}} folder",
     "folders_other": "{{count}} folders",
     "count": {
@@ -2234,6 +2300,23 @@
       "videos_one": "{{count}} video",
       "videos_other": "{{count}} videos"
     }
+  },
+  "details": {
+    "songTitle": "Song title",
+    "albumTitle": "Album title",
+    "artistName": "Name",
+    "artist": "Artist",
+    "album": "Album",
+    "cover": "Cover",
+    "coverPick": "Choose an image",
+    "coverAdding": "Adding…",
+    "coverOriginal": "Use the source's",
+    "coverAddress": "Or paste an image address",
+    "reset": "Reset to the source's details",
+    "save": "Save",
+    "editAlbum": "Edit album",
+    "editArtist": "Edit artist",
+    "editSong": "Edit details"
   },
   "cover": {
     "title": "Cover",
@@ -2475,7 +2558,7 @@
     "allSettings": "All sound settings"
   },
   "songEdit": {
-    "title": "{{title}}: sound and lyrics",
+    "title": "Edit {{title}}",
     "loading": "Loading…",
     "trimHint": "Skip a long intro or a silent ending. The song starts and ends here wherever it plays.",
     "start": "Start at",
@@ -2490,7 +2573,8 @@
     "parts": "What to change",
     "tab": {
       "sound": "Sound",
-      "lyrics": "Lyrics"
+      "lyrics": "Lyrics",
+      "details": "Details"
     }
   },
   "lyricsEdit": {
@@ -2615,5 +2699,26 @@
     "adding": "Adding…",
     "report": "{{added}} added, {{already}} already there, {{failed}} couldn’t be added.",
     "installAll": "Install everything from repositories ({{count}})"
+  },
+  "captions": {
+    "title": "Captions",
+    "full": "Show captions",
+    "loading": "Loading captions…",
+    "preparing": "Getting the audio…",
+    "listening": "Listening… captions appear as each part is done.",
+    "noneChapter": "No captions for this chapter.",
+    "noneEpisode": "No captions for this episode.",
+    "from": {
+      "feed": "Captions from the feed",
+      "local": "Transcribed on this device",
+      "online": "Transcribed online"
+    },
+    "stop": "Stop",
+    "transcribe": "Transcribe",
+    "transcribeRest": "Transcribe the rest",
+    "setUp": "Set up transcription",
+    "onlineCost": "This sends the audio to your transcription provider, which may charge for it. Raygun stays at most 10 minutes ahead of you.",
+    "goToBook": "Go to the book",
+    "goToShow": "Go to the show"
   }
 }

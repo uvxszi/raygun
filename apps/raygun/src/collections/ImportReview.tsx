@@ -1,0 +1,417 @@
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { commands } from '@raygun/bindings';
+import type { ImportedList, ImportedSong, MatchedSong, SongCandidate } from '@raygun/bindings';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
+import {
+  ArrowDown,
+  ArrowUp,
+  CircleCheck,
+  CircleDashed,
+  GripVertical,
+  LoaderCircle,
+  Play,
+  Plus,
+} from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import type { FC } from 'react';
+import { useTranslation } from 'react-i18next';
+
+import { unwrapResult } from '../lib/commandResult';
+import { formatTime } from '../player/formatTime';
+import { playResults } from '../search/useOnlineSearch';
+import { SourceIssue } from '../shell/SourceIssue';
+import { COLLECTIONS } from './useCollections';
+
+/** Songs matched at once, so the list fills in as it goes. */
+const MATCH_TOGETHER = 4;
+
+type Row = {
+  id: number;
+  song: ImportedSong;
+  /** Undefined while it's being matched. */
+  result?: MatchedSong;
+  skipped: boolean;
+  /** The candidate picked in the sources list; the first one until the user picks. */
+  chosen?: string;
+};
+
+const pendingOf = (song: ImportedSong): MatchedSong => ({
+  song,
+  matchedBy: null,
+  source: null,
+  candidates: [],
+  pending: true,
+});
+
+/** A candidate as the matched song it would make. */
+const fromCandidate = (row: Row, candidate: SongCandidate): MatchedSong => ({
+  song: {
+    ...row.song,
+    album: row.song.album ?? candidate.track.album,
+    durationMs: row.song.durationMs ?? candidate.track.durationMs,
+    artworkUrl: row.song.artworkUrl ?? candidate.track.artworkUrl,
+  },
+  matchedBy: candidate.providerName,
+  source: candidate.track.source,
+  candidates: row.result?.candidates ?? [],
+  pending: false,
+});
+
+const ReviewRow: FC<{
+  row: Row;
+  index: number;
+  count: number;
+  onChange: (row: Row, rematch: boolean) => void;
+  onMove: (from: number, to: number) => void;
+}> = ({ row, index, count, onChange, onMove }) => {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: row.id,
+  });
+  const result = row.result;
+  const candidates = result?.candidates ?? [];
+  const edit = (field: 'title' | 'artist', value: string) =>
+    onChange(
+      { ...row, song: { ...row.song, [field]: field === 'artist' && !value ? null : value } },
+      false,
+    );
+  return (
+    <li
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      className={`flex flex-col rounded-lg ${isDragging ? 'bg-surface relative z-10' : ''} ${row.skipped ? 'opacity-50' : ''}`}
+    >
+      <div className="flex items-center gap-2 px-1 py-1">
+        <button
+          type="button"
+          aria-label={t('import.drag')}
+          className="text-muted cursor-grab touch-none"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical aria-hidden size={16} />
+        </button>
+        <input
+          type="checkbox"
+          aria-label={t('import.keep', { title: row.song.title })}
+          checked={!row.skipped}
+          onChange={() => onChange({ ...row, skipped: !row.skipped }, false)}
+          className="accent-primary"
+        />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <input
+            aria-label={t('import.songTitle')}
+            value={row.song.title}
+            onChange={(event) => edit('title', event.target.value)}
+            onBlur={() => onChange(row, true)}
+            className="focus:bg-background truncate rounded px-1 text-sm font-medium outline-none"
+          />
+          <input
+            aria-label={t('import.songArtist')}
+            value={row.song.artist ?? ''}
+            placeholder={t('import.noArtist')}
+            onChange={(event) => edit('artist', event.target.value)}
+            onBlur={() => onChange(row, true)}
+            className="text-muted focus:bg-background truncate rounded px-1 text-xs outline-none"
+          />
+        </span>
+        {candidates.length > 1 && (
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => setOpen(!open)}
+            className="bg-background shrink-0 rounded-full px-2.5 py-1 text-xs"
+          >
+            {t('import.sources', { count: candidates.length })}
+          </button>
+        )}
+        {!result ? (
+          <LoaderCircle
+            aria-label={t('import.searching')}
+            size={16}
+            className="text-muted shrink-0 animate-spin"
+          />
+        ) : result.matchedBy ? (
+          <CircleCheck
+            aria-label={t('import.foundOn', { source: result.matchedBy })}
+            size={16}
+            className="text-primary shrink-0"
+          />
+        ) : (
+          <CircleDashed
+            aria-label={t('import.unavailable')}
+            size={16}
+            className="text-muted shrink-0"
+          />
+        )}
+        <span className="flex shrink-0 flex-col">
+          <button
+            type="button"
+            aria-label={t('import.moveUp', { title: row.song.title })}
+            disabled={index === 0}
+            onClick={() => onMove(index, index - 1)}
+            className="text-muted hover:text-foreground disabled:opacity-20"
+          >
+            <ArrowUp aria-hidden size={12} />
+          </button>
+          <button
+            type="button"
+            aria-label={t('import.moveDown', { title: row.song.title })}
+            disabled={index === count - 1}
+            onClick={() => onMove(index, index + 1)}
+            className="text-muted hover:text-foreground disabled:opacity-20"
+          >
+            <ArrowDown aria-hidden size={12} />
+          </button>
+        </span>
+      </div>
+      {open && (
+        <ul
+          aria-label={t('import.sourcesOf', { title: row.song.title })}
+          className="bg-background ml-8 flex flex-col rounded-lg p-1"
+        >
+          {candidates.map((candidate) => {
+            const inUse = row.chosen ?? (result?.matchedBy ? candidates[0]?.providerId : undefined);
+            const using = inUse === candidate.providerId;
+            return (
+              <li key={candidate.providerId} className="flex items-center gap-2 px-2 py-1 text-xs">
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate font-medium">
+                    {candidate.track.title} · {candidate.track.artist}
+                  </span>
+                  <span className="text-muted truncate">
+                    {[
+                      candidate.providerName,
+                      candidate.track.durationMs ? formatTime(candidate.track.durationMs) : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  aria-label={t('import.preview', { source: candidate.providerName })}
+                  onClick={() => void playResults([candidate.track], candidate.track)}
+                  className="text-muted hover:text-foreground grid size-7 place-items-center rounded-full"
+                >
+                  <Play aria-hidden size={13} />
+                </button>
+                <button
+                  type="button"
+                  disabled={using}
+                  onClick={() =>
+                    onChange(
+                      {
+                        ...row,
+                        result: fromCandidate(row, candidate),
+                        chosen: candidate.providerId,
+                      },
+                      false,
+                    )
+                  }
+                  className="bg-surface rounded-full px-2.5 py-1 disabled:opacity-50"
+                >
+                  {using ? t('import.using') : t('import.use')}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </li>
+  );
+};
+
+/**
+ * The songs read (M46.31): names to fix, songs to add, an order to drag, other sources to try,
+ * and Import at any time: Rust keeps matching what's left and fills the playlist in.
+ */
+export const ImportReview: FC<{ list: ImportedList; onClose: () => void }> = ({
+  list,
+  onClose,
+}) => {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const client = useQueryClient();
+  const [name, setName] = useState(list.name);
+  const [rows, setRows] = useState<Row[]>(() =>
+    list.songs.map((song, id) => ({ id, song, skipped: false })),
+  );
+  const [adding, setAdding] = useState({ title: '', artist: '' });
+  const nextId = useRef(list.songs.length);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+
+  // Matches rows waiting for it, a few at a time; a failed call leaves them unmatched.
+  const waiting = rows.filter((row) => !row.result).map((row) => row.id);
+  const busy = useRef(false);
+  useEffect(() => {
+    if (busy.current || waiting.length === 0) return;
+    busy.current = true;
+    const ids = waiting.slice(0, MATCH_TOGETHER);
+    const songs = rows.filter((row) => ids.includes(row.id)).map((row) => row.song);
+    void commands.importMatch(songs).then((answer) => {
+      busy.current = false;
+      setRows((current) =>
+        current.map((row) => {
+          const at = ids.indexOf(row.id);
+          if (at < 0 || row.result) return row;
+          // A row edited meanwhile is matched again.
+          if (row.song !== songs[at]) return row;
+          const found =
+            answer.status === 'ok' ? answer.data[at] : { ...pendingOf(row.song), pending: false };
+          return { ...row, result: found };
+        }),
+      );
+    });
+  }, [rows, waiting]);
+
+  const change = (next: Row, rematch: boolean) =>
+    setRows((current) =>
+      current.map((row) =>
+        row.id === next.id
+          ? {
+              ...next,
+              result: rematch ? undefined : next.result,
+              chosen: rematch ? undefined : next.chosen,
+            }
+          : row,
+      ),
+    );
+  const move = (from: number, to: number) =>
+    setRows((current) => (to < 0 || to >= current.length ? current : arrayMove(current, from, to)));
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    setRows((current) =>
+      arrayMove(
+        current,
+        current.findIndex((row) => row.id === active.id),
+        current.findIndex((row) => row.id === over.id),
+      ),
+    );
+  };
+  const add = () => {
+    if (!adding.title.trim()) return;
+    const song: ImportedSong = {
+      title: adding.title.trim(),
+      artist: adding.artist.trim() || null,
+      album: null,
+      durationMs: null,
+      artworkUrl: null,
+    };
+    setRows((current) => [...current, { id: nextId.current++, song, skipped: false }]);
+    setAdding({ title: '', artist: '' });
+  };
+
+  const kept = rows.filter((row) => !row.skipped);
+  const save = useMutation({
+    mutationFn: () =>
+      unwrapResult(
+        commands.importSave(
+          name.trim() || list.name,
+          kept.map((row) => row.result ?? pendingOf(row.song)),
+        ),
+      ),
+    onSuccess: (id) => {
+      void client.invalidateQueries({ queryKey: [COLLECTIONS] });
+      onClose();
+      void navigate({ to: '/library/playlist', search: { id } });
+    },
+  });
+  const matched = rows.filter((row) => row.result);
+  const found = matched.filter((row) => row.result?.matchedBy).length;
+  const done = matched.length === rows.length;
+
+  return (
+    <div data-testid="import-review" className="flex flex-col gap-3">
+      <input
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+        aria-label={t('collections.playlistName')}
+        className="bg-background rounded-xl px-4 py-3 text-sm outline-none"
+      />
+      <p role="status" className="text-muted text-sm">
+        {done
+          ? found === rows.length
+            ? t('import.matchedAll', { count: found })
+            : t('import.matchedSome', { found, count: rows.length })
+          : t('import.matching', { done: matched.length, count: rows.length })}
+        {list.capped && ` ${t('import.capped')}`}
+      </p>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <SortableContext items={rows.map((row) => row.id)} strategy={verticalListSortingStrategy}>
+          <ul data-testid="import-rows" className="flex max-h-[45vh] flex-col overflow-y-auto">
+            {rows.map((row, index) => (
+              <ReviewRow
+                key={row.id}
+                row={row}
+                index={index}
+                count={rows.length}
+                onChange={change}
+                onMove={move}
+              />
+            ))}
+          </ul>
+        </SortableContext>
+      </DndContext>
+      <form
+        className="flex items-center gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          add();
+        }}
+      >
+        <input
+          aria-label={t('import.addTitle')}
+          placeholder={t('import.addTitle')}
+          value={adding.title}
+          onChange={(event) => setAdding({ ...adding, title: event.target.value })}
+          className="bg-background min-w-0 flex-1 rounded-xl px-3 py-2 text-sm"
+        />
+        <input
+          aria-label={t('import.addArtist')}
+          placeholder={t('import.addArtist')}
+          value={adding.artist}
+          onChange={(event) => setAdding({ ...adding, artist: event.target.value })}
+          className="bg-background min-w-0 flex-1 rounded-xl px-3 py-2 text-sm"
+        />
+        <button
+          type="submit"
+          aria-label={t('import.add')}
+          disabled={!adding.title.trim()}
+          className="bg-background grid size-9 shrink-0 place-items-center rounded-full disabled:opacity-40"
+        >
+          <Plus aria-hidden size={16} />
+        </button>
+      </form>
+      {!done && <p className="text-muted text-xs">{t('import.keepsLooking')}</p>}
+      {save.error && <SourceIssue>{save.error.message}</SourceIssue>}
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="bg-background rounded-full px-5 py-2 text-sm"
+        >
+          {t('collections.cancel')}
+        </button>
+        <button
+          type="button"
+          disabled={save.isPending || kept.length === 0}
+          onClick={() => save.mutate()}
+          className="bg-primary text-background rounded-full px-5 py-2 text-sm font-semibold disabled:opacity-60"
+        >
+          {t('import.create', { count: kept.length })}
+        </button>
+      </div>
+    </div>
+  );
+};

@@ -573,6 +573,88 @@ struct Stamp {
     device: String,
 }
 
+/// Gives every saved copy of a song (playlists and favorites) a source and fills what it lacked
+/// (M46.31: a source found after importing, or one the user picked). A pick (`picked`) also
+/// takes the stream's length, since that's what plays now. Returns how many changed.
+pub async fn set_track_source(
+    db: &Db,
+    track_key: &str,
+    found: &TrackFields,
+    picked: bool,
+) -> Result<u64, DbError> {
+    let length = if picked {
+        "COALESCE(?3, duration_ms)"
+    } else {
+        "COALESCE(duration_ms, ?3)"
+    };
+    let (mut transaction, stamp) = begin(db).await?;
+    let mut changed = 0;
+    for table in ["music_playlist_item", "music_favorite"] {
+        let sql = format!(
+            "UPDATE {table} SET source = ?1, album = COALESCE(album, ?2),
+                 duration_ms = {length}, artwork_url = COALESCE(artwork_url, ?4),
+                 updated_at_hlc = ?5, origin_device = ?6
+             WHERE track_key = ?7 AND deleted = 0"
+        );
+        // The table name is one of the constants above.
+        changed += sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(&found.source)
+            .bind(&found.album)
+            .bind(found.duration_ms)
+            .bind(&found.artwork_url)
+            .bind(stamp.hlc)
+            .bind(&stamp.device)
+            .bind(track_key)
+            .execute(&mut *transaction)
+            .await?
+            .rows_affected();
+    }
+    finish(transaction, stamp).await?;
+    Ok(changed)
+}
+
+/// Marks songs that no source had (M46.31).
+pub async fn mark_unavailable(db: &Db, keys: &[String], now_ms: i64) -> Result<(), DbError> {
+    for key in keys {
+        sqlx::query(
+            "INSERT INTO local_track_unavailable (track_key, marked_at) VALUES (?, ?)
+             ON CONFLICT (track_key) DO UPDATE SET marked_at = excluded.marked_at",
+        )
+        .bind(key)
+        .bind(now_ms)
+        .execute(db.pool())
+        .await?;
+    }
+    Ok(())
+}
+
+pub async fn clear_unavailable(db: &Db, key: &str) -> Result<(), DbError> {
+    sqlx::query("DELETE FROM local_track_unavailable WHERE track_key = ?")
+        .bind(key)
+        .execute(db.pool())
+        .await?;
+    Ok(())
+}
+
+/// Which of `keys` are marked unavailable.
+pub async fn unavailable(db: &Db, keys: &[String]) -> Result<Vec<String>, DbError> {
+    let mut found = Vec::new();
+    for chunk in keys.chunks(500) {
+        let marks = vec!["?"; chunk.len()].join(",");
+        let sql =
+            format!("SELECT track_key FROM local_track_unavailable WHERE track_key IN ({marks})");
+        // Only placeholders are formatted in; the keys are bound.
+        let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
+        for key in chunk {
+            query = query.bind(key);
+        }
+        for row in query.fetch_all(db.pool()).await? {
+            found.push(row.get("track_key"));
+        }
+    }
+    Ok(found)
+}
+
 async fn begin(db: &Db) -> Result<(Transaction<'static, Sqlite>, Stamp), DbError> {
     let hlc = db.tick();
     let transaction = db.pool().begin().await?;

@@ -2,7 +2,8 @@ import { commands } from '@raygun/bindings';
 import type { OnlineTrack } from '@raygun/bindings';
 import { useQuery } from '@tanstack/react-query';
 import { useSearch } from '@tanstack/react-router';
-import { Download, LoaderCircle, Play, Shuffle } from 'lucide-react';
+import { Download, LoaderCircle, Pencil, Play, Shuffle } from 'lucide-react';
+import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -14,7 +15,10 @@ import { ArtistLinks } from '../music/ArtistLinks';
 import { downloadSongs } from '../music/useSongDownloads';
 import { OnlineTrackRow } from '../search/OnlineTrackRow';
 import { playResults } from '../search/useOnlineSearch';
-import { TopBar } from '../shell/TopBar';
+import { Sheet } from '../shell/Sheet';
+import { TopBar, TopBarAction } from '../shell/TopBar';
+import { DetailEditForm } from '../music/DetailEditForm';
+import { PinButton } from '../shell/PinButton';
 import { SourceIssue } from '../shell/SourceIssue';
 
 /** An album from a music source (M46.9): its songs in order, to play, save or download. */
@@ -29,6 +33,8 @@ export const MusicAlbumPage: FC = () => {
   });
   const tracks = album.data?.tracks ?? [];
   const info = album.data?.album;
+  // Edit album (M46.30): its title and cover over what the source said.
+  const [editing, setEditing] = useState(false);
   const play = (shuffle: boolean) => {
     if (tracks.length === 0) return;
     const start = shuffle ? tracks[Math.floor(Math.random() * tracks.length)] : tracks[0];
@@ -37,7 +43,47 @@ export const MusicAlbumPage: FC = () => {
 
   return (
     <section data-testid="music-album-page" className="flex flex-col gap-6">
-      <TopBar back fallback="/browse" plainTitle title={t('album.title')} />
+      <TopBar
+        back
+        fallback="/browse"
+        plainTitle
+        title={t('album.title')}
+        actions={
+          <>
+            {info && (
+              <TopBarAction
+                label={t('details.editAlbum')}
+                icon={Pencil}
+                onClick={() => setEditing(true)}
+              />
+            )}
+            <PinButton
+              target={
+                info
+                  ? {
+                      kind: 'album',
+                      to: '/music/album',
+                      search: { provider: info.provider.id, id: info.id },
+                      name: info.title,
+                      artworkUrl: info.artworkUrl ?? null,
+                    }
+                  : null
+              }
+            />
+          </>
+        }
+      />
+      {editing && info && (
+        <Sheet title={t('details.editAlbum')} onClose={() => setEditing(false)}>
+          <DetailEditForm
+            target={{ kind: 'album', artist: info.artist, album: info.title }}
+            fields={['title']}
+            original={{ title: info.title, artworkUrl: info.artworkUrl }}
+            titleLabel={t('details.albumTitle')}
+            onSaved={() => setEditing(false)}
+          />
+        </Sheet>
+      )}
       <header className="flex flex-col items-center gap-4 sm:flex-row sm:items-end sm:gap-6">
         {/* The cover large, to save as an image (M46.26). */}
         <button

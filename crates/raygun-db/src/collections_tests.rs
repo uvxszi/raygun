@@ -246,3 +246,38 @@ async fn songs_know_their_playlists_and_play_counts() {
     assert_eq!(counts.get(&song.track_key), Some(&2));
     assert_eq!(counts.get("never|played"), None);
 }
+
+#[tokio::test]
+async fn a_found_source_fills_every_saved_copy_and_clears_the_mark() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp).await;
+    let id = create_playlist(&db, "Imported", 1).await.unwrap();
+    let mut song = track("a|lost");
+    song.source = None;
+    song.album = None;
+    add_to_playlist(&db, &id, &[song.clone()], 2).await.unwrap();
+    mark_unavailable(&db, &["a|lost".to_owned(), "b|other".to_owned()], 3)
+        .await
+        .unwrap();
+    let found = TrackFields {
+        album: Some("Found Album".into()),
+        source: Some(r#"{"kind":"url","url":"https://x.example/a.mp3","headers":{}}"#.into()),
+        ..song
+    };
+    assert_eq!(
+        set_track_source(&db, "a|lost", &found, false)
+            .await
+            .unwrap(),
+        1
+    );
+    clear_unavailable(&db, "a|lost").await.unwrap();
+    let items = playlist_items(&db, &id).await.unwrap();
+    assert_eq!(items[0].track.album.as_deref(), Some("Found Album"));
+    assert!(items[0].track.source.is_some());
+    assert_eq!(
+        unavailable(&db, &["a|lost".to_owned(), "b|other".to_owned()])
+            .await
+            .unwrap(),
+        vec!["b|other".to_owned()]
+    );
+}

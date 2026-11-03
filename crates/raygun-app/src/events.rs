@@ -49,6 +49,15 @@ pub struct VideoDownloadsEvent(pub String);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SongDownloadsEvent(pub String);
 
+/// An import matched another song in the background; carries the playlist's id (M46.31).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct ImportEvent(pub String);
+
+/// An episode's captions changed: a feed transcript arrived, a window was transcribed, or
+/// transcribing started or stopped; carries the episode's id (M46.32).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct CaptionsEvent(pub String);
+
 /// A Local Files folder was added, scanned or removed; carries its id (M46.27).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct LocalFilesEvent(pub String);

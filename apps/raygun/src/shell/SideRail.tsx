@@ -1,12 +1,10 @@
 import { Link } from '@tanstack/react-router';
-import { Heart } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { PlaylistCover } from '../collections/PlaylistCover';
-import { usePlaylists } from '../collections/useCollections';
 import { useNavTabs } from './navTabs';
+import { RailPins } from './RailPins';
 import { ResizeHandle } from './ResizeHandle';
 import { useIsDesktop } from './useIsDesktop';
 import { usePanelSizes } from './usePanelSizes';
@@ -26,7 +24,6 @@ const COVERS_ONLY_BELOW = 140;
 export const SideRail: FC = () => {
   const { t } = useTranslation();
   const { bar, active } = useNavTabs();
-  const playlists = usePlaylists();
   const { panels, save } = usePanelSizes();
   const [dragging, setDragging] = useState<number | null>(null);
   // On desktop the rail stays at every window size (M46.9): below `lg` it shows covers only.
@@ -76,44 +73,8 @@ export const SideRail: FC = () => {
           aria-label={t('rail.library')}
           className="border-foreground/10 mt-3 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto border-t pt-3"
         >
-          {!narrow && (
-            <h2 className="text-muted px-4 pb-1 text-xs font-semibold tracking-wide uppercase">
-              {t('rail.library')}
-            </h2>
-          )}
-          <Link
-            to="/library"
-            search={{ view: 'favorites' } as never}
-            aria-label={narrow ? t('collections.favorites') : undefined}
-            className={`flex items-center gap-3 rounded-xl ${narrow ? 'justify-center p-1.5' : 'px-2 py-1.5'} text-muted hover:bg-background hover:text-foreground`}
-          >
-            <span className="from-primary/80 to-primary/30 grid size-10 shrink-0 place-items-center rounded-md bg-gradient-to-br">
-              <Heart aria-hidden size={16} className="text-background" fill="currentColor" />
-            </span>
-            {!narrow && <span className="truncate text-sm">{t('collections.favorites')}</span>}
-          </Link>
-          {(playlists.data ?? []).map((playlist) => (
-            <Link
-              key={playlist.id}
-              to="/library/playlist"
-              search={{ id: playlist.id }}
-              aria-label={narrow ? playlist.name : undefined}
-              className={`flex items-center gap-3 rounded-xl ${narrow ? 'justify-center p-1.5' : 'px-2 py-1.5'} text-muted hover:bg-background hover:text-foreground`}
-            >
-              <PlaylistCover
-                artworkUrls={playlist.artworkUrls}
-                className="size-10 shrink-0 rounded-md"
-              />
-              {!narrow && (
-                <span className="flex min-w-0 flex-col">
-                  <span className="text-foreground truncate text-sm">{playlist.name}</span>
-                  <span className="truncate text-xs">
-                    {t('collections.songs', { count: playlist.itemCount })}
-                  </span>
-                </span>
-              )}
-            </Link>
-          ))}
+          {/* Pins you arrange (M46.29): Favorites, Downloaded, Local files, playlists and more. */}
+          <RailPins narrow={narrow} shown={desktop || roomy} />
         </section>
       </nav>
       <ResizeHandle

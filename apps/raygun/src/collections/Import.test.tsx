@@ -27,6 +27,21 @@ const list = (songs: ImportedSong[], capped = false): ImportedList => ({
 
 const SONGS = [song('Loser', 'Tame Impala'), song('Housewife', 'Tate McRae')];
 
+const candidate = (provider: string, id = provider.toLowerCase()) => ({
+  providerId: id,
+  providerName: provider,
+  points: 90,
+  track: {
+    title: 'Loser',
+    artist: 'Tame Impala',
+    album: null,
+    durationMs: 200_000,
+    artworkUrl: null,
+    externalId: null,
+    source: null,
+  },
+});
+
 describe('Importing songs', () => {
   beforeEach(() => {
     AppShellWrapper.seedCore();
@@ -36,6 +51,12 @@ describe('Importing songs', () => {
           song: { ...one, artworkUrl: 'https://img.example/a.jpg' },
           matchedBy: one.title === 'Loser' ? 'Deezer' : null,
           source: null,
+          // Two answers from one source (as MusicBrainz gives): only the first is in use.
+          candidates:
+            one.title === 'Loser'
+              ? [candidate('Deezer'), candidate('Deezer', 'deezer-2'), candidate('Audius')]
+              : [],
+          pending: false,
         })),
       ),
     );
@@ -61,10 +82,10 @@ describe('Importing songs', () => {
     expect(await within(review).findByText(/Found 1 of 2 in your sources/)).toBeInTheDocument();
     expect(review).toHaveTextContent("Spotify shares only a playlist's first 100 songs");
     expect(within(review).getByLabelText('Found on Deezer')).toBeInTheDocument();
-    expect(within(review).getByLabelText('Not found yet')).toBeInTheDocument();
+    expect(within(review).getByLabelText('Unavailable for now')).toBeInTheDocument();
 
     // Untick one, rename, and save.
-    await user.click(within(review).getByRole('checkbox', { name: /Housewife/ }));
+    await user.click(within(review).getByRole('checkbox', { name: 'Keep Housewife' }));
     const name = within(review).getByRole('textbox', { name: 'Playlist name' });
     await user.clear(name);
     await user.type(name, 'Hits');
@@ -73,6 +94,53 @@ describe('Importing songs', () => {
       expect.objectContaining({
         song: expect.objectContaining({ title: 'Loser' }),
         matchedBy: 'Deezer',
+      }),
+    ]);
+  });
+
+  it('fixes names, adds and moves songs, picks another source, and imports while matching', async () => {
+    const user = userEvent.setup();
+    commands.importReadLink.mockResolvedValue(ok(list(SONGS, false)));
+    commands.importSave.mockResolvedValue(ok('p-new'));
+    await AppShellWrapper.mount('/library?view=playlists');
+    await user.click(await screen.findByRole('button', { name: 'Import songs' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Import songs' });
+    await user.type(
+      within(sheet).getByRole('textbox', { name: 'Playlist, album or song link' }),
+      'https://open.spotify.com/album/x',
+    );
+    await user.click(within(sheet).getByRole('button', { name: 'Read songs' }));
+    const review = await within(sheet).findByTestId('import-review');
+    await within(review).findByLabelText('Found on Deezer');
+
+    // Another source for Loser.
+    await user.click(within(review).getByRole('button', { name: '3 sources' }));
+    const sources = within(review).getByRole('list', { name: 'Sources for Loser' });
+    expect(within(sources).getAllByRole('button', { name: 'In use' })).toHaveLength(1);
+    await user.click(
+      within(sources).getAllByRole('button', { name: 'Use this' })[1] as HTMLElement,
+    );
+    expect(within(sources).getAllByRole('button', { name: 'In use' })).toHaveLength(1);
+    expect(within(review).getByLabelText('Found on Audius')).toBeInTheDocument();
+
+    // From here matching never answers: importing doesn't wait for it.
+    commands.importMatch.mockImplementation(() => new Promise(() => undefined));
+    // A fixed name, an added song, and Housewife moved up.
+    const titles = within(review).getAllByRole('textbox', { name: 'Song title' });
+    await user.clear(titles[1] as HTMLElement);
+    await user.type(titles[1] as HTMLElement, 'Housewife (Live)');
+    await user.type(within(review).getByRole('textbox', { name: 'Add a song: title' }), 'New One');
+    await user.click(within(review).getByRole('button', { name: 'Add the song' }));
+    await user.click(within(review).getByRole('button', { name: 'Move Housewife (Live) up' }));
+
+    // Imported at once; what isn't matched yet is matched by Rust afterwards.
+    await user.click(within(review).getByRole('button', { name: 'Make a playlist of 3 songs' }));
+    expect(commands.importSave).toHaveBeenCalledWith("Today's Top Hits", [
+      expect.objectContaining({ song: expect.objectContaining({ title: 'Housewife (Live)' }) }),
+      expect.objectContaining({ matchedBy: 'Audius' }),
+      expect.objectContaining({
+        song: expect.objectContaining({ title: 'New One' }),
+        pending: true,
       }),
     ]);
   });

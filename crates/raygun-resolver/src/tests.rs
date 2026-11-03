@@ -332,3 +332,43 @@ fn a_remembered_pick_gives_way_to_a_better_fitting_bitrate() {
     assert!(QualityTarget::Kbps(192).fits(None));
     assert!(!QualityTarget::Best.fits(Some(128)));
 }
+
+#[test]
+fn imports_need_the_artist_to_agree() {
+    let query = TrackQuery {
+        title: "Not A Real Song".into(),
+        artist: Some("Qwzx Imaginary Band".into()),
+        album: None,
+        duration_ms: None,
+    };
+    let by = |artist: Option<&str>, title: &str| Candidate {
+        provider_id: "p".into(),
+        provider_name: "P".into(),
+        id: title.into(),
+        title: title.into(),
+        artist: artist.map(str::to_owned),
+        duration_ms: None,
+        quality: None,
+        bitrate_kbps: None,
+        source: None,
+    };
+    assert!(!artist_agrees(
+        &query,
+        &by(Some("Someone Else"), "Not a Real Song")
+    ));
+    assert!(artist_agrees(
+        &query,
+        &by(Some("Qwzx Imaginary Band"), "Not a Real Song")
+    ));
+    assert!(artist_agrees(
+        &query,
+        &by(None, "Qwzx Imaginary Band - Not a Real Song")
+    ));
+    assert!(artist_agrees(
+        &TrackQuery {
+            artist: None,
+            ..query.clone()
+        },
+        &by(Some("Anyone"), "Not a Real Song")
+    ));
+}

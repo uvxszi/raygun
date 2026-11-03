@@ -1,5 +1,5 @@
 import { commands } from '@raygun/bindings';
-import type { PlaybackState, QueueItem } from '@raygun/bindings';
+import type { PlaybackState, QueueItem, SpokenItem } from '@raygun/bindings';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { ExternalLink, Maximize2, UserRound } from 'lucide-react';
 import { useId, useState } from 'react';
@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 
 import { creditedArtists } from '../music/artists';
 import { Sheet } from '../shell/Sheet';
+import { CaptionsView } from './CaptionsView';
 import { currentLine, trackQueryFor, useLyricsFor } from './lyricsQuery';
 import { artistFacts, shownCredits, useArtistInfo, useSongCredits } from './musicInfo';
 import { useLivePosition } from './useLivePosition';
@@ -24,6 +25,8 @@ const CARD = 'flex w-full shrink-0 flex-col gap-3 overflow-hidden rounded-2xl te
 type PlayerCardsProps = {
   item: QueueItem;
   state: PlaybackState | undefined;
+  /** A podcast episode or a book's chapter: captions instead of lyrics, artist and credits. */
+  spoken?: SpokenItem | null;
   /** Shows the lyrics full screen. */
   onLyrics: () => void;
 };
@@ -32,13 +35,51 @@ type PlayerCardsProps = {
  * What sits under the phone's player (M46.14), as in Spotify: the lyrics, the artist and who made
  * the song. Each card opens more: the lyrics full screen, the artist's page, all the credits.
  */
-export const PlayerCards: FC<PlayerCardsProps> = ({ item, state, onLyrics }) => (
+export const PlayerCards: FC<PlayerCardsProps> = ({ item, state, spoken, onLyrics }) => (
   <div data-testid="player-cards" className="mx-auto flex w-full max-w-xl flex-col gap-4 pt-8">
-    <LyricsCard item={item} state={state} onOpen={onLyrics} />
-    <ArtistCard credit={item.artist} />
-    <CreditsCard item={item} />
+    {spoken ? (
+      <CaptionsCard spoken={spoken} state={state} onOpen={onLyrics} />
+    ) : (
+      <>
+        <LyricsCard item={item} state={state} onOpen={onLyrics} />
+        <ArtistCard credit={item.artist} />
+        <CreditsCard item={item} />
+      </>
+    )}
   </div>
 );
+
+/** Captions for spoken items (M46.32), slim until there are lines. */
+const CaptionsCard: FC<{
+  spoken: SpokenItem;
+  state: PlaybackState | undefined;
+  onOpen: () => void;
+}> = ({ spoken, state, onOpen }) => {
+  const { t } = useTranslation();
+  const heading = useId();
+  return (
+    <section
+      aria-labelledby={heading}
+      data-testid="captions-card"
+      className={`${CARD} bg-surface gap-0 pt-3`}
+    >
+      <header className="flex items-center justify-between px-4">
+        <h3 id={heading} className="font-bold">
+          {t('captions.title')}
+        </h3>
+        <button
+          type="button"
+          aria-label={t('captions.full')}
+          onClick={onOpen}
+          className="text-muted hover:text-foreground grid size-8 place-items-center rounded-full"
+        >
+          <Maximize2 aria-hidden size={16} />
+        </button>
+      </header>
+      <CaptionsView spoken={spoken} state={state} variant="panel" />
+    </section>
+  );
+};
 
 const LyricsCard: FC<{ item: QueueItem; state: PlaybackState | undefined; onOpen: () => void }> = ({
   item,

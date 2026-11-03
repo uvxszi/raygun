@@ -22,6 +22,8 @@ pub enum CacheKind {
     Share,
     /// Covers, posters, thumbnails and icons (M46.2).
     Covers,
+    /// Episodes' audio fetched for transcribing (M46.32).
+    Captions,
 }
 
 impl CacheKind {
@@ -34,6 +36,7 @@ impl CacheKind {
             Self::Enhanced => "enhanced",
             Self::Share => "share",
             Self::Covers => "covers",
+            Self::Captions => "captions",
         }
     }
 }

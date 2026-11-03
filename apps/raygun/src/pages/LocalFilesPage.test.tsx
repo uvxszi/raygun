@@ -46,13 +46,15 @@ describe('Local Files (M46.27)', () => {
     expect(commands.localFolderRemove).toHaveBeenCalledWith('f1');
   });
 
-  it('is a block in Browse → Sources', async () => {
+  it('is a green block in the Library, always there (M46.29)', async () => {
     commands.localFolders.mockResolvedValue(ok([MEDIA]));
-    await AppShellWrapper.mount('/browse?tab=sources');
-    const block = await screen.findByRole('region', { name: 'Local files' });
-    expect(await within(block).findByRole('link', { name: /1 folder/ })).toHaveAttribute(
+    await AppShellWrapper.mount('/library');
+    const overview = await screen.findByTestId('music-overview');
+    expect(await within(overview).findByRole('link', { name: /Local files/ })).toHaveAttribute(
       'href',
       expect.stringContaining('/local-files'),
     );
+    expect(within(overview).getByRole('link', { name: /Downloaded/ })).toBeInTheDocument();
+    expect(await within(overview).findByText('16 items')).toBeInTheDocument();
   });
 });

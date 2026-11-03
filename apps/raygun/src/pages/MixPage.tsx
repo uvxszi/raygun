@@ -10,6 +10,7 @@ import { OnlineTrackRow } from '../search/OnlineTrackRow';
 import { playResults } from '../search/useOnlineSearch';
 import { SourceIssue } from '../shell/SourceIssue';
 import { TopBar } from '../shell/TopBar';
+import { PinButton } from '../shell/PinButton';
 
 /** A Made for You mix (M46.20): its songs, played from any of them, and saved as a playlist. */
 export const MixPage: FC = () => {
@@ -27,7 +28,27 @@ export const MixPage: FC = () => {
 
   return (
     <section data-testid="mix-page" className="flex flex-col gap-6">
-      <TopBar back fallback="/music/for-you" plainTitle title={t('forYou.title')} />
+      <TopBar
+        back
+        fallback="/music/for-you"
+        plainTitle
+        title={t('forYou.title')}
+        actions={
+          <PinButton
+            target={
+              mix.data
+                ? {
+                    kind: 'mix',
+                    to: '/music/mix',
+                    search: { id },
+                    name: title,
+                    artworkUrl: mix.data.artworkUrls[0] ?? null,
+                  }
+                : null
+            }
+          />
+        }
+      />
       <header className="flex flex-col items-center gap-4 sm:flex-row sm:items-end sm:gap-6">
         <PlaylistCover
           artworkUrls={mix.data?.artworkUrls ?? []}

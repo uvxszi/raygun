@@ -352,12 +352,15 @@ impl CollectionsService {
             .await
             .map_err(to_message)?;
         let library = self.app.state::<LibraryService>();
+        let details = self
+            .app
+            .state::<std::sync::Arc<crate::details::DetailService>>();
         Ok(rows
             .into_iter()
             .map(|row| {
                 let found = local.get(&row.track_key);
                 let local_art = found.and_then(|track| library.artwork_url(track.art.clone()));
-                SavedTrack {
+                let mut track = SavedTrack {
                     local: found.is_some(),
                     play_count: plays.get(&row.track_key).copied().unwrap_or(0) as u32,
                     added_at: None,
@@ -371,7 +374,10 @@ impl CollectionsService {
                         .source
                         .and_then(|json| serde_json::from_str(&json).ok())
                         .and_then(portable),
-                }
+                };
+                // The user's own details (M46.30).
+                details.apply_saved(&mut track);
+                track
             })
             .collect())
     }

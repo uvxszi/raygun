@@ -23,6 +23,8 @@ struct Item {
     link: Option<String>,
     /// `itunes:episode` (M46.22: a book's chapter number).
     number: Option<String>,
+    /// `<podcast:transcript>`: the best one as `<type>|<url>` (M46.32).
+    transcript: Option<String>,
 }
 
 /// What the feed says about the podcast and its episodes, newest first as the feed lists them.
@@ -178,6 +180,7 @@ pub fn parse(bytes: &[u8], feed_url: &str) -> Result<(PodcastFields, Vec<Episode
                     .as_deref()
                     .and_then(|number| number.trim().parse::<i64>().ok())
                     .or_else(|| serial.then_some(index as i64 + 1)),
+                transcript: item.transcript,
             })
         })
         .collect();
@@ -212,6 +215,25 @@ fn attributes(element: &BytesStart<'_>, name: &str, target: &mut Item) {
                     .is_none_or(|kind| kind.starts_with("audio/") || kind.starts_with("video/"));
                 if playable && target.enclosure.is_none() {
                     target.enclosure = Some((url, kind));
+                }
+            }
+        }
+        // Podcasting 2.0 transcripts (M46.32): timed formats first.
+        "podcast:transcript" => {
+            if let (Some(url), Some(kind)) = (attribute("url"), attribute("type")) {
+                let rank = |kind: &str| match kind {
+                    "text/vtt" => 3,
+                    "application/srt" | "application/x-subrip" | "text/srt" => 2,
+                    "application/json" => 1,
+                    _ => 0,
+                };
+                let better = target
+                    .transcript
+                    .as_deref()
+                    .and_then(|kept| kept.split_once('|'))
+                    .is_none_or(|(kept, _)| rank(&kind) > rank(kept));
+                if rank(&kind) > 0 && better && is_http(&url) {
+                    target.transcript = Some(format!("{kind}|{url}"));
                 }
             }
         }

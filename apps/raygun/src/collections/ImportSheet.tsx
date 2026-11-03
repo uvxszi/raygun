@@ -1,9 +1,8 @@
 import { commands } from '@raygun/bindings';
-import type { ImportedList, MatchedSong } from '@raygun/bindings';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
-import { CircleCheck, CircleDashed, FileText, ImageUp, Link2, LoaderCircle } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import type { ImportedList } from '@raygun/bindings';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { FileText, ImageUp, Link2 } from 'lucide-react';
+import { useRef, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -11,151 +10,15 @@ import { unwrapResult } from '../lib/commandResult';
 import { uploadFile } from '../manga/useImportComics';
 import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
-import { COLLECTIONS } from './useCollections';
+import { ImportReview } from './ImportReview';
 
 type Way = 'link' | 'text' | 'screenshots';
-
-/** Songs matched per call, so the list fills in as it goes. */
-const MATCH_STEP = 8;
 
 const WAYS: { id: Way; icon: typeof Link2 }[] = [
   { id: 'link', icon: Link2 },
   { id: 'text', icon: FileText },
   { id: 'screenshots', icon: ImageUp },
 ];
-
-/** The songs read, matched a few at a time against the music sources. */
-const Review: FC<{ list: ImportedList; onClose: () => void }> = ({ list, onClose }) => {
-  const { t } = useTranslation();
-  const navigate = useNavigate();
-  const client = useQueryClient();
-  const [name, setName] = useState(list.name);
-  const [matched, setMatched] = useState<MatchedSong[]>([]);
-  const [skipped, setSkipped] = useState<Set<number>>(new Set());
-  const started = useRef(false);
-
-  // Matches the songs in steps; a failed step leaves those songs as they were read.
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    let cancelled = false;
-    void (async () => {
-      for (let start = 0; start < list.songs.length && !cancelled; start += MATCH_STEP) {
-        const step = list.songs.slice(start, start + MATCH_STEP);
-        const answer = await commands.importMatch(step);
-        const songs: MatchedSong[] =
-          answer.status === 'ok'
-            ? answer.data
-            : step.map((song) => ({ song, matchedBy: null, source: null }));
-        if (!cancelled) setMatched((done) => [...done, ...songs]);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [list.songs]);
-
-  const save = useMutation({
-    mutationFn: () => {
-      const chosen = list.songs.map(
-        (song, index) => matched[index] ?? { song, matchedBy: null, source: null },
-      );
-      return unwrapResult(
-        commands.importSave(
-          name.trim() || list.name,
-          chosen.filter((_, index) => !skipped.has(index)),
-        ),
-      );
-    },
-    onSuccess: (id) => {
-      void client.invalidateQueries({ queryKey: [COLLECTIONS] });
-      onClose();
-      void navigate({ to: '/library/playlist', search: { id } });
-    },
-  });
-  const found = matched.filter((song) => song.matchedBy).length;
-  const done = matched.length >= list.songs.length;
-
-  return (
-    <div data-testid="import-review" className="flex flex-col gap-3">
-      <input
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-        aria-label={t('collections.playlistName')}
-        className="bg-background rounded-xl px-4 py-3 text-sm outline-none"
-      />
-      <p role="status" className="text-muted text-sm">
-        {done
-          ? found === list.songs.length
-            ? t('import.matchedAll', { count: found })
-            : t('import.matched', { found, count: list.songs.length })
-          : t('import.matching', { done: matched.length, count: list.songs.length })}
-        {list.capped && ` ${t('import.capped')}`}
-      </p>
-      <ul className="flex max-h-[45vh] flex-col overflow-y-auto">
-        {list.songs.map((song, index) => {
-          const result = matched[index];
-          return (
-            <li key={`${song.title}-${index}`}>
-              <label className="flex items-center gap-3 rounded-lg px-1 py-1.5">
-                <input
-                  type="checkbox"
-                  checked={!skipped.has(index)}
-                  onChange={() =>
-                    setSkipped((current) => {
-                      const next = new Set(current);
-                      if (next.has(index)) next.delete(index);
-                      else next.add(index);
-                      return next;
-                    })
-                  }
-                  className="accent-primary"
-                />
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-sm font-medium">{song.title}</span>
-                  <span className="text-muted truncate text-xs">{song.artist}</span>
-                </span>
-                {!result ? (
-                  <LoaderCircle aria-hidden size={16} className="text-muted animate-spin" />
-                ) : result.matchedBy ? (
-                  <CircleCheck
-                    aria-label={t('import.foundOn', { source: result.matchedBy })}
-                    size={16}
-                    className="text-primary"
-                  />
-                ) : (
-                  <CircleDashed
-                    aria-label={t('import.notFound')}
-                    size={16}
-                    className="text-muted"
-                  />
-                )}
-              </label>
-            </li>
-          );
-        })}
-      </ul>
-      {save.error && <SourceIssue>{save.error.message}</SourceIssue>}
-      <div className="flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onClose}
-          className="bg-background rounded-full px-5 py-2 text-sm"
-        >
-          {t('collections.cancel')}
-        </button>
-        <button
-          type="button"
-          disabled={save.isPending || skipped.size === list.songs.length}
-          onClick={() => save.mutate()}
-          className="bg-primary text-background rounded-full px-5 py-2 text-sm font-semibold disabled:opacity-60"
-        >
-          {t('import.create', { count: list.songs.length - skipped.size })}
-        </button>
-      </div>
-    </div>
-  );
-};
 
 /**
  * Importing songs (M46.21): a Spotify playlist, album or song link, a CSV export or pasted
@@ -191,7 +54,7 @@ export const ImportSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
   return (
     <Sheet title={t('import.title')} onClose={onClose}>
       {list ? (
-        <Review list={list} onClose={onClose} />
+        <ImportReview list={list} onClose={onClose} />
       ) : (
         <div className="flex flex-col gap-4">
           <div role="tablist" className="flex gap-2">

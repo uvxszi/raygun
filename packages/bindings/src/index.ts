@@ -227,6 +227,12 @@ export const commands = {
 	 *  PNG, JPEG or WebP; returns where it went (M46.26).
 	 */
 	coverSave: (url: string, title: string, format: ImageFileFormat, destination: ImageDestination) => typedError<string, string>(__TAURI_INVOKE("cover_save", { url, title, format, destination })),
+	/**  The user's own details for a song, an album or an artist (M46.30). */
+	detailEdit: (target: DetailTarget) => typedError<DetailEdit, string>(__TAURI_INVOKE("detail_edit", { target })),
+	/**  Saves the user's details for a song, an album or an artist; an empty edit resets them. */
+	detailEditSet: (target: DetailTarget, edit: DetailEdit) => typedError<DetailEdit, string>(__TAURI_INVOKE("detail_edit_set", { target, edit })),
+	/**  Keeps a picked image (an upload) as a cover; returns its address for an edit. */
+	detailCoverImport: (uploadId: string) => typedError<string, string>(__TAURI_INVOKE("detail_cover_import", { uploadId })),
 	/**  The folders in Local Files and what each holds (M46.27). */
 	localFolders: () => typedError<LocalFolder[], string>(__TAURI_INVOKE("local_folders")),
 	/**  Adds a folder the user picks to Local Files and scans it; `None` when they cancelled. */
@@ -237,6 +243,10 @@ export const commands = {
 	localFoldersRescan: () => typedError<null, string>(__TAURI_INVOKE("local_folders_rescan")),
 	/**  Saves imported songs as a new playlist; returns its id (M46.21). */
 	importSave: (name: string, songs: MatchedSong[]) => typedError<string, string>(__TAURI_INVOKE("import_save", { name, songs })),
+	/**  Gives every saved copy of a song the source the user picked (M46.31). */
+	trackAssignSource: (song: TrackInput, chosen: OnlineTrack) => typedError<null, string>(__TAURI_INVOKE("track_assign_source", { song, chosen })),
+	/**  Which saved songs no source had when imported (M46.31). */
+	tracksUnavailable: (keys: string[]) => typedError<string[], string>(__TAURI_INVOKE("tracks_unavailable", { keys })),
 	/**  The audiobooks in the library (M46.22). */
 	audiobooks: () => typedError<AudiobookSummary[], string>(__TAURI_INVOKE("audiobooks")),
 	/**  A book with its chapters in order (M46.22). */
@@ -247,6 +257,23 @@ export const commands = {
 	audiobookPlay: (id: string, chapterId: string | null) => typedError<null, string>(__TAURI_INVOKE("audiobook_play", { id, chapterId })),
 	/**  A page of books from the audiobook directories (M46.22). */
 	audiobookDirectory: (list: string, query: string, page: number) => typedError<AudiobookPage, string>(__TAURI_INVOKE("audiobook_directory", { list, query, page })),
+	/**  An episode's or chapter's captions, with where transcribing stands (M46.32). */
+	captions: (episodeId: string) => typedError<Captions, string>(__TAURI_INVOKE("captions", { episodeId })),
+	/**  Transcribes an episode from `from_ms` with the engine set up in Settings → AI (M46.32). */
+	captionsTranscribe: (episodeId: string, fromMs: number) => typedError<null, string>(__TAURI_INVOKE("captions_transcribe", { episodeId, fromMs })),
+	/**  Stops transcribing an episode; what was heard stays (M46.32). */
+	captionsStop: (episodeId: string) => __TAURI_INVOKE<void>("captions_stop", { episodeId }),
+	/**  Forgets an episode's captions, to transcribe it again (M46.32). */
+	captionsClear: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("captions_clear", { episodeId })),
+	/**  Whether a queue item is a podcast episode or a book's chapter, and whose (M46.32). */
+	spokenItem: (source: MediaSource) => typedError<{
+	kind: SpokenKind,
+	podcastId: string,
+	episodeId: string,
+	/**  The show's or the book's title. */
+	show: string,
+	author: string | null,
+} | null, string>(__TAURI_INVOKE("spoken_item", { source })),
 	/**  A song's genres and moods, found now if they aren't stored yet (M46.9). */
 	musicTrackTags: (query: TrackQuery) => typedError<MusicTag[], string>(__TAURI_INVOKE("music_track_tags", { query })),
 	/**  Stored tags for songs by track key; songs without any are left out (M46.9). */
@@ -569,6 +596,8 @@ export const commands = {
 	zoom: number,
 	/**  Charts and song tags (M46.9). */
 	discovery: DiscoveryPrefs,
+	/**  Captions for podcasts and audiobooks heard by AI (M46.32). */
+	transcription: TranscriptionPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
 	/**  The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default. */
@@ -583,6 +612,8 @@ export const commands = {
 	discord: DiscordPrefs,
 	/**  How good songs sound against the data they use, streaming and downloading. */
 	audioQuality: AudioQualityPrefs,
+	/**  What the desktop sidebar shows and in what order (M46.29). */
+	rail: RailPrefs,
 } | null, string>(__TAURI_INVOKE("songs_pick_folder")),
 	/**  Whether Raygun may still write to the picked folder. */
 	saveFolderState: (uri: string) => typedError<SaveFolderState, string>(__TAURI_INVOKE("save_folder_state", { uri })),
@@ -727,11 +758,13 @@ export const commands = {
 /** Events */
 export const events = {
 	aiModelEvent: makeEvent<AiModelEvent>("ai-model-event"),
+	captionsEvent: makeEvent<CaptionsEvent>("captions-event"),
 	connectEvent: makeEvent<ConnectEvent>("connect-event"),
 	connectRequestEvent: makeEvent<ConnectRequestEvent>("connect-request-event"),
 	engineCommandEvent: makeEvent<EngineCommandEvent>("engine-command-event"),
 	exportEvent: makeEvent<ExportEvent>("export-event"),
 	extensionsChangedEvent: makeEvent<ExtensionsChangedEvent>("extensions-changed-event"),
+	importEvent: makeEvent<ImportEvent>("import-event"),
 	libraryScanEvent: makeEvent<LibraryScanEvent>("library-scan-event"),
 	localFilesEvent: makeEvent<LocalFilesEvent>("local-files-event"),
 	madeForYouEvent: makeEvent<MadeForYouEvent>("made-for-you-event"),
@@ -985,6 +1018,41 @@ export type CachePrefs = {
 	clearPagesOnStart?: boolean,
 };
 
+/**  One caption line, timed in milliseconds. */
+export type Caption = {
+	startMs: number,
+	endMs: number,
+	text: string,
+};
+
+export type CaptionSource = 
+/**  The feed's own transcript. */
+"feed" | "local" | "online";
+
+/**  An episode's captions and where transcribing stands (M46.32). */
+export type Captions = {
+	episodeId: string,
+	cues: Caption[],
+	source: CaptionSource | null,
+	/**  Stretches with captions, `[start, end]` in ms. */
+	covered: ([number, number])[],
+	complete: boolean,
+	/**  Transcribing now. */
+	running: boolean,
+	/**  Getting the audio before the first batch. */
+	preparing: boolean,
+	error: string | null,
+	/**  Transcription is set up (a model downloaded, or a provider picked). */
+	canTranscribe: boolean,
+	engine: TranscriptionEngine,
+};
+
+/**
+ *  An episode's captions changed: a feed transcript arrived, a window was transcribed, or
+ *  transcribing started or stopped; carries the episode's id (M46.32).
+ */
+export type CaptionsEvent = string;
+
 /**  An extension a repository offers. */
 export type CatalogEntry = {
 	repoId: string,
@@ -1177,6 +1245,20 @@ export type DecoderMode =
 "auto" | 
 /**  Software first: slower, but plays what the hardware can't. */
 "software";
+
+/**
+ *  The user's own details (M46.30); `None` keeps what the source said. For an album `title` is
+ *  its title, for an artist their name; `artist` and `album` are songs' only.
+ */
+export type DetailEdit = {
+	title: string | null,
+	artist: string | null,
+	album: string | null,
+	artworkUrl: string | null,
+};
+
+/**  What the user edits the details of (M46.30): a song, an album or an artist. */
+export type DetailTarget = { kind: "song"; query: TrackQuery } | { kind: "album"; artist: string | null; album: string } | { kind: "artist"; name: string };
 
 /**
  *  Discord presence (desktop): off by default, and it needs the ID of a Discord application the
@@ -1436,6 +1518,9 @@ export type ImageDestination =
 
 /**  The file type a saved cover image gets (M46.26). */
 export type ImageFileFormat = "png" | "jpeg" | "webp";
+
+/**  An import matched another song in the background; carries the playlist's id (M46.31). */
+export type ImportEvent = string;
 
 /**  Where an imported book can be opened (M33). */
 export type ImportedBook = {
@@ -1877,6 +1962,10 @@ export type MatchedSong = {
 	song: ImportedSong,
 	matchedBy: string | null,
 	source: MediaSource | null,
+	/**  Every source that has the song, best first (M46.31: the user can pick another). */
+	candidates: SongCandidate[],
+	/**  Not matched yet: importing keeps matching it in the background (M46.31). */
+	pending: boolean,
 };
 
 /**  The MCP server's switch and how to reach it. */
@@ -2309,6 +2398,41 @@ export type QueueSnapshot = {
 	order: number[],
 };
 
+export type RailOrder = "custom" | 
+/**  The last time something was played from it. */
+"played" | 
+/**  The last time its page was opened. */
+"opened";
+
+export type RailPin = {
+	/**
+	 *  `favorites`, `downloaded`, `localFiles`, `playlist`, `album`, `artist`, `podcast`,
+	 *  `audiobook`, `manga`, `novel`, `video`, `mix`.
+	 */
+	kind: string,
+	/**  The page it opens: a route and its search parameters. */
+	to: string,
+	search: { [key in string]: string },
+	/**  Its name and cover as last seen. */
+	name: string,
+	artworkUrl: string | null,
+	/**  Unix seconds; 0 when never. */
+	pinnedAt: number,
+	playedAt: number,
+	openedAt: number,
+};
+
+/**
+ *  The desktop sidebar's pins (M46.29): anything with a page, in the user's order or by when it
+ *  was last played from or opened.
+ */
+export type RailPrefs = {
+	pins: RailPin[],
+	order: RailOrder,
+	/**  The first run's pins were added (Favorites, Downloaded, Local files and the playlists). */
+	seeded: boolean,
+};
+
 /**  How a title is read (M27). */
 export type ReaderMode = 
 /**  One continuous vertical strip. */
@@ -2424,7 +2548,7 @@ export type SearchResults = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "discord"; value: DiscordPrefs } | { key: "audioQuality"; value: AudioQualityPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "discord"; value: DiscordPrefs } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -2512,6 +2636,8 @@ export type Settings = {
 	zoom: number,
 	/**  Charts and song tags (M46.9). */
 	discovery: DiscoveryPrefs,
+	/**  Captions for podcasts and audiobooks heard by AI (M46.32). */
+	transcription: TranscriptionPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
 	/**  The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default. */
@@ -2526,6 +2652,8 @@ export type Settings = {
 	discord: DiscordPrefs,
 	/**  How good songs sound against the data they use, streaming and downloading. */
 	audioQuality: AudioQualityPrefs,
+	/**  What the desktop sidebar shows and in what order (M46.29). */
+	rail: RailPrefs,
 };
 
 /**  A setting changed outside the Settings screens (in the video player, M45); carries its key. */
@@ -2539,6 +2667,15 @@ export type SkippedSource = {
 
 /**  The sleep timer (M46.8). */
 export type SleepTimer = { kind: "off" } | { kind: "minutes"; minutes: number } | { kind: "endOfTrack" };
+
+/**  One source's answer for an imported song (M46.31). */
+export type SongCandidate = {
+	providerId: string,
+	providerName: string,
+	track: OnlineTrack,
+	/**  The resolver's score; higher is a closer match. */
+	points: number,
+};
 
 /**  Who made a song (M46.14): the player's Credits card. */
 export type SongCredits = {
@@ -2672,6 +2809,18 @@ export type SpeechLine = {
 	id: string,
 	text: string,
 };
+
+/**  What a queue item is when it's spoken word: a podcast episode or a book's chapter (M46.32). */
+export type SpokenItem = {
+	kind: SpokenKind,
+	podcastId: string,
+	episodeId: string,
+	/**  The show's or the book's title. */
+	show: string,
+	author: string | null,
+};
+
+export type SpokenKind = "podcast" | "audiobook";
 
 export type StartScreen = "home" | "library" | "browse" | 
 /**  Tabs that can be added (M46.5). */
@@ -3080,6 +3229,26 @@ export type TrackTableView = {
 export type TrackTags = {
 	trackKey: string,
 	tags: MusicTag[],
+};
+
+/**  Who hears podcasts and audiobooks for captions (M46.32). */
+export type TranscriptionEngine = "off" | 
+/**  Whisper on this device, from the AI models. */
+"local" | 
+/**  An OpenAI-compatible translator's `audio/transcriptions`. */
+"online";
+
+/**  Captions heard by AI (M46.32). */
+export type TranscriptionPrefs = {
+	engine?: TranscriptionEngine,
+	/**  The AI model used on this device (`whisper-tiny`). */
+	localModel?: string,
+	/**  The OpenAI-compatible provider (from Settings → AI) used online. */
+	providerId?: string | null,
+	/**  The online model (`whisper-1`, `whisper-large-v3`…). */
+	onlineModel?: string,
+	/**  Online: confirmed once that batches cost money. */
+	onlineConfirmed?: boolean,
 };
 
 /**  Progress reading a chapter aloud (M33). */

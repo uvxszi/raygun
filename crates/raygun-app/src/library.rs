@@ -301,7 +301,7 @@ impl LibraryService {
     }
 
     pub(crate) fn track(&self, row: TrackRow) -> LibraryTrack {
-        LibraryTrack {
+        let mut track = LibraryTrack {
             id: row.id,
             title: row.title,
             artist: row.artist.unwrap_or_else(|| row.group_artist.clone()),
@@ -312,7 +312,31 @@ impl LibraryService {
             year: row.year.map(|year| year as u32),
             duration_ms: row.duration_ms.map(|duration| duration as u32),
             artwork_url: self.artwork_url(row.art),
+        };
+        // The user's own details (M46.30), by the song's key.
+        if let Some(details) = self
+            .app
+            .try_state::<std::sync::Arc<crate::details::DetailService>>()
+        {
+            let key = raygun_resolver::track_key(&raygun_model::TrackQuery {
+                title: track.title.clone(),
+                artist: Some(track.artist.clone()),
+                album: Some(track.album.clone()),
+                duration_ms: None,
+            });
+            let mut artist = Some(track.artist.clone());
+            let mut album = Some(track.album.clone());
+            details.apply(
+                &key,
+                &mut track.title,
+                &mut artist,
+                &mut album,
+                &mut track.artwork_url,
+            );
+            track.artist = artist.unwrap_or_default();
+            track.album = album.unwrap_or_default();
         }
+        track
     }
 
     pub(crate) fn queue_item(&self, row: TrackRow) -> QueueItemInput {

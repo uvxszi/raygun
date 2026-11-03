@@ -11,8 +11,9 @@ pub mod parse;
 use std::sync::Arc;
 
 use raygun_model::{ImportedList, ImportedSong, MatchedSong, MediaSource, TrackInput, TrackQuery};
-use raygun_resolver::{Candidate, History, MIN_SCORE, score};
+use raygun_resolver::{Candidate, History, MIN_SCORE, artist_agrees, score};
 use tauri::{AppHandle, Manager};
+use tauri_specta::Event;
 
 use crate::ai::AiService;
 use crate::collections::CollectionsService;
@@ -189,7 +190,14 @@ impl ImportService {
             album: song.album.clone(),
             duration_ms: song.duration_ms,
         };
-        let best = find_song(&self.extensions(), &query).await;
+        let candidates = find_songs(&self.extensions(), &query, CANDIDATES).await;
+        let best = candidates.first().map(|candidate| {
+            (
+                candidate.points,
+                candidate.provider_name.clone(),
+                candidate.track.clone(),
+            )
+        });
         match best {
             Some((points, provider, track)) if points >= MIN_SCORE => {
                 // A stream only counts when it plays anywhere (not the YouTube embed, which is a
@@ -206,20 +214,45 @@ impl ImportService {
                     },
                     matched_by: Some(provider),
                     source,
+                    candidates,
+                    pending: false,
                 }
             }
             _ => MatchedSong {
                 song,
                 matched_by: None,
                 source: None,
+                candidates: Vec::new(),
+                pending: false,
             },
         }
     }
 
-    /// Saves songs as a new playlist named `name`; returns its id.
+    /// Saves songs as a new playlist named `name`; returns its id. Songs still `pending` are
+    /// matched in the background and filled in as they're found (M46.31); songs no source has
+    /// are kept, marked unavailable.
     pub async fn save(&self, name: &str, songs: Vec<MatchedSong>) -> Result<String, String> {
         let collections = self.app.state::<CollectionsService>();
         let playlist = collections.create_playlist(name).await?;
+        let db = self.app.state::<crate::startup::AppDb>().inner().0.clone();
+        let key_of = |song: &ImportedSong| {
+            raygun_resolver::track_key(&TrackQuery {
+                title: song.title.clone(),
+                artist: song.artist.clone(),
+                album: song.album.clone(),
+                duration_ms: None,
+            })
+        };
+        let missing: Vec<String> = songs
+            .iter()
+            .filter(|matched| !matched.pending && matched.matched_by.is_none())
+            .map(|matched| key_of(&matched.song))
+            .collect();
+        let pending: Vec<ImportedSong> = songs
+            .iter()
+            .filter(|matched| matched.pending)
+            .map(|matched| matched.song.clone())
+            .collect();
         let tracks = songs
             .into_iter()
             .map(|matched| TrackInput {
@@ -232,8 +265,139 @@ impl ImportService {
             })
             .collect();
         collections.add_to_playlist(&playlist.id, tracks).await?;
+        let _ = raygun_db::collections::mark_unavailable(&db, &missing, now_ms()).await;
+        if !pending.is_empty() {
+            let app = self.app.clone();
+            let id = playlist.id.clone();
+            tauri::async_runtime::spawn(async move {
+                let import = app.state::<ImportService>();
+                for song in pending {
+                    let key = key_of(&song);
+                    let matched = import.match_one(song).await;
+                    let db = &app.state::<crate::startup::AppDb>().inner().0;
+                    if matched.matched_by.is_some() {
+                        let found = raygun_db::collections::TrackFields {
+                            track_key: key.clone(),
+                            title: matched.song.title.clone(),
+                            artist: matched.song.artist.clone(),
+                            album: matched.song.album.clone(),
+                            duration_ms: matched.song.duration_ms.map(i64::from),
+                            artwork_url: matched.song.artwork_url.clone(),
+                            source: matched
+                                .source
+                                .as_ref()
+                                .and_then(|source| serde_json::to_string(source).ok()),
+                        };
+                        let _ =
+                            raygun_db::collections::set_track_source(db, &key, &found, false).await;
+                    } else {
+                        let _ =
+                            raygun_db::collections::mark_unavailable(db, &[key], now_ms()).await;
+                    }
+                    if let Err(error) = crate::events::ImportEvent(id.clone()).emit(&app) {
+                        tracing::debug!(%error, "couldn't announce an import's progress");
+                    }
+                }
+            });
+        }
         Ok(playlist.id)
     }
+
+    /// Gives every saved copy of a song the source the user picked (M46.31).
+    pub async fn assign_source(
+        &self,
+        song: TrackInput,
+        chosen: raygun_model::OnlineTrack,
+    ) -> Result<(), String> {
+        let key = raygun_resolver::track_key(&TrackQuery {
+            title: song.title.clone(),
+            artist: song.artist.clone(),
+            album: song.album.clone(),
+            duration_ms: None,
+        });
+        let db = &self.app.state::<crate::startup::AppDb>().inner().0;
+        let found = raygun_db::collections::TrackFields {
+            track_key: key.clone(),
+            title: song.title,
+            artist: song.artist,
+            album: chosen.album.clone(),
+            duration_ms: chosen.duration_ms.map(i64::from),
+            artwork_url: chosen.artwork_url.clone(),
+            source: chosen
+                .source
+                .as_ref()
+                .and_then(|source| serde_json::to_string(source).ok()),
+        };
+        raygun_db::collections::set_track_source(db, &key, &found, true)
+            .await
+            .map_err(|error| error.to_string())?;
+        raygun_db::collections::clear_unavailable(db, &key)
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(())
+    }
+
+    /// Which saved songs no source had (M46.31).
+    pub async fn unavailable(&self, keys: Vec<String>) -> Result<Vec<String>, String> {
+        let db = &self.app.state::<crate::startup::AppDb>().inner().0;
+        raygun_db::collections::unavailable(db, &keys)
+            .await
+            .map_err(|error| error.to_string())
+    }
+}
+
+/// Sources' answers kept per imported song (M46.31).
+const CANDIDATES: usize = 5;
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as i64)
+        .unwrap_or_default()
+}
+
+/// The sources' answers for a song that score at least the import minimum, best first, at most
+/// `limit` and one per source (M46.31: the sources list).
+pub(crate) async fn find_songs(
+    extensions: &ExtensionService,
+    query: &TrackQuery,
+    limit: usize,
+) -> Vec<raygun_model::SongCandidate> {
+    let terms = [query.artist.as_deref().unwrap_or_default(), &query.title].join(" ");
+    let results = extensions.search(terms.trim()).await;
+    let mut best: Vec<raygun_model::SongCandidate> = Vec::new();
+    for result in results {
+        let mut top: Option<raygun_model::SongCandidate> = None;
+        for track in result.tracks {
+            let candidate = Candidate {
+                provider_id: result.provider.id.clone(),
+                provider_name: result.provider.name.clone(),
+                id: track.title.clone(),
+                title: track.title.clone(),
+                artist: track.artist.clone(),
+                duration_ms: track.duration_ms,
+                quality: None,
+                bitrate_kbps: None,
+                source: track.source.clone(),
+            };
+            if !artist_agrees(query, &candidate) {
+                continue;
+            }
+            let points = score(query, &candidate, &History::default());
+            if points >= MIN_SCORE && top.as_ref().is_none_or(|kept| points > kept.points) {
+                top = Some(raygun_model::SongCandidate {
+                    provider_id: result.provider.id.clone(),
+                    provider_name: result.provider.name.clone(),
+                    track,
+                    points,
+                });
+            }
+        }
+        best.extend(top);
+    }
+    best.sort_by_key(|candidate| std::cmp::Reverse(candidate.points));
+    best.truncate(limit);
+    best
 }
 
 /// The sources' best answer for a song: `(points, source name, track)`, searching by artist and
@@ -258,6 +422,9 @@ pub(crate) async fn find_song(
                 bitrate_kbps: None,
                 source: track.source.clone(),
             };
+            if !artist_agrees(query, &candidate) {
+                continue;
+            }
             let points = score(query, &candidate, &History::default());
             if best.as_ref().is_none_or(|(top, _, _)| points > *top) {
                 best = Some((points, result.provider.name.clone(), track));

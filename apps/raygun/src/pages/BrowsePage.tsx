@@ -31,7 +31,6 @@ import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { useIsDesktop } from '../shell/useIsDesktop';
 import { SourceMenu } from '../search/SourceMenu';
 import { WebsitesSection } from '../websites/WebsitesSection';
-import { LocalFilesSection } from './LocalFilesPage';
 import type { SearchType, SearchView } from '../search/searchTypes';
 import { useStremioAddons } from '../watch/useStremio';
 import { useVideoSources } from '../watch/useVideoSources';
@@ -168,7 +167,6 @@ const SourcesList: FC = () => {
       />
     ),
     websites: <WebsitesSection />,
-    localFiles: <LocalFilesSection />,
   };
   return (
     <div data-testid="browse-sources" className="flex flex-col gap-2">

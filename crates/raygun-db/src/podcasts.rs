@@ -51,6 +51,8 @@ pub struct EpisodeFields {
     pub artwork: Option<String>,
     /// Its number in a serial feed (an audiobook's chapter), M46.22.
     pub number: Option<i64>,
+    /// Its transcript as the feed links it, `<type>|<url>` (M46.32).
+    pub transcript: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,7 +88,7 @@ const PODCAST_COLUMNS: &str = "p.id, p.feed_url, p.remote_title, p.remote_author
 
 const EPISODE_COLUMNS: &str = "e.id, e.podcast_id, e.guid, e.remote_title, e.remote_description, \
      e.remote_audio_url, e.remote_audio_type, e.remote_duration_ms, e.remote_published_at, \
-     e.remote_artwork, e.remote_number, e.user_position_ms, e.user_played_at, e.state_found_at, \
+     e.remote_artwork, e.remote_number, e.remote_transcript, e.user_position_ms, e.user_played_at, e.state_found_at, \
      p.remote_title AS podcast_title, p.remote_author AS podcast_author,      p.remote_artwork AS podcast_artwork, p.remote_kind AS podcast_kind";
 
 fn podcast_row(row: &SqliteRow) -> PodcastRow {
@@ -120,6 +122,7 @@ fn episode_row(row: &SqliteRow) -> EpisodeRow {
             published_at: row.get("remote_published_at"),
             artwork: row.get("remote_artwork"),
             number: row.get("remote_number"),
+            transcript: row.get("remote_transcript"),
         },
         position_ms: row.get("user_position_ms"),
         played_at: row.get("user_played_at"),
@@ -204,10 +207,11 @@ pub async fn sync_episodes(
             "INSERT INTO podcast_episode (id, podcast_id, guid, remote_title, remote_description,
                  remote_audio_url, remote_audio_type, remote_duration_ms, remote_published_at,
                  remote_artwork, state_found_at, updated_at_hlc, origin_device, deleted,
-                 remote_number)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 0, ?14)
+                 remote_number, remote_transcript)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 0, ?14, ?15)
              ON CONFLICT (id) DO UPDATE SET
                  remote_number = excluded.remote_number,
+                 remote_transcript = excluded.remote_transcript,
                  remote_title = excluded.remote_title,
                  remote_description = excluded.remote_description,
                  remote_audio_url = excluded.remote_audio_url,
@@ -231,6 +235,7 @@ pub async fn sync_episodes(
         .bind(stamp as i64)
         .bind(&device)
         .bind(episode.number)
+        .bind(&episode.transcript)
         .execute(&mut *transaction)
         .await?;
     }

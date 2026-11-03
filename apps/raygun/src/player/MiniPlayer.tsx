@@ -1,6 +1,7 @@
 import { commands } from '@raygun/bindings';
 import type { PlaybackState, QueueItem, QueueSnapshot, RepeatMode } from '@raygun/bindings';
 import {
+  BookOpen,
   ListMusic,
   Maximize2,
   MicVocal,
@@ -9,20 +10,23 @@ import {
   PictureInPicture2,
   Pause,
   Play,
+  Podcast,
   Repeat,
   Repeat1,
   Shuffle,
   SkipBack,
   SkipForward,
+  Subtitles,
   Volume1,
   Volume2,
   VolumeX,
   X,
 } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
 import { motion } from 'motion/react';
 import type { PanInfo } from 'motion/react';
 import { useRef, useState } from 'react';
-import type { FC, ReactNode } from 'react';
+import type { FC, MouseEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
@@ -33,6 +37,7 @@ import { appBackground } from '../shell/appWindow';
 import { useIsDesktop } from '../shell/useIsDesktop';
 import { fromQueueItem } from '../collections/useCollections';
 import { useTrackMenu } from '../music/useTrackMenu';
+import { openContextMenu } from '../shell/contextMenuStore';
 import { Marquee } from '../shell/Marquee';
 import { useWideScreen } from '../shell/useWideScreen';
 import { FavoriteButton } from './FavoriteButton';
@@ -42,6 +47,8 @@ import { PlaybackExtras } from './PlaybackExtras';
 import { usePlayerUiStore } from './playerUiStore';
 import { onSeekKey } from './seekKeys';
 import { swipeAction } from './swipe';
+import { useSpokenItem } from './spoken';
+import { SpokenByline } from './SpokenByline';
 import { useLivePosition } from './useLivePosition';
 import { isActive, sendControl, sourceNote, useNowPlaying, useQueue } from './usePlayback';
 
@@ -89,6 +96,8 @@ const PhoneBar: FC<BarProps> = ({ state, item }) => {
   const { t } = useTranslation();
   const openSheet = usePlayerUiStore((store) => store.openSheet);
   const note = sourceNote(state, item);
+  // Chapters and episodes aren't songs to save (M46.32).
+  const spoken = useSpokenItem(item);
   const draggedRef = useRef(false);
   const progress =
     state?.durationMs && state.durationMs > 0
@@ -155,7 +164,7 @@ const PhoneBar: FC<BarProps> = ({ state, item }) => {
           <TrackText state={state} item={item} note={note?.kind === 'finding'} />
         </button>
         <ConnectButton />
-        <FavoriteButton item={item} compact />
+        {!spoken && <FavoriteButton item={item} compact />}
         <PlayButton state={state} />
       </div>
       <PlayingOn />
@@ -167,6 +176,7 @@ const WideBar: FC<BarProps> = ({ state, item }) => {
   const { t } = useTranslation();
   const openSheet = usePlayerUiStore((store) => store.openSheet);
   const lyricsShown = usePlayerUiStore((store) => store.sheetOpen && store.sheetView === 'lyrics');
+  const spoken = useSpokenItem(item);
   const panel = usePlayerUiStore((store) => store.panel);
   const togglePanel = usePlayerUiStore((store) => store.togglePanel);
   const note = sourceNote(state, item);
@@ -195,7 +205,7 @@ const WideBar: FC<BarProps> = ({ state, item }) => {
           />
           <TrackText state={state} item={item} note={note?.kind === 'finding'} />
         </button>
-        <FavoriteButton item={item} compact download />
+        {!spoken && <FavoriteButton item={item} compact download />}
       </div>
 
       <div className="flex min-w-0 flex-col items-center gap-0.5">
@@ -257,11 +267,11 @@ const WideBar: FC<BarProps> = ({ state, item }) => {
           </BarButton>
         ) : (
           <BarButton
-            label={t('player.lyrics')}
+            label={spoken ? t('captions.title') : t('player.lyrics')}
             pressed={lyricsShown}
             onClick={() => openSheet({ view: 'lyrics' })}
           >
-            <MicVocal aria-hidden size={18} />
+            {spoken ? <Subtitles aria-hidden size={18} /> : <MicVocal aria-hidden size={18} />}
           </BarButton>
         )}
         <BarButton
@@ -301,17 +311,38 @@ const WideBar: FC<BarProps> = ({ state, item }) => {
 const TrackText: FC<BarProps & { note: boolean }> = ({ item, note }) => {
   const { t } = useTranslation();
   const menu = useTrackMenu();
+  const navigate = useNavigate();
+  const spoken = useSpokenItem(item);
+  // A chapter or an episode isn't a song: its menu leads to the book or the show (M46.32).
+  const spokenMenu = (event: MouseEvent) => {
+    if (!spoken) return;
+    const book = spoken.kind === 'audiobook';
+    openContextMenu(event, [
+      {
+        label: t(book ? 'captions.goToBook' : 'captions.goToShow'),
+        icon: book ? BookOpen : Podcast,
+        onSelect: () =>
+          void navigate({ to: book ? '/audiobook' : '/podcast', search: { id: spoken.podcastId } }),
+      },
+    ]);
+  };
   return (
-    <span className="flex min-w-0 flex-col" onContextMenu={menu(fromQueueItem(item))}>
+    <span
+      className="flex min-w-0 flex-col"
+      onContextMenu={spoken ? spokenMenu : menu(fromQueueItem(item))}
+    >
       <Marquee testId="mini-player-title" text={item.title} className="text-sm font-medium" />
       {note ? (
         <span data-testid="source-note" className="text-muted truncate text-xs">
           {t('player.findingSource')}
         </span>
       ) : (
-        item.artist && (
+        (spoken && (
+          <SpokenByline spoken={spoken} nested className="text-muted block truncate text-xs" />
+        )) ||
+        (item.artist && (
           <ArtistLinks credit={item.artist} nested className="text-muted block truncate text-xs" />
-        )
+        ))
       )}
     </span>
   );

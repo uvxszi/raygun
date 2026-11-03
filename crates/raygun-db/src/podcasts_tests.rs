@@ -29,6 +29,7 @@ fn item(guid: &str, published_at: i64) -> EpisodeFields {
         published_at: Some(published_at),
         artwork: None,
         number: None,
+        transcript: None,
     }
 }
 
@@ -163,6 +164,7 @@ async fn books_keep_their_chapter_order_and_stay_out_of_podcast_lists() {
     let chapter = |guid: &str, number: i64| EpisodeFields {
         published_at: None,
         number: Some(number),
+        transcript: None,
         ..item(guid, 0)
     };
     // The feed lists them out of order; the book reads them by number.

@@ -76,6 +76,10 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Plugins from other players | Nuclear | ✅ M46.23 (metadata, streams, lyrics, dashboards as charts, discovery as radios; QuietPlay and Musike have none) |
 | Local files of every kind (songs, comics, books, videos from folders) | Mihon (local source), Kodi, VLC | ✅ M46.27 (Local Files) |
 | Save cover art as an image | Musicolet, Poweramp | ✅ M46.26 (PNG, JPEG or WebP, largest size) |
+| Pin anything to the sidebar, in your order or by recently played | Spotify | ✅ M46.29 |
+| Edit song titles, artists, albums and covers | Musicolet, Poweramp, Spotify (local files) | ✅ M46.30 (songs, albums and artists; kept on top of the source's data) |
+| Review an imported playlist (fix names, add, reorder, pick sources) | Soundiiz, TuneMyMusic | ✅ M46.31 (also keeps songs no source has, to fix later) |
+| Podcast transcripts and captions | Apple Podcasts, Pocket Casts, Podcasting 2.0 apps | ✅ M46.32 (feed transcripts, or Whisper on the device or online) |
 | Playlist import (from URLs/files) | Nuclear, RiPlay | ✅ M46.21 (Spotify links, CSV, pasted lists, screenshots; matched per song) |
 | Dashboard/discovery: new releases, moods, quick picks | Nuclear, RiPlay | ✅ M46.20 (Made for You: mixes from plays and favorites, Release Radar, moods; skip signals not yet) |
 | Lyrics translation | RiPlay | 🔜 M58 |

@@ -62,7 +62,6 @@ export const LAYOUT_ENTRIES: Record<LayoutSurface, readonly (readonly [string, b
     ['manga', true],
     ['novel', true],
     ['websites', true],
-    ['localFiles', true],
   ],
   moreEntries: [
     ['updates', true],
