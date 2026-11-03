@@ -18,7 +18,7 @@ export const useTrackMenuItems = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const client = useQueryClient();
-  const downloaded = useDownloadedKeys(false);
+  const downloaded = useDownloadedKeys();
   const favorites = useFavorites();
   return (track: TrackInput, extras: Extras, at: { x: number; y: number }): MenuItem[] => {
     const key = trackKey(track.title, track.artist);

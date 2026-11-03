@@ -201,17 +201,37 @@ export const commands = {
 	/**  A cover link through the image cache. */
 	artworkUrl: string | null,
 	state: SongDownloadState,
-	/**  `file` (a source's stream) or `recording`, once done. */
-	kind: string | null,
-	/**  Where the audio came from. */
+	/**
+	 *  How it's made: `file` while downloading, `recording` while recorded, and how it was made
+	 *  once done.
+	 */
+	kind: SongDownloadKind | null,
+	/**
+	 *  Where the audio came from once done; while downloading, the source being tried now; while
+	 *  queued, the source picked for it, if any.
+	 */
 	provider: string | null,
 	/**  The saved file's extension ("mp3", "flac"...), once done. */
 	format: string | null,
+	/**  While downloading, what came so far; once done, the file's size. */
 	doneBytes: number | null,
 	totalBytes: number | null,
+	/**  How far it is, 0–1, when known: the file's bytes, or how much of a recording has played. */
+	fraction: number | null,
+	/**  How fast it downloads now, while it does. */
+	bytesPerSecond: number | null,
+	/**  Time left in ms, when known: from the speed and the size, or the song left to record. */
+	etaMs: number | null,
+	/**  What went wrong, in a line for the listener. */
 	error: string | null,
+	/**  Each source's own error behind `error` ("More info"). */
+	errorDetail: string | null,
 	/**  This device can record what plays (Windows for now). */
 	canRecord: boolean,
+	/**  Its place in the queue (unix ms): queued songs download earliest first. */
+	queuedAt: number | null,
+	/**  When it finished, or stopped with an error (unix ms). */
+	finishedAt: number | null,
 } | null, string>(__TAURI_INVOKE("song_download_for", { track })),
 	/**  Where a song is saved: Favorites and the playlists holding it (M46.8). */
 	collectionsSaves: (track: TrackInput) => typedError<TrackSaves, string>(__TAURI_INVOKE("collections_saves", { track })),
@@ -379,10 +399,63 @@ export const commands = {
 	songsDownload: (tracks: TrackInput[]) => typedError<null, string>(__TAURI_INVOKE("songs_download", { tracks })),
 	/**  Every song download, newest first (M46.10). */
 	songDownloads: () => typedError<SongDownload[], string>(__TAURI_INVOKE("song_downloads")),
+	/**  One song download as it is now; `None` once it was removed. */
+	songDownload: (id: string) => typedError<{
+	id: string,
+	trackKey: string,
+	title: string,
+	artist: string | null,
+	album: string | null,
+	durationMs: number | null,
+	/**  A cover link through the image cache. */
+	artworkUrl: string | null,
+	state: SongDownloadState,
+	/**
+	 *  How it's made: `file` while downloading, `recording` while recorded, and how it was made
+	 *  once done.
+	 */
+	kind: SongDownloadKind | null,
+	/**
+	 *  Where the audio came from once done; while downloading, the source being tried now; while
+	 *  queued, the source picked for it, if any.
+	 */
+	provider: string | null,
+	/**  The saved file's extension ("mp3", "flac"...), once done. */
+	format: string | null,
+	/**  While downloading, what came so far; once done, the file's size. */
+	doneBytes: number | null,
+	totalBytes: number | null,
+	/**  How far it is, 0–1, when known: the file's bytes, or how much of a recording has played. */
+	fraction: number | null,
+	/**  How fast it downloads now, while it does. */
+	bytesPerSecond: number | null,
+	/**  Time left in ms, when known: from the speed and the size, or the song left to record. */
+	etaMs: number | null,
+	/**  What went wrong, in a line for the listener. */
+	error: string | null,
+	/**  Each source's own error behind `error` ("More info"). */
+	errorDetail: string | null,
+	/**  This device can record what plays (Windows for now). */
+	canRecord: boolean,
+	/**  Its place in the queue (unix ms): queued songs download earliest first. */
+	queuedAt: number | null,
+	/**  When it finished, or stopped with an error (unix ms). */
+	finishedAt: number | null,
+} | null, string>(__TAURI_INVOKE("song_download", { id })),
 	/**  Removes a song download and its file (M46.10). */
 	songDownloadRemove: (id: string) => typedError<null, string>(__TAURI_INVOKE("song_download_remove", { id })),
-	/**  Queues a failed song download again (M46.10). */
+	/**  Removes several song downloads and their files at once (cancels waiting ones). */
+	songDownloadsRemove: (ids: string[]) => typedError<null, string>(__TAURI_INVOKE("song_downloads_remove", { ids })),
+	/**  Queues a failed song download again, first in the queue (M46.10). */
 	songDownloadRetry: (id: string) => typedError<null, string>(__TAURI_INVOKE("song_download_retry", { id })),
+	/**  Queues every failed song download again; returns how many. */
+	songDownloadsRetryFailed: () => typedError<number, string>(__TAURI_INVOKE("song_downloads_retry_failed")),
+	/**  Puts the queued song downloads in this order, first to download first. */
+	songDownloadsReorder: (ids: string[]) => typedError<null, string>(__TAURI_INVOKE("song_downloads_reorder", { ids })),
+	/**  Whether song downloads are paused. */
+	songDownloadsPaused: () => __TAURI_INVOKE<boolean>("song_downloads_paused"),
+	/**  Pauses song downloads (the running one waits, keeping what it saved) or resumes them. */
+	songDownloadsSetPaused: (paused: boolean) => __TAURI_INVOKE<void>("song_downloads_set_paused", { paused }),
 	/**  Plays a song only YouTube has and records it as it plays (M46.10). */
 	songDownloadRecord: (id: string) => typedError<null, string>(__TAURI_INVOKE("song_download_record", { id })),
 	/**  Writes saved songs out as files (M46.10). */
@@ -411,10 +484,11 @@ export const commands = {
 	/**  Stops the song being recorded without keeping it (M46.46: the recording window's Cancel). */
 	songDownloadCancelRecording: () => __TAURI_INVOKE<void>("song_download_cancel_recording"),
 	/**
-	 *  Downloads a song from a source the user picked (M46.47: Choose a source on a failed or
-	 *  YouTube-only download); the others are tried after it if it fails.
+	 *  Downloads a song from a picked source (M46.47: Choose a source on a failed or YouTube-only
+	 *  download), first in the queue; the others are tried after it if it fails. `source` is the
+	 *  source's name, shown while it downloads and in what went wrong.
 	 */
-	songDownloadUseSource: (id: string, track: OnlineTrack) => typedError<null, string>(__TAURI_INVOKE("song_download_use_source", { id, track })),
+	songDownloadUseSource: (id: string, track: OnlineTrack, source: string | null) => typedError<null, string>(__TAURI_INVOKE("song_download_use_source", { id, track, source })),
 	/**
 	 *  A YouTube address typed in Search (M46.47): what it points at, with the video's title and
 	 *  channel when YouTube says; `None` for anything else.
@@ -969,6 +1043,7 @@ export const events = {
 	podcastsChangedEvent: makeEvent<PodcastsChangedEvent>("podcasts-changed-event"),
 	queueEvent: makeEvent<QueueEvent>("queue-event"),
 	settingsChangedEvent: makeEvent<SettingsChangedEvent>("settings-changed-event"),
+	songDownloadProgressEvent: makeEvent<SongDownloadProgressEvent>("song-download-progress-event"),
 	songDownloadsEvent: makeEvent<SongDownloadsEvent>("song-downloads-event"),
 	speechCommandEvent: makeEvent<SpeechCommandEvent>("speech-command-event"),
 	syncChangedEvent: makeEvent<SyncChangedEvent>("sync-changed-event"),
@@ -3318,7 +3393,10 @@ export type SongDestination =
 /**  The folder picked in Settings → Downloads. */
 "folder";
 
-/**  A song saved (or being saved) into the app to play offline (M46.10). */
+/**
+ *  A song saved (or being saved) into the app to play offline (M46.10). It is also the payload of
+ *  `SongDownloadProgressEvent`, sent on every change of state or source and while it downloads.
+ */
 export type SongDownload = {
 	id: string,
 	trackKey: string,
@@ -3329,18 +3407,51 @@ export type SongDownload = {
 	/**  A cover link through the image cache. */
 	artworkUrl: string | null,
 	state: SongDownloadState,
-	/**  `file` (a source's stream) or `recording`, once done. */
-	kind: string | null,
-	/**  Where the audio came from. */
+	/**
+	 *  How it's made: `file` while downloading, `recording` while recorded, and how it was made
+	 *  once done.
+	 */
+	kind: SongDownloadKind | null,
+	/**
+	 *  Where the audio came from once done; while downloading, the source being tried now; while
+	 *  queued, the source picked for it, if any.
+	 */
 	provider: string | null,
 	/**  The saved file's extension ("mp3", "flac"...), once done. */
 	format: string | null,
+	/**  While downloading, what came so far; once done, the file's size. */
 	doneBytes: number | null,
 	totalBytes: number | null,
+	/**  How far it is, 0–1, when known: the file's bytes, or how much of a recording has played. */
+	fraction: number | null,
+	/**  How fast it downloads now, while it does. */
+	bytesPerSecond: number | null,
+	/**  Time left in ms, when known: from the speed and the size, or the song left to record. */
+	etaMs: number | null,
+	/**  What went wrong, in a line for the listener. */
 	error: string | null,
+	/**  Each source's own error behind `error` ("More info"). */
+	errorDetail: string | null,
 	/**  This device can record what plays (Windows for now). */
 	canRecord: boolean,
+	/**  Its place in the queue (unix ms): queued songs download earliest first. */
+	queuedAt: number | null,
+	/**  When it finished, or stopped with an error (unix ms). */
+	finishedAt: number | null,
 };
+
+/**
+ *  How a song download is made: a source's file (yt-dlp's copy of a YouTube video included), or a
+ *  recording of the song as it plays.
+ */
+export type SongDownloadKind = "file" | "recording";
+
+/**
+ *  One song download as it is now: sent when its state or source changes, and while it downloads
+ *  or is recorded, at most four times a second and only when what it shows moved on (its percent,
+ *  or 100 KB without a known size). Not sent for removals (`SongDownloadsEvent` is).
+ */
+export type SongDownloadProgressEvent = SongDownload;
 
 /**  Where a song saved into the app stands (M46.10). */
 export type SongDownloadState = "queued" | "downloading" | 

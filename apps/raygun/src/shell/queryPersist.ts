@@ -172,7 +172,10 @@ export const persistQueryCache = (client: QueryClient) => {
     save();
   };
   const unsubscribe = client.getQueryCache().subscribe((event) => {
-    if (event.type === 'updated' && event.action.type === 'success') later();
+    // Progress and other answers that aren't kept don't cause a save (downloads report often).
+    if (event.type === 'updated' && event.action.type === 'success' && saveable(event.query)) {
+      later();
+    }
     if (event.type === 'removed') later();
   });
   const hidden = () => {
