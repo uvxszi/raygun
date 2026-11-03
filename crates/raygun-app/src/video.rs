@@ -183,9 +183,12 @@ pub async fn prepare(
             None => serde_json::to_string(&request).map_err(|error| error.to_string())?,
         },
     };
-    store::started(&db, &entry, now_ms())
-        .await
-        .map_err(|error| error.to_string())?;
+    // Incognito (M47): it doesn't go into Continue watching.
+    if !crate::privacy::incognito(app) {
+        store::started(&db, &entry, now_ms())
+            .await
+            .map_err(|error| error.to_string())?;
+    }
     // A finished download plays from the device, with its saved subtitles.
     let (url, headers, format, subtitles) =
         match crate::video_downloads::offline(app, &request.key).await {
@@ -572,6 +575,10 @@ async fn record(app: &AppHandle, report: PlayerReport) {
         || duration.is_some_and(|duration| report.position_ms >= duration * watched_share);
     // A failed load reports position 0; don't let it wipe saved progress.
     if report.state == "error" && report.position_ms <= 0.0 {
+        return;
+    }
+    // Incognito (M47): no progress is saved, and a series doesn't move on to its next episode.
+    if crate::privacy::incognito(app) {
         return;
     }
     let now = now_ms();

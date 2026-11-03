@@ -45,6 +45,7 @@ mod novel;
 mod playback;
 mod podcast_feed;
 mod podcasts;
+mod privacy;
 mod quick_access;
 mod remote;
 mod resolution;
@@ -246,6 +247,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::favorites_set_order,
             commands::history_recent,
             commands::history_clear,
+            commands::incognito_status,
+            commands::incognito_set_enabled,
             commands::collection_play,
             commands::mcp_status,
             commands::mcp_set_enabled,
@@ -438,6 +441,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::CaptionsEvent,
             events::ArtistReleasesEvent,
             events::SettingsChangedEvent,
+            events::IncognitoEvent,
             events::ExportEvent,
             events::VideoPlayerEvent,
             events::YouTubeVideoEvent,

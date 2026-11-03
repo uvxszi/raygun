@@ -43,6 +43,7 @@ import { SoundButton } from '../sound/SoundButton';
 import { PlaybackExtras } from './PlaybackExtras';
 import { PlayerCards } from './PlayerCards';
 import { PlayingOn } from '../connect/PlayingOn';
+import { IncognitoBadge } from '../privacy/IncognitoBadge';
 import { PlayerViewSettings } from './PlayerViewSettings';
 import { useCloseOnBack } from './useCloseOnBack';
 import { onSeekKey } from './seekKeys';
@@ -225,6 +226,7 @@ export const PlayerSheet: FC = () => {
             </button>
             <span aria-hidden className="bg-muted/40 h-1.5 w-10 rounded-full" />
             <div className="flex items-center">
+              <IncognitoBadge className="mr-1" />
               <PlaybackExtras state={state} className="h-11" />
               <SoundButton className="size-11" />
               <VideoToggle item={item} className="size-11" />
