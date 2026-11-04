@@ -46,6 +46,7 @@ import { usePlayerWide, useSheetLayout } from './playerLayout';
 import type { SheetView } from './playerUiStore';
 import { usePlayerUiStore } from './playerUiStore';
 import { usePlayerView } from './playerView';
+import { IncognitoBadge } from '../privacy/IncognitoBadge';
 import { PlayerViewSettings } from './PlayerViewSettings';
 import { QueueActions, QueueList } from './QueueList';
 import { SeekBar } from './SeekBar';
@@ -181,6 +182,7 @@ export const PlayerSheet: FC = () => {
             onClose={closeSheet}
             actions={
               <>
+                <IncognitoBadge className="mr-1" />
                 {item && layout === 'landscape' && (
                   <>
                     <ViewToggle

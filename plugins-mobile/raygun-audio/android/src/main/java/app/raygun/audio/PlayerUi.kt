@@ -9,20 +9,37 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.BaseAdapter
 import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ListView
 import android.widget.ScrollView
 import android.widget.TextView
+import org.json.JSONObject
 import java.util.Locale
 
-/** The player's accent (Raygun's red) and its panels' colour. */
+/** Raygun's red (the websites browser's accent). */
 internal const val ACCENT = 0xFFE53935.toInt()
+
+/** The video player's accent: the app's (each request's `accent`), Raygun's red until one comes. */
+internal var playerAccent: Int = ACCENT
+
+/** The player's panels' colour, and the dimming behind them. */
 internal const val PANEL = 0xF2202124.toInt()
 internal const val SCRIM = 0x66000000
 
 internal fun Context.dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+/** Sets the text only when it changes: setting it lays the view out again even when the same. */
+internal fun TextView.show(value: CharSequence) {
+    if (text?.toString() != value.toString()) text = value
+}
+
+/** A text field; null when missing, blank or JSON null (which `optString` reads as "null"). */
+internal fun JSONObject.text(key: String): String? =
+    if (isNull(key)) null else optString(key).takeIf { it.isNotBlank() }
 
 internal fun rounded(color: Int, radius: Float): GradientDrawable = GradientDrawable().apply {
     setColor(color)
@@ -119,7 +136,7 @@ internal class LevelBar(context: Context, icon: Int) {
         val params = fill.layoutParams
         params.height = (trackHeight * level.coerceIn(0f, 1f)).toInt()
         fill.layoutParams = params
-        (fill.background as? GradientDrawable)?.setColor(if (boosted) ACCENT else Color.WHITE)
+        (fill.background as? GradientDrawable)?.setColor(if (boosted) playerAccent else Color.WHITE)
         text.text = label
         root.visibility = View.VISIBLE
     }
@@ -132,13 +149,42 @@ private class CappedScroll(context: Context, private val max: () -> Int) : Scrol
     }
 }
 
+/** A sheet's row: its words, a tick when `selected`, grey when it can't be picked. */
+private fun Context.sheetRow(text: String, detail: String?, selected: Boolean, enabled: Boolean): TextView =
+    TextView(this).apply {
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        setPadding(dp(20), dp(12), dp(20), dp(12))
+        minHeight = dp(48)
+        gravity = Gravity.CENTER_VERTICAL
+        if (enabled) {
+            val ripple = TypedValue()
+            theme.resolveAttribute(android.R.attr.selectableItemBackground, ripple, true)
+            setBackgroundResource(ripple.resourceId)
+        }
+        fillRow(text, detail, selected, enabled)
+    }
+
+private fun TextView.fillRow(text: String, detail: String?, selected: Boolean, enabled: Boolean) {
+    val check = if (selected) "✓  " else ""
+    this.text = if (detail.isNullOrBlank()) "$check$text" else "$check$text\n$detail"
+    setTextColor(
+        when {
+            !enabled -> 0x80FFFFFF.toInt()
+            selected -> playerAccent
+            else -> Color.WHITE
+        },
+    )
+}
+
 /**
  * A bottom sheet in the player's dark style: a title, then rows, chips and buttons. One shows at
  * a time; back or a tap outside closes it.
  */
-internal class PlayerSheet(private val host: VideoPlayerActivity, title: String) {
+internal class PlayerSheet(private val host: VideoPlayerActivity, val title: String) {
     private val context: Context = host
+    private val maxHeight: Int get() = (context.resources.displayMetrics.heightPixels * 0.72f).toInt()
     private val body = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+    private val scroll = CappedScroll(context) { maxHeight }.apply { addView(body) }
     private val panel = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         background = GradientDrawable().apply {
@@ -155,10 +201,15 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, title: String)
             typeface = Typeface.DEFAULT_BOLD
             setPadding(context.dp(20), 0, context.dp(20), context.dp(8))
         })
-        val scroll = CappedScroll(context) { (context.resources.displayMetrics.heightPixels * 0.72f).toInt() }
-        scroll.addView(body)
         addView(scroll, LinearLayout.LayoutParams(-1, -2))
     }
+
+    /** How far its rows are scrolled, kept when the same sheet is shown again after a change. */
+    var scrolled: Int
+        get() = scroll.scrollY
+        set(value) {
+            scroll.post { scroll.scrollTo(0, value) }
+        }
     val root = FrameLayout(context).apply {
         setBackgroundColor(SCRIM)
         isClickable = true
@@ -186,24 +237,8 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, title: String)
         selected: Boolean = false,
         onClick: (() -> Unit)?,
     ): TextView {
-        val view = TextView(context).apply {
-            val check = if (selected) "✓  " else ""
-            this.text = if (detail.isNullOrBlank()) "$check$text" else "$check$text\n$detail"
-            setTextColor(
-                when {
-                    onClick == null -> 0x80FFFFFF.toInt()
-                    selected -> ACCENT
-                    else -> Color.WHITE
-                },
-            )
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setPadding(context.dp(20), context.dp(12), context.dp(20), context.dp(12))
-            minHeight = context.dp(48)
-            gravity = Gravity.CENTER_VERTICAL
+        val view = context.sheetRow(text, detail, selected, onClick != null).apply {
             if (onClick != null) {
-                val ripple = TypedValue()
-                context.theme.resolveAttribute(android.R.attr.selectableItemBackground, ripple, true)
-                setBackgroundResource(ripple.resourceId)
                 isClickable = true
                 isFocusable = true
                 setOnClickListener { onClick() }
@@ -211,6 +246,34 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, title: String)
         }
         body.addView(view, LinearLayout.LayoutParams(-1, -2))
         return view
+    }
+
+    /**
+     * A long list under the other rows (a series' episodes): rows are made as they scroll into
+     * view, and the `current` one starts in view.
+     */
+    fun list(count: Int, current: Int, describe: (Int) -> Triple<String, String?, Boolean>, onPick: (Int) -> Unit) {
+        val list = ListView(context).apply {
+            divider = null
+            selector = android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)
+            isVerticalScrollBarEnabled = true
+            adapter = object : BaseAdapter() {
+                override fun getCount(): Int = count
+                override fun getItem(position: Int): Any = position
+                override fun getItemId(position: Int): Long = position.toLong()
+                override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                    val (text, detail, selected) = describe(position)
+                    val view = convertView as? TextView ?: return context.sheetRow(text, detail, selected, true)
+                    view.fillRow(text, detail, selected, true)
+                    return view
+                }
+            }
+            setOnItemClickListener { _, _, position, _ -> onPick(position) }
+            if (current > 0) setSelection((current - 1).coerceAtLeast(0))
+        }
+        // Rows are about 56 dp; the list shares the sheet's height with what's above it.
+        val height = minOf(count * context.dp(56), maxHeight - context.dp(120)).coerceAtLeast(context.dp(160))
+        panel.addView(list, LinearLayout.LayoutParams(-1, height))
     }
 
     /** A line of pills; `selected` marks one. */

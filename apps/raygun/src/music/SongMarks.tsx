@@ -6,8 +6,9 @@ import { useTranslation } from 'react-i18next';
 
 import { COLLECTIONS } from '../collections/useCollections';
 import { unwrapResult } from '../lib/commandResult';
+import { PULSE } from './songDownloadState';
 import { trackKey } from './trackKey';
-import { useDownloadedKeys, useDownloadingKeys } from './useSongDownloads';
+import { useSongDownloadState } from './useSongDownloads';
 
 /** Keys of every saved song (Favorites or a playlist), refreshed with the collections. */
 const useSavedKeys = () => {
@@ -21,7 +22,8 @@ const useSavedKeys = () => {
 
 /**
  * A song's marks beside its title, in every list (M46.45): saved (in Favorites or a playlist),
- * downloaded, and on its way (M46.46). The shell listens for download changes once for all.
+ * downloaded, and on its way (M46.46): waiting, or downloading now (it pulses). The marks read
+ * the one list of downloads and change only when this song's download does.
  */
 export const SongMarks: FC<{
   title: string;
@@ -31,9 +33,8 @@ export const SongMarks: FC<{
 }> = ({ title, artist, trackKey: known }) => {
   const { t } = useTranslation();
   const saved = useSavedKeys();
-  const downloaded = useDownloadedKeys(false);
-  const downloading = useDownloadingKeys();
   const keys = [trackKey(title, artist), ...(known ? [known] : [])];
+  const download = useSongDownloadState(keys);
   return (
     <>
       {keys.some((key) => saved.has(key)) && (
@@ -44,16 +45,23 @@ export const SongMarks: FC<{
           className="text-primary shrink-0"
         />
       )}
-      {/* On its way (M46.46): queued, downloading or being recorded. */}
-      {!keys.some((key) => downloaded.has(key)) && keys.some((key) => downloading.has(key)) && (
+      {download === 'queued' && (
+        <ArrowDownToLine
+          role="img"
+          aria-label={t('songs.waiting')}
+          size={13}
+          className="text-muted shrink-0"
+        />
+      )}
+      {(download === 'downloading' || download === 'recording') && (
         <ArrowDownToLine
           role="img"
           aria-label={t('songs.downloading')}
           size={13}
-          className="shrink-0 animate-pulse text-sky-500"
+          className={`shrink-0 text-sky-500 ${PULSE}`}
         />
       )}
-      {keys.some((key) => downloaded.has(key)) && (
+      {download === 'done' && (
         <ArrowDownCircle
           role="img"
           aria-label={t('songs.downloaded')}

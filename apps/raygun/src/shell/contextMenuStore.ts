@@ -17,7 +17,8 @@ export type MenuItem =
       onSelect: () => void;
     }
   | { kind: 'separator' }
-  | { kind: 'heading'; label: string };
+  /** What the menu is for; a phone's menu sheet shows it with its cover and the line under it. */
+  | { kind: 'heading'; label: string; subtitle?: string | null; artworkUrl?: string | null };
 
 type ContextMenuState = {
   open: { x: number; y: number; items: MenuItem[] } | null;
@@ -41,6 +42,12 @@ export const openContextMenu = (event: ReactMouseEvent | MouseEvent, items: Menu
   // The shell's menu reads them from the native event; the innermost component's come first.
   const carried = native as unknown as { raygunMenu?: MenuItem[] };
   carried.raygunMenu ??= items;
+};
+
+/** Opens the same menu from a ⋮ button: under it, with only `items` (a phone shows a sheet). */
+export const openMenuAt = (anchor: HTMLElement, items: MenuItem[]) => {
+  const box = anchor.getBoundingClientRect();
+  useContextMenuStore.getState().show(box.left, box.bottom, items);
 };
 
 /** Items a component put on the event, if any. */

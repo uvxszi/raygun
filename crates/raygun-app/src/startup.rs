@@ -11,6 +11,7 @@ use raygun_paths::{Environment, Paths, Resolution};
 use tauri::{App, Manager, WebviewWindowBuilder};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing_subscriber::filter::FilterExt;
 use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
 const MAIN_WINDOW: &str = "main";
@@ -40,6 +41,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     tracing::info!(device_id = %db.device_id(), "database ready");
     // Before the services: some read the database from background tasks right away.
     app.manage(AppDb(std::sync::Arc::new(db)));
+    // Incognito (M47), known before anything records.
+    let privacy =
+        tauri::async_runtime::block_on(crate::privacy::Privacy::load(&app.state::<AppDb>().0));
+    app.manage(privacy);
 
     let art_dir = paths.cache(raygun_paths::CacheKind::Images);
     // Image caches with their limits from settings (M46.2).
@@ -411,10 +416,11 @@ fn init_logging(paths: &Paths) -> Result<WorkerGuard, Box<dyn Error>> {
     // lofty warns about every MP3 without a duration header, which floods the log during scans.
     let filter =
         || EnvFilter::try_from_env("RAYGUN_LOG").unwrap_or_else(|_| "info,lofty=error".into());
+    // Incognito (M47): the files don't name what's played, watched, read or searched.
     let file_layer = tracing_subscriber::fmt::layer()
         .with_ansi(false)
         .with_writer(writer)
-        .with_filter(filter());
+        .with_filter(filter().and(crate::privacy::log_filter()));
     let stderr_layer = cfg!(debug_assertions).then(|| {
         tracing_subscriber::fmt::layer()
             .with_writer(std::io::stderr)

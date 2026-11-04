@@ -25,6 +25,7 @@ mod export;
 mod extensions;
 mod follows;
 mod genres;
+mod hidden;
 mod history;
 mod import;
 mod last_played;
@@ -45,6 +46,7 @@ mod novel;
 mod playback;
 mod podcast_feed;
 mod podcasts;
+mod privacy;
 mod quick_access;
 mod remote;
 mod resolution;
@@ -149,6 +151,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::made_for_you,
             commands::made_for_you_mix,
             commands::made_for_you_save,
+            commands::hidden_artist_set,
+            commands::hidden_item_set,
+            commands::hidden_clear,
             commands::import_read_link,
             commands::import_read_text,
             commands::import_reader_ready,
@@ -203,8 +208,14 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::music_find_album,
             commands::songs_download,
             commands::song_downloads,
+            commands::song_download,
             commands::song_download_remove,
+            commands::song_downloads_remove,
             commands::song_download_retry,
+            commands::song_downloads_retry_failed,
+            commands::song_downloads_reorder,
+            commands::song_downloads_paused,
+            commands::song_downloads_set_paused,
             commands::song_download_record,
             commands::songs_save,
             commands::song_downloaded_keys,
@@ -246,6 +257,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::favorites_set_order,
             commands::history_recent,
             commands::history_clear,
+            commands::incognito_status,
+            commands::incognito_set_enabled,
             commands::collection_play,
             commands::mcp_status,
             commands::mcp_set_enabled,
@@ -293,6 +306,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::novel_set_progress,
             commands::novel_set_read,
             commands::novel_import_epub,
+            commands::novel_import_epub_upload,
             commands::tts_available,
             commands::tts_speak,
             commands::tts_stop,
@@ -332,6 +346,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::library_set_favorite,
             commands::library_set_pinned,
             commands::library_mark_read,
+            commands::library_set_chapters_read,
+            commands::library_mark_previous_read,
             commands::library_remove,
             commands::library_change_categories,
             commands::library_download_next,
@@ -429,6 +445,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::WatchChangedEvent,
             events::VideoDownloadsEvent,
             events::SongDownloadsEvent,
+            events::SongDownloadProgressEvent,
             events::YtDlpEvent,
             events::AppUpdateEvent,
             events::MadeForYouEvent,
@@ -438,6 +455,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::CaptionsEvent,
             events::ArtistReleasesEvent,
             events::SettingsChangedEvent,
+            events::IncognitoEvent,
             events::ExportEvent,
             events::VideoPlayerEvent,
             events::YouTubeVideoEvent,

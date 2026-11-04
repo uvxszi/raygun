@@ -59,7 +59,7 @@ Each plugin gets a compatibility report that says which parts work.
   1. Download the zip (10 MiB cap; `sha256` checked when the registry lists one).
   2. Convert it, write the generated extension under `extensions/<id>/`, and record the install.
 - Browse shows a "Nuclear" badge. The extension's page shows the compatibility report.
-- The registry isn't seeded; the user adds it under Repositories. Nuclear's plugins are third-party code.
+- The registry isn't seeded; it is added by hand under Repositories. Nuclear's plugins are third-party code.
 
 ## Done-check
 - **Converter, Vitest in `packages/nuclear-compat`:**

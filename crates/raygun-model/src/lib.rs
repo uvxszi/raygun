@@ -148,9 +148,11 @@ pub struct Settings {
     pub watched_percent: u32,
     /// Seconds a double tap or the skip buttons jump in the video player.
     pub seek_seconds: u32,
-    /// Subtitles turn on by themselves when a video has them in the subtitle language.
+    /// Subtitles turn on by themselves when a video has them in the subtitle language. Read only
+    /// while `VideoPlayerPrefs::subtitle_mode` is unset (on: always, off: for other languages).
     pub auto_subtitles: bool,
-    /// Subtitles' language as a BCP 47 tag; empty follows the app's language.
+    /// Subtitles' language as a BCP 47 tag; empty follows the device's languages, then the
+    /// app's (the player knows the device's).
     pub subtitle_language: String,
     /// The next episode plays by itself at the end of one (M44).
     pub autoplay_next: bool,
@@ -200,6 +202,8 @@ pub struct Settings {
     pub transcription: TranscriptionPrefs,
     /// What's remembered of listening (M46.41).
     pub privacy: PrivacyPrefs,
+    /// Artists and things not to show on Home and in recommendations.
+    pub hidden: HiddenPrefs,
     /// How long lyrics stay kept (M46.46).
     pub lyrics_cache: LyricsCachePrefs,
     /// Sources that didn't answer lately go to the end of Browse and Search (M46.9).
@@ -366,6 +370,8 @@ pub struct PrivacyPrefs {
     pub history: bool,
     /// Where plays started from is kept for Home (Recently played, Your music).
     pub recently_played: bool,
+    /// Incognito stays on when Raygun starts again; otherwise it ends with the app (M47).
+    pub keep_incognito: bool,
 }
 
 impl Default for PrivacyPrefs {
@@ -373,7 +379,101 @@ impl Default for PrivacyPrefs {
         Self {
             history: true,
             recently_played: true,
+            keep_incognito: false,
         }
+    }
+}
+
+/// Incognito (M47): while it's on, nothing records what's played, watched, read or searched.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct IncognitoStatus {
+    pub on: bool,
+    /// When it was turned on (Unix ms), or when Raygun started with it kept on.
+    pub since_ms: Option<f64>,
+}
+
+/// What the listener asked not to be shown, as Spotify's "Don't play this artist" and "Not
+/// interested": artists left out of Home, Made for You, charts, genre rows and recommendations,
+/// and things Home doesn't show again. Searches and an artist's own page still find them.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HiddenPrefs {
+    pub artists: Vec<HiddenArtist>,
+    pub items: Vec<HiddenItem>,
+}
+
+/// An artist not shown (Don't show this artist).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HiddenArtist {
+    /// As it was shown; compared without case.
+    pub name: String,
+    /// Unix seconds.
+    pub hidden_at: u32,
+}
+
+/// Something Home doesn't show again (Not interested).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HiddenItem {
+    /// One of [`HIDDEN_KINDS`].
+    pub kind: String,
+    /// What it's known by: a song's track key, the address of its page
+    /// (`/music/album?id=…&provider=…`), or its feed (`feed:<url>`).
+    pub key: String,
+    /// Its name, artist or show and cover as last seen, for the list in Settings.
+    pub name: String,
+    pub subtitle: Option<String>,
+    pub artwork_url: Option<String>,
+    /// Unix seconds.
+    pub hidden_at: u32,
+}
+
+/// What can be hidden from Home.
+pub const HIDDEN_KINDS: [&str; 14] = [
+    "song",
+    "album",
+    "playlist",
+    "mix",
+    "artist",
+    "podcast",
+    "episode",
+    "audiobook",
+    "chart",
+    "tag",
+    "manga",
+    "novel",
+    "video",
+    "page",
+];
+/// Hidden artists and items kept at most; past them the oldest go first.
+pub const HIDDEN_ARTISTS_MAX: usize = 1_000;
+pub const HIDDEN_ITEMS_MAX: usize = 2_000;
+
+impl HiddenPrefs {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.artists.len() > HIDDEN_ARTISTS_MAX || self.items.len() > HIDDEN_ITEMS_MAX {
+            return Err(format!(
+                "at most {HIDDEN_ARTISTS_MAX} artists and {HIDDEN_ITEMS_MAX} other things can be hidden"
+            ));
+        }
+        if self
+            .artists
+            .iter()
+            .any(|artist| artist.name.trim().is_empty() || artist.name.len() > 300)
+        {
+            return Err("a hidden artist needs a name of up to 300 characters".to_owned());
+        }
+        if let Some(item) = self.items.iter().find(|item| {
+            !HIDDEN_KINDS.contains(&item.kind.as_str())
+                || item.key.trim().is_empty()
+                || item.key.len() > 2_000
+                || item.name.len() > 500
+        }) {
+            return Err(format!("{:?} can't be hidden", item.name));
+        }
+        Ok(())
     }
 }
 
@@ -1107,6 +1207,36 @@ pub enum PagedScale {
     Original,
 }
 
+/// Where taps turn pages in the manga reader (Mihon's navigation layouts).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TapZones {
+    /// The sides in the paged modes, the L shape in the vertical strip.
+    #[default]
+    Auto,
+    /// The top and the left of the middle go back; the right of the middle and the bottom on.
+    LShaped,
+    /// The top shows the controls; the left third goes back, the rest on.
+    Kindle,
+    /// Both sides go on; the bottom of the middle goes back.
+    Edge,
+    /// The left third and the right third, as the reading direction has them.
+    Sides,
+    /// Taps only show and hide the controls.
+    Off,
+}
+
+/// How the tap zones are mirrored.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TapInvert {
+    #[default]
+    None,
+    Horizontal,
+    Vertical,
+    Both,
+}
+
 /// The manga reader's display (M46.7). One stored row; missing fields keep their defaults.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(default, rename_all = "camelCase")]
@@ -1125,6 +1255,18 @@ pub struct MangaReaderPrefs {
     pub bar_fullscreen: bool,
     /// Pages loaded ahead of the one being read, 1–10.
     pub preload_pages: u32,
+    /// How titles without a reading mode of their own are read.
+    pub default_mode: ReaderMode,
+    pub tap_zones: TapZones,
+    pub invert_taps: TapInvert,
+    /// A double tap zooms; single taps then wait a moment to tell the two apart.
+    pub double_tap_zoom: bool,
+    /// The page number stays on screen while the controls are hidden.
+    pub page_number: bool,
+    /// The screen doesn't turn off while a chapter is open.
+    pub keep_screen_on: bool,
+    /// Next and previous chapter skip other uploads of the same chapter number.
+    pub skip_duplicates: bool,
 }
 
 impl Default for MangaReaderPrefs {
@@ -1138,6 +1280,13 @@ impl Default for MangaReaderPrefs {
             bar_mode: true,
             bar_fullscreen: true,
             preload_pages: 3,
+            default_mode: ReaderMode::Webtoon,
+            tap_zones: TapZones::Auto,
+            invert_taps: TapInvert::None,
+            double_tap_zoom: true,
+            page_number: true,
+            keep_screen_on: true,
+            skip_duplicates: true,
         }
     }
 }
@@ -1242,6 +1391,18 @@ pub enum NovelWidth {
     Wide,
 }
 
+/// The novel reader's page colours: the app's, or a page of its own.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum NovelTheme {
+    #[default]
+    App,
+    Light,
+    Sepia,
+    Dark,
+    Black,
+}
+
 /// The novel reader's typography and layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -1260,10 +1421,22 @@ pub struct NovelReaderPrefs {
     /// The first line of each paragraph starts further in, as in printed books (M46.10).
     #[serde(default)]
     pub indent: bool,
+    #[serde(default)]
+    pub theme: NovelTheme,
+    /// Lines run to both edges, words hyphenated.
+    #[serde(default)]
+    pub justify: bool,
+    /// The screen doesn't turn off while a chapter is open.
+    #[serde(default = "screen_kept_on")]
+    pub keep_screen_on: bool,
 }
 
 fn normal_rate() -> u32 {
     10
+}
+
+fn screen_kept_on() -> bool {
+    true
 }
 
 impl Default for NovelReaderPrefs {
@@ -1276,6 +1449,9 @@ impl Default for NovelReaderPrefs {
             paged: false,
             tts_rate: 10,
             indent: false,
+            theme: NovelTheme::App,
+            justify: false,
+            keep_screen_on: true,
         }
     }
 }
@@ -1362,6 +1538,23 @@ pub enum SubtitleFont {
     Serif,
     Mono,
 }
+
+/// When the video player turns subtitles on by itself, in the first subtitle language a video
+/// has (mpv's `subs-with-matching-audio`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SubtitleMode {
+    /// When the audio isn't in one of the subtitle languages; forced subtitles otherwise.
+    #[default]
+    Foreign,
+    /// Whenever the video has subtitles in one of them.
+    Always,
+    /// Only when turned on in the player.
+    Never,
+}
+
+/// `VideoPlayerPrefs::audio_language` for the video's own track (the one marked default).
+pub const ORIGINAL_AUDIO: &str = "original";
 
 /// How subtitles look in the video player (M45).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -1456,8 +1649,13 @@ pub struct VideoPlayerPrefs {
     pub subtitle_prefer_words: String,
     /// Comma-separated words that keep a subtitle track from being picked ("Signs, Songs").
     pub subtitle_skip_words: String,
+    /// When subtitles turn on by themselves. Unset follows `Settings::auto_subtitles`, the
+    /// older switch: on is `Always`, off is `Foreign`.
+    pub subtitle_mode: Option<SubtitleMode>,
     pub subtitle_style: SubtitleStyle,
-    /// Empty plays the video's own default track.
+    /// The audio track's language: empty follows the device's languages, then the app's;
+    /// `ORIGINAL_AUDIO` plays the video's own default track; else a BCP 47 tag. Without a
+    /// match, the track marked default (or original) plays, else the first.
     pub audio_language: String,
     pub audio_fallback: String,
 
@@ -1509,6 +1707,7 @@ impl Default for VideoPlayerPrefs {
             subtitle_fallback: String::new(),
             subtitle_prefer_words: String::new(),
             subtitle_skip_words: String::new(),
+            subtitle_mode: None,
             subtitle_style: SubtitleStyle::default(),
             audio_language: String::new(),
             audio_fallback: String::new(),
@@ -1643,6 +1842,7 @@ impl Default for Settings {
             discovery: DiscoveryPrefs::default(),
             transcription: TranscriptionPrefs::default(),
             privacy: PrivacyPrefs::default(),
+            hidden: HiddenPrefs::default(),
             lyrics_cache: LyricsCachePrefs::default(),
             failing_sources_last: true,
             user_agent: String::new(),
@@ -1705,6 +1905,7 @@ impl Settings {
             SettingChange::AudioQuality(prefs) => self.audio_quality = prefs,
             SettingChange::Rail(prefs) => self.rail = prefs,
             SettingChange::Privacy(prefs) => self.privacy = prefs,
+            SettingChange::Hidden(prefs) => self.hidden = prefs,
             SettingChange::LyricsCache(prefs) => self.lyrics_cache = prefs,
             SettingChange::Transcription(prefs) => {
                 self.transcription = TranscriptionPrefs {
@@ -1786,6 +1987,7 @@ pub enum SettingChange {
     Rail(RailPrefs),
     Transcription(TranscriptionPrefs),
     Privacy(PrivacyPrefs),
+    Hidden(HiddenPrefs),
     LyricsCache(LyricsCachePrefs),
 }
 
@@ -1843,6 +2045,7 @@ impl SettingChange {
             Self::Rail(_) => "rail",
             Self::Transcription(_) => "transcription",
             Self::Privacy(_) => "privacy",
+            Self::Hidden(_) => "hidden",
             Self::LyricsCache(_) => "lyricsCache",
         }
     }
@@ -1875,6 +2078,7 @@ impl SettingChange {
                 Err("Lyrics can be kept for at most ten years".into())
             }
             Self::LyricsCache(_) => Ok(()),
+            Self::Hidden(prefs) => prefs.validate(),
             Self::Rail(prefs) => prefs.validate(),
             Self::Transcription(prefs) => {
                 if prefs.online_model.trim().len() > 200 {
@@ -2874,6 +3078,10 @@ pub struct ListeningStats {
     pub peak_hour: Option<u8>,
     /// Songs the user has played or saved.
     pub songs_known: u32,
+    /// The artists played most now, the most first (Home's Your top artists), without hidden
+    /// ones.
+    #[serde(default)]
+    pub top_artists: Vec<String>,
 }
 
 /// Made for You: today's mixes, and whether new ones are being made.
@@ -3579,7 +3787,27 @@ impl SongDownloadState {
     }
 }
 
-/// A song saved (or being saved) into the app to play offline (M46.10).
+/// How a song download is made: a source's file (yt-dlp's copy of a YouTube video included), or a
+/// recording of the song as it plays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SongDownloadKind {
+    File,
+    Recording,
+}
+
+impl SongDownloadKind {
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "file" => Some(Self::File),
+            "recording" => Some(Self::Recording),
+            _ => None,
+        }
+    }
+}
+
+/// A song saved (or being saved) into the app to play offline (M46.10). It is also the payload of
+/// `SongDownloadProgressEvent`, sent on every change of state or source and while it downloads.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SongDownload {
@@ -3592,17 +3820,33 @@ pub struct SongDownload {
     /// A cover link through the image cache.
     pub artwork_url: Option<String>,
     pub state: SongDownloadState,
-    /// `file` (a source's stream) or `recording`, once done.
-    pub kind: Option<String>,
-    /// Where the audio came from.
+    /// How it's made: `file` while downloading, `recording` while recorded, and how it was made
+    /// once done.
+    pub kind: Option<SongDownloadKind>,
+    /// Where the audio came from once done; while downloading, the source being tried now; while
+    /// queued, the source picked for it, if any.
     pub provider: Option<String>,
     /// The saved file's extension ("mp3", "flac"...), once done.
     pub format: Option<String>,
+    /// While downloading, what came so far; once done, the file's size.
     pub done_bytes: f64,
     pub total_bytes: Option<f64>,
+    /// How far it is, 0–1, when known: the file's bytes, or how much of a recording has played.
+    pub fraction: Option<f64>,
+    /// How fast it downloads now, while it does.
+    pub bytes_per_second: Option<f64>,
+    /// Time left in ms, when known: from the speed and the size, or the song left to record.
+    pub eta_ms: Option<f64>,
+    /// What went wrong, in a line for the listener.
     pub error: Option<String>,
+    /// Each source's own error behind `error` ("More info").
+    pub error_detail: Option<String>,
     /// This device can record what plays (Windows for now).
     pub can_record: bool,
+    /// Its place in the queue (unix ms): queued songs download earliest first.
+    pub queued_at: f64,
+    /// When it finished, or stopped with an error (unix ms).
+    pub finished_at: Option<f64>,
 }
 
 /// yt-dlp on this device (M46.47): YouTube downloads on desktop, and songs only YouTube has.
@@ -3860,12 +4104,31 @@ pub struct MangaUpdateStatus {
     pub failed: u32,
     /// Unix ms of the last finished run.
     pub last_run_at: Option<f64>,
+    /// The titles this session's last update couldn't check, and why.
+    #[serde(default)]
+    pub failures: Vec<UpdateFailure>,
+}
+
+/// A library title an update couldn't check.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateFailure {
+    /// `manga`, `novel` or `video`: which page opens it.
+    pub medium: String,
+    pub source_id: String,
+    pub remote_id: String,
+    pub title: String,
+    pub source_name: String,
+    /// The source's error, for "More info".
+    pub message: String,
 }
 
 /// A chapter a library update found.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct MangaUpdateItem {
+    /// `manga` or `novel`: which reader opens it.
+    pub medium: String,
     pub title_id: String,
     pub source_id: String,
     pub remote_id: String,
@@ -4146,22 +4409,29 @@ pub const LAYOUT_AUDIO_VIEWS: [(&str, bool); 9] = [
     ("artists", true),
     ("tracks", true),
 ];
-pub const LAYOUT_HOME_SECTIONS: [(&str, bool); 18] = [
-    // "Nothing to pick up yet" (M46.37): shown while nothing is under way; closing it hides it.
+pub const LAYOUT_HOME_SECTIONS: [(&str, bool); 22] = [
+    // "Get started" (M46.37): shown while nothing is under way; closing it hides it.
     ("getStarted", true),
     ("continueWatching", true),
     ("continueReading", true),
     ("madeForYou", true),
     ("yourMusic", true),
+    // The artists played most now, from Made for You's numbers.
+    ("topArtists", true),
     ("recentlyPlayed", true),
+    // New episodes of followed shows.
+    ("newEpisodes", true),
     ("popularMusic", true),
     ("trendingMusic", true),
     // More rows from Browse all's kinds (M46.47).
     ("newReleases", true),
+    // Releases found for followed artists (M46.42).
+    ("followedReleases", true),
     ("popularVideos", true),
     ("popularComics", true),
     ("popularBooks", true),
     ("popularAudiobooks", true),
+    ("popularPodcasts", true),
     ("charts", true),
     ("viralMusic", true),
     ("genres", true),
@@ -4678,10 +4948,16 @@ impl ReaderMode {
     }
 
     pub fn parse(text: &str) -> Self {
+        Self::chosen(text).unwrap_or(Self::Webtoon)
+    }
+
+    /// A title's own mode as stored; `None` (an empty value) follows the reader's default.
+    pub fn chosen(text: &str) -> Option<Self> {
         match text {
-            "pagedLtr" => Self::PagedLtr,
-            "pagedRtl" => Self::PagedRtl,
-            _ => Self::Webtoon,
+            "webtoon" => Some(Self::Webtoon),
+            "pagedLtr" => Some(Self::PagedLtr),
+            "pagedRtl" => Some(Self::PagedRtl),
+            _ => None,
         }
     }
 }
@@ -4692,7 +4968,10 @@ impl ReaderMode {
 pub struct MangaChapterPages {
     pub title_id: String,
     pub title: String,
+    /// How the chapter is read: the title's own mode, else the reader's default.
     pub reader_mode: ReaderMode,
+    /// The title's own mode; `None` follows the default.
+    pub own_reader_mode: Option<ReaderMode>,
     pub chapter: MangaChapterInfo,
     /// Through the local image proxy, in reading order.
     pub pages: Vec<String>,

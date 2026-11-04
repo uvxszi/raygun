@@ -102,6 +102,15 @@ describe('desktop video player', () => {
     expect(reports()).toContainEqual(
       expect.objectContaining({ state: 'request', action: 'ready' }),
     );
+    // The ring says how many sources have answered.
+    update({
+      type: 'sources',
+      groups: [
+        { name: 'Alpha', state: 'ready', error: null, links: [] },
+        { name: 'Slow', state: 'resolving', error: null, links: [] },
+      ],
+    });
+    expect(await within(waiting).findByText('1 of 2 sources checked')).toBeInTheDocument();
 
     update({
       type: 'episodes',
@@ -127,6 +136,24 @@ describe('desktop video player', () => {
     // The first link replaces the spinner with the picture.
     const video = await screen.findByTestId('desktop-video');
     const player = screen.getByRole('dialog', { name: 'Video player' });
+    // Until it plays, the ring says which source this is, after one that failed.
+    update({
+      type: 'sources',
+      groups: [
+        {
+          name: 'Alpha',
+          state: 'ready',
+          error: null,
+          links: [
+            { label: '1080p', current: false, failed: true },
+            { label: '720p', current: true, failed: false },
+          ],
+        },
+      ],
+    });
+    expect(
+      await within(player).findByText('Trying source 2 of 2 · Alpha · 720p'),
+    ).toBeInTheDocument();
 
     await user.click(within(player).getByRole('button', { name: 'Episodes' }));
     const episodes = screen.getByRole('region', { name: 'Episodes' });
@@ -241,9 +268,13 @@ describe('desktop video player', () => {
     });
     const notice = await within(player).findByRole('alert');
     expect(notice).toHaveTextContent("This video's format can't play here");
+    expect(notice).not.toHaveTextContent('DEMUXER_ERROR');
     expect(reports()).toContainEqual(
       expect.objectContaining({ state: 'error', error: 'DEMUXER_ERROR' }),
     );
+    // The player's own words are under More info.
+    await user.click(within(notice).getByRole('button', { name: 'More info' }));
+    expect(notice).toHaveTextContent('DEMUXER_ERROR');
 
     // It asks which player (M46.33).
     await user.click(within(notice).getByRole('button', { name: 'Play in another player' }));
@@ -259,6 +290,40 @@ describe('desktop video player', () => {
       'vlc',
     );
     expect(await within(player).findByRole('alert')).toHaveTextContent('Playing in mpv');
+  });
+
+  it('turns on subtitles in your language when the audio is in another one', async () => {
+    const user = userEvent.setup();
+    const subtitles = [
+      { url: 'http://127.0.0.1:1/subtitle/es', lang: 'spa', label: null, format: 'srt' },
+      { url: 'http://127.0.0.1:1/subtitle/en', lang: 'English', label: null, format: 'srt' },
+    ];
+    await AppShellWrapper.mount('/');
+    // An anime: its streams don't say they're Japanese.
+    open({ ...MOVIE, titleState: null, subtitles, spokenLanguage: 'ja', subtitleMode: 'foreign' });
+    const player = await screen.findByRole('dialog', { name: 'Video player' });
+    const video = await within(player).findByTestId('desktop-video');
+    Object.defineProperty(video, 'duration', { value: 600, configurable: true });
+    fireEvent(video, new Event('loadedmetadata'));
+    const button = within(player).getByRole('button', { name: 'Subtitles' });
+    expect(button).toHaveAttribute('aria-pressed', 'true');
+    await user.click(button);
+    const panel = await within(player).findByRole('region', { name: 'Subtitles' });
+    expect(within(panel).getByRole('menuitemradio', { name: /^English/ })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+
+    // Audio in your language leaves them off.
+    open({ ...MOVIE, titleState: null, subtitles, spokenLanguage: 'en', subtitleMode: 'foreign' });
+    const again = await screen.findByTestId('desktop-video');
+    Object.defineProperty(again, 'duration', { value: 600, configurable: true });
+    fireEvent(again, new Event('loadedmetadata'));
+    expect(
+      within(screen.getByRole('dialog', { name: 'Video player' })).getByRole('button', {
+        name: 'Subtitles',
+      }),
+    ).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('opens trailers in their own full-window player', async () => {

@@ -21,7 +21,7 @@ Sizes: **S** = a day or less, **M** = a few days, **L** = a milestone of its own
   - a type filter;
   - sorts: last watched, name A–Z and Z–A, times watched, watched, not watched;
   - pages.
-  - No catalogs and no discovery: this matches the user's 2026-11-01 ask that Library holds only your things.
+  - No catalogs and no discovery: this matches Raygun's rule that the Library holds only saved content.
 - **Calendar** (`models/calendar.rs`): a month grid of every library series' episodes, past and future, from addons' `calendarVideosIds` catalog extra.
 - **Notifications** (`models/ctx/update_notifications.rs`): new episodes of library series, shown as badges on Continue watching.
 
@@ -79,7 +79,7 @@ There's no Board across addons, no Discover with type or catalog switching or ot
 | **Streams inside the meta** | `Video.streams` (e.g. YouTube channel videos) plays without stream addons. `Video::stream()` returns the single stream, or a YouTube stream for `yt_id:` ids. `meta_streams` are listed first (`meta_details.rs` `meta_streams_update`) | Ignored: episodes always ask stream addons, so channel-type addons can't play | S |
 | **Default and featured video** | `behaviorHints.defaultVideoId` (a multi-video item that plays one video), `featuredVideoId`, `hasScheduledVideos`. "Guess stream" opens streams directly for movies and live items (`selected_guess_stream_update`) | Not parsed | S |
 | **More stream source kinds** | `StreamSource`: Url, YouTube, Torrent, Rar/Zip/7z/Tgz/Tar archives, Nzb, PlayerFrame (embedded web player), External (`externalUrl`, `androidTvUrl`…) (`types/resource/stream.rs`) | Direct, YouTube, External (refused with "opens outside Raygun"), Torrent (refused) | S (external: open the URL or an Android intent); archives and NZB need a streaming server (note) |
-| **Stream hints** | `notWebReady` (needs the server to transcode), `bingeGroup`, `countryWhitelist` (hide streams not available in the user's country), `proxyHeaders.request/response`, `filename`, `videoHash`, `videoSize`; stream `thumbnail` | Only `proxyHeaders.request` (five allowed headers). No thumbnail, no country filter, no binge group | S |
+| **Stream hints** | `notWebReady` (needs the server to transcode), `bingeGroup`, `countryWhitelist` (hide streams not available in the viewer's country), `proxyHeaders.request/response`, `filename`, `videoHash`, `videoSize`; stream `thumbnail` | Only `proxyHeaders.request` (five allowed headers). No thumbnail, no country filter, no binge group | S |
 | **Stream list grouping and filtering** | Streams grouped by addon, with an addon filter; the last-used stream pinned on top | Grouped by addon, with no filter and no pinning (`StreamPicker`) | S |
 | **Per-video trailers** | `Video.trailer_streams`; meta `trailerStreams` of any source | YouTube trailers for the title only | S |
 | **Meta from several addons** | Meta requested from every addon that serves the id; the first ready one is used, the others kept as fallbacks | First addon that answers | — (parity) |

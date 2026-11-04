@@ -28,6 +28,7 @@ import { PlayingOn } from '../connect/PlayingOn';
 import { ConnectButton } from '../devices/ConnectButton';
 import { Artwork } from '../library/Artwork';
 import { songCover } from '../library/coverTargets';
+import { IncognitoBadge } from '../privacy/IncognitoBadge';
 import { useTrackMenu } from '../music/useTrackMenu';
 import { appBackground } from '../shell/appWindow';
 import { openContextMenu } from '../shell/contextMenuStore';
@@ -167,6 +168,7 @@ const PhoneBar: FC<BarProps> = ({ item }) => {
           />
           <TrackText item={item} />
         </button>
+        <IncognitoBadge />
         <span className="flex shrink-0 items-center [&_button]:size-[min(2.5rem,11cqw)]">
           <ConnectButton />
           {!spoken && <FavoriteButton item={item} compact />}
@@ -243,6 +245,7 @@ const WideBar: FC<BarProps> = ({ item }) => {
         </div>
 
         <div className="flex min-w-0 items-center justify-end gap-0.5">
+          <IncognitoBadge className="mr-1" />
           {isVideo ? (
             <BarButton
               label={t('player.showVideo')}

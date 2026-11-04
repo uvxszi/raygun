@@ -4,10 +4,22 @@
  * `/media/` route, so playlists and segments carry their headers and CORS.
  */
 
-export type EngineTrack = { id: number; label: string; language: string | null };
+export type EngineTrack = {
+  id: number;
+  label: string;
+  language: string | null;
+  /** Marked default (HLS `DEFAULT`) or main (DASH's role). */
+  original?: boolean;
+  /** Only what's said in other languages, and signs. */
+  forced?: boolean;
+  /** Commentary or audio description. */
+  extra?: boolean;
+};
 
 export type MediaEngine = {
   kind: 'native' | 'hls' | 'dash';
+  /** The stream's own tracks are known (its playlist or manifest was read). */
+  tracksKnown: () => boolean;
   audioTracks: () => EngineTrack[];
   audioTrack: () => number;
   setAudioTrack: (id: number) => void;
@@ -21,11 +33,23 @@ export type MediaEngine = {
   destroy: () => void;
 };
 
+/** Why a stream can't play, in the viewer's terms: its format or codec, the network, or its
+ * server (refusing it, not having it, failing). */
+export type StreamProblem = 'unsupported' | 'network' | 'refused' | 'gone' | 'server' | 'other';
+
 export type EngineEvents = {
   /** Tracks or qualities became known or changed. */
   onTracks: () => void;
-  /** The stream can't play; `unsupported` when the format or codec is the reason. */
-  onFatal: (message: string, unsupported: boolean) => void;
+  /** The stream can't play; `message` is the engine's own words. */
+  onFatal: (message: string, problem: StreamProblem) => void;
+};
+
+/** An HTTP status as a problem. */
+const httpProblem = (status: number | undefined): StreamProblem => {
+  if (status === 401 || status === 403) return 'refused';
+  if (status === 404 || status === 410) return 'gone';
+  if (status !== undefined && status >= 500) return 'server';
+  return 'network';
 };
 
 const extension = (url: string) => {
@@ -45,6 +69,7 @@ export const engineKind = (url: string, format?: string | null): MediaEngine['ki
 };
 
 const NONE = {
+  tracksKnown: () => false,
   audioTracks: () => [],
   audioTrack: () => -1,
   setAudioTrack: () => {},
@@ -62,7 +87,9 @@ const hideTextTracks = (video: HTMLVideoElement) => {
   }
 };
 
-/** `MediaError` codes: the picture or sound can't be decoded, or the format isn't supported. */
+/** `MediaError` codes: the network failed, the picture or sound can't be decoded, or the format
+ * isn't supported. */
+const MEDIA_ERR_NETWORK = 2;
 const MEDIA_ERR_DECODE = 3;
 const MEDIA_ERR_SRC_NOT_SUPPORTED = 4;
 
@@ -70,9 +97,13 @@ const attachNative = (video: HTMLVideoElement, url: string, events: EngineEvents
   const onError = () => {
     const error = video.error;
     if (!error) return;
-    const unsupported =
-      error.code === MEDIA_ERR_SRC_NOT_SUPPORTED || error.code === MEDIA_ERR_DECODE;
-    events.onFatal(error.message || `media error ${error.code}`, unsupported);
+    const problem: StreamProblem =
+      error.code === MEDIA_ERR_SRC_NOT_SUPPORTED || error.code === MEDIA_ERR_DECODE
+        ? 'unsupported'
+        : error.code === MEDIA_ERR_NETWORK
+          ? 'network'
+          : 'other';
+    events.onFatal(error.message || `media error ${error.code}`, problem);
   };
   video.addEventListener('error', onError);
   video.src = url;
@@ -99,7 +130,11 @@ const attachHls = async (
   }
   const hls = new Hls({ enableWorker: true, renderTextTracksNatively: true });
   let recovered = false;
-  hls.on(Hls.Events.MANIFEST_PARSED, events.onTracks);
+  let parsed = false;
+  hls.on(Hls.Events.MANIFEST_PARSED, () => {
+    parsed = true;
+    events.onTracks();
+  });
   hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, events.onTracks);
   hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, events.onTracks);
   hls.on(Hls.Events.LEVEL_SWITCHED, events.onTracks);
@@ -125,20 +160,32 @@ const attachHls = async (
       data.details === Hls.ErrorDetails.MANIFEST_INCOMPATIBLE_CODECS_ERROR ||
       data.details === Hls.ErrorDetails.BUFFER_INCOMPATIBLE_CODECS_ERROR ||
       data.details === Hls.ErrorDetails.MANIFEST_PARSING_ERROR;
-    events.onFatal(data.error?.message || data.details, unsupported);
+    const status = data.response?.code;
+    const problem: StreamProblem = unsupported
+      ? 'unsupported'
+      : data.type === Hls.ErrorTypes.NETWORK_ERROR
+        ? httpProblem(status || undefined)
+        : 'other';
+    const words = data.error?.message || data.details;
+    events.onFatal(status ? `${words} (HTTP ${status})` : words, problem);
   });
   hls.subtitleDisplay = false;
   hls.loadSource(url);
   hls.attachMedia(video);
   const label = (name: string | undefined, language: string | undefined, index: number) =>
     name || language || `#${index + 1}`;
+  const describes = (characteristics: string | undefined) =>
+    Boolean(characteristics?.includes('describes-video'));
   return {
     kind: 'hls',
+    tracksKnown: () => parsed,
     audioTracks: () =>
       hls.audioTracks.map((track, index) => ({
         id: index,
         label: label(track.name, track.lang, index),
         language: track.lang ?? null,
+        original: track.default,
+        extra: describes(track.characteristics),
       })),
     audioTrack: () => hls.audioTrack,
     setAudioTrack: (id) => {
@@ -149,6 +196,8 @@ const attachHls = async (
         id: index,
         label: label(track.name, track.lang, index),
         language: track.lang ?? null,
+        original: track.default,
+        forced: track.forced,
       })),
     setTextTrack: (id) => {
       hls.subtitleTrack = id;
@@ -174,7 +223,14 @@ const attachHls = async (
 };
 
 /** The parts of dash.js the player uses. */
-type DashTrack = { index: number | null; lang: string | null; labels: { text: string }[] };
+type DashDescriptor = { value?: string | null } | string;
+type DashTrack = {
+  index: number | null;
+  lang: string | null;
+  labels: { text: string }[];
+  roles?: DashDescriptor[] | null;
+  accessibility?: DashDescriptor[] | null;
+};
 type DashPlayer = {
   initialize: (view: HTMLVideoElement, url: string, autoPlay: boolean) => void;
   on: (type: string, listener: (event: { error?: { message?: string } }) => void) => void;
@@ -195,18 +251,37 @@ const attachDash = async (
     MediaPlayer: () => { create: () => DashPlayer };
   };
   const player = dash.MediaPlayer().create();
-  player.on('streamInitialized', events.onTracks);
-  player.on('error', (event) => events.onFatal(event.error?.message ?? 'DASH error', false));
+  let initialized = false;
+  player.on('streamInitialized', () => {
+    initialized = true;
+    events.onTracks();
+  });
+  player.on('error', (event) => events.onFatal(event.error?.message ?? 'DASH error', 'other'));
   player.initialize(video, url, false);
+  // Roles and accessibility are `{ value }` descriptors in dash.js 5, plain strings before.
+  const values = (list: DashDescriptor[] | null | undefined) =>
+    (list ?? []).map((item) =>
+      (typeof item === 'string' ? item : (item.value ?? '')).toLowerCase(),
+    );
   const tracks = (type: 'audio' | 'text') =>
-    player.getTracksFor(type).map((track, index) => ({
-      id: index,
-      label: track.labels[0]?.text || track.lang || `#${index + 1}`,
-      language: track.lang,
-    }));
+    player.getTracksFor(type).map((track, index) => {
+      const roles = values(track.roles);
+      return {
+        id: index,
+        label: track.labels[0]?.text || track.lang || `#${index + 1}`,
+        language: track.lang,
+        original: roles.includes('main'),
+        forced: roles.includes('forced-subtitle'),
+        extra:
+          roles.includes('commentary') ||
+          roles.includes('description') ||
+          values(track.accessibility).some((value) => value === 'description' || value === '1'),
+      };
+    });
   return {
     kind: 'dash',
     ...NONE,
+    tracksKnown: () => initialized,
     audioTracks: () => tracks('audio'),
     audioTrack: () => {
       const current = player.getCurrentTrackFor('audio');

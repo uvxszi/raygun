@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router';
 import { CircleArrowDown, Settings2 } from 'lucide-react';
+import { useMemo } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -8,7 +9,7 @@ import { TrackTable } from '../music/TrackTable';
 import {
   useDownloadedSongs,
   useSongDownloadActions,
-  useSongDownloads,
+  useSongDownloadsSelect,
 } from '../music/useSongDownloads';
 import { EmptyState } from '../shell/EmptyState';
 import { PlayButtons } from './PlayButtons';
@@ -21,8 +22,15 @@ import { playCollection } from './useCollections';
 export const DownloadedView: FC = () => {
   const { t } = useTranslation();
   const songs = useDownloadedSongs();
-  const downloads = useSongDownloads();
-  const { remove } = useSongDownloadActions();
+  // The finished downloads' ids by song; other songs' progress doesn't redraw the table.
+  const pairs = useSongDownloadsSelect((list) =>
+    list
+      .filter((item) => item.state === 'done')
+      .map((item) => [item.trackKey, item.id] as const)
+      .sort(([a], [b]) => a.localeCompare(b)),
+  ).data;
+  const idFor = useMemo(() => new Map(pairs ?? []), [pairs]);
+  const { removeMany } = useSongDownloadActions();
   if (!songs.data) {
     return null;
   }
@@ -36,7 +44,6 @@ export const DownloadedView: FC = () => {
     );
   }
   const rows = songs.data.map((track) => savedRow(track, track.trackKey));
-  const idFor = new Map((downloads.data ?? []).map((item) => [item.trackKey, item.id]));
   return (
     <div data-testid="downloaded-view" className="flex flex-col gap-3">
       <TrackTable
@@ -73,10 +80,8 @@ export const DownloadedView: FC = () => {
           })
         }
         onRemove={(removed) => {
-          for (const row of removed) {
-            const id = idFor.get(row.trackKey);
-            if (id) remove.mutate(id);
-          }
+          const ids = removed.flatMap((row) => idFor.get(row.trackKey) ?? []);
+          if (ids.length > 0) removeMany.mutate(ids);
         }}
       />
     </div>

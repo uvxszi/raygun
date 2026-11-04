@@ -48,7 +48,7 @@ Any phone or computer on the same Wi-Fi can control Raygun from a browser: see w
 - **Vitest:** the Settings card (enable, QR and address shown, new code, remove a device).
 - 📱 On the emulator:
   - turn the remote on;
-  - `adb forward` the port, then open the pairing URL in the desktop browser pane;
+  - `adb forward` the port, then open the pairing URL in a desktop browser;
   - pair, see now playing, play/pause and skip from the page and see the app follow, search and play a song;
   - remove the device in Settings, and the page asks to pair again.
 
@@ -59,7 +59,7 @@ Any phone or computer on the same Wi-Fi can control Raygun from a browser: see w
 - **Vitest (app 96):** the Settings card turns the remote on with the QR code and address, makes a new code once one was used, picks up a device that paired elsewhere, and lists and removes devices.
 - 📱 **On the emulator:**
   - Turning the remote on showed the QR code and `http://10.0.2.16:8820/#pair=…` (the emulator's network address; a phone shows its Wi-Fi address). The log shows "remote listening on the local network port=8820".
-  - With `adb forward tcp:8820 tcp:8820`, the pairing URL opened in the desktop browser pane. It offered "Windows browser" as the name and paired; the log shows "remote device paired". The page then showed "Connected" and the empty queue.
+  - With `adb forward tcp:8820 tcp:8820`, the pairing URL opened in a desktop browser. It offered "Windows browser" as the name and paired; the log shows "remote device paired". The page then showed "Connected" and the empty queue.
   - Searching "blue in green davis" on the page listed Top results (only the song both MusicBrainz sources agreed on) and each source. Tapping "Blue in Green" by Miles Davis played it on the phone, and the page followed live: "via Internet Archive", progress at 0:09, the queue.
   - Pause on the page paused the phone (media session `PAUSED`).
   - Removing the device in Settings made the page drop to "This device isn't paired…" with the pairing form. Turning the remote off closed the port.

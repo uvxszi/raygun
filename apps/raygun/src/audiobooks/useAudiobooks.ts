@@ -66,13 +66,16 @@ export const useKeepAudiobook = () => {
 
 export type BookList = 'popular' | 'latest' | 'search';
 
-/** A directory's books, a page at a time: popular, newest, or a search. */
-export const useBookDirectory = (list: BookList, query = '') =>
+/**
+ * A directory's books, a page at a time: popular, newest, or a search. `enabled` holds the
+ * request (Home's row asks once it comes near); what's cached shows either way.
+ */
+export const useBookDirectory = (list: BookList, query = '', enabled = true) =>
   useInfiniteQuery({
     queryKey: [...BOOKS, 'directory', list, query],
     queryFn: ({ pageParam }) => unwrapResult(commands.audiobookDirectory(list, query, pageParam)),
     initialPageParam: 1,
     getNextPageParam: (last, pages) => (last.hasMore ? pages.length + 1 : undefined),
-    enabled: list !== 'search' || query.trim() !== '',
+    enabled: enabled && (list !== 'search' || query.trim() !== ''),
     staleTime: 10 * 60_000,
   });
