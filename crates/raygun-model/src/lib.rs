@@ -210,6 +210,9 @@ pub struct Settings {
     pub lyrics_translation: LyricsTranslationPrefs,
     /// Sources that didn't answer lately go to the end of Browse and Search (M46.9).
     pub failing_sources_last: bool,
+    /// Sources that meet a browser check offer to open their site so it can be passed by hand
+    /// (experimental, off by default; `raygun_ext_host::browser_check`).
+    pub manual_browser_checks: bool,
     /// The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default.
     pub user_agent: String,
     /// The equalizer, effects, normalization and crossfade for every song (M46.12).
@@ -1883,6 +1886,7 @@ impl Default for Settings {
             lyrics_cache: LyricsCachePrefs::default(),
             lyrics_translation: LyricsTranslationPrefs::default(),
             failing_sources_last: true,
+            manual_browser_checks: false,
             user_agent: String::new(),
             sound: SoundPrefs::default(),
             keep_music_playing: false,
@@ -1935,6 +1939,7 @@ impl Settings {
             SettingChange::WindowFrame(frame) => self.window_frame = frame,
             SettingChange::Zoom(percent) => self.zoom = percent,
             SettingChange::FailingSourcesLast(on) => self.failing_sources_last = on,
+            SettingChange::ManualBrowserChecks(on) => self.manual_browser_checks = on,
             SettingChange::UserAgent(agent) => self.user_agent = agent.trim().to_owned(),
             SettingChange::Sound(prefs) => self.sound = prefs,
             SettingChange::KeepMusicPlaying(on) => self.keep_music_playing = on,
@@ -2021,6 +2026,7 @@ pub enum SettingChange {
     Zoom(u32),
     Discovery(DiscoveryPrefs),
     FailingSourcesLast(bool),
+    ManualBrowserChecks(bool),
     UserAgent(String),
     Sound(SoundPrefs),
     KeepMusicPlaying(bool),
@@ -2079,6 +2085,7 @@ impl SettingChange {
             Self::Zoom(_) => "zoom",
             Self::Discovery(_) => "discovery",
             Self::FailingSourcesLast(_) => "failingSourcesLast",
+            Self::ManualBrowserChecks(_) => "manualBrowserChecks",
             Self::UserAgent(_) => "userAgent",
             Self::Sound(_) => "sound",
             Self::KeepMusicPlaying(_) => "keepMusicPlaying",
@@ -2113,6 +2120,7 @@ impl SettingChange {
             | Self::Motion(_)
             | Self::WindowFrame(_)
             | Self::FailingSourcesLast(_)
+            | Self::ManualBrowserChecks(_)
             | Self::KeepMusicPlaying(_)
             | Self::ResumeOnStart(_)
             | Self::AudioQuality(_)
@@ -2725,6 +2733,18 @@ pub struct ProviderInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub search_pill: Option<String>,
+}
+
+/// A source that met a browser check, whose site can be opened to pass it by hand
+/// (`Settings::manual_browser_checks`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserCheckTarget {
+    pub extension_id: String,
+    /// The source's name for people.
+    pub source: String,
+    /// The page that opens.
+    pub url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]

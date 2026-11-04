@@ -2519,7 +2519,19 @@
     "userAgent": "User agent",
     "userAgentHint": "How sources introduce themselves to websites. Empty uses Raygun's default; open databases such as MusicBrainz still get Raygun's name.",
     "userAgentDefault": "Default (desktop Chrome)",
-    "userAgentInvalid": "Use plain letters, numbers and punctuation, up to 512 characters"
+    "userAgentInvalid": "Use plain letters, numbers and punctuation, up to 512 characters",
+    "browserChecks": {
+      "title": "Solve browser checks myself (experimental)",
+      "hint": "Sources stopped by a browser check offer to open the site, so you can pass it there",
+      "confirmTitle": "Solve browser checks yourself?",
+      "warnings": {
+        "ban": "Sites may see this as automated use and block or ban your IP address or account",
+        "terms": "It may break those sites’ terms of use",
+        "experimental": "It’s experimental and may not work",
+        "responsible": "Raygun is a tool: you’re responsible for how you use it"
+      },
+      "confirm": "Turn on anyway"
+    }
   },
   "artist": {
     "title": "Artist",
@@ -3491,6 +3503,12 @@
       "extension-failed": "{{source}}’s extension failed",
       "storage": "Couldn’t read or write a file on this device",
       "permission": "Raygun isn’t allowed to do that on this device"
+    },
+    "browserCheck": {
+      "open": "Open the site to pass the check",
+      "opening": "Waiting for the browser…",
+      "notPassed": "The check wasn’t passed — no cookies came back",
+      "failed": "Couldn’t open the site"
     }
   },
   "developer": {

@@ -68,6 +68,7 @@ const DEFAULT_SETTINGS: Settings = {
   zoom: 100,
   discovery: { region: '', tagSongs: true },
   failingSourcesLast: true,
+  manualBrowserChecks: false,
   userAgent: '',
   keepMusicPlaying: false,
   resumeOnStart: true,

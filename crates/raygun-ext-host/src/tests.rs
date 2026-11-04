@@ -8,6 +8,7 @@ use axum::routing::{get, post};
 use raygun_model::{
     ExtensionOrigin, ExtensionStatus, LyricsTranslationKind, LyricsTranslationOrigin, MediaSource,
 };
+use raygun_net::IssueKind;
 use serde_json::json;
 
 use crate::manifest::{Manifest, ManifestError};
@@ -158,6 +159,16 @@ fn start_server() -> SocketAddr {
                 .route(
                     "/cookie",
                     get(|| async { [(header::SET_COOKIE, "site=chosen; Max-Age=3600; Path=/")] }),
+                )
+                .route(
+                    "/challenge",
+                    get(|| async {
+                        (
+                            StatusCode::FORBIDDEN,
+                            [("cf-mitigated", "challenge")],
+                            Html("<title>Just a moment...</title>"),
+                        )
+                    }),
                 )
                 .route(
                     "/whoami",
@@ -314,6 +325,42 @@ async fn cookies_last_per_extension_until_its_data_is_cleared() {
     assert_eq!(
         fetch("/whoami").await.as_str().unwrap().split('|').next(),
         Some("")
+    );
+}
+
+#[tokio::test]
+async fn a_browser_check_passed_by_hand_gives_its_cookies_to_the_extension() {
+    let address = start_server();
+    let dir = tempfile::tempdir().unwrap();
+    let host = ExtensionHost::start(HostConfig {
+        storage_dir: Some(dir.path().to_owned()),
+        call_timeout: Duration::from_secs(10),
+        ..HostConfig::default()
+    })
+    .unwrap();
+    let code = "raygun.providers.register({ kind: 'music.metadata', id: 'p', name: 'P', run: async (args) => { const answer = await raygun.http.fetch(args.url); if (answer.status !== 200) throw new Error('no data'); return answer.text(); } });";
+    host.load(vec![extension("dev.raygun.test", code)]).await;
+    let url = |path: &str| json!({ "url": format!("http://{address}{path}") });
+
+    let error = run(&host, url("/challenge")).await.unwrap_err();
+    assert_eq!(error.kind(), Some(IssueKind::BotCheck));
+    let check = host.browser_check(&error.to_string(), None).unwrap();
+    assert_eq!(check.extension_id, "dev.raygun.test");
+    assert_eq!(check.url, "https://127.0.0.1/");
+
+    // The browser's cookies for the site (here plain HTTP) reach the extension's requests.
+    let cookies = crate::browser_check::parse_cookie_header("cf_clearance=passed");
+    let site = format!("http://{address}/");
+    assert_eq!(
+        host.import_browser_cookies("dev.raygun.test", &site, &cookies),
+        Ok(1)
+    );
+    let seen = run(&host, url("/whoami")).await.unwrap();
+    assert!(seen.as_str().unwrap().starts_with("cf_clearance=passed|"));
+    assert_eq!(host.browser_check(&error.to_string(), None), None);
+    assert!(
+        host.import_browser_cookies("../x", &site, &cookies)
+            .is_err()
     );
 }
 

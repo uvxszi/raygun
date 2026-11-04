@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useExtensions } from '../../extensions/useExtensions';
 import { autoRegion } from '../../music/useDiscovery';
 import { WebsiteSettings } from '../../websites/WebsiteSettings';
+import { ManualBrowserChecks } from '../ManualBrowserChecks';
 import { PrefChoice, PrefGroup, PrefLink, PrefSlider, PrefSwitch, PrefText } from '../prefs';
 import { useSettings, useUpdateSetting } from '../useSettings';
 
@@ -176,6 +177,7 @@ export const BrowseSettings: FC = () => {
           check={(text) => (isHeaderText(text) ? null : t('sources.userAgentInvalid'))}
           onChange={(value) => update.mutate({ key: 'userAgent', value })}
         />
+        <ManualBrowserChecks />
       </PrefGroup>
       <PrefGroup title={t('discover.charts')}>
         <PrefChoice<string>

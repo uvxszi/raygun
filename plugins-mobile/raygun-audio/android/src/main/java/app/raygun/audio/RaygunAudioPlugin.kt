@@ -774,6 +774,24 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
     }
 
+    // ---- Browser checks passed by hand (experimental): see BrowserCheckActivity ----
+
+    /** Opens `{url, userAgent}` for the person to pass its check; answers `{cookies}` on close. */
+    @Command
+    fun browserCheck(invoke: Invoke) {
+        val args = invoke.getArgs()
+        val intent = Intent(activity, BrowserCheckActivity::class.java)
+            .putExtra(BrowserCheckActivity.EXTRA_URL, args.getString("url", ""))
+            .putExtra(BrowserCheckActivity.EXTRA_USER_AGENT, args.getString("userAgent", ""))
+        startActivityForResult(invoke, intent, "browserCheckClosed")
+    }
+
+    @ActivityCallback
+    fun browserCheckClosed(invoke: Invoke, result: ActivityResult) {
+        val cookies = result.data?.getStringExtra(BrowserCheckActivity.EXTRA_COOKIES).orEmpty()
+        invoke.resolve(JSObject().put("cookies", cookies))
+    }
+
     // ---- Connect (M46.15): hearing other devices' mDNS needs a multicast lock ----
 
     private var multicastLock: WifiManager.MulticastLock? = null

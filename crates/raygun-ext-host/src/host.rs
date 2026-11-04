@@ -29,6 +29,7 @@ use raygun_resolver::Candidate;
 use serde::Deserialize;
 use tokio::sync::{mpsc, oneshot};
 
+use crate::browser_check::{BrowserCookie, Challenge, Challenges};
 use crate::content::ContentFilter;
 use crate::cookies::CookieJar;
 use crate::failure::{self, Failure};
@@ -296,6 +297,10 @@ struct HostShared {
     content: ContentFilter,
     health: Health,
     catalog_turns: Arc<Turns>,
+    /// Where extensions' cookie jars are saved (`HostConfig::storage_dir`).
+    storage_dir: Option<PathBuf>,
+    /// Browser checks sources met lately (`crate::browser_check`).
+    challenges: Challenges,
 }
 
 /// What's loaded, as of the last load.
@@ -345,6 +350,8 @@ impl ExtensionHost {
                 content: config.content.clone(),
                 health: Health::default(),
                 catalog_turns: Turns::new(CATALOG_SEARCHES),
+                storage_dir: config.storage_dir.clone(),
+                challenges: Challenges::default(),
             }),
         })
     }
@@ -606,7 +613,76 @@ impl ExtensionHost {
                 reply,
             })
             .map_err(|_| CallError::HostStopped)?;
-        answer.await.unwrap_or(Err(CallError::HostStopped))
+        let answer = answer.await.unwrap_or(Err(CallError::HostStopped));
+        if let Err(error) = &answer
+            && error.kind() == Some(IssueKind::BotCheck)
+        {
+            let website = self
+                .directory()
+                .infos
+                .iter()
+                .find(|info| info.id == extension_id)
+                .and_then(|info| info.website.clone());
+            self.shared.challenges.note(
+                error.kind(),
+                extension_id,
+                &self.provider_name(provider),
+                &error.detail(),
+                website.as_deref(),
+            );
+        }
+        answer
+    }
+
+    /// The browser check behind an error text (`crate::browser_check`): `source` when the page
+    /// knows it, else the source the error names.
+    pub fn browser_check(&self, error: &str, source: Option<&str>) -> Option<Challenge> {
+        self.shared.challenges.find(error, source)
+    }
+
+    /// The browser check `extension_id`'s sources met last, if any.
+    pub fn browser_check_of(&self, extension_id: &str) -> Option<Challenge> {
+        self.shared.challenges.of_extension(extension_id)
+    }
+
+    /// Puts cookies a browser gave for `url` (a browser check passed by hand) into
+    /// `extension_id`'s cookie jar, and lets its sources be asked again at once. Returns how many
+    /// cookies were taken.
+    pub fn import_browser_cookies(
+        &self,
+        extension_id: &str,
+        url: &str,
+        cookies: &[BrowserCookie],
+    ) -> Result<usize, String> {
+        let url = reqwest::Url::parse(url).map_err(|error| error.to_string())?;
+        let dir = self
+            .shared
+            .storage_dir
+            .as_ref()
+            .ok_or("extension data is kept in memory")?;
+        if extension_id.is_empty()
+            || extension_id.contains(['/', '\\'])
+            || extension_id.starts_with('.')
+        {
+            return Err(format!("not an extension id: {extension_id}"));
+        }
+        let taken =
+            CookieJar::at(&dir.join(extension_id).join("cookies.json")).import(&url, cookies);
+        if taken > 0 {
+            self.shared.challenges.clear(extension_id);
+            let prefix = format!("{extension_id}/");
+            let providers: Vec<String> = self
+                .directory()
+                .names
+                .keys()
+                .filter(|id| id.starts_with(&prefix))
+                .cloned()
+                .collect();
+            for provider in providers {
+                self.shared.health.forget(&provider);
+            }
+        }
+        Ok(taken)
     }
 
     /// Asks every `music.metadata` provider, a few at a time; each answers with tracks or an

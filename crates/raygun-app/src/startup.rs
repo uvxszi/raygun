@@ -71,6 +71,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         app.handle().clone(),
         paths.root().join("web"),
     )?));
+    app.manage(crate::browser_check::BrowserChecks::new(
+        app.handle().clone(),
+        paths.root().join("web").join("checks"),
+    ));
     crate::caches::sweep_later(app.handle());
     app.manage(proxy.images());
     app.manage(proxy.media());
