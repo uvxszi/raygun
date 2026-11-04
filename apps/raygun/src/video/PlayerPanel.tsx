@@ -47,6 +47,8 @@ type OptionProps = {
   hint?: string | null;
   selected?: boolean;
   disabled?: boolean;
+  /** An on/off option (a checkbox), not one of several choices. */
+  toggle?: boolean;
   onSelect: () => void;
 };
 
@@ -56,11 +58,12 @@ export const PanelOption: FC<OptionProps> = ({
   hint,
   selected = false,
   disabled,
+  toggle = false,
   onSelect,
 }) => (
   <button
     type="button"
-    role="menuitemradio"
+    role={toggle ? 'menuitemcheckbox' : 'menuitemradio'}
     aria-checked={selected}
     disabled={disabled}
     onClick={onSelect}

@@ -21,17 +21,20 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
+import type { PlatformOnly } from '../shell/useIsDesktop';
+
 /** Settings → Player's screens after Playback (`/settings/player/<id>`), as in Aniyomi. */
 export type PlayerSettingsPage =
   'controls' | 'gestures' | 'subtitles' | 'audio' | 'skip' | 'pip' | 'advanced';
 
-export const PLAYER_PAGES: { id: PlayerSettingsPage; icon: LucideIcon }[] = [
+/** `only`: swipes, double taps and Android's picture-in-picture are the phone player's. */
+export const PLAYER_PAGES: { id: PlayerSettingsPage; icon: LucideIcon; only?: PlatformOnly }[] = [
   { id: 'controls', icon: SlidersHorizontal },
-  { id: 'gestures', icon: Hand },
+  { id: 'gestures', icon: Hand, only: 'phone' },
   { id: 'subtitles', icon: Captions },
   { id: 'audio', icon: AudioLines },
   { id: 'skip', icon: SkipForward },
-  { id: 'pip', icon: PictureInPicture2 },
+  { id: 'pip', icon: PictureInPicture2, only: 'phone' },
   { id: 'advanced', icon: Cog },
 ];
 

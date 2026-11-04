@@ -88,6 +88,7 @@ export const PodcastPage: FC = () => {
     matchesSearch(find.query, [episode.title, episode.description]),
   );
   const filtered = view.order.filters.length > 0 || find.query.trim() !== '';
+  const downloadedCount = view.downloaded;
   const error =
     refresh.error ??
     setSubscribed.error ??
@@ -139,11 +140,16 @@ export const PodcastPage: FC = () => {
                   icon: Check,
                   onSelect: () => setAll.mutate({ id: view.id, played: false }),
                 },
-                {
-                  label: t('podcasts.removeDownloads'),
-                  icon: Trash2,
-                  onSelect: () => removeDownloads.mutate(view.id),
-                },
+                ...(downloadedCount > 0
+                  ? [
+                      {
+                        label: t('podcasts.removeDownloads'),
+                        icon: Trash2,
+                        confirm: t('podcasts.removeDownloadsConfirm', { count: downloadedCount }),
+                        onSelect: () => removeDownloads.mutate(view.id),
+                      },
+                    ]
+                  : []),
                 ...(view.link
                   ? [
                       {

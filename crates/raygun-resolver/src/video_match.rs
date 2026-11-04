@@ -947,6 +947,101 @@ pub fn is_generic_name(name: &str, season: Option<f64>, number: f64) -> bool {
         }
 }
 
+/// Where `needle`'s letters and digits appear in `text` as whole words, ignoring case, spacing
+/// and punctuation: the byte range in `text`.
+fn find_loose(text: &str, needle: &str) -> Option<(usize, usize)> {
+    let fold = |character: char| character.to_lowercase().collect::<String>();
+    let wanted: Vec<String> = needle
+        .chars()
+        .filter(|character| character.is_alphanumeric())
+        .map(fold)
+        .collect();
+    if wanted.is_empty() {
+        return None;
+    }
+    let letters: Vec<(usize, usize, String)> = text
+        .char_indices()
+        .filter(|(_, character)| character.is_alphanumeric())
+        .map(|(at, character)| (at, at + character.len_utf8(), fold(character)))
+        .collect();
+    let word_edge = |at: usize, before: bool| {
+        let neighbour = if before {
+            text[..at].chars().next_back()
+        } else {
+            text[at..].chars().next()
+        };
+        neighbour.is_none_or(|character| !character.is_alphanumeric())
+    };
+    (0..letters.len()).find_map(|start| {
+        let end = start + wanted.len();
+        let window = letters.get(start..end)?;
+        let matches = window
+            .iter()
+            .zip(&wanted)
+            .all(|((_, _, letter), wanted)| letter == wanted);
+        let (from, to) = (window[0].0, window[window.len() - 1].1);
+        (matches && word_edge(from, true) && word_edge(to, false)).then_some((from, to))
+    })
+}
+
+/// Separators left around a removed title: "Show - 03", "03 | Show", "Show: Pilot".
+fn trim_separators(text: &str) -> &str {
+    text.trim_matches(|character: char| {
+        character.is_whitespace() || "-–—:|·•_.,/~()[]".contains(character)
+    })
+}
+
+/// An episode's or link's name without the show's title, which many sources repeat
+/// ("Show Name - Episode 3" → "Episode 3", "Show Name 03" → "03", "Overlord II 1080p" →
+/// "1080p"); empty when the name is only the title. The title's season-less name ("Overlord" for "Overlord II") counts
+/// too.
+pub fn without_title(name: &str, show: &str) -> String {
+    let name = name.trim();
+    let base = parse_title(show).name;
+    let mut needles = vec![show.trim()];
+    if !base.is_empty() && base != show.trim() {
+        needles.push(base.as_str());
+    }
+    for needle in needles {
+        // Only as it leads or ends the name: in the middle it's more likely a word of its own.
+        if let Some((from, to)) = find_loose(name, needle) {
+            let before = trim_separators(&name[..from]);
+            let after = trim_separators(&name[to..]);
+            if before.is_empty() {
+                return after.to_owned();
+            }
+            // Ending it, only after a separator ("Episode 3 - Show") or a number ("03 Show"):
+            // "Lost in Space" keeps its last word.
+            let separated = name[..from]
+                .trim_end()
+                .ends_with(|character: char| "-–—:|·•/~([".contains(character));
+            let numbered = before.split_whitespace().count() <= 2
+                && before.chars().any(|character| character.is_ascii_digit());
+            if after.is_empty() && (separated || numbered) {
+                return before.to_owned();
+            }
+        }
+    }
+    name.to_owned()
+}
+
+/// Whether `label` says anything `title` doesn't: a subtitle that only repeats the title isn't
+/// shown under it.
+pub fn adds_to_title(title: &str, label: &str) -> bool {
+    !without_title(label, title).is_empty()
+}
+
+/// [`episode_label`] of a name without the show's title in it: "Show Name 03" as episode 3 is
+/// "E3", a movie's "episode" named after the movie is empty.
+pub fn episode_label_in(
+    show: &str,
+    season: Option<f64>,
+    number: Option<f64>,
+    name: &str,
+) -> String {
+    episode_label(season, number, &without_title(name, show))
+}
+
 /// What an episode is called in lists and the player: "S1 E2 · Name", "E2 · Name", or the name
 /// alone; a name that only repeats the number ("Episode 2") isn't repeated after it.
 pub fn episode_label(season: Option<f64>, number: Option<f64>, name: &str) -> String {

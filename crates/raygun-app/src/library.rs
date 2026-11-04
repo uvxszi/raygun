@@ -341,6 +341,7 @@ impl LibraryService {
 
     pub(crate) fn queue_item(&self, row: TrackRow) -> QueueItemInput {
         QueueItemInput {
+            explicit: false,
             title: row.title,
             artist: Some(row.artist.unwrap_or(row.group_artist)),
             album: Some(row.group_album),

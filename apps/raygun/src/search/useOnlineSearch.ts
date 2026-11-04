@@ -53,6 +53,7 @@ export const toQueueItem = (track: OnlineTrack): QueueItemInput => ({
     album: track.album,
     durationMs: track.durationMs,
   },
+  ...(track.explicit ? { explicit: true } : {}),
 });
 
 /** Replaces the queue with a provider's results, starting at `track`. */

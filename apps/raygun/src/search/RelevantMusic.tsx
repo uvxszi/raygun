@@ -30,6 +30,7 @@ import { titleScore } from './rankResults';
 import { useSeenSongs } from './seenBefore';
 import type { MusicView } from './searchTypes';
 import { rankSongs, useAlbumFinds, useArtistFinds, usePlaylistFinds } from './useMusicFinds';
+import type { RankedSong } from './useMusicFinds';
 import { playResults, useOnlineSearch } from './useOnlineSearch';
 
 /** How many of each kind Relevant shows before its See all. */
@@ -100,7 +101,7 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
         songs.data.top,
         songs.data.providers.filter((result) => !result.error),
       )
-    : seen.map((track) => ({
+    : seen.map((track): RankedSong => ({
         track,
         source: undefined,
         score: Math.max(
@@ -292,6 +293,7 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
                 <OnlineTrackRow
                   track={entry.track}
                   source={entry.source}
+                  sourceAdult={entry.sourceAdult}
                   onPlay={(tapped) => void playResults(tracks, tapped)}
                 />
               </li>

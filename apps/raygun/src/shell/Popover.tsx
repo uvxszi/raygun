@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
+import { useBackLayer } from './backLayers';
+
 /** Space kept between the popover and the window's edges, and from its button. */
 const MARGIN = 8;
 
@@ -82,6 +84,9 @@ export const Popover: FC<PopoverProps> = ({ anchor, label, onClose, children, wi
     };
   }, []);
 
+  // Back and Escape close the newest popover only, and nothing behind it (a sheet it sits in).
+  useBackLayer(true, onClose);
+
   useEffect(() => {
     // Pointer down outside closes; on the button, its own click does (so it toggles).
     const outside = (event: PointerEvent) => {
@@ -91,25 +96,19 @@ export const Popover: FC<PopoverProps> = ({ anchor, label, onClose, children, wi
       if (inLaterPopover(self, target)) return;
       onClose();
     };
-    // Escape closes the newest popover only, and nothing behind it (a sheet it sits in).
-    const escape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || open.at(-1) !== panel.current) return;
-      // A search field with text empties first (TextField); the next Escape closes.
-      const field = event.target;
-      if (field instanceof HTMLInputElement && field.value !== '' && field.dataset.clearsOnEscape) {
-        return;
-      }
-      event.stopPropagation();
-      onClose();
-      anchor.focus();
-    };
     document.addEventListener('pointerdown', outside, true);
-    document.addEventListener('keydown', escape, true);
-    return () => {
-      document.removeEventListener('pointerdown', outside, true);
-      document.removeEventListener('keydown', escape, true);
-    };
+    return () => document.removeEventListener('pointerdown', outside, true);
   }, [anchor, onClose]);
+
+  // Closed from the keyboard (Escape), the focus goes back to its button.
+  useLayoutEffect(() => {
+    const self = panel.current;
+    return () => {
+      if (self?.contains(document.activeElement) && anchor.isConnected) {
+        anchor.focus({ preventScroll: true });
+      }
+    };
+  }, [anchor]);
 
   useEffect(() => {
     panel.current?.focus({ preventScroll: true });

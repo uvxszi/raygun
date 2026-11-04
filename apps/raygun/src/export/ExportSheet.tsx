@@ -1,6 +1,6 @@
-import type { ExportDestination, ExportFormat, ExportRequest, ExportScope } from '@raygun/bindings';
+import type { ExportFormat, ExportRequest, ExportScope } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
-import { CircleCheck } from 'lucide-react';
+import { CircleCheck, FolderOpen } from 'lucide-react';
 import { useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -9,7 +9,13 @@ import type { Medium } from '../manga/medium';
 import { useSettings } from '../settings/useSettings';
 import { Sheet } from '../shell/Sheet';
 import { withSave } from './saveDefaults';
-import { useExportPlan, useStartExport } from './useExports';
+import { SourceIssue } from '../shell/SourceIssue';
+import {
+  useExportPlan,
+  useLastExportFolder,
+  usePickExportFolder,
+  useStartExport,
+} from './useExports';
 
 const FORMATS: Record<Medium, ExportFormat[]> = {
   manga: ['cbz', 'pdf', 'pdfPerChapter', 'images'],
@@ -18,6 +24,9 @@ const FORMATS: Record<Medium, ExportFormat[]> = {
 };
 
 type ScopeKind = 'all' | 'downloaded' | 'unread' | 'range';
+
+/** Where the files go: the Settings folder, or the one last chosen here (`picked`). */
+type Place = 'downloads' | 'settings' | 'picked' | 'share';
 
 /** A chapter for the range pickers, in reading order. */
 export type ExportChapter = { id: string; name: string };
@@ -73,10 +82,20 @@ export const ExportSheet: FC<{
   const [from, setFrom] = useState(chapters[0]?.id ?? '');
   const [to, setTo] = useState(chapters[chapters.length - 1]?.id ?? '');
   const [format, setFormat] = useState<ExportFormat>(FORMATS[medium][0] ?? 'cbz');
-  const [destination, setDestination] = useState<ExportDestination>(
-    save.location === 'folder' && save.folderUri ? 'folder' : 'downloads',
+  const [place, setPlace] = useState<Place>(
+    save.location === 'folder' && save.folderUri ? 'settings' : 'downloads',
   );
+  const lastFolder = useLastExportFolder().data ?? null;
+  // The folder chosen here before, unless it is the Settings one.
+  const picked = lastFolder && lastFolder.uri !== save.folderUri ? lastFolder : null;
+  const pickFolder = usePickExportFolder();
   const start = useStartExport();
+  const chooseFolder = () =>
+    pickFolder.mutate(undefined, {
+      onSuccess: (folder) => {
+        if (folder) setPlace(folder.uri === save.folderUri ? 'settings' : 'picked');
+      },
+    });
 
   const scopeValue: ExportScope = scope === 'range' ? { kind: 'range', from, to } : { kind: scope };
   const request: ExportRequest = {
@@ -84,7 +103,8 @@ export const ExportSheet: FC<{
     titleIds,
     scope: scopeValue,
     format,
-    destination,
+    destination: place === 'settings' || place === 'picked' ? 'folder' : place,
+    folder: place === 'picked' ? picked : null,
   };
   const plan = useExportPlan(request);
   const problem = plan.data?.problem ?? (plan.isError ? plan.error.message : null);
@@ -167,31 +187,52 @@ export const ExportSheet: FC<{
         <Group label={t('export.destination')}>
           <Radio
             name={t('export.downloads')}
-            checked={destination === 'downloads'}
-            onPick={() => setDestination('downloads')}
+            checked={place === 'downloads'}
+            onPick={() => setPlace('downloads')}
           >
             {t('export.downloads')}
             <span className="text-muted text-xs">Download/Raygun</span>
           </Radio>
-          <Radio
-            name={save.folderName ?? t('export.folder')}
-            checked={destination === 'folder'}
-            disabled={!save.folderUri}
-            onPick={() => setDestination('folder')}
+          {save.folderUri && (
+            <Radio
+              name={save.folderName ?? t('export.folder')}
+              checked={place === 'settings'}
+              onPick={() => setPlace('settings')}
+            >
+              {save.folderName ?? t('export.folder')}
+            </Radio>
+          )}
+          {picked && (
+            <Radio
+              name={picked.name}
+              checked={place === 'picked'}
+              onPick={() => setPlace('picked')}
+            >
+              {picked.name}
+            </Radio>
+          )}
+          <button
+            type="button"
+            disabled={pickFolder.isPending}
+            onClick={chooseFolder}
+            className="hover:bg-background flex items-center gap-4 rounded-xl px-3 py-2.5 text-left disabled:opacity-50"
           >
-            {save.folderName ?? t('export.folder')}
-            {!save.folderUri && (
-              <span className="text-muted text-xs">{t('export.folderHint')}</span>
-            )}
-          </Radio>
+            <FolderOpen aria-hidden size={20} className="text-muted shrink-0" />
+            {t('export.chooseFolder')}
+          </button>
           <Radio
             name={t('export.share')}
-            checked={destination === 'share'}
-            onPick={() => setDestination('share')}
+            checked={place === 'share'}
+            onPick={() => setPlace('share')}
           >
             {t('export.share')}
           </Radio>
         </Group>
+        {pickFolder.isError && (
+          <SourceIssue compact title={t('export.chooseFolderFailed')}>
+            {pickFolder.error.message}
+          </SourceIssue>
+        )}
         {plan.data && !problem && (
           <p role="status" className="text-muted">
             {video

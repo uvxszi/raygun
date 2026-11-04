@@ -1,6 +1,6 @@
 import type { AppPermission, PermissionKind } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
-import { BatteryCharging, Bell, Download, FolderOpen, Music, Wifi } from 'lucide-react';
+import { BatteryCharging, Bell, Camera, Download, FolderOpen, Music, Wifi } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -15,6 +15,7 @@ const ICONS: Record<PermissionKind, LucideIcon> = {
   folders: FolderOpen,
   localNetwork: Wifi,
   installApps: Download,
+  camera: Camera,
 };
 
 /**

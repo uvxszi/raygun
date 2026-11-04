@@ -8,22 +8,24 @@ import { OpenLinkSheet } from '../pages/OpenLinkSheet';
 import { useIncognitoItem } from '../privacy/useIncognito';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import type { OverflowItem } from '../shell/OverflowMenu';
+import { QuickAccessButton } from '../shell/QuickAccessButton';
 import { Tabs } from '../shell/Tabs';
 import { TopBar } from '../shell/TopBar';
 import type { TopBarSearch } from '../shell/TopBar';
 
 /**
  * All (M46.37), Audio (music and podcasts), Comics (manga, manhwa, comics), Books (novels,
- * books), Videos.
+ * books), Videos, Websites (sites added by address).
  */
-export type LibraryMediaTab = 'all' | 'music' | 'manga' | 'novel' | 'video';
+export type LibraryMediaTab = 'all' | 'music' | 'manga' | 'novel' | 'video' | 'websites';
 
 const isMediaTab = (value: string): value is LibraryMediaTab =>
   value === 'all' ||
   value === 'music' ||
   value === 'manga' ||
   value === 'novel' ||
-  value === 'video';
+  value === 'video' ||
+  value === 'websites';
 
 /**
  * The Library's top bar and media tabs. Each media view passes its own actions and menu items;
@@ -66,6 +68,7 @@ export const LibraryTop: FC<{
                 },
               ]}
             />
+            <QuickAccessButton />
           </>
         }
       />

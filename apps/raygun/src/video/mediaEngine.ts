@@ -34,6 +34,9 @@ export type MediaEngine = {
   qualities: () => EngineTrack[];
   quality: () => number;
   setQuality: (id: number) => void;
+  /** Keeps what played buffered behind the playhead (while looping, so the start is there when
+   * the stream goes round). */
+  keepStart: (keep: boolean) => void;
   destroy: () => void;
 };
 
@@ -82,6 +85,7 @@ const NONE = {
   qualities: () => [],
   quality: () => -1,
   setQuality: () => {},
+  keepStart: () => {},
 };
 
 /** Hidden, so the player draws their cues itself. */
@@ -189,6 +193,7 @@ const attachHls = async (
     events.onFatal(status ? `${words} (HTTP ${status})` : words, problem);
   });
   hls.subtitleDisplay = false;
+  const backBuffer = hls.config.backBufferLength;
   hls.loadSource(url);
   hls.attachMedia(video);
   const label = (name: string | undefined, language: string | undefined, index: number) =>
@@ -233,6 +238,9 @@ const attachHls = async (
     setQuality: (id) => {
       hls.currentLevel = id;
     },
+    keepStart: (keep) => {
+      hls.config.backBufferLength = keep ? Infinity : backBuffer;
+    },
     destroy: () => {
       hls.destroy();
       video.removeAttribute('src');
@@ -259,12 +267,19 @@ type DashPlayer = {
   setCurrentTrack: (track: DashTrack) => void;
   setTextTrack: (index: number) => void;
   enableText: (enable: boolean) => boolean;
+  updateSettings: (settings: {
+    streaming: {
+      buffer?: { bufferToKeep: number };
+      abr?: { maxBitrate?: { video: number }; initialBitrate?: { video: number } };
+    };
+  }) => void;
   reset: () => void;
   getRepresentationsByType?: (type: 'video') => DashRepresentation[];
-  updateSettings: (settings: {
-    streaming: { abr: { maxBitrate?: { video: number }; initialBitrate?: { video: number } } };
-  }) => void;
 };
+
+/** dash.js's own back buffer, and one that keeps a whole video. */
+const DASH_KEEP_S = 20;
+const DASH_KEEP_ALL_S = 24 * 3600;
 
 const attachDash = async (
   video: HTMLVideoElement,
@@ -337,6 +352,12 @@ const attachDash = async (
       player.enableText(id >= 0);
       player.setTextTrack(id);
       hideTextTracks(video);
+    },
+    keepStart: (keep) => {
+      // dash.js prunes all but the last 20 s behind the playhead by default.
+      player.updateSettings({
+        streaming: { buffer: { bufferToKeep: keep ? DASH_KEEP_ALL_S : DASH_KEEP_S } },
+      });
     },
     destroy: () => {
       player.reset();

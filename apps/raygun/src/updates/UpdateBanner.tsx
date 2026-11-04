@@ -5,6 +5,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useAppUpdate } from './useAppUpdate';
+import { WhatsNewSheet } from './WhatsNewSheet';
 
 const DISMISSED = 'raygun.update.dismissed';
 
@@ -18,12 +19,13 @@ const readDismissed = () => {
 
 /**
  * A newer Raygun is out (M46.47): a line at the top of Home leading to About's update card.
- * × hides it until the next release.
+ * What's new opens its notes; × hides it until the next release.
  */
 export const UpdateBanner: FC = () => {
   const { t } = useTranslation();
   const update = useAppUpdate().data;
   const [dismissed, setDismissed] = useState(readDismissed);
+  const [notesOpen, setNotesOpen] = useState(false);
   if (!update?.available || !update.latest || dismissed === update.latest) return null;
   const latest = update.latest;
   return (
@@ -36,6 +38,15 @@ export const UpdateBanner: FC = () => {
       <Link to="/about" className="min-w-0 flex-1 font-medium hover:underline">
         {t('updater.banner', { latest })}
       </Link>
+      {update.notes && (
+        <button
+          type="button"
+          onClick={() => setNotesOpen(true)}
+          className="text-primary shrink-0 font-semibold hover:underline"
+        >
+          {t('updater.whatsNew')}
+        </button>
+      )}
       <button
         type="button"
         aria-label={t('updater.dismiss')}
@@ -51,6 +62,12 @@ export const UpdateBanner: FC = () => {
       >
         <X aria-hidden size={16} />
       </button>
+      {notesOpen && update.notes && (
+        <WhatsNewSheet
+          releases={[{ version: latest, notes: update.notes }]}
+          onClose={() => setNotesOpen(false)}
+        />
+      )}
     </div>
   );
 };

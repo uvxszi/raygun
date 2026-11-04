@@ -138,6 +138,9 @@ struct PlayerReport {
     position_ms: f64,
     duration_ms: Option<f64>,
     error: Option<String>,
+    /// The video loops: passing the watched point on each round doesn't finish it.
+    #[serde(default)]
+    looping: bool,
 }
 
 /// Plays `request` in the video player, resuming where it was left (from the start once watched).
@@ -280,7 +283,12 @@ pub async fn prepare(
         "id": request.key,
         "url": url,
         "title": request.title,
-        "subtitle": request.subtitle,
+        // Never the title again: "Sintel" under "Sintel" isn't shown, "Show - 03" is "03".
+        "subtitle": request
+            .subtitle
+            .as_deref()
+            .map(|subtitle| raygun_resolver::video_match::without_title(subtitle, &request.title))
+            .filter(|subtitle| !subtitle.is_empty()),
         "headers": headers,
         "format": format,
         "subtitles": subtitles,
@@ -609,6 +617,14 @@ async fn handle_report(app: &AppHandle, json: &str) {
     app.state::<VideoSessions>().on_report(&raw).await;
 }
 
+/// Whether `report` finishes the video: its end, or its watched point unless it loops (a looping
+/// video comes round to the watched point again and again).
+fn finishes(report: &PlayerReport, duration: Option<f64>, watched_share: f64) -> bool {
+    report.state == "ended"
+        || (!report.looping
+            && duration.is_some_and(|duration| report.position_ms >= duration * watched_share))
+}
+
 async fn record(app: &AppHandle, report: PlayerReport) {
     if let Some(error) = &report.error {
         tracing::warn!(key = %report.id, %error, "video playback failed");
@@ -616,8 +632,7 @@ async fn record(app: &AppHandle, report: PlayerReport) {
     let duration = report.duration_ms.filter(|duration| *duration > 0.0);
     let db = app.state::<AppDb>().0.clone();
     let watched_share = player_prefs(&db).await.watched_share;
-    let watched = report.state == "ended"
-        || duration.is_some_and(|duration| report.position_ms >= duration * watched_share);
+    let watched = finishes(&report, duration, watched_share);
     // A failed load reports position 0; don't let it wipe saved progress.
     if report.state == "error" && report.position_ms <= 0.0 {
         return;
@@ -817,6 +832,26 @@ pub fn link_request(url: &str, title: Option<&str>, subtitle_url: Option<&str>) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn looping_reports_never_finish_at_the_watched_point() {
+        let report = |state: &str, looping: bool| {
+            serde_json::from_value::<PlayerReport>(json!({
+                "id": "v", "state": state, "positionMs": 95.0, "durationMs": 100.0,
+                "error": null, "looping": looping,
+            }))
+            .unwrap()
+        };
+        assert!(finishes(&report("progress", false), Some(100.0), 0.9));
+        assert!(!finishes(&report("progress", true), Some(100.0), 0.9));
+        assert!(!finishes(&report("closed", true), Some(100.0), 0.9));
+        // Older players leave the field out.
+        let old: PlayerReport = serde_json::from_value(
+            json!({ "id": "v", "state": "progress", "positionMs": 95.0, "durationMs": 100.0 }),
+        )
+        .unwrap();
+        assert!(finishes(&old, Some(100.0), 0.9));
+    }
 
     #[test]
     fn link_requests() {

@@ -66,6 +66,20 @@ pub fn normalize(input: &str) -> Result<url::Url, String> {
 }
 
 /// A site's name from its address: the host without `www.`.
+/// A site's pin in quick access: Library → Websites, which opens it (`site`).
+pub fn website_pin(id: &str, name: &str) -> crate::quick_access::QuickPin {
+    crate::quick_access::QuickPin {
+        kind: "website",
+        to: "/library".to_owned(),
+        search: [("media", "websites"), ("site", id)]
+            .into_iter()
+            .map(|(key, value)| (key.to_owned(), value.to_owned()))
+            .collect(),
+        name: name.to_owned(),
+        artwork_url: None,
+    }
+}
+
 pub fn default_name(url: &url::Url) -> String {
     let host = url.host_str().unwrap_or_default();
     host.strip_prefix("www.").unwrap_or(host).to_owned()
@@ -149,6 +163,7 @@ impl WebsiteService {
             .map_err(to_message)?
             .ok_or("The site wasn't saved")?;
         self.refresh_list_later().await;
+        crate::quick_access::add(&self.app, website_pin(&site.id, &site.name)).await;
         Ok(self.view(site))
     }
 
@@ -164,7 +179,10 @@ impl WebsiteService {
     }
 
     pub async fn remove(&self, id: &str) -> Result<(), String> {
-        store::remove(&self.db(), id).await.map_err(to_message)
+        store::remove(&self.db(), id).await.map_err(to_message)?;
+        let pin = website_pin(id, "");
+        crate::quick_access::remove(&self.app, &pin.to, &pin.search).await;
+        Ok(())
     }
 
     /// Turns a site's own ad blocker on or off, as its menu in the browser does.

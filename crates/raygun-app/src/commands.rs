@@ -16,6 +16,7 @@ use crate::backup::BackupService;
 use crate::collections::CollectionsService;
 use crate::device_sync::SyncService;
 use crate::discovery::DiscoveryService;
+use crate::extension_installs::ExtensionInstalls;
 use crate::extensions::ExtensionService;
 use crate::library::LibraryService;
 use crate::local_network::LocalNetwork;
@@ -523,6 +524,64 @@ pub async fn extension_install(
     extensions.install(&repo_id, &extension_id).await
 }
 
+/// Adds installs to the queue (one, a selection, every update); they run in the background.
+#[tauri::command]
+#[specta::specta]
+pub fn extension_installs_enqueue(
+    installs: tauri::State<'_, Arc<ExtensionInstalls>>,
+    entries: Vec<raygun_model::ExtensionInstallRequest>,
+) -> raygun_model::ExtensionInstallStatus {
+    installs.enqueue(&entries)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn extension_installs_status(
+    installs: tauri::State<'_, Arc<ExtensionInstalls>>,
+) -> raygun_model::ExtensionInstallStatus {
+    installs.status()
+}
+
+/// Takes one waiting install out of the queue (a running one finishes).
+#[tauri::command]
+#[specta::specta]
+pub fn extension_installs_cancel(
+    installs: tauri::State<'_, Arc<ExtensionInstalls>>,
+    repo_id: String,
+    extension_id: String,
+) -> raygun_model::ExtensionInstallStatus {
+    installs.cancel(&repo_id, &extension_id)
+}
+
+/// Stops the installs still waiting; the running one finishes.
+#[tauri::command]
+#[specta::specta]
+pub fn extension_installs_cancel_all(
+    installs: tauri::State<'_, Arc<ExtensionInstalls>>,
+) -> raygun_model::ExtensionInstallStatus {
+    installs.cancel_all()
+}
+
+/// Queues every failed install again.
+#[tauri::command]
+#[specta::specta]
+pub fn extension_installs_retry(
+    installs: tauri::State<'_, Arc<ExtensionInstalls>>,
+) -> raygun_model::ExtensionInstallStatus {
+    installs.retry_failed()
+}
+
+/// Forgets a failed install, or every failure when no extension is named.
+#[tauri::command]
+#[specta::specta]
+pub fn extension_installs_dismiss(
+    installs: tauri::State<'_, Arc<ExtensionInstalls>>,
+    repo_id: Option<String>,
+    extension_id: Option<String>,
+) -> raygun_model::ExtensionInstallStatus {
+    installs.dismiss(repo_id.as_deref().zip(extension_id.as_deref()))
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn extension_uninstall(
@@ -888,6 +947,25 @@ pub fn audio_output_set(app: tauri::AppHandle, id: Option<String>) -> Result<(),
     #[cfg(not(target_os = "android"))]
     {
         let _ = (app, id);
+        Ok(())
+    }
+}
+
+/// Hides Android's status and navigation bars while a reader is open and its own bars are put
+/// away, or shows them again. Desktop has F11 instead, so this does nothing there.
+#[tauri::command]
+#[specta::specta]
+pub fn reader_system_bars(app: tauri::AppHandle, hidden: bool) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        use tauri::Manager;
+        return app
+            .state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+            .system_bars(hidden);
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, hidden);
         Ok(())
     }
 }
@@ -1290,6 +1368,42 @@ pub fn app_open_page(
     url: String,
 ) -> Result<(), String> {
     updates.open_page(&url)
+}
+
+/// Opens an https link from release notes in the system's browser.
+#[tauri::command]
+#[specta::specta]
+pub fn app_open_link(
+    updates: tauri::State<'_, Arc<crate::updates::UpdateService>>,
+    url: String,
+) -> Result<(), String> {
+    updates.open_link(&url)
+}
+
+/// This version's notes on its first start after an update, until `app_whats_new_seen`.
+#[tauri::command]
+#[specta::specta]
+pub async fn app_whats_new(
+    updates: tauri::State<'_, Arc<crate::updates::UpdateService>>,
+) -> Result<Option<raygun_model::ReleaseNotes>, String> {
+    Ok(updates.whats_new().await)
+}
+
+/// The "What's new" sheet was shown for this version.
+#[tauri::command]
+#[specta::specta]
+pub async fn app_whats_new_seen(
+    updates: tauri::State<'_, Arc<crate::updates::UpdateService>>,
+) -> Result<(), String> {
+    updates.whats_new_seen().await;
+    Ok(())
+}
+
+/// The notes bundled with this version and the ones before it, newest first.
+#[tauri::command]
+#[specta::specta]
+pub fn app_release_notes() -> Vec<raygun_model::ReleaseNotes> {
+    crate::updates::bundled_notes()
 }
 
 /// yt-dlp and FFmpeg on this device (M46.47).
@@ -2240,14 +2354,15 @@ pub async fn devices_set_sharing(app: tauri::AppHandle, on: bool) -> Result<(), 
     crate::device_link::set_sharing(&app, on).await
 }
 
-/// Adds a device by its address (`192.168.1.20:8820`).
+/// Links with the device whose link QR code was scanned (or its text pasted): the usual
+/// question is asked there, with the code's one-time code.
 #[tauri::command]
 #[specta::specta]
-pub async fn connect_add(
+pub async fn connect_link_code(
     connect: tauri::State<'_, Arc<crate::connect::ConnectService>>,
-    address: String,
-) -> Result<raygun_model::ConnectDevice, String> {
-    connect.add(&address).await
+    text: String,
+) -> Result<Vec<raygun_model::ConnectDevice>, String> {
+    connect.inner().link_code(&text).await
 }
 
 /// Plays on another device: asks it the first time, then moves the queue there.
@@ -2590,7 +2705,7 @@ pub async fn mcp_new_token(mcp: tauri::State<'_, McpService>) -> Result<McpStatu
     mcp.new_token().await
 }
 
-/// The LAN remote's switch, address, pairing code and paired devices.
+/// The linking server's switch, address and open link code (M46.47).
 #[tauri::command]
 #[specta::specta]
 pub async fn remote_status(
@@ -2599,7 +2714,7 @@ pub async fn remote_status(
     remote.status().await
 }
 
-/// Turns the LAN remote on (opening a pairing code) or off.
+/// Turns the linking server on or off (`devices_set_sharing` does it with sync).
 #[tauri::command]
 #[specta::specta]
 pub async fn remote_set_enabled(
@@ -2609,23 +2724,13 @@ pub async fn remote_set_enabled(
     remote.set_enabled(enabled).await
 }
 
-/// Opens a new pairing code, replacing the previous one.
+/// Opens a new one-time code for this device's link QR code, replacing the previous one.
 #[tauri::command]
 #[specta::specta]
 pub async fn remote_new_code(
     remote: tauri::State<'_, RemoteService>,
 ) -> Result<RemoteStatus, String> {
     remote.new_code().await
-}
-
-/// Removes a paired device; it loses access at once.
-#[tauri::command]
-#[specta::specta]
-pub async fn remote_forget_device(
-    remote: tauri::State<'_, RemoteService>,
-    id: String,
-) -> Result<RemoteStatus, String> {
-    remote.forget(&id).await
 }
 
 /// Device sync's switch, identity, open pairing, peers and log.
@@ -3800,6 +3905,7 @@ pub async fn manga_import_comic(
 pub async fn save_pick_folder(
     app: tauri::AppHandle,
     db: tauri::State<'_, AppDb>,
+    exports: tauri::State<'_, Arc<crate::export::ExportService>>,
 ) -> Result<Settings, String> {
     let current = settings::load(&db.0)
         .await
@@ -3808,7 +3914,13 @@ pub async fn save_pick_folder(
     let Some(uri) = picked.uri else {
         return Ok(current);
     };
-    if let Some(old) = current.save.folder_uri.as_deref().filter(|old| *old != uri) {
+    let export_folder = exports.last_folder().await.map(|folder| folder.uri);
+    if let Some(old) = current
+        .save
+        .folder_uri
+        .as_deref()
+        .filter(|old| *old != uri && export_folder.as_deref() != Some(*old))
+    {
         release_folder(&app, old);
     }
     let prefs = raygun_model::SavePrefs {
@@ -3829,6 +3941,7 @@ pub async fn save_pick_folder(
 pub async fn songs_pick_folder(
     app: tauri::AppHandle,
     db: tauri::State<'_, AppDb>,
+    exports: tauri::State<'_, Arc<crate::export::ExportService>>,
 ) -> Result<Option<Settings>, String> {
     let current = settings::load(&db.0)
         .await
@@ -3837,7 +3950,13 @@ pub async fn songs_pick_folder(
     let Some(uri) = picked.uri else {
         return Ok(None);
     };
-    if let Some(old) = current.save.folder_uri.as_deref().filter(|old| *old != uri) {
+    let export_folder = exports.last_folder().await.map(|folder| folder.uri);
+    if let Some(old) = current
+        .save
+        .folder_uri
+        .as_deref()
+        .filter(|old| *old != uri && export_folder.as_deref() != Some(*old))
+    {
         release_folder(&app, old);
     }
     let prefs = raygun_model::SavePrefs {
@@ -4009,6 +4128,44 @@ pub async fn export_start(
     request: raygun_model::ExportRequest,
 ) -> Result<raygun_model::ExportJob, String> {
     exports.inner().clone().start(request).await
+}
+
+/// Shows the system folder picker for one export: the folder chosen is remembered for the export
+/// sheet, and Settings → Downloads stays as it was. `None` when the picker was cancelled.
+#[tauri::command]
+#[specta::specta]
+pub async fn export_pick_folder(
+    app: tauri::AppHandle,
+    db: tauri::State<'_, AppDb>,
+    exports: tauri::State<'_, Arc<crate::export::ExportService>>,
+) -> Result<Option<raygun_model::ExportFolder>, String> {
+    let picked = pick_folder(&app).await?;
+    let Some(uri) = picked.uri else {
+        return Ok(None);
+    };
+    let folder = raygun_model::ExportFolder {
+        uri,
+        name: picked.name.unwrap_or_else(|| "Folder".into()),
+    };
+    if let Some(old) = exports.remember_folder(&folder).await? {
+        let settings_folder = settings::load(&db.0)
+            .await
+            .ok()
+            .and_then(|settings| settings.save.folder_uri);
+        if settings_folder.as_deref() != Some(old.as_str()) {
+            release_folder(&app, &old);
+        }
+    }
+    Ok(Some(folder))
+}
+
+/// The folder last chosen in the export sheet, if any.
+#[tauri::command]
+#[specta::specta]
+pub async fn export_last_folder(
+    exports: tauri::State<'_, Arc<crate::export::ExportService>>,
+) -> Result<Option<raygun_model::ExportFolder>, String> {
+    Ok(exports.last_folder().await)
 }
 
 #[tauri::command]
@@ -4591,6 +4748,20 @@ pub async fn stremio_watch(
 ) -> Result<(), String> {
     let origin = crate::video_session::Origin::Stremio { kind, id };
     sessions.start(origin, video_id).await
+}
+
+/// A source picker's servers or addons in the order a session tries them for a title (`group`:
+/// `title:<id>` or `stremio:<kind>:<id>`; `title` the show's name), with what played last time
+/// marked (M46.49).
+#[tauri::command]
+#[specta::specta]
+pub async fn video_source_order(
+    sessions: Sessions<'_>,
+    group: String,
+    title: Option<String>,
+    sources: Vec<crate::video_session::SourceCandidate>,
+) -> Result<Vec<crate::video_session::SourceRank>, String> {
+    Ok(sessions.source_order(&group, title, sources).await)
 }
 
 /// A report from the webview's video player (desktop, M46.4), in the Android player's JSON.

@@ -7,6 +7,7 @@ import type { CSSProperties, FC } from 'react';
 
 import { TrackActionsSheet } from '../collections/TrackActionsSheet';
 import { SongEditSheet } from '../sound/SongEditSheet';
+import { useTranscribedLyricsSync } from '../sound/useSongTranscription';
 import { CoverSheet } from '../music/CoverSheet';
 import { MenuSheets } from '../music/MenuSheets';
 import { SourcePickerSheet } from '../music/SourcePickerSheet';
@@ -38,6 +39,7 @@ import { AppBar } from './AppBar';
 import { setWindowDecorations, useWindowState } from './appWindow';
 import { BottomTabs } from './BottomTabs';
 import { ConnectPrompt } from '../connect/ConnectPrompt';
+import { WhatsNewOnStart } from '../updates/WhatsNewSheet';
 import { PermissionPromptHost } from '../permissions/PermissionPrompt';
 import { useNotificationRoutes } from '../permissions/useNotificationRoutes';
 import { ContextMenuHost } from './ContextMenu';
@@ -48,7 +50,9 @@ import { useHorizontalWheel } from './useHorizontalWheel';
 import { NAV_TABS } from './navTabs';
 import { toggleWindowFullscreen } from './useWindowFullscreen';
 import { SideRail } from './SideRail';
+import { QuickAccessDrawer } from './QuickAccessDrawer';
 import { useIsDesktop } from './useIsDesktop';
+import { useIsPhone } from './useIsPhone';
 import { useLiveInvalidation } from './useLiveInvalidation';
 import { useRailStamps } from './useRail';
 import { movesFreely, useDeviceStateSync } from './deviceState';
@@ -122,10 +126,14 @@ export const AppShell: FC = () => {
   // Sizes from the screen, then Interface size (M46.48).
   useApplySize(desktop, settings.data?.zoom);
   useEngineHost();
-  // The sidebar is the desktop's (M46.29); incognito (M47) leaves its stamps alone.
+  // The sidebar's pins (M46.29), also the phone's quick access; incognito (M47) leaves their
+  // stamps alone.
   const incognito = useIncognitoSync();
-  useRailStamps(desktop && incognito === false);
+  useRailStamps(incognito === false);
+  // Phones keep their own layouts on their side: no side panel.
+  const phone = useIsPhone();
   useSpeechHost();
+  useTranscribedLyricsSync();
   useFullscreenKey();
   useHorizontalWheel();
   useMediaSession();
@@ -185,13 +193,14 @@ export const AppShell: FC = () => {
               >
                 <Outlet />
               </main>
-              {!immersive && <SidePanel />}
+              {!immersive && !phone && <SidePanel />}
             </div>
             {!immersive && <MiniPlayer />}
             {!immersive && <BottomTabs />}
           </div>
         </div>
         <PlayerSheet />
+        <QuickAccessDrawer blocked={immersive} />
         <TrackActionsSheet />
         <SongEditSheet />
         <CoverSheet />
@@ -206,6 +215,7 @@ export const AppShell: FC = () => {
         <RevealHost />
         <ToastHost />
         <ConnectPrompt />
+        <WhatsNewOnStart />
         <PermissionPromptHost />
         {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
         {/* Keeps scrolled content from showing through the transparent status bar on phones. */}

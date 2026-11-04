@@ -1,9 +1,10 @@
 import { X } from 'lucide-react';
-import { useEffect, useId, useRef } from 'react';
+import { useId, useRef } from 'react';
 import type { FC, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
+import { useBackLayer } from './backLayers';
 import { Popover } from './Popover';
 import { useWideScreen } from './useWideScreen';
 
@@ -49,13 +50,8 @@ const DialogSheet: FC<Omit<SheetProps, 'anchor' | 'popoverWidth'>> = ({
   const titleId = useId();
   // Closing on pointer down would let the tap's click land on whatever is under the sheet.
   const pressedBackdrop = useRef(false);
-  useEffect(() => {
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', escape);
-    return () => document.removeEventListener('keydown', escape);
-  }, [onClose]);
+  // Back and Escape close it, and only it (not a sheet under it).
+  useBackLayer(true, onClose);
 
   // On the document's body, so a transformed or scrolling ancestor never carries it along.
   return createPortal(
@@ -73,9 +69,10 @@ const DialogSheet: FC<Omit<SheetProps, 'anchor' | 'popoverWidth'>> = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="bg-surface motion-rise flex max-h-[85vh] w-full max-w-md flex-col gap-4 overflow-y-auto rounded-t-3xl px-5 pt-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:rounded-3xl"
+        className="bg-surface motion-rise flex max-h-[85dvh] w-full flex-col overflow-hidden rounded-t-3xl pt-5 sm:max-w-md sm:rounded-3xl"
       >
-        <div className="flex items-center justify-between gap-3">
+        {/* The title stays put while a long sheet scrolls under it. */}
+        <div className="flex shrink-0 items-center justify-between gap-3 px-5 pb-2">
           <h2 id={titleId} className="text-lg font-semibold">
             {title}
           </h2>
@@ -88,7 +85,12 @@ const DialogSheet: FC<Omit<SheetProps, 'anchor' | 'popoverWidth'>> = ({
             <X aria-hidden size={20} />
           </button>
         </div>
-        {children}
+        <div
+          data-testid="sheet-body"
+          className="flex min-h-0 flex-1 touch-pan-y flex-col gap-4 overflow-y-auto overscroll-contain px-5 pt-2 pb-[calc(1.25rem+env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch]"
+        >
+          {children}
+        </div>
       </div>
     </div>,
     document.body,

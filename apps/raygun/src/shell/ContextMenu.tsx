@@ -20,9 +20,10 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 
 import { Artwork } from '../library/Artwork';
-import { useCloseOnBack } from '../player/useCloseOnBack';
+import { backPastLayers, useBackLayer } from './backLayers';
 import { menuFromEvent, useContextMenuStore } from './contextMenuStore';
 import type { MenuItem } from './contextMenuStore';
+import { useIsDesktop } from './useIsDesktop';
 import { toggleWindowFullscreen } from './useWindowFullscreen';
 
 /** A touch screen: menus come up from the bottom as a sheet, with rows a finger can hit. */
@@ -178,7 +179,8 @@ const spotItems = (
 /**
  * Raygun's own right-click menu (M46.8), in the theme's colours and accent. Whatever is under the
  * pointer adds its options (a song, a cover, a source); the spot adds fields, text, links and
- * images; the page adds Back, Forward, Reload and full screen. The webview's menu never shows.
+ * images; the page adds Back, Forward, Reload and (on desktop) full screen. The webview's menu
+ * never shows.
  */
 export const ContextMenuHost: FC = () => {
   const { t } = useTranslation();
@@ -188,6 +190,12 @@ export const ContextMenuHost: FC = () => {
   const show = useContextMenuStore((state) => state.show);
   const close = useContextMenuStore((state) => state.close);
   const menu = useRef<HTMLDivElement>(null);
+  // A touch that moved or scrolled the list is a scroll, never a tap on the row under it.
+  const press = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  // Closing on the backdrop's click alone would close a drag that started in the menu.
+  const pressedBackdrop = useRef(false);
+  // A phone app is full screen already: only a desktop window toggles it.
+  const desktop = useIsDesktop();
   const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
   const [active, setActive] = useState(-1);
   // An item that asks first (M46.45): the menu becomes its question.
@@ -227,7 +235,8 @@ export const ContextMenuHost: FC = () => {
                 label: t('menu.back'),
                 icon: ArrowLeft,
                 hint: 'Alt+←',
-                onSelect: () => router.history.back(),
+                // The menu's own entry goes along with the page's (backLayers).
+                onSelect: () => backPastLayers(() => router.history.back()),
               },
               {
                 label: t('menu.forward'),
@@ -236,12 +245,16 @@ export const ContextMenuHost: FC = () => {
                 onSelect: () => router.history.forward(),
               },
               { label: t('menu.reload'), icon: RotateCw, onSelect: () => void router.invalidate() },
-              {
-                label: t('menu.fullscreen'),
-                icon: Maximize,
-                hint: 'F11',
-                onSelect: () => void toggleWindowFullscreen(),
-              },
+              ...(desktop
+                ? [
+                    {
+                      label: t('menu.fullscreen'),
+                      icon: Maximize,
+                      hint: 'F11',
+                      onSelect: () => void toggleWindowFullscreen(),
+                    },
+                  ]
+                : []),
             ];
       const groups = [own, spot, page].filter((group) => group.length > 0);
       const items = groups.flatMap((group, index) =>
@@ -254,11 +267,11 @@ export const ContextMenuHost: FC = () => {
     };
     window.addEventListener('contextmenu', onContextMenu);
     return () => window.removeEventListener('contextmenu', onContextMenu);
-  }, [navigate, router, show, t]);
+  }, [navigate, router, show, t, desktop]);
 
-  // On a touch screen the menu is a sheet from the bottom, and Back closes it.
+  // On a touch screen the menu is a sheet from the bottom. Back and Escape close it first.
   const sheet = useMemo(() => open !== null && coarsePointer(), [open]);
-  useCloseOnBack(sheet, close);
+  useBackLayer(open !== null, close);
 
   // Kept on screen: flipped up or left when it would run off the edge.
   useLayoutEffect(() => {
@@ -315,6 +328,83 @@ export const ContextMenuHost: FC = () => {
     if (next) setActive(next.index);
   };
 
+  const moved = () => press.current?.moved === true;
+  const renderItem = (item: MenuItem, index: number) => {
+    if (item.kind === 'separator') {
+      return (
+        <div key={index} role="separator" className="bg-foreground/10 mx-2 my-1 h-px shrink-0" />
+      );
+    }
+    if (item.kind === 'heading') {
+      return sheet ? (
+        <div key={index} className="flex min-w-0 shrink-0 items-center gap-3 px-4 pt-2 pb-3">
+          {item.artworkUrl !== undefined && (
+            <Artwork
+              url={item.artworkUrl}
+              className="size-[clamp(3rem,14vw,3.5rem)] shrink-0 rounded-md"
+              iconSize={22}
+            />
+          )}
+          <span className="flex min-w-0 flex-col">
+            <span className="truncate text-[clamp(1rem,4.4vw,1.125rem)] font-semibold">
+              {item.label}
+            </span>
+            {item.subtitle && (
+              <span className="text-muted truncate text-[clamp(0.875rem,3.8vw,1rem)]">
+                {item.subtitle}
+              </span>
+            )}
+          </span>
+        </div>
+      ) : (
+        <div key={index} className="text-muted truncate px-3 pt-1.5 pb-1 text-xs font-semibold">
+          {item.label}
+        </div>
+      );
+    }
+    const Icon = item.icon;
+    return (
+      <button
+        key={index}
+        type="button"
+        role="menuitem"
+        disabled={item.disabled}
+        onMouseEnter={() => setActive(index)}
+        onClick={(event) => {
+          // Keyboard presses have no pointer (detail 0) and always choose.
+          if (sheet && event.detail !== 0 && moved()) return;
+          pick(item);
+        }}
+        className={`flex shrink-0 items-center text-left disabled:opacity-40 ${
+          sheet
+            ? 'min-h-[max(3rem,7dvh)] gap-4 rounded-xl px-4 py-2 text-[clamp(1rem,4.3vw,1.125rem)]'
+            : 'gap-3 rounded-lg px-3 py-1.5 text-sm'
+        } ${index === active ? 'bg-primary/15 text-foreground' : ''} ${
+          item.danger ? 'text-primary' : ''
+        }`}
+      >
+        <span className={`grid shrink-0 place-items-center ${sheet ? 'size-6' : 'size-4'}`}>
+          {Icon && (
+            <Icon
+              aria-hidden
+              size={sheet ? 22 : 15}
+              className={index === active ? 'text-primary' : 'text-muted'}
+            />
+          )}
+        </span>
+        <span className="min-w-0 flex-1 truncate">{item.label}</span>
+        {item.hint && !sheet && (
+          <span className="text-muted shrink-0 pl-4 text-xs">{item.hint}</span>
+        )}
+      </button>
+    );
+  };
+  // On a sheet the headings it starts with (cover, title) stay put while the rows scroll.
+  const leading =
+    sheet && !confirming ? open.items.findIndex((item) => item.kind !== 'heading') : 0;
+  const headerCount = leading < 0 ? open.items.length : leading;
+  const rows = open.items.map((item, index) => ({ item, index })).slice(headerCount);
+
   const panel = (
     <div
       ref={menu}
@@ -324,17 +414,25 @@ export const ContextMenuHost: FC = () => {
       data-testid="context-menu"
       data-sheet={sheet ? '' : undefined}
       onKeyDown={(event) => {
-        if (event.key === 'Escape') close();
-        else if (event.key === 'ArrowDown') step(1);
+        if (event.key === 'ArrowDown') step(1);
         else if (event.key === 'ArrowUp') step(-1);
         else if (event.key === 'Enter' && active >= 0) pick(open.items[active] as MenuItem);
         else return;
         event.preventDefault();
       }}
+      onPointerDown={(event) => {
+        press.current = { x: event.clientX, y: event.clientY, moved: false };
+      }}
+      onPointerMove={(event) => {
+        const at = press.current;
+        if (at && !at.moved && Math.hypot(event.clientX - at.x, event.clientY - at.y) > 10) {
+          at.moved = true;
+        }
+      }}
       style={sheet ? undefined : { left: place?.left ?? open.x, top: place?.top ?? open.y }}
       className={
         sheet
-          ? 'bg-surface motion-rise flex max-h-[80dvh] w-full max-w-md flex-col overflow-y-auto overscroll-contain rounded-t-3xl px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] outline-none'
+          ? 'bg-surface motion-rise flex max-h-[85dvh] w-full flex-col overflow-hidden rounded-t-3xl pt-2 outline-none sm:max-w-md'
           : 'bg-surface motion-pop fixed z-[90] flex max-h-[80vh] min-w-56 flex-col overflow-y-auto rounded-xl p-1.5 shadow-2xl ring-1 shadow-black/40 ring-white/10 outline-none'
       }
     >
@@ -342,89 +440,46 @@ export const ContextMenuHost: FC = () => {
         <div
           role="alertdialog"
           aria-label={confirming.confirm}
-          className={`flex flex-col gap-3 p-2 ${sheet ? '' : 'max-w-72'}`}
+          className={`flex flex-col gap-3 ${
+            sheet ? 'px-4 pt-2 pb-[calc(1rem+env(safe-area-inset-bottom))]' : 'max-w-72 p-2'
+          }`}
         >
-          <p className="text-sm">{confirming.confirm}</p>
+          <p className={sheet ? 'text-[clamp(1rem,4.3vw,1.125rem)]' : 'text-sm'}>
+            {confirming.confirm}
+          </p>
           <div className="flex justify-end gap-2">
             <button
               type="button"
               autoFocus
               onClick={close}
-              className={`hover:bg-background rounded-full px-3 text-sm ${sheet ? 'py-2.5' : 'py-1.5'}`}
+              className={`hover:bg-background rounded-full px-3 ${sheet ? 'min-h-12 px-5 text-base' : 'py-1.5 text-sm'}`}
             >
               {t('collections.cancel')}
             </button>
             <button
               type="button"
               onClick={() => pick(confirming)}
-              className={`bg-primary text-background rounded-full px-4 text-sm font-semibold ${sheet ? 'py-2.5' : 'py-1.5'}`}
+              className={`bg-primary text-background rounded-full px-4 font-semibold ${sheet ? 'min-h-12 px-6 text-base' : 'py-1.5 text-sm'}`}
             >
               {confirming.label}
             </button>
           </div>
         </div>
+      ) : sheet ? (
+        <>
+          {open.items.slice(0, headerCount).map((item, index) => renderItem(item, index))}
+          <div
+            data-testid="context-menu-rows"
+            onScroll={() => {
+              if (press.current) press.current.moved = true;
+            }}
+            className="flex min-h-0 flex-1 touch-pan-y flex-col overflow-y-auto overscroll-contain px-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch]"
+          >
+            {rows.map(({ item, index }) => renderItem(item, index))}
+          </div>
+        </>
       ) : (
-        open.items.map((item, index) => {
-          if (item.kind === 'separator') {
-            return <div key={index} role="separator" className="bg-foreground/10 mx-2 my-1 h-px" />;
-          }
-          if (item.kind === 'heading') {
-            return sheet ? (
-              <div key={index} className="flex min-w-0 items-center gap-3 px-2 pt-2 pb-3">
-                {item.artworkUrl !== undefined && (
-                  <Artwork
-                    url={item.artworkUrl}
-                    className="size-12 shrink-0 rounded-md"
-                    iconSize={20}
-                  />
-                )}
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate font-semibold">{item.label}</span>
-                  {item.subtitle && (
-                    <span className="text-muted truncate text-sm">{item.subtitle}</span>
-                  )}
-                </span>
-              </div>
-            ) : (
-              <div
-                key={index}
-                className="text-muted truncate px-3 pt-1.5 pb-1 text-xs font-semibold"
-              >
-                {item.label}
-              </div>
-            );
-          }
-          const Icon = item.icon;
-          return (
-            <button
-              key={index}
-              type="button"
-              role="menuitem"
-              disabled={item.disabled}
-              onMouseEnter={() => setActive(index)}
-              onClick={() => pick(item)}
-              className={`flex items-center gap-3 rounded-lg px-3 text-left disabled:opacity-40 ${
-                sheet ? 'min-h-12 text-[0.9375rem]' : 'py-1.5 text-sm'
-              } ${index === active ? 'bg-primary/15 text-foreground' : ''} ${
-                item.danger ? 'text-primary' : ''
-              }`}
-            >
-              <span className={`grid shrink-0 place-items-center ${sheet ? 'size-5' : 'size-4'}`}>
-                {Icon && (
-                  <Icon
-                    aria-hidden
-                    size={sheet ? 19 : 15}
-                    className={index === active ? 'text-primary' : 'text-muted'}
-                  />
-                )}
-              </span>
-              <span className="min-w-0 flex-1 truncate">{item.label}</span>
-              {item.hint && !sheet && (
-                <span className="text-muted shrink-0 pl-4 text-xs">{item.hint}</span>
-              )}
-            </button>
-          );
-        })
+        open.items.map((item, index) => renderItem(item, index))
       )}
     </div>
   );
@@ -434,8 +489,12 @@ export const ContextMenuHost: FC = () => {
       <div
         data-menu-backdrop=""
         className="motion-fade fixed inset-0 z-[90] flex items-end justify-center bg-black/60"
+        onPointerDown={(event) => {
+          pressedBackdrop.current = event.target === event.currentTarget;
+        }}
         onClick={(event) => {
-          if (event.target === event.currentTarget) close();
+          if (pressedBackdrop.current && event.target === event.currentTarget) close();
+          pressedBackdrop.current = false;
         }}
       >
         {panel}

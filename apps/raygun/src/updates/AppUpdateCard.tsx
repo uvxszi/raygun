@@ -1,5 +1,5 @@
 import type { AppUpdate } from '@raygun/bindings';
-import { Download, ExternalLink, FolderGit2, RefreshCw } from 'lucide-react';
+import { Download, ExternalLink, FolderGit2, RefreshCw, ScrollText, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -7,6 +7,8 @@ import { useTranslation } from 'react-i18next';
 import { PrefAction, PrefGroup } from '../settings/prefs';
 import { Problem } from '../settings/Problem';
 import { useAppUpdate, useAppUpdateActions } from './useAppUpdate';
+import { useBundledNotes } from './useReleaseNotes';
+import { WhatsNewSheet } from './WhatsNewSheet';
 
 /** What the main button does for this copy: install it, or open the release page. */
 const selfUpdates = (update: AppUpdate) => update.assetName !== null;
@@ -38,7 +40,8 @@ export const AppUpdateCard: FC = () => {
   const update = useAppUpdate();
   const { check, install, openPage } = useAppUpdateActions();
   const checkedWhen = useCheckedWhen();
-  const [notesOpen, setNotesOpen] = useState(false);
+  const bundled = useBundledNotes().data ?? [];
+  const [notes, setNotes] = useState<'next' | 'bundled' | null>(null);
   const info = update.data;
   if (!info) return null;
   const busy =
@@ -123,22 +126,12 @@ export const AppUpdateCard: FC = () => {
             onClick={() => check.mutate()}
           />
         )}
-        {info.available && info.notes && (
-          <li className="flex flex-col gap-1 px-1 py-2">
-            <button
-              type="button"
-              aria-expanded={notesOpen}
-              onClick={() => setNotesOpen(!notesOpen)}
-              className="text-primary w-fit text-sm font-semibold"
-            >
-              {t(notesOpen ? 'updater.hideNotes' : 'updater.showNotes')}
-            </button>
-            {notesOpen && (
-              <pre className="selectable text-muted max-h-64 overflow-y-auto font-sans text-sm whitespace-pre-wrap">
-                {info.notes}
-              </pre>
-            )}
-          </li>
+        {info.available && info.notes && info.latest && (
+          <PrefAction
+            icon={Sparkles}
+            title={t('updater.whatsNewIn', { version: info.latest })}
+            onClick={() => setNotes('next')}
+          />
         )}
         {failure && (
           <li className="px-1 py-2">
@@ -150,7 +143,22 @@ export const AppUpdateCard: FC = () => {
           title={t('updater.repo')}
           onClick={() => openPage.mutate(info.repoUrl)}
         />
+        {bundled.length > 0 && (
+          <PrefAction
+            icon={ScrollText}
+            title={t('updater.whatsNew')}
+            summary={t('updater.whatsNewSummary', { current: info.current })}
+            onClick={() => setNotes('bundled')}
+          />
+        )}
       </PrefGroup>
+      {notes === 'next' && info.latest && info.notes && (
+        <WhatsNewSheet
+          releases={[{ version: info.latest, notes: info.notes }]}
+          onClose={() => setNotes(null)}
+        />
+      )}
+      {notes === 'bundled' && <WhatsNewSheet releases={bundled} onClose={() => setNotes(null)} />}
     </div>
   );
 };

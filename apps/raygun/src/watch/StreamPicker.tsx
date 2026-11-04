@@ -1,4 +1,4 @@
-import type { StremioStream, StremioStreamGroup } from '@raygun/bindings';
+import type { SourceRank, StremioStream, StremioStreamGroup } from '@raygun/bindings';
 import { useNavigate } from '@tanstack/react-router';
 import {
   ChevronDown,
@@ -6,6 +6,7 @@ import {
   Copy,
   Download,
   ExternalLink,
+  History,
   LoaderCircle,
   Magnet,
   Play,
@@ -15,11 +16,13 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useBackLayer } from '../shell/backLayers';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import type { OverflowItem } from '../shell/OverflowMenu';
 import { useIsDesktop } from '../shell/useIsDesktop';
 import { formatBytes } from './episodeLabel';
 import type { PickIntent } from './ServerPicker';
+import { inRankOrder, streamLabel, useSourceOrder } from './useSourceOrder';
 import { useOpenStremioLink, useStremioPlay, useStremioStreams } from './useStremio';
 import { useDownloadStremio } from './useVideoLibrary';
 import { SourceIssue } from '../shell/SourceIssue';
@@ -161,16 +164,30 @@ const StreamGroup: FC<{
   busy: boolean;
   onPick: (stream: StremioStream, external?: boolean) => void;
   onSave: (stream: StremioStream) => void;
-}> = ({ group, intent, busy, onPick, onSave }) => {
+  /** Where a session would try it, and what played last time. */
+  rank?: SourceRank | null;
+}> = ({ group, intent, busy, onPick, onSave, rank = null }) => {
   const { t } = useTranslation();
   const usable = (stream: StremioStream) =>
     intent === 'download' ? savable(stream) : usableHere(stream);
-  const here = group.streams.filter((stream) => !elsewhere(stream));
+  const listed = group.streams.filter((stream) => !elsewhere(stream));
+  // In the order a session tries them, the stream that played last time first.
+  const here =
+    rank && rank.links.length === listed.length
+      ? rank.links.flatMap((index) => listed[index] ?? [])
+      : listed;
+  const worked = (stream: StremioStream) =>
+    rank?.workedLink != null && listed[rank.workedLink] === stream;
   const other = group.streams.filter(elsewhere);
   return (
     <section aria-label={group.addonName} className="flex flex-col gap-2">
       <h3 className="text-muted text-xs font-semibold tracking-wide uppercase">
         {group.addonName}
+        {rank?.worked && !group.failing && (
+          <span className="ml-2 font-normal tracking-normal normal-case">
+            {t('videoPlayer.workedLastTime')}
+          </span>
+        )}
         {group.failing && (
           <span className="ml-2 font-normal tracking-normal normal-case">
             {t('watch.addonFailingLately')}
@@ -204,6 +221,12 @@ const StreamGroup: FC<{
                         : null
                 }
               />
+              {worked(stream) && (
+                <span className="text-muted flex shrink-0 items-center gap-1 text-xs">
+                  <History aria-hidden size={14} />
+                  {t('videoPlayer.workedLastTime')}
+                </span>
+              )}
               {usable(stream) &&
                 (intent === 'download' && stream.kind !== 'title' ? (
                   <Download aria-hidden size={18} className="shrink-0" />
@@ -268,6 +291,7 @@ export const StreamPicker: FC<{
   onClose: () => void;
 }> = ({ target, intent = 'play', onClose }) => {
   const { t } = useTranslation();
+  useBackLayer(true, onClose);
   const navigate = useNavigate();
   const groups = useStremioStreams(target.kind, target.metaId, target.videoId);
   const play = useStremioPlay();
@@ -276,6 +300,17 @@ export const StreamPicker: FC<{
     (group) => group.streams.length > 0 || group.error,
   );
   const { titleId = null, ...request } = target;
+  const candidates = withStreams.map((group) => ({
+    name: group.addonName,
+    links: group.streams
+      .filter((stream) => !elsewhere(stream))
+      .map((stream) => ({
+        label: streamLabel(stream, group.addonName),
+        tag: stream.bingeGroup,
+      })),
+  }));
+  // The order a session would try them in, what played last time first.
+  const ranks = useSourceOrder(`stremio:${target.kind}:${target.metaId}`, target.title, candidates);
   const busy = play.isPending || download.isPending;
   const error = play.error ?? download.error;
 
@@ -336,10 +371,11 @@ export const StreamPicker: FC<{
           {groups.data && withStreams.length === 0 && (
             <p className="text-muted text-sm">{t('watch.noStreams')}</p>
           )}
-          {withStreams.map((group, index) => (
+          {inRankOrder(withStreams, ranks).map(({ item: group, rank }) => (
             <StreamGroup
-              key={`${group.addonId}-${index}`}
+              key={`${group.addonId}-${rank?.index ?? group.addonName}`}
               group={group}
+              rank={rank}
               intent={intent}
               busy={busy}
               onPick={pick}

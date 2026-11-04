@@ -99,16 +99,22 @@ class MirrorPlayer(private val context: Context) : SimpleBasePlayer(Looper.getMa
     /** Paused for a call or a notification: playing again once the focus comes back. */
     private var resumeOnGain = false
     private var noisyRegistered = false
+    /**
+     * The session shows this player. Only then does it hold the audio focus or pass on focus and
+     * headphone changes: while the deck plays, a pause from here would stop the deck's song.
+     */
+    private var shown = false
 
     private val noisy = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY && state?.active == true) {
+            if (intent.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY && shown && state?.active == true) {
                 NativeBridge.control("pause")
             }
         }
     }
 
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        if (!shown) return@OnAudioFocusChangeListener
         when (change) {
             AudioManager.AUDIOFOCUS_LOSS -> {
                 resumeOnGain = false
@@ -138,21 +144,34 @@ class MirrorPlayer(private val context: Context) : SimpleBasePlayer(Looper.getMa
 
     fun update(next: MirrorState?) {
         state = next
-        if (next?.web == true && next.active) {
+        follow()
+        invalidateState()
+    }
+
+    /** The session shows this player now: it takes the focus if the webview's song plays. */
+    fun show() {
+        shown = true
+        follow()
+    }
+
+    /** The focus and the headphone watch follow what the webview plays, while this is shown. */
+    private fun follow() {
+        val next = state
+        if (shown && next?.web == true && next.active) {
             takeFocus()
             listenForNoisy(true)
         } else {
-            if (next?.web != true || next.status == "ended" || next.status == "error") {
+            if (!shown || next?.web != true || next.status == "ended" || next.status == "error") {
                 resumeOnGain = false
                 abandonFocus()
             }
             listenForNoisy(false)
         }
-        invalidateState()
     }
 
     /** The native engine plays now: its player handles focus and noise itself. */
     fun standDown() {
+        shown = false
         resumeOnGain = false
         abandonFocus()
         listenForNoisy(false)

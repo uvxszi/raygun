@@ -63,6 +63,37 @@ describe('Music search: songs, artists and albums', () => {
     expect(rows[1]).toHaveTextContent('Lucky Star');
   });
 
+  it('marks explicit songs and 18+ sources, and queues the explicit mark', async () => {
+    const user = userEvent.setup();
+    const ADULT = { ...DEEZER, id: 'dev.test.adult/songs', name: 'After Dark', adult: true };
+    commands.onlineSearch.mockResolvedValue(
+      ok({
+        library: [],
+        top: [],
+        providers: [
+          {
+            provider: ADULT,
+            tracks: [{ ...song('Get Lucky', 'Daft Punk'), explicit: true }],
+            error: null,
+          },
+          { provider: MUSICBRAINZ, tracks: [song('Lucky Star', 'Madonna')], error: null },
+        ],
+      }),
+    );
+    await AppShellWrapper.mount('/browse?tab=search&type=music&view=songs&q=get%20lucky');
+    const best = await screen.findByTestId('best-songs');
+    const [explicit, clean] = within(best).getAllByTestId('online-track-row');
+    expect(within(explicit!).getByRole('img', { name: 'Explicit' })).toBeInTheDocument();
+    expect(within(explicit!).getByRole('img', { name: 'For adults (18+)' })).toBeInTheDocument();
+    expect(within(clean!).queryByRole('img', { name: 'Explicit' })).not.toBeInTheDocument();
+    expect(within(clean!).queryByRole('img', { name: 'For adults (18+)' })).not.toBeInTheDocument();
+    await user.click(explicit!);
+    expect(commands.playbackReplace).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ title: 'Get Lucky', explicit: true })]),
+      0,
+    );
+  });
+
   it('finds artists and albums, and opens an album to play it', async () => {
     const user = userEvent.setup();
     commands.onlineSearch.mockResolvedValue(ok({ library: [], top: [], providers: [] }));

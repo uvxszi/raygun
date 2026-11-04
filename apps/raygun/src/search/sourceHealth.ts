@@ -55,6 +55,32 @@ export const useSourceHealth = create<SourceHealth>((set, get) => ({
   },
 }));
 
+/** How a source answered a search: with results, with none, or with an error. */
+export type SourceAnswer = 'results' | 'empty' | 'failed';
+
+const ANSWER_RANK: Record<SourceAnswer, number> = { results: 0, empty: 1, failed: 2 };
+
+/**
+ * `sources` as a search shows them: the ones that answered with results first, then the ones
+ * that answered with none, then the ones that failed. A source whose answer isn't known yet
+ * (`answer` gives `undefined`) keeps its place; each group keeps its order.
+ */
+export const answeredFirst = <T>(
+  sources: T[],
+  answer: (source: T) => SourceAnswer | undefined,
+): T[] => {
+  const known = sources.flatMap((source, index) => {
+    const found = answer(source);
+    return found === undefined ? [] : [{ source, index, rank: ANSWER_RANK[found] }];
+  });
+  const ranked = [...known].sort((a, b) => a.rank - b.rank || a.index - b.index);
+  const shown = [...sources];
+  known.forEach((slot, at) => {
+    shown[slot.index] = ranked[at]?.source ?? slot.source;
+  });
+  return shown;
+};
+
 /** `sources` with the ones that failed lately moved to the end (keeping each group's order). */
 export const failingLast = <T extends { id: string }>(
   sources: T[],

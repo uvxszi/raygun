@@ -95,6 +95,7 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         val groups = host.sources
         val sheet = PlayerSheet(host, label("sources", "Sources"))
         var shown = 0
+        host.playingFrom?.let { sheet.row(label("playingFrom", "Playing from {n}", it), null, onClick = null) }
         for (group in 0 until groups.length()) {
             val server = groups.optJSONObject(group) ?: continue
             val links = server.optJSONArray("links") ?: JSONArray()
@@ -115,17 +116,22 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                 continue
             }
             // Failed lately and tried last (M46.17).
-            val unreliable = if (server.optBoolean("unreliable")) {
-                " · " + label("unreliable", "didn't work lately")
-            } else {
-                ""
+            val unreliable = when {
+                server.optBoolean("unreliable") -> " · " + label("unreliable", "didn't work lately")
+                server.optBoolean("worked") -> " · " + label("workedLastTime", "worked last time")
+                else -> ""
             }
             sheet.header(server.optString("name") + unreliable)
             for (link in 0 until links.length()) {
                 val entry = links.optJSONObject(link) ?: continue
                 val current = entry.optBoolean("current")
                 val failed = entry.optBoolean("failed")
-                sheet.row(entry.optString("label"), if (failed) label("failed", "failed") else null, current) {
+                val note = when {
+                    failed -> label("failed", "failed")
+                    entry.optBoolean("worked") -> label("workedLastTime", "worked last time")
+                    else -> null
+                }
+                sheet.row(entry.optString("label"), note, current) {
                     sheet.dismiss()
                     if (!current) host.chooseSource(group, link)
                 }
@@ -340,6 +346,10 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                 host.player.videoFormat?.height?.takeIf { it > 0 }?.let { "${it}p" }
             }
             sheet.row(label("quality", "Quality"), quality) { quality() }
+        }
+        sheet.row(label("loop", "Loop this video"), selected = host.looping) {
+            host.toggleLoop()
+            more()
         }
         sheet.row(label("sleepTimer", "Sleep timer"), host.sleepNote() ?: label("off", "Off")) { sleep() }
         sheet.row(label("screenshot", "Screenshot")) { screenshot() }

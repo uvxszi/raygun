@@ -2,8 +2,10 @@ import type { PagedScale, ReaderMode, TapInvert, TapZones } from '@raygun/bindin
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useIsDesktop } from '../shell/useIsDesktop';
 import { PrefChoice, PrefGroup, PrefSize, PrefSlider, PrefSwitch } from '../settings/prefs';
 import { TAP_INVERTS, TAP_ZONES } from './reader/tapZones';
+import { TapGridEditor } from './TapGridEditor';
 import { PAGED_SCALES, READER_MODES, READER_SIZE, useReaderDisplay } from './readerDisplay';
 
 /**
@@ -14,6 +16,7 @@ import { PAGED_SCALES, READER_MODES, READER_SIZE, useReaderDisplay } from './rea
 export const ReaderDisplaySettings: FC<{ title?: string }> = ({ title }) => {
   const { t } = useTranslation();
   const { display, set, busy } = useReaderDisplay();
+  const desktop = useIsDesktop();
   return (
     <>
       <PrefGroup title={title ?? t('reader.display.reading')}>
@@ -34,6 +37,7 @@ export const ReaderDisplaySettings: FC<{ title?: string }> = ({ title }) => {
           }))}
           onChange={(tapZones) => set({ tapZones })}
         />
+        {display.tapZones === 'custom' && <TapGridEditor />}
         {display.tapZones !== 'off' && (
           <PrefChoice<TapInvert>
             title={t('reader.display.invertTaps')}
@@ -64,6 +68,14 @@ export const ReaderDisplaySettings: FC<{ title?: string }> = ({ title }) => {
           disabled={busy}
           onChange={(keepScreenOn) => set({ keepScreenOn })}
         />
+        {!desktop && (
+          <PrefSwitch
+            title={t('reader.display.fullScreen')}
+            checked={display.fullScreen}
+            disabled={busy}
+            onChange={(fullScreen) => set({ fullScreen })}
+          />
+        )}
         <PrefSlider
           title={t('reader.display.preload')}
           value={display.preloadPages}
@@ -107,29 +119,42 @@ export const ReaderDisplaySettings: FC<{ title?: string }> = ({ title }) => {
           onChange={(barSize) => set({ barSize })}
         />
         <PrefSwitch
+          title={t('reader.display.barProgress')}
+          checked={display.barProgress}
+          disabled={busy}
+          onChange={(barProgress) => set({ barProgress })}
+        />
+        <PrefSwitch
           title={t('reader.display.barChapters')}
           checked={display.barChapters}
           disabled={busy}
           onChange={(barChapters) => set({ barChapters })}
         />
-        <PrefSwitch
-          title={t('reader.display.barZoom')}
-          checked={display.barZoom}
-          disabled={busy}
-          onChange={(barZoom) => set({ barZoom })}
-        />
-        <PrefSwitch
-          title={t('reader.display.barMode')}
-          checked={display.barMode}
-          disabled={busy}
-          onChange={(barMode) => set({ barMode })}
-        />
-        <PrefSwitch
-          title={t('reader.display.barFullscreen')}
-          checked={display.barFullscreen}
-          disabled={busy}
-          onChange={(barFullscreen) => set({ barFullscreen })}
-        />
+        {/* Phones pinch to zoom, and the top bar has the reading mode. */}
+        {desktop && (
+          <PrefSwitch
+            title={t('reader.display.barZoom')}
+            checked={display.barZoom}
+            disabled={busy}
+            onChange={(barZoom) => set({ barZoom })}
+          />
+        )}
+        {desktop && (
+          <PrefSwitch
+            title={t('reader.display.barMode')}
+            checked={display.barMode}
+            disabled={busy}
+            onChange={(barMode) => set({ barMode })}
+          />
+        )}
+        {desktop && (
+          <PrefSwitch
+            title={t('reader.display.barFullscreen')}
+            checked={display.barFullscreen}
+            disabled={busy}
+            onChange={(barFullscreen) => set({ barFullscreen })}
+          />
+        )}
       </PrefGroup>
     </>
   );

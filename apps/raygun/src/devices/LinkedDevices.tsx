@@ -6,17 +6,17 @@ import {
   Link2,
   LoaderCircle,
   Play,
-  Plus,
+  QrCode,
   RefreshCw,
+  ScanLine,
   Smartphone,
   Unlink,
 } from 'lucide-react';
 import { useState } from 'react';
-import type { FC, FormEvent, ReactNode } from 'react';
+import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import {
-  useAddDevice,
   useConnectDevices,
   useConnectSession,
   useConnectStatus,
@@ -30,8 +30,7 @@ import { ConfirmSheet } from '../settings/ConfirmSheet';
 import { PrefAction, PrefGroup, PrefSwitch } from '../settings/prefs';
 import { Problem } from '../settings/Problem';
 import { useRemoteStatus } from '../settings/remoteQueries';
-import { Sheet } from '../shell/Sheet';
-import { TextField } from '../shell/TextField';
+import { ScanLinkCode, ShowLinkCode } from './LinkSheets';
 import { useSince } from './since';
 import { useRemovePeer, useSyncNow, useSyncStatus } from './useDeviceSync';
 
@@ -64,54 +63,12 @@ const DeviceRow: FC<{
   </li>
 );
 
-/** Adds a device by the address it shows, where devices don't find each other (guest Wi-Fi). */
-const AddByAddress: FC<{ onClose: () => void }> = ({ onClose }) => {
-  const { t } = useTranslation();
-  const add = useAddDevice();
-  const network = useLocalNetworkGate('connect');
-  const [address, setAddress] = useState('');
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    const text = address.trim();
-    if (!text) return;
-    const url = /^https?:\/\//.test(text) ? text : `http://${text}`;
-    void network.guard(url, () => add.mutate(text, { onSuccess: onClose }));
-  };
-  return (
-    <Sheet title={t('link.addTitle')} onClose={onClose}>
-      <form onSubmit={submit} className="flex flex-col gap-3 text-sm">
-        <TextField
-          autoFocus
-          type="url"
-          autoCapitalize="off"
-          autoCorrect="off"
-          spellCheck={false}
-          value={address}
-          onChange={setAddress}
-          aria-label={t('link.address')}
-          placeholder={t('link.addressHint')}
-          className="bg-background rounded-xl pr-0.5 pl-4"
-          inputClassName="py-3"
-        />
-        {add.error && <Problem title={t('link.addFailed')} detail={add.error.message} />}
-        <button
-          type="submit"
-          disabled={!address.trim() || add.isPending}
-          className="bg-primary text-background self-end rounded-full px-5 py-2.5 font-semibold disabled:opacity-50"
-        >
-          {t('link.add')}
-        </button>
-      </form>
-      {network.sheet}
-    </Sheet>
-  );
-};
-
 /**
  * Your devices (M46.47): Connect, sync and the remote as one. One switch lets other devices find
  * this one; linking asks the other device once, and then the two keep each other in sync (on
  * every change, and every few minutes) and either can play on the other, like Spotify's device
- * picker. Devices linked with a code before sync only.
+ * picker. Linking is by QR code (one shows it, the other scans it) or with a device found on this
+ * network. Devices linked with a code before sync only.
  */
 export const LinkedDevices: FC = () => {
   const { t } = useTranslation();
@@ -123,7 +80,7 @@ export const LinkedDevices: FC = () => {
   const session = useConnectSession();
   const localNetwork = useLocalNetworkGate('remote');
   const since = useSince();
-  const [adding, setAdding] = useState(false);
+  const [linking, setLinking] = useState<'show' | 'scan' | null>(null);
   const [unlinking, setUnlinking] = useState<Linked | null>(null);
   const sharing = (remote.data?.enabled ?? false) && (sync.data?.enabled ?? false);
 
@@ -323,7 +280,11 @@ export const LinkedDevices: FC = () => {
             )}
           </DeviceRow>
         ))}
-        <PrefAction icon={Plus} title={t('link.addTitle')} onClick={() => setAdding(true)} />
+      </PrefGroup>
+
+      <PrefGroup title={t('link.byCode')}>
+        <PrefAction icon={QrCode} title={t('link.showCode')} onClick={() => setLinking('show')} />
+        <PrefAction icon={ScanLine} title={t('link.scanCode')} onClick={() => setLinking('scan')} />
       </PrefGroup>
 
       {failure && (
@@ -331,7 +292,8 @@ export const LinkedDevices: FC = () => {
           <Problem title={failure.title} detail={failure.detail} />
         </div>
       )}
-      {adding && <AddByAddress onClose={() => setAdding(false)} />}
+      {linking === 'show' && <ShowLinkCode onClose={() => setLinking(null)} />}
+      {linking === 'scan' && <ScanLinkCode onClose={() => setLinking(null)} />}
       {unlinking && (
         <ConfirmSheet
           title={t('link.unlinkQuestion', { name: nameOf(unlinking) })}

@@ -17,7 +17,13 @@ const simple = (text: string | null | undefined) =>
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
 
-export type RankedSong = { track: OnlineTrack; source: string | undefined; score: number };
+export type RankedSong = {
+  track: OnlineTrack;
+  source: string | undefined;
+  score: number;
+  /** The source is rated for adults: its name carries an 18+ tag. */
+  sourceAdult?: boolean;
+};
 
 /** Only each source's first answers count as agreeing; deep results rarely are the song asked. */
 const AGREEING_RANKS = 10;
@@ -66,6 +72,7 @@ export const rankSongs = (
       entries.push({
         track: merged.get(key) ?? track,
         source: result.provider.name,
+        ...(result.provider.adult ? { sourceAdult: true } : {}),
         score: score + artistBonus + agreement,
         at: index,
         order,
@@ -80,7 +87,12 @@ export const rankSongs = (
     entries.push({ track, source: undefined, score: AGREEMENT_BONUS, at: index, order: 0 });
   });
   entries.sort((a, b) => b.score - a.score || a.at - b.at || a.order - b.order);
-  return entries.map(({ track, source, score }) => ({ track, source, score }));
+  return entries.map(({ track, source, score, sourceAdult }) => ({
+    track,
+    source,
+    score,
+    ...(sourceAdult ? { sourceAdult } : {}),
+  }));
 };
 
 /** What a streamed search shows: its full answer, else what its sources sent so far. */

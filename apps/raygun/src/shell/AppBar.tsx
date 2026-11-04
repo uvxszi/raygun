@@ -32,6 +32,7 @@ import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { AppMenu } from './AppMenu';
 import { MascotButton } from './MascotButton';
 import { closeWindow, minimizeWindow, toggleMaximizeWindow, useWindowState } from './appWindow';
+import { backFromLayers, useDesktopBack, useLayersOpen } from './backLayers';
 import { useAppMenuGroups } from './useAppMenuGroups';
 import { useHistoryNav } from './useHistoryNav';
 import { BarPopoverButtons } from './BarPopovers';
@@ -256,6 +257,11 @@ export const AppBar: FC<{ frame: WindowFrame; onShortcuts: () => void; immersive
   const { t } = useTranslation();
   const navigate = useNavigate();
   const nav = useHistoryNav();
+  // Back closes what's open over the page first (a menu, a sheet, the full player): the bar's
+  // button, the mouse's and Alt+Left alike.
+  const layersOpen = useLayersOpen();
+  const back = () => backFromLayers(nav.back);
+  useDesktopBack(nav.back, nav.forward);
   const router = useRouter();
   const client = useQueryClient();
   const settings = useSettings();
@@ -351,8 +357,8 @@ export const AppBar: FC<{ frame: WindowFrame; onShortcuts: () => void; immersive
         type="button"
         aria-label={t('menu.back')}
         data-hint={t('menu.back')}
-        disabled={!nav.canGoBack}
-        onClick={nav.back}
+        disabled={!nav.canGoBack && !layersOpen}
+        onClick={back}
         className={roundButton}
       >
         <ChevronLeft aria-hidden size={22} />

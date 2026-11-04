@@ -135,4 +135,27 @@ describe('The player as a song plays', () => {
     expect(positionAt({ ...state, status: 'paused' }, now + 1000)).toBe(10_000);
     expect(commands.playbackControl).not.toHaveBeenCalled();
   });
+
+  it('marks an explicit song in the bar, the full player and the queue', async () => {
+    await AppShellWrapper.mount();
+    const explicit = [
+      { ...makeItem('Intro', 'Raygun'), explicit: true },
+      makeItem('Second'),
+      { ...makeItem('Third'), explicit: true },
+    ];
+    AppShellWrapper.playing(explicit, 0);
+    await AppShellWrapper.miniPlayer.title;
+    const bar = AppShellWrapper.miniPlayer.element;
+    expect(within(bar).getByRole('img', { name: 'Explicit' })).toBeInTheDocument();
+    await AppShellWrapper.miniPlayer.open();
+    const sheet = await AppShellWrapper.playerSheet.element;
+    const marks = within(sheet).getAllByRole('img', { name: 'Explicit' }).length;
+    expect(marks).toBeGreaterThan(0);
+    await AppShellWrapper.playerSheet.press('Up next');
+    await AppShellWrapper.playerSheet.upNext;
+    // The explicit song coming up is marked in the queue too.
+    await waitFor(() =>
+      expect(within(sheet).getAllByRole('img', { name: 'Explicit' }).length).toBeGreaterThan(marks),
+    );
+  });
 });

@@ -14,11 +14,12 @@ import { OnlineTrackRow } from './OnlineTrackRow';
 import { PodcastSearch } from './PodcastSearch';
 import { RelevantMusic } from './RelevantMusic';
 import { useSeenSongs } from './seenBefore';
-import { failingLast, useSourceHealth } from './sourceHealth';
+import { answeredFirst, failingLast, useSourceHealth } from './sourceHealth';
 import { MUSIC_VIEWS, pill } from './searchTypes';
 import type { MusicView } from './searchTypes';
 import { SourceMenu } from './SourceMenu';
 import { playResults, useOnlineSearch } from './useOnlineSearch';
+import { AdultMark } from '../shell/AdultMark';
 import { SourceIssue } from '../shell/SourceIssue';
 import { useSettings } from '../settings/useSettings';
 
@@ -35,6 +36,7 @@ const ProviderResults: FC<ProviderResultsProps> = ({ result, ambiguous, limit })
           {/* Two sources with one name (a Nuclear plugin beside Raygun's own) need telling apart. */}
           {ambiguous && <span className="font-normal"> · {result.provider.extensionId}</span>}
         </span>
+        {result.provider.adult && <AdultMark />}
         <SourceMenu
           sourceId={result.provider.id}
           extensionId={result.provider.extensionId}
@@ -160,11 +162,15 @@ export const MusicResults: FC<{
   const failingAtEnd = useSettings().data?.failingSourcesLast ?? true;
   const answered = search.data?.providers ?? [];
   useMusicHealth(answered);
-  // Sources that failed lately go last, as they do in every source list (M46.9).
-  const results = failingLast(
-    answered.map((result) => ({ ...result, id: result.provider.id })),
-    failures,
-    failingAtEnd,
+  // Sources with songs lead, then those that found none, then failures; and those that failed
+  // lately go last among each, as they do in every source list (M46.9).
+  const results = answeredFirst(
+    failingLast(
+      answered.map((result) => ({ ...result, id: result.provider.id })),
+      failures,
+      failingAtEnd,
+    ),
+    (result) => (result.error ? 'failed' : result.tracks.length > 0 ? 'results' : 'empty'),
   );
   const library = search.data?.library ?? [];
   const top = search.data?.top ?? [];

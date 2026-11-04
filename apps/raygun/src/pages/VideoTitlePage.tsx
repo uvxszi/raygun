@@ -122,7 +122,7 @@ const Episodes: FC<{
       )}
       <ul className="flex flex-col gap-2">
         {episodes.map((episode) => {
-          const label = episodeLabel(episode);
+          const label = episodeLabel(episode, true, view.title);
           return (
             <li key={episode.id} aria-label={label} className="flex items-center gap-3">
               <button
@@ -302,7 +302,9 @@ export const VideoTitlePage: FC = () => {
         titleId: view.id,
         episodeId: episode.id,
         remoteId: episode.remoteId,
-        heading: isMovie(view) ? view.title : `${view.title} · ${episodeLabel(episode)}`,
+        heading: isMovie(view)
+          ? view.title
+          : `${view.title} · ${episodeLabel(episode, true, view.title)}`,
       },
       intent,
     });
@@ -338,6 +340,7 @@ export const VideoTitlePage: FC = () => {
           )
         }
         title={view.title}
+        adult={view.adult}
         facts={[
           view.mediaType && t(`watch.mediaType.${view.mediaType}`),
           view.year,

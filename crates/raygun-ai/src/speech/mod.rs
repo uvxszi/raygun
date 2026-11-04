@@ -35,6 +35,9 @@ pub enum SpeechError {
     Network(String),
     #[error("the transcriber answered {status}: {message}")]
     Provider { status: u16, message: String },
+    /// Stopped before the window was heard.
+    #[error("transcribing was stopped")]
+    Cancelled,
 }
 
 impl From<candle_core::Error> for SpeechError {

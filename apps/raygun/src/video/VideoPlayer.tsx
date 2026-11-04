@@ -14,6 +14,7 @@ import {
   AudioLines,
   Captions,
   ExternalLink,
+  EllipsisVertical,
   FastForward,
   Keyboard,
   Layers,
@@ -55,11 +56,13 @@ import type { CueEdit, CueEdits } from './cueEdits';
 import { cuesAt, parseSubtitles } from './subtitles';
 import type { Cue } from './subtitles';
 import { TimeBar } from './TimeBar';
+import { applyLoop, loopAround, wentRound } from './videoLoop';
 import { choiceOf, languageOf, languagePrefs, pickAudio, pickSubtitles } from './trackPicking';
 import type { TrackOption } from './trackPicking';
 import { useVideoPlayerStore } from './videoPlayerStore';
 import { sourceName, sourceNote, sourcesChecked } from './waiting';
 import type { WaitingNote } from './waiting';
+import { useBackLayer } from '../shell/backLayers';
 import { useAppActive } from '../shell/deviceState';
 
 type PanelKind =
@@ -71,7 +74,8 @@ type PanelKind =
   | 'quality'
   | 'aspect'
   | 'players'
-  | 'keys';
+  | 'keys'
+  | 'more';
 
 const VOLUME_KEY = 'raygun.video.volume';
 /** The other player last picked (M46.33). */
@@ -114,6 +118,7 @@ const readVolume = () => {
 const positionOf = (video: HTMLVideoElement | null): Position => ({
   positionMs: (video?.currentTime ?? 0) * 1000,
   durationMs: video && Number.isFinite(video.duration) ? video.duration * 1000 : null,
+  looping: useVideoPlayerStore.getState().looping,
 });
 
 /** The window's own full screen (Tauri), else the page's. */
@@ -180,6 +185,9 @@ const PlayerScreen: FC = () => {
     if (fullscreen) void setWindowFullscreen(false);
     state.close();
   };
+  // Back closes the player once its panels are closed; it takes Escape itself (panel, full
+  // screen, then the player).
+  useBackLayer(true, close, { escape: false });
 
   // A session asks for its episodes and sources once the player shows (the Android player does
   // the same, as updates sent before it existed are lost there).
@@ -323,6 +331,7 @@ const VideoStage: FC<StageProps> = ({
   const hasNext = useVideoPlayerStore((state) => state.hasNext);
   const hasPrevious = useVideoPlayerStore((state) => state.hasPrevious);
   const chapters = useVideoPlayerStore((state) => state.chapters);
+  const looping = useVideoPlayerStore((state) => state.looping);
   // Intros are skipped in series; a film in a session is its only episode.
   const series = useVideoPlayerStore((state) => state.episodes.length > 1);
 
@@ -344,6 +353,8 @@ const VideoStage: FC<StageProps> = ({
     elsewhere: false,
   });
   const skipped = useRef(new Set<number>());
+  /** The time at the last tick, to see a loop go round. */
+  const lastTimeMs = useRef(0);
   const subtitleFiles = useRef(new Map<string, Cue[]>());
 
   const [playing, setPlaying] = useState(false);
@@ -619,6 +630,13 @@ const VideoStage: FC<StageProps> = ({
     const video = videoRef.current;
     if (!video) return;
     const now = video.currentTime * 1000;
+    const total = Number.isFinite(video.duration) ? video.duration * 1000 : 0;
+    if (useVideoPlayerStore.getState().looping && wentRound(lastTimeMs.current, now, total)) {
+      // Each round may skip its intro again; the start is saved, not a finish.
+      skipped.current.clear();
+      sendReport(id, 'progress', positionOf(video));
+    }
+    lastTimeMs.current = now;
     setTimeMs(now);
     if (subtitleKey?.startsWith('embedded:')) setEmbeddedLines(embeddedCueLines(video));
     const chapter = skippableAt(chapters, now, durationMs);
@@ -652,6 +670,8 @@ const VideoStage: FC<StageProps> = ({
         setWaiting(true);
         break;
       case 'pause':
+        // A looping stream at its end goes round at once (`ended` comes next).
+        if (video.ended && useVideoPlayerStore.getState().looping) break;
         setPlaying(false);
         if (!video.ended) sendReport(id, 'progress', positionOf(video));
         break;
@@ -667,6 +687,10 @@ const VideoStage: FC<StageProps> = ({
           setBufferedMs(video.buffered.end(video.buffered.length - 1) * 1000);
         break;
       case 'ended':
+        if (useVideoPlayerStore.getState().looping) {
+          loopAround(video);
+          break;
+        }
         setEnded(true);
         setPlaying(false);
         sendReport(id, 'ended', positionOf(video));
@@ -719,6 +743,12 @@ const VideoStage: FC<StageProps> = ({
       for (const [type, listener] of listeners) video.removeEventListener(type, listener);
     };
   }, [videoRef]);
+
+  // Looping follows the engine: the element loops a file, a Media Source stream keeps its start.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video) applyLoop(video, engine, looping);
+  }, [engine, looping, videoRef]);
 
   const onTick = useEffectEvent(tick);
   const onReportTick = useEffectEvent(() =>
@@ -946,6 +976,7 @@ const VideoStage: FC<StageProps> = ({
   const nextPrompt =
     session &&
     hasNext &&
+    !looping &&
     durationMs > 0 &&
     !ended &&
     !nextCancelled &&
@@ -1194,6 +1225,12 @@ const VideoStage: FC<StageProps> = ({
               </IconButton>
             )}
             <IconButton
+              label={t('videoPlayer.more')}
+              onClick={() => setPanel(panel === 'more' ? null : 'more')}
+            >
+              <EllipsisVertical aria-hidden size={20} />
+            </IconButton>
+            <IconButton
               label={fullscreen ? t('desktopPlayer.exitFullscreen') : t('desktopPlayer.fullscreen')}
               onClick={() => toggleFullscreen()}
             >
@@ -1387,6 +1424,19 @@ const VideoStage: FC<StageProps> = ({
               }}
             />
           ))}
+        </PlayerPanel>
+      )}
+      {panel === 'more' && (
+        <PlayerPanel title={t('videoPlayer.more')} onClose={() => setPanel(null)}>
+          <PanelOption
+            label={t('videoPlayer.loop')}
+            toggle
+            selected={looping}
+            onSelect={() => {
+              useVideoPlayerStore.getState().setLooping(!looping);
+              showHint(t(looping ? 'videoPlayer.loopOff' : 'videoPlayer.loopOn'));
+            }}
+          />
         </PlayerPanel>
       )}
       {panel === 'aspect' && (
@@ -1823,6 +1873,7 @@ const SessionPanel: FC<SessionPanelProps> = ({ kind, positionMs, onClose }) => {
   const id = useVideoPlayerStore((state) => state.request?.id ?? '');
   const episodes = useVideoPlayerStore((state) => state.episodes);
   const sources = useVideoPlayerStore((state) => state.sources);
+  const playingFrom = useVideoPlayerStore((state) => state.playingFrom);
   const autoplay = useVideoPlayerStore((state) => state.autoplay);
   const prefs = useVideoPlayerStore((state) => state.prefs);
   if (kind === 'episodes') {
@@ -1866,6 +1917,11 @@ const SessionPanel: FC<SessionPanelProps> = ({ kind, positionMs, onClose }) => {
     );
   return (
     <PlayerPanel title={t('videoPlayer.sources')} onClose={onClose} at="top">
+      {playingFrom && (
+        <p className="text-muted px-4 py-2 text-sm">
+          {t('videoPlayer.playingFrom', { n: playingFrom })}
+        </p>
+      )}
       {shown.map(({ group, index }) => (
         <div key={`${index}-${group.name}`} className="flex flex-col">
           <PanelHeading>
@@ -1874,12 +1930,19 @@ const SessionPanel: FC<SessionPanelProps> = ({ kind, positionMs, onClose }) => {
             {group.state === 'failed' && ` · ${t('videoPlayer.failed')}`}
             {group.state === 'empty' && ` · ${t('videoPlayer.empty')}`}
             {group.unreliable && ` · ${t('videoPlayer.unreliable')}`}
+            {group.worked && !group.unreliable && ` · ${t('videoPlayer.workedLastTime')}`}
           </PanelHeading>
           {group.links.map((link, linkIndex) => (
             <PanelOption
               key={`${linkIndex}-${link.label}`}
               label={link.label}
-              hint={link.failed ? t('videoPlayer.failed') : null}
+              hint={
+                link.failed
+                  ? t('videoPlayer.failed')
+                  : link.worked
+                    ? t('videoPlayer.workedLastTime')
+                    : null
+              }
               selected={link.current}
               onSelect={() => {
                 if (link.current) return;

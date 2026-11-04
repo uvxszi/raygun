@@ -15,7 +15,8 @@ import { Carousel } from '../shell/Carousel';
 import { SourceIssue } from '../shell/SourceIssue';
 
 /** An episode's label; a Kitsu entry's one "season 1" is left out (its name says the season). */
-const itemLabel = (item: VideoUpdateItem) => episodeLabel(item, showsSeasons(item.title, [item]));
+const itemLabel = (item: VideoUpdateItem) =>
+  episodeLabel(item, showsSeasons(item.title, [item]), item.title);
 
 /** A new episode: tap for its title, Play to watch it now. */
 export const EpisodeUpdateRow: FC<{ item: VideoUpdateItem; player: EpisodePlayer }> = ({

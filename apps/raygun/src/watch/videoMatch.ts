@@ -441,3 +441,68 @@ export const videoTitleScore = (title: string, query: string, strict = false) =>
   if (!asked && namesSeason(found)) return Math.max(0, base - Math.min(found.season ?? 2, 10));
   return base;
 };
+
+const LETTER = /[\p{L}\p{N}]/u;
+const SEPARATORS = '-–—:|·•_.,/~()[]';
+const LEADING_SEPARATORS = '-–—:|·•/~([';
+
+const trimSeparators = (text: string) => {
+  let start = 0;
+  let end = text.length;
+  const loose = (character: string) => /\s/u.test(character) || SEPARATORS.includes(character);
+  while (start < end && loose(text[start]!)) start += 1;
+  while (end > start && loose(text[end - 1]!)) end -= 1;
+  return text.slice(start, end);
+};
+
+/** Where `needle`'s letters and digits appear in `text` as whole words, ignoring case and punctuation. */
+const findLoose = (text: string, needle: string): [number, number] | null => {
+  const fold = (value: string) => value.toLowerCase();
+  const wanted = [...fold(needle)].filter((character) => LETTER.test(character));
+  if (wanted.length === 0) return null;
+  const letters: { from: number; to: number; letter: string }[] = [];
+  let offset = 0;
+  for (const character of text) {
+    if (LETTER.test(character)) {
+      letters.push({ from: offset, to: offset + character.length, letter: fold(character) });
+    }
+    offset += character.length;
+  }
+  const edge = (at: number) => at <= 0 || at >= text.length || !LETTER.test(text[at]!);
+  for (let start = 0; start + wanted.length <= letters.length; start += 1) {
+    const window = letters.slice(start, start + wanted.length);
+    if (!window.every((entry, index) => entry.letter === wanted[index])) continue;
+    const from = window[0]!.from;
+    const to = window[window.length - 1]!.to;
+    if (edge(from - 1) && (to >= text.length || !LETTER.test(text[to]!))) return [from, to];
+  }
+  return null;
+};
+
+/**
+ * An episode's or link's name without the show's title ("Show Name - Episode 3" → "Episode 3",
+ * "Show Name 03" → "03"); empty when it's only the title. As `video_match::without_title` in Rust.
+ */
+export const withoutTitle = (name: string, show: string) => {
+  const trimmed = name.trim();
+  const needles = [show.trim()];
+  const base = parseTitle(show).name;
+  if (base && base !== show.trim()) needles.push(base);
+  for (const needle of needles) {
+    const found = findLoose(trimmed, needle);
+    if (!found) continue;
+    const [from, to] = found;
+    const before = trimSeparators(trimmed.slice(0, from));
+    const after = trimSeparators(trimmed.slice(to));
+    if (!before) return after;
+    // Ending the name only after a separator ("Episode 3 - Show") or a number ("03 Show").
+    const lead = trimmed.slice(0, from).trimEnd();
+    const separated = LEADING_SEPARATORS.includes(lead.at(-1) ?? '');
+    const numbered = before.split(/\s+/u).length <= 2 && /\d/u.test(before);
+    if (!after && (separated || numbered)) return before;
+  }
+  return trimmed;
+};
+
+/** Whether `label` says anything `title` doesn't. */
+export const addsToTitle = (title: string, label: string) => withoutTitle(label, title) !== '';

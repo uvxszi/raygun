@@ -5,7 +5,8 @@ import userEvent from '@testing-library/user-event';
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
 import { bindingsMock } from '../test/bindingsMock';
 import { rankResults, titleScore } from './rankResults';
-import { useSourceHealth } from './sourceHealth';
+import { answeredFirst, useSourceHealth } from './sourceHealth';
+import type { SourceAnswer } from './sourceHealth';
 import { MAX_IN_FLIGHT, queued } from './useCatalogSearch';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
@@ -40,6 +41,7 @@ const result = (
 const ROYAL = source('x.royal/novel', 'Royal Road');
 const SCRIBBLE = source('x.scribble/novel', 'Scribble Hub');
 const BROKEN = source('x.broken/novel', 'Broken Site');
+const QUIET = source('x.quiet/novel', 'Quiet Library');
 
 describe('Ranked search across sources', () => {
   beforeEach(() => {
@@ -112,6 +114,43 @@ describe('Ranked search across sources', () => {
       expect(rows.map((row) => within(row).getByRole('region').getAttribute('aria-label'))).toEqual(
         ['Royal Road', 'Scribble Hub', 'Broken Site'],
       ),
+    );
+  });
+
+  it('orders sources by their answers: results, then none, then failures; unknown ones stay', () => {
+    const answers: Record<string, SourceAnswer | undefined> = {
+      a: undefined,
+      b: 'empty',
+      c: 'results',
+      d: undefined,
+      e: 'failed',
+      f: 'results',
+    };
+    const ids = Object.keys(answers);
+    // a and d haven't answered: they keep their places, the others are sorted around them.
+    expect(answeredFirst(ids, (id) => answers[id])).toEqual(['a', 'c', 'f', 'd', 'b', 'e']);
+    expect(answeredFirst(['x', 'y'], () => undefined)).toEqual(['x', 'y']);
+  });
+
+  it('by source, puts sources that found nothing after those with titles and before failures', async () => {
+    const user = userEvent.setup();
+    commands.novelSources.mockResolvedValue(ok([QUIET, BROKEN, ROYAL]));
+    commands.catalogGlobalSearch.mockImplementation(async (_medium, _query, sources) => {
+      const id = sources[0];
+      if (id === ROYAL.id) return ok([result(ROYAL, ['Mother of Learning'])]);
+      if (id === QUIET.id) return ok([result(QUIET, [])]);
+      return ok([result(BROKEN, [], 'HTTP 403')]);
+    });
+    await AppShellWrapper.mount('/browse?tab=search&type=novel&q=mother%20of%20learning');
+    await screen.findByTestId('ranked-results');
+    await user.click(screen.getByRole('button', { name: 'All sources' }));
+    // The answers Relevant already got order the rows at once.
+    await vi.waitFor(() =>
+      expect(
+        screen
+          .getAllByTestId('source-row')
+          .map((row) => within(row).getByRole('region').getAttribute('aria-label')),
+      ).toEqual(['Royal Road', 'Quiet Library', 'Broken Site']),
     );
   });
 

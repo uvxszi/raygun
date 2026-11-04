@@ -59,6 +59,7 @@ import { MascotButton } from '../shell/MascotButton';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { openContextMenu } from '../shell/contextMenuStore';
 import { useIsDesktop } from '../shell/useIsDesktop';
+import { QuickAccessButton } from '../shell/QuickAccessButton';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { UpdateBanner } from '../updates/UpdateBanner';
 import { ContinueWatchingRow } from '../watch/ContinueWatchingRow';
@@ -533,6 +534,7 @@ export const HomePage: FC = () => {
                 },
               ]}
             />
+            <QuickAccessButton />
           </>
         }
       />

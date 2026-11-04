@@ -1819,7 +1819,14 @@ fn loaded_info(extension: &Extension, origin: ExtensionOrigin) -> ExtensionInfo 
             .iter()
             .map(ToString::to_string)
             .collect(),
-        providers: extension.providers(),
+        providers: extension
+            .providers()
+            .into_iter()
+            .map(|provider| ProviderInfo {
+                adult: manifest.content_rating.as_str() == "nsfw",
+                ..provider
+            })
+            .collect(),
         compatibility: manifest.nuclear.as_ref().and_then(compat_report),
         icon: None,
         website: extension.website(),

@@ -3,6 +3,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { PlayerViewSettings } from '../../player/PlayerViewSettings';
+import { shownOn, useIsDesktop } from '../../shell/useIsDesktop';
 import { AudioQualitySettings } from '../AudioQualitySettings';
 import { PLAYER_PAGES, withDefaults } from '../playerOptions';
 import type { PlayerPrefs } from '../playerOptions';
@@ -27,6 +28,7 @@ export const PlayerSettings: FC = () => {
   const { t } = useTranslation();
   const data = useSettings().data;
   const update = useUpdateSetting();
+  const desktop = useIsDesktop();
   if (!data) return null;
   const prefs = withDefaults(data.videoPlayer);
   const setPlayer = (change: Partial<PlayerPrefs>) =>
@@ -105,7 +107,7 @@ export const PlayerSettings: FC = () => {
         />
       </PrefGroup>
       <PrefGroup title={t('settings.videoPlayer')}>
-        {PLAYER_PAGES.map((page) => (
+        {PLAYER_PAGES.filter((page) => shownOn(page.only, desktop)).map((page) => (
           <PrefLink
             key={page.id}
             icon={page.icon}

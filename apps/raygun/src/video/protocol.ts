@@ -67,7 +67,13 @@ export type EpisodeItem = {
   current: boolean;
 };
 
-export type SourceLink = { label: string; current: boolean; failed: boolean };
+export type SourceLink = {
+  label: string;
+  current: boolean;
+  failed: boolean;
+  /** It played last time for this title. */
+  worked?: boolean;
+};
 
 export type SourceGroup = {
   name: string;
@@ -76,6 +82,8 @@ export type SourceGroup = {
   links: SourceLink[];
   /** It failed lately and hasn't worked since (M46.17): tried last. */
   unreliable?: boolean;
+  /** It played last time for this title: tried first. */
+  worked?: boolean;
 };
 
 export type PlayerUpdate =
@@ -91,13 +99,19 @@ export type PlayerUpdate =
       hasPrevious: boolean;
       autoplay?: boolean;
     }
-  | { type: 'sources'; groups: SourceGroup[] }
+  /** `playingFrom`: the source the video plays from, once it has played a while. */
+  | { type: 'sources'; groups: SourceGroup[]; playingFrom?: string | null }
   | { type: 'chapters'; id: string; items: VideoChapter[] };
 
 export type ReportState = 'progress' | 'ended' | 'error' | 'switched' | 'closed';
 
 /** Where the video is, for a report. */
-export type Position = { positionMs: number; durationMs: number | null };
+export type Position = {
+  positionMs: number;
+  durationMs: number | null;
+  /** The video loops: Rust doesn't count its watched point as finishing it. */
+  looping?: boolean;
+};
 
 /** Progress and what happened: saved for resuming; `error` makes a session try the next link. */
 export const sendReport = (id: string, state: ReportState, at: Position, error?: string) => {
@@ -109,6 +123,7 @@ export const sendReport = (id: string, state: ReportState, at: Position, error?:
       positionMs: Math.max(0, Math.round(at.positionMs)),
       durationMs: at.durationMs && at.durationMs > 0 ? Math.round(at.durationMs) : null,
       error: error ?? null,
+      looping: at.looping ?? false,
     }),
   );
 };

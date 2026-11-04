@@ -71,14 +71,13 @@ describe('YouTube addresses (M46.47)', () => {
     expect(within(job).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
   });
 
-  it('says downloads need a computer on a phone, and still plays', async () => {
+  it('offers no downloads on a phone, and still plays', async () => {
     const user = userEvent.setup();
     await AppShellWrapper.mount(`/browse?tab=search&q=${encodeURIComponent(ADDRESS)}`);
 
     const card = await screen.findByTestId('youtube-link');
-    expect(
-      await within(card).findByText(/Downloading from YouTube needs Raygun on a computer/),
-    ).toBeInTheDocument();
+    await vi.waitFor(() => expect(commands.ytdlpStatus).toHaveBeenCalled());
+    expect(within(card).queryByText(/yt-dlp|FFmpeg/)).not.toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: 'Download video' })).not.toBeInTheDocument();
     await user.click(within(card).getByRole('button', { name: 'Play as music' }));
     expect(commands.playbackReplace).toHaveBeenCalled();

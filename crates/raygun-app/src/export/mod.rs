@@ -30,8 +30,8 @@ use std::time::Duration;
 
 use raygun_db::titles::{self, TitleRow, UnitRow};
 use raygun_model::{
-    ChapterFormat, DownloadState, ExportDestination, ExportFormat, ExportJob, ExportPlan,
-    ExportRequest, ExportScope, ExportState, SaveLocation, SavePrefs,
+    ChapterFormat, DownloadState, ExportDestination, ExportFolder, ExportFormat, ExportJob,
+    ExportPlan, ExportRequest, ExportScope, ExportState, SaveLocation, SavePrefs,
 };
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
@@ -104,6 +104,20 @@ pub fn place_for(prefs: &SavePrefs, destination: ExportDestination) -> Result<Pl
         },
     }
 }
+
+/// Where a request's files go: the folder chosen in the export sheet, else as [`place_for`].
+pub fn place_for_request(prefs: &SavePrefs, request: &ExportRequest) -> Result<Place, String> {
+    match (&request.destination, &request.folder) {
+        (ExportDestination::Folder, Some(folder)) => Ok(Place::Folder {
+            uri: folder.uri.clone(),
+            name: folder.name.clone(),
+        }),
+        _ => place_for(prefs, request.destination),
+    }
+}
+
+/// `local_meta` key of the folder last chosen in the export sheet.
+const LAST_FOLDER: &str = "export.lastFolder";
 
 fn formats_for(medium: &str) -> &'static [ExportFormat] {
     match medium {
@@ -185,6 +199,26 @@ impl ExportService {
             .clone()
     }
 
+    /// The folder last chosen in the export sheet, offered there again.
+    pub async fn last_folder(&self) -> Option<ExportFolder> {
+        raygun_db::local_value(&self.db(), LAST_FOLDER)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|value| serde_json::from_str(&value).ok())
+    }
+
+    /// Remembers a folder chosen in the export sheet. Returns the one it replaces, whose access
+    /// the caller may give back.
+    pub async fn remember_folder(&self, folder: &ExportFolder) -> Result<Option<String>, String> {
+        let old = self.last_folder().await;
+        let value = serde_json::to_string(folder).map_err(|error| error.to_string())?;
+        raygun_db::set_local_value(&self.db(), LAST_FOLDER, &value)
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(old.map(|old| old.uri).filter(|uri| *uri != folder.uri))
+    }
+
     async fn save_prefs(&self) -> SavePrefs {
         crate::settings::load(&self.db())
             .await
@@ -255,7 +289,7 @@ impl ExportService {
         {
             Some("A folder of images can't be shared".to_owned())
         } else {
-            place_for(&prefs, request.destination).err()
+            place_for_request(&prefs, request).err()
         };
         Ok(Planned {
             titles,
@@ -287,7 +321,7 @@ impl ExportService {
             return Err(problem);
         }
         let prefs = self.save_prefs().await;
-        let place = place_for(&prefs, request.destination)?;
+        let place = place_for_request(&prefs, &request)?;
         let label = match planned.titles.as_slice() {
             [only] => only.title.fields.title.clone(),
             many => format!("{} titles", many.len()),

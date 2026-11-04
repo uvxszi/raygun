@@ -1061,13 +1061,27 @@ impl ExtensionService {
 
     // ---- Install, update, uninstall ----
 
-    /// Installs (or updates to) the version a repository currently lists.
+    /// Installs (or updates to) the version a repository currently lists, then loads it.
     pub async fn install(
         &self,
         repo_id: &str,
         extension_id: &str,
     ) -> Result<Vec<ExtensionInfo>, String> {
+        self.install_package(repo_id, extension_id, &|_| {}).await?;
+        Ok(self.reload().await)
+    }
+
+    /// Installs the version a repository currently lists without loading it (the install queue
+    /// loads once for a whole batch); `phase` says how far it got.
+    pub async fn install_package(
+        &self,
+        repo_id: &str,
+        extension_id: &str,
+        phase: &(dyn Fn(raygun_model::ExtensionInstallPhase) + Send + Sync),
+    ) -> Result<(), String> {
+        use raygun_model::ExtensionInstallPhase as Phase;
         let _changing = self.changing.lock().await;
+        phase(Phase::Downloading);
         let repo = self
             .repos()
             .await?
@@ -1091,6 +1105,7 @@ impl ExtensionService {
         };
         let bytes = self.download_patiently(package_url.as_str(), limit).await?;
 
+        phase(Phase::Converting);
         let verified = match entry.format {
             PackageFormat::Raygun => {
                 package::verify(&bytes, entry).map_err(|error| error.to_string())?
@@ -1158,6 +1173,7 @@ impl ExtensionService {
                     .map_err(|error| error.to_string())?
             }
         };
+        phase(Phase::Installing);
         let extensions_dir = self.extensions_dir.clone();
         tauri::async_runtime::spawn_blocking(move || package::install(&extensions_dir, &verified))
             .await
@@ -1182,7 +1198,7 @@ impl ExtensionService {
             tracing::debug!(%error, "could not remember an extension's icon");
         }
         tracing::info!(extension = %entry.id, version = %entry.version, repo = %repo.url, "extension installed");
-        Ok(self.reload().await)
+        Ok(())
     }
 
     /// Forgets what an extension stored and its cookies (M46.11), then reloads every extension
@@ -1600,6 +1616,7 @@ mod tests {
     ) -> raygun_model::MusicAlbum {
         raygun_model::MusicAlbum {
             provider: raygun_model::ProviderInfo {
+                adult: false,
                 id: provider.into(),
                 extension_id: provider.into(),
                 name: provider.into(),

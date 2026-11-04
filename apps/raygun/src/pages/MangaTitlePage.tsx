@@ -195,6 +195,7 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
         art={view.coverUrl}
         cover={<MangaCover url={view.coverUrl} className="w-full rounded-xl shadow-lg" />}
         title={view.title}
+        adult={view.adult}
         genres={view.genres}
         facts={[
           [...new Set([...view.authors, ...view.artists])].join(', '),

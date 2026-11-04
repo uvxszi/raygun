@@ -7,7 +7,6 @@ import { useTranslation } from 'react-i18next';
 
 import { COLLECTIONS, usePlaylists } from '../collections/useCollections';
 import { unwrapResult } from '../lib/commandResult';
-import { useCloseOnBack } from '../player/useCloseOnBack';
 import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
 import { showToast } from '../shell/toastStore';
@@ -16,7 +15,7 @@ import { useMenuSheetsStore } from './menuSheetsStore';
 import type { DetailsToEdit, SongsToAdd } from './menuSheetsStore';
 
 const ROW =
-  'hover:bg-background flex h-12 w-full items-center gap-3 rounded-lg px-2 text-left text-sm';
+  'hover:bg-background flex h-12 w-full items-center gap-3 rounded-lg px-2 text-left text-sm pointer-coarse:h-auto pointer-coarse:min-h-[max(3rem,7dvh)] pointer-coarse:gap-4 pointer-coarse:text-[clamp(1rem,4.3vw,1.125rem)] pointer-coarse:[&>svg]:size-[22px]';
 
 /** Adds an album's, a mix's or a playlist's songs to a playlist, or to a new one. */
 const AddSongsSheet: FC<{ songs: SongsToAdd; onClose: () => void }> = ({ songs, onClose }) => {
@@ -135,7 +134,7 @@ export const MenuSheets: FC = () => {
   const adding = useMenuSheetsStore((state) => state.adding);
   const editing = useMenuSheetsStore((state) => state.editing);
   const close = useMenuSheetsStore((state) => state.close);
-  useCloseOnBack(adding !== null || editing !== null, close);
+  // Each is a Sheet: Back and Escape close it (shell/backLayers).
   if (adding) return <AddSongsSheet songs={adding} onClose={close} />;
   if (editing) return <EditDetailsSheet details={editing} onClose={close} />;
   return null;

@@ -38,7 +38,9 @@ import type { CSSProperties, FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
+import { ConfirmButton } from '../shell/ConfirmButton';
 import { EmptyState } from '../shell/EmptyState';
+import { useIsDesktop } from '../shell/useIsDesktop';
 import { formatBytes } from '../watch/episodeLabel';
 import { SaveSongsSheet } from './SaveSongsSheet';
 import {
@@ -240,16 +242,27 @@ const Row: FC<RowProps> = memo(({ item, paused, onSave, onFirst, drag }: RowProp
           <FileDown aria-hidden size={18} />
         </button>
       )}
-      <button
-        type="button"
-        aria-label={t(cancelLabel, { title: item.title })}
-        data-hint={t(cancelLabel, { title: item.title })}
-        disabled={remove.isPending}
-        onClick={() => remove.mutate(item.id)}
-        className={ICON}
-      >
-        {busy ? <X aria-hidden size={18} /> : <Trash2 aria-hidden size={18} />}
-      </button>
+      {busy ? (
+        <button
+          type="button"
+          aria-label={t(cancelLabel, { title: item.title })}
+          data-hint={t(cancelLabel, { title: item.title })}
+          disabled={remove.isPending}
+          onClick={() => remove.mutate(item.id)}
+          className={ICON}
+        >
+          <X aria-hidden size={18} />
+        </button>
+      ) : (
+        <ConfirmButton
+          label={t(cancelLabel, { title: item.title })}
+          confirm={t('songs.removeConfirm')}
+          icon={Trash2}
+          disabled={remove.isPending}
+          onConfirm={() => remove.mutate(item.id)}
+          idleClassName={ICON}
+        />
+      )}
     </li>
   );
 });
@@ -380,9 +393,17 @@ export const SongDownloadsList: FC<{ compact?: boolean }> = ({ compact = false }
   ]
     .filter(Boolean)
     .join(' · ');
+  // Phones have no right click: songs' menus open from ⋮.
+  const desktop = useIsDesktop();
 
   if (downloads.isSuccess && items.length === 0) {
-    return <EmptyState icon={Disc3} title={t('songs.emptyTitle')} body={t('songs.emptyHint')} />;
+    return (
+      <EmptyState
+        icon={Disc3}
+        title={t('songs.emptyTitle')}
+        body={t(desktop ? 'songs.emptyHint' : 'songs.emptyHintPhone')}
+      />
+    );
   }
   const waiting = running.length + queued.length;
   const shownDone = allDone ? done : done.slice(0, SHOWN);

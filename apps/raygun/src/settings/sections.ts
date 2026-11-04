@@ -16,6 +16,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import type { FC } from 'react';
 
+import type { PlatformOnly } from '../shell/useIsDesktop';
 import { SoundSettings } from '../sound/SoundSettings';
 import { DownloadSettings } from './DownloadSettings';
 import { PermissionsSettings } from './PermissionsSettings';
@@ -39,6 +40,8 @@ export type SettingsEntry = {
   screen?: FC;
   to?: string;
   reset?: SettingsReset;
+  /** The one platform the entry shows on. */
+  only?: PlatformOnly;
 };
 
 /** The Settings list, most used first. */
@@ -142,7 +145,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
   },
   { id: 'privacy', icon: Shield, screen: PrivacySettings, reset: resetKeys('privacy') },
   // What Android lets Raygun do; nothing here is a setting to reset.
-  { id: 'permissions', icon: ShieldCheck, screen: PermissionsSettings },
+  { id: 'permissions', icon: ShieldCheck, screen: PermissionsSettings, only: 'phone' },
   { id: 'devices', icon: Smartphone, to: '/settings/devices' },
   { id: 'ai', icon: Sparkles, to: '/settings/ai' },
   {
