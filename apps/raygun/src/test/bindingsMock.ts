@@ -189,6 +189,7 @@ export const DEFAULT_SETTINGS: Settings = {
   zoom: 100,
   discovery: { region: '', tagSongs: true },
   failingSourcesLast: true,
+  manualBrowserChecks: false,
   userAgent: '',
   keepMusicPlaying: false,
   resumeOnStart: true,
@@ -385,6 +386,8 @@ export const bindingsMock = {
     miniplayerOpen: vi.fn(),
     miniplayerClose: vi.fn(),
     extensionOpenWebsite: vi.fn(),
+    browserCheckTarget: vi.fn(),
+    browserCheckOpen: vi.fn(),
     extensionRepos: vi.fn(),
     extensionRepoAdd: vi.fn(),
     extensionRepoPreview: vi.fn(),
@@ -895,6 +898,8 @@ export const seedBindings = () => {
   commands.miniplayerOpen.mockResolvedValue(ok(null));
   commands.miniplayerClose.mockResolvedValue(ok(null));
   commands.extensionOpenWebsite.mockResolvedValue(ok(null));
+  commands.browserCheckTarget.mockResolvedValue(ok(null));
+  commands.browserCheckOpen.mockResolvedValue(ok(0));
   commands.extensionRepos.mockResolvedValue(ok([]));
   commands.extensionRepoAdd.mockResolvedValue(ok([]));
   commands.extensionRepoPreview.mockResolvedValue({ status: 'error', error: 'not mocked' });

@@ -7,6 +7,7 @@ mod ai;
 mod aniskip;
 mod background;
 mod backup;
+mod browser_check;
 mod caches;
 mod captions;
 mod catalog;
@@ -128,6 +129,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::connect_answer,
             commands::miniplayer_close,
             commands::extension_open_website,
+            commands::browser_check_target,
+            commands::browser_check_open,
             commands::catalog_open_page,
             commands::extension_repos,
             commands::extension_suggested_repos,

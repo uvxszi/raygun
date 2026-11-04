@@ -133,6 +133,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
       'showNsfw',
       'explicitMusic',
       'failingSourcesLast',
+      'manualBrowserChecks',
       'autoLoad',
       'userAgent',
       'discovery',

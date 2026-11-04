@@ -135,6 +135,22 @@ export const commands = {
 	/**  Opens the site an extension's sources read in Raygun's browser (M46.11). */
 	extensionOpenWebsite: (id: string) => typedError<null, string>(__TAURI_INVOKE("extension_open_website", { id })),
 	/**
+	 *  The source behind a failure's text whose browser check can be passed by hand, while
+	 *  `Settings::manual_browser_checks` is on (`browser_check.rs`).
+	 */
+	browserCheckTarget: (error: string, source: string | null) => typedError<{
+	extensionId: string,
+	/**  The source's name for people. */
+	source: string,
+	/**  The page that opens. */
+	url: string,
+} | null, string>(__TAURI_INVOKE("browser_check_target", { error, source })),
+	/**
+	 *  Opens the site of `extension_id`'s browser check for the person to pass, waits until the
+	 *  browser closes, and gives the extension the site's cookies. Returns how many it took.
+	 */
+	browserCheckOpen: (extensionId: string) => typedError<number, string>(__TAURI_INVOKE("browser_check_open", { extensionId })),
+	/**
 	 *  Opens a title's page at its source in Raygun's browser (M46.38: the website button on comic,
 	 *  book and video pages): the source's address for it, joined to the source's website when it's
 	 *  only a path; without one, the website itself.
@@ -1006,6 +1022,11 @@ export const commands = {
 	lyricsTranslation: LyricsTranslationPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
+	/**
+	 *  Sources that meet a browser check offer to open their site so it can be passed by hand
+	 *  (experimental, off by default; `raygun_ext_host::browser_check`).
+	 */
+	manualBrowserChecks: boolean,
 	/**  The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default. */
 	userAgent: string,
 	/**  The equalizer, effects, normalization and crossfade for every song (M46.12). */
@@ -1627,6 +1648,18 @@ export type BookResume = {
 	number: number,
 	title: string,
 	positionMs: number | null,
+};
+
+/**
+ *  A source that met a browser check, whose site can be opened to pass it by hand
+ *  (`Settings::manual_browser_checks`).
+ */
+export type BrowserCheckTarget = {
+	extensionId: string,
+	/**  The source's name for people. */
+	source: string,
+	/**  The page that opens. */
+	url: string,
 };
 
 /**  Image cache limits and refreshing. One stored row; missing fields keep their defaults. */
@@ -3862,7 +3895,7 @@ export type SearchResults_Serialize = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "manualBrowserChecks"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -3977,6 +4010,11 @@ export type Settings = {
 	lyricsTranslation: LyricsTranslationPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
+	/**
+	 *  Sources that meet a browser check offer to open their site so it can be passed by hand
+	 *  (experimental, off by default; `raygun_ext_host::browser_check`).
+	 */
+	manualBrowserChecks: boolean,
 	/**  The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default. */
 	userAgent: string,
 	/**  The equalizer, effects, normalization and crossfade for every song (M46.12). */

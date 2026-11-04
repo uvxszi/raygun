@@ -178,7 +178,7 @@ The **mixed queue** holds audio and video items side by side; each `QueueItem` s
 ### 6.4 Scaling to movies/TV/anime
 - **Stremio addons:** depend on `stremio-core` (MIT) and implement its `Env` trait over `raygun-net` and `raygun-db`. Catalog, meta, stream and subtitle resources map straight onto Raygun's provider kinds, and `StreamSource::Url/YouTube` map onto `PlayableStream`. Torrent streaming is a separate later decision.
 - **CloudStream/Aniyomi-style sources:** a `video.source` capability with `search · load(url)→Title+Units · listServers(unit) · resolve(server)→PlayableStream[]`, where results are streamed to the UI.
-- **WebView resolver** (`net.webview_resolve(url, intercept_regex, timeout)`): opens a hidden webview using Raygun's profile and returns the first request matching the pattern, for embed hosts whose stream URL only appears at runtime (CloudStream's `WebViewResolver`). It doesn't solve bot checks or copy their cookies into sources (M46.11).
+- **WebView resolver** (`net.webview_resolve(url, intercept_regex, timeout)`): opens a hidden webview using Raygun's profile and returns the first request matching the pattern, for embed hosts whose stream URL only appears at runtime (CloudStream's `WebViewResolver`). It doesn't solve bot checks or copy their cookies into sources (M46.11); passing a check by hand in a visible browser is separate and opt-in (`raygun_ext_host::browser_check`).
 
 ## 7. Extensions (requirement 4)
 

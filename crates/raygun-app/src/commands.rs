@@ -346,6 +346,41 @@ pub async fn extension_clear_data(
     extensions.clear_data(&id).await
 }
 
+/// The source behind a failure's text whose browser check can be passed by hand, while
+/// `Settings::manual_browser_checks` is on (`browser_check.rs`).
+#[tauri::command]
+#[specta::specta]
+pub async fn browser_check_target(
+    db: tauri::State<'_, AppDb>,
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    checks: tauri::State<'_, crate::browser_check::BrowserChecks>,
+    error: String,
+    source: Option<String>,
+) -> Result<Option<raygun_model::BrowserCheckTarget>, String> {
+    let settings = settings::load(&db.0)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(checks
+        .target(&settings, &extensions, &error, source.as_deref())
+        .await)
+}
+
+/// Opens the site of `extension_id`'s browser check for the person to pass, waits until the
+/// browser closes, and gives the extension the site's cookies. Returns how many it took.
+#[tauri::command]
+#[specta::specta]
+pub async fn browser_check_open(
+    db: tauri::State<'_, AppDb>,
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    checks: tauri::State<'_, crate::browser_check::BrowserChecks>,
+    extension_id: String,
+) -> Result<u32, String> {
+    let settings = settings::load(&db.0)
+        .await
+        .map_err(|error| error.to_string())?;
+    checks.open(&settings, &extensions, &extension_id).await
+}
+
 /// Opens the site an extension's sources read in Raygun's browser (M46.11).
 #[tauri::command]
 #[specta::specta]

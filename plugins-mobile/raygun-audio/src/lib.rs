@@ -251,6 +251,17 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(|error| error.to_string())
     }
 
+    /// Opens a site for the person to pass its browser check by hand (`BrowserCheckActivity`;
+    /// request `{url, userAgent}`). Blocks until the browser closes; answers the site's cookies
+    /// as a `Cookie` header's pairs.
+    #[cfg(target_os = "android")]
+    pub fn browser_check(&self, request: &serde_json::Value) -> Result<String, String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>("browserCheck", request.clone())
+            .map(|answer| answer["cookies"].as_str().unwrap_or_default().to_owned())
+            .map_err(|error| error.to_string())
+    }
+
     /// Lets the app hear multicast (mDNS) while held: Connect listens for devices (M46.15).
     #[cfg(target_os = "android")]
     pub fn multicast(&self, hold: bool) -> Result<(), String> {

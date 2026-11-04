@@ -3,7 +3,8 @@ import { useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { readIssue } from '../lib/issue';
+import { issueKind, readIssue } from '../lib/issue';
+import { BrowserCheckAction } from './BrowserCheckAction';
 
 type SourceIssueProps = {
   /**
@@ -44,6 +45,9 @@ export const SourceIssue: FC<SourceIssueProps> = ({
   const [details, setDetails] = useState<HTMLDivElement | null>(null);
   const issue =
     typeof children === 'string' && children.trim() ? readIssue(children, t, source) : null;
+  // A browser check may be passed by hand when that's turned on (experimental).
+  const browserCheck =
+    typeof children === 'string' && issueKind(children) === 'bot-check' ? children : null;
   const headline =
     title ?? issue?.summary ?? (source ? t('issue.withSource', { source }) : t('issue.title'));
   // A given title says what failed; then the whole error is the detail.
@@ -92,6 +96,9 @@ export const SourceIssue: FC<SourceIssueProps> = ({
           )}
         </span>
       </div>
+      {browserCheck && (
+        <BrowserCheckAction error={browserCheck} source={source} onRetry={onRetry} />
+      )}
       {/* Content that isn't an error text (older callers) keeps the general line. */}
       {!compact && !title && !issue && <p>{t('issue.calm')}</p>}
       {more && (

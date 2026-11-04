@@ -48,6 +48,15 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.AppCompat.NoActionBar" />
+        <!-- A visible browser for passing a source's browser check by hand (experimental), in its
+             own process with its own WebView data. -->
+        <activity
+            android:name="app.raygun.audio.BrowserCheckActivity"
+            android:process=":check"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.AppCompat.NoActionBar" />
         <activity
             android:name="app.raygun.audio.WebsiteDataActivity"
             android:process=":web"
