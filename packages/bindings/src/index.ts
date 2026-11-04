@@ -1002,6 +1002,8 @@ export const commands = {
 	showNsfw: boolean,
 	/**  Shows songs marked explicit and music sources rated 18+ (M46.36); on by default. */
 	explicitMusic: boolean,
+	/**  Sources, extensions and repositories marked 18+ or not 18+ over their own rating. */
+	contentOverrides: ContentOverrides,
 	/**  The colour of buttons, tabs and highlights (M42.1). */
 	accent: Accent,
 	/**  The screen the app opens on. */
@@ -1826,6 +1828,8 @@ export type CatalogEntry = {
 	provides: string[],
 	net: string[],
 	contentRating: string,
+	/**  Rated `nsfw`, or marked 18+ by the user (`Settings::content_overrides`). */
+	adult?: boolean,
 	/**  The content's language (`en`, `multi`), when the repository says. */
 	lang: string | null,
 	/**  Package size in bytes (packages are capped at 10 MiB). */
@@ -1967,6 +1971,18 @@ export type ConnectStatus = {
 	asking: string | null,
 	/**  What went wrong last: a refusal, a device that went away. */
 	error: string | null,
+};
+
+/**  A rating the user gives a source, an extension or a repository over its own. */
+export type ContentOverride = 
+/**  The source's own rating. */
+"default" | "adult" | "notAdult";
+
+/**  18+ marks set by the user: per extension id, per repository id, per Stremio addon id. */
+export type ContentOverrides = {
+	extensions?: { [key in string]: ContentOverride },
+	repositories?: { [key in string]: ContentOverride },
+	addons?: { [key in string]: ContentOverride },
 };
 
 /**  Something started and not finished. */
@@ -2250,8 +2266,13 @@ export type ExtensionInfo_Deserialize = {
 	name: string,
 	version: string,
 	description: string | null,
-	/**  `safe`, `suggestive` or `nsfw`; providers of `nsfw` ones are hidden while NSFW is off. */
+	/**  `safe`, `suggestive` or `nsfw`, as the extension says. */
 	contentRating: string,
+	/**
+	 *  Rated `nsfw`, or marked 18+ by the user (`Settings::content_overrides`): its providers
+	 *  are hidden while NSFW is off.
+	 */
+	adult?: boolean,
 	origin: ExtensionOrigin,
 	status: ExtensionStatus,
 	/**  Why the extension failed to load, when it did. */
@@ -2277,8 +2298,13 @@ export type ExtensionInfo_Serialize = {
 	name: string,
 	version: string,
 	description: string | null,
-	/**  `safe`, `suggestive` or `nsfw`; providers of `nsfw` ones are hidden while NSFW is off. */
+	/**  `safe`, `suggestive` or `nsfw`, as the extension says. */
 	contentRating: string,
+	/**
+	 *  Rated `nsfw`, or marked 18+ by the user (`Settings::content_overrides`): its providers
+	 *  are hidden while NSFW is off.
+	 */
+	adult: boolean,
 	origin: ExtensionOrigin,
 	status: ExtensionStatus,
 	/**  Why the extension failed to load, when it did. */
@@ -3818,7 +3844,10 @@ export type ProviderInfo_Deserialize = {
 	name: string,
 	/**  A video source's own Search pill (M46.35: "YouTube", "PeerTube"). */
 	searchPill?: string | null,
-	/**  Its extension is rated `nsfw`: the UI marks it 18+. */
+	/**
+	 *  Its extension is rated `nsfw` or marked 18+ (`Settings::content_overrides`): the UI
+	 *  marks it 18+.
+	 */
 	adult?: boolean,
 };
 
@@ -3831,7 +3860,10 @@ export type ProviderInfo_Serialize = {
 	name: string,
 	/**  A video source's own Search pill (M46.35: "YouTube", "PeerTube"). */
 	searchPill?: string | null,
-	/**  Its extension is rated `nsfw`: the UI marks it 18+. */
+	/**
+	 *  Its extension is rated `nsfw` or marked 18+ (`Settings::content_overrides`): the UI
+	 *  marks it 18+.
+	 */
 	adult: boolean,
 };
 
@@ -4156,7 +4188,7 @@ export type SearchResults_Serialize = {
  *  A change to a single setting. The tagged shape (`{ key, value }`) lets the UI send only valid
  *  key/value pairs, and doubles as the format of a stored row.
  */
-export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
+export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "contentOverrides"; value: ContentOverrides } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
 { key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs };
 
@@ -4181,6 +4213,8 @@ export type Settings = {
 	showNsfw: boolean,
 	/**  Shows songs marked explicit and music sources rated 18+ (M46.36); on by default. */
 	explicitMusic: boolean,
+	/**  Sources, extensions and repositories marked 18+ or not 18+ over their own rating. */
+	contentOverrides: ContentOverrides,
 	/**  The colour of buttons, tabs and highlights (M42.1). */
 	accent: Accent,
 	/**  The screen the app opens on. */

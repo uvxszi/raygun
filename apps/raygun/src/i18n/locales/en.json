@@ -1123,6 +1123,20 @@
     "clear": "Clear",
     "clearField": "Clear {{field}}"
   },
+  "contentRating": {
+    "markAdult": "Mark as 18+",
+    "markNotAdult": "Not 18+",
+    "useOwn": "Use the source's rating",
+    "setByYou": "Set by you",
+    "notAdultByYou": "Not 18+ · set by you",
+    "listTitle": "Marked by you",
+    "adult": "18+",
+    "notAdult": "Not 18+",
+    "kindExtension": "Extension",
+    "kindRepository": "Repository",
+    "kindAddon": "Stremio addon",
+    "clear": "Use {{name}}'s own rating"
+  },
   "extensions": {
     "title": "Extensions",
     "tabs": "Extension views",
@@ -1153,6 +1167,8 @@
     "noNetwork": "No network access",
     "cancel": "Cancel",
     "removeRepo": "Remove {{name}}",
+    "repoActions": "More for {{name}}",
+    "extensionActions": "More for {{name}}",
     "removeRepoConfirm": "Tap again to remove",
     "repoUrl": "Repository URL",
     "repoUrlPlaceholder": "https://…/index.json",

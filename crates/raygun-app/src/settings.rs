@@ -205,6 +205,13 @@ pub async fn apply_live(app: &tauri::AppHandle, settings: &Settings, changed: Op
             .set_content(settings.show_nsfw, settings.explicit_music)
             .await;
     }
+    if differs("contentOverrides", &|before| {
+        before.content_overrides == settings.content_overrides
+    }) {
+        app.state::<std::sync::Arc<crate::extensions::ExtensionService>>()
+            .set_content_overrides(settings.content_overrides.clone())
+            .await;
+    }
     if differs("cache", &|before| before.cache == settings.cache) {
         app.state::<crate::caches::Caches>().apply(&settings.cache);
     }

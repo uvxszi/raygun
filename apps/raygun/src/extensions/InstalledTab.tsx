@@ -9,6 +9,9 @@ import { AdultMark } from '../shell/AdultMark';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { ListSearchField } from '../shell/ListSearchField';
 import { matchesSearch } from '../shell/useListSearch';
+import { OverflowMenu } from '../shell/OverflowMenu';
+import { useContentRating } from './contentRating';
+import { RatingHint } from './RatingHint';
 import { KindChips } from './BrowseTab';
 import { EXTENSION_KINDS, kindsOf } from './catalogFilters';
 import type { ExtensionKind } from './catalogFilters';
@@ -22,6 +25,7 @@ export const InstalledTab: FC = () => {
   const { t } = useTranslation();
   const extensions = useExtensions();
   const showNsfw = useSettings().data?.showNsfw ?? false;
+  const rating = useContentRating();
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState<ExtensionKind | null>(null);
   const error = extensions.error;
@@ -58,12 +62,12 @@ export const InstalledTab: FC = () => {
       )}
       <ul className="flex flex-col">
         {shown.map((extension) => (
-          <li key={`${extension.origin}-${extension.id}`}>
+          <li key={`${extension.origin}-${extension.id}`} className="flex items-center gap-1">
             <Link
               to="/extensions/detail"
               search={{ id: extension.id }}
               data-testid="extension-row"
-              className="hover:bg-surface flex items-center gap-4 rounded-xl px-1 py-2.5"
+              className="hover:bg-surface flex min-w-0 flex-1 items-center gap-4 rounded-xl px-1 py-2.5"
             >
               <LetterAvatar name={extension.name} logo={extension.icon} />
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -77,9 +81,10 @@ export const InstalledTab: FC = () => {
                         : 'extensions.installedOrigin',
                     )}
                   </span>
-                  {extension.contentRating === 'nsfw' && <AdultMark />}
+                  {extension.adult && <AdultMark />}
+                  <RatingHint mark={rating.markOf('extensions', extension.id)} />
                 </span>
-                {extension.contentRating === 'nsfw' && !showNsfw && (
+                {extension.adult && !showNsfw && (
                   <span className="text-muted text-xs">{t('extensions.nsfwHidden')}</span>
                 )}
                 {extension.status === 'failed' ? (
@@ -93,6 +98,10 @@ export const InstalledTab: FC = () => {
               </span>
               <ChevronRight aria-hidden size={18} className="text-muted shrink-0" />
             </Link>
+            <OverflowMenu
+              label={t('extensions.extensionActions', { name: extension.name })}
+              items={rating.menuItems('extensions', extension.id, extension.adult)}
+            />
           </li>
         ))}
       </ul>

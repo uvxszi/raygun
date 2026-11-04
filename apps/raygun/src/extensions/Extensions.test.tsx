@@ -371,7 +371,7 @@ describe('Extensions', () => {
     commands.extensionCatalog.mockResolvedValue(
       ok(
         catalog([
-          entry({ id: 'dev.test.adult', name: 'After Dark', contentRating: 'nsfw' }),
+          entry({ id: 'dev.test.adult', name: 'After Dark', contentRating: 'nsfw', adult: true }),
           entry({ id: 'dev.test.safe', name: 'Daylight', contentRating: 'safe' }),
         ]),
       ),

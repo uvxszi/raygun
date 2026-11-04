@@ -151,6 +151,7 @@ export const DEFAULT_SETTINGS: Settings = {
   language: 'en',
   showNsfw: false,
   explicitMusic: true,
+  contentOverrides: { extensions: {}, repositories: {}, addons: {} },
   privacy: { history: true, recentlyPlayed: true, searchHistory: true },
   hidden: { artists: [], items: [] },
   lyricsCache: { forgetAfterDays: 30, keepFavorites: true, keepDownloaded: true, keepLocal: true },

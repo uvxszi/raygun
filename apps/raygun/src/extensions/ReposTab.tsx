@@ -7,8 +7,12 @@ import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
+import { AdultMark } from '../shell/AdultMark';
+import { OverflowMenu } from '../shell/OverflowMenu';
 import { Sheet } from '../shell/Sheet';
 import { SHEET_FIELD, SHEET_INPUT, TextField } from '../shell/TextField';
+import { useContentRating } from './contentRating';
+import { RatingHint } from './RatingHint';
 import { RepoContents } from './RepoContents';
 import {
   useAddRepo,
@@ -123,6 +127,7 @@ export const ReposTab: FC = () => {
   const addRepo = useAddRepo();
   const removeRepo = useRemoveRepo();
   const suggested = useSuggestedRepos();
+  const rating = useContentRating();
   const listings = new Map<string, RepoCatalog>(
     catalog.data?.map((listing) => [listing.repo.id, listing]),
   );
@@ -145,10 +150,15 @@ export const ReposTab: FC = () => {
       <ul className="bg-surface flex flex-col rounded-xl">
         {repos.data?.map((repo) => {
           const listing = listings.get(repo.id);
+          const mark = rating.markOf('repositories', repo.id);
           return (
             <li key={repo.id} data-testid="repo-row" className="flex items-center gap-3 px-4 py-3">
               <span className="flex min-w-0 flex-1 flex-col gap-1">
-                <span className="font-medium">{repo.name}</span>
+                <span className="flex flex-wrap items-center gap-x-2">
+                  <span className="font-medium">{repo.name}</span>
+                  {mark === 'adult' && <AdultMark />}
+                  <RatingHint mark={mark} />
+                </span>
                 <span className="text-muted text-xs break-all">{repo.url}</span>
                 {listing && !listing.error && (
                   <RepoContents
@@ -183,6 +193,10 @@ export const ReposTab: FC = () => {
                   <Trash2 aria-hidden size={18} />
                 </button>
               )}
+              <OverflowMenu
+                label={t('extensions.repoActions', { name: repo.name })}
+                items={rating.menuItems('repositories', repo.id)}
+              />
             </li>
           );
         })}

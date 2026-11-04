@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useExtensions } from '../../extensions/useExtensions';
 import { autoRegion } from '../../music/useDiscovery';
 import { WebsiteSettings } from '../../websites/WebsiteSettings';
+import { ContentMarks } from '../ContentMarks';
 import { ManualBrowserChecks } from '../ManualBrowserChecks';
 import { PrefChoice, PrefGroup, PrefLink, PrefSlider, PrefSwitch, PrefText } from '../prefs';
 import { useSettings, useUpdateSetting } from '../useSettings';
@@ -106,6 +107,7 @@ export const BrowseSettings: FC = () => {
           checked={data.explicitMusic}
           onChange={(value) => update.mutate({ key: 'explicitMusic', value }, refreshAll)}
         />
+        <ContentMarks />
         {/* Don't show this artist and Not interested, to show again. */}
         <PrefLink
           icon={EyeOff}

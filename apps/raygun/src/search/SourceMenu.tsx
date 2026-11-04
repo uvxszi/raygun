@@ -14,6 +14,7 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useContentRating } from '../extensions/contentRating';
 import {
   useClearExtensionData,
   useExtension,
@@ -44,7 +45,9 @@ export const SourceMenu: FC<SourceMenuProps> = ({ sourceId, extensionId, name, p
   const { t } = useTranslation();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const { enabled, setEnabled, busy } = useSourceSwitch(sourceId);
-  const website = useExtension(extensionId).data?.website ?? null;
+  const extension = useExtension(extensionId).data;
+  const website = extension?.website ?? null;
+  const rating = useContentRating();
   const openWebsite = useOpenExtensionWebsite();
   const clearData = useClearExtensionData();
   const close = () => {
@@ -120,6 +123,23 @@ export const SourceMenu: FC<SourceMenuProps> = ({ sourceId, extensionId, name, p
               )}
               {t(clearData.isSuccess ? 'sources.cleared' : 'sources.clearData')}
             </button>
+            {/* Marks the whole extension, so its other sources follow. */}
+            {rating
+              .menuItems('extensions', extensionId, extension?.adult ?? false)
+              .map(({ label, icon: Icon, onSelect }) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => {
+                    onSelect?.();
+                    close();
+                  }}
+                  className={ITEM}
+                >
+                  {Icon && <Icon aria-hidden size={16} className="text-muted" />}
+                  {label}
+                </button>
+              ))}
             <button
               type="button"
               disabled={busy}

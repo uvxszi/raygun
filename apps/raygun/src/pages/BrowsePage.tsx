@@ -16,6 +16,8 @@ import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { BrowseTab as AvailableExtensions } from '../extensions/BrowseTab';
+import { useContentRating } from '../extensions/contentRating';
+import { RatingHint } from '../extensions/RatingHint';
 import { updateCount } from '../extensions/catalogFilters';
 import { InstalledTab } from '../extensions/InstalledTab';
 import { InstallProgress } from '../extensions/InstallProgress';
@@ -67,10 +69,13 @@ type SourceRow = {
   source?: { id: string; extensionId: string; enabled: boolean };
   /** Rated for adults: an 18+ tag after the name. */
   adult?: boolean;
+  /** A Stremio addon's stored id: its ⋯ menu marks it 18+ or not. */
+  addonId?: string;
 };
 
 const SourceSection: FC<{ title: string; rows: SourceRow[] }> = ({ title, rows }) => {
   const { t } = useTranslation();
+  const rating = useContentRating();
   if (rows.length === 0) return null;
   return (
     <section aria-label={title} className="flex flex-col">
@@ -89,6 +94,10 @@ const SourceSection: FC<{ title: string; rows: SourceRow[] }> = ({ title, rows }
                 <span className="flex min-w-0 items-center gap-1.5">
                   <span className="truncate font-medium">{row.name}</span>
                   {row.adult && <AdultMark />}
+                  {row.source && (
+                    <RatingHint mark={rating.markOf('extensions', row.source.extensionId)} />
+                  )}
+                  {row.addonId && <RatingHint mark={rating.markOf('addons', row.addonId)} />}
                 </span>
                 <span className="text-muted truncate text-xs">
                   {row.source?.enabled === false
@@ -112,6 +121,12 @@ const SourceSection: FC<{ title: string; rows: SourceRow[] }> = ({ title, rows }
                 sourceId={row.source.id}
                 extensionId={row.source.extensionId}
                 name={row.name}
+              />
+            )}
+            {row.addonId && (
+              <OverflowMenu
+                label={t('watch.addonActions', { name: row.name })}
+                items={rating.menuItems('addons', row.addonId, row.adult)}
               />
             )}
           </li>
@@ -178,7 +193,7 @@ const SourcesList: FC = () => {
       search: { id: source.id },
       latest: { to: route, search: { id: source.id, mode: 'latest' } },
       source: { id: source.id, extensionId: source.extensionId, enabled: source.enabled },
-      adult: source.adult === true || extensionOf(source)?.contentRating === 'nsfw',
+      adult: source.adult === true || extensionOf(source)?.adult === true,
     }));
 
   const videoRows: SourceRow[] = [
@@ -192,6 +207,7 @@ const SourcesList: FC = () => {
         to: '/watch/addon',
         search: { id: addon.id },
         adult: addon.adult,
+        addonId: addon.id,
       })),
     ...catalogue(video.data, '/watch/source'),
   ];
