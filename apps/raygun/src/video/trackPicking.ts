@@ -1,4 +1,4 @@
-import type { SubtitleMode } from '@raygun/bindings';
+import type { SubtitleMode, VideoResolution } from '@raygun/bindings';
 
 import type { TrackChoice } from './protocol';
 
@@ -358,3 +358,83 @@ export const choiceOf = (option: TrackOption): TrackChoice => ({
   language: option.language ?? languageOf(option),
   label: option.label,
 });
+
+/** A stream's variant as its engine describes it; sizes and bit rates may be unknown (0). */
+export type Variant = { width?: number; height?: number; bitrate?: number };
+
+/** The height a picture counts as: a 16:9 picture's with the same long side, so 1920×800 is
+ * 1080p (`video_quality::picture_height` in raygun-app). */
+export const pictureHeight = (width: number, height: number): number =>
+  Math.round((Math.max(width, height) * 9) / 16);
+
+/** A rough height from a bit rate, for variants without a size (`bandwidth_height`). */
+export const bitrateHeight = (bitsPerSecond: number): number => {
+  if (bitsPerSecond >= 12_000_000) return 2160;
+  if (bitsPerSecond >= 7_000_000) return 1440;
+  if (bitsPerSecond >= 3_500_000) return 1080;
+  if (bitsPerSecond >= 1_800_000) return 720;
+  if (bitsPerSecond >= 900_000) return 480;
+  return 360;
+};
+
+const variantHeight = ({ width = 0, height = 0, bitrate = 0 }: Variant): number | null => {
+  if (height > 0) return width > 0 ? pictureHeight(width, height) : height;
+  return bitrate > 0 ? bitrateHeight(bitrate) : null;
+};
+
+/** The largest height wanted; null for the highest. */
+const resolutionHeight = (resolution: VideoResolution): number | null =>
+  resolution === 'highest' ? null : Number.parseInt(resolution, 10);
+
+/** Lower suits better (`video_quality::rank`): the highest at or below the preferred height,
+ * then the lowest above it, unknown sizes last; with `highest`, the highest. */
+const rank = (height: number | null, limit: number | null): [number, number] => {
+  if (height === null) return [2, 0];
+  if (limit === null) return [0, -height];
+  return height <= limit ? [0, limit - height] : [1, height - limit];
+};
+
+export type VariantPick = {
+  /** The variant to start at. */
+  start: number;
+  /** The highest variant automatic switching may use; -1 for no cap. */
+  cap: number;
+  /** The highest bit rate automatic switching may use, in kb/s; null for no cap. */
+  maxKbps: number | null;
+};
+
+/**
+ * Where an adaptive stream starts and how far automatic switching may go, as the Android player
+ * caps it (`PlayerTracks.kt`): the variant the preferred resolution picks, and nothing larger
+ * than it unless `highest`. Null when there's nothing to choose.
+ */
+export const pickVariant = (
+  variants: Variant[],
+  resolution: VideoResolution,
+): VariantPick | null => {
+  if (variants.length < 2) return null;
+  const limit = resolutionHeight(resolution);
+  const heights = variants.map(variantHeight);
+  let start = 0;
+  heights.forEach((height, index) => {
+    const [tier, distance] = rank(height, limit);
+    const [bestTier, bestDistance] = rank(heights[start] ?? null, limit);
+    const better =
+      tier < bestTier ||
+      (tier === bestTier &&
+        (distance < bestDistance ||
+          (distance === bestDistance &&
+            (variants[index]?.bitrate ?? 0) > (variants[start]?.bitrate ?? 0))));
+    if (better) start = index;
+  });
+  const chosen = heights[start] ?? null;
+  if (limit === null || chosen === null) return { start, cap: -1, maxKbps: null };
+  let cap = start;
+  let maxBitrate = variants[start]?.bitrate ?? 0;
+  heights.forEach((height, index) => {
+    if (height === null || height > chosen) return;
+    cap = Math.max(cap, index);
+    maxBitrate = Math.max(maxBitrate, variants[index]?.bitrate ?? 0);
+  });
+  return { start, cap, maxKbps: maxBitrate > 0 ? Math.ceil(maxBitrate / 1000) : null };
+};

@@ -969,8 +969,6 @@ export const commands = {
 	showNsfw: boolean,
 	/**  Shows songs marked explicit and music sources rated 18+ (M46.36); on by default. */
 	explicitMusic: boolean,
-	/**  The video height links are picked by (M42); `None` picks the highest. */
-	preferredVideoQuality: number | null,
 	/**  The colour of buttons, tabs and highlights (M42.1). */
 	accent: Accent,
 	/**  The screen the app opens on. */
@@ -3969,7 +3967,7 @@ export type SearchResults_Serialize = {
  *  A change to a single setting. The tagged shape (`{ key, value }`) lets the UI send only valid
  *  key/value pairs, and doubles as the format of a stored row.
  */
-export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
+export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
 { key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "manualBrowserChecks"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs };
 
@@ -3994,8 +3992,6 @@ export type Settings = {
 	showNsfw: boolean,
 	/**  Shows songs marked explicit and music sources rated 18+ (M46.36); on by default. */
 	explicitMusic: boolean,
-	/**  The video height links are picked by (M42); `None` picks the highest. */
-	preferredVideoQuality: number | null,
 	/**  The colour of buttons, tabs and highlights (M42.1). */
 	accent: Accent,
 	/**  The screen the app opens on. */
@@ -5154,6 +5150,8 @@ export type VideoPlayerMessageKind = "open" | "update";
  *  from it keep their defaults, so later fields need no migration.
  */
 export type VideoPlayerPrefs = {
+	/**  The picture size among a source's links and a stream's variants (1080p unless changed). */
+	preferredResolution?: VideoResolution,
 	orientation?: PlayerOrientation,
 	/**  For titles with no aspect of their own yet. */
 	aspect?: VideoAspect,
@@ -5251,6 +5249,12 @@ export type VideoRequest = {
 	chapters?: VideoChapter[],
 	anime?: AnimeEpisode | null,
 };
+
+/**
+ *  The picture size videos play at when a source has several: the highest available, or the
+ *  highest at or below a height (the lowest above it when none is that small).
+ */
+export type VideoResolution = "highest" | "2160p" | "1440p" | "1080p" | "720p" | "480p" | "360p";
 
 /**  A server (hoster) for an episode; `links` when the source resolved it already. */
 export type VideoServerView = {

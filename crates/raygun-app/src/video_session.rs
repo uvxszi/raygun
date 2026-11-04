@@ -14,7 +14,7 @@ use futures_util::stream::FuturesUnordered;
 use raygun_db::titles;
 use raygun_db::video::{self as store, VideoEntry};
 use raygun_db::video_downloads;
-use raygun_model::{SettingChange, VideoRequest};
+use raygun_model::{SettingChange, VideoRequest, VideoResolution};
 use raygun_resolver::video_match;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -26,6 +26,7 @@ use crate::events::WatchChangedEvent;
 use crate::startup::AppDb;
 use crate::stremio::{StremioPlayTarget, StremioService};
 use crate::video_library;
+use crate::video_quality;
 use crate::video_sources::{self, VideoSourceService};
 
 /// What a session plays from.
@@ -151,6 +152,8 @@ pub struct Link {
     pub failed: Option<String>,
     /// Its name says it's another episode or season ("S01E01" for S2E1): tried after the rest.
     pub mismatch: bool,
+    /// Its picture height, when its source or name says (`video_quality`).
+    pub height: Option<u32>,
     pub request: VideoRequest,
 }
 
@@ -258,6 +261,8 @@ struct Session {
     show_memory: Option<String>,
     /// Servers and addons that failed lately (M46.17): tried last, and marked.
     failing: HashSet<String>,
+    /// The picture size links are ordered by.
+    resolution: VideoResolution,
     /// Resolving finished; with nothing playing, the session has run out of links.
     settled: bool,
 }
@@ -348,11 +353,13 @@ pub fn mark_mismatches(groups: &mut [Group], numbers: &[video_match::EpisodeNumb
 }
 
 /// Puts the remembered source first (its group, and within Stremio the links of the same
-/// `bingeGroup` first) and the sources that failed lately last (M46.17).
+/// `bingeGroup` first) and the sources that failed lately last (M46.17); within each group the
+/// links follow the preferred resolution after those.
 pub fn order_groups(
     groups: &mut [Group],
     remembered: Option<&Remembered>,
     failing: &HashSet<String>,
+    resolution: VideoResolution,
 ) {
     groups.sort_by_key(|group| {
         (
@@ -360,16 +367,22 @@ pub fn order_groups(
             remembered.is_none_or(|remembered| group.name != remembered.group),
         )
     });
-    let Some(remembered) = remembered else {
-        return;
-    };
-    if let Some(tag) = &remembered.tag {
-        for group in groups.iter_mut() {
-            group
-                .links
-                .sort_by_key(|link| (link.mismatch, link.tag.as_ref() != Some(tag)));
-        }
+    let tag = remembered.and_then(|remembered| remembered.tag.as_ref());
+    for group in groups.iter_mut() {
+        order_links(&mut group.links, tag, resolution);
     }
+}
+
+/// A group's links: other episodes' last, then the remembered `bingeGroup` first, then by the
+/// preferred resolution; ties keep the source's order.
+fn order_links(links: &mut [Link], tag: Option<&String>, resolution: VideoResolution) {
+    links.sort_by_key(|link| {
+        (
+            link.mismatch,
+            tag.is_some() && link.tag.as_ref() != tag,
+            video_quality::rank(link.height, resolution),
+        )
+    });
 }
 
 /// Playback sessions; one at a time.
@@ -435,6 +448,10 @@ impl VideoSessions {
             },
         };
         let failing = self.health().await.failing(now_ms());
+        let resolution = crate::settings::load(&self.db())
+            .await
+            .map(|settings| settings.video_player.preferred_resolution)
+            .unwrap_or_default();
         let generation = self.generations.fetch_add(1, Ordering::SeqCst) + 1;
         let label = episodes[index].label.clone();
         *self.session.lock().expect("session poisoned") = Some(Session {
@@ -451,6 +468,7 @@ impl VideoSessions {
             remembered,
             show_memory,
             failing,
+            resolution,
             settled: false,
         });
         let shell = crate::video::session_shell(&self.app, &title, &label).await;
@@ -709,6 +727,7 @@ impl VideoSessions {
                 tag: None,
                 failed: None,
                 mismatch: false,
+                height: None,
                 request,
             };
             let group = Group::finished(
@@ -801,6 +820,7 @@ impl VideoSessions {
                     }),
                     tag: None,
                     mismatch: false,
+                    height: link.quality,
                     // Torrents (Miru) need a torrent app: listed, never played.
                     failed: (link.format.as_deref() == Some(raygun_ext_host::video::TORRENT))
                         .then(|| self.label("needsTorrentApp", "Needs a torrent app")),
@@ -853,7 +873,12 @@ impl VideoSessions {
             else {
                 return;
             };
-            order_groups(&mut groups, session.remembered.as_ref(), &session.failing);
+            order_groups(
+                &mut groups,
+                session.remembered.as_ref(),
+                &session.failing,
+                session.resolution,
+            );
             session.groups = groups;
             session.tried.clear();
             session.current = None;
@@ -871,11 +896,16 @@ impl VideoSessions {
             else {
                 return;
             };
+            let tag = session
+                .remembered
+                .as_ref()
+                .and_then(|remembered| remembered.tag.as_ref());
             if let Some(group) = session.groups.iter_mut().find(|group| group.id == id) {
-                let (links, error) = match links {
+                let (mut links, error) = match links {
                     Ok(links) => (links, None),
                     Err(error) => (Vec::new(), Some(error)),
                 };
+                order_links(&mut links, tag, session.resolution);
                 *group = Group::finished(group.id.clone(), group.name.clone(), links, error);
             }
         }
@@ -1474,6 +1504,7 @@ mod tests {
             tag: tag.map(str::to_owned),
             failed: None,
             mismatch: false,
+            height: video_quality::label_height(label),
             request: VideoRequest {
                 key: "k".into(),
                 title: "T".into(),
@@ -1532,6 +1563,7 @@ mod tests {
             remembered: None,
             show_memory: None,
             failing: HashSet::new(),
+            resolution: VideoResolution::default(),
             settled: false,
         }
     }
@@ -1734,6 +1766,7 @@ mod tests {
                 None,
             ),
         ];
+        let resolution = VideoResolution::default();
         order_groups(
             &mut groups,
             Some(&Remembered {
@@ -1741,10 +1774,11 @@ mod tests {
                 tag: Some("release".into()),
             }),
             &HashSet::new(),
+            resolution,
         );
         assert_eq!(groups[0].name, "Beta");
         assert_eq!(groups[0].links[0].label, "b2");
-        order_groups(&mut groups, None, &HashSet::new());
+        order_groups(&mut groups, None, &HashSet::new(), resolution);
         assert_eq!(groups[0].name, "Beta", "nothing remembered keeps the order");
 
         // One that failed lately goes last, even the remembered one (M46.17).
@@ -1755,8 +1789,62 @@ mod tests {
                 tag: None,
             }),
             &HashSet::from(["Beta".to_owned()]),
+            resolution,
         );
         assert_eq!(groups[0].name, "Alpha");
+    }
+
+    #[test]
+    fn links_follow_the_resolution_after_the_remembered_release() {
+        let addon = || {
+            vec![Group::finished(
+                "a".into(),
+                "Addon".into(),
+                vec![
+                    link("Addon 720p", Some("web-720")),
+                    link("Addon 4k", Some("web-4k")),
+                    link("Addon", None),
+                    link("Addon 1080p", Some("web-1080")),
+                    link("Addon 2160p S01E05", None),
+                ],
+                None,
+            )]
+        };
+        let order = |remembered: Option<Remembered>, resolution| {
+            let mut groups = addon();
+            groups[0].links[4].mismatch = true;
+            order_groups(
+                &mut groups,
+                remembered.as_ref(),
+                &HashSet::new(),
+                resolution,
+            );
+            groups[0]
+                .links
+                .iter()
+                .map(|link| link.label.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            order(None, VideoResolution::P1080),
+            [
+                "Addon 1080p",
+                "Addon 720p",
+                "Addon 4k",
+                "Addon",
+                "Addon 2160p S01E05"
+            ]
+        );
+        assert_eq!(order(None, VideoResolution::Highest)[0], "Addon 4k");
+        // The release that played last time stays first.
+        let remembered = Remembered {
+            group: "Addon".into(),
+            tag: Some("web-720".into()),
+        };
+        assert_eq!(
+            order(Some(remembered), VideoResolution::Highest)[..2],
+            ["Addon 720p", "Addon 4k"]
+        );
     }
 
     #[test]

@@ -25,9 +25,13 @@ const OLD_COVER_KEYS: [&str; 2] = ["gridColumns", "coverWidth"];
 /// The automatic cover width on a phone (6.5 rem), which old fixed sizes are compared with.
 const PHONE_COVER_PX: f64 = 104.0;
 
+/// The top-level video height of older versions (M42), now `VideoPlayerPrefs::preferred_resolution`.
+const OLD_VIDEO_QUALITY_KEY: &str = "preferredVideoQuality";
+
 pub async fn load(db: &Db) -> Result<Settings, SettingsError> {
     let mut settings = Settings::default();
     let (mut old_columns, mut old_width, mut cover_size_saved) = (0, 0, false);
+    let (mut old_quality, mut resolution_saved) = (None, false);
     for (key, value) in settings::load(db).await? {
         // Settings that no longer exist (M46.36: Discord presence) are left alone.
         if RETIRED.contains(&key.as_str()) {
@@ -42,7 +46,12 @@ pub async fn load(db: &Db) -> Result<Settings, SettingsError> {
             }
             continue;
         }
+        if key == OLD_VIDEO_QUALITY_KEY {
+            old_quality = Some(serde_json::from_str::<Option<u32>>(&value).ok().flatten());
+            continue;
+        }
         cover_size_saved |= key == "coverSize";
+        resolution_saved |= key == "videoPlayer" && has_field(&value, "preferredResolution");
         match parse_row(&key, &migrate_row(&key, &value)) {
             Ok(change) => settings.apply(change),
             Err(error) => tracing::warn!(%key, %value, %error, "ignoring unreadable setting"),
@@ -51,7 +60,19 @@ pub async fn load(db: &Db) -> Result<Settings, SettingsError> {
     if !cover_size_saved {
         settings.cover_size = cover_size_from(old_columns, old_width);
     }
+    if let (Some(height), false) = (old_quality, resolution_saved) {
+        settings.video_player.preferred_resolution =
+            raygun_model::VideoResolution::from_height(height);
+    }
     Ok(settings)
+}
+
+/// Whether a stored object row has `field`.
+fn has_field(value: &str, field: &str) -> bool {
+    matches!(
+        serde_json::from_str::<serde_json::Value>(value),
+        Ok(serde_json::Value::Object(fields)) if fields.contains_key(field)
+    )
 }
 
 /// A cover size for what an older version stored (M46.48): more covers per row are smaller
@@ -355,17 +376,49 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn video_quality_is_one_offered_or_the_highest() {
+    async fn the_video_resolution_starts_at_1080p_and_takes_over_the_old_quality() {
+        use raygun_model::{VideoPlayerPrefs, VideoResolution};
         let temp = TempDir::new().unwrap();
         let db = open(&temp).await;
-        let quality = |height| SettingChange::PreferredVideoQuality(height);
+        async fn resolution(db: &Db) -> VideoResolution {
+            load(db).await.unwrap().video_player.preferred_resolution
+        }
+        assert_eq!(resolution(&db).await, VideoResolution::P1080);
 
-        assert!(update(&db, quality(Some(900))).await.is_err());
-        let capped = update(&db, quality(Some(720))).await.unwrap();
-        assert_eq!(capped.preferred_video_quality, Some(720));
-        let highest = update(&db, quality(None)).await.unwrap();
-        assert_eq!(highest.preferred_video_quality, None, "back to the highest");
-        assert_eq!(load(&db).await.unwrap().preferred_video_quality, None);
+        // An older version's choice: none was the highest.
+        settings::put(&db, OLD_VIDEO_QUALITY_KEY, "null")
+            .await
+            .unwrap();
+        assert_eq!(resolution(&db).await, VideoResolution::Highest);
+        settings::put(&db, OLD_VIDEO_QUALITY_KEY, "720")
+            .await
+            .unwrap();
+        assert_eq!(resolution(&db).await, VideoResolution::P720);
+        // A player row saved before the field existed keeps the old choice.
+        settings::put(&db, "videoPlayer", r#"{"controlsSeconds":5}"#)
+            .await
+            .unwrap();
+        assert_eq!(resolution(&db).await, VideoResolution::P720);
+
+        // Once chosen, the new field wins.
+        let prefs = VideoPlayerPrefs {
+            preferred_resolution: VideoResolution::P2160,
+            ..VideoPlayerPrefs::default()
+        };
+        let saved = update(&db, SettingChange::VideoPlayer(Box::new(prefs)))
+            .await
+            .unwrap();
+        assert_eq!(
+            saved.video_player.preferred_resolution,
+            VideoResolution::P2160
+        );
+        assert_eq!(resolution(&db).await, VideoResolution::P2160);
+        assert!(
+            serde_json::from_str::<SettingChange>(
+                r#"{"key":"videoPlayer","value":{"preferredResolution":"900p"}}"#
+            )
+            .is_err()
+        );
     }
 
     #[tokio::test]

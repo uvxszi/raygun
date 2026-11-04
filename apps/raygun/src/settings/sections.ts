@@ -69,7 +69,6 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
       'resumeOnStart',
       'keepMusicPlaying',
       'playerView',
-      'preferredVideoQuality',
       'resumeVideos',
       'watchedPercent',
       'autoplayNext',

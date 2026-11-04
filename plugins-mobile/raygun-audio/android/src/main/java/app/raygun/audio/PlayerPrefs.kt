@@ -101,6 +101,11 @@ internal class PlayerPrefs(json: JSONObject) {
     val showFailedSources: Boolean = json.optBoolean("showFailedSources", true)
     val showEmptySources: Boolean = json.optBoolean("showEmptySources", true)
 
+    /** The largest picture height automatic quality may use ("1080p" → 1080); null for the highest. */
+    val maxHeight: Int? = json.optString("preferredResolution", "1080p").let { value ->
+        if (value == "highest") null else value.removeSuffix("p").toIntOrNull() ?: 1080
+    }
+
     private companion object {
         fun words(text: String): List<String> =
             text.split(',').map { it.trim().lowercase() }.filter { it.isNotEmpty() }

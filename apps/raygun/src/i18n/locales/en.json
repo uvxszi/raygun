@@ -493,10 +493,8 @@
     "content": "Content",
     "showNsfw": "Show NSFW (18+) content",
     "showNsfwHint": "Off hides adult extensions, sources and titles: comics, books and videos. Music has its own switch.",
-    "videoQuality": "Preferred video quality",
+    "videoQuality": "Video resolution",
     "videoQualityHighest": "Highest available",
-    "videoQualityUpTo": "Up to {{height}}p",
-    "videoQualityHint": "Video sources offer the link closest to this quality first, at or below it when they can.",
     "section": {
       "appearance": {
         "title": "Appearance",

@@ -2,7 +2,10 @@
 //! playlist turned into the files to fetch plus a copy that points at them. Pure; the service
 //! does the fetching.
 
+use raygun_model::VideoResolution;
 use url::Url;
+
+use crate::video_quality;
 
 /// A file to fetch: a segment, key or init map, saved under `name`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,8 +65,7 @@ pub fn parse_master(text: &str, base: &str) -> Result<Master, String> {
                 url: String::new(),
                 bandwidth: attribute(attributes, "BANDWIDTH").and_then(|value| value.parse().ok()),
                 height: attribute(attributes, "RESOLUTION")
-                    .and_then(|value| value.split_once('x').map(|(_, height)| height.to_owned()))
-                    .and_then(|height| height.parse().ok()),
+                    .and_then(|value| video_quality::resolution_height(&value)),
                 audio_group: attribute(attributes, "AUDIO"),
             });
         } else if let Some(attributes) = line.strip_prefix("#EXT-X-MEDIA:") {
@@ -92,17 +94,17 @@ pub fn parse_master(text: &str, base: &str) -> Result<Master, String> {
     Ok(Master { variants, audio })
 }
 
-/// The variant to download: the preferred height or the closest below it (then the lowest above
-/// it), as links are ordered; without a preference or heights, the highest bandwidth.
-pub fn choose_variant(variants: &[Variant], preferred: Option<u32>) -> &Variant {
+/// The variant to download, by the rule links are ordered by (`video_quality::rank`): heights
+/// from `RESOLUTION`, else estimated from `BANDWIDTH`; among equals the highest bandwidth.
+pub fn choose_variant(variants: &[Variant], preferred: VideoResolution) -> &Variant {
     let key = |variant: &Variant| {
-        let height_rank = match (variant.height, preferred) {
-            (None, _) => (2, 0),
-            (Some(height), None) => (0, u32::MAX - height),
-            (Some(height), Some(limit)) if height <= limit => (0, limit - height),
-            (Some(height), Some(limit)) => (1, height - limit),
-        };
-        (height_rank, u64::MAX - variant.bandwidth.unwrap_or(0))
+        let height = variant
+            .height
+            .or_else(|| variant.bandwidth.map(video_quality::bandwidth_height));
+        (
+            video_quality::rank(height, preferred),
+            u64::MAX - variant.bandwidth.unwrap_or(0),
+        )
     };
     variants
         .iter()
@@ -325,20 +327,40 @@ https://other.example/high.m3u8
             "https://cdn.example/show/low/index.m3u8"
         );
         let pick = |preferred| choose_variant(&master.variants, preferred).height;
-        assert_eq!(pick(None), Some(1080), "the highest");
-        assert_eq!(pick(Some(720)), Some(720));
-        assert_eq!(pick(Some(480)), Some(360), "closest below");
+        assert_eq!(pick(VideoResolution::Highest), Some(1080), "the highest");
+        assert_eq!(pick(VideoResolution::P2160), Some(1080));
+        assert_eq!(pick(VideoResolution::P720), Some(720));
+        assert_eq!(pick(VideoResolution::P480), Some(360), "closest below");
+        let large = &master.variants[1..];
         assert_eq!(
-            pick(Some(240)),
-            Some(360),
+            choose_variant(large, VideoResolution::P360).height,
+            Some(720),
             "nothing below: the lowest above"
         );
 
-        let mid = choose_variant(&master.variants, Some(720));
+        let mid = choose_variant(&master.variants, VideoResolution::P720);
         let audio = audio_for(&master, mid).unwrap();
         assert_eq!(audio.url, "https://cdn.example/show/audio/en.m3u8");
-        let high = choose_variant(&master.variants, None);
+        let high = choose_variant(&master.variants, VideoResolution::Highest);
         assert_eq!(audio_for(&master, high), None, "muxed audio");
+
+        // Without `RESOLUTION`, the bit rates say roughly how large each variant is.
+        let by_rate = "#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=6000000
+hi.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=2400000
+mid.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=14000000
+top.m3u8
+";
+        let by_rate = parse_master(by_rate, "https://cdn.example/master.m3u8").unwrap();
+        let url = |preferred| choose_variant(&by_rate.variants, preferred).url.clone();
+        assert_eq!(url(VideoResolution::P1080), "https://cdn.example/hi.m3u8");
+        assert_eq!(url(VideoResolution::P720), "https://cdn.example/mid.m3u8");
+        assert_eq!(
+            url(VideoResolution::Highest),
+            "https://cdn.example/top.m3u8"
+        );
         assert!(is_master(MASTER));
     }
 

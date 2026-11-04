@@ -564,22 +564,28 @@ const VideoStage: FC<StageProps> = ({
     let attached: MediaEngine | null = null;
     let triedHls = false;
     const start = (kind: MediaEngine['kind']) => {
-      attachMedia(video, url, kind, {
-        onTracks: () => {
-          if (!cancelled) onTracks();
+      attachMedia(
+        video,
+        url,
+        kind,
+        {
+          onTracks: () => {
+            if (!cancelled) onTracks();
+          },
+          onFatal: (message, problem) => {
+            if (cancelled) return;
+            // An address without an extension may be HLS after all.
+            if (problem === 'unsupported' && kind === 'native' && !request.format && !triedHls) {
+              triedHls = true;
+              attached?.destroy();
+              start('hls');
+              return;
+            }
+            onFatal(message, problem);
+          },
         },
-        onFatal: (message, problem) => {
-          if (cancelled) return;
-          // An address without an extension may be HLS after all.
-          if (problem === 'unsupported' && kind === 'native' && !request.format && !triedHls) {
-            triedHls = true;
-            attached?.destroy();
-            start('hls');
-            return;
-          }
-          onFatal(message, problem);
-        },
-      })
+        useVideoPlayerStore.getState().prefs.preferredResolution,
+      )
         .then((engineAttached) => {
           if (cancelled) {
             engineAttached.destroy();

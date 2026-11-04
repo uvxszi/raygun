@@ -126,8 +126,6 @@ pub struct Settings {
     pub show_nsfw: bool,
     /// Shows songs marked explicit and music sources rated 18+ (M46.36); on by default.
     pub explicit_music: bool,
-    /// The video height links are picked by (M42); `None` picks the highest.
-    pub preferred_video_quality: Option<u32>,
     /// The colour of buttons, tabs and highlights (M42.1).
     pub accent: Accent,
     /// The screen the app opens on.
@@ -1549,6 +1547,62 @@ pub enum MediaKeyAction {
     Seek,
 }
 
+/// The picture size videos play at when a source has several: the highest available, or the
+/// highest at or below a height (the lowest above it when none is that small).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+pub enum VideoResolution {
+    #[serde(rename = "highest")]
+    Highest,
+    #[serde(rename = "2160p")]
+    P2160,
+    #[serde(rename = "1440p")]
+    P1440,
+    #[default]
+    #[serde(rename = "1080p")]
+    P1080,
+    #[serde(rename = "720p")]
+    P720,
+    #[serde(rename = "480p")]
+    P480,
+    #[serde(rename = "360p")]
+    P360,
+}
+
+impl VideoResolution {
+    /// Every choice, as offered.
+    pub const ALL: [Self; 7] = [
+        Self::Highest,
+        Self::P2160,
+        Self::P1440,
+        Self::P1080,
+        Self::P720,
+        Self::P480,
+        Self::P360,
+    ];
+
+    /// The largest height wanted; `None` for the highest.
+    pub fn max_height(self) -> Option<u32> {
+        match self {
+            Self::Highest => None,
+            Self::P2160 => Some(2160),
+            Self::P1440 => Some(1440),
+            Self::P1080 => Some(1080),
+            Self::P720 => Some(720),
+            Self::P480 => Some(480),
+            Self::P360 => Some(360),
+        }
+    }
+
+    /// The choice for a height that older versions stored (`preferredVideoQuality`, M42):
+    /// none was the highest.
+    pub fn from_height(height: Option<u32>) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|choice| choice.max_height() == height)
+            .unwrap_or_default()
+    }
+}
+
 /// Which decoders play video.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -1642,6 +1696,8 @@ impl Default for SubtitleStyle {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(default, rename_all = "camelCase")]
 pub struct VideoPlayerPrefs {
+    /// The picture size among a source's links and a stream's variants (1080p unless changed).
+    pub preferred_resolution: VideoResolution,
     pub orientation: PlayerOrientation,
     /// For titles with no aspect of their own yet.
     pub aspect: VideoAspect,
@@ -1722,6 +1778,7 @@ pub struct VideoPlayerPrefs {
 impl Default for VideoPlayerPrefs {
     fn default() -> Self {
         Self {
+            preferred_resolution: VideoResolution::default(),
             orientation: PlayerOrientation::SensorLandscape,
             aspect: VideoAspect::Fit,
             controls_seconds: 4,
@@ -1836,9 +1893,6 @@ impl VideoPlayerPrefs {
 /// The update intervals offered, in hours (0 = off).
 pub const MANGA_UPDATE_HOURS: [u32; 6] = [0, 6, 12, 24, 48, 168];
 
-/// The preferred video qualities offered, as heights in pixels (M42).
-pub const VIDEO_QUALITIES: [u32; 4] = [1080, 720, 480, 360];
-
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -1848,7 +1902,6 @@ impl Default for Settings {
             novel_reader: NovelReaderPrefs::default(),
             show_nsfw: false,
             explicit_music: true,
-            preferred_video_quality: None,
             accent: Accent::Red,
             start_screen: StartScreen::Home,
             nav_labels: NavLabels::Always,
@@ -1909,7 +1962,6 @@ impl Settings {
             SettingChange::NovelReader(prefs) => self.novel_reader = prefs,
             SettingChange::ShowNsfw(show) => self.show_nsfw = show,
             SettingChange::ExplicitMusic(show) => self.explicit_music = show,
-            SettingChange::PreferredVideoQuality(height) => self.preferred_video_quality = height,
             SettingChange::Accent(accent) => self.accent = accent,
             SettingChange::StartScreen(screen) => self.start_screen = screen,
             SettingChange::NavLabels(labels) => self.nav_labels = labels,
@@ -1994,7 +2046,6 @@ pub enum SettingChange {
     NovelReader(NovelReaderPrefs),
     ShowNsfw(bool),
     ExplicitMusic(bool),
-    PreferredVideoQuality(Option<u32>),
     Accent(Accent),
     StartScreen(StartScreen),
     NavLabels(NavLabels),
@@ -2055,7 +2106,6 @@ impl SettingChange {
             Self::NovelReader(_) => "novelReader",
             Self::ShowNsfw(_) => "showNsfw",
             Self::ExplicitMusic(_) => "explicitMusic",
-            Self::PreferredVideoQuality(_) => "preferredVideoQuality",
             Self::Accent(_) => "accent",
             Self::StartScreen(_) => "startScreen",
             Self::NavLabels(_) => "navLabels",
@@ -2112,7 +2162,6 @@ impl SettingChange {
             Self::Theme(_)
             | Self::ShowNsfw(_)
             | Self::ExplicitMusic(_)
-            | Self::PreferredVideoQuality(None)
             | Self::Accent(_)
             | Self::StartScreen(_)
             | Self::NavLabels(_)
@@ -2249,13 +2298,6 @@ impl SettingChange {
             }
             Self::SubtitleLanguage(tag) if tag.is_empty() => Ok(()),
             Self::SubtitleLanguage(tag) => language_tag(tag),
-            Self::PreferredVideoQuality(Some(height)) => {
-                if VIDEO_QUALITIES.contains(height) {
-                    Ok(())
-                } else {
-                    Err(format!("{height}p is not an offered video quality"))
-                }
-            }
             Self::NovelReader(prefs) => {
                 if !NOVEL_TEXT_SIZES.contains(&prefs.text_size) {
                     Err(format!(

@@ -4,6 +4,10 @@
  * `/media/` route, so playlists and segments carry their headers and CORS.
  */
 
+import type { VideoResolution } from '@raygun/bindings';
+
+import { pickVariant } from './trackPicking';
+
 export type EngineTrack = {
   id: number;
   label: string;
@@ -122,6 +126,7 @@ const attachHls = async (
   video: HTMLVideoElement,
   url: string,
   events: EngineEvents,
+  resolution: VideoResolution,
 ): Promise<MediaEngine> => {
   const { default: Hls } = await import('hls.js');
   if (!Hls.isSupported()) {
@@ -133,6 +138,20 @@ const attachHls = async (
   let parsed = false;
   hls.on(Hls.Events.MANIFEST_PARSED, () => {
     parsed = true;
+    // Starts at the preferred resolution, and automatic switching stays at or below it; the
+    // Quality menu can still pick any level.
+    const pick = pickVariant(
+      hls.levels.map((level) => ({
+        width: level.width,
+        height: level.height,
+        bitrate: level.bitrate,
+      })),
+      resolution,
+    );
+    if (pick) {
+      hls.autoLevelCapping = pick.cap;
+      hls.startLevel = pick.start;
+    }
     events.onTracks();
   });
   hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, events.onTracks);
@@ -231,6 +250,7 @@ type DashTrack = {
   roles?: DashDescriptor[] | null;
   accessibility?: DashDescriptor[] | null;
 };
+type DashRepresentation = { width?: number; height?: number; bandwidth?: number };
 type DashPlayer = {
   initialize: (view: HTMLVideoElement, url: string, autoPlay: boolean) => void;
   on: (type: string, listener: (event: { error?: { message?: string } }) => void) => void;
@@ -240,12 +260,17 @@ type DashPlayer = {
   setTextTrack: (index: number) => void;
   enableText: (enable: boolean) => boolean;
   reset: () => void;
+  getRepresentationsByType?: (type: 'video') => DashRepresentation[];
+  updateSettings: (settings: {
+    streaming: { abr: { maxBitrate?: { video: number }; initialBitrate?: { video: number } } };
+  }) => void;
 };
 
 const attachDash = async (
   video: HTMLVideoElement,
   url: string,
   events: EngineEvents,
+  resolution: VideoResolution,
 ): Promise<MediaEngine> => {
   const dash = (await import('dashjs')) as unknown as {
     MediaPlayer: () => { create: () => DashPlayer };
@@ -254,6 +279,22 @@ const attachDash = async (
   let initialized = false;
   player.on('streamInitialized', () => {
     initialized = true;
+    // Automatic switching stays at or below the preferred resolution.
+    const pick = pickVariant(
+      (player.getRepresentationsByType?.('video') ?? []).map((representation) => ({
+        width: representation.width,
+        height: representation.height,
+        bitrate: representation.bandwidth,
+      })),
+      resolution,
+    );
+    if (pick?.maxKbps) {
+      player.updateSettings({
+        streaming: {
+          abr: { maxBitrate: { video: pick.maxKbps }, initialBitrate: { video: pick.maxKbps } },
+        },
+      });
+    }
     events.onTracks();
   });
   player.on('error', (event) => events.onFatal(event.error?.message ?? 'DASH error', 'other'));
@@ -303,18 +344,19 @@ const attachDash = async (
   };
 };
 
-/** Starts `url` in `video`. */
+/** Starts `url` in `video`; adaptive streams follow `resolution`. */
 export const attachMedia = (
   video: HTMLVideoElement,
   url: string,
   kind: MediaEngine['kind'],
   events: EngineEvents,
+  resolution: VideoResolution = '1080p',
 ): Promise<MediaEngine> => {
   switch (kind) {
     case 'hls':
-      return attachHls(video, url, events);
+      return attachHls(video, url, events, resolution);
     case 'dash':
-      return attachDash(video, url, events);
+      return attachDash(video, url, events, resolution);
     default:
       return Promise.resolve(attachNative(video, url, events));
   }
