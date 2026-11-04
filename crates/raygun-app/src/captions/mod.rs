@@ -6,7 +6,7 @@
 
 mod audio;
 mod cues;
-mod video_audio;
+pub(crate) mod video_audio;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

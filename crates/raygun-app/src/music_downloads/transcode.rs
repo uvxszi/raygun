@@ -1,6 +1,6 @@
-//! Songs as files (M46.10): checking a download is audio, writing it as WAV, FLAC or MP3
-//! (decoded with symphonia, written with hound, flacenc and LAME), tagging saved files with
-//! lofty, and turning a recording's capture into its FLAC. All blocking: call from
+//! Songs as files (M46.10): checking a download is audio and how long it is, writing it as WAV,
+//! FLAC or MP3 (decoded with symphonia, written with hound, flacenc and LAME; a capture's sound
+//! is encoded the same way, M46.49), and tagging saved files with lofty. All blocking: call from
 //! `spawn_blocking`.
 
 use std::fs::File;
@@ -16,12 +16,8 @@ use symphonia::core::formats::{FormatOptions, FormatReader, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 
-/// Bits per sample written to WAV and FLAC from lossy sources and recordings.
+/// Bits per sample written to WAV and FLAC from lossy sources and captures.
 const BITS: u16 = 16;
-/// Recordings: below this level a sample counts as silence when trimming the ends.
-const SILENCE: f32 = 0.0015;
-/// Recordings are raised to this peak (the player's volume may have been low).
-const TARGET_PEAK: f32 = 0.97;
 
 /// What a saved file's tags say.
 pub struct SongTags {
@@ -154,6 +150,71 @@ pub fn probe(path: &Path) -> Result<(), String> {
     decoding
         .next(&mut samples)?
         .ok_or_else(|| "it has no sound".to_owned())
+}
+
+/// Whether Raygun only reads the container of a file with this extension (no decoder: it plays
+/// in the platform's player).
+fn container_only(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|extension| extension == "opus" || extension == "webm")
+}
+
+/// How long a file says it is (ms), without decoding it; `None` when its container doesn't say.
+pub fn length_ms(path: &Path) -> Option<u64> {
+    let file = File::open(path).ok()?;
+    let stream = MediaSourceStream::new(Box::new(file), Default::default());
+    let mut hint = Hint::new();
+    if let Some(extension) = path.extension().and_then(|extension| extension.to_str()) {
+        hint.with_extension(extension);
+    }
+    let format = symphonia::default::get_probe()
+        .probe(
+            &hint,
+            stream,
+            FormatOptions::default(),
+            MetadataOptions::default(),
+        )
+        .ok()?;
+    let track = format.default_track(TrackType::Audio)?;
+    let rate = track
+        .codec_params
+        .as_ref()
+        .and_then(|params| params.audio())
+        .and_then(|params| params.sample_rate);
+    track
+        .time_base
+        .zip(track.duration)
+        .and_then(|(base, duration)| base.calc_duration(duration))
+        .and_then(|time| u64::try_from(time.as_millis()).ok())
+        .or_else(|| {
+            let frames = track.num_frames?;
+            let rate = u64::from(rate?);
+            (rate > 0).then(|| frames * 1000 / rate)
+        })
+}
+
+/// How long a song file plays (ms), checking that it decodes (M46.49): what its container says,
+/// else counted by decoding it whole (a joined stream's container doesn't say). Opus and WebM
+/// only by their container. An error when it doesn't decode.
+pub fn measure(path: &Path) -> Result<Option<u64>, String> {
+    if container_only(path) {
+        return Ok(length_ms(path));
+    }
+    probe(path)?;
+    if let Some(ms) = length_ms(path).filter(|ms| *ms > 0) {
+        return Ok(Some(ms));
+    }
+    let mut decoding = open(path)?;
+    let mut samples = Vec::new();
+    let mut ms = 0f64;
+    while decoding.next(&mut samples)?.is_some() {
+        let frames = samples.len() / decoding.channels.max(1);
+        ms += frames as f64 * 1000.0 / f64::from(decoding.rate.max(1));
+    }
+    if ms <= 0.0 {
+        return Err("it has no sound".into());
+    }
+    Ok(Some(ms.round() as u64))
 }
 
 /// Writes `source` to a file at `target` (its extension added) in `format`, MP3s at `mp3_kbps`;
@@ -397,61 +458,6 @@ fn fix_min_block_size(bytes: &mut [u8]) {
     }
 }
 
-/// Turns a recording's float WAV into FLAC: silence trimmed from both ends, raised to a steady
-/// peak, 16 bits. Returns how long the kept sound is, in ms.
-pub fn finish_recording(wav: &Path, flac: &Path) -> Result<u64, String> {
-    let mut reader = hound::WavReader::open(wav).map_err(|error| error.to_string())?;
-    let spec = reader.spec();
-    let channels = usize::from(spec.channels.max(1));
-    let samples: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Float => reader
-            .samples::<f32>()
-            .collect::<Result<_, _>>()
-            .map_err(|error| error.to_string())?,
-        hound::SampleFormat::Int => reader
-            .samples::<i32>()
-            .map(|sample| {
-                sample.map(|value| value as f32 / (1u32 << (spec.bits_per_sample - 1)) as f32)
-            })
-            .collect::<Result<_, _>>()
-            .map_err(|error| error.to_string())?,
-    };
-    let kept = trim_silence(&samples, channels);
-    if kept.is_empty() {
-        return Err("Nothing was heard while the song played".into());
-    }
-    let peak = kept
-        .iter()
-        .fold(0f32, |peak, sample| peak.max(sample.abs()));
-    let gain = if peak > 0.0 { TARGET_PEAK / peak } else { 1.0 };
-    let scale = f32::from(i16::MAX);
-    let pcm: Vec<i32> = kept
-        .iter()
-        .map(|sample| ((sample * gain).clamp(-1.0, 1.0) * scale).round() as i32)
-        .collect();
-    let frames = pcm.len() / channels;
-    let source = flacenc::source::MemSource::from_samples(
-        &pcm,
-        channels,
-        usize::from(BITS),
-        spec.sample_rate as usize,
-    );
-    encode_flac(source, flac)?;
-    Ok(frames as u64 * 1000 / u64::from(spec.sample_rate.max(1)))
-}
-
-/// The samples between the first and last sound, whole frames only.
-fn trim_silence(samples: &[f32], channels: usize) -> &[f32] {
-    let loud = |sample: &f32| sample.abs() > SILENCE;
-    let Some(first) = samples.iter().position(loud) else {
-        return &[];
-    };
-    let last = samples.iter().rposition(loud).unwrap_or(first);
-    let start = first - first % channels;
-    let end = ((last / channels) + 1) * channels;
-    &samples[start..end.min(samples.len())]
-}
-
 /// Writes title, artist, album and cover into a saved file, in the tags its format uses.
 pub fn tag(path: &Path, tags: &SongTags) -> Result<(), String> {
     use lofty::config::WriteOptions;
@@ -610,45 +616,19 @@ mod tests {
     }
 
     #[test]
-    fn recordings_lose_their_silent_ends_and_get_louder() {
+    fn songs_are_measured_by_what_they_play() {
         let temp = tempfile::TempDir::new().unwrap();
-        let wav = temp.path().join("capture.wav");
-        let spec = hound::WavSpec {
-            channels: 2,
-            sample_rate: 8_000,
-            bits_per_sample: 32,
-            sample_format: hound::SampleFormat::Float,
-        };
-        let mut writer = hound::WavWriter::create(&wav, spec).unwrap();
-        for frame in 0..24_000u32 {
-            let value = if (8_000..16_000).contains(&frame) {
-                (frame as f32 / 8_000.0 * 440.0 * std::f32::consts::TAU).sin() * 0.2
-            } else {
-                0.0
-            };
-            writer.write_sample(value).unwrap();
-            writer.write_sample(value).unwrap();
-        }
-        writer.finalize().unwrap();
-        let flac = temp.path().join("track.flac");
-        let kept = finish_recording(&wav, &flac).unwrap();
-        assert!(
-            (990..=1000).contains(&kept),
-            "about the 1 s of sound: {kept}"
-        );
-        let (back, _) =
-            write_file(&flac, AudioFileFormat::Wav, &temp.path().join("back"), 320).unwrap();
-        let samples: Vec<i16> = hound::WavReader::open(back)
-            .unwrap()
-            .samples::<i16>()
-            .map(Result::unwrap)
-            .collect();
-        let peak = samples
-            .iter()
-            .map(|sample| sample.unsigned_abs())
-            .max()
-            .unwrap();
-        assert!(peak > 30_000, "raised from 0.2 to near full scale: {peak}");
-        assert!(trim_silence(&[0.0; 8], 2).is_empty());
+        let wav = temp.path().join("track.wav");
+        tone(&wav);
+        assert_eq!(measure(&wav).unwrap(), Some(3_000));
+        assert_eq!(length_ms(&wav), Some(3_000));
+        // An MP3 joined from pieces has no length of its own; it's counted.
+        let (mp3, _) =
+            write_file(&wav, AudioFileFormat::Mp3, &temp.path().join("joined"), 128).unwrap();
+        let measured = measure(&mp3).unwrap().unwrap();
+        assert!((2_900..3_200).contains(&measured), "{measured} ms");
+        let page = temp.path().join("page.aac");
+        std::fs::write(&page, b"<html>Not found</html>").unwrap();
+        assert!(measure(&page).is_err());
     }
 }

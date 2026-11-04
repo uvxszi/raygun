@@ -2,7 +2,8 @@
 //! download service. Device-local; these rows never sync, as the files stay on this device.
 //!
 //! The queue runs by `queued_at`, oldest first: a song tried again or given another source goes
-//! first, and the queue can be put in any order.
+//! first, and the queue can be put in any order. A saved copy remembers where it came from
+//! (M46.49), and a song downloading again keeps its copy (`replacing`) until the new one is done.
 
 use sqlx::Row;
 use sqlx::sqlite::SqliteRow;
@@ -12,11 +13,8 @@ use crate::{Db, DbError};
 
 pub const QUEUED: &str = "queued";
 pub const DOWNLOADING: &str = "downloading";
-pub const RECORDING: &str = "recording";
 pub const DONE: &str = "done";
 pub const FAILED: &str = "failed";
-/// No source gave a file, but one plays it: it can be recorded as it plays.
-pub const NEEDS_RECORDING: &str = "needsRecording";
 
 /// What a new download is asked with.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,6 +27,21 @@ pub struct NewSong {
     pub artwork_url: Option<String>,
     /// A MediaSource as JSON.
     pub source: Option<String>,
+}
+
+/// Where a saved copy came from (M46.49).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Origin {
+    /// The stream's provider: an extension's id, `own` for the source the song was asked with,
+    /// `picked` for one picked for it, `ytdlp`.
+    pub provider: Option<String>,
+    /// The stream's id at its provider.
+    pub stream: Option<String>,
+    /// The stream (MediaSource JSON).
+    pub source: Option<String>,
+    /// The stream's own names.
+    pub title: Option<String>,
+    pub artist: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,12 +64,20 @@ pub struct SongDownloadRow {
     pub queued_at: i64,
     /// When it finished, or stopped with an error.
     pub finished_at: Option<i64>,
+    pub origin: Origin,
+    /// The saved file's length in ms, when known.
+    pub file_ms: Option<i64>,
+    /// The file still played while the song downloads again.
+    pub replacing: Option<String>,
+    /// What a check found (JSON).
+    pub problem: Option<String>,
 }
 
 const COLUMNS: &str =
     "id, track_key, title, artist, album, duration_ms, artwork_url, source, state,
     kind, provider, file, done_bytes, total_bytes, error, error_detail, created_at,
-    COALESCE(queued_at, created_at) AS queued_at, finished_at";
+    COALESCE(queued_at, created_at) AS queued_at, finished_at, origin_provider, origin_stream,
+    origin_source, origin_title, origin_artist, file_ms, replacing, problem";
 
 fn from_row(row: &SqliteRow) -> SongDownloadRow {
     SongDownloadRow {
@@ -81,12 +102,22 @@ fn from_row(row: &SqliteRow) -> SongDownloadRow {
         created_at: row.get("created_at"),
         queued_at: row.get("queued_at"),
         finished_at: row.get("finished_at"),
+        origin: Origin {
+            provider: row.get("origin_provider"),
+            stream: row.get("origin_stream"),
+            source: row.get("origin_source"),
+            title: row.get("origin_title"),
+            artist: row.get("origin_artist"),
+        },
+        file_ms: row.get("file_ms"),
+        replacing: row.get("replacing"),
+        problem: row.get("problem"),
     }
 }
 
-/// Queues a song. One already queued, running or done is left alone; a failed one (or one waiting
-/// to be recorded) goes back to the end of the queue, with the source it's asked with now. Returns
-/// its id and whether anything changed.
+/// Queues a song. One already queued, running or done is left alone; a failed one goes back to
+/// the end of the queue, with the source it's asked with now. Returns its id and whether anything
+/// changed.
 pub async fn enqueue(db: &Db, song: &NewSong, now_ms: i64) -> Result<(String, bool), DbError> {
     let id = Uuid::now_v7().to_string();
     let changed = sqlx::query(
@@ -97,7 +128,7 @@ pub async fn enqueue(db: &Db, song: &NewSong, now_ms: i64) -> Result<(String, bo
          ON CONFLICT(track_key) DO UPDATE SET state = 'queued', error = NULL, error_detail = NULL,
              source = COALESCE(excluded.source, source), provider = NULL, done_bytes = 0,
              total_bytes = NULL, created_at = ?9, queued_at = ?9, finished_at = NULL
-             WHERE local_music_download.state IN ('failed', 'needsRecording')",
+             WHERE local_music_download.state = 'failed'",
     )
     .bind(&id)
     .bind(&song.track_key)
@@ -160,11 +191,12 @@ pub async fn all(db: &Db) -> Result<Vec<SongDownloadRow>, DbError> {
     Ok(rows.iter().map(from_row).collect())
 }
 
-/// Finished downloads: `(id, track_key, file)`.
+/// Songs with a file that plays: `(id, track_key, file)`. A song downloading again plays the
+/// copy it keeps meanwhile.
 pub async fn done(db: &Db) -> Result<Vec<(String, String, String)>, DbError> {
     let rows = sqlx::query(
         "SELECT id, track_key, file FROM local_music_download
-         WHERE state = 'done' AND file IS NOT NULL",
+         WHERE file IS NOT NULL AND (state = 'done' OR replacing IS NOT NULL)",
     )
     .fetch_all(db.pool())
     .await?;
@@ -174,10 +206,10 @@ pub async fn done(db: &Db) -> Result<Vec<(String, String, String)>, DbError> {
         .collect())
 }
 
-/// Ids of the downloads that stopped with an error or wait to be recorded, in queue order.
+/// Ids of the downloads that stopped with an error, in queue order.
 pub async fn failed(db: &Db) -> Result<Vec<String>, DbError> {
     let rows = sqlx::query(
-        "SELECT id FROM local_music_download WHERE state IN ('failed', 'needsRecording')
+        "SELECT id FROM local_music_download WHERE state = 'failed'
          ORDER BY COALESCE(queued_at, created_at), id",
     )
     .fetch_all(db.pool())
@@ -213,7 +245,8 @@ pub async fn set_state(db: &Db, id: &str, state: &str) -> Result<(), DbError> {
 pub async fn set_queued(db: &Db, id: &str, queued_at: Option<i64>) -> Result<(), DbError> {
     sqlx::query(
         "UPDATE local_music_download SET state = 'queued', error = NULL, error_detail = NULL,
-             finished_at = NULL, queued_at = COALESCE(?2, queued_at, created_at)
+             finished_at = CASE WHEN replacing IS NULL THEN NULL ELSE finished_at END,
+             queued_at = COALESCE(?2, queued_at, created_at)
          WHERE id = ?1 AND state <> 'done'",
     )
     .bind(id)
@@ -221,6 +254,48 @@ pub async fn set_queued(db: &Db, id: &str, queued_at: Option<i64>) -> Result<(),
     .execute(db.pool())
     .await?;
     Ok(())
+}
+
+/// Downloads a saved song again (M46.49), at `queued_at`: with `keep`, its file keeps playing
+/// until the new one is done (else it's gone or damaged, and simply replaced). `source` (JSON) is
+/// what it downloads from now, when it was given one. False when it isn't a saved song (anymore).
+pub async fn start_replacing(
+    db: &Db,
+    id: &str,
+    source: Option<&str>,
+    queued_at: i64,
+    keep: bool,
+) -> Result<bool, DbError> {
+    let updated = sqlx::query(
+        "UPDATE local_music_download SET state = 'queued',
+             replacing = CASE WHEN ?4 THEN file ELSE NULL END,
+             source = COALESCE(?2, source), error = NULL, error_detail = NULL, problem = NULL,
+             done_bytes = 0, total_bytes = NULL, queued_at = ?3,
+             finished_at = CASE WHEN ?4 THEN finished_at ELSE NULL END
+         WHERE id = ?1 AND state = 'done' AND file IS NOT NULL",
+    )
+    .bind(id)
+    .bind(source)
+    .bind(queued_at)
+    .bind(keep)
+    .execute(db.pool())
+    .await?
+    .rows_affected();
+    Ok(updated > 0)
+}
+
+/// Stops downloading a song again: it stays saved as it was. Returns the file it keeps (its size
+/// is the caller's to set again, as what downloaded meanwhile counted over it).
+pub async fn keep_replaced(db: &Db, id: &str) -> Result<Option<String>, DbError> {
+    let row = sqlx::query(
+        "UPDATE local_music_download SET state = 'done', file = replacing, replacing = NULL,
+             error = NULL, error_detail = NULL
+         WHERE id = ?1 AND replacing IS NOT NULL RETURNING file",
+    )
+    .bind(id)
+    .fetch_optional(db.pool())
+    .await?;
+    Ok(row.map(|row| row.get("file")))
 }
 
 /// Puts the queued songs among `ids` in that order, from `front` on; others keep their places.
@@ -254,65 +329,70 @@ pub async fn set_progress(
     Ok(())
 }
 
-/// A finished song: its file and size, how it was made and where it came from. False when the
-/// download was removed meanwhile.
-pub async fn set_done(
-    db: &Db,
-    id: &str,
-    file: &str,
-    kind: &str,
-    provider: Option<&str>,
-    bytes: Option<i64>,
-    now_ms: i64,
-) -> Result<bool, DbError> {
+/// A saved song's file: its name, how it was made (`file`, `capture`), the name of where it came
+/// from, its size and length, and its origin.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Saved {
+    pub file: String,
+    pub kind: String,
+    pub provider: Option<String>,
+    pub bytes: Option<i64>,
+    pub file_ms: Option<i64>,
+    pub origin: Origin,
+}
+
+/// A finished song (a copy it kept while downloading again is replaced). False when the download
+/// was removed meanwhile.
+pub async fn set_done(db: &Db, id: &str, saved: &Saved, now_ms: i64) -> Result<bool, DbError> {
     let updated = sqlx::query(
         "UPDATE local_music_download SET state = 'done', file = ?2, kind = ?3, provider = ?4,
              done_bytes = COALESCE(?5, done_bytes), total_bytes = COALESCE(?5, total_bytes),
-             error = NULL, error_detail = NULL, finished_at = ?6 WHERE id = ?1",
+             error = NULL, error_detail = NULL, finished_at = ?6, file_ms = ?7,
+             origin_provider = ?8, origin_stream = ?9, origin_source = ?10, origin_title = ?11,
+             origin_artist = ?12, replacing = NULL, problem = NULL
+         WHERE id = ?1",
     )
     .bind(id)
-    .bind(file)
-    .bind(kind)
-    .bind(provider)
-    .bind(bytes)
+    .bind(&saved.file)
+    .bind(&saved.kind)
+    .bind(&saved.provider)
+    .bind(saved.bytes)
     .bind(now_ms)
+    .bind(saved.file_ms)
+    .bind(&saved.origin.provider)
+    .bind(&saved.origin.stream)
+    .bind(&saved.origin.source)
+    .bind(&saved.origin.title)
+    .bind(&saved.origin.artist)
     .execute(db.pool())
     .await?
     .rows_affected();
     Ok(updated > 0)
 }
 
-/// A download that stopped with `error` (and the sources' own errors in `detail`); `state` is
-/// `failed` or `needsRecording`.
+/// A download that stopped with `error` (and the sources' own errors in `detail`). A song that
+/// was downloading again stays saved as it was, the error saying why it wasn't replaced.
 pub async fn set_failed(
     db: &Db,
     id: &str,
-    state: &str,
     error: &str,
     detail: Option<&str>,
     now_ms: i64,
 ) -> Result<(), DbError> {
     sqlx::query(
-        "UPDATE local_music_download SET state = ?2, error = ?3, error_detail = ?4,
-             finished_at = ?5 WHERE id = ?1",
+        "UPDATE local_music_download SET
+             state = CASE WHEN replacing IS NULL THEN 'failed' ELSE 'done' END,
+             file = COALESCE(replacing, file),
+             finished_at = CASE WHEN replacing IS NULL THEN ?4 ELSE finished_at END,
+             replacing = NULL, error = ?2, error_detail = ?3
+         WHERE id = ?1",
     )
     .bind(id)
-    .bind(state)
     .bind(error)
     .bind(detail)
     .bind(now_ms)
     .execute(db.pool())
     .await?;
-    Ok(())
-}
-
-/// Remembers the source a recording plays (a YouTube video, as JSON).
-pub async fn set_source(db: &Db, id: &str, source: &str) -> Result<(), DbError> {
-    sqlx::query("UPDATE local_music_download SET source = ?2 WHERE id = ?1")
-        .bind(id)
-        .bind(source)
-        .execute(db.pool())
-        .await?;
     Ok(())
 }
 
@@ -336,21 +416,47 @@ pub async fn set_picked(
     Ok(())
 }
 
-/// Downloads and recordings cut off by the last exit go back to the queue (recordings to wait
-/// for another go). Returns how many.
-pub async fn reset_interrupted(db: &Db) -> Result<u64, DbError> {
-    let downloads =
-        sqlx::query("UPDATE local_music_download SET state = 'queued' WHERE state = 'downloading'")
-            .execute(db.pool())
-            .await?
-            .rows_affected();
-    let recordings = sqlx::query(
-        "UPDATE local_music_download SET state = 'needsRecording' WHERE state = 'recording'",
+/// The source a download is asked with (JSON), or none: the resolver finds one by its names.
+pub async fn set_source(db: &Db, id: &str, source: Option<&str>) -> Result<(), DbError> {
+    sqlx::query("UPDATE local_music_download SET source = ?2 WHERE id = ?1")
+        .bind(id)
+        .bind(source)
+        .execute(db.pool())
+        .await?;
+    Ok(())
+}
+
+/// Forgets how a queued download is made (a capture first), for one tried again from scratch.
+pub async fn clear_kind(db: &Db, id: &str) -> Result<(), DbError> {
+    sqlx::query("UPDATE local_music_download SET kind = NULL WHERE id = ?1 AND state <> 'done'")
+        .bind(id)
+        .execute(db.pool())
+        .await?;
+    Ok(())
+}
+
+/// What a check found wrong with a saved song (JSON), or nothing.
+pub async fn set_problem(db: &Db, id: &str, problem: Option<&str>) -> Result<bool, DbError> {
+    let updated = sqlx::query(
+        "UPDATE local_music_download SET problem = ?2
+         WHERE id = ?1 AND state = 'done' AND problem IS NOT ?2",
     )
+    .bind(id)
+    .bind(problem)
     .execute(db.pool())
     .await?
     .rows_affected();
-    Ok(downloads + recordings)
+    Ok(updated > 0)
+}
+
+/// Downloads cut off by the last exit go back to the queue. Returns how many.
+pub async fn reset_interrupted(db: &Db) -> Result<u64, DbError> {
+    Ok(
+        sqlx::query("UPDATE local_music_download SET state = 'queued' WHERE state = 'downloading'")
+            .execute(db.pool())
+            .await?
+            .rows_affected(),
+    )
 }
 
 pub async fn remove(db: &Db, id: &str) -> Result<(), DbError> {
@@ -377,6 +483,23 @@ mod tests {
         }
     }
 
+    fn saved(file: &str, bytes: i64) -> Saved {
+        Saved {
+            file: file.into(),
+            kind: "file".into(),
+            provider: Some("Archive".into()),
+            bytes: Some(bytes),
+            file_ms: Some(200_000),
+            origin: Origin {
+                provider: Some("archive".into()),
+                stream: Some("item-1".into()),
+                source: Some("{\"kind\":\"url\"}".into()),
+                title: Some("One".into()),
+                artist: Some("A".into()),
+            },
+        }
+    }
+
     #[tokio::test]
     async fn queues_works_and_finishes_songs_once_each() {
         let temp = tempfile::TempDir::new().unwrap();
@@ -397,17 +520,9 @@ mod tests {
         assert_eq!(get(&db, &first).await.unwrap().unwrap().state, QUEUED);
 
         set_progress(&db, &first, 10, Some(100)).await.unwrap();
-        set_done(
-            &db,
-            &first,
-            "track.mp3",
-            "file",
-            Some("Archive"),
-            Some(4_000),
-            9,
-        )
-        .await
-        .unwrap();
+        set_done(&db, &first, &saved("track.mp3", 4_000), 9)
+            .await
+            .unwrap();
         assert_eq!(
             done(&db).await.unwrap(),
             vec![(first.clone(), "a|one".to_owned(), "track.mp3".to_owned())]
@@ -417,32 +532,27 @@ mod tests {
             (
                 finished.done_bytes,
                 finished.total_bytes,
-                finished.finished_at
+                finished.finished_at,
+                finished.file_ms
             ),
-            (4_000, Some(4_000), Some(9)),
-            "a finished song keeps its size"
+            (4_000, Some(4_000), Some(9), Some(200_000)),
+            "a finished song keeps its size and length"
+        );
+        assert_eq!(
+            finished.origin,
+            saved("", 0).origin,
+            "and where it came from"
         );
 
-        set_failed(
-            &db,
-            &second,
-            NEEDS_RECORDING,
-            "Only YouTube has it",
-            Some("Audius: 403"),
-            10,
-        )
-        .await
-        .unwrap();
-        let waiting = get(&db, &second).await.unwrap().unwrap();
-        assert_eq!(waiting.error_detail.as_deref(), Some("Audius: 403"));
-        assert_eq!(waiting.finished_at, Some(10));
-        set_state(&db, &second, RECORDING).await.unwrap();
-        reset_interrupted(&db).await.unwrap();
-        assert_eq!(
-            get(&db, &second).await.unwrap().unwrap().state,
-            NEEDS_RECORDING
-        );
-        // A song waiting to be recorded, asked again with a source, goes back to the queue with it.
+        set_failed(&db, &second, "No source has it", Some("Audius: 403"), 10)
+            .await
+            .unwrap();
+        let failed_row = get(&db, &second).await.unwrap().unwrap();
+        assert_eq!(failed_row.state, FAILED);
+        assert_eq!(failed_row.error_detail.as_deref(), Some("Audius: 403"));
+        assert_eq!(failed_row.finished_at, Some(10));
+        assert_eq!(failed(&db).await.unwrap(), vec![second.clone()]);
+        // A failed song asked again with a source goes back to the queue with it.
         let asked = NewSong {
             source: Some("{\"kind\":\"url\"}".into()),
             ..song("a|two")
@@ -460,6 +570,83 @@ mod tests {
         );
         remove(&db, &second).await.unwrap();
         assert_eq!(all(&db).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_song_downloading_again_keeps_its_copy_until_the_new_one_is_done() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = Db::open(&temp.path().join("raygun.db")).await.unwrap();
+        let (id, _) = enqueue(&db, &song("a|one"), 1).await.unwrap();
+        set_done(&db, &id, &saved("track.mp3", 4_000), 5)
+            .await
+            .unwrap();
+        assert!(
+            set_problem(&db, &id, Some("{\"kind\":\"missing\"}"))
+                .await
+                .unwrap()
+        );
+        assert!(
+            !set_problem(&db, &id, Some("{\"kind\":\"missing\"}"))
+                .await
+                .unwrap(),
+            "unchanged"
+        );
+
+        assert!(
+            start_replacing(&db, &id, Some("{\"kind\":\"url\",\"url\":\"b\"}"), 7, true)
+                .await
+                .unwrap()
+        );
+        let row = get(&db, &id).await.unwrap().unwrap();
+        assert_eq!(row.state, QUEUED);
+        assert_eq!(row.replacing.as_deref(), Some("track.mp3"));
+        assert_eq!(row.problem, None, "the check's finding is answered");
+        assert_eq!(row.queued_at, 7);
+        assert_eq!(
+            done(&db).await.unwrap(),
+            vec![(id.clone(), "a|one".to_owned(), "track.mp3".to_owned())],
+            "the copy still plays"
+        );
+        assert!(
+            !start_replacing(&db, &id, None, 8, true).await.unwrap(),
+            "only saved songs"
+        );
+
+        // It fails: the copy stays, saying why it wasn't replaced.
+        set_state(&db, &id, DOWNLOADING).await.unwrap();
+        set_failed(&db, &id, "Audius didn't answer", None, 20)
+            .await
+            .unwrap();
+        let row = get(&db, &id).await.unwrap().unwrap();
+        assert_eq!(
+            (row.state.as_str(), row.file.as_deref(), row.replacing),
+            (DONE, Some("track.mp3"), None)
+        );
+        assert_eq!(row.error.as_deref(), Some("Audius didn't answer"));
+        assert_eq!(row.finished_at, Some(5), "still saved when it was");
+
+        // Again, and it's done: the new file and where it came from.
+        assert!(start_replacing(&db, &id, None, 30, true).await.unwrap());
+        let mut flac = saved("track.flac", 9_000);
+        flac.kind = "capture".into();
+        flac.origin.provider = Some("audius".into());
+        set_done(&db, &id, &flac, 40).await.unwrap();
+        let row = get(&db, &id).await.unwrap().unwrap();
+        assert_eq!(
+            (row.file.as_deref(), row.kind.as_deref(), row.replacing),
+            (Some("track.flac"), Some("capture"), None)
+        );
+        assert_eq!(row.origin.provider.as_deref(), Some("audius"));
+        assert_eq!(row.error, None);
+
+        // Downloading again can be called off: it stays as it was.
+        assert!(start_replacing(&db, &id, None, 50, true).await.unwrap());
+        assert_eq!(
+            keep_replaced(&db, &id).await.unwrap().as_deref(),
+            Some("track.flac")
+        );
+        assert_eq!(get(&db, &id).await.unwrap().unwrap().state, DONE);
+        assert_eq!(keep_replaced(&db, &id).await.unwrap(), None);
     }
 
     /// The queued songs in the order they'll download.
@@ -484,7 +671,7 @@ mod tests {
         }
 
         // The last one fails, then is tried again: it goes first.
-        set_failed(&db, &ids[3], FAILED, "The server answered 503", None, 20)
+        set_failed(&db, &ids[3], "The server answered 503", None, 20)
             .await
             .unwrap();
         assert_eq!(failed(&db).await.unwrap(), vec![ids[3].clone()]);
@@ -510,7 +697,7 @@ mod tests {
         );
 
         // A finished song can't be queued again by mistake.
-        set_done(&db, &ids[1], "track.mp3", "file", None, None, 30)
+        set_done(&db, &ids[1], &saved("track.mp3", 1), 30)
             .await
             .unwrap();
         set_queued(&db, &ids[1], Some(0)).await.unwrap();
@@ -530,5 +717,80 @@ mod tests {
             ),
             (0, None, Some("Audius"))
         );
+    }
+
+    #[tokio::test]
+    async fn songs_that_waited_to_be_recorded_are_captured_or_failed() {
+        use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let options = SqliteConnectOptions::new()
+            .filename(temp.path().join("old.db"))
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap();
+        for script in [
+            include_str!("../migrations/0020_music_downloads.sql"),
+            include_str!("../migrations/0033_song_download_queue.sql"),
+        ] {
+            sqlx::raw_sql(script).execute(&pool).await.unwrap();
+        }
+        let hls = r#"{"kind":"url","url":"https://radio.example/a.m3u8","headers":{}}"#;
+        let youtube = r#"{"kind":"youTube","videoId":"abc"}"#;
+        for (id, state, kind, source) in [
+            ("hls", "needsRecording", None, Some(hls)),
+            ("youtube", "needsRecording", None, Some(youtube)),
+            ("cut", "recording", Some("recording"), Some(hls)),
+            ("recorded", "done", Some("recording"), Some(youtube)),
+            ("plain", "failed", None, None),
+        ] {
+            sqlx::query(
+                "INSERT INTO local_music_download (id, track_key, title, source, state, kind,
+                     error, created_at, queued_at, finished_at)
+                 VALUES (?1, ?1, ?1, ?2, ?3, ?4, 'Record it as it plays', 1, 1, 2)",
+            )
+            .bind(id)
+            .bind(source)
+            .bind(state)
+            .bind(kind)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        sqlx::raw_sql(include_str!("../migrations/0037_song_download_capture.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        let rows: Vec<(String, String, Option<String>, Option<String>)> = sqlx::query(
+            "SELECT id, state, kind, error FROM local_music_download ORDER BY created_at, id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap()
+        .iter()
+        .map(|row| (row.get(0), row.get(1), row.get(2), row.get(3)))
+        .collect();
+        let find = |id: &str| rows.iter().find(|row| row.0 == id).unwrap().clone();
+        assert_eq!(
+            find("hls"),
+            ("hls".into(), "queued".into(), Some("capture".into()), None),
+            "a stream that plays is captured"
+        );
+        assert_eq!(
+            find("cut"),
+            ("cut".into(), "queued".into(), Some("capture".into()), None)
+        );
+        let youtube = find("youtube");
+        assert_eq!((youtube.1.as_str(), youtube.2), ("failed", None));
+        assert!(youtube.3.unwrap().starts_with("Only YouTube has this song"));
+        assert_eq!(
+            find("recorded").2.as_deref(),
+            Some("capture"),
+            "a recorded copy counts as captured"
+        );
+        assert_eq!(find("plain").1, "failed", "others stay as they were");
     }
 }

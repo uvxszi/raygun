@@ -6,7 +6,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Popover } from '../shell/Popover';
-import { isBusy, isFailed, shareOf, SPIN, useStateLine } from './songDownloadState';
+import { isBusy, isFailed, shareOf, SPIN, useProblemLine, useStateLine } from './songDownloadState';
 import { chooseDownloadSource } from './sourcePickerStore';
 import {
   downloadSongs,
@@ -91,9 +91,10 @@ const Why: FC<{ summary: string; detail: string | null }> = ({ summary, detail }
 
 /**
  * Spotify's download button beside + (M46.18): downloads the song into the app. Downloaded, it
- * fills in; pressing it then asks in a small popover beside it before the download is removed.
- * A download in progress can be cancelled the same way; a failed one says why, and can be tried
- * again or given another source, which shows at once.
+ * fills in; pressing it then opens a small popover beside it, where the download can be checked
+ * and downloaded again from the song's source now (M46.49), or removed. A download in progress
+ * can be cancelled the same way; a failed one says why, and can be tried again or given another
+ * source, which shows at once.
  */
 export const DownloadSongButton: FC<{
   track: TrackInput;
@@ -102,9 +103,10 @@ export const DownloadSongButton: FC<{
 }> = ({ track, compact = false, className = '' }) => {
   const { t } = useTranslation();
   const line = useStateLine();
+  const problemLine = useProblemLine();
   const download = useSongDownloadFor(track);
   const paused = useSongDownloadsPaused().data ?? false;
-  const { remove, retry, record } = useSongDownloadActions();
+  const { remove, retry, check, redownload } = useSongDownloadActions();
   const start = useMutation({ mutationFn: () => downloadSongs([track]) });
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   // A file from the device's library is already here.
@@ -135,8 +137,11 @@ export const DownloadSongButton: FC<{
       if (!start.isPending) start.mutate();
       return;
     }
+    check.reset();
     setAnchor(button);
   };
+  // This song's check said it's fine.
+  const fine = check.isSuccess && check.data.problems === 0 && !found?.problem;
 
   return (
     <>
@@ -175,45 +180,76 @@ export const DownloadSongButton: FC<{
           <div data-testid="download-confirm" className="flex flex-col gap-3 p-4">
             <p className="font-semibold">
               {state === 'done'
-                ? t('songs.button.removeTitle')
-                : busy
-                  ? t('songs.button.cancelTitle')
-                  : t('songs.button.failedTitle')}
+                ? t('songs.button.downloaded')
+                : found.replacing
+                  ? t('songs.button.againTitle')
+                  : busy
+                    ? t('songs.button.cancelTitle')
+                    : t('songs.button.failedTitle')}
             </p>
             {state === 'done' && (
-              <p className="text-muted text-sm wrap-anywhere">
-                {t('songs.button.removeHint', { title: found.title })}
-              </p>
+              <div className="flex flex-col gap-1">
+                <p className="text-muted text-sm wrap-anywhere">{line(found)}</p>
+                {found.problem && (
+                  <Why summary={problemLine(found.problem)} detail={found.problem.detail} />
+                )}
+                {found.error && (
+                  <Why
+                    summary={t('songs.againFailed', { why: found.error })}
+                    detail={found.errorDetail}
+                  />
+                )}
+                {fine && (
+                  <p role="status" className="text-sm">
+                    {t('songs.button.fine')}
+                  </p>
+                )}
+                <p className="text-muted text-sm wrap-anywhere">
+                  {t('songs.button.removeHint', { title: found.title })}
+                </p>
+              </div>
             )}
             {busy && (
               <div className="flex flex-col gap-1">
                 <p className="text-muted text-sm wrap-anywhere">{line(found, paused)}</p>
-                <p className="text-muted text-sm">{t('songs.button.cancelHint')}</p>
+                <p className="text-muted text-sm">
+                  {found.replacing ? t('songs.button.againHint') : t('songs.button.cancelHint')}
+                </p>
               </div>
             )}
             {failed && (
               <Why summary={found.error ?? t('songs.state.failed')} detail={found.errorDetail} />
             )}
-            {remove.isError && (
+            {(remove.error ?? check.error ?? redownload.error) && (
               <p role="alert" className="text-primary text-sm wrap-anywhere">
-                {remove.error.message}
+                {(remove.error ?? check.error ?? redownload.error)?.message}
               </p>
             )}
             <div className="flex flex-wrap justify-end gap-2">
               <button type="button" onClick={close} className={`${BUTTON} bg-background`}>
                 {t(state === 'done' || busy ? 'songs.button.keep' : 'collections.cancel')}
               </button>
-              {state === 'needsRecording' && found.canRecord && (
+              {state === 'done' && !found.problem && (
                 <button
                   type="button"
-                  disabled={record.isPending}
+                  disabled={check.isPending}
+                  onClick={() => check.mutate([found.id])}
+                  className={`${BUTTON} bg-background`}
+                >
+                  {check.isPending ? t('songs.checking') : t('songs.button.check')}
+                </button>
+              )}
+              {state === 'done' && found.problem && (
+                <button
+                  type="button"
+                  disabled={redownload.isPending}
                   onClick={() => {
                     close();
-                    record.mutate(found.id);
+                    redownload.mutate([found.id]);
                   }}
                   className={`${BUTTON} bg-background`}
                 >
-                  {t('songs.record')}
+                  {t('songs.button.again')}
                 </button>
               )}
               {failed && (
@@ -241,19 +277,21 @@ export const DownloadSongButton: FC<{
                   {t('songs.button.retry')}
                 </button>
               )}
-              {state !== 'recording' && (
-                <button
-                  type="button"
-                  disabled={remove.isPending}
-                  onClick={() => {
-                    close();
-                    remove.mutate(found.id);
-                  }}
-                  className={`${BUTTON} bg-primary text-background`}
-                >
-                  {busy ? t('songs.button.cancel') : t('songs.button.remove')}
-                </button>
-              )}
+              <button
+                type="button"
+                disabled={remove.isPending}
+                onClick={() => {
+                  close();
+                  remove.mutate(found.id);
+                }}
+                className={`${BUTTON} bg-primary text-background`}
+              >
+                {found.replacing
+                  ? t('songs.button.stopAgain')
+                  : busy
+                    ? t('songs.button.cancel')
+                    : t('songs.button.remove')}
+              </button>
             </div>
           </div>
         </Popover>

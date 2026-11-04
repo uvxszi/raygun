@@ -6,7 +6,7 @@ import type { FC } from 'react';
 import { bindingsMock, emitEvent, seedBindings } from '../test/bindingsMock';
 import { renderWithProviders } from '../test/renderWithProviders';
 import { DownloadSongButton } from './DownloadSongButton';
-import { RecordingWindow } from './RecordingWindow';
+import { SongDownloadsHost } from './SongDownloadsHost';
 import { SongMarks } from './SongMarks';
 import { useDownloadedKeys, useDownloadingKeys } from './useSongDownloads';
 
@@ -38,7 +38,8 @@ const download = (
   etaMs: null,
   error: null,
   errorDetail: null,
-  canRecord: false,
+  replacing: false,
+  problem: null,
   queuedAt: 1,
   finishedAt: null,
   ...extra,
@@ -82,7 +83,7 @@ describe('Song download progress', () => {
     const titles = Array.from({ length: 40 }, (_, index) => `Song ${index}`);
     renderWithProviders(
       <>
-        <RecordingWindow />
+        <SongDownloadsHost />
         <Profiler id="marks" onRender={count('marks')}>
           {[...titles, 'Moving', 'Waiting', 'Here'].map((title) => (
             <SongMarks key={title} title={title} artist="A" />

@@ -1170,14 +1170,34 @@ pub fn song_downloads_set_paused(songs: tauri::State<'_, Arc<SongDownloadService
     songs.set_paused(paused);
 }
 
-/// Plays a song only YouTube has and records it as it plays (M46.10).
+/// Checks downloaded songs (`ids`, else all, M46.49): files gone or damaged, songs given another
+/// source or other names since. Each download says what's wrong in its `problem`.
 #[tauri::command]
 #[specta::specta]
-pub async fn song_download_record(
+pub async fn song_downloads_check(
     songs: tauri::State<'_, Arc<SongDownloadService>>,
-    id: String,
-) -> Result<(), String> {
-    songs.record(&id).await
+    ids: Option<Vec<String>>,
+) -> Result<raygun_model::SongDownloadsChecked, String> {
+    songs.check(ids).await
+}
+
+/// Downloads songs again, from the source each has now (M46.49): the copy that plays meanwhile is
+/// kept until the new one is done. Returns how many were queued.
+#[tauri::command]
+#[specta::specta]
+pub async fn song_downloads_redownload(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+    ids: Vec<String>,
+) -> Result<u32, String> {
+    songs.redownload(ids).await
+}
+
+/// A piece of a background capture from the desktop webview (M46.49). An error means the capture
+/// was stopped.
+#[tauri::command]
+#[specta::specta]
+pub fn song_capture_report(report: raygun_model::SongCaptureReport) -> Result<(), String> {
+    crate::music_downloads::capture::sound::report(report)
 }
 
 /// Writes saved songs out as files (M46.10).
@@ -1335,13 +1355,6 @@ pub fn ytdlp_reveal(
     id: String,
 ) -> Result<(), String> {
     ytdlp.reveal(&id)
-}
-
-/// Stops the song being recorded without keeping it (M46.46: the recording window's Cancel).
-#[tauri::command]
-#[specta::specta]
-pub fn song_download_cancel_recording(songs: tauri::State<'_, Arc<SongDownloadService>>) {
-    songs.cancel_recording();
 }
 
 /// Keys of every downloaded song, to mark them in lists (M46.10).
@@ -1775,10 +1788,13 @@ pub async fn track_durations(
 #[specta::specta]
 pub async fn track_assign_source(
     import: tauri::State<'_, crate::import::ImportService>,
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
     song: TrackInput,
     chosen: raygun_model::OnlineTrack,
 ) -> Result<(), String> {
-    import.assign_source(song, chosen).await
+    import.assign_source(song.clone(), chosen).await?;
+    check_download_later(songs.inner().clone(), song);
+    Ok(())
 }
 
 /// A source picked for a song (M46.48): with `choice.assign`, its stream for every saved copy,
@@ -1788,11 +1804,22 @@ pub async fn track_assign_source(
 #[specta::specta]
 pub async fn track_use_source(
     collections: tauri::State<'_, CollectionsService>,
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
     song: TrackInput,
     chosen: raygun_model::OnlineTrack,
     choice: raygun_model::SourceChoice,
 ) -> Result<(), String> {
-    collections.assign_source(song, chosen, choice).await
+    collections
+        .assign_source(song.clone(), chosen, choice)
+        .await?;
+    // A downloaded song now has another source than its copy (M46.49).
+    check_download_later(songs.inner().clone(), song);
+    Ok(())
+}
+
+/// Checks a song's download in the background once its source changed (M46.49).
+fn check_download_later(songs: Arc<SongDownloadService>, song: TrackInput) {
+    tauri::async_runtime::spawn(async move { songs.check_song(&song).await });
 }
 
 /// Whether a saved song came in through Import songs, and whether no source had it then

@@ -211,15 +211,15 @@ fn mixed_results_say_what_didnt_download() {
 }
 
 #[test]
-fn a_recording_counts_down_with_its_song() {
+fn a_capture_shows_like_any_download() {
     let mut tracker = Tracker::default();
-    let mut recording = song("a", Phase::Recording, 0.0);
-    recording.left_ms = Some(151_000.0);
-    let update = tracker.update(0.0, &[recording]);
+    let mut capture = song("a", Phase::Running, 0.0);
+    (capture.unit, capture.done, capture.total) = (Unit::Fraction, 0.4, Some(1.0));
+    let update = tracker.update(0.0, &[capture]);
     let summary = update.plan.summary.expect("a notification");
-    assert_eq!(summary.title, "Recording Song a");
-    assert_eq!(summary.info.as_deref(), Some("2:31 left"));
-    assert_eq!(summary.actions[0].id, "stop");
+    assert_eq!(summary.title, "Song a");
+    assert_eq!(summary.progress, Some(0.4));
+    assert_eq!(summary.actions[0].id, "cancel");
 }
 
 #[test]
@@ -273,8 +273,6 @@ fn sizes_speeds_and_times_read_like_androids() {
     assert_eq!(left_text(90_000.0), "about 2 min left");
     assert_eq!(left_text(3_600_000.0), "about 1 h left");
     assert_eq!(left_text(3_900_000.0), "about 1 h 5 min left");
-    assert_eq!(clock(151_000.0), "2:31");
-    assert_eq!(clock(3_725_000.0), "1:02:05");
 }
 
 #[test]

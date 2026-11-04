@@ -443,6 +443,41 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(|error| error.to_string())
     }
 
+    /// Starts capturing a stream's sound in the background (M46.49): a muted player of its own
+    /// writes the decoded PCM into pieces in `dir`. The request: `{session, url, mime, fromMs,
+    /// speed, dir}`. One session at a time; a new one stops the last.
+    #[cfg(target_os = "android")]
+    pub fn capture_start(&self, request: &serde_json::Value) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>("captureStart", request.clone())
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    /// A capture's state: `{state, positionMs, durationMs, error, pieces: [{file, startMs, rate,
+    /// channels, frames}]}`; `state` is `loading`, `playing`, `buffering`, `ended` or `failed`.
+    #[cfg(target_os = "android")]
+    pub fn capture_status(&self, session: &str) -> Result<serde_json::Value, String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>(
+                "captureStatus",
+                serde_json::json!({ "session": session }),
+            )
+            .map_err(|error| error.to_string())
+    }
+
+    /// Stops a capture and releases its player.
+    #[cfg(target_os = "android")]
+    pub fn capture_stop(&self, session: &str) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>(
+                "captureStop",
+                serde_json::json!({ "session": session }),
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
     /// Opens an https address in the phone's browser (M46.47).
     #[cfg(target_os = "android")]
     pub fn open_url(&self, url: &str) -> Result<(), String> {

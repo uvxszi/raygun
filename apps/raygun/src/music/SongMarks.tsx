@@ -42,7 +42,7 @@ export const SongMarks: FC<{
           className="text-muted shrink-0"
         />
       )}
-      {(download === 'downloading' || download === 'recording') && (
+      {download === 'downloading' && (
         <ArrowDownToLine
           role="img"
           aria-label={t('songs.downloading')}

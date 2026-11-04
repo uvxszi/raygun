@@ -32,7 +32,8 @@ const download = (
   etaMs: null,
   error: null,
   errorDetail: null,
-  canRecord: false,
+  replacing: false,
+  problem: null,
   queuedAt: 1,
   finishedAt: null,
   ...extra,
@@ -93,7 +94,12 @@ describe('Downloads beside the Plus (M46.18)', () => {
     const done = await within(sheet).findByRole('button', { name: 'Downloaded' });
     await user.click(done);
     const confirm = await screen.findByTestId('download-confirm');
-    expect(confirm).toHaveTextContent('Remove from downloads?');
+    expect(confirm).toHaveTextContent('won’t play offline anymore');
+    // It can be checked from here (M46.49).
+    commands.songDownloadsCheck.mockResolvedValue(ok({ checked: 1, problems: 0 }));
+    await user.click(within(confirm).getByRole('button', { name: 'Check download' }));
+    expect(commands.songDownloadsCheck).toHaveBeenCalledWith(['d1']);
+    expect(await within(confirm).findByRole('status')).toHaveTextContent('This download is fine.');
     await user.click(within(confirm).getByRole('button', { name: 'Keep' }));
     expect(commands.songDownloadRemove).not.toHaveBeenCalled();
     await user.click(done);
@@ -104,6 +110,39 @@ describe('Downloads beside the Plus (M46.18)', () => {
     // Gone at once, and nothing left open.
     expect(await within(sheet).findByRole('button', { name: 'Download' })).toBeInTheDocument();
     expect(screen.queryByTestId('download-confirm')).not.toBeInTheDocument();
+  });
+
+  it('downloads a song again from its new source, keeping its copy meanwhile', async () => {
+    const user = userEvent.setup();
+    commands.songDownloads.mockResolvedValue(
+      ok([
+        download('done', {
+          format: 'mp3',
+          provider: 'Audius',
+          fraction: 1,
+          problem: { kind: 'sourceChanged', was: 'Audius', now: 'archive.org', detail: null },
+        }),
+      ]),
+    );
+    const sheet = await openPlayer();
+    await user.click(await within(sheet).findByRole('button', { name: 'Downloaded' }));
+    const popover = await screen.findByTestId('download-confirm');
+    expect(popover).toHaveTextContent('Its source changed: Audius → archive.org');
+    await user.click(within(popover).getByRole('button', { name: 'Download again' }));
+    expect(commands.songDownloadsRedownload).toHaveBeenCalledWith(['d1']);
+
+    // On its way again; stopping it keeps the copy it has.
+    emitEvent(
+      'songDownloadProgressEvent',
+      download('downloading', { provider: 'archive.org', replacing: true, fraction: 0.3 }),
+    );
+    await user.click(await within(sheet).findByRole('button', { name: 'Downloading' }));
+    const again = await screen.findByTestId('download-confirm');
+    expect(again).toHaveTextContent('Downloading again');
+    expect(again).toHaveTextContent('The copy it has plays until the new one is done.');
+    await user.click(within(again).getByRole('button', { name: 'Stop' }));
+    expect(commands.songDownloadRemove).toHaveBeenCalledWith('d1');
+    expect(await within(sheet).findByRole('button', { name: 'Downloaded' })).toBeInTheDocument();
   });
 
   it('says why a download failed, and shows it on its way again at once after Try again', async () => {

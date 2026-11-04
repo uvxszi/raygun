@@ -29,11 +29,11 @@ import { trackKey } from './trackKey';
 /** A change without its download following at once (a removal) is asked about after this. */
 const CHECK_DELAY_MS = 40;
 /** States of a song on its way. */
-const ON_ITS_WAY: SongDownloadState[] = ['queued', 'downloading', 'recording'];
+const ON_ITS_WAY: SongDownloadState[] = ['queued', 'downloading'];
 
 /**
  * Keeps the song downloads current from Rust (M46.10): each download as it changes, patched into
- * the one list. The shell runs it once (M46.46); everything else reads the list.
+ * the one list. The shell runs it once (`SongDownloadsHost`); everything else reads the list.
  */
 export const useSongDownloadSync = () => {
   const client = useQueryClient();
@@ -129,7 +129,7 @@ export const useDownloadedKeys = () => {
   return useMemo(() => new Set(keys ?? []), [keys]);
 };
 
-/** Keys of songs queued, downloading or being recorded (M46.46: the mark in lists). */
+/** Keys of songs queued or downloading (M46.46: the mark in lists). */
 export const useDownloadingKeys = () => {
   const keys = useSongDownloadsSelect((list) => keysIn(list, ON_ITS_WAY)).data;
   return useMemo(() => new Set(keys ?? []), [keys]);
@@ -171,7 +171,12 @@ export const useSongDownloadActions = () => {
   return {
     remove: useMutation({
       mutationFn: (id: string) => unwrapResult(commands.songDownloadRemove(id)),
-      onMutate: (id) => applyItem(client, id, null),
+      onMutate: (id) => {
+        const item = client.getQueryData<SongDownload[]>(SONGS)?.find((song) => song.id === id);
+        // A song downloading again only stops: the copy it had stays (M46.49).
+        if (item?.replacing) patchItem(client, id, { state: 'done', replacing: false });
+        else applyItem(client, id, null);
+      },
       onError: refetch,
     }),
     removeMany: useMutation({
@@ -190,7 +195,7 @@ export const useSongDownloadActions = () => {
       mutationFn: () => unwrapResult(commands.songDownloadsRetryFailed()),
       onMutate: () => {
         const failed = (client.getQueryData<SongDownload[]>(SONGS) ?? []).filter(
-          (item) => item.state === 'failed' || item.state === 'needsRecording',
+          (item) => item.state === 'failed',
         );
         const now = Date.now();
         failed.forEach((item, index) =>
@@ -215,16 +220,29 @@ export const useSongDownloadActions = () => {
         }),
       onError: (_error, chosen) => refresh(chosen.id),
     }),
-    record: useMutation({
-      mutationFn: (id: string) => unwrapResult(commands.songDownloadRecord(id)),
-      onMutate: (id) =>
-        patchItem(client, id, {
-          state: 'recording',
-          kind: 'recording',
-          error: null,
-          errorDetail: null,
-        }),
-      onError: (_error, id) => refresh(id),
+    /**
+     * Checks downloaded songs (M46.49): `ids`, else all. Each says what's wrong in `problem`, as
+     * Rust tells of the ones that changed.
+     */
+    check: useMutation({
+      mutationFn: (ids: string[] | null) => unwrapResult(commands.songDownloadsCheck(ids)),
+    }),
+    /** Downloads songs again from their source now; their copies play until then. */
+    redownload: useMutation({
+      mutationFn: (ids: string[]) => unwrapResult(commands.songDownloadsRedownload(ids)),
+      onMutate: (ids) => {
+        const front = frontOfQueue(client) - ids.length;
+        ids.forEach((id, index) =>
+          patchItem(client, id, {
+            ...queuedFirst(client),
+            queuedAt: front + index,
+            replacing: true,
+            problem: null,
+            fraction: null,
+          }),
+        );
+      },
+      onError: refetch,
     }),
     reorder: useMutation({
       mutationFn: (ids: string[]) => unwrapResult(commands.songDownloadsReorder(ids)),
