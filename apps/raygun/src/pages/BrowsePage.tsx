@@ -2,18 +2,22 @@ import type { MangaSource } from '@raygun/bindings';
 import { useIsFetching } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
+  Compass,
+  Copy,
   LayoutList,
   LoaderCircle,
   Package,
   Puzzle,
   RefreshCw,
   Search,
+  Settings2,
   Square,
   SquareCheck,
 } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
-import type { FC, ReactNode } from 'react';
+import type { FC, MouseEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 
 import { BrowseTab as AvailableExtensions } from '../extensions/BrowseTab';
 import { updateCount } from '../extensions/catalogFilters';
@@ -45,6 +49,10 @@ import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { QuickAccessButton } from '../shell/QuickAccessButton';
 import { useIsDesktop } from '../shell/useIsDesktop';
 import { SourceMenu } from '../search/SourceMenu';
+import { useSourceMenuItems } from '../search/sourceMenuItems';
+import { buildMenu, copyText } from '../music/mediaMenu';
+import { openContextMenu } from '../shell/contextMenuStore';
+import type { MenuItem } from '../shell/contextMenuStore';
 import { WebsitesSection } from '../websites/WebsitesSection';
 import type { SearchType, SearchView } from '../search/searchTypes';
 import { useStremioAddons } from '../watch/useStremio';
@@ -69,50 +77,114 @@ type SourceRow = {
   adult?: boolean;
 };
 
+type Page = { to: string; search: Record<string, unknown> };
+
+/** A Stremio addon's long-press menu: open it, manage addons, copy its name. */
+const addonMenu = (row: SourceRow, t: TFunction, go: (page: Page) => void): MenuItem[] =>
+  buildMenu({
+    heading: { label: row.name, subtitle: row.detail, artworkUrl: row.logo ?? null },
+    play: [
+      {
+        label: t('sources.open'),
+        icon: Compass,
+        onSelect: () => go({ to: row.to, search: row.search }),
+      },
+    ],
+    goTo: [
+      {
+        label: t('menu.manageAddons'),
+        icon: Settings2,
+        onSelect: () => go({ to: '/watch/addons', search: {} }),
+      },
+    ],
+    share: [{ label: t('menu.copyName'), icon: Copy, onSelect: () => copyText(row.name) }],
+  });
+
+const SourceRowLink: FC<{ row: SourceRow; onMenu: (event: MouseEvent) => void }> = ({
+  row,
+  onMenu,
+}) => {
+  const { t } = useTranslation();
+  return (
+    <Link
+      to={row.to}
+      search={row.search}
+      aria-label={row.name}
+      onContextMenu={onMenu}
+      className={`hover:bg-surface flex min-w-0 flex-1 items-center gap-4 rounded-xl px-1 py-2.5 ${row.source?.enabled === false ? 'opacity-50' : ''}`}
+    >
+      <LetterAvatar name={row.name} logo={row.logo} />
+      <span className="flex min-w-0 flex-col">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate font-medium">{row.name}</span>
+          {row.adult && <AdultMark />}
+        </span>
+        <span className="text-muted truncate text-xs">
+          {row.source?.enabled === false
+            ? t('sources.disabledNote', { detail: row.detail })
+            : row.detail}
+        </span>
+      </span>
+    </Link>
+  );
+};
+
+const LatestLink: FC<{ row: SourceRow }> = ({ row }) => {
+  const { t } = useTranslation();
+  return row.latest ? (
+    <Link
+      to={row.latest.to}
+      search={row.latest.search}
+      aria-label={t('browse.latestOf', { name: row.name })}
+      className="text-primary shrink-0 rounded-full px-3 py-2 text-sm font-medium"
+    >
+      {t('manga.list.latest')}
+    </Link>
+  ) : null;
+};
+
+/** An extension's source: its menu needs the source's switch and its extension's website. */
+const ExtensionSourceRow: FC<{
+  row: SourceRow;
+  source: NonNullable<SourceRow['source']>;
+}> = ({ row, source }) => {
+  const items = useSourceMenuItems({
+    sourceId: source.id,
+    extensionId: source.extensionId,
+    name: row.name,
+    page: { to: row.to, search: row.search },
+    ...(row.latest ? { latest: row.latest } : {}),
+  });
+  return (
+    <>
+      <SourceRowLink row={row} onMenu={(event) => openContextMenu(event, items())} />
+      <LatestLink row={row} />
+      <SourceMenu sourceId={source.id} extensionId={source.extensionId} name={row.name} />
+    </>
+  );
+};
+
 const SourceSection: FC<{ title: string; rows: SourceRow[] }> = ({ title, rows }) => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   if (rows.length === 0) return null;
+  const go = (page: Page) => void navigate({ to: page.to, search: page.search as never });
   return (
     <section aria-label={title} className="flex flex-col">
       <h2 className="text-muted px-1 pt-2 pb-1 text-sm font-medium">{title}</h2>
       <ul className="flex flex-col">
         {rows.map((row) => (
           <li key={row.key} className="flex items-center gap-1">
-            <Link
-              to={row.to}
-              search={row.search}
-              aria-label={row.name}
-              className={`hover:bg-surface flex min-w-0 flex-1 items-center gap-4 rounded-xl px-1 py-2.5 ${row.source?.enabled === false ? 'opacity-50' : ''}`}
-            >
-              <LetterAvatar name={row.name} logo={row.logo} />
-              <span className="flex min-w-0 flex-col">
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <span className="truncate font-medium">{row.name}</span>
-                  {row.adult && <AdultMark />}
-                </span>
-                <span className="text-muted truncate text-xs">
-                  {row.source?.enabled === false
-                    ? t('sources.disabledNote', { detail: row.detail })
-                    : row.detail}
-                </span>
-              </span>
-            </Link>
-            {row.latest && (
-              <Link
-                to={row.latest.to}
-                search={row.latest.search}
-                aria-label={t('browse.latestOf', { name: row.name })}
-                className="text-primary shrink-0 rounded-full px-3 py-2 text-sm font-medium"
-              >
-                {t('manga.list.latest')}
-              </Link>
-            )}
-            {row.source && (
-              <SourceMenu
-                sourceId={row.source.id}
-                extensionId={row.source.extensionId}
-                name={row.name}
-              />
+            {row.source ? (
+              <ExtensionSourceRow row={row} source={row.source} />
+            ) : (
+              <>
+                <SourceRowLink
+                  row={row}
+                  onMenu={(event) => openContextMenu(event, addonMenu(row, t, go))}
+                />
+                <LatestLink row={row} />
+              </>
             )}
           </li>
         ))}

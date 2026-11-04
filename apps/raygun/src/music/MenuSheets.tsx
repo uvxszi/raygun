@@ -6,6 +6,7 @@ import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { COLLECTIONS, usePlaylists } from '../collections/useCollections';
+import { ExportSheet } from '../export/ExportSheet';
 import { unwrapResult } from '../lib/commandResult';
 import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
@@ -133,9 +134,13 @@ const EditDetailsSheet: FC<{ details: DetailsToEdit; onClose: () => void }> = ({
 export const MenuSheets: FC = () => {
   const adding = useMenuSheetsStore((state) => state.adding);
   const editing = useMenuSheetsStore((state) => state.editing);
+  const exporting = useMenuSheetsStore((state) => state.exporting);
   const close = useMenuSheetsStore((state) => state.close);
   // Each is a Sheet: Back and Escape close it (shell/backLayers).
   if (adding) return <AddSongsSheet songs={adding} onClose={close} />;
   if (editing) return <EditDetailsSheet details={editing} onClose={close} />;
+  if (exporting) {
+    return <ExportSheet medium={exporting.medium} titleIds={[exporting.titleId]} onClose={close} />;
+  }
   return null;
 };

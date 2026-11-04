@@ -143,7 +143,9 @@ describe('Video sources in Watch', () => {
 
     const page = await screen.findByTestId('video-title-page');
     expect(commands.videoTitle).toHaveBeenCalledWith(SOURCE.id, 'serial', false);
-    expect(within(page).getByText('Series · 1936 · Archive Films')).toBeInTheDocument();
+    // Who made it leads the facts; the source is a tag of its own.
+    expect(within(page).getByText('Frederick Stephani · Series · 1936')).toBeInTheDocument();
+    expect(within(page).getByTestId('source-tag')).toHaveTextContent('Archive Films');
     // Season 1 opens first: it has an unwatched episode.
     expect(within(page).getByRole('tab', { name: 'Season 1' })).toHaveAttribute(
       'aria-selected',
@@ -208,7 +210,7 @@ describe('Video sources in Watch', () => {
     );
     await AppShellWrapper.mount(`/watch/video?source=${encodeURIComponent(SOURCE.id)}&id=chaplin`);
     const page = await screen.findByTestId('video-title-page');
-    expect(within(page).getByText('Movie · 1938 · Archive Films')).toBeInTheDocument();
+    expect(within(page).getByText('Frederick Stephani · Movie · 1938')).toBeInTheDocument();
 
     // Play watches through a session; choosing a link is the top bar's Choose a source.
     await user.click(within(page).getByRole('button', { name: 'Play' }));

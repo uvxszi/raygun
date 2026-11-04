@@ -20,7 +20,7 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 
 import { Artwork } from '../library/Artwork';
-import { backPastLayers, useBackLayer } from './backLayers';
+import { afterLayersClose, backPastLayers, useBackLayer } from './backLayers';
 import { menuFromEvent, useContextMenuStore } from './contextMenuStore';
 import type { MenuItem } from './contextMenuStore';
 import { useIsDesktop } from './useIsDesktop';
@@ -320,7 +320,8 @@ export const ContextMenuHost: FC = () => {
       return;
     }
     close();
-    item.onSelect();
+    // After the menu's history entry is gone (phones): a page it opens then stays open.
+    afterLayersClose(item.onSelect);
   };
   const step = (by: number) => {
     const at = choosable.findIndex(({ index }) => index === active);

@@ -1980,6 +1980,12 @@ export type ContinueWatching = {
 	/**  Unix ms. */
 	updatedAt: number | null,
 	watched: boolean,
+	/**
+	 *  The title it belongs to, for its page: a video source's id (or `stremio`, then
+	 *  `remote_id` is `<type>:<id>`). None for a link played on its own.
+	 */
+	sourceId?: string | null,
+	remoteId?: string | null,
 };
 
 /**  A cover a source has for a song, an album or an artist (M46.36), offered in Edit details. */

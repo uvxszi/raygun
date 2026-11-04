@@ -22,7 +22,7 @@ use tauri_specta::Event;
 use crate::catalog::now_ms;
 use crate::events::{SettingsChangedEvent, WatchChangedEvent};
 use crate::startup::AppDb;
-use crate::video_session::{EpisodeRef, VideoSessions};
+use crate::video_session::{EpisodeRef, Origin, VideoSessions};
 
 /// The player settings video playback follows (Settings → Player, M42.1).
 struct PlayerPrefs {
@@ -693,7 +693,7 @@ pub async fn continue_watching(app: &AppHandle) -> Result<Vec<ContinueWatching>,
     let rows = store::continue_candidates(&db, CONTINUE_CANDIDATES)
         .await
         .map_err(|error| error.to_string())?;
-    Ok(to_view(app, latest_per_title(rows, CONTINUE_LIMIT)))
+    Ok(to_view(app, latest_per_title(rows, CONTINUE_LIMIT)).await)
 }
 
 /// Of rows newest first (with whether each was removed), each title's first, kept when it's
@@ -729,13 +729,37 @@ pub async fn history(app: &AppHandle) -> Result<Vec<ContinueWatching>, String> {
     let rows = store::history(&db, 200)
         .await
         .map_err(|error| error.to_string())?;
-    Ok(to_view(app, rows))
+    Ok(to_view(app, rows).await)
 }
 
-fn to_view(app: &AppHandle, rows: Vec<store::VideoProgress>) -> Vec<ContinueWatching> {
+/// The title an entry's page shows (`(source_id, remote_id)`): a video source's stored title, or
+/// a Stremio movie or series.
+async fn title_page(db: &raygun_db::Db, entry: &VideoEntry) -> Option<(String, String)> {
+    match Origin::from_group(&title_of(entry))? {
+        Origin::Source { title_id } => raygun_db::titles::title(db, &title_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|row| (row.fields.source_id, row.fields.remote_id)),
+        Origin::Stremio { kind, id } => Some((
+            crate::video_library::STREMIO_SOURCE.to_owned(),
+            format!("{kind}:{id}"),
+        )),
+    }
+}
+
+async fn to_view(app: &AppHandle, rows: Vec<store::VideoProgress>) -> Vec<ContinueWatching> {
+    let db = app.state::<AppDb>().0.clone();
+    let mut pages = Vec::with_capacity(rows.len());
+    for row in &rows {
+        pages.push(title_page(&db, &row.entry).await);
+    }
     let images = app.state::<raygun_net::ImageLinks>();
     rows.into_iter()
-        .map(|row| ContinueWatching {
+        .zip(pages)
+        .map(|(row, page)| ContinueWatching {
+            source_id: page.as_ref().map(|(source, _)| source.clone()),
+            remote_id: page.map(|(_, remote)| remote),
             key: row.entry.key,
             title: row.entry.title,
             subtitle: row.entry.subtitle,

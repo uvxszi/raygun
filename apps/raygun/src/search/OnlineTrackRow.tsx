@@ -14,6 +14,7 @@ import { AdultMark } from '../shell/AdultMark';
 import { songCover } from '../library/coverTargets';
 import { SongMarks } from '../music/SongMarks';
 import { songReveal } from '../music/reveal';
+import { SourceTag } from '../shell/SourceTag';
 
 type OnlineTrackRowProps = {
   track: OnlineTrack;
@@ -43,7 +44,7 @@ export const OnlineTrackRow: FC<OnlineTrackRowProps> = ({
         type="button"
         data-testid="online-track-row"
         onClick={() => onPlay(track)}
-        className="flex h-14 min-w-0 flex-1 items-center gap-3 text-left"
+        className={`flex min-w-0 flex-1 items-center gap-3 text-left ${source ? 'min-h-14 py-1.5' : 'h-14'}`}
       >
         <Artwork
           url={track.artworkUrl}
@@ -63,9 +64,13 @@ export const OnlineTrackRow: FC<OnlineTrackRowProps> = ({
           <span className="text-muted block truncate text-xs">
             <ArtistLinks credit={track.artist} nested row />
             {track.album && <> · {track.album}</>}
-            {source && <span className="text-primary/80"> · {source}</span>}
-            {source && sourceAdult && <AdultMark className="ml-1" />}
           </span>
+          {source && (
+            <span className="mt-0.5 flex min-w-0 items-center gap-1">
+              <SourceTag name={source} />
+              {sourceAdult && <AdultMark />}
+            </span>
+          )}
         </span>
         <span className="text-muted shrink-0 text-xs tabular-nums">
           {track.durationMs ? formatTime(track.durationMs) : ''}

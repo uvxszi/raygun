@@ -13,6 +13,7 @@ import type { SearchProgressCount } from './useOnlineSearch';
 import { rankSongs, useAlbumFinds, useArtistFinds } from './useMusicFinds';
 import { SourceIssue } from '../shell/SourceIssue';
 import { albumCover, artistCover } from '../library/coverTargets';
+import { SourceTag } from '../shell/SourceTag';
 
 /**
  * Every source's songs in one list (M46.9): the songs several sources agree on first, then the
@@ -100,8 +101,9 @@ export const ArtistFinds: FC<{ query: string }> = ({ query }) => {
               )}
               <span className="flex min-w-0 flex-col">
                 <span className="truncate font-medium">{artist.name}</span>
-                <span className="text-muted truncate text-xs">
-                  {t('artist.kind')} · {artist.provider.name}
+                <span className="text-muted flex min-w-0 items-center gap-1.5 text-xs">
+                  {t('artist.kind')}
+                  <SourceTag name={artist.provider.name} />
                 </span>
               </span>
             </Link>
@@ -173,7 +175,12 @@ export const AlbumTile: FC<{
     />
     <span className="truncate text-sm font-semibold">{album.title}</span>
     <span className="text-muted truncate text-xs">
-      {detail ?? [album.year, album.artist, album.provider.name].filter(Boolean).join(' · ')}
+      {detail ?? [album.year, album.artist].filter(Boolean).join(' · ')}
     </span>
+    {!detail && (
+      <span className="flex min-w-0">
+        <SourceTag name={album.provider.name} />
+      </span>
+    )}
   </Link>
 );
