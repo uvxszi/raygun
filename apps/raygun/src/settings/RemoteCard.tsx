@@ -4,134 +4,88 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
-import { useLocalNetworkGate } from '../network/useLocalNetworkGate';
+import { PrefAction, PrefGroup } from './prefs';
+import { Problem } from './Problem';
 import { useRemoteChange, useRemoteStatus } from './remoteQueries';
 
 /**
- * Lets browsers on the same network control playback after pairing with a QR code (M20). With
- * `browserOnly` (the Devices page, M46.47) the server's switch is the devices' sharing switch
- * above it, so only the browser part shows.
+ * Control from a web browser (M20): any phone or computer on this network scans the code and
+ * controls playback from its browser. The server runs while devices may find this one (the
+ * Devices page's switch, M46.47).
  */
-export const RemoteCard: FC<{ browserOnly?: boolean }> = ({ browserOnly = false }) => {
+export const RemoteCard: FC = () => {
   const { t, i18n } = useTranslation();
   const status = useRemoteStatus();
-  const setEnabled = useRemoteChange((enabled: boolean) =>
-    unwrapResult(commands.remoteSetEnabled(enabled)),
-  );
   const newCode = useRemoteChange(() => unwrapResult(commands.remoteNewCode()));
   const forget = useRemoteChange((id: string) => unwrapResult(commands.remoteForgetDevice(id)));
-  const localNetwork = useLocalNetworkGate('remote');
-
   const data = status.data;
-  const error = status.error ?? setEnabled.error ?? newCode.error ?? forget.error;
   const dateFormat = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' });
+  const failure = newCode.error ?? forget.error ?? status.error;
 
   return (
-    <section
-      data-testid="remote-card"
-      className="bg-surface flex flex-col gap-3 rounded-xl px-5 py-4 text-sm"
-    >
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex flex-col gap-0.5">
-          <h2 id="remote-title" className="font-medium">
-            {browserOnly ? t('link.browserTitle') : t('remote.title')}
-          </h2>
-          <p className="text-muted text-xs">
-            {browserOnly
-              ? data?.enabled
-                ? t('link.browserHint')
-                : t('link.browserOff')
-              : t('remote.description')}
-          </p>
-        </div>
-        {!browserOnly && (
-          <button
-            type="button"
-            role="switch"
-            aria-checked={data?.enabled ?? false}
-            aria-labelledby="remote-title"
-            disabled={!data || setEnabled.isPending || localNetwork.checking}
-            onClick={() => {
-              if (!data) return;
-              // Devices on the network reach the remote only with Android 17's local network access.
-              if (data.enabled) setEnabled.mutate(false);
-              else void localNetwork.guard(null, () => setEnabled.mutate(true));
-            }}
-            className={`relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-60 ${data?.enabled ? 'bg-primary' : 'bg-background'}`}
-          >
-            <span
-              aria-hidden
-              className={`bg-foreground absolute top-1 size-5 rounded-full transition-all ${data?.enabled ? 'left-6' : 'left-1'}`}
+    <div data-testid="remote-card">
+      <PrefGroup title={t('link.browserTitle')}>
+        {!data?.enabled && <li className="text-muted px-1 py-2 text-sm">{t('link.browserOff')}</li>}
+        {data?.enabled && data.pairQrSvg && data.pairUrl && (
+          <li className="flex flex-col items-center gap-2 px-1 py-3">
+            <img
+              data-testid="remote-qr"
+              alt={t('remote.qrAlt')}
+              src={`data:image/svg+xml;utf8,${encodeURIComponent(data.pairQrSvg)}`}
+              className="size-44 rounded-lg bg-white p-1"
             />
-          </button>
-        )}
-      </div>
-      {data?.enabled && (
-        <div className="flex flex-col gap-3">
-          {data.pairQrSvg && data.pairUrl ? (
-            <div className="flex flex-col items-center gap-2">
-              <img
-                data-testid="remote-qr"
-                alt={t('remote.qrAlt')}
-                src={`data:image/svg+xml;utf8,${encodeURIComponent(data.pairQrSvg)}`}
-                className="size-48 rounded-lg bg-white p-1"
-              />
-              <p className="text-muted text-center text-xs">{t('remote.scan')}</p>
-              <code data-testid="remote-pair-url" className="text-center text-xs break-all">
-                {data.pairUrl}
-              </code>
-            </div>
-          ) : (
-            data.url && <p className="text-muted text-xs">{t('remote.codeUsed')}</p>
-          )}
-          {data.url && (
-            <button
-              type="button"
-              disabled={newCode.isPending}
-              onClick={() => newCode.mutate(undefined)}
-              className="text-primary flex items-center gap-2 self-center text-sm disabled:opacity-60"
+            <code
+              data-testid="remote-pair-url"
+              className="selectable text-muted text-center text-xs break-all"
             >
-              <RefreshCw aria-hidden size={14} />
-              {t('remote.newCode')}
-            </button>
-          )}
-          <div className="flex flex-col gap-1">
-            <h3 className="text-muted text-xs">{t('remote.devices')}</h3>
+              {data.pairUrl}
+            </code>
+          </li>
+        )}
+        {data?.enabled && !data.pairUrl && data.url && (
+          <li className="text-muted px-1 py-2 text-sm">{t('remote.codeUsed')}</li>
+        )}
+        {data?.enabled && data.url && (
+          <PrefAction
+            icon={RefreshCw}
+            title={t('remote.newCode')}
+            disabled={newCode.isPending}
+            onClick={() => newCode.mutate(undefined)}
+          />
+        )}
+        {data?.enabled && (
+          <>
             {data.devices.length === 0 ? (
-              <p className="text-muted text-xs">{t('remote.noDevices')}</p>
+              <li className="text-muted px-1 py-2 text-sm">{t('remote.noDevices')}</li>
             ) : (
-              <ul className="flex flex-col">
-                {data.devices.map((device) => (
-                  <li key={device.id} className="flex h-11 items-center justify-between gap-2">
-                    <span className="flex min-w-0 flex-col">
-                      <span className="truncate">{device.name}</span>
-                      <span className="text-muted text-xs">
-                        {t('remote.pairedOn', { date: dateFormat.format(device.pairedAt ?? 0) })}
-                      </span>
+              data.devices.map((device) => (
+                <li key={device.id} className="flex items-center gap-2 px-1 py-2">
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate font-medium">{device.name}</span>
+                    <span className="text-muted text-xs">
+                      {t('remote.pairedOn', { date: dateFormat.format(device.pairedAt ?? 0) })}
                     </span>
-                    <button
-                      type="button"
-                      aria-label={t('remote.forget', { name: device.name })}
-                      disabled={forget.isPending}
-                      onClick={() => forget.mutate(device.id)}
-                      className="text-muted grid size-9 place-items-center rounded-full"
-                    >
-                      <X aria-hidden size={16} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={t('remote.forget', { name: device.name })}
+                    disabled={forget.isPending}
+                    onClick={() => forget.mutate(device.id)}
+                    className="text-muted hover:bg-surface grid size-10 place-items-center rounded-full"
+                  >
+                    <X aria-hidden size={16} />
+                  </button>
+                </li>
+              ))
             )}
-          </div>
-          <p className="text-muted text-xs">{t('remote.hint')}</p>
-        </div>
-      )}
-      {(data?.error ?? error) && (
-        <p role="alert" className="text-primary wrap-anywhere">
-          {data?.error ?? error?.message}
-        </p>
-      )}
-      {localNetwork.sheet}
-    </section>
+          </>
+        )}
+        {(data?.error ?? failure) && (
+          <li className="px-1 py-2">
+            <Problem title={t('remote.problem')} detail={data?.error ?? failure?.message} />
+          </li>
+        )}
+      </PrefGroup>
+    </div>
   );
 };

@@ -10,11 +10,12 @@ import { CACHE_DEFAULTS } from './cacheDefaults';
 import { LAYOUT_DEFAULTS } from '../layout/layout';
 import { LIBRARY_DISPLAY_DEFAULTS } from '../manga/libraryDisplay';
 import { PLAYER_DEFAULTS } from './playerOptions';
+import { SettingsSaveIssue } from './Problem';
 import { useApplyTheme } from './useApplyTheme';
 import { useSettings } from './useSettings';
 
 vi.mock('@raygun/bindings', () => ({
-  commands: { settingsGet: vi.fn(), settingsUpdate: vi.fn() },
+  commands: { settingsGet: vi.fn(), settingsUpdate: vi.fn(), appInfo: vi.fn() },
 }));
 
 const DEFAULT_SETTINGS: Settings = {
@@ -29,7 +30,6 @@ const DEFAULT_SETTINGS: Settings = {
   accent: 'red',
   startScreen: 'home',
   navLabels: 'always',
-  gridColumns: 0,
   coverStyle: 'compact',
   unreadBadges: true,
   downloadBadges: true,
@@ -53,8 +53,8 @@ const DEFAULT_SETTINGS: Settings = {
   },
   layout: LAYOUT_DEFAULTS,
   accentColor: '#e5484d',
-  coverWidth: 0,
-  mangaReader: { pagedScale: 'fitScreen', webtoonWidth: 0 },
+  coverSize: 0,
+  mangaReader: { pagedScale: 'fitScreen', webtoonSize: 0 },
   playerView: { layout: 'auto', widthOffset: 0 },
   scrollbars: 'thin',
   motion: 'lively',
@@ -94,7 +94,7 @@ const DEFAULT_SETTINGS: Settings = {
   },
   mangaUpdateHours: 12,
   novelReader: {
-    fontSize: 18,
+    textSize: 0,
     lineSpacing: 16,
     font: 'serif',
     width: 'narrow',
@@ -107,7 +107,12 @@ const DEFAULT_SETTINGS: Settings = {
 const ThemedAppearanceCard = () => {
   const settings = useSettings();
   useApplyTheme(settings.data?.theme);
-  return <AppearanceCard />;
+  return (
+    <>
+      <AppearanceCard />
+      <SettingsSaveIssue />
+    </>
+  );
 };
 
 const AppearanceCardWrapper = {
@@ -179,7 +184,10 @@ describe('AppearanceCard', () => {
 
     await AppearanceCardWrapper.chooseTheme('AMOLED');
 
-    expect(await AppearanceCardWrapper.error).toHaveTextContent('database is locked');
+    const problem = await AppearanceCardWrapper.error;
+    expect(problem).toHaveTextContent("Couldn't save that change");
+    await userEvent.click(within(problem).getByRole('button', { name: 'More info' }));
+    expect(problem).toHaveTextContent('database is locked');
   });
 
   it('offers every language and saves the choice', async () => {

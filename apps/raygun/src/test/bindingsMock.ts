@@ -145,7 +145,6 @@ export const DEFAULT_SETTINGS: Settings = {
   accent: 'red',
   startScreen: 'home',
   navLabels: 'always',
-  gridColumns: 0,
   coverStyle: 'compact',
   unreadBadges: true,
   downloadBadges: true,
@@ -169,8 +168,8 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   layout: LAYOUT_DEFAULTS,
   accentColor: '#e5484d',
-  coverWidth: 0,
-  mangaReader: { pagedScale: 'fitScreen', webtoonWidth: 0 },
+  coverSize: 0,
+  mangaReader: { pagedScale: 'fitScreen', webtoonSize: 0 },
   playerView: { layout: 'auto', widthOffset: 0 },
   scrollbars: 'thin',
   motion: 'lively',
@@ -210,7 +209,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   mangaUpdateHours: 12,
   novelReader: {
-    fontSize: 18,
+    textSize: 0,
     lineSpacing: 16,
     font: 'serif',
     width: 'narrow',
@@ -350,6 +349,8 @@ export const bindingsMock = {
     storageInfo: vi.fn(),
     settingsGet: vi.fn(),
     settingsUpdate: vi.fn(),
+    settingsUpdateMany: vi.fn(),
+    settingsDefaults: vi.fn(),
     playbackGetState: vi.fn(),
     playbackGetQueue: vi.fn(),
     playbackEnqueue: vi.fn(),
@@ -665,7 +666,24 @@ export const seedBindings = () => {
   commands.ttsSetAvailable.mockResolvedValue(null);
   commands.videoPlayerExternal.mockResolvedValue({ status: 'ok', data: 'mpv' });
   commands.storageInfo.mockResolvedValue(MOBILE_STORAGE);
-  commands.settingsGet.mockResolvedValue({ status: 'ok', data: DEFAULT_SETTINGS });
+  // Saved changes are kept and read back, as Rust keeps them; tests may answer otherwise.
+  let stored: Settings = DEFAULT_SETTINGS;
+  commands.settingsGet.mockImplementation(async () => ({ status: 'ok', data: stored }));
+  const applied = async (changes: { key: string; value: unknown }[]) => {
+    const current = (await commands.settingsGet()) as { data: Settings } | undefined;
+    stored = changes.reduce<Settings>(
+      (next, change) => ({ ...next, [change.key]: change.value }),
+      current?.data ?? DEFAULT_SETTINGS,
+    );
+    return { status: 'ok' as const, data: stored };
+  };
+  commands.settingsUpdate.mockImplementation((change: { key: string; value: unknown }) =>
+    applied([change]),
+  );
+  commands.settingsUpdateMany.mockImplementation((changes: { key: string; value: unknown }[]) =>
+    applied(changes),
+  );
+  commands.settingsDefaults.mockResolvedValue(DEFAULT_SETTINGS);
   commands.playbackGetState.mockResolvedValue(IDLE_STATE);
   commands.playbackGetQueue.mockResolvedValue(EMPTY_QUEUE);
   commands.playbackEnqueue.mockResolvedValue(undefined);

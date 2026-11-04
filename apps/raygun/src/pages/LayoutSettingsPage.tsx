@@ -20,8 +20,7 @@ export const LayoutSettingsPage: FC = () => {
   return (
     <section data-testid="layout-settings" className="flex max-w-2xl flex-col gap-4">
       <TopBar back fallback="/settings/appearance" title={t('layout.title')} />
-      <p className="text-muted px-1 text-sm">{t('layout.hint')}</p>
-      <PrefGroup title={t('layout.surfacesTitle')}>
+      <PrefGroup>
         {LAYOUT_SURFACES.map((surface) => {
           const entries = surfaceEntries(
             surface,

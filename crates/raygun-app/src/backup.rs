@@ -156,7 +156,8 @@ impl BackupService {
         if restored.changed > 0 {
             // Cached settings, collections and history in the UI are stale, as after a sync.
             let _ = SyncChangedEvent(restored.changed as u32).emit(&self.app);
-            crate::system_ui::apply_saved_theme(self.app.clone());
+            // Restored settings take effect at once (the theme, sound, content filter…).
+            crate::settings::apply_stored(&self.app);
         }
         Ok(BackupOutcome::Raygun {
             received: restored.received as u32,

@@ -8,9 +8,8 @@ import { useInstallQueue } from '../extensions/installQueue';
 import { CATALOG, EXTENSIONS, useCatalog } from '../extensions/useExtensions';
 import { unwrapResult } from '../lib/commandResult';
 import { SourceIssue } from '../shell/SourceIssue';
-
-const BUTTON =
-  'bg-background hover:bg-surface flex items-center gap-2 self-start rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-50';
+import { PrefAction, PrefGroup } from './prefs';
+import { Problem } from './Problem';
 
 /**
  * Testing with many sources (M46.17): every known repository, Raygun's own sources that fail on
@@ -22,22 +21,19 @@ export const DeveloperCard: FC = () => {
   const queryClient = useQueryClient();
   const catalog = useCatalog();
   const queue = useInstallQueue();
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: CATALOG });
+    void queryClient.invalidateQueries({ queryKey: EXTENSIONS });
+    void queryClient.invalidateQueries({ queryKey: ['stremio'] });
+  };
   const add = useMutation({
     mutationFn: () => unwrapResult(commands.devAddTestSources()),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: CATALOG });
-      void queryClient.invalidateQueries({ queryKey: EXTENSIONS });
-      void queryClient.invalidateQueries({ queryKey: ['stremio'] });
-    },
+    onSuccess: refresh,
   });
   // M46.47: the test repository, its extensions and the test addon go again.
   const remove = useMutation({
     mutationFn: () => unwrapResult(commands.devRemoveTestSources()),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: CATALOG });
-      void queryClient.invalidateQueries({ queryKey: EXTENSIONS });
-      void queryClient.invalidateQueries({ queryKey: ['stremio'] });
-    },
+    onSuccess: refresh,
   });
   const missing = (catalog.data ?? []).flatMap((repo) =>
     repo.entries.filter((entry) => entry.state === 'available'),
@@ -45,65 +41,62 @@ export const DeveloperCard: FC = () => {
   const report = add.data;
 
   return (
-    <section
-      data-testid="developer-card"
-      className="bg-surface flex flex-col gap-3 rounded-xl px-5 py-4 text-sm"
-    >
-      <div className="flex flex-col gap-0.5">
-        <h2 className="flex items-center gap-2 font-medium">
-          <FlaskConical aria-hidden size={16} />
-          {t('developer.title')}
-        </h2>
-        <p className="text-muted text-xs">{t('developer.hint')}</p>
-      </div>
-      <button
-        type="button"
-        disabled={add.isPending}
-        onClick={() => add.mutate()}
-        className={BUTTON}
-      >
-        <FlaskConical aria-hidden size={16} />
-        {add.isPending ? t('developer.adding') : t('developer.add')}
-      </button>
-      {report && (
-        <p data-testid="developer-report" className="text-muted text-xs">
-          {t('developer.report', {
-            added: report.added.length,
-            already: report.already.length,
-            failed: report.failed.length,
-          })}
-        </p>
-      )}
-      {report?.failed.map((failure) => (
-        <SourceIssue key={failure.url} compact source={failure.url}>
-          {failure.error}
-        </SourceIssue>
-      ))}
-      {add.error && <SourceIssue>{add.error.message}</SourceIssue>}
-      <button
-        type="button"
-        disabled={remove.isPending}
-        onClick={() => remove.mutate()}
-        className={BUTTON}
-      >
-        <Trash2 aria-hidden size={16} />
-        {t('developer.remove')}
-      </button>
-      {remove.isSuccess && (
-        <p role="status" data-testid="developer-removed" className="text-muted text-xs">
-          {t('developer.removed', { count: remove.data })}
-        </p>
-      )}
-      {remove.error && <SourceIssue>{remove.error.message}</SourceIssue>}
-      <button
-        type="button"
-        disabled={missing.length === 0}
-        onClick={() => queue.install(missing)}
-        className={BUTTON}
-      >
-        <PackagePlus aria-hidden size={16} />
-        {t('developer.installAll', { count: missing.length })}
-      </button>
-    </section>
+    <div data-testid="developer-card">
+      <PrefGroup title={t('developer.title')}>
+        <PrefAction
+          icon={FlaskConical}
+          title={add.isPending ? t('developer.adding') : t('developer.add')}
+          summary={
+            report && (
+              <span data-testid="developer-report">
+                {t('developer.report', {
+                  added: report.added.length,
+                  already: report.already.length,
+                  failed: report.failed.length,
+                })}
+              </span>
+            )
+          }
+          disabled={add.isPending}
+          onClick={() => add.mutate()}
+        />
+        {report?.failed.map((failure) => (
+          <li key={failure.url} className="px-1 py-1">
+            <SourceIssue compact source={failure.url}>
+              {failure.error}
+            </SourceIssue>
+          </li>
+        ))}
+        {add.error && (
+          <li className="px-1 py-1">
+            <Problem title={t('developer.addFailed')} detail={add.error.message} />
+          </li>
+        )}
+        <PrefAction
+          icon={PackagePlus}
+          title={t('developer.installAll', { count: missing.length })}
+          disabled={missing.length === 0}
+          onClick={() => queue.install(missing)}
+        />
+        <PrefAction
+          icon={Trash2}
+          title={t('developer.remove')}
+          summary={
+            remove.isSuccess ? (
+              <span role="status" data-testid="developer-removed">
+                {t('developer.removed', { count: remove.data })}
+              </span>
+            ) : undefined
+          }
+          disabled={remove.isPending}
+          onClick={() => remove.mutate()}
+        />
+        {remove.error && (
+          <li className="px-1 py-1">
+            <Problem title={t('developer.removeFailed')} detail={remove.error.message} />
+          </li>
+        )}
+      </PrefGroup>
+    </div>
   );
 };

@@ -2,8 +2,7 @@ import type { PlayerLayout, TextAlign } from '@raygun/bindings';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { PrefChoice, PrefGroup, PrefSwitch } from '../settings/prefs';
-import { OffsetSlider } from './OffsetSlider';
+import { PrefChoice, PrefGroup, PrefSize, PrefSwitch } from '../settings/prefs';
 import {
   LYRICS_OFFSETS,
   PERCENT_OFFSETS,
@@ -34,7 +33,7 @@ export const PlayerViewSettings: FC<{ title?: string }> = ({ title }) => {
         }))}
         onChange={(layout) => set({ layout })}
       />
-      <OffsetSlider
+      <PrefSize
         title={t('player.view.cover')}
         value={view.coverOffset}
         {...PERCENT_OFFSETS}
@@ -42,7 +41,7 @@ export const PlayerViewSettings: FC<{ title?: string }> = ({ title }) => {
         disabled={busy}
         onChange={(coverOffset) => set({ coverOffset })}
       />
-      <OffsetSlider
+      <PrefSize
         title={t('player.view.width')}
         value={view.widthOffset}
         {...PERCENT_OFFSETS}
@@ -50,7 +49,7 @@ export const PlayerViewSettings: FC<{ title?: string }> = ({ title }) => {
         disabled={busy}
         onChange={(widthOffset) => set({ widthOffset })}
       />
-      <OffsetSlider
+      <PrefSize
         title={t('player.view.lyricsSize')}
         value={view.lyricsOffset}
         {...LYRICS_OFFSETS}

@@ -90,52 +90,36 @@ pub async fn settings_update(
     db: tauri::State<'_, AppDb>,
     change: SettingChange,
 ) -> Result<Settings, String> {
-    let theme_changed = matches!(change, SettingChange::Theme(_));
-    let nsfw_changed = matches!(
-        change,
-        SettingChange::ShowNsfw(_) | SettingChange::ExplicitMusic(_)
-    );
-    let cache_changed = matches!(change, SettingChange::Cache(_));
-    let sources_changed = matches!(change, SettingChange::DisabledSources(_));
-    let discovery_changed = matches!(change, SettingChange::Discovery(_));
-    let agent_changed = matches!(change, SettingChange::UserAgent(_));
-    let sound_changed = matches!(change, SettingChange::Sound(_));
-    // Incognito (M47): the sidebar doesn't remember pages opened or played from.
-    let change = crate::privacy::without_new_stamps(&app, &db.0, change).await;
-    let settings = settings::update(&db.0, change)
+    settings_update_many(app, db, vec![change]).await
+}
+
+/// Changes several settings together (a screen's Reset to defaults): none is written when one
+/// is refused.
+#[tauri::command]
+#[specta::specta]
+pub async fn settings_update_many(
+    app: tauri::AppHandle,
+    db: tauri::State<'_, AppDb>,
+    changes: Vec<SettingChange>,
+) -> Result<Settings, String> {
+    let mut kept = Vec::with_capacity(changes.len());
+    for change in changes {
+        // Incognito (M47): the sidebar doesn't remember pages opened or played from.
+        kept.push(crate::privacy::without_new_stamps(&app, &db.0, change).await);
+    }
+    let keys: Vec<&'static str> = kept.iter().map(SettingChange::key).collect();
+    let settings = settings::update_many(&db.0, kept)
         .await
         .map_err(|error| error.to_string())?;
-    if discovery_changed {
-        use tauri::Manager;
-        app.state::<Arc<DiscoveryService>>().nudge();
-    }
-    if theme_changed {
-        crate::system_ui::apply_theme(&app, settings.theme);
-    }
-    if agent_changed {
-        raygun_net::set_user_agent(&settings.user_agent);
-    }
-    if sound_changed {
-        use tauri::Manager;
-        app.state::<crate::playback::PlaybackService>()
-            .set_sound(settings.sound.clone());
-    }
-    if nsfw_changed {
-        use tauri::Manager;
-        app.state::<Arc<ExtensionService>>()
-            .set_content(settings.show_nsfw, settings.explicit_music)
-            .await;
-    }
-    if cache_changed {
-        use tauri::Manager;
-        app.state::<crate::caches::Caches>().apply(&settings.cache);
-    }
-    if sources_changed {
-        use tauri::Manager;
-        app.state::<Arc<ExtensionService>>()
-            .set_disabled_sources(&settings.disabled_sources);
-    }
+    settings::apply_live(&app, &settings, Some(&keys)).await;
     Ok(settings)
+}
+
+/// Every setting as a fresh install has it, for resetting a settings screen.
+#[tauri::command]
+#[specta::specta]
+pub fn settings_defaults() -> Settings {
+    Settings::default()
 }
 
 /// Current player state. Afterwards, changes arrive as `PlaybackStateEvent`.
@@ -2553,9 +2537,15 @@ pub async fn sync_set_kinds(
 #[specta::specta]
 pub async fn sync_set_device_name(
     sync: tauri::State<'_, SyncService>,
+    connect: tauri::State<'_, Arc<crate::connect::ConnectService>>,
+    remote: tauri::State<'_, RemoteService>,
     name: String,
 ) -> Result<SyncStatus, String> {
-    sync.set_device_name(&name).await
+    let status = sync.set_device_name(&name).await?;
+    // One name everywhere: Connect, the network and linked devices see it at once.
+    connect.rename(&status.device_name);
+    remote.readvertise();
+    Ok(status)
 }
 
 /// Undoes the newest sync that changed something on this device.

@@ -15,9 +15,10 @@ import { useTranslation } from 'react-i18next';
 import { LANGUAGES, SYSTEM_LANGUAGE, nativeName, resolveLanguage } from '../i18n/languages';
 import { useLayout } from '../layout/useLayout';
 import { NAV_TABS, isNavTabId } from '../shell/navTabs';
-import { ColorSettings } from './ColorSettings';
 import { useIsDesktop } from '../shell/useIsDesktop';
-import { PrefBlock, PrefChoice, PrefGroup, PrefSlider } from './prefs';
+import { useSideRail } from '../shell/useWideScreen';
+import { ColorSettings } from './ColorSettings';
+import { PrefBlock, PrefChoice, PrefGroup, PrefSize } from './prefs';
 import { useSettings, useUpdateSetting } from './useSettings';
 
 const THEMES: { value: Theme; labelKey: string; preview: [string, string, string] }[] = [
@@ -38,7 +39,13 @@ const ACCENTS: { value: Accent; color: string }[] = [
   { value: 'pink', color: 'oklch(0.77 0.17 355)' },
 ];
 
-/** Settings → Appearance: theme, accent, language, and how the app opens and navigates. */
+/**
+ * Interface size (M46.48): percent of the size the screen gives (`ZOOM_LEVELS` in raygun-model),
+ * shown as what it adds. Phones keep to sizes their screens fit.
+ */
+const INTERFACE_SIZE = { desktop: { min: 50, max: 200 }, phone: { min: 70, max: 150 } };
+
+/** Settings → Appearance: theme and colours, language, sizes, how the app opens and moves. */
 export const AppearanceCard: FC = () => {
   const { t } = useTranslation();
   const settings = useSettings();
@@ -46,68 +53,63 @@ export const AppearanceCard: FC = () => {
   const data = settings.data;
   const layout = useLayout();
   const desktop = useIsDesktop();
+  // Navigation labels are the bottom bar's, which phones show.
+  const sideRail = useSideRail();
   const colorTimer = useRef<number | undefined>(undefined);
   if (!data) return null;
   // The picker reports every move; the colour is saved once it rests.
   const pickColor = (color: string) => {
     window.clearTimeout(colorTimer.current);
     colorTimer.current = window.setTimeout(() => {
-      updateSetting.mutate(
-        { key: 'accentColor', value: color.toLowerCase() },
-        {
-          onSuccess: () => {
-            if (data.accent !== 'custom') updateSetting.mutate({ key: 'accent', value: 'custom' });
-          },
-        },
-      );
+      updateSetting.mutate({ key: 'accentColor', value: color.toLowerCase() });
+      if (data.accent !== 'custom') updateSetting.mutate({ key: 'accent', value: 'custom' });
     }, 250);
   };
   const customSelected = data.accent === 'custom';
-  const busy = updateSetting.isPending;
 
   return (
     <div data-testid="appearance-card" className="flex flex-col">
-      <PrefGroup title={t('settings.theme')}>
+      <PrefGroup>
         <PrefBlock>
-          <div
-            role="radiogroup"
-            aria-label={t('settings.theme')}
-            className="grid grid-cols-4 gap-3"
-          >
-            {THEMES.map((option) => {
-              const selected = data.theme === option.value;
-              const [top, bottom, bar] = option.preview;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  aria-label={t(option.labelKey)}
-                  disabled={busy}
-                  onClick={() => updateSetting.mutate({ key: 'theme', value: option.value })}
-                  className="flex flex-col items-center gap-2 text-sm"
-                >
-                  <span
-                    aria-hidden
-                    className={`relative flex aspect-[3/5] w-full flex-col overflow-hidden rounded-xl border-2 ${selected ? 'border-primary' : 'border-surface'}`}
-                    style={{ background: `linear-gradient(135deg, ${top} 50%, ${bottom} 50%)` }}
+          <div className="flex flex-col gap-2">
+            <span id="theme-label" className="font-medium">
+              {t('settings.theme')}
+            </span>
+            <div role="radiogroup" aria-labelledby="theme-label" className="grid grid-cols-4 gap-3">
+              {THEMES.map((option) => {
+                const selected = data.theme === option.value;
+                const [top, bottom, bar] = option.preview;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    aria-label={t(option.labelKey)}
+                    onClick={() => updateSetting.mutate({ key: 'theme', value: option.value })}
+                    className="flex flex-col items-center gap-2 text-sm"
                   >
-                    <span className="bg-primary mx-2 mt-3 h-2 w-1/2 rounded-full" />
-                    <span className="mx-2 mt-2 h-8 rounded-md" style={{ background: bar }} />
-                    <span className="mt-auto h-4" style={{ background: bar }} />
-                    {selected && (
-                      <span className="bg-primary text-background absolute top-1.5 right-1.5 grid size-5 place-items-center rounded-full">
-                        <Check size={12} strokeWidth={3} />
-                      </span>
-                    )}
-                  </span>
-                  <span className={selected ? 'text-primary font-medium' : 'text-muted'}>
-                    {t(option.labelKey)}
-                  </span>
-                </button>
-              );
-            })}
+                    <span
+                      aria-hidden
+                      className={`relative flex aspect-[3/5] w-full max-w-24 flex-col overflow-hidden rounded-xl border-2 ${selected ? 'border-primary' : 'border-surface'}`}
+                      style={{ background: `linear-gradient(135deg, ${top} 50%, ${bottom} 50%)` }}
+                    >
+                      <span className="bg-primary mx-2 mt-3 h-2 w-1/2 rounded-full" />
+                      <span className="mx-2 mt-2 h-8 rounded-md" style={{ background: bar }} />
+                      <span className="mt-auto h-4" style={{ background: bar }} />
+                      {selected && (
+                        <span className="bg-primary text-background absolute top-1.5 right-1.5 grid size-5 place-items-center rounded-full">
+                          <Check size={12} strokeWidth={3} />
+                        </span>
+                      )}
+                    </span>
+                    <span className={selected ? 'text-primary font-medium' : 'text-muted'}>
+                      {t(option.labelKey)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </PrefBlock>
         <PrefBlock>
@@ -129,7 +131,6 @@ export const AppearanceCard: FC = () => {
                     role="radio"
                     aria-checked={selected}
                     aria-label={t(`settings.accents.${option.value}`)}
-                    disabled={busy}
                     onClick={() => updateSetting.mutate({ key: 'accent', value: option.value })}
                     className={`grid size-10 place-items-center rounded-full ring-offset-2 ring-offset-[var(--color-background)] ${selected ? 'ring-foreground ring-2' : ''}`}
                     style={{ background: option.color }}
@@ -156,7 +157,6 @@ export const AppearanceCard: FC = () => {
                   type="color"
                   aria-label={t('settings.accentCustom')}
                   value={data.accentColor ?? '#e5484d'}
-                  disabled={busy}
                   onChange={(event) => pickColor(event.target.value)}
                   className="absolute inset-0 size-full cursor-pointer opacity-0"
                 />
@@ -164,14 +164,9 @@ export const AppearanceCard: FC = () => {
             </div>
           </div>
         </PrefBlock>
-      </PrefGroup>
-      <ColorSettings />
-      <PrefGroup title={t('settings.display')}>
         <PrefChoice<string>
           title={t('settings.language')}
-          summary={t('settings.languageHint')}
           value={LANGUAGES.includes(data.language) ? data.language : SYSTEM_LANGUAGE}
-          disabled={busy}
           options={[
             {
               value: SYSTEM_LANGUAGE,
@@ -183,11 +178,18 @@ export const AppearanceCard: FC = () => {
           ]}
           onChange={(value) => updateSetting.mutate({ key: 'language', value })}
         />
+        <PrefSize
+          title={t('settings.window.interfaceSize')}
+          unit="%"
+          zero={100}
+          step={5}
+          {...(desktop ? INTERFACE_SIZE.desktop : INTERFACE_SIZE.phone)}
+          value={data.zoom ?? 100}
+          onChange={(value) => updateSetting.mutate({ key: 'zoom', value })}
+        />
         <PrefChoice<StartScreen>
           title={t('settings.startScreen')}
-          summary={t('settings.startScreenHint')}
           value={data.startScreen}
-          disabled={busy}
           // Any tab the user shows (M46.5), and the current one even if it's hidden since.
           options={layout.tabs
             .filter(
@@ -201,21 +203,20 @@ export const AppearanceCard: FC = () => {
             .map((id) => ({ value: id as StartScreen, label: t(NAV_TABS[id].labelKey) }))}
           onChange={(value) => updateSetting.mutate({ key: 'startScreen', value })}
         />
-        <PrefChoice<NavLabels>
-          title={t('settings.navLabels')}
-          value={data.navLabels}
-          disabled={busy}
-          options={[
-            { value: 'always', label: t('settings.navLabelsAlways') },
-            { value: 'selected', label: t('settings.navLabelsSelected') },
-          ]}
-          onChange={(value) => updateSetting.mutate({ key: 'navLabels', value })}
-        />
+        {!desktop && !sideRail && (
+          <PrefChoice<NavLabels>
+            title={t('settings.navLabels')}
+            value={data.navLabels}
+            options={[
+              { value: 'always', label: t('settings.navLabelsAlways') },
+              { value: 'selected', label: t('settings.navLabelsSelected') },
+            ]}
+            onChange={(value) => updateSetting.mutate({ key: 'navLabels', value })}
+          />
+        )}
         <PrefChoice<MotionLevel>
           title={t('settings.motion')}
-          summary={t('settings.motionHint')}
           value={data.motion ?? 'lively'}
-          disabled={busy}
           options={(['lively', 'calm', 'off'] as const).map((value) => ({
             value,
             label: t(`settings.motionLevels.${value}`),
@@ -225,61 +226,25 @@ export const AppearanceCard: FC = () => {
         <PrefChoice<ScrollbarStyle>
           title={t('settings.scrollbars')}
           value={data.scrollbars ?? 'thin'}
-          disabled={busy}
           options={(['thin', 'wide', 'hidden'] as const).map((value) => ({
             value,
             label: t(`settings.scrollbarStyles.${value}`),
-            hint: value === 'hidden' ? t('settings.scrollbarsHiddenHint') : undefined,
           }))}
           onChange={(value) => updateSetting.mutate({ key: 'scrollbars', value })}
         />
-      </PrefGroup>
-      {desktop && (
-        <PrefGroup title={t('settings.window.title')}>
+        {desktop && (
           <PrefChoice<WindowFrame>
             title={t('settings.window.frame')}
-            summary={t('settings.window.frameHint')}
             value={data.windowFrame ?? 'app'}
-            disabled={busy}
             options={(['app', 'system'] as const).map((value) => ({
               value,
               label: t(`settings.window.frames.${value}`),
             }))}
             onChange={(value) => updateSetting.mutate({ key: 'windowFrame', value })}
           />
-          <PrefSlider
-            title={t('settings.window.zoom')}
-            summary={t('settings.window.zoomHint')}
-            value={data.zoom ?? 100}
-            min={50}
-            max={200}
-            step={10}
-            format={(value) => `${value}%`}
-            disabled={busy}
-            onChange={(value) => updateSetting.mutate({ key: 'zoom', value })}
-          />
-        </PrefGroup>
-      )}
-      {!desktop && (
-        <PrefGroup title={t('settings.window.interface')}>
-          <PrefSlider
-            title={t('settings.window.interfaceSize')}
-            summary={t('settings.window.interfaceSizeHint')}
-            value={data.zoom ?? 100}
-            min={80}
-            max={150}
-            step={10}
-            format={(value) => `${value}%`}
-            disabled={busy}
-            onChange={(value) => updateSetting.mutate({ key: 'zoom', value })}
-          />
-        </PrefGroup>
-      )}
-      {updateSetting.isError && (
-        <p role="alert" className="text-primary px-1 text-sm">
-          {t('settings.saveFailed', { message: updateSetting.error.message })}
-        </p>
-      )}
+        )}
+      </PrefGroup>
+      <ColorSettings />
     </div>
   );
 };

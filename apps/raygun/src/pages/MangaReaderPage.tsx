@@ -19,7 +19,7 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
-import type { FC, MouseEvent as ReactMouseEvent } from 'react';
+import type { CSSProperties, FC, MouseEvent as ReactMouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { PageActionsSheet } from '../export/PageActionsSheet';
@@ -30,7 +30,7 @@ import type { TapAction } from '../manga/reader/tapZones';
 import { useReaderZoom } from '../manga/reader/useReaderZoom';
 import { useWakeLock } from '../manga/reader/useWakeLock';
 import { WebtoonView } from '../manga/reader/WebtoonView';
-import { READER_MODES, useReaderDisplay, ZOOM_STEP } from '../manga/readerDisplay';
+import { READER_MODES, sizedFrom, useReaderDisplay, ZOOM_STEP } from '../manga/readerDisplay';
 import { ReaderDisplaySettings } from '../manga/ReaderDisplaySettings';
 import { MANGA, saveProgress, useMangaChapter } from '../manga/useManga';
 import { Sheet } from '../shell/Sheet';
@@ -357,7 +357,7 @@ export const MangaReaderPage: FC = () => {
           current={current}
           jump={jump}
           zoom={zoom.zoom}
-          width={display.webtoonWidth}
+          size={display.webtoonSize}
           preload={display.preloadPages}
           chrome={chrome}
           contentRef={zoom.contentRef}
@@ -399,9 +399,12 @@ export const MangaReaderPage: FC = () => {
         <footer className="fixed inset-x-0 bottom-0 z-30 flex justify-center px-3 pt-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
           <div
             data-testid="reader-bar"
-            // The bar's width: the user's share, or the screen's on phones and 70 % on wide windows.
-            className={`flex items-center gap-2 ${display.barWidth > 0 ? '' : 'w-full lg:w-[70%]'}`}
-            style={display.barWidth > 0 ? { width: `${display.barWidth}%` } : undefined}
+            // The bar: the screen's width on phones and 70 % on wide windows, made bigger or
+            // smaller by the page bar size (M46.48).
+            className="flex w-(--bar-width) items-center gap-2 [--bar-base:100%] lg:[--bar-base:70%]"
+            style={
+              { '--bar-width': sizedFrom('var(--bar-base)', display.barSize) } as CSSProperties
+            }
           >
             {display.barChapters && (
               <button

@@ -102,7 +102,7 @@ const RowPlaceholder: FC<{ count?: number }> = ({ count = 6 }) => {
       aria-hidden
       data-testid="row-placeholder"
       className={COVER_GRID_CLASS}
-      style={coverGridStyle(settings?.gridColumns ?? 0, settings?.coverWidth ?? 0)}
+      style={coverGridStyle(settings?.coverSize ?? 0)}
     >
       {Array.from({ length: count }, (_, index) => (
         <span key={index} className="bg-surface aspect-[2/3] animate-pulse rounded-lg" />

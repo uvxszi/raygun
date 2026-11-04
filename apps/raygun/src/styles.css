@@ -278,6 +278,13 @@ body,
   height: 100%;
 }
 
+/* Sizes come from the screen (M46.48): the root font size, which every rem size and gap follows,
+   grows with the shorter side Raygun has, from 14 px on the smallest phones to 17 px on tablets and
+   desktops; Interface size scales it on phones (settings/useApplySize). */
+html {
+  font-size: calc(clamp(14px, 12px + var(--short-side, 400px) / 100, 17px) * var(--ui-scale, 1));
+}
+
 body {
   margin: 0;
   background: var(--color-background);
@@ -289,6 +296,12 @@ body {
      them instead. Fields, error details and text marked selectable (lyrics, when asked) do. */
   -webkit-user-select: none;
   user-select: none;
+}
+
+/* The row settings search opened a screen at (M46.48), for a moment. */
+[data-found] {
+  border-radius: 0.75rem;
+  background: color-mix(in oklab, var(--color-primary) 16%, transparent);
 }
 
 input,

@@ -2,15 +2,9 @@ import type { PagedScale, ReaderMode, TapInvert, TapZones } from '@raygun/bindin
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { PrefChoice, PrefGroup, PrefSlider, PrefSwitch } from '../settings/prefs';
+import { PrefChoice, PrefGroup, PrefSize, PrefSlider, PrefSwitch } from '../settings/prefs';
 import { TAP_INVERTS, TAP_ZONES } from './reader/tapZones';
-import {
-  BAR_WIDTHS,
-  PAGED_SCALES,
-  READER_MODES,
-  WEBTOON_WIDTHS,
-  useReaderDisplay,
-} from './readerDisplay';
+import { PAGED_SCALES, READER_MODES, READER_SIZE, useReaderDisplay } from './readerDisplay';
 
 /**
  * How manga read and show (M46.7): the default mode, tap zones, the paged modes' fit, the webtoon
@@ -20,8 +14,6 @@ import {
 export const ReaderDisplaySettings: FC<{ title?: string }> = ({ title }) => {
   const { t } = useTranslation();
   const { display, set, busy } = useReaderDisplay();
-  const percent = (value: number) =>
-    value === 0 ? t('reader.display.byScreen') : t('reader.display.percent', { n: value });
   return (
     <>
       <PrefGroup title={title ?? t('reader.display.reading')}>
@@ -94,12 +86,12 @@ export const ReaderDisplaySettings: FC<{ title?: string }> = ({ title }) => {
           }))}
           onChange={(pagedScale) => set({ pagedScale })}
         />
-        <PrefChoice<number>
+        <PrefSize
           title={t('reader.display.webtoonWidth')}
-          value={display.webtoonWidth}
-          disabled={busy}
-          options={WEBTOON_WIDTHS.map((value) => ({ value, label: percent(value) }))}
-          onChange={(webtoonWidth) => set({ webtoonWidth })}
+          unit="%"
+          {...READER_SIZE}
+          value={display.webtoonSize}
+          onChange={(webtoonSize) => set({ webtoonSize })}
         />
         <PrefSwitch
           title={t('reader.display.pageNumber')}
@@ -107,12 +99,12 @@ export const ReaderDisplaySettings: FC<{ title?: string }> = ({ title }) => {
           disabled={busy}
           onChange={(pageNumber) => set({ pageNumber })}
         />
-        <PrefChoice<number>
+        <PrefSize
           title={t('reader.display.barWidth')}
-          value={display.barWidth}
-          disabled={busy}
-          options={BAR_WIDTHS.map((value) => ({ value, label: percent(value) }))}
-          onChange={(barWidth) => set({ barWidth })}
+          unit="%"
+          {...READER_SIZE}
+          value={display.barSize}
+          onChange={(barSize) => set({ barSize })}
         />
         <PrefSwitch
           title={t('reader.display.barChapters')}

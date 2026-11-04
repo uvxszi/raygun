@@ -7,6 +7,8 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
+import { PrefAction, PrefGroup, PrefSwitch } from './prefs';
+import { Problem } from './Problem';
 
 const MCP = ['mcp'];
 
@@ -35,7 +37,7 @@ const CopyButton: FC<{ text: string; label: string }> = ({ text, label }) => {
           setTimeout(() => setCopied(false), 1500);
         })
       }
-      className="text-muted flex shrink-0 items-center gap-1 text-xs"
+      className="text-muted hover:text-foreground flex shrink-0 items-center gap-1 text-xs font-semibold"
     >
       <Copy aria-hidden size={14} />
       {copied ? t('mcp.copied') : t('mcp.copy')}
@@ -43,7 +45,7 @@ const CopyButton: FC<{ text: string; label: string }> = ({ text, label }) => {
   );
 };
 
-/** Lets AI agents control Raygun through the Model Context Protocol (M19). */
+/** Lets AI assistants on this device control Raygun through the Model Context Protocol (M19). */
 export const McpCard: FC = () => {
   const { t } = useTranslation();
   const status = useMcpStatus();
@@ -57,79 +59,59 @@ export const McpCard: FC = () => {
   const error = status.error ?? setEnabled.error ?? newToken.error;
 
   return (
-    <section
-      data-testid="mcp-card"
-      className="bg-surface flex flex-col gap-3 rounded-xl px-5 py-4 text-sm"
-    >
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex flex-col gap-0.5">
-          <h2 id="mcp-title" className="font-medium">
-            {t('mcp.title')}
-          </h2>
-          <p className="text-muted text-xs">{t('mcp.description')}</p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={data?.enabled ?? false}
-          aria-labelledby="mcp-title"
+    <div data-testid="mcp-card">
+      <PrefGroup title={t('mcp.group')}>
+        <PrefSwitch
+          title={t('mcp.title')}
+          summary={t('mcp.description')}
+          checked={data?.enabled ?? false}
           disabled={!data || setEnabled.isPending}
-          onClick={() => data && setEnabled.mutate(!data.enabled)}
-          className={`relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-60 ${data?.enabled ? 'bg-primary' : 'bg-background'}`}
-        >
-          <span
-            aria-hidden
-            className={`bg-foreground absolute top-1 size-5 rounded-full transition-all ${data?.enabled ? 'left-6' : 'left-1'}`}
-          />
-        </button>
-      </div>
-      {data?.enabled && (
-        <dl className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1">
-            <dt className="text-muted text-xs">{t('mcp.address')}</dt>
-            <dd className="flex items-center justify-between gap-2">
-              <code data-testid="mcp-url" className="min-w-0 break-all">
-                {data.url ?? t('mcp.notRunning')}
-              </code>
-              {data.url && <CopyButton text={data.url} label={t('mcp.copyAddress')} />}
-            </dd>
-          </div>
-          <div className="flex flex-col gap-1">
-            <dt className="text-muted text-xs">{t('mcp.token')}</dt>
-            <dd className="flex items-center justify-between gap-2">
-              <code data-testid="mcp-token" className="min-w-0 break-all">
-                {showToken ? data.token : '•'.repeat(16)}
-              </code>
-              <span className="flex shrink-0 items-center gap-3">
-                <button
-                  type="button"
-                  aria-label={t(showToken ? 'mcp.hideToken' : 'mcp.showToken')}
-                  onClick={() => setShowToken((shown) => !shown)}
-                  className="text-muted"
-                >
-                  {showToken ? <EyeOff aria-hidden size={16} /> : <Eye aria-hidden size={16} />}
-                </button>
-                <CopyButton text={data.token} label={t('mcp.copyToken')} />
+          onChange={(enabled) => setEnabled.mutate(enabled)}
+        />
+        {data?.enabled && (
+          <>
+            <li className="flex flex-col gap-1 px-1 py-2">
+              <span className="text-muted text-xs">{t('mcp.address')}</span>
+              <span className="flex items-center justify-between gap-2">
+                <code data-testid="mcp-url" className="selectable min-w-0 text-sm break-all">
+                  {data.url ?? t('mcp.notRunning')}
+                </code>
+                {data.url && <CopyButton text={data.url} label={t('mcp.copyAddress')} />}
               </span>
-            </dd>
-          </div>
-          <p className="text-muted text-xs">{t('mcp.hint')}</p>
-          <button
-            type="button"
-            disabled={newToken.isPending}
-            onClick={() => newToken.mutate(undefined)}
-            className="text-primary flex items-center gap-2 self-start text-sm disabled:opacity-60"
-          >
-            <RefreshCw aria-hidden size={14} />
-            {t('mcp.newToken')}
-          </button>
-        </dl>
-      )}
-      {(data?.error ?? error) && (
-        <p role="alert" className="text-primary wrap-anywhere">
-          {data?.error ?? error?.message}
-        </p>
-      )}
-    </section>
+            </li>
+            <li className="flex flex-col gap-1 px-1 py-2">
+              <span className="text-muted text-xs">{t('mcp.token')}</span>
+              <span className="flex items-center justify-between gap-2">
+                <code data-testid="mcp-token" className="selectable min-w-0 text-sm break-all">
+                  {showToken ? data.token : '•'.repeat(16)}
+                </code>
+                <span className="flex shrink-0 items-center gap-3">
+                  <button
+                    type="button"
+                    aria-label={t(showToken ? 'mcp.hideToken' : 'mcp.showToken')}
+                    onClick={() => setShowToken((shown) => !shown)}
+                    className="text-muted hover:text-foreground"
+                  >
+                    {showToken ? <EyeOff aria-hidden size={16} /> : <Eye aria-hidden size={16} />}
+                  </button>
+                  <CopyButton text={data.token} label={t('mcp.copyToken')} />
+                </span>
+              </span>
+            </li>
+            <PrefAction
+              icon={RefreshCw}
+              title={t('mcp.newToken')}
+              disabled={newToken.isPending}
+              onClick={() => newToken.mutate(undefined)}
+            />
+          </>
+        )}
+        {(data?.error ?? error) && (
+          <li className="px-1 py-2">
+            <Problem title={t('mcp.problem')} detail={data?.error ?? error?.message} />
+          </li>
+        )}
+      </PrefGroup>
+    </div>
   );
 };
