@@ -142,9 +142,9 @@
     {
       "id": "dev.raygun.librivox",
       "name": "LibriVox",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "apiVersion": 1,
-      "description": "Free public-domain audiobooks read by LibriVox volunteers, found through the Internet Archive and played chapter by chapter.",
+      "description": "Free public-domain audiobooks read by LibriVox volunteers: found by title, author or genre through the Internet Archive and LibriVox's own catalogue, and played chapter by chapter.",
       "author": "Raygun",
       "provides": [
         "audiobook.directory"
@@ -157,9 +157,9 @@
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.librivox-1.0.0.zip",
-      "sha256": "489e63428da79c4be9858ad742de357d15cddbb6b1bd82e18b2e00031a739547",
-      "size": 1755
+      "package": "packages/dev.raygun.librivox-1.1.0.zip",
+      "sha256": "de9494f39b22a0df8bc51dcb068845b4c6f85ea2cd9df3a6be4ebed354dd9688",
+      "size": 3151
     },
     {
       "id": "dev.raygun.listenbrainz",

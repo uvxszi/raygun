@@ -1,18 +1,35 @@
 import { useSearch } from '@tanstack/react-router';
-import { Check, LoaderCircle, Plus, RefreshCw } from 'lucide-react';
-import { useState } from 'react';
+import {
+  Check,
+  CheckCheck,
+  Copy,
+  Globe,
+  LoaderCircle,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { TopBar } from '../shell/TopBar';
 import { PinButton } from '../shell/PinButton';
+import { OverflowMenu } from '../shell/OverflowMenu';
 
 import { EpisodeItem } from '../podcasts/EpisodeItem';
+import { EpisodeList } from '../podcasts/EpisodeList';
+import { EpisodeOrderButton } from '../podcasts/EpisodeOrderButton';
 import { PodcastArt } from '../podcasts/PodcastArt';
+import { ShowNotes } from '../podcasts/ShowNotes';
+import { ShowSpeedButton } from '../podcasts/ShowSpeedButton';
 import {
+  useOpenPodcastPage,
   usePodcast,
   usePodcastEvents,
   useRefreshPodcast,
+  useRemoveDownloads,
+  useSetAllPlayed,
+  useSetEpisodeOrder,
   useSetSubscribed,
 } from '../podcasts/usePodcasts';
 import { SourceIssue } from '../shell/SourceIssue';
@@ -20,7 +37,12 @@ import { useSearchMode } from '../shell/useSearchMode';
 import { matchesSearch } from '../shell/useListSearch';
 import { usePlayContext } from '../music/playContext';
 
-/** A podcast: subscribe, read about it, and play or download its episodes. */
+const copy = (text: string) => void navigator.clipboard?.writeText(text).catch(() => undefined);
+
+/**
+ * A podcast: subscribe, read about it, set its speed, and play or download its episodes, sorted
+ * and filtered its own way (M46.48).
+ */
 export const PodcastPage: FC = () => {
   const { t } = useTranslation();
   const find = useSearchMode(t('podcasts.findEpisode'));
@@ -29,7 +51,10 @@ export const PodcastPage: FC = () => {
   const podcast = usePodcast(id);
   const refresh = useRefreshPodcast();
   const setSubscribed = useSetSubscribed();
-  const [expanded, setExpanded] = useState(false);
+  const setOrder = useSetEpisodeOrder();
+  const setAll = useSetAllPlayed();
+  const removeDownloads = useRemoveDownloads();
+  const openPage = useOpenPodcastPage();
   const view = podcast.data;
   usePlayContext(
     view
@@ -47,7 +72,7 @@ export const PodcastPage: FC = () => {
   if (podcast.error && !view) {
     return (
       <section data-testid="podcast-page">
-        <SourceIssue>{podcast.error.message}</SourceIssue>
+        <SourceIssue onRetry={() => void podcast.refetch()}>{podcast.error.message}</SourceIssue>
       </section>
     );
   }
@@ -58,6 +83,18 @@ export const PodcastPage: FC = () => {
       </section>
     );
   }
+
+  const shown = view.episodes.filter((episode) =>
+    matchesSearch(find.query, [episode.title, episode.description]),
+  );
+  const filtered = view.order.filters.length > 0 || find.query.trim() !== '';
+  const error =
+    refresh.error ??
+    setSubscribed.error ??
+    setOrder.error ??
+    setAll.error ??
+    removeDownloads.error ??
+    openPage.error;
 
   return (
     <section data-testid="podcast-page" className="flex flex-col gap-5">
@@ -70,6 +107,12 @@ export const PodcastPage: FC = () => {
         actions={
           <>
             {find.action}
+            <EpisodeOrderButton
+              order={view.order}
+              custom={view.customOrder}
+              book={false}
+              onChange={(order) => setOrder.mutate({ id: view.id, order })}
+            />
             <PinButton
               target={{
                 kind: 'podcast',
@@ -78,7 +121,45 @@ export const PodcastPage: FC = () => {
                 name: view.title,
                 artworkUrl: view.artworkUrl ?? null,
               }}
-            />{' '}
+            />
+            <OverflowMenu
+              items={[
+                {
+                  label: t('podcasts.menu.refresh'),
+                  icon: RefreshCw,
+                  onSelect: () => refresh.mutate(view.id),
+                },
+                {
+                  label: t('podcasts.markAllPlayed'),
+                  icon: CheckCheck,
+                  onSelect: () => setAll.mutate({ id: view.id, played: true }),
+                },
+                {
+                  label: t('podcasts.markAllUnplayed'),
+                  icon: Check,
+                  onSelect: () => setAll.mutate({ id: view.id, played: false }),
+                },
+                {
+                  label: t('podcasts.removeDownloads'),
+                  icon: Trash2,
+                  onSelect: () => removeDownloads.mutate(view.id),
+                },
+                ...(view.link
+                  ? [
+                      {
+                        label: t('podcasts.openWebsite'),
+                        icon: Globe,
+                        onSelect: () => view.link && openPage.mutate(view.link),
+                      },
+                    ]
+                  : []),
+                {
+                  label: t('podcasts.menu.copyFeed'),
+                  icon: Copy,
+                  onSelect: () => copy(view.feedUrl),
+                },
+              ]}
+            />
           </>
         }
       />
@@ -98,6 +179,7 @@ export const PodcastPage: FC = () => {
               {view.subscribed ? <Check aria-hidden size={16} /> : <Plus aria-hidden size={16} />}
               {t(view.subscribed ? 'podcasts.subscribed' : 'podcasts.subscribe')}
             </button>
+            <ShowSpeedButton id={view.id} speed={view.speed} />
             <button
               type="button"
               aria-label={t('podcasts.refresh')}
@@ -114,33 +196,35 @@ export const PodcastPage: FC = () => {
           </div>
         </div>
       </header>
-      {view.description && (
-        <button
-          type="button"
-          onClick={() => setExpanded(!expanded)}
-          aria-expanded={expanded}
-          className={`text-muted text-left text-sm whitespace-pre-line wrap-anywhere ${expanded ? '' : 'line-clamp-3'}`}
-        >
-          {view.description}
-        </button>
-      )}
-      {(refresh.error ?? setSubscribed.error) && (
-        <SourceIssue>{(refresh.error ?? setSubscribed.error)?.message}</SourceIssue>
-      )}
+      {view.description && <ShowNotes text={view.description} clamp />}
+      {error && <SourceIssue>{error.message}</SourceIssue>}
       <section aria-labelledby="podcast-episodes" className="flex flex-col gap-2">
         <h2 id="podcast-episodes" className="font-semibold">
-          {t('podcasts.episodes', { count: view.episodes.length })}
+          {filtered && shown.length !== view.episodeCount
+            ? t('podcasts.episodesShown', { shown: shown.length, count: view.episodeCount })
+            : t('podcasts.episodes', { count: view.episodeCount })}
         </h2>
-        {view.episodes.length === 0 ? (
+        {view.episodeCount === 0 ? (
           <p className="text-muted text-sm">{t('podcasts.noEpisodes')}</p>
+        ) : shown.length === 0 ? (
+          <div className="flex flex-col items-start gap-2">
+            <p className="text-muted text-sm">{t('podcasts.noneShown')}</p>
+            {view.order.filters.length > 0 && (
+              <button
+                type="button"
+                onClick={() =>
+                  setOrder.mutate({ id: view.id, order: { ...view.order, filters: [] } })
+                }
+                className="bg-surface rounded-full px-4 py-1.5 text-sm"
+              >
+                {t('podcasts.showAll')}
+              </button>
+            )}
+          </div>
         ) : (
-          <ul className="bg-surface flex flex-col gap-4 rounded-xl px-4 py-3">
-            {view.episodes
-              .filter((episode) => matchesSearch(find.query, [episode.title, episode.description]))
-              .map((episode) => (
-                <EpisodeItem key={episode.id} episode={episode} />
-              ))}
-          </ul>
+          <EpisodeList episodes={shown}>
+            {(episode) => <EpisodeItem key={episode.id} episode={episode} />}
+          </EpisodeList>
         )}
       </section>
     </section>

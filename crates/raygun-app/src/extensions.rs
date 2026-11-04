@@ -123,6 +123,17 @@ fn built_in() -> Vec<ExtensionSource> {
                 include_str!("../../../extensions/loyalbooks/dist/index.js"),
             ),
         ]),
+        // Lit2Go's readings, which list their chapters themselves (M46.48).
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/lit2go/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/lit2go/dist/index.js"),
+            ),
+        ]),
         ExtensionSource::built_in(&[
             (
                 "raygun-extension.json",

@@ -47,6 +47,7 @@ export const LAYOUT_ENTRIES: Record<LayoutSurface, readonly (readonly [string, b
     ['getStarted', true],
     ['continueWatching', true],
     ['continueReading', true],
+    ['continueListening', true],
     ['madeForYou', true],
     ['yourMusic', true],
     ['topArtists', true],

@@ -1,4 +1,4 @@
-import type { SleepTimer } from '@raygun/bindings';
+import type { SleepTimer, SpokenItem } from '@raygun/bindings';
 import { Gauge } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { FC } from 'react';
@@ -38,8 +38,13 @@ const useExtras = () => {
  * Speed and the sleep timer (M46.8), behind one button in the player bar and the full player.
  * The button shows a running timer's minutes, or a speed other than normal.
  */
-export const PlaybackExtras: FC<{ className?: string }> = ({ className = '' }) => {
+export const PlaybackExtras: FC<{
+  className?: string;
+  /** A podcast episode or a book's chapter: the timer's "end" is its end (M46.48). */
+  spoken?: SpokenItem | null;
+}> = ({ className = '', spoken = null }) => {
   const { t } = useTranslation();
+  const ending: Ending = !spoken ? 'Song' : spoken.kind === 'audiobook' ? 'Chapter' : 'Episode';
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const { rate, sleepAt, afterSong } = useExtras();
   const minutesLeft = useMinutesLeft(sleepAt);
@@ -51,7 +56,7 @@ export const PlaybackExtras: FC<{ className?: string }> = ({ className = '' }) =
     minutesLeft !== null
       ? t('player.extras.pausesIn', { count: minutesLeft })
       : afterSong
-        ? t('player.extras.pausesAfterSong')
+        ? t(`player.extras.pausesAfter${ending}`)
         : null,
     rate !== 1 ? `${rate}×` : null,
   ]
@@ -81,14 +86,17 @@ export const PlaybackExtras: FC<{ className?: string }> = ({ className = '' }) =
           popoverWidth={300}
           onClose={() => setAnchor(null)}
         >
-          <ExtrasPanel />
+          <ExtrasPanel ending={ending} />
         </Sheet>
       )}
     </>
   );
 };
 
-const ExtrasPanel: FC = () => {
+/** What the timer's "end" is: the song's, the episode's or the chapter's. */
+type Ending = 'Song' | 'Episode' | 'Chapter';
+
+const ExtrasPanel: FC<{ ending: Ending }> = ({ ending }) => {
   const { t } = useTranslation();
   const { rate, sleepAt, afterSong } = useExtras();
   const minutesLeft = useMinutesLeft(sleepAt);
@@ -97,7 +105,7 @@ const ExtrasPanel: FC = () => {
     minutesLeft !== null
       ? t('player.extras.pausesIn', { count: minutesLeft })
       : afterSong
-        ? t('player.extras.pausesAfterSong')
+        ? t(`player.extras.pausesAfter${ending}`)
         : null;
 
   return (
@@ -156,7 +164,7 @@ const ExtrasPanel: FC = () => {
             onClick={() => setTimer(afterSong ? { kind: 'off' } : { kind: 'endOfTrack' })}
             className={`${CHIP} ${afterSong ? CHIP_ON : CHIP_OFF}`}
           >
-            {t('player.extras.endOfSong')}
+            {t(`player.extras.endOf${ending}`)}
           </button>
         </div>
       </section>

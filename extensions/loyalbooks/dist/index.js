@@ -1,4 +1,4 @@
-// dev.raygun.loyalbooks 1.0.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.loyalbooks 1.0.1. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -57,6 +57,31 @@
     ).then((pages) => pages.flat());
     return popularBooks;
   };
+  var GENRES = [
+    "Adventure",
+    "Children",
+    "Comedy",
+    "Fairy_tales",
+    "Fantasy",
+    "Fiction",
+    "Historical_Fiction",
+    "History",
+    "Humor",
+    "Literature",
+    "Mystery",
+    "Non-fiction",
+    "Philosophy",
+    "Poetry",
+    "Religion",
+    "Romance",
+    "Science_fiction",
+    "Short_stories",
+    "Teen_Young_adult"
+  ];
+  var genrePage = (subject) => {
+    const name = subject.trim().replace(/\s+/g, "_");
+    return GENRES.find((genre) => genre.toLowerCase() === name.toLowerCase()) ?? null;
+  };
   var simple = (text) => text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   registerProvider(
     defineProvider({
@@ -80,7 +105,7 @@
         return listing("/Top_100", page);
       },
       async subject({ subject, page }) {
-        const name = subject.trim().replace(/\s+/g, "_");
+        const name = genrePage(subject);
         if (!name) return { books: [], hasMore: false };
         return listing(`/genre/${encodeURIComponent(name)}`, page);
       }

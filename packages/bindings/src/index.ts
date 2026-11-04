@@ -387,8 +387,19 @@ export const commands = {
 	audiobookOpen: (feedUrl: string) => typedError<string, string>(__TAURI_INVOKE("audiobook_open", { feedUrl })),
 	/**  Plays a book from a chapter, or where it was left, with the rest after it (M46.22). */
 	audiobookPlay: (id: string, chapterId: string | null) => typedError<null, string>(__TAURI_INVOKE("audiobook_play", { id, chapterId })),
-	/**  A page of books from the audiobook directories (M46.22). */
+	/**
+	 *  A page of books from every audiobook source at once (M46.22): `popular`, `latest`, `search`
+	 *  or `subject`; searches rank by title and author and a book two sources share shows once
+	 *  (M46.48).
+	 */
 	audiobookDirectory: (list: string, query: string, page: number) => typedError<AudiobookPage, string>(__TAURI_INVOKE("audiobook_directory", { list, query, page })),
+	/**
+	 *  Downloads every chapter of a book not downloaded yet, two at a time; returns how many were
+	 *  queued (M46.48).
+	 */
+	audiobookDownload: (id: string) => typedError<number, string>(__TAURI_INVOKE("audiobook_download", { id })),
+	/**  Episodes and books started and not finished, the last listened first (M46.48). */
+	podcastContinueListening: (limit: number) => typedError<ListeningItem[], string>(__TAURI_INVOKE("podcast_continue_listening", { limit })),
 	/**  An episode's or chapter's captions, with where transcribing stands (M46.32). */
 	captions: (episodeId: string) => typedError<Captions, string>(__TAURI_INVOKE("captions", { episodeId })),
 	/**  Transcribes an episode from `from_ms` with the engine set up in Settings → AI (M46.32). */
@@ -785,9 +796,36 @@ export const commands = {
 	/**  Plays an episode, resuming where listening stopped. */
 	podcastPlay: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("podcast_play", { episodeId })),
 	podcastSetPlayed: (episodeId: string, played: boolean) => typedError<null, string>(__TAURI_INVOKE("podcast_set_played", { episodeId, played })),
-	/**  Downloads an episode in the background; progress arrives as `PodcastsChangedEvent`s. */
+	/**  Marks every episode of a show (or chapter of a book) played or unplayed (M46.48). */
+	podcastSetAllPlayed: (id: string, played: boolean) => typedError<null, string>(__TAURI_INVOKE("podcast_set_all_played", { id, played })),
+	/**  Marks the episodes before this one played: older ones, or a book's earlier chapters (M46.48). */
+	podcastSetEarlierPlayed: (episodeId: string) => typedError<number, string>(__TAURI_INVOKE("podcast_set_earlier_played", { episodeId })),
+	/**  Forgets where listening stopped, without marking it played (M46.48: Continue listening). */
+	podcastForgetPosition: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("podcast_forget_position", { episodeId })),
+	/**
+	 *  How a show's or book's episodes list, kept for it; `None` goes back to the kind's own
+	 *  (M46.48).
+	 */
+	podcastSetEpisodeOrder: (id: string, order: {
+	sort: EpisodeSort,
+	/**  Newest, highest, longest or last first. */
+	descending: boolean,
+	filters: EpisodeFilter[],
+} | null) => typedError<null, string>(__TAURI_INVOKE("podcast_set_episode_order", { id, order })),
+	/**  The speed a show's or book's episodes play at; `None` leaves the player's (M46.48). */
+	podcastSetSpeed: (id: string, speed: number | null) => typedError<null, string>(__TAURI_INVOKE("podcast_set_speed", { id, speed })),
+	/**
+	 *  Downloads an episode in the background, two at a time; progress arrives as
+	 *  `PodcastsChangedEvent`s.
+	 */
 	podcastDownload: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("podcast_download", { episodeId })),
 	podcastRemoveDownload: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("podcast_remove_download", { episodeId })),
+	/**  Deletes every downloaded episode of a show or chapter of a book (M46.48). */
+	podcastRemoveDownloads: (id: string) => typedError<null, string>(__TAURI_INVOKE("podcast_remove_downloads", { id })),
+	/**  Stops a download that's waiting or under way (M46.48). */
+	podcastCancelDownload: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("podcast_cancel_download", { episodeId })),
+	/**  Opens a show's or book's website, or a link from its notes, in Raygun's browser (M46.48). */
+	podcastOpenPage: (url: string) => typedError<null, string>(__TAURI_INVOKE("podcast_open_page", { url })),
 	/**  Plays a video in the player, resuming where it was left. */
 	videoPlay: (request: VideoRequest) => typedError<null, string>(__TAURI_INVOKE("video_play", { request })),
 	/**  Plays a video link (with an optional subtitle file). */
@@ -1168,6 +1206,7 @@ export const events = {
 	aiModelEvent: makeEvent<AiModelEvent>("ai-model-event"),
 	appUpdateEvent: makeEvent<AppUpdateEvent>("app-update-event"),
 	artistReleasesEvent: makeEvent<ArtistReleasesEvent>("artist-releases-event"),
+	audiobooksFoundEvent: makeEvent<AudiobooksFoundEvent>("audiobooks-found-event"),
 	captionsEvent: makeEvent<CaptionsEvent>("captions-event"),
 	connectEvent: makeEvent<ConnectEvent>("connect-event"),
 	connectRequestEvent: makeEvent<ConnectRequestEvent>("connect-request-event"),
@@ -1428,6 +1467,8 @@ export type AudiobookPage = {
 export type AudiobookResult = {
 	title: string,
 	author: string | null,
+	/**  Which recording, when a source has several ("Version 2"), M46.48. */
+	edition: string | null,
 	feedUrl: string,
 	artworkUrl: string | null,
 	runtime: string | null,
@@ -1441,24 +1482,53 @@ export type AudiobookSummary = {
 	id: string,
 	title: string,
 	author: string | null,
+	/**  Which recording, when a source has several ("Version 2"), M46.48. */
+	edition: string | null,
 	artworkUrl: string | null,
 	chapters: number,
 	/**  Chapters listened to the end. */
 	finished: number,
+	/**  Its length and how much of it was listened, when the feed gives lengths (M46.48). */
+	totalMs: number | null,
+	listenedMs: number | null,
 };
 
-/**  A book with its chapters in order. */
+/**  A book with its chapters. */
 export type AudiobookView = {
 	id: string,
 	feedUrl: string,
 	title: string,
 	author: string | null,
+	/**  Which recording, when a source has several ("Version 2"), M46.48. */
+	edition: string | null,
 	description: string | null,
 	artworkUrl: string | null,
 	link: string | null,
 	inLibrary: boolean,
+	/**  As `order` lists them (M46.48; in chapter order unless changed). */
 	chapters: PodcastEpisode[],
+	order: EpisodeOrder,
+	customOrder: boolean,
+	/**
+	 *  Every chapter, shown or filtered out, how many were finished, and how many are downloaded
+	 *  or on their way.
+	 */
+	chapterCount: number,
+	finished: number,
+	downloaded: number,
+	downloading: number,
+	totalMs: number | null,
+	listenedMs: number | null,
+	/**  `None` once every chapter is finished (or there are none). */
+	resume: BookResume | null,
+	speed: number | null,
 };
+
+/**
+ *  An audiobook source answered after its list was shown (M46.48): `[list, query]`, so the list
+ *  asks again and shows the late books (kept ready by then).
+ */
+export type AudiobooksFoundEvent = [string, string];
 
 /**
  *  Next pages load as a list's end comes near (M46.8), at most one per `cooldown_ms`, so sources
@@ -1504,6 +1574,15 @@ export type BlocklistStatus = {
 	updatedAt: number | null,
 	source: string | null,
 	error: string | null,
+};
+
+/**  Where a book goes on from (M46.48): the chapter being listened, or the next one. */
+export type BookResume = {
+	chapterId: string,
+	/**  Its place in the book, from 1. */
+	number: number,
+	title: string,
+	positionMs: number | null,
 };
 
 /**  Image cache limits and refreshing. One stored row; missing fields keep their defaults. */
@@ -1848,7 +1927,29 @@ export type EpisodeDownload = {
 	error: string | null,
 };
 
-export type EpisodeDownloadState = "downloading" | "done" | "failed";
+export type EpisodeDownloadState = 
+/**  Waiting for another download to finish (M46.48: two at a time). */
+"queued" | "downloading" | "done" | "failed";
+
+/**  Which episodes show (M46.48); several at once must all hold. */
+export type EpisodeFilter = "unplayed" | "started" | "downloaded";
+
+/**  How a show's or book's episodes list, kept per show (M46.48). */
+export type EpisodeOrder = {
+	sort: EpisodeSort,
+	/**  Newest, highest, longest or last first. */
+	descending: boolean,
+	filters: EpisodeFilter[],
+};
+
+/**  What a show's or book's episodes are sorted by (M46.48). */
+export type EpisodeSort = 
+/**  Release date. */
+"date" | 
+/**  Episode number, or a book's chapter order. */
+"number" | "title" | "duration" | 
+/**  Started ones, then the rest not played, then the played. */
+"unplayed";
 
 /**  Where an export's files go. */
 export type ExportDestination = 
@@ -2328,6 +2429,26 @@ export type LibraryTrack = {
 	year: number | null,
 	durationMs: number | null,
 	artworkUrl: string | null,
+};
+
+/**  An episode or a book to go on with, for Home's Continue listening (M46.48). */
+export type ListeningItem = {
+	kind: SpokenKind,
+	podcastId: string,
+	episodeId: string,
+	/**  The episode's or the chapter's title. */
+	title: string,
+	/**  The show's or the book's. */
+	show: string,
+	author: string | null,
+	artworkUrl: string | null,
+	positionMs: number | null,
+	durationMs: number | null,
+	/**  A book's: the chapter's place and how many there are. */
+	chapter: number | null,
+	chapters: number | null,
+	/**  Unix ms. */
+	listenedAt: number | null,
 };
 
 /**  The "Your listening" numbers (QuietPlay's stat cards). */
@@ -3272,6 +3393,8 @@ export type PodcastEpisode = {
 	artworkUrl: string | null,
 	video: boolean,
 	download: EpisodeDownload | null,
+	/**  The episode's number (`itunes:episode`), or a chapter's place in its book (M46.48). */
+	number: number | null,
 };
 
 /**  A podcast a directory found. */
@@ -3306,8 +3429,15 @@ export type PodcastView = {
 	artworkUrl: string | null,
 	link: string | null,
 	subscribed: boolean,
-	/**  Newest first. */
+	/**  As `order` lists them (M46.48; newest first unless changed). */
 	episodes: PodcastEpisode[],
+	order: EpisodeOrder,
+	/**  `order` isn't the kind's own (M46.48). */
+	customOrder: boolean,
+	/**  Every episode, shown or filtered out. */
+	episodeCount: number,
+	/**  The speed its episodes play at, when it has its own (M46.48). */
+	speed: number | null,
 };
 
 /**

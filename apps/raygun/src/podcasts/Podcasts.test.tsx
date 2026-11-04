@@ -23,6 +23,7 @@ const episode = (overrides: Partial<PodcastEpisode> = {}): PodcastEpisode => ({
   artworkUrl: null,
   video: false,
   download: null,
+  number: null,
   ...overrides,
 });
 
@@ -36,6 +37,10 @@ const SHOW: PodcastView = {
   link: null,
   subscribed: false,
   episodes: [episode(), episode({ id: 'e2', title: 'Episode Two', positionMs: 1_800_000 })],
+  order: { sort: 'date', descending: true, filters: [] },
+  customOrder: false,
+  episodeCount: 2,
+  speed: null,
 };
 
 describe('Podcasts', () => {
@@ -106,7 +111,7 @@ describe('Podcasts', () => {
     await user.click(within(page).getByRole('button', { name: 'Subscribe' }));
     expect(commands.podcastSetSubscribed).toHaveBeenCalledWith('p1', true);
 
-    await user.click(within(two).getByRole('button', { name: 'Play Episode Two' }));
+    await user.click(within(two).getByRole('button', { name: 'Resume Episode Two' }));
     expect(commands.podcastPlay).toHaveBeenCalledWith('e2');
     await user.click(within(one).getByRole('button', { name: 'Mark as played' }));
     expect(commands.podcastSetPlayed).toHaveBeenCalledWith('e1', true);
@@ -163,5 +168,97 @@ describe('Podcasts', () => {
     const one = await within(page).findByRole('listitem', { name: 'Episode One' });
     expect(await within(one).findByText(/Downloaded/)).toBeInTheDocument();
     expect(within(one).getByRole('button', { name: 'Delete download' })).toBeInTheDocument();
+  });
+
+  it('sorts and filters a show’s episodes its own way, kept in Rust', async () => {
+    const user = userEvent.setup();
+    commands.podcastGet.mockResolvedValue(ok(SHOW));
+    await AppShellWrapper.mount('/podcast?id=p1');
+    const page = await screen.findByTestId('podcast-page');
+    await within(page).findByRole('listitem', { name: 'Episode One' });
+
+    await user.click(screen.getByRole('button', { name: 'Sort and filter' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Sort and filter' });
+    expect(within(sheet).getByRole('button', { name: /Release date/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await user.click(within(sheet).getByRole('button', { name: /Release date/ }));
+    expect(commands.podcastSetEpisodeOrder).toHaveBeenCalledWith('p1', {
+      sort: 'date',
+      descending: false,
+      filters: [],
+    });
+    await user.click(within(sheet).getByRole('checkbox', { name: 'Unplayed' }));
+    expect(commands.podcastSetEpisodeOrder).toHaveBeenLastCalledWith('p1', {
+      sort: 'date',
+      descending: true,
+      filters: ['unplayed'],
+    });
+
+    // Rust answers with the episodes it kept and how many there are in all.
+    commands.podcastGet.mockResolvedValue(
+      ok({
+        ...SHOW,
+        episodes: [SHOW.episodes[1]!],
+        order: { sort: 'date', descending: true, filters: ['started'] },
+        customOrder: true,
+      }),
+    );
+    emitEvent('podcastsChangedEvent', 'p1');
+    expect(
+      await within(page).findByRole('heading', { name: '1 of 2 episodes' }),
+    ).toBeInTheDocument();
+    expect(within(page).queryByRole('listitem', { name: 'Episode One' })).not.toBeInTheDocument();
+  });
+
+  it('keeps a speed for the show, marks every episode, and opens links in its notes', async () => {
+    const user = userEvent.setup();
+    commands.podcastGet.mockResolvedValue(
+      ok({ ...SHOW, description: 'Notes and more at https://example.com/show.' }),
+    );
+    await AppShellWrapper.mount('/podcast?id=p1');
+    const page = await screen.findByTestId('podcast-page');
+
+    await user.click(within(page).getByRole('button', { name: 'Speed for this show' }));
+    const speeds = await screen.findByRole('radiogroup', { name: 'Playback speed' });
+    await user.click(within(speeds).getByRole('radio', { name: '1.5×' }));
+    expect(commands.podcastSetSpeed).toHaveBeenCalledWith('p1', 1.5);
+
+    await user.click(within(page).getByRole('link', { name: 'https://example.com/show' }));
+    expect(commands.podcastOpenPage).toHaveBeenCalledWith('https://example.com/show');
+
+    await user.click(
+      within(screen.getByTestId('top-bar')).getByRole('button', { name: 'More options' }),
+    );
+    await user.click(await screen.findByRole('menuitem', { name: 'Mark all as played' }));
+    expect(commands.podcastSetAllPlayed).toHaveBeenCalledWith('p1', true);
+  });
+
+  it('shows downloads waiting and under way, and stops them', async () => {
+    const user = userEvent.setup();
+    commands.podcastGet.mockResolvedValue(
+      ok({
+        ...SHOW,
+        episodes: [
+          episode({
+            download: { state: 'downloading', receivedBytes: 25, totalBytes: 100, error: null },
+          }),
+          episode({
+            id: 'e2',
+            title: 'Episode Two',
+            download: { state: 'queued', receivedBytes: 0, totalBytes: null, error: null },
+          }),
+        ],
+      }),
+    );
+    await AppShellWrapper.mount('/podcast?id=p1');
+    const page = await screen.findByTestId('podcast-page');
+    const one = await within(page).findByRole('listitem', { name: 'Episode One' });
+    expect(within(one).getByText(/Downloading 25%/)).toBeInTheDocument();
+    const two = within(page).getByRole('listitem', { name: 'Episode Two' });
+    expect(within(two).getByText(/Waiting to download/)).toBeInTheDocument();
+    await user.click(within(two).getByRole('button', { name: 'Cancel download' }));
+    expect(commands.podcastCancelDownload).toHaveBeenCalledWith('e2');
   });
 });

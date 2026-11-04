@@ -1,9 +1,13 @@
 //! Podcast feeds (M37): RSS 2.0 with the iTunes tags, and Atom. Lenient about the details real
 //! feeds get wrong; only episodes with an audio (or video) enclosure are kept.
 
+use std::borrow::Cow;
+
+use ego_tree::iter::Edge;
 use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
 use raygun_db::podcasts::{EpisodeFields, PodcastFields};
+use scraper::{Html, Node};
 
 /// Feeds larger than this are refused (some long-running shows reach a few MB).
 pub const MAX_FEED_BYTES: usize = 16 * 1024 * 1024;
@@ -140,12 +144,17 @@ pub fn parse(bytes: &[u8], feed_url: &str) -> Result<(PodcastFields, Vec<Episode
     }
     let title = channel
         .title
-        .clone()
+        .as_deref()
+        .map(plain_line)
+        .filter(|title| !title.is_empty())
         .ok_or_else(|| "This feed has no title".to_owned())?;
     let podcast = PodcastFields {
         feed_url: feed_url.to_owned(),
         title,
-        author,
+        author: author
+            .as_deref()
+            .map(plain_line)
+            .filter(|name| !name.is_empty()),
         description: channel
             .description
             .clone()
@@ -165,7 +174,12 @@ pub fn parse(bytes: &[u8], feed_url: &str) -> Result<(PodcastFields, Vec<Episode
             }
             Some(EpisodeFields {
                 guid: item.guid.unwrap_or_else(|| audio_url.clone()),
-                title: item.title.unwrap_or_else(|| "Untitled episode".to_owned()),
+                title: item
+                    .title
+                    .as_deref()
+                    .map(plain_line)
+                    .filter(|title| !title.is_empty())
+                    .unwrap_or_else(|| "Untitled episode".to_owned()),
                 description: item
                     .description
                     .or(item.summary)
@@ -273,47 +287,180 @@ fn unescape(text: &str) -> String {
         .unwrap_or_else(|_| text.to_owned())
 }
 
-/// A description as plain text: tags dropped, paragraphs kept as blank lines.
-fn clean_text(html: &str) -> String {
+/// Elements that start a line of their own in show notes (list items do too, as "• ").
+const BLOCKS: [&str; 21] = [
+    "p",
+    "div",
+    "ul",
+    "ol",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "tr",
+    "table",
+    "blockquote",
+    "section",
+    "article",
+    "header",
+    "footer",
+    "pre",
+    "dd",
+    "dt",
+    "hr",
+];
+
+/// A description as plain text: tags dropped, every HTML character reference read (`&rsquo;`,
+/// `&nbsp;`), paragraphs kept as blank lines. Plain-text notes keep their own line breaks.
+pub fn clean_text(html: &str) -> String {
+    let marked_up = html.match_indices('<').any(|(at, _)| {
+        html[at + 1..].starts_with(|ch: char| ch.is_ascii_alphabetic() || ch == '/')
+    });
+    if !marked_up {
+        return paragraphs(&decode_entities(html), false);
+    }
+    let fragment = Html::parse_fragment(html);
     let mut out = String::with_capacity(html.len().min(MAX_DESCRIPTION));
-    let mut in_tag = false;
-    let mut tag = String::new();
-    for ch in html.chars() {
-        match ch {
-            '<' => {
-                in_tag = true;
-                tag.clear();
-            }
-            '>' if in_tag => {
-                in_tag = false;
-                let name = tag
-                    .trim_start_matches('/')
-                    .split(|c: char| c.is_whitespace() || c == '/')
-                    .next()
-                    .unwrap_or_default()
-                    .to_lowercase();
-                if matches!(
-                    name.as_str(),
-                    "p" | "br" | "li" | "div" | "h1" | "h2" | "h3"
-                ) {
-                    out.push('\n');
+    // Text inside these never shows.
+    let mut hidden = 0usize;
+    for edge in fragment.root_element().traverse() {
+        match edge {
+            Edge::Open(node) => match node.value() {
+                Node::Text(text) if hidden == 0 => out.push_str(text),
+                Node::Element(element) => match element.name() {
+                    "script" | "style" | "template" => hidden += 1,
+                    "br" => out.push('\n'),
+                    "li" => out.push_str("\n• "),
+                    name if BLOCKS.contains(&name) => out.push('\n'),
+                    _ => {}
+                },
+                _ => {}
+            },
+            Edge::Close(node) => {
+                if let Node::Element(element) = node.value() {
+                    match element.name() {
+                        "script" | "style" | "template" => hidden = hidden.saturating_sub(1),
+                        name if BLOCKS.contains(&name) => out.push('\n'),
+                        _ => {}
+                    }
                 }
             }
-            _ if in_tag => tag.push(ch),
-            _ => out.push(ch),
         }
         if out.len() >= MAX_DESCRIPTION {
             break;
         }
     }
-    let text = unescape(&out);
-    let mut lines: Vec<&str> = Vec::new();
-    for line in text.lines().map(str::trim) {
+    paragraphs(&out, true)
+}
+
+/// Lines trimmed, at most one blank line between paragraphs; `collapse` runs spaces together as
+/// HTML does.
+fn paragraphs(text: &str, collapse: bool) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    for line in text.lines() {
+        let line = if collapse {
+            // HTML's spaces; a no-break space stays.
+            line.split_ascii_whitespace().collect::<Vec<_>>().join(" ")
+        } else {
+            line.trim().to_owned()
+        };
         if !line.is_empty() || lines.last().is_some_and(|last| !last.is_empty()) {
             lines.push(line);
         }
     }
-    lines.join("\n").trim().to_owned()
+    let mut text = lines.join("\n").trim().to_owned();
+    if text.len() > MAX_DESCRIPTION {
+        let mut end = MAX_DESCRIPTION;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+    }
+    text
+}
+
+/// One line of text from a feed (a title, a name): character references read and spaces run
+/// together. CDATA keeps escaped HTML as it is ("Q&amp;A"), so titles need this after XML.
+pub fn plain_line(text: &str) -> String {
+    decode_entities(text)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// HTML character references in `text`: `&amp;`, `&rsquo;`, `&#8217;`, `&#x2019;`. Anything that
+/// isn't one (a lone `&`, an unknown name) stays as written.
+pub fn decode_entities(text: &str) -> Cow<'_, str> {
+    if !text.contains('&') {
+        return Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find('&') {
+        out.push_str(&rest[..at]);
+        let tail = &rest[at..];
+        match reference(tail) {
+            Some((decoded, used)) => {
+                out.push_str(&decoded);
+                rest = &tail[used..];
+            }
+            None => {
+                out.push('&');
+                rest = &tail[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    Cow::Owned(out)
+}
+
+/// What the reference at the start of `text` stands for, and how long it is.
+fn reference(text: &str) -> Option<(String, usize)> {
+    // Names are short: `&CounterClockwiseContourIntegral;` is the longest.
+    let end = text[1..]
+        .char_indices()
+        .take_while(|(at, _)| *at < 33)
+        .find(|(_, ch)| *ch == ';')?
+        .0
+        + 1;
+    let name = &text[1..end];
+    let decoded = match name.strip_prefix('#') {
+        Some(number) => {
+            let code = match number.strip_prefix(['x', 'X']) {
+                Some(hex) => u32::from_str_radix(hex, 16).ok()?,
+                None => number.parse::<u32>().ok()?,
+            };
+            match code {
+                0 => return None,
+                // Windows-1252's characters, as browsers read them (`&#146;` is ’).
+                0x80..=0x9f => html_reference(&text[..=end])?,
+                _ => char::from_u32(code)?.to_string(),
+            }
+        }
+        None if !name.is_empty() && name.chars().all(|ch| ch.is_ascii_alphanumeric()) => match name
+        {
+            "amp" => "&".to_owned(),
+            "lt" => "<".to_owned(),
+            "gt" => ">".to_owned(),
+            "quot" => "\"".to_owned(),
+            "apos" => "'".to_owned(),
+            "nbsp" => "\u{a0}".to_owned(),
+            _ => html_reference(&text[..=end])?,
+        },
+        None => return None,
+    };
+    Some((decoded, end + 1))
+}
+
+/// A reference read by the HTML parser, which knows every name; `None` when it isn't one. Every
+/// name stands for one or two characters, so a longer answer is an old name read inside an
+/// unknown one ("&notaname;" isn't "¬aname;").
+fn html_reference(reference: &str) -> Option<String> {
+    let fragment = Html::parse_fragment(reference);
+    let text: String = fragment.root_element().text().collect();
+    (text != reference && (1..=2).contains(&text.chars().count())).then_some(text)
 }
 
 /// `itunes:duration`: seconds, `MM:SS` or `HH:MM:SS`.
@@ -426,6 +573,49 @@ mod tests {
 
         assert!(parse(b"<html><body>Hi</body></html>", "x").is_err());
         assert!(parse(b"not xml at all <<<", "x").is_err());
+    }
+
+    /// LibriVox puts escaped HTML in CDATA ("Tasa &amp; El Rey"); show notes use HTML's names.
+    #[test]
+    fn titles_and_notes_read_every_character_reference() {
+        let feed = r#"<?xml version="1.0"?>
+<rss xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" version="2.0"><channel>
+  <title><![CDATA[Don Quijote 1 by Miguel de Cervantes Saavedra (1547 - 1616)]]></title>
+  <itunes:author>LibriVox</itunes:author>
+  <description><![CDATA[<p>It&rsquo;s a&nbsp;book &amp; more &copy; 1605</p><script>alert(1)</script>
+    <ul><li>One</li><li>Two</li></ul>]]></description>
+  <item><title><![CDATA[Dedicación: Al Duque de Béjar &amp; Prólogo]]></title>
+    <description>Line one
+Line two &#8211; still plain</description>
+    <enclosure url="https://archive.org/download/q/q_02.mp3" type="audio/mpeg"/></item>
+  <item><title>  Q&amp;amp;A &#x2014; part&#160;2  </title>
+    <enclosure url="https://archive.org/download/q/q_03.mp3" type="audio/mpeg"/></item>
+</channel></rss>"#;
+        let (book, chapters) = parse(feed.as_bytes(), "https://librivox.org/rss/567").unwrap();
+        assert_eq!(
+            book.description.as_deref(),
+            Some("It’s a\u{a0}book & more © 1605\n\n• One\n• Two")
+        );
+        assert_eq!(chapters[0].title, "Dedicación: Al Duque de Béjar & Prólogo");
+        assert_eq!(
+            chapters[0].description.as_deref(),
+            Some("Line one\nLine two – still plain"),
+            "plain notes keep their lines"
+        );
+        assert_eq!(chapters[1].title, "Q&A — part 2");
+    }
+
+    #[test]
+    fn character_references() {
+        assert_eq!(decode_entities("AT&T & co"), "AT&T & co");
+        assert_eq!(decode_entities("&rsquo;&#39;&#x27;&amp;"), "’''&");
+        assert_eq!(decode_entities("&#146;"), "’", "Windows-1252's characters");
+        assert_eq!(
+            decode_entities("&notarealname; &#0;"),
+            "&notarealname; &#0;"
+        );
+        assert_eq!(decode_entities("a &b"), "a &b");
+        assert!(matches!(decode_entities("plain"), Cow::Borrowed("plain")));
     }
 
     #[test]

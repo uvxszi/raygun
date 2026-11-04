@@ -1,5 +1,5 @@
 import type { PodcastEpisode } from '@raygun/bindings';
-import { Check, Download, LoaderCircle, Play, Trash2 } from 'lucide-react';
+import { Check, Clock, Download, LoaderCircle, Play, Trash2 } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
 import type { FC } from 'react';
@@ -8,10 +8,14 @@ import { useTranslation } from 'react-i18next';
 import { openContextMenu } from '../shell/contextMenuStore';
 import { formatLength } from './formatLength';
 import { episodeMenu } from './podcastMenus';
+import { ShowNotes } from './ShowNotes';
 import {
+  useCancelEpisodeDownload,
   useDownloadEpisode,
+  useForgetPosition,
   usePlayEpisode,
   useRemoveEpisodeDownload,
+  useSetEarlierPlayed,
   useSetPlayed,
 } from './usePodcasts';
 import { SourceIssue } from '../shell/SourceIssue';
@@ -19,40 +23,78 @@ import { SourceIssue } from '../shell/SourceIssue';
 const ICON_BUTTON =
   'bg-background grid size-9 shrink-0 place-items-center rounded-full disabled:opacity-60';
 
+/** How far a download is, "34%", when its size is known. */
+const share = (received: number, total: number | null) =>
+  total && total > 0 ? Math.min(99, Math.floor((received / total) * 100)) : null;
+
 /**
  * One episode: what it is, how far it was listened to, and play, played and download actions. An
- * audiobook's chapter passes `onPlay` to play the rest of the book after it (M46.22), and
- * `tapToPlay` so tapping the chapter plays it (M46.45; its notes stay in its menu).
+ * audiobook's chapter (`chapter`) shows its number and reads finished rather than played; it
+ * passes `onPlay` to play the rest of the book after it (M46.22), and `tapToPlay` so tapping the
+ * chapter plays it (M46.45; its notes stay in its menu).
  */
 export const EpisodeItem: FC<{
   episode: PodcastEpisode;
   showPodcast?: boolean;
   onPlay?: () => void;
   tapToPlay?: boolean;
-}> = ({ episode, showPodcast = false, onPlay, tapToPlay = false }) => {
+  chapter?: boolean;
+}> = ({ episode, showPodcast = false, onPlay, tapToPlay = false, chapter = false }) => {
   const { t, i18n } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const play = usePlayEpisode();
   const setPlayed = useSetPlayed();
+  const setEarlier = useSetEarlierPlayed();
+  const forget = useForgetPosition();
   const download = useDownloadEpisode();
+  const cancel = useCancelEpisodeDownload();
   const removeDownload = useRemoveEpisodeDownload();
   const navigate = useNavigate();
   const duration = episode.durationMs ?? 0;
   const position = episode.positionMs ?? 0;
   const started = !episode.played && position > 0;
   const downloadState = episode.download?.state;
+  const percent = episode.download
+    ? share(episode.download.receivedBytes ?? 0, episode.download.totalBytes)
+    : null;
+  const start = () => (onPlay ? onPlay() : play.mutate(episode.id));
 
   const status = episode.played
-    ? t('podcasts.played')
+    ? t(chapter ? 'audiobooks.chapterFinished' : 'podcasts.played')
     : started && duration > 0
       ? t('podcasts.left', { time: formatLength(duration - position, t) })
       : duration > 0
         ? formatLength(duration, t)
         : null;
-  const date = episode.publishedAt
-    ? new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' }).format(episode.publishedAt)
-    : null;
-  const error = play.error ?? download.error ?? setPlayed.error;
+  const date =
+    episode.publishedAt && !chapter
+      ? new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' }).format(episode.publishedAt)
+      : null;
+  const downloadNote =
+    downloadState === 'done'
+      ? t('podcasts.downloaded')
+      : downloadState === 'queued'
+        ? t('podcasts.downloadWaiting')
+        : downloadState === 'downloading'
+          ? percent !== null
+            ? t('podcasts.downloadingShare', { percent })
+            : t('podcasts.downloading')
+          : null;
+  const error =
+    play.error ??
+    download.error ??
+    setPlayed.error ??
+    setEarlier.error ??
+    forget.error ??
+    cancel.error ??
+    removeDownload.error;
+  const markLabel = chapter
+    ? episode.played
+      ? 'audiobooks.markUnfinished'
+      : 'audiobooks.markFinished'
+    : episode.played
+      ? 'podcasts.markUnplayed'
+      : 'podcasts.markPlayed';
 
   return (
     <li
@@ -62,9 +104,13 @@ export const EpisodeItem: FC<{
         openContextMenu(
           event,
           episodeMenu(episode, t, {
-            play: () => (onPlay ? onPlay() : play.mutate(episode.id)),
+            chapter,
+            play: start,
             setPlayed: (played) => setPlayed.mutate({ id: episode.id, played }),
+            setEarlierPlayed: () => setEarlier.mutate(episode.id),
+            startOver: started ? () => forget.mutate(episode.id) : undefined,
             download: () => download.mutate(episode.id),
+            cancelDownload: () => cancel.mutate(episode.id),
             removeDownload: () => removeDownload.mutate(episode.id),
             toggleNotes: () => setExpanded(!expanded),
             notesShown: expanded,
@@ -76,37 +122,44 @@ export const EpisodeItem: FC<{
       }
     >
       <div className="flex items-start gap-3">
+        {chapter && episode.number !== null && (
+          <span
+            aria-hidden
+            className={`w-7 shrink-0 pt-0.5 text-right text-sm tabular-nums ${episode.played ? 'text-muted' : 'text-muted/80'}`}
+          >
+            {episode.number}
+          </span>
+        )}
         <button
           type="button"
-          onClick={() =>
-            tapToPlay ? (onPlay ? onPlay() : play.mutate(episode.id)) : setExpanded(!expanded)
-          }
+          onClick={() => (tapToPlay ? start() : setExpanded(!expanded))}
           aria-expanded={tapToPlay ? undefined : expanded}
           className={`flex min-w-0 flex-1 flex-col gap-0.5 text-left ${tapToPlay ? 'hover:text-primary' : ''}`}
         >
           {showPodcast && (
             <span className="text-muted truncate text-xs">{episode.podcastTitle}</span>
           )}
-          <span className={`font-medium ${episode.played ? 'text-muted' : ''}`}>
+          <span className={`font-medium wrap-anywhere ${episode.played ? 'text-muted' : ''}`}>
             {episode.title}
           </span>
           <span className="text-muted text-xs">
-            {[date, status].filter(Boolean).join(' · ')}
-            {downloadState === 'done' && ` · ${t('podcasts.downloaded')}`}
+            {[date, status, downloadNote].filter(Boolean).join(' · ')}
           </span>
         </button>
         <button
           type="button"
-          aria-label={t('podcasts.play', { title: episode.title })}
+          aria-label={t(started ? 'podcasts.resumeTitle' : 'podcasts.play', {
+            title: episode.title,
+          })}
           disabled={play.isPending}
-          onClick={() => (onPlay ? onPlay() : play.mutate(episode.id))}
+          onClick={start}
           className="bg-primary text-background grid size-9 shrink-0 place-items-center rounded-full disabled:opacity-60"
         >
           <Play aria-hidden size={16} />
         </button>
         <button
           type="button"
-          aria-label={t(episode.played ? 'podcasts.markUnplayed' : 'podcasts.markPlayed')}
+          aria-label={t(markLabel)}
           aria-pressed={episode.played}
           disabled={setPlayed.isPending}
           onClick={() => setPlayed.mutate({ id: episode.id, played: !episode.played })}
@@ -124,27 +177,42 @@ export const EpisodeItem: FC<{
           >
             <Trash2 aria-hidden size={16} />
           </button>
+        ) : downloadState === 'downloading' || downloadState === 'queued' ? (
+          <button
+            type="button"
+            aria-label={t('podcasts.cancelDownload')}
+            disabled={cancel.isPending}
+            onClick={() => cancel.mutate(episode.id)}
+            className={`${ICON_BUTTON} text-primary`}
+          >
+            {downloadState === 'queued' ? (
+              <Clock aria-hidden size={16} />
+            ) : (
+              <LoaderCircle aria-hidden size={16} className="animate-spin" />
+            )}
+          </button>
         ) : (
           <button
             type="button"
-            aria-label={t('podcasts.download')}
-            disabled={downloadState === 'downloading' || download.isPending}
+            aria-label={t(
+              downloadState === 'failed' ? 'podcasts.downloadAgain' : 'podcasts.download',
+            )}
+            disabled={download.isPending}
             onClick={() => download.mutate(episode.id)}
             className={ICON_BUTTON}
           >
-            {downloadState === 'downloading' ? (
-              <LoaderCircle aria-hidden size={16} className="animate-spin" />
-            ) : (
-              <Download aria-hidden size={16} />
-            )}
+            <Download aria-hidden size={16} />
           </button>
         )}
       </div>
       {started && duration > 0 && (
-        <div aria-hidden className="bg-background h-1 overflow-hidden rounded-full">
+        <div
+          aria-hidden
+          className={`bg-background h-1 overflow-hidden rounded-full ${chapter ? 'ml-10' : ''}`}
+        >
           <div
-            className="bg-primary h-full"
-            style={{ width: `${Math.min(100, (position / duration) * 100)}%` }}
+            className="bg-primary h-full origin-left"
+            style={{ transform: `scaleX(${Math.min(1, position / duration)})` }}
           />
         </div>
       )}
@@ -153,11 +221,7 @@ export const EpisodeItem: FC<{
           {t('podcasts.downloadFailed', { message: episode.download.error })}
         </SourceIssue>
       )}
-      {expanded && episode.description && (
-        <p className="text-muted text-sm whitespace-pre-line wrap-anywhere">
-          {episode.description}
-        </p>
-      )}
+      {expanded && episode.description && <ShowNotes text={episode.description} />}
       {error && <SourceIssue compact>{error.message}</SourceIssue>}
     </li>
   );

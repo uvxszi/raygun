@@ -91,6 +91,7 @@ const episode = (id: string, title: string, played = false): PodcastEpisode => (
   artworkUrl: null,
   video: false,
   download: null,
+  number: null,
 });
 
 describe('Home', () => {

@@ -62,6 +62,7 @@ import { useIsDesktop } from '../shell/useIsDesktop';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { UpdateBanner } from '../updates/UpdateBanner';
 import { ContinueWatchingRow } from '../watch/ContinueWatchingRow';
+import { ContinueListening } from '../podcasts/ContinueListening';
 import { useContinueWatching } from '../watch/useWatch';
 
 /** Playlists shown as shortcuts next to Favorites. */
@@ -447,10 +448,27 @@ const ContinueWatching: FC<SectionProps> = ({ id }) => {
   );
 };
 
+/** Episodes and books started and not finished (M46.48). */
+const ContinueListeningSection: FC<SectionProps> = ({ id }) => {
+  const { t } = useTranslation();
+  const rowMenu = useHomeRowActions();
+  return (
+    <div
+      data-home-section={id}
+      onContextMenu={(event) =>
+        openContextMenu(event, rowMenu(id, t('podcasts.continueListening')))
+      }
+    >
+      <ContinueListening />
+    </div>
+  );
+};
+
 /** Home's sections by their layout id (M46.5; more rows from Browse all's kinds in M46.47). */
 const HOME_SECTIONS: Record<string, FC<SectionProps>> = {
   continueWatching: ContinueWatching,
   continueReading: ContinueReading,
+  continueListening: ContinueListeningSection,
   madeForYou: MadeForYouRow,
   yourMusic: YourMusic,
   topArtists: TopArtistsSection,

@@ -158,10 +158,9 @@ async fn kept_tokens(app: &AppHandle) -> Result<HashSet<String>, raygun_db::DbEr
             }
         }
     }
-    for row in raygun_db::podcasts::subscriptions(&db).await? {
-        if let Some(artwork) = &row.podcast.fields.artwork {
-            kept.insert(proxy_image_token(artwork, &Default::default()));
-        }
+    // Followed shows and the books in the library (M46.48: books too).
+    for artwork in raygun_db::podcasts::library_artwork(&db).await? {
+        kept.insert(proxy_image_token(&artwork, &Default::default()));
     }
     // Downloaded songs' covers show offline (M46.26).
     for row in raygun_db::music_downloads::all(&db).await? {

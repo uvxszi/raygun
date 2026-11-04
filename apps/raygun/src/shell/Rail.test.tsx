@@ -114,6 +114,10 @@ describe('The sidebar (M46.29)', () => {
         link: null,
         subscribed: true,
         episodes: [],
+        order: { sort: 'date', descending: true, filters: [] },
+        customOrder: false,
+        episodeCount: 0,
+        speed: null,
       }),
     );
     await AppShellWrapper.mount('/podcast?id=show-1');
