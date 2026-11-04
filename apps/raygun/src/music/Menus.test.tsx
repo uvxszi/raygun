@@ -200,10 +200,11 @@ describe('Menus', () => {
     const sheet = await screen.findByRole('dialog', { name: 'Add to playlist' });
     await user.click(within(sheet).getByRole('button', { name: /Road trip/ }));
     await vi.waitFor(() =>
-      expect(commands.playlistAdd).toHaveBeenCalledWith('p1', [
-        expect.objectContaining({ title: 'One' }),
-        expect.objectContaining({ title: 'Two' }),
-      ]),
+      expect(commands.playlistAdd).toHaveBeenCalledWith(
+        'p1',
+        [expect.objectContaining({ title: 'One' }), expect.objectContaining({ title: 'Two' })],
+        false,
+      ),
     );
     expect(await screen.findByTestId('toast')).toHaveTextContent('Added 2 songs to Road trip');
   });

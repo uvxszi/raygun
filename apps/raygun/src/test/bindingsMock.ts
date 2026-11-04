@@ -257,6 +257,8 @@ export const bindingsMock = {
     coverSave: vi.fn(),
     detailEdit: vi.fn(),
     trackAssignSource: vi.fn(),
+    trackUseSource: vi.fn(),
+    trackImportStatus: vi.fn(),
     spokenItem: vi.fn(),
     captions: vi.fn(),
     captionsVideoTranscribe: vi.fn(),
@@ -390,6 +392,7 @@ export const bindingsMock = {
     favoritesList: vi.fn(),
     favoriteGet: vi.fn(),
     collectionsSaves: vi.fn(),
+    collectionsSavedIndex: vi.fn(),
     collectionsSetSaves: vi.fn(),
     musicArtist: vi.fn(),
     musicArtistInfo: vi.fn(),
@@ -731,6 +734,8 @@ export const seedBindings = () => {
   );
   commands.tracksUnavailable.mockResolvedValue(ok([]));
   commands.trackAssignSource.mockResolvedValue(ok(null));
+  commands.trackUseSource.mockResolvedValue(ok(null));
+  commands.trackImportStatus.mockResolvedValue(ok({ imported: false, unavailable: false }));
   commands.spokenItem.mockResolvedValue(ok(null));
   commands.captionsTranscribe.mockResolvedValue(ok(null));
   commands.captionsStop.mockResolvedValue(null);
@@ -858,6 +863,7 @@ export const seedBindings = () => {
   commands.favoritesList.mockResolvedValue(ok([]));
   commands.favoriteGet.mockResolvedValue(ok(false));
   commands.collectionsSaves.mockResolvedValue(ok({ favorite: false, playlistIds: [] }));
+  commands.collectionsSavedIndex.mockResolvedValue(ok([]));
   commands.collectionsSetSaves.mockResolvedValue(ok(null));
   commands.musicArtist.mockResolvedValue(ok({ name: '', popular: [], albums: [], tracks: [] }));
   commands.musicArtistInfo.mockResolvedValue(ok(null));
@@ -886,7 +892,9 @@ export const seedBindings = () => {
   );
   commands.playlistRename.mockResolvedValue(ok(null));
   commands.playlistDelete.mockResolvedValue(ok(null));
-  commands.playlistAdd.mockResolvedValue(ok(null));
+  commands.playlistAdd.mockImplementation(async (_id: string, tracks: unknown[]) =>
+    ok({ added: tracks.length, already: 0 }),
+  );
   commands.playlistRemoveItem.mockResolvedValue(ok(null));
   commands.playlistMoveItem.mockResolvedValue(ok(null));
   commands.historyRecent.mockResolvedValue(ok([]));

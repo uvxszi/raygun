@@ -31,8 +31,9 @@ const AddSongsSheet: FC<{ songs: SongsToAdd; onClose: () => void }> = ({ songs, 
       if (tracks.length === 0) throw new Error(t('menu.noSongs', { name: songs.title }));
       const playlist =
         'id' in target ? target : await unwrapResult(commands.playlistCreate(target.name));
-      await unwrapResult(commands.playlistAdd(playlist.id, tracks));
-      return { count: tracks.length, name: playlist.name };
+      // Songs the playlist holds already stay out (M46.48): the count is what was added.
+      const added = await unwrapResult(commands.playlistAdd(playlist.id, tracks, false));
+      return { count: added.added, name: playlist.name };
     },
     onSuccess: ({ count, name: playlist }) => {
       void client.invalidateQueries({ queryKey: [COLLECTIONS] });

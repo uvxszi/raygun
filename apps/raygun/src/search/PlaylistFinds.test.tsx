@@ -69,9 +69,11 @@ describe('Playlist search (M46.39)', () => {
     expect(within(page).getByRole('img', { name: 'Explicit' })).toBeInTheDocument();
     await user.click(within(page).getByRole('button', { name: 'Save to library' }));
     await vi.waitFor(() =>
-      expect(commands.playlistAdd).toHaveBeenCalledWith('p1', [
-        expect.objectContaining({ title: 'Stronger' }),
-      ]),
+      expect(commands.playlistAdd).toHaveBeenCalledWith(
+        'p1',
+        [expect.objectContaining({ title: 'Stronger' })],
+        false,
+      ),
     );
     expect(commands.playlistCreate).toHaveBeenCalledWith('Workout');
   });

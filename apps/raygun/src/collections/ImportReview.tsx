@@ -8,7 +8,14 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { commands } from '@raygun/bindings';
-import type { ImportedList, ImportedSong, MatchedSong, SongCandidate } from '@raygun/bindings';
+import type {
+  ImportedList,
+  ImportedSong,
+  MatchedSong,
+  MediaSource,
+  OnlineTrack,
+  SongCandidate,
+} from '@raygun/bindings';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import {
@@ -30,6 +37,7 @@ import { formatTime } from '../player/formatTime';
 import { playResults } from '../search/useOnlineSearch';
 import { SourceIssue } from '../shell/SourceIssue';
 import { TextField } from '../shell/TextField';
+import { savesIn, useSavedSongs } from './savedSongs';
 import { COLLECTIONS, usePlaylists } from './useCollections';
 
 /** Songs matched at once, so the list fills in as it goes. */
@@ -53,27 +61,51 @@ const pendingOf = (song: ImportedSong): MatchedSong => ({
   pending: true,
 });
 
-/** A candidate as the matched song it would make. */
+const lookupOf = (track: OnlineTrack): MediaSource => ({
+  kind: 'lookup',
+  title: track.title,
+  artist: track.artist,
+  album: track.album,
+  durationMs: track.durationMs,
+});
+
+/**
+ * A candidate as the matched song it would make, as Rust's matching makes it: a title alone takes
+ * the candidate's artist, and the song plays the candidate's own stream, else by the candidate's
+ * names, which find what its preview played (M46.48).
+ */
 const fromCandidate = (row: Row, candidate: SongCandidate): MatchedSong => ({
   song: {
     ...row.song,
+    artist: row.song.artist ?? candidate.track.artist,
     album: row.song.album ?? candidate.track.album,
     durationMs: row.song.durationMs ?? candidate.track.durationMs,
     artworkUrl: row.song.artworkUrl ?? candidate.track.artworkUrl,
   },
   matchedBy: candidate.providerName,
-  source: candidate.track.source,
+  source:
+    candidate.track.source?.kind === 'url' ? candidate.track.source : lookupOf(candidate.track),
   candidates: row.result?.candidates ?? [],
   pending: false,
 });
+
+/** What a row saves: its match, unless its names changed since (then it's matched again). */
+const resultFor = (row: Row): MatchedSong =>
+  row.result &&
+  row.result.song.title === row.song.title &&
+  (row.song.artist === null || row.result.song.artist === row.song.artist)
+    ? row.result
+    : pendingOf(row.song);
 
 const ReviewRow: FC<{
   row: Row;
   index: number;
   count: number;
+  /** The destination's name when it holds the song already (M46.48). */
+  already: string | null;
   onChange: (row: Row, rematch: boolean) => void;
   onMove: (from: number, to: number) => void;
-}> = ({ row, index, count, onChange, onMove }) => {
+}> = ({ row, index, count, already, onChange, onMove }) => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -120,11 +152,17 @@ const ReviewRow: FC<{
           <input
             aria-label={t('import.songArtist')}
             value={row.song.artist ?? ''}
-            placeholder={t('import.noArtist')}
+            // A title alone is saved with its match's artist (M46.48).
+            placeholder={result?.song.artist ?? t('import.noArtist')}
             onChange={(event) => edit('artist', event.target.value)}
             onBlur={() => onChange(row, true)}
             className="text-muted focus:bg-background truncate rounded px-1 text-xs outline-none"
           />
+          {already && (
+            <span className="text-muted px-1 text-xs">
+              {t('collections.alreadyIn', { name: already })}
+            </span>
+          )}
         </span>
         {candidates.length > 1 && (
           <button
@@ -317,8 +355,22 @@ export const ImportReview: FC<{ list: ImportedList; onClose: () => void }> = ({
   };
 
   const kept = rows.filter((row) => !row.skipped);
+  // Songs the playlist or Favorites holds already, by any of their names (M46.48).
+  const saved = useSavedSongs();
+  const destinationName =
+    destination === 'favorites'
+      ? t('collections.favorites')
+      : (playlists.data?.find((playlist) => playlist.id === destination)?.name ?? '');
+  const isAlready = (row: Row) => {
+    if (destination === 'new' || !saved.data) return false;
+    const saves = savesIn(saved.data, row.result?.song ?? row.song);
+    return destination === 'favorites' ? saves.favorite : saves.playlistIds.includes(destination);
+  };
+  const alreadyCount = kept.filter(isAlready).length;
+  // Asks Spotify's question before adding songs a playlist has: add the new ones, or all.
+  const [asking, setAsking] = useState(false);
   const save = useMutation({
-    mutationFn: () =>
+    mutationFn: (addExisting: boolean) =>
       unwrapResult(
         commands.importSave(
           destination === 'new'
@@ -326,7 +378,8 @@ export const ImportReview: FC<{ list: ImportedList; onClose: () => void }> = ({
             : destination === 'favorites'
               ? { kind: 'favorites' }
               : { kind: 'playlist', id: destination },
-          kept.map((row) => row.result ?? pendingOf(row.song)),
+          kept.map(resultFor),
+          addExisting,
         ),
       ),
     onSuccess: (id) => {
@@ -349,7 +402,10 @@ export const ImportReview: FC<{ list: ImportedList; onClose: () => void }> = ({
         <span className="text-muted shrink-0">{t('import.saveTo')}</span>
         <select
           value={destination}
-          onChange={(event) => setDestination(event.target.value)}
+          onChange={(event) => {
+            setDestination(event.target.value);
+            setAsking(false);
+          }}
           className="bg-background min-w-0 flex-1 rounded-xl px-3 py-2.5 text-sm outline-none"
         >
           <option value="new">{t('collections.newPlaylist')}</option>
@@ -387,6 +443,7 @@ export const ImportReview: FC<{ list: ImportedList; onClose: () => void }> = ({
                 row={row}
                 index={index}
                 count={rows.length}
+                already={!row.skipped && isAlready(row) ? destinationName : null}
                 onChange={change}
                 onMove={move}
               />
@@ -428,31 +485,54 @@ export const ImportReview: FC<{ list: ImportedList; onClose: () => void }> = ({
       </form>
       {!done && <p className="text-muted text-xs">{t('import.keepsLooking')}</p>}
       {save.error && <SourceIssue>{save.error.message}</SourceIssue>}
-      <div className="flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onClose}
-          className="bg-background rounded-full px-5 py-2 text-sm"
-        >
-          {t('collections.cancel')}
-        </button>
-        <button
-          type="button"
-          disabled={save.isPending || kept.length === 0}
-          onClick={() => save.mutate()}
-          className="bg-primary text-background rounded-full px-5 py-2 text-sm font-semibold disabled:opacity-60"
-        >
-          {destination === 'new'
-            ? t('import.create', { count: kept.length })
-            : t('import.addTo', {
-                count: kept.length,
-                name:
-                  destination === 'favorites'
-                    ? t('collections.favorites')
-                    : (playlists.data?.find((playlist) => playlist.id === destination)?.name ?? ''),
-              })}
-        </button>
-      </div>
+      {asking ? (
+        <div role="alertdialog" aria-labelledby="import-already" className="flex flex-col gap-2">
+          <p id="import-already" className="text-sm font-medium">
+            {t('import.already', { count: alreadyCount, name: destinationName })}
+          </p>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              disabled={save.isPending}
+              onClick={() => save.mutate(true)}
+              className="bg-background rounded-full px-5 py-2 text-sm disabled:opacity-60"
+            >
+              {t('import.addAll')}
+            </button>
+            <button
+              type="button"
+              disabled={save.isPending}
+              onClick={() => save.mutate(false)}
+              className="bg-primary text-background rounded-full px-5 py-2 text-sm font-semibold disabled:opacity-60"
+            >
+              {t('import.addNew')}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="bg-background rounded-full px-5 py-2 text-sm"
+          >
+            {t('collections.cancel')}
+          </button>
+          <button
+            type="button"
+            disabled={save.isPending || kept.length === 0}
+            // Favorites hold a song once whatever is asked; a playlist asks first.
+            onClick={() =>
+              alreadyCount > 0 && destination !== 'favorites' ? setAsking(true) : save.mutate(false)
+            }
+            className="bg-primary text-background rounded-full px-5 py-2 text-sm font-semibold disabled:opacity-60"
+          >
+            {destination === 'new'
+              ? t('import.create', { count: kept.length })
+              : t('import.addTo', { count: kept.length, name: destinationName })}
+          </button>
+        </div>
+      )}
     </div>
   );
 };

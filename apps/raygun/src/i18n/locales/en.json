@@ -940,6 +940,7 @@
     },
     "nowPlaying": "Now playing",
     "findingSource": "Finding a source…",
+    "skipped": "Skipped: {{reason}}",
     "via": "via {{source}}",
     "lyrics": "Lyrics",
     "showArtwork": "Show artwork",
@@ -1203,6 +1204,10 @@
     "saved": "Saved; change where",
     "findPlaylist": "Find a playlist",
     "savedIn": "Saved in",
+    "savedHere": "Saved in this playlist",
+    "alreadyIn": "Already in {{name}}",
+    "addAnyway": "Add anyway",
+    "dontAdd": "Don't add",
     "yourPlaylists": "Your playlists",
     "favoritesDetail": "Your favorite songs",
     "songs_one": "{{count}} song",
@@ -2711,7 +2716,11 @@
     "short": "Import",
     "saveTo": "Save to",
     "addTo_one": "Add {{count}} song to {{name}}",
-    "addTo_other": "Add {{count}} songs to {{name}}"
+    "addTo_other": "Add {{count}} songs to {{name}}",
+    "already_one": "{{count}} song is already in {{name}}",
+    "already_other": "{{count}} songs are already in {{name}}",
+    "addNew": "Add new ones",
+    "addAll": "Add all"
   },
   "sourcePicker": {
     "title": "Choose a source",
@@ -2725,7 +2734,19 @@
     "unavailable": "Unavailable",
     "search": "Search",
     "downloadTitle": "Download from another source",
-    "downloadFrom": "Download from this"
+    "downloadFrom": "Download from this",
+    "useSource": "Use this source",
+    "back": "Back",
+    "thisSong": "This song",
+    "fromSource": "From {{source}}",
+    "fromPick": "From your pick",
+    "useDetails": "Use these details",
+    "fields": {
+      "title": "Title",
+      "artist": "Artist",
+      "album": "Album",
+      "cover": "Cover"
+    }
   },
   "localFiles": {
     "title": "Local files",

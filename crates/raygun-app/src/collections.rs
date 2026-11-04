@@ -1,21 +1,28 @@
 //! Favorites, playlists and play history (M18). Saved tracks are metadata that works on any
 //! device: playing one prefers the same song in the local library, then a stored portable stream,
-//! then the resolver.
+//! then the resolver. A song is found among them by the names any screen shows for it
+//! (`identity`, M46.48), so saving, unsaving and the saved marks agree everywhere.
+
+pub mod identity;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
-use raygun_db::collections::{self, TrackFields};
+use raygun_db::collections::{self, SavedRef, TrackFields};
 use raygun_db::local_music::TrackRow;
 use raygun_model::{
-    Collection, CollectionPlayRequest, HistoryEntry, MediaKind, MediaSource, PlaylistDetail,
-    PlaylistItem, PlaylistSummary, QueueItem, QueueItemInput, SavedTrack, TrackInput, TrackQuery,
+    Collection, CollectionPlayRequest, DetailTarget, HistoryEntry, MediaKind, MediaSource,
+    OnlineTrack, PlaylistAdded, PlaylistDetail, PlaylistItem, PlaylistSummary, QueueItem,
+    QueueItemInput, SavedSong, SavedTrack, SourceChoice, TrackImportStatus, TrackInput, TrackQuery,
     TrackSaves,
 };
 use tauri::{AppHandle, Manager};
 
+use crate::details::DetailService;
 use crate::library::LibraryService;
 use crate::playback::PlaybackService;
 use crate::startup::AppDb;
+use identity::{SavedIndex, SongSet, keys_of};
 
 /// Distinct artworks on a playlist cover.
 const COVER_ARTWORKS: usize = 4;
@@ -25,6 +32,8 @@ const MAX_NAME_CHARS: usize = 100;
 /// The `local_meta` key of what was played from lately (M46.37), and how many are kept.
 const RECENT_CONTEXTS: &str = "music.recentContexts";
 const RECENT_CONTEXTS_KEPT: usize = 24;
+/// The `local_meta` key set once saved songs were repaired (M46.48, see [`repair`]).
+const REPAIRED: &str = "collections.identityRepaired";
 
 pub struct CollectionsService {
     app: AppHandle,
@@ -80,56 +89,214 @@ impl CollectionsService {
         Ok(with_dates(self.saved(fields).await?, added))
     }
 
-    /// Where a song is saved: Favorites and the playlists holding it (M46.8).
+    /// Every saved copy with the keys it answers to (M46.48).
+    pub(crate) async fn index(&self) -> Result<SavedIndex, String> {
+        let rows = collections::saved_refs(self.db())
+            .await
+            .map_err(to_message)?;
+        let details = self.app.state::<Arc<DetailService>>();
+        Ok(SavedIndex::new(rows, |row| {
+            details.shown_names(&row.track_key, &row.title, row.artist.as_deref())
+        }))
+    }
+
+    /// The saved copies of a song, by the names a screen shows for it (M46.48).
+    pub(crate) async fn copies(&self, track: &TrackInput) -> Result<Vec<SavedRef>, String> {
+        let index = self.index().await?;
+        Ok(index
+            .copies(&keys_of(&track.title, track.artist.as_deref()))
+            .into_iter()
+            .cloned()
+            .collect())
+    }
+
+    /// Where a song is saved: Favorites and the playlists holding it (M46.8), whatever names it
+    /// was saved with (M46.48).
     pub async fn saves(&self, track: TrackInput) -> Result<TrackSaves, String> {
-        let key = fields(track).track_key;
-        let db = self.db();
-        Ok(TrackSaves {
-            favorite: collections::is_favorite(db, &key)
-                .await
-                .map_err(to_message)?,
-            playlist_ids: collections::playlists_with_track(db, &key)
-                .await
-                .map_err(to_message)?,
-        })
+        let index = self.index().await?;
+        Ok(index.saves(&keys_of(&track.title, track.artist.as_deref())))
+    }
+
+    /// Every saved song with the keys it answers to and where it is (M46.48): one list that every
+    /// saved mark and Save button reads.
+    pub async fn saved_index(&self) -> Result<Vec<SavedSong>, String> {
+        Ok(self.index().await?.songs())
     }
 
     /// Makes a song saved exactly where `saves` says: Favorites on or off, added to the playlists
-    /// listed that don't hold it, taken out of the ones not listed (M46.8).
+    /// listed that don't hold it, every copy taken out of the ones not listed (M46.8, M46.48).
     pub async fn set_saves(&self, track: TrackInput, saves: TrackSaves) -> Result<(), String> {
-        let saved = fields(track);
+        let index = self.index().await?;
+        let keys = keys_of(&track.title, track.artist.as_deref());
+        let plan = index.plan(&keys, &saves);
+        let mut saved = fields(track);
+        // A new copy plays what the others do (a source the user picked, M46.48).
+        if saved.source.is_none() {
+            saved.source = index.source_of(&keys);
+        }
         let db = self.db();
         let now = now_ms();
-        collections::set_favorite(db, &saved, saves.favorite, now)
+        collections::remove_saved(db, &plan.remove_favorites, &plan.remove_items)
             .await
             .map_err(to_message)?;
-        let current = collections::playlists_with_track(db, &saved.track_key)
-            .await
-            .map_err(to_message)?;
-        for id in &saves.playlist_ids {
-            if !current.contains(id) {
+        if plan.add_favorite {
+            collections::set_favorite(db, &saved, true, now)
+                .await
+                .map_err(to_message)?;
+        }
+        for id in &plan.add_to {
+            // A playlist deleted meanwhile (here or on another device) gets nothing.
+            if collections::playlist(db, id)
+                .await
+                .map_err(to_message)?
+                .is_some()
+            {
                 collections::add_to_playlist(db, id, std::slice::from_ref(&saved), now)
                     .await
                     .map_err(to_message)?;
             }
         }
-        for id in current.iter().filter(|id| !saves.playlist_ids.contains(id)) {
-            collections::remove_track_from_playlist(db, id, &saved.track_key)
-                .await
-                .map_err(to_message)?;
+        Ok(())
+    }
+
+    /// A source the user picked for a song (M46.31, M46.48). With `choice.assign`, every saved
+    /// copy and the song in the queue take its stream (a lookup under the source's names when it
+    /// has no stream of its own, so the song plays what the preview played), the resolver plays
+    /// it first and tries again what failed before, and the unavailable mark goes. The details
+    /// `choice` ticks become the song's own (Edit details reverts them); keys stay as they were.
+    pub async fn assign_source(
+        &self,
+        song: TrackInput,
+        chosen: OnlineTrack,
+        choice: SourceChoice,
+    ) -> Result<(), String> {
+        let copies = self.copies(&song).await?;
+        let picked = if choice.assign {
+            Some(
+                assign_stream(
+                    self.db(),
+                    &copies,
+                    &song,
+                    &chosen,
+                    choice.source_name.as_deref(),
+                )
+                .await?,
+            )
+        } else {
+            None
+        };
+        let details = SourceDetails::of(&chosen, &choice);
+        if !details.is_empty() {
+            self.use_details(&song, &copies, &details).await?;
+        }
+        if picked.is_none() && details.is_empty() {
+            return Ok(());
+        }
+        // The song in the queue: its stream from its next load, its names at once.
+        let song_keys = keys_of(&song.title, song.artist.as_deref());
+        let artwork = details.artwork.as_deref().map(|url| {
+            self.app
+                .state::<raygun_net::ImageLinks>()
+                .kept_cover(url, &Default::default())
+        });
+        self.app.state::<PlaybackService>().update_items(|item| {
+            if !identity::any_same(&keys_of(&item.title, item.artist.as_deref()), &song_keys) {
+                return false;
+            }
+            if let Some(source) = &picked {
+                item.media_kind = media_kind(source);
+                item.source = source.clone();
+            }
+            details.apply_to(item, artwork.clone());
+            true
+        });
+        Ok(())
+    }
+
+    /// Saves the source's details as the song's own, under every key its copies have, so each
+    /// copy shows them (M46.30's edits, merged with what the user set before).
+    async fn use_details(
+        &self,
+        song: &TrackInput,
+        copies: &[SavedRef],
+        details: &SourceDetails,
+    ) -> Result<(), String> {
+        // Each copy by its own names (an edit is kept under the key they make); a song saved
+        // nowhere by the names it showed.
+        let mut targets: Vec<(String, Option<String>)> = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
+        for row in copies {
+            if !seen.contains(&row.track_key) {
+                seen.push(row.track_key.clone());
+                targets.push((row.title.clone(), row.artist.clone()));
+            }
+        }
+        if targets.is_empty() {
+            targets.push((song.title.clone(), song.artist.clone()));
+        }
+        let service = self.app.state::<Arc<DetailService>>();
+        for (title, artist) in targets {
+            let target = DetailTarget::Song {
+                query: TrackQuery {
+                    title,
+                    artist,
+                    album: None,
+                    duration_ms: None,
+                },
+            };
+            let mut edit = service.get(&target);
+            details.merge_into(&mut edit);
+            service.set(&target, edit).await?;
         }
         Ok(())
     }
 
-    pub async fn is_favorite(&self, track: TrackInput) -> Result<bool, String> {
-        let key = fields(track).track_key;
-        collections::is_favorite(self.db(), &key)
-            .await
-            .map_err(to_message)
+    /// Where a saved song came from (M46.48): Import songs, and whether no source had it.
+    pub async fn import_status(&self, song: &TrackInput) -> Result<TrackImportStatus, String> {
+        let mut keys: Vec<String> = self
+            .copies(song)
+            .await?
+            .into_iter()
+            .map(|row| row.track_key)
+            .collect();
+        keys.push(shown_key_of(&song.title, song.artist.as_deref()));
+        let db = self.db();
+        Ok(TrackImportStatus {
+            imported: !collections::imported(db, &keys)
+                .await
+                .map_err(to_message)?
+                .is_empty(),
+            unavailable: !collections::unavailable(db, &keys)
+                .await
+                .map_err(to_message)?
+                .is_empty(),
+        })
     }
 
+    pub async fn is_favorite(&self, track: TrackInput) -> Result<bool, String> {
+        let index = self.index().await?;
+        Ok(index.holds(None, &keys_of(&track.title, track.artist.as_deref())))
+    }
+
+    /// Favorites a song once, or takes every copy of it out of Favorites (M46.48).
     pub async fn set_favorite(&self, track: TrackInput, favorite: bool) -> Result<(), String> {
-        collections::set_favorite(self.db(), &fields(track), favorite, now_ms())
+        let copies: Vec<String> = self
+            .copies(&track)
+            .await?
+            .into_iter()
+            .filter(SavedRef::is_favorite)
+            .map(|row| row.id)
+            .collect();
+        let db = self.db();
+        if !favorite {
+            return collections::remove_saved(db, &copies, &[])
+                .await
+                .map_err(to_message);
+        }
+        if !copies.is_empty() {
+            return Ok(());
+        }
+        collections::set_favorite(db, &fields(track), true, now_ms())
             .await
             .map_err(to_message)
     }
@@ -140,11 +307,7 @@ impl CollectionsService {
         let rows = collections::playlists(self.db())
             .await
             .map_err(to_message)?;
-        let mut summaries = Vec::with_capacity(rows.len());
-        for row in rows {
-            summaries.push(self.summary(row).await?);
-        }
-        Ok(summaries)
+        self.summaries(rows).await
     }
 
     pub async fn playlist(&self, id: &str) -> Result<PlaylistDetail, String> {
@@ -219,7 +382,8 @@ impl CollectionsService {
     }
 
     /// A new playlist of `ids`' songs, playlist after playlist in the order given (M46.45);
-    /// `skip_duplicates` keeps each song once. The merged playlists stay unless `remove_merged`.
+    /// `skip_duplicates` keeps each song once, whatever names its copies have (M46.48). The
+    /// merged playlists stay unless `remove_merged`.
     pub async fn merge_playlists(
         &self,
         ids: &[String],
@@ -231,14 +395,22 @@ impl CollectionsService {
             return Err("Pick at least two playlists".into());
         }
         let db = self.db();
+        let details = self.app.state::<Arc<DetailService>>();
         let mut fields: Vec<TrackFields> = Vec::new();
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = SongSet::default();
         for id in ids {
             for item in collections::playlist_items(db, id)
                 .await
                 .map_err(to_message)?
             {
-                if !skip_duplicates || seen.insert(item.track.track_key.clone()) {
+                let track = &item.track;
+                let keys = identity::row_keys(
+                    &track.track_key,
+                    &track.title,
+                    track.artist.as_deref(),
+                    details.shown_names(&track.track_key, &track.title, track.artist.as_deref()),
+                );
+                if !skip_duplicates || seen.insert(keys) {
                     fields.push(item.track);
                 }
             }
@@ -259,7 +431,29 @@ impl CollectionsService {
         self.summary(row).await
     }
 
-    pub async fn add_to_playlist(&self, id: &str, tracks: Vec<TrackInput>) -> Result<(), String> {
+    /// Adds songs to the end of a playlist, in their order (M46.48): songs it already holds, under
+    /// any of their names, stay out unless `duplicates` (Add anyway).
+    pub async fn add_to_playlist(
+        &self,
+        id: &str,
+        tracks: Vec<TrackInput>,
+        duplicates: bool,
+    ) -> Result<PlaylistAdded, String> {
+        let added = self.add_tracks(id, tracks, duplicates).await?;
+        let count = added.iter().filter(|added| **added).count() as u32;
+        Ok(PlaylistAdded {
+            added: count,
+            already: added.len() as u32 - count,
+        })
+    }
+
+    /// [`Self::add_to_playlist`], saying for each song whether it was added.
+    pub(crate) async fn add_tracks(
+        &self,
+        id: &str,
+        tracks: Vec<TrackInput>,
+        duplicates: bool,
+    ) -> Result<Vec<bool>, String> {
         let db = self.db();
         if collections::playlist(db, id)
             .await
@@ -268,10 +462,28 @@ impl CollectionsService {
         {
             return Err("This playlist no longer exists".into());
         }
-        let fields: Vec<TrackFields> = tracks.into_iter().map(fields).collect();
-        collections::add_to_playlist(db, id, &fields, now_ms())
-            .await
-            .map_err(to_message)
+        let index = self.index().await?;
+        let mut added = Vec::with_capacity(tracks.len());
+        let mut adding: Vec<TrackFields> = Vec::new();
+        for track in tracks {
+            let keys = keys_of(&track.title, track.artist.as_deref());
+            let held = !duplicates && index.holds(Some(id), &keys);
+            added.push(!held);
+            if !held {
+                let mut saved = fields(track);
+                // A new copy plays what the others do (a source the user picked, M46.48).
+                if saved.source.is_none() {
+                    saved.source = index.source_of(&keys);
+                }
+                adding.push(saved);
+            }
+        }
+        if !adding.is_empty() {
+            collections::add_to_playlist(db, id, &adding, now_ms())
+                .await
+                .map_err(to_message)?;
+        }
+        Ok(added)
     }
 
     pub async fn remove_playlist_item(&self, item_id: &str) -> Result<(), String> {
@@ -290,9 +502,10 @@ impl CollectionsService {
             .map_err(to_message)
     }
 
-    /// Keys of every song in Favorites or a playlist (M46.45).
+    /// Keys of every song in Favorites or a playlist (M46.45), with every other key their copies
+    /// answer to (M46.48: the names they show with the user's details too).
     pub async fn saved_keys(&self) -> Result<Vec<String>, String> {
-        collections::saved_keys(self.db()).await.map_err(to_message)
+        Ok(self.index().await?.all_keys())
     }
 
     /// Saves a playlist in the order of `item_ids` (M46.44).
@@ -330,9 +543,13 @@ impl CollectionsService {
         let tracks = self
             .saved(rows.into_iter().map(|row| row.track).collect())
             .await?;
+        // A song played before and after the user renamed it is one song (M46.48): its latest
+        // play stands for it.
+        let mut seen = std::collections::HashSet::new();
         Ok(tracks
             .into_iter()
             .zip(played)
+            .filter(|(track, _)| seen.insert(shown_key(track)))
             .map(|(track, played_at)| HistoryEntry {
                 track,
                 played_at: played_at as f64,
@@ -462,13 +679,16 @@ impl CollectionsService {
     /// A song to play or queue: the library's file when it has the song, else a stream the
     /// track came with, else a lookup for the resolver.
     pub async fn queue_item_for(&self, track: TrackInput) -> Result<QueueItemInput, String> {
+        // A song the user renamed is found in the library by the names its file has (M46.48).
+        let original = self
+            .app
+            .state::<Arc<DetailService>>()
+            .original_song_key(&track.title, track.artist.as_deref());
         let saved = fields(track);
-        let key = saved.track_key.clone();
-        if let Some(row) = self
-            .local_matches(std::slice::from_ref(&key))
-            .await?
-            .remove(&key)
-        {
+        let mut keys = vec![saved.track_key.clone()];
+        keys.extend(original);
+        let mut local = self.local_matches(&keys).await?;
+        if let Some(row) = keys.iter().find_map(|key| local.remove(key)) {
             return Ok(self.app.state::<LibraryService>().queue_item(row));
         }
         let mut tracks = self.saved(vec![saved]).await?;
@@ -485,21 +705,16 @@ impl CollectionsService {
     async fn saved(&self, rows: Vec<TrackFields>) -> Result<Vec<SavedTrack>, String> {
         let keys: Vec<String> = rows.iter().map(|row| row.track_key.clone()).collect();
         let local = self.local_matches(&keys).await?;
-        let plays = collections::play_counts(self.db(), &keys)
-            .await
-            .map_err(to_message)?;
         let library = self.app.state::<LibraryService>();
-        let details = self
-            .app
-            .state::<std::sync::Arc<crate::details::DetailService>>();
-        Ok(rows
+        let details = self.app.state::<Arc<DetailService>>();
+        let mut tracks: Vec<SavedTrack> = rows
             .into_iter()
             .map(|row| {
                 let found = local.get(&row.track_key);
                 let local_art = found.and_then(|track| library.artwork_url(track.art.clone()));
                 let mut track = SavedTrack {
                     local: found.is_some(),
-                    play_count: plays.get(&row.track_key).copied().unwrap_or(0) as u32,
+                    play_count: 0,
                     added_at: None,
                     artwork_url: local_art.or(row.artwork_url),
                     track_key: row.track_key,
@@ -510,52 +725,229 @@ impl CollectionsService {
                     source: row
                         .source
                         .and_then(|json| serde_json::from_str(&json).ok())
-                        .and_then(portable),
+                        .and_then(saved_source),
                 };
                 // The user's own details (M46.30).
                 details.apply_saved(&mut track);
                 track
             })
-            .collect())
+            .collect();
+        // Plays count under the song's key and under the names it shows: the player records a
+        // renamed song by its new names (M46.48).
+        let shown: Vec<String> = tracks.iter().map(shown_key).collect();
+        let mut asked = keys;
+        asked.extend(shown.iter().cloned());
+        asked.sort_unstable();
+        asked.dedup();
+        let plays = collections::play_counts(self.db(), &asked)
+            .await
+            .map_err(to_message)?;
+        for (track, shown) in tracks.iter_mut().zip(&shown) {
+            let own = plays.get(&track.track_key).copied().unwrap_or(0);
+            let renamed = if *shown == track.track_key {
+                0
+            } else {
+                plays.get(shown).copied().unwrap_or(0)
+            };
+            track.play_count = (own + renamed) as u32;
+        }
+        Ok(tracks)
     }
 
     async fn summary(&self, row: collections::PlaylistRow) -> Result<PlaylistSummary, String> {
-        let mut artwork_urls: Vec<String> = Vec::new();
-        for track in self.saved(row.first_items).await? {
-            if let Some(url) = track.artwork_url
-                && !artwork_urls.contains(&url)
-            {
-                artwork_urls.push(url);
+        self.summaries(vec![row])
+            .await?
+            .pop()
+            .ok_or_else(|| "The playlist went missing".to_owned())
+    }
+
+    /// Playlists as listed: covers from their first items' artwork (the library's where it has
+    /// the song, the user's own covers), found for every playlist at once.
+    async fn summaries(
+        &self,
+        rows: Vec<collections::PlaylistRow>,
+    ) -> Result<Vec<PlaylistSummary>, String> {
+        let keys: Vec<String> = rows
+            .iter()
+            .flat_map(|row| row.first_items.iter().map(|item| item.track_key.clone()))
+            .collect();
+        let local = self.local_matches(&keys).await?;
+        let library = self.app.state::<LibraryService>();
+        let details = self.app.state::<Arc<DetailService>>();
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                let mut artwork_urls: Vec<String> = Vec::new();
+                for item in row.first_items {
+                    let mut artwork = local
+                        .get(&item.track_key)
+                        .and_then(|track| library.artwork_url(track.art.clone()))
+                        .or(item.artwork_url);
+                    let (mut title, mut artist, mut album) = (item.title, item.artist, item.album);
+                    details.apply(
+                        &item.track_key,
+                        &mut title,
+                        &mut artist,
+                        &mut album,
+                        &mut artwork,
+                    );
+                    if let Some(url) = artwork
+                        && !artwork_urls.contains(&url)
+                    {
+                        artwork_urls.push(url);
+                    }
+                }
+                artwork_urls.truncate(COVER_ARTWORKS);
+                // The user's own cover (M46.45).
+                let cover_url = details
+                    .get(&DetailTarget::Playlist { id: row.id.clone() })
+                    .artwork_url;
+                PlaylistSummary {
+                    id: row.id,
+                    name: row.name,
+                    item_count: row.item_count as u32,
+                    artwork_urls,
+                    cover_url,
+                }
+            })
+            .collect())
+    }
+}
+
+/// The resolver's key of the names a saved track shows.
+fn shown_key(track: &SavedTrack) -> String {
+    raygun_resolver::track_key(&TrackQuery {
+        title: track.title.clone(),
+        artist: track.artist.clone(),
+        album: None,
+        duration_ms: None,
+    })
+}
+
+/// The stored side of a pick (M46.48): every saved copy of the song takes the picked stream (see
+/// [`picked_source`]), its unavailable marks go, and the resolver forgets what failed for it and
+/// plays the pick first under each of its keys: the stream itself, or what played under the
+/// source's names (its preview). Returns what the song plays from now.
+pub(crate) async fn assign_stream(
+    db: &raygun_db::Db,
+    copies: &[SavedRef],
+    song: &TrackInput,
+    chosen: &OnlineTrack,
+    source_name: Option<&str>,
+) -> Result<MediaSource, String> {
+    let source = picked_source(chosen);
+    let json = serde_json::to_string(&source).map_err(to_message)?;
+    let mut keys: Vec<String> = copies.iter().map(|row| row.track_key.clone()).collect();
+    keys.push(shown_key_of(&song.title, song.artist.as_deref()));
+    keys.sort_unstable();
+    keys.dedup();
+    let found = TrackFields {
+        track_key: String::new(),
+        title: song.title.clone(),
+        artist: song.artist.clone(),
+        album: chosen.album.clone(),
+        duration_ms: chosen.duration_ms.map(i64::from),
+        artwork_url: chosen.artwork_url.clone().filter(|url| portable_url(url)),
+        source: Some(json.clone()),
+    };
+    let (favorites, items): (Vec<&SavedRef>, Vec<&SavedRef>) =
+        copies.iter().partition(|row| row.is_favorite());
+    let ids = |rows: Vec<&SavedRef>| -> Vec<String> {
+        rows.into_iter().map(|row| row.id.clone()).collect()
+    };
+    collections::set_track_source_of(db, &ids(favorites), &ids(items), &found, true)
+        .await
+        .map_err(to_message)?;
+    for key in &keys {
+        collections::clear_unavailable(db, key)
+            .await
+            .map_err(to_message)?;
+    }
+    let now = now_ms();
+    let chosen_key = shown_key_of(&chosen.title, chosen.artist.as_deref());
+    let mut forget = keys.clone();
+    forget.push(chosen_key.clone());
+    raygun_db::streams::clear_failures(db, &forget)
+        .await
+        .map_err(to_message)?;
+    for key in &keys {
+        match &source {
+            MediaSource::Lookup { .. } => {
+                raygun_db::streams::copy_picks(db, &chosen_key, key, now).await
+            }
+            _ => {
+                raygun_db::streams::remember_pick(
+                    db,
+                    raygun_db::streams::Played {
+                        track_key: key,
+                        provider_id: source_name.unwrap_or(PICKED),
+                        candidate_id: chosen.external_id.as_deref().unwrap_or(&json),
+                        title: &chosen.title,
+                        source_json: &json,
+                        expires_at: None,
+                        bitrate_kbps: None,
+                    },
+                    now,
+                )
+                .await
             }
         }
-        artwork_urls.truncate(COVER_ARTWORKS);
-        // The user's own cover (M46.45).
-        let cover_url = self
-            .app
-            .state::<std::sync::Arc<crate::details::DetailService>>()
-            .get(&raygun_model::DetailTarget::Playlist { id: row.id.clone() })
-            .artwork_url;
-        Ok(PlaylistSummary {
-            id: row.id,
-            name: row.name,
-            item_count: row.item_count as u32,
-            artwork_urls,
-            cover_url,
-        })
+        .map_err(to_message)?;
+    }
+    Ok(source)
+}
+
+/// Merges what saving songs under several names left, once per device (M46.48): later copies of
+/// a song in Favorites and in each playlist go (the first one added stays), and rows get the key
+/// their names make. Migration 0031 already merged copies saved under the same key.
+pub async fn repair(app: &AppHandle) {
+    let db = &app.state::<AppDb>().inner().0;
+    match raygun_db::local_value(db, REPAIRED).await {
+        Ok(None) => {}
+        Ok(Some(_)) => return,
+        Err(error) => {
+            tracing::warn!(%error, "couldn't check the saved songs' repair");
+            return;
+        }
+    }
+    let result = async {
+        let plan = app.state::<CollectionsService>().index().await?.repair();
+        if !plan.is_empty() {
+            tracing::info!(
+                favorites = plan.drop_favorites.len(),
+                items = plan.drop_items.len(),
+                rekeyed = plan.rekey_favorites.len() + plan.rekey_items.len(),
+                "merging saved songs' copies"
+            );
+            collections::remove_saved(db, &plan.drop_favorites, &plan.drop_items)
+                .await
+                .map_err(to_message)?;
+            collections::set_keys(db, &plan.rekey_favorites, &plan.rekey_items)
+                .await
+                .map_err(to_message)?;
+        }
+        raygun_db::set_local_value(db, REPAIRED, "1")
+            .await
+            .map_err(to_message)
+    }
+    .await;
+    if let Err(error) = result {
+        tracing::warn!(%error, "couldn't repair the saved songs");
     }
 }
 
 /// Plays from history take this many recent tracks.
 const HISTORY_PLAY_LIMIT: u32 = 200;
+/// The stream cache's provider for a picked stream whose source has no name.
+const PICKED: &str = "picked";
 
 /// What gets stored for a track: its key, and only sources and artwork that work elsewhere.
 pub(crate) fn fields(track: TrackInput) -> TrackFields {
-    let track_key = raygun_resolver::track_key(&TrackQuery {
-        title: track.title.clone(),
-        artist: track.artist.clone(),
-        album: None,
-        duration_ms: None,
-    });
+    let track_key = shown_key_of(&track.title, track.artist.as_deref());
+    let source = track
+        .source
+        .and_then(|source| stored_source(source, &track.title, track.artist.as_deref()))
+        .and_then(|source| serde_json::to_string(&source).ok());
     TrackFields {
         track_key,
         title: track.title,
@@ -563,10 +955,7 @@ pub(crate) fn fields(track: TrackInput) -> TrackFields {
         album: track.album,
         duration_ms: track.duration_ms.map(i64::from),
         artwork_url: track.artwork_url.filter(|url| portable_url(url)),
-        source: track
-            .source
-            .and_then(portable)
-            .and_then(|source| serde_json::to_string(&source).ok()),
+        source,
     }
 }
 
@@ -576,6 +965,133 @@ pub(crate) fn portable(source: MediaSource) -> Option<MediaSource> {
         MediaSource::Url { url, .. } if portable_url(url) => Some(source),
         MediaSource::YouTube { .. } => Some(source),
         _ => None,
+    }
+}
+
+/// A source worth saving with a song: one that plays on any device, or a lookup under other
+/// names than the song's own (the names of a source the user picked, M46.48).
+pub(crate) fn stored_source(
+    source: MediaSource,
+    title: &str,
+    artist: Option<&str>,
+) -> Option<MediaSource> {
+    match &source {
+        MediaSource::Lookup {
+            title: by_title,
+            artist: by_artist,
+            ..
+        } => (by_title != title || by_artist.as_deref() != artist).then_some(source),
+        _ => portable(source),
+    }
+}
+
+/// A saved row's source as it plays: portable streams, and lookups (M46.48).
+fn saved_source(source: MediaSource) -> Option<MediaSource> {
+    match source {
+        MediaSource::Lookup { .. } => Some(source),
+        other => portable(other),
+    }
+}
+
+/// What a picked source plays from (M46.48): its own stream when it has one that works on any
+/// device, else a lookup under its names, which finds what its preview played.
+pub(crate) fn picked_source(chosen: &OnlineTrack) -> MediaSource {
+    chosen
+        .source
+        .clone()
+        .and_then(portable)
+        .unwrap_or_else(|| MediaSource::Lookup {
+            title: chosen.title.clone(),
+            artist: chosen.artist.clone(),
+            album: chosen.album.clone(),
+            duration_ms: chosen.duration_ms,
+        })
+}
+
+fn media_kind(source: &MediaSource) -> MediaKind {
+    match source {
+        MediaSource::YouTube { .. } => MediaKind::Video,
+        _ => MediaKind::Audio,
+    }
+}
+
+/// The resolver's key of a title and artist.
+fn shown_key_of(title: &str, artist: Option<&str>) -> String {
+    raygun_resolver::track_key(&TrackQuery {
+        title: title.to_owned(),
+        artist: artist.map(str::to_owned),
+        album: None,
+        duration_ms: None,
+    })
+}
+
+/// The details a pick takes from its source (M46.48), each only when ticked and known.
+#[derive(Debug, Default, Clone, PartialEq)]
+struct SourceDetails {
+    title: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+    artwork: Option<String>,
+}
+
+impl SourceDetails {
+    fn of(chosen: &OnlineTrack, choice: &SourceChoice) -> Self {
+        let known = |text: Option<&String>| {
+            text.map(|text| text.trim().to_owned())
+                .filter(|text| !text.is_empty())
+        };
+        Self {
+            title: choice.title.then(|| known(Some(&chosen.title))).flatten(),
+            artist: choice
+                .artist
+                .then(|| known(chosen.artist.as_ref()))
+                .flatten(),
+            album: choice.album.then(|| known(chosen.album.as_ref())).flatten(),
+            artwork: choice
+                .cover
+                .then(|| chosen.artwork_url.clone())
+                .flatten()
+                .filter(|url| portable_url(url)),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.title.is_none()
+            && self.artist.is_none()
+            && self.album.is_none()
+            && self.artwork.is_none()
+    }
+
+    /// Over an edit the user made before: what's ticked replaces, the rest stays.
+    fn merge_into(&self, edit: &mut raygun_model::DetailEdit) {
+        if let Some(title) = &self.title {
+            edit.title = Some(title.clone());
+        }
+        if let Some(artist) = &self.artist {
+            edit.artist = Some(artist.clone());
+        }
+        if let Some(album) = &self.album {
+            edit.album = Some(album.clone());
+        }
+        if let Some(artwork) = &self.artwork {
+            edit.artwork_url = Some(artwork.clone());
+        }
+    }
+
+    /// A queued copy shows them at once; `artwork` is the cover as the webview loads it.
+    fn apply_to(&self, item: &mut QueueItem, artwork: Option<String>) {
+        if let Some(title) = &self.title {
+            item.title = title.clone();
+        }
+        if let Some(artist) = &self.artist {
+            item.artist = Some(artist.clone());
+        }
+        if let Some(album) = &self.album {
+            item.album = Some(album.clone());
+        }
+        if artwork.is_some() {
+            item.artwork_url = artwork;
+        }
     }
 }
 
@@ -714,13 +1230,23 @@ mod tests {
         ));
         assert!(youtube.source.unwrap().contains("abc"));
 
+        // A lookup under other names is a source the user picked (M46.48); kept.
+        let picked = MediaSource::Lookup {
+            title: "Feeling Good".into(),
+            artist: Some("Nina Simone".into()),
+            album: None,
+            duration_ms: None,
+        };
+        let kept = fields(input(Some(picked), None)).source.unwrap();
+        assert!(kept.contains("lookup") && kept.contains("Feeling Good"));
         for source in [
             MediaSource::LocalFile {
                 path: "/sdcard/Music/a.flac".into(),
             },
+            // A lookup under the song's own names says nothing.
             MediaSource::Lookup {
-                title: "x".into(),
-                artist: None,
+                title: "Feeling Good (Remastered)".into(),
+                artist: Some("Nina Simone".into()),
                 album: None,
                 duration_ms: None,
             },
@@ -801,6 +1327,156 @@ mod tests {
             ..track
         });
         assert_eq!(video.media_kind, MediaKind::Video);
+    }
+
+    fn pick(source: Option<MediaSource>) -> OnlineTrack {
+        OnlineTrack {
+            external_id: Some("2".into()),
+            title: "Song".into(),
+            artist: Some("Artist".into()),
+            album: Some("Album".into()),
+            duration_ms: Some(200_000),
+            artwork_url: Some("https://img.example/a.jpg".into()),
+            source,
+            explicit: false,
+        }
+    }
+
+    /// A saved row as `play` queues it, reading its source the same way.
+    fn played(row: &TrackFields) -> QueueItem {
+        let input = queue_item(SavedTrack {
+            track_key: row.track_key.clone(),
+            title: row.title.clone(),
+            artist: row.artist.clone(),
+            album: row.album.clone(),
+            duration_ms: row.duration_ms.map(|duration| duration as u32),
+            artwork_url: row.artwork_url.clone(),
+            source: row
+                .source
+                .as_deref()
+                .and_then(|json| serde_json::from_str(json).ok())
+                .and_then(saved_source),
+            local: false,
+            added_at: None,
+            play_count: 0,
+        });
+        QueueItem {
+            id: "q1".into(),
+            title: input.title,
+            artist: input.artist,
+            album: input.album,
+            duration_ms: input.duration_ms,
+            artwork_url: input.artwork_url,
+            media_kind: input.media_kind,
+            source: input.source,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_picked_source_is_what_the_song_plays() {
+        use raygun_db::streams;
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = raygun_db::Db::open(&temp.path().join("raygun.db"))
+            .await
+            .unwrap();
+        // Imported from a screenshot with its names misread, and no source had it.
+        let song = TrackInput {
+            title: "Sogn".into(),
+            artist: Some("Artst".into()),
+            album: None,
+            duration_ms: None,
+            artwork_url: None,
+            source: None,
+        };
+        let id = collections::create_playlist(&db, "Imported", 1)
+            .await
+            .unwrap();
+        collections::add_to_playlist(&db, &id, &[fields(song.clone())], 2)
+            .await
+            .unwrap();
+        collections::mark_unavailable(&db, &["artst|sogn".to_owned()], 3)
+            .await
+            .unwrap();
+        // Played once: every match failed, and failures are kept out for a day.
+        streams::mark_failed(&db, "artst|sogn", "dev.a/stream", "1", "Sogn", "404", 4)
+            .await
+            .unwrap();
+        // Find a source: the preview played the pick under its own names.
+        let previewed = r#"{"kind":"url","url":"https://b.example/2.mp3","headers":{}}"#;
+        streams::mark_verified(
+            &db,
+            streams::Played {
+                track_key: "artist|song",
+                provider_id: "dev.b/stream",
+                candidate_id: "2",
+                title: "Song",
+                source_json: previewed,
+                expires_at: None,
+                bitrate_kbps: None,
+            },
+            5,
+        )
+        .await
+        .unwrap();
+
+        // Use this, for a source with no stream of its own (a catalogue's answer).
+        let copies = collections::saved_refs(&db).await.unwrap();
+        let source = assign_stream(&db, &copies, &song, &pick(None), Some("Deezer"))
+            .await
+            .unwrap();
+        assert!(matches!(source, MediaSource::Lookup { ref title, .. } if title == "Song"));
+
+        // Played again: it looks the pick's names up, and the resolver's first remembered
+        // stream for them is what the preview played.
+        let items = collections::playlist_items(&db, &id).await.unwrap();
+        assert_eq!(items[0].track.album.as_deref(), Some("Album"));
+        let item = played(&items[0].track);
+        assert_eq!(
+            item.title, "Sogn",
+            "the names stay unless the details are taken"
+        );
+        let query = TrackQuery::for_item(&item);
+        assert_eq!(query.title, "Song");
+        let remembered = streams::candidates(&db, &raygun_resolver::track_key(&query))
+            .await
+            .unwrap();
+        assert_eq!(remembered[0].source.as_deref(), Some(previewed));
+        // Not unavailable any more; the old names' failures are forgotten, and their first
+        // remembered stream is the preview's too.
+        assert!(
+            collections::unavailable(&db, &["artst|sogn".to_owned()])
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        let old = streams::candidates(&db, "artst|sogn").await.unwrap();
+        assert_eq!(old[0].source.as_deref(), Some(previewed));
+        assert!(old.iter().all(|row| row.failed_at.is_none()));
+
+        // A source with a stream of its own: the song plays it directly, and the resolver
+        // remembers it for the song's names.
+        let stream = url("https://c.example/3.mp3");
+        let source = assign_stream(
+            &db,
+            &copies,
+            &song,
+            &pick(Some(stream.clone())),
+            Some("Audius"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(source, stream);
+        let item = played(&collections::playlist_items(&db, &id).await.unwrap()[0].track);
+        assert_eq!(item.source, stream);
+        assert_eq!(
+            crate::resolution::Tracker::default().begin(1, &item, 0.0, true),
+            crate::resolution::LoadPlan::Direct
+        );
+        let remembered = streams::candidates(&db, "artst|sogn").await.unwrap();
+        assert!(remembered.iter().any(|row| {
+            row.provider_id == "Audius" && row.verified_at == remembered[0].verified_at
+        }));
     }
 
     #[test]

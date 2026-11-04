@@ -3476,6 +3476,50 @@ pub struct TrackSaves {
     pub playlist_ids: Vec<String>,
 }
 
+/// A saved song as lists mark it (M46.48): the key it's stored under, every key its copies answer
+/// to (their names', and the names they show with the user's details), and where it's saved.
+/// `music/trackKey.ts` finds a shown song among them with `sameSong`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedSong {
+    pub track_key: String,
+    pub song_keys: Vec<String>,
+    pub favorite: bool,
+    pub playlist_ids: Vec<String>,
+}
+
+/// What picking a source for a song does (M46.48): with `assign`, every saved copy, the queue
+/// and the resolver's remembered pick take its stream (the download mode only downloads from
+/// it); the details ticked become the song's own (Edit details reverts them). `source_name` is
+/// the source's name, which the player shows the stream came from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceChoice {
+    pub assign: bool,
+    pub source_name: Option<String>,
+    pub title: bool,
+    pub artist: bool,
+    pub album: bool,
+    pub cover: bool,
+}
+
+/// Where a saved song came from (M46.48): Import songs, and whether no source had it then.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackImportStatus {
+    pub imported: bool,
+    pub unavailable: bool,
+}
+
+/// What adding songs to a playlist did (M46.48): songs it already held stay out unless they're
+/// added anyway.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistAdded {
+    pub added: u32,
+    pub already: u32,
+}
+
 /// An artist's page (M46.8): popular songs from the sources, and what the library has by them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

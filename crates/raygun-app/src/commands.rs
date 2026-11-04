@@ -1682,6 +1682,31 @@ pub async fn track_assign_source(
     import.assign_source(song, chosen).await
 }
 
+/// A source picked for a song (M46.48): with `choice.assign`, its stream for every saved copy,
+/// the queue and the resolver's remembered pick; the details `choice` ticks become the song's
+/// own (Edit details reverts them).
+#[tauri::command]
+#[specta::specta]
+pub async fn track_use_source(
+    collections: tauri::State<'_, CollectionsService>,
+    song: TrackInput,
+    chosen: raygun_model::OnlineTrack,
+    choice: raygun_model::SourceChoice,
+) -> Result<(), String> {
+    collections.assign_source(song, chosen, choice).await
+}
+
+/// Whether a saved song came in through Import songs, and whether no source had it then
+/// (M46.48: picking a source offers its details by default for those).
+#[tauri::command]
+#[specta::specta]
+pub async fn track_import_status(
+    collections: tauri::State<'_, CollectionsService>,
+    song: TrackInput,
+) -> Result<raygun_model::TrackImportStatus, String> {
+    collections.import_status(&song).await
+}
+
 /// Which saved songs no source had when imported (M46.31).
 #[tauri::command]
 #[specta::specta]
@@ -1703,15 +1728,16 @@ pub async fn import_match(
 }
 
 /// Saves imported songs as a new playlist, into one, or into Favorites; returns the playlist's
-/// id or `favorites` (M46.21, M46.45).
+/// id or `favorites` (M46.21, M46.45). Songs already there stay out unless `add_existing`.
 #[tauri::command]
 #[specta::specta]
 pub async fn import_save(
     import: tauri::State<'_, crate::import::ImportService>,
     target: raygun_model::ImportTarget,
     songs: Vec<raygun_model::MatchedSong>,
+    add_existing: bool,
 ) -> Result<String, String> {
-    import.save(target, songs).await
+    import.save(target, songs, add_existing).await
 }
 
 /// Made for You (M46.20): today's mixes (made in the background when they're from another day,
@@ -2170,6 +2196,16 @@ pub async fn collections_saves(
     collections.saves(track).await
 }
 
+/// Every saved song with the keys it answers to and where it's saved (M46.48): what lists'
+/// saved marks and Save buttons read, matching a shown song with `sameSong`.
+#[tauri::command]
+#[specta::specta]
+pub async fn collections_saved_index(
+    collections: tauri::State<'_, CollectionsService>,
+) -> Result<Vec<raygun_model::SavedSong>, String> {
+    collections.saved_index().await
+}
+
 /// Saves a song exactly where `saves` says (the Add to playlist popover's Done, M46.8).
 #[tauri::command]
 #[specta::specta]
@@ -2261,7 +2297,8 @@ pub async fn playlist_delete(
     collections.delete_playlist(&id).await
 }
 
-/// Appends tracks to the end of a playlist.
+/// Appends tracks to the end of a playlist; songs it already holds stay out unless `duplicates`
+/// (Add anyway, M46.48).
 #[tauri::command]
 #[specta::specta]
 pub async fn playlist_add(
@@ -2269,10 +2306,13 @@ pub async fn playlist_add(
     discovery: tauri::State<'_, Arc<DiscoveryService>>,
     id: String,
     tracks: Vec<TrackInput>,
-) -> Result<(), String> {
-    collections.add_to_playlist(&id, tracks).await?;
-    discovery.nudge();
-    Ok(())
+    duplicates: bool,
+) -> Result<raygun_model::PlaylistAdded, String> {
+    let added = collections.add_to_playlist(&id, tracks, duplicates).await?;
+    if added.added > 0 {
+        discovery.nudge();
+    }
+    Ok(added)
 }
 
 #[tauri::command]

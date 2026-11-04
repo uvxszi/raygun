@@ -375,7 +375,7 @@ export const useSourcePlaylistMenuItems = () => {
             attempt(t, playlist.title, async () => {
               const tracks = await songs.tracks();
               const created = await unwrapResult(commands.playlistCreate(playlist.title));
-              await unwrapResult(commands.playlistAdd(created.id, tracks));
+              await unwrapResult(commands.playlistAdd(created.id, tracks, false));
               void client.invalidateQueries({ queryKey: [COLLECTIONS] });
               showToast(t('menu.savedToLibrary', { name: playlist.title }));
             }),

@@ -17,7 +17,14 @@ import { SourceIssue } from '../shell/SourceIssue';
 import { TextField } from '../shell/TextField';
 import { SPIN } from './songDownloadState';
 import { sourceAnswers } from './sourceAnswers';
+import { differences, sourceChoice } from './sourcePick';
+import type { DetailField } from './sourcePick';
+import { SourcePickConfirm } from './SourcePickConfirm';
 import { useSongDownloadActions, useSongDownloadsSelect } from './useSongDownloads';
+
+/** A source's answer, and the details to take from it (M46.48). */
+type Picked = { track: OnlineTrack; source: string | undefined };
+type Confirmed = Picked & { ticked: ReadonlySet<DetailField> };
 
 /**
  * Find a source (M46.31): every source's answer for the song, with a preview, and Use this,
@@ -69,11 +76,26 @@ const SourcePickerBody: FC<{ song: TrackInput; download: string | null; onClose:
   const ranked = sourceAnswers(query, search.data?.providers ?? [], (track) =>
     download ? saveable(track) : true,
   ).slice(0, download ? 24 : 16);
-  const downloadFrom = (chosen: { track: OnlineTrack; source: string | undefined }) => {
+  const [picked, setPicked] = useState<Picked | null>(null);
+  // Downloads from the source (M46.47); the details ticked become the song's too (M46.48).
+  const downloadFrom = (chosen: Confirmed) => {
     if (!download) return;
     useSource.mutate(
       { id: download, track: chosen.track, source: chosen.source ?? null },
-      { onSuccess: onClose },
+      {
+        onSuccess: () => {
+          if (chosen.ticked.size > 0) {
+            void unwrapResult(
+              commands.trackUseSource(
+                song,
+                chosen.track,
+                sourceChoice(false, chosen.source, chosen.ticked),
+              ),
+            ).then(() => client.invalidateQueries({ queryKey: [COLLECTIONS] }));
+          }
+          onClose();
+        },
+      },
     );
   };
   // A preview joins the queue and plays; what was playing stays in the queue.
@@ -82,9 +104,18 @@ const SourcePickerBody: FC<{ song: TrackInput; download: string | null; onClose:
       ? void commands.playbackEnqueue([toQueueItem(track)], true)
       : void playResults([track], track);
   const use = useMutation({
-    mutationFn: async (chosen: { track: OnlineTrack; source: string | undefined }) => {
-      await unwrapResult(commands.trackAssignSource(song, chosen.track));
-      if (!renamed || !names.title.trim()) return;
+    mutationFn: async (chosen: Confirmed) => {
+      // Every saved copy, the queue and the resolver take the stream (M46.48).
+      await unwrapResult(
+        commands.trackUseSource(
+          song,
+          chosen.track,
+          sourceChoice(true, chosen.source, chosen.ticked),
+        ),
+      );
+      const title = !chosen.ticked.has('title') && names.title.trim();
+      const artist = !chosen.ticked.has('artist');
+      if (!renamed || !title) return;
       // The fixed names show everywhere the song does (Edit details, M46.30).
       const target = {
         kind: 'song' as const,
@@ -94,16 +125,24 @@ const SourcePickerBody: FC<{ song: TrackInput; download: string | null; onClose:
       await unwrapResult(
         commands.detailEditSet(target, {
           ...edit,
-          title: names.title.trim(),
-          artist: names.artist.trim() || null,
+          title,
+          ...(artist ? { artist: names.artist.trim() || null } : {}),
         }),
       );
     },
     onSuccess: () => {
+      setPicked(null);
       void client.invalidateQueries({ queryKey: [COLLECTIONS] });
       void client.invalidateQueries({ queryKey: ['unavailable'] });
+      void client.invalidateQueries({ queryKey: ['trackImportStatus'] });
     },
   });
+  // A pick whose details differ asks which to take first; others go at once.
+  const choose = (entry: Picked) => {
+    if (differences(song, entry.track).length > 0) setPicked(entry);
+    else if (download) downloadFrom({ ...entry, ticked: new Set() });
+    else use.mutate({ ...entry, ticked: new Set() });
+  };
 
   return (
     <Sheet
@@ -112,8 +151,22 @@ const SourcePickerBody: FC<{ song: TrackInput; download: string | null; onClose:
     >
       <div data-testid="source-picker" className="flex flex-col gap-3">
         {download && why && <p className="text-muted text-sm wrap-anywhere">{why}</p>}
+        {picked && (
+          <SourcePickConfirm
+            song={song}
+            track={picked.track}
+            sourceName={picked.source}
+            confirmLabel={download ? t('sourcePicker.downloadFrom') : t('sourcePicker.useSource')}
+            busy={use.isPending || useSource.isPending}
+            onConfirm={(ticked) =>
+              download ? downloadFrom({ ...picked, ticked }) : use.mutate({ ...picked, ticked })
+            }
+            onBack={() => setPicked(null)}
+          />
+        )}
+        {/* Kept while a pick is confirmed (hidden), so Back finds the list as it was. */}
         <form
-          className="flex flex-wrap items-center gap-2"
+          className={picked ? 'hidden' : 'flex flex-wrap items-center gap-2'}
           onSubmit={(event) => {
             event.preventDefault();
             setQuery([names.artist.trim(), names.title.trim()].filter(Boolean).join(' '));
@@ -144,16 +197,16 @@ const SourcePickerBody: FC<{ song: TrackInput; download: string | null; onClose:
             {t('sourcePicker.search')}
           </button>
         </form>
-        {search.isPending && (
+        {search.isPending && !picked && (
           <p className="text-muted flex items-center gap-2 text-sm">
             <LoaderCircle aria-hidden size={14} className={SPIN} />
             {t('sourcePicker.searching')}
           </p>
         )}
-        {search.isSuccess && ranked.length === 0 && (
+        {search.isSuccess && ranked.length === 0 && !picked && (
           <p className="text-muted text-sm">{t('sourcePicker.none')}</p>
         )}
-        <ul className="flex max-h-[50vh] flex-col overflow-y-auto">
+        <ul className={picked ? 'hidden' : 'flex max-h-[50vh] flex-col overflow-y-auto'}>
           {ranked.map((entry, index) => (
             <li key={`${entry.source ?? ''}-${index}`} className="flex items-center gap-2 py-1.5">
               <span className="flex min-w-0 flex-1 flex-col">
@@ -180,7 +233,7 @@ const SourcePickerBody: FC<{ song: TrackInput; download: string | null; onClose:
                 <button
                   type="button"
                   disabled={useSource.isPending}
-                  onClick={() => downloadFrom(entry)}
+                  onClick={() => choose(entry)}
                   className="bg-primary text-background flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold disabled:opacity-60"
                 >
                   {useSource.isPending && useSource.variables?.track === entry.track && (
@@ -192,7 +245,7 @@ const SourcePickerBody: FC<{ song: TrackInput; download: string | null; onClose:
                 <button
                   type="button"
                   disabled={use.isPending}
-                  onClick={() => use.mutate(entry)}
+                  onClick={() => choose(entry)}
                   className="bg-background rounded-full px-3 py-1 text-xs font-semibold"
                 >
                   {t('sourcePicker.use')}

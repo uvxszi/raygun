@@ -334,6 +334,20 @@ impl PlaybackCore {
         vec![Effect::QueueChanged]
     }
 
+    /// Changes queued items in place (a song given a source or names, M46.48): `update` says
+    /// whether it changed an item. The current item keeps what it loaded until its next load.
+    pub fn update_items(&mut self, mut update: impl FnMut(&mut QueueItem) -> bool) -> Vec<Effect> {
+        let mut changed = false;
+        for item in &mut self.items {
+            changed |= update(item);
+        }
+        if changed {
+            vec![Effect::QueueChanged]
+        } else {
+            Vec::new()
+        }
+    }
+
     /// The id of the latest `Effect::Load`; engine reports and async resolutions must match it.
     pub fn load_id(&self) -> u32 {
         self.load_id
