@@ -39,6 +39,8 @@ import { usePlaylists } from '../collections/useCollections';
 import { usePlaylistMenuItems } from '../collections/usePlaylistMenu';
 import type { MenuItem } from './contextMenuStore';
 import { Artwork } from '../library/Artwork';
+import type { FixedTile } from '../library/useFixedTileMenu';
+import { useFixedTileMenuItems } from '../library/useFixedTileMenu';
 import { useOpenWebsite, useWebsites } from '../websites/useWebsites';
 import { openContextMenu } from './contextMenuStore';
 import { LetterAvatar } from './LetterAvatar';
@@ -50,6 +52,8 @@ const pinKey = (pin: Pick<RailPin, 'to' | 'search'>) =>
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => `${key}=${value}`)
     .join('&')}`;
+
+const FIXED_KINDS: string[] = ['favorites', 'downloaded', 'localFiles'];
 
 const KIND_ICON: Record<string, LucideIcon> = {
   playlist: ListMusic,
@@ -203,6 +207,7 @@ export const RailPins: FC<{ narrow: boolean; shown: boolean; drawer?: boolean }>
   const rail = useRail();
   const playlists = usePlaylists();
   const playlistMenuItems = usePlaylistMenuItems();
+  const fixedMenuItems = useFixedTileMenuItems();
   const websites = useWebsites();
   const openSite = useOpenWebsite();
   const [sortAnchor, setSortAnchor] = useState<HTMLButtonElement | null>(null);
@@ -285,7 +290,13 @@ export const RailPins: FC<{ narrow: boolean; shown: boolean; drawer?: boolean }>
       { label: t('rail.unpin'), icon: PinOff, onSelect: () => rail.unpin(pin) },
       // A playlist's own items: play, merge, delete (M46.45).
       ...playlistItemsOf(pin),
+      // Favorites', Downloaded's and Local files' own: play, open, their tools, sort.
+      ...fixedItemsOf(pin),
     ]);
+  const fixedItemsOf = (pin: RailPin): MenuItem[] =>
+    FIXED_KINDS.includes(pin.kind as FixedTile)
+      ? [{ kind: 'separator' }, ...fixedMenuItems(pin.kind as FixedTile, { pin: false }).slice(1)]
+      : [];
   const playlistItemsOf = (pin: RailPin): MenuItem[] => {
     const playlist =
       pin.kind === 'playlist'

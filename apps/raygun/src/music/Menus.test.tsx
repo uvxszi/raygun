@@ -177,6 +177,8 @@ describe('Menus', () => {
       'Go to Daft Punk',
       '|',
       'Download',
+      // Quick access holds pins on phones too (the drawer).
+      'Pin to Quick access',
       '|',
       'Copy name',
       '|',

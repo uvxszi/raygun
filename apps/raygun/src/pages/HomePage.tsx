@@ -39,6 +39,7 @@ import { useMadeForYou } from '../music/useMadeForYou';
 import { useIncognitoItem } from '../privacy/useIncognito';
 import { useSettings } from '../settings/useSettings';
 import { HomeFixedTiles } from '../library/LocalFilesTile';
+import { useFixedTileMenu } from '../library/useFixedTileMenu';
 import { HomeCarousel, HomeSection } from '../home/HomeSection';
 import { useHomeRowActions } from '../home/homeRows';
 import {
@@ -94,6 +95,7 @@ const YourMusic: FC<SectionProps> = ({ id }) => {
     queryFn: () => unwrapResult(commands.recentContexts()),
   });
   const favorites = useFavorites();
+  const tileMenu = useFixedTileMenu();
   const menu = useTrackMenu();
   const hidden = useHidden();
   // Kept only while recently played is on (M46.41).
@@ -117,7 +119,12 @@ const YourMusic: FC<SectionProps> = ({ id }) => {
       <div className="flex flex-col gap-2">
         <HomeCarousel>
           <li>
-            <Link to="/library" search={{ view: 'favorites' }} className={TILE_CLASS}>
+            <Link
+              to="/library"
+              search={{ view: 'favorites' }}
+              className={TILE_CLASS}
+              onContextMenu={tileMenu('favorites')}
+            >
               <span className="bg-primary/15 text-primary grid aspect-square place-items-center rounded-lg">
                 <Heart aria-hidden size={32} fill="currentColor" />
               </span>

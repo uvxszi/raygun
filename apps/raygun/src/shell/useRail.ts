@@ -21,8 +21,8 @@ const pin = (target: PinTarget): RailPin => ({
   openedAt: 0,
 });
 
-/** The fixed pins the first run starts with (M46.29). */
-const FIXED: PinTarget[] = [
+/** The fixed pins the first run starts with (M46.29), and their tiles' Pin to Quick access. */
+export const FIXED_PINS: PinTarget[] = [
   { kind: 'favorites', to: '/library', search: { view: 'favorites' }, name: '', artworkUrl: null },
   {
     kind: 'downloaded',
@@ -73,7 +73,7 @@ export const useRail = () => {
         save({
           ...prefs,
           seeded: true,
-          pins: [...FIXED.map(pin), ...playlists.map((list) => pin(playlistPin(list)))],
+          pins: [...FIXED_PINS.map(pin), ...playlists.map((list) => pin(playlistPin(list)))],
         }),
       pin: (target: PinTarget) => {
         if (isPinned(target)) return;
