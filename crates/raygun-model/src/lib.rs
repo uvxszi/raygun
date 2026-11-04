@@ -4241,6 +4241,9 @@ pub struct MangaCard {
     /// The source marks it adult: the UI marks it 18+.
     #[serde(default)]
     pub adult: bool,
+    /// Found by matching the source's listings, not by its search (which found little).
+    #[serde(default)]
+    pub from_listing: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]

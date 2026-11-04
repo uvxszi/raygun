@@ -29,6 +29,10 @@ pub struct Catalog {
     kind: &'static str,
     /// The provider capability: `manga.source`, `novel.source` or `video.source`.
     capability: &'static str,
+    /// Listing pages read for searches that found little (M46.49).
+    listings: crate::search_fallback::ListingCache,
+    /// The latest search typed; a newer one stops reading listings for this one.
+    searching: tokio::sync::watch::Sender<String>,
 }
 
 /// A chapter with its neighbours in reading order.
@@ -57,6 +61,8 @@ impl Catalog {
             images,
             kind,
             capability,
+            listings: crate::search_fallback::ListingCache::default(),
+            searching: tokio::sync::watch::Sender::new(String::new()),
         }
     }
 
@@ -131,6 +137,7 @@ impl Catalog {
                         .map(|url| self.cover(url, &item.cover_headers)),
                     id: item.id,
                     title: item.title,
+                    from_listing: false,
                 })
                 .collect(),
             has_next_page: listing.has_next_page,
@@ -176,7 +183,8 @@ impl Catalog {
     /// (M46.48: the host's catalogue turns), none for longer than
     /// [`raygun_ext_host::CATALOG_SEARCH_TIMEOUT`]. A source that fails reports why and the
     /// others still show. Search's "No 18+" (`filter`) leaves adult sources unasked and adult
-    /// titles out.
+    /// titles out. A source whose search finds little gets matches from its listings
+    /// ([`Self::search_row`]).
     pub async fn global_search(
         &self,
         query: &str,
@@ -216,16 +224,89 @@ impl Catalog {
         Ok(results)
     }
 
-    /// A source's first page for a search row.
+    /// A source's first page for a search row. A search that finds fewer than
+    /// [`crate::search_fallback::FEW_RESULTS`] titles, or fails, is helped by the source's
+    /// listings: their titles that match `query` follow, marked `from_listing` (M46.49).
     async fn search_row(&self, source_id: &str, query: &str) -> Result<MangaListingPage, String> {
-        let listing = {
-            let extensions = self.extensions();
-            let (_ready, host) = extensions.ready().await;
-            host.catalog_search_row(source_id, query)
-                .await
-                .map_err(|error| error.to_string())
-        }?;
-        self.listing_page(source_id, listing).await
+        use crate::search_fallback::{FEW_RESULTS, LEAST_TIME};
+        let started = tokio::time::Instant::now();
+        let extensions = self.extensions();
+        let (ready, host) = extensions.ready().await;
+        let answer = host
+            .catalog_search_row(source_id, query)
+            .await
+            .map_err(|error| error.to_string());
+        let few = answer
+            .as_ref()
+            .map_or(true, |listing| listing.items.len() < FEW_RESULTS);
+        let mut listed = Vec::new();
+        let listing = if query.is_empty() || !few {
+            answer?
+        } else {
+            let deadline = (started + raygun_ext_host::CATALOG_SEARCH_TIMEOUT)
+                .max(tokio::time::Instant::now() + LEAST_TIME);
+            let video = self.capability == VIDEO_SOURCE;
+            let matching = self
+                .listings
+                .matches(source_id, query, video, deadline, |page| {
+                    host.manga_list(source_id, MangaList::Popular, page)
+                });
+            match self.searching(query, matching).await {
+                Some(Ok(matches)) if !matches.is_empty() => {
+                    tracing::debug!(
+                        source = source_id,
+                        found = matches.len(),
+                        "search helped by the source's listings"
+                    );
+                    let mut listing = answer.unwrap_or(raygun_ext_host::manga::MangaListing {
+                        items: Vec::new(),
+                        has_next_page: false,
+                    });
+                    for item in matches {
+                        if !listing.items.iter().any(|found| found.id == item.id) {
+                            listed.push(item.id.clone());
+                            listing.items.push(item);
+                        }
+                    }
+                    listing
+                }
+                // Nothing more in its listings, they failed too, or a newer search came.
+                _ => answer?,
+            }
+        };
+        drop(ready);
+        let mut page = self.listing_page(source_id, listing).await?;
+        for card in &mut page.items {
+            card.from_listing = listed.contains(&card.id);
+        }
+        Ok(page)
+    }
+
+    /// Runs `work` for a search of `query`; `None` once a search for another query starts here.
+    async fn searching<T>(&self, query: &str, work: impl Future<Output = T>) -> Option<T> {
+        self.searching.send_if_modified(|current| {
+            if current == query {
+                false
+            } else {
+                query.clone_into(current);
+                true
+            }
+        });
+        let mut changes = self.searching.subscribe();
+        let replaced = async move {
+            loop {
+                if changes.changed().await.is_err() {
+                    std::future::pending::<()>().await;
+                }
+                if *changes.borrow() != query {
+                    return;
+                }
+            }
+        };
+        tokio::select! {
+            done = work => Some(done),
+            () = replaced => None,
+        }
     }
 
     /// A stored title, fetched first when `refresh` is set or it never was; fetching stores it,
