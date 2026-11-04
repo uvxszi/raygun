@@ -23,6 +23,10 @@ import { OverflowMenu } from '../shell/OverflowMenu';
 import type { OverflowItem } from '../shell/OverflowMenu';
 import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
+import { OnOffSwitch } from '../shell/OnOffSwitch';
+import { BulkSwitchBar, SelectButton, SelectCheck } from '../shell/BulkSwitch';
+import { useBulkSelection } from '../shell/useBulkSelection';
+import type { BulkSelection } from '../shell/useBulkSelection';
 import { SHEET_FIELD, SHEET_INPUT, TextField } from '../shell/TextField';
 import { TopBarAction } from '../shell/TopBar';
 import {
@@ -96,7 +100,8 @@ const AddonItem: FC<{
   onMove: ((step: -1 | 1) => void) | null;
   first: boolean;
   last: boolean;
-}> = ({ addon, onMove, first, last }) => {
+  selection: BulkSelection;
+}> = ({ addon, onMove, first, last, selection }) => {
   const { t } = useTranslation();
   const remove = useRemoveAddon();
   const setEnabled = useSetAddonEnabled();
@@ -135,6 +140,7 @@ const AddonItem: FC<{
       aria-label={addon.name}
       className={`bg-surface flex items-start gap-3 rounded-xl px-4 py-3 ${addon.enabled ? '' : 'opacity-60'}`}
     >
+      <SelectCheck selection={selection} id={addon.id} name={addon.name} />
       <AddonLogo url={addon.logo} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="font-medium wrap-anywhere">
@@ -167,7 +173,13 @@ const AddonItem: FC<{
         )}
         {error && <SourceIssue compact>{error.message}</SourceIssue>}
       </div>
-      <div className="shrink-0">
+      <div className="flex shrink-0 items-center">
+        <OnOffSwitch
+          checked={addon.enabled}
+          label={t('sources.switch', { name: addon.name })}
+          disabled={setEnabled.isPending}
+          onChange={(on) => setEnabled.mutate({ id: addon.id, enabled: on })}
+        />
         <OverflowMenu label={t('watch.addonActions', { name: addon.name })} items={items} />
       </div>
     </li>
@@ -256,6 +268,15 @@ export const WatchAddonsPage: FC = () => {
   const missing = (suggestions.data ?? []).filter((suggestion) => !suggestion.added);
   const list = addons.data ?? [];
   const shown = list.filter((addon) => matchesSearch(find.query, [addon.name, addon.description]));
+  const selection = useBulkSelection(shown.map((addon) => addon.id));
+  const setEnabled = useSetAddonEnabled();
+  const switchMany = (ids: string[], on: boolean) => {
+    for (const addon of shown) {
+      if (ids.includes(addon.id) && addon.enabled !== on) {
+        setEnabled.mutate({ id: addon.id, enabled: on });
+      }
+    }
+  };
 
   const close = () => {
     setAddingByUrl(false);
@@ -319,6 +340,12 @@ export const WatchAddonsPage: FC = () => {
         <p className="text-muted text-sm">{t('watch.noAddons')}</p>
       )}
       {shown.length > 0 && (
+        <div className="flex justify-end">
+          <SelectButton selection={selection} />
+        </div>
+      )}
+      <BulkSwitchBar selection={selection} busy={setEnabled.isPending} onSwitch={switchMany} />
+      {shown.length > 0 && (
         <ul aria-label={t('watch.installedAddons')} className="flex flex-col gap-2">
           {shown.map((addon) => {
             const index = list.indexOf(addon);
@@ -330,6 +357,7 @@ export const WatchAddonsPage: FC = () => {
                 onMove={find.query ? null : (step) => move(index, step)}
                 first={index === 0}
                 last={index === list.length - 1}
+                selection={selection}
               />
             );
           })}

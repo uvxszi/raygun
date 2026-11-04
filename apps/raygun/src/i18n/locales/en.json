@@ -2047,6 +2047,17 @@
     "replies_one": "{{count}} reply",
     "replies_other": "{{count}} replies"
   },
+  "bulk": {
+    "select": "Select",
+    "pick": "Pick {{name}}",
+    "bar": "Selected",
+    "selectAll": "Select all",
+    "count_one": "{{count}} selected",
+    "count_other": "{{count}} selected",
+    "turnOn": "Turn on",
+    "turnOff": "Turn off",
+    "done": "Done"
+  },
   "browse": {
     "title": "Browse",
     "sources": "Sources",
@@ -2719,6 +2730,7 @@
     "disable": "Turn this source off",
     "enable": "Turn this source on",
     "disabledNote": "Off · {{detail}}",
+    "switch": "Use {{name}}",
     "failedLately": "Didn't answer lately · {{detail}}",
     "failingLast": "Failing sources last",
     "failingLastHint": "Sources that didn't answer lately go to the end of Browse and Search",

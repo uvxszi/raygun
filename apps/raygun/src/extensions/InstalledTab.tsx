@@ -18,6 +18,10 @@ import { EXTENSION_KINDS, kindsOf } from './catalogFilters';
 import type { ExtensionKind } from './catalogFilters';
 import { useExtensions } from './useExtensions';
 import { SourceIssue } from '../shell/SourceIssue';
+import { OnOffSwitch } from '../shell/OnOffSwitch';
+import { BulkSwitchBar, SelectButton, SelectCheck } from '../shell/BulkSwitch';
+import { useBulkSelection } from '../shell/useBulkSelection';
+import { useSourceSwitches } from '../search/useSourceSwitch';
 
 /** Installed extensions before the list gets a search field. */
 const SEARCHABLE_FROM = 8;
@@ -41,6 +45,9 @@ export const InstalledTab: FC = () => {
       (!kind || kindsOf(extension).includes(kind)) &&
       matchesSearch(query, [extension.name, extension.description]),
   );
+  // An extension's id in `disabledSources` turns off every source it has.
+  const switches = useSourceSwitches();
+  const selection = useBulkSelection(shown.map((extension) => extension.id));
 
   return (
     <div data-testid="installed-tab" className="flex flex-col gap-3">
@@ -58,19 +65,26 @@ export const InstalledTab: FC = () => {
           className="w-full"
         />
       )}
-      <KindChips kinds={kinds} kind={kind} onChange={setKind} />
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <KindChips kinds={kinds} kind={kind} onChange={setKind} />
+        </div>
+        {shown.length > 0 && <SelectButton selection={selection} />}
+      </div>
+      <BulkSwitchBar selection={selection} busy={switches.busy} onSwitch={switches.setMany} />
       {all.length > 0 && shown.length === 0 && (
         <p className="text-muted text-sm">{t('extensions.noMatches')}</p>
       )}
       <ul className="flex flex-col">
         {shown.map((extension) => (
-          <li key={`${extension.origin}-${extension.id}`}>
+          <li key={`${extension.origin}-${extension.id}`} className="flex items-center gap-1">
+            <SelectCheck selection={selection} id={extension.id} name={extension.name} />
             <Link
               to="/extensions/detail"
               search={{ id: extension.id }}
               data-testid="extension-row"
               onContextMenu={(event) => openContextMenu(event, menu(extension))}
-              className="hover:bg-surface flex items-center gap-4 rounded-xl px-1 py-2.5"
+              className={`hover:bg-surface flex min-w-0 flex-1 items-center gap-4 rounded-xl px-1 py-2.5 ${switches.isEnabled(extension.id) ? '' : 'opacity-50'}`}
             >
               <LetterAvatar name={extension.name} logo={extension.icon} />
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -90,7 +104,13 @@ export const InstalledTab: FC = () => {
                 {extension.adult && !showNsfw && (
                   <span className="text-muted text-xs">{t('extensions.nsfwHidden')}</span>
                 )}
-                {extension.status === 'failed' ? (
+                {!switches.isEnabled(extension.id) ? (
+                  <span className="text-muted truncate text-xs">
+                    {t('sources.disabledNote', {
+                      detail: extension.description ?? extension.version,
+                    })}
+                  </span>
+                ) : extension.status === 'failed' ? (
                   // What went wrong is on its page, under More info.
                   <span className="text-muted truncate text-xs">{t('extensions.notLoaded')}</span>
                 ) : (
@@ -101,6 +121,12 @@ export const InstalledTab: FC = () => {
               </span>
               <ChevronRight aria-hidden size={18} className="text-muted shrink-0" />
             </Link>
+            <OnOffSwitch
+              checked={switches.isEnabled(extension.id)}
+              label={t('sources.switch', { name: extension.name })}
+              disabled={switches.busy}
+              onChange={(on) => switches.setMany([extension.id], on)}
+            />
           </li>
         ))}
       </ul>

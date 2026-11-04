@@ -163,6 +163,28 @@ describe('Extensions', () => {
     expect(commands.extensionSettingSet).toHaveBeenLastCalledWith('dev.example.radio', 'hd', true);
   });
 
+  it('turns an extension off with its switch, and many at once with Select all', async () => {
+    commands.extensionsList.mockResolvedValue(
+      ok([extension(), extension({ id: 'dev.example.books', name: 'Free Books' })]),
+    );
+    commands.settingsUpdate.mockClear();
+    await AppShellWrapper.mount('/extensions');
+
+    await userEvent.click(await screen.findByRole('switch', { name: 'Use Radio Stations' }));
+    expect(commands.settingsUpdate).toHaveBeenLastCalledWith({
+      key: 'disabledSources',
+      value: ['dev.example.radio'],
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Select' }));
+    const bar = screen.getByRole('toolbar', { name: 'Selected' });
+    await userEvent.click(within(bar).getByRole('checkbox', { name: 'Select all' }));
+    expect(bar).toHaveTextContent('2 selected');
+    await userEvent.click(within(bar).getByRole('button', { name: 'Turn off' }));
+    const last = commands.settingsUpdate.mock.lastCall?.[0] as { value: string[] };
+    expect([...last.value].sort()).toEqual(['dev.example.books', 'dev.example.radio']);
+  });
+
   it('uninstalls only on a second tap', async () => {
     commands.extensionsList.mockResolvedValue(ok([extension()]));
     commands.extensionUninstall.mockResolvedValue(ok([]));

@@ -57,8 +57,13 @@ import { buildMenu, copyText } from '../music/mediaMenu';
 import { openContextMenu } from '../shell/contextMenuStore';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { WebsitesSection } from '../websites/WebsitesSection';
+import { OnOffSwitch } from '../shell/OnOffSwitch';
+import { BulkSwitchBar, SelectButton, SelectCheck } from '../shell/BulkSwitch';
+import { useBulkSelection } from '../shell/useBulkSelection';
+import type { BulkSelection } from '../shell/useBulkSelection';
+import { useSourceSwitches } from '../search/useSourceSwitch';
 import type { SearchType, SearchView } from '../search/searchTypes';
-import { useStremioAddons } from '../watch/useStremio';
+import { useSetAddonEnabled, useStremioAddons } from '../watch/useStremio';
 import { useVideoSources } from '../watch/useVideoSources';
 import { SourceIssue } from '../shell/SourceIssue';
 import { BROWSE_TAB_LABEL, browseStartTab } from './browseTabs';
@@ -81,7 +86,12 @@ type SourceRow = {
   adult?: boolean;
   /** A Stremio addon's stored id: its ⋯ menu marks it 18+ or not. */
   addonId?: string;
+  /** Whether that addon is on. */
+  addonEnabled?: boolean;
 };
+
+/** Whether a row's source or addon is on. */
+const rowEnabled = (row: SourceRow) => row.source?.enabled ?? row.addonEnabled ?? true;
 
 type Page = { to: string; search: Record<string, unknown> };
 
@@ -129,7 +139,7 @@ const SourceRowLink: FC<{ row: SourceRow; onMenu: (event: MouseEvent) => void }>
       search={row.search}
       aria-label={row.name}
       onContextMenu={onMenu}
-      className={`hover:bg-surface flex min-w-0 flex-1 items-center gap-4 rounded-xl px-1 py-2.5 ${row.source?.enabled === false ? 'opacity-50' : ''}`}
+      className={`hover:bg-surface flex min-w-0 flex-1 items-center gap-4 rounded-xl px-1 py-2.5 ${rowEnabled(row) ? '' : 'opacity-50'}`}
     >
       <LetterAvatar name={row.name} logo={row.logo} />
       <span className="flex min-w-0 flex-col">
@@ -139,9 +149,7 @@ const SourceRowLink: FC<{ row: SourceRow; onMenu: (event: MouseEvent) => void }>
           <RatingHint mark={mark} />
         </span>
         <span className="text-muted truncate text-xs">
-          {row.source?.enabled === false
-            ? t('sources.disabledNote', { detail: row.detail })
-            : row.detail}
+          {!rowEnabled(row) ? t('sources.disabledNote', { detail: row.detail }) : row.detail}
         </span>
       </span>
     </Link>
@@ -183,7 +191,15 @@ const ExtensionSourceRow: FC<{
   );
 };
 
-const SourceSection: FC<{ title: string; rows: SourceRow[] }> = ({ title, rows }) => {
+/** Turns sources and addons on or off by row key, one or many at once. */
+type RowSwitch = { busy: boolean; set: (keys: string[], on: boolean) => void };
+
+const SourceSection: FC<{
+  title: string;
+  rows: SourceRow[];
+  selection: BulkSelection;
+  switcher: RowSwitch;
+}> = ({ title, rows, selection, switcher }) => {
   const { t } = useTranslation();
   const rating = useContentRating();
   const navigate = useNavigate();
@@ -195,6 +211,7 @@ const SourceSection: FC<{ title: string; rows: SourceRow[] }> = ({ title, rows }
       <ul className="flex flex-col">
         {rows.map((row) => (
           <li key={row.key} className="flex items-center gap-1">
+            <SelectCheck selection={selection} id={row.key} name={row.name} />
             {row.source ? (
               <ExtensionSourceRow row={row} source={row.source} />
             ) : (
@@ -216,6 +233,12 @@ const SourceSection: FC<{ title: string; rows: SourceRow[] }> = ({ title, rows }
                 <LatestLink row={row} />
               </>
             )}
+            <OnOffSwitch
+              checked={rowEnabled(row)}
+              label={t('sources.switch', { name: row.name })}
+              disabled={switcher.busy}
+              onChange={(on) => switcher.set([row.key], on)}
+            />
           </li>
         ))}
       </ul>
@@ -285,7 +308,8 @@ const SourcesList: FC = () => {
 
   const videoRows: SourceRow[] = [
     ...(addons.data ?? [])
-      .filter((addon) => addon.catalogs > 0 && !addon.error && addon.enabled)
+      // Addons that are off stay listed, dimmed, so their switch can turn them back on.
+      .filter((addon) => addon.catalogs > 0 && !addon.error)
       .map((addon) => ({
         key: addon.id,
         name: addon.name,
@@ -295,6 +319,7 @@ const SourcesList: FC = () => {
         search: { id: addon.id },
         adult: addon.adult,
         addonId: addon.id,
+        addonEnabled: addon.enabled,
       })),
     ...catalogue(video.data, '/watch/source'),
   ];
@@ -307,11 +332,52 @@ const SourcesList: FC = () => {
 
   const mangaRows = catalogue(manga.data, '/manga/source');
   const novelRows = catalogue(novel.data, '/novel/source');
+  const shownRows = [
+    ...(kind === 'all' || kind === 'video' ? found(videoRows) : []),
+    ...(kind === 'all' || kind === 'manga' ? found(mangaRows) : []),
+    ...(kind === 'all' || kind === 'novel' ? found(novelRows) : []),
+  ];
+  const selection = useBulkSelection(shownRows.map((row) => row.key));
+  const switches = useSourceSwitches();
+  const setAddon = useSetAddonEnabled();
+  const switcher: RowSwitch = {
+    busy: switches.busy || setAddon.isPending,
+    set: (keys, on) => {
+      const rows = shownRows.filter((row) => keys.includes(row.key));
+      const sourceIds = rows.flatMap((row) => (row.source ? [row.source.id] : []));
+      if (sourceIds.length > 0) switches.setMany(sourceIds, on);
+      for (const row of rows) {
+        if (row.addonId && row.addonEnabled !== on)
+          setAddon.mutate({ id: row.addonId, enabled: on });
+      }
+    },
+  };
   // The sections in the user's order (M46.5), narrowed by kind and name (M46.35).
   const sections: Record<string, ReactNode> = {
-    video: <SourceSection title={t('browse.kind.video')} rows={found(videoRows)} />,
-    manga: <SourceSection title={t('library.media.manga')} rows={found(mangaRows)} />,
-    novel: <SourceSection title={t('library.media.novel')} rows={found(novelRows)} />,
+    video: (
+      <SourceSection
+        title={t('browse.kind.video')}
+        rows={found(videoRows)}
+        selection={selection}
+        switcher={switcher}
+      />
+    ),
+    manga: (
+      <SourceSection
+        title={t('library.media.manga')}
+        rows={found(mangaRows)}
+        selection={selection}
+        switcher={switcher}
+      />
+    ),
+    novel: (
+      <SourceSection
+        title={t('library.media.novel')}
+        rows={found(novelRows)}
+        selection={selection}
+        switcher={switcher}
+      />
+    ),
     websites: <WebsitesSection query={query} />,
   };
   const visible = layout.browseSections.filter((item) => item.visible);
@@ -368,13 +434,17 @@ const SourcesList: FC = () => {
             </button>
           ))}
         </div>
-        <ListSearchField
-          value={query}
-          onChange={setQuery}
-          label={t('browse.findSource')}
-          className="w-full sm:ml-auto sm:w-64"
-        />
+        <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
+          <ListSearchField
+            value={query}
+            onChange={setQuery}
+            label={t('browse.findSource')}
+            className="min-w-0 flex-1 sm:w-64"
+          />
+          {shownRows.length > 0 && <SelectButton selection={selection} />}
+        </div>
       </div>
+      <BulkSwitchBar selection={selection} busy={switcher.busy} onSwitch={switcher.set} />
       {visible
         .filter((item) => kind === 'all' || item.id === kind)
         .map((item) => (

@@ -119,11 +119,15 @@ impl ContentFilter {
             .map_or(own, |marks| marks.overrides.addon_adult(addon_id, own))
     }
 
-    /// Whether the provider (`<extension>/<provider>`) is disabled.
+    /// Whether the provider (`<extension>/<provider>`) is disabled: itself, or its whole
+    /// extension (an extension id in the same list).
     pub fn is_disabled(&self, provider_id: &str) -> bool {
-        self.1
-            .read()
-            .is_ok_and(|disabled| disabled.contains(provider_id))
+        self.1.read().is_ok_and(|disabled| {
+            disabled.contains(provider_id)
+                || provider_id
+                    .split_once('/')
+                    .is_some_and(|(extension, _)| disabled.contains(extension))
+        })
     }
 
     pub fn set_disabled(&self, provider_ids: &[String]) {
@@ -233,5 +237,16 @@ mod tests {
         assert!(without_adult_sources(true, async { adult_left_out() }).await);
         assert!(!without_adult_sources(false, async { adult_left_out() }).await);
         assert!(!adult_left_out());
+    }
+
+    #[test]
+    fn an_extension_id_turns_off_every_provider_it_has() {
+        let filter = ContentFilter::default();
+        filter.set_disabled(&["dev.a".to_owned(), "dev.b/one".to_owned()]);
+        assert!(filter.is_disabled("dev.a/books"));
+        assert!(filter.is_disabled("dev.a/films"));
+        assert!(filter.is_disabled("dev.b/one"));
+        assert!(!filter.is_disabled("dev.b/two"));
+        assert!(!filter.is_disabled("dev.ab/one"));
     }
 }
