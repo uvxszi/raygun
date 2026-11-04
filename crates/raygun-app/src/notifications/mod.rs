@@ -684,14 +684,13 @@ fn exports(app: &AppHandle) -> Vec<Download> {
                 kind: Kind::Exports,
                 id: job.id,
                 title: job.label,
-                subtitle: Some(
+                subtitle: (phase == Phase::Running).then(|| {
                     match job.state {
                         ExportState::Downloading => "Downloading chapters",
                         _ => "Writing",
                     }
-                    .to_owned(),
-                )
-                .filter(|_| phase == Phase::Running),
+                    .to_owned()
+                }),
                 phase,
                 done: f64::from(job.downloaded + job.written),
                 total: (total > 0).then(|| f64::from(total)),

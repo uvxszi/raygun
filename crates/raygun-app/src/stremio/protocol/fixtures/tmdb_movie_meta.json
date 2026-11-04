@@ -15,8 +15,16 @@
     "poster": "https://image.tmdb.org/t/p/w500/bjiS5ipwxb9JFy3XRRN4OAilSeX.jpg",
     "links": [
       { "name": "8.0", "category": "imdb", "url": "https://imdb.com/title/tt22084616" },
-      { "name": "Spider-Man: Brand New Day", "category": "share", "url": "https://www.strem.io/s/movie/spider-man-22084616" },
-      { "name": "Action", "category": "Genres", "url": "stremio:///discover/https%3A%2F%2F94c8cb9f702d-tmdb-addon.baby-beamup.club%2Fen-US%2Fmanifest.json/movie/tmdb.top?genre=Action" }
+      {
+        "name": "Spider-Man: Brand New Day",
+        "category": "share",
+        "url": "https://www.strem.io/s/movie/spider-man-22084616"
+      },
+      {
+        "name": "Action",
+        "category": "Genres",
+        "url": "stremio:///discover/https%3A%2F%2F94c8cb9f702d-tmdb-addon.baby-beamup.club%2Fen-US%2Fmanifest.json/movie/tmdb.top?genre=Action"
+      }
     ],
     "trailers": [
       { "source": "P3uI5sLosKU", "type": "Trailer" },
