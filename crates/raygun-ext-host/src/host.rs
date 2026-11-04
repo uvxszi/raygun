@@ -13,9 +13,9 @@ use std::time::Duration;
 
 use raygun_model::{
     ArtistEvent, ExtensionInfo, ExtensionOrigin, ExtensionSetting, ExtensionStatus, LyricLine,
-    Lyrics, MediaSource, MusicAlbum, MusicAlbumDetail, MusicArtist, MusicChart, MusicPlaylist,
-    MusicPlaylistDetail, OnlineTrack, ProviderInfo, ProviderSearchResult, SettingKind,
-    SettingValue, TrackQuery,
+    Lyrics, LyricsTranslation, LyricsTranslationKind, LyricsTranslationOrigin, MediaSource,
+    MusicAlbum, MusicAlbumDetail, MusicArtist, MusicChart, MusicPlaylist, MusicPlaylistDetail,
+    OnlineTrack, ProviderInfo, ProviderSearchResult, SettingKind, SettingValue, TrackQuery,
 };
 use raygun_resolver::Candidate;
 use serde::Deserialize;
@@ -1539,43 +1539,128 @@ struct RawLine {
     text: String,
 }
 
-/// Reads `{ synced?: [{ timeMs, text }], plain? }`. Lines with bad times are dropped and the rest
-/// sorted; an answer with neither synced lines nor plain text counts as "no lyrics".
+/// Translations a lyrics answer may carry, at most.
+const MAX_LYRICS_TRANSLATIONS: usize = 8;
+/// A translated line longer than this is cut.
+const MAX_TRANSLATED_LINE_CHARS: usize = 1_000;
+
+/// Reads `{ synced?: [{ timeMs, text }], plain?, translations?: [{ language, kind?, lines }] }`.
+/// Lines with bad times are dropped and the rest sorted; an answer with neither synced lines nor
+/// plain text counts as "no lyrics". A translation's `lines[i]` belongs to `synced[i]` as the
+/// provider gave it (M46.48), or to the plain text's i-th line; it follows its line through the
+/// sorting.
 fn parse_lyrics(provider: &ProviderInfo, value: &serde_json::Value) -> Option<Lyrics> {
     if value.is_null() {
         return None;
     }
-    let mut synced: Vec<LyricLine> = value
+    // Each kept line with its place in the provider's list.
+    let mut synced: Vec<(usize, LyricLine)> = value
         .get("synced")
         .and_then(serde_json::Value::as_array)
         .map(|lines| {
             lines
                 .iter()
-                .filter_map(|line| serde_json::from_value::<RawLine>(line.clone()).ok())
-                .filter(|line| line.time_ms.is_finite() && line.time_ms >= 0.0)
-                .map(|line| LyricLine {
-                    time_ms: line.time_ms.min(f64::from(u32::MAX)) as u32,
-                    text: line.text.trim().to_owned(),
+                .enumerate()
+                .filter_map(|(index, line)| {
+                    let line = serde_json::from_value::<RawLine>(line.clone()).ok()?;
+                    (line.time_ms.is_finite() && line.time_ms >= 0.0).then(|| {
+                        let line = LyricLine {
+                            time_ms: line.time_ms.min(f64::from(u32::MAX)) as u32,
+                            text: line.text.trim().to_owned(),
+                        };
+                        (index, line)
+                    })
                 })
                 .collect()
         })
         .unwrap_or_default();
-    synced.sort_by_key(|line| line.time_ms);
-    let plain = value
-        .get("plain")
-        .and_then(serde_json::Value::as_str)
+    synced.sort_by_key(|(_, line)| line.time_ms);
+    let raw_plain = value.get("plain").and_then(serde_json::Value::as_str);
+    let plain = raw_plain
         .map(str::trim)
         .filter(|text| !text.is_empty())
         .map(str::to_owned);
-    if synced.iter().all(|line| line.text.is_empty()) && plain.is_none() {
+    if synced.iter().all(|(_, line)| line.text.is_empty()) && plain.is_none() {
         return None;
     }
+    // Where each line the translations line up with sat in the provider's list.
+    let places: Vec<usize> = if synced.is_empty() {
+        let leading = raw_plain.map_or(0, |raw| {
+            raw[..raw.len() - raw.trim_start().len()]
+                .matches('\n')
+                .count()
+        });
+        let count = plain.as_deref().map_or(0, |plain| plain.lines().count());
+        (leading..leading + count).collect()
+    } else {
+        synced.iter().map(|(index, _)| *index).collect()
+    };
+    let translations = value
+        .get("translations")
+        .and_then(serde_json::Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|translation| parse_translation(provider, translation, &places))
+                .take(MAX_LYRICS_TRANSLATIONS)
+                .collect()
+        })
+        .unwrap_or_default();
     Some(Lyrics {
         provider_name: provider.name.clone(),
-        synced,
+        synced: synced.into_iter().map(|(_, line)| line).collect(),
         plain,
         offset_ms: 0,
         edited: false,
+        translations,
+    })
+}
+
+/// One of a lyrics answer's translations, its lines picked for `places` (the provider's indices
+/// of the kept lines). `None` when it's malformed or every line is empty.
+fn parse_translation(
+    provider: &ProviderInfo,
+    value: &serde_json::Value,
+    places: &[usize],
+) -> Option<LyricsTranslation> {
+    let language = value.get("language")?.as_str()?.trim();
+    let tag_like = (2..=35).contains(&language.len())
+        && language
+            .split('-')
+            .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_alphanumeric()));
+    if !tag_like {
+        return None;
+    }
+    let kind = match value.get("kind").and_then(serde_json::Value::as_str) {
+        None | Some("translation") => LyricsTranslationKind::Translation,
+        Some("romanization") => LyricsTranslationKind::Romanization,
+        Some(_) => return None,
+    };
+    let given = value.get("lines")?.as_array()?;
+    let lines: Vec<String> = places
+        .iter()
+        .map(|place| {
+            given
+                .get(*place)
+                .and_then(serde_json::Value::as_str)
+                .map(|line| {
+                    line.trim()
+                        .chars()
+                        .take(MAX_TRANSLATED_LINE_CHARS)
+                        .collect()
+                })
+                .unwrap_or_default()
+        })
+        .collect();
+    if lines.iter().all(String::is_empty) {
+        return None;
+    }
+    Some(LyricsTranslation {
+        language: language.to_owned(),
+        kind,
+        origin: LyricsTranslationOrigin::Source,
+        by: provider.name.clone(),
+        translator: String::new(),
+        lines,
     })
 }
 

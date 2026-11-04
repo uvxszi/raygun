@@ -66,6 +66,10 @@ pub struct ImportEvent(pub String);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct CaptionsEvent(pub String);
 
+/// How far a song's lyrics translation on this device is (M46.48), a few times a second.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct LyricsTranslationEvent(pub raygun_model::LyricsTranslationProgress);
+
 /// Followed artists or their release news changed (M46.42).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct ArtistReleasesEvent;

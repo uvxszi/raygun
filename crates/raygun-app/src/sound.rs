@@ -161,28 +161,44 @@ impl SoundService {
             .insert(key, rounded);
     }
 
-    /// The song's own lyrics when it has them, else `fetched` (a source's) with its offset. Synced
-    /// lines its trims cut off are left out (M46.36): only what plays shows.
-    pub fn lyrics(&self, query: &TrackQuery, fetched: Option<Lyrics>) -> Option<Lyrics> {
+    /// The song's own lyrics when it has them, else `fetched` (a source's) with its offset, every
+    /// line kept: translations are made and lined up on these (M46.48); [`Self::trim`] then
+    /// leaves out what the trims cut.
+    pub fn lyrics_untrimmed(&self, query: &TrackQuery, fetched: Option<Lyrics>) -> Option<Lyrics> {
         let edit = self.edit(&key(query));
-        let lyrics = if let Some(own) = edit.lyrics.clone() {
+        Some(if let Some(own) = edit.lyrics {
             Lyrics {
                 provider_name: OWN_LYRICS.to_owned(),
                 synced: own.synced,
                 plain: own.plain,
                 offset_ms: edit.lyrics_offset_ms,
                 edited: true,
+                translations: Vec::new(),
             }
         } else {
             Lyrics {
                 offset_ms: edit.lyrics_offset_ms,
                 ..fetched?
             }
-        };
-        Some(Lyrics {
-            synced: within_trims(lyrics.synced, lyrics.offset_ms, &edit),
-            ..lyrics
         })
+    }
+
+    /// Leaves out the synced lines the song's trims cut off (M46.36), and their translations:
+    /// only what plays shows.
+    pub fn trim(&self, query: &TrackQuery, mut lyrics: Lyrics) -> Lyrics {
+        let edit = self.edit(&key(query));
+        let kept = trimmed_range(&lyrics.synced, lyrics.offset_ms, &edit);
+        if kept.len() == lyrics.synced.len() {
+            return lyrics;
+        }
+        let count = lyrics.synced.len();
+        for translation in &mut lyrics.translations {
+            if translation.lines.len() == count {
+                translation.lines = translation.lines[kept.clone()].to_vec();
+            }
+        }
+        lyrics.synced = lyrics.synced[kept].to_vec();
+        lyrics
     }
 
     /// Whether the song has its own lyrics (then no source is asked).
@@ -193,9 +209,10 @@ impl SoundService {
 
 /// Synced lines that show while the trimmed song plays (M46.36): the one already showing at the
 /// start trim and every one that begins before the end trim. Times are as shown (`offset_ms` on).
-fn within_trims(lines: Vec<LyricLine>, offset_ms: i32, edit: &SongEdit) -> Vec<LyricLine> {
+/// Lines are sorted by time, so they're one stretch of the list.
+fn trimmed_range(lines: &[LyricLine], offset_ms: i32, edit: &SongEdit) -> std::ops::Range<usize> {
     if edit.start_ms == 0 && edit.end_ms.is_none() {
-        return lines;
+        return 0..lines.len();
     }
     let shown = |line: &LyricLine| i64::from(line.time_ms) + i64::from(offset_ms);
     let start = i64::from(edit.start_ms);
@@ -205,12 +222,11 @@ fn within_trims(lines: Vec<LyricLine>, offset_ms: i32, edit: &SongEdit) -> Vec<L
         .iter()
         .rposition(|line| shown(line) <= start)
         .unwrap_or(0);
-    lines
-        .into_iter()
-        .enumerate()
-        .filter(|(index, line)| *index >= first && shown(line) < end)
-        .map(|(_, line)| line)
-        .collect()
+    let last = lines
+        .iter()
+        .rposition(|line| shown(line) < end)
+        .map_or(0, |last| last + 1);
+    first..last.max(first)
 }
 
 fn from_row(row: SongEditRow) -> SongEdit {
@@ -262,22 +278,32 @@ mod tests {
             end_ms: Some(25_000),
             ..SongEdit::default()
         };
-        let kept: Vec<u32> = within_trims(lines.clone(), 0, &edit)
-            .iter()
-            .map(|line| line.time_ms)
-            .collect();
+        let times = |range: std::ops::Range<usize>| -> Vec<u32> {
+            lines[range].iter().map(|line| line.time_ms).collect()
+        };
         // 5 s is still showing at the 10 s start; 30 s comes after the end.
-        assert_eq!(kept, [5_000, 12_000, 20_000]);
-        // An offset moves the lines before they're cut.
-        let moved: Vec<u32> = within_trims(lines.clone(), 6_000, &edit)
-            .iter()
-            .map(|line| line.time_ms)
-            .collect();
-        assert_eq!(moved, [0, 5_000, 12_000]);
         assert_eq!(
-            within_trims(lines.clone(), 0, &SongEdit::default()).len(),
-            5
+            times(trimmed_range(&lines, 0, &edit)),
+            [5_000, 12_000, 20_000]
         );
+        // An offset moves the lines before they're cut.
+        assert_eq!(
+            times(trimmed_range(&lines, 6_000, &edit)),
+            [0, 5_000, 12_000]
+        );
+        assert_eq!(trimmed_range(&lines, 0, &SongEdit::default()), 0..5);
+        // Everything cut: nothing shows.
+        let late = SongEdit {
+            start_ms: 40_000,
+            end_ms: Some(50_000),
+            ..SongEdit::default()
+        };
+        assert_eq!(times(trimmed_range(&lines, 0, &late)), [30_000]);
+        let early = SongEdit {
+            end_ms: Some(1),
+            ..SongEdit::default()
+        };
+        assert_eq!(times(trimmed_range(&lines, 500, &early)), Vec::<u32>::new());
     }
 
     use super::*;

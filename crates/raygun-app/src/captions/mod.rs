@@ -508,6 +508,7 @@ impl CaptionService {
             plain: None,
             offset_ms: 0,
             edited: false,
+            translations: Vec::new(),
         })
     }
 

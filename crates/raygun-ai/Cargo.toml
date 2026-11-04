@@ -21,6 +21,8 @@ sha2 = "0.11"
 candle-core = { version = "0.11.1", default-features = false }
 candle-nn = { version = "0.11.1", default-features = false }
 candle-transformers = { version = "0.11.1", default-features = false }
+# OPUS-MT's SentencePiece tokenizers (M46.48), with the pure-Rust regex candle-core already uses.
+tokenizers = { version = "0.23", default-features = false, features = ["fancy-regex"] }
 
 [dev-dependencies]
 tempfile = "3"

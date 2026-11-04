@@ -19,7 +19,21 @@ pub struct ModelInfo {
     pub license: String,
     pub license_url: String,
     pub source_url: String,
+    /// What a translation model takes and writes (M46.48).
+    #[serde(default)]
+    pub translate: Option<TranslatePair>,
     pub files: Vec<ModelFile>,
+}
+
+/// A translation model's languages (M46.48): `from` is `en` or `mul` (any language); it writes
+/// each of `to`, and each of `targets` (BCP 47 tag → the `>>code<<` its input starts with).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct TranslatePair {
+    pub from: Vec<String>,
+    #[serde(default)]
+    pub to: Vec<String>,
+    #[serde(default)]
+    pub targets: std::collections::BTreeMap<String, String>,
 }
 
 impl ModelInfo {
@@ -177,6 +191,33 @@ mod tests {
         }
         assert!(find("realcugan-up2x-conservative").is_ok());
         assert!(matches!(find("nope"), Err(ModelError::Unknown(_))));
+        // Translation models (M46.48) say what they translate and have Marian's files.
+        let translators: Vec<&ModelInfo> = models
+            .iter()
+            .filter(|model| model.kind == "translate")
+            .collect();
+        assert!(translators.len() >= 2);
+        for model in translators {
+            let pair = model.translate.as_ref().expect("a translation pair");
+            assert!(!pair.from.is_empty());
+            assert!(
+                !pair.to.is_empty() || !pair.targets.is_empty(),
+                "{}",
+                model.id
+            );
+            for name in [
+                "config.json",
+                "vocab.json",
+                "source.spm",
+                "model.safetensors",
+            ] {
+                assert!(
+                    model.files.iter().any(|file| file.name == name),
+                    "{} lacks {name}",
+                    model.id
+                );
+            }
+        }
     }
 
     fn sha(bytes: &[u8]) -> String {
@@ -202,6 +243,7 @@ mod tests {
             license: "MIT".into(),
             license_url: "https://example.com".into(),
             source_url: "https://example.com".into(),
+            translate: None,
             files: vec![
                 ModelFile {
                     name: "a.param".into(),

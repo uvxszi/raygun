@@ -218,6 +218,58 @@ async fn deepl_request_and_error() {
     ));
 }
 
+#[tokio::test]
+async fn deepl_takes_fifty_texts_a_request() {
+    // Answers each request with its own texts, marked, and counts the requests.
+    let requests = Arc::new(Mutex::new(Vec::<usize>::new()));
+    let handler = {
+        let requests = requests.clone();
+        move |body: String| {
+            let requests = requests.clone();
+            async move {
+                let body: Value = serde_json::from_str(&body).unwrap();
+                let texts = body["text"].as_array().unwrap().clone();
+                requests.lock().unwrap().push(texts.len());
+                let translations: Vec<Value> = texts
+                    .iter()
+                    .map(|text| json!({ "text": format!("{}!", text.as_str().unwrap()) }))
+                    .collect();
+                json!({ "translations": translations }).to_string()
+            }
+        }
+    };
+    let app = Router::new().route("/{*path}", post(handler));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = raygun_net::http_client().unwrap();
+    let deepl = provider(ProviderKind::Deepl, &format!("http://{address}"), None);
+    let lines: Vec<String> = (0..120).map(|line| format!("line {line}")).collect();
+    let out = translate_as(
+        &client,
+        &deepl,
+        Some("k"),
+        &lines,
+        None,
+        "de",
+        Content::Lyrics,
+    )
+    .await
+    .unwrap();
+    assert_eq!(out.len(), 120);
+    assert_eq!(out[0], "line 0!");
+    assert_eq!(out[119], "line 119!");
+    assert_eq!(*requests.lock().unwrap(), [50, 50, 20]);
+}
+
+#[test]
+fn lyrics_are_asked_for_line_by_line() {
+    let lyrics = instructions(None, "de", Content::Lyrics);
+    assert!(lyrics.contains("song lyrics") && lyrics.contains("`de`"));
+    assert!(lyrics.contains("never merge, split, skip"));
+    assert!(!instructions(Some("en"), "ja", Content::Text).contains("song"));
+}
+
 #[test]
 fn defaults_and_parsing() {
     let deepl = Provider {

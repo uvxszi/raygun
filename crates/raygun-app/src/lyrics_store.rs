@@ -66,7 +66,8 @@ impl LyricsStore {
     }
 
     /// A source's lyrics for a song: kept ones at once, else asked for (with simpler words when
-    /// none come) and kept.
+    /// none come) and kept. Every source answers, so the translations any of them have are kept
+    /// too (M46.48); `LyricsTranslations::attach` lines them up.
     pub async fn lyrics(&self, query: &TrackQuery) -> Result<Option<Lyrics>, String> {
         let key = raygun_resolver::track_key(query);
         let now = now_ms();
@@ -76,8 +77,11 @@ impl LyricsStore {
         {
             match kept.lyrics.as_deref() {
                 Some(json) => {
-                    if let Ok(lyrics) = serde_json::from_str(json) {
-                        return Ok(Some(lyrics));
+                    if let Ok(lyrics) = serde_json::from_str::<Lyrics>(json) {
+                        return Ok(Some(Lyrics {
+                            translations: Vec::new(),
+                            ..lyrics
+                        }));
                     }
                 }
                 None if kept.fetched_at > 0 && now - kept.fetched_at < NONE_FOR_MS => {
@@ -87,14 +91,19 @@ impl LyricsStore {
             }
         }
         let extensions = self.app.state::<Arc<ExtensionService>>().inner().clone();
-        let mut found = extensions.lyrics(query).await?;
-        if found.is_none() {
+        let mut answers = extensions.all_lyrics(query).await?;
+        if answers.is_empty() {
             let simpler = simpler_query(query);
             if simpler.title != query.title || simpler.artist != query.artist {
                 tracing::info!(song = %key, "no lyrics; asking again with simpler words");
-                found = extensions.lyrics(&simpler).await?;
+                answers = extensions.all_lyrics(&simpler).await?;
             }
         }
+        self.keep_sources(query, &answers).await;
+        let found = answers.into_iter().next().map(|lyrics| Lyrics {
+            translations: Vec::new(),
+            ..lyrics
+        });
         let json = found
             .as_ref()
             .and_then(|lyrics| serde_json::to_string(lyrics).ok());
@@ -102,6 +111,22 @@ impl LyricsStore {
             tracing::warn!(%error, "couldn't keep a song's lyrics");
         }
         Ok(found)
+    }
+
+    /// Keeps the translations lyrics sources gave for a song, in place of what the same sources
+    /// gave before (M46.48).
+    pub async fn keep_sources(&self, query: &TrackQuery, answers: &[Lyrics]) {
+        let key = raygun_resolver::track_key(query);
+        let answered: Vec<String> = answers
+            .iter()
+            .map(|lyrics| format!("{}{}", store::SOURCE_PREFIX, lyrics.provider_name))
+            .collect();
+        let rows = crate::lyrics_translation::source_rows(answers, now_ms());
+        if let Err(error) =
+            store::replace_source_translations(&self.db(), &key, &answered, &rows).await
+        {
+            tracing::warn!(%error, "couldn't keep a song's lyrics translations");
+        }
     }
 
     /// Marks a song's lyrics as shown (its own lyrics showed, so nothing was asked for).
@@ -139,6 +164,7 @@ impl LyricsStore {
                 .await
                 .map_err(to_message)?
                 .len() as u32,
+            translations: store::translated_keys(&db).await.map_err(to_message)?.len() as u32,
         })
     }
 
@@ -150,7 +176,16 @@ impl LyricsStore {
         transcriptions: bool,
     ) -> Result<u32, String> {
         let db = self.db();
-        let lyrics_keys = store::keys(&db).await.map_err(to_message)?;
+        // Translations go with the lyrics they translate (M46.48).
+        let mut lyrics_keys = store::keys(&db).await.map_err(to_message)?;
+        let with_lyrics: HashSet<String> = lyrics_keys.iter().cloned().collect();
+        lyrics_keys.extend(
+            store::translated_keys(&db)
+                .await
+                .map_err(to_message)?
+                .into_iter()
+                .filter(|key| !with_lyrics.contains(key)),
+        );
         let heard: Vec<String> = if transcriptions {
             raygun_db::captions::song_keys(&db)
                 .await

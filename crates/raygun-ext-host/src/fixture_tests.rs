@@ -209,6 +209,169 @@ async fn lrclib_finds_exact_and_searched_lyrics() {
     );
 }
 
+/// KRC's XOR key, as KuGou's files use it.
+const KRC_KEY: [u8; 16] = [
+    64, 71, 97, 119, 94, 50, 116, 71, 81, 54, 49, 45, 206, 210, 110, 105,
+];
+
+/// A KRC file as KuGou's download sends it: `krc1`, then zlib data XORed with the key, all base64.
+fn krc_content(text: &str) -> String {
+    use base64::Engine;
+    use std::io::Write;
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(text.as_bytes()).unwrap();
+    let compressed = encoder.finish().unwrap();
+    let mut bytes = b"krc1".to_vec();
+    bytes.extend(
+        compressed
+            .iter()
+            .enumerate()
+            .map(|(index, byte)| byte ^ KRC_KEY[index % KRC_KEY.len()]),
+    );
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+#[tokio::test]
+async fn kugou_reads_krc_with_translations_and_falls_back_to_lrc() {
+    use base64::Engine;
+    let base64 = |text: &str| base64::engine::general_purpose::STANDARD.encode(text);
+    let language = base64(
+        &json!({
+            "content": [
+                { "language": 0, "type": 1, "lyricContent": [[""], [""], ["你的名字"], ["奔向夜晚"]] },
+                {
+                    "language": 0, "type": 0,
+                    "lyricContent": [["so", "ng"], [""], ["ki mi ", "no ", "na ma e"], ["yo ru ", "ni ", "ka ke ru"]]
+                }
+            ],
+            "version": 1
+        })
+        .to_string(),
+    );
+    // The song's name and a credit first (both dropped), then two sung lines with word timings.
+    let krc = format!(
+        "[id:$00000000]\r\n[ar:Band]\r\n[ti:Song]\r\n[language:{language}]\r\n\
+         [0,1000]<0,500,0>Song<500,500,0> - Band\r\n[1000,1000]<0,1000,0>作词：Someone\r\n\
+         [2000,1500]<0,700,0>君の<700,800,0>名前\r\n[4000,1500]<0,700,0>夜に<700,800,0>駆ける\r\n"
+    );
+    let krc = krc_content(&krc);
+    let lrc = base64("[00:01.00]Line one\n[00:02.50]Line two\n");
+    let app = Router::new()
+        .route(
+            "/api/v3/search/song",
+            get(|uri: Uri| async move {
+                let keyword = query_params(&uri)
+                    .get("keyword")
+                    .cloned()
+                    .unwrap_or_default();
+                let hash = if keyword.contains("Broken") {
+                    "h2"
+                } else {
+                    "h1"
+                };
+                json_response(
+                    StatusCode::OK,
+                    json!({ "data": { "info": [{ "hash": hash, "duration": 200 }] } }),
+                )
+            }),
+        )
+        .route(
+            "/search",
+            get(|uri: Uri| async move {
+                let id = match query_params(&uri).get("hash").map(String::as_str) {
+                    Some("h1") => 7,
+                    _ => 8,
+                };
+                json_response(
+                    StatusCode::OK,
+                    json!({ "candidates": [{ "id": id, "accesskey": "k" }] }),
+                )
+            }),
+        )
+        .route(
+            "/download",
+            get(move |uri: Uri| {
+                let (krc, lrc) = (krc.clone(), lrc.clone());
+                async move {
+                    let params = query_params(&uri);
+                    let content = match (
+                        params.get("id").map(String::as_str),
+                        params.get("fmt").map(String::as_str),
+                    ) {
+                        (Some("7"), Some("krc")) => krc,
+                        // A KRC that isn't one: the LRC is read instead.
+                        (Some("8"), Some("krc")) => base64("not a krc file"),
+                        _ => lrc,
+                    };
+                    json_response(StatusCode::OK, json!({ "content": content }))
+                }
+            }),
+        );
+    let address = serve(app);
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(vec![patched_extension_bases(
+        "kugou",
+        &["https://krcs.kugou.com", "https://mobileservice.kugou.com"],
+        address,
+    )])
+    .await;
+
+    let lyrics = host
+        .lyrics(&query("Song", Some(200_000)))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(lyrics.provider_name, "KuGou");
+    let lines: Vec<_> = lyrics
+        .synced
+        .iter()
+        .map(|line| (line.time_ms, line.text.as_str()))
+        .collect();
+    assert_eq!(lines, [(2_000, "君の名前"), (4_000, "夜に駆ける")]);
+    let translations: Vec<_> = lyrics
+        .translations
+        .iter()
+        .map(|translation| {
+            (
+                translation.language.as_str(),
+                translation.kind,
+                translation.lines.clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        translations,
+        [
+            (
+                "zh-Hans",
+                raygun_model::LyricsTranslationKind::Translation,
+                vec!["你的名字".to_owned(), "奔向夜晚".to_owned()]
+            ),
+            (
+                "ja-Latn",
+                raygun_model::LyricsTranslationKind::Romanization,
+                vec![
+                    "ki mi no na ma e".to_owned(),
+                    "yo ru ni ka ke ru".to_owned()
+                ]
+            ),
+        ]
+    );
+
+    let fallback = host
+        .lyrics(&query("Broken", Some(200_000)))
+        .await
+        .unwrap()
+        .unwrap();
+    let texts: Vec<&str> = fallback
+        .synced
+        .iter()
+        .map(|line| line.text.as_str())
+        .collect();
+    assert_eq!(texts, ["Line one", "Line two"]);
+    assert!(fallback.translations.is_empty());
+}
+
 /// The web client version the fixture's music.youtube.com page names; others are refused.
 const YOUTUBE_CLIENT: &str = "1.20990101.00.00";
 

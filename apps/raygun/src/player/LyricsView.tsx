@@ -12,6 +12,9 @@ import { useLivePosition } from './useLivePosition';
 import { sendControl } from './usePlayback';
 import { SourceIssue } from '../shell/SourceIssue';
 import { LyricsSourceMenu } from '../sound/LyricsSourceMenu';
+import { LyricsTranslateMenu } from '../sound/LyricsTranslateMenu';
+import { useShownTranslation } from '../sound/lyricsTranslation';
+import { TranslatedLine, TranslatedPlain } from '../sound/TranslatedLines';
 
 type LyricsViewProps = {
   item: QueueItem;
@@ -47,6 +50,8 @@ export const LyricsView: FC<LyricsViewProps> = ({
   const { t } = useTranslation();
   const query = trackQueryFor(item);
   const lyrics = useLyricsFor(query);
+  // Translations and romanized lines under each line (M46.48).
+  const shown = useShownTranslation(query, lyrics.data);
   // The song's own offset (M46.12): lines show this much later, and seek to where they show.
   const offsetMs = lyrics.data?.offsetMs ?? 0;
   const positionMs = useLivePosition(state);
@@ -124,10 +129,19 @@ export const LyricsView: FC<LyricsViewProps> = ({
                 }`}
               >
                 {line.text || '♪'}
+                <TranslatedLine shown={shown} index={index} />
               </button>
             </li>
           ))}
         </ol>
+      ) : lyrics.data?.plain && (shown.translation || shown.romanization) ? (
+        <TranslatedPlain
+          lyrics={lyrics.data}
+          shown={shown}
+          size={size}
+          align={align}
+          compact={variant === 'panel'}
+        />
       ) : (
         lyrics.data?.plain && (
           <p
@@ -139,11 +153,14 @@ export const LyricsView: FC<LyricsViewProps> = ({
         )
       )}
       <div
-        className={`flex items-center gap-3 ${hasLines || variant === 'sheet' ? 'mt-6' : 'mt-2 justify-center'}`}
+        className={`flex flex-wrap items-center gap-3 ${hasLines || variant === 'sheet' ? 'mt-6' : 'mt-2 justify-center'}`}
       >
         {/* One dropdown to switch where the lyrics come from (M46.45). */}
         {query && !lyrics.isPending && (
           <LyricsSourceMenu query={query} current={lyrics.data ?? undefined} />
+        )}
+        {lyrics.data && hasLines && (
+          <LyricsTranslateMenu query={query} lyrics={lyrics.data} shown={shown} />
         )}
         {!lyrics.isPending && (
           <button

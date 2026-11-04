@@ -5,7 +5,9 @@ use axum::Router;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Redirect};
 use axum::routing::{get, post};
-use raygun_model::{ExtensionOrigin, ExtensionStatus, MediaSource};
+use raygun_model::{
+    ExtensionOrigin, ExtensionStatus, LyricsTranslationKind, LyricsTranslationOrigin, MediaSource,
+};
 use serde_json::json;
 
 use crate::manifest::{Manifest, ManifestError};
@@ -892,6 +894,90 @@ async fn lyrics_prefer_synced_answers_and_validate_lines() {
 }
 
 #[tokio::test]
+async fn lyrics_translations_follow_their_lines() {
+    let host = test_host();
+    let provider = |id: &str, body: &str| {
+        let manifest = manifest_json(json!({ "id": id, "name": id, "provides": ["lyrics"] }));
+        let code = format!(
+            "raygun.providers.register({{ kind: 'lyrics', id: 'l', name: 'Words', lyrics: async () => ({body}) }});"
+        );
+        ExtensionSource::built_in(&[("raygun-extension.json", &manifest), ("index.js", &code)])
+    };
+    // Out of order and with a bad line: each translation stays with its line.
+    host.load(vec![provider(
+        "dev.raygun.translated",
+        r#"{
+            synced: [
+                { timeMs: 5000, text: 'second' },
+                { timeMs: -1, text: 'bad' },
+                { timeMs: 1000, text: 'first' },
+            ],
+            translations: [
+                { language: 'en', lines: ['zweite', 'schlecht', 'erste'] },
+                { language: 'ja-Latn', kind: 'romanization', lines: ['ni', null, 'ichi'] },
+                { language: 'not a tag', lines: ['x', 'y', 'z'] },
+                { language: 'fr', kind: 'notes', lines: ['x', 'y', 'z'] },
+                { language: 'de', lines: ['', '', ''] },
+            ],
+        }"#,
+    )])
+    .await;
+    let query = raygun_model::TrackQuery {
+        title: "Song".into(),
+        artist: Some("Band".into()),
+        album: None,
+        duration_ms: None,
+    };
+    let lyrics = host.lyrics(&query).await.unwrap().unwrap();
+    let texts: Vec<&str> = lyrics
+        .synced
+        .iter()
+        .map(|line| line.text.as_str())
+        .collect();
+    assert_eq!(texts, ["first", "second"]);
+    let kept: Vec<(&str, LyricsTranslationKind, Vec<&str>)> = lyrics
+        .translations
+        .iter()
+        .map(|translation| {
+            (
+                translation.language.as_str(),
+                translation.kind,
+                translation.lines.iter().map(String::as_str).collect(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        kept,
+        [
+            (
+                "en",
+                LyricsTranslationKind::Translation,
+                vec!["erste", "zweite"]
+            ),
+            (
+                "ja-Latn",
+                LyricsTranslationKind::Romanization,
+                vec!["ichi", "ni"]
+            ),
+        ]
+    );
+    assert!(lyrics.translations.iter().all(|translation| {
+        translation.origin == LyricsTranslationOrigin::Source && translation.by == "Words"
+    }));
+
+    // Plain lyrics: the lines after the ones trimmed away.
+    let host = test_host();
+    host.load(vec![provider(
+        "dev.raygun.plain",
+        r#"{ plain: '\nOne\nTwo\n', translations: [{ language: 'de', lines: ['', 'Eins', 'Zwei'] }] }"#,
+    )])
+    .await;
+    let lyrics = host.lyrics(&query).await.unwrap().unwrap();
+    assert_eq!(lyrics.plain.as_deref(), Some("One\nTwo"));
+    assert_eq!(lyrics.translations[0].lines, ["Eins", "Zwei"]);
+}
+
+#[tokio::test]
 async fn charts_and_tags_come_from_their_providers() {
     let host = test_host();
     let manifest = manifest_json(json!({ "provides": ["music.charts", "music.tags"] }));
@@ -1694,6 +1780,68 @@ async fn lrclib_live_returns_synced_lyrics() {
         lyrics.synced.first()
     );
     assert!(!lyrics.synced.is_empty());
+}
+
+/// KuGou's real lyric service, read as KRC with its translations and romanizations (M46.48):
+/// `cargo test -p raygun-ext-host -- --ignored kugou_live --nocapture`.
+#[tokio::test]
+#[ignore = "needs network access to kugou.com"]
+async fn kugou_live_has_translations_and_romanizations() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(discover_installed(&dir)).await;
+    for (title, artist, duration_ms, wanted) in [
+        (
+            "Shape of You",
+            "Ed Sheeran",
+            233_000,
+            ("zh-Hans", LyricsTranslationKind::Translation),
+        ),
+        (
+            "夜に駆ける",
+            "YOASOBI",
+            261_000,
+            ("ja-Latn", LyricsTranslationKind::Romanization),
+        ),
+    ] {
+        let query = raygun_model::TrackQuery {
+            title: title.into(),
+            artist: Some(artist.into()),
+            album: None,
+            duration_ms: Some(duration_ms),
+        };
+        let answers = host.all_lyrics(&query).await.unwrap();
+        let kugou = answers
+            .iter()
+            .find(|lyrics| lyrics.provider_name == "KuGou")
+            .expect("KuGou has this song");
+        println!(
+            "{title}: {} lines, first {:?}",
+            kugou.synced.len(),
+            kugou.synced.first().map(|line| &line.text)
+        );
+        for translation in &kugou.translations {
+            let first = translation.lines.iter().find(|line| !line.is_empty());
+            println!(
+                "  {} {:?}: {first:?}",
+                translation.language, translation.kind
+            );
+            assert_eq!(translation.lines.len(), kugou.synced.len());
+        }
+        assert!(
+            kugou
+                .translations
+                .iter()
+                .any(|translation| (translation.language.as_str(), translation.kind) == wanted),
+            "{title} has a {wanted:?}"
+        );
+        // The credits and the line naming the song are left out.
+        assert!(
+            !kugou.synced[0].text.contains(artist),
+            "{:?}",
+            kugou.synced[0]
+        );
+    }
 }
 
 /// YouTube Music's real search, without a key: `cargo test -p raygun-ext-host -- --ignored youtube_live`.

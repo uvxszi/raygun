@@ -4884,6 +4884,7 @@ dependencies = [
  "sha2 0.11.1",
  "tempfile",
  "thiserror 2.0.21",
+ "tokenizers",
  "tokio",
  "tracing",
 ]
@@ -4974,8 +4975,10 @@ name = "raygun-ext-host"
 version = "1.0.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "cookie_store",
  "ego-tree",
+ "flate2",
  "futures-util",
  "mlua",
  "raygun-model",

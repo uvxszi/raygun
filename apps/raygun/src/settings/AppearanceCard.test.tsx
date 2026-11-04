@@ -24,6 +24,7 @@ const DEFAULT_SETTINGS: Settings = {
   explicitMusic: true,
   privacy: { history: true, recentlyPlayed: true },
   lyricsCache: { forgetAfterDays: 30, keepFavorites: true, keepDownloaded: true, keepLocal: true },
+  lyricsTranslation: { language: '', automatic: true, romanized: false, localModel: '' },
   preferredVideoQuality: null,
   accent: 'red',
   startScreen: 'home',

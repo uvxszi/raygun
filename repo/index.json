@@ -120,9 +120,9 @@
     {
       "id": "dev.raygun.kugou",
       "name": "KuGou lyrics",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "apiVersion": 1,
-      "description": "Synced lyrics from KuGou's lyric service, as Kreate and RiMusic use it: strong on Chinese, Japanese and Korean songs, and many others.",
+      "description": "Synced lyrics from KuGou's lyric service, as Kreate and RiMusic use it: strong on Chinese, Japanese and Korean songs, with Chinese translations and romanized lines for many.",
       "author": "Raygun",
       "provides": [
         "lyrics"
@@ -135,9 +135,9 @@
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.kugou-1.0.0.zip",
-      "sha256": "0788d451324249c1823085be56136bc64cde9730a819f308e9cb0a05e03bf2ae",
-      "size": 2506
+      "package": "packages/dev.raygun.kugou-1.1.0.zip",
+      "sha256": "42732d99a78692184ce7601b3fcfc5a4094671f69673e1ca4dfeeb82b4ce10e3",
+      "size": 5480
     },
     {
       "id": "dev.raygun.librivox",
