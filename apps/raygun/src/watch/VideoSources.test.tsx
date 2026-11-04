@@ -28,6 +28,7 @@ const link = (label: string, quality: number, preferred = false): VideoLinkView 
 });
 
 const SERIES: VideoTitleView = {
+  continueEpisodeId: null,
   id: 'title-1',
   sourceId: SOURCE.id,
   sourceName: 'Archive Films',

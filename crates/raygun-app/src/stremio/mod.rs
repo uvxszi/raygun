@@ -962,20 +962,37 @@ impl StremioService {
             .chain([own_key.clone()])
             .collect();
         let progress = progress_for_keys(&db, &keys).await?;
+        // Episodes marked in the library (a whole title marked watched) are marked on its
+        // stored episodes only.
+        let units: HashMap<String, titles::UnitRow> = match stored {
+            Some(row) => titles::units(&db, &row.id)
+                .await
+                .map_err(to_message)?
+                .into_iter()
+                .map(|unit| (unit.fields.remote_id.clone(), unit))
+                .collect(),
+            None => HashMap::new(),
+        };
+        let continue_video_id =
+            continue_video(kind, &meta.videos, &progress, &units, now_ms()).map(str::to_owned);
         let downloaded = video_library::downloaded_keys(&db, &keys).await?;
         let own = progress.get(&own_key);
         let in_library = stored.is_some_and(|row| row.in_library_at.is_some());
         Ok(StremioMeta {
+            continue_video_id,
             videos: meta
                 .videos
                 .into_iter()
                 .map(|video| {
                     let key = content_key(kind, &video.id);
                     let saved = progress.get(&key);
+                    let marked = units
+                        .get(&video.id)
+                        .is_some_and(|unit| unit.completed_at.is_some());
                     StremioVideo {
                         position_ms: saved.map_or(0.0, |row| row.position_ms as f64),
                         duration_ms: saved.and_then(|row| row.duration_ms).map(|ms| ms as f64),
-                        watched: saved.is_some_and(|row| row.watched_at.is_some()),
+                        watched: saved.is_some_and(|row| row.watched_at.is_some()) || marked,
                         downloaded: downloaded.contains(&key),
                         id: video.id,
                         title: video.title,
@@ -1778,40 +1795,62 @@ pub fn content_key(kind: &str, video_id: &str) -> String {
     format!("stremio:{kind}:{video_id}")
 }
 
-/// Progress saved for each of `keys`: a few queries, by what the keys share (a season's episodes,
-/// a channel's videos), whatever ids the episodes go by.
+/// The episode a series continues from (M46.48): the one watched last (its progress here, or a
+/// mark on the stored episode), or the next one that is out once that was finished, in watching
+/// order; see [`crate::catalog::continue_index`].
+pub(crate) fn continue_video<'a>(
+    kind: &str,
+    videos: &'a [protocol::Video],
+    progress: &HashMap<String, VideoProgress>,
+    units: &HashMap<String, titles::UnitRow>,
+    now: i64,
+) -> Option<&'a str> {
+    let saved = |video: &protocol::Video| progress.get(&content_key(kind, &video.id));
+    let seasons = videos
+        .iter()
+        .any(|video| video.season.is_some_and(|season| season >= 1));
+    let index = crate::catalog::continue_index(
+        videos,
+        |video| {
+            let watched = saved(video)
+                .filter(|row| row.position_ms > 0 || row.watched_at.is_some())
+                .map(|row| row.updated_at);
+            let marked = units
+                .get(&video.id)
+                .filter(|unit| unit.completed_at.is_some() || unit.position.unwrap_or(0) > 0)
+                .and_then(|unit| unit.progress_at);
+            watched.max(marked)
+        },
+        |video| {
+            saved(video).is_some_and(|row| row.watched_at.is_some())
+                || units
+                    .get(&video.id)
+                    .is_some_and(|unit| unit.completed_at.is_some())
+        },
+        |video| {
+            video
+                .released
+                .as_deref()
+                .and_then(release_ms)
+                .is_none_or(|at| at <= now)
+        },
+        |video| video_match::is_special(video.season.map(f64::from), seasons),
+    )?;
+    videos.get(index).map(|video| video.id.as_str())
+}
+
+/// Progress saved for each of `keys`, by key (the exact keys: an addon's video ids needn't start
+/// with the title's id).
 async fn progress_for_keys(
     db: &raygun_db::Db,
     keys: &[String],
 ) -> Result<HashMap<String, VideoProgress>, String> {
-    let mut groups: HashMap<&str, Vec<&String>> = HashMap::new();
-    for key in keys {
-        let parent = key
-            .rsplit_once(':')
-            .map_or(key.as_str(), |(parent, _)| parent);
-        groups.entry(parent).or_default().push(key);
-    }
-    let wanted: HashSet<&String> = keys.iter().collect();
-    let mut found = HashMap::new();
-    for (parent, members) in groups {
-        let rows = if let [only] = members.as_slice() {
-            progress_store::progress(db, only)
-                .await
-                .map_err(to_message)?
-                .into_iter()
-                .collect::<Vec<_>>()
-        } else {
-            progress_store::progress_with_prefix(db, &format!("{parent}:"))
-                .await
-                .map_err(to_message)?
-        };
-        for row in rows {
-            if wanted.contains(&row.entry.key) {
-                found.insert(row.entry.key.clone(), row);
-            }
-        }
-    }
-    Ok(found)
+    Ok(progress_store::progress_for_keys(db, keys)
+        .await
+        .map_err(to_message)?
+        .into_iter()
+        .map(|row| (row.entry.key.clone(), row))
+        .collect())
 }
 
 /// Copies progress saved before a title was stored onto its episodes that have none (a series

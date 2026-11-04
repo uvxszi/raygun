@@ -1,4 +1,4 @@
-import { commands, events } from '@raygun/bindings';
+import { commands } from '@raygun/bindings';
 import type {
   StremioCatalogInfo,
   StremioCatalogRow,
@@ -12,7 +12,6 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
@@ -107,23 +106,13 @@ export const useStremioSearchRows = (query: string): SearchRows => {
   });
 };
 
-/** A title's details; progress shown on it follows the player. */
-export const useStremioMeta = (kind: string, id: string) => {
-  const queryClient = useQueryClient();
-  useEffect(() => {
-    const unlisten = events.watchChangedEvent.listen(() => {
-      void queryClient.invalidateQueries({ queryKey: [...STREMIO, 'meta'] });
-    });
-    return () => {
-      void unlisten.then((stop) => stop());
-    };
-  }, [queryClient]);
-  return useQuery({
+/** A title's details; progress shown on it follows the player (`shell/useLiveInvalidation`). */
+export const useStremioMeta = (kind: string, id: string) =>
+  useQuery({
     queryKey: [...STREMIO, 'meta', kind, id],
     queryFn: () => unwrapResult(commands.stremioMeta(kind, id)),
     enabled: kind !== '' && id !== '',
   });
-};
 
 /** Streams for a movie or episode of the title `metaId`; `videoId` is null until one is picked. */
 export const useStremioStreams = (kind: string, metaId: string, videoId: string | null) =>
@@ -171,7 +160,12 @@ export const useSetWatched = () => {
           mark.watched,
         ),
       ),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: [...STREMIO, 'meta'] }),
+    // The title's page and what to continue watching.
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: [...STREMIO, 'meta'] }),
+        queryClient.invalidateQueries({ queryKey: ['watch'] }),
+      ]),
   });
 };
 

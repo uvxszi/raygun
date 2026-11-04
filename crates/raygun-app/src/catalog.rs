@@ -791,23 +791,76 @@ pub fn previous_unread(units: &[UnitRow], unit_id: &str) -> Option<Vec<String>> 
     )
 }
 
-/// Where reading continues: a partly read chapter, else the first unread one after the last read
-/// chapter, else the first chapter.
+/// Where reading continues: the chapter read last while it's unfinished, else the next unread one
+/// after it, else the first unread one, else the first chapter (see [`continue_index`]).
 pub fn continue_from(units: &[UnitRow]) -> Option<&UnitRow> {
     let order = reading_order(units);
-    if let Some(partly) = order
-        .iter()
-        .find(|unit| unit.completed_at.is_none() && unit.position.unwrap_or(0) > 0)
-    {
-        return Some(partly);
+    let index = continue_index(
+        &order,
+        |unit| {
+            (unit.completed_at.is_some() || unit.position.unwrap_or(0) > 0)
+                .then(|| unit.progress_at.unwrap_or(0))
+        },
+        |unit| unit.completed_at.is_some(),
+        |_| true,
+        |_| false,
+    )?;
+    order.get(index).copied()
+}
+
+/// Where reading or watching a title continues, as an index into `order` (its chapters or
+/// episodes in reading or watching order); the one rule for every Continue (M46.48):
+/// - the one read or watched last (`touched` gives when, for those with progress or finished)
+///   while it's unfinished, with its place;
+/// - after a finished one, the next unfinished one that is `out`;
+/// - else the first one out after the last one finished in order, else the first unfinished one
+///   out (a gap), else the first.
+///
+/// Specials (`special`) only count when the title has nothing else, or when one was watched last.
+/// Picking the first partly watched one instead sent Continue back to an episode opened by mistake
+/// long before the one watched last.
+pub fn continue_index<T>(
+    order: &[T],
+    touched: impl Fn(&T) -> Option<i64>,
+    finished: impl Fn(&T) -> bool,
+    out: impl Fn(&T) -> bool,
+    special: impl Fn(&T) -> bool,
+) -> Option<usize> {
+    if order.is_empty() {
+        return None;
     }
-    let after_last_read = order
+    let regular: Vec<usize> = (0..order.len())
+        .filter(|&index| !special(&order[index]))
+        .collect();
+    let pool = if regular.is_empty() {
+        (0..order.len()).collect()
+    } else {
+        regular
+    };
+    let open = |index: usize| !finished(&order[index]) && out(&order[index]);
+    // Of two touched at the same moment (chapters marked read together), the later one.
+    let last = order
         .iter()
-        .rposition(|unit| unit.completed_at.is_some())
-        .map_or(0, |index| index + 1);
-    order
-        .get(after_last_read)
-        .or_else(|| order.first())
+        .enumerate()
+        .filter_map(|(index, item)| touched(item).map(|at| (at, index)))
+        .max();
+    if let Some((_, index)) = last {
+        if !finished(&order[index]) {
+            return Some(index);
+        }
+        if let Some(&next) = pool.iter().find(|&&next| next > index && open(next)) {
+            return Some(next);
+        }
+    }
+    let after_last = pool
+        .iter()
+        .rposition(|&index| finished(&order[index]))
+        .map_or(0, |position| position + 1);
+    pool[after_last..]
+        .iter()
+        .find(|&&index| open(index))
+        .or_else(|| pool.iter().find(|&&index| open(index)))
+        .or(pool.first())
         .copied()
 }
 
@@ -870,7 +923,14 @@ mod tests {
             position,
             total: Some(20),
             completed_at: done.then_some(1),
+            progress_at: (done || position.is_some()).then_some(1),
         }
+    }
+
+    /// A unit read or watched at `at`.
+    fn touched(mut unit: UnitRow, at: i64) -> UnitRow {
+        unit.progress_at = Some(at);
+        unit
     }
 
     fn ids(units: Vec<&UnitRow>) -> Vec<&str> {
@@ -987,6 +1047,67 @@ mod tests {
         );
         assert!(previous_unread(&units, "c1").unwrap().is_empty());
         assert!(previous_unread(&units, "gone").is_none());
+    }
+
+    #[test]
+    fn continue_follows_what_was_read_or_watched_last() {
+        // Episode 1 was opened for a moment, then episode 7 watched well into it.
+        let mut episodes: Vec<UnitRow> = (1..=10)
+            .map(|number| {
+                unit(
+                    &format!("e{number}"),
+                    Some(f64::from(number)),
+                    i64::from(10 - number),
+                    None,
+                    false,
+                )
+            })
+            .collect();
+        episodes[0] = touched(unit("e1", Some(1.0), 9, Some(4_000), false), 100);
+        episodes[6] = touched(unit("e7", Some(7.0), 3, Some(1_500_000), false), 900);
+        assert_eq!(continue_from(&episodes).unwrap().id, "e7", "not episode 1");
+
+        // Finished: the next one, even with an older episode left half watched.
+        episodes[6] = touched(unit("e7", Some(7.0), 3, None, true), 950);
+        assert_eq!(continue_from(&episodes).unwrap().id, "e8");
+
+        // The last one finished: back to the first one left unfinished.
+        episodes[9] = touched(unit("e10", Some(10.0), 0, None, true), 990);
+        assert_eq!(continue_from(&episodes).unwrap().id, "e1");
+
+        // Marked read together (one stamp): after the last of them.
+        let marked = [
+            touched(unit("c1", Some(1.0), 2, None, true), 50),
+            touched(unit("c2", Some(2.0), 1, None, true), 50),
+            unit("c3", Some(3.0), 0, None, false),
+        ];
+        assert_eq!(continue_from(&marked).unwrap().id, "c3");
+    }
+
+    #[test]
+    fn continue_index_skips_what_is_not_out_yet() {
+        // (watched at, finished, out)
+        let items = [
+            (Some(10), true, true),
+            (None, false, false),
+            (None, false, true),
+        ];
+        let pick = |items: &[(Option<i64>, bool, bool)]| {
+            continue_index(
+                items,
+                |item| item.0,
+                |item| item.1,
+                |item| item.2,
+                |_| false,
+            )
+        };
+        assert_eq!(pick(&items), Some(2));
+        assert_eq!(
+            pick(&[(None, false, false)]),
+            Some(0),
+            "nothing out: the first"
+        );
+        assert_eq!(pick(&[]), None);
     }
 
     #[test]

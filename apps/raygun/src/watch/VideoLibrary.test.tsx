@@ -39,6 +39,7 @@ const entry = (
   });
 
 const FILM: VideoTitleView = {
+  continueEpisodeId: null,
   id: 'title-film',
   sourceId: SOURCE_ID,
   sourceName: 'Archive Films',
@@ -72,6 +73,7 @@ const FILM: VideoTitleView = {
 };
 
 const SERIES: StremioMeta = {
+  continueVideoId: null,
   kind: 'series',
   id: 'tt0903747',
   name: 'Breaking Bad',

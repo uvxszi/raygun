@@ -1,7 +1,6 @@
-import { commands, events } from '@raygun/bindings';
+import { commands } from '@raygun/bindings';
 import type { VideoSourcePlay } from '@raygun/bindings';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
 
@@ -13,23 +12,13 @@ export const useVideoSources = () =>
     queryFn: () => unwrapResult(commands.videoSources()),
   });
 
-/** A title's page; progress on it follows the player. */
-export const useVideoTitle = (sourceId: string, remoteId: string) => {
-  const queryClient = useQueryClient();
-  useEffect(() => {
-    const unlisten = events.watchChangedEvent.listen(() => {
-      void queryClient.invalidateQueries({ queryKey: [VIDEO, 'title'] });
-    });
-    return () => {
-      void unlisten.then((stop) => stop());
-    };
-  }, [queryClient]);
-  return useQuery({
+/** A title's page; progress on it follows the player (`shell/useLiveInvalidation`). */
+export const useVideoTitle = (sourceId: string, remoteId: string) =>
+  useQuery({
     queryKey: [VIDEO, 'title', sourceId, remoteId],
     queryFn: () => unwrapResult(commands.videoTitle(sourceId, remoteId, false)),
     enabled: Boolean(sourceId && remoteId),
   });
-};
 
 export const useRefreshVideoTitle = () => {
   const queryClient = useQueryClient();
@@ -77,6 +66,11 @@ export const useSetEpisodeWatched = () => {
       episodeId: string;
       watched: boolean;
     }) => unwrapResult(commands.videoSetEpisodeWatched(titleId, episodeId, watched)),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: [VIDEO, 'title'] }),
+    // The title's page and what to continue watching.
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: [VIDEO, 'title'] }),
+        queryClient.invalidateQueries({ queryKey: ['watch'] }),
+      ]),
   });
 };

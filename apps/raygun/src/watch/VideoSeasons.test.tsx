@@ -34,6 +34,8 @@ const episode = (id: string, number: number, watched: boolean) => ({
 });
 
 const OVERLORD_II: VideoTitleView = {
+  // Rust's answer: episode 2 was skipped, episode 3 watched last.
+  continueEpisodeId: 'u4',
   id: 'title-1',
   sourceId: HERE.id,
   sourceName: HERE.name,

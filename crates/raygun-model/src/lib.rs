@@ -6035,6 +6035,9 @@ pub struct StremioMeta {
     pub trailer_yt_ids: Vec<String>,
     /// Episodes, by season and number; empty for a movie.
     pub videos: Vec<StremioVideo>,
+    /// The episode Continue plays: the one watched last, or the next one that is out once that was
+    /// finished; the first unwatched one (not an extra) before any. None for a movie.
+    pub continue_video_id: Option<String>,
     /// For a movie: where watching stopped.
     pub position_ms: f64,
     pub duration_ms: Option<f64>,
@@ -6236,6 +6239,9 @@ pub struct VideoTitleView {
     pub hidden_nsfw: bool,
     /// In the source's order; a movie has one.
     pub episodes: Vec<VideoEpisodeView>,
+    /// The episode Continue plays (its stored id): the one watched last, or the next one that is
+    /// out once that was finished; the first unwatched one before any.
+    pub continue_episode_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]

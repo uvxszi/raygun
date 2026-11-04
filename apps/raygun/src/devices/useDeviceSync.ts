@@ -1,9 +1,7 @@
-import { commands, events } from '@raygun/bindings';
+import { commands } from '@raygun/bindings';
 import type { SyncKind, SyncStatus } from '@raygun/bindings';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
 
-import { COLLECTIONS } from '../collections/useCollections';
 import { unwrapResult } from '../lib/commandResult';
 
 const SYNC = ['sync'];
@@ -47,19 +45,3 @@ export const useRenameDevice = () =>
   useSyncChange((name: string) => unwrapResult(commands.syncSetDeviceName(name)));
 
 export const useUndoLastSync = () => useSyncChange(() => unwrapResult(commands.syncUndoLast()));
-
-/** Refreshes what a sync may have changed (settings, favorites, playlists, history). Mount once. */
-export const useSyncChangedListener = () => {
-  const queryClient = useQueryClient();
-  useEffect(() => {
-    // Linked devices sync on their own (M46.47): whatever is shown may have changed, so every
-    // shown answer is asked again (library, playlists, settings, websites…).
-    const unlisten = events.syncChangedEvent.listen(() => {
-      void queryClient.invalidateQueries({ queryKey: [COLLECTIONS] });
-      void queryClient.invalidateQueries();
-    });
-    return () => {
-      void unlisten.then((stop) => stop());
-    };
-  }, [queryClient]);
-};

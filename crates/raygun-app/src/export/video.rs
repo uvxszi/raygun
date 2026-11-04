@@ -220,6 +220,7 @@ fn as_unit(row: &VideoDownloadRow) -> UnitRow {
         position: None,
         total: None,
         completed_at: None,
+        progress_at: None,
     }
 }
 

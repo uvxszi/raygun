@@ -31,20 +31,15 @@ import {
 import { findInCache } from '../shell/queryMemory';
 import { SourceIssue } from '../shell/SourceIssue';
 import { episodeLabel, isGenericName, showsSeasons } from '../watch/episodeLabel';
-import { nextEpisode, releasedAt } from '../watch/nextEpisode';
 import { LoadMore } from '../shell/LoadMore';
 
 /** "S1 E2 · Pilot", or the title alone when it isn't numbered; `showSeason` from `showsSeasons`. */
 const videoLabel = (video: StremioVideo, showSeason: boolean) =>
   episodeLabel({ season: video.season, number: video.episode, name: video.title }, showSeason);
 
-/** Where watching continues: the videos come in watching order, specials last. */
-const continueAt = (videos: StremioVideo[]) =>
-  nextEpisode(videos, (video) => ({
-    watched: video.watched,
-    season: video.season,
-    releasedAt: releasedAt(video.released),
-  }));
+/** Where watching continues, as Rust decides it (`StremioMeta.continueVideoId`). */
+const continueAt = (videos: StremioVideo[], id: string | null) =>
+  id === null ? undefined : videos.find((video) => video.id === id);
 
 const Progress: FC<{ position: number | null; duration: number | null }> = ({
   position,
@@ -60,11 +55,11 @@ const Progress: FC<{ position: number | null; duration: number | null }> = ({
   ) : null;
 
 /** Seasons in order (specials last), and the one to open: where watching left off. */
-const useSeasons = (videos: StremioVideo[]) =>
+const useSeasons = (videos: StremioVideo[], continueId: string | null) =>
   useMemo(() => {
     const seasons = [...new Set(videos.map((video) => video.season ?? 0))];
-    return { seasons, first: continueAt(videos)?.season ?? seasons[0] ?? 0 };
-  }, [videos]);
+    return { seasons, first: continueAt(videos, continueId)?.season ?? seasons[0] ?? 0 };
+  }, [videos, continueId]);
 
 /** Episodes drawn at a time: a long season (a thousand anime episodes) is drawn as it's scrolled. */
 const EPISODE_CHUNK = 60;
@@ -75,7 +70,7 @@ const Episodes: FC<{
   onPick: (target: StreamTarget, intent: PickIntent | 'watch') => void;
 }> = ({ meta, downloads, onPick }) => {
   const { t } = useTranslation();
-  const { seasons, first } = useSeasons(meta.videos);
+  const { seasons, first } = useSeasons(meta.videos, meta.continueVideoId);
   const [season, setSeason] = useState<number | null>(null);
   const shown = season ?? first;
   const [drawn, setDrawn] = useState({ season: shown, count: EPISODE_CHUNK });
@@ -305,7 +300,9 @@ export const WatchTitlePage: FC = () => {
   const hasEpisodes = view.videos.length > 0;
   const trailerId = view.trailerYtIds[0];
   // The floating button plays the movie, or where watching continues.
-  const nextVideo = hasEpisodes ? (continueAt(view.videos) ?? view.videos[0]) : null;
+  const nextVideo = hasEpisodes
+    ? (continueAt(view.videos, view.continueVideoId) ?? view.videos[0])
+    : null;
   const resumable = nextVideo ? (nextVideo.positionMs ?? 0) > 0 : (view.positionMs ?? 0) > 0;
   const playLabel = t(resumable ? 'watch.resume' : hasEpisodes ? 'watch.start' : 'watch.play');
   const playNow = () => pick(nextVideo ? episodeTarget(nextVideo) : ownTarget);

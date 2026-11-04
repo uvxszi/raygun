@@ -1,5 +1,4 @@
 import { episodeLabel, isGenericName, showsSeasons } from './episodeLabel';
-import { nextEpisode } from './nextEpisode';
 import { parseTitle, sameTitle, videoTitleScore } from './videoMatch';
 
 // The cases of `raygun_resolver::video_match`'s tests: the two parsers agree.
@@ -145,28 +144,5 @@ describe('episode labels', () => {
     expect(episodeLabel({ season: 1, number: 1, name: 'Beast Titan' }, false)).toBe(
       'E1 · Beast Titan',
     );
-  });
-});
-
-describe('where watching continues', () => {
-  type Episode = { id: string; watched: boolean; season: number | null; releasedAt: number | null };
-  const episode = (id: string, watched = false, season: number | null = 1): Episode => ({
-    id,
-    watched,
-    season,
-    releasedAt: null,
-  });
-  const next = (episodes: Episode[]) => nextEpisode(episodes, (each) => each, 100)?.id;
-
-  it('goes on after the last episode watched, never into the specials', () => {
-    expect(next([episode('a'), episode('b')])).toBe('a');
-    expect(next([episode('a', true), episode('b'), episode('c', true), episode('d')])).toBe('d');
-    expect(
-      next([episode('a', true), episode('b'), episode('c', true), episode('sp', false, 0)]),
-    ).toBe('b');
-    expect(next([episode('a', true), episode('b', true)])).toBe('a');
-    expect(next([{ ...episode('a', true) }, { ...episode('b'), releasedAt: 1_000 }])).toBe('a');
-    expect(next([episode('ova', true, 0), episode('ova2', false, 0)])).toBe('ova2');
-    expect(next([])).toBeUndefined();
   });
 });

@@ -36,7 +36,6 @@ import { VideoDownloadControl } from '../watch/VideoDownloadControl';
 /** Videos from Local Files folders (M46.27): already on this device. */
 const LOCAL_VIDEO = 'local.video';
 import { episodeLabel } from '../watch/episodeLabel';
-import { nextEpisode } from '../watch/nextEpisode';
 import {
   sourceKey,
   useDownloadsByKey,
@@ -71,13 +70,9 @@ const Progress: FC<{ episode: VideoEpisodeView }> = ({ episode }) => {
 const isMovie = (view: VideoTitleView) =>
   view.episodes.length === 1 && view.episodes[0]!.season === null;
 
-/** Where watching continues (episodes come in watching order). */
-const continueAt = (episodes: VideoEpisodeView[]) =>
-  nextEpisode(episodes, (episode) => ({
-    watched: episode.watched,
-    season: episode.season,
-    releasedAt: episode.date,
-  }));
+/** Where watching continues, as Rust decides it (`VideoTitleView.continueEpisodeId`). */
+const continueAt = (view: VideoTitleView) =>
+  view.episodes.find((episode) => episode.id === view.continueEpisodeId);
 
 const Episodes: FC<{
   view: VideoTitleView;
@@ -90,7 +85,7 @@ const Episodes: FC<{
     () => [...new Set(view.episodes.map((episode) => episode.season))],
     [view.episodes],
   );
-  const next = continueAt(view.episodes);
+  const next = continueAt(view);
   const [season, setSeason] = useState<number | null | undefined>(undefined);
   const shown = season === undefined ? (next?.season ?? seasons[0] ?? null) : season;
   const episodes =
@@ -314,7 +309,7 @@ export const VideoTitlePage: FC = () => {
   };
   const movie = isMovie(view) ? view.episodes[0]! : null;
   // The floating button plays the movie, or where watching continues.
-  const next = movie ?? continueAt(view.episodes) ?? view.episodes[0];
+  const next = movie ?? continueAt(view) ?? view.episodes[0];
 
   return (
     <section data-testid="video-title-page" className="flex min-h-full flex-col gap-5">

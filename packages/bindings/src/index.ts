@@ -4373,6 +4373,11 @@ export type StremioMeta = {
 	trailerYtIds: string[],
 	/**  Episodes, by season and number; empty for a movie. */
 	videos: StremioVideo[],
+	/**
+	 *  The episode Continue plays: the one watched last, or the next one that is out once that was
+	 *  finished; the first unwatched one (not an extra) before any. None for a movie.
+	 */
+	continueVideoId: string | null,
 	/**  For a movie: where watching stopped. */
 	positionMs: number | null,
 	durationMs: number | null,
@@ -5088,6 +5093,11 @@ export type VideoTitleView = {
 	hiddenNsfw: boolean,
 	/**  In the source's order; a movie has one. */
 	episodes: VideoEpisodeView[],
+	/**
+	 *  The episode Continue plays (its stored id): the one watched last, or the next one that is
+	 *  out once that was finished; the first unwatched one before any.
+	 */
+	continueEpisodeId: string | null,
 };
 
 /**  An episode of a library title: new from a library update, or announced for later. */

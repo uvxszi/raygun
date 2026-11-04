@@ -13,7 +13,7 @@ use raygun_net::ImageLinks;
 use raygun_resolver::video_match;
 use tauri::{AppHandle, Manager};
 
-use crate::catalog::{Catalog, is_adult, to_message};
+use crate::catalog::{Catalog, continue_index, is_adult, now_ms, to_message};
 
 /// `title.kind` of video titles.
 const KIND: &str = "video";
@@ -72,10 +72,13 @@ impl VideoSourceService {
     async fn title_view(&self, row: TitleRow) -> Result<VideoTitleView, String> {
         let db = self.catalog.db();
         let units = titles::units(&db, &row.id).await.map_err(to_message)?;
-        let progress =
-            progress_store::progress_with_prefix(&db, &content_key(&row.fields.source_id, ""))
-                .await
-                .map_err(to_message)?;
+        let keys: Vec<String> = units
+            .iter()
+            .map(|unit| content_key(&row.fields.source_id, &unit.fields.remote_id))
+            .collect();
+        let progress = progress_store::progress_for_keys(&db, &keys)
+            .await
+            .map_err(to_message)?;
         let source_name = self
             .catalog
             .sources()
@@ -93,13 +96,13 @@ impl VideoSourceService {
                 |source| source.name,
             );
         let hidden_nsfw = !self.catalog.extensions().show_nsfw() && is_adult(&row.fields.genres);
-        let keys: Vec<String> = units
-            .iter()
-            .map(|unit| content_key(&row.fields.source_id, &unit.fields.remote_id))
-            .collect();
         let downloaded = crate::video_library::downloaded_keys(&db, &keys).await?;
+        let continue_episode_id =
+            continue_episode(&row.fields.source_id, &units, &progress, now_ms())
+                .map(|unit| unit.id.clone());
         let fields = row.fields;
         Ok(VideoTitleView {
+            continue_episode_id,
             // The order they're watched in, as the player has them (seasons don't interleave).
             episodes: watching_order(&units)
                 .into_iter()
@@ -368,6 +371,40 @@ pub(crate) fn season(unit: &UnitRow) -> Option<f64> {
         .filter(|season| season.is_finite())
 }
 
+/// The stored episode a title continues from (M46.48): the one watched last (its progress, or a
+/// mark made in the library), or the next one that is out once that was finished, in watching
+/// order; see [`crate::catalog::continue_index`].
+pub(crate) fn continue_episode<'a>(
+    source_id: &str,
+    units: &'a [UnitRow],
+    progress: &[VideoProgress],
+    now: i64,
+) -> Option<&'a UnitRow> {
+    let saved = |unit: &UnitRow| {
+        let key = content_key(source_id, &unit.fields.remote_id);
+        progress.iter().find(|row| row.entry.key == key)
+    };
+    let order = watching_order(units);
+    let index = continue_index(
+        &order,
+        |unit| {
+            let watched = saved(unit)
+                .filter(|row| row.position_ms > 0 || row.watched_at.is_some())
+                .map(|row| row.updated_at);
+            let marked = (unit.completed_at.is_some() || unit.position.unwrap_or(0) > 0)
+                .then_some(unit.progress_at)
+                .flatten();
+            watched.max(marked)
+        },
+        |unit| {
+            unit.completed_at.is_some() || saved(unit).is_some_and(|row| row.watched_at.is_some())
+        },
+        |unit| unit.fields.date.is_none_or(|date| date <= now),
+        |unit| is_special(unit, units),
+    )?;
+    order.get(index).copied()
+}
+
 /// A title's episodes in watching order: by season (specials last), then number; see
 /// [`video_match::watching_order`].
 pub(crate) fn watching_order(units: &[UnitRow]) -> Vec<&UnitRow> {
@@ -412,7 +449,8 @@ fn episode_view(
         date: unit.fields.date.map(|ms| ms as f64),
         position_ms: saved.map_or(0.0, |row| row.position_ms as f64),
         duration_ms: saved.and_then(|row| row.duration_ms).map(|ms| ms as f64),
-        watched: saved.is_some_and(|row| row.watched_at.is_some()),
+        // Marked in the library too (a whole title marked watched).
+        watched: saved.is_some_and(|row| row.watched_at.is_some()) || unit.completed_at.is_some(),
         downloaded: downloaded.contains(&key),
     }
 }

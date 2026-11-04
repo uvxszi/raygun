@@ -629,6 +629,14 @@ async fn record(app: &AppHandle, report: PlayerReport) {
     let now = now_ms();
     let position_ms = report.position_ms as i64;
     let duration_ms = duration.map(|duration| duration as i64);
+    // The end comes in more than one report (ended, then switched or closed): only the first
+    // finishes it.
+    let newly_watched = watched
+        && store::progress(&db, &report.id)
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|row| row.watched_at.is_none() || row.position_ms > 0);
     if let Err(error) =
         store::set_progress(&db, &report.id, position_ms, duration_ms, watched, now).await
     {
@@ -647,32 +655,49 @@ async fn record(app: &AppHandle, report: PlayerReport) {
         tracing::warn!(%error, "could not save the episode's progress");
     }
     if watched {
-        app.state::<VideoSessions>().on_watched(&report.id).await;
+        app.state::<VideoSessions>()
+            .on_watched(&report.id, newly_watched)
+            .await;
     }
     if matches!(report.state.as_str(), "closed" | "ended" | "switched") || watched {
         let _ = WatchChangedEvent(report.id).emit(app);
     }
 }
 
+/// Most entries in Continue watching.
+const CONTINUE_LIMIT: usize = 30;
+/// How much of the history Continue watching is picked from.
+const CONTINUE_CANDIDATES: u32 = 400;
+
+/// What to continue: one entry per title, the episode watched last while it's unfinished (with
+/// its place). A series whose last episode watched is finished shows the next one only when it
+/// was queued as up next, and one removed from the list stays out until something of it plays
+/// again: an older, half-watched episode never stands in for either.
 pub async fn continue_watching(app: &AppHandle) -> Result<Vec<ContinueWatching>, String> {
     let db = app.state::<AppDb>().0.clone();
-    let rows = store::continue_watching(&db, 90)
+    let rows = store::continue_candidates(&db, CONTINUE_CANDIDATES)
         .await
         .map_err(|error| error.to_string())?;
-    Ok(to_view(app, one_per_title(rows, 30)))
+    Ok(to_view(app, latest_per_title(rows, CONTINUE_LIMIT)))
 }
 
-/// Each title once, at its episode played (or queued) last, as Stremio shows them: a series
-/// with several episodes begun is one card. At most `limit`.
-fn one_per_title(rows: Vec<store::VideoProgress>, limit: usize) -> Vec<store::VideoProgress> {
+/// Of rows newest first (with whether each was removed), each title's first, kept when it's
+/// there and unfinished.
+fn latest_per_title(
+    rows: Vec<(store::VideoProgress, bool)>,
+    limit: usize,
+) -> Vec<store::VideoProgress> {
     let mut seen = std::collections::HashSet::new();
     rows.into_iter()
-        .filter(|row| seen.insert(title_of(&row.entry)))
+        .filter(|(row, _)| seen.insert(title_of(&row.entry)))
+        .filter(|(row, removed)| !removed && row.watched_at.is_none() && row.position_ms > 0)
+        .map(|(row, _)| row)
         .take(limit)
         .collect()
 }
 
-/// The title a progress entry belongs to: its session's, else its request's group, else itself.
+/// The title an entry belongs to: a session's episode its origin, a request its group (a video
+/// source's title or a Stremio series), anything else itself.
 fn title_of(entry: &VideoEntry) -> String {
     if let Ok(episode) = serde_json::from_str::<EpisodeRef>(&entry.request) {
         return episode.origin.group_key();
@@ -811,6 +836,112 @@ mod tests {
         assert_eq!(mp4.subtitles[0].url, "https://cdn.example/film.srt");
     }
 
+    fn episode(
+        key: &str,
+        position_ms: i64,
+        watched: bool,
+        updated_at: i64,
+    ) -> store::VideoProgress {
+        store::VideoProgress {
+            entry: VideoEntry {
+                key: key.into(),
+                title: "Show".into(),
+                subtitle: Some(key.into()),
+                poster: None,
+                request: r#"{"origin":"stremio","kind":"series","id":"tt1","episode":"x"}"#.into(),
+            },
+            position_ms,
+            duration_ms: Some(1_500_000),
+            watched_at: watched.then_some(updated_at),
+            updated_at,
+        }
+    }
+
+    fn keys(rows: Vec<store::VideoProgress>) -> Vec<String> {
+        rows.into_iter().map(|row| row.entry.key).collect()
+    }
+
+    #[test]
+    fn continue_watching_shows_the_episode_watched_last() {
+        // Episode 1 opened for a moment, episode 7 watched well into it later.
+        let rows = vec![
+            (episode("stremio:series:tt1:1:7", 900_000, false, 20), false),
+            (episode("stremio:series:tt1:1:1", 4_000, false, 10), false),
+        ];
+        assert_eq!(keys(latest_per_title(rows, 30)), ["stremio:series:tt1:1:7"]);
+
+        // Episode 7 finished and episode 8 queued as up next.
+        let rows = vec![
+            (episode("stremio:series:tt1:1:8", 1, false, 30), false),
+            (episode("stremio:series:tt1:1:7", 0, true, 30), false),
+            (episode("stremio:series:tt1:1:1", 4_000, false, 10), false),
+        ];
+        assert_eq!(keys(latest_per_title(rows, 30)), ["stremio:series:tt1:1:8"]);
+
+        // The last episode finished, or the latest removed: not back to episode 1.
+        let finished = vec![
+            (episode("stremio:series:tt1:1:7", 0, true, 30), false),
+            (episode("stremio:series:tt1:1:1", 4_000, false, 10), false),
+        ];
+        assert!(latest_per_title(finished, 30).is_empty());
+        let removed = vec![
+            (episode("stremio:series:tt1:1:7", 900_000, false, 30), true),
+            (episode("stremio:series:tt1:1:1", 4_000, false, 10), false),
+        ];
+        assert!(latest_per_title(removed, 30).is_empty());
+    }
+
+    #[test]
+    fn entries_belong_to_their_title() {
+        let mut link = episode("url:https://cdn.example/a.mp4", 1, false, 1).entry;
+        link.request = "{}".into();
+        assert_eq!(title_of(&link), "url:https://cdn.example/a.mp4");
+        let mut picked = link.clone();
+        picked.request = serde_json::to_string(&VideoRequest {
+            group: Some("title:t1".into()),
+            ..link_request("https://cdn.example/a.mp4", None, None)
+        })
+        .unwrap();
+        assert_eq!(title_of(&picked), "title:t1");
+        let session = episode("source:s:e1", 1, false, 1).entry;
+        assert_eq!(title_of(&session), "stremio:series:tt1");
+    }
+
+    #[tokio::test]
+    async fn watched_up_to_episode_seven_continues_at_seven() {
+        // What the player reports: episode 1 for a moment, then the picker's episode 7, whose
+        // "switched" report for episode 1 lands after episode 7 started.
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = raygun_db::Db::open(&temp.path().join("raygun.db"))
+            .await
+            .unwrap();
+        let entry = |number: u32| VideoEntry {
+            key: format!("stremio:series:tt1:1:{number}"),
+            title: "Show".into(),
+            subtitle: Some(format!("S1 E{number}")),
+            poster: None,
+            request: format!(
+                r#"{{"origin":"stremio","kind":"series","id":"tt1","episode":"tt1:1:{number}"}}"#
+            ),
+        };
+        store::started(&db, &entry(1), 1_000).await.unwrap();
+        store::set_progress(&db, &entry(1).key, 4_000, Some(1_400_000), false, 5_000)
+            .await
+            .unwrap();
+        store::started(&db, &entry(7), 6_000).await.unwrap();
+        store::set_progress(&db, &entry(1).key, 4_500, Some(1_400_000), false, 6_500)
+            .await
+            .unwrap();
+        for at in [11_000, 16_000, 900_000] {
+            store::set_progress(&db, &entry(7).key, at, Some(1_400_000), false, at)
+                .await
+                .unwrap();
+        }
+        let rows = store::continue_candidates(&db, 400).await.unwrap();
+        let shown = latest_per_title(rows, 30);
+        assert_eq!(keys(shown), ["stremio:series:tt1:1:7"]);
+    }
+
     #[test]
     fn continue_watching_shows_each_title_once() {
         let row = |key: &str, request: String| store::VideoProgress {
@@ -848,7 +979,8 @@ mod tests {
             row("url:https://cdn.example/a.mp4", "{}".into()),
             row("url:https://cdn.example/b.mp4", "{}".into()),
         ];
-        let keys: Vec<String> = one_per_title(rows, 30)
+        let rows = rows.into_iter().map(|row| (row, false)).collect();
+        let keys: Vec<String> = latest_per_title(rows, 30)
             .into_iter()
             .map(|row| row.entry.key)
             .collect();

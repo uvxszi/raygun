@@ -12,7 +12,6 @@ import { MenuSheets } from '../music/MenuSheets';
 import { SourcePickerSheet } from '../music/SourcePickerSheet';
 import { CollectionSheets } from '../collections/CollectionSheetsHost';
 import { RecordingWindow } from '../music/RecordingWindow';
-import { useSyncChangedListener } from '../devices/useDeviceSync';
 import { useEngineHost } from '../engine/useEngineHost';
 import { useSpeechHost } from '../engine/useSpeechHost';
 import { useSyncLanguage } from '../i18n/useSyncLanguage';
@@ -48,6 +47,7 @@ import { NAV_TABS } from './navTabs';
 import { toggleWindowFullscreen } from './useWindowFullscreen';
 import { SideRail } from './SideRail';
 import { useIsDesktop } from './useIsDesktop';
+import { useLiveInvalidation } from './useLiveInvalidation';
 import { useRailStamps } from './useRail';
 
 /** Engines start listening right after the shell mounts; the last queue comes back then. */
@@ -119,7 +119,7 @@ export const AppShell: FC = () => {
   }, []);
   useLibraryScanSync();
   useExtensionsSync();
-  useSyncChangedListener();
+  useLiveInvalidation();
   usePlayerLabels();
   useVideoPlayerEvents();
   useYouTubeVideoEvents();

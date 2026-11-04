@@ -85,6 +85,8 @@ pub struct UnitRow {
     pub position: Option<i64>,
     pub total: Option<i64>,
     pub completed_at: Option<i64>,
+    /// Unix ms its progress last changed (read, watched or marked); none before any.
+    pub progress_at: Option<i64>,
 }
 
 const TITLE_COLUMNS: &str = "t.id, t.kind, t.source_id, t.remote_id, t.remote_title, t.remote_cover, \
@@ -464,7 +466,7 @@ pub async fn sync_units(
 /// Units of library titles with their title and progress; callers add the conditions.
 const LIBRARY_UNIT_SELECT: &str = "u.id AS unit_id, u.remote_id AS unit_remote_id, u.remote_name,
          u.number, u.volume, u.remote_scanlator, u.remote_date, u.source_order,
-         u.state_found_at, p.position, p.total, p.completed_at
+         u.state_found_at, p.position, p.total, p.completed_at, p.updated_at_hlc AS progress_hlc
      FROM unit u
      JOIN title t ON t.id = u.title_id AND t.deleted = 0
      LEFT JOIN unit_progress p ON p.unit_id = u.id AND p.deleted = 0
@@ -525,13 +527,15 @@ fn update_row(row: &SqliteRow) -> UpdateRow {
             position: row.get("position"),
             total: row.get("total"),
             completed_at: row.get("completed_at"),
+            progress_at: progress_at(row),
         },
         found_at: row.get("state_found_at"),
     }
 }
 
 const UNIT_SELECT: &str = "SELECT u.id, u.title_id, u.remote_id, u.remote_name, u.number, u.volume,
-         u.remote_scanlator, u.remote_date, u.source_order, p.position, p.total, p.completed_at
+         u.remote_scanlator, u.remote_date, u.source_order, p.position, p.total, p.completed_at,
+         p.updated_at_hlc AS progress_hlc
      FROM unit u LEFT JOIN unit_progress p ON p.unit_id = u.id AND p.deleted = 0";
 
 /// A title's units in the source's order.
@@ -737,7 +741,14 @@ fn unit_row(row: &SqliteRow) -> UnitRow {
         position: row.get("position"),
         total: row.get("total"),
         completed_at: row.get("completed_at"),
+        progress_at: progress_at(row),
     }
+}
+
+/// When a unit's progress last changed, from its row's clock.
+fn progress_at(row: &SqliteRow) -> Option<i64> {
+    row.get::<Option<i64>, _>("progress_hlc")
+        .map(|stamp| crate::hlc::physical_ms(stamp as u64) as i64)
 }
 
 fn json(values: &[String]) -> String {
