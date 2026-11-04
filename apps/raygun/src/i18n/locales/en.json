@@ -550,6 +550,7 @@
     "languageSystem": "System default ({{name}})",
     "languageHint": "Translations come from the community; untranslated text stays in English.",
     "content": "Content",
+    "browseStartTab": "Browse opens on",
     "showNsfw": "Show NSFW (18+) content",
     "showNsfwHint": "Off hides adult extensions, sources and titles: comics, books and videos. Music has its own switch.",
     "videoQuality": "Video resolution",

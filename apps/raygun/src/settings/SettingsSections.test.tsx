@@ -52,6 +52,48 @@ describe('Settings sections', () => {
     expect(await screen.findByTestId('library-page')).toBeInTheDocument();
   });
 
+  it('opens Browse on the tab chosen in Settings → Browse', async () => {
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/settings/browse');
+    await choose(user, /^Browse opens on/, 'Extensions');
+    expect(commands.settingsUpdate).toHaveBeenCalledWith({
+      key: 'browseStartTab',
+      value: 'extensions',
+    });
+    await user.click(
+      within(screen.getByTestId('bottom-tabs')).getByRole('link', { name: 'Browse' }),
+    );
+    expect(await screen.findByTestId('browse-tab-extensions')).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
+  it('keeps links that name a Browse tab', async () => {
+    storeSettings({ ...DEFAULT_SETTINGS, browseStartTab: 'extensions' });
+    await AppShellWrapper.mount('/browse?tab=sources');
+    expect(await screen.findByTestId('browse-tab-sources')).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('opens Browse on the first shown tab when the chosen one is hidden', async () => {
+    storeSettings({
+      ...DEFAULT_SETTINGS,
+      browseStartTab: 'discover',
+      layout: {
+        ...DEFAULT_SETTINGS.layout,
+        browseTabs: [
+          { id: 'sources', visible: true },
+          { id: 'search', visible: true },
+          { id: 'discover', visible: false },
+          { id: 'extensions', visible: true },
+        ],
+      },
+    });
+    await AppShellWrapper.mount('/browse');
+    expect(await screen.findByTestId('browse-tab-sources')).toHaveAttribute('aria-current', 'page');
+    expect(screen.queryByTestId('browse-tab-discover')).not.toBeInTheDocument();
+  });
+
   it('shows navigation labels on the selected tab only when asked', async () => {
     const user = userEvent.setup();
     await AppShellWrapper.mount('/settings/appearance');

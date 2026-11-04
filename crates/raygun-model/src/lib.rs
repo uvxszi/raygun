@@ -216,6 +216,10 @@ pub struct Settings {
     pub lyrics_translation: LyricsTranslationPrefs,
     /// Sources that didn't answer lately go to the end of Browse and Search (M46.9).
     pub failing_sources_last: bool,
+    /// The Browse tab opened without one in the address: a `LAYOUT_BROWSE_TABS` id, Browse all
+    /// (`discover`) by default; a hidden choice falls back to the first shown tab.
+    #[serde(default = "browse_start_tab")]
+    pub browse_start_tab: String,
     /// Search's own switches: no 18+ sources or titles, no explicit songs; both off by default.
     pub search_filter: SearchFilterPrefs,
     /// Sources that meet a browser check offer to open their site so it can be passed by hand
@@ -2028,6 +2032,7 @@ impl Default for Settings {
             lyrics_cache: LyricsCachePrefs::default(),
             lyrics_translation: LyricsTranslationPrefs::default(),
             failing_sources_last: true,
+            browse_start_tab: browse_start_tab(),
             search_filter: SearchFilterPrefs::default(),
             manual_browser_checks: false,
             user_agent: String::new(),
@@ -2082,6 +2087,7 @@ impl Settings {
             SettingChange::WindowFrame(frame) => self.window_frame = frame,
             SettingChange::Zoom(percent) => self.zoom = percent,
             SettingChange::FailingSourcesLast(on) => self.failing_sources_last = on,
+            SettingChange::BrowseStartTab(tab) => self.browse_start_tab = tab,
             SettingChange::SearchFilter(prefs) => self.search_filter = prefs,
             SettingChange::ManualBrowserChecks(on) => self.manual_browser_checks = on,
             SettingChange::UserAgent(agent) => self.user_agent = agent.trim().to_owned(),
@@ -2170,6 +2176,7 @@ pub enum SettingChange {
     Zoom(u32),
     Discovery(DiscoveryPrefs),
     FailingSourcesLast(bool),
+    BrowseStartTab(String),
     SearchFilter(SearchFilterPrefs),
     ManualBrowserChecks(bool),
     UserAgent(String),
@@ -2230,6 +2237,7 @@ impl SettingChange {
             Self::Zoom(_) => "zoom",
             Self::Discovery(_) => "discovery",
             Self::FailingSourcesLast(_) => "failingSourcesLast",
+            Self::BrowseStartTab(_) => "browseStartTab",
             Self::SearchFilter(_) => "searchFilter",
             Self::ManualBrowserChecks(_) => "manualBrowserChecks",
             Self::UserAgent(_) => "userAgent",
@@ -2278,6 +2286,7 @@ impl SettingChange {
                 Err("Lyrics can be kept for at most ten years".into())
             }
             Self::LyricsCache(_) => Ok(()),
+            Self::BrowseStartTab(tab) => browse_tab_known(tab),
             Self::LyricsTranslation(prefs) => {
                 let language = prefs.language.trim();
                 if !language.is_empty() {
@@ -5082,6 +5091,20 @@ pub const LAYOUT_BROWSE_TABS: [(&str, bool); 4] = [
     ("sources", true),
     ("extensions", true),
 ];
+/// Browse all, the tab Browse opens on unless `Settings::browse_start_tab` names another.
+fn browse_start_tab() -> String {
+    "discover".into()
+}
+
+/// A Browse start tab must be one of `LAYOUT_BROWSE_TABS`.
+fn browse_tab_known(tab: &str) -> Result<(), String> {
+    if LAYOUT_BROWSE_TABS.iter().any(|(id, _)| *id == tab) {
+        Ok(())
+    } else {
+        Err(format!("{tab:?} isn't a Browse tab"))
+    }
+}
+
 pub const LAYOUT_BROWSE_SECTIONS: [(&str, bool); 4] = [
     ("video", true),
     ("manga", true),

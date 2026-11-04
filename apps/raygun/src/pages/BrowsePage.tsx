@@ -58,6 +58,7 @@ import type { SearchType, SearchView } from '../search/searchTypes';
 import { useStremioAddons } from '../watch/useStremio';
 import { useVideoSources } from '../watch/useVideoSources';
 import { SourceIssue } from '../shell/SourceIssue';
+import { BROWSE_TAB_LABEL, browseStartTab } from './browseTabs';
 
 export type BrowseSection = 'search' | 'discover' | 'sources' | 'extensions';
 export type { ExtensionList };
@@ -353,13 +354,6 @@ const SourcesList: FC = () => {
   );
 };
 
-const BROWSE_TAB_LABEL: Record<BrowseSection, string> = {
-  search: 'search.title',
-  discover: 'discover.title',
-  sources: 'browse.sources',
-  extensions: 'extensions.title',
-};
-
 /** Wait for a pause in typing before searching, so each keystroke doesn't hit the network. */
 export const SEARCH_DEBOUNCE_MS = 400;
 
@@ -380,15 +374,14 @@ export const BrowsePage: FC = () => {
       (id): id is BrowseSection =>
         id === 'search' || id === 'discover' || id === 'sources' || id === 'extensions',
     );
-  // Browse opens on Browse all, as Spotify's does (M46.9), else Sources, else the first shown.
-  const firstTab: BrowseSection =
-    (['discover', 'sources'] as const).find((id) => shownTabs.includes(id)) ??
-    shownTabs[0] ??
-    'search';
+  const settings = useSettings().data;
+  // Browse opens on the tab chosen in Settings → Browse (Browse all by default, as Spotify's
+  // does), else the first shown tab.
+  const firstTab = browseStartTab(settings?.browseStartTab, shownTabs);
   // On desktop the app bar holds the search field (M46.9).
   const desktop = useIsDesktop();
   const updateSetting = useUpdateSetting();
-  const failingAtEnd = useSettings().data?.failingSourcesLast ?? true;
+  const failingAtEnd = settings?.failingSourcesLast ?? true;
   const incognitoItem = useIncognitoItem();
   const { tab = firstTab, list = 'installed', q = '', type = 'all', view, pill } = current;
   const navigate = useNavigate({ from: '/browse' });
