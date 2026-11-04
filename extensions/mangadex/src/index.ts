@@ -16,9 +16,13 @@ const API = 'https://api.mangadex.org';
 const HEADERS = { 'User-Agent': 'Raygun/1.0 (+https://github.com/uvxszi/raygun)' };
 const COVERS = 'https://uploads.mangadex.org/covers';
 const PAGE_SIZE = 24;
+/** MangaDex lists stop at offset + limit = 10,000. */
+const MAX_RESULTS = 10_000;
 // The feed allows up to 500 chapters per request; long series need several.
 const FEED_PAGE = 500;
 const MAX_FEED_PAGES = 10;
+/** Latest updates read this many new chapters a page and show the series they belong to. */
+const LATEST_CHAPTERS = 100;
 const RATINGS: Record<string, string[]> = {
   safe: ['safe'],
   'safe and suggestive': ['safe', 'suggestive'],
@@ -31,6 +35,43 @@ const STATUSES: Record<string, MangaStatus> = {
   completed: 'completed',
   hiatus: 'hiatus',
   cancelled: 'cancelled',
+};
+const DEMOGRAPHICS: Record<string, string> = {
+  shounen: 'Shounen',
+  shoujo: 'Shoujo',
+  seinen: 'Seinen',
+  josei: 'Josei',
+};
+
+/** The languages chapters are translated into, by the names the setting shows. */
+const LANGUAGES: Record<string, string> = {
+  English: 'en',
+  'Spanish (Latin America)': 'es-la',
+  'Spanish (Spain)': 'es',
+  'Portuguese (Brazil)': 'pt-br',
+  'Portuguese (Portugal)': 'pt',
+  French: 'fr',
+  German: 'de',
+  Italian: 'it',
+  Russian: 'ru',
+  Ukrainian: 'uk',
+  Polish: 'pl',
+  Czech: 'cs',
+  Hungarian: 'hu',
+  Romanian: 'ro',
+  Turkish: 'tr',
+  Arabic: 'ar',
+  Persian: 'fa',
+  Hebrew: 'he',
+  Indonesian: 'id',
+  Malay: 'ms',
+  Filipino: 'tl',
+  Vietnamese: 'vi',
+  Thai: 'th',
+  Japanese: 'ja',
+  Korean: 'ko',
+  'Chinese (Simplified)': 'zh',
+  'Chinese (Traditional)': 'zh-hk',
 };
 
 type Localized = Record<string, string>;
@@ -47,6 +88,9 @@ type MangaRecord = {
     description?: Localized;
     status?: string;
     contentRating?: string;
+    publicationDemographic?: string | null;
+    lastChapter?: string | null;
+    lastVolume?: string | null;
     tags?: { attributes: { name: Localized; group: string } }[];
   };
   relationships: Relationship[];
@@ -65,13 +109,21 @@ type ChapterRecord = {
 };
 type Listing<T> = { data: T[]; total: number; offset: number; limit: number };
 
-const language = () =>
-  (raygun.settings.get<string>('language') ?? 'en').trim().toLowerCase() || 'en';
+/** The chosen language's code; an older setting held the code itself ("es-la"). */
+const language = () => {
+  const chosen = (raygun.settings.get<string>('language') ?? '').trim();
+  if (LANGUAGES[chosen]) return LANGUAGES[chosen]!;
+  const code = chosen.toLowerCase();
+  return /^[a-z]{2}(-[a-z]{2})?$/.test(code) ? code : 'en';
+};
+/** The setting's choice ("Safe and suggestive"; older versions stored it in lower case). */
 const ratings = () => {
-  const chosen =
-    RATINGS[raygun.settings.get<string>('contentRating') ?? ''] ?? RATINGS['safe and suggestive']!;
+  const choice = (raygun.settings.get<string>('contentRating') ?? '').trim().toLowerCase();
+  const chosen = RATINGS[choice] ?? RATINGS['safe and suggestive']!;
   return raygun.content.showNsfw() ? chosen : chosen.filter((rating) => !ADULT.includes(rating));
 };
+const ratingParams = (list: string[]) =>
+  list.map((rating): [string, string] => ['contentRating[]', rating]);
 const isAdult = (record: MangaRecord) => ADULT.includes(record.attributes.contentRating ?? '');
 
 const query = (params: [string, string | number][]) =>
@@ -85,21 +137,30 @@ const get = async <T>(path: string, params: [string, string | number][]): Promis
   });
   if (response.status === 429)
     throw new Error('MangaDex is rate limiting requests; try again shortly');
+  if (response.status === 404) throw new Error('MangaDex no longer has this title or chapter');
   if (!response.ok) throw new Error(`MangaDex answered HTTP ${response.status}`);
   return response.json<T>();
 };
 
-/** The title in the chosen language, else English, else any. */
+/** The text in the chosen language, else English, else any. */
 const localized = (values: Localized | undefined, preferred: string): string | null => {
   if (!values) return null;
   return values[preferred] ?? values.en ?? Object.values(values)[0] ?? null;
 };
 
+/**
+ * The title in the chosen language (main, then alternative titles), else in English, else the
+ * main title as MangaDex has it (often romanized Japanese).
+ */
 const titleOf = (record: MangaRecord) => {
+  const main = record.attributes.title ?? {};
+  const alternatives = record.attributes.altTitles ?? [];
+  const inLanguage = (code: string) =>
+    main[code] ?? alternatives.find((title) => title[code])?.[code];
   const lang = language();
-  const direct = localized(record.attributes.title, lang);
-  const alt = record.attributes.altTitles?.find((title) => title[lang] ?? title.en);
-  return (alt?.[lang] ?? direct ?? alt?.en ?? 'Untitled').trim();
+  const title =
+    inLanguage(lang) ?? (lang === 'en' ? undefined : inLanguage('en')) ?? Object.values(main)[0];
+  return title?.trim() || 'Untitled';
 };
 
 const coverOf = (record: MangaRecord) => {
@@ -122,6 +183,7 @@ const listMangas = async (
   extra: [string, string | number][] = [],
 ): Promise<MangaPage> => {
   const offset = (Math.max(page, 1) - 1) * PAGE_SIZE;
+  if (offset + PAGE_SIZE > MAX_RESULTS) return { items: [], hasNextPage: false };
   const result = await get<Listing<MangaRecord>>('/manga', [
     ['limit', PAGE_SIZE],
     ['offset', offset],
@@ -129,13 +191,106 @@ const listMangas = async (
     ['availableTranslatedLanguage[]', language()],
     ['hasAvailableChapters', 'true'],
     [`order[${order[0]}]`, order[1]],
-    ...ratings().map((rating): [string, string] => ['contentRating[]', rating]),
+    ...ratingParams(ratings()),
     ...extra,
   ]);
+  const next = offset + result.data.length;
   return {
     items: result.data.map(summary),
-    hasNextPage: offset + result.data.length < result.total,
+    hasNextPage: next < result.total && next + PAGE_SIZE <= MAX_RESULTS,
   };
+};
+
+/** The series of a latest page, so later pages leave out the ones already shown. */
+const latestShown = new Map<string, string[]>();
+
+/**
+ * Series with new chapters in the chosen language, the newest first (as Mihon's latest updates):
+ * MangaDex's own "latest upload" order counts chapters in every language.
+ */
+const latest = async (page: number): Promise<MangaPage> => {
+  const at = Math.max(page, 1);
+  const offset = (at - 1) * LATEST_CHAPTERS;
+  if (offset + LATEST_CHAPTERS > MAX_RESULTS) return { items: [], hasNextPage: false };
+  const lang = language();
+  const allowed = ratings();
+  const feed = await get<Listing<ChapterRecord>>('/chapter', [
+    ['limit', LATEST_CHAPTERS],
+    ['offset', offset],
+    ['translatedLanguage[]', lang],
+    ['order[readableAt]', 'desc'],
+    ['includeFutureUpdates', '0'],
+    ['includeExternalUrl', '0'],
+    ['includeEmptyPages', '0'],
+    ...ratingParams(allowed),
+  ]);
+  const key = `${lang}|${allowed.join(',')}`;
+  if (at === 1) {
+    for (const shown of [...latestShown.keys()]) {
+      if (shown.startsWith(`${key}|`)) latestShown.delete(shown);
+    }
+  }
+  const earlier = new Set<string>();
+  for (let before = 1; before < at; before += 1) {
+    for (const id of latestShown.get(`${key}|${before}`) ?? []) earlier.add(id);
+  }
+  const ids = [
+    ...new Set(
+      feed.data.flatMap((chapter) =>
+        chapter.relationships
+          .filter((relation) => relation.type === 'manga')
+          .map((relation) => relation.id),
+      ),
+    ),
+  ].filter((id) => !earlier.has(id));
+  latestShown.set(`${key}|${at}`, ids);
+  const next = offset + feed.data.length;
+  const hasNextPage = next < feed.total && next + LATEST_CHAPTERS <= MAX_RESULTS;
+  if (ids.length === 0) return { items: [], hasNextPage };
+  const series = await get<Listing<MangaRecord>>('/manga', [
+    ['limit', ids.length],
+    ...ids.map((id): [string, string] => ['ids[]', id]),
+    ['includes[]', 'cover_art'],
+    ...ratingParams(allowed),
+  ]);
+  const byId = new Map(series.data.map((record) => [record.id, record]));
+  return {
+    items: ids.flatMap((id) => {
+      const record = byId.get(id);
+      return record ? [summary(record)] : [];
+    }),
+    hasNextPage,
+  };
+};
+
+type Aggregate = {
+  volumes?: Record<string, { volume: string; chapters?: Record<string, { chapter: string }> }>;
+};
+
+/**
+ * MangaDex calls a series completed when its publication ended; whether the translation reached
+ * the end too comes from the chapters there are in the chosen language.
+ */
+const completion = async (record: MangaRecord): Promise<MangaStatus> => {
+  const { lastChapter, lastVolume } = record.attributes;
+  if (!lastChapter && !lastVolume) return 'completed';
+  try {
+    const aggregate = await get<Aggregate>(`/manga/${record.id}/aggregate`, [
+      ['translatedLanguage[]', language()],
+    ]);
+    const volumes = Object.values(aggregate.volumes ?? {});
+    const chapters = new Set(
+      volumes.flatMap((volume) =>
+        Object.values(volume.chapters ?? {}).map((chapter) => chapter.chapter),
+      ),
+    );
+    const reached = lastChapter
+      ? chapters.has(lastChapter)
+      : volumes.some((volume) => volume.volume === lastVolume);
+    return reached ? 'completed' : 'publishingFinished';
+  } catch {
+    return 'completed';
+  }
 };
 
 const details = async (id: string): Promise<MangaDetails> => {
@@ -144,11 +299,16 @@ const details = async (id: string): Promise<MangaDetails> => {
     ['includes[]', 'author'],
     ['includes[]', 'artist'],
   ]);
-  const names = (type: string) =>
-    data.relationships
-      .filter((relation) => relation.type === type)
-      .map((relation) => relation.attributes?.name)
-      .filter((name): name is string => Boolean(name));
+  const names = (type: string) => [
+    ...new Set(
+      data.relationships
+        .filter((relation) => relation.type === type)
+        .map((relation) => relation.attributes?.name?.trim())
+        .filter((name): name is string => Boolean(name)),
+    ),
+  ];
+  const status = STATUSES[data.attributes.status ?? ''] ?? 'unknown';
+  const demographic = DEMOGRAPHICS[data.attributes.publicationDemographic ?? ''];
   return {
     id: data.id,
     title: titleOf(data),
@@ -158,6 +318,7 @@ const details = async (id: string): Promise<MangaDetails> => {
     artists: names('artist'),
     description: localized(data.attributes.description, language())?.trim() || null,
     genres: [
+      ...(demographic ? [demographic] : []),
       ...(data.attributes.tags ?? [])
         .filter((tag) => tag.attributes.group === 'genre' || tag.attributes.group === 'theme')
         .map((tag) => localized(tag.attributes.name, 'en'))
@@ -167,7 +328,7 @@ const details = async (id: string): Promise<MangaDetails> => {
         ? [data.attributes.contentRating === 'erotica' ? 'Erotica' : 'Pornographic']
         : []),
     ],
-    status: STATUSES[data.attributes.status ?? ''] ?? 'unknown',
+    status: status === 'completed' ? await completion(data) : status,
     url: `https://mangadex.org/title/${data.id}`,
   };
 };
@@ -182,7 +343,11 @@ const chapters = async (id: string): Promise<MangaChapter[]> => {
       ['order[volume]', 'desc'],
       ['order[chapter]', 'desc'],
       ['includes[]', 'scanlation_group'],
-      ...RATINGS.everything!.map((rating): [string, string] => ['contentRating[]', rating]),
+      // Chapters a group holds back until later, hosted elsewhere or without pages can't be read.
+      ['includeFuturePublishAt', '0'],
+      ['includeExternalUrl', '0'],
+      ['includeEmptyPages', '0'],
+      ...ratingParams(RATINGS.everything!),
     ]);
     for (const record of result.data) {
       // Chapters hosted elsewhere (MangaPlus and the like) have no pages here.
@@ -234,29 +399,42 @@ const SORTS: Record<string, [string, string]> = {
   title: ['title', 'asc'],
 };
 type TagRecord = { id: string; attributes: { name: Localized; group: string } };
+type Tag = { value: string; label: string; group: string };
 /** MangaDex's tags change rarely; they're fetched once per session. */
-let tagCache: SourceFilter | null = null;
+let tagCache: Promise<Tag[]> | null = null;
 
-const tagFilter = async (): Promise<SourceFilter> => {
-  if (tagCache) return tagCache;
-  const result = await get<{ data: TagRecord[] }>('/manga/tag', []);
-  const groupOrder = ['genre', 'theme', 'format', 'content'];
-  const options = result.data
-    .map((tag) => ({
-      value: tag.id,
-      label: localized(tag.attributes.name, 'en') ?? tag.id,
-      group: tag.attributes.group,
-    }))
-    // Content tags (gore, sexual violence) are adult-leaning; leave them out unless NSFW is on.
-    .filter((tag) => tag.group !== 'content' || raygun.content.showNsfw())
-    .sort(
-      (a, b) =>
-        groupOrder.indexOf(a.group) - groupOrder.indexOf(b.group) || a.label.localeCompare(b.label),
-    )
-    .map(({ value, label }) => ({ value, label }));
-  tagCache = { kind: 'tags', key: 'tags', label: 'Tags', options };
+const tags = () => {
+  if (!tagCache) {
+    const groupOrder = ['genre', 'theme', 'format', 'content'];
+    tagCache = get<{ data: TagRecord[] }>('/manga/tag', []).then((result) =>
+      result.data
+        .map((tag) => ({
+          value: tag.id,
+          label: localized(tag.attributes.name, 'en') ?? tag.id,
+          group: tag.attributes.group,
+        }))
+        .sort(
+          (a, b) =>
+            groupOrder.indexOf(a.group) - groupOrder.indexOf(b.group) ||
+            a.label.localeCompare(b.label),
+        ),
+    );
+    tagCache.catch(() => {
+      tagCache = null;
+    });
+  }
   return tagCache;
 };
+
+const tagFilter = async (): Promise<SourceFilter> => ({
+  kind: 'tags',
+  key: 'tags',
+  label: 'Tags',
+  // Content tags (gore, sexual violence) are adult-leaning; leave them out unless NSFW is on.
+  options: (await tags())
+    .filter((tag) => tag.group !== 'content' || raygun.content.showNsfw())
+    .map(({ value, label }) => ({ value, label })),
+});
 
 const filters = async (): Promise<SourceFilter[]> => [
   {
@@ -299,6 +477,19 @@ const filters = async (): Promise<SourceFilter[]> => [
       { value: 'josei', label: 'Josei' },
     ],
   },
+  {
+    kind: 'select',
+    key: 'origin',
+    label: 'Original language',
+    default: 'any',
+    options: [
+      { value: 'any', label: 'Any' },
+      { value: 'ja', label: 'Japanese (manga)' },
+      { value: 'ko', label: 'Korean (manhwa)' },
+      { value: 'zh', label: 'Chinese (manhua)' },
+      { value: 'en', label: 'English' },
+    ],
+  },
   await tagFilter(),
 ];
 
@@ -311,12 +502,22 @@ const search = (text: string, page: number, chosen: FilterValues = {}) => {
   if (typeof demographic === 'string' && demographic !== 'any') {
     extra.push(['publicationDemographic[]', demographic]);
   }
-  const tags = chosen.tags;
-  if (tags && typeof tags === 'object') {
-    for (const id of tags.include) extra.push(['includedTags[]', id]);
-    for (const id of tags.exclude) extra.push(['excludedTags[]', id]);
+  const origin = chosen.origin;
+  if (typeof origin === 'string' && origin !== 'any') {
+    extra.push(['originalLanguage[]', origin]);
+    // Chinese series come from the mainland and from Hong Kong.
+    if (origin === 'zh') extra.push(['originalLanguage[]', 'zh-hk']);
   }
-  const sort = typeof chosen.sort === 'string' ? chosen.sort : '';
+  const chosenTags = chosen.tags;
+  if (chosenTags && typeof chosenTags === 'object') {
+    for (const id of chosenTags.include) extra.push(['includedTags[]', id]);
+    for (const id of chosenTags.exclude) extra.push(['excludedTags[]', id]);
+  }
+  // "Best match" needs words to match; without them it's the most followed.
+  const sort =
+    typeof chosen.sort === 'string' && (text.trim() || chosen.sort !== 'relevance')
+      ? chosen.sort
+      : '';
   return listMangas(SORTS[sort] ?? SORTS[text.trim() ? 'relevance' : 'popular']!, page, extra);
 };
 
@@ -326,7 +527,7 @@ registerProvider(
     id: 'mangadex',
     name: 'MangaDex',
     popular: ({ page }) => listMangas(['followedCount', 'desc'], page),
-    latest: ({ page }) => listMangas(['latestUploadedChapter', 'desc'], page),
+    latest: ({ page }) => latest(page),
     search: ({ query: text, page, filters: chosen }) => search(text, page, chosen),
     filters,
     details: ({ id }) => details(id),

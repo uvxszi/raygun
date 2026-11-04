@@ -1,0 +1,53 @@
+{
+  "id": "dev.raygun.peppercarrot",
+  "name": "Pepper&Carrot",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "David Revoy's fantasy webcomic about a young witch and her cat, free under CC BY 4.0, in its readers' many translations.",
+  "author": "Raygun",
+  "website": "https://www.peppercarrot.com",
+  "provides": ["manga.source"],
+  "permissions": {
+    "net": ["www.peppercarrot.com"]
+  },
+  "contentRating": "safe",
+  "settings": [
+    {
+      "key": "language",
+      "type": "select",
+      "label": "Language",
+      "options": [
+        "English",
+        "French",
+        "Spanish",
+        "Mexican Spanish",
+        "German",
+        "Italian",
+        "Portuguese (Brazil)",
+        "Dutch",
+        "Polish",
+        "Russian",
+        "Japanese",
+        "Chinese (Simplified)",
+        "Indonesian",
+        "Vietnamese",
+        "Catalan",
+        "Danish",
+        "Finnish",
+        "Croatian",
+        "Hungarian",
+        "Romanian",
+        "Esperanto"
+      ],
+      "default": "English"
+    },
+    {
+      "key": "fullSize",
+      "type": "boolean",
+      "label": "Full-size pages (about 2 MB each)",
+      "default": false
+    }
+  ]
+}
