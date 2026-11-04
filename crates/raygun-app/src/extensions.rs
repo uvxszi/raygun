@@ -954,7 +954,17 @@ impl ExtensionService {
             Err(error) => {
                 // A Kodi repository shared as its own add-on (its addon.xml or zip) names its
                 // index.
-                if let Ok(bytes) = self.download(url.as_str(), MAX_PACKAGE_BYTES).await
+                let path = url.path().to_ascii_lowercase();
+                // A large Kodi index (Kodi's own is 12 MB) is read gzipped, as Kodi reads it.
+                if path.ends_with("/addons.xml")
+                    && let Ok(packed) = reqwest::Url::parse(&format!("{url}.gz"))
+                    && let Ok(index) = self.fetch_index(packed.as_str(), refresh).await
+                {
+                    return Ok((packed, index));
+                }
+                let addon = path.ends_with(".xml") || path.ends_with(".zip");
+                if addon
+                    && let Ok(bytes) = self.download(url.as_str(), MAX_PACKAGE_BYTES).await
                     && let Some(named) = raygun_ext_host::kodi::index_address(&bytes, &url)
                 {
                     let index = self.fetch_index(named.as_str(), refresh).await?;

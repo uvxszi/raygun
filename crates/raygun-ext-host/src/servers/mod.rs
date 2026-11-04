@@ -51,6 +51,8 @@ pub const ID_PREFIX: &str = "server.";
 const STREAM_LIFETIME: Duration = Duration::from_secs(6 * 60 * 60);
 /// How often a password sign-in that expires is renewed (Audiobookshelf's last an hour).
 const RENEW_EVERY: Duration = Duration::from_secs(40 * 60);
+/// How soon a renewal that failed is tried again, the first time; then twice as long each time.
+const RETRY_FIRST: Duration = Duration::from_secs(30);
 
 /// What kind of server a connection is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -514,9 +516,11 @@ async fn connect_at(
                     }
                     Err(failure) if http::is_denied(&failure) => {}
                     Err(failure) => {
-                        if matches!(reach(&host, failure, wrong), Reach::Unreachable(message) if message.starts_with("Couldn't reach"))
+                        // Not reaching the host at all ends the search for its catalogue.
+                        if let Reach::Unreachable(message) = reach(&host, failure, wrong)
+                            && message.starts_with("Couldn't reach")
                         {
-                            return Err(Reach::Unreachable(format!("Couldn't reach {host}")));
+                            return Err(Reach::Unreachable(message));
                         }
                     }
                 }
@@ -658,11 +662,23 @@ impl ServerExtension {
                     // Signs in now, so chapters stream before any call, and keeps it fresh.
                     let renewing = client.clone();
                     let task = tokio::task::spawn_local(async move {
+                        let mut retry = RETRY_FIRST;
                         loop {
-                            if let Err(failure) = renewing.renew().await {
-                                tracing::debug!(error = %failure.message, "an Audiobookshelf sign-in couldn't be renewed");
-                            }
-                            tokio::time::sleep(RENEW_EVERY).await;
+                            let wait = match renewing.renew().await {
+                                Ok(_) => {
+                                    retry = RETRY_FIRST;
+                                    RENEW_EVERY
+                                }
+                                // Offline or the server down: asked again soon, less often each
+                                // time.
+                                Err(failure) => {
+                                    tracing::debug!(error = %failure.message, "an Audiobookshelf sign-in couldn't be renewed");
+                                    let wait = retry;
+                                    retry = (retry * 2).min(RENEW_EVERY);
+                                    wait
+                                }
+                            };
+                            tokio::time::sleep(wait).await;
                         }
                     });
                     renewer = Some(task.abort_handle());

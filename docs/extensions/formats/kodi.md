@@ -7,7 +7,7 @@ Python programs.
 
 Browse → Extensions → Repositories → add the repository's address. Any of these works:
 
-- its `addons.xml`, or `addons.xml.gz`;
+- its `addons.xml`, or `addons.xml.gz` (a large `addons.xml` is read from the `.gz` beside it);
 - the repository's own add-on: its `addon.xml`, or the `repository.*.zip` people share. Raygun
   reads the index its `xbmc.addon.repository` extension names (`<info>`).
 

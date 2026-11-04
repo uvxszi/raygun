@@ -15,8 +15,11 @@ use serde_json::{Value, json};
 use crate::shosetsu::dom::{Place, copy, new_element};
 use crate::shosetsu::select::Selector;
 
-/// Documents kept at once; the oldest go first (a call parses a few pages at most).
-const MAX_DOCUMENTS: usize = 48;
+/// Documents kept at once, and the HTML they were parsed from; past either, the oldest go first.
+/// Plugins parse snippets in loops (`$('<p>…</p>')`, `load(item)`), so the count is generous;
+/// whole pages weigh in by their size.
+const MAX_DOCUMENTS: usize = 1024;
+const MAX_DOCUMENT_BYTES: usize = 24 * 1024 * 1024;
 /// Selectors kept parsed.
 const MAX_SELECTORS: usize = 256;
 /// Nodes of one document a handle can name.
@@ -27,6 +30,8 @@ struct Document {
     /// Handles' nodes, by handle.
     ids: Vec<NodeId>,
     handles: HashMap<NodeId, u32>,
+    /// The length of the HTML it was parsed from.
+    bytes: usize,
 }
 
 impl Document {
@@ -166,12 +171,17 @@ impl Documents {
     }
 
     /// Keeps a parsed document; returns its number.
-    fn keep(&self, html: Html) -> u64 {
+    fn keep(&self, html: Html, bytes: usize) -> u64 {
         let number = self.next.get();
         self.next.set(number + 1);
         let mut documents = self.documents.borrow_mut();
-        if documents.len() >= MAX_DOCUMENTS {
-            documents.pop_front();
+        let mut kept: usize = documents.iter().map(|(_, document)| document.bytes).sum();
+        while !documents.is_empty()
+            && (documents.len() >= MAX_DOCUMENTS || kept + bytes > MAX_DOCUMENT_BYTES)
+        {
+            if let Some((_, oldest)) = documents.pop_front() {
+                kept -= oldest.bytes;
+            }
         }
         documents.push_back((
             number,
@@ -179,6 +189,7 @@ impl Documents {
                 html,
                 ids: Vec::new(),
                 handles: HashMap::new(),
+                bytes,
             },
         ));
         number
@@ -325,7 +336,7 @@ impl Documents {
         let nodes = &args.nodes;
         Ok(match op {
             "load" => {
-                let number = self.keep(Html::parse_document(&args.html));
+                let number = self.keep(Html::parse_document(&args.html), args.html.len());
                 let mut documents = self.documents.borrow_mut();
                 let document = &mut documents.back_mut().expect("just kept").1;
                 let root = document.html.tree.root().id();
@@ -333,7 +344,7 @@ impl Documents {
             }
             // Nodes made from HTML (`$('<p>…</p>')`), in a page of their own.
             "parse" => {
-                let number = self.keep(Html::parse_fragment(&args.html));
+                let number = self.keep(Html::parse_fragment(&args.html), args.html.len());
                 let mut documents = self.documents.borrow_mut();
                 let document = &mut documents.back_mut().expect("just kept").1;
                 let ids: Vec<NodeId> = fragment_nodes(&document.html)
@@ -630,6 +641,32 @@ mod tests {
             run(&documents, "text", json!({ "nodes": first })),
             "One !",
             "a copy changes alone"
+        );
+    }
+
+    #[test]
+    fn snippets_parsed_in_a_loop_leave_the_page_alone() {
+        let documents = Documents::default();
+        let root = run(
+            &documents,
+            "load",
+            json!({ "html": "<p class='keep'>Still here</p>" }),
+        );
+        for index in 0..200 {
+            run(
+                &documents,
+                "parse",
+                json!({ "html": format!("<span>{index}</span>") }),
+            );
+        }
+        let kept = run(
+            &documents,
+            "select",
+            json!({ "nodes": [root], "selector": ".keep" }),
+        );
+        assert_eq!(
+            run(&documents, "text", json!({ "nodes": kept })),
+            "Still here"
         );
     }
 
