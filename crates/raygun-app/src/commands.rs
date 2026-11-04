@@ -59,12 +59,17 @@ pub async fn settings_get(db: tauri::State<'_, AppDb>) -> Result<Settings, Strin
 }
 
 /// What was played from lately: albums, playlists, mixes, artists, podcasts, books (M46.37).
+/// Hidden artists' pages and tiles marked Not interested are left out.
 #[tauri::command]
 #[specta::specta]
 pub async fn recent_contexts(
+    db: tauri::State<'_, AppDb>,
     collections: tauri::State<'_, CollectionsService>,
 ) -> Result<Vec<raygun_model::PlayContext>, String> {
-    collections.recent_contexts().await
+    let mut contexts = collections.recent_contexts().await?;
+    let hidden = crate::hidden::Hidden::load(&db.0).await;
+    contexts.retain(|context| !hidden.hides_context(context));
+    Ok(contexts)
 }
 
 /// Remembers where a play started (the page the user played from), for Home's Your music.
@@ -95,6 +100,8 @@ pub async fn settings_update(
     let discovery_changed = matches!(change, SettingChange::Discovery(_));
     let agent_changed = matches!(change, SettingChange::UserAgent(_));
     let sound_changed = matches!(change, SettingChange::Sound(_));
+    // Incognito (M47): the sidebar doesn't remember pages opened or played from.
+    let change = crate::privacy::without_new_stamps(&app, &db.0, change).await;
     let settings = settings::update(&db.0, change)
         .await
         .map_err(|error| error.to_string())?;
@@ -898,6 +905,16 @@ pub async fn song_downloads(
     songs.list().await
 }
 
+/// One song download as it is now; `None` once it was removed.
+#[tauri::command]
+#[specta::specta]
+pub async fn song_download(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+    id: String,
+) -> Result<Option<raygun_model::SongDownload>, String> {
+    songs.get(&id).await
+}
+
 /// Removes a song download and its file (M46.10).
 #[tauri::command]
 #[specta::specta]
@@ -908,7 +925,17 @@ pub async fn song_download_remove(
     songs.remove(&id).await
 }
 
-/// Queues a failed song download again (M46.10).
+/// Removes several song downloads and their files at once (cancels waiting ones).
+#[tauri::command]
+#[specta::specta]
+pub async fn song_downloads_remove(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+    ids: Vec<String>,
+) -> Result<(), String> {
+    songs.remove_many(&ids).await
+}
+
+/// Queues a failed song download again, first in the queue (M46.10).
 #[tauri::command]
 #[specta::specta]
 pub async fn song_download_retry(
@@ -916,6 +943,39 @@ pub async fn song_download_retry(
     id: String,
 ) -> Result<(), String> {
     songs.retry(&id).await
+}
+
+/// Queues every failed song download again; returns how many.
+#[tauri::command]
+#[specta::specta]
+pub async fn song_downloads_retry_failed(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+) -> Result<u32, String> {
+    songs.retry_failed().await
+}
+
+/// Puts the queued song downloads in this order, first to download first.
+#[tauri::command]
+#[specta::specta]
+pub async fn song_downloads_reorder(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+    ids: Vec<String>,
+) -> Result<(), String> {
+    songs.reorder(&ids).await
+}
+
+/// Whether song downloads are paused.
+#[tauri::command]
+#[specta::specta]
+pub fn song_downloads_paused(songs: tauri::State<'_, Arc<SongDownloadService>>) -> bool {
+    songs.paused()
+}
+
+/// Pauses song downloads (the running one waits, keeping what it saved) or resumes them.
+#[tauri::command]
+#[specta::specta]
+pub fn song_downloads_set_paused(songs: tauri::State<'_, Arc<SongDownloadService>>, paused: bool) {
+    songs.set_paused(paused);
 }
 
 /// Plays a song only YouTube has and records it as it plays (M46.10).
@@ -949,16 +1009,18 @@ pub async fn collections_saved_keys(
     collections.saved_keys().await
 }
 
-/// Downloads a song from a source the user picked (M46.47: Choose a source on a failed or
-/// YouTube-only download); the others are tried after it if it fails.
+/// Downloads a song from a picked source (M46.47: Choose a source on a failed or YouTube-only
+/// download), first in the queue; the others are tried after it if it fails. `source` is the
+/// source's name, shown while it downloads and in what went wrong.
 #[tauri::command]
 #[specta::specta]
 pub async fn song_download_use_source(
     songs: tauri::State<'_, Arc<SongDownloadService>>,
     id: String,
     track: raygun_model::OnlineTrack,
+    source: Option<String>,
 ) -> Result<(), String> {
-    songs.use_source(&id, track).await
+    songs.use_source(&id, track, source).await
 }
 
 /// A YouTube address typed in Search (M46.47): what it points at, with the video's title and
@@ -1573,10 +1635,45 @@ pub async fn made_for_you_save(
     service.save(&id, &name).await
 }
 
-/// Every chart source's songs for a genre or a mood (M46.19).
+/// Hides an artist from Home, Made for You, charts, genre rows and recommendations, or shows
+/// them again; returns the settings as saved.
+#[tauri::command]
+#[specta::specta]
+pub async fn hidden_artist_set(
+    app: tauri::AppHandle,
+    name: String,
+    hidden: bool,
+) -> Result<Settings, String> {
+    crate::hidden::set_artist(&app, &name, hidden).await
+}
+
+/// Marks a song, album, podcast or other Home item Not interested, or takes the mark away.
+#[tauri::command]
+#[specta::specta]
+pub async fn hidden_item_set(
+    app: tauri::AppHandle,
+    item: raygun_model::HiddenItem,
+    hidden: bool,
+) -> Result<Settings, String> {
+    crate::hidden::set_item(&app, item, hidden).await
+}
+
+/// Shows every hidden artist, every hidden item, or both, again.
+#[tauri::command]
+#[specta::specta]
+pub async fn hidden_clear(
+    app: tauri::AppHandle,
+    artists: bool,
+    items: bool,
+) -> Result<Settings, String> {
+    crate::hidden::clear(&app, artists, items).await
+}
+
+/// Every chart source's songs for a genre or a mood (M46.19), without hidden artists' songs.
 #[tauri::command]
 #[specta::specta]
 pub async fn music_tag_sources(
+    db: tauri::State<'_, AppDb>,
     discovery: tauri::State<'_, Arc<DiscoveryService>>,
     durations: tauri::State<'_, Arc<crate::durations::DurationService>>,
     name: String,
@@ -1584,17 +1681,21 @@ pub async fn music_tag_sources(
 ) -> Result<raygun_model::MusicTagSources, String> {
     let mut sources = discovery.tag_sources(name, region).await;
     let details = tauri::Manager::state::<Arc<crate::details::DetailService>>(durations.app());
+    let hidden = crate::hidden::Hidden::load(&db.0).await;
     for row in &mut sources.rows {
         durations.learn_tracks(&row.tracks);
         details.apply_online(&mut row.tracks);
+        hidden.retain_tracks(&mut row.tracks);
     }
+    sources.rows.retain(|row| !row.tracks.is_empty());
     Ok(sources)
 }
 
-/// A chart's songs (M46.9).
+/// A chart's songs (M46.9), without hidden artists' songs.
 #[tauri::command]
 #[specta::specta]
 pub async fn music_chart(
+    db: tauri::State<'_, AppDb>,
     discovery: tauri::State<'_, Arc<DiscoveryService>>,
     durations: tauri::State<'_, Arc<crate::durations::DurationService>>,
     provider_id: String,
@@ -1605,6 +1706,9 @@ pub async fn music_chart(
     durations.learn_tracks(&tracks);
     tauri::Manager::state::<Arc<crate::details::DetailService>>(durations.app())
         .apply_online(&mut tracks);
+    crate::hidden::Hidden::load(&db.0)
+        .await
+        .retain_tracks(&mut tracks);
     Ok(tracks)
 }
 
@@ -2145,6 +2249,26 @@ pub async fn history_clear(
     collections: tauri::State<'_, CollectionsService>,
 ) -> Result<(), String> {
     collections.clear_history().await
+}
+
+/// Whether incognito is on (M47). Afterwards, changes arrive as `IncognitoEvent`.
+#[tauri::command]
+#[specta::specta]
+pub fn incognito_status(
+    privacy: tauri::State<'_, crate::privacy::Privacy>,
+) -> raygun_model::IncognitoStatus {
+    privacy.status()
+}
+
+/// Turns incognito on or off (M47): while it's on, nothing records what's played, watched, read
+/// or searched.
+#[tauri::command]
+#[specta::specta]
+pub async fn incognito_set_enabled(
+    app: tauri::AppHandle,
+    enabled: bool,
+) -> Result<raygun_model::IncognitoStatus, String> {
+    crate::privacy::set_incognito(&app, enabled).await
 }
 
 /// The MCP server's switch, address and token.

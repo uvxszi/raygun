@@ -1068,6 +1068,10 @@ impl VideoSessions {
     }
 
     async fn remember(&self, origin: &Origin, remembered: &Remembered) {
+        // Incognito (M47): nothing watched is remembered, its source neither.
+        if crate::privacy::incognito(&self.app) {
+            return;
+        }
         let Ok(text) = serde_json::to_string(remembered) else {
             return;
         };

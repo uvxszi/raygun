@@ -58,7 +58,7 @@ Root resolution order:
 
 ### 3.2 Layout
 ```
-Raygun/                      ← the user moves/copies this folder
+Raygun/                      ← moved or copied as a whole
   Raygun(.exe|.app|.AppImage)
   raygun-data/
     raygun.db                 SQLite (WAL), all structured state
@@ -69,7 +69,7 @@ Raygun/                      ← the user moves/copies this folder
     models/                   AI models (upscale .param/.bin, ONNX, OCR)
     bin/                      yt-dlp, ffmpeg, realcugan/realesrgan-ncnn-vulkan
     cache/{images,http,streams,pages,enhanced}/
-    downloads/                media the user downloaded (relocatable)
+    downloads/                downloaded media (relocatable)
     webview/                  webview profile (cookies, localStorage, IndexedDB)
     logs/
 ```
@@ -78,8 +78,8 @@ Raygun/                      ← the user moves/copies this folder
 | Leak | Fix |
 |---|---|
 | WebView2 profile → `%LOCALAPPDATA%\<id>\EBWebView` | Create the window in Rust with `WebviewWindowBuilder::data_directory(paths.webview())`, not from `tauri.conf.json`. WebKitGTK honors the same option. |
-| macOS WKWebView data store → `~/Library/WebKit` | Only partly fixable: use a non-persistent store plus our own cookie persistence (`net` crate). Document this as a known limitation. |
-| `tauri-plugin-store`, `window-state`, `log` default paths | Don't use them; settings/window state go in our DB, logs use our `tracing` file appender in `logs/`. |
+| macOS WKWebView data store → `~/Library/WebKit` | Only partly fixable: use a non-persistent store plus Raygun's own cookie persistence (`net` crate). Document this as a known limitation. |
+| `tauri-plugin-store`, `window-state`, `log` default paths | Don't use them; settings/window state go in Raygun's DB, logs use its `tracing` file appender in `logs/`. |
 | Deep-link / protocol handler registration (registry) | Disabled in portable mode. OAuth uses a loopback redirect (`http://localhost:<port>/callback`); mobile uses deep links. |
 | Updater | Portable mode updates in place: download the zip, swap the exe on restart. No installer. |
 | WebView2 runtime | Use the evergreen runtime by default. An optional "fully self-contained" build bundles the Fixed Version runtime next to the exe. |
@@ -165,7 +165,7 @@ Candidates are scored on provider priority, past success rate, duration match ag
 | Engine | Where | Plays | Notes |
 |---|---|---|---|
 | **Html5Engine** | webview `<audio>/<video>` + hls.js / dash.js | files, http, HLS, DASH | All remote URLs go through the `net` loopback proxy, which injects `headers` (Referer/UA/Cookie), adds CORS, passes Range through and serves local files. This is Nuclear's `stream_server` plus CloudStream's header requirements. |
-| **EmbedEngine** | iframe → page served by our loopback at **`http://localhost:PORT/embed/youtube`** | YouTube IFrame API | Hostname must be `localhost`, never `127.0.0.1` (Referer check, RiPlay finding). Control via `postMessage`. **Foreground only** (M08: YouTube pauses hidden embeds), so on Android it is the video player and last-resort fallback; background YouTube audio needs direct extraction on the native engine. |
+| **EmbedEngine** | iframe → page served by Raygun's loopback server at **`http://localhost:PORT/embed/youtube`** | YouTube IFrame API | Hostname must be `localhost`, never `127.0.0.1` (Referer check, RiPlay finding). Control via `postMessage`. **Foreground only** (M08: YouTube pauses hidden embeds), so on Android it is the video player and last-resort fallback; background YouTube audio needs direct extraction on the native engine. |
 | **NativeAudioEngine** | `plugins-mobile/raygun-audio`: Media3 ExoPlayer in a `MediaSessionService` (Android); AVPlayer (iOS, later) | audio via the stream proxy | **Android's only audio engine** (decided in M06): foreground service, media session, lock-screen controls. Reports reach Rust over JNI, so auto-advance works while the webview is frozen. |
 | **MpvEngine** (later) | libmpv embedded in a child native window (desktop), mpv-android | MKV, HEVC, ASS subs, anything else | Same approach as Aniyomi. Added for movies/anime. |
 
@@ -176,9 +176,9 @@ The **mixed queue** holds audio and video items side by side; each `QueueItem` s
 - Mobile: no yt-dlp, so the **EmbedEngine is the primary path** there (exactly RiPlay's approach). A JS InnerTube extractor running in the extension runtime is a possible later upgrade.
 
 ### 6.4 Scaling to movies/TV/anime
-- **Stremio addons:** depend on `stremio-core` (MIT) and implement its `Env` trait over `raygun-net` and `raygun-db`. Catalog, meta, stream and subtitle resources map straight onto our provider kinds, and `StreamSource::Url/YouTube` map onto `PlayableStream`. Torrent streaming is a separate later decision.
+- **Stremio addons:** depend on `stremio-core` (MIT) and implement its `Env` trait over `raygun-net` and `raygun-db`. Catalog, meta, stream and subtitle resources map straight onto Raygun's provider kinds, and `StreamSource::Url/YouTube` map onto `PlayableStream`. Torrent streaming is a separate later decision.
 - **CloudStream/Aniyomi-style sources:** a `video.source` capability with `search · load(url)→Title+Units · listServers(unit) · resolve(server)→PlayableStream[]`, where results are streamed to the UI.
-- **WebView resolver** (`net.webview_resolve(url, intercept_regex, timeout)`): opens a hidden webview using our profile and returns the first request matching the pattern. It handles Cloudflare challenges (cookies are copied into the reqwest jar) and embed hosts whose stream URL only appears at runtime (CloudStream's `WebViewResolver`).
+- **WebView resolver** (`net.webview_resolve(url, intercept_regex, timeout)`): opens a hidden webview using Raygun's profile and returns the first request matching the pattern, for embed hosts whose stream URL only appears at runtime (CloudStream's `WebViewResolver`). It doesn't solve bot checks or copy their cookies into sources (M46.11).
 
 ## 7. Extensions (requirement 4)
 
@@ -198,7 +198,7 @@ The **mixed queue** holds audio and video items side by side; each `QueueItem` s
   "website": "https://mangadex.org"     // optional; opened from a source's menu (M46.11)
 }
 ```
-Repositories use an `index.json` listing extensions and shared libraries (the Shosetsu and Mihon repo format).
+Repositories use an `index.json` listing extensions and shared libraries (the Shosetsu and Mihon repo format). Raygun's own format may mix package formats (`format`: `raygun`, `nuclear`, `shosetsu`), name packages by absolute address in another repository, and list Shosetsu `libraries`, read from `lib/<name>.lua` beside the index; Paraline (`uvxszi/paraline-raygun`) is such an index.
 
 ### 7.2 Runtimes
 | Runtime | Engine | Purpose |
@@ -213,14 +213,14 @@ Repositories use an `index.json` listing extensions and shared libraries (the Sh
 On desktop, Mihon/Aniyomi compatibility could come from an optional **Suwayomi-Server sidecar** (JVM) exposed as a remote source provider. It's heavy, so it stays opt-in and outside the portable core.
 
 ### 7.3 Host API (same for all code runtimes, implemented once in Rust)
-`http.fetch` (permission-checked host allowlist, a cookie jar per extension saved in `extensions/.data/<id>/cookies.json` (M46.11), the user's default User-Agent unless the extension names one, rate limiting) · `html.parse` → selector API (`scraper` crate) · `json`, `crypto`, `encoding` · `storage` (per-extension kv) · `settings` · `log` · `webview.resolve` (only when the extension holds the `webview` permission) · `cache`.
+`http.fetch` (permission-checked host allowlist, a cookie jar per extension saved in `extensions/.data/<id>/cookies.json` (M46.11), the app's User-Agent setting unless the extension names one, rate limiting) · `html.parse` → selector API (`scraper` crate) · `json`, `crypto`, `encoding` · `storage` (per-extension kv) · `settings` · `log` · `webview.resolve` (only when the extension holds the `webview` permission) · `cache`.
 
 Providers register through the SDK (`api.providers.register({kind:'manga.source', ...})`). The registry is in Rust, so the UI, jobs and MCP all see the same set.
 
 ### 7.4 Nuclear plugin compatibility layer
 Nuclear plugins are npm-style folders (`package.json` with a `nuclear` field, TS or JS entry) that receive a `NuclearPluginAPI` in `onLoad/onEnable`. Raygun runs them through an **import converter plus a runtime shim**:
 
-1. **Converter (at install):** read the manifest, transpile TS/TSX to a CommonJS bundle in Rust (`oxc` transformer, no Node needed), and record which `require()` targets are used. The output is a normal Raygun extension (`runtime: "nuclear-compat"`) with a generated `raygun-extension.json`. Its permissions come from the Nuclear manifest plus the hosts seen in the code, and the user confirms them.
+1. **Converter (at install):** read the manifest, transpile TS/TSX to a CommonJS bundle in Rust (`oxc` transformer, no Node needed), and record which `require()` targets are used. The output is a normal Raygun extension (`runtime: "nuclear-compat"`) with a generated `raygun-extension.json`. Its permissions come from the Nuclear manifest plus the hosts seen in the code, and are listed in the extension's access details.
 2. **Shim (at runtime, in QuickJS):** `require('@nuclearplayer/plugin-sdk')` returns a `NuclearPluginAPI` built on the Raygun host API. Domain hosts are mapped as follows: `providers` → Raygun registry (Nuclear kinds `metadata · streaming · lyrics · dashboard · playlists · discovery` map onto `music.*` kinds); `http` → `http.fetch`; `settings`, `logger`, `queue`, `playback`, `favorites`, `playlists` and `events` → the matching Rust services; `ytdlp` → the yt-dlp sidecar (desktop only).
 3. **Limitations (shown on the extension's page):**
    - **UI code doesn't run headless.** `react`, `react/jsx-runtime` and `@nuclearplayer/ui` resolve to inert stubs. Plugins that register React views or widgets load without them, until the `ui` runtime (Phase 7) can host that half in the webview.
@@ -253,11 +253,11 @@ page image ─► OcrProvider ─► blocks{bbox, text, angle} ─► merge into
 - **Auth:** a bearer token generated per install (shown in Settings), plus `Host`/`Origin` validation against DNS rebinding. Nuclear's server has no auth; ours needs it because it can control the whole app.
 - **Tool surface:** Nuclear's meta-tool pattern — `list_domains`, `list_methods(domain)`, `method_details`, `describe_type`, `call(method, args)`. The method catalog is generated from the Rust service layer and the provider registry, so new domains and extension providers show up automatically without bloating the agent's tool list. A few high-value direct tools are added for ergonomics: `search`, `play`, `now_playing`, `queue_add`, `library_list`, `open_reader`.
 - **Resources:** `raygun://now-playing`, `raygun://queue`, `raygun://library/{kind}`, and reading-progress resources.
-- **LAN remote:** the same Axum server serves REST + SSE and a remote-control web UI, with QR-code pairing that issues a scoped token. It's off by default and binds to the LAN only when the user enables it.
+- **LAN remote:** the same Axum server serves REST + SSE and a remote-control web UI, with QR-code pairing that issues a scoped token. It's off by default and binds to the LAN only when turned on.
 
 ## 10. Device sync (`raygun-sync`)
 
-Goal: "set it and forget it". Paired devices on the same network sync automatically whenever they can see each other, with no server and no account.
+Goal: hands-off sync. Paired devices on the same network sync automatically whenever they can see each other, with no server and no account.
 
 - **Discovery:** mDNS/DNS-SD (`mdns-sd` crate) advertises `_raygun._tcp` with the device ID and a public-key fingerprint. Android needs a `WifiManager.MulticastLock` (held by a small mobile plugin) while sync is active.
 - **Pairing (once per device pair):** one device shows a QR code or 6-digit code. The pair exchanges long-term **Ed25519** device keys, and each side stores the other's key as trusted. After that, unknown devices are ignored.
@@ -273,7 +273,7 @@ Goal: "set it and forget it". Paired devices on the same network sync automatica
 - **Mobile-first shell:** bottom tab bar (Home · Library · Browse · More; Browse also searches), a persistent mini-player that swipes up into a full-screen player sheet (swipe down to close, horizontal swipe to skip), pull-to-refresh, long-press context sheets, and safe-area insets.
 - **Wide layouts:** at ≥ 1024 px the tab bar becomes a side rail, the player sheet becomes a docked bar plus an expandable panel, and lists become grids. Keyboard shortcuts and hover states are enabled when a pointer is detected.
 - **Readers:** manga (paged LTR/RTL, vertical webtoon, double-page spreads, tap zones, pinch zoom) and novel (reflowable text, typography controls, scroll or paginated) share prefetch and progress hooks.
-- **Theming:** CSS variables with light/dark plus AMOLED; user themes come later through UI extensions.
+- **Theming:** CSS variables with light/dark plus AMOLED; custom themes come later through UI extensions.
 
 ## 12. Cross-cutting
 
@@ -282,7 +282,7 @@ Goal: "set it and forget it". Paired devices on the same network sync automatica
 - **Networking:** reqwest + rustls (no OpenSSL, which simplifies Android/iOS cross-compiles), with the cookie jar persisted in `webview/`-adjacent storage and per-host concurrency limits.
 - **Observability:** `tracing` to rotating files in `logs/`, plus an in-app log viewer (Nuclear's startup ring buffer idea).
 - **Testing:** Rust unit/integration tests per crate, Vitest + RTL with test-wrappers for views (Nuclear convention), the portable-leak CI job, and recorded HTTP fixtures for extension tests.
-- **Content policy:** first-party extensions target legitimate sources only (local files, YouTube, MangaDex, Jellyfin/Komga/Kavita, Stremio official/community addons the user adds). Raygun ships the *runtimes*; users choose repositories.
+- **Content policy:** first-party extensions target legitimate sources only (local files, YouTube, MangaDex, Jellyfin/Komga/Kavita, official or community Stremio addons added in the app). Raygun ships the *runtimes*; which repositories to add is up to whoever runs it.
 
 ## 13. Known risks
 

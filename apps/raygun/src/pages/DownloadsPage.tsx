@@ -99,7 +99,8 @@ const AllDownloads: FC = () => {
       {nothing && <EmptyState icon={Download} title={t('downloads.noneTitle')} />}
       {shown.music && (
         <Section tab="music" title={t('songs.tab')}>
-          <SongDownloadsList />
+          {/* Finished songs are a line here; the Music tab lists them. */}
+          <SongDownloadsList compact />
         </Section>
       )}
       {shown.chapters && (

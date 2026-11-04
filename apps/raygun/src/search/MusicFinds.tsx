@@ -1,10 +1,12 @@
 import type { MusicAlbum, OnlineTrack, ProviderSearchResult } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import { LoaderCircle, UserRound } from 'lucide-react';
-import type { FC } from 'react';
+import type { FC, MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
+import { menuHandler, useAlbumMenuItems, useArtistMenuItems } from '../music/cardMenus';
+import { MenuButton } from '../shell/MenuButton';
 import { OnlineTrackRow } from './OnlineTrackRow';
 import { playResults } from './useOnlineSearch';
 import { rankSongs, useAlbumFinds, useArtistFinds } from './useMusicFinds';
@@ -41,6 +43,7 @@ export const BestSongs: FC<{
 export const ArtistFinds: FC<{ query: string }> = ({ query }) => {
   const { t } = useTranslation();
   const artists = useArtistFinds(query);
+  const menu = useArtistMenuItems();
   const list = artists.list;
   if (artists.isPending) {
     return <LoaderCircle aria-label={t('search.searching')} className="text-muted animate-spin" />;
@@ -54,11 +57,15 @@ export const ArtistFinds: FC<{ query: string }> = ({ query }) => {
   return (
     <ul data-testid="artist-finds" className="flex flex-col">
       {list.map((artist) => (
-        <li key={`${artist.provider.id}:${artist.id}`}>
+        <li
+          key={`${artist.provider.id}:${artist.id}`}
+          className="flex items-center"
+          onContextMenu={menuHandler(() => menu({ name: artist.name, imageUrl: artist.imageUrl }))}
+        >
           <Link
             to="/artist"
             search={{ name: artist.name }}
-            className="hover:bg-surface flex items-center gap-3 rounded-xl px-1 py-2"
+            className="hover:bg-surface flex min-w-0 flex-1 items-center gap-3 rounded-xl px-1 py-2"
           >
             {artist.imageUrl ? (
               <Artwork
@@ -79,6 +86,10 @@ export const ArtistFinds: FC<{ query: string }> = ({ query }) => {
               </span>
             </span>
           </Link>
+          <MenuButton
+            label={t('menu.more', { name: artist.name })}
+            items={() => menu({ name: artist.name, imageUrl: artist.imageUrl })}
+          />
         </li>
       ))}
     </ul>
@@ -89,6 +100,7 @@ export const ArtistFinds: FC<{ query: string }> = ({ query }) => {
 export const AlbumFinds: FC<{ query: string }> = ({ query }) => {
   const { t } = useTranslation();
   const albums = useAlbumFinds(query);
+  const menu = useAlbumMenuItems();
   const list = albums.list;
   if (albums.isPending) {
     return <LoaderCircle aria-label={t('search.searching')} className="text-muted animate-spin" />;
@@ -106,18 +118,26 @@ export const AlbumFinds: FC<{ query: string }> = ({ query }) => {
     >
       {list.map((album) => (
         <li key={`${album.provider.id}:${album.id}`}>
-          <AlbumTile album={album} />
+          <AlbumTile album={album} onMenu={menuHandler(() => menu(album))} />
         </li>
       ))}
     </ul>
   );
 };
 
-/** An album a source knows, opening its page (M46.9); `detail` replaces the line under it. */
-export const AlbumTile: FC<{ album: MusicAlbum; detail?: string }> = ({ album, detail }) => (
+/**
+ * An album a source knows, opening its page (M46.9); `detail` replaces the line under it. Its
+ * menu (`onMenu`, made once for the whole list) has the album's basic items.
+ */
+export const AlbumTile: FC<{
+  album: MusicAlbum;
+  detail?: string;
+  onMenu?: (event: MouseEvent) => void;
+}> = ({ album, detail, onMenu }) => (
   <Link
     to="/music/album"
     search={{ provider: album.provider.id, id: album.id }}
+    onContextMenu={onMenu}
     className="hover:bg-surface flex flex-col gap-1.5 rounded-xl p-2"
   >
     <Artwork

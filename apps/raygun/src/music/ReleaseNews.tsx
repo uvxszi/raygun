@@ -9,6 +9,7 @@ import { albumCover } from '../library/coverTargets';
 import { AlbumTile } from '../search/MusicFinds';
 import { EmptyState } from '../shell/EmptyState';
 import { SourceIssue } from '../shell/SourceIssue';
+import { menuHandler, useAlbumMenuItems } from './cardMenus';
 import { useReleaseNews } from './follows';
 
 /** A release in Updates → All's list: its cover, title and artist, leading to the album. */
@@ -40,6 +41,7 @@ export const ReleaseRow: FC<{ item: ArtistReleaseNews }> = ({ item }) => (
 export const ReleaseNews: FC = () => {
   const { t, i18n } = useTranslation();
   const news = useReleaseNews();
+  const menu = useAlbumMenuItems();
   const list = news.data ?? [];
   if (news.error) {
     return (
@@ -73,6 +75,7 @@ export const ReleaseNews: FC = () => {
         <li key={`${item.album.provider.id}:${item.album.id}`}>
           <AlbumTile
             album={item.album}
+            onMenu={menuHandler(() => menu(item.album))}
             detail={[item.artist, item.foundAt ? day.format(item.foundAt) : null]
               .filter(Boolean)
               .join(' · ')}

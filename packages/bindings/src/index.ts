@@ -14,7 +14,10 @@ export const commands = {
 	settingsGet: () => typedError<Settings, string>(__TAURI_INVOKE("settings_get")),
 	/**  Changes one setting and returns the updated settings. */
 	settingsUpdate: (change: SettingChange) => typedError<Settings, string>(__TAURI_INVOKE("settings_update", { change })),
-	/**  What was played from lately: albums, playlists, mixes, artists, podcasts, books (M46.37). */
+	/**
+	 *  What was played from lately: albums, playlists, mixes, artists, podcasts, books (M46.37).
+	 *  Hidden artists' pages and tiles marked Not interested are left out.
+	 */
 	recentContexts: () => typedError<PlayContext[], string>(__TAURI_INVOKE("recent_contexts")),
 	/**  Remembers where a play started (the page the user played from), for Home's Your music. */
 	recentContextsAdd: (context: PlayContext) => typedError<null, string>(__TAURI_INVOKE("recent_contexts_add", { context })),
@@ -201,17 +204,37 @@ export const commands = {
 	/**  A cover link through the image cache. */
 	artworkUrl: string | null,
 	state: SongDownloadState,
-	/**  `file` (a source's stream) or `recording`, once done. */
-	kind: string | null,
-	/**  Where the audio came from. */
+	/**
+	 *  How it's made: `file` while downloading, `recording` while recorded, and how it was made
+	 *  once done.
+	 */
+	kind: SongDownloadKind | null,
+	/**
+	 *  Where the audio came from once done; while downloading, the source being tried now; while
+	 *  queued, the source picked for it, if any.
+	 */
 	provider: string | null,
 	/**  The saved file's extension ("mp3", "flac"...), once done. */
 	format: string | null,
+	/**  While downloading, what came so far; once done, the file's size. */
 	doneBytes: number | null,
 	totalBytes: number | null,
+	/**  How far it is, 0–1, when known: the file's bytes, or how much of a recording has played. */
+	fraction: number | null,
+	/**  How fast it downloads now, while it does. */
+	bytesPerSecond: number | null,
+	/**  Time left in ms, when known: from the speed and the size, or the song left to record. */
+	etaMs: number | null,
+	/**  What went wrong, in a line for the listener. */
 	error: string | null,
+	/**  Each source's own error behind `error` ("More info"). */
+	errorDetail: string | null,
 	/**  This device can record what plays (Windows for now). */
 	canRecord: boolean,
+	/**  Its place in the queue (unix ms): queued songs download earliest first. */
+	queuedAt: number | null,
+	/**  When it finished, or stopped with an error (unix ms). */
+	finishedAt: number | null,
 } | null, string>(__TAURI_INVOKE("song_download_for", { track })),
 	/**  Where a song is saved: Favorites and the playlists holding it (M46.8). */
 	collectionsSaves: (track: TrackInput) => typedError<TrackSaves, string>(__TAURI_INVOKE("collections_saves", { track })),
@@ -221,9 +244,9 @@ export const commands = {
 	musicArtist: (name: string) => typedError<ArtistOverview, string>(__TAURI_INVOKE("music_artist", { name })),
 	/**  Every source's charts for a country (M46.9), cached for an hour. */
 	musicCharts: (region: string | null) => typedError<MusicCharts_Serialize, string>(__TAURI_INVOKE("music_charts", { region })),
-	/**  A chart's songs (M46.9). */
+	/**  A chart's songs (M46.9), without hidden artists' songs. */
 	musicChart: (providerId: string, chartId: string, region: string | null) => typedError<OnlineTrack[], string>(__TAURI_INVOKE("music_chart", { providerId, chartId, region })),
-	/**  Every chart source's songs for a genre or a mood (M46.19). */
+	/**  Every chart source's songs for a genre or a mood (M46.19), without hidden artists' songs. */
 	musicTagSources: (name: string, region: string | null) => typedError<MusicTagSources_Serialize, string>(__TAURI_INVOKE("music_tag_sources", { name, region })),
 	/**
 	 *  Made for You (M46.20): today's mixes (made in the background when they're from another day,
@@ -234,6 +257,15 @@ export const commands = {
 	madeForYouMix: (id: string) => typedError<Mix, string>(__TAURI_INVOKE("made_for_you_mix", { id })),
 	/**  Saves a mix as a playlist named `name`; returns the playlist's id (M46.20). */
 	madeForYouSave: (id: string, name: string) => typedError<string, string>(__TAURI_INVOKE("made_for_you_save", { id, name })),
+	/**
+	 *  Hides an artist from Home, Made for You, charts, genre rows and recommendations, or shows
+	 *  them again; returns the settings as saved.
+	 */
+	hiddenArtistSet: (name: string, hidden: boolean) => typedError<Settings, string>(__TAURI_INVOKE("hidden_artist_set", { name, hidden })),
+	/**  Marks a song, album, podcast or other Home item Not interested, or takes the mark away. */
+	hiddenItemSet: (item: HiddenItem, hidden: boolean) => typedError<Settings, string>(__TAURI_INVOKE("hidden_item_set", { item, hidden })),
+	/**  Shows every hidden artist, every hidden item, or both, again. */
+	hiddenClear: (artists: boolean, items: boolean) => typedError<Settings, string>(__TAURI_INVOKE("hidden_clear", { artists, items })),
 	/**  The songs a Spotify playlist, album or song link points at (M46.21). */
 	importReadLink: (link: string) => typedError<ImportedList, string>(__TAURI_INVOKE("import_read_link", { link })),
 	/**  Songs in a CSV export or pasted lines (M46.21). */
@@ -386,10 +418,63 @@ export const commands = {
 	songsDownload: (tracks: TrackInput[]) => typedError<null, string>(__TAURI_INVOKE("songs_download", { tracks })),
 	/**  Every song download, newest first (M46.10). */
 	songDownloads: () => typedError<SongDownload[], string>(__TAURI_INVOKE("song_downloads")),
+	/**  One song download as it is now; `None` once it was removed. */
+	songDownload: (id: string) => typedError<{
+	id: string,
+	trackKey: string,
+	title: string,
+	artist: string | null,
+	album: string | null,
+	durationMs: number | null,
+	/**  A cover link through the image cache. */
+	artworkUrl: string | null,
+	state: SongDownloadState,
+	/**
+	 *  How it's made: `file` while downloading, `recording` while recorded, and how it was made
+	 *  once done.
+	 */
+	kind: SongDownloadKind | null,
+	/**
+	 *  Where the audio came from once done; while downloading, the source being tried now; while
+	 *  queued, the source picked for it, if any.
+	 */
+	provider: string | null,
+	/**  The saved file's extension ("mp3", "flac"...), once done. */
+	format: string | null,
+	/**  While downloading, what came so far; once done, the file's size. */
+	doneBytes: number | null,
+	totalBytes: number | null,
+	/**  How far it is, 0–1, when known: the file's bytes, or how much of a recording has played. */
+	fraction: number | null,
+	/**  How fast it downloads now, while it does. */
+	bytesPerSecond: number | null,
+	/**  Time left in ms, when known: from the speed and the size, or the song left to record. */
+	etaMs: number | null,
+	/**  What went wrong, in a line for the listener. */
+	error: string | null,
+	/**  Each source's own error behind `error` ("More info"). */
+	errorDetail: string | null,
+	/**  This device can record what plays (Windows for now). */
+	canRecord: boolean,
+	/**  Its place in the queue (unix ms): queued songs download earliest first. */
+	queuedAt: number | null,
+	/**  When it finished, or stopped with an error (unix ms). */
+	finishedAt: number | null,
+} | null, string>(__TAURI_INVOKE("song_download", { id })),
 	/**  Removes a song download and its file (M46.10). */
 	songDownloadRemove: (id: string) => typedError<null, string>(__TAURI_INVOKE("song_download_remove", { id })),
-	/**  Queues a failed song download again (M46.10). */
+	/**  Removes several song downloads and their files at once (cancels waiting ones). */
+	songDownloadsRemove: (ids: string[]) => typedError<null, string>(__TAURI_INVOKE("song_downloads_remove", { ids })),
+	/**  Queues a failed song download again, first in the queue (M46.10). */
 	songDownloadRetry: (id: string) => typedError<null, string>(__TAURI_INVOKE("song_download_retry", { id })),
+	/**  Queues every failed song download again; returns how many. */
+	songDownloadsRetryFailed: () => typedError<number, string>(__TAURI_INVOKE("song_downloads_retry_failed")),
+	/**  Puts the queued song downloads in this order, first to download first. */
+	songDownloadsReorder: (ids: string[]) => typedError<null, string>(__TAURI_INVOKE("song_downloads_reorder", { ids })),
+	/**  Whether song downloads are paused. */
+	songDownloadsPaused: () => __TAURI_INVOKE<boolean>("song_downloads_paused"),
+	/**  Pauses song downloads (the running one waits, keeping what it saved) or resumes them. */
+	songDownloadsSetPaused: (paused: boolean) => __TAURI_INVOKE<void>("song_downloads_set_paused", { paused }),
 	/**  Plays a song only YouTube has and records it as it plays (M46.10). */
 	songDownloadRecord: (id: string) => typedError<null, string>(__TAURI_INVOKE("song_download_record", { id })),
 	/**  Writes saved songs out as files (M46.10). */
@@ -418,10 +503,11 @@ export const commands = {
 	/**  Stops the song being recorded without keeping it (M46.46: the recording window's Cancel). */
 	songDownloadCancelRecording: () => __TAURI_INVOKE<void>("song_download_cancel_recording"),
 	/**
-	 *  Downloads a song from a source the user picked (M46.47: Choose a source on a failed or
-	 *  YouTube-only download); the others are tried after it if it fails.
+	 *  Downloads a song from a picked source (M46.47: Choose a source on a failed or YouTube-only
+	 *  download), first in the queue; the others are tried after it if it fails. `source` is the
+	 *  source's name, shown while it downloads and in what went wrong.
 	 */
-	songDownloadUseSource: (id: string, track: OnlineTrack) => typedError<null, string>(__TAURI_INVOKE("song_download_use_source", { id, track })),
+	songDownloadUseSource: (id: string, track: OnlineTrack, source: string | null) => typedError<null, string>(__TAURI_INVOKE("song_download_use_source", { id, track, source })),
 	/**
 	 *  A YouTube address typed in Search (M46.47): what it points at, with the video's title and
 	 *  channel when YouTube says; `None` for anything else.
@@ -488,6 +574,13 @@ export const commands = {
 	/**  The latest play of each recently played track, newest first. */
 	historyRecent: (limit: number) => typedError<HistoryEntry[], string>(__TAURI_INVOKE("history_recent", { limit })),
 	historyClear: () => typedError<null, string>(__TAURI_INVOKE("history_clear")),
+	/**  Whether incognito is on (M47). Afterwards, changes arrive as `IncognitoEvent`. */
+	incognitoStatus: () => __TAURI_INVOKE<IncognitoStatus>("incognito_status"),
+	/**
+	 *  Turns incognito on or off (M47): while it's on, nothing records what's played, watched, read
+	 *  or searched.
+	 */
+	incognitoSetEnabled: (enabled: boolean) => typedError<IncognitoStatus, string>(__TAURI_INVOKE("incognito_set_enabled", { enabled })),
 	/**  Replaces the queue with favorites, a playlist or history and starts playing. */
 	collectionPlay: (request: CollectionPlayRequest) => typedError<null, string>(__TAURI_INVOKE("collection_play", { request })),
 	/**  The MCP server's switch, address and token. */
@@ -773,6 +866,8 @@ export const commands = {
 	transcription: TranscriptionPrefs,
 	/**  What's remembered of listening (M46.41). */
 	privacy: PrivacyPrefs,
+	/**  Artists and things not to show on Home and in recommendations. */
+	hidden: HiddenPrefs,
 	/**  How long lyrics stay kept (M46.46). */
 	lyricsCache: LyricsCachePrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
@@ -961,6 +1056,7 @@ export const events = {
 	exportEvent: makeEvent<ExportEvent>("export-event"),
 	extensionsChangedEvent: makeEvent<ExtensionsChangedEvent_Deserialize>("extensions-changed-event"),
 	importEvent: makeEvent<ImportEvent>("import-event"),
+	incognitoEvent: makeEvent<IncognitoEvent>("incognito-event"),
 	libraryScanEvent: makeEvent<LibraryScanEvent>("library-scan-event"),
 	localFilesEvent: makeEvent<LocalFilesEvent>("local-files-event"),
 	madeForYouEvent: makeEvent<MadeForYouEvent>("made-for-you-event"),
@@ -970,6 +1066,7 @@ export const events = {
 	podcastsChangedEvent: makeEvent<PodcastsChangedEvent>("podcasts-changed-event"),
 	queueEvent: makeEvent<QueueEvent>("queue-event"),
 	settingsChangedEvent: makeEvent<SettingsChangedEvent>("settings-changed-event"),
+	songDownloadProgressEvent: makeEvent<SongDownloadProgressEvent>("song-download-progress-event"),
 	songDownloadsEvent: makeEvent<SongDownloadsEvent>("song-downloads-event"),
 	speechCommandEvent: makeEvent<SpeechCommandEvent>("speech-command-event"),
 	syncChangedEvent: makeEvent<SyncChangedEvent>("sync-changed-event"),
@@ -1855,6 +1952,41 @@ export type FoundSubtitles = {
 	note: string | null,
 };
 
+/**  An artist not shown (Don't show this artist). */
+export type HiddenArtist = {
+	/**  As it was shown; compared without case. */
+	name: string,
+	/**  Unix seconds. */
+	hiddenAt: number,
+};
+
+/**  Something Home doesn't show again (Not interested). */
+export type HiddenItem = {
+	/**  One of [`HIDDEN_KINDS`]. */
+	kind: string,
+	/**
+	 *  What it's known by: a song's track key, the address of its page
+	 *  (`/music/album?id=…&provider=…`), or its feed (`feed:<url>`).
+	 */
+	key: string,
+	/**  Its name, artist or show and cover as last seen, for the list in Settings. */
+	name: string,
+	subtitle: string | null,
+	artworkUrl: string | null,
+	/**  Unix seconds. */
+	hiddenAt: number,
+};
+
+/**
+ *  What the listener asked not to be shown, as Spotify's "Don't play this artist" and "Not
+ *  interested": artists left out of Home, Made for You, charts, genre rows and recommendations,
+ *  and things Home doesn't show again. Searches and an artist's own page still find them.
+ */
+export type HiddenPrefs = {
+	artists: HiddenArtist[],
+	items: HiddenItem[],
+};
+
 export type HistoryEntry = {
 	track: SavedTrack,
 	/**  Unix ms. */
@@ -1911,6 +2043,16 @@ export type ImportedSong = {
 export type ImportedTitle = {
 	sourceId: string,
 	remoteId: string,
+};
+
+/**  Incognito was turned on or off (M47). */
+export type IncognitoEvent = IncognitoStatus;
+
+/**  Incognito (M47): while it's on, nothing records what's played, watched, read or searched. */
+export type IncognitoStatus = {
+	on: boolean,
+	/**  When it was turned on (Unix ms), or when Raygun started with it kept on. */
+	sinceMs: number | null,
 };
 
 /**  How this copy of Raygun was installed (M46.47), which decides how it updates. */
@@ -2076,6 +2218,11 @@ export type ListeningStats = {
 	peakHour: number | null,
 	/**  Songs the user has played or saved. */
 	songsKnown: number,
+	/**
+	 *  The artists played most now, the most first (Home's Your top artists), without hidden
+	 *  ones.
+	 */
+	topArtists?: string[],
 };
 
 export type LocalCounts = {
@@ -2926,6 +3073,8 @@ export type PrivacyPrefs = {
 	history?: boolean,
 	/**  Where plays started from is kept for Home (Recently played, Your music). */
 	recentlyPlayed?: boolean,
+	/**  Incognito stays on when Raygun starts again; otherwise it ends with the app (M47). */
+	keepIncognito?: boolean,
 };
 
 /**  A provider an extension registered, e.g. a `music.metadata` search. */
@@ -3180,7 +3329,7 @@ export type SearchResults_Serialize = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -3277,6 +3426,8 @@ export type Settings = {
 	transcription: TranscriptionPrefs,
 	/**  What's remembered of listening (M46.41). */
 	privacy: PrivacyPrefs,
+	/**  Artists and things not to show on Home and in recommendations. */
+	hidden: HiddenPrefs,
 	/**  How long lyrics stay kept (M46.46). */
 	lyricsCache: LyricsCachePrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
@@ -3331,7 +3482,10 @@ export type SongDestination =
 /**  The folder picked in Settings → Downloads. */
 "folder";
 
-/**  A song saved (or being saved) into the app to play offline (M46.10). */
+/**
+ *  A song saved (or being saved) into the app to play offline (M46.10). It is also the payload of
+ *  `SongDownloadProgressEvent`, sent on every change of state or source and while it downloads.
+ */
 export type SongDownload = {
 	id: string,
 	trackKey: string,
@@ -3342,18 +3496,51 @@ export type SongDownload = {
 	/**  A cover link through the image cache. */
 	artworkUrl: string | null,
 	state: SongDownloadState,
-	/**  `file` (a source's stream) or `recording`, once done. */
-	kind: string | null,
-	/**  Where the audio came from. */
+	/**
+	 *  How it's made: `file` while downloading, `recording` while recorded, and how it was made
+	 *  once done.
+	 */
+	kind: SongDownloadKind | null,
+	/**
+	 *  Where the audio came from once done; while downloading, the source being tried now; while
+	 *  queued, the source picked for it, if any.
+	 */
 	provider: string | null,
 	/**  The saved file's extension ("mp3", "flac"...), once done. */
 	format: string | null,
+	/**  While downloading, what came so far; once done, the file's size. */
 	doneBytes: number | null,
 	totalBytes: number | null,
+	/**  How far it is, 0–1, when known: the file's bytes, or how much of a recording has played. */
+	fraction: number | null,
+	/**  How fast it downloads now, while it does. */
+	bytesPerSecond: number | null,
+	/**  Time left in ms, when known: from the speed and the size, or the song left to record. */
+	etaMs: number | null,
+	/**  What went wrong, in a line for the listener. */
 	error: string | null,
+	/**  Each source's own error behind `error` ("More info"). */
+	errorDetail: string | null,
 	/**  This device can record what plays (Windows for now). */
 	canRecord: boolean,
+	/**  Its place in the queue (unix ms): queued songs download earliest first. */
+	queuedAt: number | null,
+	/**  When it finished, or stopped with an error (unix ms). */
+	finishedAt: number | null,
 };
+
+/**
+ *  How a song download is made: a source's file (yt-dlp's copy of a YouTube video included), or a
+ *  recording of the song as it plays.
+ */
+export type SongDownloadKind = "file" | "recording";
+
+/**
+ *  One song download as it is now: sent when its state or source changes, and while it downloads
+ *  or is recorded, at most four times a second and only when what it shows moved on (its percent,
+ *  or 100 KB without a known size). Not sent for removals (`SongDownloadsEvent` is).
+ */
+export type SongDownloadProgressEvent = SongDownload;
 
 /**  Where a song saved into the app stands (M46.10). */
 export type SongDownloadState = "queued" | "downloading" | 

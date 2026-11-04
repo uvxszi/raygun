@@ -33,6 +33,7 @@ import { Artwork } from '../library/Artwork';
 import { ArtistLinks } from '../music/ArtistLinks';
 import { PlayingOn } from '../connect/PlayingOn';
 import { ConnectButton } from '../devices/ConnectButton';
+import { IncognitoBadge } from '../privacy/IncognitoBadge';
 import { appBackground } from '../shell/appWindow';
 import { useIsDesktop } from '../shell/useIsDesktop';
 import { fromQueueItem } from '../collections/useCollections';
@@ -165,6 +166,7 @@ const PhoneBar: FC<BarProps> = ({ state, item }) => {
           />
           <TrackText state={state} item={item} note={note?.kind === 'finding'} />
         </button>
+        <IncognitoBadge />
         <ConnectButton />
         {!spoken && <FavoriteButton item={item} compact />}
         <PlayButton state={state} />
@@ -258,6 +260,7 @@ const WideBar: FC<BarProps> = ({ state, item }) => {
       </div>
 
       <div className="flex min-w-0 items-center justify-end gap-1">
+        <IncognitoBadge className="mr-1" />
         {isVideo ? (
           <BarButton
             label={t('player.showVideo')}

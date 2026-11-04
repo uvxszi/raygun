@@ -7,12 +7,16 @@ import type {
   EngineCommand,
   ExportJob,
   ExtensionInfo,
+  IncognitoStatus,
+  HiddenItem,
+  HiddenPrefs,
   LibraryScanProgress,
   LibraryStatus,
   MangaUpdateStatus,
   PlaybackState,
   QueueSnapshot,
   Settings,
+  SongDownload,
   SpeechCommand,
   StorageInfo,
   TrackDuration,
@@ -52,12 +56,14 @@ type EventPayloads = {
   watchChangedEvent: string;
   videoDownloadsEvent: string;
   songDownloadsEvent: string;
+  songDownloadProgressEvent: SongDownload;
   madeForYouEvent: null;
   trackDurationsEvent: TrackDuration[];
   importEvent: string;
   captionsEvent: string;
   localFilesEvent: string;
   settingsChangedEvent: string;
+  incognitoEvent: IncognitoStatus;
   artistReleasesEvent: null;
   exportEvent: ExportJob | null;
   videoPlayerEvent: VideoPlayerMessage;
@@ -107,6 +113,9 @@ export const IDLE_STATE: PlaybackState = {
 
 export const EMPTY_QUEUE: QueueSnapshot = { items: [], order: [] };
 
+/** Incognito off (M47). */
+export const INCOGNITO_OFF: IncognitoStatus = { on: false, sinceMs: null };
+
 export const ANDROID_INFO: AppInfo = {
   name: 'Raygun',
   version: '0.1.0',
@@ -128,6 +137,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showNsfw: false,
   explicitMusic: true,
   privacy: { history: true, recentlyPlayed: true },
+  hidden: { artists: [], items: [] },
   lyricsCache: { forgetAfterDays: 30, keepFavorites: true, keepDownloaded: true, keepLocal: true },
   preferredVideoQuality: null,
   accent: 'red',
@@ -232,6 +242,9 @@ export const bindingsMock = {
     madeForYou: vi.fn(),
     madeForYouMix: vi.fn(),
     madeForYouSave: vi.fn(),
+    hiddenArtistSet: vi.fn(),
+    hiddenItemSet: vi.fn(),
+    hiddenClear: vi.fn(),
     importReadLink: vi.fn(),
     importReadText: vi.fn(),
     importReaderReady: vi.fn(),
@@ -313,8 +326,14 @@ export const bindingsMock = {
     devicesSetSharing: vi.fn(),
     captionsUseFeed: vi.fn(),
     songDownloads: vi.fn(),
+    songDownload: vi.fn(),
     songDownloadRemove: vi.fn(),
+    songDownloadsRemove: vi.fn(),
     songDownloadRetry: vi.fn(),
+    songDownloadsRetryFailed: vi.fn(),
+    songDownloadsReorder: vi.fn(),
+    songDownloadsPaused: vi.fn(),
+    songDownloadsSetPaused: vi.fn(),
     songDownloadRecord: vi.fn(),
     songsSave: vi.fn(),
     songDownloadedKeys: vi.fn(),
@@ -391,6 +410,8 @@ export const bindingsMock = {
     playlistMoveItem: vi.fn(),
     historyRecent: vi.fn(),
     historyClear: vi.fn(),
+    incognitoStatus: vi.fn(),
+    incognitoSetEnabled: vi.fn(),
     collectionPlay: vi.fn(),
     mcpStatus: vi.fn(),
     mcpSetEnabled: vi.fn(),
@@ -569,12 +590,14 @@ export const bindingsMock = {
     watchChangedEvent: makeEvent('watchChangedEvent'),
     videoDownloadsEvent: makeEvent('videoDownloadsEvent'),
     songDownloadsEvent: makeEvent('songDownloadsEvent'),
+    songDownloadProgressEvent: makeEvent('songDownloadProgressEvent'),
     madeForYouEvent: makeEvent('madeForYouEvent'),
     trackDurationsEvent: makeEvent('trackDurationsEvent'),
     importEvent: makeEvent('importEvent'),
     captionsEvent: makeEvent('captionsEvent'),
     localFilesEvent: makeEvent('localFilesEvent'),
     settingsChangedEvent: makeEvent('settingsChangedEvent'),
+    incognitoEvent: makeEvent('incognitoEvent'),
     artistReleasesEvent: makeEvent('artistReleasesEvent'),
     exportEvent: makeEvent('exportEvent'),
     videoPlayerEvent: makeEvent('videoPlayerEvent'),
@@ -651,6 +674,36 @@ export const seedBindings = () => {
     }),
   );
   commands.madeForYouSave.mockResolvedValue(ok('playlist-1'));
+  // Hiding saves into the settings, as Rust does, and answers with them.
+  const hide = async (change: (hidden: HiddenPrefs) => HiddenPrefs) => {
+    const answer = (await commands.settingsGet()) as { data?: Settings } | undefined;
+    const current = answer?.data ?? DEFAULT_SETTINGS;
+    const next = { ...current, hidden: change(current.hidden) };
+    commands.settingsGet.mockResolvedValue(ok(next));
+    return ok(next);
+  };
+  const same = (left: string, right: string) => left.toLowerCase() === right.toLowerCase();
+  commands.hiddenArtistSet.mockImplementation((name: string, hidden: boolean) =>
+    hide((prefs) => ({
+      ...prefs,
+      artists: [
+        ...prefs.artists.filter((artist) => !same(artist.name, name)),
+        ...(hidden ? [{ name, hiddenAt: 1 }] : []),
+      ],
+    })),
+  );
+  commands.hiddenItemSet.mockImplementation((item: HiddenItem, hidden: boolean) =>
+    hide((prefs) => ({
+      ...prefs,
+      items: [...prefs.items.filter((other) => other.key !== item.key), ...(hidden ? [item] : [])],
+    })),
+  );
+  commands.hiddenClear.mockImplementation((artists: boolean, items: boolean) =>
+    hide((prefs) => ({
+      artists: artists ? [] : prefs.artists,
+      items: items ? [] : prefs.items,
+    })),
+  );
   commands.importReaderReady.mockResolvedValue(true);
   commands.importMatch.mockResolvedValue(ok([]));
   commands.trackDurations.mockResolvedValue(ok([]));
@@ -737,8 +790,14 @@ export const seedBindings = () => {
   commands.devicesSetSharing.mockResolvedValue(ok(null));
   commands.captionsUseFeed.mockResolvedValue(ok(null));
   commands.songDownloads.mockResolvedValue(ok([]));
+  commands.songDownload.mockResolvedValue(ok(null));
   commands.songDownloadRemove.mockResolvedValue(ok(null));
+  commands.songDownloadsRemove.mockResolvedValue(ok(null));
   commands.songDownloadRetry.mockResolvedValue(ok(null));
+  commands.songDownloadsRetryFailed.mockResolvedValue(ok(0));
+  commands.songDownloadsReorder.mockResolvedValue(ok(null));
+  commands.songDownloadsPaused.mockResolvedValue(false);
+  commands.songDownloadsSetPaused.mockResolvedValue(null);
   commands.songDownloadRecord.mockResolvedValue(ok(null));
   commands.songsSave.mockResolvedValue(ok({ saved: [], failed: [] }));
   commands.songDownloadedKeys.mockResolvedValue([]);
@@ -809,6 +868,10 @@ export const seedBindings = () => {
   commands.playlistMoveItem.mockResolvedValue(ok(null));
   commands.historyRecent.mockResolvedValue(ok([]));
   commands.historyClear.mockResolvedValue(ok(null));
+  commands.incognitoStatus.mockResolvedValue(INCOGNITO_OFF);
+  commands.incognitoSetEnabled.mockImplementation(async (on: boolean) =>
+    ok(on ? { on, sinceMs: Date.now() } : INCOGNITO_OFF),
+  );
   commands.collectionPlay.mockResolvedValue(ok(null));
   const mcpOff = { enabled: false, url: null, token: 'token-1', error: null };
   commands.mcpStatus.mockResolvedValue(ok(mcpOff));

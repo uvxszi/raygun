@@ -200,6 +200,8 @@ pub struct Settings {
     pub transcription: TranscriptionPrefs,
     /// What's remembered of listening (M46.41).
     pub privacy: PrivacyPrefs,
+    /// Artists and things not to show on Home and in recommendations.
+    pub hidden: HiddenPrefs,
     /// How long lyrics stay kept (M46.46).
     pub lyrics_cache: LyricsCachePrefs,
     /// Sources that didn't answer lately go to the end of Browse and Search (M46.9).
@@ -366,6 +368,8 @@ pub struct PrivacyPrefs {
     pub history: bool,
     /// Where plays started from is kept for Home (Recently played, Your music).
     pub recently_played: bool,
+    /// Incognito stays on when Raygun starts again; otherwise it ends with the app (M47).
+    pub keep_incognito: bool,
 }
 
 impl Default for PrivacyPrefs {
@@ -373,7 +377,101 @@ impl Default for PrivacyPrefs {
         Self {
             history: true,
             recently_played: true,
+            keep_incognito: false,
         }
+    }
+}
+
+/// Incognito (M47): while it's on, nothing records what's played, watched, read or searched.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct IncognitoStatus {
+    pub on: bool,
+    /// When it was turned on (Unix ms), or when Raygun started with it kept on.
+    pub since_ms: Option<f64>,
+}
+
+/// What the listener asked not to be shown, as Spotify's "Don't play this artist" and "Not
+/// interested": artists left out of Home, Made for You, charts, genre rows and recommendations,
+/// and things Home doesn't show again. Searches and an artist's own page still find them.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HiddenPrefs {
+    pub artists: Vec<HiddenArtist>,
+    pub items: Vec<HiddenItem>,
+}
+
+/// An artist not shown (Don't show this artist).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HiddenArtist {
+    /// As it was shown; compared without case.
+    pub name: String,
+    /// Unix seconds.
+    pub hidden_at: u32,
+}
+
+/// Something Home doesn't show again (Not interested).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HiddenItem {
+    /// One of [`HIDDEN_KINDS`].
+    pub kind: String,
+    /// What it's known by: a song's track key, the address of its page
+    /// (`/music/album?id=…&provider=…`), or its feed (`feed:<url>`).
+    pub key: String,
+    /// Its name, artist or show and cover as last seen, for the list in Settings.
+    pub name: String,
+    pub subtitle: Option<String>,
+    pub artwork_url: Option<String>,
+    /// Unix seconds.
+    pub hidden_at: u32,
+}
+
+/// What can be hidden from Home.
+pub const HIDDEN_KINDS: [&str; 14] = [
+    "song",
+    "album",
+    "playlist",
+    "mix",
+    "artist",
+    "podcast",
+    "episode",
+    "audiobook",
+    "chart",
+    "tag",
+    "manga",
+    "novel",
+    "video",
+    "page",
+];
+/// Hidden artists and items kept at most; past them the oldest go first.
+pub const HIDDEN_ARTISTS_MAX: usize = 1_000;
+pub const HIDDEN_ITEMS_MAX: usize = 2_000;
+
+impl HiddenPrefs {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.artists.len() > HIDDEN_ARTISTS_MAX || self.items.len() > HIDDEN_ITEMS_MAX {
+            return Err(format!(
+                "at most {HIDDEN_ARTISTS_MAX} artists and {HIDDEN_ITEMS_MAX} other things can be hidden"
+            ));
+        }
+        if self
+            .artists
+            .iter()
+            .any(|artist| artist.name.trim().is_empty() || artist.name.len() > 300)
+        {
+            return Err("a hidden artist needs a name of up to 300 characters".to_owned());
+        }
+        if let Some(item) = self.items.iter().find(|item| {
+            !HIDDEN_KINDS.contains(&item.kind.as_str())
+                || item.key.trim().is_empty()
+                || item.key.len() > 2_000
+                || item.name.len() > 500
+        }) {
+            return Err(format!("{:?} can't be hidden", item.name));
+        }
+        Ok(())
     }
 }
 
@@ -1573,6 +1671,7 @@ impl Default for Settings {
             discovery: DiscoveryPrefs::default(),
             transcription: TranscriptionPrefs::default(),
             privacy: PrivacyPrefs::default(),
+            hidden: HiddenPrefs::default(),
             lyrics_cache: LyricsCachePrefs::default(),
             failing_sources_last: true,
             user_agent: String::new(),
@@ -1635,6 +1734,7 @@ impl Settings {
             SettingChange::AudioQuality(prefs) => self.audio_quality = prefs,
             SettingChange::Rail(prefs) => self.rail = prefs,
             SettingChange::Privacy(prefs) => self.privacy = prefs,
+            SettingChange::Hidden(prefs) => self.hidden = prefs,
             SettingChange::LyricsCache(prefs) => self.lyrics_cache = prefs,
             SettingChange::Transcription(prefs) => {
                 self.transcription = TranscriptionPrefs {
@@ -1716,6 +1816,7 @@ pub enum SettingChange {
     Rail(RailPrefs),
     Transcription(TranscriptionPrefs),
     Privacy(PrivacyPrefs),
+    Hidden(HiddenPrefs),
     LyricsCache(LyricsCachePrefs),
 }
 
@@ -1773,6 +1874,7 @@ impl SettingChange {
             Self::Rail(_) => "rail",
             Self::Transcription(_) => "transcription",
             Self::Privacy(_) => "privacy",
+            Self::Hidden(_) => "hidden",
             Self::LyricsCache(_) => "lyricsCache",
         }
     }
@@ -1805,6 +1907,7 @@ impl SettingChange {
                 Err("Lyrics can be kept for at most ten years".into())
             }
             Self::LyricsCache(_) => Ok(()),
+            Self::Hidden(prefs) => prefs.validate(),
             Self::Rail(prefs) => prefs.validate(),
             Self::Transcription(prefs) => {
                 if prefs.online_model.trim().len() > 200 {
@@ -2802,6 +2905,10 @@ pub struct ListeningStats {
     pub peak_hour: Option<u8>,
     /// Songs the user has played or saved.
     pub songs_known: u32,
+    /// The artists played most now, the most first (Home's Your top artists), without hidden
+    /// ones.
+    #[serde(default)]
+    pub top_artists: Vec<String>,
 }
 
 /// Made for You: today's mixes, and whether new ones are being made.
@@ -3507,7 +3614,27 @@ impl SongDownloadState {
     }
 }
 
-/// A song saved (or being saved) into the app to play offline (M46.10).
+/// How a song download is made: a source's file (yt-dlp's copy of a YouTube video included), or a
+/// recording of the song as it plays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SongDownloadKind {
+    File,
+    Recording,
+}
+
+impl SongDownloadKind {
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "file" => Some(Self::File),
+            "recording" => Some(Self::Recording),
+            _ => None,
+        }
+    }
+}
+
+/// A song saved (or being saved) into the app to play offline (M46.10). It is also the payload of
+/// `SongDownloadProgressEvent`, sent on every change of state or source and while it downloads.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SongDownload {
@@ -3520,17 +3647,33 @@ pub struct SongDownload {
     /// A cover link through the image cache.
     pub artwork_url: Option<String>,
     pub state: SongDownloadState,
-    /// `file` (a source's stream) or `recording`, once done.
-    pub kind: Option<String>,
-    /// Where the audio came from.
+    /// How it's made: `file` while downloading, `recording` while recorded, and how it was made
+    /// once done.
+    pub kind: Option<SongDownloadKind>,
+    /// Where the audio came from once done; while downloading, the source being tried now; while
+    /// queued, the source picked for it, if any.
     pub provider: Option<String>,
     /// The saved file's extension ("mp3", "flac"...), once done.
     pub format: Option<String>,
+    /// While downloading, what came so far; once done, the file's size.
     pub done_bytes: f64,
     pub total_bytes: Option<f64>,
+    /// How far it is, 0–1, when known: the file's bytes, or how much of a recording has played.
+    pub fraction: Option<f64>,
+    /// How fast it downloads now, while it does.
+    pub bytes_per_second: Option<f64>,
+    /// Time left in ms, when known: from the speed and the size, or the song left to record.
+    pub eta_ms: Option<f64>,
+    /// What went wrong, in a line for the listener.
     pub error: Option<String>,
+    /// Each source's own error behind `error` ("More info").
+    pub error_detail: Option<String>,
     /// This device can record what plays (Windows for now).
     pub can_record: bool,
+    /// Its place in the queue (unix ms): queued songs download earliest first.
+    pub queued_at: f64,
+    /// When it finished, or stopped with an error (unix ms).
+    pub finished_at: Option<f64>,
 }
 
 /// yt-dlp on this device (M46.47): YouTube downloads on desktop, and songs only YouTube has.
@@ -4096,22 +4239,29 @@ pub const LAYOUT_AUDIO_VIEWS: [(&str, bool); 9] = [
     ("artists", true),
     ("tracks", true),
 ];
-pub const LAYOUT_HOME_SECTIONS: [(&str, bool); 18] = [
-    // "Nothing to pick up yet" (M46.37): shown while nothing is under way; closing it hides it.
+pub const LAYOUT_HOME_SECTIONS: [(&str, bool); 22] = [
+    // "Get started" (M46.37): shown while nothing is under way; closing it hides it.
     ("getStarted", true),
     ("continueWatching", true),
     ("continueReading", true),
     ("madeForYou", true),
     ("yourMusic", true),
+    // The artists played most now, from Made for You's numbers.
+    ("topArtists", true),
     ("recentlyPlayed", true),
+    // New episodes of followed shows.
+    ("newEpisodes", true),
     ("popularMusic", true),
     ("trendingMusic", true),
     // More rows from Browse all's kinds (M46.47).
     ("newReleases", true),
+    // Releases found for followed artists (M46.42).
+    ("followedReleases", true),
     ("popularVideos", true),
     ("popularComics", true),
     ("popularBooks", true),
     ("popularAudiobooks", true),
+    ("popularPodcasts", true),
     ("charts", true),
     ("viralMusic", true),
     ("genres", true),
