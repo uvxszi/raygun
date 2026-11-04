@@ -6,7 +6,7 @@ const FRIEREN = libraryEntry({
   authors: ['Kanehito Yamada'],
   artists: ['Tsukasa Abe'],
   genres: ['Fantasy', 'Adventure'],
-  sourceName: 'MangaDex',
+  sourceName: 'Comic Shelf',
   status: 'ongoing',
   list: 'reading',
   favorite: true,
@@ -37,7 +37,7 @@ describe('library search language', () => {
     expect(shown('')).toEqual(['Frieren', 'Berserk']);
     expect(shown('frieren')).toEqual(['Frieren']);
     expect(shown('miura')).toEqual(['Berserk']);
-    expect(shown('mangadex')).toEqual(['Frieren']);
+    expect(shown('shelf')).toEqual(['Frieren']);
     expect(shown('fantasy')).toEqual(['Frieren', 'Berserk']);
     expect(shown('local')).toEqual(['Berserk']);
     expect(shown('fantasy adventure'), 'words all have to match').toEqual(['Frieren']);

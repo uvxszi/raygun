@@ -92,7 +92,7 @@ Research of 2026-11-01. It compares `reference/nuclear` and `reference/RiPlay` w
 | **Charts by country**, **moods & genres** pages, **new releases** (and new albums from followed artists) | RiPlay `RP/ui/screens/moodandchip`, `RP/ui/screens/newreleases`, `selectedCountryCodeKey`, `showChartsKey`, `showMoodsAndGenresKey`, `showNewAlbumsArtistsKey` | Missing | M |
 | **Follow artists:** notifications for new releases (daily or weekly events) | RiPlay `RP/extensions/scheduled/PeriodicCheckNewFromArtists.kt`, `EventType.NewArtistsRelease`, `RP/ui/screens/events` | Missing (no favorite artists either) | M |
 | **Recommendation strategies** (classifiers, builders) | RiPlay `RP/extensions/experimental/recommendationstrategy` | Missing | L |
-| **Internet radio browsing:** by country, tag or language; favorite stations; station logos | — (Raygun's Radio Browser extension) | Stations are only search results from `music.metadata`, sorted by a setting; nothing to browse and no station favorites list | S–M |
+| **Internet radio browsing:** by country, tag or language; favorite stations; station logos | — | Stations are only search results from `music.metadata` sources people add; nothing to browse and no station favorites list | S–M |
 | **Provider choice per kind** and why one is locked | Nuclear `NP/views/Sources` (active provider per kind, `LockedReasonMessage`, `ProviderPill`) | All providers are asked in parallel; no per-kind order or off switch in the UI | S–M |
 
 ## 4. Local library (files on the device)
@@ -125,7 +125,7 @@ Research of 2026-11-01. It compares `reference/nuclear` and `reference/RiPlay` w
 
 | Gap | Reference | Raygun today | Size |
 |---|---|---|---|
-| **More lyrics sources:** KuGou, SimpMusic lyrics, YouTube captions | `RPm/kugou`, `RPm/simpmusiclyrics`, `RPm/lrclib` | LRCLIB only (`extensions/lrclib`) | S per extension |
+| **More lyrics sources:** KuGou, SimpMusic lyrics, YouTube captions | `RPm/kugou`, `RPm/simpmusiclyrics`, `RPm/lrclib` | Lyrics extensions people add; none ships (lyrics are the songwriters') | S per extension |
 | **Word-by-word (karaoke) sync** and fake-karaoke fallback | RiPlay `isShowingSynchronizedWordByWordLyricsKey`, `RP/extensions/lyricshelper/parsers/LRCLyricsKaraokeParser.kt`, `LyricsFakeKaraokeParser.kt`; Nuclear lyrics types "wordSynced / lineSynced / plain" (`NP/views/Lyrics/components/LyricsToolbar.tsx`) | Line-synced only | M |
 | **Display options:** text size, auto-scroll toggle, timing offset (show earlier/later), alignment, colour, outline, highlight, background, size animation, full-screen lyrics, lyrics over the cover | Nuclear `lyrics.textSize`, `lyrics.autoScroll`, offset in `LyricsToolbar.tsx`; RiPlay `LyricsFontSize`, `LyricsAlignment`, `LyricsColor`, `LyricsOutline`, `LyricsHighlight`, `LyricsBackground`, `lyricsSizeAnimateKey`, `expandedlyricsKey`, `showlyricsthumbnailKey` | Fixed style; tap to seek | S–M |
 | **Edit lyrics, search lyrics manually, pick another result** | RiPlay lyrics menu (`RP/ui/screens/player/common/Lyrics.kt`) | Missing | S–M |

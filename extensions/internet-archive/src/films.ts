@@ -1,6 +1,11 @@
 // Internet Archive films (M42): public-domain film collections as a video source. A title is an
 // archive item; each original video file in it is an episode (most items hold one film), and its
-// MP4 derivatives, with their heights, are the videos of a single server.
+// MP4 derivatives, with their heights, are the videos of a single server. The public-domain
+// collections list only items that carry a public-domain mark or dedication (their uploads aren't
+// all checked: recent ones include commercial films); animation also lists ones under a Creative
+// Commons licence. A public-domain mark on a work from 1978 on is taken as a mistake (US works
+// since then are protected without a notice or renewal) unless it's the author's own CC0. An item
+// reached another way (a link, an old library entry) is held to the same rule when it opens.
 import { defineProvider, fetchJson } from '@raygun/sdk';
 import type {
   FilterValues,
@@ -35,16 +40,41 @@ type ItemMetadata = {
     year?: string;
     creator?: string | string[];
     subject?: string | string[];
+    licenseurl?: string;
   };
 };
 
+/**
+ * Collections the Archive keeps for public-domain works: feature films and their genre sets, the
+ * Prelinger Archives' ephemeral films, Film Chest's vintage cartoons and classic TV.
+ */
+const PUBLIC_DOMAIN = [
+  'feature_films',
+  'silent_films',
+  'Film_Noir',
+  'SciFi_Horror',
+  'Comedy_Films',
+  'prelinger',
+  'classic_cartoons',
+  'classic_tv',
+];
+/** The first year whose works a public-domain mark is no longer believed for. */
+const MARKS_BELIEVED_BEFORE = 1978;
+/** The search terms for a believable public-domain mark, or the author's own CC0 dedication. */
+const PUBLIC_DOMAIN_MARK = `(licenseurl:(*zero*) OR (licenseurl:(*publicdomain*) AND -year:[${MARKS_BELIEVED_BEFORE} TO 9999]))`;
+/** The search terms for that, or a Creative Commons licence. */
+const OPEN_MARK = `(${PUBLIC_DOMAIN_MARK} OR (licenseurl:(*creativecommons*) AND -licenseurl:(*publicdomain*)))`;
+
 const COLLECTIONS = [
   { value: 'feature_films', label: 'Feature films' },
-  { value: 'animationandcartoons', label: 'Animation and cartoons' },
   { value: 'silent_films', label: 'Silent films' },
   { value: 'Film_Noir', label: 'Film noir' },
   { value: 'SciFi_Horror', label: 'Sci-fi and horror' },
   { value: 'Comedy_Films', label: 'Comedy films' },
+  { value: 'classic_cartoons', label: 'Classic cartoons' },
+  // Animation of any kind, public domain or under an open licence (the Blender films and such).
+  { value: 'animationandcartoons', label: 'Animation' },
+  { value: 'prelinger', label: 'Prelinger Archives' },
   { value: 'classic_tv', label: 'Classic TV' },
 ];
 const SORTS = [
@@ -107,17 +137,46 @@ const searchPage = async (q: string, sort: string, page: number): Promise<MangaP
   };
 };
 
-const inCollection = (collection: string) => `collection:(${collection}) AND mediatype:(movies)`;
+const inCollection = (collection: string) =>
+  `collection:(${collection}) AND mediatype:(movies) AND ${
+    PUBLIC_DOMAIN.includes(collection) ? PUBLIC_DOMAIN_MARK : OPEN_MARK
+  }`;
 
 // Item metadata is read for details, episodes and servers; keep the last few.
 const items = new Map<string, Promise<ItemMetadata>>();
-const metadata = (identifier: string): Promise<ItemMetadata> => {
+const fetchItem = (identifier: string): Promise<ItemMetadata> => {
   let item = items.get(identifier);
   if (!item) {
     item = fetchJson<ItemMetadata>(`${API}/metadata/${encodeURIComponent(identifier)}`);
     item.catch(() => items.delete(identifier));
     items.set(identifier, item);
     if (items.size > 20) items.delete(items.keys().next().value!);
+  }
+  return item;
+};
+
+/** Whether an item is free to watch, by the licence its own record gives (as the search asks). */
+const isOpen = (item: ItemMetadata) => {
+  const licence = item.metadata?.licenseurl ?? '';
+  if (/zero/i.test(licence)) return true;
+  if (/publicdomain/i.test(licence)) {
+    const year = Number.parseInt(
+      (item.metadata?.year ?? item.metadata?.date ?? '').slice(0, 4),
+      10,
+    );
+    return !(year >= MARKS_BELIEVED_BEFORE);
+  }
+  return /creativecommons\.org/i.test(licence);
+};
+
+/** An item's metadata, for an item that is free to watch only (one reached by a link too). */
+const metadata = async (identifier: string): Promise<ItemMetadata> => {
+  const item = await fetchItem(identifier);
+  if (!item.metadata) throw new Error('The Internet Archive has no such item');
+  if (!isOpen(item)) {
+    throw new Error(
+      "The Internet Archive doesn't list this item as public domain or openly licensed, so Raygun doesn't play it",
+    );
   }
   return item;
 };

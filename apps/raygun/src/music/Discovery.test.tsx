@@ -10,6 +10,7 @@ import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
 import { bindingsMock, DEFAULT_SETTINGS } from '../test/bindingsMock';
+import { sourceExtension } from '../test/sourceExtension';
 import { pickChart } from './useDiscovery';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
@@ -41,9 +42,9 @@ const chart = (
 });
 
 const CHARTS = [
-  chart('dev.raygun.apple-charts', 'Top songs: GB', 'most-played'),
-  chart('dev.raygun.listenbrainz', 'Most listened this week', 'week'),
-  chart('dev.raygun.deezer', 'Rock', '152', { tag: 'Rock', artworkUrl: 'https://e.x/rock.jpg' }),
+  chart('dev.example.charts', 'Top songs: GB', 'most-played'),
+  chart('dev.example.listens', 'Most listened this week', 'week', { group: 'trending' }),
+  chart('dev.example.tunes', 'Rock', '152', { tag: 'Rock', artworkUrl: 'https://e.x/rock.jpg' }),
 ];
 
 const song = (title: string, artist: string): OnlineTrack => ({
@@ -94,10 +95,36 @@ describe('Music discovery', () => {
     withCharts();
   });
 
-  it('picks Home charts by preference', () => {
+  it("picks Home's charts by their kind, whichever source has them", () => {
     expect(pickChart(CHARTS, 'popular')?.id).toBe('most-played');
     expect(pickChart(CHARTS, 'trending')?.id).toBe('week');
     expect(pickChart([CHARTS[2] as MusicChart], 'popular')).toBeNull();
+    expect(pickChart([], 'trending')).toBeNull();
+  });
+
+  it('points Browse all to the extensions without a chart source', async () => {
+    commands.musicCharts.mockResolvedValue(ok({ charts: [], errors: [] }));
+    await AppShellWrapper.mount('/browse');
+    const all = await screen.findByTestId('browse-all');
+    await vi.waitFor(() =>
+      expect(within(all).getByTestId('no-sources')).toHaveTextContent('No chart sources yet.'),
+    );
+    expect(within(all).getByRole('link', { name: 'Find extensions' })).toBeInTheDocument();
+    expect(
+      within(all)
+        .getAllByTestId('kind-tile')
+        .map((tile) => tile.textContent),
+    ).not.toContain('Audio');
+  });
+
+  it('leaves the chart rows out of Home without a chart source', async () => {
+    commands.musicCharts.mockResolvedValue(ok({ charts: [], errors: [] }));
+    await AppShellWrapper.mount('/');
+    await screen.findByTestId('home-page');
+    await vi.waitFor(() => expect(commands.musicCharts).toHaveBeenCalled());
+    expect(screen.queryByRole('region', { name: 'Popular now' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Trending' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('source-issue')).not.toBeInTheDocument();
   });
 
   it('shows Popular now and Trending on Home, and plays from a chart', async () => {
@@ -118,6 +145,7 @@ describe('Music discovery', () => {
 
   it("lists everything in Browse all, Spotify's way", async () => {
     const user = userEvent.setup();
+    commands.extensionsList.mockResolvedValue(ok([sourceExtension(['music.charts'])]));
     commands.musicTagSummary.mockResolvedValue(
       ok([{ name: 'Breakcore', kind: 'genre', count: 4 }]),
     );
@@ -178,29 +206,29 @@ describe('Music discovery', () => {
       ok({
         rows: [
           {
-            provider: provider('dev.raygun.deezer', 'Deezer'),
-            name: 'Chill radio on Deezer',
+            provider: provider('dev.example.tunes', 'Tunes'),
+            name: 'Chill radio on Tunes',
             tracks: [song('Sunset Lover', 'Petit Biscuit'), song('Weightless', 'Marconi Union')],
           },
           {
-            provider: provider('dev.raygun.listenbrainz', 'ListenBrainz'),
-            name: 'Chill on ListenBrainz',
+            provider: provider('dev.example.listens', 'Listens'),
+            name: 'Chill on Listens',
             tracks: [song('Teardrop', 'Massive Attack')],
           },
         ],
-        failures: [{ source: 'Audius', error: 'Audius answered HTTP 503' }],
+        failures: [{ source: 'Indie Tracks', error: 'Indie Tracks answered HTTP 503' }],
       }),
     );
     await AppShellWrapper.mount('/music/tag?name=Chill');
     const page = await screen.findByTestId('music-tag-page');
     const rows = await within(page).findAllByTestId('tag-source-row');
     expect(rows.map((row) => within(row).getByRole('heading').textContent)).toEqual([
-      'Chill radio on Deezer',
-      'Chill on ListenBrainz',
+      'Chill radio on Tunes',
+      'Chill on Listens',
     ]);
     expect(commands.musicTagSources).toHaveBeenCalledWith('Chill', expect.anything());
     expect(within(page).getByTestId('source-issue')).toHaveTextContent(
-      'Audius is having problems — try later',
+      'Indie Tracks is having problems — try later',
     );
 
     await user.click(
@@ -220,11 +248,11 @@ describe('Music discovery', () => {
       ok({
         charts: [
           ...CHARTS,
-          chart('dev.raygun.audius', 'Underground trending', 'underground', {
+          chart('dev.example.indie', 'Underground trending', 'underground', {
             group: 'underground',
           }),
-          chart('dev.raygun.listenbrainz', 'Fresh singles', 'fresh', { group: 'new' }),
-          chart('dev.raygun.deezer', "The '80s", 'radio:38305', { group: 'decade' }),
+          chart('dev.example.listens', 'Fresh singles', 'fresh', { group: 'new' }),
+          chart('dev.example.tunes', "The '80s", 'radio:38305', { group: 'decade' }),
         ],
         errors: [],
       }),

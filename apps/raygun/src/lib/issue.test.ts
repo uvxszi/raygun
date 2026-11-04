@@ -7,20 +7,20 @@ describe('reading errors', () => {
   it('takes Rust’s sentence as it is, its details below', () => {
     expect(
       readIssue(
-        'MangaDex wants a browser check, which Raygun can’t do\nmangadex.org answered HTTP 403\nTypeError: x',
+        'Comic Shelf wants a browser check, which Raygun can’t do\ncomics.example answered HTTP 403\nTypeError: x',
         t,
       ),
     ).toEqual({
-      summary: 'MangaDex wants a browser check, which Raygun can’t do',
-      details: 'mangadex.org answered HTTP 403\nTypeError: x',
+      summary: 'Comic Shelf wants a browser check, which Raygun can’t do',
+      details: 'comics.example answered HTTP 403\nTypeError: x',
       kind: null,
     });
   });
 
   it('names what a one-line error is about', () => {
-    expect(readIssue('Deezer answered HTTP 503', t)).toMatchObject({
-      summary: 'Deezer is having problems — try later',
-      details: 'Deezer answered HTTP 503',
+    expect(readIssue('Tunes answered HTTP 503', t)).toMatchObject({
+      summary: 'Tunes is having problems — try later',
+      details: 'Tunes answered HTTP 503',
       kind: 'server-error',
     });
     expect(readIssue('HTTP 404 from https://www.gutenberg.org/ebooks/1', t).summary).toBe(
@@ -35,8 +35,8 @@ describe('reading errors', () => {
       'Not found on the source',
     );
     // The page's own name for the source wins.
-    expect(readIssue('could not reach api.example: dns error', t, 'Audius').summary).toBe(
-      'Couldn’t find Audius’s site — check your connection',
+    expect(readIssue('could not reach api.example: dns error', t, 'Indie Tracks').summary).toBe(
+      'Couldn’t find Indie Tracks’s site — check your connection',
     );
     expect(readIssue("cannot read property 'title' of undefined", t, 'Royal Road').summary).toBe(
       'Royal Road’s extension failed',
@@ -52,7 +52,9 @@ describe('reading errors', () => {
     });
     expect(issueKind('Unknown chart 4040')).toBeNull();
     expect(issueKind('Just a moment... (Cloudflare)')).toBe('bot-check');
-    expect(issueKind('MangaDex is rate limiting requests; try again shortly')).toBe('rate-limited');
+    expect(issueKind('Comic Shelf is rate limiting requests; try again shortly')).toBe(
+      'rate-limited',
+    );
     expect(
       issueKind('No connection could be made because the target machine actively refused it'),
     ).toBe('refused');

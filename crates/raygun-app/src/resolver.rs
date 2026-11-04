@@ -29,8 +29,9 @@ const OWN_AUDIO_COOLDOWN_MS: i64 = 60 * 60 * 1000;
 const EXPIRY_MARGIN_MS: i64 = 60 * 1000;
 /// Matches tried again when all of them failed within the cooldown (M46.48).
 const COOLED_RETRIES: usize = 1;
-/// YouTube's stream provider (M46.51): its `audio:<video>` candidates resolve to the video's own
-/// audio file, its plain `<video>` ones play in the embed.
+/// The YouTube extension's stream provider (M46.51), when one is installed (Raygun ships none): its
+/// `audio:<video>` candidates resolve to the video's own audio file, its plain `<video>` ones play
+/// in the embed. Without it a YouTube item plays in the embed.
 pub const YOUTUBE_STREAMS: &str = "dev.raygun.youtube/stream";
 const YOUTUBE_AUDIO: &str = "audio:";
 
@@ -539,10 +540,7 @@ mod tests {
             youtube_video(&key(YOUTUBE_STREAMS, "dQw4w9WgXcQ")),
             Some("dQw4w9WgXcQ")
         );
-        assert_eq!(
-            youtube_video(&key("dev.raygun.audius/stream", "audio:x")),
-            None
-        );
+        assert_eq!(youtube_video(&key("dev.example/stream", "audio:x")), None);
 
         let row = |source: Option<&str>| CandidateRow {
             provider_id: YOUTUBE_STREAMS.into(),

@@ -34,17 +34,17 @@ describe('Choose a source', () => {
         song('Sinnerman', 'Nina Simone', 'y3'),
         ...Array.from({ length: 8 }, (_, index) => song(`Other ${index}`, 'Someone', `yo${index}`)),
       ]),
-      from('Audius', [song('Sinnerman', 'Nina Simone', 'a1')]),
+      from('Indie Tracks', [song('Sinnerman', 'Nina Simone', 'a1')]),
       from('Broken', [song('Sinnerman', 'Nina Simone', 'b1')], 'timed out'),
     ]);
-    // Audius's copy shows beside YouTube's; the same song twice from one source shows once.
+    // Indie Tracks's copy shows beside YouTube's; the same song twice from one source shows once.
     expect(answers.filter((answer) => answer.track.title === 'Sinnerman')).toEqual([
       expect.objectContaining({
         source: 'YouTube',
         track: expect.objectContaining({ externalId: 'y2' }),
       }),
       expect.objectContaining({
-        source: 'Audius',
+        source: 'Indie Tracks',
         track: expect.objectContaining({ externalId: 'a1' }),
       }),
     ]);
@@ -57,9 +57,9 @@ describe('Choose a source', () => {
     const youtube = { ...song('Swim', 'BTS', 'y'), source: { kind: 'youTube', videoId: 'v' } };
     const answers = sourceAnswers(
       'bts swim',
-      [from('YouTube', [youtube as OnlineTrack]), from('Audius', [song('Swim', 'BTS', 'a')])],
+      [from('YouTube', [youtube as OnlineTrack]), from('Indie Tracks', [song('Swim', 'BTS', 'a')])],
       (track) => track.source?.kind !== 'youTube',
     );
-    expect(answers.map((answer) => answer.source)).toEqual(['Audius']);
+    expect(answers.map((answer) => answer.source)).toEqual(['Indie Tracks']);
   });
 });

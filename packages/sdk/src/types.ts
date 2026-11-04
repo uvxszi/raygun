@@ -495,7 +495,7 @@ export type VideoSourceProvider = {
   id: string;
   name?: string;
   /**
-   * Gives the source its own pill in Search (M46.35), named this ("YouTube"); its results then
+   * Gives the source its own pill in Search (M46.35), named this ("Open Videos"); its results then
    * stay out of the Videos pill.
    */
   searchPill?: string;

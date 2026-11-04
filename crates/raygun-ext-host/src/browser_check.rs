@@ -243,9 +243,9 @@ mod tests {
     #[test]
     fn the_challenged_site_is_read_from_each_runtime_s_details() {
         assert_eq!(
-            challenged_site("mangadex.org answered HTTP 403 with a browser check\nTypeError: x")
+            challenged_site("comics.example answered HTTP 403 with a browser check\nTypeError: x")
                 .as_deref(),
-            Some("https://mangadex.org/")
+            Some("https://comics.example/")
         );
         assert_eq!(
             challenged_site("Foxaholic wants a browser check (HTTP 403 from www.foxaholic.com: a bot check page)")

@@ -1529,12 +1529,12 @@ mod tests {
         let none = no_sound(&[], Some("no stream matched"));
         assert_eq!(none, "No source has this song to hear\nno stream matched");
         let unreadable = no_sound(
-            &[("Audius's stream".into(), "unsupported codec".into())],
+            &[("Indie Tracks's stream".into(), "unsupported codec".into())],
             None,
         );
         assert_eq!(
             unreadable,
-            "Couldn't read Audius's stream of this song\nAudius's stream: unsupported codec"
+            "Couldn't read Indie Tracks's stream of this song\nIndie Tracks's stream: unsupported codec"
         );
         // YouTube's own audio file that wasn't given is one more source that was tried (M46.51).
         let youtube = no_sound(

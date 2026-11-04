@@ -12,7 +12,7 @@ vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).b
 
 const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 const { commands } = bindingsMock;
-const SOURCE = 'dev.raygun.mangadex/mangadex';
+const SOURCE = 'dev.example.comics/comics';
 
 const card = (id: string, title: string) => ({
   sourceId: SOURCE,
@@ -32,11 +32,11 @@ const song = (title: string, artist: string): OnlineTrack => ({
   source: null,
 });
 
-const DEEZER = {
-  id: 'dev.raygun.deezer/catalogue',
-  extensionId: 'dev.raygun.deezer',
+const TUNES = {
+  id: 'dev.example.tunes/catalogue',
+  extensionId: 'dev.example.tunes',
   kind: 'music.metadata',
-  name: 'Deezer',
+  name: 'Tunes',
 };
 
 const mountSource = async () => {
@@ -60,7 +60,7 @@ describe('Picking search and source results', () => {
     localStorage.clear();
     useSelectionStore.getState().clear();
     commands.mangaSources.mockResolvedValue(
-      ok([{ id: SOURCE, name: 'MangaDex', extensionId: 'dev.raygun.mangadex', enabled: true }]),
+      ok([{ id: SOURCE, name: 'Comic Shelf', extensionId: 'dev.example.comics', enabled: true }]),
     );
     commands.mangaBrowse.mockResolvedValue(
       ok({
@@ -203,7 +203,7 @@ describe('Picking search and source results', () => {
         top: [],
         providers: [
           {
-            provider: DEEZER,
+            provider: TUNES,
             tracks: [song('Get Lucky', 'Daft Punk'), song('One More Time', 'Daft Punk')],
             error: null,
           },

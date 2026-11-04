@@ -46,24 +46,9 @@ export const useChartSongs = (providerId: string, chartId: string, enabled = tru
   });
 };
 
-/** Home's rows pick these charts first, then any chart that isn't a genre's. */
-const POPULAR = ['dev.raygun.apple-charts/charts:most-played', 'dev.raygun.deezer/charts:0'];
-const TRENDING = [
-  'dev.raygun.listenbrainz/charts:week',
-  'dev.raygun.listenbrainz/charts:month',
-  'dev.raygun.audius/charts:trending:week',
-];
-
-export const pickChart = (charts: MusicChart[], which: 'popular' | 'trending') => {
-  const preferred = which === 'popular' ? POPULAR : TRENDING;
-  return (
-    preferred
-      .map((key) => charts.find((chart) => chartKey(chart) === key))
-      .find((chart) => chart !== undefined) ??
-    charts.find((chart) => chart.group === (which === 'popular' ? 'top' : 'trending')) ??
-    null
-  );
-};
+/** Home's Popular now and Trending rows: the first chart of the sources' top or trending kind. */
+export const pickChart = (charts: MusicChart[], which: 'popular' | 'trending') =>
+  charts.find((chart) => chart.group === (which === 'popular' ? 'top' : 'trending')) ?? null;
 
 /** The tags across the user's songs, the most common first. */
 export const useTagSummary = () =>

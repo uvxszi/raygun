@@ -542,20 +542,20 @@ mod tests {
             ],
             |_| None,
         );
-        let deezer = keys_of("Get Lucky", Some("Daft Punk"));
+        let tunes = keys_of("Get Lucky", Some("Daft Punk"));
         assert_eq!(
-            index.saves(&deezer),
+            index.saves(&tunes),
             TrackSaves {
                 favorite: true,
                 playlist_ids: vec!["road".into()],
             }
         );
-        assert!(index.holds(Some("road"), &deezer));
-        assert!(!index.holds(Some("gym"), &deezer));
+        assert!(index.holds(Some("road"), &tunes));
+        assert!(!index.holds(Some("gym"), &tunes));
 
         // Taken out of Road (every copy) and kept in Favorites; added to Gym.
         let plan = index.plan(
-            &deezer,
+            &tunes,
             &TrackSaves {
                 favorite: true,
                 playlist_ids: vec!["gym".into(), "gym".into()],
@@ -571,7 +571,7 @@ mod tests {
             }
         );
         let off = index.plan(
-            &deezer,
+            &tunes,
             &TrackSaves {
                 favorite: false,
                 playlist_ids: vec![],

@@ -1566,7 +1566,7 @@ mod tests {
 
         // Use this, for a source with no stream of its own (a catalogue's answer).
         let copies = collections::saved_refs(&db).await.unwrap();
-        let source = assign_stream(&db, &copies, &song, &pick(None), Some("Deezer"))
+        let source = assign_stream(&db, &copies, &song, &pick(None), Some("Tunes"))
             .await
             .unwrap();
         assert!(matches!(source, MediaSource::Lookup { ref title, .. } if title == "Song"));
@@ -1606,7 +1606,7 @@ mod tests {
             &copies,
             &song,
             &pick(Some(stream.clone())),
-            Some("Audius"),
+            Some("Indie Tracks"),
         )
         .await
         .unwrap();
@@ -1619,7 +1619,7 @@ mod tests {
         );
         let remembered = streams::candidates(&db, "artst|sogn").await.unwrap();
         assert!(remembered.iter().any(|row| {
-            row.provider_id == "Audius" && row.verified_at == remembered[0].verified_at
+            row.provider_id == "Indie Tracks" && row.verified_at == remembered[0].verified_at
         }));
     }
 

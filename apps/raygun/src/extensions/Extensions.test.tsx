@@ -17,8 +17,8 @@ const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 const { commands } = bindingsMock;
 
 const extension = (overrides: Partial<ExtensionInfo> = {}): ExtensionInfo => ({
-  id: 'dev.raygun.radio-browser',
-  name: 'Radio Browser',
+  id: 'dev.example.radio',
+  name: 'Radio Stations',
   contentRating: 'safe',
   version: '1.0.0',
   description: 'Live internet radio.',
@@ -26,13 +26,13 @@ const extension = (overrides: Partial<ExtensionInfo> = {}): ExtensionInfo => ({
   status: 'loaded',
   error: null,
   provides: ['music.metadata'],
-  net: ['*.api.radio-browser.info'],
+  net: ['*.api.radio.example'],
   providers: [
     {
-      id: 'dev.raygun.radio-browser/stations',
-      extensionId: 'dev.raygun.radio-browser',
+      id: 'dev.example.radio/stations',
+      extensionId: 'dev.example.radio',
       kind: 'music.metadata',
-      name: 'Radio Browser',
+      name: 'Radio Stations',
     },
   ],
   settings: [
@@ -55,13 +55,13 @@ const extension = (overrides: Partial<ExtensionInfo> = {}): ExtensionInfo => ({
 
 const entry = (overrides: Partial<CatalogEntry> = {}): CatalogEntry => ({
   repoId: 'repo-1',
-  id: 'dev.raygun.radio-browser',
-  name: 'Radio Browser',
+  id: 'dev.example.radio',
+  name: 'Radio Stations',
   version: '1.0.0',
   description: 'Live internet radio.',
   author: 'Raygun',
   provides: ['music.metadata'],
-  net: ['*.api.radio-browser.info'],
+  net: ['*.api.radio.example'],
   contentRating: 'safe',
   lang: null,
   size: 2219,
@@ -74,8 +74,8 @@ const entry = (overrides: Partial<CatalogEntry> = {}): CatalogEntry => ({
 
 const install = (overrides: Partial<ExtensionInstall> = {}): ExtensionInstall => ({
   repoId: 'repo-1',
-  extensionId: 'dev.raygun.radio-browser',
-  name: 'Radio Browser',
+  extensionId: 'dev.example.radio',
+  name: 'Radio Stations',
   state: 'queued',
   phase: null,
   error: null,
@@ -132,9 +132,7 @@ describe('Extensions', () => {
     expect(await screen.findByTestId('extension-detail-page')).toHaveTextContent(
       '1.0.0 · installed',
     );
-    expect(screen.getByTestId('extension-permissions')).toHaveTextContent(
-      '*.api.radio-browser.info',
-    );
+    expect(screen.getByTestId('extension-permissions')).toHaveTextContent('*.api.radio.example');
     expect(screen.getByLabelText('Sort stations by')).toHaveValue('popularity');
   });
 
@@ -142,11 +140,11 @@ describe('Extensions', () => {
     commands.extensionsList.mockResolvedValue(ok([extension()]));
     // Rust answers with the reloaded list.
     commands.extensionSettingSet.mockResolvedValue(ok([extension()]));
-    await AppShellWrapper.mount('/extensions/detail?id=dev.raygun.radio-browser');
+    await AppShellWrapper.mount('/extensions/detail?id=dev.example.radio');
 
     await userEvent.selectOptions(await screen.findByLabelText('Sort stations by'), 'votes');
     expect(commands.extensionSettingSet).toHaveBeenLastCalledWith(
-      'dev.raygun.radio-browser',
+      'dev.example.radio',
       'order',
       'votes',
     );
@@ -156,35 +154,31 @@ describe('Extensions', () => {
     expect(commands.extensionSettingSet).toHaveBeenCalledTimes(1);
     await userEvent.tab();
     expect(commands.extensionSettingSet).toHaveBeenLastCalledWith(
-      'dev.raygun.radio-browser',
+      'dev.example.radio',
       'country',
       'DE',
     );
 
     await userEvent.click(screen.getByRole('switch', { name: 'HD only' }));
-    expect(commands.extensionSettingSet).toHaveBeenLastCalledWith(
-      'dev.raygun.radio-browser',
-      'hd',
-      true,
-    );
+    expect(commands.extensionSettingSet).toHaveBeenLastCalledWith('dev.example.radio', 'hd', true);
   });
 
   it('uninstalls only on a second tap', async () => {
     commands.extensionsList.mockResolvedValue(ok([extension()]));
     commands.extensionUninstall.mockResolvedValue(ok([]));
-    await AppShellWrapper.mount('/extensions/detail?id=dev.raygun.radio-browser');
+    await AppShellWrapper.mount('/extensions/detail?id=dev.example.radio');
 
     await userEvent.click(await screen.findByRole('button', { name: 'Uninstall' }));
     expect(commands.extensionUninstall).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole('button', { name: 'Tap again to uninstall' }));
 
-    expect(commands.extensionUninstall).toHaveBeenCalledWith('dev.raygun.radio-browser');
+    expect(commands.extensionUninstall).toHaveBeenCalledWith('dev.example.radio');
     expect(await screen.findByTestId('installed-tab')).toBeInTheDocument();
   });
 
   it('offers no uninstall for built-in extensions', async () => {
     commands.extensionsList.mockResolvedValue(ok([extension({ origin: 'builtIn' })]));
-    await AppShellWrapper.mount('/extensions/detail?id=dev.raygun.radio-browser');
+    await AppShellWrapper.mount('/extensions/detail?id=dev.example.radio');
 
     expect(await screen.findByTestId('extension-detail-page')).toHaveTextContent('built-in');
     expect(screen.queryByRole('button', { name: 'Uninstall' })).not.toBeInTheDocument();
@@ -203,16 +197,18 @@ describe('Extensions', () => {
 
     const entries = await screen.findAllByTestId('catalog-entry');
     expect(entries[1]).toHaveTextContent('Installed');
-    await userEvent.click(within(entries[0]!).getByRole('button', { name: 'About Radio Browser' }));
+    await userEvent.click(
+      within(entries[0]!).getByRole('button', { name: 'About Radio Stations' }),
+    );
     const info = screen.getByRole('dialog', { name: 'About this extension' });
     expect(within(info).getByTestId('install-permissions')).toHaveTextContent(
-      '*.api.radio-browser.info',
+      '*.api.radio.example',
     );
     await userEvent.click(screen.getByRole('button', { name: 'Close' }));
 
     await userEvent.click(within(entries[0]!).getByRole('button', { name: 'Install' }));
     expect(commands.extensionInstallsEnqueue).toHaveBeenCalledWith([
-      { repoId: 'repo-1', extensionId: 'dev.raygun.radio-browser', name: 'Radio Browser' },
+      { repoId: 'repo-1', extensionId: 'dev.example.radio', name: 'Radio Stations' },
     ]);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
@@ -230,7 +226,7 @@ describe('Extensions', () => {
     await AppShellWrapper.mount('/extensions?tab=browse');
     await screen.findAllByTestId('catalog-entry');
 
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Radio Browser' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Radio Stations' }));
     const bar = screen.getByRole('toolbar', { name: 'Selected extensions' });
     expect(bar).toHaveTextContent('1 selected');
     await userEvent.click(within(bar).getByRole('button', { name: 'Select all 3' }));
@@ -241,7 +237,7 @@ describe('Extensions', () => {
       commands.extensionInstallsEnqueue.mock.calls[0]![0].map(
         (item: { extensionId: string }) => item.extensionId,
       ),
-    ).toEqual(['dev.raygun.radio-browser', 'dev.raygun.ia', 'dev.raygun.mb']);
+    ).toEqual(['dev.example.radio', 'dev.raygun.ia', 'dev.raygun.mb']);
     expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
   });
 
@@ -254,7 +250,7 @@ describe('Extensions', () => {
       running: true,
       total: 12,
       done: 2,
-      current: 'Radio Browser',
+      current: 'Radio Stations',
       phase: 'downloading',
       items: [
         install({ state: 'installing', phase: 'downloading' }),
@@ -268,7 +264,7 @@ describe('Extensions', () => {
 
     const progress = await screen.findByTestId('install-progress');
     expect(progress).toHaveTextContent('Installing extensions · 3 of 12');
-    expect(progress).toHaveTextContent('Radio Browser · Downloading');
+    expect(progress).toHaveTextContent('Radio Stations · Downloading');
     expect(within(progress).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '2');
     const [radio, archive] = screen.getAllByTestId('catalog-entry');
     expect(radio).toHaveTextContent('Installing');
@@ -355,7 +351,12 @@ describe('Extensions', () => {
     commands.extensionCatalog.mockResolvedValue(
       ok(
         catalog([
-          entry({ id: 'nuclear.nuclear-plugin-lrclib', name: 'LRCLIB', net: [], nuclear: true }),
+          entry({
+            id: 'nuclear.nuclear-plugin-lyrics',
+            name: 'Lyrics Base',
+            net: [],
+            nuclear: true,
+          }),
         ]),
       ),
     );
@@ -363,7 +364,7 @@ describe('Extensions', () => {
 
     const row = await screen.findByTestId('catalog-entry');
     expect(row).toHaveTextContent('Nuclear');
-    await userEvent.click(within(row).getByRole('button', { name: 'About LRCLIB' }));
+    await userEvent.click(within(row).getByRole('button', { name: 'About Lyrics Base' }));
     expect(screen.getByRole('dialog')).toHaveTextContent('converts it when installing');
   });
 
@@ -392,8 +393,8 @@ describe('Extensions', () => {
       ok(
         catalog([
           entry({
-            id: 'nuclear.nuclear-plugin-lrclib',
-            name: 'LRCLIB',
+            id: 'nuclear.nuclear-plugin-lyrics',
+            name: 'Lyrics Base',
             nuclear: true,
             state: 'updateAvailable',
             version: '1.0.0',
@@ -424,7 +425,7 @@ describe('Extensions', () => {
         }),
       ]),
     );
-    await AppShellWrapper.mount('/extensions/detail?id=dev.raygun.radio-browser');
+    await AppShellWrapper.mount('/extensions/detail?id=dev.example.radio');
 
     const report = await screen.findByTestId('extension-compatibility');
     expect(report).toHaveTextContent('Converted from the Nuclear plugin nuclear-plugin-sample.');
@@ -492,7 +493,7 @@ describe('Extensions', () => {
       ok([
         ...catalog([
           entry(),
-          entry({ id: 'dev.raygun.md', name: 'MangaDex', provides: ['manga.source'] }),
+          entry({ id: 'dev.raygun.md', name: 'Comic Shelf', provides: ['manga.source'] }),
         ]),
         {
           repo: shosetsu,
@@ -521,7 +522,7 @@ describe('Extensions', () => {
       (await screen.findAllByTestId('catalog-entry')).map(
         (row) => within(row).getByText(/^\S/, { selector: '.font-medium' }).textContent,
       );
-    expect(await names()).toEqual(['Radio Browser', 'MangaDex', 'NovelFull', 'Kakuyomu']);
+    expect(await names()).toEqual(['Radio Stations', 'Comic Shelf', 'NovelFull', 'Kakuyomu']);
 
     const kinds = screen.getByRole('group', { name: 'Show' });
     await user.click(within(kinds).getByRole('button', { name: 'Books' }));
@@ -537,9 +538,9 @@ describe('Extensions', () => {
     );
     await user.selectOptions(screen.getByRole('combobox', { name: 'Language' }), '');
     await user.selectOptions(screen.getByRole('combobox', { name: 'Repository' }), 'repo-1');
-    expect(await names()).toEqual(['Radio Browser', 'MangaDex']);
-    await user.type(screen.getByRole('searchbox', { name: 'Search extensions' }), 'manga');
-    expect(await names()).toEqual(['MangaDex']);
+    expect(await names()).toEqual(['Radio Stations', 'Comic Shelf']);
+    await user.type(screen.getByRole('searchbox', { name: 'Search extensions' }), 'comic');
+    expect(await names()).toEqual(['Comic Shelf']);
     await user.type(screen.getByRole('searchbox', { name: 'Search extensions' }), 'zzz');
     expect(await screen.findByText('No extensions match.')).toBeInTheDocument();
   });
@@ -551,7 +552,7 @@ describe('Extensions', () => {
       ok(
         catalog([
           entry({ state: 'installed' }),
-          entry({ id: 'dev.raygun.md', name: 'MangaDex', provides: ['manga.source'] }),
+          entry({ id: 'dev.raygun.md', name: 'Comic Shelf', provides: ['manga.source'] }),
           entry({
             id: 'dev.raygun.ia',
             name: 'Internet Archive',
@@ -578,7 +579,7 @@ describe('Extensions', () => {
     await user.click(within(pills).getByRole('link', { name: 'Not installed' }));
     await vi.waitFor(() =>
       expect(screen.getAllByTestId('catalog-entry').map((row) => row.textContent)).toEqual([
-        expect.stringContaining('MangaDex'),
+        expect.stringContaining('Comic Shelf'),
       ]),
     );
 
@@ -598,7 +599,7 @@ describe('Extensions', () => {
         Array.from({ length: 8 }, (_, index) =>
           extension({
             id: `dev.example.${index}`,
-            name: index === 3 ? 'MangaDex' : `Radio ${index}`,
+            name: index === 3 ? 'Comic Shelf' : `Radio ${index}`,
             provides: index === 3 ? ['manga.source'] : ['music.metadata'],
           }),
         ),
@@ -608,10 +609,10 @@ describe('Extensions', () => {
     await screen.findAllByTestId('extension-row');
     await user.type(
       screen.getByRole('searchbox', { name: 'Search installed extensions' }),
-      'manga',
+      'comic',
     );
     expect(screen.getAllByTestId('extension-row').map((row) => row.textContent)).toEqual([
-      expect.stringContaining('MangaDex'),
+      expect.stringContaining('Comic Shelf'),
     ]);
     await user.clear(screen.getByRole('searchbox', { name: 'Search installed extensions' }));
     const kinds = screen.getByRole('group', { name: 'Show' });
@@ -625,7 +626,7 @@ describe('Extensions', () => {
       ok(
         catalog([
           entry(),
-          entry({ id: 'dev.raygun.md', name: 'MangaDex', provides: ['manga.source'] }),
+          entry({ id: 'dev.raygun.md', name: 'Comic Shelf', provides: ['manga.source'] }),
           entry({ id: 'dev.raygun.ck', name: 'Comick', provides: ['manga.source'] }),
           entry({ id: 'shosetsu.en.x', name: 'NovelFull', provides: ['novel.source'] }),
           entry({ id: 'miru.de.ccc.media', name: 'media.ccc.de', provides: ['video.source'] }),

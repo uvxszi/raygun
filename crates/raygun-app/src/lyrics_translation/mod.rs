@@ -577,8 +577,11 @@ mod tests {
 
     #[test]
     fn sources_translations_follow_whichever_lyrics_show() {
-        let mut kugou = lyrics("KuGou", &[(1_000, "夜に駆ける"), (4_000, "沈むように")]);
-        kugou.translations = vec![
+        let mut lines = lyrics(
+            "Lyric Lines",
+            &[(1_000, "夜に駆ける"), (4_000, "沈むように")],
+        );
+        lines.translations = vec![
             translation(
                 "zh-Hans",
                 LyricsTranslationKind::Translation,
@@ -591,26 +594,29 @@ mod tests {
             ),
             translation("en", LyricsTranslationKind::Translation, &["", ""]),
         ];
-        let rows = source_rows(&[lyrics("LRCLIB", &[(0, "x")]), kugou.clone()], 10);
+        let rows = source_rows(&[lyrics("Lyrics Base", &[(0, "x")]), lines.clone()], 10);
         // Nothing from a source without translations, nor an empty one.
         assert_eq!(rows.len(), 2);
-        assert!(rows.iter().all(|row| row.translator == "source:KuGou"));
+        assert!(
+            rows.iter()
+                .all(|row| row.translator == "source:Lyric Lines")
+        );
 
-        // On KuGou's own lyrics they're the source's; on LRCLIB's version another source's.
-        let own = lay_onto(&kugou, &rows);
+        // On Lyric Lines' own lyrics they're the source's; on Lyrics Base's another source's.
+        let own = lay_onto(&lines, &rows);
         assert_eq!(own.len(), 2);
         assert!(
             own.iter()
                 .all(|t| t.origin == LyricsTranslationOrigin::Source)
         );
-        let lrclib = lyrics(
-            "LRCLIB",
+        let base = lyrics(
+            "Lyrics Base",
             &[(1_100, "夜に駆ける"), (2_000, "♪"), (4_100, "沈むように")],
         );
-        let other = lay_onto(&lrclib, &rows);
+        let other = lay_onto(&base, &rows);
         assert_eq!(other[0].origin, LyricsTranslationOrigin::OtherSource);
         assert_eq!(other[0].lines, ["奔向夜晚", "", "宛如沉溺般"]);
-        // The song's own lyrics (picked from KuGou) take them too, as another source's.
+        // The song's own lyrics (picked from Lyric Lines) take them too, as another source's.
         let picked = Lyrics {
             edited: true,
             ..lyrics(
@@ -626,7 +632,7 @@ mod tests {
 
     #[test]
     fn newer_translations_come_first() {
-        let song = lyrics("KuGou", &[(0, "Hello")]);
+        let song = lyrics("Lyric Lines", &[(0, "Hello")]);
         let row = |translator: &str, made_at: i64| TranslationRow {
             translator: translator.into(),
             language: "de".into(),
@@ -645,12 +651,15 @@ mod tests {
             &[
                 row("source:Other", 5),
                 row("ai:x", 9),
-                row("source:KuGou", 5),
+                row("source:Lyric Lines", 5),
                 row("device", 7),
             ],
         );
         let order: Vec<&str> = laid.iter().map(|t| t.translator.as_str()).collect();
-        assert_eq!(order, ["ai:x", "device", "source:KuGou", "source:Other"]);
+        assert_eq!(
+            order,
+            ["ai:x", "device", "source:Lyric Lines", "source:Other"]
+        );
         assert_eq!(laid[0].origin, LyricsTranslationOrigin::Ai);
         assert_eq!(laid[1].origin, LyricsTranslationOrigin::Device);
     }

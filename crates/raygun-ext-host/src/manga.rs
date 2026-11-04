@@ -515,7 +515,7 @@ mod tests {
         let details = parse_details(
             &json!({
                 "title": "Frieren", "authors": ["Yamada", 3, ""], "status": "weird",
-                "genres": ["Fantasy"], "url": "https://mangadex.org/title/x", "description": "  "
+                "genres": ["Fantasy"], "url": "https://comics.example/title/x", "description": "  "
             }),
             "requested-id",
         )

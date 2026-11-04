@@ -14,8 +14,8 @@ const LINK = {
   kind: 'video' as const,
   id: 'dQw4w9WgXcQ',
   url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-  title: 'Never Gonna Give You Up',
-  author: 'Rick Astley',
+  title: 'Big Buck Bunny',
+  author: 'Blender Foundation',
   thumbnailUrl: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
 };
 
@@ -35,8 +35,8 @@ describe('YouTube addresses (M46.47)', () => {
 
     const card = await screen.findByTestId('youtube-link');
     expect(commands.youtubeLink).toHaveBeenCalledWith(ADDRESS);
-    expect(card).toHaveTextContent('Never Gonna Give You Up');
-    expect(card).toHaveTextContent('Rick Astley');
+    expect(card).toHaveTextContent('Big Buck Bunny');
+    expect(card).toHaveTextContent('Blender Foundation');
     expect(
       await within(card).findByText(/yt-dlp is fetched from its GitHub releases/),
     ).toBeInTheDocument();
@@ -44,21 +44,17 @@ describe('YouTube addresses (M46.47)', () => {
     await user.click(within(card).getByRole('button', { name: 'Play' }));
     expect(commands.youtubePlay).toHaveBeenCalledWith(
       'dQw4w9WgXcQ',
-      'Never Gonna Give You Up',
-      'Rick Astley',
+      'Big Buck Bunny',
+      'Blender Foundation',
     );
 
     await user.click(within(card).getByRole('button', { name: 'Download video' }));
-    expect(commands.ytdlpDownload).toHaveBeenCalledWith(
-      LINK.url,
-      'Never Gonna Give You Up',
-      'video',
-    );
+    expect(commands.ytdlpDownload).toHaveBeenCalledWith(LINK.url, 'Big Buck Bunny', 'video');
     commands.ytdlpJobs.mockResolvedValue([
       {
         id: 'job',
         url: LINK.url,
-        title: 'Never Gonna Give You Up',
+        title: 'Big Buck Bunny',
         kind: 'video',
         state: 'downloading',
         progress: 0.25,
@@ -83,8 +79,8 @@ describe('YouTube addresses (M46.47)', () => {
     await user.click(await within(card).findByRole('button', { name: 'Download' }));
     expect(commands.songsDownload).toHaveBeenCalledWith([
       {
-        title: 'Never Gonna Give You Up',
-        artist: 'Rick Astley',
+        title: 'Big Buck Bunny',
+        artist: 'Blender Foundation',
         album: null,
         durationMs: null,
         artworkUrl: LINK.thumbnailUrl,
@@ -104,7 +100,7 @@ describe('YouTube addresses (M46.47)', () => {
     const failed = {
       id: 'job',
       url: LINK.url,
-      title: 'Never Gonna Give You Up',
+      title: 'Big Buck Bunny',
       kind: 'audio' as const,
       state: 'failed' as const,
       progress: null,
@@ -115,16 +111,12 @@ describe('YouTube addresses (M46.47)', () => {
     await AppShellWrapper.mount('/downloads?tab=exports');
     const job = await screen.findByTestId('ytdlp-job');
     const issue = within(job).getByTestId('source-issue');
-    expect(issue).toHaveTextContent("Couldn't download from YouTube");
+    expect(issue).toHaveTextContent("Couldn't download this video");
     expect(within(issue).getByText(/Video unavailable/)).not.toBeVisible();
 
     commands.ytdlpDownload.mockResolvedValue(ok('job-2'));
     await user.click(within(job).getByRole('button', { name: 'Try again' }));
-    expect(commands.ytdlpDownload).toHaveBeenCalledWith(
-      LINK.url,
-      'Never Gonna Give You Up',
-      'audio',
-    );
+    expect(commands.ytdlpDownload).toHaveBeenCalledWith(LINK.url, 'Big Buck Bunny', 'audio');
     // The failed one leaves the list for the new one.
     await vi.waitFor(() => expect(commands.ytdlpCancel).toHaveBeenCalledWith('job'));
 
@@ -134,6 +126,25 @@ describe('YouTube addresses (M46.47)', () => {
     emitEvent('ytDlpEvent', 'job-2');
     await vi.waitFor(() => expect(commands.ytdlpJobs).toHaveBeenCalled());
     expect(commands.ytdlpStatus).not.toHaveBeenCalled();
+  });
+
+  it('points a playlist address to the extensions when no installed source opens it', async () => {
+    commands.youtubeLink.mockResolvedValue(
+      ok({ ...LINK, kind: 'playlist' as const, id: 'PL123', title: 'Open films' }),
+    );
+    await AppShellWrapper.mount(`/browse?tab=search&q=${encodeURIComponent(ADDRESS)}`);
+    const card = await screen.findByTestId('youtube-link');
+    expect(card).toHaveTextContent('Playlist');
+    expect(card).not.toHaveTextContent(/YouTube/);
+    expect(
+      await within(card).findByText(
+        'No installed source opens playlists and channels from this address.',
+      ),
+    ).toBeInTheDocument();
+    expect(within(card).getByRole('link', { name: 'Find extensions' })).toHaveAttribute(
+      'href',
+      expect.stringContaining('tab=extensions'),
+    );
   });
 
   it('leaves ordinary searches alone', async () => {

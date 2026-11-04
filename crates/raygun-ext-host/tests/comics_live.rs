@@ -8,19 +8,14 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use raygun_ext_host::manga::{MANGA_SOURCE, MangaChapter, MangaList, MangaListing, PageImage};
+use raygun_ext_host::manga::{MangaChapter, MangaList, MangaListing, PageImage};
 use raygun_ext_host::{ExtensionHost, HostConfig, UserSettings, discover_installed};
 use raygun_model::{ExtensionStatus, FilterValue};
 use serde_json::json;
 
-const MANGADEX: &str = "dev.raygun.mangadex/mangadex";
-const WEBTOON: &str = "dev.raygun.webtoons/webtoons";
-const TAPAS: &str = "dev.raygun.tapas/tapas";
 const XKCD: &str = "dev.raygun.xkcd/xkcd";
 const PEPPER_CARROT: &str = "dev.raygun.peppercarrot/peppercarrot";
 const ARCHIVE: &str = "dev.raygun.archive-comics/comics";
-const CREATORS: &str = "dev.raygun.mangaplus-creators/creators";
-const NAVER: &str = "dev.raygun.naver-webtoon/naver";
 
 /// Every first-party extension, with `settings` for some, all loaded.
 async fn host_with(settings: UserSettings) -> ExtensionHost {
@@ -150,259 +145,6 @@ fn select(value: &str) -> FilterValue {
 }
 
 #[tokio::test]
-#[ignore = "needs network access to api.mangadex.org"]
-async fn comics_live_mangadex() {
-    let host = host().await;
-    assert!(
-        host.providers(MANGA_SOURCE)
-            .await
-            .iter()
-            .any(|provider| provider.id == MANGADEX)
-    );
-    let popular = host
-        .manga_list(MANGADEX, MangaList::Popular, 1)
-        .await
-        .unwrap();
-    assert_listing("popular", &popular);
-    assert!(popular.has_next_page);
-    let latest = host
-        .manga_list(MANGADEX, MangaList::Latest, 1)
-        .await
-        .unwrap();
-    assert_listing("latest (chapters in English)", &latest);
-    let second = host
-        .manga_list(MANGADEX, MangaList::Latest, 2)
-        .await
-        .unwrap();
-    show("latest page 2", &second);
-    assert!(
-        second
-            .items
-            .iter()
-            .all(|item| latest.items.iter().all(|first| first.id != item.id)),
-        "page 2 repeats page 1's series"
-    );
-    // Past MangaDex's 10,000-result window there's nothing more, rather than an error.
-    let far = host
-        .manga_list(MANGADEX, MangaList::Popular, 500)
-        .await
-        .unwrap();
-    assert!(far.items.is_empty() && !far.has_next_page);
-
-    let filters = host.manga_filters(MANGADEX).await.unwrap();
-    assert!(
-        filters.len() >= 5,
-        "sort, status, demographic, origin, tags"
-    );
-    let manhwa = host
-        .manga_search_filtered(
-            MANGADEX,
-            "",
-            1,
-            &BTreeMap::from([
-                ("origin".to_owned(), select("ko")),
-                ("sort".to_owned(), select("relevance")),
-            ]),
-        )
-        .await
-        .unwrap();
-    assert_listing("Korean originals, best match without words", &manhwa);
-
-    let found = host.manga_search(MANGADEX, "frieren", 1).await.unwrap();
-    assert_listing("search frieren", &found);
-    assert!(
-        found
-            .items
-            .iter()
-            .all(|item| item.title.to_lowercase().contains("frieren")),
-        "every match names it"
-    );
-    // A series with a chapter out this week: licensed series often lost theirs to takedowns.
-    let recent = &latest.items[0];
-    let (chapters, _) = read_title(&host, MANGADEX, &recent.id, |chapters| chapters.first()).await;
-    assert!(chapters.iter().all(|chapter| !chapter.id.is_empty()));
-    // Newest first, as the feed's volume and chapter order gives them.
-    let numbers: Vec<f64> = chapters
-        .iter()
-        .filter_map(|chapter| chapter.number)
-        .collect();
-    println!(
-        "chapter numbers from the top: {:?}",
-        &numbers[..numbers.len().min(8)]
-    );
-}
-
-#[tokio::test]
-#[ignore = "needs network access to api.mangadex.org"]
-async fn comics_live_mangadex_languages() {
-    // The setting once held the code itself; both spellings read Spanish (Latin America).
-    for value in ["Spanish (Latin America)", "es-la"] {
-        let host = host_with(settings(
-            "dev.raygun.mangadex",
-            json!({ "language": value }),
-        ))
-        .await;
-        let latest = host
-            .manga_list(MANGADEX, MangaList::Latest, 1)
-            .await
-            .unwrap();
-        assert_listing(value, &latest);
-        let chapters = host
-            .manga_chapters(MANGADEX, &latest.items[0].id)
-            .await
-            .unwrap();
-        println!("{value}: {} chapters", chapters.len());
-        assert!(
-            !chapters.is_empty(),
-            "a series just updated in Spanish has chapters in it"
-        );
-    }
-}
-
-#[tokio::test]
-#[ignore = "needs network access to webtoons.com"]
-async fn comics_live_webtoon() {
-    let host = host().await;
-    let popular = host
-        .manga_list(WEBTOON, MangaList::Popular, 1)
-        .await
-        .unwrap();
-    assert_listing("rankings", &popular);
-    assert!(
-        popular
-            .items
-            .iter()
-            .all(|item| item.cover_headers.contains_key("Referer"))
-    );
-    let latest = host
-        .manga_list(WEBTOON, MangaList::Latest, 1)
-        .await
-        .unwrap();
-    assert_listing("today's Originals", &latest);
-
-    let filters = host.manga_filters(WEBTOON).await.unwrap();
-    assert_eq!(filters.len(), 3);
-    let search = |query: &'static str, values: Vec<(&'static str, &'static str)>, page: u32| {
-        let host = host.clone();
-        async move {
-            let chosen = values
-                .into_iter()
-                .map(|(key, value)| (key.to_owned(), select(value)))
-                .collect::<BTreeMap<_, _>>();
-            host.manga_search_filtered(WEBTOON, query, page, &chosen)
-                .await
-                .unwrap()
-        }
-    };
-    let both = search("tower", vec![], 1).await;
-    assert_listing("search tower", &both);
-    assert!(both.items.iter().any(|item| item.id.contains(":webtoon:")));
-    assert!(both.items.iter().any(|item| item.id.contains(":canvas:")));
-    let canvas = search("tower", vec![("type", "canvas")], 2).await;
-    assert_listing("Canvas search page 2", &canvas);
-    let romance = search("", vec![("genre", "romance"), ("type", "webtoon")], 1).await;
-    assert_listing("Originals romance", &romance);
-    assert!(romance.has_next_page);
-    let canvas_romance = search(
-        "",
-        vec![("genre", "romance"), ("type", "canvas"), ("sort", "UPDATE")],
-        2,
-    )
-    .await;
-    assert_listing("Canvas romance by date, page 2", &canvas_romance);
-
-    let original = both
-        .items
-        .iter()
-        .find(|item| item.id.contains(":webtoon:"))
-        .unwrap();
-    let (chapters, pages) =
-        read_title(&host, WEBTOON, &original.id, |chapters| chapters.last()).await;
-    assert_eq!(
-        chapters.last().unwrap().number,
-        Some(1.0),
-        "the first episode is last"
-    );
-    assert!(
-        pages
-            .iter()
-            .all(|page| page.headers.contains_key("Referer"))
-    );
-    let creator = canvas.items.first().unwrap();
-    read_title(&host, WEBTOON, &creator.id, |chapters| chapters.first()).await;
-}
-
-#[tokio::test]
-#[ignore = "needs network access to webtoons.com"]
-async fn comics_live_webtoon_languages() {
-    for language in [
-        "Spanish",
-        "French",
-        "Indonesian",
-        "Thai",
-        "Chinese (Traditional)",
-    ] {
-        let host = host_with(settings(
-            "dev.raygun.webtoons",
-            json!({ "language": language }),
-        ))
-        .await;
-        let popular = host
-            .manga_list(WEBTOON, MangaList::Popular, 1)
-            .await
-            .unwrap();
-        assert_listing(language, &popular);
-        let id = &popular.items[0].id;
-        assert!(!id.starts_with("en:"), "{language} lists {id}");
-        let chapters = host.manga_chapters(WEBTOON, id).await.unwrap();
-        assert!(!chapters.is_empty(), "{language}: {id} has no episodes");
-    }
-}
-
-#[tokio::test]
-#[ignore = "needs network access to tapas.io"]
-async fn comics_live_tapas() {
-    let host = host().await;
-    let popular = host.manga_list(TAPAS, MangaList::Popular, 1).await.unwrap();
-    assert_listing("ranking", &popular);
-    assert!(popular.has_next_page);
-    let latest = host.manga_list(TAPAS, MangaList::Latest, 2).await.unwrap();
-    assert_listing("latest page 2", &latest);
-    let found = host.manga_search(TAPAS, "solo", 1).await.unwrap();
-    assert_listing("search solo", &found);
-    assert!(
-        found
-            .items
-            .iter()
-            .all(|item| !item.title.contains("_h_i_g_h"))
-    );
-
-    let filters = host.manga_filters(TAPAS).await.unwrap();
-    assert_eq!(filters.len(), 3);
-    let free = host
-        .manga_search_filtered(
-            TAPAS,
-            "",
-            1,
-            &BTreeMap::from([
-                ("price".to_owned(), select("FREE")),
-                ("genre".to_owned(), select("ROMANCE")),
-            ]),
-        )
-        .await
-        .unwrap();
-    assert_listing("free romance", &free);
-    let (chapters, _) =
-        read_title(&host, TAPAS, &free.items[0].id, |chapters| chapters.last()).await;
-    assert!(chapters.len() > 1, "a free series lists its episodes");
-
-    // A series that waits or charges for most episodes lists only the free ones.
-    let paid = &popular.items[0];
-    let chapters = host.manga_chapters(TAPAS, &paid.id).await.unwrap();
-    println!("{}: {} free episodes", paid.title, chapters.len());
-}
-
-#[tokio::test]
 #[ignore = "needs network access to xkcd.com"]
 async fn comics_live_xkcd() {
     let host = host().await;
@@ -503,124 +245,59 @@ async fn comics_live_internet_archive() {
     })
     .await;
     assert!(pages.len() > 4);
+
+    // Every item listed is in the public domain by age, and marked public domain, openly
+    // licensed or in the Archive's curated set, by its own record.
+    let client = raygun_net::http_client().unwrap();
+    let before = chrono_year() - 95;
+    for (label, listing) in [
+        ("most read", &popular),
+        ("recently added", &latest),
+        ("corriere", &found),
+        ("Italian", &italian),
+    ] {
+        for item in listing.items.iter().take(10) {
+            let body = client
+                .get(format!("https://archive.org/metadata/{}/metadata", item.id))
+                .send()
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap();
+            let record: serde_json::Value = serde_json::from_str(&body).unwrap();
+            let meta = &record["result"];
+            let year: i32 = meta["date"].as_str().unwrap_or_default()[..4]
+                .parse()
+                .unwrap();
+            let licence = meta["licenseurl"].as_str().unwrap_or_default();
+            let curated = meta["collection"].as_array().is_some_and(|names| {
+                names
+                    .iter()
+                    .any(|name| name.as_str() == Some("corrieredelpiccoli"))
+            });
+            println!(
+                "{label}: {} · {year} · {licence} · curated {curated}",
+                item.id
+            );
+            assert!(year < before, "{} is from {year}", item.id);
+            assert!(
+                curated
+                    || licence.contains("creativecommons.org")
+                    || licence.contains("publicdomain"),
+                "{} carries {licence:?}",
+                item.id
+            );
+        }
+    }
 }
 
-#[tokio::test]
-#[ignore = "needs network access to mangaplus-creators.jp"]
-async fn comics_live_mangaplus_creators() {
-    let host = host().await;
-    let popular = host
-        .manga_list(CREATORS, MangaList::Popular, 1)
-        .await
-        .unwrap();
-    assert_listing("popular this month", &popular);
-    let latest = host
-        .manga_list(CREATORS, MangaList::Latest, 1)
-        .await
-        .unwrap();
-    assert_listing("latest episodes", &latest);
-    let found = host.manga_search(CREATORS, "dragon", 1).await.unwrap();
-    assert_listing("search dragon", &found);
-    let fantasy = host
-        .manga_search_filtered(
-            CREATORS,
-            "",
-            1,
-            &BTreeMap::from([
-                ("genre".to_owned(), select("fantasy")),
-                ("sort".to_owned(), select("like_desc")),
-            ]),
-        )
-        .await
-        .unwrap();
-    assert_listing("fantasy, most liked", &fantasy);
-    let top = popular.items.first().unwrap();
-    read_title(&host, CREATORS, &top.id, |chapters| chapters.last()).await;
-    // A long series (Dragon Tofu has over 60 episodes): its episodes come 20 to a page.
-    let long = found.items.first().unwrap();
-    let chapters = host.manga_chapters(CREATORS, &long.id).await.unwrap();
-    println!("{}: {} episodes", long.title, chapters.len());
-    assert!(chapters.len() > 40, "every page of the episode list");
-    let numbers: Vec<_> = chapters
-        .iter()
-        .filter_map(|chapter| chapter.number)
-        .collect();
-    assert!(
-        numbers.windows(2).all(|pair| pair[0] >= pair[1]),
-        "newest first"
-    );
-    let mut ids: Vec<_> = chapters.iter().map(|chapter| chapter.id.as_str()).collect();
-    ids.sort_unstable();
-    ids.dedup();
-    assert_eq!(ids.len(), chapters.len(), "each episode once");
-
-    let host = host_with(settings(
-        "dev.raygun.mangaplus-creators",
-        json!({ "language": "Spanish" }),
-    ))
-    .await;
-    let spanish = host
-        .manga_list(CREATORS, MangaList::Popular, 1)
-        .await
-        .unwrap();
-    assert_listing("popular in Spanish", &spanish);
-}
-
-#[tokio::test]
-#[ignore = "needs network access to comic.naver.com"]
-async fn comics_live_naver_webtoon() {
-    let host = host().await;
-    let popular = host.manga_list(NAVER, MangaList::Popular, 1).await.unwrap();
-    assert_listing("weekly series by popularity", &popular);
-    assert!(popular.has_next_page);
-    assert!(
-        popular
-            .items
-            .iter()
-            .all(|item| item.cover_headers.contains_key("Referer"))
-    );
-    let latest = host.manga_list(NAVER, MangaList::Latest, 1).await.unwrap();
-    assert_listing("today's series", &latest);
-    // 신의 탑 (Tower of God).
-    let found = host.manga_search(NAVER, "신의 탑", 1).await.unwrap();
-    assert_listing("search", &found);
-    let filters = host.manga_filters(NAVER).await.unwrap();
-    assert_eq!(filters.len(), 3);
-    let romance = host
-        .manga_search_filtered(
-            NAVER,
-            "",
-            2,
-            &BTreeMap::from([
-                ("genre".to_owned(), select("PURE")),
-                ("sort".to_owned(), select("UPDATE")),
-            ]),
-        )
-        .await
-        .unwrap();
-    assert_listing("romance by latest episode, page 2", &romance);
-    let finished = host
-        .manga_search_filtered(
-            NAVER,
-            "",
-            1,
-            &BTreeMap::from([("status".to_owned(), select("finished"))]),
-        )
-        .await
-        .unwrap();
-    assert_listing("finished", &finished);
-
-    let series = found
-        .items
-        .iter()
-        .find(|item| !item.nsfw)
-        .expect("a series for everyone");
-    let (chapters, pages) = read_title(&host, NAVER, &series.id, |chapters| chapters.last()).await;
-    assert!(chapters.len() > 100, "every page of a long series");
-    assert_eq!(chapters.last().unwrap().number, Some(1.0));
-    assert!(
-        pages
-            .iter()
-            .all(|page| page.headers.contains_key("Referer"))
-    );
+/// This year, from the clock (UTC), for the public-domain cut-off.
+fn chrono_year() -> i32 {
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    // Close enough for a cut-off that moves once a year: 365.2425 days a year since 1970.
+    1970 + (seconds as f64 / 31_556_952.0) as i32
 }

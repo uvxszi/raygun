@@ -186,16 +186,16 @@ The **mixed queue** holds audio and video items side by side; each `QueueItem` s
 ```jsonc
 // raygun-extension.json
 {
-  "id": "dev.raygun.mangadex", "name": "MangaDex", "version": "1.2.0",
+  "id": "dev.raygun.peppercarrot", "name": "Pepper&Carrot", "version": "1.0.0",
   "apiVersion": 1,
   "runtime": "js",                     // js | lua-shosetsu | stremio | ui | android-dex
   "entry": "dist/index.js",
   "provides": ["manga.source"],        // music.metadata, music.stream, lyrics, video.source,
                                        // novel.source, tracker, translator, upscaler, ...
-  "permissions": { "net": ["api.mangadex.org", "uploads.mangadex.org"], "webview": false },
+  "permissions": { "net": ["www.peppercarrot.com"], "webview": false },
   "contentRating": "safe",
-  "settings": [ { "key": "lang", "type": "select", "options": ["en","ja"] } ],
-  "website": "https://mangadex.org"     // optional; opened from a source's menu (M46.11)
+  "settings": [ { "key": "language", "type": "select", "options": ["English","French"] } ],
+  "website": "https://www.peppercarrot.com"     // optional; opened from a source's menu (M46.11)
 }
 ```
 Repositories use an `index.json` listing extensions and shared libraries (the Shosetsu and Mihon repo format). Raygun's own format may mix package formats (`format`: `raygun`, `nuclear`, `shosetsu`), name packages by absolute address in another repository, and list Shosetsu `libraries`, read from `lib/<name>.lua` beside the index; Paraline (`uvxszi/paraline-raygun`) is such an index.
@@ -282,7 +282,7 @@ Goal: hands-off sync. Paired devices on the same network sync automatically when
 - **Networking:** reqwest + rustls (no OpenSSL, which simplifies Android/iOS cross-compiles), with the cookie jar persisted in `webview/`-adjacent storage and per-host concurrency limits.
 - **Observability:** `tracing` to rotating files in `logs/`, plus an in-app log viewer (Nuclear's startup ring buffer idea).
 - **Testing:** Rust unit/integration tests per crate, Vitest + RTL with test-wrappers for views (Nuclear convention), the portable-leak CI job, and recorded HTTP fixtures for extension tests.
-- **Content policy:** first-party extensions target legitimate sources only (local files, YouTube, MangaDex, Jellyfin/Komga/Kavita, official or community Stremio addons added in the app). Raygun ships the *runtimes*; which repositories to add is up to whoever runs it.
+- **Content policy:** what Raygun ships, pre-adds and suggests serves only public-domain or openly licensed content: the first-party extensions (Internet Archive's public-domain films and openly licensed audio, its public-domain comics, Project Gutenberg, LibriVox, Loyal Books, Pepper&Carrot, xkcd, and MusicBrainz for metadata), Paraline as the only suggested repository, and OpenSubtitles v3 as the only preinstalled Stremio addon (subtitles). Raygun ships the *runtimes* (Raygun, Shosetsu, Miru and Nuclear formats, Stremio addons); which other repositories and addons to add is up to whoever runs it.
 
 ## 13. Known risks
 

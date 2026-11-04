@@ -109,7 +109,7 @@ describe('Song download progress', () => {
       emitEvent(
         'songDownloadProgressEvent',
         download('Moving', 'downloading', {
-          provider: 'Audius',
+          provider: 'Indie Tracks',
           doneBytes: step * 100,
           totalBytes: 1000,
           fraction: step / 10,

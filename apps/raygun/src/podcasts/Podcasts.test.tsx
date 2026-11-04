@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
 import { bindingsMock, emitEvent } from '../test/bindingsMock';
+import { sourceExtension } from '../test/sourceExtension';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -49,8 +50,21 @@ describe('Podcasts', () => {
     AppShellWrapper.seedCore();
   });
 
+  it('points podcast search to the extensions when no directory is installed', async () => {
+    await AppShellWrapper.mount('/browse?tab=search&type=music&view=podcasts');
+    const search = await screen.findByTestId('podcast-search');
+    await vi.waitFor(() =>
+      expect(within(search).getByTestId('no-sources')).toHaveTextContent(
+        'No podcast directories yet.',
+      ),
+    );
+    expect(within(search).getByRole('link', { name: 'Find extensions' })).toBeInTheDocument();
+    expect(within(search).queryByTestId('source-issue')).not.toBeInTheDocument();
+  });
+
   it('keeps only followed shows in the library and finds new ones in Browse', async () => {
     const user = userEvent.setup();
+    commands.extensionsList.mockResolvedValue(ok([sourceExtension(['podcast.directory'])]));
     commands.podcastTop.mockResolvedValue(
       ok([
         {

@@ -14,7 +14,7 @@ const { commands } = bindingsMock;
 
 const SONG = { title: 'SWIM', artist: 'BTS', album: null, durationMs: null };
 const SOURCE: Lyrics = {
-  providerName: 'LRCLIB',
+  providerName: 'Lyrics Base',
   synced: [
     { timeMs: 10_000, text: 'Swim, swim' },
     { timeMs: 14_000, text: 'Water falling off your skin' },

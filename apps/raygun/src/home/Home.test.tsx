@@ -11,20 +11,26 @@ import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
 import { bindingsMock, DEFAULT_SETTINGS } from '../test/bindingsMock';
+import { sourceExtension } from '../test/sourceExtension';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
 const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 const { commands } = bindingsMock;
 
-const chart = (extensionId: string, id: string, name: string): MusicChart => ({
+const chart = (
+  extensionId: string,
+  id: string,
+  name: string,
+  group: MusicChart['group'] = 'top',
+): MusicChart => ({
   provider: { id: `${extensionId}/charts`, extensionId, kind: 'music.charts', name: 'Charts' },
   id,
   name,
   description: null,
   artworkUrl: null,
   tag: null,
-  group: 'top',
+  group,
 });
 
 const song = (title: string, artist: string): OnlineTrack => ({
@@ -42,8 +48,8 @@ const withCharts = (songs: Record<string, OnlineTrack[]>) => {
   commands.musicCharts.mockResolvedValue(
     ok({
       charts: [
-        chart('dev.raygun.apple-charts', 'most-played', 'Top songs'),
-        chart('dev.raygun.listenbrainz', 'week', 'This week'),
+        chart('dev.example.charts', 'most-played', 'Top songs'),
+        chart('dev.example.listens', 'week', 'This week', 'trending'),
       ],
       errors: [],
     }),
@@ -200,7 +206,7 @@ describe('Home', () => {
     expect(await within(popular).findByRole('button', { name: 'Play Babydoll' })).toBeVisible();
     expect(within(popular).getByRole('link', { name: 'Show all of Popular now' })).toHaveAttribute(
       'href',
-      '/music/chart?provider=dev.raygun.apple-charts%2Fcharts&id=most-played',
+      '/music/chart?provider=dev.example.charts%2Fcharts&id=most-played',
     );
     await vi.waitFor(() =>
       expect(screen.queryByRole('region', { name: 'Trending' })).not.toBeInTheDocument(),
@@ -270,13 +276,31 @@ describe('Home', () => {
   });
 
   it('starts new listeners off with plain chips, not a paragraph', async () => {
+    commands.extensionsList.mockResolvedValue(
+      ok([sourceExtension(['podcast.directory', 'audiobook.directory'])]),
+    );
     await AppShellWrapper.mount('/');
     const start = await screen.findByRole('region', { name: 'Get started' });
-    expect(
-      within(start)
-        .getAllByRole('link')
-        .map((link) => link.textContent),
-    ).toEqual(['Search', 'Browse all', 'Podcasts', 'Audiobooks', 'Library']);
+    await vi.waitFor(() =>
+      expect(
+        within(start)
+          .getAllByRole('link')
+          .map((link) => link.textContent),
+      ).toEqual(['Search', 'Browse all', 'Podcasts', 'Audiobooks', 'Library']),
+    );
     expect(start.querySelector('p')).toBeNull();
+  });
+
+  it('leaves kinds with no source installed out of the first chips', async () => {
+    commands.extensionsList.mockResolvedValue(ok([sourceExtension(['audiobook.directory'])]));
+    await AppShellWrapper.mount('/');
+    const start = await screen.findByRole('region', { name: 'Get started' });
+    await vi.waitFor(() =>
+      expect(
+        within(start)
+          .getAllByRole('link')
+          .map((link) => link.textContent),
+      ).toEqual(['Search', 'Browse all', 'Audiobooks', 'Library']),
+    );
   });
 });

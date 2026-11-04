@@ -17,7 +17,7 @@ vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).b
 
 const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 const { commands } = bindingsMock;
-const SOURCE = 'dev.raygun.mangadex/mangadex';
+const SOURCE = 'dev.example.comics/comics';
 
 const chapter = (id: string, name: string): MangaChapterInfo => ({
   id,
@@ -36,7 +36,7 @@ const TITLE: MangaTitleView = {
   id: 't1',
   hiddenNsfw: false,
   sourceId: SOURCE,
-  sourceName: 'MangaDex',
+  sourceName: 'Comic Shelf',
   remoteId: 'm1',
   title: 'Frieren',
   coverUrl: null,

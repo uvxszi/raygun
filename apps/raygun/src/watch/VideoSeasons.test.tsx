@@ -13,11 +13,11 @@ const { commands } = bindingsMock;
 const HERE = { id: 'dev.example/anime', name: 'Anime Here', extensionId: 'a', enabled: true };
 const THERE = { id: 'dev.example/other', name: 'Anime There', extensionId: 'b', enabled: true };
 const SITE = {
-  id: 'dev.raygun.youtube/videos',
-  name: 'YouTube',
-  extensionId: 'youtube',
+  id: 'dev.example.videos/videos',
+  name: 'Open Videos',
+  extensionId: 'dev.example.videos',
   enabled: true,
-  searchPill: 'YouTube',
+  searchPill: 'Open Videos',
 };
 
 const episode = (id: string, number: number, watched: boolean) => ({

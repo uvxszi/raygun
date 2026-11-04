@@ -50,12 +50,12 @@ describe('Importing songs', () => {
       ok(
         songs.map((one): MatchedSong => ({
           song: { ...one, artworkUrl: 'https://img.example/a.jpg' },
-          matchedBy: one.title === 'Loser' ? 'Deezer' : null,
+          matchedBy: one.title === 'Loser' ? 'Tunes' : null,
           source: null,
           // Two answers from one source (as MusicBrainz gives): only the first is in use.
           candidates:
             one.title === 'Loser'
-              ? [candidate('Deezer'), candidate('Deezer', 'deezer-2'), candidate('Audius')]
+              ? [candidate('Tunes'), candidate('Tunes', 'tunes-2'), candidate('Indie Tracks')]
               : [],
           pending: false,
         })),
@@ -63,7 +63,7 @@ describe('Importing songs', () => {
     );
   });
 
-  it('reads a Spotify link, matches the songs and makes a playlist', async () => {
+  it('reads a playlist link, matches the songs and makes a playlist', async () => {
     const user = userEvent.setup();
     commands.importReadLink.mockResolvedValue(ok(list(SONGS, true)));
     commands.importSave.mockResolvedValue(ok('p-new'));
@@ -81,8 +81,8 @@ describe('Importing songs', () => {
 
     const review = await within(sheet).findByTestId('import-review');
     expect(await within(review).findByText(/Found 1 of 2 in your sources/)).toBeInTheDocument();
-    expect(review).toHaveTextContent("Spotify shares only a playlist's first 100 songs");
-    expect(within(review).getByLabelText('Found on Deezer')).toBeInTheDocument();
+    expect(review).toHaveTextContent("The link shares only a playlist's first 100 songs");
+    expect(within(review).getByLabelText('Found on Tunes')).toBeInTheDocument();
     expect(within(review).getByLabelText('Unavailable for now')).toBeInTheDocument();
 
     // Untick one, rename, and save.
@@ -96,7 +96,7 @@ describe('Importing songs', () => {
       [
         expect.objectContaining({
           song: expect.objectContaining({ title: 'Loser' }),
-          matchedBy: 'Deezer',
+          matchedBy: 'Tunes',
         }),
       ],
       false,
@@ -116,7 +116,7 @@ describe('Importing songs', () => {
     );
     await user.click(within(sheet).getByRole('button', { name: 'Read songs' }));
     const review = await within(sheet).findByTestId('import-review');
-    await within(review).findByLabelText('Found on Deezer');
+    await within(review).findByLabelText('Found on Tunes');
 
     // Another source for Loser.
     await user.click(within(review).getByRole('button', { name: '3 sources' }));
@@ -126,7 +126,7 @@ describe('Importing songs', () => {
       within(sources).getAllByRole('button', { name: 'Use this' })[1] as HTMLElement,
     );
     expect(within(sources).getAllByRole('button', { name: 'In use' })).toHaveLength(1);
-    expect(within(review).getByLabelText('Found on Audius')).toBeInTheDocument();
+    expect(within(review).getByLabelText('Found on Indie Tracks')).toBeInTheDocument();
 
     // From here matching never answers: importing doesn't wait for it.
     commands.importMatch.mockImplementation(() => new Promise(() => undefined));
@@ -144,7 +144,7 @@ describe('Importing songs', () => {
       { kind: 'new', name: "Today's Top Hits" },
       [
         expect.objectContaining({ song: expect.objectContaining({ title: 'Housewife (Live)' }) }),
-        expect.objectContaining({ matchedBy: 'Audius' }),
+        expect.objectContaining({ matchedBy: 'Indie Tracks' }),
         expect.objectContaining({
           song: expect.objectContaining({ title: 'New One' }),
           pending: true,
