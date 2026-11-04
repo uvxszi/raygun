@@ -23,6 +23,8 @@ use crate::startup::AppDb;
 
 /// Pages fetched at once; sources such as MangaDex limit how fast one client may go.
 const PAGE_CONCURRENCY: usize = 2;
+/// The least time between two progress reports of a chapter.
+const PROGRESS_INTERVAL: std::time::Duration = std::time::Duration::from_millis(400);
 /// Folders under the downloads root; `manga` is also the first segment of page URLs.
 const FOLDER: &str = "manga";
 const NOVEL_FOLDER: &str = "novel";
@@ -176,7 +178,8 @@ impl MangaDownloadService {
                 headers: page.headers,
             })
             .collect();
-        // Progress is written from a side task so the page callback stays synchronous.
+        // Progress is written from a side task so the page callback stays synchronous, at most a
+        // few times a second: every report makes the UI read the queue and the title again.
         let done = Arc::new(AtomicUsize::new(0));
         let progress = Arc::new(Notify::new());
         let reporter = {
@@ -194,6 +197,7 @@ impl MangaDownloadService {
                             manga_downloads::set_progress(&db, &unit_id, now as i64, total as i64)
                                 .await;
                         let _ = MangaDownloadsEvent(unit_id.clone()).emit(&app);
+                        tokio::time::sleep(PROGRESS_INTERVAL).await;
                     }
                 }
             })

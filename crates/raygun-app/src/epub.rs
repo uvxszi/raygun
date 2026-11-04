@@ -13,6 +13,11 @@ use scraper::{Html, Node};
 pub const MAX_FILE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_UNPACKED_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_ENTRIES: usize = 5_000;
+/// `encryption.xml` algorithms that only obfuscate embedded fonts (IDPF's and Adobe's).
+const FONT_OBFUSCATION: [&str; 2] = [
+    "http://www.idpf.org/2008/embedding",
+    "http://ns.adobe.com/pdf/enc#RC",
+];
 
 /// A book's files, by their path inside it.
 pub struct Epub {
@@ -80,8 +85,29 @@ impl Epub {
             .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
     }
 
+    /// Whether `encryption.xml` locks more than fonts (DRM such as Adobe's): the text would be
+    /// unreadable bytes.
+    fn locked(&self) -> bool {
+        let Some(xml) = self.text("META-INF/encryption.xml") else {
+            return false;
+        };
+        let document = Html::parse_document(&xml);
+        document.tree.root().descendants().any(|node| {
+            node.value().as_element().is_some_and(|element| {
+                let name = element.name();
+                (name == "encryptionmethod" || name.ends_with(":encryptionmethod"))
+                    && element
+                        .attr("algorithm")
+                        .is_some_and(|algorithm| !FONT_OBFUSCATION.contains(&algorithm.trim()))
+            })
+        })
+    }
+
     /// The package's metadata, cover and chapters in reading order.
     pub fn book(&self) -> Result<Book, String> {
+        if self.locked() {
+            return Err("This book is locked with DRM, so it can't be opened here".into());
+        }
         let container = self
             .text("META-INF/container.xml")
             .ok_or("This EPUB has no container.xml")?;
@@ -661,6 +687,25 @@ mod tests {
         );
         assert_eq!(resolve("OEBPS/", "../../etc/passwd"), None);
         assert_eq!(resolve("OEBPS/", "https://example.com/x.jpg"), None);
+    }
+
+    #[test]
+    fn refuses_books_locked_with_drm() {
+        let mut epub = Epub::open(&sample(false)).unwrap();
+        let fonts =
+            br#"<encryption xmlns:enc="http://www.w3.org/2001/04/xmlenc#"><enc:EncryptedData>
+            <enc:EncryptionMethod Algorithm="http://www.idpf.org/2008/embedding"/>
+            <enc:CipherData><enc:CipherReference URI="OEBPS/fonts/a.otf"/></enc:CipherData>
+            </enc:EncryptedData></encryption>"#;
+        epub.files
+            .insert("META-INF/encryption.xml".into(), fonts.to_vec());
+        assert!(epub.book().is_ok(), "obfuscated fonts are fine");
+        let locked = br#"<encryption><EncryptedData>
+            <EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes128-cbc"/>
+            </EncryptedData></encryption>"#;
+        epub.files
+            .insert("META-INF/encryption.xml".into(), locked.to_vec());
+        assert!(epub.book().unwrap_err().contains("DRM"));
     }
 
     #[test]

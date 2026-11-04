@@ -1037,6 +1037,36 @@ pub enum PagedScale {
     Original,
 }
 
+/// Where taps turn pages in the manga reader (Mihon's navigation layouts).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TapZones {
+    /// The sides in the paged modes, the L shape in the vertical strip.
+    #[default]
+    Auto,
+    /// The top and the left of the middle go back; the right of the middle and the bottom on.
+    LShaped,
+    /// The top shows the controls; the left third goes back, the rest on.
+    Kindle,
+    /// Both sides go on; the bottom of the middle goes back.
+    Edge,
+    /// The left third and the right third, as the reading direction has them.
+    Sides,
+    /// Taps only show and hide the controls.
+    Off,
+}
+
+/// How the tap zones are mirrored.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TapInvert {
+    #[default]
+    None,
+    Horizontal,
+    Vertical,
+    Both,
+}
+
 /// The manga reader's display (M46.7). One stored row; missing fields keep their defaults.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(default, rename_all = "camelCase")]
@@ -1055,6 +1085,18 @@ pub struct MangaReaderPrefs {
     pub bar_fullscreen: bool,
     /// Pages loaded ahead of the one being read, 1–10.
     pub preload_pages: u32,
+    /// How titles without a reading mode of their own are read.
+    pub default_mode: ReaderMode,
+    pub tap_zones: TapZones,
+    pub invert_taps: TapInvert,
+    /// A double tap zooms; single taps then wait a moment to tell the two apart.
+    pub double_tap_zoom: bool,
+    /// The page number stays on screen while the controls are hidden.
+    pub page_number: bool,
+    /// The screen doesn't turn off while a chapter is open.
+    pub keep_screen_on: bool,
+    /// Next and previous chapter skip other uploads of the same chapter number.
+    pub skip_duplicates: bool,
 }
 
 impl Default for MangaReaderPrefs {
@@ -1068,6 +1110,13 @@ impl Default for MangaReaderPrefs {
             bar_mode: true,
             bar_fullscreen: true,
             preload_pages: 3,
+            default_mode: ReaderMode::Webtoon,
+            tap_zones: TapZones::Auto,
+            invert_taps: TapInvert::None,
+            double_tap_zoom: true,
+            page_number: true,
+            keep_screen_on: true,
+            skip_duplicates: true,
         }
     }
 }
@@ -1172,6 +1221,18 @@ pub enum NovelWidth {
     Wide,
 }
 
+/// The novel reader's page colours: the app's, or a page of its own.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum NovelTheme {
+    #[default]
+    App,
+    Light,
+    Sepia,
+    Dark,
+    Black,
+}
+
 /// The novel reader's typography and layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -1190,10 +1251,22 @@ pub struct NovelReaderPrefs {
     /// The first line of each paragraph starts further in, as in printed books (M46.10).
     #[serde(default)]
     pub indent: bool,
+    #[serde(default)]
+    pub theme: NovelTheme,
+    /// Lines run to both edges, words hyphenated.
+    #[serde(default)]
+    pub justify: bool,
+    /// The screen doesn't turn off while a chapter is open.
+    #[serde(default = "screen_kept_on")]
+    pub keep_screen_on: bool,
 }
 
 fn normal_rate() -> u32 {
     10
+}
+
+fn screen_kept_on() -> bool {
+    true
 }
 
 impl Default for NovelReaderPrefs {
@@ -1206,6 +1279,9 @@ impl Default for NovelReaderPrefs {
             paged: false,
             tts_rate: 10,
             indent: false,
+            theme: NovelTheme::App,
+            justify: false,
+            keep_screen_on: true,
         }
     }
 }
@@ -3788,12 +3864,31 @@ pub struct MangaUpdateStatus {
     pub failed: u32,
     /// Unix ms of the last finished run.
     pub last_run_at: Option<f64>,
+    /// The titles this session's last update couldn't check, and why.
+    #[serde(default)]
+    pub failures: Vec<UpdateFailure>,
+}
+
+/// A library title an update couldn't check.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateFailure {
+    /// `manga`, `novel` or `video`: which page opens it.
+    pub medium: String,
+    pub source_id: String,
+    pub remote_id: String,
+    pub title: String,
+    pub source_name: String,
+    /// The source's error, for "More info".
+    pub message: String,
 }
 
 /// A chapter a library update found.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct MangaUpdateItem {
+    /// `manga` or `novel`: which reader opens it.
+    pub medium: String,
     pub title_id: String,
     pub source_id: String,
     pub remote_id: String,
@@ -4606,10 +4701,16 @@ impl ReaderMode {
     }
 
     pub fn parse(text: &str) -> Self {
+        Self::chosen(text).unwrap_or(Self::Webtoon)
+    }
+
+    /// A title's own mode as stored; `None` (an empty value) follows the reader's default.
+    pub fn chosen(text: &str) -> Option<Self> {
         match text {
-            "pagedLtr" => Self::PagedLtr,
-            "pagedRtl" => Self::PagedRtl,
-            _ => Self::Webtoon,
+            "webtoon" => Some(Self::Webtoon),
+            "pagedLtr" => Some(Self::PagedLtr),
+            "pagedRtl" => Some(Self::PagedRtl),
+            _ => None,
         }
     }
 }
@@ -4620,7 +4721,10 @@ impl ReaderMode {
 pub struct MangaChapterPages {
     pub title_id: String,
     pub title: String,
+    /// How the chapter is read: the title's own mode, else the reader's default.
     pub reader_mode: ReaderMode,
+    /// The title's own mode; `None` follows the default.
+    pub own_reader_mode: Option<ReaderMode>,
     pub chapter: MangaChapterInfo,
     /// Through the local image proxy, in reading order.
     pub pages: Vec<String>,

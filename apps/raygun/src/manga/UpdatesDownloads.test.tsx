@@ -36,6 +36,7 @@ const update = (
   chapterInfo: MangaChapterInfo,
   foundAt: number,
 ): MangaUpdateItem => ({
+  medium: 'manga',
   titleId: `t-${title}`,
   sourceId: SOURCE,
   remoteId: `m-${title}`,
@@ -203,9 +204,19 @@ describe('Manga updates and downloads', () => {
     );
     expect(commands.mangaRemoveDownloads).toHaveBeenLastCalledWith(['c2']);
 
-    // Unread and not yet downloaded, oldest first.
-    await user.click(within(page).getByRole('button', { name: 'Download 2 unread' }));
-    expect(commands.mangaDownload).toHaveBeenLastCalledWith(['c4', 'c5']);
+    // The title's Download menu: the next unread chapters, or every one not on the device yet
+    // (oldest first).
+    await user.click(within(page).getByRole('button', { name: 'Download' }));
+    const menu = await screen.findByRole('dialog', { name: 'Download' });
+    await user.click(within(menu).getByRole('button', { name: 'Next 5 chapters' }));
+    expect(commands.libraryDownloadNext).toHaveBeenLastCalledWith('manga', ['t1'], 5);
+    await user.click(within(page).getByRole('button', { name: 'Download' }));
+    await user.click(
+      within(await screen.findByRole('dialog', { name: 'Download' })).getByRole('button', {
+        name: /^Every chapter/,
+      }),
+    );
+    expect(commands.mangaDownload).toHaveBeenLastCalledWith(['c1', 'c4', 'c5']);
   });
 
   it('offers updates, downloads and a library update from the manga library menu', async () => {

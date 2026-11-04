@@ -170,7 +170,6 @@
       "edit": "Edit categories",
       "mangaTitle": "Manga categories",
       "novelTitle": "Novel categories",
-      "hint": "Categories group your library into tabs. A title can be in several, or none.",
       "empty": "No categories yet.",
       "name": "Category name",
       "newName": "New category name",
@@ -180,6 +179,7 @@
       "cancel": "Cancel",
       "rename": "Rename {{name}}",
       "delete": "Delete {{name}}",
+      "confirmDelete": "Delete",
       "moveUp": "Move {{name}} up",
       "moveDown": "Move {{name}} down",
       "choose": "Add to categories",
@@ -284,6 +284,7 @@
     "openRandom": "Open a random title",
     "updateCategory": "Update {{name}}",
     "emptyTab": "Nothing here yet.",
+    "loadFailed": "The library couldn't be loaded.",
     "duplicates": {
       "title": "Already in your library?",
       "body": "You have titles with a similar name. Open one, or add this one anyway.",
@@ -533,6 +534,7 @@
     "fontSize": "Text size",
     "indent": "Indent paragraphs",
     "indentHint": "The first line of each paragraph starts further in, as in printed books",
+    "justify": "Justify text",
     "lineSpacing": "Line spacing",
     "font": "Typeface",
     "fontSerif": "Serif",
@@ -1259,7 +1261,7 @@
     "refresh": "Refresh from the source",
     "chapters_one": "{{count}} chapter",
     "chapters_other": "{{count}} chapters",
-    "noChapters": "This source has no chapters for this title in your language.",
+    "noChapters": "This source lists no chapters for it.",
     "markRead": "Mark {{name}} read",
     "markUnread": "Mark {{name}} unread",
     "pageOf": "Page {{page}} of {{total}}",
@@ -1274,10 +1276,13 @@
     "mode": {
       "webtoon": "Vertical strip",
       "pagedRtl": "Paged, right to left",
-      "pagedLtr": "Paged, left to right"
+      "pagedLtr": "Paged, left to right",
+      "default": "Default ({{mode}})"
     },
     "jumpToPage": "Jump to page",
     "backToLastPage": "Back to the last page",
+    "lastChapter": "This is the last chapter.",
+    "noPages": "This chapter has no pages.",
     "goPreviousChapter": "Go to the previous chapter",
     "goNextChapter": "Go to the next chapter",
     "libraryActions": "Manga library",
@@ -1288,9 +1293,9 @@
     "today": "Today",
     "yesterday": "Yesterday",
     "lastUpdate": "Last checked {{when}}",
+    "noUpdates": "No new chapters yet",
     "updateFailures_one": "{{count}} title failed",
     "updateFailures_other": "{{count}} titles failed",
-    "noUpdates": "No new chapters yet. Updates check your library titles for chapters added since you added them.",
     "download": "Download {{name}}",
     "retryDownload": "Retry downloading {{name}}",
     "deleteDownload": "Delete the download of {{name}}",
@@ -1311,16 +1316,18 @@
     "downloadedChapters_one": "{{count}} chapter on this device",
     "downloadedChapters_other": "{{count}} chapters on this device",
     "queueEmpty": "Nothing is downloading.",
+    "queueFailed": "The download queue couldn't be read.",
     "nsfwHiddenTitle": "This title is for adults",
     "nsfwHiddenHint": "Turn on “Show NSFW (18+) content” in Settings to see it.",
     "openSettings": "Open Settings",
     "inLibrary": "In library",
     "allDownloaded": "Downloaded",
-    "openInBrowser": "WebView",
+    "openInBrowser": "Website",
     "resume": "Resume",
     "downloadedCount_one": "{{count}} chapter downloaded",
     "downloadedCount_other": "{{count}} chapters downloaded",
     "downloadAction": "Download",
+    "downloadAll": "Every chapter",
     "emptyTitle": "No comics yet",
     "queueEmptyHint": "Download chapters from a title to read them offline.",
     "noUpdatesHint": "New chapters from titles in your library show up here after an update.",
@@ -1346,6 +1353,16 @@
     "narrow": "Narrow",
     "noIndent": "Flush paragraphs",
     "indent": "Indented paragraphs",
+    "alignStart": "Align left",
+    "justify": "Justify",
+    "theme": "Page colours",
+    "themes": {
+      "app": "Like the app",
+      "light": "Light",
+      "sepia": "Sepia",
+      "dark": "Dark",
+      "black": "Black"
+    },
     "wide": "Wide",
     "scroll": "Scroll",
     "paged": "Pages",
@@ -1360,7 +1377,7 @@
     "previousParagraph": "Read from the previous paragraph",
     "replayParagraph": "Read this paragraph again",
     "nextParagraph": "Skip to the next paragraph",
-    "readAloudHint": "Hold a paragraph to read aloud from there",
+    "readAloudStopped": "Reading aloud stopped.",
     "emptyTitle": "No books yet"
   },
   "ai": {
@@ -1642,7 +1659,9 @@
   "updates": {
     "chapters": "Chapters",
     "episodes": "Episodes",
-    "releases": "Releases"
+    "releases": "Releases",
+    "showFailures": "Show the titles that failed",
+    "hideFailures": "Hide them"
   },
   "downloads": {
     "videos": "Videos",
@@ -1790,8 +1809,10 @@
     "folder": "Your folder",
     "folderHint": "Choose one in Settings → Downloads",
     "share": "Share",
-    "plan_one": "{{count}} chapter, {{files}} file(s).",
-    "plan_other": "{{count}} chapters, {{files}} file(s).",
+    "plan_one": "{{count}} chapter",
+    "plan_other": "{{count}} chapters",
+    "files_one": "{{count}} file",
+    "files_other": "{{count}} files",
     "planVideo_one": "{{count}} episode.",
     "planVideo_other": "{{count}} episodes.",
     "downloadFirst_one": "{{count}} chapter downloads first, at the source's pace.",
@@ -1808,6 +1829,7 @@
       "cancelled": "Cancelled"
     },
     "dismiss": "Remove {{name}} from the list",
+    "didntFinish": "The export didn't finish.",
     "failedChapters_one": "{{count}} chapter couldn't be downloaded and was left out.",
     "failedChapters_other": "{{count}} chapters couldn't be downloaded and were left out.",
     "skippedPages_one": "{{count}} page is in a format PDF can't hold and was left out.",
@@ -1825,13 +1847,37 @@
     "savedTo": "Saved to {{place}}",
     "copied": "Copied",
     "showInFolder": "Show in folder",
+    "pageFailed": "Page {{page}} didn't load",
+    "retryPage": "Try again",
     "display": {
       "title": "Display",
       "mangaTitle": "Manga",
+      "reading": "Reading",
+      "pagesTitle": "Pages and page bar",
+      "defaultMode": "Default reading mode",
+      "tapZones": "Tap zones",
+      "tapZone": {
+        "auto": "Automatic",
+        "lShaped": "L shape",
+        "kindle": "Kindle",
+        "edge": "Edges",
+        "sides": "Left and right",
+        "off": "Off"
+      },
+      "invertTaps": "Mirror tap zones",
+      "invert": {
+        "none": "No",
+        "horizontal": "Left and right",
+        "vertical": "Top and bottom",
+        "both": "Both ways"
+      },
+      "doubleTapZoom": "Double tap to zoom",
+      "skipDuplicates": "Skip other uploads of a chapter",
+      "keepScreenOn": "Keep the screen on",
+      "pageNumber": "Page number while reading",
       "byScreen": "By screen",
       "percent": "{{n}} %",
       "pagedScale": "Page fit (paged)",
-      "pagedScaleHint": "How a page fits when reading one page at a time",
       "scale": {
         "fitScreen": "Fit screen",
         "fitWidth": "Fit width",
@@ -1839,21 +1885,18 @@
         "original": "Original size"
       },
       "webtoonWidth": "Webtoon width",
-      "webtoonWidthHint": "How wide the scrolling strip is, as a share of the window",
       "barWidth": "Page bar width",
       "barChapters": "Chapter buttons in the page bar",
       "barZoom": "Zoom buttons in the page bar",
       "barMode": "Reading mode button in the page bar",
       "barFullscreen": "Full screen button in the page bar",
       "preload": "Pages to load ahead",
-      "preloadHint": "More pages load sooner but use more data",
       "pages_one": "{{count}} page",
       "pages_other": "{{count}} pages",
       "zoom": "Zoom",
       "zoomIn": "Zoom in",
       "zoomOut": "Zoom out",
-      "zoomReset": "Back to the fit",
-      "zoomHint": "Ctrl + scroll, Ctrl + plus or minus, or a double click. Ctrl + 0 goes back to the fit."
+      "zoomReset": "Back to the fit"
     }
   },
   "storage": {
@@ -2954,6 +2997,7 @@
     "asListed": "As the source lists them",
     "reversed": "Reversed",
     "reset": "Back to the source's order",
+    "noneShown": "No chapters match.",
     "sort": {
       "source": "Source order",
       "number": "Chapter number",
@@ -2964,6 +3008,12 @@
       "started": "Started",
       "downloaded": "Downloaded"
     }
+  },
+  "chapters": {
+    "select": "Select chapters",
+    "actions": "Selected chapters",
+    "markPreviousRead": "Mark the chapters before as read",
+    "deleteDownloads": "Delete downloads"
   },
   "otherSources": {
     "find": "Find in other sources",

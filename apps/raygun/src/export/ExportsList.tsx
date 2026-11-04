@@ -67,10 +67,23 @@ const JobCard: FC<{ job: ExportJob }> = ({ job }) => {
           <div className="bg-primary h-full" style={{ width: `${fraction * 100}%` }} />
         </div>
       )}
-      {job.message && (
-        <p role={job.state === 'failed' ? 'alert' : undefined} className="text-muted text-xs">
-          {job.message}
-        </p>
+      {job.state === 'failed' ? (
+        <div role="alert" className="text-muted flex flex-col gap-1 text-xs">
+          <p>{t('export.didntFinish')}</p>
+          {job.message && (
+            // What went wrong exactly (a folder that can't be written, a full disk…).
+            <details>
+              <summary className="hover:text-foreground cursor-pointer font-semibold">
+                {t('issue.more')}
+              </summary>
+              <p className="selectable bg-background mt-1 rounded-lg px-3 py-2 font-mono wrap-anywhere">
+                {job.message}
+              </p>
+            </details>
+          )}
+        </div>
+      ) : (
+        job.message && <p className="text-muted text-xs">{job.message}</p>
       )}
       {job.failedChapters > 0 && (
         <p className="text-primary text-xs">
