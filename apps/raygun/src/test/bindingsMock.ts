@@ -121,7 +121,7 @@ export const IDLE_STATE: PlaybackState = {
   stopAfterCurrent: false,
 };
 
-export const EMPTY_QUEUE: QueueSnapshot = { items: [], order: [] };
+export const EMPTY_QUEUE: QueueSnapshot = { items: [], order: [], context: null };
 
 /** Incognito off (M47). */
 export const INCOGNITO_OFF: IncognitoStatus = { on: false, sinceMs: null };
@@ -369,6 +369,7 @@ export const bindingsMock = {
     settingsDefaults: vi.fn(),
     playbackGetState: vi.fn(),
     playbackGetQueue: vi.fn(),
+    playbackArmContext: vi.fn(),
     playbackEnqueue: vi.fn(),
     playbackControl: vi.fn(),
     playbackEngineReport: vi.fn(),
@@ -726,6 +727,7 @@ export const seedBindings = () => {
   commands.settingsDefaults.mockResolvedValue(DEFAULT_SETTINGS);
   commands.playbackGetState.mockResolvedValue(IDLE_STATE);
   commands.playbackGetQueue.mockResolvedValue(EMPTY_QUEUE);
+  commands.playbackArmContext.mockResolvedValue(undefined);
   commands.playbackEnqueue.mockResolvedValue(undefined);
   commands.playbackControl.mockResolvedValue(undefined);
   commands.playbackEngineReport.mockResolvedValue(undefined);

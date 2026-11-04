@@ -32,6 +32,25 @@ export const commands = {
 	playbackGetState: () => __TAURI_INVOKE<PlaybackState>("playback_get_state"),
 	/**  Current queue. Afterwards, changes arrive as `QueueEvent`. */
 	playbackGetQueue: () => __TAURI_INVOKE<QueueSnapshot>("playback_get_queue"),
+	/**
+	 *  Says where the next play comes from (a page's context, or `None` for nowhere in particular):
+	 *  the next queue it replaces shows it as "Playing from". Sent just before the play command.
+	 */
+	playbackArmContext: (context: {
+	/**
+	 *  `album`, `playlist`, `mix`, `artist`, `chart`, `tag`, `podcast`, `audiobook`,
+	 *  `favorites`, `downloaded` or `search` (the last three are only ever a queue's context).
+	 */
+	kind: string,
+	name: string,
+	subtitle: string | null,
+	artworkUrl: string | null,
+	/**  The page's path (`/music/album`) and its search parameters. */
+	to: string,
+	search: { [key in string]: string },
+	/**  Unix ms; set when it's remembered. */
+	playedAt?: number | null,
+} | null) => __TAURI_INVOKE<void>("playback_arm_context", { context }),
 	/**  Adds items to the queue; with `play_now` the first one starts immediately. */
 	playbackEnqueue: (items: QueueItemInput[], playNow: boolean) => __TAURI_INVOKE<void>("playback_enqueue", { items, playNow }),
 	/**
@@ -3402,7 +3421,10 @@ export type PermissionReason =
  *  playlist, a mix, an artist, a chart, a podcast or a book, with the page that opens it.
  */
 export type PlayContext = {
-	/**  `album`, `playlist`, `mix`, `artist`, `chart`, `tag`, `podcast` or `audiobook`. */
+	/**
+	 *  `album`, `playlist`, `mix`, `artist`, `chart`, `tag`, `podcast`, `audiobook`,
+	 *  `favorites`, `downloaded` or `search` (the last three are only ever a queue's context).
+	 */
 	kind: string,
 	name: string,
 	subtitle: string | null,
@@ -3679,6 +3701,11 @@ export type QueueSnapshot = {
 	 *  contents or order change, not on every track change.
 	 */
 	order: number[],
+	/**
+	 *  Where this queue was played from (the player's "Playing from"); `None` when it wasn't
+	 *  started from a page that says, or the queue is empty.
+	 */
+	context?: PlayContext | null,
 };
 
 export type RailOrder = "custom" | 

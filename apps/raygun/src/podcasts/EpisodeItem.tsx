@@ -19,6 +19,7 @@ import {
   useSetPlayed,
 } from './usePodcasts';
 import { SourceIssue } from '../shell/SourceIssue';
+import { episodeReveal } from '../music/reveal';
 
 const ICON_BUTTON =
   'bg-background grid size-9 shrink-0 place-items-center rounded-full disabled:opacity-60';
@@ -100,6 +101,7 @@ export const EpisodeItem: FC<{
     <li
       className="flex flex-col gap-2"
       aria-label={episode.title}
+      data-reveal={episodeReveal(episode.id)}
       onContextMenu={(event) =>
         openContextMenu(
           event,

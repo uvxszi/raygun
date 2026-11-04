@@ -12,6 +12,7 @@ import { usePlayingMatch } from '../player/usePlayingMatch';
 import { ExplicitMark } from '../music/ExplicitMark';
 import { songCover } from '../library/coverTargets';
 import { SongMarks } from '../music/SongMarks';
+import { songReveal } from '../music/reveal';
 
 type OnlineTrackRowProps = {
   track: OnlineTrack;
@@ -27,6 +28,7 @@ export const OnlineTrackRow: FC<OnlineTrackRowProps> = ({ track, onPlay, source 
   return (
     <div
       className="flex items-center"
+      data-reveal={songReveal(track.title, track.artist)}
       onContextMenu={menu(fromOnlineTrack(track), { onPlay: () => onPlay(track) })}
     >
       <button

@@ -48,6 +48,7 @@ import { usePlayerUiStore } from './playerUiStore';
 import { usePlayerView } from './playerView';
 import { IncognitoBadge } from '../privacy/IncognitoBadge';
 import { PlayerViewSettings } from './PlayerViewSettings';
+import { PlayingFrom } from './PlayingFrom';
 import { QueueActions, QueueList } from './QueueList';
 import { SeekBar } from './SeekBar';
 import { spokenName, useSpokenItem } from './spoken';
@@ -395,7 +396,12 @@ const Stacked: FC<LayoutParts> = ({ item, spoken, view, setView, onScrub }) => {
           <div ref={coverRef} className="flex w-full justify-center">
             <Media item={item} />
           </div>
-          {item && <UpNextPill next={upNext[0]} onOpen={() => setView('queue')} />}
+          {item && (
+            <div className="flex w-full min-w-0 items-center justify-center gap-2">
+              <PlayingFrom className="max-w-[45%]" />
+              <UpNextPill next={upNext[0]} onOpen={() => setView('queue')} />
+            </div>
+          )}
           <Controls item={item} spoken={spoken} onScrub={onScrub} />
         </div>
         {item && <PlayerCards item={item} spoken={spoken} onLyrics={() => setView('lyrics')} />}
@@ -674,7 +680,7 @@ const UpNextPill: FC<{ next: QueueItem | undefined; onOpen: () => void }> = ({ n
       type="button"
       aria-label={t('player.upNextView')}
       onClick={onOpen}
-      className="bg-surface/80 hover:bg-surface flex max-w-full items-center gap-2 rounded-full px-4 py-1.5 text-sm shadow-sm"
+      className="bg-surface/80 hover:bg-surface flex max-w-full min-w-0 items-center gap-2 rounded-full px-4 py-1.5 text-sm shadow-sm"
     >
       <ListMusic aria-hidden size={16} className="shrink-0" />
       <span className="shrink-0 font-semibold">{t('player.upNextView')}</span>

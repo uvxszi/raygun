@@ -2458,7 +2458,7 @@ pub enum SleepTimer {
 /// Speeds offered for music (M46.8).
 pub const PLAYBACK_RATES: [f64; 9] = [0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0];
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct QueueSnapshot {
     pub items: Vec<QueueItem>,
@@ -2466,6 +2466,10 @@ pub struct QueueSnapshot {
     /// The current item is `PlaybackState::current_item_id`; the queue is only re-sent when its
     /// contents or order change, not on every track change.
     pub order: Vec<u32>,
+    /// Where this queue was played from (the player's "Playing from"); `None` when it wasn't
+    /// started from a page that says, or the queue is empty.
+    #[serde(default)]
+    pub context: Option<PlayContext>,
 }
 
 /// A user or client request to the player.
@@ -3592,7 +3596,8 @@ pub struct TrackInput {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayContext {
-    /// `album`, `playlist`, `mix`, `artist`, `chart`, `tag`, `podcast` or `audiobook`.
+    /// `album`, `playlist`, `mix`, `artist`, `chart`, `tag`, `podcast`, `audiobook`,
+    /// `favorites`, `downloaded` or `search` (the last three are only ever a queue's context).
     pub kind: String,
     pub name: String,
     pub subtitle: Option<String>,
@@ -3826,6 +3831,9 @@ pub enum ConnectCommand {
         shuffle: bool,
         start_ms: f64,
         play: bool,
+        /// Where the queue was played from (`QueueSnapshot::context`).
+        #[serde(default)]
+        context: Option<PlayContext>,
     },
     #[serde(rename_all = "camelCase")]
     Enqueue {

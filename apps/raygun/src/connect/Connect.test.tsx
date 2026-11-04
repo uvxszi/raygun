@@ -32,6 +32,7 @@ const SESSION = {
     queue: {
       items: [{ ...makeItem('Over There', 'Far Away'), id: 'remote-1' }],
       order: [0],
+      context: null,
     },
   },
 };

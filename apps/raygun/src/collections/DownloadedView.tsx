@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { usePlayContext } from '../music/playContext';
 import { savedRow } from '../music/tableView';
 import { TrackTable } from '../music/TrackTable';
 import {
@@ -31,6 +32,14 @@ export const DownloadedView: FC = () => {
   ).data;
   const idFor = useMemo(() => new Map(pairs ?? []), [pairs]);
   const { removeMany } = useSongDownloadActions();
+  usePlayContext({
+    kind: 'downloaded',
+    name: t('library.view.downloaded'),
+    subtitle: null,
+    artworkUrl: null,
+    to: '/library',
+    search: { view: 'downloaded' },
+  });
   if (!songs.data) {
     return null;
   }

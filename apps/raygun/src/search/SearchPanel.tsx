@@ -17,6 +17,7 @@ import { pill, SEARCH_TYPES, VIDEO_VIEWS, viewIn } from './searchTypes';
 import type { MusicView, SearchType, SearchView, VideoView } from './searchTypes';
 import { VideoResults } from './VideoResults';
 import { useSettings } from '../settings/useSettings';
+import { usePlayContext } from '../music/playContext';
 import { YouTubeLinkCard } from '../youtube/YouTubeLinkCard';
 
 /** Video sources' best answers Relevant shows before See all. */
@@ -158,6 +159,25 @@ export const SearchPanel: FC<{
   const pills = (videoSources.data ?? []).filter((source) => source.searchPill && source.enabled);
   const pillSource = type === 'video' ? pills.find((source) => source.id === pill) : undefined;
   const blank = query.trim() === '';
+  // What plays from here shows "Playing from" this search.
+  usePlayContext(
+    blank
+      ? null
+      : {
+          kind: 'search',
+          name: query.trim(),
+          subtitle: null,
+          artworkUrl: null,
+          to: '/browse',
+          search: {
+            tab: 'search',
+            type,
+            q: query,
+            ...(view ? { view } : {}),
+            ...(pill ? { pill } : {}),
+          },
+        },
+  );
   const musicView = viewIn<MusicView>('music', view);
   const videoView = viewIn<VideoView>('video', view);
   const selected = useRef<HTMLButtonElement>(null);

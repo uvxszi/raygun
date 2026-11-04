@@ -945,3 +945,56 @@ fn a_saved_queue_comes_back_paused_where_it_was() {
     assert!(!core.state().shuffle);
     assert_eq!(current_title(&core), Some("b".into()));
 }
+
+fn album_context() -> PlayContext {
+    PlayContext {
+        kind: "album".into(),
+        name: "Album".into(),
+        subtitle: None,
+        artwork_url: None,
+        to: "/music/album".into(),
+        search: BTreeMap::from([("id".into(), "1".into())]),
+        played_at: 0.0,
+    }
+}
+
+#[test]
+fn the_queue_keeps_where_it_was_played_from_until_it_is_replaced() {
+    let mut core = PlaybackCore::new(1);
+    core.replace(vec![input("a"), input("b")], Some(0), false);
+    assert_eq!(
+        core.set_context(Some(album_context())),
+        vec![Effect::QueueChanged]
+    );
+    assert!(
+        core.set_context(Some(album_context())).is_empty(),
+        "unchanged"
+    );
+    assert_eq!(core.queue().context, Some(album_context()));
+
+    // Songs coming and going keep it.
+    core.enqueue_next(vec![input("c")]);
+    core.next();
+    assert_eq!(core.queue().context, Some(album_context()));
+
+    // A new queue without a context forgets it.
+    core.replace(vec![input("d")], Some(0), false);
+    assert_eq!(core.queue().context, None);
+
+    core.set_context(Some(album_context()));
+    core.clear();
+    assert_eq!(core.queue().context, None);
+    core.enqueue(vec![input("e")], true);
+    assert_eq!(core.queue().context, None, "an emptied queue starts over");
+}
+
+#[test]
+fn a_queue_emptied_one_item_at_a_time_has_no_context() {
+    let mut core = PlaybackCore::new(1);
+    core.replace(vec![input("a")], Some(0), false);
+    core.set_context(Some(album_context()));
+    let id = core.queue().items[0].id.clone();
+    core.remove(&id);
+    assert_eq!(core.queue().context, None);
+    assert!(core.context().is_none());
+}

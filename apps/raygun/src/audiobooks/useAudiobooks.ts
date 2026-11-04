@@ -48,8 +48,8 @@ export const useOpenAudiobook = () =>
 /** Plays a book from a chapter (or where it was left), with the rest of the book after it. */
 export const usePlayAudiobook = () =>
   useMutation({
-    mutationFn: ({ id, chapterId }: { id: string; chapterId: string | null }) => {
-      rememberPlay();
+    mutationFn: async ({ id, chapterId }: { id: string; chapterId: string | null }) => {
+      await rememberPlay();
       return unwrapResult(commands.audiobookPlay(id, chapterId));
     },
   });

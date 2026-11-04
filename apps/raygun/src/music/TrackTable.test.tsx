@@ -1,5 +1,5 @@
 import type { SavedTrack, SettingChange, Settings } from '@raygun/bindings';
-import { fireEvent, screen, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
@@ -162,12 +162,15 @@ describe('Song tables', () => {
     // Playing a row plays the table as shown.
     const charlie = screen.getAllByTestId('track-table-row')[0] as HTMLElement;
     fireEvent.doubleClick(charlie);
-    expect(commands.collectionPlay).toHaveBeenLastCalledWith({
-      collection: { kind: 'favorites' },
-      startIndex: 0,
-      shuffle: false,
-      order: ['ann|charlie', 'zed|bravo', 'mia|alpha'],
-    });
+    // It plays once Rust knows where the play comes from.
+    await waitFor(() =>
+      expect(commands.collectionPlay).toHaveBeenLastCalledWith({
+        collection: { kind: 'favorites' },
+        startIndex: 0,
+        shuffle: false,
+        order: ['ann|charlie', 'zed|bravo', 'mia|alpha'],
+      }),
+    );
 
     // Filter.
     await user.click(screen.getByRole('button', { name: 'Find in these songs' }));

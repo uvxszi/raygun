@@ -39,6 +39,7 @@ import { FavoriteButton } from './FavoriteButton';
 import { PlaybackExtras } from './PlaybackExtras';
 import { usePlayerWide } from './playerLayout';
 import { usePlayerUiStore } from './playerUiStore';
+import { PlayingFrom } from './PlayingFrom';
 import { BarProgress, SeekBar } from './SeekBar';
 import { spokenName, useSpokenItem } from './spoken';
 import { swipeAction } from './swipe';
@@ -219,6 +220,7 @@ const WideBar: FC<BarProps> = ({ item }) => {
             <TrackText item={item} />
           </button>
           {!spoken && <FavoriteButton item={item} compact download />}
+          <PlayingFrom variant="icon" />
         </div>
 
         <div className="flex min-w-0 flex-col items-center gap-0.5">

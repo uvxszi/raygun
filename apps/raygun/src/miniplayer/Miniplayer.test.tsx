@@ -26,7 +26,7 @@ describe('The miniplayer window', () => {
   it('shows the song and, over the artwork, the controls', async () => {
     const user = userEvent.setup();
     const items = [makeItem('Murder Most Foul', 'Bob Dylan'), makeItem('Key West')];
-    commands.playbackGetQueue.mockResolvedValue({ items, order: [0, 1] });
+    commands.playbackGetQueue.mockResolvedValue({ items, order: [0, 1], context: null });
     commands.playbackGetState.mockResolvedValue({
       ...IDLE_STATE,
       status: 'playing',

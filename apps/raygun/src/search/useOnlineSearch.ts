@@ -56,7 +56,7 @@ export const toQueueItem = (track: OnlineTrack): QueueItemInput => ({
 });
 
 /** Replaces the queue with a provider's results, starting at `track`. */
-export const playResults = (tracks: OnlineTrack[], track: OnlineTrack) => {
-  rememberPlay();
+export const playResults = async (tracks: OnlineTrack[], track: OnlineTrack) => {
+  await rememberPlay();
   return commands.playbackReplace(tracks.map(toQueueItem), Math.max(tracks.indexOf(track), 0));
 };

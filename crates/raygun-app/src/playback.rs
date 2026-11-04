@@ -7,8 +7,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use raygun_model::{
-    ConnectCommand, EngineCommand, EngineEvent, EngineReport, MediaSource, PlaybackControl,
-    PlaybackState, QueueItem, QueueItemInput, QueueSnapshot, SleepTimer, SoundPrefs, TrackQuery,
+    ConnectCommand, EngineCommand, EngineEvent, EngineReport, MediaSource, PlayContext,
+    PlaybackControl, PlaybackState, QueueItem, QueueItemInput, QueueSnapshot, SleepTimer,
+    SoundPrefs, TrackQuery,
 };
 use raygun_net::StreamProxy;
 use raygun_playback::{Effect, PlaybackCore};
@@ -22,6 +23,10 @@ use crate::history::PlayCounter;
 use crate::resolution::{ErrorPlan, LoadPlan, Tracker};
 use crate::resolver::ResolverService;
 use crate::sound::{SoundService, Tuning};
+
+/// How long a context said before a play waits for the queue it's about: plays that look up
+/// songs first (an audiobook's feed) take a while, a play that failed never comes.
+const ARMED_FOR: Duration = Duration::from_secs(60);
 
 /// Delivers one command to a native engine.
 pub type NativeEngineSink = Box<dyn Fn(&EngineCommand) -> Result<(), String> + Send + Sync>;
@@ -75,6 +80,9 @@ pub struct PlaybackService {
     restored: std::sync::atomic::AtomicBool,
     /// The state the webviews last got, and when: see [`worth_sending`].
     sent: Mutex<Option<(PlaybackState, Instant)>>,
+    /// Where the next queue is played from, said by the page just before it plays
+    /// ([`Self::arm_context`]); the next replace takes it.
+    armed: Mutex<Option<(PlayContext, Instant)>>,
 }
 
 /// Everything to emit once the core lock is released.
@@ -119,7 +127,25 @@ impl PlaybackService {
             saved: Mutex::new(None),
             restored: std::sync::atomic::AtomicBool::new(false),
             sent: Mutex::new(None),
+            armed: Mutex::new(None),
         }
+    }
+
+    /// Says where the next queue is played from (a page's `PlayContext`), or that it's from
+    /// nowhere in particular (`None`). The next replace of the queue takes it as the queue's
+    /// context; a replace nothing was said for clears it.
+    pub fn arm_context(&self, context: Option<PlayContext>) {
+        *self.armed.lock().expect("armed poisoned") =
+            context.map(|context| (context, Instant::now()));
+    }
+
+    fn take_context(&self) -> Option<PlayContext> {
+        self.armed
+            .lock()
+            .expect("armed poisoned")
+            .take()
+            .filter(|(_, at)| at.elapsed() < ARMED_FOR)
+            .map(|(context, _)| context)
     }
 
     /// Saves the queue and where it is every few seconds (M46.16), so Raygun reopens on it.
@@ -212,12 +238,18 @@ impl PlaybackService {
         };
         let images = app.state::<raygun_net::ImageLinks>();
         let items = crate::last_played::arrived(last.items, &images);
+        let context = last.context.map(|context| PlayContext {
+            artwork_url: context
+                .artwork_url
+                .map(|url| images.cover(&url, &Default::default())),
+            ..context
+        });
         let effects_ran = {
             let mut inner = self.lock();
             if !inner.core.queue().items.is_empty() {
                 return;
             }
-            let effects = inner.core.restore(
+            let mut effects = inner.core.restore(
                 items,
                 last.order,
                 last.current,
@@ -225,6 +257,7 @@ impl PlaybackService {
                 last.shuffle,
                 last.repeat,
             );
+            effects.extend(inner.core.set_context(context));
             self.resolve(&mut inner, effects)
         };
         self.send(effects_ran);
@@ -249,14 +282,17 @@ impl PlaybackService {
                 shuffle,
                 start_ms,
                 play,
+                context,
             } => {
                 self.run(|core| {
-                    core.replace_at(
+                    let mut effects = core.replace_at(
                         items,
                         start_index.map(|index| index as usize),
                         shuffle,
                         start_ms,
-                    )
+                    );
+                    effects.extend(core.set_context(context));
+                    effects
                 });
                 if !play {
                     self.run(|core| core.pause());
@@ -308,6 +344,7 @@ impl PlaybackService {
     /// Replaces the queue and starts playing (see `PlaybackCore::replace`).
     pub fn replace(&self, items: Vec<QueueItemInput>, start_index: Option<usize>, shuffle: bool) {
         let items = self.with_details(items);
+        let context = self.take_context();
         if let Some(send) = self.redirect() {
             return send(ConnectCommand::Replace {
                 items,
@@ -315,14 +352,20 @@ impl PlaybackService {
                 shuffle,
                 start_ms: 0.0,
                 play: true,
+                context,
             });
         }
-        self.run(|core| core.replace(items, start_index, shuffle));
+        self.run(|core| {
+            let mut effects = core.replace(items, start_index, shuffle);
+            effects.extend(core.set_context(context));
+            effects
+        });
     }
 
     /// Replaces the queue and starts its first item at `start_ms` (a podcast episode resuming).
     pub fn replace_from(&self, items: Vec<QueueItemInput>, start_ms: f64) {
         let items = self.with_details(items);
+        let context = self.take_context();
         if let Some(send) = self.redirect() {
             return send(ConnectCommand::Replace {
                 items,
@@ -330,9 +373,14 @@ impl PlaybackService {
                 shuffle: false,
                 start_ms,
                 play: true,
+                context,
             });
         }
-        self.run(|core| core.replace_at(items, Some(0), false, start_ms));
+        self.run(|core| {
+            let mut effects = core.replace_at(items, Some(0), false, start_ms);
+            effects.extend(core.set_context(context));
+            effects
+        });
     }
 
     pub fn control(&self, control: PlaybackControl) {

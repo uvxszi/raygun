@@ -108,8 +108,8 @@ export const useRefreshAll = () =>
 
 export const usePlayEpisode = () =>
   useMutation({
-    mutationFn: (id: string) => {
-      rememberPlay();
+    mutationFn: async (id: string) => {
+      await rememberPlay();
       return unwrapResult(commands.podcastPlay(id));
     },
   });

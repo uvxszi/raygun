@@ -1,7 +1,7 @@
 //! What played when Raygun closed (M46.16): the queue, its order, the song and where it was,
 //! saved device-local every few seconds and put back, paused, when Raygun opens again.
 
-use raygun_model::{MediaSource, QueueItemInput, RepeatMode};
+use raygun_model::{MediaSource, PlayContext, QueueItemInput, RepeatMode};
 use raygun_net::ImageLinks;
 use raygun_playback::PlaybackCore;
 use serde::{Deserialize, Serialize};
@@ -21,6 +21,9 @@ pub struct LastPlayed {
     pub position_ms: f64,
     pub shuffle: bool,
     pub repeat: RepeatMode,
+    /// Where the queue was played from (the player's "Playing from").
+    #[serde(default)]
+    pub context: Option<PlayContext>,
 }
 
 /// The core's queue as JSON to save; `{}` when it's empty (nothing to reopen). Links through this
@@ -69,6 +72,14 @@ pub fn snapshot(core: &PlaybackCore, original: &dyn Fn(&str) -> String) -> Strin
         position_ms: (state.position_ms / 1000.0).floor() * 1000.0,
         shuffle: state.shuffle,
         repeat: state.repeat,
+        context: queue.context.map(|context| PlayContext {
+            artwork_url: context
+                .artwork_url
+                .as_deref()
+                .map(original)
+                .filter(|url| portable_url(url)),
+            ..context
+        }),
     };
     serde_json::to_string(&last).unwrap_or_else(|_| "{}".into())
 }
@@ -143,6 +154,15 @@ mod tests {
             Some(1),
             false,
         );
+        core.set_context(Some(PlayContext {
+            kind: "playlist".into(),
+            name: "Road trip".into(),
+            subtitle: None,
+            artwork_url: Some("http://127.0.0.1:5000/cover/abc".into()),
+            to: "/playlist".into(),
+            search: BTreeMap::from([("id".into(), "p1".into())]),
+            played_at: 0.0,
+        }));
         let load_id = core.state().current_item_id.clone();
         assert!(load_id.is_some());
         core.report(EngineReport {
@@ -164,6 +184,22 @@ mod tests {
         assert_eq!(
             last.items[0].artwork_url.as_deref(),
             Some("https://covers.example/b.jpg")
+        );
+        let context = last.context.expect("where it was played from is kept");
+        assert_eq!(context.name, "Road trip");
+        assert_eq!(
+            context.artwork_url.as_deref(),
+            Some("https://covers.example/b.jpg"),
+            "artwork at its source address"
+        );
+        // Saves from before contexts still load.
+        let old =
+            r#"{"items":[],"order":[],"current":0,"positionMs":0,"shuffle":false,"repeat":"off"}"#;
+        assert!(
+            serde_json::from_str::<LastPlayed>(old)
+                .unwrap()
+                .context
+                .is_none()
         );
     }
 }

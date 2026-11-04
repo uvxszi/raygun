@@ -21,6 +21,7 @@ import { ArtistCard, CreditsCard } from './PlayerCards';
 import { usePlayerWide } from './playerLayout';
 import type { PlayerPanel } from './playerUiStore';
 import { usePlayerUiStore } from './playerUiStore';
+import { PlayingFrom } from './PlayingFrom';
 import { QueueActions, QueueList } from './QueueList';
 import { useSpokenItem } from './spoken';
 import { SpokenByline } from './SpokenByline';
@@ -146,6 +147,7 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
   return (
     // Its parts keep their height and the panel scrolls: shrinking cut the cards' last lines.
     <div className="flex shrink-0 flex-col gap-4 px-4 pt-3 pb-4 [&>*]:shrink-0">
+      <PlayingFrom variant="row" className="-mb-2" />
       {/* The one video dock shows here unless the full player has it. */}
       <MediaArt
         item={item}

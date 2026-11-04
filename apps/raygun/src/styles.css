@@ -108,6 +108,31 @@
     transform: translateY(-4px) scale(0.96);
   }
 }
+/* The row "Playing from" scrolled to (shell/RevealHost): an accent wash over it that fades, only
+   its opacity animating. */
+@keyframes raygun-reveal {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+[data-revealed] {
+  position: relative;
+}
+[data-revealed]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--color-primary) 22%, transparent);
+  pointer-events: none;
+  animation: raygun-reveal 2s ease-in forwards;
+}
+:root[data-motion='off'] [data-revealed]::after {
+  animation: none;
+}
 /* The playing mark's bars (M46.16); still where motion is off. They stretch with a transform, so
    a list showing the mark doesn't lay itself out again every frame. */
 @keyframes raygun-eq {
