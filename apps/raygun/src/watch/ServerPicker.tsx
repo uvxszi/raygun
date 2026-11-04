@@ -1,11 +1,12 @@
 import type { SourceRank, VideoLinkView, VideoServerView } from '@raygun/bindings';
 import { Copy, Download, ExternalLink, History, LoaderCircle, Play, Star, X } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useBackLayer } from '../shell/backLayers';
 import { OverflowMenu } from '../shell/OverflowMenu';
+import { SubtitleChoice } from './SubtitleChoice';
 import { inRankOrder, serverLinkLabel, useSourceOrder } from './useSourceOrder';
 import { useDownloadSourceVideo } from './useVideoLibrary';
 import { useVideoLinks, useVideoServers, useVideoSourcePlay } from './useVideoSources';
@@ -232,11 +233,15 @@ export const ServerPicker: FC<{
       { titleId: target.titleId, episodeId: target.episodeId, link, external },
       { onSuccess: onClose },
     );
-  const onDownload = (link: VideoLinkView) =>
+  // A link with subtitle tracks asks which to save first.
+  const [choosing, setChoosing] = useState<VideoLinkView | null>(null);
+  const save = (link: VideoLinkView, subtitles: string[]) =>
     download.mutate(
-      { titleId: target.titleId, episodeId: target.episodeId, link },
+      { titleId: target.titleId, episodeId: target.episodeId, link, subtitles },
       { onSuccess: onClose },
     );
+  const onDownload = (link: VideoLinkView) =>
+    link.subtitles.length > 0 ? setChoosing(link) : save(link, []);
   const error = play.error ?? download.error;
 
   return (
@@ -264,7 +269,16 @@ export const ServerPicker: FC<{
           </button>
         </div>
         <div className="flex min-h-0 flex-col gap-4 overflow-y-auto px-5">
-          {servers.isPending && (
+          {choosing && (
+            <SubtitleChoice
+              source={target.sourceId}
+              tracks={choosing.subtitles}
+              busy={download.isPending}
+              onDownload={(urls) => save(choosing, urls)}
+              onBack={() => setChoosing(null)}
+            />
+          )}
+          {!choosing && servers.isPending && (
             <LoaderCircle
               role="status"
               aria-label={t('watch.findingServers')}
@@ -275,7 +289,7 @@ export const ServerPicker: FC<{
           {servers.data?.length === 0 && (
             <p className="text-muted text-sm">{t('watch.noServers')}</p>
           )}
-          {servers.data && servers.data.length > 0 && (
+          {!choosing && servers.data && servers.data.length > 0 && (
             <ul className="flex flex-col gap-4">
               {inRankOrder(servers.data, ranks).map(({ item: server, rank }) => (
                 <ServerItem

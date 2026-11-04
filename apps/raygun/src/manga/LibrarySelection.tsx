@@ -216,11 +216,12 @@ export const ListSheet: FC<{
   );
 };
 
-/** Download the next chapters of the selection (Mihon's menu). */
-const DownloadSheet: FC<{ onPick: (amount: number | null) => void; onClose: () => void }> = ({
-  onPick,
-  onClose,
-}) => {
+/** Download the next chapters (or episodes) of the selection (Mihon's menu). */
+const DownloadSheet: FC<{
+  video: boolean;
+  onPick: (amount: number | null) => void;
+  onClose: () => void;
+}> = ({ video, onPick, onClose }) => {
   const { t } = useTranslation();
   return (
     <Sheet title={t('library.select.download')} onClose={onClose}>
@@ -232,7 +233,9 @@ const DownloadSheet: FC<{ onPick: (amount: number | null) => void; onClose: () =
             onClick={() => onPick(amount)}
             className="hover:bg-background rounded-xl px-3 py-3 text-left"
           >
-            {t('library.select.downloadNext', { count: amount })}
+            {t(video ? 'library.select.downloadNextEpisodes' : 'library.select.downloadNext', {
+              count: amount,
+            })}
           </button>
         ))}
         <button
@@ -240,7 +243,7 @@ const DownloadSheet: FC<{ onPick: (amount: number | null) => void; onClose: () =
           onClick={() => onPick(null)}
           className="hover:bg-background rounded-xl px-3 py-3 text-left"
         >
-          {t('library.select.downloadUnread')}
+          {t(video ? 'library.select.downloadUnwatched' : 'library.select.downloadUnread')}
         </button>
       </div>
     </Sheet>
@@ -338,7 +341,8 @@ export const SelectionActions: FC<{
   const allPinned = selected.every((entry) => entry.pinned);
   const lists = new Set(selected.map((entry) => entry.list ?? null));
   const currentList = lists.size === 1 ? ([...lists][0] ?? null) : 'mixed';
-  const canDownload = medium !== 'video' && !selected.some((entry) => entry.local);
+  // Episodes find their own links (two download at a time); local files are on the device.
+  const canDownload = !selected.some((entry) => entry.local);
   const video = medium === 'video';
   const finish = { onSuccess: onDone };
   const error =
@@ -419,6 +423,7 @@ export const SelectionActions: FC<{
       )}
       {panel === 'download' && (
         <DownloadSheet
+          video={video}
           onPick={(amount) => {
             setPanel(null);
             download.mutate({ ids, amount }, finish);

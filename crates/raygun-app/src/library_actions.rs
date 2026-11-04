@@ -185,6 +185,68 @@ pub async fn download_next(
     Ok(queued.len() as u32)
 }
 
+/// [`download_next`] for videos: the next `amount` unwatched episodes of each title that are out
+/// (all of them when `None`), in watching order, queued to find their links when their turn
+/// comes. Local Files videos are on the device already.
+pub async fn download_next_episodes(
+    app: &AppHandle,
+    catalog: &Catalog,
+    ids: &[String],
+    amount: Option<u32>,
+) -> Result<u32, String> {
+    let db = catalog.db();
+    let downloads = app.state::<Arc<VideoDownloadService>>();
+    let now = now_ms();
+    let mut queued = 0;
+    let mut failure = None;
+    for id in ids {
+        let Some(row) = titles::title(&db, id).await.map_err(to_message)? else {
+            continue;
+        };
+        if row.fields.source_id == crate::local_files::LOCAL_VIDEO {
+            continue;
+        }
+        let group = match crate::video_library::stremio_id(&row) {
+            Some((kind, stremio_id)) => format!("stremio:{kind}:{stremio_id}"),
+            None => format!("title:{id}"),
+        };
+        let units = titles::units(&db, id).await.map_err(to_message)?;
+        let keys: Vec<String> = units
+            .iter()
+            .map(|unit| crate::video_library::unit_key(&row, &unit.fields.remote_id))
+            .collect();
+        let saved = raygun_db::video_downloads::states_for_keys(&db, &keys)
+            .await
+            .map_err(to_message)?;
+        let take = amount.map_or(usize::MAX, |amount| amount as usize);
+        let next: Vec<String> = crate::video_sources::watching_order(&units)
+            .into_iter()
+            .filter(|unit| {
+                let key = crate::video_library::unit_key(&row, &unit.fields.remote_id);
+                unit.completed_at.is_none()
+                    && unit.fields.date.is_none_or(|date| date <= now)
+                    && saved
+                        .get(&key)
+                        .is_none_or(|state| state == raygun_db::video_downloads::FAILED)
+            })
+            .take(take)
+            .map(|unit| unit.fields.remote_id.clone())
+            .collect();
+        if next.is_empty() {
+            continue;
+        }
+        // One title that can't be read doesn't stop the others.
+        match downloads.enqueue_episodes(&group, &next).await {
+            Ok(count) => queued += count,
+            Err(error) => failure = Some(format!("{}: {error}", row.fields.title)),
+        }
+    }
+    match failure {
+        Some(error) if queued == 0 => Err(error),
+        _ => Ok(queued),
+    }
+}
+
 /// Where a title continues: the chapter or episode its Continue opens.
 pub async fn continue_unit(catalog: &Catalog, title_id: &str) -> Result<Option<String>, String> {
     let units = titles::units(&catalog.db(), title_id)

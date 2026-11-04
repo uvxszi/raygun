@@ -1282,7 +1282,7 @@ pub fn parse_subtitles(value: &Value) -> Vec<Subtitle> {
 
 /// A language's other codes and English name, for matching what addons write in `lang` (ISO
 /// 639-1, both kinds of ISO 639-2, OpenSubtitles' own, or the name).
-fn language_names(code: &str) -> &'static [&'static str] {
+pub(crate) fn language_names(code: &str) -> &'static [&'static str] {
     match code {
         "en" => &["eng", "english"],
         "es" => &["spa", "spn", "ea", "spanish"],
