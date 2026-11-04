@@ -165,7 +165,7 @@ const SourcesList: FC = () => {
 
   const videoRows: SourceRow[] = [
     ...(addons.data ?? [])
-      .filter((addon) => addon.catalogs > 0 && !addon.error)
+      .filter((addon) => addon.catalogs > 0 && !addon.error && addon.enabled)
       .map((addon) => ({
         key: addon.id,
         name: addon.name,

@@ -133,31 +133,44 @@ describe('Customization', () => {
   });
 
   it("names a catalog's rows in Search when nothing is typed", async () => {
-    commands.stremioHome.mockResolvedValue(
-      ok([
-        {
-          addonId: 'cinemeta',
-          addonName: 'Cinemeta',
-          kind: 'movie',
-          catalogId: 'top',
-          name: 'Popular',
-          items: [],
-          genres: [],
-          hasMore: false,
-          error: null,
-        },
-        {
-          addonId: 'cinemeta',
-          addonName: 'Cinemeta',
-          kind: 'movie',
-          catalogId: 'year',
-          name: 'New',
-          items: [],
-          genres: [],
-          hasMore: false,
-          error: null,
-        },
-      ]),
+    const catalog = (catalogId: string, name: string) => ({
+      addonId: 'cinemeta',
+      addonName: 'Cinemeta',
+      kind: 'movie',
+      catalogId,
+      name,
+      extras: [],
+      board: true,
+      searchable: false,
+      discoverable: true,
+      pages: true,
+      failing: false,
+    });
+    commands.stremioCatalogs.mockResolvedValue(
+      ok([catalog('top', 'Popular'), catalog('year', 'New')]),
+    );
+    commands.stremioCatalog.mockImplementation(async (addonId, kind, catalogId) =>
+      ok({
+        addonId,
+        addonName: 'Cinemeta',
+        kind,
+        catalogId,
+        name: catalogId,
+        items: [
+          {
+            kind,
+            id: `tt-${catalogId}`,
+            name: `Film from ${catalogId}`,
+            poster: null,
+            posterShape: 'poster',
+            releaseInfo: null,
+            rating: null,
+          },
+        ],
+        genres: [],
+        hasMore: false,
+        error: null,
+      }),
     );
     await AppShellWrapper.mount('/browse?tab=search&type=video');
     expect(await screen.findByRole('region', { name: 'Popular · Movies' })).toBeInTheDocument();

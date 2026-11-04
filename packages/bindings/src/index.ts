@@ -954,19 +954,42 @@ export const commands = {
 	stremioAddons: () => typedError<StremioAddon[], string>(__TAURI_INVOKE("stremio_addons")),
 	/**  Well-known addons to add with one tap, marked when already added. */
 	stremioSuggestions: () => typedError<StremioSuggestion[], string>(__TAURI_INVOKE("stremio_suggestions")),
-	/**  Adds an addon by its address (`.../manifest.json`, `stremio://...` or a bare host). */
+	/**
+	 *  What the addon at an address is, before adding it: its name, what it provides, whether it
+	 *  must be set up first (`id` is empty unless it's added).
+	 */
+	stremioPreview: (url: string) => typedError<StremioAddon, string>(__TAURI_INVOKE("stremio_preview", { url })),
+	/**
+	 *  Adds an addon by its address (`.../manifest.json`, `stremio://...` or a bare host). The same
+	 *  addon set up again under a new address takes the old one's place.
+	 */
 	stremioAdd: (url: string) => typedError<StremioAddon, string>(__TAURI_INVOKE("stremio_add", { url })),
 	stremioRemove: (id: string) => typedError<null, string>(__TAURI_INVOKE("stremio_remove", { id })),
+	/**  Turns an addon on or off; one that's off is asked for nothing. */
+	stremioSetEnabled: (id: string, enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("stremio_set_enabled", { id, enabled })),
+	/**  Puts the addons in this order: details come from the first that has them. */
+	stremioSetOrder: (ids: string[]) => typedError<null, string>(__TAURI_INVOKE("stremio_set_order", { ids })),
+	/**  Opens the setup page of the addon at `url` in the browser. */
+	stremioConfigure: (url: string) => typedError<null, string>(__TAURI_INVOKE("stremio_configure", { url })),
+	/**
+	 *  Opens a stream's web page in the browser, or (on desktop) a torrent's magnet link in the
+	 *  torrent app.
+	 */
+	stremioOpenLink: (url: string) => typedError<null, string>(__TAURI_INVOKE("stremio_open_link", { url })),
+	/**  Every catalog of the addons that answer: board rows, searches and what Discover browses. */
+	stremioCatalogs: () => typedError<StremioCatalogInfo[], string>(__TAURI_INVOKE("stremio_catalogs")),
 	/**  The Watch home: the first page of every browsable catalog. */
 	stremioHome: () => typedError<StremioCatalogRow[], string>(__TAURI_INVOKE("stremio_home")),
-	/**  One catalog's page, optionally for a genre, `skip` items in. */
-	stremioCatalog: (addonId: string, kind: string, catalogId: string, genre: string | null, skip: number) => typedError<StremioCatalogRow, string>(__TAURI_INVOKE("stremio_catalog", { addonId, kind, catalogId, genre, skip })),
+	/**  One catalog's page with the extras chosen (a genre, a year...), `skip` items in. */
+	stremioCatalog: (addonId: string, kind: string, catalogId: string, extra: StremioExtraValue[], skip: number) => typedError<StremioCatalogRow, string>(__TAURI_INVOKE("stremio_catalog", { addonId, kind, catalogId, extra, skip })),
 	/**  Every searchable catalog's results for `query`. */
 	stremioSearch: (query: string) => typedError<StremioCatalogRow[], string>(__TAURI_INVOKE("stremio_search", { query })),
+	/**  One searchable catalog's results for `query`; a search for another query stops it. */
+	stremioSearchCatalog: (addonId: string, kind: string, catalogId: string, query: string) => typedError<StremioCatalogRow, string>(__TAURI_INVOKE("stremio_search_catalog", { addonId, kind, catalogId, query })),
 	/**  A title's details, seasons and episodes, with watching progress. */
 	stremioMeta: (kind: string, id: string) => typedError<StremioMeta, string>(__TAURI_INVOKE("stremio_meta", { kind, id })),
-	/**  Streams for a movie or an episode, grouped by addon. */
-	stremioStreams: (kind: string, videoId: string) => typedError<StremioStreamGroup[], string>(__TAURI_INVOKE("stremio_streams", { kind, videoId })),
+	/**  Streams for a movie or an episode of the title `meta_id`, grouped by addon. */
+	stremioStreams: (kind: string, metaId: string | null, videoId: string) => typedError<StremioStreamGroup[], string>(__TAURI_INVOKE("stremio_streams", { kind, metaId, videoId })),
 	/**  Plays a stream; `language` puts its subtitles first. */
 	stremioPlay: (request: StremioPlayRequest, language: string) => typedError<null, string>(__TAURI_INVOKE("stremio_play", { request, language })),
 	/**  Marks a movie or episode watched (or not). */
@@ -3743,6 +3766,38 @@ export type StremioAddon = {
 	adult: boolean,
 	/**  Why its manifest couldn't be read, when it couldn't. */
 	error: string | null,
+	/**  Off: listed, asked for nothing. */
+	enabled: boolean,
+	/**  What it offers, as the Addons page lists it. */
+	provides: StremioProvides[],
+	/**  Its streams are torrents (`behaviorHints.p2p`). */
+	p2p: boolean,
+	/**  Its setup page, when it can be set up. */
+	configureUrl: string | null,
+	/**  It must be set up on its website before it's added. */
+	needsSetup: boolean,
+	/**  It didn't answer lately: failed since it last worked, within three days. */
+	failing: boolean,
+};
+
+/**  A catalog an addon offers, before anything is asked of it. */
+export type StremioCatalogInfo = {
+	addonId: string,
+	addonName: string,
+	kind: string,
+	catalogId: string,
+	name: string,
+	/**  What it can be narrowed by (genres, years...), with the choices. */
+	extras: StremioExtra[],
+	/**  A row on the board: it lists without being asked anything. */
+	board: boolean,
+	searchable: boolean,
+	/**  Discover can browse it (what it requires has choices). */
+	discoverable: boolean,
+	/**  It pages (`skip`). */
+	pages: boolean,
+	/**  Its addon didn't answer lately. */
+	failing: boolean,
 };
 
 /**  One catalog's first page on the Watch home, in search, or a catalog page. */
@@ -3757,6 +3812,20 @@ export type StremioCatalogRow = {
 	genres: string[],
 	hasMore: boolean,
 	error: string | null,
+};
+
+export type StremioExtra = {
+	/**  `genre`, or another name an addon gives. */
+	name: string,
+	/**  The catalog lists nothing without one (its first choice then). */
+	required: boolean,
+	options: string[],
+};
+
+/**  A choice for a catalog's extra. */
+export type StremioExtraValue = {
+	name: string,
+	value: string,
 };
 
 /**  A movie, series or channel in a catalog. */
@@ -3798,6 +3867,15 @@ export type StremioMeta = {
 	/**  For a movie: saved on the device (M43). */
 	downloaded: boolean,
 	addonName: string,
+	/**  The addon whose details these are (empty when shown as stored). */
+	addonId: string,
+	/**
+	 *  What the title itself plays by (a movie, a channel): the details' default video, else
+	 *  its id.
+	 */
+	videoId: string,
+	/**  A live channel. */
+	live: boolean,
 	/**  Saved in the video library (M43). */
 	inLibrary: boolean,
 	/**  The stored title, once it was saved. */
@@ -3819,6 +3897,18 @@ export type StremioPlayRequest = {
 	external?: boolean,
 };
 
+/**
+ *  One thing an addon offers: catalogs of a type (with how many), details of a type, streams,
+ *  subtitles.
+ */
+export type StremioProvides = {
+	/**  `catalog`, `meta`, `stream` or `subtitles`. */
+	resource: string,
+	/**  The type it's for (`movie`, `series`...), for catalogs and details. */
+	kind: string | null,
+	count: number,
+};
+
 export type StremioStream = {
 	kind: StremioStreamKind,
 	name: string | null,
@@ -3829,6 +3919,12 @@ export type StremioStream = {
 	subtitles: VideoSubtitle[],
 	/**  Streams of one release across episodes (Stremio's `bingeGroup`), for binge watching. */
 	bingeGroup: string | null,
+	/**  The file's name, size (bytes) and OpenSubtitles hash, which subtitle addons match by. */
+	filename?: string | null,
+	size?: number | null,
+	videoHash?: string | null,
+	/**  A browser can't play it as it is (`behaviorHints.notWebReady`). */
+	notWebReady?: boolean,
 };
 
 export type StremioStreamGroup = {
@@ -3836,6 +3932,8 @@ export type StremioStreamGroup = {
 	addonName: string,
 	streams: StremioStream[],
 	error: string | null,
+	/**  The addon didn't answer lately. */
+	failing: boolean,
 };
 
 export type StremioStreamKind = 
@@ -3843,10 +3941,14 @@ export type StremioStreamKind =
 "direct" | 
 /**  Plays in the embedded YouTube player. */
 "youTube" | 
-/**  Opens outside Raygun. */
+/**  Opens outside Raygun (a web page). */
 "external" | 
-/**  Needs a torrent engine (not supported yet). */
-"torrent";
+/**  A torrent: a torrent app plays it; `target` is its magnet link. */
+"torrent" | 
+/**  Opens another title's page; `target` is `<type>/<id>`. */
+"title" | 
+/**  Archives, Usenet and other streams only Stremio's streaming server opens. */
+"server";
 
 /**  A well-known addon offered with one tap. */
 export type StremioSuggestion = {

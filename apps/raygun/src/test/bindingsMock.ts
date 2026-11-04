@@ -556,11 +556,18 @@ export const bindingsMock = {
     videoSetPlayerLabels: vi.fn(),
     stremioAddons: vi.fn(),
     stremioSuggestions: vi.fn(),
+    stremioPreview: vi.fn(),
     stremioAdd: vi.fn(),
     stremioRemove: vi.fn(),
+    stremioSetEnabled: vi.fn(),
+    stremioSetOrder: vi.fn(),
+    stremioConfigure: vi.fn(),
+    stremioOpenLink: vi.fn(),
+    stremioCatalogs: vi.fn(),
     stremioHome: vi.fn(),
     stremioCatalog: vi.fn(),
     stremioSearch: vi.fn(),
+    stremioSearchCatalog: vi.fn(),
     stremioMeta: vi.fn(),
     stremioStreams: vi.fn(),
     stremioPlay: vi.fn(),
@@ -1045,11 +1052,30 @@ export const seedBindings = () => {
   commands.videoSetPlayerLabels.mockResolvedValue(undefined);
   commands.stremioAddons.mockResolvedValue(ok([]));
   commands.stremioSuggestions.mockResolvedValue(ok([]));
+  commands.stremioPreview.mockResolvedValue({ status: 'error', error: 'not mocked' });
   commands.stremioAdd.mockResolvedValue(ok(null));
   commands.stremioRemove.mockResolvedValue(ok(null));
+  commands.stremioSetEnabled.mockResolvedValue(ok(null));
+  commands.stremioSetOrder.mockResolvedValue(ok(null));
+  commands.stremioConfigure.mockResolvedValue(ok(null));
+  commands.stremioOpenLink.mockResolvedValue(ok(null));
+  commands.stremioCatalogs.mockResolvedValue(ok([]));
   commands.stremioHome.mockResolvedValue(ok([]));
   commands.stremioCatalog.mockResolvedValue({ status: 'error', error: 'not mocked' });
   commands.stremioSearch.mockResolvedValue(ok([]));
+  commands.stremioSearchCatalog.mockResolvedValue(
+    ok({
+      addonId: '',
+      addonName: '',
+      kind: 'movie',
+      catalogId: '',
+      name: '',
+      items: [],
+      genres: [],
+      hasMore: false,
+      error: null,
+    }),
+  );
   commands.stremioMeta.mockResolvedValue({ status: 'error', error: 'not mocked' });
   commands.stremioStreams.mockResolvedValue(ok([]));
   commands.stremioPlay.mockResolvedValue(ok(null));

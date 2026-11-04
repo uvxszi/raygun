@@ -5469,6 +5469,70 @@ pub struct StremioAddon {
     pub adult: bool,
     /// Why its manifest couldn't be read, when it couldn't.
     pub error: Option<String>,
+    /// Off: listed, asked for nothing.
+    pub enabled: bool,
+    /// What it offers, as the Addons page lists it.
+    pub provides: Vec<StremioProvides>,
+    /// Its streams are torrents (`behaviorHints.p2p`).
+    pub p2p: bool,
+    /// Its setup page, when it can be set up.
+    pub configure_url: Option<String>,
+    /// It must be set up on its website before it's added.
+    pub needs_setup: bool,
+    /// It didn't answer lately: failed since it last worked, within three days.
+    pub failing: bool,
+}
+
+/// One thing an addon offers: catalogs of a type (with how many), details of a type, streams,
+/// subtitles.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StremioProvides {
+    /// `catalog`, `meta`, `stream` or `subtitles`.
+    pub resource: String,
+    /// The type it's for (`movie`, `series`...), for catalogs and details.
+    pub kind: Option<String>,
+    pub count: u32,
+}
+
+/// A catalog an addon offers, before anything is asked of it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StremioCatalogInfo {
+    pub addon_id: String,
+    pub addon_name: String,
+    pub kind: String,
+    pub catalog_id: String,
+    pub name: String,
+    /// What it can be narrowed by (genres, years...), with the choices.
+    pub extras: Vec<StremioExtra>,
+    /// A row on the board: it lists without being asked anything.
+    pub board: bool,
+    pub searchable: bool,
+    /// Discover can browse it (what it requires has choices).
+    pub discoverable: bool,
+    /// It pages (`skip`).
+    pub pages: bool,
+    /// Its addon didn't answer lately.
+    pub failing: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StremioExtra {
+    /// `genre`, or another name an addon gives.
+    pub name: String,
+    /// The catalog lists nothing without one (its first choice then).
+    pub required: bool,
+    pub options: Vec<String>,
+}
+
+/// A choice for a catalog's extra.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StremioExtraValue {
+    pub name: String,
+    pub value: String,
 }
 
 /// A well-known addon offered with one tap.
@@ -5570,6 +5634,13 @@ pub struct StremioMeta {
     /// For a movie: saved on the device (M43).
     pub downloaded: bool,
     pub addon_name: String,
+    /// The addon whose details these are (empty when shown as stored).
+    pub addon_id: String,
+    /// What the title itself plays by (a movie, a channel): the details' default video, else
+    /// its id.
+    pub video_id: String,
+    /// A live channel.
+    pub live: bool,
     /// Saved in the video library (M43).
     pub in_library: bool,
     /// The stored title, once it was saved.
@@ -5583,13 +5654,17 @@ pub enum StremioStreamKind {
     Direct,
     /// Plays in the embedded YouTube player.
     YouTube,
-    /// Opens outside Raygun.
+    /// Opens outside Raygun (a web page).
     External,
-    /// Needs a torrent engine (not supported yet).
+    /// A torrent: a torrent app plays it; `target` is its magnet link.
     Torrent,
+    /// Opens another title's page; `target` is `<type>/<id>`.
+    Title,
+    /// Archives, Usenet and other streams only Stremio's streaming server opens.
+    Server,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct StremioStream {
     pub kind: StremioStreamKind,
@@ -5601,19 +5676,31 @@ pub struct StremioStream {
     pub subtitles: Vec<VideoSubtitle>,
     /// Streams of one release across episodes (Stremio's `bingeGroup`), for binge watching.
     pub binge_group: Option<String>,
+    /// The file's name, size (bytes) and OpenSubtitles hash, which subtitle addons match by.
+    #[serde(default)]
+    pub filename: Option<String>,
+    #[serde(default)]
+    pub size: Option<f64>,
+    #[serde(default)]
+    pub video_hash: Option<String>,
+    /// A browser can't play it as it is (`behaviorHints.notWebReady`).
+    #[serde(default)]
+    pub not_web_ready: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct StremioStreamGroup {
     pub addon_id: String,
     pub addon_name: String,
     pub streams: Vec<StremioStream>,
     pub error: Option<String>,
+    /// The addon didn't answer lately.
+    pub failing: bool,
 }
 
 /// What to play: a stream of a movie or episode, with what the player shows.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct StremioPlayRequest {
     pub kind: String,
