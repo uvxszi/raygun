@@ -2722,7 +2722,14 @@
       "played": "Recently played from",
       "opened": "Recently opened"
     },
-    "empty": "Right-click a playlist, album, artist, show or book to pin it here."
+    "empty": "Right-click a playlist, album, artist, show or book to pin it here.",
+    "emptyTouch": "Pin a playlist, album, artist, show or book from its menu to see it here."
+  },
+  "quickAccess": {
+    "title": "Quick access",
+    "open": "Open quick access",
+    "compact": "Show icons only",
+    "expand": "Show names"
   },
   "album": {
     "title": "Album",

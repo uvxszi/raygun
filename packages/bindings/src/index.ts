@@ -3778,6 +3778,8 @@ export type RailPrefs = {
 	autoAdd?: boolean,
 	/**  Automatic pins kept at most, 1–1000; the oldest go first. Pins made by hand stay. */
 	limit?: number,
+	/**  The phone's quick access drawer shows names beside the pins; off, icons only. */
+	drawerExpanded?: boolean,
 };
 
 /**  How a title is read (M27). */
