@@ -1329,11 +1329,6 @@ fn to_repo(row: store::RepoRow) -> ExtensionRepo {
     }
 }
 
-/// The suggested repositories' index URLs (M46.17: the test sources add them all).
-pub fn suggested_repo_urls() -> Vec<&'static str> {
-    SUGGESTED_REPOS.iter().map(|(url, _, _)| *url).collect()
-}
-
 /// Raygun's repository, Paraline: public-domain and openly licensed sources in one index. Every
 /// new install starts with it.
 const PARALINE_URL: &str =

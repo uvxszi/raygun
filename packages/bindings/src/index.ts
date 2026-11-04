@@ -130,11 +130,6 @@ export const commands = {
 	 *  engines listen. Only the first call of a run does anything.
 	 */
 	playbackRestore: () => typedError<null, string>(__TAURI_INVOKE("playback_restore")),
-	/**
-	 *  Adds the test sources (M46.17, Settings → Data → Developer): every suggested repository,
-	 *  Raygun's test repository and the test addons. Never part of a fresh install.
-	 */
-	devAddTestSources: () => typedError<TestSourcesReport, string>(__TAURI_INVOKE("dev_add_test_sources")),
 	/**  Queues an episode after what plays (`next`) or at the end (M46.16). */
 	podcastQueue: (episodeId: string, next: boolean) => typedError<null, string>(__TAURI_INVOKE("podcast_queue", { episodeId, next })),
 	/**  Where this device's player plays (M46.15). */
@@ -716,8 +711,8 @@ export const commands = {
 	/**  Shows a finished yt-dlp download in the file manager (M46.47). */
 	ytdlpReveal: (id: string) => typedError<null, string>(__TAURI_INVOKE("ytdlp_reveal", { id })),
 	/**
-	 *  Takes the test sources off again (M46.47): Raygun's test repository, its extensions and its
-	 *  Stremio addon. The suggested repositories and the legal addons stay.
+	 *  Takes the old test sources off (M46.47): the test repository, its extensions and its Stremio
+	 *  addon.
 	 */
 	devRemoveTestSources: () => typedError<number, string>(__TAURI_INVOKE("dev_remove_test_sources")),
 	/**  Raygun's newest release next to this copy (M46.47); `refresh` asks GitHub now. */
@@ -5367,18 +5362,6 @@ export type TapZones =
 "off" | 
 /**  Each mode's own 3×3 grid (`MangaReaderPrefs::tap_grid_paged`, `tap_grid_webtoon`). */
 "custom";
-
-export type TestSourceFailure = {
-	url: string,
-	error: string,
-};
-
-/**  What adding the test sources did: what was added and what couldn't be. */
-export type TestSourcesReport = {
-	added: string[],
-	already: string[],
-	failed: TestSourceFailure[],
-};
 
 export type TextAlign = "left" | "center";
 
