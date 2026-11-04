@@ -680,15 +680,22 @@ mod tests {
     }
 
     /// Reads the next frame the sender wrote, as namespace, destination and JSON.
+    /// The sender's own pings and status questions, which come every few seconds, are skipped.
     async fn next_frame(stream: &mut tokio::io::DuplexStream) -> (String, String, Value) {
         use prost::Message;
-        let mut length = [0u8; 4];
-        stream.read_exact(&mut length).await.unwrap();
-        let mut body = vec![0u8; u32::from_be_bytes(length) as usize];
-        stream.read_exact(&mut body).await.unwrap();
-        let message = CastMessage::decode(body.as_slice()).unwrap();
-        let payload = serde_json::from_str(message.payload_utf8.as_deref().unwrap()).unwrap();
-        (message.namespace, message.destination_id, payload)
+        loop {
+            let mut length = [0u8; 4];
+            stream.read_exact(&mut length).await.unwrap();
+            let mut body = vec![0u8; u32::from_be_bytes(length) as usize];
+            stream.read_exact(&mut body).await.unwrap();
+            let message = CastMessage::decode(body.as_slice()).unwrap();
+            let payload: Value =
+                serde_json::from_str(message.payload_utf8.as_deref().unwrap()).unwrap();
+            if matches!(payload["type"].as_str(), Some("PING" | "GET_STATUS")) {
+                continue;
+            }
+            return (message.namespace, message.destination_id, payload);
+        }
     }
 
     /// What the receiver sends, from `source`.
