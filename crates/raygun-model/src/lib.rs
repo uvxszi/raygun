@@ -218,6 +218,8 @@ pub struct Settings {
     pub lyrics_translation: LyricsTranslationPrefs,
     /// Sources that didn't answer lately go to the end of Browse and Search (M46.9).
     pub failing_sources_last: bool,
+    /// Search's own switches: no 18+ sources or titles, no explicit songs; both off by default.
+    pub search_filter: SearchFilterPrefs,
     /// Sources that meet a browser check offer to open their site so it can be passed by hand
     /// (experimental, off by default; `raygun_ext_host::browser_check`).
     pub manual_browser_checks: bool,
@@ -412,6 +414,16 @@ pub enum LyricsClearScope {
     /// Favorites and playlists.
     Saved,
     Downloaded,
+}
+
+/// What Search leaves out besides what Show NSFW and Explicit music already hide; both off.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SearchFilterPrefs {
+    /// "No 18+": sources rated for adults aren't asked, and titles marked adult are left out.
+    pub no_adult: bool,
+    /// "No explicit": songs marked explicit are left out, and 18+ music sources aren't asked.
+    pub no_explicit: bool,
 }
 
 /// What's remembered of listening (M46.41); both on by default.
@@ -1963,6 +1975,7 @@ impl Default for Settings {
             lyrics_cache: LyricsCachePrefs::default(),
             lyrics_translation: LyricsTranslationPrefs::default(),
             failing_sources_last: true,
+            search_filter: SearchFilterPrefs::default(),
             manual_browser_checks: false,
             user_agent: String::new(),
             sound: SoundPrefs::default(),
@@ -2017,6 +2030,7 @@ impl Settings {
             SettingChange::WindowFrame(frame) => self.window_frame = frame,
             SettingChange::Zoom(percent) => self.zoom = percent,
             SettingChange::FailingSourcesLast(on) => self.failing_sources_last = on,
+            SettingChange::SearchFilter(prefs) => self.search_filter = prefs,
             SettingChange::ManualBrowserChecks(on) => self.manual_browser_checks = on,
             SettingChange::UserAgent(agent) => self.user_agent = agent.trim().to_owned(),
             SettingChange::Sound(prefs) => self.sound = prefs,
@@ -2105,6 +2119,7 @@ pub enum SettingChange {
     Zoom(u32),
     Discovery(DiscoveryPrefs),
     FailingSourcesLast(bool),
+    SearchFilter(SearchFilterPrefs),
     ManualBrowserChecks(bool),
     UserAgent(String),
     Sound(SoundPrefs),
@@ -2165,6 +2180,7 @@ impl SettingChange {
             Self::Zoom(_) => "zoom",
             Self::Discovery(_) => "discovery",
             Self::FailingSourcesLast(_) => "failingSourcesLast",
+            Self::SearchFilter(_) => "searchFilter",
             Self::ManualBrowserChecks(_) => "manualBrowserChecks",
             Self::UserAgent(_) => "userAgent",
             Self::Sound(_) => "sound",
@@ -2201,6 +2217,7 @@ impl SettingChange {
             | Self::Motion(_)
             | Self::WindowFrame(_)
             | Self::FailingSourcesLast(_)
+            | Self::SearchFilter(_)
             | Self::ManualBrowserChecks(_)
             | Self::KeepMusicPlaying(_)
             | Self::ResumeOnStart(_)

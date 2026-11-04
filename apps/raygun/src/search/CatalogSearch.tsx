@@ -22,6 +22,7 @@ import { SourceFiltersPanel } from './SourceFiltersPanel';
 import { rankResults, titleScore } from './rankResults';
 import type { RankedCard } from './rankResults';
 import { videoTitleScore } from '../watch/videoMatch';
+import { keepCards, keepSource, useSearchFilter } from './searchFilter';
 import { useSeenTitles } from './seenBefore';
 import { failingLast, useSourceHealth } from './sourceHealth';
 import {
@@ -209,8 +210,9 @@ export const RankedResults: FC<{
     },
     [ids],
   );
+  const filter = useSearchFilter();
   const searches = useQueries({
-    queries: sources.map((source) => sourceSearchOptions(medium, source.id, query)),
+    queries: sources.map((source) => sourceSearchOptions(medium, source.id, query, filter)),
     combine,
   });
   const { results, answered, errorKey } = searches;
@@ -375,7 +377,8 @@ const SourceSearch: FC<{
   const [values, setValues] = useState<FilterValues>({});
   const filters = useSourceFilters(medium, sourceId);
   const search = useFilteredSearch(medium, sourceId, query, values);
-  const items = search.data?.pages.flatMap((page) => page.items) ?? [];
+  const filter = useSearchFilter();
+  const items = keepCards(filter, search.data?.pages.flatMap((page) => page.items) ?? []);
   const hasFilters = (filters.data?.length ?? 0) > 0;
   const active = Object.keys(values).length;
 
@@ -450,11 +453,14 @@ export const CatalogSearch: FC<{
 }> = ({ medium, query, only, withPills = false, onLibrary }) => {
   const { t } = useTranslation();
   const listed = useMangaSources(medium);
-  // A source with its own pill searches there, not among the rest (M46.35).
+  const filter = useSearchFilter();
+  // A source with its own pill searches there, not among the rest (M46.35); "No 18+" leaves
+  // adult sources out.
   const sources = {
     ...listed,
-    data: listed.data?.filter((source) =>
-      only ? source.id === only : withPills || !source.searchPill,
+    data: listed.data?.filter(
+      (source) =>
+        (only ? source.id === only : withPills || !source.searchPill) && keepSource(filter, source),
     ),
   };
   const [chosen, setChosenState] = useState(() => readChosen(medium));

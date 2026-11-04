@@ -10,6 +10,8 @@ import { LibraryMatches } from './LibraryMatches';
 import { MusicResults } from './MusicResults';
 import { useMangaSources } from '../manga/useManga';
 import { RecentSearches } from './RecentSearches';
+import { keepSource, useSearchFilter } from './searchFilter';
+import { SearchFilterToggles } from './SearchFilterToggles';
 import { kindOf, useRememberSearch } from './useRecentSearches';
 import { useSearchStream } from './searchStream';
 import { failingLast, useSourceHealth } from './sourceHealth';
@@ -66,8 +68,11 @@ const VideoSearch: FC<{
   const listed = useMangaSources('video');
   const failures = useSourceHealth((state) => state.failures);
   const failingAtEnd = useSettings().data?.failingSourcesLast ?? true;
+  const filter = useSearchFilter();
   const sources = failingLast(
-    (listed.data ?? []).filter((source) => source.enabled && !source.searchPill),
+    (listed.data ?? []).filter(
+      (source) => source.enabled && !source.searchPill && keepSource(filter, source),
+    ),
     failures,
     failingAtEnd,
   );
@@ -156,7 +161,10 @@ export const SearchPanel: FC<{
   const remember = useRememberSearch();
   // Video sources that bring their own pill (YouTube, PeerTube…), enabled ones only.
   const videoSources = useMangaSources('video');
-  const pills = (videoSources.data ?? []).filter((source) => source.searchPill && source.enabled);
+  const filter = useSearchFilter();
+  const pills = (videoSources.data ?? []).filter(
+    (source) => source.searchPill && source.enabled && keepSource(filter, source),
+  );
   const pillSource = type === 'video' ? pills.find((source) => source.id === pill) : undefined;
   const blank = query.trim() === '';
   // What plays from here shows "Playing from" this search.
@@ -207,34 +215,38 @@ export const SearchPanel: FC<{
 
   return (
     <div data-testid="search-page" className="flex flex-col gap-4">
-      <div
-        role="tablist"
-        aria-label={t('search.typeLabel')}
-        className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
-      >
-        {SEARCH_TYPES.map((option) => (
-          <Fragment key={option}>
-            {typePill(option)}
-            {/* A video site's own pill sits beside Videos. */}
-            {option === 'video' &&
-              pills.map((source) => {
-                const current = pillSource?.id === source.id;
-                return (
-                  <button
-                    key={source.id}
-                    ref={current ? selected : undefined}
-                    type="button"
-                    role="tab"
-                    aria-selected={current}
-                    onClick={() => onType('video', undefined, source.id)}
-                    className={`shrink-0 rounded-full px-4 py-1.5 text-sm ${current ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
-                  >
-                    {source.searchPill}
-                  </button>
-                );
-              })}
-          </Fragment>
-        ))}
+      {/* The kinds, then Search's "No 18+" and "No explicit" beside them (below on phones). */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div
+          role="tablist"
+          aria-label={t('search.typeLabel')}
+          className="-mx-4 flex min-w-0 flex-1 gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
+        >
+          {SEARCH_TYPES.map((option) => (
+            <Fragment key={option}>
+              {typePill(option)}
+              {/* A video site's own pill sits beside Videos. */}
+              {option === 'video' &&
+                pills.map((source) => {
+                  const current = pillSource?.id === source.id;
+                  return (
+                    <button
+                      key={source.id}
+                      ref={current ? selected : undefined}
+                      type="button"
+                      role="tab"
+                      aria-selected={current}
+                      onClick={() => onType('video', undefined, source.id)}
+                      className={`shrink-0 rounded-full px-4 py-1.5 text-sm ${current ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
+                    >
+                      {source.searchPill}
+                    </button>
+                  );
+                })}
+            </Fragment>
+          ))}
+        </div>
+        <SearchFilterToggles />
       </div>
       {/* A YouTube address plays or downloads as it is (M46.47). */}
       <YouTubeLinkCard query={query} />

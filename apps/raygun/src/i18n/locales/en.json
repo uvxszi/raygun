@@ -316,6 +316,13 @@
     "yourLibrary": "Your library",
     "topResults": "Top results",
     "typeLabel": "Search in",
+    "filter": {
+      "label": "Leave out",
+      "noAdult": "No 18+",
+      "noExplicit": "No explicit",
+      "adultHidden": "Show NSFW is off in Settings, so 18+ content is already hidden",
+      "explicitHidden": "Explicit music is off in Settings, so explicit songs are already hidden"
+    },
     "type": {
       "all": "All",
       "music": "Audio",
