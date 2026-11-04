@@ -1322,6 +1322,39 @@ export const commands = {
 	/**  The video players installed on this computer, best first (desktop, M46.33). */
 	videoExternalPlayers: () => __TAURI_INVOKE<ExternalPlayer[]>("video_external_players"),
 	/**
+	 *  TVs and other devices the player's video can play on. Asking searches the network, again
+	 *  every few seconds while asked.
+	 */
+	castDevices: () => __TAURI_INVOKE<CastDeviceList>("cast_devices"),
+	/**  Adds a TV by its address (`192.168.1.20`, with a port, or its description's address). */
+	castAddDevice: (address: string) => typedError<CastDevice, string>(__TAURI_INVOKE("cast_add_device", { address })),
+	/**
+	 *  Plays the player's video on a device from `position_ms`, with the subtitle file at
+	 *  `subtitle` (an index into the video's subtitles) on.
+	 */
+	castStart: (deviceId: string, positionMs: number | null, subtitle: number | null) => typedError<null, string>(__TAURI_INVOKE("cast_start", { deviceId, positionMs, subtitle })),
+	/**  A button of the device's remote control. */
+	castControl: (control: CastControl) => typedError<null, string>(__TAURI_INVOKE("cast_control", { control })),
+	/**  Stops playing on the device; with `resume`, the player goes on from where it was. */
+	castDisconnect: (resume: boolean) => typedError<null, string>(__TAURI_INVOKE("cast_disconnect", { resume })),
+	/**  What plays on a device, if anything. */
+	castStatus: () => __TAURI_INVOKE<{
+	device: CastDevice,
+	/**  The video's progress key (the player's `id`). */
+	key: string,
+	title: string,
+	subtitle: string | null,
+	state: CastState,
+	positionMs: number | null,
+	durationMs: number | null,
+	/**  0–1; `None` when the device doesn't say. */
+	volume: number | null,
+	muted: boolean,
+	/**  When `position_ms` was read (Unix ms): while playing, the position moves on from there. */
+	atMs: number | null,
+	error: string | null,
+} | null>("cast_status"),
+	/**
 	 *  Looks for subtitles for what plays under `key` (`stremio:<type>:<id>`) in every added addon
 	 *  (M46.33); offers OpenSubtitles when no addon serves subtitles.
 	 */
@@ -1344,6 +1377,7 @@ export const events = {
 	artistReleasesEvent: makeEvent<ArtistReleasesEvent>("artist-releases-event"),
 	audiobooksFoundEvent: makeEvent<AudiobooksFoundEvent>("audiobooks-found-event"),
 	captionsEvent: makeEvent<CaptionsEvent>("captions-event"),
+	castStatusEvent: makeEvent<CastStatusEvent>("cast-status-event"),
 	connectEvent: makeEvent<ConnectEvent>("connect-event"),
 	connectRequestEvent: makeEvent<ConnectRequestEvent>("connect-request-event"),
 	deviceStateEvent: makeEvent<DeviceStateEvent>("device-state-event"),
@@ -1814,6 +1848,76 @@ export type Captions = {
  *  transcribing started or stopped; carries the episode's id (M46.32).
  */
 export type CaptionsEvent = string;
+
+/**  A button of the device's remote control (Play on TV). */
+export type CastControl = { type: "play" } | { type: "pause" } | { type: "seek"; positionMs: number | null } | 
+/**  0–1. */
+{ type: "volume"; level: number | null } | { type: "mute"; muted: boolean } | { type: "stop" };
+
+/**  A TV or other device a video can play on. */
+export type CastDevice = {
+	id: string,
+	name: string,
+	kind: CastKind,
+	/**  The model, when the device says (`Chromecast Ultra`, `UE55TU7000`). */
+	model: string | null,
+	/**  `ip:port`. */
+	address: string,
+	/**  Added by its address rather than found on the network. */
+	added: boolean,
+};
+
+/**  The devices found so far, and whether the network is being searched. */
+export type CastDeviceList = {
+	devices: CastDevice[],
+	searching: boolean,
+};
+
+/**  How a device plays the videos sent to it (Play on TV). */
+export type CastKind = 
+/**  Chromecast, Android TV and Google TV, through the Cast v2 protocol. */
+"googleCast" | 
+/**  DLNA (UPnP) media renderers: most smart TVs. */
+"dlna" | 
+/**
+ *  Apple TV and AirPlay TVs, for the iOS app, which reaches them through AVKit. Raygun on
+ *  Android and desktop neither finds nor plays on them.
+ */
+"airplay";
+
+/**  What a device does with the video sent to it. */
+export type CastState = 
+/**  Reaching the device and starting its player. */
+"connecting" | 
+/**  The device opens the video. */
+"loading" | "playing" | "paused" | "buffering" | 
+/**  Stopped on the device (Stop, or its own remote): Play starts it again from where it was. */
+"stopped" | 
+/**  Played to its end. */
+"finished" | 
+/**  The device couldn't play it or can't be reached (`error` says which). */
+"failed";
+
+/**  The video on a device, as it last reported. */
+export type CastStatus = {
+	device: CastDevice,
+	/**  The video's progress key (the player's `id`). */
+	key: string,
+	title: string,
+	subtitle: string | null,
+	state: CastState,
+	positionMs: number | null,
+	durationMs: number | null,
+	/**  0–1; `None` when the device doesn't say. */
+	volume: number | null,
+	muted: boolean,
+	/**  When `position_ms` was read (Unix ms): while playing, the position moves on from there. */
+	atMs: number | null,
+	error: string | null,
+};
+
+/**  What plays on a TV changed (Play on TV); `None` once nothing does. */
+export type CastStatusEvent = CastStatus | null;
 
 /**  An extension a repository offers. */
 export type CatalogEntry = {

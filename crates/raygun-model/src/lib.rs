@@ -6161,6 +6161,104 @@ pub struct ExternalPlayer {
     pub name: String,
 }
 
+// ---- Play on TV ----
+
+/// How a device plays the videos sent to it (Play on TV).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum CastKind {
+    /// Chromecast, Android TV and Google TV, through the Cast v2 protocol.
+    GoogleCast,
+    /// DLNA (UPnP) media renderers: most smart TVs.
+    Dlna,
+    /// Apple TV and AirPlay TVs, for the iOS app, which reaches them through AVKit. Raygun on
+    /// Android and desktop neither finds nor plays on them.
+    #[serde(rename = "airplay")]
+    AirPlay,
+}
+
+/// A TV or other device a video can play on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CastDevice {
+    pub id: String,
+    pub name: String,
+    pub kind: CastKind,
+    /// The model, when the device says (`Chromecast Ultra`, `UE55TU7000`).
+    pub model: Option<String>,
+    /// `ip:port`.
+    pub address: String,
+    /// Added by its address rather than found on the network.
+    pub added: bool,
+}
+
+/// The devices found so far, and whether the network is being searched.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CastDeviceList {
+    pub devices: Vec<CastDevice>,
+    pub searching: bool,
+}
+
+/// What a device does with the video sent to it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum CastState {
+    /// Reaching the device and starting its player.
+    Connecting,
+    /// The device opens the video.
+    Loading,
+    Playing,
+    Paused,
+    Buffering,
+    /// Stopped on the device (Stop, or its own remote): Play starts it again from where it was.
+    Stopped,
+    /// Played to its end.
+    Finished,
+    /// The device couldn't play it or can't be reached (`error` says which).
+    Failed,
+}
+
+/// The video on a device, as it last reported.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CastStatus {
+    pub device: CastDevice,
+    /// The video's progress key (the player's `id`).
+    pub key: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub state: CastState,
+    pub position_ms: f64,
+    pub duration_ms: Option<f64>,
+    /// 0–1; `None` when the device doesn't say.
+    pub volume: Option<f64>,
+    pub muted: bool,
+    /// When `position_ms` was read (Unix ms): while playing, the position moves on from there.
+    pub at_ms: f64,
+    pub error: Option<String>,
+}
+
+/// A button of the device's remote control (Play on TV).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum CastControl {
+    Play,
+    Pause,
+    #[serde(rename_all = "camelCase")]
+    Seek {
+        position_ms: f64,
+    },
+    /// 0–1.
+    Volume {
+        level: f64,
+    },
+    Mute {
+        muted: bool,
+    },
+    Stop,
+}
+
 /// Something started and not finished.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

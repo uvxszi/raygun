@@ -347,6 +347,10 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             }
             sheet.row(label("quality", "Quality"), quality) { quality() }
         }
+        sheet.row(label("playOnTv", "Play on TV")) {
+            sheet.dismiss()
+            host.cast.open()
+        }
         sheet.row(label("loop", "Loop this video"), selected = host.looping) {
             host.toggleLoop()
             more()

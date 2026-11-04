@@ -611,3 +611,111 @@ async fn media_playlists_lead_back_into_the_proxy_with_their_headers() {
     assert_eq!(reqwest::get(unknown).await.unwrap().status(), 404);
     assert!(media.link("file:///etc/passwd", &referer).is_none());
 }
+
+#[tokio::test]
+async fn the_cast_route_serves_only_behind_its_token_with_the_streams_headers() {
+    let origin = start_hls_origin().await;
+    let proxy = proxy().await;
+    let referer = BTreeMap::from([("Referer".to_owned(), REQUIRED_REFERER.to_owned())]);
+    let route = proxy.lan().open(Ipv4Addr::LOCALHOST.into()).await.unwrap();
+    let link = route
+        .link(&format!("http://{origin}/show/index.txt"), &referer)
+        .unwrap();
+    let address = route.address();
+    assert!(link.starts_with(&format!("http://{address}/cast/")));
+
+    // The playlist leads back into the route, and its segments get the Referer.
+    let response = reqwest::get(&link).await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()["transferMode.dlna.org"], "Streaming");
+    let playlist = response.text().await.unwrap();
+    let segments: Vec<&str> = playlist
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .collect();
+    assert_eq!(segments.len(), 2);
+    let route_base = &link[..link.find("/media/").unwrap()];
+    for segment in segments {
+        assert!(segment.starts_with(route_base));
+        let whole = reqwest::get(segment).await.unwrap();
+        assert_eq!(whole.bytes().await.unwrap().as_ref(), SONG);
+    }
+
+    // Another token, a shorter one, no token: nothing.
+    let token = link
+        .split("/cast/")
+        .nth(1)
+        .and_then(|rest| rest.split('/').next())
+        .unwrap()
+        .to_owned();
+    let wrong = link.replace(&token, &"0".repeat(token.len()));
+    assert_eq!(reqwest::get(&wrong).await.unwrap().status(), 404);
+    let shorter = link.replace(&token, &token[..10]);
+    assert_eq!(reqwest::get(&shorter).await.unwrap().status(), 404);
+    let bare = link.replace(&format!("/cast/{token}"), "");
+    assert_eq!(reqwest::get(&bare).await.unwrap().status(), 404);
+
+    // The loopback proxy's links move onto the route; other addresses don't.
+    let registered = proxy.register(&remote(start_origin().await, true));
+    let moved = route.link(&registered, &BTreeMap::new()).unwrap();
+    let body = reqwest::get(&moved).await.unwrap().bytes().await.unwrap();
+    assert_eq!(body.as_ref(), SONG);
+    assert!(route.link("file:///etc/passwd", &BTreeMap::new()).is_none());
+    let embed = format!("http://{}/embed/youtube", proxy.address());
+    assert!(route.link(&embed, &BTreeMap::new()).is_none());
+
+    // The listener closes with the route.
+    drop(route);
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert!(reqwest::get(&link).await.is_err());
+}
+
+#[tokio::test]
+async fn the_cast_route_serves_subtitles_as_webvtt_or_subrip() {
+    async fn srt() -> Response {
+        (
+            [(header::CONTENT_TYPE, "application/x-subrip")],
+            "1\n00:00:01,000 --> 00:00:02,000\nHello\n",
+        )
+            .into_response()
+    }
+    let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let origin = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, Router::new().route("/en.srt", get(srt)))
+            .await
+            .unwrap();
+    });
+    let proxy = proxy().await;
+    let route = proxy.lan().open(Ipv4Addr::LOCALHOST.into()).await.unwrap();
+    let remote = format!("http://{origin}/en.srt");
+    let vtt = route
+        .subtitle(&remote, &BTreeMap::new(), lan::SubtitleFormat::WebVtt)
+        .unwrap();
+    assert!(vtt.ends_with(".vtt"));
+    let response = reqwest::get(&vtt).await.unwrap();
+    assert_eq!(
+        response.headers()[header::CONTENT_TYPE],
+        "text/vtt; charset=utf-8"
+    );
+    assert_eq!(response.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*");
+    assert_eq!(
+        response.text().await.unwrap(),
+        "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello\n"
+    );
+    // The player's own subtitle link works the same way.
+    let proxied = proxy.images().subtitle(&remote, &BTreeMap::new());
+    let srt = route
+        .subtitle(&proxied, &BTreeMap::new(), lan::SubtitleFormat::SubRip)
+        .unwrap();
+    let text = reqwest::get(&srt).await.unwrap().text().await.unwrap();
+    assert!(text.contains("00:00:01,000 --> 00:00:02,000\r\nHello"));
+    let file = route.subtitle(
+        "file:///x.srt",
+        &BTreeMap::new(),
+        lan::SubtitleFormat::SubRip,
+    );
+    assert!(file.is_none());
+}

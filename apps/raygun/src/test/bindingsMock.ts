@@ -2,6 +2,7 @@ import type {
   AiModelProgress,
   AppInfo,
   AppUpdate,
+  CastStatus,
   ConnectRequest,
   ConnectStatus,
   DeviceState,
@@ -82,6 +83,7 @@ type EventPayloads = {
   artistReleasesEvent: null;
   exportEvent: ExportJob | null;
   videoPlayerEvent: VideoPlayerMessage;
+  castStatusEvent: CastStatus | null;
   youTubeVideoEvent: YouTubeVideo;
   speechCommandEvent: SpeechCommand;
   appUpdateEvent: AppUpdate;
@@ -383,6 +385,12 @@ export const bindingsMock = {
     songDownloadFor: vi.fn(),
     downloadedSongs: vi.fn(),
     videoPlayerReport: vi.fn(),
+    castDevices: vi.fn(),
+    castAddDevice: vi.fn(),
+    castStart: vi.fn(),
+    castControl: vi.fn(),
+    castDisconnect: vi.fn(),
+    castStatus: vi.fn(),
     ttsReport: vi.fn(),
     ttsSetAvailable: vi.fn(),
     videoPlayerExternal: vi.fn(),
@@ -700,6 +708,7 @@ export const bindingsMock = {
     artistReleasesEvent: makeEvent('artistReleasesEvent'),
     exportEvent: makeEvent('exportEvent'),
     videoPlayerEvent: makeEvent('videoPlayerEvent'),
+    castStatusEvent: makeEvent('castStatusEvent'),
     youTubeVideoEvent: makeEvent('youTubeVideoEvent'),
     speechCommandEvent: makeEvent('speechCommandEvent'),
     appUpdateEvent: makeEvent('appUpdateEvent'),
@@ -739,6 +748,12 @@ export const seedBindings = () => {
   const { commands } = bindingsMock;
   commands.appInfo.mockResolvedValue(ANDROID_INFO);
   commands.videoPlayerReport.mockResolvedValue(null);
+  commands.castDevices.mockResolvedValue({ devices: [], searching: false });
+  commands.castAddDevice.mockResolvedValue({ status: 'error', error: 'not mocked' });
+  commands.castStart.mockResolvedValue({ status: 'ok', data: null });
+  commands.castControl.mockResolvedValue({ status: 'ok', data: null });
+  commands.castDisconnect.mockResolvedValue({ status: 'ok', data: null });
+  commands.castStatus.mockResolvedValue(null);
   commands.ttsReport.mockResolvedValue(null);
   commands.ttsSetAvailable.mockResolvedValue(null);
   commands.videoPlayerExternal.mockResolvedValue({ status: 'ok', data: 'mpv' });

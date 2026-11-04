@@ -13,6 +13,7 @@
 //! (M46.2) at `/cover/<token>`, subtitle files for the video player (M41) at
 //! `/subtitle/<token>`, and streams for the desktop video player (M46.4) at
 //! `/media/<token>/<scheme>/<host>/<path>`, with their playlists rewritten to lead back to it.
+//! While a video plays on a TV, a second listener serves it on the local network ([`lan`]).
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::{Ipv4Addr, SocketAddr};
@@ -154,6 +155,8 @@ pub struct StreamProxy {
     registry: Arc<Mutex<Registry>>,
     images: ImageLinks,
     media: MediaLinks,
+    /// What the routes share, for the local network's listener (Play on TV).
+    state: ProxyState,
 }
 
 /// Hands out `/media/` addresses for streams the webview plays (M46.4): every request under one
@@ -382,6 +385,7 @@ impl StreamProxy {
             covers: covers.clone(),
             local,
         };
+        let shared = state.clone();
         let router = Router::new()
             .route("/stream/{token}", get(stream))
             .route("/image/{token}", get(serve_image))
@@ -413,7 +417,15 @@ impl StreamProxy {
                 address,
                 registry: media,
             },
+            state: shared,
         })
+    }
+
+    /// The handle that serves videos on the local network while they play on a TV.
+    pub fn lan(&self) -> lan::LanLinks {
+        lan::LanLinks {
+            state: self.state.clone(),
+        }
     }
 
     /// The handle that links streams through `/media/` (M46.4).
@@ -461,26 +473,29 @@ async fn stream(
     Path(token): Path<String>,
     request: Request,
 ) -> Response {
+    with_cors(serve_registered(&state, &token, request).await)
+}
+
+/// A source registered with [`StreamProxy::register`], by its token.
+async fn serve_registered(state: &ProxyState, token: &str, request: Request) -> Response {
     let source = state
         .registry
         .lock()
         .expect("proxy registry poisoned")
         .sources
-        .get(&token)
+        .get(token)
         .cloned();
-    let response = match source {
+    match source {
         None => StatusCode::NOT_FOUND.into_response(),
         Some(MediaSource::LocalFile { path }) => serve_file(&path, request).await,
         Some(MediaSource::Url { url, headers }) => {
             forward(&state.client, &url, &headers, request.headers()).await
         }
-        // Played by YouTube's own player, never as a byte stream.
         // Neither has bytes to proxy: YouTube plays in its embed, a lookup resolves first.
         Some(MediaSource::YouTube { .. } | MediaSource::Lookup { .. }) => {
             StatusCode::NOT_FOUND.into_response()
         }
-    };
-    with_cors(response)
+    }
 }
 
 /// Builds artwork URLs without holding the proxy (e.g. from another service).
@@ -945,6 +960,8 @@ fn with_cors(mut response: Response) -> Response {
     );
     response
 }
+
+pub mod lan;
 
 #[cfg(test)]
 mod tests;

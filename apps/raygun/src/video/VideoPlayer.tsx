@@ -44,6 +44,7 @@ import { useAiModels } from '../ai/useAi';
 import { formatTime } from '../player/formatTime';
 import { useCaptions, useStopCaptions } from '../player/spoken';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
+import { CastPanel, CastStage } from './Cast';
 import { attachMedia, embeddedCueLines, engineKind } from './mediaEngine';
 import type { MediaEngine, StreamProblem } from './mediaEngine';
 import { PanelHeading, PanelOption, PlayerPanel } from './PlayerPanel';
@@ -75,6 +76,7 @@ type PanelKind =
   | 'aspect'
   | 'players'
   | 'keys'
+  | 'cast'
   | 'more';
 
 const VOLUME_KEY = 'raygun.video.volume';
@@ -154,6 +156,7 @@ const PlayerScreen: FC = () => {
   const request = useVideoPlayerStore((state) => state.request);
   const loads = useVideoPlayerStore((state) => state.loads);
   const showSources = useVideoPlayerStore((state) => state.showSources);
+  const cast = useVideoPlayerStore((state) => state.cast);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [panel, setPanel] = useState<PanelKind | null>(null);
   const [volume, setVolumeState] = useState(readVolume);
@@ -165,6 +168,8 @@ const PlayerScreen: FC = () => {
     setSourcesAsked(showSources);
     setPanel('sources');
   }
+  // A TV took the video over: the player is its remote, without the panels.
+  if (cast && panel) setPanel(null);
 
   const setVolume = (level: number) => {
     setVolumeState(level);
@@ -196,6 +201,7 @@ const PlayerScreen: FC = () => {
     if (state.session) sendRequest(state.request?.id ?? '', 'ready', 0);
   }, []);
 
+  if (cast) return <CastStage cast={cast} onClose={close} />;
   if (request?.url) {
     return (
       <VideoStage
@@ -1428,6 +1434,7 @@ const VideoStage: FC<StageProps> = ({
       )}
       {panel === 'more' && (
         <PlayerPanel title={t('videoPlayer.more')} onClose={() => setPanel(null)}>
+          <PanelOption label={t('videoPlayer.playOnTv')} onSelect={() => setPanel('cast')} />
           <PanelOption
             label={t('videoPlayer.loop')}
             toggle
@@ -1438,6 +1445,13 @@ const VideoStage: FC<StageProps> = ({
             }}
           />
         </PlayerPanel>
+      )}
+      {panel === 'cast' && (
+        <CastPanel
+          positionMs={timeMs}
+          subtitle={subtitleKey?.startsWith('file:') ? Number(subtitleKey.slice(5)) : null}
+          onClose={() => setPanel(null)}
+        />
       )}
       {panel === 'aspect' && (
         <PlayerPanel title={t('videoPlayer.aspect')} onClose={() => setPanel(null)}>

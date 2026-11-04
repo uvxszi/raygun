@@ -79,6 +79,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     crate::caches::sweep_later(app.handle());
     app.manage(proxy.images());
     app.manage(proxy.media());
+    app.manage(proxy.lan());
     app.manage(crate::library::LibraryService::new(
         app.handle().clone(),
         art_dir,
@@ -149,6 +150,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(crate::local_network::LocalNetwork::new(
         app.handle().clone(),
     ));
+    app.manage(crate::cast::CastService::new(app.handle().clone()));
     app.manage(std::sync::Arc::new(crate::stremio::StremioService::new(
         app.handle().clone(),
         raygun_net::http_client()?,

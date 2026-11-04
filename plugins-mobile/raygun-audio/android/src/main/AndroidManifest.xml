@@ -71,6 +71,11 @@
             android:name="app.raygun.audio.RaygunDownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <!-- Play on TV: Raygun keeps serving the stream while a TV plays it. -->
+        <service
+            android:name="app.raygun.audio.CastKeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
         <receiver
             android:name="app.raygun.audio.DownloadActionReceiver"
             android:exported="false" />

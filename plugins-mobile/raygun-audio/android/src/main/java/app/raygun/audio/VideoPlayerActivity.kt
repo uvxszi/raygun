@@ -1,5 +1,6 @@
 package app.raygun.audio
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Intent
@@ -126,6 +127,8 @@ class VideoPlayerActivity : AppCompatActivity() {
     internal lateinit var tracks: PlayerTracks
     internal lateinit var sheets: PlayerSheets
     internal lateinit var tools: PlayerTools
+    /** Play on TV: the devices sheet and the TV's remote. */
+    internal lateinit var cast: PlayerCast
     internal lateinit var second: SecondSubtitles
     /** Subtitles over the part of the picture on screen (crop makes the picture larger). */
     internal lateinit var subtitleView: SubtitleView
@@ -255,6 +258,9 @@ class VideoPlayerActivity : AppCompatActivity() {
     private val externalApp = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         onExternalResult(result.resultCode, result.data)
     }
+    private val localNetwork = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        cast.permissionAnswered(granted)
+    }
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -366,6 +372,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         problem = PlayerProblem(this)
         controls = PlayerControls(this)
         gestures = PlayerGestures(this)
+        cast = PlayerCast(this)
 
         val brightnessGravity = if (prefs.swapSides) Gravity.END else Gravity.START
         val volumeGravity = if (prefs.swapSides) Gravity.START else Gravity.END
@@ -390,6 +397,8 @@ class VideoPlayerActivity : AppCompatActivity() {
             // Under the controls: their buttons stay clear while the ring waits in the middle.
             addView(loading.root, FrameLayout.LayoutParams(-1, -1))
             addView(controls.root, FrameLayout.LayoutParams(-1, -1))
+            // A TV's remote covers the player while it plays there.
+            addView(cast.root, FrameLayout.LayoutParams(-1, -1))
             addView(problem.root, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
             addView(hint, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
             addView(seekBubble, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.START))
@@ -430,6 +439,8 @@ class VideoPlayerActivity : AppCompatActivity() {
         heading = heading(request)
         controls.setTitle(heading)
         controls.setSession(session, several, hasPrevious, hasNext)
+        // A TV is connected: what opens plays there.
+        request.optJSONObject("cast")?.let { cast.show(it) }
         if (request.optString("url").isNotBlank()) {
             load(request)
         } else {
@@ -606,6 +617,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         heading = heading(request)
         controls.setTitle(heading)
         controls.setSession(session, several, hasPrevious, hasNext)
+        request.optJSONObject("cast")?.let { cast.show(it) }
         if (request.optString("url").isNotBlank()) load(request) else showLoading(label("findingSource", "Finding a source…"))
     }
 
@@ -650,6 +662,7 @@ class VideoPlayerActivity : AppCompatActivity() {
                     loading.setNote(sourceNote())
                 }
             }
+            "castDevices", "cast", "castError" -> cast.onUpdate(update)
             "chapters" -> if (update.optString("id") == videoId) {
                 // AniSkip's, beside any the source gave.
                 val found = Chapter.list(update.optJSONArray("items")).filter { new ->
@@ -723,6 +736,12 @@ class VideoPlayerActivity : AppCompatActivity() {
         val startMs = request.optDouble("startMs", 0.0).toLong().coerceAtLeast(0)
         if (request.optBoolean("external")) {
             launchExternal(request, startMs, only = true)
+            return
+        }
+        if (cast.active) {
+            // It plays on the TV; here it only names what plays.
+            problem.hide()
+            loading.hide()
             return
         }
         tracks.reset(languages, prefs.maxHeight)
@@ -1439,6 +1458,7 @@ class VideoPlayerActivity : AppCompatActivity() {
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (openSheet != null) return super.onKeyDown(keyCode, event)
+        if (cast.onKey(keyCode)) return true
         val episodeKeys = prefs.mediaKeys == "switchEpisode" && session && several
         when (keyCode) {
             KeyEvent.KEYCODE_MEDIA_NEXT -> if (episodeKeys) requestNext() else seekBy(seekStepMs)
@@ -1467,11 +1487,43 @@ class VideoPlayerActivity : AppCompatActivity() {
         controls.bump()
     }
 
+    /** Whether `sheet` is the one showing. */
+    internal fun sheetShown(sheet: PlayerSheet?): Boolean = sheet != null && openSheet === sheet
+
     internal fun closeSheet(sheet: PlayerSheet?) {
         if (sheet == null || openSheet !== sheet) return
         root.removeView(sheet.root)
         openSheet = null
         sheet.dismissed()
+    }
+
+    // ---- Play on TV ----
+
+    internal fun askLocalNetwork() = localNetwork.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
+
+    /** A TV took the video over: the copy here stops (Rust saves the TV's position). */
+    internal fun castStarted() {
+        closeSheet(openSheet)
+        nextPrompt.visibility = View.GONE
+        problem.hide()
+        loading.hide()
+        player.pause()
+        player.stop()
+    }
+
+    /** Played to the end on the TV: the next episode follows there, as at the end here. */
+    internal fun castFinished() {
+        if (session && hasNext && autoplay && !nextCancelled) requestNext()
+    }
+
+    /** The subtitle file on, by its index in the video's `subtitles`, for the TV. */
+    internal fun chosenSubtitleIndex(): Int? {
+        if (tracks.textOff()) return null
+        val format = tracks.list(C.TRACK_TYPE_TEXT).firstOrNull { it.selected }?.format ?: return null
+        val count = current.optJSONArray("subtitles")?.length() ?: 0
+        return sidecars.take(count).indexOfFirst {
+            it.label == format.label && (it.language == format.language || sameLanguage(it.language, format.language))
+        }.takeIf { it >= 0 }
     }
 
     // ---- Session requests (M44) ----
@@ -1531,6 +1583,10 @@ class VideoPlayerActivity : AppCompatActivity() {
     }
 
     private fun tick() {
+        if (cast.active) {
+            cast.tick()
+            return
+        }
         sinceReport += TICK_MS
         if (sinceReport >= REPORT_INTERVAL_MS) {
             sinceReport = 0
@@ -1748,6 +1804,8 @@ class VideoPlayerActivity : AppCompatActivity() {
 
     private fun report(state: String, error: String? = null) {
         if (videoId.isEmpty() && state != "closed") return
+        // A TV plays it: its position is the one saved, not the stopped copy's here.
+        if (::cast.isInitialized && cast.active && state != "closed") return
         val duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0 }
         val json = JSONObject()
             .put("id", videoId)

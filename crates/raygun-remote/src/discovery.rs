@@ -1,9 +1,11 @@
 //! Finding Raygun devices to play on (M46.15): a device that lets others play on it advertises
 //! `_raygun-connect._tcp.local.` while its remote server runs, and Connect browses for them.
+//! Play on TV browses other services (`_googlecast._tcp.local.`) through [`browse_service`].
 //!
-//! One mDNS daemon serves both, started on first use.
+//! One mDNS daemon serves all of them, started on first use.
 
-use std::net::IpAddr;
+use std::collections::BTreeMap;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::OnceLock;
 
 use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
@@ -114,6 +116,63 @@ pub fn browse(
                             lost(id.to_owned());
                         }
                     }
+                    _ => {}
+                }
+            }
+        })
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// A service of another kind heard on the network.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Heard {
+    /// `<instance>.<service>`, as `lost` names it.
+    pub fullname: String,
+    pub ip: Ipv4Addr,
+    pub port: u16,
+    /// Its TXT record.
+    pub properties: BTreeMap<String, String>,
+}
+
+/// Browses for `service` (`_googlecast._tcp.local.`) on the same daemon: `found` is called from a
+/// background thread for each instance resolved (again when it changes), `lost(fullname)` when one
+/// withdraws. Runs for the rest of the process.
+pub fn browse_service(
+    service: &str,
+    found: impl Fn(Heard) + Send + 'static,
+    lost: impl Fn(String) + Send + 'static,
+) -> Result<(), String> {
+    let events = daemon()?
+        .browse(service)
+        .map_err(|error| error.to_string())?;
+    std::thread::Builder::new()
+        .name("service-discovery".into())
+        .spawn(move || {
+            while let Ok(event) = events.recv() {
+                match event {
+                    ServiceEvent::ServiceResolved(service) => {
+                        let mut addresses =
+                            service.get_addresses_v4().into_iter().collect::<Vec<_>>();
+                        addresses.sort();
+                        let Some(ip) = addresses.into_iter().next() else {
+                            continue;
+                        };
+                        let properties = service
+                            .get_properties()
+                            .iter()
+                            .map(|property| {
+                                (property.key().to_owned(), property.val_str().to_owned())
+                            })
+                            .collect();
+                        found(Heard {
+                            fullname: service.get_fullname().to_owned(),
+                            ip,
+                            port: service.get_port(),
+                            properties,
+                        });
+                    }
+                    ServiceEvent::ServiceRemoved(_, fullname) => lost(fullname),
                     _ => {}
                 }
             }
