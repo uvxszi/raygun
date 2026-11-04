@@ -6216,6 +6216,14 @@ pub struct ContinueWatching {
     /// Unix ms.
     pub updated_at: f64,
     pub watched: bool,
+    /// The title it belongs to, for its page: a video source's id (or `stremio`, then
+    /// `remote_id` is `<type>:<id>`). None for a link played on its own.
+    #[serde(default)]
+    #[specta(optional)]
+    pub source_id: Option<String>,
+    #[serde(default)]
+    #[specta(optional)]
+    pub remote_id: Option<String>,
 }
 
 // ---- Search across sources and source filters (M40) ----

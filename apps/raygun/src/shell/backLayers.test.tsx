@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import type { FC } from 'react';
 
-import { backFromLayers, resetBackLayers, useBackLayer } from './backLayers';
+import { afterLayersClose, backFromLayers, resetBackLayers, useBackLayer } from './backLayers';
 
 /** A sheet that opens a menu inside it: two layers, one over the other. */
 const Layers: FC = () => {
@@ -94,6 +94,30 @@ describe('Back layers on a phone (history entries)', () => {
     await waitFor(() => expect(window.history.state).toEqual({ page: 'start' }));
   });
 
+  it('runs what a closing menu chose once its entry has left history', async () => {
+    const user = userEvent.setup();
+    render(<Layers />);
+    await user.click(screen.getByRole('button', { name: 'Open sheet' }));
+    await waitFor(() => expect(marked()).toBe(true));
+
+    // A menu item that opens a page: the layer closes, then the page opens.
+    const seen: unknown[] = [];
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+    afterLayersClose(() => {
+      seen.push(window.history.state);
+      window.history.pushState({ page: 'next' }, '');
+    });
+    expect(seen).toEqual([]);
+    await waitFor(() => expect(seen).toHaveLength(1));
+    // It ran on the page's own entry, so the new page took the layer's place.
+    expect(seen[0]).toEqual({ page: 'start' });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(window.history.state).toEqual({ page: 'next' });
+    // Back from it lands on the page, not on the closed layer's entry.
+    window.history.back();
+    await waitFor(() => expect(window.history.state).toEqual({ page: 'start' }));
+  });
+
   it('steps over the entry of a layer a link closed', async () => {
     const user = userEvent.setup();
     render(<Layers />);
@@ -115,6 +139,12 @@ describe('Back layers on a phone (history entries)', () => {
 describe('Back layers on desktop (no history entries)', () => {
   beforeEach(() => {
     resetBackLayers(false);
+  });
+
+  it('runs what a closing menu chose at once', () => {
+    const run = vi.fn();
+    afterLayersClose(run);
+    expect(run).toHaveBeenCalledTimes(1);
   });
 
   it('closes layers innermost first before going back a page, and keeps history alone', async () => {

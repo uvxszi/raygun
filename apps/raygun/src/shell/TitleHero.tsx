@@ -3,6 +3,7 @@ import type { LucideIcon } from 'lucide-react';
 import type { FC, ReactNode } from 'react';
 
 import { AdultMark } from './AdultMark';
+import { SourceTag } from './SourceTag';
 
 /**
  * A title screen's header (Mihon's and CloudStream's): a blurred copy of the art behind the
@@ -26,6 +27,8 @@ export const TitleHero: FC<{
   aside?: ReactNode;
   /** Adult genres or a source rated for adults: an 18+ tag after the title. */
   adult?: boolean;
+  /** Where it comes from (a source, an addon): a tag of its own, never in the facts' line. */
+  source?: string | null;
 }> = ({
   art,
   backdrop,
@@ -39,6 +42,7 @@ export const TitleHero: FC<{
   children,
   aside,
   adult = false,
+  source = null,
 }) => {
   const shown = facts.filter(Boolean);
   return (
@@ -69,6 +73,11 @@ export const TitleHero: FC<{
               {factsExtra && shown.length > 0 && <span aria-hidden>·</span>}
               {factsExtra}
             </p>
+          )}
+          {source && (
+            <span className="flex min-w-0">
+              <SourceTag name={source} className="bg-surface/60" />
+            </span>
           )}
           {genres.length > 0 && (
             <ul aria-label={genresLabel} className="flex flex-wrap gap-1.5">

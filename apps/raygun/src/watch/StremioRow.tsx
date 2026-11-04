@@ -1,15 +1,22 @@
 import type { StremioCatalogInfo, StremioCatalogRow, StremioItem } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
-import { ChevronRight, Clapperboard } from 'lucide-react';
+import { CheckSquare, ChevronRight, Clapperboard } from 'lucide-react';
 import { useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { CARD_MENU_CLASS, CardPlayButton } from '../manga/CardPlayButton';
+import { usePlayTitle, useTitleCardMenu } from '../manga/titleMenu';
+import type { CardTitle } from '../manga/titleMenu';
 import { AdultMark } from '../shell/AdultMark';
 import { Carousel } from '../shell/Carousel';
+import { openContextMenu } from '../shell/contextMenuStore';
+import { MenuButton } from '../shell/MenuButton';
 import { SourceIssue } from '../shell/SourceIssue';
+import { SourceTag } from '../shell/SourceTag';
 import { useInView } from '../shell/useInView';
 import { Selectable } from '../select/Selectable';
 import { useInSelectionScope } from '../select/scopeContext';
+import { useSelectionStore } from '../select/selectionStore';
 import { useStremioAddons, useStremioRow } from './useStremio';
 import { STREMIO_SOURCE } from './useVideoLibrary';
 
@@ -45,31 +52,75 @@ export const StremioPoster: FC<{ url: string | null; shape?: string; className?:
   );
 };
 
-/** A movie, series or channel, opening its page. */
+/** A Stremio item as a card's title (saved ones are `stremio` titles with `<type>:<id>`). */
+const stremioCard = (item: StremioItem): CardTitle => ({
+  medium: 'video',
+  sourceId: STREMIO_SOURCE,
+  id: `${item.kind}:${item.id}`,
+  title: item.name || item.id,
+  coverUrl: item.poster,
+  subtitle: item.releaseInfo,
+  link: { to: '/watch/title', search: { type: item.kind, id: item.id } },
+});
+
+/**
+ * A movie, series or channel: the card opens its page, the play button plays it, and ⋮, a right
+ * click or a long press opens its full menu.
+ */
 export const StremioCard: FC<{ item: StremioItem; className?: string }> = ({
   item,
   className = '',
 }) => {
-  // In search a card can be picked (M46.50); the box around it then takes the card's size.
+  const { t } = useTranslation();
+  const menu = useTitleCardMenu();
+  const play = usePlayTitle();
+  const name = item.name || item.id;
+  // In search a card can be picked (M46.50): a long press picks there, ⋮ and a right click open
+  // the menu (with Select); the box around it then takes the card's size.
   const pickable = useInSelectionScope();
+  const picked = {
+    kind: 'title' as const,
+    medium: 'video' as const,
+    sourceId: STREMIO_SOURCE,
+    remoteId: `${item.kind}:${item.id}`,
+    title: name,
+  };
+  const items = () =>
+    menu(
+      stremioCard(item),
+      pickable
+        ? {
+            select: {
+              label: t('search.select.pick', { title: name }),
+              icon: CheckSquare,
+              onSelect: () => useSelectionStore.getState().toggle(picked),
+            },
+          }
+        : {},
+    );
   return (
-    <Selectable
-      picked={{
-        kind: 'title',
-        medium: 'video',
-        sourceId: STREMIO_SOURCE,
-        remoteId: `${item.kind}:${item.id}`,
-        title: item.name || item.id,
-      }}
-      className={className}
-    >
+    <Selectable picked={picked} className={className}>
       <Link
         to="/watch/title"
         search={{ type: item.kind, id: item.id }}
-        aria-label={item.name || item.id}
+        aria-label={name}
+        data-testid="stremio-card"
+        onContextMenu={(event) => openContextMenu(event, items())}
         className={`flex flex-col gap-1 ${pickable ? '' : className}`}
       >
-        <StremioPoster url={item.poster} shape={item.posterShape} />
+        <span className="relative">
+          <StremioPoster url={item.poster} shape={item.posterShape} />
+          <CardPlayButton
+            label={t('menu.playTitle', { name })}
+            onPlay={() => play(stremioCard(item))}
+          />
+          <MenuButton
+            label={t('menu.options', { name })}
+            items={items}
+            className={CARD_MENU_CLASS}
+            iconSize={16}
+          />
+        </span>
         {item.name && <span className="line-clamp-2 text-sm font-medium">{item.name}</span>}
         {(item.releaseInfo || item.rating) && (
           <span className="text-muted line-clamp-1 text-xs">
@@ -94,8 +145,8 @@ const RowHeading: FC<{
     <div className="flex items-baseline justify-between gap-2">
       <h2 className="min-w-0 font-semibold">
         <span className="line-clamp-1">{title}</span>
-        <span className="text-muted flex items-center gap-1.5 text-xs font-normal">
-          <span className="truncate">{addonName}</span>
+        <span className="flex items-center gap-1.5 font-normal">
+          <SourceTag name={addonName} />
           {adult && <AdultMark />}
         </span>
       </h2>

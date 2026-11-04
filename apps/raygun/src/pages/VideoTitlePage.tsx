@@ -342,10 +342,12 @@ export const VideoTitlePage: FC = () => {
         title={view.title}
         adult={view.adult}
         facts={[
+          // Who made it (a studio or director) leads, as an author does; the source is a tag.
+          view.directors.slice(0, 2).join(', '),
           view.mediaType && t(`watch.mediaType.${view.mediaType}`),
           view.year,
-          view.sourceName,
         ]}
+        source={view.sourceName}
         genres={view.genres}
         genresLabel={t('watch.genres')}
       >

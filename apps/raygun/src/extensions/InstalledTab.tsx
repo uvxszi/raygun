@@ -1,4 +1,6 @@
 import { Link } from '@tanstack/react-router';
+import { openContextMenu } from '../shell/contextMenuStore';
+import { useExtensionMenuItems } from './extensionMenu';
 import { ChevronRight } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FC } from 'react';
@@ -24,6 +26,7 @@ export const InstalledTab: FC = () => {
   const showNsfw = useSettings().data?.showNsfw ?? false;
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState<ExtensionKind | null>(null);
+  const menu = useExtensionMenuItems();
   const error = extensions.error;
   const all = useMemo(() => extensions.data ?? [], [extensions.data]);
   const kinds = useMemo(() => {
@@ -63,6 +66,7 @@ export const InstalledTab: FC = () => {
               to="/extensions/detail"
               search={{ id: extension.id }}
               data-testid="extension-row"
+              onContextMenu={(event) => openContextMenu(event, menu(extension))}
               className="hover:bg-surface flex items-center gap-4 rounded-xl px-1 py-2.5"
             >
               <LetterAvatar name={extension.name} logo={extension.icon} />
