@@ -1,11 +1,11 @@
 {
   "id": "dev.raygun.musicbrainz",
   "name": "MusicBrainz",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "apiVersion": 1,
   "runtime": "js",
   "entry": "dist/index.js",
-  "description": "Metadata under CC0 and CC BY-SA: song, album and artist details, genres, discographies, artist facts and song credits from the open MusicBrainz database, with artist summaries from Wikipedia. For tagging and finding music; no artwork.",
+  "description": "Metadata under CC0 and CC BY-SA: song, album and artist details, genres, discographies, artist facts and song credits from the open MusicBrainz database, with artist summaries from Wikipedia. Cover art from the Cover Art Archive. For tagging and finding music.",
   "author": "Raygun",
   "provides": ["music.metadata", "music.tags", "music.info"],
   "permissions": {
