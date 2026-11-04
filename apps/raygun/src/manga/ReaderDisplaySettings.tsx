@@ -3,6 +3,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { PrefChoice, PrefGroup, PrefSize, PrefSlider, PrefSwitch } from '../settings/prefs';
+import { useIsDesktop } from '../shell/useIsDesktop';
 import { TAP_INVERTS, TAP_ZONES } from './reader/tapZones';
 import { PAGED_SCALES, READER_MODES, READER_SIZE, useReaderDisplay } from './readerDisplay';
 
@@ -14,6 +15,8 @@ import { PAGED_SCALES, READER_MODES, READER_SIZE, useReaderDisplay } from './rea
 export const ReaderDisplaySettings: FC<{ title?: string }> = ({ title }) => {
   const { t } = useTranslation();
   const { display, set, busy } = useReaderDisplay();
+  // A phone app is full screen already; only a desktop window has full screen to toggle.
+  const desktop = useIsDesktop();
   return (
     <>
       <PrefGroup title={title ?? t('reader.display.reading')}>
@@ -124,12 +127,14 @@ export const ReaderDisplaySettings: FC<{ title?: string }> = ({ title }) => {
           disabled={busy}
           onChange={(barMode) => set({ barMode })}
         />
-        <PrefSwitch
-          title={t('reader.display.barFullscreen')}
-          checked={display.barFullscreen}
-          disabled={busy}
-          onChange={(barFullscreen) => set({ barFullscreen })}
-        />
+        {desktop && (
+          <PrefSwitch
+            title={t('reader.display.barFullscreen')}
+            checked={display.barFullscreen}
+            disabled={busy}
+            onChange={(barFullscreen) => set({ barFullscreen })}
+          />
+        )}
       </PrefGroup>
     </>
   );

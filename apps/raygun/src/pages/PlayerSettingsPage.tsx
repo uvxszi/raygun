@@ -43,6 +43,7 @@ import { useResetToDefaults } from '../settings/useResetToDefaults';
 import { SubtitlePreview } from '../settings/SubtitlePreview';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { TopBar } from '../shell/TopBar';
+import { useIsPhone } from '../shell/useIsDesktop';
 import { ORIGINAL_AUDIO } from '../video/trackPicking';
 
 /** Matches `SEEK_SECONDS` in raygun-model. */
@@ -124,6 +125,12 @@ type ScreenProps = {
   prefs: PlayerPrefs;
   set: (change: Partial<PlayerPrefs>) => void;
   busy: boolean;
+  /**
+   * The phone player (Media3) is shown its own rows: screen rotation, brightness, holding for
+   * speed, the volume swipe's boost, the decoder, Android player apps. The desktop player has
+   * none of them.
+   */
+  phone: boolean;
 };
 
 const languageOptions = (none: string) => [
@@ -131,21 +138,23 @@ const languageOptions = (none: string) => [
   ...LANGUAGES.map((tag) => ({ value: tag, label: nativeName(tag) })),
 ];
 
-const ControlsScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
+const ControlsScreen: FC<ScreenProps> = ({ prefs, set, busy, phone }) => {
   const { t } = useTranslation();
   return (
     <>
       <PrefGroup title={t('settings.player.display')}>
-        <PrefChoice
-          title={t('settings.player.orientation')}
-          value={prefs.orientation}
-          disabled={busy}
-          options={ORIENTATIONS.map((value) => ({
-            value,
-            label: t(`settings.player.orientations.${value}`),
-          }))}
-          onChange={(orientation) => set({ orientation })}
-        />
+        {phone && (
+          <PrefChoice
+            title={t('settings.player.orientation')}
+            value={prefs.orientation}
+            disabled={busy}
+            options={ORIENTATIONS.map((value) => ({
+              value,
+              label: t(`settings.player.orientations.${value}`),
+            }))}
+            onChange={(orientation) => set({ orientation })}
+          />
+        )}
         <PrefChoice
           title={t('settings.player.aspect')}
           value={prefs.aspect}
@@ -172,12 +181,14 @@ const ControlsScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
           disabled={busy}
           onChange={(showRemaining) => set({ showRemaining })}
         />
-        <PrefSwitch
-          title={t('settings.player.rememberBrightness')}
-          checked={prefs.rememberBrightness}
-          disabled={busy}
-          onChange={(rememberBrightness) => set({ rememberBrightness })}
-        />
+        {phone && (
+          <PrefSwitch
+            title={t('settings.player.rememberBrightness')}
+            checked={prefs.rememberBrightness}
+            disabled={busy}
+            onChange={(rememberBrightness) => set({ rememberBrightness })}
+          />
+        )}
       </PrefGroup>
       <PrefGroup title={t('settings.player.speed')}>
         <PrefSlider
@@ -201,17 +212,19 @@ const ControlsScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
             if (speedPresets) set({ speedPresets });
           }}
         />
-        <PrefChoice
-          title={t('settings.player.holdSpeed')}
-          summary={t('settings.player.holdSpeedHint')}
-          value={prefs.holdSpeed}
-          disabled={busy}
-          options={HOLD_SPEEDS.map((speed) => ({
-            value: speed,
-            label: speed === 0 ? t('settings.player.off') : formatSpeed(speed),
-          }))}
-          onChange={(holdSpeed) => set({ holdSpeed })}
-        />
+        {phone && (
+          <PrefChoice
+            title={t('settings.player.holdSpeed')}
+            summary={t('settings.player.holdSpeedHint')}
+            value={prefs.holdSpeed}
+            disabled={busy}
+            options={HOLD_SPEEDS.map((speed) => ({
+              value: speed,
+              label: speed === 0 ? t('settings.player.off') : formatSpeed(speed),
+            }))}
+            onChange={(holdSpeed) => set({ holdSpeed })}
+          />
+        )}
       </PrefGroup>
     </>
   );
@@ -315,6 +328,7 @@ const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLangua
   prefs,
   set,
   busy,
+  phone,
   autoSubtitles,
   subtitleLanguage,
 }) => {
@@ -455,13 +469,15 @@ const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLangua
           disabled={busy}
           onChange={(position) => setStyle({ position })}
         />
-        <PrefSwitch
-          title={t('settings.player.ignoreEmbedded')}
-          summary={t('settings.player.ignoreEmbeddedHint')}
-          checked={style.ignoreEmbedded}
-          disabled={busy}
-          onChange={(ignoreEmbedded) => setStyle({ ignoreEmbedded })}
-        />
+        {phone && (
+          <PrefSwitch
+            title={t('settings.player.ignoreEmbedded')}
+            summary={t('settings.player.ignoreEmbeddedHint')}
+            checked={style.ignoreEmbedded}
+            disabled={busy}
+            onChange={(ignoreEmbedded) => setStyle({ ignoreEmbedded })}
+          />
+        )}
         <li>
           <button
             type="button"
@@ -477,7 +493,7 @@ const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLangua
   );
 };
 
-const AudioScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
+const AudioScreen: FC<ScreenProps> = ({ prefs, set, busy, phone }) => {
   const { t } = useTranslation();
   const [yours, ...languages] = languageOptions(t('settings.player.yourLanguages'));
   return (
@@ -512,22 +528,24 @@ const AudioScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
         disabled={busy}
         onChange={(pitchCorrection) => set({ pitchCorrection })}
       />
-      <PrefSlider
-        title={t('settings.player.volumeBoost')}
-        summary={t('settings.player.volumeBoostHint')}
-        value={prefs.volumeBoost}
-        min={0}
-        max={100}
-        step={10}
-        format={(value) => (value === 0 ? t('settings.player.off') : `+${value}%`)}
-        disabled={busy}
-        onChange={(volumeBoost) => set({ volumeBoost })}
-      />
+      {phone && (
+        <PrefSlider
+          title={t('settings.player.volumeBoost')}
+          summary={t('settings.player.volumeBoostHint')}
+          value={prefs.volumeBoost}
+          min={0}
+          max={100}
+          step={10}
+          format={(value) => (value === 0 ? t('settings.player.off') : `+${value}%`)}
+          disabled={busy}
+          onChange={(volumeBoost) => set({ volumeBoost })}
+        />
+      )}
     </PrefGroup>
   );
 };
 
-const SkipScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
+const SkipScreen: FC<ScreenProps> = ({ prefs, set, busy, phone }) => {
   const { t } = useTranslation();
   return (
     <>
@@ -554,22 +572,26 @@ const SkipScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
           disabled={busy}
           onChange={(autoSkip) => set({ autoSkip })}
         />
-        <PrefSwitch
-          title={t('settings.player.skipCountdown')}
-          checked={prefs.skipCountdown}
-          disabled={busy}
-          onChange={(skipCountdown) => set({ skipCountdown })}
-        />
-        <PrefChoice
-          title={t('settings.player.skipWait')}
-          value={prefs.skipWaitSeconds}
-          disabled={busy || !prefs.skipCountdown}
-          options={SKIP_WAIT_SECONDS.map((seconds) => ({
-            value: seconds,
-            label: t('settings.seconds', { count: seconds }),
-          }))}
-          onChange={(skipWaitSeconds) => set({ skipWaitSeconds })}
-        />
+        {phone && (
+          <>
+            <PrefSwitch
+              title={t('settings.player.skipCountdown')}
+              checked={prefs.skipCountdown}
+              disabled={busy}
+              onChange={(skipCountdown) => set({ skipCountdown })}
+            />
+            <PrefChoice
+              title={t('settings.player.skipWait')}
+              value={prefs.skipWaitSeconds}
+              disabled={busy || !prefs.skipCountdown}
+              options={SKIP_WAIT_SECONDS.map((seconds) => ({
+                value: seconds,
+                label: t('settings.seconds', { count: seconds }),
+              }))}
+              onChange={(skipWaitSeconds) => set({ skipWaitSeconds })}
+            />
+          </>
+        )}
       </PrefGroup>
       <PrefGroup title={t('settings.player.aniskipGroup')}>
         <PrefSwitch
@@ -612,23 +634,25 @@ const PipScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
   );
 };
 
-const AdvancedScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
+const AdvancedScreen: FC<ScreenProps> = ({ prefs, set, busy, phone }) => {
   const { t } = useTranslation();
   return (
     <>
-      <PrefGroup title={t('settings.player.decoding')}>
-        <PrefChoice
-          title={t('settings.player.decoder')}
-          summary={t('settings.player.decoderHint')}
-          value={prefs.decoder}
-          disabled={busy}
-          options={DECODERS.map((value) => ({
-            value,
-            label: t(`settings.player.decoders.${value}`),
-          }))}
-          onChange={(decoder) => set({ decoder })}
-        />
-      </PrefGroup>
+      {phone && (
+        <PrefGroup title={t('settings.player.decoding')}>
+          <PrefChoice
+            title={t('settings.player.decoder')}
+            summary={t('settings.player.decoderHint')}
+            value={prefs.decoder}
+            disabled={busy}
+            options={DECODERS.map((value) => ({
+              value,
+              label: t(`settings.player.decoders.${value}`),
+            }))}
+            onChange={(decoder) => set({ decoder })}
+          />
+        </PrefGroup>
+      )}
       <PrefGroup title={t('settings.player.titlePages')}>
         <PrefSwitch
           title={t('settings.player.titleTrailers')}
@@ -637,21 +661,23 @@ const AdvancedScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
           onChange={(titleTrailers) => set({ titleTrailers })}
         />
       </PrefGroup>
-      <PrefGroup title={t('settings.player.otherApps')}>
-        <PrefSwitch
-          title={t('settings.player.externalPlayer')}
-          checked={prefs.externalPlayer}
-          disabled={busy}
-          onChange={(externalPlayer) => set({ externalPlayer })}
-        />
-        <PrefChoice<string>
-          title={t('settings.player.externalPackage')}
-          value={prefs.externalPackage}
-          disabled={busy}
-          options={[{ value: '', label: t('settings.player.externalAsk') }, ...EXTERNAL_PLAYERS]}
-          onChange={(externalPackage) => set({ externalPackage })}
-        />
-      </PrefGroup>
+      {phone && (
+        <PrefGroup title={t('settings.player.otherApps')}>
+          <PrefSwitch
+            title={t('settings.player.externalPlayer')}
+            checked={prefs.externalPlayer}
+            disabled={busy}
+            onChange={(externalPlayer) => set({ externalPlayer })}
+          />
+          <PrefChoice<string>
+            title={t('settings.player.externalPackage')}
+            value={prefs.externalPackage}
+            disabled={busy}
+            options={[{ value: '', label: t('settings.player.externalAsk') }, ...EXTERNAL_PLAYERS]}
+            onChange={(externalPackage) => set({ externalPackage })}
+          />
+        </PrefGroup>
+      )}
     </>
   );
 };
@@ -662,7 +688,8 @@ export const PlayerSettingsPage: FC = () => {
   const { page } = useParams({ strict: false });
   const { settings, prefs, set, busy } = usePlayerPrefs();
   const current: Page = isPlayerPage(page) ? page : 'controls';
-  const props = prefs ? { prefs, set, busy } : null;
+  const phone = useIsPhone();
+  const props = prefs ? { prefs, set, busy, phone } : null;
   const title = t(`settings.player.section.${current}.title`);
   const reset = useResetToDefaults(title, pageReset(current));
   useFoundPref();
