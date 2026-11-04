@@ -6,6 +6,7 @@ import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
 import { bindingsMock } from '../test/bindingsMock';
 import { rankResults, titleScore } from './rankResults';
 import { useSourceHealth } from './sourceHealth';
+import { MAX_IN_FLIGHT, queued } from './useCatalogSearch';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -95,9 +96,10 @@ describe('Ranked search across sources', () => {
         'A Learning TaleRoyal Road',
       ]),
     );
-    expect(
-      within(ranked).getByText(/Couldn't search Broken Site \(HTTP 403\)/),
-    ).toBeInTheDocument();
+    // The failing source is named once, quietly, after the answers; its error is under More info.
+    const failed = within(ranked).getByTestId('failed-sources');
+    expect(failed).toHaveTextContent('Issue with Broken Site');
+    expect(failed).toHaveTextContent('HTTP 403');
 
     // Relevant is the default chip (M46.35); All sources groups by source, the failing one last.
     expect(screen.getByRole('button', { name: 'Relevant' })).toHaveAttribute(
@@ -144,6 +146,44 @@ describe('Ranked search across sources', () => {
     await user.click(await screen.findByRole('button', { name: 'Clear cookies and data' }));
     expect(commands.extensionClearData).toHaveBeenCalledWith('x.royal');
     expect(await screen.findByRole('button', { name: 'Cookies and data cleared' })).toBeDisabled();
+  });
+
+  it("drops a source's search when the query moves on before its turn, and asks once", async () => {
+    // Every place taken by searches that answer when released.
+    const releases: (() => void)[] = [];
+    const held = Array.from({ length: MAX_IN_FLIGHT }, (_, index) =>
+      queued(
+        `held-${index}`,
+        () => new Promise<string>((resolve) => releases.push(() => resolve(`held ${index}`))),
+      ),
+    );
+    const controller = new AbortController();
+    const stale = vi.fn(async () => 'stale');
+    const waiting = queued('stale', stale, controller.signal);
+    const fresh = vi.fn(async () => 'fresh');
+    const next = queued('fresh', fresh);
+    controller.abort();
+    await expect(waiting).rejects.toBeDefined();
+
+    releases[0]!();
+    expect(await next).toBe('fresh');
+    expect(stale).not.toHaveBeenCalled();
+    // The same search asked again while it's being asked waits for that answer.
+    let answer: () => void = () => {};
+    const slow = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          answer = () => resolve('once');
+        }),
+    );
+    const first = queued('same', slow);
+    await vi.waitFor(() => expect(slow).toHaveBeenCalledTimes(1));
+    const second = queued('same', slow);
+    answer();
+    expect(await Promise.all([first, second])).toEqual(['once', 'once']);
+    expect(slow).toHaveBeenCalledTimes(1);
+    releases.forEach((release) => release());
+    await Promise.all(held);
   });
 
   it('finds a source chip by name when there are many', async () => {

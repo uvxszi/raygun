@@ -15,6 +15,7 @@ import type {
   MangaUpdateStatus,
   PlaybackState,
   QueueSnapshot,
+  SearchProgress,
   Settings,
   SongDownload,
   SpeechCommand,
@@ -47,6 +48,7 @@ type EventPayloads = {
   queueEvent: QueueSnapshot;
   libraryScanEvent: LibraryScanProgress;
   extensionsChangedEvent: ExtensionInfo[];
+  searchProgressEvent: SearchProgress;
   syncChangedEvent: number;
   mangaUpdateEvent: MangaUpdateStatus;
   mangaDownloadsEvent: string;
@@ -136,7 +138,7 @@ export const DEFAULT_SETTINGS: Settings = {
   language: 'en',
   showNsfw: false,
   explicitMusic: true,
-  privacy: { history: true, recentlyPlayed: true },
+  privacy: { history: true, recentlyPlayed: true, searchHistory: true },
   hidden: { artists: [], items: [] },
   lyricsCache: { forgetAfterDays: 30, keepFavorites: true, keepDownloaded: true, keepLocal: true },
   preferredVideoQuality: null,
@@ -370,6 +372,7 @@ export const bindingsMock = {
     extensionOpenWebsite: vi.fn(),
     extensionRepos: vi.fn(),
     extensionRepoAdd: vi.fn(),
+    extensionRepoPreview: vi.fn(),
     extensionSuggestedRepos: vi.fn(),
     extensionRepoRemove: vi.fn(),
     extensionCatalog: vi.fn(),
@@ -377,6 +380,10 @@ export const bindingsMock = {
     extensionUninstall: vi.fn(),
     extensionSettingSet: vi.fn(),
     onlineSearch: vi.fn(),
+    searchRecent: vi.fn(),
+    searchRecentAdd: vi.fn(),
+    searchRecentRemove: vi.fn(),
+    searchRecentClear: vi.fn(),
     lyricsGet: vi.fn(),
     songEditGet: vi.fn(),
     songEditSet: vi.fn(),
@@ -591,6 +598,7 @@ export const bindingsMock = {
     queueEvent: makeEvent('queueEvent'),
     libraryScanEvent: makeEvent('libraryScanEvent'),
     extensionsChangedEvent: makeEvent('extensionsChangedEvent'),
+    searchProgressEvent: makeEvent('searchProgressEvent'),
     syncChangedEvent: makeEvent('syncChangedEvent'),
     mangaUpdateEvent: makeEvent('mangaUpdateEvent'),
     mangaDownloadsEvent: makeEvent('mangaDownloadsEvent'),
@@ -832,6 +840,7 @@ export const seedBindings = () => {
   commands.extensionOpenWebsite.mockResolvedValue(ok(null));
   commands.extensionRepos.mockResolvedValue(ok([]));
   commands.extensionRepoAdd.mockResolvedValue(ok([]));
+  commands.extensionRepoPreview.mockResolvedValue({ status: 'error', error: 'not mocked' });
   commands.extensionSuggestedRepos.mockResolvedValue(ok([]));
   commands.extensionRepoRemove.mockResolvedValue(ok([]));
   commands.extensionCatalog.mockResolvedValue(ok([]));
@@ -839,6 +848,10 @@ export const seedBindings = () => {
   commands.extensionUninstall.mockResolvedValue(ok([]));
   commands.extensionSettingSet.mockResolvedValue(ok([]));
   commands.onlineSearch.mockResolvedValue(ok({ library: [], top: [], providers: [] }));
+  commands.searchRecent.mockResolvedValue(ok([]));
+  commands.searchRecentAdd.mockResolvedValue(ok([]));
+  commands.searchRecentRemove.mockResolvedValue(ok([]));
+  commands.searchRecentClear.mockResolvedValue(ok(null));
   commands.lyricsGet.mockResolvedValue(ok(null));
   commands.songEditGet.mockResolvedValue({});
   commands.songEditSet.mockImplementation(async (_query: unknown, edit: unknown) => ok(edit));

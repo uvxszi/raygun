@@ -4,12 +4,18 @@ import { ChevronRight } from 'lucide-react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { BookCard } from '../audiobooks/BookRow';
+import { useBookDirectory } from '../audiobooks/useAudiobooks';
 import type { Medium } from '../manga/medium';
 import { PodcastResultList } from '../podcasts/PodcastResultList';
 import { usePodcastSearch, useTopPodcasts } from '../podcasts/usePodcasts';
 import { useMangaSources } from '../manga/useManga';
+import { Carousel } from '../shell/Carousel';
+import { OpeningBook } from './AudiobookSearch';
+import { useOpenBook } from './useOpenBook';
 import { SourceRow } from './CatalogSearch';
 import { LibraryMatches } from './LibraryMatches';
+import { NoSources } from './NoSources';
 import { MusicResults } from './MusicResults';
 import { VideoResults } from './VideoResults';
 import type { SearchType, SearchView } from './searchTypes';
@@ -56,7 +62,7 @@ const CatalogPreview: FC<{ medium: Medium; query: string }> = ({ medium, query }
   const sources = useMangaSources(medium);
   if (!sources.data) return <p className="text-muted text-sm">{t('search.searching')}</p>;
   if (sources.data.length === 0) {
-    return <p className="text-muted text-sm">{t('search.noCatalogSources')}</p>;
+    return <NoSources label={t('search.noCatalogSources')} />;
   }
   // Comics and books: one list ranked across the first sources (M46.35), not a few per source.
   if (medium !== 'video') {
@@ -119,6 +125,35 @@ const PreviewRows: FC<{ medium: Medium; query: string; sources: MangaSource[] }>
   );
 };
 
+/** The audiobook sources' first books for the query, or their popular ones before it. */
+const AudiobookPreview: FC<{ query: string }> = ({ query }) => {
+  const { t } = useTranslation();
+  const wanted = query.trim();
+  const { openBook, open } = useOpenBook();
+  const books = useBookDirectory(wanted ? 'search' : 'popular', wanted);
+  const found = books.data?.pages[0]?.books ?? [];
+  if (books.error) {
+    return (
+      <SourceIssue compact onRetry={() => void books.refetch()}>
+        {books.error.message}
+      </SourceIssue>
+    );
+  }
+  if (books.isSuccess && found.length === 0) {
+    return <p className="text-muted text-sm">{t('audiobooks.noResults')}</p>;
+  }
+  return (
+    <>
+      <OpeningBook open={open} />
+      <Carousel className="-mx-4 gap-1 px-2 lg:-mx-2">
+        {found.slice(0, 12).map((book) => (
+          <BookCard key={book.feedUrl} book={book} onOpen={openBook} />
+        ))}
+      </Carousel>
+    </>
+  );
+};
+
 const PodcastPreview: FC<{ query: string }> = ({ query }) => {
   const { t } = useTranslation();
   const found = usePodcastSearch(query);
@@ -160,6 +195,9 @@ export const AllResults: FC<{
       )}
       <Section title={t('library.media.podcast')} onMore={() => onType('music', 'podcasts')}>
         <PodcastPreview query={query} />
+      </Section>
+      <Section title={t('search.music.audiobooks')} onMore={() => onType('music', 'audiobooks')}>
+        <AudiobookPreview query={query} />
       </Section>
       <Section title={t('search.type.video')} onMore={() => onType('video')}>
         <VideoResults query={query} limit={2} />

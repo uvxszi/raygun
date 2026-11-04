@@ -109,6 +109,15 @@ const PrivacySettings: FC = () => {
           update.mutate({ key: 'privacy', value: { ...privacy, recentlyPlayed } })
         }
       />
+      <PrefSwitch
+        title={t('settings.privacy.searchHistory')}
+        summary={t('settings.privacy.searchHistoryHint')}
+        checked={privacy.searchHistory ?? true}
+        disabled={busy}
+        onChange={(searchHistory) =>
+          update.mutate({ key: 'privacy', value: { ...privacy, searchHistory } })
+        }
+      />
     </PrefGroup>
   );
 };

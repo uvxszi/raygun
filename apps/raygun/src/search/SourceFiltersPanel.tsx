@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { TextField } from '../shell/TextField';
 import type { FilterValues } from './useCatalogSearch';
 
 type TagState = 'none' | 'include' | 'exclude';
@@ -50,17 +51,18 @@ const TagsFilter: FC<{
         {filter.label} · {t('search.filters.tagsHint')}
       </legend>
       {filter.options.length > 12 && (
-        <label className="bg-background flex items-center gap-2 rounded-lg px-3 py-1.5">
-          <Search aria-hidden size={14} className="text-muted" />
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t('search.filters.findTag')}
-            aria-label={t('search.filters.findTagIn', { label: filter.label })}
-            className="placeholder:text-muted min-w-0 flex-1 bg-transparent text-sm outline-none"
-          />
-        </label>
+        <TextField
+          type="search"
+          value={query}
+          onChange={setQuery}
+          icon={Search}
+          iconSize={14}
+          autoComplete="off"
+          placeholder={t('search.filters.findTag')}
+          aria-label={t('search.filters.findTagIn', { label: filter.label })}
+          className="bg-background rounded-lg py-0.5 pr-0.5 pl-3"
+          inputClassName="py-1 text-sm"
+        />
       )}
       <div
         role="group"

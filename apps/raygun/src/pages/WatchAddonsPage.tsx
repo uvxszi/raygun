@@ -22,6 +22,7 @@ import { OverflowMenu } from '../shell/OverflowMenu';
 import type { OverflowItem } from '../shell/OverflowMenu';
 import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
+import { SHEET_FIELD, SHEET_INPUT, TextField } from '../shell/TextField';
 import { TopBarAction } from '../shell/TopBar';
 import {
   useAddAddon,
@@ -363,7 +364,7 @@ export const WatchAddonsPage: FC = () => {
       {addingByUrl && (
         <Sheet title={t('watch.addAddon')} onClose={close}>
           <form onSubmit={onLookUp} className="flex flex-col gap-3 text-sm">
-            <input
+            <TextField
               type="text"
               inputMode="url"
               autoCapitalize="off"
@@ -371,10 +372,11 @@ export const WatchAddonsPage: FC = () => {
               spellCheck={false}
               autoFocus
               value={url}
-              onChange={(event) => setUrl(event.target.value)}
+              onChange={setUrl}
               placeholder="https://…/manifest.json"
               aria-label={t('watch.addAddon')}
-              className="bg-background placeholder:text-muted rounded-xl px-4 py-3 outline-none"
+              className={SHEET_FIELD}
+              inputClassName={SHEET_INPUT}
             />
             {(preview.error ?? add.error) && (
               <p role="alert" className="text-muted text-xs wrap-anywhere">

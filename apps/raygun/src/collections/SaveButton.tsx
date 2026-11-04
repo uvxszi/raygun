@@ -5,6 +5,7 @@ import type { FC, FormEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Sheet } from '../shell/Sheet';
+import { TextField } from '../shell/TextField';
 import { PlaylistCover } from './PlaylistCover';
 import { useCreatePlaylist, usePlaylists, useSetTrackSaves, useTrackSaves } from './useCollections';
 
@@ -93,26 +94,27 @@ const SaveSheet: FC<{
       onClose={onClose}
     >
       <div className="flex flex-col gap-2">
-        <label className="bg-background flex items-center gap-2 rounded-lg px-3 py-2">
-          <Search aria-hidden size={16} className="text-muted" />
-          <input
-            type="search"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-            placeholder={t('collections.findPlaylist')}
-            aria-label={t('collections.findPlaylist')}
-            className="placeholder:text-muted min-w-0 flex-1 bg-transparent text-sm outline-none"
-          />
-        </label>
+        <TextField
+          type="search"
+          value={filter}
+          onChange={setFilter}
+          icon={Search}
+          autoComplete="off"
+          placeholder={t('collections.findPlaylist')}
+          aria-label={t('collections.findPlaylist')}
+          className="bg-background rounded-lg py-0.5 pr-0.5 pl-3"
+          inputClassName="py-1.5 text-sm"
+        />
         {naming ? (
           <form onSubmit={makePlaylist} className="flex items-center gap-2">
-            <input
+            <TextField
               autoFocus
               value={name}
-              onChange={(event) => setName(event.target.value)}
+              onChange={setName}
               aria-label={t('collections.playlistName')}
               placeholder={t('collections.playlistName')}
-              className="bg-background min-w-0 flex-1 rounded-lg px-3 py-2 text-sm outline-none"
+              className="bg-background flex-1 rounded-lg pr-0.5 pl-3"
+              inputClassName="py-2 text-sm"
             />
             <button
               type="submit"

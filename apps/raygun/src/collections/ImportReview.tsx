@@ -29,6 +29,7 @@ import { unwrapResult } from '../lib/commandResult';
 import { formatTime } from '../player/formatTime';
 import { playResults } from '../search/useOnlineSearch';
 import { SourceIssue } from '../shell/SourceIssue';
+import { TextField } from '../shell/TextField';
 import { COLLECTIONS, usePlaylists } from './useCollections';
 
 /** Songs matched at once, so the list fills in as it goes. */
@@ -361,11 +362,12 @@ export const ImportReview: FC<{ list: ImportedList; onClose: () => void }> = ({
         </select>
       </label>
       {destination === 'new' && (
-        <input
+        <TextField
           value={name}
-          onChange={(event) => setName(event.target.value)}
+          onChange={setName}
           aria-label={t('collections.playlistName')}
-          className="bg-background rounded-xl px-4 py-3 text-sm outline-none"
+          className="bg-background rounded-xl pr-1.5 pl-4"
+          inputClassName="py-3 text-sm"
         />
       )}
       <p role="status" className="text-muted text-sm">
@@ -399,19 +401,21 @@ export const ImportReview: FC<{ list: ImportedList; onClose: () => void }> = ({
           add();
         }}
       >
-        <input
+        <TextField
           aria-label={t('import.addTitle')}
           placeholder={t('import.addTitle')}
           value={adding.title}
-          onChange={(event) => setAdding({ ...adding, title: event.target.value })}
-          className="bg-background min-w-0 flex-1 rounded-xl px-3 py-2 text-sm"
+          onChange={(title) => setAdding({ ...adding, title })}
+          className="bg-background flex-1 rounded-xl pr-0.5 pl-3"
+          inputClassName="py-2 text-sm"
         />
-        <input
+        <TextField
           aria-label={t('import.addArtist')}
           placeholder={t('import.addArtist')}
           value={adding.artist}
-          onChange={(event) => setAdding({ ...adding, artist: event.target.value })}
-          className="bg-background min-w-0 flex-1 rounded-xl px-3 py-2 text-sm"
+          onChange={(artist) => setAdding({ ...adding, artist })}
+          className="bg-background flex-1 rounded-xl pr-0.5 pl-3"
+          inputClassName="py-2 text-sm"
         />
         <button
           type="submit"

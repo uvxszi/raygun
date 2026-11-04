@@ -9,7 +9,6 @@
     "back": "Back",
     "moreActions": "More options",
     "closeSearch": "Close search",
-    "clearSearch": "Clear search",
     "watch": "Watch",
     "music": "Music",
     "comics": "Comics",
@@ -309,7 +308,7 @@
     "placeholder": "Search songs and artists…",
     "hint": "Search songs, artists and radio stations online. Results play right away.",
     "searching": "Searching…",
-    "noSources": "No search sources are installed.",
+    "noSources": "No music sources yet.",
     "noResults": "Nothing found for “{{query}}”.",
     "providerEmpty": "No results from this source.",
     "providerFailed": "This source failed: {{message}}",
@@ -333,15 +332,28 @@
       "video": "Movies and series"
     },
     "hintFor": {
-      "music": "Search songs, artists, albums and podcasts from your library and every source.",
       "library": "Search your music, manga, novels, podcasts and videos."
+    },
+    "typeFor": {
+      "relevant": "Type a song, artist, album, podcast or book.",
+      "songs": "Type a song or an artist.",
+      "artists": "Type an artist's name.",
+      "albums": "Type an album or an artist.",
+      "playlists": "Type a playlist, a genre or a mood."
     },
     "inYourLibrary": "In your library",
     "seeAll": "See all",
+    "recent": {
+      "title": "Recent searches",
+      "clear": "Clear",
+      "remove": "Forget “{{query}}”",
+      "showAll": "Show all {{count}}"
+    },
     "more": "More",
     "source": "Source",
     "allSources": "All sources",
-    "noCatalogSources": "No sources installed. Add some in Extensions.",
+    "noCatalogSources": "No sources for this yet.",
+    "findExtensions": "Find extensions",
     "typeToSearch": "Type something to search for.",
     "libraryNothing": "Nothing in your library matches “{{query}}”.",
     "filters": {
@@ -372,6 +384,7 @@
       "artists": "Artists",
       "albums": "Albums",
       "podcasts": "Podcasts",
+      "audiobooks": "Audiobooks",
       "playlists": "Playlists"
     },
     "video": {
@@ -379,8 +392,7 @@
       "relevant": "Relevant",
       "movies": "Movies",
       "series": "Series",
-      "sources": "Sources",
-      "anyKind": "Your sources don't say which results are movies and which are series until you open one, so they're all here."
+      "sources": "Sources"
     },
     "topResult": "Top result",
     "kind": {
@@ -393,11 +405,12 @@
     "byResult": "Best matches",
     "bySource": "By source",
     "sourcesAnswered": "{{done}} of {{total}} sources answered",
-    "someFailed": "Couldn't search {{sources}}",
+    "sourcesCount_one": "{{count}} source",
+    "sourcesCount_other": "{{count}} sources",
+    "showMore": "Show {{count}} more",
     "popular": "Popular",
     "popularHint": "Popular now. Type above to search everything.",
     "relevant": "Relevant",
-    "clear": "Clear",
     "playlists": {
       "which": "Which playlists",
       "all": "All",
@@ -896,6 +909,8 @@
       "historyHint": "Off: plays aren't recorded (history, play counts, Made for You). What's there stays until you clear it.",
       "recentlyPlayed": "Keep recently played",
       "recentlyPlayedHint": "Off: Home doesn't show or remember what you played from.",
+      "searchHistory": "Keep search history",
+      "searchHistoryHint": "Off: Search doesn't show or remember what you searched for.",
       "keepIncognito": "Stay incognito after a restart",
       "keepIncognitoHint": "Off: incognito ends when Raygun closes."
     }
@@ -1035,13 +1050,18 @@
   },
   "common": {
     "coreUnavailable": "Core unavailable: {{message}}",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "clear": "Clear",
+    "clearField": "Clear {{field}}"
   },
   "extensions": {
     "title": "Extensions",
     "tabs": "Extension views",
     "tab": {
+      "all": "All",
       "installed": "Installed",
+      "notInstalled": "Not installed",
+      "updatesCount": "Updates · {{count}}",
       "browse": "Browse",
       "repos": "Repositories"
     },
@@ -1051,6 +1071,7 @@
     "builtIn": "built-in",
     "installedOrigin": "installed",
     "failed": "Failed to load: {{message}}",
+    "notLoaded": "Didn't load",
     "install": "Install",
     "update": "Update",
     "upToDate": "Installed",
@@ -1068,6 +1089,22 @@
     "repoUrlPlaceholder": "https://…/index.json",
     "addRepo": "Add repository",
     "repoHint": "Only add repositories you trust: their extensions can reach the hosts they list.",
+    "reading": "Reading the repository…",
+    "contentsOf": "What {{name}} holds",
+    "contents": {
+      "music": "Music sources",
+      "manga": "Comics sources",
+      "novel": "Book sources",
+      "video": "Video sources",
+      "podcast": "Podcast directories",
+      "audiobook": "Audiobook sources",
+      "lyrics": "Lyrics sources",
+      "other": "Other extensions"
+    },
+    "format": {
+      "nuclear": "Nuclear plugins",
+      "shosetsu": "Shosetsu scripts"
+    },
     "settings": "Settings",
     "providers": "Provides",
     "uninstall": "Uninstall",
@@ -1086,16 +1123,15 @@
     "nsfwBadge": "18+",
     "nsfwHidden": "Hidden while NSFW content is off",
     "search": "Search extensions",
-    "searchPlaceholder": "Search extensions…",
-    "notInstalled": "Not installed",
+    "searchInstalled": "Search installed extensions",
     "kindFilter": "Show",
     "kind": {
-      "all": "All",
       "music": "Audio",
       "manga": "Comics",
       "novel": "Books",
       "video": "Videos",
       "podcast": "Podcasts",
+      "audiobook": "Audiobooks",
       "lyrics": "Lyrics",
       "other": "Other"
     },
@@ -1105,6 +1141,8 @@
     "repoFilter": "Repository",
     "allRepos": "All repositories",
     "noMatches": "No extensions match.",
+    "allUpToDate": "Everything is up to date.",
+    "allInstalled": "Everything here is installed.",
     "suggestedRepos": "Suggested repositories",
     "repoAdded": "Added",
     "add": "Add",
@@ -1117,7 +1155,8 @@
       "manga.source": "Manga source",
       "novel.source": "Novel source",
       "video.source": "Movies and series source",
-      "podcast.directory": "Podcast directory"
+      "podcast.directory": "Podcast directory",
+      "audiobook.directory": "Audiobook directory"
     },
     "installing": "Installing",
     "queued": "Waiting",
@@ -1735,7 +1774,9 @@
     "kind": {
       "video": "Videos"
     },
-    "noSources": "No sources yet. Add extensions in the Extensions tab, or Stremio addons from the menu.",
+    "noSources": "No sources yet",
+    "addExtensions": "Add extensions",
+    "addAddons": "Add Stremio addons",
     "sourceKinds": "Kinds of sources",
     "allKinds": "All",
     "findSource": "Find a source"
@@ -2597,8 +2638,6 @@
     "emptyTitle": "No audiobooks yet",
     "emptyBody": "Find free public-domain audiobooks read by LibriVox volunteers, and add them here.",
     "browse": "Find audiobooks",
-    "search": "Search audiobooks",
-    "searchPlaceholder": "Title or author",
     "results": "Books found",
     "noResults": "No audiobooks found for that.",
     "popular": "Popular",
@@ -2687,53 +2726,6 @@
     "search": "Search",
     "downloadTitle": "Download from another source",
     "downloadFrom": "Download from this"
-  },
-  "systems": {
-    "title": "What Raygun can run",
-    "intro": "Raygun loads add-ons from several players and apps, and reads lists and feeds from many more. Each is listed with what it brings.",
-    "manage": "Manage",
-    "items": {
-      "raygun": {
-        "name": "Raygun extensions",
-        "what": "Music search and streams, lyrics, charts, genres, recommendations, song facts, manga, novels, films and series, podcast and audiobook directories.",
-        "how": "JavaScript in a sandbox, installed from repositories: Raygun's own (Paraline) or any you add."
-      },
-      "nuclear": {
-        "name": "Nuclear plugins",
-        "what": "Music search, streams, lyrics, dashboards (as charts) and discovery (as song radios).",
-        "how": "Converted when installed, from Nuclear's plugin registry or any repository listing them. Playlists, queue and UI parts don't run."
-      },
-      "shosetsu": {
-        "name": "Shosetsu sources",
-        "what": "Light novels: hundreds of sites, read chapter by chapter.",
-        "how": "Lua scripts run in Raygun's Shosetsu runtime, from Shosetsu repositories."
-      },
-      "stremio": {
-        "name": "Stremio addons",
-        "what": "Film and series catalogues, streams, subtitles and live channels.",
-        "how": "Added by their manifest address. Torrent streams aren't played; outside links open in the browser."
-      },
-      "feeds": {
-        "name": "Podcast and audiobook feeds",
-        "what": "Any podcast's RSS or Atom feed, and LibriVox audiobooks chapter by chapter.",
-        "how": "Found through directories or added by address."
-      },
-      "websites": {
-        "name": "Websites",
-        "what": "Any site, in Raygun's own browser with an ad and popup blocker.",
-        "how": "Added in Browse → Sources → Websites."
-      },
-      "imports": {
-        "name": "Imports",
-        "what": "Mihon and Tachiyomi backups, CBZ and ZIP comics, EPUB books, Spotify playlist links, CSV song lists and screenshots of song lists.",
-        "how": "From the Library's import buttons."
-      },
-      "others": {
-        "name": "Other players",
-        "what": "QuietPlay and Musike have no add-ons to load. What they offer is built in: Made for You and moods from Deezer and Apple Music (QuietPlay), and YouTube Music search and radios (Musike).",
-        "how": "Nothing to install."
-      }
-    }
   },
   "localFiles": {
     "title": "Local files",

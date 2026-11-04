@@ -451,6 +451,17 @@ pub async fn extension_repo_add(
     extensions.add_repo(&url).await
 }
 
+/// What a repository holds, read from its index without adding it (the repository's `id` is
+/// empty).
+#[tauri::command]
+#[specta::specta]
+pub async fn extension_repo_preview(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    url: String,
+) -> Result<RepoCatalog, String> {
+    extensions.preview_repo(&url).await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn extension_repo_remove(
@@ -616,29 +627,37 @@ pub async fn song_edit_set(
 const SEARCH_LIBRARY_LIMIT: u32 = 8;
 
 /// Searches the local library and every online music provider at once. Each provider answers
-/// with tracks or an error; songs several providers found are merged into `top`.
+/// with tracks or an error; songs several providers found are merged into `top`. Each answer is
+/// also sent as a [`crate::events::SearchProgressEvent`] as it comes, in the order they came.
 #[tauri::command]
 #[specta::specta]
 pub async fn online_search(
+    app: tauri::AppHandle,
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     library: tauri::State<'_, LibraryService>,
     durations: tauri::State<'_, Arc<crate::durations::DurationService>>,
     query: String,
 ) -> Result<SearchResults, String> {
-    let (local, providers) = futures_util::future::join(
-        library.search(&query, SEARCH_LIBRARY_LIMIT),
-        extensions.search(&query),
-    )
-    .await;
+    let trimmed = query.trim();
+    let details = tauri::Manager::state::<Arc<crate::details::DetailService>>(&app);
+    let songs = extensions.search_as_answered(trimmed, |result, total| {
+        // Lengths the sources sent are kept for lists that lack them (M46.26).
+        durations.learn_tracks(&result.tracks);
+        let mut result = result.clone();
+        details.apply_online(&mut result.tracks);
+        report_progress(
+            &app,
+            trimmed,
+            total,
+            raygun_model::SearchPart::Songs { result },
+        );
+    });
+    let (local, providers) =
+        futures_util::future::join(library.search(&query, SEARCH_LIBRARY_LIMIT), songs).await;
     let library = local.unwrap_or_else(|message| {
         tracing::warn!(%message, "library search failed");
         Vec::new()
     });
-    // Lengths the sources sent are kept for lists that lack them (M46.26).
-    for result in &providers {
-        durations.learn_tracks(&result.tracks);
-    }
-    let details = tauri::Manager::state::<Arc<crate::details::DetailService>>(durations.app());
     let mut providers = providers;
     for result in &mut providers {
         details.apply_online(&mut result.tracks);
@@ -650,27 +669,111 @@ pub async fn online_search(
     })
 }
 
+/// Tells Search what one source answered while the others are still asked.
+fn report_progress(
+    app: &tauri::AppHandle,
+    query: &str,
+    total: usize,
+    part: raygun_model::SearchPart,
+) {
+    use tauri_specta::Event;
+    let progress = raygun_model::SearchProgress {
+        query: query.to_owned(),
+        total: u32::try_from(total).unwrap_or(u32::MAX),
+        part,
+    };
+    if let Err(error) = crate::events::SearchProgressEvent(progress).emit(app) {
+        tracing::warn!(%error, "could not send a search's progress");
+    }
+}
+
+/// Searches kept on this device, newest first.
+#[tauri::command]
+#[specta::specta]
+pub async fn search_recent(
+    db: tauri::State<'_, AppDb>,
+) -> Result<Vec<raygun_model::RecentSearch>, String> {
+    crate::recent_searches::list(&db.0).await
+}
+
+/// Remembers a search (`kind` is Search's kind); answers with the searches kept. Nothing is
+/// remembered while incognito is on (M47).
+#[tauri::command]
+#[specta::specta]
+pub async fn search_recent_add(
+    app: tauri::AppHandle,
+    db: tauri::State<'_, AppDb>,
+    query: String,
+    kind: String,
+) -> Result<Vec<raygun_model::RecentSearch>, String> {
+    if crate::privacy::incognito(&app) {
+        return crate::recent_searches::list(&db.0).await;
+    }
+    let now = crate::catalog::now_ms() as f64;
+    crate::recent_searches::add(&db.0, &query, &kind, now).await
+}
+
+/// Forgets one kept search; answers with the searches left.
+#[tauri::command]
+#[specta::specta]
+pub async fn search_recent_remove(
+    db: tauri::State<'_, AppDb>,
+    query: String,
+    kind: String,
+) -> Result<Vec<raygun_model::RecentSearch>, String> {
+    crate::recent_searches::remove(&db.0, &query, &kind).await
+}
+
+/// Forgets every kept search.
+#[tauri::command]
+#[specta::specta]
+pub async fn search_recent_clear(db: tauri::State<'_, AppDb>) -> Result<(), String> {
+    crate::recent_searches::clear(&db.0).await
+}
+
 /// Songs an artist page shows (M46.8).
 const ARTIST_POPULAR_LIMIT: usize = 20;
 
-/// Artists for a search, from every source that searches artists (M46.9).
+/// Artists for a search, from every source that searches artists (M46.9); each source's are also
+/// sent as a [`crate::events::SearchProgressEvent`] as they come.
 #[tauri::command]
 #[specta::specta]
 pub async fn music_search_artists(
+    app: tauri::AppHandle,
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     query: String,
 ) -> Result<Vec<raygun_model::MusicArtist>, String> {
-    Ok(extensions.search_artists(&query).await)
+    let query = query.trim();
+    Ok(extensions
+        .search_artists(query, |provider, artists, total| {
+            let part = raygun_model::SearchPart::Artists {
+                provider: provider.clone(),
+                artists: artists.to_vec(),
+            };
+            report_progress(&app, query, total, part);
+        })
+        .await)
 }
 
-/// Albums for a search, from every source that searches albums (M46.9).
+/// Albums for a search, from every source that searches albums (M46.9); each source's are also
+/// sent as a [`crate::events::SearchProgressEvent`] as they come.
 #[tauri::command]
 #[specta::specta]
 pub async fn music_search_albums(
+    app: tauri::AppHandle,
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     query: String,
 ) -> Result<Vec<raygun_model::MusicAlbum>, String> {
-    Ok(extensions.search_albums(&query).await)
+    let query = query.trim();
+    Ok(extensions
+        .search_albums(query, |provider, albums, total| {
+            let part = raygun_model::SearchPart::Albums {
+                provider: provider.clone(),
+                albums: albums.to_vec(),
+            };
+            report_progress(&app, query, total, part);
+        })
+        .await)
 }
 
 /// Where this device's sound can come out (M46.43). Android lists its outputs; desktop's are the
@@ -784,15 +887,27 @@ pub async fn music_artist_events(
 }
 
 /// Playlists for a search from every source that searches them; `featured` keeps the services'
-/// own (M46.39).
+/// own (M46.39). Each source's are also sent as a [`crate::events::SearchProgressEvent`] as they
+/// come.
 #[tauri::command]
 #[specta::specta]
 pub async fn music_search_playlists(
+    app: tauri::AppHandle,
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     query: String,
     featured: bool,
 ) -> Result<Vec<raygun_model::MusicPlaylist>, String> {
-    Ok(extensions.search_playlists(&query, featured).await)
+    let query = query.trim();
+    Ok(extensions
+        .search_playlists(query, featured, |provider, playlists, total| {
+            let part = raygun_model::SearchPart::Playlists {
+                provider: provider.clone(),
+                featured,
+                playlists: playlists.to_vec(),
+            };
+            report_progress(&app, query, total, part);
+        })
+        .await)
 }
 
 /// A source's playlist with its songs (M46.39).
