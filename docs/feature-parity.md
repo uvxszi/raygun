@@ -24,7 +24,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs third-party
 | Crash logs, verbose logging, debug info | Mihon, Nuclear (logs view) | 🔜 M54 |
 | Searchable settings | Mihon | 🔜 M54 |
 | MCP server, LAN remote | Nuclear | ✅ M19, M20 |
-| Device sync | — | ⏸ M22 |
+| Device sync | — | ✅ M46.47 (linked devices sync automatically) |
 | Keyboard shortcuts | Nuclear | ✅ M46.8 (playback; everywhere: queued) |
 
 ## Extensions and repositories

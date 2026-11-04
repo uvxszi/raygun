@@ -37,7 +37,7 @@ Legend: 📱 Android · 🖥 Windows · ⚗ spike (time-boxed; the outcome is a 
 - M19 **MCP server**: rmcp streamable HTTP, token + origin auth, meta-tools generated from the service catalog, resources, stdio shim
 - M20 LAN remote: REST/SSE + paired remote web UI (QR)
 - M21 **Device sync v1**: mDNS discovery (+ Android MulticastLock), QR/code pairing with Ed25519 keys, encrypted peer channel, HLC change log + per-field merge, Settings → Devices (toggles, log, undo)
-- M22 *(on hold since 2026-10-31)* **Device sync v2**: automatic triggers (start, network change, debounced local changes), Android WorkManager background sync on Wi-Fi, optional on-demand file transfer for downloads
+- M22 *(partly done in M46.47: automatic sync between linked devices)* **Device sync v2**: automatic triggers (start, network change, debounced local changes), Android WorkManager background sync on Wi-Fi, optional on-demand file transfer for downloads
 - M23 Lyrics view with synced scrolling; Furigana/romaji via a lyrics post-processor (kuromoji-style tokenizer)
 
 ## Phase 3 — Manga
@@ -194,6 +194,7 @@ The goal is the full depth of the reference apps, researched per app in `docs/re
 - M46.44 **Drag to reorder**: ✅ a grip on every playlist and Favorites song; works in any sort, which becomes the custom order.
 - M46.45 **Playlists, marks, import, video sites**: ✅ custom playlist covers and live covers in quick access; saved and downloaded marks on songs; Select all, merge and delete playlists; import into any playlist or Favorites; fix names while finding a source; discography sorts; tap a chapter to play; transcripts kept and one source dropdown; rating sources; 16:9 video sites, YouTube channels, playlists and comments.
 - M46.46 **Downloads, recordings, lyrics and covers kept**: ✅ downloads retry and fall back like Kreate's; songs on their way marked in lists; selections skip saved songs and Select all toggles; recordings in their own window with the player locked and trims kept; import albums from what sources agree on; lyrics kept, retried with simpler words, transcribed in batches, deleted per song or in Settings, forgotten after 30 days except favorites, downloads and local files; picked covers kept; playlist Edit as a pill.
+- M46.48 **Whole-app pass**: ✅ errors and many-source performance, Stremio rework, Shosetsu compatibility, Miru support, one Paraline repository, seven comics sources, song identity and picked sources, download queue, player watchdog and performance, Android background playback, permissions and download notifications, video track languages and seasons, one Continue rule, podcasts and audiobooks, lyrics translation, readers, Settings and screen-based sizes, incognito, Home menus.
 - M46.47 **Home, cached starts, YouTube, updates, one device link, v1.0.0**: ✅ more Home rows from Browse all; the query cache saved and restored, image links that survive restarts; search shows what's already seen; download source picker and truthful fallbacks; yt-dlp for YouTube addresses and YouTube-only songs; Audio in Browse; Loyal Books; the in-app updater (setup exe, MSI, Android, portable link); Connect, sync and the remote as one link with automatic syncing; test sources removable; Paraline Raygun's Raygun sources; release workflow with signed APKs.
 - **Queued in this order** (each becomes a milestone with a spec):
   1. **Sound and lyrics editing** (now M46.12):
@@ -273,7 +274,7 @@ The goal is the full depth of the reference apps, researched per app in `docs/re
 ## Phase 8 — Accounts and the rest
 - M59 Trackers: AniList, MyAnimeList, Kitsu, MangaUpdates, Trakt, Simkl (needs tracker accounts)
 - M60 Onboarding, what's new, update check, deep links, Android-dex runtime for Mihon/Aniyomi APK extensions
-- On hold: M22 device sync v2. Later: macOS and Linux beyond CI builds, iOS, sync beyond the LAN.
+- Remaining from M22: WorkManager background sync and file transfer. Later: macOS and Linux beyond CI builds, iOS, sync beyond the LAN.
 
 ---
 
