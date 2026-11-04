@@ -73,6 +73,7 @@ import { useTrackLengths } from './useTrackLengths';
 import { useUnavailable } from './useUnavailable';
 import { useTrackMenu } from './useTrackMenu';
 import { SongMarks } from './SongMarks';
+import { ExplicitMark } from './ExplicitMark';
 import { NowPlayingBars } from '../player/NowPlayingBars';
 import { usePlayingMatch } from '../player/usePlayingMatch';
 import { songCover } from '../library/coverTargets';
@@ -905,6 +906,7 @@ export const TrackTable: FC<TrackTableProps> = ({
                                 <NowPlayingBars playing={playing === 'playing'} />
                               )}
                               <span className="truncate">{track.title}</span>
+                              {track.explicit && <ExplicitMark />}
                               <SongMarks
                                 title={track.title}
                                 artist={track.artist}

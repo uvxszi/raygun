@@ -2933,6 +2933,8 @@ export type MangaCard = {
 	/**  Through the local image proxy. */
 	coverUrl: string | null,
 	inLibrary: boolean,
+	/**  The source marks it adult: the UI marks it 18+. */
+	adult?: boolean,
 };
 
 export type MangaChapterInfo = {
@@ -3085,6 +3087,8 @@ export type MangaSource_Deserialize = {
 	enabled: boolean,
 	/**  Its own Search pill, when the source declares one (M46.35). */
 	searchPill?: string | null,
+	/**  Its extension is rated `nsfw`: the UI marks it 18+. */
+	adult?: boolean,
 };
 
 export type MangaSource_Serialize = {
@@ -3096,6 +3100,8 @@ export type MangaSource_Serialize = {
 	enabled: boolean,
 	/**  Its own Search pill, when the source declares one (M46.35). */
 	searchPill?: string | null,
+	/**  Its extension is rated `nsfw`: the UI marks it 18+. */
+	adult: boolean,
 };
 
 export type MangaTitleView = {
@@ -3114,6 +3120,8 @@ export type MangaTitleView = {
 	inLibrary: boolean,
 	/**  An adult title while NSFW content is hidden: the UI shows a notice instead (M35). */
 	hiddenNsfw: boolean,
+	/**  Adult genres, or a source rated `nsfw`: the page marks it 18+. */
+	adult?: boolean,
 	/**  In the source's order (usually newest first). */
 	chapters: MangaChapterInfo[],
 	/**  Where "Continue" opens: the partly read chapter, else the first unread after the last read. */
@@ -3779,6 +3787,8 @@ export type ProviderInfo_Deserialize = {
 	name: string,
 	/**  A video source's own Search pill (M46.35: "YouTube", "PeerTube"). */
 	searchPill?: string | null,
+	/**  Its extension is rated `nsfw`: the UI marks it 18+. */
+	adult?: boolean,
 };
 
 /**  A provider an extension registered, e.g. a `music.metadata` search. */
@@ -3790,6 +3800,8 @@ export type ProviderInfo_Serialize = {
 	name: string,
 	/**  A video source's own Search pill (M46.35: "YouTube", "PeerTube"). */
 	searchPill?: string | null,
+	/**  Its extension is rated `nsfw`: the UI marks it 18+. */
+	adult: boolean,
 };
 
 /**  One provider's answer to an online search. */
@@ -3821,6 +3833,8 @@ export type QueueItem = {
 	artworkUrl: string | null,
 	mediaKind: MediaKind,
 	source: MediaSource,
+	/**  The source marks it explicit: lists and the player show "E". */
+	explicit?: boolean,
 };
 
 /**  What a caller provides to add something to the queue. */
@@ -3832,6 +3846,8 @@ export type QueueItemInput = {
 	artworkUrl: string | null,
 	mediaKind: MediaKind,
 	source: MediaSource,
+	/**  The source marks it explicit: lists and the player show "E". */
+	explicit?: boolean,
 };
 
 export type QueueSnapshot = {
@@ -4016,6 +4032,8 @@ export type SavedTrack = {
 	addedAt: number | null,
 	/**  Times it was played, from the history (M46.8). */
 	playCount: number,
+	/**  The source marks it explicit: lists and the player show "E". */
+	explicit?: boolean,
 };
 
 export type ScanPhase = "discovering" | "reading" | "done" | "failed";
@@ -4735,6 +4753,8 @@ export type StremioMeta = {
 	addonName: string,
 	/**  The addon whose details these are (empty when shown as stored). */
 	addonId: string,
+	/**  Adult genres, or an addon marked adult: the page marks it 18+. */
+	adult?: boolean,
 	/**
 	 *  What the title itself plays by (a movie, a channel): the details' default video, else
 	 *  its id.
@@ -5096,6 +5116,8 @@ export type TrackInput = {
 	artworkUrl: string | null,
 	/**  Local files and lookups aren't stored; the track is found again by its key. */
 	source: MediaSource | null,
+	/**  The source marks it explicit: lists and the player show "E". */
+	explicit?: boolean,
 };
 
 export type TrackListView = 
@@ -5468,6 +5490,8 @@ export type VideoTitleView = {
 	inLibrary: boolean,
 	/**  Adult content while NSFW is off: the page shows a notice instead. */
 	hiddenNsfw: boolean,
+	/**  Adult genres, or a source rated `nsfw`: the page marks it 18+. */
+	adult?: boolean,
 	/**  In the source's order; a movie has one. */
 	episodes: VideoEpisodeView[],
 	/**

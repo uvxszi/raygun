@@ -32,6 +32,7 @@ export const BestSongs: FC<{
           <OnlineTrackRow
             track={entry.track}
             source={entry.source}
+            sourceAdult={entry.sourceAdult}
             onPlay={(tapped) => void playResults(tracks, tapped)}
           />
         </li>

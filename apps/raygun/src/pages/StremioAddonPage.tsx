@@ -3,6 +3,7 @@ import { LoaderCircle } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { AdultMark } from '../shell/AdultMark';
 import { TopBar } from '../shell/TopBar';
 import { StremioCatalogRowView } from '../watch/StremioRow';
 import { useStremioAddons, useStremioCatalogs } from '../watch/useStremio';
@@ -29,6 +30,7 @@ export const StremioAddonPage: FC = () => {
         back
         fallback="/browse"
         title={addon?.name ?? t('watch.addons')}
+        titleMark={addon?.adult && <AdultMark />}
         subtitle={addon?.description}
       />
       {catalogs.isPending && (

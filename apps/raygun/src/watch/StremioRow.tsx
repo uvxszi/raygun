@@ -4,10 +4,11 @@ import { ChevronRight, Clapperboard } from 'lucide-react';
 import { useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { AdultMark } from '../shell/AdultMark';
 import { Carousel } from '../shell/Carousel';
 import { SourceIssue } from '../shell/SourceIssue';
 import { useInView } from '../shell/useInView';
-import { useStremioRow } from './useStremio';
+import { useStremioAddons, useStremioRow } from './useStremio';
 
 const ASPECT: Record<string, string> = {
   landscape: 'aspect-video',
@@ -65,15 +66,20 @@ export const StremioCard: FC<{ item: StremioItem; className?: string }> = ({
 /** A row's heading: what it lists, which addon, and a way to all of it. */
 const RowHeading: FC<{
   title: string;
+  addonId: string;
   addonName: string;
   all?: { addon: string; type: string; catalog: string } | null;
-}> = ({ title, addonName, all }) => {
+}> = ({ title, addonId, addonName, all }) => {
   const { t } = useTranslation();
+  const adult = useStremioAddons().data?.some((addon) => addon.id === addonId && addon.adult);
   return (
     <div className="flex items-baseline justify-between gap-2">
       <h2 className="min-w-0 font-semibold">
         <span className="line-clamp-1">{title}</span>
-        <span className="text-muted block text-xs font-normal">{addonName}</span>
+        <span className="text-muted flex items-center gap-1.5 text-xs font-normal">
+          <span className="truncate">{addonName}</span>
+          {adult && <AdultMark />}
+        </span>
       </h2>
       {all && (
         <Link
@@ -120,7 +126,7 @@ export const StremioRow: FC<{ row: StremioCatalogRow }> = ({ row }) => {
   const kind = t(`watch.kind.${row.kind}`, { defaultValue: row.kind });
   return (
     <section aria-label={kind} className="flex flex-col gap-2">
-      <RowHeading title={kind} addonName={row.addonName} />
+      <RowHeading title={kind} addonId={row.addonId} addonName={row.addonName} />
       <Cards items={row.items} />
     </section>
   );
@@ -163,6 +169,7 @@ export const StremioCatalogRowView: FC<{ catalog: StremioCatalogInfo; quiet?: bo
     <section ref={ref} aria-label={title} className="flex flex-col gap-2">
       <RowHeading
         title={title}
+        addonId={catalog.addonId}
         addonName={catalog.addonName}
         all={
           items.length > 0

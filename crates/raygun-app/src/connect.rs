@@ -1146,6 +1146,7 @@ fn transfer(
 
 fn input(item: QueueItem) -> QueueItemInput {
     QueueItemInput {
+        explicit: item.explicit,
         title: item.title,
         artist: item.artist,
         album: item.album,
@@ -1181,6 +1182,7 @@ pub(crate) fn portable_queue_item(item: QueueItem, original: &dyn Fn(&str) -> St
     let id = item.id.clone();
     let input = portable(input(item), original);
     QueueItem {
+        explicit: input.explicit,
         id,
         title: input.title,
         artist: input.artist,
@@ -1289,6 +1291,7 @@ mod tests {
 
     fn item(id: &str, source: MediaSource) -> QueueItem {
         QueueItem {
+            explicit: false,
             id: id.into(),
             title: format!("Song {id}"),
             artist: Some("Artist".into()),

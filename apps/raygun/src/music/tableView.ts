@@ -31,6 +31,8 @@ export type TableTrack = {
   artworkUrl: string | null;
   input: TrackInput;
   playlistItemId?: string;
+  /** The source marks it explicit: the row shows "E". */
+  explicit?: boolean;
 };
 
 /**
@@ -186,6 +188,8 @@ export const savedRow = (
     durationMs: track.durationMs,
     artworkUrl: track.artworkUrl,
     source: track.source,
+    ...(track.explicit ? { explicit: true } : {}),
   },
   ...(playlistItemId ? { playlistItemId } : {}),
+  ...(track.explicit ? { explicit: true } : {}),
 });

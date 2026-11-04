@@ -239,6 +239,7 @@ mod artist_tests {
         };
         let provider = |id: &str, tracks| ProviderSearchResult {
             provider: ProviderInfo {
+                adult: false,
                 id: id.into(),
                 extension_id: id.into(),
                 kind: "music.metadata".into(),
@@ -296,6 +297,7 @@ mod tests {
     fn result(provider: &str, tracks: Vec<OnlineTrack>) -> ProviderSearchResult {
         ProviderSearchResult {
             provider: ProviderInfo {
+                adult: false,
                 id: format!("{provider}/search"),
                 extension_id: provider.into(),
                 kind: "music.metadata".into(),

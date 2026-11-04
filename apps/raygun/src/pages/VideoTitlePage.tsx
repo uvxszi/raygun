@@ -340,6 +340,7 @@ export const VideoTitlePage: FC = () => {
           )
         }
         title={view.title}
+        adult={view.adult}
         facts={[
           view.mediaType && t(`watch.mediaType.${view.mediaType}`),
           view.year,

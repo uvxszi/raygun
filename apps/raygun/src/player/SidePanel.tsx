@@ -5,6 +5,7 @@ import type { FC, KeyboardEvent, PointerEvent as ReactPointerEvent } from 'react
 import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
+import { ExplicitMark } from '../music/ExplicitMark';
 import { songCover } from '../library/coverTargets';
 import { ArtistLinks } from '../music/ArtistLinks';
 import { TrackTagChips } from '../music/TrackTagChips';
@@ -338,10 +339,13 @@ const NextRow: FC<{ item: QueueItem; current?: boolean }> = ({ item, current = f
           iconSize={18}
         />
         <span className="title-gap flex min-w-0 flex-col">
-          <span
-            className={`truncate text-sm leading-tight font-medium ${current ? 'text-primary' : ''}`}
-          >
-            {item.title}
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span
+              className={`truncate text-sm leading-tight font-medium ${current ? 'text-primary' : ''}`}
+            >
+              {item.title}
+            </span>
+            {item.explicit && <ExplicitMark />}
           </span>
           {item.artist && (
             <span className="text-muted truncate text-xs leading-tight">{item.artist}</span>

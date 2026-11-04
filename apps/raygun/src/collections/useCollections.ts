@@ -172,6 +172,7 @@ export const fromOnlineTrack = (track: OnlineTrack): TrackInput => ({
   durationMs: track.durationMs,
   artworkUrl: track.artworkUrl,
   source: track.source,
+  ...(track.explicit ? { explicit: true } : {}),
 });
 
 /** Local tracks are saved without their file; Rust finds them again by artist and title. */
@@ -191,6 +192,7 @@ export const fromQueueItem = (item: QueueItem): TrackInput => ({
   durationMs: item.durationMs,
   artworkUrl: item.artworkUrl,
   source: item.source,
+  ...(item.explicit ? { explicit: true } : {}),
 });
 
 export const fromSavedTrack = (track: SavedTrack): TrackInput => ({
@@ -200,6 +202,7 @@ export const fromSavedTrack = (track: SavedTrack): TrackInput => ({
   durationMs: track.durationMs,
   artworkUrl: track.artworkUrl,
   source: track.source,
+  ...(track.explicit ? { explicit: true } : {}),
 });
 
 // ---- Where a song is saved (M46.8; read with `savedSongs.ts`'s `useSongSaves`, M46.48) ----

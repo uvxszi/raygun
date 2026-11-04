@@ -5,6 +5,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useSettings } from '../settings/useSettings';
+import { AdultMark } from '../shell/AdultMark';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { ListSearchField } from '../shell/ListSearchField';
 import { matchesSearch } from '../shell/useListSearch';
@@ -76,11 +77,7 @@ export const InstalledTab: FC = () => {
                         : 'extensions.installedOrigin',
                     )}
                   </span>
-                  {extension.contentRating === 'nsfw' && (
-                    <span className="bg-primary/20 text-primary rounded px-1.5 text-xs font-semibold">
-                      {t('extensions.nsfwBadge')}
-                    </span>
-                  )}
+                  {extension.contentRating === 'nsfw' && <AdultMark />}
                 </span>
                 {extension.contentRating === 'nsfw' && !showNsfw && (
                   <span className="text-muted text-xs">{t('extensions.nsfwHidden')}</span>

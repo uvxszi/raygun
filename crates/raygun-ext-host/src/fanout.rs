@@ -365,6 +365,7 @@ mod tests {
 
     fn provider(index: usize) -> ProviderInfo {
         ProviderInfo {
+            adult: false,
             id: format!("dev.test.p{index}/p"),
             extension_id: format!("dev.test.p{index}"),
             kind: "music.metadata".into(),

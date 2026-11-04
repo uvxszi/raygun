@@ -367,6 +367,26 @@ describe('Extensions', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent('converts it when installing');
   });
 
+  it('tags 18+ entries in the list and in their info, and no others', async () => {
+    commands.extensionCatalog.mockResolvedValue(
+      ok(
+        catalog([
+          entry({ id: 'dev.test.adult', name: 'After Dark', contentRating: 'nsfw' }),
+          entry({ id: 'dev.test.safe', name: 'Daylight', contentRating: 'safe' }),
+        ]),
+      ),
+    );
+    await AppShellWrapper.mount('/extensions?tab=browse');
+
+    const [adult, safe] = await screen.findAllByTestId('catalog-entry');
+    expect(within(adult!).getByRole('img', { name: 'For adults (18+)' })).toHaveTextContent('18+');
+    expect(within(safe!).queryByRole('img', { name: 'For adults (18+)' })).not.toBeInTheDocument();
+    await userEvent.click(within(adult!).getByRole('button', { name: 'About After Dark' }));
+    expect(
+      within(screen.getByTestId('entry-info')).getByRole('img', { name: 'For adults (18+)' }),
+    ).toBeInTheDocument();
+  });
+
   it('offers plugins converted by an older converter again', async () => {
     commands.extensionCatalog.mockResolvedValue(
       ok(

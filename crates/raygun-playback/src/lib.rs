@@ -303,6 +303,7 @@ impl PlaybackCore {
         for (slot, input) in (first..).zip(inputs) {
             let index = self.items.len();
             self.items.push(QueueItem {
+                explicit: input.explicit,
                 id: uuid::Uuid::now_v7().to_string(),
                 title: input.title,
                 artist: input.artist,
@@ -405,6 +406,7 @@ impl PlaybackCore {
         for input in inputs {
             let index = self.items.len();
             self.items.push(QueueItem {
+                explicit: input.explicit,
                 id: uuid::Uuid::now_v7().to_string(),
                 title: input.title,
                 artist: input.artist,

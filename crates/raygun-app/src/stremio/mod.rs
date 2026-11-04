@@ -254,6 +254,19 @@ impl StremioService {
             .collect())
     }
 
+    /// Whether an installed addon (by its stored or its manifest's id) marks itself adult.
+    fn addon_adult(&self, addon_id: &str) -> bool {
+        !addon_id.is_empty()
+            && self
+                .manifests
+                .lock()
+                .expect("manifests poisoned")
+                .iter()
+                .any(|(row_id, (_, _, manifest))| {
+                    (row_id == addon_id || manifest.id == addon_id) && manifest.adult
+                })
+    }
+
     /// A stored manifest, read once per version of it.
     fn cached_manifest(&self, row: &AddonRow) -> Option<Manifest> {
         if let Some((url, fetched_at, manifest)) = self
@@ -978,7 +991,9 @@ impl StremioService {
         let downloaded = video_library::downloaded_keys(&db, &keys).await?;
         let own = progress.get(&own_key);
         let in_library = stored.is_some_and(|row| row.in_library_at.is_some());
+        let adult = crate::catalog::is_adult(&meta.genres) || self.addon_adult(addon_id);
         Ok(StremioMeta {
+            adult,
             continue_video_id,
             videos: meta
                 .videos

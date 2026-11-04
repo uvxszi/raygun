@@ -10,6 +10,8 @@ import { TextField } from './TextField';
 type TopBarProps = {
   title: string;
   subtitle?: string | null;
+  /** A small tag after the title, e.g. a source's 18+ mark. */
+  titleMark?: ReactNode;
   /** Shows a back arrow; goes back, or to `fallback` when the app was opened on this screen. */
   back?: boolean;
   fallback?: string;
@@ -35,6 +37,7 @@ export type TopBarSearch = {
 export const TopBar: FC<TopBarProps> = ({
   title,
   subtitle,
+  titleMark,
   back,
   fallback = '/',
   actions,
@@ -92,15 +95,18 @@ export const TopBar: FC<TopBarProps> = ({
             </button>
           )}
           <div className={`flex min-w-0 flex-1 flex-col ${back ? 'px-1' : 'px-2'}`}>
-            <Title
-              className={
-                back
-                  ? 'truncate text-lg font-semibold'
-                  : 'truncate text-2xl font-semibold tracking-tight'
-              }
-            >
-              {title}
-            </Title>
+            <span className="flex min-w-0 items-center gap-2">
+              <Title
+                className={
+                  back
+                    ? 'truncate text-lg font-semibold'
+                    : 'truncate text-2xl font-semibold tracking-tight'
+                }
+              >
+                {title}
+              </Title>
+              {titleMark}
+            </span>
             {subtitle && <p className="text-muted truncate text-sm">{subtitle}</p>}
           </div>
         </>

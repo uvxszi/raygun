@@ -382,6 +382,7 @@ impl ImportService {
         let tracks: Vec<TrackInput> = songs
             .iter()
             .map(|matched| TrackInput {
+                explicit: false,
                 title: matched.song.title.clone(),
                 artist: matched.song.artist.clone(),
                 album: matched.song.album.clone(),

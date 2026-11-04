@@ -135,6 +135,14 @@ describe('Manga', () => {
     expect(commands.mangaTitle).toHaveBeenLastCalledWith(SOURCE, 'm1', true);
   });
 
+  it('tags an adult title 18+ beside its name', async () => {
+    commands.mangaTitle.mockResolvedValue(ok({ ...TITLE, adult: true }));
+    await AppShellWrapper.mount(`/manga/title?source=${encodeURIComponent(SOURCE)}&id=m1`);
+    const page = await screen.findByTestId('manga-title-page');
+    const heading = await within(page).findByRole('heading', { name: /Frieren/ });
+    expect(within(heading).getByRole('img', { name: 'For adults (18+)' })).toBeInTheDocument();
+  });
+
   it('shows a notice instead of an adult title while NSFW content is off', async () => {
     commands.mangaTitle.mockResolvedValue(ok({ ...TITLE, hiddenNsfw: true }));
     await AppShellWrapper.mount(`/manga/title?source=${encodeURIComponent(SOURCE)}&id=m1`);

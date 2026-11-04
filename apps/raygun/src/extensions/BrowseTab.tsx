@@ -10,6 +10,7 @@ import { ListSearchField } from '../shell/ListSearchField';
 import { Sheet } from '../shell/Sheet';
 import { NO_FILTER, catalogFacets, filterCatalog } from './catalogFilters';
 import type { CatalogFilter, CatalogShow, ExtensionKind } from './catalogFilters';
+import { AdultMark } from '../shell/AdultMark';
 import { EntryInfo } from './EntryInfo';
 import { entryKey, useInstallQueue } from './installQueue';
 import type { InstallStatus } from './installQueue';
@@ -316,6 +317,7 @@ export const BrowseTab: FC<{ show?: CatalogShow }> = ({ show = 'all' }) => {
                   <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="flex flex-wrap items-baseline gap-x-2">
                       <span className="font-medium">{entry.name}</span>
+                      {entry.contentRating === 'nsfw' && <AdultMark />}
                       {entry.nuclear && (
                         <span className="bg-background text-muted rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase">
                           {t('extensions.nuclearBadge')}

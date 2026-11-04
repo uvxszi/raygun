@@ -1832,6 +1832,7 @@ mod tests {
         };
         let meta =
             |name: &str, videos: Vec<raygun_model::StremioVideo>| raygun_model::StremioMeta {
+                adult: false,
                 continue_video_id: None,
                 kind: "series".into(),
                 id: "kitsu:8671".into(),

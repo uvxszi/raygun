@@ -1616,6 +1616,7 @@ mod tests {
     ) -> raygun_model::MusicAlbum {
         raygun_model::MusicAlbum {
             provider: raygun_model::ProviderInfo {
+                adult: false,
                 id: provider.into(),
                 extension_id: provider.into(),
                 name: provider.into(),

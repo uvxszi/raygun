@@ -6,6 +6,7 @@ use super::*;
 
 fn input(title: &str) -> QueueItemInput {
     QueueItemInput {
+        explicit: false,
         title: title.into(),
         artist: None,
         album: None,

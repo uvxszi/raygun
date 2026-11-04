@@ -303,6 +303,7 @@ impl DiscoveryService {
         Ok(rows
             .into_iter()
             .map(|row| SavedTrack {
+                explicit: false,
                 track_key: row.track_key,
                 title: row.title,
                 artist: row.artist,

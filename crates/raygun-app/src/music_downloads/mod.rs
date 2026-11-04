@@ -315,6 +315,13 @@ impl SongDownloadService {
     /// Queues songs; ones already queued, running or saved are left alone, and ones that failed
     /// go back to the queue.
     pub async fn enqueue(&self, tracks: Vec<TrackInput>) -> Result<(), String> {
+        if let Some(collections) = self
+            .app
+            .try_state::<crate::collections::CollectionsService>()
+        {
+            // Downloaded lists mark them too.
+            collections.note_explicit(&tracks).await;
+        }
         let db = self.db();
         let mut queued = Vec::new();
         for track in tracks {
