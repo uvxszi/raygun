@@ -40,6 +40,7 @@ const chapterPages = (readerMode: MangaChapterPages['readerMode']): MangaChapter
   titleId: 't1',
   title: 'Frieren',
   readerMode,
+  ownReaderMode: readerMode,
   chapter: {
     id: 'c1',
     remoteId: 'r1',

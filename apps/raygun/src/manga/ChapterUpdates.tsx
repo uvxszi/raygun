@@ -34,7 +34,7 @@ export const ChapterUpdateRow: FC<{ item: MangaUpdateItem }> = ({ item }) => {
   );
 };
 
-/** Updates → Chapters: chapters of comics and books that library updates found, by day. */
+/** Updates → Chapters: comic and book chapters that library updates found, by day. */
 export const ChapterUpdates: FC = () => {
   const { t } = useTranslation();
   const updates = useMangaUpdates();
@@ -43,7 +43,11 @@ export const ChapterUpdates: FC = () => {
   return (
     <div data-testid="chapter-updates" className="flex flex-col gap-4">
       {updates.error && (
-        <SourceIssue compact title={t('manga.updatesUnreadable')}>
+        <SourceIssue
+          compact
+          title={t('manga.updatesUnreadable')}
+          onRetry={() => void updates.refetch()}
+        >
           {updates.error.message}
         </SourceIssue>
       )}

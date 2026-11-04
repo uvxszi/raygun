@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { unwrapResult } from '../lib/commandResult';
 import { ChapterUpdateRow, ChapterUpdates } from '../manga/ChapterUpdates';
 import { groupByDay, useDayLabel } from '../manga/groupByDay';
+import { UpdateFailures } from '../manga/UpdateFailures';
 import {
   useMangaLiveEvents,
   useMangaUpdateStatus,
@@ -222,6 +223,7 @@ export const UpdatesPage: FC = () => {
           )}
         </div>
       )}
+      {finished && <UpdateFailures failures={finished.failures ?? []} />}
       {(update.error ?? releases.error) && (
         <SourceIssue compact title={t('updates.checkFailed')}>
           {(update.error ?? releases.error)?.message}

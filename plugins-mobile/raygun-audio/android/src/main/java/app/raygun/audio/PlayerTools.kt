@@ -228,9 +228,12 @@ internal class PlayerTools(private val host: VideoPlayerActivity) {
             val names = mutableListOf<String>()
             for (index in 0 until subtitles.length()) {
                 val track = subtitles.optJSONObject(index) ?: continue
-                val address = track.optString("url").takeIf { it.isNotBlank() } ?: continue
+                val address = track.text("url") ?: continue
                 uris += Uri.parse(address)
-                names += track.optString("label").ifBlank { track.optString("lang").ifBlank { "Subtitles ${index + 1}" } }
+                names += track.text("label")
+                    ?: languageName(track.text("lang"))
+                    ?: track.text("lang")
+                    ?: host.label("track", "Track {n}", (index + 1).toString())
             }
             if (uris.isNotEmpty()) {
                 intent.putExtra("subs", uris.map { it as Parcelable }.toTypedArray())

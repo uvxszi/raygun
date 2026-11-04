@@ -1,6 +1,7 @@
 import { commands, events } from '@raygun/bindings';
 import type { MangaBrowseMode, MangaUpdateStatus } from '@raygun/bindings';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
@@ -113,6 +114,18 @@ export const useSetChapterRead = (medium: ReadingMedium = 'manga') =>
     unwrapResult(catalogCommands(medium).setRead(chapterId, read)),
   );
 
+/** Marks chosen chapters read or unread together. */
+export const useSetChaptersRead = (medium: ReadingMedium = 'manga') =>
+  useMangaMutation(medium, ({ chapterIds, read }: { chapterIds: string[]; read: boolean }) =>
+    unwrapResult(commands.librarySetChaptersRead(medium, chapterIds, read)),
+  );
+
+/** Marks every chapter before one read (Mihon's "Mark previous as read"). */
+export const useMarkPreviousRead = (medium: ReadingMedium = 'manga') =>
+  useMangaMutation(medium, ({ titleId, chapterId }: { titleId: string; chapterId: string }) =>
+    unwrapResult(commands.libraryMarkPreviousRead(medium, titleId, chapterId)),
+  );
+
 /** Saves reader progress without refreshing anything; the title page refetches when shown. */
 export const saveProgress = (chapterId: string, page: number, total: number) =>
   unwrapResult(commands.mangaSetProgress(chapterId, page, total));
@@ -163,7 +176,7 @@ export const useRemoveDownloads = () =>
 export const useSetDownloadsPaused = () =>
   useDownloadMutation((paused: boolean) => unwrapResult(commands.mangaSetDownloadsPaused(paused)));
 
-const invalidateDownloads = (queryClient: ReturnType<typeof useQueryClient>) =>
+const invalidateDownloads = (queryClient: QueryClient) =>
   Promise.all([
     queryClient.invalidateQueries({ queryKey: [MANGA, 'downloads'] }),
     queryClient.invalidateQueries({ queryKey: [MANGA, 'title'] }),
@@ -172,46 +185,82 @@ const invalidateDownloads = (queryClient: ReturnType<typeof useQueryClient>) =>
     queryClient.invalidateQueries({ queryKey: ['novel', 'title'] }),
   ]);
 
+/** The queue and titles are read again at most this often while chapters download. */
+const DOWNLOADS_REFRESH_MS = 500;
+
+/** Listens to Rust's update and download events for one query client; returns how to stop. */
+const listenLive = (queryClient: QueryClient) => {
+  const unlistenUpdate = events.mangaUpdateEvent.listen(({ payload }) => {
+    queryClient.setQueryData<MangaUpdateStatus>([MANGA, 'updateStatus'], payload);
+    if (!payload.running) {
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: [MANGA, 'library'] }),
+        queryClient.invalidateQueries({ queryKey: [MANGA, 'updates'] }),
+        queryClient.invalidateQueries({ queryKey: [MANGA, 'title'] }),
+        // Books from sources are updated too.
+        queryClient.invalidateQueries({ queryKey: ['novel', 'library'] }),
+        queryClient.invalidateQueries({ queryKey: ['novel', 'title'] }),
+        // The update covers saved movies and series too (M43).
+        queryClient.invalidateQueries({ queryKey: ['video', 'library'] }),
+        queryClient.invalidateQueries({ queryKey: ['video', 'updates'] }),
+        queryClient.invalidateQueries({ queryKey: ['video', 'upcoming'] }),
+      ]);
+    }
+  });
+  // A chapter downloading reports every few pages: the queue and title pages follow at most twice
+  // a second (the first report at once), the library's badges once the queue settles.
+  let lastRefresh = 0;
+  let downloadsRefresh: ReturnType<typeof setTimeout> | undefined;
+  let libraryRefresh: ReturnType<typeof setTimeout> | undefined;
+  const refreshDownloads = () => {
+    lastRefresh = Date.now();
+    downloadsRefresh = undefined;
+    void invalidateDownloads(queryClient);
+  };
+  const unlistenDownloads = events.mangaDownloadsEvent.listen(() => {
+    if (downloadsRefresh === undefined) {
+      const wait = lastRefresh + DOWNLOADS_REFRESH_MS - Date.now();
+      if (wait <= 0) refreshDownloads();
+      else downloadsRefresh = setTimeout(refreshDownloads, wait);
+    }
+    clearTimeout(libraryRefresh);
+    libraryRefresh = setTimeout(() => {
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: [MANGA, 'library'] }),
+        queryClient.invalidateQueries({ queryKey: ['novel', 'library'] }),
+      ]);
+    }, 1000);
+  });
+  return () => {
+    clearTimeout(downloadsRefresh);
+    clearTimeout(libraryRefresh);
+    void unlistenUpdate.then((unlisten) => unlisten());
+    void unlistenDownloads.then((unlisten) => unlisten());
+  };
+};
+
+/** One set of listeners per query client, however many screens ask for them. */
+const live = new WeakMap<QueryClient, { users: number; stop: () => void }>();
+
 /**
  * Follows library updates and the download queue from Rust: update progress lands in the status
- * query, and a finished update or any queue change refreshes what shows chapters.
+ * query, and a finished update or any queue change refreshes what shows chapters. Screens that
+ * are open together (the desktop bar's popovers and a page) share one listener.
  */
 export const useMangaLiveEvents = () => {
   const queryClient = useQueryClient();
   useEffect(() => {
-    const unlistenUpdate = events.mangaUpdateEvent.listen(({ payload }) => {
-      queryClient.setQueryData<MangaUpdateStatus>([MANGA, 'updateStatus'], payload);
-      if (!payload.running) {
-        void Promise.all([
-          queryClient.invalidateQueries({ queryKey: [MANGA, 'library'] }),
-          queryClient.invalidateQueries({ queryKey: [MANGA, 'updates'] }),
-          queryClient.invalidateQueries({ queryKey: [MANGA, 'title'] }),
-          // Books are updated with comics.
-          queryClient.invalidateQueries({ queryKey: ['novel', 'library'] }),
-          queryClient.invalidateQueries({ queryKey: ['novel', 'title'] }),
-          // The update covers saved movies and series too (M43).
-          queryClient.invalidateQueries({ queryKey: ['video', 'library'] }),
-          queryClient.invalidateQueries({ queryKey: ['video', 'updates'] }),
-          queryClient.invalidateQueries({ queryKey: ['video', 'upcoming'] }),
-        ]);
-      }
-    });
-    // The library's download badges follow the queue once it settles, not on every page.
-    let libraryRefresh: ReturnType<typeof setTimeout> | undefined;
-    const unlistenDownloads = events.mangaDownloadsEvent.listen(() => {
-      void invalidateDownloads(queryClient);
-      clearTimeout(libraryRefresh);
-      libraryRefresh = setTimeout(() => {
-        void Promise.all([
-          queryClient.invalidateQueries({ queryKey: [MANGA, 'library'] }),
-          queryClient.invalidateQueries({ queryKey: ['novel', 'library'] }),
-        ]);
-      }, 1000);
-    });
+    const known = live.get(queryClient);
+    if (known) known.users += 1;
+    else live.set(queryClient, { users: 1, stop: listenLive(queryClient) });
     return () => {
-      clearTimeout(libraryRefresh);
-      void unlistenUpdate.then((unlisten) => unlisten());
-      void unlistenDownloads.then((unlisten) => unlisten());
+      const entry = live.get(queryClient);
+      if (!entry) return;
+      entry.users -= 1;
+      if (entry.users === 0) {
+        entry.stop();
+        live.delete(queryClient);
+      }
     };
   }, [queryClient]);
 };

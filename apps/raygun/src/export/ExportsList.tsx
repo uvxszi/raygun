@@ -4,7 +4,6 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { EmptyState } from '../shell/EmptyState';
-import { SourceIssue } from '../shell/SourceIssue';
 import { useCancelExport, useDismissExport, useExportJobs } from './useExports';
 
 const running = (job: ExportJob) => job.state === 'downloading' || job.state === 'writing';
@@ -72,14 +71,24 @@ const JobCard: FC<{ job: ExportJob }> = ({ job }) => {
           />
         </div>
       )}
-      {job.message &&
-        (job.state === 'failed' ? (
-          <SourceIssue compact title={t('export.failedTitle')}>
-            {job.message}
-          </SourceIssue>
-        ) : (
-          <p className="text-muted text-xs">{job.message}</p>
-        ))}
+      {job.state === 'failed' ? (
+        <div role="alert" className="text-muted flex flex-col gap-1 text-xs">
+          <p>{t('export.didntFinish')}</p>
+          {job.message && (
+            // What went wrong exactly (a folder that can't be written, a full disk…).
+            <details>
+              <summary className="hover:text-foreground cursor-pointer font-semibold">
+                {t('issue.more')}
+              </summary>
+              <p className="selectable bg-background mt-1 rounded-lg px-3 py-2 font-mono wrap-anywhere">
+                {job.message}
+              </p>
+            </details>
+          )}
+        </div>
+      ) : (
+        job.message && <p className="text-muted text-xs">{job.message}</p>
+      )}
       {job.failedChapters > 0 && (
         <p className="text-primary text-xs">
           {t('export.failedChapters', { count: job.failedChapters })}

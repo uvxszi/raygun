@@ -97,7 +97,11 @@ export const ChapterDownloads: FC = () => {
   return (
     <div data-testid="chapter-downloads" className="flex flex-col gap-4">
       {downloads.error && (
-        <SourceIssue compact title={t('manga.downloadsUnreadable')}>
+        <SourceIssue
+          compact
+          title={t('manga.downloadsUnreadable')}
+          onRetry={() => void downloads.refetch()}
+        >
           {downloads.error.message}
         </SourceIssue>
       )}

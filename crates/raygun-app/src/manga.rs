@@ -4,7 +4,7 @@
 //! through `Catalog` (M31). Comics imported from the device (M46, `comics`) are manga of the
 //! `local.comics` source, read from their unpacked files.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -14,7 +14,7 @@ use raygun_db::titles::{self, TitleFields, TitleRow, UnitFields};
 use raygun_ext_host::manga::MANGA_SOURCE;
 use raygun_model::{
     MangaBrowseMode, MangaChapterPages, MangaLibraryEntry, MangaListingPage, MangaSource,
-    MangaTitleView, MangaUpdateItem, MangaUpdateStatus, ReaderMode,
+    MangaTitleView, MangaUpdateItem, MangaUpdateStatus, ReaderMode, UpdateFailure,
 };
 use raygun_net::ImageLinks;
 use tauri::{AppHandle, Manager};
@@ -26,12 +26,13 @@ use crate::catalog::{
 use crate::comics::{self, COMICS, LOCAL_COMICS};
 use crate::events::MangaUpdateEvent;
 use crate::manga_downloads::MangaDownloadService;
+use crate::novel::NovelService;
 use crate::stremio::StremioService;
 use crate::video_library;
 use crate::video_sources::VideoSourceService;
 
 const KIND: &str = "manga";
-/// Books in the library are updated with comics and videos.
+/// Books from sources get new chapters too, so library updates and the feed cover them.
 const NOVEL_KIND: &str = "novel";
 /// Titles refreshed at once during a library update.
 const UPDATE_CONCURRENCY: usize = 2;
@@ -265,7 +266,17 @@ impl MangaService {
         title_id: &str,
         unit_id: &str,
     ) -> Result<MangaChapterPages, String> {
-        let context = self.catalog.chapter_context(title_id, unit_id).await?;
+        let prefs = match crate::settings::load(&self.db()).await {
+            Ok(settings) => settings.manga_reader,
+            Err(error) => {
+                tracing::warn!(%error, "settings unreadable; reading with the defaults");
+                raygun_model::MangaReaderPrefs::default()
+            }
+        };
+        let context = self
+            .catalog
+            .chapter_context(title_id, unit_id, prefs.skip_duplicates)
+            .await?;
         let downloads = self.downloads();
         // A downloaded chapter reads from disk, without asking the source.
         let pages = match downloads.local_pages(title_id, unit_id).await {
@@ -293,8 +304,10 @@ impl MangaService {
         let download = downloads
             .for_chapters(std::slice::from_ref(&context.unit.id))
             .await;
+        let own_reader_mode = ReaderMode::chosen(&context.title.reader_mode);
         Ok(MangaChapterPages {
-            reader_mode: ReaderMode::parse(&context.title.reader_mode),
+            reader_mode: own_reader_mode.unwrap_or(prefs.default_mode),
+            own_reader_mode,
             chapter: chapter_info(&context.unit, &download),
             title_id: context.title.id,
             title: context.title.fields.title,
@@ -304,8 +317,13 @@ impl MangaService {
         })
     }
 
-    pub async fn set_reader_mode(&self, title_id: &str, mode: ReaderMode) -> Result<(), String> {
-        titles::set_reader_mode(&self.db(), title_id, mode.as_str())
+    /// A title's own reading mode, or `None` to follow the reader's default.
+    pub async fn set_reader_mode(
+        &self,
+        title_id: &str,
+        mode: Option<ReaderMode>,
+    ) -> Result<(), String> {
+        titles::set_reader_mode(&self.db(), title_id, mode.map_or("", ReaderMode::as_str))
             .await
             .map_err(to_message)
     }
@@ -318,7 +336,7 @@ impl MangaService {
         self.catalog.set_read(unit_id, read).await
     }
 
-    /// Chapters library updates found, comics' and books' together, newest first.
+    /// Chapters library updates found, comics' and books', newest first.
     pub async fn updates(&self) -> Result<Vec<MangaUpdateItem>, String> {
         let db = self.db();
         let mut rows = titles::updates(&db, KIND, FEED_LIMIT)
@@ -329,6 +347,7 @@ impl MangaService {
                 .await
                 .map_err(to_message)?,
         );
+        // Stable, so each title's chapters keep the order the source gave them.
         rows.sort_by_key(|row| std::cmp::Reverse(row.found_at));
         rows.truncate(FEED_LIMIT as usize);
         let ids: Vec<String> = rows.iter().map(|row| row.unit.id.clone()).collect();
@@ -399,7 +418,7 @@ impl MangaService {
         let started = std::time::Instant::now();
         let db = self.db();
         let mut library = titles::library(&db, KIND).await.map_err(to_message)?;
-        // Books, and followed series and saved movies too (M43).
+        // Books from sources, and followed series and saved movies (M43).
         for kind in [NOVEL_KIND, video_library::KIND] {
             library.extend(titles::library(&db, kind).await.map_err(to_message)?);
         }
@@ -422,6 +441,12 @@ impl MangaService {
             status.clone()
         };
         self.emit_update(snapshot);
+        // Which source each failure was at, as people know it.
+        let names = if due.is_empty() {
+            HashMap::new()
+        } else {
+            self.source_names().await
+        };
 
         let mut results = stream::iter(due)
             .map(|title| async move {
@@ -429,16 +454,29 @@ impl MangaService {
                 if let Err(message) = &result {
                     tracing::warn!(title = %title.fields.title, %message, "title update failed");
                 }
-                result
+                (title, result)
             })
             .buffer_unordered(UPDATE_CONCURRENCY);
-        while let Some(result) = results.next().await {
+        while let Some((title, result)) = results.next().await {
             let snapshot = {
                 let mut status = self.update.lock().expect("update status poisoned");
                 status.checked += 1;
                 match result {
                     Ok(added) => status.new_chapters += added as u32,
-                    Err(_) => status.failed += 1,
+                    Err(message) => {
+                        status.failed += 1;
+                        status.failures.push(UpdateFailure {
+                            medium: title.fields.kind.clone(),
+                            source_name: names
+                                .get(&title.fields.source_id)
+                                .cloned()
+                                .unwrap_or_else(|| title.fields.source_id.clone()),
+                            source_id: title.fields.source_id,
+                            remote_id: title.fields.remote_id,
+                            title: title.fields.title,
+                            message,
+                        });
+                    }
                 }
                 status.clone()
             };
@@ -464,12 +502,32 @@ impl MangaService {
         Ok(())
     }
 
-    /// Fetches a library title again, through its own catalogue (videos through video sources or
-    /// Stremio); returns how many chapters or episodes were new.
+    /// Sources' names across the libraries an update covers.
+    async fn source_names(&self) -> HashMap<String, String> {
+        let mut names = self.catalog.source_names().await;
+        names.extend(
+            self.app
+                .state::<NovelService>()
+                .catalog()
+                .source_names()
+                .await,
+        );
+        names.extend(
+            self.app
+                .state::<VideoSourceService>()
+                .catalog()
+                .source_names()
+                .await,
+        );
+        names
+    }
+
+    /// Fetches a library title again, through its own catalogue (books through novel sources,
+    /// videos through video sources or Stremio); returns how many chapters or episodes were new.
     async fn refresh_title(&self, title: &TitleRow) -> Result<usize, String> {
         let (source_id, remote_id) = (&title.fields.source_id, &title.fields.remote_id);
         if title.fields.kind == NOVEL_KIND {
-            let novels = self.app.state::<crate::novel::NovelService>();
+            let novels = self.app.state::<NovelService>();
             return Ok(novels.catalog().fetch_title(source_id, remote_id).await?.1);
         }
         if title.fields.kind != video_library::KIND {

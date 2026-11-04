@@ -1,0 +1,16 @@
+{
+  "id": "dev.raygun.tapas",
+  "name": "Tapas",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Comics from Tapas: its rankings, genres and search, with the episodes that are free to read without an account.",
+  "author": "Raygun",
+  "website": "https://tapas.io",
+  "provides": ["manga.source"],
+  "permissions": {
+    "net": ["tapas.io", "story-api.tapas.io"]
+  },
+  "contentRating": "suggestive"
+}

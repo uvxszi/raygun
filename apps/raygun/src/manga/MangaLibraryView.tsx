@@ -62,7 +62,6 @@ import {
   useMangaUpdateStatus,
   useUpdateLibrary,
 } from './useManga';
-import { SourceIssue } from '../shell/SourceIssue';
 
 const EMPTY = {
   manga: { icon: BookImage, title: 'manga.emptyTitle', body: 'manga.emptyLibrary' },
@@ -278,6 +277,7 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
       if (!updating) updateLibrary.mutate();
     },
   };
+  // Books from sources get new chapters too; imported ones don't, and are left out of updates.
   const menu: OverflowItem[] = [
     // Books are updated with comics and videos.
     ...(medium === 'novel'
@@ -407,13 +407,28 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
             : t('novel.importing')}
         </p>
       )}
-      {importError && <SourceIssue>{importError.message}</SourceIssue>}
+      {importError && (
+        <p role="alert" className="text-primary text-sm wrap-anywhere">
+          {importError.message}
+        </p>
+      )}
       {notice && (
         <p role="status" className="text-muted text-sm">
           {notice}
         </p>
       )}
-      {library.error && <SourceIssue>{library.error.message}</SourceIssue>}
+      {library.error && (
+        <p role="alert" className="text-muted flex flex-wrap items-center gap-2 text-sm">
+          {t('library.loadFailed')}
+          <button
+            type="button"
+            onClick={() => void library.refetch()}
+            className="text-primary font-semibold"
+          >
+            {t('issue.retry')}
+          </button>
+        </p>
+      )}
       {video && !selecting && <ContinueWatchingRow />}
       {entries?.length === 0 && (
         <EmptyState
