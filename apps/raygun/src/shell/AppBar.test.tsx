@@ -170,7 +170,7 @@ describe('The desktop app bar', () => {
       key: 'windowFrame',
       value: 'system',
     });
-    expect(screen.getByRole('slider', { name: 'Zoom' })).toHaveValue('100');
+    expect(screen.getByRole('slider', { name: 'Interface size' })).toHaveValue('100');
   });
 
   it("leaves the window's buttons to the system's title bar when asked", async () => {

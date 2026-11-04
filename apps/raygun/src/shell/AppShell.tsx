@@ -24,6 +24,7 @@ import { SidePanel } from '../player/SidePanel';
 import { usePlaybackKeys } from '../player/usePlaybackKeys';
 import { useMediaSession } from '../engine/useMediaSession';
 import { usePlaybackSync } from '../player/usePlayback';
+import { useApplySize } from '../settings/useApplySize';
 import { useApplyColors, useApplyFeel, useApplyTheme } from '../settings/useApplyTheme';
 import { useSettings, useSettingsEvents } from '../settings/useSettings';
 import { VideoPlayer } from '../video/VideoPlayer';
@@ -32,7 +33,7 @@ import { useYouTubeVideoEvents } from '../video/trailerStore';
 import { YouTubeOverlay } from '../video/YouTubeOverlay';
 import { usePlayerLabels } from '../watch/usePlayerLabels';
 import { AppBar } from './AppBar';
-import { setAppZoom, setWindowDecorations, useWindowState } from './appWindow';
+import { setWindowDecorations, useWindowState } from './appWindow';
 import { BottomTabs } from './BottomTabs';
 import { ConnectPrompt } from '../connect/ConnectPrompt';
 import { ContextMenuHost } from './ContextMenu';
@@ -75,18 +76,11 @@ const useFullscreenKey = () => {
   }, []);
 };
 
-/** The desktop window's frame and zoom, from Settings (M46.9). */
-const useApplyWindow = (desktop: boolean, frame?: WindowFrame, zoom?: number) => {
+/** The desktop window's frame, from Settings (M46.9). */
+const useApplyWindow = (desktop: boolean, frame?: WindowFrame) => {
   useEffect(() => {
     if (desktop && frame) void setWindowDecorations(frame === 'system');
   }, [desktop, frame]);
-  useEffect(() => {
-    if (desktop && zoom) void setAppZoom(zoom / 100);
-    // Phones scale the root font size instead (M46.24): sizes and spacing are in rem.
-    if (!desktop) {
-      document.documentElement.style.fontSize = zoom && zoom !== 100 ? `${zoom}%` : '';
-    }
-  }, [desktop, zoom]);
 };
 
 export const AppShell: FC = () => {
@@ -99,7 +93,9 @@ export const AppShell: FC = () => {
   useSyncLanguage(settings.data?.language);
   const desktop = useIsDesktop();
   const { fullscreen } = useWindowState();
-  useApplyWindow(desktop, settings.data?.windowFrame, settings.data?.zoom);
+  useApplyWindow(desktop, settings.data?.windowFrame);
+  // Sizes from the screen, then Interface size (M46.48).
+  useApplySize(desktop, settings.data?.zoom);
   useEngineHost();
   // The sidebar is the desktop's (M46.29).
   useRailStamps(desktop);

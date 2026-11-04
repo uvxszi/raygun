@@ -156,7 +156,8 @@ struct Inner {
 pub struct ConnectService {
     app: AppHandle,
     http: reqwest::Client,
-    me: Identity,
+    /// Its name changes when the device is renamed in Devices.
+    me: Mutex<Identity>,
     inner: Mutex<Inner>,
     browsing: AtomicBool,
     /// Questions to this device's user, by id.
@@ -180,7 +181,7 @@ impl ConnectService {
         Arc::new(Self {
             app,
             http,
-            me,
+            me: Mutex::new(me),
             inner: Mutex::new(Inner {
                 known,
                 ..Inner::default()
@@ -190,14 +191,21 @@ impl ConnectService {
         })
     }
 
-    pub fn me(&self) -> &Identity {
-        &self.me
+    pub fn me(&self) -> Identity {
+        self.me.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
+    /// This device's new name (renamed in Devices): the status, questions to other devices and
+    /// link cards use it from now on.
+    pub fn rename(&self, name: &str) {
+        self.me.lock().unwrap_or_else(|p| p.into_inner()).name = name.to_owned();
+        self.emit();
     }
 
     pub fn status(&self) -> ConnectStatus {
         let inner = self.lock();
         ConnectStatus {
-            this_device: self.me.name.clone(),
+            this_device: self.me().name,
             session: inner.session.as_ref().map(|session| ConnectSession {
                 device_id: session.device.id.clone(),
                 device_name: session.device.name.clone(),
@@ -255,7 +263,7 @@ impl ConnectService {
             .json()
             .await
             .map_err(|_| format!("{address} isn't a Raygun device"))?;
-        if info.id == self.me.id {
+        if info.id == self.me().id {
             return Err("That's this device".into());
         }
         let device = Known {
@@ -495,7 +503,7 @@ impl ConnectService {
         let response = self
             .http
             .post(format!("http://{}/api/connect/hello", device.address))
-            .json(&json!({ "name": self.me.name, "link": card }))
+            .json(&json!({ "name": self.me().name, "link": card }))
             .timeout(HELLO_TIMEOUT)
             .send()
             .await
@@ -875,7 +883,7 @@ impl ConnectService {
         let heard = Arc::downgrade(self);
         let gone = Arc::downgrade(self);
         let result = raygun_remote::discovery::browse(
-            self.me.id.clone(),
+            self.me().id,
             move |found| {
                 if let Some(service) = heard.upgrade() {
                     let device = Known {

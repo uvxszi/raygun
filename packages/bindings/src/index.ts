@@ -14,6 +14,13 @@ export const commands = {
 	settingsGet: () => typedError<Settings, string>(__TAURI_INVOKE("settings_get")),
 	/**  Changes one setting and returns the updated settings. */
 	settingsUpdate: (change: SettingChange) => typedError<Settings, string>(__TAURI_INVOKE("settings_update", { change })),
+	/**
+	 *  Changes several settings together (a screen's Reset to defaults): none is written when one
+	 *  is refused.
+	 */
+	settingsUpdateMany: (changes: SettingChange[]) => typedError<Settings, string>(__TAURI_INVOKE("settings_update_many", { changes })),
+	/**  Every setting as a fresh install has it, for resetting a settings screen. */
+	settingsDefaults: () => __TAURI_INVOKE<Settings>("settings_defaults"),
 	/**  What was played from lately: albums, playlists, mixes, artists, podcasts, books (M46.37). */
 	recentContexts: () => typedError<PlayContext[], string>(__TAURI_INVOKE("recent_contexts")),
 	/**  Remembers where a play started (the page the user played from), for Home's Your music. */
@@ -700,8 +707,6 @@ export const commands = {
 	startScreen: StartScreen,
 	/**  Navigation bar labels: on every tab, or on the selected one only. */
 	navLabels: NavLabels,
-	/**  Covers per row in library and browse grids; 0 fits them to the screen. */
-	gridColumns: number,
 	/**  Titles over covers (compact, as in Mihon) or under them (comfortable). */
 	coverStyle: CoverStyle,
 	/**  The unread count on library covers. */
@@ -736,8 +741,11 @@ export const commands = {
 	layout: LayoutPrefs,
 	/**  The accent when `accent` is `Custom`: `#rrggbb` (M46.7). */
 	accentColor: string,
-	/**  Smallest cover width in px when covers per row is automatic; 0 picks it by screen (M46.7). */
-	coverWidth: number,
+	/**
+	 *  Covers in library and browse grids, in percent more (or less) than the screen's own size
+	 *  (M46.48): as many as fit across at that size.
+	 */
+	coverSize: number,
 	/**  How manga pages fit the reader (M46.7). */
 	mangaReader: MangaReaderPrefs,
 	/**  How the full music player is laid out (M46.7). */
@@ -758,7 +766,10 @@ export const commands = {
 	autoLoad: AutoLoadPrefs,
 	/**  Who draws the desktop window's top edge (M46.9). */
 	windowFrame: WindowFrame,
-	/**  The desktop app's zoom in percent (M46.9): 50 to 200, in steps of 10. */
+	/**
+	 *  Interface size in percent of the size the screen gives (M46.48): 50 to 200. The desktop
+	 *  app zooms its window; phones scale their text and spacing.
+	 */
 	zoom: number,
 	/**  Charts and song tags (M46.9). */
 	discovery: DiscoveryPrefs,
@@ -1981,11 +1992,6 @@ export type LibraryDisplayMode =
  */
 export type LibraryDisplayPrefs = {
 	mode?: LibraryDisplayMode,
-	/**
-	 *  Covers per row in landscape; 0 fits them to the screen. (`Settings::grid_columns` is the
-	 *  portrait value.)
-	 */
-	columnsLandscape?: number,
 	tabs?: LibraryTabs,
 	/**  The number of titles on each tab. */
 	showCounts?: boolean,
@@ -2269,15 +2275,15 @@ export type MangaListingPage = {
 export type MangaReaderPrefs = {
 	pagedScale?: PagedScale,
 	/**
-	 *  The webtoon column in percent of the window's width; 0 is the screen's width on phones and
-	 *  at most 768 px on wide windows.
+	 *  The webtoon column, in percent more or less than the screen's own (M46.48): the screen's
+	 *  width on phones, at most 768 px on wide windows; never wider than the window.
 	 */
-	webtoonWidth?: number,
+	webtoonSize?: number,
 	/**
-	 *  The page bar's width in percent of the window's; 0 is the full width on phones and 70 %
-	 *  on wide windows.
+	 *  The page bar, in percent more or less than the screen's own: the full width on phones,
+	 *  70 % on wide windows; never wider than the window.
 	 */
-	barWidth?: number,
+	barSize?: number,
 	/**  The page bar's buttons beside the page slider. */
 	barChapters?: boolean,
 	barZoom?: boolean,
@@ -2657,8 +2663,8 @@ export type NovelFont = "serif" | "sans";
 
 /**  The novel reader's typography and layout. */
 export type NovelReaderPrefs = {
-	/**  CSS pixels, 14–30. */
-	fontSize: number,
+	/**  Text size in CSS pixels more or less than the screen's own (M46.48), −6 to 12. */
+	textSize?: number,
 	/**  Line height in tenths, 12–22 (1.2–2.2). */
 	lineSpacing: number,
 	font: NovelFont,
@@ -3145,9 +3151,9 @@ export type SearchResults_Serialize = {
  *  A change to a single setting. The tagged shape (`{ key, value }`) lets the UI send only valid
  *  key/value pairs, and doubles as the format of a stored row.
  */
-export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
+export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -3178,8 +3184,6 @@ export type Settings = {
 	startScreen: StartScreen,
 	/**  Navigation bar labels: on every tab, or on the selected one only. */
 	navLabels: NavLabels,
-	/**  Covers per row in library and browse grids; 0 fits them to the screen. */
-	gridColumns: number,
 	/**  Titles over covers (compact, as in Mihon) or under them (comfortable). */
 	coverStyle: CoverStyle,
 	/**  The unread count on library covers. */
@@ -3214,8 +3218,11 @@ export type Settings = {
 	layout: LayoutPrefs,
 	/**  The accent when `accent` is `Custom`: `#rrggbb` (M46.7). */
 	accentColor: string,
-	/**  Smallest cover width in px when covers per row is automatic; 0 picks it by screen (M46.7). */
-	coverWidth: number,
+	/**
+	 *  Covers in library and browse grids, in percent more (or less) than the screen's own size
+	 *  (M46.48): as many as fit across at that size.
+	 */
+	coverSize: number,
 	/**  How manga pages fit the reader (M46.7). */
 	mangaReader: MangaReaderPrefs,
 	/**  How the full music player is laid out (M46.7). */
@@ -3236,7 +3243,10 @@ export type Settings = {
 	autoLoad: AutoLoadPrefs,
 	/**  Who draws the desktop window's top edge (M46.9). */
 	windowFrame: WindowFrame,
-	/**  The desktop app's zoom in percent (M46.9): 50 to 200, in steps of 10. */
+	/**
+	 *  Interface size in percent of the size the screen gives (M46.48): 50 to 200. The desktop
+	 *  app zooms its window; phones scale their text and spacing.
+	 */
 	zoom: number,
 	/**  Charts and song tags (M46.9). */
 	discovery: DiscoveryPrefs,

@@ -1,6 +1,7 @@
 import { commands } from '@raygun/bindings';
 import type { StorageArea, StorageUsage } from '@raygun/bindings';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -10,6 +11,7 @@ import { CACHE_SIZES_MB, COVER_REFRESH_DAYS, withCache } from './cacheDefaults';
 import type { Cache } from './cacheDefaults';
 import { LyricsStorage } from './LyricsStorage';
 import { PrefBlock, PrefChoice, PrefGroup, PrefSwitch } from './prefs';
+import { Problem } from './Problem';
 import { useSettings, useUpdateSetting } from './useSettings';
 
 const STORAGE = ['storage'] as const;
@@ -39,8 +41,16 @@ const UsageRow: FC<{
                 })
               : t('storage.used', { used: formatBytes(bytes), count: usage.files })}
           </span>
-          <span className="text-muted text-xs">{t(`storage.hints.${usage.area}`)}</span>
         </span>
+        {/* Downloads are removed where they're listed. */}
+        {usage.area === 'downloads' && (
+          <Link
+            to="/downloads"
+            className="text-primary shrink-0 rounded-full px-3 py-1.5 text-sm font-semibold"
+          >
+            {t('storage.manage')}
+          </Link>
+        )}
         {usage.clearable && (
           <button
             type="button"
@@ -103,9 +113,10 @@ export const StorageSettings: FC = () => {
         ))}
         {(usage.isError || clear.isError) && (
           <PrefBlock>
-            <p role="alert" className="text-primary text-sm">
-              {(clear.error ?? usage.error)?.message}
-            </p>
+            <Problem
+              title={t(clear.isError ? 'storage.clearFailed' : 'storage.usageFailed')}
+              detail={(clear.error ?? usage.error)?.message}
+            />
           </PrefBlock>
         )}
       </PrefGroup>
@@ -113,7 +124,6 @@ export const StorageSettings: FC = () => {
         <PrefGroup title={t('storage.limits')}>
           <PrefChoice<number>
             title={t('storage.coverLimit')}
-            summary={t('storage.coverLimitHint')}
             value={cache.coverCacheMb}
             disabled={busy}
             options={sizes}
@@ -128,7 +138,6 @@ export const StorageSettings: FC = () => {
           />
           <PrefChoice<number>
             title={t('storage.refresh')}
-            summary={t('storage.refreshHint')}
             value={cache.coverRefreshDays}
             disabled={busy}
             options={COVER_REFRESH_DAYS.map((value) => ({
@@ -142,7 +151,6 @@ export const StorageSettings: FC = () => {
           />
           <PrefSwitch
             title={t('storage.clearPagesOnStart')}
-            summary={t('storage.clearPagesOnStartHint')}
             checked={cache.clearPagesOnStart}
             disabled={busy}
             onChange={(clearPagesOnStart) => change({ clearPagesOnStart })}

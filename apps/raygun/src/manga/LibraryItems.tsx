@@ -1,7 +1,6 @@
 import type { LibraryDisplayMode, MangaLibraryEntry } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import { Check, FolderOpen, Pin, Play } from 'lucide-react';
-import { useEffect, useState } from 'react';
 import type { FC, MouseEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -12,18 +11,6 @@ import { COVER_GRID_CLASS, coverGridStyle } from './coverGrid';
 import { MangaCover } from './MangaCover';
 import { ROUTES } from './medium';
 import type { Medium } from './medium';
-
-/** Whether the screen is wider than tall, kept current as it turns. */
-const useLandscape = () => {
-  const read = () => typeof window !== 'undefined' && window.innerWidth > window.innerHeight;
-  const [landscape, setLandscape] = useState(read);
-  useEffect(() => {
-    const update = () => setLandscape(read());
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, []);
-  return landscape;
-};
 
 /** Covers per row; 0 fits as many as have room (Mihon's adaptive columns). */
 type ItemProps = {
@@ -237,8 +224,6 @@ export const LibraryItems: FC<{
   footer?: ReactNode;
 }> = ({ entries, medium, mode, display, selected, onToggle, onLongPress, onContinue }) => {
   const settings = useSettings().data;
-  const landscape = useLandscape();
-  const columns = landscape ? display.columnsLandscape : (settings?.gridColumns ?? 0);
   const selecting = selected.size > 0;
   const item = (entry: MangaLibraryEntry) => (
     <li key={entry.titleId}>
@@ -268,7 +253,7 @@ export const LibraryItems: FC<{
       data-testid="library-grid"
       data-mode={mode}
       className={COVER_GRID_CLASS}
-      style={coverGridStyle(columns, settings?.coverWidth ?? 0)}
+      style={coverGridStyle(settings?.coverSize ?? 0)}
     >
       {entries.map(item)}
     </ul>

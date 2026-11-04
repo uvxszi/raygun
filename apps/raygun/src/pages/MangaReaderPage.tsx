@@ -30,7 +30,7 @@ import { PageActionsSheet } from '../export/PageActionsSheet';
 import { unwrapResult } from '../lib/commandResult';
 import { Sheet } from '../shell/Sheet';
 import { useWindowFullscreen } from '../shell/useWindowFullscreen';
-import { clampZoom, useReaderDisplay, ZOOM_STEP } from '../manga/readerDisplay';
+import { clampZoom, sizedFrom, useReaderDisplay, ZOOM_STEP } from '../manga/readerDisplay';
 import { ReaderDisplaySettings } from '../manga/ReaderDisplaySettings';
 import { MANGA, saveProgress, useMangaChapter } from '../manga/useManga';
 import { SourceIssue } from '../shell/SourceIssue';
@@ -106,10 +106,10 @@ type ViewProps = {
 };
 
 /** One continuous strip; the page most in view is the current one. */
-const WebtoonView: FC<ViewProps & { jumpTo: number | null; width: number }> = ({
+const WebtoonView: FC<ViewProps & { jumpTo: number | null; size: number }> = ({
   data,
   zoom,
-  width,
+  size,
   onCurrent,
   onToggleChrome,
   onGo,
@@ -146,11 +146,10 @@ const WebtoonView: FC<ViewProps & { jumpTo: number | null; width: number }> = ({
         type="button"
         aria-label={t('manga.toggleControls')}
         onClick={onToggleChrome}
-        // The column: a share of the window, or the screen's width up to 768 px (M46.7).
+        // The column: the screen's width up to 768 px (M46.7), made bigger or smaller by the
+        // webtoon size (M46.48), then zoomed.
         className="mx-auto flex max-w-none flex-col"
-        style={{
-          width: width > 0 ? `${Math.round(width * zoom)}%` : `calc(min(100%, 48rem) * ${zoom})`,
-        }}
+        style={{ width: `calc(${sizedFrom('48rem', size)} * ${zoom})` }}
       >
         {data.pages.map((url, index) => (
           <img
@@ -479,7 +478,7 @@ export const MangaReaderPage: FC = () => {
           onPageMenu={setPageMenu}
           jumpTo={jumpTo}
           zoom={zoom}
-          width={display.webtoonWidth}
+          size={display.webtoonSize}
         />
       )}
       {data && mode !== 'webtoon' && (
@@ -500,9 +499,12 @@ export const MangaReaderPage: FC = () => {
         <footer className="fixed inset-x-0 bottom-0 z-30 flex justify-center px-3 pt-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
           <div
             data-testid="reader-bar"
-            // The bar's width: the user's share, or the screen's on phones and 70 % on wide windows.
-            className={`flex items-center gap-2 ${display.barWidth > 0 ? '' : 'w-full lg:w-[70%]'}`}
-            style={display.barWidth > 0 ? { width: `${display.barWidth}%` } : undefined}
+            // The bar: the screen's width on phones and 70 % on wide windows, made bigger or
+            // smaller by the page bar size (M46.48).
+            className="flex w-(--bar-width) items-center gap-2 [--bar-base:100%] lg:[--bar-base:70%]"
+            style={
+              { '--bar-width': sizedFrom('var(--bar-base)', display.barSize) } as CSSProperties
+            }
           >
             {display.barChapters && (
               <button

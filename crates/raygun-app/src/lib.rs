@@ -81,6 +81,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::storage_info,
             commands::settings_get,
             commands::settings_update,
+            commands::settings_update_many,
+            commands::settings_defaults,
             commands::recent_contexts,
             commands::recent_contexts_add,
             commands::playback_get_state,

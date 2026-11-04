@@ -2,6 +2,7 @@ import type { MangaChapterPages, SettingChange, Settings } from '@raygun/binding
 import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
+import { coverGridStyle } from '../manga/coverGrid';
 import { AppShellWrapper, makeItem } from '../shell/AppShell.test-wrapper';
 import { bindingsMock, DEFAULT_SETTINGS, emitEvent } from '../test/bindingsMock';
 
@@ -85,13 +86,19 @@ describe('Customization', () => {
     expect(document.documentElement.dataset.accent).toBe('custom');
   });
 
-  it('sizes covers by screen or by the chosen width', async () => {
+  it('sizes covers by the screen, then bigger or smaller', async () => {
     const user = userEvent.setup();
     commands.catalogGlobalSearch.mockResolvedValue(ok([]));
     await AppShellWrapper.mount('/settings/library');
-    await user.click(await screen.findByRole('button', { name: /^Cover size/ }));
-    await user.click(screen.getByRole('radio', { name: /^120 px/ }));
-    expect(changes('coverWidth')).toEqual([120]);
+    const size = await screen.findByRole('spinbutton', { name: 'Cover size' });
+    await user.clear(size);
+    await user.type(size, '20{Enter}');
+    expect(changes('coverSize')).toEqual([20]);
+    await user.click(screen.getByRole('button', { name: 'Reset Cover size' }));
+    expect(changes('coverSize')).toEqual([20, 0]);
+    expect(coverGridStyle(20).gridTemplateColumns).toBe(
+      'repeat(auto-fill, minmax(min(100%, calc(var(--cover-width) * 1.2)), 1fr))',
+    );
   });
 
   it('fits pages, zooms them and arranges the page bar', async () => {

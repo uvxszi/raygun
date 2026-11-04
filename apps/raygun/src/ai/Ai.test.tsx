@@ -38,13 +38,13 @@ describe('AI settings', () => {
     AppShellWrapper.seedCore();
   });
 
-  it('summarises translators and models on the settings page', async () => {
-    commands.aiProviders.mockResolvedValue(ok([CLAUDE]));
-    commands.aiModels.mockResolvedValue([{ ...MODEL, installed: true }]);
-    await AppShellWrapper.mount('/settings/connections');
-    const card = await screen.findByTestId('ai-card');
-    expect(await within(card).findByText('1 translator · 1 models installed')).toBeInTheDocument();
-    expect(card.closest('a')).toHaveAttribute('href', '/settings/ai');
+  it('is a page of its own in the settings list', async () => {
+    await AppShellWrapper.mount('/settings');
+    const settings = await screen.findByTestId('settings-page');
+    expect(within(settings).getByRole('link', { name: 'AI' })).toHaveAttribute(
+      'href',
+      '/settings/ai',
+    );
   });
 
   it('lists translators with their key hints and tests one', async () => {
@@ -70,7 +70,10 @@ describe('AI settings', () => {
     await AppShellWrapper.mount('/settings/ai');
     const row = await screen.findByRole('listitem', { name: 'Claude' });
     await user.click(within(row).getByRole('button', { name: /^Test/ }));
-    expect(await within(row).findByRole('alert')).toHaveTextContent('invalid x-api-key');
+    const problem = await within(row).findByRole('alert');
+    expect(problem).toHaveTextContent("Claude didn't translate");
+    await user.click(within(problem).getByRole('button', { name: 'More info' }));
+    expect(problem).toHaveTextContent('invalid x-api-key');
   });
 
   it('adds a translator with its key', async () => {

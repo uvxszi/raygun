@@ -1,368 +1,253 @@
 import type { SyncKind, SyncStatus } from '@raygun/bindings';
-import { Copy, LoaderCircle, RefreshCw, Undo2, X } from 'lucide-react';
+import { Copy, KeyRound, LoaderCircle, Undo2 } from 'lucide-react';
 import { useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { LinkedDevices } from '../devices/LinkedDevices';
 import {
   useJoinDevice,
   useOpenPairing,
-  useRemovePeer,
   useRenameDevice,
   useSetSyncKinds,
-  useSyncNow,
   useSyncStatus,
   useUndoLastSync,
 } from '../devices/useDeviceSync';
-import { PageHeader } from './PageHeader';
-import { LinkedDevices } from '../devices/LinkedDevices';
+import { PrefAction, PrefGroup, PrefSwitch, PrefText } from '../settings/prefs';
+import { Problem } from '../settings/Problem';
 import { RemoteCard } from '../settings/RemoteCard';
+import { useFoundPref } from '../settings/useSettingsSearch';
+import { Sheet } from '../shell/Sheet';
+import { TopBar } from '../shell/TopBar';
 
 const KINDS: SyncKind[] = ['settings', 'library', 'history'];
-const CARD = 'bg-surface flex flex-col gap-3 rounded-xl px-5 py-4 text-sm';
 
-const ErrorText: FC<{ error: Error | null | undefined }> = ({ error }) =>
-  error ? (
-    <p role="alert" className="text-primary text-sm wrap-anywhere">
-      {error.message}
-    </p>
-  ) : null;
-
+/** This device's name, as the others show it, and what linked devices keep the same. */
 const ThisDevice: FC<{ status: SyncStatus }> = ({ status }) => {
   const { t } = useTranslation();
   const rename = useRenameDevice();
-  const [name, setName] = useState<string | null>(null);
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    if (name !== null) rename.mutate(name, { onSuccess: () => setName(null) });
-  };
-
+  const setKinds = useSetSyncKinds();
+  const toggle = (kind: SyncKind, on: boolean) =>
+    setKinds.mutate(
+      on ? [...status.kinds, kind] : status.kinds.filter((existing) => existing !== kind),
+    );
   return (
-    <div className="flex flex-col gap-1">
-      <h3 className="text-muted text-xs">{t('devices.thisDevice')}</h3>
-      {name === null ? (
-        <div className="flex items-center justify-between gap-2">
-          <span data-testid="device-name">{status.deviceName}</span>
-          <button
-            type="button"
-            onClick={() => setName(status.deviceName)}
-            className="text-primary text-xs"
-          >
-            {t('devices.rename')}
-          </button>
-        </div>
-      ) : (
-        <form onSubmit={submit} className="flex items-center gap-2">
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            aria-label={t('devices.deviceName')}
-            maxLength={40}
-            className="bg-background min-w-0 flex-1 rounded-lg px-3 py-2 outline-none"
+    <>
+      <PrefGroup title={t('devices.thisDevice')}>
+        <PrefText
+          title={t('devices.deviceName')}
+          value={status.deviceName}
+          check={(text) => (text ? null : t('devices.nameNeeded'))}
+          disabled={rename.isPending}
+          onChange={(name) => rename.mutate(name)}
+        />
+        <li className="hidden" data-testid="device-name">
+          {status.deviceName}
+        </li>
+        {rename.error && (
+          <li className="px-1 py-2">
+            <Problem title={t('devices.renameFailed')} detail={rename.error.message} />
+          </li>
+        )}
+      </PrefGroup>
+      <PrefGroup title={t('devices.whatSyncs')}>
+        {KINDS.map((kind) => (
+          <PrefSwitch
+            key={kind}
+            title={t(`devices.kind.${kind}`)}
+            checked={status.kinds.includes(kind)}
+            disabled={setKinds.isPending}
+            onChange={(on) => toggle(kind, on)}
           />
-          <button
-            type="submit"
-            disabled={!name.trim() || rename.isPending}
-            className="bg-primary text-background rounded-full px-4 py-2 font-semibold disabled:opacity-60"
-          >
-            {t('devices.save')}
-          </button>
-        </form>
-      )}
-      <p className="text-muted font-mono text-xs">
-        {t('devices.key', { fingerprint: status.fingerprint })}
-      </p>
-      <ErrorText error={rename.error} />
-    </div>
+        ))}
+        {setKinds.error && (
+          <li className="px-1 py-2">
+            <Problem title={t('devices.kindsFailed')} detail={setKinds.error.message} />
+          </li>
+        )}
+      </PrefGroup>
+    </>
   );
 };
 
-const PairDevice: FC<{ status: SyncStatus }> = ({ status }) => {
+/** For devices that can't find each other: a code shown on one, pasted on the other. */
+const LinkWithCode: FC<{ status: SyncStatus; onClose: () => void }> = ({ status, onClose }) => {
   const { t } = useTranslation();
   const open = useOpenPairing();
-  const [copied, setCopied] = useState(false);
-  const text = status.pairingText;
-
-  return (
-    <section className={CARD} aria-labelledby="pair-title">
-      <h2 id="pair-title" className="font-medium">
-        {t('devices.pairTitle')}
-      </h2>
-      {text && status.pairingQrSvg ? (
-        <div className="flex flex-col items-center gap-2">
-          <img
-            alt={t('devices.qrAlt')}
-            src={`data:image/svg+xml;utf8,${encodeURIComponent(status.pairingQrSvg)}`}
-            className="size-44 rounded-lg bg-white p-1"
-          />
-          <p className="text-muted text-center text-xs">{t('devices.pairHint')}</p>
-          <code
-            data-testid="pairing-text"
-            className="bg-background w-full rounded-lg p-2 text-xs break-all"
-          >
-            {text}
-          </code>
-          <button
-            type="button"
-            onClick={() => void navigator.clipboard?.writeText(text).then(() => setCopied(true))}
-            className="text-primary flex items-center gap-1 text-xs"
-          >
-            <Copy aria-hidden size={14} />
-            {copied ? t('devices.copied') : t('devices.copyText')}
-          </button>
-        </div>
-      ) : (
-        <p className="text-muted text-xs">{t('devices.pairExplain')}</p>
-      )}
-      <button
-        type="button"
-        disabled={open.isPending}
-        onClick={() => {
-          setCopied(false);
-          open.mutate(undefined);
-        }}
-        className="bg-background self-start rounded-full px-4 py-2 disabled:opacity-60"
-      >
-        {text ? t('devices.newCode') : t('devices.showCode')}
-      </button>
-      <ErrorText error={open.error} />
-    </section>
-  );
-};
-
-const JoinDevice: FC = () => {
-  const { t } = useTranslation();
   const join = useJoinDevice();
+  const [copied, setCopied] = useState(false);
   const [text, setText] = useState('');
-
+  const code = status.pairingText;
   const submit = (event: FormEvent) => {
     event.preventDefault();
     join.mutate(text.trim(), { onSuccess: () => setText('') });
   };
-
   return (
-    <form onSubmit={submit} className={CARD} aria-labelledby="join-title">
-      <h2 id="join-title" className="font-medium">
-        {t('devices.joinTitle')}
-      </h2>
-      <p className="text-muted text-xs">{t('devices.joinHint')}</p>
-      <textarea
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        aria-label={t('devices.pairingText')}
-        placeholder="raygun-pair:…"
-        autoCapitalize="off"
-        autoCorrect="off"
-        spellCheck={false}
-        rows={3}
-        className="bg-background rounded-lg px-3 py-2 font-mono text-xs outline-none"
-      />
-      <button
-        type="submit"
-        disabled={!text.trim() || join.isPending}
-        className="bg-primary text-background flex items-center gap-2 self-start rounded-full px-5 py-2 font-semibold disabled:opacity-60"
-      >
-        {join.isPending && <LoaderCircle aria-hidden size={16} className="animate-spin" />}
-        {t('devices.join')}
-      </button>
-      <ErrorText error={join.error} />
-    </form>
-  );
-};
-
-const PairedDevices: FC<{ status: SyncStatus }> = ({ status }) => {
-  const { t, i18n } = useTranslation();
-  const syncNow = useSyncNow();
-  const remove = useRemovePeer();
-  const time = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' });
-
-  return (
-    <section className={CARD} aria-labelledby="peers-title">
-      <div className="flex items-center justify-between">
-        <h2 id="peers-title" className="font-medium">
-          {t('devices.paired')}
-        </h2>
-        {status.peers.length > 1 && (
+    <Sheet title={t('link.withCode')} onClose={onClose}>
+      <div data-testid="link-with-code" className="flex flex-col gap-5 text-sm">
+        <section aria-labelledby="pair-title" className="flex flex-col gap-2">
+          <h3 id="pair-title" className="font-medium">
+            {t('devices.pairTitle')}
+          </h3>
+          {code && status.pairingQrSvg && (
+            <div className="flex flex-col items-center gap-2">
+              <img
+                alt={t('devices.qrAlt')}
+                src={`data:image/svg+xml;utf8,${encodeURIComponent(status.pairingQrSvg)}`}
+                className="size-44 rounded-lg bg-white p-1"
+              />
+              <code
+                data-testid="pairing-text"
+                className="selectable bg-background w-full rounded-lg p-2 text-xs break-all"
+              >
+                {code}
+              </code>
+              <button
+                type="button"
+                onClick={() =>
+                  void navigator.clipboard?.writeText(code).then(() => setCopied(true))
+                }
+                className="text-primary flex items-center gap-1 text-xs font-semibold"
+              >
+                <Copy aria-hidden size={14} />
+                {copied ? t('devices.copied') : t('devices.copyText')}
+              </button>
+              <p className="text-muted text-center text-xs">{t('devices.pairHint')}</p>
+            </div>
+          )}
           <button
             type="button"
-            disabled={syncNow.isPending}
-            onClick={() => syncNow.mutate(null)}
-            className="text-primary text-xs"
+            disabled={open.isPending}
+            onClick={() => {
+              setCopied(false);
+              open.mutate(undefined);
+            }}
+            className="bg-background self-start rounded-full px-4 py-2 font-semibold disabled:opacity-60"
           >
-            {t('devices.syncAll')}
+            {code ? t('devices.newCode') : t('devices.showCode')}
           </button>
-        )}
-      </div>
-      {status.peers.length === 0 ? (
-        <p className="text-muted text-xs">{t('devices.noPeers')}</p>
-      ) : (
-        <ul className="flex flex-col gap-2">
-          {status.peers.map((peer) => (
-            <li key={peer.deviceId} data-testid="peer" className="flex items-center gap-2">
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="truncate">{peer.name}</span>
-                <span className="text-muted font-mono text-xs">{peer.fingerprint}</span>
-                <span className="text-muted text-xs">
-                  {peer.lastSyncAt
-                    ? t('devices.lastSync', { time: time.format(peer.lastSyncAt) })
-                    : t('devices.neverSynced')}
-                </span>
-              </span>
-              <button
-                type="button"
-                aria-label={t('devices.syncWith', { name: peer.name })}
-                disabled={syncNow.isPending}
-                onClick={() => syncNow.mutate(peer.deviceId)}
-                className="text-primary grid size-9 place-items-center rounded-full disabled:opacity-50"
-              >
-                <RefreshCw
-                  aria-hidden
-                  size={18}
-                  className={
-                    syncNow.isPending && syncNow.variables === peer.deviceId ? 'animate-spin' : ''
-                  }
-                />
-              </button>
-              <button
-                type="button"
-                aria-label={t('devices.remove', { name: peer.name })}
-                disabled={remove.isPending}
-                onClick={() => remove.mutate(peer.deviceId)}
-                className="text-muted grid size-9 place-items-center rounded-full"
-              >
-                <X aria-hidden size={18} />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <ErrorText error={syncNow.error ?? remove.error} />
-    </section>
-  );
-};
-
-const WhatSyncs: FC<{ status: SyncStatus }> = ({ status }) => {
-  const { t } = useTranslation();
-  const setKinds = useSetSyncKinds();
-  const toggle = (kind: SyncKind) => {
-    const kinds = status.kinds.includes(kind)
-      ? status.kinds.filter((existing) => existing !== kind)
-      : [...status.kinds, kind];
-    setKinds.mutate(kinds);
-  };
-  return (
-    <section className={CARD} aria-labelledby="kinds-title">
-      <h2 id="kinds-title" className="font-medium">
-        {t('devices.whatSyncs')}
-      </h2>
-      {KINDS.map((kind) => (
-        <label key={kind} className="flex items-center gap-3">
-          <input
-            type="checkbox"
-            checked={status.kinds.includes(kind)}
-            disabled={setKinds.isPending}
-            onChange={() => toggle(kind)}
-            className="accent-primary size-4"
+          {open.error && <Problem title={t('devices.codeFailed')} detail={open.error.message} />}
+        </section>
+        <form onSubmit={submit} aria-labelledby="join-title" className="flex flex-col gap-2">
+          <h3 id="join-title" className="font-medium">
+            {t('devices.joinTitle')}
+          </h3>
+          <textarea
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            aria-label={t('devices.pairingText')}
+            placeholder={t('devices.pairingTextHint')}
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            rows={3}
+            className="bg-background placeholder:text-muted rounded-lg px-3 py-2 font-mono text-xs outline-none"
           />
-          {t(`devices.kind.${kind}`)}
-        </label>
-      ))}
-      <ErrorText error={setKinds.error} />
-    </section>
+          <button
+            type="submit"
+            disabled={!text.trim() || join.isPending}
+            className="bg-primary text-background flex items-center gap-2 self-start rounded-full px-5 py-2 font-semibold disabled:opacity-60"
+          >
+            {join.isPending && <LoaderCircle aria-hidden size={16} className="animate-spin" />}
+            {t('devices.join')}
+          </button>
+          {join.error && <Problem title={t('devices.joinFailed')} detail={join.error.message} />}
+          {join.isSuccess && (
+            <p role="status" className="text-muted text-xs">
+              {t('devices.joined')}
+            </p>
+          )}
+        </form>
+        <p className="text-muted font-mono text-xs">
+          {t('devices.key', { fingerprint: status.fingerprint })}
+        </p>
+      </div>
+    </Sheet>
   );
 };
 
-const SyncLog: FC<{ status: SyncStatus }> = ({ status }) => {
+/** What syncing did lately, and taking the last one back. */
+const SyncHistory: FC<{ status: SyncStatus }> = ({ status }) => {
   const { t, i18n } = useTranslation();
   const undo = useUndoLastSync();
   const time = new Intl.DateTimeFormat(i18n.language, { timeStyle: 'short', dateStyle: 'short' });
   const undoable = status.log.some((session) => !session.undone && session.changed > 0);
   if (status.log.length === 0) return null;
-
   return (
-    <section className={CARD} aria-labelledby="log-title">
-      <div className="flex items-center justify-between">
-        <h2 id="log-title" className="font-medium">
-          {t('devices.log')}
-        </h2>
-        {undoable && (
-          <button
-            type="button"
-            disabled={undo.isPending}
-            onClick={() => undo.mutate(undefined)}
-            className="text-primary flex items-center gap-1 text-xs"
-          >
-            <Undo2 aria-hidden size={14} />
-            {t('devices.undoLast')}
-          </button>
-        )}
-      </div>
-      <ul className="flex flex-col gap-2">
-        {status.log.map((session) => (
-          <li key={session.id} data-testid="sync-session" className="flex flex-col">
-            <span className="flex justify-between gap-2">
-              <span className="truncate">{session.peerName}</span>
-              <span className="text-muted shrink-0 text-xs">
-                {time.format(session.startedAt ?? 0)}
-              </span>
+    <PrefGroup title={t('devices.log')}>
+      {status.log.map((session) => (
+        <li key={session.id} data-testid="sync-session" className="flex flex-col px-1 py-2">
+          <span className="flex justify-between gap-2">
+            <span className="truncate font-medium">{session.peerName}</span>
+            <span className="text-muted shrink-0 text-xs">
+              {time.format(session.startedAt ?? 0)}
             </span>
-            <span className={`text-xs ${session.error ? 'text-primary' : 'text-muted'}`}>
-              {session.error ??
-                (session.finished
-                  ? t('devices.sessionSummary', {
-                      sent: session.sent,
-                      received: session.received,
-                      changed: session.changed,
-                    })
-                  : t('devices.syncing'))}
-              {session.undone && ` · ${t('devices.undone')}`}
-            </span>
-          </li>
-        ))}
-      </ul>
-      <ErrorText error={undo.error} />
-    </section>
+          </span>
+          <span className="text-muted text-sm">
+            {session.error
+              ? t('devices.sessionFailed', { reason: session.error })
+              : session.finished
+                ? t('devices.sessionSummary', {
+                    sent: session.sent,
+                    received: session.received,
+                    changed: session.changed,
+                  })
+                : t('devices.syncing')}
+            {session.undone && ` · ${t('devices.undone')}`}
+          </span>
+        </li>
+      ))}
+      {undoable && (
+        <PrefAction
+          icon={Undo2}
+          title={t('devices.undoLast')}
+          disabled={undo.isPending}
+          onClick={() => undo.mutate(undefined)}
+        />
+      )}
+      {undo.error && (
+        <li className="px-1 py-2">
+          <Problem title={t('devices.undoFailed')} detail={undo.error.message} />
+        </li>
+      )}
+    </PrefGroup>
   );
 };
 
 /**
- * Devices (M21; one link since M46.47): your devices first (linking, playing on one, syncing),
- * then this device's name, what syncs and the log, linking with a code, and the web remote.
+ * Devices (M21; one link since M46.47): your devices first (letting them find this one, linking,
+ * playing on one, syncing), then this device's name and what syncs, linking with a code where
+ * devices don't find each other, the browser remote and what syncing did.
  */
 export const DevicesPage: FC = () => {
   const { t } = useTranslation();
   const status = useSyncStatus();
   const data = status.data;
+  const [withCode, setWithCode] = useState(false);
+  useFoundPref();
 
   return (
-    <section data-testid="devices-page" className="flex max-w-2xl flex-col gap-4">
-      <PageHeader back fallback="/more" title={t('devices.title')} />
+    <section data-testid="devices-page" className="flex max-w-2xl flex-col">
+      <TopBar back fallback="/settings" title={t('devices.title')} />
       <LinkedDevices />
-      <section className={CARD}>
-        {data && <ThisDevice status={data} />}
-        {(data?.error || status.error) && (
-          <p role="alert" className="text-primary wrap-anywhere">
-            {data?.error ?? status.error?.message}
-          </p>
-        )}
-      </section>
-      {data?.enabled && (
-        <>
-          <WhatSyncs status={data} />
-          <SyncLog status={data} />
-          <details className={CARD}>
-            <summary className="cursor-pointer font-medium">{t('link.withCode')}</summary>
-            <p className="text-muted mt-2 text-xs">{t('link.withCodeHint')}</p>
-            <div className="mt-3 flex flex-col gap-4">
-              <PairedDevices status={data} />
-              <PairDevice status={data} />
-              <JoinDevice />
-            </div>
-          </details>
-        </>
+      {data && <ThisDevice status={data} />}
+      {(data?.error || status.error) && (
+        <div className="px-1 py-2">
+          <Problem title={t('devices.syncProblem')} detail={data?.error ?? status.error?.message} />
+        </div>
       )}
-      <RemoteCard browserOnly />
+      <PrefGroup title={t('devices.moreWays')}>
+        <PrefAction
+          icon={KeyRound}
+          title={t('link.withCode')}
+          summary={data?.enabled ? undefined : t('link.turnOnFirst')}
+          disabled={!data?.enabled}
+          onClick={() => setWithCode(true)}
+        />
+      </PrefGroup>
+      <RemoteCard />
+      {data && <SyncHistory status={data} />}
+      {withCode && data && <LinkWithCode status={data} onClose={() => setWithCode(false)} />}
     </section>
   );
 };

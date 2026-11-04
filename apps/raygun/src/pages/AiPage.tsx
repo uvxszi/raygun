@@ -19,23 +19,24 @@ import {
   useSaveAiProvider,
   useTestAiProvider,
 } from '../ai/useAi';
+import { ConfirmSheet } from '../settings/ConfirmSheet';
+import { McpCard } from '../settings/McpCard';
+import { PrefAction, PrefGroup } from '../settings/prefs';
+import { Problem, SettingsSaveIssue } from '../settings/Problem';
+import { useFoundPref } from '../settings/useSettingsSearch';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
-import { PageHeader } from './PageHeader';
+import { Sheet } from '../shell/Sheet';
+import { TopBar } from '../shell/TopBar';
 
-const CARD = 'bg-surface flex flex-col gap-3 rounded-xl px-5 py-4 text-sm';
 const INPUT = 'bg-background min-w-0 rounded-lg px-3 py-2 outline-none';
+const ICON_BUTTON =
+  'hover:bg-surface grid size-10 shrink-0 place-items-center rounded-full disabled:opacity-60';
 const KINDS: AiProviderKind[] = ['claude', 'openAiCompatible', 'deepl'];
 const ENGINES: TranscriptionEngine[] = ['off', 'local', 'online'];
 
-const ErrorText: FC<{ error: Error | null | undefined }> = ({ error }) =>
-  error ? (
-    <p role="alert" className="text-primary text-sm wrap-anywhere">
-      {error.message}
-    </p>
-  ) : null;
-
 const megabytes = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
 
+/** A translator's service, name, key, address and model, in a sheet. */
 const ProviderForm: FC<{ provider?: AiProvider; onDone: () => void }> = ({ provider, onDone }) => {
   const { t } = useTranslation();
   const save = useSaveAiProvider();
@@ -53,112 +54,119 @@ const ProviderForm: FC<{ provider?: AiProvider; onDone: () => void }> = ({ provi
         id: provider?.id ?? null,
         kind,
         name: name.trim() || t(`ai.kind.${kind}`),
-        baseUrl: baseUrl || null,
-        model: kind === 'deepl' ? null : model || null,
-        key: removeKey ? '' : key || null,
+        baseUrl: baseUrl.trim() || null,
+        model: kind === 'deepl' ? null : model.trim() || null,
+        key: removeKey ? '' : key.trim() || null,
       },
       { onSuccess: onDone },
     );
   };
 
   return (
-    <form onSubmit={submit} aria-label={t('ai.translatorForm')} className="flex flex-col gap-2">
-      <label className="flex flex-col gap-1">
-        <span className="text-muted text-xs">{t('ai.kindLabel')}</span>
-        <select
-          value={kind}
-          onChange={(event) => setKind(event.target.value as AiProviderKind)}
-          className={INPUT}
-        >
-          {KINDS.map((option) => (
-            <option key={option} value={option}>
-              {t(`ai.kind.${option}`)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="flex flex-col gap-1">
-        <span className="text-muted text-xs">{t('ai.name')}</span>
-        <input
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder={t(`ai.kind.${kind}`)}
-          maxLength={60}
-          className={INPUT}
-        />
-      </label>
-      <label className="flex flex-col gap-1">
-        <span className="text-muted text-xs">
-          {kind === 'openAiCompatible' ? t('ai.apiKeyOptional') : t('ai.apiKey')}
-        </span>
-        <input
-          type="password"
-          autoComplete="off"
-          value={key}
-          disabled={removeKey}
-          onChange={(event) => setKey(event.target.value)}
-          placeholder={
-            provider?.keyHint ? t('ai.savedKey', { hint: provider.keyHint }) : t('ai.pasteKey')
-          }
-          className={INPUT}
-        />
-      </label>
-      {provider?.hasKey && (
-        <label className="flex items-center gap-2 text-xs">
-          <input
-            type="checkbox"
-            checked={removeKey}
-            onChange={(event) => setRemoveKey(event.target.checked)}
-            className="accent-primary size-4"
-          />
-          {t('ai.removeKey')}
-        </label>
-      )}
-      <label className="flex flex-col gap-1">
-        <span className="text-muted text-xs">{t('ai.baseUrl')}</span>
-        <input
-          value={baseUrl}
-          onChange={(event) => setBaseUrl(event.target.value)}
-          placeholder={t(`ai.basePlaceholder.${kind}`)}
-          inputMode="url"
-          className={INPUT}
-        />
-      </label>
-      {kind !== 'deepl' && (
+    <Sheet title={provider ? provider.name : t('ai.addTranslator')} onClose={onDone}>
+      <form
+        onSubmit={submit}
+        aria-label={t('ai.translatorForm')}
+        className="flex flex-col gap-3 text-sm"
+      >
         <label className="flex flex-col gap-1">
-          <span className="text-muted text-xs">{t('ai.model')}</span>
+          <span className="text-muted text-xs">{t('ai.kindLabel')}</span>
+          <select
+            value={kind}
+            onChange={(event) => setKind(event.target.value as AiProviderKind)}
+            className={INPUT}
+          >
+            {KINDS.map((option) => (
+              <option key={option} value={option}>
+                {t(`ai.kind.${option}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-muted text-xs">{t('ai.name')}</span>
           <input
-            value={model}
-            onChange={(event) => setModel(event.target.value)}
-            placeholder={t(`ai.modelPlaceholder.${kind}`)}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder={t(`ai.kind.${kind}`)}
+            maxLength={60}
             className={INPUT}
           />
         </label>
-      )}
-      <ErrorText error={save.error} />
-      <div className="flex gap-2">
-        <button
-          type="submit"
-          disabled={save.isPending}
-          className="bg-primary text-background rounded-full px-4 py-2 font-semibold disabled:opacity-60"
-        >
-          {t('ai.save')}
-        </button>
-        <button type="button" onClick={onDone} className="bg-background rounded-full px-4 py-2">
-          {t('ai.cancel')}
-        </button>
-      </div>
-    </form>
+        <label className="flex flex-col gap-1">
+          <span className="text-muted text-xs">
+            {kind === 'openAiCompatible' ? t('ai.apiKeyOptional') : t('ai.apiKey')}
+          </span>
+          <input
+            type="password"
+            autoComplete="off"
+            value={key}
+            disabled={removeKey}
+            onChange={(event) => setKey(event.target.value)}
+            placeholder={
+              provider?.keyHint ? t('ai.savedKey', { hint: provider.keyHint }) : t('ai.pasteKey')
+            }
+            className={INPUT}
+          />
+        </label>
+        {provider?.hasKey && (
+          <label className="flex items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={removeKey}
+              onChange={(event) => setRemoveKey(event.target.checked)}
+              className="accent-primary size-4"
+            />
+            {t('ai.removeKey')}
+          </label>
+        )}
+        <label className="flex flex-col gap-1">
+          <span className="text-muted text-xs">{t('ai.baseUrl')}</span>
+          <input
+            value={baseUrl}
+            onChange={(event) => setBaseUrl(event.target.value)}
+            placeholder={t(`ai.basePlaceholder.${kind}`)}
+            inputMode="url"
+            autoCapitalize="off"
+            className={INPUT}
+          />
+        </label>
+        {kind !== 'deepl' && (
+          <label className="flex flex-col gap-1">
+            <span className="text-muted text-xs">{t('ai.model')}</span>
+            <input
+              value={model}
+              onChange={(event) => setModel(event.target.value)}
+              placeholder={t(`ai.modelPlaceholder.${kind}`)}
+              autoCapitalize="off"
+              className={INPUT}
+            />
+          </label>
+        )}
+        {save.error && <Problem title={t('ai.saveFailed')} detail={save.error.message} />}
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onDone} className="rounded-full px-4 py-2">
+            {t('ai.cancel')}
+          </button>
+          <button
+            type="submit"
+            disabled={save.isPending}
+            className="bg-primary text-background rounded-full px-4 py-2 font-semibold disabled:opacity-60"
+          >
+            {t('ai.save')}
+          </button>
+        </div>
+      </form>
+    </Sheet>
   );
 };
 
 const ProviderRow: FC<{ provider: AiProvider }> = ({ provider }) => {
   const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const test = useTestAiProvider();
   const remove = useDeleteAiProvider();
-
-  if (editing) return <ProviderForm provider={provider} onDone={() => setEditing(false)} />;
   const details = [
     t(`ai.kind.${provider.kind}`),
     provider.model,
@@ -166,49 +174,68 @@ const ProviderRow: FC<{ provider: AiProvider }> = ({ provider }) => {
   ].filter(Boolean);
 
   return (
-    <li className="flex flex-col gap-2" aria-label={provider.name}>
-      <div className="flex items-center gap-2">
+    <li className="flex flex-col gap-2 px-1 py-2" aria-label={provider.name}>
+      <div className="flex items-center gap-1">
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="font-semibold">{provider.name}</span>
-          <span className="text-muted text-xs">{details.join(' · ')}</span>
+          <span className="truncate font-medium">{provider.name}</span>
+          <span className="text-muted truncate text-sm">{details.join(' · ')}</span>
         </span>
         <button
           type="button"
           aria-label={t('ai.test')}
+          title={t('ai.test')}
           disabled={test.isPending}
           onClick={() => test.mutate(provider.id)}
-          className="bg-background grid size-9 place-items-center rounded-full disabled:opacity-60"
+          className={ICON_BUTTON}
         >
           {test.isPending ? (
-            <LoaderCircle aria-hidden size={16} className="animate-spin" />
+            <LoaderCircle aria-hidden size={18} className="animate-spin" />
           ) : (
-            <Languages aria-hidden size={16} />
+            <Languages aria-hidden size={18} />
           )}
         </button>
         <button
           type="button"
           aria-label={t('ai.edit')}
+          title={t('ai.edit')}
           onClick={() => setEditing(true)}
-          className="bg-background grid size-9 place-items-center rounded-full"
+          className={ICON_BUTTON}
         >
-          <Pencil aria-hidden size={16} />
+          <Pencil aria-hidden size={18} />
         </button>
         <button
           type="button"
           aria-label={t('ai.delete')}
+          title={t('ai.delete')}
           disabled={remove.isPending}
-          onClick={() => remove.mutate(provider.id)}
-          className="bg-background grid size-9 place-items-center rounded-full disabled:opacity-60"
+          onClick={() => setDeleting(true)}
+          className={ICON_BUTTON}
         >
-          <Trash2 aria-hidden size={16} />
+          <Trash2 aria-hidden size={18} />
         </button>
       </div>
-      {test.data !== undefined && (
-        <p role="status" className="bg-background rounded-lg px-3 py-2">
+      {test.data !== undefined && !test.isPending && (
+        <p role="status" className="bg-surface rounded-lg px-3 py-2 text-sm">
           {t('ai.testResult', { text: test.data })}
         </p>
       )}
-      <ErrorText error={test.error ?? remove.error} />
+      {test.error && (
+        <Problem
+          title={t('ai.testFailed', { name: provider.name })}
+          detail={test.error.message}
+          onRetry={() => test.mutate(provider.id)}
+        />
+      )}
+      {remove.error && <Problem title={t('ai.deleteFailed')} detail={remove.error.message} />}
+      {editing && <ProviderForm provider={provider} onDone={() => setEditing(false)} />}
+      {deleting && (
+        <ConfirmSheet
+          title={t('ai.deleteQuestion', { name: provider.name })}
+          confirm={t('ai.deleteConfirm')}
+          onConfirm={() => remove.mutate(provider.id)}
+          onClose={() => setDeleting(false)}
+        />
+      )}
     </li>
   );
 };
@@ -220,17 +247,18 @@ const ModelRow: FC<{ model: AiModel }> = ({ model }) => {
   const downloading = model.downloading ?? null;
 
   return (
-    <li className="flex flex-col gap-2" aria-label={model.name}>
+    <li className="flex flex-col gap-2 px-1 py-2" aria-label={model.name}>
       <div className="flex items-start gap-2">
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="font-semibold">{model.name}</span>
-          <span className="text-muted text-xs">{model.description}</span>
-          <span className="text-muted text-xs">
-            {t('ai.megabytes', { size: megabytes(model.sizeBytes ?? 0) })} ·{' '}
-            <a href={model.licenseUrl} target="_blank" rel="noreferrer" className="underline">
-              {model.license}
-            </a>
-            {model.installed && ` · ${t('ai.installed')}`}
+          <span className="font-medium">{model.name}</span>
+          <span className="text-muted text-sm">
+            {[
+              t('ai.megabytes', { size: megabytes(model.sizeBytes ?? 0) }),
+              model.license,
+              model.installed ? t('ai.installed') : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
           </span>
         </span>
         {model.installed ? (
@@ -239,9 +267,9 @@ const ModelRow: FC<{ model: AiModel }> = ({ model }) => {
             aria-label={t('ai.deleteModel', { name: model.name })}
             disabled={remove.isPending}
             onClick={() => remove.mutate(model.id)}
-            className="bg-background grid size-9 place-items-center rounded-full disabled:opacity-60"
+            className={ICON_BUTTON}
           >
-            <Trash2 aria-hidden size={16} />
+            <Trash2 aria-hidden size={18} />
           </button>
         ) : (
           <button
@@ -249,12 +277,12 @@ const ModelRow: FC<{ model: AiModel }> = ({ model }) => {
             aria-label={t('ai.downloadModel', { name: model.name })}
             disabled={downloading !== null}
             onClick={() => download.mutate(model.id)}
-            className="bg-background grid size-9 place-items-center rounded-full disabled:opacity-60"
+            className={ICON_BUTTON}
           >
             {downloading !== null ? (
-              <LoaderCircle aria-hidden size={16} className="animate-spin" />
+              <LoaderCircle aria-hidden size={18} className="animate-spin" />
             ) : (
-              <Download aria-hidden size={16} />
+              <Download aria-hidden size={18} />
             )}
           </button>
         )}
@@ -267,7 +295,14 @@ const ModelRow: FC<{ model: AiModel }> = ({ model }) => {
           className="bg-background h-1.5 w-full appearance-none overflow-hidden rounded-full [&::-moz-progress-bar]:bg-primary [&::-webkit-progress-bar]:bg-background [&::-webkit-progress-value]:bg-primary"
         />
       )}
-      <ErrorText error={download.error ?? remove.error} />
+      {download.error && (
+        <Problem
+          title={t('ai.downloadFailed', { name: model.name })}
+          detail={download.error.message}
+          onRetry={() => download.mutate(model.id)}
+        />
+      )}
+      {remove.error && <Problem title={t('ai.deleteModelFailed')} detail={remove.error.message} />}
     </li>
   );
 };
@@ -297,17 +332,14 @@ const TranscriptionSection: FC<{ providers: AiProvider[]; models: AiModel[] }> =
     <section
       id="transcription"
       data-testid="ai-transcription"
-      className={CARD}
-      aria-labelledby="ai-transcription"
+      aria-label={t('ai.transcription.title')}
+      className="flex flex-col gap-3 pt-3"
     >
-      <h2 id="ai-transcription" className="text-muted">
-        {t('ai.transcription.title')}
-      </h2>
-      <p className="text-muted text-xs">{t('ai.transcription.hint')}</p>
+      <h2 className="text-muted px-1 text-xs font-semibold">{t('ai.transcription.title')}</h2>
       <div
         role="radiogroup"
         aria-label={t('ai.transcription.engine')}
-        className="flex flex-wrap gap-2"
+        className="flex flex-wrap gap-2 px-1"
       >
         {ENGINES.map((engine) => (
           <button
@@ -316,8 +348,8 @@ const TranscriptionSection: FC<{ providers: AiProvider[]; models: AiModel[] }> =
             role="radio"
             aria-checked={prefs.engine === engine}
             onClick={() => save({ engine })}
-            className={`rounded-full px-4 py-1.5 font-medium ${
-              prefs.engine === engine ? 'bg-primary text-background' : 'bg-background'
+            className={`rounded-full px-4 py-1.5 text-sm font-medium ${
+              prefs.engine === engine ? 'bg-primary text-background' : 'bg-surface'
             }`}
           >
             {t(`ai.transcription.engines.${engine}`)}
@@ -325,19 +357,14 @@ const TranscriptionSection: FC<{ providers: AiProvider[]; models: AiModel[] }> =
         ))}
       </div>
       {prefs.engine === 'local' && local && (
-        <>
-          <p className="text-muted text-xs">
-            {t(local.installed ? 'ai.transcription.localReady' : 'ai.transcription.localNeeds')}
-          </p>
-          <ul>
-            <ModelRow model={local} />
-          </ul>
-        </>
+        <ul>
+          <ModelRow model={local} />
+        </ul>
       )}
       {prefs.engine === 'online' && (
-        <>
+        <div className="flex flex-col gap-3 px-1 text-sm">
           {compatible.length === 0 ? (
-            <p className="text-muted text-xs">{t('ai.transcription.noProvider')}</p>
+            <p className="text-muted">{t('ai.transcription.noProvider')}</p>
           ) : (
             <label className="flex flex-col gap-1">
               <span className="text-muted text-xs">{t('ai.transcription.provider')}</span>
@@ -367,63 +394,51 @@ const TranscriptionSection: FC<{ providers: AiProvider[]; models: AiModel[] }> =
                 setModelName(null);
               }}
               placeholder="whisper-1"
+              autoCapitalize="off"
               className={INPUT}
             />
           </label>
           <p className="text-muted text-xs">{t('ai.transcription.onlineHint')}</p>
-        </>
+        </div>
       )}
     </section>
   );
 };
 
-/** Settings → AI: translators (with their keys) and downloadable models. */
+/** Settings → AI: translators (with their keys), transcription, models, and AI assistants. */
 export const AiPage: FC = () => {
   const { t } = useTranslation();
   const providers = useAiProviders();
   const models = useAiModels();
   const [adding, setAdding] = useState(false);
+  useFoundPref();
 
   return (
-    <section data-testid="ai-page" className="flex max-w-2xl flex-col gap-4">
-      <PageHeader back fallback="/more" title={t('ai.title')} />
-      <section className={CARD} aria-labelledby="ai-translators">
-        <h2 id="ai-translators" className="text-muted">
-          {t('ai.translators')}
-        </h2>
-        <p className="text-muted text-xs">{t('ai.translatorsHint')}</p>
-        {providers.data && providers.data.length === 0 && !adding && <p>{t('ai.noTranslators')}</p>}
-        <ul className="flex flex-col gap-4">
-          {providers.data?.map((provider) => (
-            <ProviderRow key={provider.id} provider={provider} />
-          ))}
-        </ul>
-        {adding ? (
-          <ProviderForm onDone={() => setAdding(false)} />
-        ) : (
-          <button
-            type="button"
-            onClick={() => setAdding(true)}
-            className="bg-primary text-background flex w-fit items-center gap-2 rounded-full px-4 py-2 font-semibold"
-          >
-            <Plus aria-hidden size={16} />
-            {t('ai.addTranslator')}
-          </button>
+    <section data-testid="ai-page" className="flex max-w-2xl flex-col">
+      <TopBar back fallback="/settings" title={t('ai.title')} />
+      <PrefGroup title={t('ai.translators')}>
+        {providers.data && providers.data.length === 0 && (
+          <li className="text-muted px-1 py-2 text-sm">{t('ai.noTranslators')}</li>
         )}
-        <ErrorText error={providers.error} />
-      </section>
+        {providers.data?.map((provider) => (
+          <ProviderRow key={provider.id} provider={provider} />
+        ))}
+        <PrefAction icon={Plus} title={t('ai.addTranslator')} onClick={() => setAdding(true)} />
+        {providers.error && (
+          <li className="px-1 py-2">
+            <Problem title={t('ai.listFailed')} detail={providers.error.message} />
+          </li>
+        )}
+      </PrefGroup>
       <TranscriptionSection providers={providers.data ?? []} models={models.data ?? []} />
-      <section className={CARD} aria-labelledby="ai-models">
-        <h2 id="ai-models" className="text-muted">
-          {t('ai.models')}
-        </h2>
-        <p className="text-muted text-xs">{t('ai.modelsHint')}</p>
-        <ul className="flex flex-col gap-4">
-          {models.data?.map((model) => (
-            <ModelRow key={model.id} model={model} />
-          ))}
-        </ul>
-      </section>
+      <PrefGroup title={t('ai.models')}>
+        {models.data?.map((model) => (
+          <ModelRow key={model.id} model={model} />
+        ))}
+      </PrefGroup>
+      <McpCard />
+      <SettingsSaveIssue />
+      {adding && <ProviderForm onDone={() => setAdding(false)} />}
     </section>
   );
 };
