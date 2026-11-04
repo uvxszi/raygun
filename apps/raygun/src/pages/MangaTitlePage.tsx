@@ -258,7 +258,15 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
           {t('otherSources.find')}
         </button>
       )}
-      {finding && <OtherSources medium={medium} title={view.title} sourceId={view.sourceId} />}
+      {finding && (
+        <OtherSources
+          medium={medium}
+          title={view.title}
+          sourceId={view.sourceId}
+          titleId={view.id}
+          inLibrary={view.inLibrary}
+        />
+      )}
       {view.description && (
         <button
           type="button"

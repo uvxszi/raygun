@@ -983,6 +983,11 @@ export const commands = {
 	libraryContinue: (medium: string, titleId: string) => typedError<string | null, string>(__TAURI_INVOKE("library_continue", { medium, titleId })),
 	/**  Library titles with the same name as `title` from other sources. */
 	libraryDuplicates: (medium: string, titleId: string, title: string) => typedError<LibraryDuplicate[], string>(__TAURI_INVOKE("library_duplicates", { medium, titleId, title })),
+	/**
+	 *  "Use this source instead": moves a library title onto the same title in another source,
+	 *  keeping progress by chapter or episode number. Returns the new title's id.
+	 */
+	libraryMigrate: (medium: string, titleId: string, sourceId: string, remoteId: string) => typedError<string, string>(__TAURI_INVOKE("library_migrate", { medium, titleId, sourceId, remoteId })),
 	/**  Gives a category its own display and sort, or makes it follow the library's again. */
 	librarySetCategoryDisplay: (medium: string, categoryId: string, display: {
 	mode: LibraryDisplayMode,

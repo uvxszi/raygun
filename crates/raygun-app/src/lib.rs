@@ -409,6 +409,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::library_download_titles,
             commands::library_continue,
             commands::library_duplicates,
+            commands::library_migrate,
             commands::library_set_category_display,
             commands::library_update_category,
             commands::upload_begin,

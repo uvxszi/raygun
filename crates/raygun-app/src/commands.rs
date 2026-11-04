@@ -3911,6 +3911,21 @@ pub async fn library_duplicates(
     crate::library_actions::duplicates(catalog_for(&app, &medium)?, &title_id, &title).await
 }
 
+/// "Use this source instead": moves a library title onto the same title in another source,
+/// keeping progress by chapter or episode number. Returns the new title's id.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_migrate(
+    app: tauri::AppHandle,
+    medium: String,
+    title_id: String,
+    source_id: String,
+    remote_id: String,
+) -> Result<String, String> {
+    let catalog = catalog_for(&app, &medium)?;
+    crate::library_actions::migrate(&app, catalog, &title_id, &source_id, &remote_id).await
+}
+
 /// Gives a category its own display and sort, or makes it follow the library's again.
 #[tauri::command]
 #[specta::specta]

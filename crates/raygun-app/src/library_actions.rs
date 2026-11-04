@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use futures_util::future::join_all;
-use raygun_db::titles::{self, TitleMark, TitleRow, UnitRow};
+use raygun_db::titles::{self, ProgressCopy, TitleMark, TitleRow, UnitRow};
 use raygun_model::{
     BulkFailure, BulkResult, CategoryDisplay, LibraryDuplicate, LibraryList, RemoteTitleRef,
     TitleMarks,
@@ -545,9 +545,541 @@ pub async fn category_titles(
         .collect())
 }
 
+/// Whether a unit was started or finished.
+fn has_progress(unit: &UnitRow) -> bool {
+    unit.completed_at.is_some() || unit.position.is_some_and(|position| position > 0)
+}
+
+/// What a migration carries onto the new title's units (Mihon's migrate): a unit with the same
+/// number (and season, for videos) takes its progress; one numbered at or below the furthest
+/// finished one of its season counts as read; unnumbered units match by name. Units with
+/// progress of their own keep it. Each copy comes with the unit it was taken from, if one.
+pub fn migrated_progress<'a>(
+    from: &'a [UnitRow],
+    to: &[UnitRow],
+    video: bool,
+    now: i64,
+) -> Vec<(ProgressCopy, Option<&'a UnitRow>)> {
+    let season_of = |unit: &UnitRow| {
+        if video {
+            crate::video_sources::season(unit)
+        } else {
+            None
+        }
+    };
+    let same = |a: Option<f64>, b: Option<f64>| match (a, b) {
+        (Some(a), Some(b)) => (a - b).abs() < 1e-6,
+        (None, None) => true,
+        _ => false,
+    };
+    let started: Vec<&UnitRow> = from.iter().filter(|unit| has_progress(unit)).collect();
+    to.iter()
+        .filter(|unit| !has_progress(unit))
+        .filter_map(|unit| {
+            let season = season_of(unit);
+            let matched = started.iter().find(|old| {
+                same(season_of(old), season)
+                    && match (old.fields.number, unit.fields.number) {
+                        (Some(_), Some(_)) => same(old.fields.number, unit.fields.number),
+                        (None, None) => {
+                            duplicate_key(&old.fields.name) == duplicate_key(&unit.fields.name)
+                        }
+                        _ => false,
+                    }
+            });
+            if let Some(old) = matched {
+                return Some((
+                    ProgressCopy {
+                        unit_id: unit.id.clone(),
+                        position: old.position.unwrap_or(0),
+                        total: old.total,
+                        completed_at: old.completed_at,
+                    },
+                    Some(*old),
+                ));
+            }
+            let number = unit.fields.number.filter(|number| *number > 0.0)?;
+            let furthest = started
+                .iter()
+                .filter(|old| old.completed_at.is_some() && same(season_of(old), season))
+                .filter_map(|old| old.fields.number)
+                .fold(f64::NEG_INFINITY, f64::max);
+            (number <= furthest).then(|| {
+                (
+                    ProgressCopy {
+                        unit_id: unit.id.clone(),
+                        position: 0,
+                        total: None,
+                        completed_at: Some(now),
+                    },
+                    None,
+                )
+            })
+        })
+        .collect()
+}
+
+/// Moves a library title onto another stored title (Mihon's migrate): progress by chapter or
+/// episode number, list, favorite, pin, categories and reader mode go over, the new title joins
+/// the library (keeping the date added) and the old one leaves it. Downloads stay.
+pub async fn migrate_rows(
+    db: &raygun_db::Db,
+    kind: &str,
+    from_id: &str,
+    to_id: &str,
+    now: i64,
+) -> Result<(), String> {
+    if from_id == to_id {
+        return Ok(());
+    }
+    let from = titles::title(db, from_id)
+        .await
+        .map_err(to_message)?
+        .ok_or_else(|| "The title to move is gone from the library".to_owned())?;
+    let to = titles::title(db, to_id)
+        .await
+        .map_err(to_message)?
+        .ok_or_else(|| "The other source's title couldn't be stored".to_owned())?;
+    let video = kind == crate::video_library::KIND;
+    let from_units = titles::units(db, from_id).await.map_err(to_message)?;
+    let to_units = titles::units(db, to_id).await.map_err(to_message)?;
+    let carried = migrated_progress(&from_units, &to_units, video, now);
+    let copies: Vec<ProgressCopy> = carried.iter().map(|(copy, _)| copy.clone()).collect();
+    titles::merge_progress(db, &copies)
+        .await
+        .map_err(to_message)?;
+    if video {
+        move_watch_positions(db, &from, &to, &to_units, &carried).await?;
+    }
+    let target = [to_id.to_owned()];
+    for mark in [
+        from.list.clone().map(|list| TitleMark::List(Some(list))),
+        from.favorite_at.map(|at| TitleMark::Favorite(Some(at))),
+        from.pinned_at.map(|at| TitleMark::Pinned(Some(at))),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        titles::set_mark(db, &target, &mark)
+            .await
+            .map_err(to_message)?;
+    }
+    if to.in_library_at.is_none() {
+        titles::set_in_library(db, to_id, Some(from.in_library_at.unwrap_or(now)))
+            .await
+            .map_err(to_message)?;
+    }
+    let memberships = raygun_db::categories::memberships(db, kind)
+        .await
+        .map_err(to_message)?;
+    if let Some(old) = memberships.get(from_id) {
+        let mut ids = memberships.get(to_id).cloned().unwrap_or_default();
+        ids.extend(
+            old.iter()
+                .filter(|id| !ids.contains(id))
+                .cloned()
+                .collect::<Vec<_>>(),
+        );
+        raygun_db::categories::set_title_categories(db, to_id, &ids)
+            .await
+            .map_err(to_message)?;
+    }
+    if !from.reader_mode.is_empty() && to.reader_mode.is_empty() {
+        titles::set_reader_mode(db, to_id, &from.reader_mode)
+            .await
+            .map_err(to_message)?;
+    }
+    let source = [from_id.to_owned()];
+    for mark in [
+        TitleMark::List(None),
+        TitleMark::Pinned(None),
+        TitleMark::Favorite(None),
+    ] {
+        titles::set_mark(db, &source, &mark)
+            .await
+            .map_err(to_message)?;
+    }
+    titles::set_in_library(db, from_id, None)
+        .await
+        .map_err(to_message)
+}
+
+/// Moves partly watched episodes' saved positions (the video progress store, which Continue
+/// watching and the title page read) onto the new title's episodes, as session references so
+/// resuming opens the new source. The old entries go, keeping their time, so Continue watching
+/// shows the new one where the old one was.
+async fn move_watch_positions(
+    db: &raygun_db::Db,
+    from: &TitleRow,
+    to: &TitleRow,
+    to_units: &[UnitRow],
+    carried: &[(ProgressCopy, Option<&UnitRow>)],
+) -> Result<(), String> {
+    use raygun_db::video as progress_store;
+    for (copy, old) in carried {
+        let Some(old) = old.filter(|_| copy.completed_at.is_none()) else {
+            continue;
+        };
+        let old_key = crate::video_library::unit_key(from, &old.fields.remote_id);
+        let Some(saved) = progress_store::progress(db, &old_key)
+            .await
+            .map_err(to_message)?
+            .filter(|saved| saved.watched_at.is_none() && saved.position_ms > 0)
+        else {
+            continue;
+        };
+        let Some(unit) = to_units.iter().find(|unit| unit.id == copy.unit_id) else {
+            continue;
+        };
+        let request = serde_json::to_string(&crate::video_session::EpisodeRef {
+            origin: crate::video_session::Origin::Source {
+                title_id: to.id.clone(),
+            },
+            episode: unit.fields.remote_id.clone(),
+        })
+        .map_err(to_message)?;
+        let entry = progress_store::VideoEntry {
+            key: crate::video_library::unit_key(to, &unit.fields.remote_id),
+            title: to.fields.title.clone(),
+            subtitle: saved.entry.subtitle.clone(),
+            poster: to.fields.cover.clone(),
+            request,
+        };
+        progress_store::started(db, &entry, saved.updated_at)
+            .await
+            .map_err(to_message)?;
+        progress_store::set_progress(
+            db,
+            &entry.key,
+            saved.position_ms,
+            saved.duration_ms,
+            false,
+            saved.updated_at,
+        )
+        .await
+        .map_err(to_message)?;
+        progress_store::remove(db, &old_key)
+            .await
+            .map_err(to_message)?;
+    }
+    Ok(())
+}
+
+/// "Use this source instead": stores the other source's title (fetching it when new), moves the
+/// library entry onto it with [`migrate_rows`] and swaps its quick access pin. Returns the new
+/// title's id.
+pub async fn migrate(
+    app: &AppHandle,
+    catalog: &Catalog,
+    from_id: &str,
+    to_source_id: &str,
+    to_remote_id: &str,
+) -> Result<String, String> {
+    let db = catalog.db();
+    let old = titles::title(&db, from_id).await.map_err(to_message)?;
+    let to = catalog.title_row(to_source_id, to_remote_id, false).await?;
+    if catalog.kind() == crate::video_library::KIND {
+        crate::video_library::backfill(&db, &to).await?;
+    }
+    migrate_rows(&db, catalog.kind(), from_id, &to.id, now_ms()).await?;
+    if let Some(old) = old.filter(|old| old.id != to.id) {
+        let pin = crate::quick_access::title_pin(&old);
+        crate::quick_access::remove(app, &pin.to, &pin.search).await;
+    }
+    if let Ok(Some(row)) = titles::title(&db, &to.id).await {
+        crate::quick_access::add(app, crate::quick_access::title_pin(&row)).await;
+    }
+    Ok(to.id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use raygun_db::titles::{TitleFields, UnitFields};
+    use tempfile::TempDir;
+
+    fn fields(source: &str, remote: &str) -> TitleFields {
+        TitleFields {
+            kind: "manga".into(),
+            source_id: source.into(),
+            remote_id: remote.into(),
+            title: "Frieren".into(),
+            cover: None,
+            cover_headers: Default::default(),
+            authors: vec![],
+            artists: vec![],
+            description: None,
+            genres: vec![],
+            status: "ongoing".into(),
+            url: None,
+            media_type: None,
+            year: None,
+        }
+    }
+
+    fn chapter(remote: &str, number: Option<f64>) -> UnitFields {
+        UnitFields {
+            remote_id: remote.into(),
+            name: number.map_or_else(|| "Extra".to_owned(), |number| format!("Ch. {number}")),
+            number,
+            volume: None,
+            scanlator: None,
+            date: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn migrating_keeps_progress_marks_and_categories() {
+        let temp = TempDir::new().unwrap();
+        let db = raygun_db::Db::open(&temp.path().join("raygun.db"))
+            .await
+            .unwrap();
+        let old = titles::upsert_title(&db, &fields("a", "1"), 1)
+            .await
+            .unwrap();
+        titles::sync_units(
+            &db,
+            &old,
+            &[
+                chapter("a1", Some(1.0)),
+                chapter("a2", Some(2.0)),
+                chapter("a3", Some(3.0)),
+                chapter("ax", None),
+            ],
+            "manga",
+            1,
+        )
+        .await
+        .unwrap();
+        let new = titles::upsert_title(&db, &fields("b", "9"), 1)
+            .await
+            .unwrap();
+        titles::sync_units(
+            &db,
+            &new,
+            &[
+                chapter("b1", Some(1.0)),
+                chapter("b1.5", Some(1.5)),
+                chapter("b2", Some(2.0)),
+                chapter("b3", Some(3.0)),
+                chapter("b4", Some(4.0)),
+                chapter("bx", None),
+            ],
+            "manga",
+            1,
+        )
+        .await
+        .unwrap();
+        let old_units = titles::units(&db, &old).await.unwrap();
+        let id_of = |units: &[UnitRow], remote: &str| {
+            units
+                .iter()
+                .find(|unit| unit.fields.remote_id == remote)
+                .unwrap()
+                .id
+                .clone()
+        };
+        titles::set_units_completed(
+            &db,
+            &[id_of(&old_units, "a1"), id_of(&old_units, "a2")],
+            true,
+            50,
+        )
+        .await
+        .unwrap();
+        titles::set_progress(&db, &id_of(&old_units, "a3"), 7, Some(20), 60)
+            .await
+            .unwrap();
+        titles::set_units_completed(&db, &[id_of(&old_units, "ax")], true, 55)
+            .await
+            .unwrap();
+        titles::set_in_library(&db, &old, Some(10)).await.unwrap();
+        titles::set_mark(
+            &db,
+            std::slice::from_ref(&old),
+            &TitleMark::Favorite(Some(20)),
+        )
+        .await
+        .unwrap();
+        let category = raygun_db::categories::create(&db, "manga", "Weekly")
+            .await
+            .unwrap();
+        raygun_db::categories::set_title_categories(&db, &old, std::slice::from_ref(&category))
+            .await
+            .unwrap();
+
+        migrate_rows(&db, "manga", &old, &new, 100).await.unwrap();
+
+        let units = titles::units(&db, &new).await.unwrap();
+        let unit = |remote: &str| {
+            units
+                .iter()
+                .find(|unit| unit.fields.remote_id == remote)
+                .unwrap()
+        };
+        assert_eq!(
+            unit("b1").completed_at,
+            Some(50),
+            "same number: same progress"
+        );
+        assert_eq!(unit("b2").completed_at, Some(50));
+        assert_eq!(
+            unit("b1.5").completed_at,
+            Some(100),
+            "below the furthest finished chapter counts as read"
+        );
+        assert_eq!(unit("b3").completed_at, None);
+        assert_eq!(
+            unit("b3").position,
+            Some(7),
+            "a partly read chapter keeps its page"
+        );
+        assert_eq!(unit("b3").total, Some(20));
+        assert_eq!(unit("b4").completed_at, None);
+        assert_eq!(
+            unit("bx").completed_at,
+            Some(55),
+            "unnumbered ones match by name"
+        );
+
+        let moved = titles::title(&db, &new).await.unwrap().unwrap();
+        assert_eq!(moved.in_library_at, Some(10), "keeps the date added");
+        assert_eq!(moved.favorite_at, Some(20));
+        let memberships = raygun_db::categories::memberships(&db, "manga")
+            .await
+            .unwrap();
+        assert_eq!(memberships.get(&new), Some(&vec![category]));
+        let left = titles::title(&db, &old).await.unwrap().unwrap();
+        assert_eq!(left.in_library_at, None, "the old title leaves the library");
+        assert_eq!(left.favorite_at, None);
+    }
+
+    #[tokio::test]
+    async fn migrating_a_video_moves_a_partly_watched_position() {
+        use raygun_db::video as progress_store;
+        let temp = TempDir::new().unwrap();
+        let db = raygun_db::Db::open(&temp.path().join("raygun.db"))
+            .await
+            .unwrap();
+        let video = |source: &str, remote: &str| TitleFields {
+            kind: "video".into(),
+            ..fields(source, remote)
+        };
+        let episode = |remote: &str, number: f64| UnitFields {
+            volume: Some("1".into()),
+            ..chapter(remote, Some(number))
+        };
+        let old = titles::upsert_title(&db, &video("a", "1"), 1)
+            .await
+            .unwrap();
+        titles::sync_units(
+            &db,
+            &old,
+            &[episode("a1", 1.0), episode("a2", 2.0)],
+            "video",
+            1,
+        )
+        .await
+        .unwrap();
+        let new = titles::upsert_title(&db, &video("b", "9"), 1)
+            .await
+            .unwrap();
+        titles::sync_units(
+            &db,
+            &new,
+            &[episode("b1", 1.0), episode("b2", 2.0)],
+            "video",
+            1,
+        )
+        .await
+        .unwrap();
+        let old_units = titles::units(&db, &old).await.unwrap();
+        let second = old_units
+            .iter()
+            .find(|unit| unit.fields.remote_id == "a2")
+            .unwrap();
+        titles::set_watch_progress(&db, &second.id, 600_000, Some(1_400_000), false, 70)
+            .await
+            .unwrap();
+        let old_key = crate::video_sources::content_key("a", "a2");
+        let entry = progress_store::VideoEntry {
+            key: old_key.clone(),
+            title: "Frieren".into(),
+            subtitle: Some("E2".into()),
+            poster: None,
+            request: "{}".into(),
+        };
+        progress_store::started(&db, &entry, 70).await.unwrap();
+        progress_store::set_progress(&db, &old_key, 600_000, Some(1_400_000), false, 70)
+            .await
+            .unwrap();
+        titles::set_in_library(&db, &old, Some(10)).await.unwrap();
+
+        migrate_rows(&db, "video", &old, &new, 100).await.unwrap();
+
+        let moved = progress_store::progress(&db, &crate::video_sources::content_key("b", "b2"))
+            .await
+            .unwrap()
+            .expect("the position follows to the new source");
+        assert_eq!(moved.position_ms, 600_000);
+        assert_eq!(moved.duration_ms, Some(1_400_000));
+        assert_eq!(moved.updated_at, 70, "keeps its place in Continue watching");
+        let resume: crate::video_session::EpisodeRef =
+            serde_json::from_str(&moved.entry.request).unwrap();
+        assert_eq!(resume.episode, "b2");
+        assert_eq!(
+            resume.origin,
+            crate::video_session::Origin::Source {
+                title_id: new.clone()
+            }
+        );
+        assert!(
+            progress_store::progress(&db, &old_key)
+                .await
+                .unwrap()
+                .is_none(),
+            "the old entry leaves Continue watching"
+        );
+    }
+
+    #[test]
+    fn video_progress_moves_within_its_season() {
+        let unit = |id: &str, season: Option<&str>, number: f64, done: bool| UnitRow {
+            id: id.into(),
+            title_id: "t".into(),
+            fields: UnitFields {
+                remote_id: id.into(),
+                name: format!("Episode {number}"),
+                number: Some(number),
+                volume: season.map(str::to_owned),
+                scanlator: None,
+                date: None,
+            },
+            source_order: 0,
+            position: None,
+            total: None,
+            completed_at: done.then_some(5),
+            progress_at: done.then_some(5),
+        };
+        let from = [
+            unit("o1", Some("1"), 1.0, true),
+            unit("o2", Some("1"), 2.0, true),
+        ];
+        let to = [
+            unit("n1", Some("1"), 1.0, false),
+            unit("n2", Some("2"), 1.0, false),
+            unit("n3", Some("1"), 3.0, false),
+        ];
+        let copies = migrated_progress(&from, &to, true, 9);
+        assert_eq!(
+            copies
+                .iter()
+                .map(|(copy, _)| copy.unit_id.as_str())
+                .collect::<Vec<_>>(),
+            ["n1"],
+            "another season's episode 1 isn't this one"
+        );
+    }
 
     fn unit(id: &str, number: f64, completed: bool, date: Option<i64>) -> UnitRow {
         UnitRow {

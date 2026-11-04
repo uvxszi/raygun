@@ -507,7 +507,15 @@ export const VideoTitlePage: FC = () => {
           {t('otherSources.find')}
         </button>
       )}
-      {finding && <OtherSources medium="video" title={view.title} sourceId={view.sourceId} />}
+      {finding && (
+        <OtherSources
+          medium="video"
+          title={view.title}
+          sourceId={view.sourceId}
+          titleId={view.id}
+          inLibrary={view.inLibrary}
+        />
+      )}
       {!movie && view.episodes.length > 0 && (
         <Episodes view={view} downloads={downloads} onPick={pick} />
       )}
