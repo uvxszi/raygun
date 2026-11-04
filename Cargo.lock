@@ -4978,12 +4978,10 @@ name = "raygun-ext-host"
 version = "1.1.0"
 dependencies = [
  "axum",
- "base64 0.22.1",
  "chrono",
  "cookie_store",
  "ego-tree",
  "encoding_rs",
- "flate2",
  "futures-util",
  "html5ever 0.35.0",
  "mlua",

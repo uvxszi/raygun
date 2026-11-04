@@ -17,6 +17,8 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useHasProvider } from '../extensions/useExtensions';
+import { NoSources } from '../search/NoSources';
 import { searchLink } from '../search/searchTypes';
 import {
   chartKey,
@@ -126,11 +128,13 @@ const chartTile = (chart: MusicChart) => (
 /**
  * Browse → Browse all (M46.9, Spotify's): every kind of thing to find, the charts, the genres and
  * moods in the user's songs, then every genre and mood. Kinds open Search with nothing typed,
- * which shows what's popular in that kind.
+ * which shows what's popular in that kind. Without a chart source, the charts' tile gives way to
+ * the way to one.
  */
 export const BrowseAll: FC = () => {
   const { t } = useTranslation();
   const charts = useMusicCharts();
+  const chartSources = useHasProvider('music.charts');
   const summary = useTagSummary();
   const vocabulary = useTagVocabulary();
   const [allTags, setAllTags] = useState(false);
@@ -152,7 +156,9 @@ export const BrowseAll: FC = () => {
   const kinds: { title: string; icon: LucideIcon; to: string; search?: Record<string, unknown> }[] =
     [
       { title: t('discover.madeForYou'), icon: Sparkles, to: '/music/for-you' },
-      { title: t('discover.music'), icon: Music, to: '/music/charts' },
+      ...(chartSources === false
+        ? []
+        : [{ title: t('discover.music'), icon: Music, to: '/music/charts' }]),
       // Kinds open their Search pill with nothing typed: what's popular there.
       {
         title: t('discover.audiobooks'),
@@ -176,8 +182,9 @@ export const BrowseAll: FC = () => {
       {mainCharts.length > 0 && (
         <Grid title={t('discover.charts')}>{mainCharts.map(chartTile)}</Grid>
       )}
-      {charts.isSuccess && all.length === 0 && (
-        <p className="text-muted text-sm">{t('discover.noCharts')}</p>
+      {(chartSources === false ||
+        (charts.isSuccess && all.length === 0 && charts.data.errors.length === 0)) && (
+        <NoSources label={t('discover.noCharts')} />
       )}
       {yours.length > 0 && (
         <Grid title={t('discover.yourTags')}>

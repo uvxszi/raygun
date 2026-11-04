@@ -1,9 +1,11 @@
 import type { LyricLine as SyncedLine, QueueItem, TextAlign } from '@raygun/bindings';
-import { PenLine, TextCursorInput } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
+import { Package, PenLine, TextCursorInput } from 'lucide-react';
 import { memo, useEffect, useRef } from 'react';
 import type { FC, Ref, RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useHasProvider } from '../extensions/useExtensions';
 import { openContextMenu } from '../shell/contextMenuStore';
 import { SourceIssue } from '../shell/SourceIssue';
 import { LyricsSourceMenu } from '../sound/LyricsSourceMenu';
@@ -38,6 +40,8 @@ export const LyricsView: FC<LyricsViewProps> = ({ item, variant = 'sheet' }) => 
   const { t } = useTranslation();
   const query = trackQueryFor(item);
   const lyrics = useLyricsFor(query);
+  // Without a lyrics source, the way to one sits with the tools.
+  const noSources = useHasProvider('lyrics') === false;
   const { align, style } = useLyricsLook();
   // Translations and romanized lines under each line (M46.48).
   const shown = useShownTranslation(query, lyrics.data);
@@ -124,6 +128,16 @@ export const LyricsView: FC<LyricsViewProps> = ({ item, variant = 'sheet' }) => 
             <PenLine aria-hidden size={12} />
             {t(lyrics.data ? 'lyricsEdit.fix' : 'lyricsEdit.add')}
           </button>
+        )}
+        {noSources && lyrics.isSuccess && !lyrics.data && (
+          <Link
+            to="/browse"
+            search={{ tab: 'extensions', list: 'all' }}
+            className="text-muted hover:text-foreground flex items-center gap-1 text-xs"
+          >
+            <Package aria-hidden size={12} />
+            {t('search.findExtensions')}
+          </Link>
         )}
       </div>
     </div>

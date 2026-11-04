@@ -1,9 +1,11 @@
 // Internet Archive comics: the part of the Archive's comics collection that is in the public domain
 // by age, published more than 95 years ago (US law), so the scans are free to read wherever they
 // came from. Uploaders date and mark their own items, so an item must also carry a public-domain
-// mark or sit in one of the collection's curated sets rather than its open upload inbox; that
-// keeps out recent comics given an old date. Only items with page images are listed. Each book in
-// an item is a chapter, read through the Archive's BookReader at a size that suits a phone.
+// mark or an open licence, or sit in a curated set whose issues the Archive dated itself; that
+// keeps out recent comics given an old date. Every item is checked again when it opens, so one
+// reached another way (an old library entry, a link) is held to the same rule. Only items with
+// page images are listed. Each book in an item is a chapter, read through the Archive's BookReader
+// at a size that suits a phone.
 import { defineProvider, fetchJson, registerProvider } from '@raygun/sdk';
 import type {
   FilterValues,
@@ -18,12 +20,16 @@ const ROWS = 30;
 /** Works published before this year are in the US public domain: 95 years have passed. */
 const PUBLIC_DOMAIN_BEFORE = new Date().getUTCFullYear() - 95;
 const SCAN_FORMAT = 'Single Page Processed JP2 ZIP';
+/** Curated sets of old issues dated by the Archive, all published before the public-domain year. */
+const CURATED = ['corrieredelpiccoli'];
+/** A public-domain mark or dedication, or a Creative Commons licence. */
+const OPEN_LICENCE = /creativecommons\.org|publicdomain/i;
 const BASE_QUERY = [
   'mediatype:texts',
   'collection:comics',
   `date:[1000-01-01 TO ${PUBLIC_DOMAIN_BEFORE - 1}-12-31]`,
   `format:"${SCAN_FORMAT}"`,
-  '(licenseurl:*publicdomain* OR licenseurl:*zero* OR (collection:comics AND -collection:comics_inbox))',
+  `(licenseurl:(*publicdomain* OR *creativecommons*) OR collection:(${CURATED.join(' OR ')}))`,
 ].join(' AND ');
 /** Page pictures are asked for about this wide (the scans are often 5,000 pixels). */
 const PAGE_WIDTH = 1200;
@@ -44,6 +50,8 @@ type ItemMetadata = {
     subject?: string | string[];
     date?: string;
     language?: string | string[];
+    licenseurl?: string;
+    collection?: string | string[];
   };
 };
 
@@ -155,13 +163,35 @@ const search = (query: string, page: number, chosen?: FilterValues) => {
 // Item metadata is read for details, chapters and pages; keep the last few.
 const items = new Map<string, Promise<ItemMetadata>>();
 
-const metadata = (identifier: string): Promise<ItemMetadata> => {
+const fetchItem = (identifier: string): Promise<ItemMetadata> => {
   let item = items.get(identifier);
   if (!item) {
     item = fetchJson<ItemMetadata>(`${API}/metadata/${encodeURIComponent(identifier)}`);
     item.catch(() => items.delete(identifier));
     items.set(identifier, item);
     if (items.size > 20) items.delete(items.keys().next().value!);
+  }
+  return item;
+};
+
+/** Whether an item is free to read: old enough, and marked or curated as the search asks. */
+const isFree = (item: ItemMetadata): boolean => {
+  const meta = item.metadata;
+  const year = Number.parseInt(meta?.date?.slice(0, 4) ?? '', 10);
+  if (!Number.isFinite(year) || year >= PUBLIC_DOMAIN_BEFORE) return false;
+  return (
+    OPEN_LICENCE.test(meta?.licenseurl ?? '') ||
+    strings(meta?.collection).some((collection) => CURATED.includes(collection))
+  );
+};
+
+/** An item's metadata, for an item that is free to read only. */
+const metadata = async (identifier: string): Promise<ItemMetadata> => {
+  const item = await fetchItem(identifier);
+  if (item.metadata && !isFree(item)) {
+    throw new Error(
+      "The Internet Archive doesn't list this item as public domain, so Raygun doesn't open it",
+    );
   }
   return item;
 };

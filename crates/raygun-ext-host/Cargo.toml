@@ -39,6 +39,3 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 tempfile = "3"
 axum.workspace = true
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "macros", "test-util"] }
-# KuGou's compressed KRC lyrics for its fixture (M46.48).
-flate2 = "1"
-base64 = "0.22"

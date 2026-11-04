@@ -9,14 +9,14 @@ vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).b
 
 const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 const { commands } = bindingsMock;
-const SOURCE = 'dev.raygun.mangadex/mangadex';
+const SOURCE = 'dev.example.comics/comics';
 const COVER = 'http://127.0.0.1:1/cover/frieren';
 
 const TITLE: MangaTitleView = {
   id: 't1',
   hiddenNsfw: false,
   sourceId: SOURCE,
-  sourceName: 'MangaDex',
+  sourceName: 'Comic Shelf',
   remoteId: 'm1',
   title: 'Frieren',
   coverUrl: COVER,
@@ -65,7 +65,7 @@ describe('Cover viewer', () => {
   beforeEach(() => {
     AppShellWrapper.seedCore();
     commands.mangaSources.mockResolvedValue(
-      ok([{ id: SOURCE, name: 'MangaDex', extensionId: 'dev.raygun.mangadex' }]),
+      ok([{ id: SOURCE, name: 'Comic Shelf', extensionId: 'dev.example.comics' }]),
     );
   });
 

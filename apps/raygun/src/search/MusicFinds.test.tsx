@@ -10,13 +10,13 @@ vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).b
 const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 const { commands } = bindingsMock;
 
-const DEEZER = {
-  id: 'dev.raygun.deezer/catalogue',
-  extensionId: 'dev.raygun.deezer',
+const TUNES = {
+  id: 'dev.example.tunes/catalogue',
+  extensionId: 'dev.example.tunes',
   kind: 'music.metadata',
-  name: 'Deezer',
+  name: 'Tunes',
 };
-const MUSICBRAINZ = { ...DEEZER, id: 'dev.raygun.musicbrainz/recordings', name: 'MusicBrainz' };
+const MUSICBRAINZ = { ...TUNES, id: 'dev.raygun.musicbrainz/recordings', name: 'MusicBrainz' };
 
 const song = (title: string, artist: string): OnlineTrack => ({
   externalId: null,
@@ -29,7 +29,7 @@ const song = (title: string, artist: string): OnlineTrack => ({
 });
 
 const ALBUM: MusicAlbum = {
-  provider: DEEZER,
+  provider: TUNES,
   id: '6575789',
   title: 'Random Access Memories',
   artist: 'Daft Punk',
@@ -51,7 +51,7 @@ describe('Music search: songs, artists and albums', () => {
         top: [],
         providers: [
           { provider: MUSICBRAINZ, tracks: [song('Lucky Star', 'Madonna')], error: null },
-          { provider: DEEZER, tracks: [song('Get Lucky', 'Daft Punk')], error: null },
+          { provider: TUNES, tracks: [song('Get Lucky', 'Daft Punk')], error: null },
         ],
       }),
     );
@@ -59,13 +59,13 @@ describe('Music search: songs, artists and albums', () => {
     const best = await screen.findByTestId('best-songs');
     const rows = within(best).getAllByTestId('online-track-row');
     expect(rows[0]).toHaveTextContent('Get Lucky');
-    expect(rows[0]).toHaveTextContent('Deezer');
+    expect(rows[0]).toHaveTextContent('Tunes');
     expect(rows[1]).toHaveTextContent('Lucky Star');
   });
 
   it('marks explicit songs and 18+ sources, and queues the explicit mark', async () => {
     const user = userEvent.setup();
-    const ADULT = { ...DEEZER, id: 'dev.test.adult/songs', name: 'After Dark', adult: true };
+    const ADULT = { ...TUNES, id: 'dev.test.adult/songs', name: 'After Dark', adult: true };
     commands.onlineSearch.mockResolvedValue(
       ok({
         library: [],
@@ -99,7 +99,7 @@ describe('Music search: songs, artists and albums', () => {
     commands.onlineSearch.mockResolvedValue(ok({ library: [], top: [], providers: [] }));
     commands.musicSearchArtists.mockResolvedValue(
       ok([
-        { provider: DEEZER, id: '27', name: 'Daft Punk', imageUrl: null },
+        { provider: TUNES, id: '27', name: 'Daft Punk', imageUrl: null },
         { provider: MUSICBRAINZ, id: 'x', name: 'Daft Punk', imageUrl: null },
       ]),
     );
@@ -127,7 +127,7 @@ describe('Music search: songs, artists and albums', () => {
     expect(within(page).getByRole('heading', { level: 1 })).toHaveTextContent(
       'Random Access Memories',
     );
-    expect(commands.musicAlbum).toHaveBeenCalledWith(DEEZER.id, '6575789');
+    expect(commands.musicAlbum).toHaveBeenCalledWith(TUNES.id, '6575789');
     await user.click(within(page).getByRole('button', { name: 'Play all' }));
     expect(commands.playbackReplace).toHaveBeenCalledWith(
       [
@@ -146,7 +146,7 @@ describe('Music search: songs, artists and albums', () => {
   it('edits an album: its title over what the source said (M46.30)', async () => {
     const user = userEvent.setup();
     commands.musicAlbum.mockResolvedValue(ok({ album: ALBUM, tracks: [] }));
-    await AppShellWrapper.mount(`/music/album?provider=${DEEZER.id}&id=6575789`);
+    await AppShellWrapper.mount(`/music/album?provider=${TUNES.id}&id=6575789`);
     await user.click(await screen.findByRole('button', { name: 'Edit album' }));
     const form = await screen.findByTestId('detail-edit');
     const title = within(form).getByRole('textbox', { name: 'Album title' });
@@ -165,11 +165,11 @@ describe('Music search: songs, artists and albums', () => {
       ok({
         library: [],
         top: [],
-        providers: [{ provider: DEEZER, tracks: [song('Get Lucky', 'Daft Punk')], error: null }],
+        providers: [{ provider: TUNES, tracks: [song('Get Lucky', 'Daft Punk')], error: null }],
       }),
     );
     commands.musicSearchArtists.mockResolvedValue(
-      ok([{ id: '27', name: 'Daft Punk', imageUrl: null, provider: DEEZER }]),
+      ok([{ id: '27', name: 'Daft Punk', imageUrl: null, provider: TUNES }]),
     );
     commands.musicSearchAlbums.mockResolvedValue(ok([ALBUM]));
     commands.podcastSearch.mockResolvedValue(
@@ -213,7 +213,7 @@ describe('Music search: songs, artists and albums', () => {
   it('mixes in playlists (the services’ own first) and audiobooks, each leading to its pill', async () => {
     const user = userEvent.setup();
     const playlist = (id: string, title: string, featured: boolean) => ({
-      provider: DEEZER,
+      provider: TUNES,
       id,
       title,
       author: null,
@@ -279,7 +279,7 @@ describe('Music search: songs, artists and albums', () => {
       total: 2,
       part: {
         kind: 'songs',
-        result: { provider: DEEZER, tracks: [song('Get Lucky', 'Daft Punk')], error: null },
+        result: { provider: TUNES, tracks: [song('Get Lucky', 'Daft Punk')], error: null },
       },
     });
     expect(await screen.findByText('Get Lucky')).toBeInTheDocument();
@@ -299,7 +299,7 @@ describe('Music search: songs, artists and albums', () => {
         library: [],
         top: [],
         providers: [
-          { provider: DEEZER, tracks: [song('Get Lucky', 'Daft Punk')], error: null },
+          { provider: TUNES, tracks: [song('Get Lucky', 'Daft Punk')], error: null },
           { provider: MUSICBRAINZ, tracks: [song('Lucky Star', 'Madonna')], error: null },
         ],
       }),

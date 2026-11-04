@@ -11,7 +11,7 @@ vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).b
 
 const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 const { commands } = bindingsMock;
-const SOURCE = 'dev.raygun.mangadex/mangadex';
+const SOURCE = 'dev.example.comics/comics';
 
 const entry = (overrides: Partial<MangaLibraryEntry>): MangaLibraryEntry =>
   libraryEntry({ sourceId: SOURCE, ...overrides });
@@ -225,7 +225,7 @@ describe('Title pages and the library', () => {
           sourceId: SOURCE,
           remoteId: 'a',
           title: "Frieren: Beyond Journey's End",
-          sourceName: 'MangaDex',
+          sourceName: 'Comic Shelf',
           coverUrl: null,
         },
       ]),
@@ -237,7 +237,7 @@ describe('Title pages and the library', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Already in your library?' });
     expect(
       within(dialog).getByRole('link', {
-        name: "Open Frieren: Beyond Journey's End from MangaDex",
+        name: "Open Frieren: Beyond Journey's End from Comic Shelf",
       }),
     ).toHaveAttribute('href', `/manga/title?source=${encodeURIComponent(SOURCE)}&id=a`);
     expect(commands.mangaSetInLibrary).not.toHaveBeenCalled();

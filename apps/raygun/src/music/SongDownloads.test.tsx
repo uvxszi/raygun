@@ -55,8 +55,8 @@ const download = (
 });
 
 const BROKEN = download('4', 'Broken', 'failed', {
-  error: 'Couldn’t download it from Audius.',
-  errorDetail: 'Audius: The server answered 404 Not Found',
+  error: 'Couldn’t download it from Indie Tracks.',
+  errorDetail: 'Indie Tracks: The server answered 404 Not Found',
   finishedAt: 50,
 });
 
@@ -167,10 +167,10 @@ describe('Song downloads', () => {
     );
     expect(row('Saved song')).toHaveTextContent('On this device · MP3 · Internet Archive');
     // What went wrong, with the source's own error under More info.
-    expect(row('Broken')).toHaveTextContent('Couldn’t download it from Audius.');
+    expect(row('Broken')).toHaveTextContent('Couldn’t download it from Indie Tracks.');
     expect(row('Broken')).not.toHaveTextContent('404');
     await user.click(within(row('Broken')).getByRole('button', { name: 'More info' }));
-    expect(row('Broken')).toHaveTextContent('Audius: The server answered 404 Not Found');
+    expect(row('Broken')).toHaveTextContent('Indie Tracks: The server answered 404 Not Found');
     expect(screen.queryByRole('button', { name: 'Record' })).not.toBeInTheDocument();
 
     // A stream that gave no file is captured in the background, like any download (M46.49).
@@ -235,18 +235,18 @@ describe('Song downloads', () => {
     emitEvent(
       'songDownloadProgressEvent',
       download('4', 'Broken', 'downloading', {
-        provider: 'Audius',
+        provider: 'Indie Tracks',
         doneBytes: 450_000,
         totalBytes: 1_000_000,
         fraction: 0.45,
         etaMs: 12_000,
       }),
     );
-    await vi.waitFor(() => expect(row('Broken')).toHaveTextContent('Audius · 45%'));
+    await vi.waitFor(() => expect(row('Broken')).toHaveTextContent('Indie Tracks · 45%'));
     expect(row('Broken')).toHaveTextContent('0:12 left');
     expect(within(row('Broken')).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '45');
     await act(async () => answer());
-    expect(row('Broken')).toHaveTextContent('Audius · 45%');
+    expect(row('Broken')).toHaveTextContent('Indie Tracks · 45%');
   });
 
   it('never brings back a failure that an answer from before the retry still had', async () => {
@@ -291,7 +291,10 @@ describe('Song downloads', () => {
       source,
       explicit: false,
     });
-    const audius = track({ kind: 'url', url: 'https://audius.co/broken.mp3', headers: {} }, 'a1');
+    const indie = track(
+      { kind: 'url', url: 'https://indie.example/broken.mp3', headers: {} },
+      'a1',
+    );
     commands.onlineSearch.mockResolvedValue(
       ok({
         library: [],
@@ -299,12 +302,12 @@ describe('Song downloads', () => {
         providers: [
           {
             provider: {
-              id: 'audius/s',
-              extensionId: 'audius',
+              id: 'indie/s',
+              extensionId: 'indie',
               kind: 'music.search',
-              name: 'Audius',
+              name: 'Indie Tracks',
             },
-            tracks: [audius],
+            tracks: [indie],
             error: null,
           },
           {
@@ -331,7 +334,7 @@ describe('Song downloads', () => {
     const sheet = await screen.findByTestId('source-picker');
     // Why it's asked, then every answer with a stream of its own: YouTube's audio file downloads
     // on a phone too (M46.51).
-    expect(sheet).toHaveTextContent('Couldn’t download it from Audius.');
+    expect(sheet).toHaveTextContent('Couldn’t download it from Indie Tracks.');
     const offers = await within(sheet).findAllByRole('button', { name: 'Download from this' });
     expect(offers).toHaveLength(2);
 
@@ -344,8 +347,8 @@ describe('Song downloads', () => {
     expect(commands.playbackReplace).not.toHaveBeenCalled();
 
     await user.click(offers[0] as HTMLElement);
-    expect(commands.songDownloadUseSource).toHaveBeenCalledWith('4', audius, 'Audius');
-    await vi.waitFor(() => expect(row('Broken')).toHaveTextContent('Queued · Audius'));
+    expect(commands.songDownloadUseSource).toHaveBeenCalledWith('4', indie, 'Indie Tracks');
+    await vi.waitFor(() => expect(row('Broken')).toHaveTextContent('Queued · Indie Tracks'));
     expect(row('Broken')).not.toHaveTextContent('Couldn’t download it');
     await act(async () => answer());
     await vi.waitFor(() => expect(screen.queryByTestId('source-picker')).not.toBeInTheDocument());
@@ -355,7 +358,7 @@ describe('Song downloads', () => {
     const user = userEvent.setup();
     commands.songDownloads.mockResolvedValue(
       ok([
-        download('now', 'Now', 'downloading', { provider: 'Audius', fraction: 0.2 }),
+        download('now', 'Now', 'downloading', { provider: 'Indie Tracks', fraction: 0.2 }),
         download('qa', 'Queued A', 'queued', { queuedAt: 10 }),
         download('qb', 'Queued B', 'queued', { queuedAt: 20 }),
         BROKEN,
@@ -419,7 +422,7 @@ describe('Song downloads', () => {
     const fine = download('ok', 'Fine song', 'done', { format: 'mp3', finishedAt: 30 });
     const moved = download('moved', 'Moved song', 'done', {
       format: 'mp3',
-      provider: 'Audius',
+      provider: 'Indie Tracks',
       finishedAt: 20,
     });
     const gone = download('gone', 'Gone song', 'done', { format: 'flac', finishedAt: 10 });
@@ -431,7 +434,7 @@ describe('Song downloads', () => {
     // Rust checks every download and tells of the ones with a problem now.
     const movedNow: SongDownload = {
       ...moved,
-      problem: { kind: 'sourceChanged', was: 'Audius', now: 'archive.org', detail: null },
+      problem: { kind: 'sourceChanged', was: 'Indie Tracks', now: 'archive.org', detail: null },
     };
     const goneNow: SongDownload = {
       ...gone,
@@ -451,7 +454,7 @@ describe('Song downloads', () => {
         .getAllByRole('listitem')
         .map((item) => item.ariaLabel),
     ).toEqual(['Moved song', 'Gone song']);
-    expect(row('Moved song')).toHaveTextContent('Its source changed: Audius → archive.org');
+    expect(row('Moved song')).toHaveTextContent('Its source changed: Indie Tracks → archive.org');
     expect(row('Gone song')).toHaveTextContent('The file is gone');
 
     // One again from its source now: its copy plays until the new one is done.
@@ -475,7 +478,7 @@ describe('Song downloads', () => {
     const saved = download('s', 'Saved song', 'done', {
       trackKey: 'a|saved song',
       format: 'mp3',
-      provider: 'Audius',
+      provider: 'Indie Tracks',
     });
     commands.songDownloads.mockResolvedValue(ok([saved]));
     commands.songDownloadsCheck.mockResolvedValue(ok({ checked: 1, problems: 0 }));

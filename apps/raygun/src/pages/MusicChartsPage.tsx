@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { issueSummary } from '../lib/issue';
 import { ChartRow } from '../music/ChartRow';
 import { chartKey, useMusicCharts } from '../music/useDiscovery';
+import { NoSources } from '../search/NoSources';
 import { TopBar } from '../shell/TopBar';
 
 /** The order Browse → Music lists kinds of chart in (M46.19). */
@@ -45,8 +46,8 @@ export const MusicChartsPage: FC = () => {
           })}
         </p>
       )}
-      {charts.isSuccess && all.length === 0 && (
-        <p className="text-muted text-sm">{t('discover.noCharts')}</p>
+      {charts.isSuccess && all.length === 0 && charts.data.errors.length === 0 && (
+        <NoSources label={t('discover.noCharts')} />
       )}
       {groups.map((entry) => (
         <section

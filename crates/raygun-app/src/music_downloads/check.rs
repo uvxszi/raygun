@@ -199,7 +199,7 @@ mod tests {
             },
             state: "done".into(),
             kind: Some("file".into()),
-            provider: Some("Audius".into()),
+            provider: Some("Indie Tracks".into()),
             file: Some("track.mp3".into()),
             done_bytes: 4_000,
             total_bytes: Some(4_000),
@@ -209,9 +209,11 @@ mod tests {
             queued_at: 1,
             finished_at: Some(1_000),
             origin: Origin {
-                provider: Some("audius".into()),
+                provider: Some("indie".into()),
                 stream: Some("track-1".into()),
-                source: Some(r#"{"kind":"url","url":"https://audius.co/1","headers":{}}"#.into()),
+                source: Some(
+                    r#"{"kind":"url","url":"https://indie.example/1","headers":{}}"#.into(),
+                ),
                 title: Some("BTS - Swim (Official)".into()),
                 artist: None,
             },
@@ -250,7 +252,7 @@ mod tests {
         assert_eq!(
             source_problem(
                 &saved,
-                &[pick("audius", "track-1", "https://audius.co/1", 2_000)],
+                &[pick("indie", "track-1", "https://indie.example/1", 2_000)],
                 &names
             ),
             None
@@ -258,7 +260,7 @@ mod tests {
         assert_eq!(
             source_problem(
                 &saved,
-                &[pick("other", "x", "https://audius.co/1", 2_000)],
+                &[pick("other", "x", "https://indie.example/1", 2_000)],
                 &names
             ),
             None,
@@ -268,7 +270,7 @@ mod tests {
         let problem = source_problem(
             &saved,
             &[
-                pick("audius", "track-1", "https://audius.co/1", 1_500),
+                pick("indie", "track-1", "https://indie.example/1", 1_500),
                 pick("picked", "p", "https://archive.org/details/swim.mp3", 3_000),
             ],
             &names,
@@ -277,7 +279,7 @@ mod tests {
         assert_eq!(problem.kind, SongDownloadProblemKind::SourceChanged);
         assert_eq!(
             (problem.was.as_deref(), problem.now.as_deref()),
-            (Some("Audius"), Some("archive.org"))
+            (Some("Indie Tracks"), Some("archive.org"))
         );
         // A newer pick that failed since isn't the song's source.
         let mut failed = pick("jamendo", "9", "https://jamendo.com/9", 2_000);
@@ -289,7 +291,7 @@ mod tests {
         assert!(
             source_problem(
                 &old,
-                &[pick("audius", "track-1", "https://audius.co/1", 2_000)],
+                &[pick("indie", "track-1", "https://indie.example/1", 2_000)],
                 &names
             )
             .is_some()

@@ -109,7 +109,7 @@ describe('Settings sections', () => {
       ok([
         libraryEntry({
           titleId: 't1',
-          sourceId: 'dev.raygun.mangadex/mangadex',
+          sourceId: 'dev.example.comics/comics',
           remoteId: 'm1',
           title: 'Frieren',
           unread: 3,

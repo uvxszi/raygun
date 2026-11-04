@@ -17,12 +17,11 @@ pub struct BookName {
 }
 
 /// Who sources put where a book's author goes when it's the publisher, not the writer.
-const PUBLISHERS: [&str; 7] = [
+const PUBLISHERS: [&str; 6] = [
     "librivox",
     "librivox volunteers",
     "loyal books",
     "loyalbooks",
-    "lit2go",
     "project gutenberg",
     "books should be free",
 ];

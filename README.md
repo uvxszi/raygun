@@ -10,19 +10,19 @@ Raygun is a media app for music, podcasts, audiobooks, films and series, comics 
 - A queue with shuffle, repeat, play next, crossfade and a sleep timer; a 10-band equalizer, loudness normalization, and per-song trims and volume.
 - A library of favorites, playlists (sortable, with drag-to-reorder), followed artists, saved albums and local folders.
 - Downloads for offline playback and export as files (MP3, FLAC, WAV), with retries and fallback to other sources.
-- Discovery: charts, genres, moods, decades and generated mixes.
-- Synced and plain lyrics from several providers, an editor for words and timings, and on-device transcription.
-- Import from Spotify links, CSV exports, pasted lists or screenshots of song lists.
+- Discovery: charts from chart extensions, genres, moods, decades and generated mixes.
+- Synced and plain lyrics from lyrics extensions, an editor for words and timings, and on-device transcription.
+- Import from playlist links, CSV exports, pasted lists or screenshots of song lists.
 
 **Podcasts and audiobooks**
 
-- RSS and Atom feeds, a podcast directory, episode downloads and resume.
+- RSS and Atom feeds, podcast directories from extensions, episode downloads and resume.
 - Public-domain audiobooks from LibriVox and Loyal Books, with chapters in order.
 - Captions from feed transcripts or speech-to-text (Whisper on the device, or an OpenAI-compatible service).
 
 **Video**
 
-- Stremio addons (catalogs, streams, subtitles), video-source extensions, YouTube and PeerTube.
+- Stremio addons (catalogs, streams, subtitles), video-source extensions and public-domain films from the Internet Archive.
 - A player with HLS and DASH, subtitle search, styling and delay, chapter marks, intro skipping, picture-in-picture and gestures.
 - Playback sessions that resume and move to the next episode, fall back to other links when one fails, and remember the last source per series.
 - Downloads, Continue watching, and trailers on title pages.
@@ -53,10 +53,10 @@ The code is kept cross-platform, but Linux, macOS and iOS builds are not produce
 
 ## Extensions and repositories
 
-Raygun runs add-ons; it ships no sources for unlicensed content.
+Raygun is a client: it runs the add-ons people install. The sources it ships and suggests serve only public-domain or openly licensed content.
 
-- **First-party extensions** are built into the app from `extensions/`: Apple charts, Audius, Deezer, Internet Archive, KuGou lyrics, LibriVox, ListenBrainz, Loyal Books, LRCLIB, MangaDex, MusicBrainz, PeerTube, a podcast directory, Project Gutenberg, Radio Browser and YouTube. They use official APIs and public-domain or openly licensed collections.
-- **Repositories** are managed under Browse → ⋯ → Repositories. Raygun's own repository (`repo/`) is added by default. Raygun also reads Shosetsu repositories (Lua novel sources) and the Nuclear plugin registry (plugins are converted at install); Stremio addons are added by address. [Paraline Raygun](https://github.com/uvxszi/paraline-raygun) collects fixed copies of sources for legitimate sites.
+- **First-party extensions** are built into the app from `extensions/`: Internet Archive (public-domain films and openly licensed audio), Internet Archive comics, LibriVox, Loyal Books, MusicBrainz (metadata only), Pepper&Carrot, Project Gutenberg and xkcd.
+- **Repositories** are managed under Browse → ⋯ → Repositories. [Paraline](https://github.com/uvxszi/paraline-raygun), Raygun's own repository of public-domain and openly licensed sources, is added by default and is the only suggestion. Any other repository is added by its address: Raygun reads Raygun indexes, Shosetsu repositories (Lua novel sources), Miru repositories and the Nuclear plugin registry (plugins are converted at install). Stremio addons are added by address too; OpenSubtitles v3 comes preinstalled for subtitles.
 - **Writing extensions:** extensions are TypeScript on `@raygun/sdk` (`packages/sdk`), built and tested with its `raygun-ext` CLI (`init`, `build`, `dev --android`). Debug builds of the app hot-reload extensions while they are being developed.
 - Raygun does not solve captchas or other bot checks for sources.
 

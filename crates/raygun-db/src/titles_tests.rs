@@ -9,7 +9,7 @@ async fn open(temp: &TempDir) -> Db {
 fn manga(remote_id: &str, title: &str) -> TitleFields {
     TitleFields {
         kind: "manga".into(),
-        source_id: "dev.raygun.mangadex/mangadex".into(),
+        source_id: "dev.raygun.archive-comics/comics".into(),
         remote_id: remote_id.into(),
         title: title.into(),
         cover: Some("https://img/cover.jpg".into()),
@@ -70,7 +70,7 @@ async fn refreshing_a_title_keeps_the_users_choices() {
     );
     assert_eq!(stored.refreshed_at, Some(9));
     assert_eq!(
-        find_title(&db, "dev.raygun.mangadex/mangadex", "m1")
+        find_title(&db, "dev.raygun.archive-comics/comics", "m1")
             .await
             .unwrap()
             .unwrap()
@@ -169,7 +169,7 @@ async fn the_library_counts_unread_chapters() {
 
     let ids = in_library(
         &db,
-        "dev.raygun.mangadex/mangadex",
+        "dev.raygun.archive-comics/comics",
         &["m1".into(), "m3".into()],
     )
     .await
