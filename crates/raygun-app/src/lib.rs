@@ -25,6 +25,7 @@ mod durations;
 mod epub;
 mod events;
 mod export;
+mod extension_installs;
 mod extensions;
 mod follows;
 mod genres;
@@ -141,6 +142,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::extension_repo_remove,
             commands::extension_catalog,
             commands::extension_install,
+            commands::extension_installs_enqueue,
+            commands::extension_installs_status,
+            commands::extension_installs_cancel,
+            commands::extension_installs_cancel_all,
+            commands::extension_installs_retry,
+            commands::extension_installs_dismiss,
             commands::extension_uninstall,
             commands::extension_setting_set,
             commands::online_search,
@@ -493,6 +500,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::QueueEvent,
             events::LibraryScanEvent,
             events::ExtensionsChangedEvent,
+            events::ExtensionInstallsEvent,
             events::SearchProgressEvent,
             events::SyncChangedEvent,
             events::MangaUpdateEvent,

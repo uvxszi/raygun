@@ -2943,6 +2943,76 @@ pub struct RepoCatalog {
     pub error: Option<String>,
 }
 
+/// An extension to install from a repository, as the catalogue lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionInstallRequest {
+    pub repo_id: String,
+    pub extension_id: String,
+    pub name: String,
+}
+
+/// Where an install in the queue is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ExtensionInstallState {
+    Queued,
+    Installing,
+    Done,
+    Failed,
+}
+
+/// What the install running now does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ExtensionInstallPhase {
+    Downloading,
+    /// A Nuclear plugin converts, a Shosetsu script gathers its libraries, a package is checked.
+    Converting,
+    /// The files are written.
+    Installing,
+    /// The extensions load again with the new ones (once, at the end of a batch).
+    Loading,
+}
+
+/// One install in the queue.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionInstall {
+    pub repo_id: String,
+    pub extension_id: String,
+    pub name: String,
+    pub state: ExtensionInstallState,
+    /// While it installs.
+    pub phase: Option<ExtensionInstallPhase>,
+    /// Why it failed.
+    pub error: Option<String>,
+    /// When it ended (Unix ms).
+    pub finished_at: Option<f64>,
+    /// The batch it belongs to; failures of earlier batches stay listed until retried.
+    pub batch: u32,
+}
+
+/// The extension install queue (one at a time, in the order asked).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionInstallStatus {
+    /// Counts from 1; 0 before the first batch.
+    pub batch: u32,
+    /// Installs of this batch still queued or running, then ones that ended.
+    pub items: Vec<ExtensionInstall>,
+    /// This batch's installs, cancelled ones left out.
+    pub total: u32,
+    pub done: u32,
+    pub failed: u32,
+    pub cancelled: u32,
+    /// Something installs, waits to, or the extensions load again.
+    pub running: bool,
+    /// The extension installing now, by name.
+    pub current: Option<String>,
+    pub phase: Option<ExtensionInstallPhase>,
+}
+
 /// A track found by an online provider.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

@@ -18,6 +18,7 @@ import { useTranslation } from 'react-i18next';
 import { BrowseTab as AvailableExtensions } from '../extensions/BrowseTab';
 import { updateCount } from '../extensions/catalogFilters';
 import { InstalledTab } from '../extensions/InstalledTab';
+import { InstallProgress } from '../extensions/InstallProgress';
 import { EXTENSION_LISTS } from '../extensions/tabs';
 import type { ExtensionList } from '../extensions/tabs';
 import {
@@ -532,6 +533,7 @@ export const BrowsePage: FC = () => {
               </Link>
             ))}
           </nav>
+          <InstallProgress />
           {list === 'installed' ? <InstalledTab /> : <AvailableExtensions show={list} />}
         </div>
       )}

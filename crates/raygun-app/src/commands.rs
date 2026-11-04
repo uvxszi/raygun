@@ -16,6 +16,7 @@ use crate::backup::BackupService;
 use crate::collections::CollectionsService;
 use crate::device_sync::SyncService;
 use crate::discovery::DiscoveryService;
+use crate::extension_installs::ExtensionInstalls;
 use crate::extensions::ExtensionService;
 use crate::library::LibraryService;
 use crate::local_network::LocalNetwork;
@@ -521,6 +522,64 @@ pub async fn extension_install(
     extension_id: String,
 ) -> Result<Vec<ExtensionInfo>, String> {
     extensions.install(&repo_id, &extension_id).await
+}
+
+/// Adds installs to the queue (one, a selection, every update); they run in the background.
+#[tauri::command]
+#[specta::specta]
+pub fn extension_installs_enqueue(
+    installs: tauri::State<'_, Arc<ExtensionInstalls>>,
+    entries: Vec<raygun_model::ExtensionInstallRequest>,
+) -> raygun_model::ExtensionInstallStatus {
+    installs.enqueue(&entries)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn extension_installs_status(
+    installs: tauri::State<'_, Arc<ExtensionInstalls>>,
+) -> raygun_model::ExtensionInstallStatus {
+    installs.status()
+}
+
+/// Takes one waiting install out of the queue (a running one finishes).
+#[tauri::command]
+#[specta::specta]
+pub fn extension_installs_cancel(
+    installs: tauri::State<'_, Arc<ExtensionInstalls>>,
+    repo_id: String,
+    extension_id: String,
+) -> raygun_model::ExtensionInstallStatus {
+    installs.cancel(&repo_id, &extension_id)
+}
+
+/// Stops the installs still waiting; the running one finishes.
+#[tauri::command]
+#[specta::specta]
+pub fn extension_installs_cancel_all(
+    installs: tauri::State<'_, Arc<ExtensionInstalls>>,
+) -> raygun_model::ExtensionInstallStatus {
+    installs.cancel_all()
+}
+
+/// Queues every failed install again.
+#[tauri::command]
+#[specta::specta]
+pub fn extension_installs_retry(
+    installs: tauri::State<'_, Arc<ExtensionInstalls>>,
+) -> raygun_model::ExtensionInstallStatus {
+    installs.retry_failed()
+}
+
+/// Forgets a failed install, or every failure when no extension is named.
+#[tauri::command]
+#[specta::specta]
+pub fn extension_installs_dismiss(
+    installs: tauri::State<'_, Arc<ExtensionInstalls>>,
+    repo_id: Option<String>,
+    extension_id: Option<String>,
+) -> raygun_model::ExtensionInstallStatus {
+    installs.dismiss(repo_id.as_deref().zip(extension_id.as_deref()))
 }
 
 #[tauri::command]
