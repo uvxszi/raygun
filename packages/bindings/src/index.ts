@@ -1092,6 +1092,11 @@ export const commands = {
 	lyricsTranslation: LyricsTranslationPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
+	/**
+	 *  The Browse tab opened without one in the address: a `LAYOUT_BROWSE_TABS` id, Browse all
+	 *  (`discover`) by default; a hidden choice falls back to the first shown tab.
+	 */
+	browseStartTab?: string,
 	/**  Search's own switches: no 18+ sources or titles, no explicit songs; both off by default. */
 	searchFilter: SearchFilterPrefs,
 	/**
@@ -4158,7 +4163,7 @@ export type SearchResults_Serialize = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -4271,6 +4276,11 @@ export type Settings = {
 	lyricsTranslation: LyricsTranslationPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
+	/**
+	 *  The Browse tab opened without one in the address: a `LAYOUT_BROWSE_TABS` id, Browse all
+	 *  (`discover`) by default; a hidden choice falls back to the first shown tab.
+	 */
+	browseStartTab?: string,
 	/**  Search's own switches: no 18+ sources or titles, no explicit songs; both off by default. */
 	searchFilter: SearchFilterPrefs,
 	/**

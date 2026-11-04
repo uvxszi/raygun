@@ -195,6 +195,7 @@ export const DEFAULT_SETTINGS: Settings = {
   zoom: 100,
   discovery: { region: '', tagSongs: true },
   failingSourcesLast: true,
+  browseStartTab: 'discover',
   searchFilter: { noAdult: false, noExplicit: false },
   manualBrowserChecks: false,
   userAgent: '',

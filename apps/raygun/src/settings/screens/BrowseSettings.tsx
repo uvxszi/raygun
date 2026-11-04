@@ -4,7 +4,10 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useExtensions } from '../../extensions/useExtensions';
+import { useLayout } from '../../layout/useLayout';
 import { autoRegion } from '../../music/useDiscovery';
+import { BROWSE_TAB_LABEL } from '../../pages/browseTabs';
+import type { BrowseSection } from '../../pages/BrowsePage';
 import { WebsiteSettings } from '../../websites/WebsiteSettings';
 import { ManualBrowserChecks } from '../ManualBrowserChecks';
 import { PrefChoice, PrefGroup, PrefLink, PrefSlider, PrefSwitch, PrefText } from '../prefs';
@@ -78,6 +81,7 @@ export const BrowseSettings: FC = () => {
   const { t } = useTranslation();
   const data = useSettings().data;
   const update = useUpdateSetting();
+  const layout = useLayout();
   const queryClient = useQueryClient();
   const extensions = useExtensions();
   const failed = extensions.data?.filter((extension) => extension.status === 'failed').length ?? 0;
@@ -96,6 +100,18 @@ export const BrowseSettings: FC = () => {
   return (
     <>
       <PrefGroup title={t('settings.content')}>
+        <PrefChoice
+          title={t('settings.browseStartTab')}
+          value={data.browseStartTab ?? 'discover'}
+          options={layout.browseTabs
+            .filter((item) => item.visible || item.id === data.browseStartTab)
+            .flatMap((item) =>
+              item.id in BROWSE_TAB_LABEL
+                ? [{ value: item.id, label: t(BROWSE_TAB_LABEL[item.id as BrowseSection]) }]
+                : [],
+            )}
+          onChange={(value) => update.mutate({ key: 'browseStartTab', value })}
+        />
         <PrefSwitch
           title={t('settings.showNsfw')}
           checked={data.showNsfw}

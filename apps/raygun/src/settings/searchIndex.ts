@@ -202,7 +202,11 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.speechRate',
   ),
 
-  ...on('browse', 'settings.content')('settings.showNsfw', 'settings.explicitMusic'),
+  ...on('browse', 'settings.content')(
+    'settings.browseStartTab',
+    'settings.showNsfw',
+    'settings.explicitMusic',
+  ),
   ...on('browse', 'settings.sources')(
     'settings.extensions',
     'browse.repos',
