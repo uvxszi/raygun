@@ -232,11 +232,10 @@ describe('Video library', () => {
     );
     const picker = await screen.findByRole('dialog', { name: 'Choose what to download' });
     await user.click(await within(picker).findByRole('button', { name: /^720p/ }));
-    expect(commands.videoSourceDownload).toHaveBeenCalledWith({
-      titleId: 'title-film',
-      episodeId: 'f1',
-      link: preferred,
-    });
+    expect(commands.videoSourceDownload).toHaveBeenCalledWith(
+      { titleId: 'title-film', episodeId: 'f1', link: preferred },
+      [],
+    );
     expect(commands.videoSourcePlay).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 
@@ -244,6 +243,140 @@ describe('Video library', () => {
     // Play watches through a session: the player finds the link itself (M44).
     await user.click(within(page).getByRole('button', { name: 'Play' }));
     expect(commands.videoSourceWatch).toHaveBeenCalledWith('title-film', 'chaplin/film.mp4');
+  });
+
+  it('lists the subtitles of a link to pick before downloading, ticked as remembered', async () => {
+    const user = userEvent.setup();
+    commands.videoTitle.mockResolvedValue(ok(FILM));
+    const english = { url: 'https://s/en.vtt', lang: 'en', label: 'English', format: 'vtt' };
+    const french = { url: 'https://s/fr.vtt', lang: 'fr', label: null, format: 'vtt' };
+    const link = {
+      url: 'https://cdn.example/film.mp4',
+      label: '720p',
+      quality: 720,
+      headers: {},
+      format: null,
+      subtitles: [english, french],
+      preferred: true,
+    };
+    commands.videoServers.mockResolvedValue(
+      ok([{ id: 'archive', name: 'Archive', links: [link] }]),
+    );
+    // The device's language is ticked at first.
+    commands.videoDownloadSubtitleDefaults.mockResolvedValue(ok([english.url]));
+    await AppShellWrapper.mount(`/watch/video?source=${encodeURIComponent(SOURCE_ID)}&id=chaplin`);
+    const page = await screen.findByTestId('video-title-page');
+    await user.click(
+      within(page).getByRole('button', { name: 'Download Charlie Chaplin Festival' }),
+    );
+    const picker = await screen.findByRole('dialog', { name: 'Choose what to download' });
+    await user.click(await within(picker).findByRole('button', { name: /^720p/ }));
+
+    const choice = await within(picker).findByRole('region', { name: 'Subtitles to save' });
+    expect(commands.videoDownloadSubtitleDefaults).toHaveBeenCalledWith(SOURCE_ID, [
+      english,
+      french,
+    ]);
+    const englishBox = await within(choice).findByRole('checkbox', { name: 'English' });
+    expect(englishBox).toHaveAttribute('aria-checked', 'true');
+    const frenchBox = within(choice).getByRole('checkbox', { name: 'French' });
+    expect(frenchBox).toHaveAttribute('aria-checked', 'false');
+    expect(commands.videoSourceDownload).not.toHaveBeenCalled();
+
+    // Unticking English and ticking French saves only French.
+    await user.click(englishBox);
+    await user.click(frenchBox);
+    await user.click(within(choice).getByRole('button', { name: 'Download with 1 subtitle' }));
+    expect(commands.videoSourceDownload).toHaveBeenCalledWith(
+      { titleId: 'title-film', episodeId: 'f1', link },
+      [french.url],
+    );
+  });
+
+  it('selects several episodes to download at once', async () => {
+    const user = userEvent.setup();
+    commands.stremioMeta.mockResolvedValue(ok(SERIES));
+    commands.videoDownloadEpisodes.mockResolvedValue(ok(2));
+    await AppShellWrapper.mount('/watch/title?type=series&id=tt0903747');
+    const page = await screen.findByTestId('watch-title-page');
+
+    await user.click(await within(page).findByRole('button', { name: 'Select episodes' }));
+    const bar = within(page).getByRole('toolbar', { name: 'Select episodes' });
+    await user.click(within(bar).getByRole('button', { name: 'Select all' }));
+    expect(within(page).getByRole('checkbox', { name: 'Select S1 E1' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    // Tapping a row in selection mode ticks it rather than playing.
+    await user.click(within(page).getByRole('button', { name: /^Episode 2/ }));
+    expect(commands.stremioWatch).not.toHaveBeenCalled();
+    expect(within(bar).getByRole('status')).toHaveTextContent('1 selected');
+    await user.click(within(page).getByRole('button', { name: /^Episode 2/ }));
+
+    await user.click(within(bar).getByRole('button', { name: 'Download' }));
+    expect(commands.videoDownloadEpisodes).toHaveBeenCalledWith('stremio:series:tt0903747', [
+      'tt0903747:1:1',
+      'tt0903747:1:2',
+    ]);
+    expect(await within(page).findByText('2 episodes queued')).toBeInTheDocument();
+  });
+
+  it('exports a season, downloading the episodes that are missing first', async () => {
+    const user = userEvent.setup();
+    const show: StremioMeta = {
+      ...SERIES,
+      videos: [
+        ...SERIES.videos,
+        { ...SERIES.videos[0]!, id: 'tt0903747:2:1', season: 2, episode: 1, downloaded: false },
+      ],
+    };
+    commands.stremioMeta.mockResolvedValue(ok(show));
+    commands.exportPlan.mockImplementation(async (request) =>
+      ok({
+        chapters: request.scope.kind === 'chosen' ? request.scope.ids.length : 3,
+        missing: request.scope.kind === 'downloaded' ? 0 : 1,
+        files: 1,
+        problem: null,
+      }),
+    );
+    await AppShellWrapper.mount('/watch/title?type=series&id=tt0903747');
+    const page = await screen.findByTestId('watch-title-page');
+    await user.click(await within(page).findByRole('button', { name: 'Export' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Export' });
+
+    // Everything at first: one episode isn't downloaded, so it downloads first.
+    expect(
+      await within(sheet).findByRole('button', { name: 'Download, then export' }),
+    ).toBeEnabled();
+    await user.click(within(sheet).getByRole('radio', { name: 'Downloaded episodes' }));
+    expect(await within(sheet).findByRole('button', { name: 'Export' })).toBeEnabled();
+
+    await user.click(within(sheet).getByRole('radio', { name: 'A season' }));
+    await user.selectOptions(within(sheet).getByRole('combobox', { name: 'Season' }), '2');
+    const list = within(sheet).getByRole('list', { name: 'Episodes to export' });
+    expect(within(list).getByRole('checkbox', { name: /S2 E1/ })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(within(list).getByRole('checkbox', { name: /S1 E1/ })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+    // Ticking one more makes the list the user's own.
+    await user.click(within(list).getByRole('checkbox', { name: /S1 E2/ }));
+    expect(within(sheet).getByRole('radio', { name: 'Chosen episodes' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await user.click(await within(sheet).findByRole('button', { name: 'Download, then export' }));
+    expect(commands.exportStart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        medium: 'video',
+        titleIds: ['title-bb'],
+        scope: { kind: 'chosen', ids: ['tt0903747:1:2', 'tt0903747:2:1'] },
+        format: 'video',
+      }),
+    );
   });
 
   it('takes a Stremio series out of the library and downloads a stream', async () => {
@@ -301,6 +434,7 @@ describe('Video library', () => {
       },
       'en',
       'title-bb',
+      null,
     );
 
     await user.click(saved);

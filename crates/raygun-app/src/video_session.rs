@@ -786,6 +786,26 @@ impl VideoSessions {
         )
     }
 
+    /// A title's episodes in watching order, with its name and poster (downloads queued without a
+    /// session use them).
+    pub async fn title_episodes(
+        &self,
+        origin: &Origin,
+    ) -> Result<(String, Option<String>, Vec<Episode>), String> {
+        let (title, poster, episodes, _) = self.episodes(origin).await?;
+        Ok((title, poster, episodes))
+    }
+
+    /// What a session would order a title's links by: its remembered source, how sources did
+    /// lately, and the preferred picture size.
+    pub async fn ranking_inputs(
+        &self,
+        origin: &Origin,
+    ) -> (Remembered, SourceHealth, VideoResolution) {
+        let memory = self.recall(&origin.memory_key()).await.unwrap_or_default();
+        (memory, self.health().await, self.resolution().await)
+    }
+
     /// The picture size links are ordered by (`VideoPlayerPrefs::preferred_resolution`).
     async fn resolution(&self) -> VideoResolution {
         crate::settings::load(&self.db())

@@ -627,6 +627,9 @@ export const bindingsMock = {
     videoDownloads: vi.fn(),
     videoSourceDownload: vi.fn(),
     stremioDownload: vi.fn(),
+    videoDownloadEpisodes: vi.fn(),
+    videoDownloadSubtitleDefaults: vi.fn(),
+    videoDownloadsSetDeviceLanguage: vi.fn(),
     videoDownloadRetry: vi.fn(),
     videoDownloadRemove: vi.fn(),
     videoDownloadPlay: vi.fn(),
@@ -1213,6 +1216,9 @@ export const seedBindings = () => {
   commands.videoDownloads.mockResolvedValue(ok({ paused: false, items: [] }));
   commands.videoSourceDownload.mockResolvedValue(ok(null));
   commands.stremioDownload.mockResolvedValue(ok(null));
+  commands.videoDownloadEpisodes.mockResolvedValue(ok(0));
+  commands.videoDownloadSubtitleDefaults.mockResolvedValue(ok([]));
+  commands.videoDownloadsSetDeviceLanguage.mockResolvedValue(ok(null));
   commands.videoDownloadRetry.mockResolvedValue(ok(null));
   commands.videoDownloadRemove.mockResolvedValue(ok(null));
   commands.videoDownloadPlay.mockResolvedValue(ok(null));

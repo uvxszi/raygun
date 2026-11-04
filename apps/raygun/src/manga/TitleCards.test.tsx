@@ -53,16 +53,6 @@ const SERIES: VideoTitleView = {
   episodes: [episode('u1', 1), episode('u2', 2, true), episode('u3', 3)],
 };
 
-const LINK = {
-  url: 'https://cdn.example/1.mp4',
-  label: '480p',
-  quality: 480,
-  headers: {},
-  format: null,
-  subtitles: [],
-  preferred: true,
-};
-
 const mountSource = async () => {
   commands.videoBrowse.mockResolvedValue(
     ok({
@@ -131,18 +121,18 @@ describe('Video cards', () => {
     await waitFor(() => expect(commands.videoSetInLibrary).toHaveBeenCalledWith('title-1', true));
 
     // ⋮ opens the same menu without opening the page.
-    commands.videoServers.mockResolvedValue(ok([{ id: 'srv', name: 'Archive', links: [LINK] }]));
+    commands.videoDownloadEpisodes.mockResolvedValue(ok(2));
     await user.click(within(card).getByRole('button', { name: 'Options for Flash Gordon' }));
     expect(screen.queryByTestId('video-title-page')).not.toBeInTheDocument();
     await user.click(screen.getByRole('menuitem', { name: 'Download all episodes' }));
-    // Episodes already saved are skipped; each other one is saved from its preferred link.
-    await waitFor(() => expect(commands.videoSourceDownload).toHaveBeenCalledTimes(2));
-    expect(commands.videoServers).not.toHaveBeenCalledWith(SOURCE.id, 'serial/2');
-    expect(commands.videoSourceDownload).toHaveBeenCalledWith({
-      titleId: 'title-1',
-      episodeId: 'u3',
-      link: LINK,
-    });
+    // Episodes already saved are skipped; the others are queued to find their own links.
+    await waitFor(() =>
+      expect(commands.videoDownloadEpisodes).toHaveBeenCalledWith(
+        'title:title-1',
+        expect.not.arrayContaining(['serial/2']),
+      ),
+    );
+    expect(commands.videoSourceDownload).not.toHaveBeenCalled();
 
     fireEvent.contextMenu(card, { clientX: 40, clientY: 40 });
     await user.click(screen.getByRole('menuitem', { name: 'Export…' }));

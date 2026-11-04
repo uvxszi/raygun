@@ -3,7 +3,6 @@ import type {
   MangaLibraryEntry,
   MangaTitleView,
   VideoEpisodeView,
-  VideoLinkView,
   VideoTitleView,
 } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
@@ -134,38 +133,17 @@ const refresh = (client: QueryClient, medium: Medium) =>
       : []),
   ]);
 
-/** DASH and torrents can't be saved (as the server picker says). */
-const savable = (link: VideoLinkView) =>
-  link.format !== 'dash' && link.format !== 'torrent' && !link.url.includes('.mpd');
-
-/** The link of a server to save: its preferred one, else the first that can be saved. */
-const savableLink = (links: VideoLinkView[]) =>
-  links.find((link) => link.preferred && savable(link)) ?? links.find(savable) ?? null;
-
 /**
- * Queues `episodes` of a source's title for download, each from the first server with a link
- * that can be saved (the preferred quality first), one episode at a time. Returns how many were
- * queued.
+ * Queues `episodes` of a source's title for download without picking links: each finds its best
+ * link when its turn comes (two download at a time). Returns how many were queued.
  */
-const downloadEpisodes = async (view: VideoTitleView, episodes: VideoEpisodeView[]) => {
-  let queued = 0;
-  for (const episode of episodes.slice(0, MAX_EPISODES)) {
-    const servers = await unwrapResult(commands.videoServers(view.sourceId, episode.remoteId));
-    for (const server of servers) {
-      const links =
-        server.links ??
-        (await unwrapResult(commands.videoLinks(view.sourceId, server.id)).catch(() => []));
-      const link = savableLink(links);
-      if (!link) continue;
-      await unwrapResult(
-        commands.videoSourceDownload({ titleId: view.id, episodeId: episode.id, link }),
-      );
-      queued += 1;
-      break;
-    }
-  }
-  return queued;
-};
+const downloadEpisodes = (view: VideoTitleView, episodes: VideoEpisodeView[]) =>
+  unwrapResult(
+    commands.videoDownloadEpisodes(
+      `title:${view.id}`,
+      episodes.slice(0, MAX_EPISODES).map((episode) => episode.remoteId),
+    ),
+  );
 
 /** The episodes Download next takes: from where watching continues, the first not saved. */
 const nextEpisodes = (view: VideoTitleView) => {
@@ -280,7 +258,6 @@ export const useTitleCardMenu = () => {
           showToast(t('menu.nothingToDownload', { name }));
           return;
         }
-        showToast(t('menu.findingLinks', { name }));
         const queued = await downloadEpisodes(view, episodes);
         await client.invalidateQueries({ queryKey: ['video', 'downloads'] });
         showToast(

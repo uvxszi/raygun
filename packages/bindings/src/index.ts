@@ -1313,10 +1313,29 @@ export const commands = {
 	stremioSetInLibrary: (kind: string, id: string, inLibrary: boolean) => typedError<null, string>(__TAURI_INVOKE("stremio_set_in_library", { kind, id, inLibrary })),
 	/**  Every video download, newest first; changes arrive as `VideoDownloadsEvent`s. */
 	videoDownloads: () => typedError<VideoDownloads, string>(__TAURI_INVOKE("video_downloads")),
-	/**  Downloads a link of a stored episode. */
-	videoSourceDownload: (request: VideoSourcePlay) => typedError<null, string>(__TAURI_INVOKE("video_source_download", { request })),
-	/**  Downloads a direct stream of a movie or episode, with subtitles (`language` first). */
-	stremioDownload: (request: StremioPlayRequest, language: string, titleId: string | null) => typedError<null, string>(__TAURI_INVOKE("stremio_download", { request, language, titleId })),
+	/**
+	 *  Downloads a link of a stored episode, with the subtitle tracks ticked (`subtitles`, their
+	 *  addresses; `None` keeps the source's remembered choice).
+	 */
+	videoSourceDownload: (request: VideoSourcePlay, subtitles: string[] | null) => typedError<null, string>(__TAURI_INVOKE("video_source_download", { request, subtitles })),
+	/**
+	 *  Downloads a direct stream of a movie or episode, with the subtitle tracks ticked among the
+	 *  stream's (`subtitles`), and the subtitle addons' in the languages picked before.
+	 */
+	stremioDownload: (request: StremioPlayRequest, language: string, titleId: string | null, subtitles: string[] | null) => typedError<null, string>(__TAURI_INVOKE("stremio_download", { request, language, titleId, subtitles })),
+	/**
+	 *  Downloads episodes of a title without picking links: `group` is the title's player group
+	 *  (`title:<id>` or `stremio:<type>:<id>`), `episode_ids` the episodes' ids at the source. Each
+	 *  finds its best link when its turn comes. Returns how many were queued.
+	 */
+	videoDownloadEpisodes: (group: string, episodeIds: string[]) => typedError<number, string>(__TAURI_INVOKE("video_download_episodes", { group, episodeIds })),
+	/**
+	 *  The subtitle tracks ticked at first when downloading from `source` (a video source's id, or
+	 *  `stremio`): the languages picked there before, and the device's unless it was left out.
+	 */
+	videoDownloadSubtitleDefaults: (source: string, tracks: VideoSubtitle[]) => typedError<string[], string>(__TAURI_INVOKE("video_download_subtitle_defaults", { source, tracks })),
+	/**  The device's language, for the subtitles downloads keep. */
+	videoDownloadsSetDeviceLanguage: (language: string) => typedError<null, string>(__TAURI_INVOKE("video_downloads_set_device_language", { language })),
 	/**  Tries a failed download again, keeping what it saved. */
 	videoDownloadRetry: (id: string) => typedError<null, string>(__TAURI_INVOKE("video_download_retry", { id })),
 	/**  Cancels a download or deletes a downloaded video. */

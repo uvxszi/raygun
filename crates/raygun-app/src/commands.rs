@@ -5020,20 +5020,35 @@ pub async fn video_downloads(
     downloads.list().await
 }
 
-/// Downloads a link of a stored episode.
+/// Downloads a link of a stored episode, with the subtitle tracks ticked (`subtitles`, their
+/// addresses; `None` keeps the source's remembered choice).
 #[tauri::command]
 #[specta::specta]
 pub async fn video_source_download(
     sources: VideoSources<'_>,
     downloads: VideoDownloadsState<'_>,
+    db: tauri::State<'_, AppDb>,
     request: raygun_model::VideoSourcePlay,
+    subtitles: Option<Vec<String>>,
 ) -> Result<(), String> {
     let title_id = request.title_id.clone();
+    let source = raygun_db::titles::title(&db.0, &title_id)
+        .await
+        .map_err(crate::catalog::to_message)?
+        .map(|row| row.fields.source_id)
+        .unwrap_or_default();
+    let shown = request.link.subtitles.clone();
     let video = sources.request(request).await?;
-    downloads.enqueue(video, Some(title_id)).await
+    let pick = crate::video_downloads::SubtitlePick {
+        source,
+        shown,
+        chosen: subtitles,
+    };
+    downloads.enqueue(video, Some(title_id), pick).await
 }
 
-/// Downloads a direct stream of a movie or episode, with subtitles (`language` first).
+/// Downloads a direct stream of a movie or episode, with the subtitle tracks ticked among the
+/// stream's (`subtitles`), and the subtitle addons' in the languages picked before.
 #[tauri::command]
 #[specta::specta]
 pub async fn stremio_download(
@@ -5042,9 +5057,52 @@ pub async fn stremio_download(
     request: raygun_model::StremioPlayRequest,
     language: String,
     title_id: Option<String>,
+    subtitles: Option<Vec<String>>,
 ) -> Result<(), String> {
+    let shown = request.stream.subtitles.clone();
     let video = stremio.request(&request, &language).await?;
-    downloads.enqueue(video, title_id).await
+    let pick = crate::video_downloads::SubtitlePick {
+        source: crate::video_downloads::auto::STREMIO_SUBTITLES.into(),
+        shown,
+        chosen: subtitles,
+    };
+    downloads.enqueue(video, title_id, pick).await
+}
+
+/// Downloads episodes of a title without picking links: `group` is the title's player group
+/// (`title:<id>` or `stremio:<type>:<id>`), `episode_ids` the episodes' ids at the source. Each
+/// finds its best link when its turn comes. Returns how many were queued.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_download_episodes(
+    downloads: VideoDownloadsState<'_>,
+    group: String,
+    episode_ids: Vec<String>,
+) -> Result<u32, String> {
+    downloads.enqueue_episodes(&group, &episode_ids).await
+}
+
+/// The subtitle tracks ticked at first when downloading from `source` (a video source's id, or
+/// `stremio`): the languages picked there before, and the device's unless it was left out.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_download_subtitle_defaults(
+    downloads: VideoDownloadsState<'_>,
+    source: String,
+    tracks: Vec<raygun_model::VideoSubtitle>,
+) -> Result<Vec<String>, String> {
+    Ok(downloads.subtitle_defaults(&source, &tracks).await)
+}
+
+/// The device's language, for the subtitles downloads keep.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_downloads_set_device_language(
+    downloads: VideoDownloadsState<'_>,
+    language: String,
+) -> Result<(), String> {
+    downloads.set_device_language(&language).await;
+    Ok(())
 }
 
 /// Tries a failed download again, keeping what it saved.

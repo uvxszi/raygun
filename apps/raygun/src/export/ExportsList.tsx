@@ -17,7 +17,10 @@ const JobCard: FC<{ job: ExportJob }> = ({ job }) => {
   const fraction = total > 0 ? Math.min(1, done / total) : 0;
   const status =
     job.state === 'downloading'
-      ? t('export.state.downloading', { done, total })
+      ? t(job.medium === 'video' ? 'export.state.downloadingVideo' : 'export.state.downloading', {
+          done,
+          total,
+        })
       : job.state === 'writing'
         ? t('export.state.writing', { done, total })
         : t(`export.state.${job.state}`);
