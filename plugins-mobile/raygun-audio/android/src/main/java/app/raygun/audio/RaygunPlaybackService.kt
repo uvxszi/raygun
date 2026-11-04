@@ -1,7 +1,11 @@
 package app.raygun.audio
 
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.media.audiofx.PresetReverb
 import android.os.Handler
 import android.os.Looper
@@ -9,6 +13,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.AuxEffectInfo
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -40,6 +45,25 @@ class Deck(val player: ExoPlayer, val processor: SoundProcessor) {
     var stopAt: Runnable? = null
 }
 
+/** The connection hint the plugin's own controller carries: its commands drive the players. */
+const val ENGINE_CONTROLLER_HINT = "app.raygun.audio.engine"
+
+/** The extra on intents that open Raygun at a screen (`player`, `/downloads?tab=music`). */
+const val EXTRA_OPEN_ROUTE = "app.raygun.audio.ROUTE"
+
+/** Opens Raygun at `route`. */
+fun openRaygunIntent(context: Context, route: String): PendingIntent? {
+    val launch = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return null
+    launch.putExtra(EXTRA_OPEN_ROUTE, route)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+    return PendingIntent.getActivity(
+        context,
+        route.hashCode(),
+        launch,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+}
+
 /**
  * Owns the native players. Media3 promotes this to a foreground service while something plays,
  * which keeps the process alive in the background and provides the media notification and
@@ -48,11 +72,17 @@ class Deck(val player: ExoPlayer, val processor: SoundProcessor) {
  * Two players take turns (M46.12): a crossfade starts the next song on the other one, hands it
  * to the media session, and fades the old one out. Only the session's player holds audio focus,
  * or the new one's request would pause the old one.
+ *
+ * While the native engine isn't the one playing (a song in the webview's YouTube player, or the
+ * next song while its stream is found), the session shows [mirror] instead: Rust's player as it
+ * reports itself, so the notification stays and Raygun stays in the foreground.
  */
 @UnstableApi
 class RaygunPlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
     private val decks = mutableListOf<Deck>()
+    /** Each deck's player as the session shows it, made once (each listens to its player). */
+    private val shown = mutableListOf<RaygunSessionPlayer>()
     private var current = 0
     private val main = Handler(Looper.getMainLooper())
     private var reverb: PresetReverb? = null
@@ -60,6 +90,19 @@ class RaygunPlaybackService : MediaSessionService() {
         .setUsage(C.USAGE_MEDIA)
         .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
         .build()
+    lateinit var mirror: MirrorPlayer
+        private set
+
+    /** Forgets the output picked in Devices once it's gone (headphones switched off). */
+    private val outputs = object : AudioDeviceCallback() {
+        override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) {
+            val chosen = RaygunSound.output ?: return
+            if (removed.any { it.id == chosen.id }) {
+                RaygunSound.output = null
+                applyOutput(null)
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -73,16 +116,43 @@ class RaygunPlaybackService : MediaSessionService() {
             // The output picked in Devices (M46.43), for players made after it.
             RaygunSound.output?.let { player.setPreferredAudioDevice(it) }
             decks.add(Deck(player, processor))
+            shown.add(RaygunSessionPlayer(player, ::fromRaygun))
         }
-        session = MediaSession.Builder(this, RaygunSessionPlayer(decks[0].player)).build()
+        mirror = MirrorPlayer(this)
+        val builder = MediaSession.Builder(this, shown[0])
+        // Tapping the notification opens the full player.
+        openRaygunIntent(this, "player")?.let(builder::setSessionActivity)
+        session = builder.build()
         instance = this
         applyReverb()
+        getSystemService(AudioManager::class.java)?.registerAudioDeviceCallback(outputs, main)
+    }
+
+    /**
+     * Whether the player call being handled comes from Raygun: the plugin's controller, or the
+     * service and Media3 themselves (no controller). Anything else is the system or a device.
+     */
+    private fun fromRaygun(): Boolean {
+        val caller = session?.controllerForCurrentRequest ?: return true
+        return caller.connectionHints.getBoolean(ENGINE_CONTROLLER_HINT, false)
     }
 
     /** The deck in the session: what plays now. */
     val deck: Deck get() = decks[current]
 
-    /** Plays through `device` (M46.43: Bluetooth headphones, the speaker…), or Android's choice. */
+    /** The session shows the native player again (the native engine loaded a song). */
+    fun useDeck() {
+        val player = shown[current]
+        if (session?.player !== player) session?.player = player
+        mirror.standDown()
+    }
+
+    /** The session shows Rust's player as it reports itself (the native engine holds nothing). */
+    fun useMirror() {
+        if (session?.player !== mirror) session?.player = mirror
+    }
+
+    /** Plays through `device` (M46.43: Bluetooth headphones, the speakerâ€¦), or Android's choice. */
     fun applyOutput(device: AudioDeviceInfo?) {
         for (each in decks) each.player.setPreferredAudioDevice(device)
     }
@@ -129,7 +199,8 @@ class RaygunPlaybackService : MediaSessionService() {
         next.player.prepare()
         next.player.playWhenReady = true
         current = 1 - current
-        session?.player = RaygunSessionPlayer(next.player)
+        session?.player = shown[current]
+        mirror.standDown()
         retire(old, fadeMs)
     }
 
@@ -161,21 +232,25 @@ class RaygunPlaybackService : MediaSessionService() {
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 
-    override fun onTaskRemoved(rootIntent: android.content.Intent?) {
+    override fun onTaskRemoved(rootIntent: Intent?) {
         // Swiping the app away while paused ends the service; while playing, music continues.
         val player = session?.player
-        if (player == null || !player.playWhenReady || player.mediaItemCount == 0) {
-            stopSelf()
+        if (player == null || !player.playWhenReady || player.playbackState == Player.STATE_IDLE) {
+            // Also ends the foreground state Media3 keeps for a while after a pause.
+            pauseAllPlayersAndStopSelf()
         }
     }
 
     override fun onDestroy() {
         instance = null
         main.removeCallbacksAndMessages(null)
+        getSystemService(AudioManager::class.java)?.unregisterAudioDeviceCallback(outputs)
         session?.release()
         session = null
+        mirror.shutDown()
         for (each in decks) each.player.release()
         decks.clear()
+        shown.clear()
         reverb?.release()
         reverb = null
         super.onDestroy()

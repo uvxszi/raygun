@@ -8,6 +8,7 @@ import {
   Palette,
   PlayCircle,
   Shield,
+  ShieldCheck,
   SlidersVertical,
   Smartphone,
   Sparkles,
@@ -17,6 +18,7 @@ import type { FC } from 'react';
 
 import { SoundSettings } from '../sound/SoundSettings';
 import { DownloadSettings } from './DownloadSettings';
+import { PermissionsSettings } from './PermissionsSettings';
 import { resetAll, resetKeys } from './resets';
 import type { SettingsReset } from './resets';
 import { AppearanceSettings } from './screens/AppearanceSettings';
@@ -138,6 +140,8 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
     ),
   },
   { id: 'privacy', icon: Shield, screen: PrivacySettings, reset: resetKeys('privacy') },
+  // What Android lets Raygun do; nothing here is a setting to reset.
+  { id: 'permissions', icon: ShieldCheck, screen: PermissionsSettings },
   { id: 'devices', icon: Smartphone, to: '/settings/devices' },
   { id: 'ai', icon: Sparkles, to: '/settings/ai' },
   {
@@ -159,6 +163,7 @@ export type SettingsSectionId =
   | 'reader'
   | 'browse'
   | 'privacy'
+  | 'permissions'
   | 'data';
 
 /** The category screens, routed at `/settings/<id>`. */

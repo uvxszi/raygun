@@ -261,6 +261,14 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     // Linked devices keep each other in sync (M46.47).
     crate::device_link::start_auto_sync(app.handle().clone());
 
+    // The phone's media session and notifications, and the permissions they need.
+    app.manage(crate::permissions::PermissionPrompts::new(
+        app.handle().clone(),
+    ));
+    crate::permissions::PermissionPrompts::start(app.handle());
+    crate::background::BackgroundPlayback::start(app.handle());
+    crate::notifications::DownloadNotices::start(app.handle());
+
     create_main_window(app, &paths)?;
     // The miniplayer window (M46.13) shares the main window's webview profile.
     app.manage(crate::miniplayer::MiniplayerDir(paths.webview()));

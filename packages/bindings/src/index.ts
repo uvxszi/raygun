@@ -1125,6 +1125,24 @@ export const commands = {
 	 *  allowed.
 	 */
 	localNetworkOpenSettings: () => typedError<null, string>(__TAURI_INVOKE("local_network_open_settings")),
+	/**  Every permission Raygun uses on this device, and where it stands. */
+	permissionsList: () => typedError<AppPermission[], string>(__TAURI_INVOKE("permissions_list")),
+	/**
+	 *  Asks for a permission: the system's question, or its page in the system settings when only
+	 *  that can allow it. Returns every permission's state afterwards.
+	 */
+	permissionRequest: (kind: PermissionKind) => typedError<AppPermission[], string>(__TAURI_INVOKE("permission_request", { kind })),
+	/**  Opens a permission's page in the system settings. */
+	permissionOpenSettings: (kind: PermissionKind) => typedError<null, string>(__TAURI_INVOKE("permission_open_settings", { kind })),
+	/**  The answer to a question a feature asked: Allow asks the system, Not now leaves it. */
+	permissionPromptAnswer: (prompt: PermissionPrompt, allow: boolean) => typedError<AppPermission[], string>(__TAURI_INVOKE("permission_prompt_answer", { prompt, allow })),
+	/**  A question raised before the UI was listening (the first download at start), taken. */
+	permissionPromptPending: () => __TAURI_INVOKE<{
+	kind: PermissionKind,
+	reason: PermissionReason,
+} | null>("permission_prompt_pending"),
+	/**  The screen a tapped notification opens, if one was tapped before the UI listened. */
+	notificationRouteTake: () => __TAURI_INVOKE<string | null>("notification_route_take"),
 	/**  Installed video sources (`video.source` providers). */
 	videoSources: () => typedError<MangaSource_Serialize[], string>(__TAURI_INVOKE("video_sources")),
 	/**  A page of a video source's catalogue: popular, latest, or search results. */
@@ -1221,6 +1239,8 @@ export const events = {
 	madeForYouEvent: makeEvent<MadeForYouEvent>("made-for-you-event"),
 	mangaDownloadsEvent: makeEvent<MangaDownloadsEvent>("manga-downloads-event"),
 	mangaUpdateEvent: makeEvent<MangaUpdateEvent>("manga-update-event"),
+	openRouteEvent: makeEvent<OpenRouteEvent>("open-route-event"),
+	permissionPromptEvent: makeEvent<PermissionPromptEvent>("permission-prompt-event"),
 	playbackStateEvent: makeEvent<PlaybackStateEvent>("playback-state-event"),
 	podcastsChangedEvent: makeEvent<PodcastsChangedEvent>("podcasts-changed-event"),
 	queueEvent: makeEvent<QueueEvent>("queue-event"),
@@ -1243,6 +1263,22 @@ export const events = {
 export type Accent = "red" | "orange" | "green" | "teal" | "blue" | "purple" | "pink" | 
 /**  `Settings::accent_color` (M46.7). */
 "custom";
+
+/**  Where a permission stands. */
+export type AccessState = 
+/**  Allowed (battery: unrestricted). */
+"granted" | 
+/**  Not allowed; asking shows the system's question. */
+"denied" | 
+/**  Not allowed, and only the system settings can change it now. */
+"blocked" | 
+/**  Battery: Android's default limits apply (asking shows its question). */
+"optimized" | 
+/**
+ *  Battery: restricted in the background, so playback and downloads stop when Raygun leaves
+ *  the screen; only the system settings can lift it.
+ */
+"restricted";
 
 export type AiModel = {
 	id: string,
@@ -1318,6 +1354,14 @@ export type AppInfo = {
 	platform: string,
 	arch: string,
 	debug: boolean,
+};
+
+/**  One row of Settings → Permissions. */
+export type AppPermission = {
+	kind: PermissionKind,
+	state: AccessState,
+	/**  Folders: how many picked folders Raygun may still read. */
+	count: number | null,
 };
 
 /**  Raygun's newest release next to this copy's version (M46.47), from GitHub. */
@@ -3219,6 +3263,9 @@ export type OnlineTrack = {
 	explicit?: boolean,
 };
 
+/**  A notification was tapped: the screen it opens (`/downloads?tab=music`, or `player`). */
+export type OpenRouteEvent = string;
+
 /**  A page of the manga reader, by its proxy URL. */
 export type PageRef = {
 	titleId: string,
@@ -3250,6 +3297,39 @@ export type PanelPrefs = {
 	/**  Songs the side panel's "Next in queue" card shows, 1 to 10 (M46.24). */
 	nextUpRows?: number,
 };
+
+/**  A permission Raygun uses on this device. */
+export type PermissionKind = 
+/**  Download progress and finished downloads (playback controls show without it). */
+"notifications" | 
+/**  Running in the background without Android's battery limits. */
+"battery" | 
+/**  Reading the phone's songs and videos (Local Files, the device's music). */
+"media" | 
+/**  Folders picked in the system's folder picker. */
+"folders" | 
+/**  Android 17's local network access. */
+"localNetwork" | 
+/**  Installing Raygun's own updates. */
+"installApps";
+
+/**  A question to show once: the permission and why it's needed now. */
+export type PermissionPrompt = {
+	kind: PermissionKind,
+	reason: PermissionReason,
+};
+
+/**  A feature needs a permission for the first time: the UI asks, with the reason. */
+export type PermissionPromptEvent = PermissionPrompt;
+
+/**  What a permission is asked for when a feature first needs it. */
+export type PermissionReason = 
+/**  The first playback: Raygun is restricted, so music would stop in the background. */
+"playback" | 
+/**  The first download: progress shows in notifications. */
+"download" | 
+/**  Adding a folder to Local Files: its songs and videos are read by path. */
+"folders";
 
 /**
  *  Where something was played from (M46.37: Home's Your music shows the latest): an album, a

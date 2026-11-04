@@ -22,6 +22,77 @@ static CONTROL_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 static TTS_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 static VIDEO_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 static WEBSITE_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
+static NOTIFICATION_ACTION_HANDLER: Later = Later::new();
+static OPEN_HANDLER: Later = Later::new();
+
+/// A receiver for messages that can come before it's installed (a notification tapped to start
+/// the app): those wait for it.
+struct Later {
+    handler: OnceLock<ReportHandler>,
+    waiting: std::sync::Mutex<Vec<String>>,
+}
+
+/// Messages kept for a receiver not installed yet.
+const MAX_WAITING: usize = 16;
+
+impl Later {
+    const fn new() -> Self {
+        Self {
+            handler: OnceLock::new(),
+            waiting: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    fn set(&self, handler: ReportHandler) {
+        if self.handler.set(handler).is_err() {
+            return;
+        }
+        let waiting = std::mem::take(&mut *self.waiting.lock().unwrap_or_else(|p| p.into_inner()));
+        if let Some(handler) = self.handler.get() {
+            for message in waiting {
+                handler(message);
+            }
+        }
+    }
+
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    fn deliver(&self, message: String) {
+        {
+            let mut waiting = self.waiting.lock().unwrap_or_else(|p| p.into_inner());
+            if self.handler.get().is_none() {
+                if waiting.len() < MAX_WAITING {
+                    waiting.push(message);
+                }
+                return;
+            }
+        }
+        if let Some(handler) = self.handler.get() {
+            handler(message);
+        }
+    }
+}
+
+/// Installs the receiver for download notifications' buttons (`{"action", "keys"}` JSON).
+/// Called on the Android main thread. Only the first call wins.
+pub fn set_notification_action_handler(handler: impl Fn(String) + Send + Sync + 'static) {
+    NOTIFICATION_ACTION_HANDLER.set(Box::new(handler));
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn deliver_notification_action(json: String) {
+    NOTIFICATION_ACTION_HANDLER.deliver(json);
+}
+
+/// Installs the receiver for tapped notifications: the screen to open (`/downloads?tab=music`,
+/// `player`). Called on the Android main thread. Only the first call wins.
+pub fn set_open_handler(handler: impl Fn(String) + Send + Sync + 'static) {
+    OPEN_HANDLER.set(Box::new(handler));
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn deliver_open(route: String) {
+    OPEN_HANDLER.deliver(route);
+}
 
 /// Installs the receiver for the built-in browser's reports (`{"id", "url", "blockAds"}` JSON,
 /// M46.3). Called on the Android main thread. Only the first call wins.
@@ -389,6 +460,69 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(|error| error.to_string())
     }
 
+    /// What Rust's player is doing (`{"state": {...} | null}`), for the media session while the
+    /// native engine isn't the one playing: a song in the webview, or the next one being found.
+    #[cfg(target_os = "android")]
+    pub fn media_state(&self, state: &serde_json::Value) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>("mediaState", state.clone())
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    /// The download notifications to show now (`{"plan", "finished"}`).
+    #[cfg(target_os = "android")]
+    pub fn downloads_notify(&self, notices: &serde_json::Value) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>("downloadsNotify", notices.clone())
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    /// Every permission Raygun uses and its state: `{"permissions": [{"kind", "state", "count"}]}`.
+    #[cfg(target_os = "android")]
+    pub fn permission_states(&self) -> Result<serde_json::Value, String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>("permissionStates", ())
+            .map_err(|error| error.to_string())
+    }
+
+    /// Asks for a permission (Android's question, or its settings page) and answers with every
+    /// state afterwards. Blocks until the user is done, so call it from a blocking-friendly thread.
+    #[cfg(target_os = "android")]
+    pub fn request_permission(&self, kind: &str) -> Result<serde_json::Value, String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>(
+                "requestPermission",
+                serde_json::json!({ "kind": kind }),
+            )
+            .map_err(|error| error.to_string())
+    }
+
+    /// Opens a permission's page in the system settings.
+    #[cfg(target_os = "android")]
+    pub fn open_permission_settings(&self, kind: &str) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>(
+                "openPermissionSettings",
+                serde_json::json!({ "kind": kind }),
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    /// "Not now" to Raygun's own question: Android's isn't shown right after either.
+    #[cfg(target_os = "android")]
+    pub fn decline_permission(&self, kind: &str) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>(
+                "declinePermission",
+                serde_json::json!({ "kind": kind }),
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
     /// Opens the app's page in the system settings.
     #[cfg(target_os = "android")]
     pub fn open_app_settings(&self) -> Result<(), String> {
@@ -528,4 +662,34 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             Ok(())
         })
         .build()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use super::{Later, MAX_WAITING};
+
+    #[test]
+    fn messages_before_the_receiver_wait_for_it() {
+        let later = Later::new();
+        later.deliver("/downloads".into());
+        let got = Arc::new(Mutex::new(Vec::new()));
+        let sink = got.clone();
+        later.set(Box::new(move |message| sink.lock().unwrap().push(message)));
+        later.deliver("player".into());
+        assert_eq!(*got.lock().unwrap(), ["/downloads", "player"]);
+    }
+
+    #[test]
+    fn only_a_few_messages_wait() {
+        let later = Later::new();
+        for index in 0..40 {
+            later.deliver(index.to_string());
+        }
+        let got = Arc::new(Mutex::new(0));
+        let sink = got.clone();
+        later.set(Box::new(move |_| *sink.lock().unwrap() += 1));
+        assert_eq!(*got.lock().unwrap(), MAX_WAITING);
+    }
 }

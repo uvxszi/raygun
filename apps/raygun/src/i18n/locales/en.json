@@ -546,6 +546,10 @@
         "title": "Sound",
         "summary": "Equalizer, bass, reverb, volume levelling, crossfade"
       },
+      "permissions": {
+        "title": "Permissions",
+        "summary": "Notifications, battery, media and files, local network, installing updates"
+      },
       "about": {
         "title": "About",
         "summary": "Version and updates"
@@ -1311,6 +1315,45 @@
     "forget": "Remove {{name}}",
     "hint": "Only paired devices can control Raygun. Traffic on your Wi-Fi isn't encrypted, so pair only on networks you trust.",
     "problem": "The browser remote isn't working"
+  },
+  "permissions": {
+    "kind": {
+      "notifications": "Notifications",
+      "battery": "Background activity",
+      "media": "Songs and videos on this phone",
+      "folders": "Picked folders",
+      "localNetwork": "Local network",
+      "installApps": "Install updates"
+    },
+    "state": {
+      "granted": "Allowed",
+      "denied": "Not allowed",
+      "blocked": "Off in Android's settings",
+      "optimized": "Limited by battery saving",
+      "restricted": "Restricted: music and downloads stop in the background"
+    },
+    "folderCount_one": "{{count}} folder",
+    "folderCount_other": "{{count}} folders",
+    "allow": "Allow",
+    "openSettings": "Open settings",
+    "manage": "Manage",
+    "notNow": "Not now",
+    "unreadable": "Android didn't say which permissions Raygun has",
+    "askFailed": "Android's settings didn't open",
+    "ask": {
+      "playback": {
+        "title": "Keep playing in the background",
+        "why": "Android restricts Raygun in the background, so music stops when you leave it or lock the phone."
+      },
+      "download": {
+        "title": "Show downloads in notifications",
+        "why": "See progress, pause or cancel, and know when downloads finish."
+      },
+      "folders": {
+        "title": "Read songs and videos",
+        "why": "Raygun plays the songs and videos in the folders you add."
+      }
+    }
   },
   "localNetwork": {
     "title": "Local network access",

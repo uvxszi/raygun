@@ -14,6 +14,7 @@ import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useLocalFolderActions, useLocalFolders } from '../localFiles/useLocalFolders';
+import { useMediaGate } from '../permissions/useMediaGate';
 import { ConfirmButton } from '../shell/ConfirmButton';
 import { EmptyState } from '../shell/EmptyState';
 import { SourceIssue } from '../shell/SourceIssue';
@@ -173,6 +174,7 @@ export const LocalFilesPage: FC = () => {
   const folders = useLocalFolders();
   const actions = useLocalFolderActions();
   const { add, remove, rescan, allowAccess } = actions;
+  const mediaGate = useMediaGate();
   const list = folders.data ?? [];
   const totals = KINDS.map(
     (kind) => [kind, list.reduce((sum, folder) => sum + folder.counts[kind], 0)] as const,
@@ -205,7 +207,7 @@ export const LocalFilesPage: FC = () => {
               label={t('localFiles.add')}
               icon={FolderPlus}
               disabled={add.isPending}
-              onClick={() => add.mutate()}
+              onClick={() => void mediaGate.guard(() => add.mutate())}
             />
           </>
         }
@@ -225,6 +227,7 @@ export const LocalFilesPage: FC = () => {
           ))}
         </nav>
       )}
+      {mediaGate.sheet}
       {failure && (
         <SourceIssue compact title={t(failure[1])}>
           {failure[0].message}
@@ -235,7 +238,11 @@ export const LocalFilesPage: FC = () => {
           <EmptyState
             icon={Folder}
             title={t('localFiles.empty')}
-            action={{ label: t('localFiles.add'), icon: FolderPlus, onClick: () => add.mutate() }}
+            action={{
+              label: t('localFiles.add'),
+              icon: FolderPlus,
+              onClick: () => void mediaGate.guard(() => add.mutate()),
+            }}
           />
           <ul
             aria-label={t('localFiles.holds')}

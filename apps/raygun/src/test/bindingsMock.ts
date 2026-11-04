@@ -7,6 +7,7 @@ import type {
   EngineCommand,
   ExportJob,
   ExtensionInfo,
+  PermissionPrompt,
   IncognitoStatus,
   HiddenItem,
   HiddenPrefs,
@@ -44,6 +45,8 @@ import { PLAYER_DEFAULTS } from '../settings/playerOptions';
 type EventPayloads = {
   connectEvent: ConnectStatus;
   connectRequestEvent: ConnectRequest;
+  permissionPromptEvent: PermissionPrompt;
+  openRouteEvent: string;
   engineCommandEvent: EngineCommand;
   playbackStateEvent: PlaybackState;
   queueEvent: QueueSnapshot;
@@ -606,6 +609,12 @@ export const bindingsMock = {
     localNetworkAccess: vi.fn(),
     localNetworkRequest: vi.fn(),
     localNetworkOpenSettings: vi.fn(),
+    permissionsList: vi.fn(),
+    permissionRequest: vi.fn(),
+    permissionOpenSettings: vi.fn(),
+    permissionPromptAnswer: vi.fn(),
+    permissionPromptPending: vi.fn(),
+    notificationRouteTake: vi.fn(),
     catalogFilters: vi.fn(),
     catalogSearch: vi.fn(),
     catalogGlobalSearch: vi.fn(),
@@ -614,6 +623,8 @@ export const bindingsMock = {
   events: {
     connectEvent: makeEvent('connectEvent'),
     connectRequestEvent: makeEvent('connectRequestEvent'),
+    permissionPromptEvent: makeEvent('permissionPromptEvent'),
+    openRouteEvent: makeEvent('openRouteEvent'),
     engineCommandEvent: makeEvent('engineCommandEvent'),
     playbackStateEvent: makeEvent('playbackStateEvent'),
     queueEvent: makeEvent('queueEvent'),
@@ -1161,6 +1172,14 @@ export const seedBindings = () => {
   commands.localNetworkAccess.mockResolvedValue(ok(open));
   commands.localNetworkRequest.mockResolvedValue(ok(open));
   commands.localNetworkOpenSettings.mockResolvedValue(ok(null));
+  // Desktop's answer: notifications, allowed.
+  const permissions = [{ kind: 'notifications', state: 'granted', count: null }];
+  commands.permissionsList.mockResolvedValue(ok(permissions));
+  commands.permissionRequest.mockResolvedValue(ok(permissions));
+  commands.permissionOpenSettings.mockResolvedValue(ok(null));
+  commands.permissionPromptAnswer.mockResolvedValue(ok(permissions));
+  commands.permissionPromptPending.mockResolvedValue(null);
+  commands.notificationRouteTake.mockResolvedValue(null);
   commands.catalogFilters.mockResolvedValue(ok([]));
   commands.catalogSearch.mockResolvedValue(ok({ items: [], hasNextPage: false }));
   commands.catalogGlobalSearch.mockResolvedValue(ok([]));

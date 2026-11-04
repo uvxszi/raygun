@@ -7,6 +7,7 @@ import android.view.View
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import app.raygun.audio.WebAwake
 
 class MainActivity : TauriActivity() {
   /** Lets mDNS (device sync discovery) through Android's Wi-Fi multicast filter. */
@@ -18,9 +19,15 @@ class MainActivity : TauriActivity() {
     resizeForKeyboard()
   }
 
+  /** wry hands over its webview here: it goes in a parent that can keep it playing off screen. */
+  override fun setContentView(view: View) {
+    super.setContentView(WebAwake.host(this, view))
+  }
+
   // Held only while Raygun is in front: it costs battery, and sync runs in the foreground (M21).
   override fun onResume() {
     super.onResume()
+    WebAwake.resumed()
     val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
     multicastLock =
       wifi?.createMulticastLock("raygun-sync")?.apply {
@@ -33,6 +40,8 @@ class MainActivity : TauriActivity() {
     multicastLock?.release()
     multicastLock = null
     super.onPause()
+    // After wry paused the webview: YouTube's player keeps going while a song plays there.
+    WebAwake.paused()
   }
 
   /**

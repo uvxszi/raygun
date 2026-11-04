@@ -38,6 +38,8 @@ import { AppBar } from './AppBar';
 import { setWindowDecorations, useWindowState } from './appWindow';
 import { BottomTabs } from './BottomTabs';
 import { ConnectPrompt } from '../connect/ConnectPrompt';
+import { PermissionPromptHost } from '../permissions/PermissionPrompt';
+import { useNotificationRoutes } from '../permissions/useNotificationRoutes';
 import { ContextMenuHost } from './ContextMenu';
 import { ToastHost } from './Toast';
 import { HoverLabel } from './HoverLabel';
@@ -121,6 +123,7 @@ export const AppShell: FC = () => {
   usePlayerLabels();
   useVideoPlayerEvents();
   useYouTubeVideoEvents();
+  useNotificationRoutes();
 
   // Pages scroll inside <main>, not the window, so start each page at the top.
   const mainRef = useRef<HTMLElement>(null);
@@ -180,6 +183,7 @@ export const AppShell: FC = () => {
         <ContextMenuHost />
         <ToastHost />
         <ConnectPrompt />
+        <PermissionPromptHost />
         {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
         {/* Keeps scrolled content from showing through the transparent status bar on phones. */}
         <div

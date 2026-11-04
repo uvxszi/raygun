@@ -5,6 +5,7 @@
 
 mod ai;
 mod aniskip;
+mod background;
 mod backup;
 mod caches;
 mod captions;
@@ -43,7 +44,9 @@ mod mihon;
 mod miniplayer;
 mod music_downloads;
 mod network;
+mod notifications;
 mod novel;
+mod permissions;
 mod playback;
 mod podcast_feed;
 mod podcasts;
@@ -434,6 +437,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::local_network_access,
             commands::local_network_request,
             commands::local_network_open_settings,
+            permissions::permissions_list,
+            permissions::permission_request,
+            permissions::permission_open_settings,
+            permissions::permission_prompt_answer,
+            permissions::permission_prompt_pending,
+            notifications::notification_route_take,
             commands::video_sources,
             commands::video_browse,
             commands::video_title,
@@ -485,6 +494,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::SongDownloadProgressEvent,
             events::YtDlpEvent,
             events::AppUpdateEvent,
+            events::OpenRouteEvent,
+            events::PermissionPromptEvent,
             events::MadeForYouEvent,
             events::TrackDurationsEvent,
             events::LocalFilesEvent,

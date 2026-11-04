@@ -168,6 +168,11 @@ impl PlaybackService {
                 let playback = app.state::<PlaybackService>();
                 let outbox = {
                     let mut inner = playback.lock();
+                    // The native engine watches itself: the plugin's watchdog sees the player's
+                    // own position and audio focus. This one covers the webview's engines.
+                    if inner.active == Some(Engine::Native) {
+                        continue;
+                    }
                     let before = inner.core.state().status;
                     let effects = inner.core.watchdog(clock.elapsed().as_secs_f64() * 1_000.0);
                     if effects.is_empty() {
