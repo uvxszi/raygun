@@ -7,7 +7,6 @@ import { bindingsMock } from '../test/bindingsMock';
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
 const { commands } = bindingsMock;
-const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 
 describe('Source issues', () => {
   beforeEach(() => {

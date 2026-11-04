@@ -1,4 +1,4 @@
-// dev.raygun.standard-ebooks 1.0.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.standard-ebooks 1.1.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -12,7 +12,7 @@
   var PER_PAGE = 48;
   var HEADERS = {
     Accept: "application/xhtml+xml",
-    "User-Agent": "Raygun/1.0 (https://github.com/uvxszi/raygun)"
+    "User-Agent": "Raygun/1.2 (https://github.com/uvxszi/raygun)"
   };
   var FRAME_PAGES = /* @__PURE__ */ new Set(["titlepage", "imprint", "halftitlepage", "colophon", "uncopyright"]);
   var BOOK_ID = /^[a-z0-9-]+(\/[a-z0-9_-]+){1,3}$/;
@@ -55,11 +55,41 @@
   var plainText = (html) => decode(html.replace(/<br\s*\/?>|<\/(?:p|div|li|h\d)>/gi, " ").replace(/<[^>]+>/g, "")).replace(WORD_JOINER, "").replace(/\s+/g, " ").trim();
   var paragraphs = (html) => [...html.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/g)].map((match) => plainText(match[1] ?? "")).filter(Boolean).join("\n\n");
   var absolute = (path) => path.startsWith("http") ? path : `${SITE}${path}`;
-  var fetchPage = async (path) => {
-    const response = await raygun.http.fetch(`${SITE}${path}`, { headers: HEADERS });
-    if (response.status === 404) return null;
-    if (!response.ok) throw new Error(`Standard Ebooks answered HTTP ${response.status}`);
-    return { text: await response.text(), url: response.url };
+  var GAP_MS = 1500;
+  var JITTER_MS = 700;
+  var RETRIES = 2;
+  var lastRequest = 0;
+  var queue = Promise.resolve();
+  var pace = async () => {
+    const wait = lastRequest + GAP_MS + Math.random() * JITTER_MS - Date.now();
+    if (wait > 0) await raygun.time.sleep(wait);
+    lastRequest = Date.now();
+  };
+  var request = async (path) => {
+    for (let attempt = 0; ; attempt += 1) {
+      await pace();
+      const response = await raygun.http.fetch(`${SITE}${path}`, { headers: HEADERS });
+      if ((response.status === 429 || response.status === 503) && attempt < RETRIES) {
+        const asked = Number(response.headers?.["retry-after"]);
+        await raygun.time.sleep(
+          Number.isFinite(asked) && asked > 0 ? Math.min(asked * 1e3, 1e4) : 5e3 * (attempt + 1)
+        );
+        continue;
+      }
+      return response;
+    }
+  };
+  var fetchPage = (path) => {
+    const next = queue.then(async () => {
+      const response = await request(path);
+      if (response.status === 404) return null;
+      if (response.status === 429)
+        throw new Error("Standard Ebooks asked to slow down; try again in a minute");
+      if (!response.ok) throw new Error(`Standard Ebooks answered HTTP ${response.status}`);
+      return { text: await response.text(), url: response.url };
+    });
+    queue = next.catch(() => void 0);
+    return next;
   };
   var bookId = (id) => {
     if (!BOOK_ID.test(id)) throw new Error("Not a Standard Ebooks book");

@@ -206,7 +206,7 @@
     {
       "id": "dev.raygun.standard-ebooks",
       "name": "Standard Ebooks",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "apiVersion": 1,
       "description": "Public domain (CC0): classic books in Standard Ebooks' carefully produced editions, read chapter by chapter.",
       "author": "Raygun",
@@ -220,9 +220,9 @@
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.standard-ebooks-1.0.0.zip",
-      "sha256": "99fb642fb0af67ff9c7176fae7ecb2421c68cfb0dbf9ad2e87bcc1971e381d24",
-      "size": 3825
+      "package": "packages/dev.raygun.standard-ebooks-1.1.0.zip",
+      "sha256": "e25081cf1bf6677c5ccc75442bdbc9da701d51eb3054bad575f0c5f0858c24f1",
+      "size": 4190
     },
     {
       "id": "dev.raygun.wikimedia-commons",
