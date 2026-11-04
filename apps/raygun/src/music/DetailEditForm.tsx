@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { unwrapResult } from '../lib/commandResult';
 import { Artwork } from '../library/Artwork';
 import { uploadFile } from '../manga/useImportComics';
+import { TextField } from '../shell/TextField';
 import { detailKey, useDetailEdit } from './useDetailEdit';
 
 type Field = 'title' | 'artist' | 'album';
@@ -70,11 +71,13 @@ export const DetailEditForm: FC<{
       {fields.map((field) => (
         <label key={field} className="flex flex-col gap-1 text-sm">
           <span className="text-muted text-xs font-semibold uppercase">{labels[field]}</span>
-          <input
+          <TextField
             value={current[field] ?? ''}
             placeholder={original[field] ?? ''}
-            onChange={(event) => set(field, event.target.value)}
-            className="bg-background rounded-xl px-3 py-2"
+            onChange={(value) => set(field, value)}
+            aria-label={labels[field]}
+            className="bg-background rounded-xl pr-1 pl-3"
+            inputClassName="py-2"
           />
         </label>
       ))}
@@ -106,12 +109,18 @@ export const DetailEditForm: FC<{
               </button>
             )}
           </div>
-          <input
+          <TextField
+            type="url"
+            inputMode="url"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             aria-label={t('details.coverAddress')}
             placeholder={t('details.coverAddress')}
             value={current.artworkUrl?.startsWith('http') ? current.artworkUrl : ''}
-            onChange={(event) => set('artworkUrl', event.target.value)}
-            className="bg-background rounded-xl px-3 py-1.5 text-sm"
+            onChange={(value) => set('artworkUrl', value)}
+            className="bg-background rounded-xl pr-1 pl-3"
+            inputClassName="py-1.5 text-sm"
           />
           <input
             ref={picker}

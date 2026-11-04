@@ -27,14 +27,6 @@ export const useFavorites = () =>
     queryFn: () => unwrapResult(commands.favoritesList()),
   });
 
-/** Whether `track` is a favorite; Rust matches it by artist and title. */
-export const useIsFavorite = (track: TrackInput | null) =>
-  useQuery({
-    queryKey: [COLLECTIONS, 'isFavorite', track?.artist ?? null, track?.title ?? null],
-    queryFn: () => unwrapResult(commands.favoriteGet(track as TrackInput)),
-    enabled: track !== null,
-  });
-
 export const usePlaylists = () =>
   useQuery({
     queryKey: [COLLECTIONS, 'playlists'],
@@ -87,9 +79,14 @@ export const useDeletePlaylist = (after?: () => unknown) =>
     await after?.();
   });
 
+/**
+ * Adds songs to a playlist. Songs it already holds stay out unless `duplicates` (Add anyway,
+ * M46.48); the answer says how many were added and how many it had already.
+ */
 export const useAddToPlaylist = () =>
-  useCollectionMutation(({ id, tracks }: { id: string; tracks: TrackInput[] }) =>
-    unwrapResult(commands.playlistAdd(id, tracks)),
+  useCollectionMutation(
+    ({ id, tracks, duplicates }: { id: string; tracks: TrackInput[]; duplicates?: boolean }) =>
+      unwrapResult(commands.playlistAdd(id, tracks, duplicates ?? false)),
   );
 
 export const useRemovePlaylistItem = () =>
@@ -205,15 +202,7 @@ export const fromSavedTrack = (track: SavedTrack): TrackInput => ({
   source: track.source,
 });
 
-// ---- Where a song is saved (M46.8) ----
-
-/** Favorites and the playlists holding `track`; Rust matches it by artist and title. */
-export const useTrackSaves = (track: TrackInput | null, enabled = true) =>
-  useQuery({
-    queryKey: [COLLECTIONS, 'saves', track?.artist ?? null, track?.title ?? null],
-    queryFn: () => unwrapResult(commands.collectionsSaves(track as TrackInput)),
-    enabled: enabled && track !== null,
-  });
+// ---- Where a song is saved (M46.8; read with `savedSongs.ts`'s `useSongSaves`, M46.48) ----
 
 export const useSetTrackSaves = () =>
   useCollectionMutation(({ track, saves }: { track: TrackInput; saves: TrackSaves }) =>

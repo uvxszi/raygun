@@ -1,5 +1,11 @@
 import { commands } from '@raygun/bindings';
-import type { VideoAspect, VideoChapter, VideoPlayerPrefs, VideoSubtitle } from '@raygun/bindings';
+import type {
+  SubtitleMode,
+  VideoAspect,
+  VideoChapter,
+  VideoPlayerPrefs,
+  VideoSubtitle,
+} from '@raygun/bindings';
 
 import type { CueEdits } from './cueEdits';
 
@@ -34,7 +40,14 @@ export type PlayerRequest = {
   subtitles?: VideoSubtitle[];
   startMs?: number;
   seekStepMs?: number;
-  autoSubtitleLanguage?: string | null;
+  /** The app's language; empty when it follows the device. */
+  appLanguage?: string;
+  /** The first subtitle language; empty follows the device's languages, then the app's. */
+  subtitleLanguage?: string;
+  /** When subtitles turn on by themselves. */
+  subtitleMode?: SubtitleMode;
+  /** The audio's language when the stream doesn't say (anime: Japanese). */
+  spokenLanguage?: string | null;
   group?: string;
   titleState?: TitleState | null;
   chapters?: VideoChapter[];

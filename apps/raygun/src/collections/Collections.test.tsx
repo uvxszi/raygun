@@ -1,9 +1,10 @@
 import type { OnlineTrack, PlaylistItem, SavedTrack } from '@raygun/bindings';
-import { screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper, makeItem } from '../shell/AppShell.test-wrapper';
 import { bindingsMock } from '../test/bindingsMock';
+import { useTrackActionsStore } from './trackActionsStore';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -109,10 +110,84 @@ describe('Favorites and playlists', () => {
 
     expect(commands.playlistCreate).toHaveBeenCalledWith('Road trip');
     await vi.waitFor(() =>
-      expect(commands.playlistAdd).toHaveBeenCalledWith('p9', [
-        expect.objectContaining({ title: 'Feeling Good' }),
+      expect(commands.playlistAdd).toHaveBeenCalledWith(
+        'p9',
+        [expect.objectContaining({ title: 'Feeling Good' })],
+        false,
+      ),
+    );
+  });
+
+  it('knows an imported song on other screens and asks before adding it again', async () => {
+    // Imported from Spotify with every artist credited; a source lists the main artist only.
+    commands.collectionsSavedIndex.mockResolvedValue(
+      ok([
+        {
+          trackKey: 'daft punk pharrell williams|get lucky',
+          songKeys: ['daft punk pharrell williams|get lucky'],
+          favorite: false,
+          playlistIds: ['p1'],
+        },
       ]),
     );
+    commands.playlistsList.mockResolvedValue(
+      ok([{ id: 'p1', name: 'Road trip', itemCount: 3, artworkUrls: [], coverUrl: null }]),
+    );
+    commands.onlineSearch.mockResolvedValue(
+      ok({
+        library: [],
+        top: [],
+        providers: [
+          {
+            provider: PROVIDER,
+            tracks: [{ ...online, title: 'Get Lucky', artist: 'Daft Punk', album: null }],
+            error: null,
+          },
+        ],
+      }),
+    );
+    await AppShellWrapper.mount('/search?type=music&view=songs&q=get+lucky');
+
+    // The saved mark, under the source's names.
+    expect(await screen.findByRole('img', { name: 'Saved' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'More for Get Lucky' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Get Lucky' });
+    const road = await within(sheet).findByRole('button', { name: /Road trip/ });
+    expect(within(road).getByRole('img', { name: 'Saved in this playlist' })).toBeInTheDocument();
+
+    // Adding it again asks first, like Spotify; Add anyway adds a second copy on purpose.
+    await userEvent.click(road);
+    expect(within(sheet).getByRole('alertdialog')).toHaveTextContent('Already in Road trip');
+    expect(commands.playlistAdd).not.toHaveBeenCalled();
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Add anyway' }));
+    expect(commands.playlistAdd).toHaveBeenCalledWith(
+      'p1',
+      [expect.objectContaining({ title: 'Get Lucky', artist: 'Daft Punk' })],
+      true,
+    );
+  });
+
+  it('asks when Rust finds the song already there under other names', async () => {
+    commands.playlistsList.mockResolvedValue(
+      ok([{ id: 'p1', name: 'Road trip', itemCount: 3, artworkUrls: [], coverUrl: null }]),
+    );
+    commands.playlistAdd.mockResolvedValue(ok({ added: 0, already: 1 }));
+    commands.onlineSearch.mockResolvedValue(
+      ok({
+        library: [],
+        top: [],
+        providers: [{ provider: PROVIDER, tracks: [online], error: null }],
+      }),
+    );
+    await AppShellWrapper.mount('/search?type=music&view=songs&q=feeling+good');
+    await userEvent.click(await screen.findByRole('button', { name: 'More for Feeling Good' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Feeling Good' });
+    await userEvent.click(await within(sheet).findByRole('button', { name: /Road trip/ }));
+    expect(commands.playlistAdd).toHaveBeenCalledWith('p1', [expect.anything()], false);
+    expect(await within(sheet).findByRole('alertdialog')).toHaveTextContent('Already in Road trip');
+    await userEvent.click(within(sheet).getByRole('button', { name: "Don't add" }));
+    expect(within(sheet).queryByRole('alertdialog')).not.toBeInTheDocument();
+    act(() => useTrackActionsStore.getState().close());
   });
 
   it('plays a playlist, from a track, and reorders and removes items while editing', async () => {

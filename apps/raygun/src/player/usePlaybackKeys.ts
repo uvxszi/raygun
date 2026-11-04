@@ -1,12 +1,10 @@
-import type { PlaybackState, RepeatMode } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 import { usePlayerUiStore } from './playerUiStore';
-import { sendControl } from './usePlayback';
-
-const NEXT_REPEAT: Record<RepeatMode, RepeatMode> = { off: 'all', all: 'one', one: 'off' };
+import { positionAt } from './useLivePosition';
+import { NEXT_REPEAT, sendControl, shownState } from './usePlayback';
 
 /** The shortcuts, for the help sheet (M46.8); keys as shown to people. */
 export const PLAYBACK_SHORTCUTS = [
@@ -36,9 +34,11 @@ export type PlaybackAction = Exclude<(typeof PLAYBACK_SHORTCUTS)[number][1], 'he
 
 /** Runs one playback action against the current state (keys, the app menu; M46.8, M46.9). */
 export const runPlaybackAction = (action: PlaybackAction, client: QueryClient) => {
-  const state = client.getQueryData<PlaybackState>(['playbackState']);
+  // The shown player (another device's while playing there), where it is now, in the seek
+  // slider's quarter seconds.
+  const state = shownState(client);
   const ui = usePlayerUiStore.getState();
-  const position = state?.positionMs ?? 0;
+  const position = Math.floor(positionAt(state, performance.now()) / 250) * 250;
   const volume = state?.volume ?? 1;
   switch (action) {
     case 'playPause':

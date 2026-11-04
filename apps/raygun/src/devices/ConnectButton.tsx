@@ -19,6 +19,7 @@ import { usePlatform } from '../lib/usePlatform';
 import { useLocalNetworkGate } from '../network/useLocalNetworkGate';
 import { useRemoteChange, useRemoteStatus } from '../settings/remoteQueries';
 import { Sheet } from '../shell/Sheet';
+import { TextField } from '../shell/TextField';
 import { AudioOutputs } from './AudioOutputs';
 
 const ROW = 'flex items-center gap-3 rounded-xl px-2 py-2.5';
@@ -247,13 +248,18 @@ const AddDevice: FC<{ onDone: () => void }> = ({ onDone }) => {
     <form onSubmit={submit} className="flex flex-col gap-2 px-2 py-2">
       <label className="flex flex-col gap-1 text-xs">
         <span className="text-muted">{t('connect.addressLabel')}</span>
-        <input
+        <TextField
           autoFocus
           inputMode="url"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
           value={address}
           placeholder="192.168.1.20:8820"
-          onChange={(event) => setAddress(event.target.value)}
-          className="bg-background rounded-lg px-3 py-2 text-sm"
+          onChange={setAddress}
+          aria-label={t('connect.addressLabel')}
+          className="bg-background rounded-lg pr-0.5 pl-3"
+          inputClassName="py-2 text-sm"
         />
       </label>
       {add.error && (

@@ -210,6 +210,11 @@ impl ArtistFollows {
         Ok(())
     }
 
+    /// Checks every followed artist with alerts now (Updates' refresh), not waiting for the day.
+    pub async fn check_now(&self) {
+        self.check_due(true).await;
+    }
+
     /// The latest releases found for followed artists, newest first.
     pub async fn news(&self) -> Vec<ArtistReleaseNews> {
         raygun_db::local_value(&self.db(), NEWS)

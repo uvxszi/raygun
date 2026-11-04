@@ -1,0 +1,98 @@
+import { ImageOff, LoaderCircle, RotateCw } from 'lucide-react';
+import { memo, useState } from 'react';
+import type { CSSProperties, FC, Ref } from 'react';
+import { useTranslation } from 'react-i18next';
+
+type ReaderImageProps = {
+  url: string;
+  index: number;
+  className?: string;
+  style?: CSSProperties;
+  imageRef?: Ref<HTMLImageElement>;
+  /** The page's width over its height, once it's loaded. */
+  onRatio?: (index: number, ratio: number) => void;
+  /** A long press or right click: the page's actions. */
+  onMenu: (index: number) => void;
+};
+
+/** A retry reaches the source again rather than the failed answer. */
+const withAttempt = (url: string, attempt: number) =>
+  attempt === 0 ? url : `${url}${url.includes('?') ? '&' : '?'}retry=${attempt}`;
+
+/**
+ * One reader page: a spinner while it loads, and when it fails a note and a retry instead of a
+ * broken picture. Decoding happens off the main thread. The parent is `relative`, so the status
+ * sits over the page's place.
+ */
+const ReaderImageView: FC<ReaderImageProps> = ({
+  url,
+  index,
+  className = '',
+  style,
+  imageRef,
+  onRatio,
+  onMenu,
+}) => {
+  const { t } = useTranslation();
+  const [attempt, setAttempt] = useState(0);
+  const [state, setState] = useState<'loading' | 'loaded' | 'failed'>('loading');
+  const src = withAttempt(url, attempt);
+  return (
+    <>
+      <img
+        key={src}
+        ref={imageRef}
+        data-testid="manga-page"
+        data-index={index}
+        src={src}
+        alt={t('manga.pageAlt', { page: index + 1 })}
+        decoding="async"
+        draggable={false}
+        onLoad={(event) => {
+          setState('loaded');
+          const { naturalWidth, naturalHeight } = event.currentTarget;
+          if (naturalWidth > 0 && naturalHeight > 0) onRatio?.(index, naturalWidth / naturalHeight);
+        }}
+        onError={() => setState('failed')}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          onMenu(index);
+        }}
+        className={`${className} ${state === 'failed' ? 'invisible' : ''}`}
+        style={style}
+      />
+      {state === 'loading' && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 grid place-items-center text-white/40"
+        >
+          <LoaderCircle size={28} className="animate-spin" />
+        </span>
+      )}
+      {state === 'failed' && (
+        <span
+          role="alert"
+          className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center text-sm text-white/80"
+        >
+          <ImageOff aria-hidden size={28} />
+          {t('reader.pageFailed', { page: index + 1 })}
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setState('loading');
+              setAttempt((count) => count + 1);
+            }}
+            className="flex items-center gap-2 rounded-full bg-white/15 px-4 py-2 font-semibold text-white"
+          >
+            <RotateCw aria-hidden size={16} />
+            {t('reader.retryPage')}
+          </button>
+        </span>
+      )}
+    </>
+  );
+};
+
+/** Pages re-render only when their own props change, not on every page turn. */
+export const ReaderImage = memo(ReaderImageView);

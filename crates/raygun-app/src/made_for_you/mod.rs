@@ -1,7 +1,9 @@
 //! Made for You (M46.20), as QuietPlay and Spotify have it: mixes made from the user's listening
 //! (`taste`), filled with songs from `music.recommend` sources (similar artists' best-known songs,
 //! new releases, artist radios) and the genre sources (M46.19). Made once a day in the background
-//! and kept in `local_value` `music.madeForYou`; a refresh makes them again.
+//! and kept in `local_value` `music.madeForYou`; a refresh makes them again. Hidden artists are
+//! never asked about, and hidden songs leave the kept mixes as they're read, so hiding (and
+//! showing again) takes effect at once.
 
 pub mod taste;
 
@@ -23,6 +25,7 @@ use crate::collections::CollectionsService;
 use crate::discovery::DiscoveryService;
 use crate::events::MadeForYouEvent;
 use crate::extensions::ExtensionService;
+use crate::hidden::Hidden;
 use crate::startup::AppDb;
 
 const CACHE_KEY: &str = "music.madeForYou";
@@ -99,6 +102,34 @@ fn online(track: TrackFields) -> OnlineTrack {
     }
 }
 
+/// `mix` without hidden songs: `None` when it's about a hidden artist, or too little is left.
+fn visible(mix: Mix, hidden: &Hidden) -> Option<Mix> {
+    if hidden.is_empty() {
+        return Some(mix);
+    }
+    let about_artist = matches!(
+        mix.kind,
+        MixKind::BecauseYouListened | MixKind::ArtistRadio | MixKind::Daily
+    );
+    if about_artist
+        && mix
+            .seed
+            .as_deref()
+            .is_some_and(|seed| hidden.hides_artist(seed))
+    {
+        return None;
+    }
+    if !mix.tracks.iter().any(|track| hidden.hides_track(track)) {
+        return Some(mix);
+    }
+    let tracks: Vec<OnlineTrack> = mix
+        .tracks
+        .into_iter()
+        .filter(|track| !hidden.hides_track(track))
+        .collect();
+    (tracks.len() >= MIN_MIX).then(|| made(mix.id, mix.kind, mix.seed, mix.number, tracks))
+}
+
 /// Takes from each list in turn (`step` at a time), skipping songs already taken or `excluded`.
 fn interleave(
     lists: Vec<Vec<OnlineTrack>>,
@@ -132,11 +163,13 @@ fn interleave(
     }
 }
 
-/// What the sources were asked during one making, so an artist is asked about once.
+/// What the sources were asked during one making, so an artist is asked about once; hidden
+/// artists are never asked about or taken in.
 #[derive(Default)]
 struct Asked {
     similar: HashMap<String, Vec<String>>,
     top: HashMap<String, Vec<OnlineTrack>>,
+    hidden: Hidden,
 }
 
 impl MadeForYouService {
@@ -169,10 +202,22 @@ impl MadeForYouService {
             self.start(utc_offset_minutes);
         }
         let making = self.making.load(Ordering::SeqCst);
+        let hidden = Hidden::load(self.db()).await;
         match stored {
-            Some(stored) => MadeForYou {
-                mixes: stored.mixes.iter().map(summary).collect(),
-                stats: stored.stats,
+            Some(mut stored) => MadeForYou {
+                mixes: stored
+                    .mixes
+                    .into_iter()
+                    .filter_map(|mix| visible(mix, &hidden))
+                    .map(|mix| summary(&mix))
+                    .collect(),
+                stats: {
+                    stored
+                        .stats
+                        .top_artists
+                        .retain(|artist| !hidden.hides_artist(artist));
+                    stored.stats
+                },
                 made_at: Some(stored.made_at as f64),
                 making,
             },
@@ -181,7 +226,13 @@ impl MadeForYouService {
                 stats: self
                     .taste(utc_offset_minutes)
                     .await
-                    .map(|taste| taste.stats())
+                    .map(|taste| {
+                        let mut stats = taste.stats();
+                        stats
+                            .top_artists
+                            .retain(|artist| !hidden.hides_artist(artist));
+                        stats
+                    })
                     .unwrap_or_default(),
                 made_at: None,
                 making,
@@ -191,9 +242,11 @@ impl MadeForYouService {
 
     /// One mix with its songs.
     pub async fn mix(&self, id: &str) -> Result<Mix, String> {
+        let hidden = Hidden::load(self.db()).await;
         self.stored()
             .await
             .and_then(|stored| stored.mixes.into_iter().find(|mix| mix.id == id))
+            .and_then(|mix| visible(mix, &hidden))
             .ok_or_else(|| "This mix is no longer made for you; open Made for You again".to_owned())
     }
 
@@ -214,7 +267,9 @@ impl MadeForYouService {
                 source: track.source,
             })
             .collect();
-        collections.add_to_playlist(&playlist.id, tracks).await?;
+        collections
+            .add_to_playlist(&playlist.id, tracks, false)
+            .await?;
         Ok(playlist.id)
     }
 
@@ -354,7 +409,7 @@ impl MadeForYouService {
         let mut counts: HashMap<String, (usize, String)> = HashMap::new();
         for seed in seeds {
             for (rank, name) in self.similar(asked, seed).await.into_iter().enumerate() {
-                if mine.contains(&name.to_lowercase()) {
+                if mine.contains(&name.to_lowercase()) || asked.hidden.hides_artist(&name) {
                     continue;
                 }
                 let entry = counts.entry(name.to_lowercase()).or_insert((0, name));
@@ -367,6 +422,8 @@ impl MadeForYouService {
         let mut lists = Vec::new();
         for (_, name) in ranked.into_iter().take(artists_wanted) {
             let mut songs = self.top(asked, &name).await;
+            // A top song may credit a hidden artist alongside this one.
+            asked.hidden.retain_tracks(&mut songs);
             songs.truncate(per_artist.max(1) * 2);
             if !songs.is_empty() {
                 lists.push(songs);
@@ -379,6 +436,7 @@ impl MadeForYouService {
     /// only leaves its mixes out.
     async fn make(&self, utc_offset_minutes: i32) -> Result<Stored, String> {
         let taste = self.taste(utc_offset_minutes).await?;
+        let hidden = Hidden::load(self.db()).await;
         let now = taste.now;
         let day = local_day(now, utc_offset_minutes);
         let week = day.div_euclid(7);
@@ -390,20 +448,38 @@ impl MadeForYouService {
             .filter_map(|song| song.track.artist.as_deref())
             .map(|credit| main_artist(credit).to_lowercase())
             .collect();
-        let seeds = taste.top_artists(SEED_ARTISTS);
+        // The listener's artists that aren't hidden, most played first.
+        let top_artists = |count: usize| -> Vec<String> {
+            taste
+                .top_artists(count + 20)
+                .into_iter()
+                .filter(|artist| !hidden.hides_artist(artist))
+                .take(count)
+                .collect()
+        };
+        let seeds = top_artists(SEED_ARTISTS);
         tracing::info!(
             songs = taste.songs.len(),
             plays = taste.plays.len(),
             ?seeds,
             "making mixes"
         );
-        let mut asked = Asked::default();
+        let mut asked = Asked {
+            hidden: hidden.clone(),
+            ..Asked::default()
+        };
         let mut mixes: Vec<Mix> = Vec::new();
 
         // Daily Mixes: the user's songs of a genre (or artist), with similar artists' songs mixed
         // in, one in three.
         for mut mix in taste.daily_mixes() {
-            let lead: Vec<String> = mix.artists.iter().take(2).cloned().collect();
+            let lead: Vec<String> = mix
+                .artists
+                .iter()
+                .filter(|artist| !hidden.hides_artist(artist))
+                .take(2)
+                .cloned()
+                .collect();
             let lists = self.songs_of_similar(&mut asked, &lead, &mine, 4, 3).await;
             let fresh = interleave(lists, 1, MIX_SIZE / 3, &known);
             let mut tracks = Vec::new();
@@ -439,14 +515,15 @@ impl MadeForYouService {
 
         // Release Radar: the last four weeks' releases by the user's artists.
         let mut releases = Vec::new();
-        for artist in taste.top_artists(10) {
-            let songs = self
+        for artist in top_artists(10) {
+            let mut songs = self
                 .extensions()
                 .recommended_tracks(
                     "newReleases",
                     serde_json::json!({ "artist": artist, "days": 28, "limit": 6 }),
                 )
                 .await;
+            hidden.retain_tracks(&mut songs);
             if !songs.is_empty() {
                 releases.push(songs);
             }
@@ -485,13 +562,14 @@ impl MadeForYouService {
 
         // Radios for the two top artists.
         for artist in seeds.iter().take(2) {
-            let songs = self
+            let mut songs = self
                 .extensions()
                 .recommended_tracks(
                     "radio",
                     serde_json::json!({ "artist": artist, "title": null, "limit": 40 }),
                 )
                 .await;
+            hidden.retain_tracks(&mut songs);
             if songs.len() >= MIN_MIX {
                 mixes.push(made(
                     format!("radio-{}", artist.to_lowercase()),
@@ -525,7 +603,10 @@ impl MadeForYouService {
         for (kind, name, own) in themed {
             let rows = discovery.tag_sources(name.clone(), None).await.rows;
             let mut lists = vec![own];
-            lists.extend(rows.into_iter().map(|row| row.tracks));
+            lists.extend(rows.into_iter().map(|mut row| {
+                hidden.retain_tracks(&mut row.tracks);
+                row.tracks
+            }));
             let mut songs = interleave(lists, 2, MIX_SIZE, &HashSet::new());
             shuffle(&mut songs, &format!("{name}{day}"));
             if songs.len() >= MIN_MIX {
@@ -575,6 +656,60 @@ mod tests {
             .map(|track| track.title)
             .collect();
         assert_eq!(titles, vec!["A1", "B1", "A3"]);
+    }
+
+    #[test]
+    fn hidden_artists_and_songs_leave_the_kept_mixes() {
+        use raygun_model::{HiddenArtist, HiddenItem, HiddenPrefs};
+        let mut tracks: Vec<OnlineTrack> = (0..8).map(|n| track(&format!("A{n}"), "A")).collect();
+        tracks.extend((0..3).map(|n| track(&format!("B{n}"), "B feat. Hidden One")));
+        let mix = made(
+            "daily-1".into(),
+            MixKind::Daily,
+            Some("Rock".into()),
+            Some(1),
+            tracks,
+        );
+        let hidden = Hidden::new(&HiddenPrefs {
+            artists: vec![HiddenArtist {
+                name: "hidden one".into(),
+                hidden_at: 1,
+            }],
+            items: vec![HiddenItem {
+                kind: "song".into(),
+                key: song_key("A0", Some("A")),
+                name: "A0".into(),
+                ..HiddenItem::default()
+            }],
+        });
+        let shown = visible(mix.clone(), &hidden).unwrap();
+        assert_eq!(
+            shown.tracks.len(),
+            7,
+            "B's songs credit a hidden artist, A0 isn't wanted"
+        );
+        assert_eq!(shown.artists, vec!["A".to_owned()]);
+        assert_eq!(visible(mix.clone(), &Hidden::default()).unwrap(), mix);
+
+        // A mix about a hidden artist goes, and so does one left too small.
+        let about = made(
+            "because-hidden one".into(),
+            MixKind::BecauseYouListened,
+            Some("Hidden One".into()),
+            None,
+            (0..8).map(|n| track(&format!("C{n}"), "C")).collect(),
+        );
+        assert!(visible(about, &hidden).is_none());
+        let small = made(
+            "on-repeat".into(),
+            MixKind::OnRepeat,
+            None,
+            None,
+            (0..7)
+                .map(|n| track(&format!("D{n}"), if n < 3 { "Hidden One" } else { "D" }))
+                .collect(),
+        );
+        assert!(visible(small, &hidden).is_none());
     }
 
     #[test]

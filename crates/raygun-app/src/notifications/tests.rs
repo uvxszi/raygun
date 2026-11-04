@@ -12,6 +12,7 @@ fn song(id: &str, phase: Phase, done: f64) -> Download {
         unit: Unit::Bytes,
         bytes: None,
         left_ms: None,
+        speed: None,
         error: None,
         abilities: Abilities {
             pause: false,
@@ -34,6 +35,7 @@ fn chapter(id: &str, phase: Phase, pages: f64) -> Download {
         unit: Unit::Pages,
         bytes: None,
         left_ms: None,
+        speed: None,
         error: None,
         abilities: Abilities {
             pause: true,

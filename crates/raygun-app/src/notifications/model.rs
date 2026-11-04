@@ -141,8 +141,11 @@ pub struct Download {
     pub unit: Unit,
     /// Bytes so far, for the speed, when progress counts something else (a video's parts).
     pub bytes: Option<f64>,
-    /// Time left that's known outright (a recording ends with its song), ms.
+    /// Time left that's known outright (a recording ends with its song, or the service says),
+    /// ms.
     pub left_ms: Option<f64>,
+    /// Bytes a second as the service measured them.
+    pub speed: Option<f64>,
     pub error: Option<String>,
     pub abilities: Abilities,
     pub route: String,
@@ -392,6 +395,9 @@ impl Tracker {
 
     /// Bytes a second, when known.
     fn speed(&self, download: &Download) -> Option<f64> {
+        if let Some(speed) = download.speed.filter(|speed| *speed > 0.0) {
+            return Some(speed);
+        }
         let rate = self.rates.get(&download.key())?;
         if download.bytes.is_some() {
             rate.bytes_per_s

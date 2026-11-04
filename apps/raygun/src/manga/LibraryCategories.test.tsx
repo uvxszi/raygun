@@ -142,7 +142,10 @@ describe('Library categories and filters', () => {
     await user.type(input, 'Reading now{Enter}');
     expect(commands.libraryCategoryRename).toHaveBeenCalledWith('manga', 'c1', 'Reading now');
 
+    // Deleting asks first.
     await user.click(within(page).getByRole('button', { name: 'Delete Later' }));
+    expect(commands.libraryCategoryDelete).not.toHaveBeenCalled();
+    await user.click(within(page).getByRole('button', { name: 'Delete' }));
     expect(commands.libraryCategoryDelete).toHaveBeenCalledWith('manga', 'c2');
   });
 });

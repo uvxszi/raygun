@@ -66,14 +66,18 @@ impl LyricsStore {
     }
 
     /// A source's lyrics for a song: kept ones at once, else asked for (with simpler words when
-    /// none come) and kept.
+    /// none come) and kept. While incognito is on (M47) kept ones are read, but nothing is kept
+    /// and no song is marked as shown.
     pub async fn lyrics(&self, query: &TrackQuery) -> Result<Option<Lyrics>, String> {
         let key = raygun_resolver::track_key(query);
         let now = now_ms();
-        if let Some(kept) = store::get(&self.db(), &key, now)
-            .await
-            .map_err(to_message)?
-        {
+        let incognito = crate::privacy::incognito(&self.app);
+        let kept = if incognito {
+            store::peek(&self.db(), &key).await
+        } else {
+            store::get(&self.db(), &key, now).await
+        };
+        if let Some(kept) = kept.map_err(to_message)? {
             match kept.lyrics.as_deref() {
                 Some(json) => {
                     if let Ok(lyrics) = serde_json::from_str(json) {
@@ -98,14 +102,18 @@ impl LyricsStore {
         let json = found
             .as_ref()
             .and_then(|lyrics| serde_json::to_string(lyrics).ok());
-        if let Err(error) = store::put(&self.db(), &key, json.as_deref(), now).await {
+        if !incognito && let Err(error) = store::put(&self.db(), &key, json.as_deref(), now).await {
             tracing::warn!(%error, "couldn't keep a song's lyrics");
         }
         Ok(found)
     }
 
-    /// Marks a song's lyrics as shown (its own lyrics showed, so nothing was asked for).
+    /// Marks a song's lyrics as shown (its own lyrics showed, so nothing was asked for); not while
+    /// incognito is on (M47).
     pub async fn touch(&self, query: &TrackQuery) {
+        if crate::privacy::incognito(&self.app) {
+            return;
+        }
         let key = raygun_resolver::track_key(query);
         let _ = store::touch(&self.db(), &key, now_ms()).await;
     }

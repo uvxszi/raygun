@@ -2,14 +2,16 @@ package app.raygun.audio
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -20,10 +22,11 @@ import androidx.media3.ui.TimeBar
 
 /**
  * The player's own controls (M45, after Aniyomi's): a top bar (back, title, episodes, sources,
- * audio, subtitles, more), previous · play · next in the middle, and at the bottom the seek bar
- * with chapter markers, then lock, rotate, speed and chapter on the left and aspect and
- * picture-in-picture on the right. The skip button floats above them. Taps that miss a button fall
- * through to the gestures underneath.
+ * audio, subtitles, more), previous · back · play · forward · next in the middle, and at the
+ * bottom the seek bar with chapter markers, then lock, rotate, speed and chapter on the left and
+ * aspect and picture-in-picture on the right. The skip button floats above them. Taps that miss a
+ * button fall through to the gestures underneath. While the video waits, the loading ring takes
+ * the play button's place.
  */
 internal class PlayerControls(private val host: VideoPlayerActivity) {
     private val context: Context = host
@@ -32,6 +35,7 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
         setTextColor(Color.WHITE)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
         maxLines = 2
+        ellipsize = TextUtils.TruncateAt.END
     }
     /** The sleep timer's time left. */
     private val note = TextView(context).apply {
@@ -44,7 +48,10 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
     val sourcesButton: ImageButton =
         context.iconButton(R.drawable.raygun_ic_sources, host.label("sources", "Sources")) { host.sheets.sources() }
     private val audioButton =
-        context.iconButton(R.drawable.raygun_ic_audio, host.label("audio", "Audio")) { host.sheets.audio() }
+        context.iconButton(R.drawable.raygun_ic_audio, host.label("audio", "Audio")) { host.sheets.audio() }.apply {
+            // Shown once the video turns out to have more than one audio track.
+            visibility = View.GONE
+        }
     private val subtitlesButton =
         context.iconButton(R.drawable.raygun_ic_subtitles, host.label("subtitles", "Subtitles")) { host.sheets.subtitles() }
     private val moreButton =
@@ -72,24 +79,23 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
     }
 
     private val previousButton =
-        context.iconButton(R.drawable.raygun_ic_previous, host.label("previous", "Previous episode"), 56) { host.request("previous") }
+        context.iconButton(R.drawable.raygun_ic_previous, host.label("previous", "Previous episode"), 48) { host.request("previous") }
     private val playButton =
         context.iconButton(R.drawable.raygun_ic_pause, host.label("pause", "Pause"), 72) { togglePlay() }
     private val nextButton =
-        context.iconButton(R.drawable.raygun_ic_next, host.label("next", "Next episode"), 56) { host.requestNext() }
-    private val buffering = ProgressBar(context).apply { visibility = View.GONE }
+        context.iconButton(R.drawable.raygun_ic_next, host.label("next", "Next episode"), 48) { host.requestNext() }
+    private val backButton = seekButton(back = true)
+    private val forwardButton = seekButton(back = false)
+    // The same space on both sides of each button keeps the play button at the screen's centre,
+    // where the loading ring shows, with or without previous and next.
     private val centre = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER
-        addView(previousButton)
-        addView(FrameLayout(context).apply {
-            addView(playButton, FrameLayout.LayoutParams(context.dp(72), context.dp(72), Gravity.CENTER))
-            addView(buffering, FrameLayout.LayoutParams(context.dp(72), context.dp(72), Gravity.CENTER))
-        }, LinearLayout.LayoutParams(context.dp(96), context.dp(96)).apply {
-            marginStart = context.dp(32)
-            marginEnd = context.dp(32)
-        })
-        addView(nextButton)
+        addView(previousButton, spaced(48))
+        addView(backButton, spaced(52))
+        addView(playButton, spaced(72))
+        addView(forwardButton, spaced(52))
+        addView(nextButton, spaced(48))
     }
 
     private val position = timeText()
@@ -98,8 +104,8 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
         setOnClickListener { host.toggleRemaining() }
     }
     val timeBar = DefaultTimeBar(context).apply {
-        setPlayedColor(ACCENT)
-        setScrubberColor(ACCENT)
+        setPlayedColor(playerAccent)
+        setScrubberColor(playerAccent)
         setBufferedColor(0x66FFFFFF)
         setUnplayedColor(0x33FFFFFF)
         setAdMarkerColor(0xFFFFD54F.toInt())
@@ -107,8 +113,16 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
     }
     private val lockButton =
         context.iconButton(R.drawable.raygun_ic_lock, host.label("lock", "Lock")) { lock() }
+    /** A tap turns portrait ⇄ landscape; holding keeps the screen exactly as it is now. */
     private val rotateButton =
-        context.iconButton(R.drawable.raygun_ic_rotate, host.label("rotate", "Rotate")) { host.rotate() }
+        context.iconButton(R.drawable.raygun_ic_rotate, host.label("rotateHint", "Rotate. Hold to keep this way")) {
+            host.rotate()
+        }.apply {
+            setOnLongClickListener {
+                host.lockRotation()
+                true
+            }
+        }
     private val speedChip = context.pill("1×") { host.cycleSpeed() }.apply {
         setOnLongClickListener {
             host.sheets.speed()
@@ -118,6 +132,7 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
     private val chapterChip = context.pill("") { host.sheets.chapters() }.apply {
         maxWidth = context.dp(200)
         maxLines = 1
+        ellipsize = TextUtils.TruncateAt.END
         visibility = View.GONE
     }
     private val aspectButton =
@@ -168,7 +183,7 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
     val dontSkipButton: TextView = context.pill(host.label("dontSkip", "Don't skip")) { host.cancelSkipCountdown() }.apply {
         visibility = View.GONE
     }
-    private val skipRow = LinearLayout(context).apply {
+    val skipRow = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         addView(dontSkipButton)
         addView(skipButton)
@@ -194,6 +209,9 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
         private set
     private var scrubbing = false
     private var scrubPosition = 0L
+    private var shownPlaying: Boolean? = null
+    private var busy = false
+    private var problem = false
     private val hideLater = Runnable { if (!scrubbing) hide() }
 
     init {
@@ -222,6 +240,7 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
             view.setPadding(cutout.left, cutout.top, cutout.right, cutout.bottom)
             insets
         }
+        setSeekStep(host.seekStepMs)
         hide()
     }
 
@@ -232,20 +251,79 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
         text = formatTime(0)
     }
 
+    private fun spaced(size: Int) = LinearLayout.LayoutParams(context.dp(size), context.dp(size)).apply {
+        marginStart = context.dp(7)
+        marginEnd = context.dp(7)
+    }
+
+    /** A circular arrow with the seek step inside it ("10"). */
+    private fun seekButton(back: Boolean): FrameLayout = FrameLayout(context).apply {
+        val ripple = TypedValue()
+        context.theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, ripple, true)
+        setBackgroundResource(ripple.resourceId)
+        isClickable = true
+        isFocusable = true
+        addView(ImageView(context).apply {
+            setImageResource(if (back) R.drawable.raygun_ic_replay else R.drawable.raygun_ic_replay_forward)
+            setColorFilter(Color.WHITE)
+        }, FrameLayout.LayoutParams(context.dp(40), context.dp(40), Gravity.CENTER))
+        addView(TextView(context).apply {
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            // The arrow's circle sits a little below the middle of the icon.
+            translationY = context.dp(2).toFloat()
+        }, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+        setOnClickListener {
+            host.seekBy(if (back) -host.seekStepMs else host.seekStepMs)
+            bump()
+        }
+    }
+
+    /** The step the middle buttons jump, shown inside them. */
+    fun setSeekStep(stepMs: Long) {
+        val seconds = (stepMs / 1000).toString()
+        listOf(backButton to "seekBack", forwardButton to "seekForward").forEach { (button, key) ->
+            (button.getChildAt(1) as TextView).show(seconds)
+            button.contentDescription = host.label(
+                key,
+                if (key == "seekBack") "Back {n} s" else "Forward {n} s",
+                seconds,
+            )
+        }
+    }
+
     fun setTitle(text: String) {
-        title.text = text
+        title.show(text)
     }
 
     /** Episodes and previous/next for a session with more than one episode; Sources for any. */
     fun setSession(session: Boolean, several: Boolean, hasPrevious: Boolean, hasNext: Boolean) {
         episodesButton.visibility = if (session && several) View.VISIBLE else View.GONE
         sourcesButton.visibility = if (session) View.VISIBLE else View.GONE
-        previousButton.visibility = if (session && several) View.VISIBLE else View.INVISIBLE
-        nextButton.visibility = if (session && several) View.VISIBLE else View.INVISIBLE
+        previousButton.visibility = if (session && several) View.VISIBLE else View.GONE
+        nextButton.visibility = if (session && several) View.VISIBLE else View.GONE
         previousButton.isEnabled = hasPrevious
         previousButton.alpha = if (hasPrevious) 1f else 0.35f
         nextButton.isEnabled = hasNext
         nextButton.alpha = if (hasNext) 1f else 0.35f
+    }
+
+    /** The audio button shows when there's a choice of audio tracks. */
+    fun setAudioChoice(several: Boolean) {
+        audioButton.visibility = if (several) View.VISIBLE else View.GONE
+    }
+
+    /** The rotate button shows that the screen is kept as it is. */
+    fun setRotationLocked(locked: Boolean) {
+        rotateButton.setImageResource(if (locked) R.drawable.raygun_ic_rotate_lock else R.drawable.raygun_ic_rotate)
+        rotateButton.setColorFilter(if (locked) playerAccent else Color.WHITE)
+        rotateButton.contentDescription = if (locked) {
+            host.label("rotationLockedHint", "Rotation locked. Tap to unlock")
+        } else {
+            host.label("rotateHint", "Rotate. Hold to keep this way")
+        }
     }
 
     /** Marks chapter starts (and the ends of skippable ones) on the seek bar. */
@@ -260,8 +338,21 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
     }
 
     fun setNote(text: String?) {
-        note.text = text ?: ""
+        note.show(text ?: "")
         note.visibility = if (text.isNullOrBlank()) View.GONE else View.VISIBLE
+    }
+
+    /** While the video waits, the loading ring shows where the play button is. */
+    fun setBusy(waiting: Boolean) {
+        if (busy == waiting) return
+        busy = waiting
+        playButton.visibility = if (waiting) View.INVISIBLE else View.VISIBLE
+    }
+
+    /** While a problem shows in the middle, the middle buttons make way for it. */
+    fun setProblem(shown: Boolean) {
+        problem = shown
+        centre.visibility = if (visible && !locked && !shown) View.VISIBLE else View.GONE
     }
 
     /** Refreshes times, the play button, the speed and the chapter; runs a few times a second. */
@@ -274,33 +365,32 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
             timeBar.setBufferedPosition(player.bufferedPosition)
         }
         timeBar.setDuration(length)
-        position.text = formatTime(now)
-        duration.text = when {
-            length <= 0 -> "--:--"
-            host.prefs.showRemaining -> "-" + formatTime(length - now)
-            else -> formatTime(length)
-        }
+        position.show(formatTime(now))
+        duration.show(
+            when {
+                length <= 0 -> "--:--"
+                host.prefs.showRemaining -> "-" + formatTime(length - now)
+                else -> formatTime(length)
+            },
+        )
         val playing = player.playWhenReady && player.playbackState != Player.STATE_ENDED
-        playButton.setImageResource(if (playing) R.drawable.raygun_ic_pause else R.drawable.raygun_ic_play)
-        playButton.contentDescription = host.label(if (playing) "pause" else "play", if (playing) "Pause" else "Play")
-        buffering.visibility = if (player.playbackState == Player.STATE_BUFFERING) View.VISIBLE else View.GONE
-        speedChip.text = formatSpeed(player.playbackParameters.speed)
-        chapterChip.text = host.chapterAt(now)
-            ?.let { (index, chapter) -> host.chapterName(chapter, index) }
-            ?: host.label("chapters", "Chapters")
+        if (shownPlaying != playing) {
+            shownPlaying = playing
+            playButton.setImageResource(if (playing) R.drawable.raygun_ic_pause else R.drawable.raygun_ic_play)
+            playButton.contentDescription = host.label(if (playing) "pause" else "play", if (playing) "Pause" else "Play")
+        }
+        speedChip.show(formatSpeed(player.playbackParameters.speed))
+        if (chapterChip.visibility == View.VISIBLE) {
+            chapterChip.show(
+                host.chapterAt(now)
+                    ?.let { (index, chapter) -> host.chapterName(chapter, index) }
+                    ?: host.label("chapters", "Chapters"),
+            )
+        }
     }
 
     private fun togglePlay() {
-        val player = host.player
-        when {
-            player.playbackState == Player.STATE_ENDED -> {
-                player.seekTo(0)
-                player.play()
-            }
-            player.playWhenReady -> player.pause()
-            else -> player.play()
-        }
-        update()
+        host.togglePlay()
         bump()
     }
 
@@ -310,7 +400,7 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
             unlockButton.visibility = View.VISIBLE
         } else {
             topBar.visibility = View.VISIBLE
-            centre.visibility = View.VISIBLE
+            centre.visibility = if (problem) View.GONE else View.VISIBLE
             bottomBar.visibility = View.VISIBLE
         }
         placeSkip()
@@ -358,10 +448,17 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
         show()
     }
 
+    /** How high the skip button and the next-episode prompt sit: above the bottom bar when shown. */
+    fun bottomOffset(): Int = context.dp(if (visible && !locked) 112 else 32)
+
+    /** The bottom bar's height with what's below it (a cutout), for lifting subtitles above it. */
+    fun barHeight(): Int = (bottomBar.height.takeIf { it > 0 } ?: context.dp(108)) + root.paddingBottom
+
     /** The skip button sits above the bottom bar while the controls show. */
     private fun placeSkip() {
         val params = skipRow.layoutParams as FrameLayout.LayoutParams
-        params.bottomMargin = context.dp(if (visible && !locked) 112 else 32)
+        params.bottomMargin = bottomOffset()
         skipRow.layoutParams = params
+        host.placeNextPrompt()
     }
 }

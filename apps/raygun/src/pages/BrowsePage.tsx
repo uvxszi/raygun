@@ -2,7 +2,6 @@ import type { MangaSource } from '@raygun/bindings';
 import { useIsFetching } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
-  Blocks,
   LayoutList,
   LoaderCircle,
   Package,
@@ -17,16 +16,27 @@ import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { BrowseTab as AvailableExtensions } from '../extensions/BrowseTab';
+import { updateCount } from '../extensions/catalogFilters';
 import { InstalledTab } from '../extensions/InstalledTab';
-import { useExtensions, useRefreshCatalog, useReloadExtensions } from '../extensions/useExtensions';
+import { EXTENSION_LISTS } from '../extensions/tabs';
+import type { ExtensionList } from '../extensions/tabs';
+import {
+  useCatalog,
+  useExtensions,
+  useRefreshCatalog,
+  useReloadExtensions,
+} from '../extensions/useExtensions';
 import { useLayout } from '../layout/useLayout';
 import { useMangaSources } from '../manga/useManga';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { ListSearchField } from '../shell/ListSearchField';
+import { TextField } from '../shell/TextField';
 import { matchesSearch } from '../shell/useListSearch';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { Tabs } from '../shell/Tabs';
 import { BrowseAll } from '../music/BrowseAll';
+import { useIncognitoItem } from '../privacy/useIncognito';
+import { useRememberSearch } from '../search/useRecentSearches';
 import { SearchPanel } from '../search/SearchPanel';
 import { failingLast, useSourceHealth } from '../search/sourceHealth';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
@@ -39,7 +49,7 @@ import { useVideoSources } from '../watch/useVideoSources';
 import { SourceIssue } from '../shell/SourceIssue';
 
 export type BrowseSection = 'search' | 'discover' | 'sources' | 'extensions';
-export type ExtensionList = 'installed' | 'available';
+export type { ExtensionList };
 
 type SourceRow = {
   key: string;
@@ -164,7 +174,7 @@ const SourcesList: FC = () => {
 
   const videoRows: SourceRow[] = [
     ...(addons.data ?? [])
-      .filter((addon) => addon.catalogs > 0 && !addon.error)
+      .filter((addon) => addon.catalogs > 0 && !addon.error && addon.enabled)
       .map((addon) => ({
         key: addon.id,
         name: addon.name,
@@ -202,7 +212,27 @@ const SourcesList: FC = () => {
     `shrink-0 rounded-full px-3 py-1.5 text-sm ${on ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`;
   return (
     <div data-testid="browse-sources" className="flex flex-col gap-2">
-      {empty && <p className="text-muted px-1 text-sm">{t('browse.noSources')}</p>}
+      {empty && (
+        // Where sources come from, as the two ways to add some.
+        <ul aria-label={t('browse.noSources')} className="bg-surface flex flex-col rounded-xl">
+          <li>
+            <Link
+              to="/browse"
+              search={{ tab: 'extensions', list: 'all' }}
+              className="flex items-center gap-3 px-4 py-3"
+            >
+              <Package aria-hidden size={18} className="text-muted shrink-0" />
+              <span className="font-medium">{t('browse.addExtensions')}</span>
+            </Link>
+          </li>
+          <li>
+            <Link to="/watch/addons" className="flex items-center gap-3 px-4 py-3">
+              <Puzzle aria-hidden size={18} className="text-muted shrink-0" />
+              <span className="font-medium">{t('browse.addAddons')}</span>
+            </Link>
+          </li>
+        </ul>
+      )}
       <div className="flex flex-wrap items-center gap-2 pt-1">
         <div
           role="group"
@@ -277,12 +307,28 @@ export const BrowsePage: FC = () => {
   const desktop = useIsDesktop();
   const updateSetting = useUpdateSetting();
   const failingAtEnd = useSettings().data?.failingSourcesLast ?? true;
+  const incognitoItem = useIncognitoItem();
   const { tab = firstTab, list = 'installed', q = '', type = 'all', view, pill } = current;
   const navigate = useNavigate({ from: '/browse' });
   const reload = useReloadExtensions();
   const refresh = useRefreshCatalog();
+  const catalog = useCatalog(tab === 'extensions');
+  const updates = updateCount(catalog.data);
   const fetching = useIsFetching() > 0;
+  const remember = useRememberSearch();
   const [input, setInput] = useState(q);
+  // The address's query last seen, and the one this field last searched for.
+  const [shown, setShown] = useState(q);
+  const [sent, setSent] = useState(q);
+  if (q !== shown) {
+    setShown(q);
+    // A search changed elsewhere (Back, a link) shows in the field; this field's own search
+    // arriving leaves what's been typed since alone.
+    if (q !== sent) {
+      setSent(q);
+      setInput(q);
+    }
+  }
 
   // The query lives in the URL, so Back to this page shows the same results. On desktop the app
   // bar's field owns it (M46.9); this hidden one must not write its old text back.
@@ -290,6 +336,7 @@ export const BrowsePage: FC = () => {
     if (desktop || input.trim() === q) return;
     const timer = setTimeout(() => {
       const next = input.trim();
+      setSent(next);
       void navigate({ search: { ...current, q: next || undefined }, replace: true });
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
@@ -301,6 +348,23 @@ export const BrowsePage: FC = () => {
     if (value.trim() && tab !== 'search') {
       void navigate({ search: { ...current, tab: 'search' }, replace: true });
     }
+  };
+  /** Searches at once (Enter, or a kept search), and remembers the search. */
+  const searchNow = (text: string, kind: SearchType = type) => {
+    const next = text.trim();
+    setInput(next);
+    setSent(next);
+    remember(next, kind);
+    void navigate({
+      search: {
+        ...current,
+        tab: 'search',
+        q: next || undefined,
+        type: kind === 'all' ? undefined : kind,
+        ...(kind === type ? {} : { view: undefined, pill: undefined }),
+      },
+      replace: true,
+    });
   };
   // A new type starts on its Relevant pill unless one is named (M46.25).
   const setType = (next: SearchType, nextView?: SearchView, pill?: string) =>
@@ -332,7 +396,7 @@ export const BrowsePage: FC = () => {
               },
             ]
           : []),
-        ...(tab === 'extensions' && list === 'available'
+        ...(tab === 'extensions' && list !== 'installed'
           ? [
               {
                 label: t('extensions.refresh'),
@@ -348,7 +412,7 @@ export const BrowsePage: FC = () => {
         },
         { label: t('watch.addons'), icon: Puzzle, to: '/watch/addons' },
         { label: t('browse.repos'), icon: Package, to: '/extensions/repos' },
-        { label: t('systems.title'), icon: Blocks, to: '/extensions/systems' },
+        incognitoItem,
         {
           label: t('layout.editBrowse'),
           icon: LayoutList,
@@ -356,6 +420,10 @@ export const BrowsePage: FC = () => {
         },
       ]}
     />
+  );
+  // Updates shows only while there are some (or while it's open).
+  const extensionLists = EXTENSION_LISTS.filter(
+    (option) => option !== 'updates' || updates > 0 || list === 'updates',
   );
   const tabs = (
     <Tabs
@@ -383,26 +451,37 @@ export const BrowsePage: FC = () => {
       ) : (
         <>
           <header className="bg-background sticky top-0 z-30 -mx-4 flex min-h-16 items-center gap-1 px-3 py-2 lg:-mx-10 lg:px-8">
-            <label className="bg-surface flex min-w-0 flex-1 items-center gap-3 rounded-full px-5 py-3">
-              <Search aria-hidden size={20} className="text-muted shrink-0" />
-              <input
-                type="search"
-                enterKeyHint="search"
-                value={input}
-                onChange={(event) => onInput(event.target.value)}
-                placeholder={t(`search.placeholderFor.${type}`)}
-                aria-label={t('search.title')}
-                className="placeholder:text-muted min-w-0 flex-1 bg-transparent outline-none"
-              />
-              {fetching && q && tab === 'search' && (
-                <LoaderCircle
-                  aria-label={t('search.searching')}
-                  role="status"
-                  size={20}
-                  className="text-muted shrink-0 animate-spin"
-                />
-              )}
-            </label>
+            <TextField
+              type="search"
+              value={input}
+              onChange={onInput}
+              // Tapping the bar is starting a search: Search shows the ones made lately.
+              onFocus={() => {
+                if (tab !== 'search') {
+                  void navigate({ search: { ...current, tab: 'search' }, replace: true });
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') searchNow(input);
+              }}
+              icon={Search}
+              iconSize={20}
+              autoComplete="off"
+              placeholder={t(`search.placeholderFor.${type}`)}
+              aria-label={t('search.title')}
+              className="bg-surface flex-1 gap-3 rounded-full py-1.5 pr-2 pl-5"
+              inputClassName="py-1.5"
+              trailing={
+                fetching && q && tab === 'search' ? (
+                  <LoaderCircle
+                    aria-label={t('search.searching')}
+                    role="status"
+                    size={20}
+                    className="text-muted shrink-0 animate-spin"
+                  />
+                ) : null
+              }
+            />
             {menu}
           </header>
           {tabs}
@@ -418,28 +497,40 @@ export const BrowsePage: FC = () => {
         </p>
       )}
       {tab === 'search' && (
-        <SearchPanel query={q} type={type} view={view} pill={pill} onType={setType} />
+        <SearchPanel
+          query={q}
+          type={type}
+          view={view}
+          pill={pill}
+          onType={setType}
+          onSearch={searchNow}
+        />
       )}
       {tab === 'discover' && <BrowseAll />}
       {tab === 'sources' && <SourcesList />}
       {tab === 'extensions' && (
         <div className="flex flex-col gap-4">
-          <nav className="flex gap-2" aria-label={t('extensions.tabs')}>
-            {(['installed', 'available'] as const).map((option) => (
+          <nav
+            aria-label={t('extensions.tabs')}
+            className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
+          >
+            {extensionLists.map((option) => (
               <Link
                 key={option}
                 to="/browse"
                 search={{ tab: 'extensions', ...(option === 'installed' ? {} : { list: option }) }}
                 replace
-                data-testid={`extensions-tab-${option === 'installed' ? 'installed' : 'browse'}`}
+                data-testid={`extensions-tab-${option}`}
                 aria-current={option === list ? 'page' : undefined}
-                className={`rounded-full px-4 py-1.5 text-sm ${option === list ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
+                className={`shrink-0 rounded-full px-4 py-1.5 text-sm ${option === list ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
               >
-                {t(`extensions.tab.${option === 'installed' ? 'installed' : 'browse'}`)}
+                {option === 'updates'
+                  ? t('extensions.tab.updatesCount', { count: updates })
+                  : t(`extensions.tab.${option}`)}
               </Link>
             ))}
           </nav>
-          {list === 'installed' ? <InstalledTab /> : <AvailableExtensions />}
+          {list === 'installed' ? <InstalledTab /> : <AvailableExtensions show={list} />}
         </div>
       )}
     </section>

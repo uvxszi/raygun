@@ -28,7 +28,8 @@ use tokio::sync::Notify;
 
 use crate::events::{
     AiModelEvent, AppUpdateEvent, ExportEvent, MangaDownloadsEvent, OpenRouteEvent,
-    PodcastsChangedEvent, SongDownloadsEvent, VideoDownloadsEvent, YtDlpEvent,
+    PodcastsChangedEvent, SongDownloadProgressEvent, SongDownloadsEvent, VideoDownloadsEvent,
+    YtDlpEvent,
 };
 use model::{Abilities, Download, Kind, Phase, Plan, Tracker, Unit};
 
@@ -56,6 +57,10 @@ pub struct DownloadNotices {
     wake: Notify,
     /// AI models' progress, from their events (the service keeps only received bytes).
     models: Mutex<HashMap<String, AiModelProgress>>,
+    /// Songs as their service last reported them: progress from `SongDownloadProgressEvent`,
+    /// and the whole list again when it changes (`SongDownloadsEvent`).
+    songs: Mutex<HashMap<String, raygun_model::SongDownload>>,
+    songs_changed: std::sync::atomic::AtomicBool,
     /// The screen a tapped notification opens, until the UI takes it.
     route: Mutex<Option<String>>,
 }
@@ -67,6 +72,8 @@ impl DownloadNotices {
             dirty: Mutex::new(ALL_KINDS.into_iter().collect()),
             wake: Notify::new(),
             models: Mutex::new(HashMap::new()),
+            songs: Mutex::new(HashMap::new()),
+            songs_changed: std::sync::atomic::AtomicBool::new(true),
             route: Mutex::new(None),
         });
         app.manage(notices.clone());
@@ -80,7 +87,22 @@ impl DownloadNotices {
     fn listen(self: &Arc<Self>) {
         let app = &self.app;
         let notices = self.clone();
-        SongDownloadsEvent::listen(app, move |_| notices.touch(Kind::Songs));
+        SongDownloadsEvent::listen(app, move |_| {
+            notices
+                .songs_changed
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            notices.touch(Kind::Songs);
+        });
+        let notices = self.clone();
+        SongDownloadProgressEvent::listen(app, move |event| {
+            let song = event.payload.0;
+            notices
+                .songs
+                .lock()
+                .expect("songs poisoned")
+                .insert(song.id.clone(), song);
+            notices.touch(Kind::Songs);
+        });
         let notices = self.clone();
         VideoDownloadsEvent::listen(app, move |_| notices.touch(Kind::Videos));
         let notices = self.clone();
@@ -183,7 +205,7 @@ impl DownloadNotices {
     /// One kind's downloads now: the running and waiting ones, and ones of this batch that ended.
     async fn collect(&self, kind: Kind, tracker: &Tracker, memory: &mut Memory) -> Vec<Download> {
         let downloads = match kind {
-            Kind::Songs => songs(&self.app).await,
+            Kind::Songs => self.songs_now().await,
             Kind::Videos => videos(&self.app).await,
             Kind::Chapters => chapters(&self.app, memory).await,
             Kind::Podcasts => podcasts(&self.app, memory).await,
@@ -199,6 +221,30 @@ impl DownloadNotices {
                     || tracker.watching(&download.key())
             })
             .collect()
+    }
+
+    /// The songs, from the last list and the progress since; the list is read again only when
+    /// it changed, not for progress.
+    async fn songs_now(&self) -> Vec<Download> {
+        if self
+            .songs_changed
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+            && let Ok(service) =
+                state::<Arc<crate::music_downloads::SongDownloadService>>(&self.app)
+            && let Ok(list) = service.list().await
+        {
+            let mut songs = self.songs.lock().expect("songs poisoned");
+            songs.clear();
+            songs.extend(list.into_iter().map(|song| (song.id.clone(), song)));
+        }
+        let list: Vec<raygun_model::SongDownload> = self
+            .songs
+            .lock()
+            .expect("songs poisoned")
+            .values()
+            .cloned()
+            .collect();
+        songs(&self.app, list)
     }
 
     fn models_now(&self) -> Vec<Download> {
@@ -234,6 +280,7 @@ impl DownloadNotices {
                 unit: Unit::Bytes,
                 bytes: None,
                 left_ms: None,
+                speed: None,
                 error: progress.error.clone(),
                 abilities: Abilities {
                     retry: progress.state == AiModelState::Failed,
@@ -360,13 +407,7 @@ struct Memory {
     episodes: HashMap<String, (String, String, String)>,
 }
 
-async fn songs(app: &AppHandle) -> Vec<Download> {
-    let Ok(service) = state::<Arc<crate::music_downloads::SongDownloadService>>(app) else {
-        return Vec::new();
-    };
-    let Ok(list) = service.list().await else {
-        return Vec::new();
-    };
+fn songs(app: &AppHandle, list: Vec<raygun_model::SongDownload>) -> Vec<Download> {
     // A recording lasts as long as its song plays.
     let left = app
         .try_state::<crate::playback::PlaybackService>()
@@ -398,7 +439,12 @@ async fn songs(app: &AppHandle) -> Vec<Download> {
                 total: song.total_bytes,
                 unit: Unit::Bytes,
                 bytes: None,
-                left_ms: (phase == Phase::Recording).then_some(left).flatten(),
+                left_ms: if phase == Phase::Recording {
+                    left
+                } else {
+                    song.eta_ms
+                },
+                speed: song.bytes_per_second,
                 error,
                 abilities: Abilities {
                     pause: false,
@@ -451,6 +497,7 @@ async fn videos(app: &AppHandle) -> Vec<Download> {
                 unit,
                 bytes,
                 left_ms: None,
+                speed: None,
                 error: item.error,
                 abilities: Abilities {
                     pause: true,
@@ -493,6 +540,7 @@ async fn chapters(app: &AppHandle, memory: &mut Memory) -> Vec<Download> {
                 unit: Unit::Pages,
                 bytes: None,
                 left_ms: None,
+                speed: None,
                 error: item.download.error,
                 abilities: Abilities {
                     pause: true,
@@ -605,6 +653,7 @@ async fn podcasts(app: &AppHandle, memory: &mut Memory) -> Vec<Download> {
             unit: Unit::Bytes,
             bytes: None,
             left_ms: None,
+            speed: None,
             error: row.error,
             abilities: Abilities {
                 retry: phase == Phase::Failed,
@@ -649,6 +698,7 @@ fn exports(app: &AppHandle) -> Vec<Download> {
                 unit: Unit::Chapters,
                 bytes: None,
                 left_ms: None,
+                speed: None,
                 error: job.message,
                 abilities: Abilities {
                     cancel: true,
@@ -699,6 +749,7 @@ fn update(app: &AppHandle) -> Vec<Download> {
         },
         bytes: None,
         left_ms: None,
+        speed: None,
         error,
         abilities: Abilities {
             retry: phase == Phase::Failed,
@@ -734,6 +785,7 @@ fn ytdlp(app: &AppHandle) -> Vec<Download> {
                 unit: Unit::Fraction,
                 bytes: None,
                 left_ms: None,
+                speed: None,
                 error: job.message,
                 abilities: Abilities {
                     cancel: true,
