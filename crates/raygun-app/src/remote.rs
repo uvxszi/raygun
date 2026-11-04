@@ -408,6 +408,7 @@ impl Backend for RemoteBackend {
                 .map(|item| crate::connect::portable_queue_item(item, &original))
                 .collect(),
             order: queue.order,
+            context: queue.context,
         };
         (
             serde_json::to_value(playback.state()).unwrap_or_default(),

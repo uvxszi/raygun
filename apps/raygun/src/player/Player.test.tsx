@@ -138,7 +138,7 @@ describe('Player with resolved streams', () => {
       },
     };
     await AppShellWrapper.mount();
-    emitEvent('queueEvent', { items: [song], order: [0] });
+    emitEvent('queueEvent', { items: [song], order: [0], context: null });
     emitEvent('playbackStateEvent', { ...IDLE_STATE, status: 'loading', currentItemId: song.id });
 
     // The bar shows up with the queue, then says it's finding a source.

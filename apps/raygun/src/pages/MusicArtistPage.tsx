@@ -17,6 +17,7 @@ import { playFromLibrary } from '../library/useLibrary';
 import { creditedArtists } from '../music/artists';
 import { Discography } from '../music/Discography';
 import { usePlayContext } from '../music/playContext';
+import { songReveal, useRevealIndex } from '../music/reveal';
 import { artistFacts, useArtistInfo } from '../player/musicInfo';
 import { OnlineTrackRow } from '../search/OnlineTrackRow';
 import { playResults } from '../search/useOnlineSearch';
@@ -30,6 +31,8 @@ import { ArtistEvents } from '../music/ArtistEvents';
 
 /** Popular songs shown before "Show more". */
 const POPULAR_SHOWN = 10;
+
+const onlineName = (track: OnlineTrack) => songReveal(track.title, track.artist);
 
 const sameArtist = (credit: string | null | undefined, name: string) =>
   creditedArtists(credit).some((artist) => artist.toLowerCase() === name.toLowerCase()) ||
@@ -59,6 +62,9 @@ export const MusicArtistPage: FC = () => {
   const favorites = useFavorites();
   const [more, setMore] = useState(false);
   const popular = overview.data?.popular ?? [];
+  // "Playing from" asked for a popular song past the first few: show them all.
+  const revealAt = useRevealIndex(popular, onlineName);
+  if (revealAt >= POPULAR_SHOWN && !more) setMore(true);
   const saved = (favorites.data ?? []).filter((track) => sameArtist(track.artist, name));
   // The user's own name and picture for this artist (M46.30).
   const [editing, setEditing] = useState(false);

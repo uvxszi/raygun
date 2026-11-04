@@ -11,6 +11,7 @@ import { NowPlayingBars } from '../player/NowPlayingBars';
 import { usePlayingMatch } from '../player/usePlayingMatch';
 import { songCover } from './coverTargets';
 import { SongMarks } from '../music/SongMarks';
+import { songReveal } from '../music/reveal';
 
 type TrackRowProps = {
   track: LibraryTrack;
@@ -25,6 +26,7 @@ export const TrackRow: FC<TrackRowProps> = ({ track, onPlay, variant = 'artwork'
   return (
     <div
       className="flex items-center"
+      data-reveal={songReveal(track.title, track.artist)}
       onContextMenu={menu(fromLibraryTrack(track), { onPlay: () => onPlay(track) })}
     >
       <button

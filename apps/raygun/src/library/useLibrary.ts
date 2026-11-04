@@ -97,7 +97,7 @@ export const useRemoveRoot = () => {
   });
 };
 
-export const playFromLibrary = (request: PlayRequest) => {
-  rememberPlay();
+export const playFromLibrary = async (request: PlayRequest) => {
+  await rememberPlay();
   return unwrapResult(commands.libraryPlay(request));
 };

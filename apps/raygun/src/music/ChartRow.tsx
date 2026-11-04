@@ -17,6 +17,7 @@ import { usePlayingMatch } from '../player/usePlayingMatch';
 import { SourceIssue } from '../shell/SourceIssue';
 import { SongMarks } from './SongMarks';
 import { useHidden } from './hidden';
+import { songReveal } from './reveal';
 
 /** Songs shown in a row; the chart's page has the rest. */
 const ROW_SONGS = 20;
@@ -32,7 +33,7 @@ const SongCard: FC<{
 }> = ({ song, rank, playing, onPlay, onMenu }) => {
   const { t } = useTranslation();
   return (
-    <li className={CARD}>
+    <li className={CARD} data-reveal={songReveal(song.title, song.artist)}>
       <button
         type="button"
         onClick={onPlay}

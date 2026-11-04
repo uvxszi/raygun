@@ -76,6 +76,7 @@ import { SongMarks } from './SongMarks';
 import { NowPlayingBars } from '../player/NowPlayingBars';
 import { usePlayingMatch } from '../player/usePlayingMatch';
 import { songCover } from '../library/coverTargets';
+import { songReveal } from './reveal';
 
 const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
 
@@ -818,6 +819,7 @@ export const TrackTable: FC<TrackTableProps> = ({
                         role="row"
                         aria-selected={isSelected}
                         data-testid="track-table-row"
+                        data-reveal={songReveal(track.title, track.artist)}
                         onClick={(event) => {
                           // A finger's tap anywhere plays the song; once some are picked, it picks.
                           if (touch && !wide && selected.size === 0) onPlay(shown, index);

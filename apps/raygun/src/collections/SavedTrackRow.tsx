@@ -11,6 +11,7 @@ import { NowPlayingBars } from '../player/NowPlayingBars';
 import { usePlayingMatch } from '../player/usePlayingMatch';
 import { songCover } from '../library/coverTargets';
 import { SongMarks } from '../music/SongMarks';
+import { songReveal } from '../music/reveal';
 
 type SavedTrackRowProps = {
   track: SavedTrack;
@@ -33,6 +34,7 @@ export const SavedTrackRow: FC<SavedTrackRowProps> = ({
   return (
     <div
       className="flex items-center"
+      data-reveal={songReveal(track.title, track.artist)}
       onContextMenu={menu(fromSavedTrack(track), { onPlay, playlistItemId })}
     >
       <button

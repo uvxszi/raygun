@@ -16,8 +16,8 @@ use std::time::{Duration, Instant};
 use futures_util::StreamExt;
 use raygun_model::{
     ConnectCommand, ConnectDevice, ConnectRequest, ConnectSession, ConnectStatus, MediaSource,
-    PlaybackControl, PlaybackState, PlaybackStatus, QueueItem, QueueItemInput, QueueSnapshot,
-    RepeatMode,
+    PlayContext, PlaybackControl, PlaybackState, PlaybackStatus, QueueItem, QueueItemInput,
+    QueueSnapshot, RepeatMode,
 };
 use raygun_net::ImageLinks;
 use serde::{Deserialize, Serialize};
@@ -439,6 +439,7 @@ impl ConnectService {
                     session.queue.clone().unwrap_or(QueueSnapshot {
                         items: Vec::new(),
                         order: Vec::new(),
+                        context: None,
                     }),
                     session.state.clone(),
                     session.state_at.elapsed(),
@@ -620,6 +621,7 @@ impl ConnectService {
             let empty = QueueSnapshot {
                 items: Vec::new(),
                 order: Vec::new(),
+                context: None,
             };
             let command = session.state.as_ref().and_then(|state| {
                 transfer(
@@ -777,6 +779,7 @@ impl ConnectService {
                         })
                         .collect(),
                     order: queue.order.clone(),
+                    context: queue.context.clone(),
                 });
                 session.queue = Some(queue);
             }
@@ -1043,6 +1046,10 @@ fn transfer(
         shuffle: state.shuffle,
         start_ms: position,
         play: playing,
+        context: queue.context.clone().map(|context| PlayContext {
+            artwork_url: context.artwork_url.as_deref().map(original),
+            ..context
+        }),
     })
 }
 
@@ -1138,12 +1145,14 @@ fn map_items(
             shuffle,
             start_ms,
             play,
+            context,
         } => ConnectCommand::Replace {
             items: all(items),
             start_index,
             shuffle,
             start_ms,
             play,
+            context,
         },
         ConnectCommand::Enqueue { items, play_now } => ConnectCommand::Enqueue {
             items: all(items),
@@ -1222,6 +1231,15 @@ mod tests {
                 ),
             ],
             order: vec![0, 1, 2],
+            context: Some(PlayContext {
+                kind: "album".into(),
+                name: "Album".into(),
+                subtitle: None,
+                artwork_url: Some("http://127.0.0.1:4000/cover/a".into()),
+                to: "/music/album".into(),
+                search: Default::default(),
+                played_at: 0.0,
+            }),
         };
         let state = PlaybackState {
             status: PlaybackStatus::Playing,
@@ -1243,10 +1261,16 @@ mod tests {
             shuffle,
             start_ms,
             play,
+            context,
         }) = transfer(&queue, &state, Duration::from_millis(1_500), &same)
         else {
             panic!("a queue moves");
         };
+        assert_eq!(
+            context.map(|context| context.name).as_deref(),
+            Some("Album"),
+            "where it was played from goes along"
+        );
         assert_eq!(start_index, Some(1));
         assert!(shuffle && play);
         assert_eq!(start_ms, 11_500.0, "where the song is now");
@@ -1278,6 +1302,7 @@ mod tests {
         let empty = QueueSnapshot {
             items: Vec::new(),
             order: Vec::new(),
+            context: None,
         };
         assert!(
             transfer(&empty, &paused, Duration::ZERO, &same).is_none(),

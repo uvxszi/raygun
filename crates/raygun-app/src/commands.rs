@@ -148,6 +148,17 @@ pub fn playback_get_queue(playback: tauri::State<'_, PlaybackService>) -> QueueS
     playback.queue()
 }
 
+/// Says where the next play comes from (a page's context, or `None` for nowhere in particular):
+/// the next queue it replaces shows it as "Playing from". Sent just before the play command.
+#[tauri::command]
+#[specta::specta]
+pub fn playback_arm_context(
+    playback: tauri::State<'_, PlaybackService>,
+    context: Option<raygun_model::PlayContext>,
+) {
+    playback.arm_context(context);
+}
+
 /// Adds items to the queue; with `play_now` the first one starts immediately.
 #[tauri::command]
 #[specta::specta]

@@ -158,8 +158,8 @@ export const useReorderFavorites = () =>
 export const useClearHistory = () =>
   useCollectionMutation(() => unwrapResult(commands.historyClear()));
 
-export const playCollection = (request: CollectionPlayRequest) => {
-  rememberPlay();
+export const playCollection = async (request: CollectionPlayRequest) => {
+  await rememberPlay();
   return unwrapResult(commands.collectionPlay(request));
 };
 

@@ -2,8 +2,12 @@ import type { PodcastEpisode } from '@raygun/bindings';
 import { useEffect, useRef, useState } from 'react';
 import type { FC, ReactNode } from 'react';
 
+import { episodeReveal, useRevealIndex } from '../music/reveal';
+
 /** Rows drawn at first, and added each time the list's end comes near. */
 const CHUNK = 60;
+
+const episodeName = (episode: PodcastEpisode) => episodeReveal(episode.id);
 
 /**
  * A show's episodes or a book's chapters (M46.48), drawn a chunk at a time as the list's end
@@ -15,6 +19,9 @@ export const EpisodeList: FC<{
 }> = ({ episodes, children }) => {
   const watch = typeof IntersectionObserver !== 'undefined';
   const [shown, setShown] = useState(CHUNK);
+  // "Playing from" asked for an episode further down: draw up to it.
+  const revealAt = useRevealIndex(episodes, episodeName);
+  if (revealAt >= shown) setShown(revealAt + CHUNK);
   const end = useRef<HTMLLIElement>(null);
   const more = watch && shown < episodes.length;
   useEffect(() => {

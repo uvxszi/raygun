@@ -41,6 +41,7 @@ import { ConnectPrompt } from '../connect/ConnectPrompt';
 import { PermissionPromptHost } from '../permissions/PermissionPrompt';
 import { useNotificationRoutes } from '../permissions/useNotificationRoutes';
 import { ContextMenuHost } from './ContextMenu';
+import { RevealHost } from './RevealHost';
 import { ToastHost } from './Toast';
 import { HoverLabel } from './HoverLabel';
 import { useHorizontalWheel } from './useHorizontalWheel';
@@ -202,6 +203,7 @@ export const AppShell: FC = () => {
         <HoverLabel />
         <MenuSheets />
         <ContextMenuHost />
+        <RevealHost />
         <ToastHost />
         <ConnectPrompt />
         <PermissionPromptHost />

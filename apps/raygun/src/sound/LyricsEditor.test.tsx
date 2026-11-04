@@ -86,7 +86,7 @@ describe('The lyrics editor', () => {
       currentItemId: 'q1',
       positionMs: 15_500,
     });
-    commands.playbackGetQueue.mockResolvedValue({ items: [ITEM], order: [0] });
+    commands.playbackGetQueue.mockResolvedValue({ items: [ITEM], order: [0], context: null });
     const editor = await openLyrics();
 
     await user.click(await within(editor).findByRole('button', { name: 'Show the lines later' }));
@@ -112,7 +112,7 @@ describe('The lyrics editor', () => {
       currentItemId: 'q1',
       positionMs: 9_200,
     });
-    commands.playbackGetQueue.mockResolvedValue({ items: [ITEM], order: [0] });
+    commands.playbackGetQueue.mockResolvedValue({ items: [ITEM], order: [0], context: null });
     const editor = await openLyrics();
 
     await user.click(await within(editor).findByRole('button', { name: 'Edit lines and times' }));

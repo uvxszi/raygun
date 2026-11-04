@@ -5,6 +5,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
+import { usePlayContext } from '../music/playContext';
 import { savedRow } from '../music/tableView';
 import { TrackTable } from '../music/TrackTable';
 import { EmptyState } from '../shell/EmptyState';
@@ -16,6 +17,14 @@ export const FavoritesView: FC = () => {
   const favorites = useFavorites();
   const reorder = useReorderFavorites();
   const client = useQueryClient();
+  usePlayContext({
+    kind: 'favorites',
+    name: t('collections.favorites'),
+    subtitle: null,
+    artworkUrl: null,
+    to: '/library',
+    search: { view: 'favorites' },
+  });
   if (!favorites.data) {
     return null;
   }

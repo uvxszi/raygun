@@ -8,8 +8,8 @@
 mod shuffle;
 
 use raygun_model::{
-    EngineCommand, EngineEvent, EngineReport, PlaybackState, PlaybackStatus, QueueItem,
-    QueueItemInput, QueueSnapshot, RepeatMode,
+    EngineCommand, EngineEvent, EngineReport, PlayContext, PlaybackState, PlaybackStatus,
+    QueueItem, QueueItemInput, QueueSnapshot, RepeatMode,
 };
 
 use crate::shuffle::XorShift;
@@ -95,6 +95,8 @@ pub struct PlaybackCore {
     /// stream found late does.
     held: bool,
     watch: Watch,
+    /// Where the queue was played from; see [`QueueSnapshot::context`].
+    context: Option<PlayContext>,
 }
 
 impl PlaybackCore {
@@ -122,6 +124,7 @@ impl PlaybackCore {
             end_ms: None,
             held: false,
             watch: Watch::default(),
+            context: None,
         }
     }
 
@@ -367,7 +370,22 @@ impl PlaybackCore {
         QueueSnapshot {
             items: self.items.clone(),
             order: self.order.iter().map(|&index| index as u32).collect(),
+            context: self.context.clone().filter(|_| !self.items.is_empty()),
         }
+    }
+
+    /// Says where the queue was played from (an album, a playlist, search...). Set after a
+    /// replace or restore; a replace without one, or a queue that empties, forgets it.
+    pub fn set_context(&mut self, context: Option<PlayContext>) -> Vec<Effect> {
+        if self.context == context {
+            return Vec::new();
+        }
+        self.context = context;
+        vec![Effect::QueueChanged]
+    }
+
+    pub fn context(&self) -> Option<&PlayContext> {
+        self.context.as_ref().filter(|_| !self.items.is_empty())
     }
 
     pub fn current_item(&self) -> Option<&QueueItem> {
@@ -380,6 +398,10 @@ impl PlaybackCore {
             return Vec::new();
         }
         let first_new = self.items.len();
+        if first_new == 0 {
+            // Songs added to an empty queue weren't played from anywhere in particular.
+            self.context = None;
+        }
         for input in inputs {
             let index = self.items.len();
             self.items.push(QueueItem {
@@ -432,6 +454,7 @@ impl PlaybackCore {
         if inputs.is_empty() {
             return self.clear();
         }
+        self.context = None;
         self.items.clear();
         self.order.clear();
         self.cursor = None;
@@ -670,6 +693,7 @@ impl PlaybackCore {
     }
 
     pub fn clear(&mut self) -> Vec<Effect> {
+        self.context = None;
         self.items.clear();
         self.order.clear();
         let mut effects = vec![Effect::QueueChanged];

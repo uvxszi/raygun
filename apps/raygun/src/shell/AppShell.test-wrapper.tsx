@@ -1,4 +1,4 @@
-import type { QueueItem } from '@raygun/bindings';
+import type { PlayContext, QueueItem } from '@raygun/bindings';
 import { RouterProvider, createMemoryHistory } from '@tanstack/react-router';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -44,11 +44,17 @@ export const AppShellWrapper = {
   },
 
   /** Simulates Rust pushing a queue where the item at `cursor` is current. */
-  playing(items: QueueItem[], cursor: number, status: 'playing' | 'paused' = 'playing') {
+  playing(
+    items: QueueItem[],
+    cursor: number,
+    status: 'playing' | 'paused' = 'playing',
+    context: PlayContext | null = null,
+  ) {
     emitEvent('queueEvent', {
       ...EMPTY_QUEUE,
       items,
       order: items.map((_, index) => index),
+      context,
     });
     emitEvent('playbackStateEvent', {
       ...IDLE_STATE,

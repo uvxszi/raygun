@@ -987,6 +987,8 @@
     "seek": "Seek",
     "shuffle": "Shuffle",
     "upNext": "Up next",
+    "playingFrom": "Playing from {{name}}",
+    "playingFromShort": "Playing from",
     "repeat": {
       "off": "Repeat off",
       "all": "Repeat all",
