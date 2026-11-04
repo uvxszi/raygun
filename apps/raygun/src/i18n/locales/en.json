@@ -1104,7 +1104,8 @@
     },
     "format": {
       "nuclear": "Nuclear plugins",
-      "shosetsu": "Shosetsu scripts"
+      "shosetsu": "Shosetsu scripts",
+      "miru": "Miru extensions"
     },
     "settings": "Settings",
     "providers": "Provides",
@@ -1730,6 +1731,7 @@
     "downloadLink": "Download {{name}}",
     "downloadTitle": "Choose what to download",
     "cantDownload": "This stream can't be downloaded",
+    "torrent": "Torrent",
     "deleteDownload": "Delete the download of {{name}}",
     "cancelQueued": "Cancel the queued download of {{name}}",
     "cancelDownloading": "Downloading {{name}}, {{percent}}%. Cancel",
@@ -1835,6 +1837,7 @@
     "autoplayOff": "Autoplay: off",
     "findingSource": "Finding a source…",
     "tryingNext": "That source failed. Trying the next one…",
+    "needsTorrentApp": "Needs a torrent app",
     "noSourceWorked": "No source could play this. Pick another in Sources.",
     "tryingSource": "Trying source {{n}} of {{of}}",
     "sourcesChecked": "{{n}} of {{of}} sources checked",

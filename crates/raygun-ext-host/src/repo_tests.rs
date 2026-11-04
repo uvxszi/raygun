@@ -248,6 +248,10 @@ async fn paraline_live() {
                 }
                 shosetsu_package::package(entry, script, libraries).unwrap()
             }
+            repo::PackageFormat::Miru => {
+                let (script, header) = crate::miru::package::verify_script(&bytes, entry).unwrap();
+                crate::miru::package::package(entry, script, &header).unwrap()
+            }
             repo::PackageFormat::Nuclear => continue,
         };
         assert_eq!(verified.manifest.id, entry.id);

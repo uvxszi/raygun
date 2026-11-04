@@ -794,9 +794,9 @@ impl ExtensionService {
     /// adds Paraline.
     pub async fn add_repo(&self, url: &str) -> Result<Vec<ExtensionRepo>, String> {
         let url = repo::check_index_url(url).map_err(|error| error.to_string())?;
-        let mut url = current_repo_url(url);
-        let index = match self.fetch_index(url.as_str(), true).await {
-            Ok(index) => index,
+        let url = current_repo_url(url);
+        let (url, index) = match self.index_at(url.clone(), true).await {
+            Ok(found) => found,
             // Shosetsu repositories are shared by their folder or their GitHub/GitLab page.
             Err(error) => {
                 let mut found = None;
@@ -806,9 +806,7 @@ impl ExtensionService {
                         break;
                     }
                 }
-                let (inside, index) = found.ok_or(error)?;
-                url = inside;
-                index
+                found.ok_or(error)?
             }
         };
         store::add_repo(self.db(), url.as_str(), &repo_name(&index, url.as_str()))
@@ -860,7 +858,7 @@ impl ExtensionService {
     /// brings can be shown before it's added.
     pub async fn preview_repo(&self, url: &str) -> Result<RepoCatalog, String> {
         let url = repo::check_index_url(url).map_err(|error| error.to_string())?;
-        let index = self.fetch_index(url.as_str(), false).await?;
+        let (url, index) = self.index_at(url, false).await?;
         let local = self.installed_versions().await;
         let repo = ExtensionRepo {
             id: String::new(),
@@ -947,6 +945,26 @@ impl ExtensionService {
         });
         // A few repositories at a time (M46.7).
         Ok(crate::stremio::at_most(4, listings).await)
+    }
+
+    /// The index at `url`, or for a folder's address (as Miru takes repositories) the
+    /// `index.json` in it; with the address it was read from.
+    async fn index_at(
+        &self,
+        url: reqwest::Url,
+        refresh: bool,
+    ) -> Result<(reqwest::Url, RepoIndex), String> {
+        match self.fetch_index(url.as_str(), refresh).await {
+            Ok(index) => Ok((url, index)),
+            Err(error) => {
+                let beside = repo::index_beside(&url).ok_or_else(|| error.clone())?;
+                let index = self
+                    .fetch_index(beside.as_str(), refresh)
+                    .await
+                    .map_err(|_| error)?;
+                Ok((beside, index))
+            }
+        }
     }
 
     async fn fetch_index(&self, url: &str, refresh: bool) -> Result<RepoIndex, String> {
@@ -1121,6 +1139,12 @@ impl ExtensionService {
                         .await
                 })
                 .await?
+            }
+            PackageFormat::Miru => {
+                let (script, header) = raygun_ext_host::miru::package::verify_script(&bytes, entry)
+                    .map_err(|error| error.to_string())?;
+                raygun_ext_host::miru::package::package(entry, script, &header)
+                    .map_err(|error| error.to_string())?
             }
         };
         let extensions_dir = self.extensions_dir.clone();

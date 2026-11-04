@@ -79,8 +79,8 @@ pub struct RepoEntry {
     pub format: PackageFormat,
 }
 
-/// What a package is: a Raygun extension, a Nuclear plugin converted at install (M17), or a
-/// Shosetsu Lua script installed with its libraries (M32).
+/// What a package is: a Raygun extension, a Nuclear plugin converted at install (M17), a
+/// Shosetsu Lua script installed with its libraries (M32), or a Miru script (`crate::miru`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PackageFormat {
@@ -88,6 +88,7 @@ pub enum PackageFormat {
     Raygun,
     Nuclear,
     Shosetsu,
+    Miru,
 }
 
 /// Shosetsu's repository index (`index.json` with `scripts` and `libraries`). Entries are read one
@@ -477,6 +478,29 @@ pub fn check_index_url(url: &str) -> Result<Url, RepoError> {
     }
 }
 
+/// The index in a repository's folder, for an address that names the folder rather than a file
+/// (`https://miru-repo.0n0.dev`, as Miru takes repositories, means its `index.json`).
+pub fn index_beside(url: &Url) -> Option<Url> {
+    if !matches!(url.scheme(), "http" | "https") {
+        return None;
+    }
+    let path = url.path();
+    if path
+        .rsplit('/')
+        .next()
+        .is_some_and(|last| last.contains('.'))
+    {
+        return None;
+    }
+    let mut folder = url.clone();
+    folder.set_query(None);
+    folder.set_fragment(None);
+    if !path.ends_with('/') {
+        folder.set_path(&format!("{path}/"));
+    }
+    folder.join("index.json").ok()
+}
+
 /// Parses an index, dropping entries this Raygun can't use (other API versions, malformed
 /// fields) rather than rejecting the whole repository.
 ///
@@ -490,6 +514,9 @@ pub fn parse_index(json: &str) -> Result<RepoIndex, RepoError> {
     }
     if let Ok(index) = serde_json::from_str::<ShosetsuIndex>(json) {
         return Ok(from_shosetsu(index));
+    }
+    if let Some(index) = crate::miru::index::parse(json) {
+        return Ok(index);
     }
     let mut index: RepoIndex = serde_json::from_str(json).map_err(|error| {
         foreign_format(json).map_or_else(|| RepoError::Index(error.to_string()), RepoError::Foreign)
@@ -539,8 +566,6 @@ fn foreign_format(json: &str) -> Option<String> {
         "This is a CloudStream repository: its plugins are Kotlin code, which Raygun can't run"
     } else if has(first, &["site", "url", "iconUrl", "lang"]) {
         "This is an LNReader plugin list: Raygun can't run LNReader plugins yet"
-    } else if has(first, &["package", "type", "webSite"]) {
-        "This is a Miru extension repository: Raygun can't run Miru extensions yet"
     } else if has(Some(&value), &["resources", "types", "id"]) {
         "This is a Stremio addon, not a repository: add it in Browse → Sources → Addons"
     } else {

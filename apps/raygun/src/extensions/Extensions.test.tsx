@@ -521,6 +521,7 @@ describe('Extensions', () => {
           entry({ id: 'dev.raygun.md', name: 'MangaDex', provides: ['manga.source'] }),
           entry({ id: 'dev.raygun.ck', name: 'Comick', provides: ['manga.source'] }),
           entry({ id: 'shosetsu.en.x', name: 'NovelFull', provides: ['novel.source'] }),
+          entry({ id: 'miru.de.ccc.media', name: 'media.ccc.de', provides: ['video.source'] }),
         ]),
       ),
     );
@@ -535,7 +536,9 @@ describe('Extensions', () => {
       'Music sources · 1',
       'Comics sources · 2',
       'Book sources · 1',
+      'Video sources · 1',
       'Shosetsu scripts · 1',
+      'Miru extensions · 1',
     ]);
   });
 
