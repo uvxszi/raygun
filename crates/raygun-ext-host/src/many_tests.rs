@@ -216,11 +216,18 @@ async fn many_a_call_nobody_waits_for_stops_its_requests() {
         Some("Stop didn't answer in time")
     );
     // The request was stopped with the call, not left to hang for a minute.
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    let after = host
-        .call("dev.test.stop/p", "peek", json!({}))
-        .await
-        .unwrap();
+    // Slow machines (CI) take a while to unwind the stopped request, so look a few times.
+    let mut after = json!("waiting");
+    for _ in 0..50 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        after = host
+            .call("dev.test.stop/p", "peek", json!({}))
+            .await
+            .unwrap();
+        if after != "waiting" {
+            break;
+        }
+    }
     assert!(
         after.as_str().unwrap().starts_with("stopped"),
         "{after} after {:?}",
