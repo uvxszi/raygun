@@ -321,7 +321,7 @@ mod tests {
                 id: "dz".into(),
                 extension_id: "dz".into(),
                 kind: "music.metadata".into(),
-                name: "Deezer".into(),
+                name: "Tunes".into(),
                 search_pill: None,
             },
             id: id.into(),

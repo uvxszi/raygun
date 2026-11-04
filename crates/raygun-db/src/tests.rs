@@ -195,7 +195,7 @@ async fn replaced_repositories_fold_into_their_replacement() {
     extensions::add_repo(&db, &format!("{}/", NOVELS.to_uppercase()), "Novels")
         .await
         .unwrap();
-    extensions::record_install(&db, &install("dev.raygun.deezer", OFFICIAL))
+    extensions::record_install(&db, &install("dev.raygun.musicbrainz", OFFICIAL))
         .await
         .unwrap();
     extensions::record_install(&db, &install("dev.example.x", &other.url))
@@ -216,7 +216,7 @@ async fn replaced_repositories_fold_into_their_replacement() {
             .map(|install| install.repo_url.clone())
     };
     assert_eq!(
-        from("dev.raygun.deezer").as_deref(),
+        from("dev.raygun.musicbrainz").as_deref(),
         Some(replacement.url.as_str())
     );
     assert_eq!(from("dev.example.x"), Some(other.url.clone()));

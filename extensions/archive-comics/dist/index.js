@@ -1,4 +1,4 @@
-// dev.raygun.archive-comics 1.0.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.archive-comics 1.1.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -19,12 +19,14 @@
   var ROWS = 30;
   var PUBLIC_DOMAIN_BEFORE = (/* @__PURE__ */ new Date()).getUTCFullYear() - 95;
   var SCAN_FORMAT = "Single Page Processed JP2 ZIP";
+  var CURATED = ["corrieredelpiccoli"];
+  var OPEN_LICENCE = /creativecommons\.org|publicdomain/i;
   var BASE_QUERY = [
     "mediatype:texts",
     "collection:comics",
     `date:[1000-01-01 TO ${PUBLIC_DOMAIN_BEFORE - 1}-12-31]`,
     `format:"${SCAN_FORMAT}"`,
-    "(licenseurl:*publicdomain* OR licenseurl:*zero* OR (collection:comics AND -collection:comics_inbox))"
+    `(licenseurl:(*publicdomain* OR *creativecommons*) OR collection:(${CURATED.join(" OR ")}))`
   ].join(" AND ");
   var PAGE_WIDTH = 1200;
   var LARGE_PAGE_WIDTH = 2400;
@@ -103,13 +105,28 @@
     return searchPage(parts.join(" AND "), sort, page);
   };
   var items = /* @__PURE__ */ new Map();
-  var metadata = (identifier) => {
+  var fetchItem = (identifier) => {
     let item = items.get(identifier);
     if (!item) {
       item = fetchJson(`${API}/metadata/${encodeURIComponent(identifier)}`);
       item.catch(() => items.delete(identifier));
       items.set(identifier, item);
       if (items.size > 20) items.delete(items.keys().next().value);
+    }
+    return item;
+  };
+  var isFree = (item) => {
+    const meta = item.metadata;
+    const year = Number.parseInt(meta?.date?.slice(0, 4) ?? "", 10);
+    if (!Number.isFinite(year) || year >= PUBLIC_DOMAIN_BEFORE) return false;
+    return OPEN_LICENCE.test(meta?.licenseurl ?? "") || strings(meta?.collection).some((collection) => CURATED.includes(collection));
+  };
+  var metadata = async (identifier) => {
+    const item = await fetchItem(identifier);
+    if (item.metadata && !isFree(item)) {
+      throw new Error(
+        "The Internet Archive doesn't list this item as public domain, so Raygun doesn't open it"
+      );
     }
     return item;
   };

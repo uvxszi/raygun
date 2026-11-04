@@ -10,7 +10,7 @@ async fn open(temp: &TempDir, name: &str) -> Db {
 fn manga(remote_id: &str, title: &str) -> TitleFields {
     TitleFields {
         kind: "manga".into(),
-        source_id: "dev.raygun.mangadex/mangadex".into(),
+        source_id: "dev.raygun.archive-comics/comics".into(),
         remote_id: remote_id.into(),
         title: title.into(),
         cover: None,

@@ -201,20 +201,21 @@ mod tests {
 
     use super::*;
 
+    const CINEMETA: &str = "https://v3-cinemeta.strem.io/manifest.json";
+    const SUBTITLES: &str = "https://opensubtitles-v3.strem.io/manifest.json";
+
     #[tokio::test]
     async fn seeded_added_cached_and_removed() {
         let temp = TempDir::new().unwrap();
         let db = Db::open(&temp.path().join("raygun.db")).await.unwrap();
+        // A new install starts with the subtitles addon only.
         let seeded = addons(&db).await.unwrap();
         assert_eq!(
             seeded
                 .iter()
                 .map(|row| row.transport_url.as_str())
                 .collect::<Vec<_>>(),
-            [
-                "https://v3-cinemeta.strem.io/manifest.json",
-                "https://opensubtitles-v3.strem.io/manifest.json"
-            ]
+            [SUBTITLES]
         );
         assert!(seeded[0].manifest.is_none());
         assert!(seeded.iter().all(|row| row.enabled), "addons start on");
@@ -230,12 +231,54 @@ mod tests {
             .await
             .unwrap();
         let list = addons(&db).await.unwrap();
-        assert_eq!(list.len(), 3);
+        assert_eq!(list.len(), 2);
         assert_eq!(list[0].fetched_at, Some(7));
-        assert_eq!(list[2].manifest.as_deref(), Some("{\"v\":2}"));
+        assert_eq!(list[1].manifest.as_deref(), Some("{\"v\":2}"));
 
         remove(&db, &id).await.unwrap();
-        assert_eq!(addons(&db).await.unwrap().len(), 2);
+        assert_eq!(addons(&db).await.unwrap().len(), 1);
+    }
+
+    /// An install from before Cinemeta stopped being seeded keeps it, wherever it was moved.
+    #[tokio::test]
+    async fn an_install_that_has_cinemeta_keeps_it() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("raygun.db");
+        {
+            // The database as the last version left it: every earlier migration, then a start.
+            let options = sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(&path)
+                .create_if_missing(true);
+            let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+            let mut earlier = sqlx::migrate!("./migrations");
+            earlier.migrations = earlier
+                .migrations
+                .iter()
+                .filter(|migration| migration.version < 38)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into();
+            earlier.run(&pool).await.unwrap();
+            sqlx::query("INSERT INTO local_meta (key, value) VALUES ('device_id', ?1)")
+                .bind(uuid::Uuid::now_v7().to_string())
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("UPDATE stremio_addon SET position = 5 WHERE transport_url = ?1")
+                .bind(CINEMETA)
+                .execute(&pool)
+                .await
+                .unwrap();
+            pool.close().await;
+        }
+        let db = Db::open(&path).await.unwrap();
+        let kept: Vec<String> = addons(&db)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.transport_url)
+            .collect();
+        assert_eq!(kept, [SUBTITLES, CINEMETA]);
     }
 
     #[tokio::test]
@@ -245,20 +288,19 @@ mod tests {
         let tmdb = add(&db, "https://tmdb.example/manifest.json", "{}", 1)
             .await
             .unwrap();
-        let seeded = addons(&db).await.unwrap();
-        let (cinemeta, subtitles) = (seeded[0].id.clone(), seeded[1].id.clone());
+        let catalog = add(&db, "https://catalog.example/manifest.json", "{}", 1)
+            .await
+            .unwrap();
+        let subtitles = addons(&db).await.unwrap()[0].id.clone();
 
         set_enabled(&db, &subtitles, false).await.unwrap();
         // TMDB first: its details win from now on.
-        set_order(&db, &[tmdb.clone(), cinemeta.clone()])
+        set_order(&db, &[tmdb.clone(), catalog.clone()])
             .await
             .unwrap();
         let list = addons(&db).await.unwrap();
         let order: Vec<&str> = list.iter().map(|row| row.id.as_str()).collect();
-        assert_eq!(
-            order,
-            [tmdb.as_str(), cinemeta.as_str(), subtitles.as_str()]
-        );
+        assert_eq!(order, [tmdb.as_str(), catalog.as_str(), subtitles.as_str()]);
         assert!(!list[2].enabled);
 
         // Set up again on its website: a new address, the same place.

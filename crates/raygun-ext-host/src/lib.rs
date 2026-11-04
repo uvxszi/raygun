@@ -20,6 +20,7 @@ pub mod package;
 pub mod permissions;
 pub mod podcast;
 pub mod repo;
+pub mod review;
 pub mod servers;
 pub mod shosetsu;
 mod storage;
@@ -31,6 +32,8 @@ mod fixture_tests;
 mod many_tests;
 #[cfg(test)]
 mod nuclear_tests;
+#[cfg(test)]
+mod open_sources_tests;
 #[cfg(test)]
 mod repo_tests;
 #[cfg(test)]

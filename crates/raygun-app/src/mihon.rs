@@ -242,7 +242,7 @@ mod tests {
 
     use super::*;
 
-    const MANGADEX: i64 = 2_499_283_573_021_220_255;
+    const COMICS: i64 = 2_499_283_573_021_220_255;
 
     fn chapter(id: &str, number: f32, order: i64, read: bool, page: i64) -> MihonChapter {
         MihonChapter {
@@ -261,7 +261,7 @@ mod tests {
         MihonBackup {
             manga: vec![
                 MihonManga {
-                    source: MANGADEX,
+                    source: COMICS,
                     url: "/manga/aaaa-1111".into(),
                     title: "Frieren".into(),
                     artist: Some("Abe".into()),
@@ -295,8 +295,8 @@ mod tests {
             ],
             sources: vec![
                 MihonSource {
-                    name: "MangaDex".into(),
-                    source_id: MANGADEX,
+                    name: "Example Comics".into(),
+                    source_id: COMICS,
                 },
                 MihonSource {
                     name: "Some Scanlator".into(),
@@ -330,9 +330,9 @@ mod tests {
         let db = Db::open(&temp.path().join("raygun.db")).await.unwrap();
         let sources = [MangaSource {
             adult: false,
-            id: "dev.raygun.mangadex/mangadex".into(),
-            name: "MangaDex".into(),
-            extension_id: "dev.raygun.mangadex".into(),
+            id: "dev.example.comics/comics".into(),
+            name: "Example Comics".into(),
+            extension_id: "dev.example.comics".into(),
             enabled: true,
             search_pill: None,
         }];

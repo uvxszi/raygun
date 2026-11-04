@@ -214,18 +214,18 @@ mod tests {
                 ],
                 "hasMore": true,
             }),
-            "dev.raygun.lit2go/books",
+            "dev.example.books/books",
         );
         assert_eq!(page.books.len(), 2);
         assert_eq!(page.books[0].title, "Pride and Prejudice");
         assert_eq!(page.books[0].runtime.as_deref(), Some("13:06:44"));
         assert_eq!(
             page.books[1].feed_url,
-            "audiobook:dev.raygun.lit2go/books#32/sherlock"
+            "audiobook:dev.example.books/books#32/sherlock"
         );
         assert_eq!(
             parse_listed_key(&page.books[1].feed_url),
-            Some(("dev.raygun.lit2go/books", "32/sherlock"))
+            Some(("dev.example.books/books", "32/sherlock"))
         );
         assert!(page.has_more);
         assert_eq!(parse_page(&serde_json::json!({}), "p"), BookPage::default());
@@ -238,10 +238,10 @@ mod tests {
         let details = parse_details(&serde_json::json!({
             "title": "The Adventures of Sherlock Holmes",
             "author": "Sir Arthur Conan Doyle",
-            "link": "https://etc.usf.edu/lit2go/32/",
+            "link": "https://books.example/32/",
             "chapters": [
                 { "id": "345", "title": "A Scandal in Bohemia",
-                  "audioUrl": "https://etc.usf.edu/lit2go/audio/mp3/a.345.mp3", "durationMs": 1.5e6 },
+                  "audioUrl": "https://books.example/audio/a.345.mp3", "durationMs": 1.5e6 },
                 { "title": "No audio" },
                 { "id": "345", "title": "Twice", "audioUrl": "https://x/b.mp3" },
                 { "title": "No id", "audioUrl": "https://x/c.mp3", "durationMs": -1 },
@@ -252,10 +252,7 @@ mod tests {
         assert_eq!(details.chapters[0].duration_ms, Some(1_500_000));
         assert_eq!(details.chapters[1].id, "https://x/c.mp3");
         assert_eq!(details.chapters[1].duration_ms, None);
-        assert_eq!(
-            details.link.as_deref(),
-            Some("https://etc.usf.edu/lit2go/32/")
-        );
+        assert_eq!(details.link.as_deref(), Some("https://books.example/32/"));
         assert!(parse_details(&serde_json::json!({ "title": "Empty", "chapters": [] })).is_none());
     }
 }

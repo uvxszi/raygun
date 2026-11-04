@@ -62,19 +62,12 @@ const HEALTH_KEY: &str = "stremio.addonHealth";
 /// How long an addon whose manifest couldn't be fetched isn't asked again (pages would wait).
 const MANIFEST_RETRY_MS: i64 = 5 * 60 * 1000;
 
-/// Addons offered with one tap: Stremio's own, which serve catalogs, metadata and subtitles.
-const SUGGESTED: [(&str, &str, &str); 2] = [
-    (
-        "https://v3-cinemeta.strem.io/manifest.json",
-        "Cinemeta",
-        "Popular movies and series, with details, seasons and episodes.",
-    ),
-    (
-        "https://opensubtitles-v3.strem.io/manifest.json",
-        "OpenSubtitles v3",
-        "Subtitles in many languages for movies and series.",
-    ),
-];
+/// Addons offered with one tap: a subtitles tool. Catalogue addons are added by their address.
+const SUGGESTED: [(&str, &str, &str); 1] = [(
+    "https://opensubtitles-v3.strem.io/manifest.json",
+    "OpenSubtitles v3",
+    "Subtitles in many languages for movies and series.",
+)];
 
 /// An addon with its manifest (or why it has none).
 #[derive(Clone)]

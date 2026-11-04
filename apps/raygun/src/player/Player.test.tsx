@@ -208,7 +208,7 @@ describe('Lyrics', () => {
   it('highlights the current synced line and seeks when a line is tapped', async () => {
     bindingsMock.commands.lyricsGet.mockResolvedValue(
       ok({
-        providerName: 'LRCLIB',
+        providerName: 'Lyrics Base',
         synced: [
           { timeMs: 1_000, text: 'First line' },
           { timeMs: 60_000, text: 'Second line' },
@@ -228,7 +228,7 @@ describe('Lyrics', () => {
       album: null,
       durationMs: 180_000,
     });
-    expect(view).toHaveTextContent('Lyrics from LRCLIB');
+    expect(view).toHaveTextContent('Lyrics from Lyrics Base');
 
     await userEvent.click(within(view).getByRole('button', { name: 'Third line' }));
     expect(bindingsMock.commands.playbackControl).toHaveBeenCalledWith({
@@ -244,7 +244,7 @@ describe('Lyrics', () => {
   it('shows plain lyrics when there are no timings', async () => {
     bindingsMock.commands.lyricsGet.mockResolvedValue(
       ok({
-        providerName: 'LRCLIB',
+        providerName: 'Lyrics Base',
         synced: [],
         plain: `Verse one${String.fromCharCode(10)}Verse two`,
       }),
@@ -256,15 +256,22 @@ describe('Lyrics', () => {
   it('says when there are no lyrics or they failed to load', async () => {
     const view = await openLyrics();
     expect(await within(view).findByText('No lyrics found for this track.')).toBeInTheDocument();
+    // No lyrics source is installed: the way to one is with the tools.
+    expect(await within(view).findByRole('link', { name: 'Find extensions' })).toHaveAttribute(
+      'href',
+      expect.stringContaining('tab=extensions'),
+    );
   });
 
   it('shows why lyrics failed', async () => {
     bindingsMock.commands.lyricsGet.mockResolvedValue({
       status: 'error',
-      error: 'LRCLIB answered HTTP 502',
+      error: 'Lyrics Base answered HTTP 502',
     });
     const view = await openLyrics();
-    expect(await within(view).findByRole('alert')).toHaveTextContent('LRCLIB answered HTTP 502');
+    expect(await within(view).findByRole('alert')).toHaveTextContent(
+      'Lyrics Base answered HTTP 502',
+    );
   });
 });
 
@@ -285,7 +292,7 @@ describe('Cards under the player', () => {
   it('shows the lyrics, the artist and the credits, each opening more', async () => {
     bindingsMock.commands.lyricsGet.mockResolvedValue(
       ok({
-        providerName: 'LRCLIB',
+        providerName: 'Lyrics Base',
         synced: [
           { timeMs: 1_000, text: 'First line' },
           { timeMs: 60_000, text: 'Second line' },

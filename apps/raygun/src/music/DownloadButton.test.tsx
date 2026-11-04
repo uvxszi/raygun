@@ -81,12 +81,17 @@ describe('Downloads beside the Plus (M46.18)', () => {
     expect(await within(sheet).findByRole('button', { name: 'Downloading' })).toBeInTheDocument();
     emitEvent(
       'songDownloadProgressEvent',
-      download('downloading', { provider: 'Audius', fraction: 0.5, doneBytes: 5, totalBytes: 10 }),
+      download('downloading', {
+        provider: 'Indie Tracks',
+        fraction: 0.5,
+        doneBytes: 5,
+        totalBytes: 10,
+      }),
     );
     await user.click(within(sheet).getByRole('button', { name: 'Downloading' }));
     const progress = await screen.findByTestId('download-confirm');
     expect(progress).toHaveTextContent('Cancel this download?');
-    expect(progress).toHaveTextContent('Audius · 50%');
+    expect(progress).toHaveTextContent('Indie Tracks · 50%');
     await user.click(within(progress).getByRole('button', { name: 'Keep' }));
 
     // Once it's downloaded the button fills in, and removing it takes a confirmation.
@@ -118,16 +123,16 @@ describe('Downloads beside the Plus (M46.18)', () => {
       ok([
         download('done', {
           format: 'mp3',
-          provider: 'Audius',
+          provider: 'Indie Tracks',
           fraction: 1,
-          problem: { kind: 'sourceChanged', was: 'Audius', now: 'archive.org', detail: null },
+          problem: { kind: 'sourceChanged', was: 'Indie Tracks', now: 'archive.org', detail: null },
         }),
       ]),
     );
     const sheet = await openPlayer();
     await user.click(await within(sheet).findByRole('button', { name: 'Downloaded' }));
     const popover = await screen.findByTestId('download-confirm');
-    expect(popover).toHaveTextContent('Its source changed: Audius → archive.org');
+    expect(popover).toHaveTextContent('Its source changed: Indie Tracks → archive.org');
     await user.click(within(popover).getByRole('button', { name: 'Download again' }));
     expect(commands.songDownloadsRedownload).toHaveBeenCalledWith(['d1']);
 

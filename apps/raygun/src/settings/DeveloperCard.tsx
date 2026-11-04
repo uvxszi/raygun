@@ -13,7 +13,7 @@ import { PrefAction, PrefGroup } from './prefs';
 import { Problem } from './Problem';
 
 /**
- * Testing with many sources (M46.17): every known repository, Raygun's own sources that fail on
+ * Testing with many sources (M46.17): the suggested repository, Raygun's own sources that fail on
  * purpose and some legal Stremio addons, then everything those repositories list. Never part of
  * a fresh install; it's for seeing what breaks.
  */

@@ -96,7 +96,7 @@ export const ImportSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
                 value={link}
                 onChange={setLink}
                 aria-label={t('import.linkLabel')}
-                placeholder="https://open.spotify.com/playlist/…"
+                placeholder="https://…"
                 className={SHEET_FIELD}
                 inputClassName={`${SHEET_INPUT} text-sm`}
               />

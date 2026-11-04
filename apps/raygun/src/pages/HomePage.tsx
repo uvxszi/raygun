@@ -18,6 +18,7 @@ import {
   usePlaylists,
 } from '../collections/useCollections';
 import { usePlaylistMenu } from '../collections/usePlaylistMenu';
+import { useHasProvider } from '../extensions/useExtensions';
 import { unwrapResult } from '../lib/commandResult';
 import { Artwork } from '../library/Artwork';
 import { MangaCover } from '../manga/MangaCover';
@@ -338,13 +339,16 @@ const StartChip: FC<{ to: string; search?: Record<string, unknown>; children: Re
 );
 
 /**
- * Shown while there's nothing to continue: where to start, as plain chips. × hides it for good
- * (M46.37); Edit Home brings it back.
+ * Shown while there's nothing to continue: where to start, as plain chips; a kind with no source
+ * installed (podcasts, audiobooks) is left out. × hides it for good (M46.37); Edit Home brings it
+ * back.
  */
 const GetStarted: FC = () => {
   const { t } = useTranslation();
   const layout = useLayout();
   const { save, isPending } = useSaveLayout();
+  const podcasts = useHasProvider('podcast.directory') !== false;
+  const audiobooks = useHasProvider('audiobook.directory') !== false;
   return (
     <section
       aria-label={t('home.startTitle')}
@@ -382,14 +386,18 @@ const GetStarted: FC = () => {
           <Compass aria-hidden size={16} />
           {t('discover.title')}
         </StartChip>
-        <StartChip to="/browse" search={{ tab: 'search', type: 'music', view: 'podcasts' }}>
-          <Mic2 aria-hidden size={16} />
-          {t('discover.podcasts')}
-        </StartChip>
-        <StartChip to="/audiobooks">
-          <BookAudio aria-hidden size={16} />
-          {t('discover.audiobooks')}
-        </StartChip>
+        {podcasts && (
+          <StartChip to="/browse" search={{ tab: 'search', type: 'music', view: 'podcasts' }}>
+            <Mic2 aria-hidden size={16} />
+            {t('discover.podcasts')}
+          </StartChip>
+        )}
+        {audiobooks && (
+          <StartChip to="/audiobooks">
+            <BookAudio aria-hidden size={16} />
+            {t('discover.audiobooks')}
+          </StartChip>
+        )}
         <StartChip to="/library">
           <Library aria-hidden size={16} />
           {t('library.title')}

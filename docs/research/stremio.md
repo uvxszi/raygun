@@ -111,7 +111,7 @@ There's no Board across addons, no Discover with type or catalog switching or ot
 |---|---|---|---|
 | **Addon details** | Manifest, types, catalogs, resources, version, `configurable` / `configurationRequired` (opens `/configure` on the addon), install, upgrade, uninstall (`addon_details.rs`, `ActionCtx::InstallAddon/UpgradeAddon/UninstallAddon`) | A list row with name, description and resources; "needs setup on its website" is refused at add; no configure button, no details screen | M |
 | **Ordering** | The installed order sets the priority of meta, streams and catalogs | `position` exists in `raygun-db::stremio`, but there's no reorder command or UI | S |
-| **Official and protected addons** | `DescriptorFlags {official, protected}`: protected ones (Cinemeta, local files) can't be removed; official ones are labelled. The official list ships with the app (`OFFICIAL_ADDONS`) | Cinemeta and OpenSubtitles are seeded but removable; two suggestions | S |
+| **Official and protected addons** | `DescriptorFlags {official, protected}`: protected ones (Cinemeta, local files) can't be removed; official ones are labelled. The official list ships with the app (`OFFICIAL_ADDONS`) | OpenSubtitles v3 is seeded but removable (Cinemeta no longer is, since v1.2.0); one suggestion | S |
 | **Installed-addon filters** | `installed_addons_with_filters.rs` filters installed addons by type | None | S |
 | **Adult and P2P hints** | `behaviorHints.adult` (Raygun honours it), `p2p` (torrent addons), `epgProvider` | Only `adult` | S |
 

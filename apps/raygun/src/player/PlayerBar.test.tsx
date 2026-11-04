@@ -188,7 +188,7 @@ describe('Player bar', () => {
     commands.lyricsGet.mockResolvedValue({
       status: 'ok',
       data: {
-        providerName: 'LRCLIB',
+        providerName: 'Lyrics Base',
         plain: 'First line' + String.fromCharCode(10) + 'Second line',
         synced: [],
       },

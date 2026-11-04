@@ -235,7 +235,7 @@ impl ExtensionHost {
     }
 }
 
-fn parse_listing(value: &Value) -> MangaListing {
+pub(crate) fn parse_listing(value: &Value) -> MangaListing {
     let items = value
         .get("items")
         .and_then(Value::as_array)
@@ -263,7 +263,7 @@ fn parse_listing(value: &Value) -> MangaListing {
     }
 }
 
-fn parse_details(value: &Value, requested: &str) -> Option<MangaDetails> {
+pub(crate) fn parse_details(value: &Value, requested: &str) -> Option<MangaDetails> {
     let status = value
         .get("status")
         .and_then(Value::as_str)
@@ -344,7 +344,7 @@ pub(crate) fn parse_units(value: &Value, key: &str, noun: &str) -> Vec<MangaChap
         .unwrap_or_default()
 }
 
-fn parse_pages(value: &Value) -> Vec<PageImage> {
+pub(crate) fn parse_pages(value: &Value) -> Vec<PageImage> {
     value
         .get("pages")
         .and_then(Value::as_array)
@@ -515,7 +515,7 @@ mod tests {
         let details = parse_details(
             &json!({
                 "title": "Frieren", "authors": ["Yamada", 3, ""], "status": "weird",
-                "genres": ["Fantasy"], "url": "https://mangadex.org/title/x", "description": "  "
+                "genres": ["Fantasy"], "url": "https://comics.example/title/x", "description": "  "
             }),
             "requested-id",
         )

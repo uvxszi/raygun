@@ -10,16 +10,16 @@ const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 const { commands } = bindingsMock;
 
 const PROVIDER = {
-  id: 'dev.raygun.deezer/catalogue',
-  extensionId: 'dev.raygun.deezer',
+  id: 'dev.example.tunes/catalogue',
+  extensionId: 'dev.example.tunes',
   kind: 'music.metadata',
-  name: 'Deezer',
+  name: 'Tunes',
 };
 const PLAYLIST = {
   provider: PROVIDER,
   id: '42',
   title: 'Workout',
-  author: 'Rudy - Deezer Moods Editor',
+  author: 'Rudy - Tunes Moods Editor',
   artworkUrl: null,
   trackCount: 38,
   featured: true,

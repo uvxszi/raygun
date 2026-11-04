@@ -9,7 +9,7 @@ vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).b
 
 const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 const { commands } = bindingsMock;
-const SOURCE = 'dev.raygun.mangadex/mangadex';
+const SOURCE = 'dev.example.comics/comics';
 
 const card = (id: string, title: string) => ({
   sourceId: SOURCE,
@@ -37,7 +37,7 @@ describe('A source’s page and library updates', () => {
     AppShellWrapper.seedCore();
     sessionStorage.clear();
     commands.mangaSources.mockResolvedValue(
-      ok([{ id: SOURCE, name: 'MangaDex', extensionId: 'dev.raygun.mangadex', enabled: true }]),
+      ok([{ id: SOURCE, name: 'Comic Shelf', extensionId: 'dev.example.comics', enabled: true }]),
     );
     commands.mangaBrowse.mockResolvedValue(
       ok({ items: [card('p1', 'Popular one')], hasNextPage: false }),
@@ -75,7 +75,7 @@ describe('A source’s page and library updates', () => {
     const page = await screen.findByTestId('manga-source-page');
     const issue = await within(page).findByTestId('source-issue');
     // A server error reads as the source having problems (lib/issue.ts).
-    expect(issue).toHaveTextContent('MangaDex is having problems');
+    expect(issue).toHaveTextContent('Comic Shelf is having problems');
     await user.click(within(issue).getByRole('button', { name: 'Try again' }));
     expect(await within(page).findByText('Popular one')).toBeInTheDocument();
   });

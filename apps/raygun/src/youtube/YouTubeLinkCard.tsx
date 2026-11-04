@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { ROUTES } from '../manga/medium';
 import { useMangaSources } from '../manga/useManga';
 import { DownloadSongButton } from '../music/DownloadSongButton';
+import { NoSources } from '../search/NoSources';
 import { playResults } from '../search/useOnlineSearch';
 import { SourceIssue } from '../shell/SourceIssue';
 import { YtDlpJobCard } from './YtDlpJobs';
@@ -16,7 +17,8 @@ import { useYouTubeLink, useYtDlpActions, useYtDlpJobs, useYtDlpStatus } from '.
 const BUTTON =
   'flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-50';
 
-/** The YouTube extension's video source: playlists and channels open on its pages (M46.45). */
+/** The video source whose pages open playlists and channels by these ids, when it's installed
+ * (M46.45). Raygun ships none; without one the card says so and points to the extensions. */
 const YOUTUBE_EXTENSION = 'dev.raygun.youtube';
 
 const asTrack = (link: YouTubeLink): OnlineTrack => ({
@@ -42,7 +44,7 @@ const asSong = (link: YouTubeLink): TrackInput => ({
 /**
  * A YouTube address typed in Search (M46.47): the video with Play, Play as music, and on desktop
  * Download video or Download audio through yt-dlp, with the download's progress; elsewhere its
- * sound downloads as a song (M46.51). Playlists and channels open on the YouTube extension's
+ * sound downloads as a song (M46.51). Playlists and channels open on an installed video source's
  * pages.
  */
 export const YouTubeLinkCard: FC<{ query: string }> = ({ query }) => {
@@ -138,7 +140,7 @@ const LinkCard: FC<{ link: YouTubeLink }> = ({ link }) => {
           {t(`youtube.open.${link.kind}`)}
         </Link>
       ) : (
-        <p className="text-muted text-sm">{t('youtube.needsExtension')}</p>
+        <NoSources label={t('youtube.needsExtension')} />
       )}
       {supported && status.data && (
         <p className="text-muted text-xs">

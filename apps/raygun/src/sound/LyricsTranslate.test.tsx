@@ -43,13 +43,13 @@ const translation = (
   language: 'en',
   kind: 'translation',
   origin: 'source',
-  by: 'KuGou',
-  translator: 'source:KuGou',
+  by: 'Lyric Lines',
+  translator: 'source:Lyric Lines',
   ...overrides,
 });
 
 const LYRICS: Lyrics = {
-  providerName: 'KuGou',
+  providerName: 'Lyric Lines',
   synced: [
     { timeMs: 1_000, text: '沈むように' },
     { timeMs: 4_000, text: '♪' },
@@ -176,12 +176,12 @@ describe('Lyrics translations', () => {
     expect(within(menu).getByRole('button', { name: /On this device/ })).toHaveTextContent(
       '296 MB download',
     );
-    // KuGou's Chinese is one of the song's translations; picking it shows it.
-    await user.click(within(menu).getByRole('radio', { name: /From KuGou/ }));
+    // Lyric Lines's Chinese is one of the song's translations; picking it shows it.
+    await user.click(within(menu).getByRole('radio', { name: /From Lyric Lines/ }));
     expect(commands.lyricsTranslationPick).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Into the Night' }),
       'zh-Hans',
-      'source:KuGou',
+      'source:Lyric Lines',
     );
     expect(await within(view).findAllByTestId('lyrics-translation')).toHaveLength(2);
   });

@@ -1,11 +1,11 @@
 {
   "id": "dev.raygun.archive-comics",
   "name": "Internet Archive comics",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "apiVersion": 1,
   "runtime": "js",
   "entry": "dist/index.js",
-  "description": "Comic strips, comic books and children's papers in the Internet Archive's comics collection that are in the public domain by age: published more than 95 years ago.",
+  "description": "Comic strips, comic books and children's papers from the Internet Archive that are in the public domain by age: published more than 95 years ago, and marked public domain or openly licensed, or in a set the Archive dated itself.",
   "author": "Raygun",
   "website": "https://archive.org/details/comics",
   "provides": ["manga.source"],

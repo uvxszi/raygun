@@ -1,0 +1,11 @@
+{
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "NASA's podcasts and LibriVox's community podcast.",
+  "provides": ["podcast.directory"],
+  "contentRating": "safe"
+}

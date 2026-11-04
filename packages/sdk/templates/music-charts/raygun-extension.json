@@ -1,0 +1,13 @@
+{
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "The most played Creative Commons netlabel releases on the Internet Archive, overall, this week and by genre.",
+  "website": "https://archive.org/details/netlabels",
+  "provides": ["music.charts"],
+  "permissions": { "net": ["archive.org"] },
+  "contentRating": "safe"
+}

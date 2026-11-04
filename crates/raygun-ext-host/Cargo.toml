@@ -46,4 +46,11 @@ flate2 = "1"
 [dev-dependencies]
 tempfile = "3"
 axum.workspace = true
+# The `call` example prints the extension's log.
+tracing-subscriber.workspace = true
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "macros", "test-util"] }
+
+# Calls a provider of one extension folder (`raygun-ext test`); its tests run with the crate's.
+[[example]]
+name = "call"
+test = true

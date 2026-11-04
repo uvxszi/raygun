@@ -18,6 +18,7 @@
     "format:check": "prettier --check .",
     "bindings": "cargo run -p raygun-app --bin export-bindings",
     "build:extensions": "pnpm --filter \"./extensions/*\" build",
+    "raygun-ext": "node packages/sdk/bin/raygun-ext.mjs",
     "repo:publish": "node packages/sdk/bin/raygun-ext.mjs pack-all extensions --repo repo",
     "i18n:import": "node scripts/i18n-import.mjs",
     "trim:target": "python tools/trim_target.py"

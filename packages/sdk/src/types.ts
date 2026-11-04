@@ -1,6 +1,13 @@
 // Types for Raygun extensions (ARCHITECTURE §7). They describe the `raygun` global that the
 // extension host installs (crates/raygun-ext-host/src/prelude.js) and the provider contracts the
-// app calls; keep them in step with both.
+// app calls, as the host's parsers read them (crates/raygun-ext-host/src: host.rs, manga.rs,
+// novel.rs, video.rs, podcast.rs, audiobook.rs); keep them in step with both. The guide is
+// docs/extensions.
+//
+// How Raygun reads every answer: entries missing what they need are dropped one by one (the
+// rest still show), text is trimmed and empty text counts as missing, and addresses must be
+// http(s) unless a field says otherwise. Throw an `Error` with a plain sentence when a call
+// can't be answered; the app shows it under the source's name.
 
 export type JsonValue =
   null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
@@ -12,16 +19,22 @@ export type JsonValue =
  * `headers`, such as Referer, for them) and YouTube video ids; local files are never accepted.
  */
 export type MediaSource =
+  /** `headers` is required: pass `{}` when the stream needs none, or the track is dropped. */
   | { kind: 'url'; url: string; headers: Record<string, string> }
   | { kind: 'youTube'; videoId: string };
 
-/** A track found by a provider. Without a `source` it plays through `music.stream` providers. */
+/**
+ * A song a provider found. Without a `source` it plays through `music.stream` providers: Raygun
+ * asks them for the title and artist when it plays.
+ */
 export type Track = {
-  /** The provider's own id for the track. */
+  /** The provider's own id for the song. */
   id?: string | number;
+  /** Required; a track without one is dropped. */
   title: string;
   artist?: string | null;
   album?: string | null;
+  /** The length in milliseconds. */
   durationMs?: number | null;
   /** http(s) only. */
   artworkUrl?: string | null;
@@ -32,6 +45,18 @@ export type Track = {
 
 // ---- Providers ----
 
+/**
+ * What every provider has. `kind` must be listed in the manifest's `provides`, and `id` must be
+ * unique within the extension.
+ */
+type ProviderBase = {
+  /** `[a-z0-9][a-z0-9_-]*`, at most 64 characters. Raygun knows it as `<extension id>/<id>`. */
+  id: string;
+  /** The source's name in lists and messages; defaults to the extension's name. */
+  name?: string;
+};
+
+/** A search: what was typed and how many results to give at most. */
 export type SearchArgs = { query: string; limit: number };
 export type SearchResult = { tracks: Track[] };
 
@@ -50,9 +75,11 @@ export type Album = {
   id: string;
   title: string;
   artist?: string | null;
+  /** A whole number, like 1999. */
   year?: number | null;
   /** http(s) only. */
   artworkUrl?: string | null;
+  /** A whole number. */
   trackCount?: number | null;
   /** The release's kind (M46.36): an artist's discography groups by it. */
   kind?: 'album' | 'single' | 'ep' | 'compilation' | 'live' | 'other' | null;
@@ -72,29 +99,42 @@ export type Playlist = {
   featured?: boolean | null;
 };
 
-/** Online music search. The app asks every `music.metadata` provider at once. */
-export type MusicMetadataProvider = {
+/** An artist's event: a concert, a festival (M46.42). */
+export type ArtistEvent = {
+  name: string;
+  /** `YYYY-MM-DD`, or as much of it as the source knows. */
+  date: string;
+  /** The venue and its city. */
+  place?: string | null;
+  /** The event's page. */
+  url?: string | null;
+};
+
+/**
+ * Online music search. Raygun asks every `music.metadata` provider at once and shows each one's
+ * results as they come; a search waits 12 s for a provider. Every call but `search` is optional:
+ * Raygun leaves a provider out of what it can't do.
+ */
+export type MusicMetadataProvider = ProviderBase & {
   kind: 'music.metadata';
-  /** Unique within the extension: `[a-z0-9][a-z0-9_-]*`. */
-  id: string;
-  /** Shown as the heading of this provider's results; defaults to the extension's name. */
-  name?: string;
+  /** Songs for what was typed (Search → Music); answer no tracks for nothing found. */
   search(args: SearchArgs): Promise<SearchResult>;
   /** Artists by name (M46.9); Search → Music → Artists. */
   searchArtists?(args: SearchArgs): Promise<{ artists: Artist[] }>;
   /** Albums by title or artist (M46.9); Search → Music → Albums. */
   searchAlbums?(args: SearchArgs): Promise<{ albums: Album[] }>;
-  /** An album's songs, in order (M46.9). */
+  /**
+   * An album's songs, in order (M46.9). An answer without an `album` (id and title) fails: the
+   * album page says the source changed.
+   */
   album?(args: { id: string }): Promise<{ album: Album; tracks: Track[] }>;
   /** An artist's releases, newest first (M46.36); `query` is the artist's name. */
   artistReleases?(args: SearchArgs): Promise<{ releases: Album[] }>;
   /** An artist's coming events, soonest first (M46.42); `query` is the artist's name. */
-  artistEvents?(args: SearchArgs): Promise<{
-    events: { name: string; date: string; place?: string | null; url?: string | null }[];
-  }>;
+  artistEvents?(args: SearchArgs): Promise<{ events: ArtistEvent[] }>;
   /** Playlists by name (M46.39); `featured` asks for the service's own only. */
   searchPlaylists?(args: SearchArgs & { featured: boolean }): Promise<{ playlists: Playlist[] }>;
-  /** A playlist's songs, in order (M46.39). */
+  /** A playlist's songs, in order (M46.39). An answer without a `playlist` fails. */
   playlist?(args: { id: string }): Promise<{ playlist: Playlist; tracks: Track[] }>;
 };
 
@@ -104,6 +144,7 @@ export type StreamQuery = {
   artist: string | null;
   album: string | null;
   durationMs: number | null;
+  /** How many candidates to give at most. */
   limit: number;
   /**
    * The bitrate the user's Audio quality setting asks for, in kbps (M46.18): streaming, mobile
@@ -117,7 +158,7 @@ export type StreamQuery = {
 export type StreamCandidate = {
   /** Passed back to `resolve`. */
   id: string | number;
-  /** As the source names it; the app matches it against the track. */
+  /** As the source names it; the app matches it against the track. Required. */
   title: string;
   artist?: string | null;
   durationMs?: number | null;
@@ -125,6 +166,7 @@ export type StreamCandidate = {
   quality?: string | null;
   /** The stream's bitrate (M46.18): among equal matches, the app plays the nearest to the setting. */
   bitrateKbps?: number | null;
+  /** A source here plays at once; a candidate whose source isn't allowed is dropped. */
   source?: MediaSource | null;
 };
 
@@ -136,7 +178,7 @@ export type ResolvedStream = {
 
 /** The candidate whose stream the app wants now. */
 export type ResolveArgs = {
-  /** The candidate's `id`. */
+  /** The candidate's `id`, as text. */
   id: string;
   /** As in {@link StreamQuery} (M46.51): the bitrate to aim for, `null` for the best. */
   targetKbps?: number | null;
@@ -148,18 +190,18 @@ export type ResolveArgs = {
 };
 
 /**
- * Streams for tracks found elsewhere. The app asks every `music.stream` provider at once, scores
- * the candidates against the track and plays the best, falling back to the next on failure.
+ * Streams for tracks found elsewhere. The app asks every `music.stream` provider at once (12 s
+ * each), scores the candidates against the track (title, artist and length) and plays the best,
+ * falling back to the next on failure. Answer no candidates rather than poor guesses.
  */
-export type MusicStreamProvider = {
+export type MusicStreamProvider = ProviderBase & {
   kind: 'music.stream';
-  id: string;
-  name?: string;
   candidates(query: StreamQuery): Promise<{ candidates: StreamCandidate[] }>;
-  /** Only needed when candidates come without a `source`. */
+  /** Only needed when candidates come without a `source`; it has 12 s. */
   resolve?(args: ResolveArgs): Promise<ResolvedStream>;
 };
 
+/** The song lyrics, tags or credits are asked for. */
 export type LyricsQuery = {
   title: string;
   artist: string | null;
@@ -180,19 +222,24 @@ export type LyricsTranslationResult = {
   lines: string[];
 };
 
+/** Lyrics with `synced` lines, `plain` text, or both; neither counts as none. */
 export type LyricsResult = {
-  /** Timed lines; the app highlights the current one and seeks when one is tapped. */
+  /**
+   * Timed lines; the app highlights the current one and seeks when one is tapped. Lines with a
+   * negative or missing `timeMs` are dropped; the rest are sorted by time.
+   */
   synced?: { timeMs: number; text: string }[];
   plain?: string | null;
-  /** Translations and romanizations the source has; shown under the lines. */
+  /** Translations and romanizations the source has (at most 8); shown under the lines. */
   translations?: LyricsTranslationResult[];
 };
 
-/** Lyrics for the playing track. Return `null` when there are none (or the track is instrumental). */
-export type LyricsProvider = {
+/**
+ * Lyrics for the playing track. Raygun asks every `lyrics` provider at once (12 s each) and
+ * prefers synced lyrics. Answer `null` when there are none (or the track is instrumental).
+ */
+export type LyricsProvider = ProviderBase & {
   kind: 'lyrics';
-  id: string;
-  name?: string;
   lyrics(query: LyricsQuery): Promise<LyricsResult | null>;
 };
 
@@ -232,28 +279,33 @@ export type TagSongsArgs = {
 /** Where the user is, as an ISO 3166 country code ("us"), when the source has charts by country. */
 export type ChartArgs = { region: string | null };
 
-/** Popular and trending songs (M46.9). Songs without a `source` play through `music.stream`. */
-export type MusicChartsProvider = {
+/**
+ * Popular and trending songs (M46.9). Raygun lists every provider's charts in Browse (30 s each)
+ * and opens one with `chart`. Songs without a `source` play through `music.stream`.
+ */
+export type MusicChartsProvider = ProviderBase & {
   kind: 'music.charts';
-  id: string;
-  name?: string;
   charts(args: ChartArgs): Promise<{ charts: Chart[] }>;
   chart(args: { id: string; region: string | null; limit: number }): Promise<{ tracks: Track[] }>;
   /**
    * Songs for any genre or mood (M46.19), shown as a row on its page, named `name` (default
-   * "<tag> on <source>"). Answer no tracks when the source has nothing for it.
+   * "<tag> on <source>"). Answer no tracks when the source has nothing for it; 12 s.
    */
   tagSongs?(args: TagSongsArgs): Promise<{ tracks: Track[]; name?: string | null }>;
 };
 
-/** A genre a source gives a song ("Hip-Hop", "Breakcore"); a higher weight is more certain. */
+/**
+ * A genre a source gives a song ("Hip-Hop", "Breakcore"), at most 60 characters; `weight` from 0
+ * to 1, higher being more certain (1 when left out).
+ */
 export type MusicTag = { name: string; weight?: number | null };
 
-/** Genres for a song (M46.9); the app derives moods from them. Return no tags when unsure. */
-export type MusicTagsProvider = {
+/**
+ * Genres for a song (M46.9); the app maps them onto its own genres and derives moods from them.
+ * A background tagger asks every provider (30 s each). Return no tags when unsure.
+ */
+export type MusicTagsProvider = ProviderBase & {
   kind: 'music.tags';
-  id: string;
-  name?: string;
   tags(query: LyricsQuery): Promise<{ tags: MusicTag[] }>;
 };
 
@@ -262,10 +314,11 @@ export type ArtistInfo = {
   name: string;
   /** "Person", "Group"... */
   kind?: string | null;
-  /** A few sentences, plain text. */
+  /** A few sentences, plain text (at most 4,000 characters). */
   bio?: string | null;
+  /** http(s) only. */
   imageUrl?: string | null;
-  /** Where to read more. */
+  /** Where to read more; http(s) only. */
   url?: string | null;
   origin?: string | null;
   /** "1975–", "1962–1970". */
@@ -276,22 +329,23 @@ export type ArtistInfo = {
 /** People with one role on a song: "Written by", "Produced by", "Guitar"... */
 export type CreditGroup = { role: string; names: string[] };
 
-/** Artist facts and song credits for the player's cards (M46.14). Answer null or no credits when
- * unsure; the app asks the next provider. */
-export type MusicInfoProvider = {
+/**
+ * Artist facts and song credits for the player's cards (M46.14). Raygun asks providers one after
+ * another (12 s each) until one knows: answer `{ artist: null }` or no credits when unsure.
+ */
+export type MusicInfoProvider = ProviderBase & {
   kind: 'music.info';
-  id: string;
-  name?: string;
   artist?(args: { name: string }): Promise<{ artist: ArtistInfo | null }>;
   credits?(query: LyricsQuery): Promise<{ credits: CreditGroup[]; url?: string | null }>;
 };
 
-// ---- Manga (M24) ----
+// ---- Catalogues: comics (M24), books (M31), videos (M42) ----
 
 /** A title in a catalogue list. */
 export type MangaSummary = {
-  /** The source's own id, passed back to `details` and `chapters`. */
+  /** The source's own id, passed back to `details` and `chapters`. Required. */
   id: string;
+  /** Required. */
   title: string;
   /** http(s) only. */
   coverUrl?: string | null;
@@ -301,14 +355,21 @@ export type MangaSummary = {
   nsfw?: boolean;
 };
 
+/**
+ * One page of a list. Pages count from 1; the app asks for the next page while `hasNextPage` is
+ * true and the reader scrolls.
+ */
 export type MangaPage = { items: MangaSummary[]; hasNextPage: boolean };
 
 export type MangaStatus =
   'ongoing' | 'completed' | 'hiatus' | 'cancelled' | 'publishingFinished' | 'unknown';
 
+/** A title's page. Only `title` is required; any other status reads as `unknown`. */
 export type MangaDetails = {
+  /** Defaults to the id that was asked for. */
   id?: string;
   title: string;
+  /** http(s) only. */
   coverUrl?: string | null;
   coverHeaders?: Record<string, string>;
   authors?: string[];
@@ -316,60 +377,89 @@ export type MangaDetails = {
   description?: string | null;
   genres?: string[];
   status?: MangaStatus;
-  /** The title's page on the source's website. */
+  /** The title's page on the source's website; http(s) only. */
   url?: string | null;
 };
 
 export type MangaChapter = {
-  /** Passed back to `pages`. */
+  /** Passed back to `pages` or `passage`. Required. */
   id: string;
-  /** Defaults to "Chapter <number>". */
+  /** Defaults to "Chapter <number>"; a chapter with neither a name nor a number is dropped. */
   name?: string | null;
   number?: number | null;
-  volume?: string | null;
+  volume?: string | number | null;
   scanlator?: string | null;
   /** Unix milliseconds. */
   dateUpload?: number | null;
 };
 
-/** One page image; `headers` (e.g. Referer) are sent when the app fetches it. */
+/**
+ * One page image, http(s) only; `headers` (e.g. Referer) are sent when the app fetches it, except
+ * Host, Content-Length, Connection and Transfer-Encoding.
+ */
 export type PageImage = string | { url: string; headers?: Record<string, string> };
 
-/**
- * A manga catalogue (Mihon-shaped). List chapters in the source's order, usually newest first;
- * the app reads by chapter number.
- */
 // ---- Source filters (M40) ----
 
-export type FilterOption = { value: string; label: string };
+/** A choice; `label` defaults to `value`. */
+export type FilterOption = { value: string; label?: string };
 
-/** A filter a source offers for its search; the app draws them and passes the choices back. */
-export type SourceFilter =
-  | { kind: 'select'; key: string; label: string; options: FilterOption[]; default?: string }
-  /** Tags the user can include or exclude. */
-  | { kind: 'tags'; key: string; label: string; options: FilterOption[] }
-  | { kind: 'toggle'; key: string; label: string; default?: boolean };
+/**
+ * One choice among options, such as a sort order. The app passes the chosen `value` back, only
+ * once the user changes it; `default` must be one of the options.
+ */
+export type SelectFilter = {
+  kind: 'select';
+  /** Letters, digits, `-` and `_`, at most 40 characters. */
+  key: string;
+  label: string;
+  options: FilterOption[];
+  default?: string;
+};
+/** Tags the user can include or exclude. */
+export type TagsFilter = { kind: 'tags'; key: string; label: string; options: FilterOption[] };
+/** A switch. */
+export type ToggleFilter = { kind: 'toggle'; key: string; label: string; default?: boolean };
 
-/** The user's choices, by filter key; only filters the user changed are present. */
+/**
+ * A filter a source offers for its search; the app draws them and passes the choices back. At
+ * most 20 filters of 500 options each; a select or tags filter without options is left out.
+ */
+export type SourceFilter = SelectFilter | TagsFilter | ToggleFilter;
+
+/**
+ * The user's choices, by filter key: a select's value, a toggle's state, or the tags included and
+ * excluded. Only filters the user changed are present; read them with `selectValue`,
+ * `toggleValue` and `tagsValue` from '@raygun/sdk'.
+ */
 export type FilterValues = Record<
   string,
   string | boolean | { include: string[]; exclude: string[] }
 >;
 
-/** What `search` receives; `query` may be empty when filters are set. */
+/**
+ * What `search` receives. `query` may be empty when filters are set; Search shows each source's
+ * first page as a row and gives it 15 s.
+ */
 export type CatalogSearchArgs = { query: string; page: number; filters?: FilterValues };
 
-export type MangaSourceProvider = {
+/**
+ * A comics catalogue (Mihon-shaped). Lists and searches go a page at a time; a title's chapters
+ * come at once, in the source's order (usually newest first): the app reads by chapter number.
+ * Calls have 30 s, search rows 15 s.
+ */
+export type MangaSourceProvider = ProviderBase & {
   kind: 'manga.source';
-  id: string;
-  name?: string;
+  /** The source's popular titles; also Search's row before anything is typed. */
   popular(args: { page: number }): Promise<MangaPage>;
+  /** Titles updated or added lately. */
   latest?(args: { page: number }): Promise<MangaPage>;
   search(args: CatalogSearchArgs): Promise<MangaPage>;
   /** The filters `search` understands (M40). */
   filters?(): Promise<SourceFilter[]>;
   details(args: { id: string }): Promise<MangaDetails>;
   chapters(args: { id: string }): Promise<{ chapters: MangaChapter[] }>;
+  /** A chapter's pages in reading order; an answer without pages fails. */
   pages(args: { chapterId: string }): Promise<{ pages: PageImage[] }>;
 };
 
@@ -377,44 +467,43 @@ export type MangaSourceProvider = {
 
 /**
  * A chapter's text. Prefer `html`: the app keeps paragraphs, headings, rules and images (resolved
- * against `baseUrl`) and drops everything else. `text` is split into paragraphs at blank lines.
+ * against `baseUrl`) and drops everything else, scripts and styles included. `text` is split
+ * into paragraphs at blank lines. At most 2 MB of text.
  */
 export type Passage = { html?: string; text?: string; baseUrl?: string };
 
 /**
- * A novel catalogue: the calls and shapes of `manga.source`, with `passage` in place of `pages`.
+ * A book catalogue: the calls and shapes of `manga.source`, with `passage` in place of `pages`.
  * List chapters in reading order or newest first; the app reads by chapter number.
  */
-export type NovelSourceProvider = {
+export type NovelSourceProvider = ProviderBase & {
   kind: 'novel.source';
-  id: string;
-  name?: string;
   popular(args: { page: number }): Promise<MangaPage>;
   latest?(args: { page: number }): Promise<MangaPage>;
   search(args: CatalogSearchArgs): Promise<MangaPage>;
   filters?(): Promise<SourceFilter[]>;
   details(args: { id: string }): Promise<MangaDetails>;
   chapters(args: { id: string }): Promise<{ chapters: MangaChapter[] }>;
+  /** A chapter's text; an answer with nothing to read fails. */
   passage(args: { chapterId: string }): Promise<Passage>;
 };
 
 // ---- Podcasts (M37) ----
 
-/** A podcast a directory found; the app reads the feed itself. */
+/** A podcast a directory found; the app reads the feed itself when it's opened or followed. */
 export type PodcastResult = {
   title: string;
   author?: string | null;
-  /** The RSS/Atom feed, http(s) only. */
+  /** The RSS/Atom feed, http(s) only. Results repeating a feed are dropped. */
   feedUrl: string;
   /** Square artwork, http(s) only. */
   artworkUrl?: string | null;
   description?: string | null;
 };
 
-export type PodcastDirectoryProvider = {
+/** Podcasts to find (30 s a call). Both calls answer a plain list, at most 100 results. */
+export type PodcastDirectoryProvider = ProviderBase & {
   kind: 'podcast.directory';
-  id: string;
-  name?: string;
   search(args: { query: string; limit: number }): Promise<PodcastResult[]>;
   /** Popular podcasts, shown before the user searches. */
   top?(args: { limit: number }): Promise<PodcastResult[]>;
@@ -427,6 +516,7 @@ export type VideoType = 'movie' | 'series' | 'anime' | 'other';
 /** A title's details: the fields of `MangaDetails` (authors and artists unused) and these. */
 export type VideoDetails = Omit<MangaDetails, 'authors' | 'artists' | 'status'> & {
   type?: VideoType;
+  /** From 1800 to 2200. */
   year?: number | null;
   cast?: string[];
   directors?: string[];
@@ -434,9 +524,12 @@ export type VideoDetails = Omit<MangaDetails, 'authors' | 'artists' | 'status'> 
 };
 
 export type VideoEpisode = {
-  /** Passed back to `servers`. */
+  /** Passed back to `servers`. Each id once. */
   id: string;
-  /** Defaults to "Episode <number>". A movie's single episode can be named "Film". */
+  /**
+   * Defaults to "Episode <number>". A movie's single episode can be named "Film". Raygun reads
+   * numbers and seasons from names like "S2 E5" when they're left out.
+   */
   name?: string | null;
   number?: number | null;
   season?: number | null;
@@ -444,18 +537,19 @@ export type VideoEpisode = {
   dateUpload?: number | null;
 };
 
+/** A subtitle file (WebVTT or SubRip), http(s) only. */
 export type VideoSubtitle = { url: string; lang?: string; label?: string };
 
 /** One playable link; `headers` (e.g. Referer) are sent with every request the player makes. */
 export type Video = {
-  /** http(s) only. */
+  /** http(s), or `youtube:<11-character video id>` to play in YouTube's embedded player. */
   url: string;
   /** "1080p", "Dub", ...; defaults to the quality. */
   label?: string;
-  /** Height in pixels; the app orders links by the user's preferred quality. */
+  /** Height in pixels (a whole number); the app orders links by the user's preferred quality. */
   quality?: number;
   headers?: Record<string, string>;
-  /** Streaming manifests; leave it out for a plain video file. */
+  /** Streaming manifests; leave it out (or `progressive`) for a plain video file. */
   format?: 'hls' | 'dash' | 'progressive';
   subtitles?: VideoSubtitle[];
   /** Chapters: the player marks them and offers to skip openings, endings and recaps. */
@@ -471,31 +565,35 @@ export type VideoTimestamp = {
   type?: 'opening' | 'ending' | 'recap' | 'mixedOp' | 'mixedEd' | 'other';
 };
 
-/** One comment on a video (M46.45). */
+/** One comment on a video (M46.45); `author` and `text` are required. */
 export type VideoComment = {
   author: string;
+  /** http(s) only. */
   avatarUrl?: string | null;
   text: string;
   /** As the site shows it: "220K". */
   likes?: string | null;
   /** As the site shows it: "6 years ago". */
   published?: string | null;
+  /** A whole number. */
   replies?: number | null;
 };
 
-/** A server (hoster) for an episode. Include `videos` when they cost nothing to resolve. */
+/**
+ * A server (hoster) for an episode, at most 50. Include `videos` when they cost nothing to
+ * resolve: Raygun then never calls `videos` for it.
+ */
 export type VideoServer = { id: string; name?: string; videos?: Video[] };
 
 /**
  * A video catalogue (aniyomi-shaped): the catalogue calls of `manga.source`, then an episode's
  * servers, each resolved on its own with `videos`, so slow or broken hosts don't hold up the rest.
+ * Raygun plays the first link that works and falls back to the next.
  */
-export type VideoSourceProvider = {
+export type VideoSourceProvider = ProviderBase & {
   kind: 'video.source';
-  id: string;
-  name?: string;
   /**
-   * Gives the source its own pill in Search (M46.35), named this ("YouTube"); its results then
+   * Gives the source its own pill in Search (M46.35), named this ("Open Videos", at most 24 characters); its results then
    * stay out of the Videos pill.
    */
   searchPill?: string;
@@ -507,10 +605,11 @@ export type VideoSourceProvider = {
   /** Episodes in order; a movie has one. */
   episodes(args: { id: string }): Promise<{ episodes: VideoEpisode[] }>;
   servers(args: { episodeId: string }): Promise<{ servers: VideoServer[] }>;
+  /** One server's videos, at most 50. */
   videos(args: { serverId: string }): Promise<{ videos: Video[] }>;
   /**
    * A title's comments, a page at a time (M46.45): `page` is the `next` the last page gave, left
-   * out for the first.
+   * out for the first. A comment without an author or a text makes the page unreadable.
    */
   comments?(args: {
     id: string;
@@ -520,13 +619,12 @@ export type VideoSourceProvider = {
 
 /**
  * Recommendations (M46.20) for Made for You and song radios: artists like an artist, an artist's
- * best-known songs, their latest releases, and radios. Every call is optional; songs without a
- * `source` play through `music.stream`.
+ * best-known songs, their latest releases, and radios. Every call is optional; Raygun asks
+ * providers one after another (30 s each) until one has some. Songs without a `source` play
+ * through `music.stream`.
  */
-export type MusicRecommendProvider = {
+export type MusicRecommendProvider = ProviderBase & {
   kind: 'music.recommend';
-  id: string;
-  name?: string;
   /** Artists like this one, the closest first. */
   similarArtists?(args: { artist: string; limit: number }): Promise<{ artists: Artist[] }>;
   /** The artist's most played songs. */
@@ -541,9 +639,12 @@ export type MusicRecommendProvider = {
   }): Promise<{ tracks: Track[] }>;
 };
 
+// ---- Audiobooks (M46.22) ----
+
 /**
- * A book an audiobook directory lists (M46.22); `feedUrl` is its chapter feed (RSS). A book
- * without a feed is opened by its `id` through the provider's `chapters` (M46.48).
+ * A book an audiobook directory lists (M46.22); `feedUrl` is its chapter feed (RSS), which the
+ * app reads like a podcast's. A book without a feed is opened by its `id` through the provider's
+ * `chapters` (M46.48).
  */
 export type Audiobook = {
   id: string;
@@ -558,6 +659,7 @@ export type Audiobook = {
   description?: string | null;
 };
 
+/** One page of books (at most 100), and whether there are more. */
 export type AudiobookPage = { books: Audiobook[]; hasMore: boolean };
 
 /** One chapter of a book a source lists itself (M46.48). */
@@ -565,7 +667,7 @@ export type AudiobookChapter = {
   /** Stable within the book; the audio address when left out. */
   id?: string | null;
   title: string;
-  /** http(s) only. */
+  /** http(s) only; a chapter without one is dropped. */
   audioUrl: string;
   /** "audio/mpeg"… */
   audioType?: string | null;
@@ -581,19 +683,18 @@ export type AudiobookDetails = {
   artworkUrl?: string | null;
   /** The book's page on the source's site. */
   link?: string | null;
+  /** At most 2,000; a book without any fails to open. */
   chapters: AudiobookChapter[];
 };
 
 /**
- * Audiobooks to find (M46.22): searches and lists, a page at a time (from 1). The app reads each
- * book's chapter feed itself; sources whose books have no feed list a book's chapters with
- * `chapters` (M46.48). `subject` is a genre by its English name ("Mystery", "Science fiction",
- * "Children", "Poetry"…), which each source matches to its own.
+ * Audiobooks to find (M46.22): searches and lists, a page at a time (from 1), 12 s a call. The app
+ * reads each book's chapter feed itself; sources whose books have no feed list a book's chapters
+ * with `chapters` (M46.48). `subject` is a genre by its English name ("Mystery", "Science
+ * fiction", "Children", "Poetry"…), which each source matches to its own.
  */
-export type AudiobookDirectoryProvider = {
+export type AudiobookDirectoryProvider = ProviderBase & {
   kind: 'audiobook.directory';
-  id: string;
-  name?: string;
   search(args: { query: string; page: number }): Promise<AudiobookPage>;
   popular(args: { page: number }): Promise<AudiobookPage>;
   latest?(args: { page: number }): Promise<AudiobookPage>;
@@ -619,8 +720,14 @@ export type ProviderKind = Provider['kind'];
 // ---- Host API ----
 
 export type FetchInit = {
+  /** `GET` when left out. */
   method?: string;
+  /**
+   * Request headers. Raygun sends its own User-Agent unless one is given here, and the
+   * extension's cookies unless a `Cookie` header is.
+   */
   headers?: Record<string, string>;
+  /** Text only, e.g. `JSON.stringify(...)` with a `Content-Type` header. */
   body?: string | null;
 };
 
@@ -632,39 +739,59 @@ export type FetchResponse = {
   url: string;
   /** Lower-case names; repeated headers are joined with `, `. */
   headers: Record<string, string>;
+  /** The body as UTF-8 text; binary bodies can't be read. */
   text(): Promise<string>;
   json<T = unknown>(): Promise<T>;
 };
 
+/** An element `raygun.html.select` found. */
 export type HtmlElement = {
   /** All descendant text, concatenated. */
   text: string;
   /** Outer HTML. */
   html: string;
+  /** Inner HTML. */
   inner: string;
   attrs: Record<string, string>;
+  /** An attribute's value, or `null`. */
   attr(name: string): string | null;
   /** Selects inside this element (re-parsed as a fragment; select table rows from the document). */
   select(selector: string): HtmlElement[];
 };
 
+/**
+ * The `raygun` global: everything an extension can reach. Extensions run in QuickJS, not a
+ * browser or Node: there is no `fetch`, `URL`, `setTimeout`, `require` or DOM.
+ */
 export type RaygunApi = {
   apiVersion: 1;
+  /** Goes to Raygun's log (and `raygun-ext test`'s output); `console` writes here too. */
   log: Record<'debug' | 'info' | 'warn' | 'error', (...args: unknown[]) => void>;
   http: {
-    /** Only hosts in the manifest's `permissions.net` (redirects included); bodies up to 8 MiB. */
+    /**
+     * An HTTP request. Only hosts in the manifest's `permissions.net` (redirects included, at
+     * most 10); bodies up to 8 MiB; 20 s per request. Each extension keeps its own cookies across
+     * restarts. Requests take turns: 6 at once per site, 32 in all. Rejects when the request
+     * can't be made; an HTTP error status resolves, so check `ok`.
+     */
     fetch(url: string, init?: FetchInit): Promise<FetchResponse>;
   };
   html: {
+    /** Elements matching a CSS selector, in document order. Throws on an invalid selector. */
     select(html: string, selector: string): HtmlElement[];
   };
   time: {
     /** Waits without using CPU, e.g. to respect an API's rate limit. Capped at 10 s per call. */
     sleep(ms: number): Promise<void>;
   };
-  /** Per-extension storage, kept across app restarts and extension updates; up to 1 MiB. */
+  /**
+   * Per-extension storage of JSON values, kept across app restarts and extension updates; up to
+   * 1 MiB in all. Clearing the extension's data empties it.
+   */
   storage: {
+    /** The stored value, or `null`. */
     get<T extends JsonValue = JsonValue>(key: string): T | null;
+    /** Throws when the store would grow past 1 MiB. */
     set(key: string, value: JsonValue): void;
     remove(key: string): void;
     keys(): string[];
@@ -682,25 +809,37 @@ export type RaygunApi = {
     showNsfw(): boolean;
   };
   providers: {
+    /**
+     * Registers a provider. Call it while the script first runs (at the top level): providers
+     * registered later aren't seen. Throws for a kind missing from `provides`, an invalid id, or
+     * an id registered twice.
+     */
     register(provider: Provider): void;
   };
 };
 
 // ---- Manifest (raygun-extension.json) ----
 
+/** A setting the user can change in the extension's page; read it with `raygun.settings.get`. */
 export type SettingDef = {
+  /** Unique, not empty. */
   key: string;
   type: 'text' | 'number' | 'boolean' | 'select';
+  /** Must fit the type: a string, a number, a boolean, or one of a select's options. */
   default?: JsonValue;
+  /** Defaults to the key in words: `itemsPerSearch` reads "Items per search". */
   label?: string;
+  /** A select's choices; required for a select. */
   options?: string[];
 };
 
+/** `raygun-extension.json`. Raygun refuses a manifest with fields it doesn't know. */
 export type Manifest = {
-  /** Reverse-DNS, lower case: `dev.example.my-source`. */
+  /** Reverse-DNS, lower case: `dev.example.my-source`. Never change it: updates match by id. */
   id: string;
+  /** 1–80 characters. */
   name: string;
-  /** Semver. */
+  /** Semver; a new version for every published change. */
   version: string;
   apiVersion: 1;
   runtime: 'js';
@@ -708,12 +847,23 @@ export type Manifest = {
   entry: string;
   description?: string;
   author?: string;
+  /** Every provider kind the extension registers. */
   provides: ProviderKind[];
   permissions?: {
-    /** `api.example.org` or `*.example.org`. */
+    /**
+     * Hosts `raygun.http.fetch` may reach: `api.example.org` (that host only), `*.example.org`
+     * (its subdomains, not itself) or `*` (any public host, never this device or the local
+     * network). Nothing else is reachable.
+     */
     net?: string[];
+    /** Reserved; no API uses it yet. Leave it out. */
     webview?: boolean;
   };
+  /**
+   * `nsfw` extensions count as 18+: they're hidden while NSFW content is off (music ones while
+   * Explicit music is off). `suggestive` and `safe` are shown; `safe` when left out. Users can
+   * mark any extension 18+ or not themselves.
+   */
   contentRating?: 'safe' | 'suggestive' | 'nsfw';
   settings?: SettingDef[];
   /** The site the sources read (http or https); a source's menu opens it in Raygun's browser. */

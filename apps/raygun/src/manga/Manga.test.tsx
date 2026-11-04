@@ -10,7 +10,7 @@ vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).b
 
 const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 const { commands } = bindingsMock;
-const SOURCE = 'dev.raygun.mangadex/mangadex';
+const SOURCE = 'dev.example.comics/comics';
 
 const card = (id: string, title: string, inLibrary = false) => ({
   sourceId: SOURCE,
@@ -42,7 +42,7 @@ const TITLE: MangaTitleView = {
   id: 't1',
   hiddenNsfw: false,
   sourceId: SOURCE,
-  sourceName: 'MangaDex',
+  sourceName: 'Comic Shelf',
   remoteId: 'm1',
   title: 'Frieren',
   coverUrl: null,
@@ -61,7 +61,7 @@ describe('Manga', () => {
   beforeEach(() => {
     AppShellWrapper.seedCore();
     commands.mangaSources.mockResolvedValue(
-      ok([{ id: SOURCE, name: 'MangaDex', extensionId: 'dev.raygun.mangadex' }]),
+      ok([{ id: SOURCE, name: 'Comic Shelf', extensionId: 'dev.example.comics' }]),
     );
   });
 
@@ -101,7 +101,7 @@ describe('Manga', () => {
     );
     await AppShellWrapper.mount(`/manga/source?id=${encodeURIComponent(SOURCE)}`);
     const page = await screen.findByTestId('manga-source-page');
-    expect(await within(page).findByRole('heading', { name: 'MangaDex' })).toBeInTheDocument();
+    expect(await within(page).findByRole('heading', { name: 'Comic Shelf' })).toBeInTheDocument();
     const first = await within(page).findByTestId('manga-card');
     expect(first).toHaveTextContent('In library');
     expect(first).toHaveTextContent('Popular 1');
@@ -123,7 +123,7 @@ describe('Manga', () => {
 
     expect(await within(page).findByRole('heading', { name: 'Frieren' })).toBeInTheDocument();
     expect(within(page).getByText('Yamada, Abe · Ongoing')).toBeInTheDocument();
-    expect(within(page).getByTestId('source-tag')).toHaveTextContent('MangaDex');
+    expect(within(page).getByTestId('source-tag')).toHaveTextContent('Comic Shelf');
     // The floating button picks up where reading stopped.
     expect(within(page).getByRole('button', { name: /Continue: Chapter 2/ })).toBeInTheDocument();
     expect(within(page).getAllByTestId('chapter-row')).toHaveLength(2);
