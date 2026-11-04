@@ -19,7 +19,19 @@ export const ConfirmButton: FC<{
   onConfirm: () => void;
   disabled?: boolean;
   className?: string;
-}> = ({ label, confirm, icon: Icon, onConfirm, disabled = false, className = '' }) => {
+  /** Replaces the icon button's own look (size, colour), for rows with smaller buttons. */
+  idleClassName?: string;
+  iconSize?: number;
+}> = ({
+  label,
+  confirm,
+  icon: Icon,
+  onConfirm,
+  disabled = false,
+  className = '',
+  idleClassName = 'text-muted hover:text-foreground size-10',
+  iconSize = 18,
+}) => {
   const [armed, setArmed] = useState(false);
   useEffect(() => {
     if (!armed) return;
@@ -50,9 +62,9 @@ export const ConfirmButton: FC<{
       aria-label={label}
       disabled={disabled}
       onClick={() => setArmed(true)}
-      className={`text-muted hover:text-foreground grid size-10 shrink-0 place-items-center rounded-full disabled:opacity-60 ${className}`}
+      className={`${idleClassName} grid shrink-0 place-items-center rounded-full disabled:opacity-60 ${className}`}
     >
-      <Icon aria-hidden size={18} />
+      <Icon aria-hidden size={iconSize} />
     </button>
   );
 };

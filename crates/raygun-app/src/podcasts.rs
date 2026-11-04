@@ -792,6 +792,10 @@ impl PodcastService {
         let rows = store::episodes(&db, id).await.map_err(to_message)?;
         let count = rows.len() as u32;
         let episodes = self.episodes_view(rows, None).await?;
+        let downloaded = episodes
+            .iter()
+            .filter(|episode| episode.download.is_some())
+            .count() as u32;
         let order = order::stored(row.episode_order.as_deref(), false);
         Ok(PodcastView {
             id: row.id,
@@ -810,6 +814,7 @@ impl PodcastService {
             episodes: order::arrange(episodes, &order),
             order,
             episode_count: count,
+            downloaded,
             speed: row.speed,
         })
     }

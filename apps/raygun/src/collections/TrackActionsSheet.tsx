@@ -278,6 +278,8 @@ const TrackActions: FC<{ track: TrackInput; sheet?: boolean }> = ({ track, sheet
 const MoreActions: FC<{ track: TrackInput; onDone: () => void }> = ({ track, onDone }) => {
   const { t } = useTranslation();
   const menu = useTrackMenuItems();
+  // A row that asks first (deleting a download) shows its question; a second tap does it.
+  const [asking, setAsking] = useState<number | null>(null);
   const above = new Set([
     t('collections.favorite'),
     t('collections.unfavorite'),
@@ -301,19 +303,25 @@ const MoreActions: FC<{ track: TrackInput; onDone: () => void }> = ({ track, onD
         }
         if (item.kind === 'heading') return null;
         const Icon = item.icon;
+        const askingHere = asking === index && Boolean(item.confirm);
         return (
           <button
             key={index}
             type="button"
             disabled={item.disabled}
+            onBlur={() => askingHere && setAsking(null)}
             onClick={() => {
+              if (item.confirm && !askingHere) {
+                setAsking(index);
+                return;
+              }
               onDone();
               item.onSelect();
             }}
-            className={`${ROW_CLASS} ${item.danger ? 'text-red-400' : ''}`}
+            className={`${ROW_CLASS} ${askingHere ? 'text-primary font-semibold' : item.danger ? 'text-red-400' : ''}`}
           >
-            {Icon && <Icon aria-hidden size={18} className="text-muted" />}
-            <span className="truncate">{item.label}</span>
+            {Icon && <Icon aria-hidden size={18} className={askingHere ? '' : 'text-muted'} />}
+            <span className="truncate">{askingHere ? item.confirm : item.label}</span>
           </button>
         );
       })}

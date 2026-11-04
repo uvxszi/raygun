@@ -558,6 +558,8 @@ export const bindingsMock = {
     saveFolderState: vi.fn(),
     exportPlan: vi.fn(),
     exportStart: vi.fn(),
+    exportPickFolder: vi.fn(),
+    exportLastFolder: vi.fn(),
     exportCancel: vi.fn(),
     exportDismiss: vi.fn(),
     exportJobs: vi.fn(),
@@ -1112,6 +1114,8 @@ export const seedBindings = () => {
   commands.saveFolderState.mockResolvedValue(ok({ granted: true, name: null }));
   commands.exportPlan.mockResolvedValue(ok({ chapters: 0, missing: 0, files: 0, problem: null }));
   commands.exportStart.mockResolvedValue({ status: 'error', error: 'not mocked' });
+  commands.exportPickFolder.mockResolvedValue(ok(null));
+  commands.exportLastFolder.mockResolvedValue(ok(null));
   commands.exportCancel.mockResolvedValue(null);
   commands.exportDismiss.mockResolvedValue(null);
   commands.exportJobs.mockResolvedValue([]);

@@ -108,7 +108,12 @@ export const episodeMenu = (
     ],
     keep: [
       state === 'done'
-        ? { label: t('podcasts.removeDownload'), icon: Trash2, onSelect: actions.removeDownload }
+        ? {
+            label: t('podcasts.removeDownload'),
+            icon: Trash2,
+            confirm: t('podcasts.removeDownloadQuestion', { name: episode.title }),
+            onSelect: actions.removeDownload,
+          }
         : (state === 'downloading' || state === 'queued') && actions.cancelDownload
           ? { label: t('podcasts.cancelDownload'), icon: CircleX, onSelect: actions.cancelDownload }
           : { label: t('podcasts.download'), icon: Download, onSelect: actions.download },

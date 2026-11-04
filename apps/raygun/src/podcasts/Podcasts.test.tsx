@@ -40,6 +40,7 @@ const SHOW: PodcastView = {
   order: { sort: 'date', descending: true, filters: [] },
   customOrder: false,
   episodeCount: 2,
+  downloaded: 0,
   speed: null,
 };
 
@@ -168,6 +169,49 @@ describe('Podcasts', () => {
     const one = await within(page).findByRole('listitem', { name: 'Episode One' });
     expect(await within(one).findByText(/Downloaded/)).toBeInTheDocument();
     expect(within(one).getByRole('button', { name: 'Delete download' })).toBeInTheDocument();
+  });
+
+  it('asks before deleting downloads, one or all of them', async () => {
+    const user = userEvent.setup();
+    const done = { state: 'done' as const, receivedBytes: 10, totalBytes: 10, error: null };
+    commands.podcastGet.mockResolvedValue(
+      ok({
+        ...SHOW,
+        episodes: [
+          episode({ download: done }),
+          episode({ id: 'e2', title: 'Episode Two', download: done }),
+        ],
+        downloaded: 2,
+      }),
+    );
+    await AppShellWrapper.mount('/podcast?id=p1');
+    const page = await screen.findByTestId('podcast-page');
+    const one = await within(page).findByRole('listitem', { name: 'Episode One' });
+
+    // The row's button: the first tap says what it does, the second does it.
+    await user.click(within(one).getByRole('button', { name: 'Delete download' }));
+    expect(commands.podcastRemoveDownload).not.toHaveBeenCalled();
+    await user.click(within(one).getByRole('button', { name: 'Delete' }));
+    expect(commands.podcastRemoveDownload).toHaveBeenCalledWith('e1');
+
+    // The episode's menu asks in its place.
+    const two = within(page).getByRole('listitem', { name: 'Episode Two' });
+    fireEvent.contextMenu(two, { clientX: 40, clientY: 40 });
+    const menu = await screen.findByRole('menu');
+    await user.click(within(menu).getByRole('menuitem', { name: 'Delete download' }));
+    expect(commands.podcastRemoveDownload).not.toHaveBeenCalledWith('e2');
+    const question = within(menu).getByRole('alertdialog', {
+      name: 'Delete the download of “Episode Two”?',
+    });
+    await user.click(within(question).getByRole('button', { name: 'Delete download' }));
+    expect(commands.podcastRemoveDownload).toHaveBeenCalledWith('e2');
+
+    // The show's ⋮ says how many go.
+    await user.click(within(page).getByRole('button', { name: 'More options' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Delete downloads' }));
+    expect(commands.podcastRemoveDownloads).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('menuitem', { name: 'Delete 2 downloads?' }));
+    expect(commands.podcastRemoveDownloads).toHaveBeenCalledWith('p1');
   });
 
   it('sorts and filters a show’s episodes its own way, kept in Rust', async () => {

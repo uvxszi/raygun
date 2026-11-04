@@ -4394,7 +4394,7 @@ pub enum ImageDestination {
 pub enum SongDestination {
     /// `Music/Raygun/<artist>/`.
     Music,
-    /// The folder picked in Settings → Downloads.
+    /// The request's `folder`, else the folder picked in Settings → Downloads.
     Folder,
 }
 
@@ -5174,7 +5174,7 @@ pub enum ExportScope {
 pub enum ExportDestination {
     /// `Download/Raygun/`.
     Downloads,
-    /// The folder picked in Settings → Downloads.
+    /// The request's `folder`, else the folder picked in Settings → Downloads.
     Folder,
     /// The share sheet (one file).
     Share,
@@ -5188,6 +5188,17 @@ pub struct ExportRequest {
     pub scope: ExportScope,
     pub format: ExportFormat,
     pub destination: ExportDestination,
+    /// A folder chosen in the export sheet: with `destination` `folder`, files go there instead
+    /// of the one set in Settings → Downloads.
+    pub folder: Option<ExportFolder>,
+}
+
+/// A folder exports can be written to: its tree URI on Android or its path on desktop.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportFolder {
+    pub uri: String,
+    pub name: String,
 }
 
 /// What an export would do, shown before it starts.
@@ -5656,6 +5667,8 @@ pub struct PodcastView {
     pub custom_order: bool,
     /// Every episode, shown or filtered out.
     pub episode_count: u32,
+    /// Episodes with a download (finished, under way or failed), shown or filtered out.
+    pub downloaded: u32,
     /// The speed its episodes play at, when it has its own (M46.48).
     pub speed: Option<f64>,
 }

@@ -4,13 +4,14 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ProgressRing } from '../manga/DownloadButton';
+import { ConfirmButton } from '../shell/ConfirmButton';
 import { downloadShare, useRemoveVideoDownload, useRetryVideoDownload } from './useVideoLibrary';
 
 const BASE = 'grid size-9 shrink-0 place-items-center rounded-full disabled:opacity-60';
 
 /**
  * An episode's or film's download control (Aniyomi's): download (which first asks for a link),
- * then queued or a progress ring (tap to cancel), then a check (tap to delete); a failed one
+ * then queued or a progress ring (tap to cancel), then a check (tap twice to delete); a failed one
  * retries on tap.
  */
 export const VideoDownloadControl: FC<{
@@ -28,15 +29,14 @@ export const VideoDownloadControl: FC<{
 
   if (state === 'done') {
     return (
-      <button
-        type="button"
-        aria-label={t('watch.deleteDownload', { name })}
+      <ConfirmButton
+        label={t('watch.deleteDownload', { name })}
+        confirm={t('watch.deleteConfirm')}
+        icon={CircleCheck}
         disabled={busy || !item}
-        onClick={() => item && remove.mutate(item.id)}
-        className={`${BASE} text-primary`}
-      >
-        <CircleCheck aria-hidden size={18} />
-      </button>
+        onConfirm={() => item && remove.mutate(item.id)}
+        idleClassName="text-primary size-9"
+      />
     );
   }
   if (item && (state === 'queued' || state === 'downloading')) {

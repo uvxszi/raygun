@@ -127,6 +127,12 @@ describe('Right-click menu', () => {
     expect(within(menu).getByRole('menuitem', { name: 'Copy title' })).toBeInTheDocument();
     expect(within(menu).queryByRole('menuitem', { name: /^Copy “/ })).not.toBeInTheDocument();
     await user.click(within(menu).getByRole('menuitem', { name: 'Remove from downloads' }));
+    // It asks first, in the menu's place.
+    expect(commands.songDownloadRemove).not.toHaveBeenCalled();
+    const question = within(menu).getByRole('alertdialog', {
+      name: /^Delete the downloaded copy of/,
+    });
+    await user.click(within(question).getByRole('button', { name: 'Remove from downloads' }));
     await vi.waitFor(() => expect(commands.songDownloadRemove).toHaveBeenCalledWith('dl-1'));
 
     fireEvent.contextMenu(row, { clientX: 40, clientY: 40 });

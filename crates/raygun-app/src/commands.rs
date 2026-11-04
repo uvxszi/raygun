@@ -3800,6 +3800,7 @@ pub async fn manga_import_comic(
 pub async fn save_pick_folder(
     app: tauri::AppHandle,
     db: tauri::State<'_, AppDb>,
+    exports: tauri::State<'_, Arc<crate::export::ExportService>>,
 ) -> Result<Settings, String> {
     let current = settings::load(&db.0)
         .await
@@ -3808,7 +3809,13 @@ pub async fn save_pick_folder(
     let Some(uri) = picked.uri else {
         return Ok(current);
     };
-    if let Some(old) = current.save.folder_uri.as_deref().filter(|old| *old != uri) {
+    let export_folder = exports.last_folder().await.map(|folder| folder.uri);
+    if let Some(old) = current
+        .save
+        .folder_uri
+        .as_deref()
+        .filter(|old| *old != uri && export_folder.as_deref() != Some(*old))
+    {
         release_folder(&app, old);
     }
     let prefs = raygun_model::SavePrefs {
@@ -3829,6 +3836,7 @@ pub async fn save_pick_folder(
 pub async fn songs_pick_folder(
     app: tauri::AppHandle,
     db: tauri::State<'_, AppDb>,
+    exports: tauri::State<'_, Arc<crate::export::ExportService>>,
 ) -> Result<Option<Settings>, String> {
     let current = settings::load(&db.0)
         .await
@@ -3837,7 +3845,13 @@ pub async fn songs_pick_folder(
     let Some(uri) = picked.uri else {
         return Ok(None);
     };
-    if let Some(old) = current.save.folder_uri.as_deref().filter(|old| *old != uri) {
+    let export_folder = exports.last_folder().await.map(|folder| folder.uri);
+    if let Some(old) = current
+        .save
+        .folder_uri
+        .as_deref()
+        .filter(|old| *old != uri && export_folder.as_deref() != Some(*old))
+    {
         release_folder(&app, old);
     }
     let prefs = raygun_model::SavePrefs {
@@ -4009,6 +4023,44 @@ pub async fn export_start(
     request: raygun_model::ExportRequest,
 ) -> Result<raygun_model::ExportJob, String> {
     exports.inner().clone().start(request).await
+}
+
+/// Shows the system folder picker for one export: the folder chosen is remembered for the export
+/// sheet, and Settings → Downloads stays as it was. `None` when the picker was cancelled.
+#[tauri::command]
+#[specta::specta]
+pub async fn export_pick_folder(
+    app: tauri::AppHandle,
+    db: tauri::State<'_, AppDb>,
+    exports: tauri::State<'_, Arc<crate::export::ExportService>>,
+) -> Result<Option<raygun_model::ExportFolder>, String> {
+    let picked = pick_folder(&app).await?;
+    let Some(uri) = picked.uri else {
+        return Ok(None);
+    };
+    let folder = raygun_model::ExportFolder {
+        uri,
+        name: picked.name.unwrap_or_else(|| "Folder".into()),
+    };
+    if let Some(old) = exports.remember_folder(&folder).await? {
+        let settings_folder = settings::load(&db.0)
+            .await
+            .ok()
+            .and_then(|settings| settings.save.folder_uri);
+        if settings_folder.as_deref() != Some(old.as_str()) {
+            release_folder(&app, &old);
+        }
+    }
+    Ok(Some(folder))
+}
+
+/// The folder last chosen in the export sheet, if any.
+#[tauri::command]
+#[specta::specta]
+pub async fn export_last_folder(
+    exports: tauri::State<'_, Arc<crate::export::ExportService>>,
+) -> Result<Option<raygun_model::ExportFolder>, String> {
+    Ok(exports.last_folder().await)
 }
 
 #[tauri::command]
