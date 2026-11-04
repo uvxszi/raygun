@@ -5,6 +5,7 @@ import {
   ORIGINAL_AUDIO,
   pickAudio,
   pickSubtitles,
+  pickVariant,
 } from './trackPicking';
 import type { LanguagePrefs, TrackOption } from './trackPicking';
 
@@ -148,5 +149,34 @@ describe('choosing subtitles', () => {
   it('finds a remembered track by name, then by language', () => {
     const choice = { language: 'English', label: 'Other name' };
     expect(matchChoice(subtitles, choice)?.key).toBe('full');
+  });
+});
+
+describe('pickVariant', () => {
+  const ladder = [
+    { width: 640, height: 360, bitrate: 800_000 },
+    { width: 1280, height: 720, bitrate: 2_500_000 },
+    { width: 1920, height: 800, bitrate: 5_000_000 },
+    { width: 3840, height: 2160, bitrate: 15_000_000 },
+  ];
+
+  it('starts at the preferred resolution and caps automatic switching there', () => {
+    expect(pickVariant(ladder, '1080p')).toEqual({ start: 2, cap: 2, maxKbps: 5000 });
+    expect(pickVariant(ladder, '720p')).toEqual({ start: 1, cap: 1, maxKbps: 2500 });
+    expect(pickVariant(ladder, '1440p')).toEqual({ start: 2, cap: 2, maxKbps: 5000 });
+  });
+
+  it('leaves the highest uncapped', () => {
+    expect(pickVariant(ladder, 'highest')).toEqual({ start: 3, cap: -1, maxKbps: null });
+  });
+
+  it('takes the lowest above when none is small enough', () => {
+    expect(pickVariant(ladder.slice(1), '360p')).toEqual({ start: 0, cap: 0, maxKbps: 2500 });
+  });
+
+  it('reads sizes from bit rates when variants have none', () => {
+    const unsized = [{ bitrate: 6_000_000 }, { bitrate: 2_400_000 }, { bitrate: 14_000_000 }];
+    expect(pickVariant(unsized, '1080p')?.start).toBe(0);
+    expect(pickVariant(ladder.slice(0, 1), '1080p')).toBeNull();
   });
 });

@@ -143,6 +143,7 @@ export const DEFAULT_SUBTITLE_STYLE: Required<SubtitleStyle> = {
 
 /** Matches `VideoPlayerPrefs::default()` in raygun-model. */
 export const PLAYER_DEFAULTS: PlayerPrefs = {
+  preferredResolution: '1080p',
   orientation: 'sensorLandscape',
   aspect: 'fit',
   controlsSeconds: 4,

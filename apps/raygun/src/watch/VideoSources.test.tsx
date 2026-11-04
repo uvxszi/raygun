@@ -265,15 +265,18 @@ describe('Video sources in Watch', () => {
     );
   });
 
-  it('sets the preferred video quality', async () => {
+  it('sets the video resolution, 1080p unless changed', async () => {
     const user = userEvent.setup();
     await AppShellWrapper.mount('/settings/player');
-    await user.click(await screen.findByRole('button', { name: /Preferred video quality/ }));
-    const sheet = await screen.findByRole('dialog', { name: 'Preferred video quality' });
-    await user.click(within(sheet).getByRole('radio', { name: 'Up to 720p' }));
+    const row = await screen.findByRole('button', { name: /Video resolution/ });
+    expect(row).toHaveTextContent('1080p');
+    await user.click(row);
+    const sheet = await screen.findByRole('dialog', { name: 'Video resolution' });
+    expect(within(sheet).getByRole('radio', { name: '1080p' })).toBeChecked();
+    await user.click(within(sheet).getByRole('radio', { name: 'Highest available' }));
     expect(commands.settingsUpdate).toHaveBeenCalledWith({
-      key: 'preferredVideoQuality',
-      value: 720,
+      key: 'videoPlayer',
+      value: expect.objectContaining({ preferredResolution: 'highest' }),
     });
   });
 });

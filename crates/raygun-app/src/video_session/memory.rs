@@ -7,10 +7,12 @@
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 
+use raygun_model::VideoResolution;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use super::{Group, Link};
+use crate::video_quality;
 
 /// How long a server or addon that failed stays at the end of the list (M46.17), and how long a
 /// title remembers a dead link.
@@ -141,8 +143,6 @@ pub struct Remembered {
     pub tag: Option<String>,
     /// The link's label ("1080p", an addon's stream name).
     pub label: Option<String>,
-    /// Its height, read from the label.
-    pub quality: Option<u32>,
     /// When it last played [`WORKED_AFTER_MS`], Unix ms.
     pub at: i64,
     /// Links that failed lately, newest first.
@@ -155,7 +155,6 @@ impl Remembered {
         self.group = group.to_owned();
         self.tag = link.tag.clone();
         self.label = Some(link.label.clone());
-        self.quality = quality_of(&link.label);
         self.at = now;
         self.dead
             .retain(|dead| !(dead.group == group && dead.label == link.label));
@@ -184,27 +183,12 @@ impl Remembered {
     }
 }
 
-/// A link's height from its label: "1080p", "720P", "4K", "UHD".
-pub fn quality_of(label: &str) -> Option<u32> {
-    label
-        .split(|character: char| !character.is_ascii_alphanumeric())
-        .find_map(|word| {
-            let word = word.to_ascii_lowercase();
-            if word == "4k" || word == "uhd" || word == "2160p" {
-                return Some(2160);
-            }
-            word.strip_suffix('p')
-                .and_then(|number| number.parse::<u32>().ok())
-                .filter(|height| (144..=4320).contains(height))
-        })
-}
-
 /// Where a link or source stands for a title, best first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Standing {
     /// The very link (or, for a source, the server or addon) that played last time.
     LastPlayed,
-    /// Its release (`bingeGroup`) in any addon, or its quality on the same server.
+    /// Its release (`bingeGroup`) in any addon.
     SameRelease,
     /// A source that worked lately.
     Worked,
@@ -214,24 +198,36 @@ pub enum Standing {
 }
 
 /// Orders links and sources by how they did: what played last time, the same release, what
-/// worked lately, untried ones, then those that failed lately.
+/// worked lately, untried ones, then those that failed lately; within each of those by the
+/// preferred resolution (`video_quality::rank`).
 pub struct Ranking<'a> {
     memory: &'a Remembered,
     health: &'a SourceHealth,
     failing: HashSet<String>,
+    resolution: VideoResolution,
     now: i64,
 }
 
 /// A sort key: lower plays first. (Names another episode, standing, not the remembered source,
-/// less success.)
-pub type RankKey = (bool, Standing, bool, Reverse<i64>);
+/// less success, how far its size is from the preferred one.)
+pub type RankKey = (bool, Standing, bool, Reverse<i64>, (u8, u32));
+
+/// The size term of a source with no links yet: after every link of the same standing, so
+/// nothing waits on a source for its sizes alone.
+const UNKNOWN_SIZE: (u8, u32) = (u8::MAX, u32::MAX);
 
 impl<'a> Ranking<'a> {
-    pub fn new(memory: &'a Remembered, health: &'a SourceHealth, now: i64) -> Self {
+    pub fn new(
+        memory: &'a Remembered,
+        health: &'a SourceHealth,
+        resolution: VideoResolution,
+        now: i64,
+    ) -> Self {
         Self {
             memory,
             health,
             failing: health.failing(now),
+            resolution,
             now,
         }
     }
@@ -274,10 +270,7 @@ impl<'a> Ranking<'a> {
         if same_group && memory.label.as_deref() == Some(label) {
             return Standing::LastPlayed;
         }
-        let same_release = tag.is_some() && tag == memory.tag.as_deref();
-        let same_quality =
-            same_group && memory.quality.is_some() && quality_of(label) == memory.quality;
-        if same_release || same_quality {
+        if tag.is_some() && tag == memory.tag.as_deref() {
             Standing::SameRelease
         } else if same_group || self.score(group) > 0 {
             Standing::Worked
@@ -293,6 +286,7 @@ impl<'a> Ranking<'a> {
             self.group_standing(group),
             !self.remembered(group),
             Reverse(self.score(group)),
+            UNKNOWN_SIZE,
         )
     }
 
@@ -302,6 +296,7 @@ impl<'a> Ranking<'a> {
             self.link_standing(group, &link.label, link.tag.as_deref()),
             !self.remembered(group),
             Reverse(self.score(group)),
+            video_quality::rank(link.height, self.resolution),
         )
     }
 
@@ -325,7 +320,7 @@ pub fn order_groups(groups: &mut [Group], ranking: &Ranking) {
     groups.sort_by_cached_key(|group| ranking.best_key(group));
 }
 
-/// Orders one source's links by standing; ties keep their order.
+/// Orders one source's links by standing, then resolution; ties keep their order.
 pub fn order_links(group: &mut Group, ranking: &Ranking) {
     let name = group.name.clone();
     group
@@ -376,6 +371,7 @@ pub fn rank_candidates(candidates: &[SourceCandidate], ranking: &Ranking) -> Vec
         tag: candidate.tag.clone(),
         failed: None,
         mismatch: false,
+        height: video_quality::label_height(&candidate.label),
         request: raygun_model::VideoRequest {
             key: String::new(),
             title: String::new(),

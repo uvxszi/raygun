@@ -1,3 +1,4 @@
+import type { VideoResolution } from '@raygun/bindings';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -9,8 +10,16 @@ import type { PlayerPrefs } from '../playerOptions';
 import { PrefChoice, PrefGroup, PrefLink, PrefSlider, PrefSwitch } from '../prefs';
 import { useSettings, useUpdateSetting } from '../useSettings';
 
-/** Matches `VIDEO_QUALITIES` in raygun-model. */
-const QUALITIES = [1080, 720, 480, 360];
+/** Matches `VideoResolution::ALL` in raygun-model. */
+const RESOLUTIONS: VideoResolution[] = [
+  'highest',
+  '2160p',
+  '1440p',
+  '1080p',
+  '720p',
+  '480p',
+  '360p',
+];
 /** Matches `NEXT_PROMPT_SECONDS` in raygun-model (0: at the end). */
 const NEXT_PROMPT_SECONDS = [0, 5, 10, 15, 30];
 
@@ -41,17 +50,19 @@ export const PlayerSettings: FC = () => {
       </PrefGroup>
       <PlayerViewSettings title={t('player.view.musicTitle')} />
       <PrefGroup title={t('settings.videoPlayback')}>
-        <PrefChoice<number | null>
+        <PrefChoice<VideoResolution>
           title={t('settings.videoQuality')}
-          value={data.preferredVideoQuality}
-          options={[
-            { value: null, label: t('settings.videoQualityHighest') },
-            ...QUALITIES.map((height) => ({
-              value: height,
-              label: t('settings.videoQualityUpTo', { height }),
-            })),
-          ]}
-          onChange={(value) => update.mutate({ key: 'preferredVideoQuality', value })}
+          value={prefs.preferredResolution}
+          options={RESOLUTIONS.map((resolution) => ({
+            value: resolution,
+            label:
+              resolution === 'highest'
+                ? t('settings.videoQualityHighest')
+                : resolution === '2160p'
+                  ? '2160p (4K)'
+                  : resolution,
+          }))}
+          onChange={(preferredResolution) => setPlayer({ preferredResolution })}
         />
         <PrefSwitch
           title={t('settings.resumeVideos')}

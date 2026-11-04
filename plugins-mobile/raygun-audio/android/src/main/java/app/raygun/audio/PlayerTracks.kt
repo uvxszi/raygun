@@ -155,8 +155,8 @@ internal class PlayerTracks(private val host: VideoPlayerActivity) {
      * Before a new video: no choices from the last one, the audio languages in place, and
      * subtitles off until [pick] decides (Media3 would turn on a track marked default).
      */
-    fun reset(languages: LanguagePrefs) {
-        host.player.trackSelectionParameters = host.player.trackSelectionParameters.buildUpon()
+    fun reset(languages: LanguagePrefs, maxHeight: Int?) {
+        val builder = host.player.trackSelectionParameters.buildUpon()
             .clearOverridesOfType(C.TRACK_TYPE_TEXT)
             .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
             .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
@@ -164,7 +164,17 @@ internal class PlayerTracks(private val host: VideoPlayerActivity) {
             .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
             .setPreferredTextLanguages()
             .setPreferredAudioLanguages(*languages.audio.toTypedArray())
-            .build()
+        // Automatic quality stays at or below the preferred resolution; with nothing that small
+        // Media3 takes the smallest above it. A picture counts by its long side against a 16:9
+        // one's (1920×800 is 1080p, as `video_quality::picture_height` in raygun-app counts it).
+        // The Quality sheet's overrides go past this.
+        if (maxHeight == null) {
+            builder.clearVideoSizeConstraints()
+        } else {
+            val longSide = (maxHeight * 16 + 8) / 9
+            builder.setMaxVideoSize(longSide, longSide)
+        }
+        host.player.trackSelectionParameters = builder.build()
     }
 
     /** Chooses tracks once a video's are known. */

@@ -74,6 +74,7 @@ mod video;
 mod video_desktop;
 mod video_downloads;
 mod video_library;
+mod video_quality;
 mod video_session;
 mod video_sources;
 mod websites;

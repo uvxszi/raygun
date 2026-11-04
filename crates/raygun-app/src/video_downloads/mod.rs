@@ -14,7 +14,9 @@ use std::time::{Duration, Instant};
 
 use futures_util::{StreamExt, stream};
 use raygun_db::video_downloads::{self as store, NewDownload, VideoDownloadRow};
-use raygun_model::{DownloadState, VideoDownloadItem, VideoDownloads, VideoRequest, VideoSubtitle};
+use raygun_model::{
+    DownloadState, VideoDownloadItem, VideoDownloads, VideoRequest, VideoResolution, VideoSubtitle,
+};
 use raygun_net::ImageLinks;
 use reqwest::header::{CONTENT_RANGE, CONTENT_TYPE, RANGE};
 use tauri::{AppHandle, Manager};
@@ -370,11 +372,11 @@ impl VideoDownloadService {
         }
     }
 
-    async fn preferred_quality(&self) -> Option<u32> {
+    async fn preferred_quality(&self) -> VideoResolution {
         crate::settings::load(&self.db())
             .await
-            .ok()
-            .and_then(|settings| settings.preferred_video_quality)
+            .map(|settings| settings.video_player.preferred_resolution)
+            .unwrap_or_default()
     }
 
     fn local_url(&self, id: &str, file: &str) -> String {
@@ -466,8 +468,8 @@ struct Job<'a> {
     client: &'a reqwest::Client,
     dir: &'a Path,
     headers: &'a std::collections::BTreeMap<String, String>,
-    /// The preferred height, for choosing an HLS variant.
-    preferred: Option<u32>,
+    /// The preferred resolution, for choosing an HLS variant.
+    preferred: VideoResolution,
     /// Paused or removed: stop, keeping what was saved.
     stopped: &'a (dyn Fn() -> bool + Sync),
     progress: &'a Progress,
