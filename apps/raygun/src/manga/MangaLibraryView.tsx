@@ -10,6 +10,7 @@ import {
   Dices,
   Download,
   FileArchive,
+  Folder,
   FolderCog,
   History,
   ListFilter,
@@ -278,6 +279,7 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
   };
   // Books from sources get new chapters too; imported ones don't, and are left out of updates.
   const menu: OverflowItem[] = [
+    // Books are updated with comics and videos.
     ...(medium === 'novel'
       ? [{ label: t('novel.importEpub'), icon: BookPlus, onSelect: epub.pick }]
       : []),
@@ -309,7 +311,13 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
       to: '/downloads',
       ...(video ? { search: { tab: 'videos' } } : {}),
     },
-    ...(video ? [{ label: t('library.videos.history'), icon: History, to: '/watch/history' }] : []),
+    ...(video
+      ? [
+          { label: t('library.videos.history'), icon: History, to: '/watch/history' },
+          // Videos on this device come in through Local Files (M46.27).
+          { label: t('localFiles.title'), icon: Folder, to: '/local-files' },
+        ]
+      : []),
     {
       label: t('library.categories.edit'),
       icon: FolderCog,

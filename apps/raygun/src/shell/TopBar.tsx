@@ -1,10 +1,11 @@
 import { Link, useCanGoBack, useRouter } from '@tanstack/react-router';
-import { ArrowLeft, X } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { IncognitoBadge } from '../privacy/IncognitoBadge';
+import { TextField } from './TextField';
 
 type TopBarProps = {
   title: string;
@@ -62,28 +63,21 @@ export const TopBar: FC<TopBarProps> = ({
           >
             <ArrowLeft aria-hidden size={22} />
           </button>
-          <input
+          {/* Escape clears what's typed, then leaves search mode. */}
+          <TextField
             type="search"
             autoFocus
+            autoComplete="off"
             value={search.value}
-            onChange={(event) => search.onChange(event.target.value)}
+            onChange={search.onChange}
             onKeyDown={(event) => {
               if (event.key === 'Escape') search.onClose();
             }}
             placeholder={search.placeholder}
             aria-label={search.placeholder}
-            className="placeholder:text-muted min-w-0 flex-1 bg-transparent px-1 text-lg outline-none"
+            className="flex-1 pr-1"
+            inputClassName="px-1 text-lg"
           />
-          {search.value && (
-            <button
-              type="button"
-              aria-label={t('nav.clearSearch')}
-              onClick={() => search.onChange('')}
-              className="hover:bg-surface grid size-11 shrink-0 place-items-center rounded-full"
-            >
-              <X aria-hidden size={20} />
-            </button>
-          )}
         </>
       ) : (
         <>

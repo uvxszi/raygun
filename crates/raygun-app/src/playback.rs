@@ -279,6 +279,12 @@ impl PlaybackService {
         self.proxy.register(source)
     }
 
+    /// Changes queued items in place (M46.48: a song given a source or names); `update` says
+    /// whether it changed one. The playing item keeps its stream until it loads again.
+    pub fn update_items(&self, update: impl FnMut(&mut QueueItem) -> bool) {
+        self.run(|core| core.update_items(update));
+    }
+
     pub fn queue(&self) -> QueueSnapshot {
         self.lock().core.queue()
     }

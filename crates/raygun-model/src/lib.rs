@@ -370,6 +370,8 @@ pub struct PrivacyPrefs {
     pub history: bool,
     /// Where plays started from is kept for Home (Recently played, Your music).
     pub recently_played: bool,
+    /// Searches are kept for Search's recent searches.
+    pub search_history: bool,
     /// Incognito stays on when Raygun starts again; otherwise it ends with the app (M47).
     pub keep_incognito: bool,
 }
@@ -379,6 +381,7 @@ impl Default for PrivacyPrefs {
         Self {
             history: true,
             recently_played: true,
+            search_history: true,
             keep_incognito: false,
         }
     }
@@ -3363,6 +3366,52 @@ pub struct SearchResults {
     pub providers: Vec<ProviderSearchResult>,
 }
 
+/// One source's answer while a search still waits for the others, so Search shows the first
+/// answers without waiting for the slowest source.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchProgress {
+    /// What was searched for, trimmed as the search command trims it.
+    pub query: String,
+    /// How many sources the search asks.
+    pub total: u32,
+    pub part: SearchPart,
+}
+
+/// What one source answered, by kind of search.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum SearchPart {
+    Songs {
+        result: ProviderSearchResult,
+    },
+    Artists {
+        provider: ProviderInfo,
+        artists: Vec<MusicArtist>,
+    },
+    Albums {
+        provider: ProviderInfo,
+        albums: Vec<MusicAlbum>,
+    },
+    Playlists {
+        provider: ProviderInfo,
+        featured: bool,
+        playlists: Vec<MusicPlaylist>,
+    },
+}
+
+/// A search someone made, kept on this device for Search's recent searches.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentSearch {
+    pub query: String,
+    /// What it looked through: Search's kind (`all`, `music`, `video`, `manga`, `novel`,
+    /// `library`).
+    pub kind: String,
+    /// Unix ms.
+    pub searched_at: f64,
+}
+
 // ---- Favorites, playlists, history (M18) ----
 
 /// A track to save, from the player, the library or a search result.
@@ -3425,6 +3474,50 @@ pub struct SavedTrack {
 pub struct TrackSaves {
     pub favorite: bool,
     pub playlist_ids: Vec<String>,
+}
+
+/// A saved song as lists mark it (M46.48): the key it's stored under, every key its copies answer
+/// to (their names', and the names they show with the user's details), and where it's saved.
+/// `music/trackKey.ts` finds a shown song among them with `sameSong`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedSong {
+    pub track_key: String,
+    pub song_keys: Vec<String>,
+    pub favorite: bool,
+    pub playlist_ids: Vec<String>,
+}
+
+/// What picking a source for a song does (M46.48): with `assign`, every saved copy, the queue
+/// and the resolver's remembered pick take its stream (the download mode only downloads from
+/// it); the details ticked become the song's own (Edit details reverts them). `source_name` is
+/// the source's name, which the player shows the stream came from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceChoice {
+    pub assign: bool,
+    pub source_name: Option<String>,
+    pub title: bool,
+    pub artist: bool,
+    pub album: bool,
+    pub cover: bool,
+}
+
+/// Where a saved song came from (M46.48): Import songs, and whether no source had it then.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackImportStatus {
+    pub imported: bool,
+    pub unavailable: bool,
+}
+
+/// What adding songs to a playlist did (M46.48): songs it already held stay out unless they're
+/// added anyway.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistAdded {
+    pub added: u32,
+    pub already: u32,
 }
 
 /// An artist's page (M46.8): popular songs from the sources, and what the library has by them.
@@ -3991,6 +4084,13 @@ pub struct LocalFolder {
     /// Unix ms.
     pub scanned_at: Option<f64>,
     pub scanning: bool,
+    /// How far a running scan got with the comics and books it adds; `None` while it lists.
+    pub progress: Option<LocalScanProgress>,
+    /// Its songs and videos can't be read until media access is allowed (Android).
+    pub needs_access: bool,
+    /// The folder couldn't be opened at the last scan (moved, unplugged, or its access lost);
+    /// what it added stays until it's back.
+    pub missing: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -4000,6 +4100,19 @@ pub struct LocalCounts {
     pub comics: u32,
     pub books: u32,
     pub videos: u32,
+    /// Comics and books that couldn't be read or added.
+    pub failed: u32,
+    /// Songs and videos that can't play from where the folder is (a cloud or Downloads folder
+    /// the picker gave without a path).
+    pub unplayable: u32,
+}
+
+/// A Local Files scan adding comics and books: how many it has done of how many.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalScanProgress {
+    pub done: u32,
+    pub total: u32,
 }
 
 /// The file type a saved cover image gets (M46.26).

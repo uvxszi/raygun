@@ -1,10 +1,14 @@
-import type { OnlineTrack, PodcastSearchResult } from '@raygun/bindings';
+import type { AudiobookResult, OnlineTrack, PodcastSearchResult } from '@raygun/bindings';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { LoaderCircle, Play, UserRound } from 'lucide-react';
+import { Play, UserRound } from 'lucide-react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { BookCard } from '../audiobooks/BookRow';
+import { useBookDirectory } from '../audiobooks/useAudiobooks';
+import { TrackRow } from '../library/TrackRow';
 import { Artwork } from '../library/Artwork';
+import { playFromLibrary } from '../library/useLibrary';
 import { fromOnlineTrack } from '../collections/useCollections';
 import {
   menuHandler,
@@ -17,18 +21,28 @@ import { PodcastArt } from '../podcasts/PodcastArt';
 import { PodcastResultList } from '../podcasts/PodcastResultList';
 import { useOpenFeed, usePodcastSearch } from '../podcasts/usePodcasts';
 import { Carousel } from '../shell/Carousel';
-import { rankSongs, useAlbumFinds, useArtistFinds } from './useMusicFinds';
+import { OpeningBook } from './AudiobookSearch';
+import { useOpenBook } from './useOpenBook';
+import { AlbumTile, Asking } from './MusicFinds';
 import { OnlineTrackRow } from './OnlineTrackRow';
+import { PlaylistTile } from './PlaylistFinds';
 import { titleScore } from './rankResults';
 import { useSeenSongs } from './seenBefore';
 import type { MusicView } from './searchTypes';
+import { rankSongs, useAlbumFinds, useArtistFinds, usePlaylistFinds } from './useMusicFinds';
 import { playResults, useOnlineSearch } from './useOnlineSearch';
+
+/** How many of each kind Relevant shows before its See all. */
+const SONGS = 5;
+const ROW = 10;
 
 type Top =
   | { kind: 'song'; score: number; track: OnlineTrack }
   | { kind: 'artist'; score: number; name: string; imageUrl: string | null }
-  | { kind: 'podcast'; score: number; podcast: PodcastSearchResult };
+  | { kind: 'podcast'; score: number; podcast: PodcastSearchResult }
+  | { kind: 'book'; score: number; book: AudiobookResult };
 
+/** One kind's row: its name, See all to its pill, and its first few. */
 const Part: FC<{ title: string; onMore: () => void; children: ReactNode }> = ({
   title,
   onMore,
@@ -53,8 +67,10 @@ const Part: FC<{ title: string; onMore: () => void; children: ReactNode }> = ({
 };
 
 /**
- * Music's Relevant pill (M46.25): the best match of any kind, then a few songs, artists, albums
- * and podcasts, each with See all. It reuses each pill's own search, so switching costs nothing.
+ * Music's Relevant pill (M46.25): the best match of any kind, then the best few songs, artists,
+ * albums, playlists (the services' own first), podcasts and audiobooks, each with See all to its
+ * pill. Each kind loads on its own and shows as soon as it has something; one that fails or finds
+ * nothing leaves no row. It reuses each pill's own search, so switching costs nothing.
  */
 export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => void }> = ({
   query,
@@ -63,10 +79,14 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
   const { t } = useTranslation();
   const navigate = useNavigate();
   const openFeed = useOpenFeed();
+  const { openBook, open: opening } = useOpenBook();
   const songs = useOnlineSearch(query);
   const artists = useArtistFinds(query);
   const albums = useAlbumFinds(query);
+  const playlists = usePlaylistFinds(query, false);
   const podcasts = usePodcastSearch(query);
+  const books = useBookDirectory('search', query.trim());
+  const bookList = books.data?.pages[0]?.books ?? [];
   const trackMenu = useTrackMenuItems();
   const artistMenu = useArtistMenuItems();
   const albumMenu = useAlbumMenuItems();
@@ -89,6 +109,7 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
         ),
       }));
   const tracks = ranked.map((entry) => entry.track);
+  const library = (songs.data?.library ?? []).slice(0, 3);
 
   // The top result: whichever name answers the query best; songs win a tie.
   const candidates: Top[] = [];
@@ -120,22 +141,32 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
   if (podcast) {
     candidates.push({ kind: 'podcast', score: titleScore(podcast.title, query) - 2, podcast });
   }
-  const top = [...candidates].sort((a, b) => b.score - a.score)[0];
+  const book = bookList[0];
+  if (book) {
+    const score = Math.max(
+      titleScore(book.title, query),
+      titleScore(`${book.author ?? ''} ${book.title}`, query),
+    );
+    candidates.push({ kind: 'book', score: score - 3, book });
+  }
+  // The top result waits for the first songs and artists, the likeliest answers, so it doesn't
+  // jump from one kind to another as they come.
+  const topReady =
+    (songs.data !== undefined || songs.isFetched) &&
+    (artists.data !== undefined || artists.isFetched);
+  const top = topReady ? [...candidates].sort((a, b) => b.score - a.score)[0] : undefined;
 
-  const searching = songs.isPending && artists.isPending && albums.isPending && podcasts.isPending;
-  if (searching && ranked.length === 0) {
-    return <LoaderCircle aria-label={t('search.searching')} className="text-muted animate-spin" />;
-  }
-  const settled =
-    !songs.isPending && !artists.isPending && !albums.isPending && !podcasts.isPending;
-  if (settled && !top && albums.list.length === 0) {
-    return <p className="text-muted text-sm">{t('search.noResults', { query })}</p>;
-  }
+  const searches = [songs, artists, albums, playlists, podcasts, books];
+  const settled = searches.every((search) => !search.isFetching);
+  const anything =
+    ranked.length + library.length + artists.list.length + albums.list.length > 0 ||
+    playlists.list.length + (podcasts.data?.length ?? 0) + bookList.length > 0;
 
   const openTop = () => {
     if (!top) return;
     if (top.kind === 'song') void playResults(tracks, top.track);
     if (top.kind === 'artist') void navigate({ to: '/artist', search: { name: top.name } });
+    if (top.kind === 'book') openBook(top.book);
     if (top.kind === 'podcast') {
       openFeed.mutate(top.podcast.feedUrl, {
         onSuccess: (view) => void navigate({ to: '/podcast', search: { id: view.id } }),
@@ -149,23 +180,27 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
       ? top.track.title
       : top.kind === 'artist'
         ? top.name
-        : top.podcast.title;
+        : top.kind === 'book'
+          ? top.book.title
+          : top.podcast.title;
   const topKind = !top
     ? ''
     : top.kind === 'song'
       ? [t('search.kind.song'), top.track.artist].filter(Boolean).join(' · ')
       : top.kind === 'artist'
         ? t('artist.kind')
-        : [t('search.kind.podcast'), top.podcast.author].filter(Boolean).join(' · ');
+        : top.kind === 'book'
+          ? [t('audiobooks.one'), top.book.author].filter(Boolean).join(' · ')
+          : [t('search.kind.podcast'), top.podcast.author].filter(Boolean).join(' · ');
+
+  if (settled && !anything) {
+    return <p className="text-muted text-sm">{t('search.noResults', { query })}</p>;
+  }
 
   return (
     <div data-testid="relevant-music" className="flex flex-col gap-6">
-      {songs.isPending && (
-        <p role="status" className="text-muted flex items-center gap-2 text-sm">
-          <LoaderCircle aria-hidden size={14} className="animate-spin" />
-          {t('search.seenWhileSearching')}
-        </p>
-      )}
+      {!settled && <Asking progress={songs.progress} />}
+      <OpeningBook open={opening} />
       {top && (
         <section aria-label={t('search.topResult')} className="flex flex-col gap-2">
           <h2 className="text-lg font-bold">{t('search.topResult')}</h2>
@@ -173,23 +208,27 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
             type="button"
             data-testid="top-result"
             onClick={openTop}
-            onContextMenu={(event) =>
-              menuHandler(() =>
-                top.kind === 'song'
-                  ? trackMenu(
-                      fromOnlineTrack(top.track),
-                      { onPlay: openTop },
-                      { x: event.clientX, y: event.clientY },
-                    )
-                  : top.kind === 'artist'
-                    ? artistMenu({ name: top.name, imageUrl: top.imageUrl }, { goTo: true })
-                    : podcastMenu({
-                        title: top.podcast.title,
-                        author: top.podcast.author,
-                        feedUrl: top.podcast.feedUrl,
-                        artworkUrl: top.podcast.artworkUrl,
-                      }),
-              )(event)
+            // A book's page has its actions; the others have menus of their own.
+            onContextMenu={
+              top.kind === 'book'
+                ? undefined
+                : (event) =>
+                    menuHandler(() =>
+                      top.kind === 'song'
+                        ? trackMenu(
+                            fromOnlineTrack(top.track),
+                            { onPlay: openTop },
+                            { x: event.clientX, y: event.clientY },
+                          )
+                        : top.kind === 'artist'
+                          ? artistMenu({ name: top.name, imageUrl: top.imageUrl }, { goTo: true })
+                          : podcastMenu({
+                              title: top.podcast.title,
+                              author: top.podcast.author,
+                              feedUrl: top.podcast.feedUrl,
+                              artworkUrl: top.podcast.artworkUrl,
+                            }),
+                    )(event)
             }
             className="bg-surface hover:bg-surface/70 group relative flex max-w-md items-center gap-4 rounded-2xl p-4 text-left"
           >
@@ -215,6 +254,9 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
             {top.kind === 'podcast' && (
               <PodcastArt url={top.podcast.artworkUrl} className="w-24 shrink-0 rounded-lg" />
             )}
+            {top.kind === 'book' && (
+              <PodcastArt url={top.book.artworkUrl} className="w-24 shrink-0 rounded-lg" />
+            )}
             <span className="flex min-w-0 flex-col gap-1">
               <span className="line-clamp-2 text-2xl font-bold">{topTitle}</span>
               <span className="text-muted truncate text-sm">{topKind}</span>
@@ -227,10 +269,25 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
           </button>
         </section>
       )}
-      {ranked.length > 0 && (
+      {(ranked.length > 0 || library.length > 0) && (
         <Part title={t('search.music.songs')} onMore={() => onView('songs')}>
           <ul className="flex flex-col">
-            {ranked.slice(0, 5).map((entry, index) => (
+            {/* What you already have comes first. */}
+            {library.map((track) => (
+              <li key={track.id}>
+                <TrackRow
+                  track={track}
+                  onPlay={() =>
+                    void playFromLibrary({
+                      selection: { kind: 'allTracks' },
+                      startTrackId: track.id,
+                      shuffle: false,
+                    })
+                  }
+                />
+              </li>
+            ))}
+            {ranked.slice(0, Math.max(0, SONGS - library.length)).map((entry, index) => (
               <li key={`${entry.track.title}-${index}`}>
                 <OnlineTrackRow
                   track={entry.track}
@@ -245,7 +302,7 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
       {artists.list.length > 0 && (
         <Part title={t('search.music.artists')} onMore={() => onView('artists')}>
           <Carousel>
-            {artists.list.slice(0, 10).map((found) => (
+            {artists.list.slice(0, ROW).map((found) => (
               <li key={`${found.provider.id}:${found.id}`} className="w-32 shrink-0">
                 <Link
                   to="/artist"
@@ -272,28 +329,45 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
       {albums.list.length > 0 && (
         <Part title={t('search.music.albums')} onMore={() => onView('albums')}>
           <Carousel>
-            {albums.list.slice(0, 10).map((album) => (
+            {albums.list.slice(0, ROW).map((album) => (
               <li key={`${album.provider.id}:${album.id}`} className="w-36 shrink-0">
-                <Link
-                  to="/music/album"
-                  search={{ provider: album.provider.id, id: album.id }}
-                  onContextMenu={menuHandler(() => albumMenu(album))}
-                  className="hover:bg-surface flex flex-col gap-1.5 rounded-xl p-2"
-                >
-                  <Artwork url={album.artworkUrl} className="w-full rounded-lg" iconSize={32} />
-                  <span className="truncate text-sm font-semibold">{album.title}</span>
-                  <span className="text-muted truncate text-xs">
-                    {[album.year, album.artist].filter(Boolean).join(' · ')}
-                  </span>
-                </Link>
+                <AlbumTile
+                  album={album}
+                  detail={[album.year, album.artist].filter(Boolean).join(' · ')}
+                  onMenu={menuHandler(() => albumMenu(album))}
+                />
               </li>
             ))}
+          </Carousel>
+        </Part>
+      )}
+      {playlists.list.length > 0 && (
+        <Part title={t('search.music.playlists')} onMore={() => onView('playlists')}>
+          <Carousel>
+            {/* The services' own playlists first, then the best named. */}
+            {[...playlists.list]
+              .sort((a, b) => Number(b.featured) - Number(a.featured))
+              .slice(0, ROW)
+              .map((playlist) => (
+                <li key={`${playlist.provider.id}:${playlist.id}`} className="w-36 shrink-0">
+                  <PlaylistTile playlist={playlist} />
+                </li>
+              ))}
           </Carousel>
         </Part>
       )}
       {podcasts.data && podcasts.data.length > 0 && (
         <Part title={t('search.music.podcasts')} onMore={() => onView('podcasts')}>
           <PodcastResultList results={podcasts.data.slice(0, 12)} grid />
+        </Part>
+      )}
+      {bookList.length > 0 && (
+        <Part title={t('search.music.audiobooks')} onMore={() => onView('audiobooks')}>
+          <Carousel className="gap-1">
+            {bookList.slice(0, ROW).map((found) => (
+              <BookCard key={found.feedUrl} book={found} onOpen={openBook} />
+            ))}
+          </Carousel>
         </Part>
       )}
     </div>

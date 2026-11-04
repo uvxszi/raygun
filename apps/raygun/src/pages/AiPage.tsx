@@ -20,10 +20,14 @@ import {
   useTestAiProvider,
 } from '../ai/useAi';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
+import { TextField } from '../shell/TextField';
 import { PageHeader } from './PageHeader';
 
 const CARD = 'bg-surface flex flex-col gap-3 rounded-xl px-5 py-4 text-sm';
 const INPUT = 'bg-background min-w-0 rounded-lg px-3 py-2 outline-none';
+/** Text fields: the same box, with room for the clear button. */
+const FIELD = 'bg-background rounded-lg pr-0.5 pl-3';
+const FIELD_TEXT = 'py-2';
 const KINDS: AiProviderKind[] = ['claude', 'openAiCompatible', 'deepl'];
 const ENGINES: TranscriptionEngine[] = ['off', 'local', 'online'];
 
@@ -79,28 +83,32 @@ const ProviderForm: FC<{ provider?: AiProvider; onDone: () => void }> = ({ provi
       </label>
       <label className="flex flex-col gap-1">
         <span className="text-muted text-xs">{t('ai.name')}</span>
-        <input
+        <TextField
           value={name}
-          onChange={(event) => setName(event.target.value)}
+          onChange={setName}
           placeholder={t(`ai.kind.${kind}`)}
           maxLength={60}
-          className={INPUT}
+          aria-label={t('ai.name')}
+          className={FIELD}
+          inputClassName={FIELD_TEXT}
         />
       </label>
       <label className="flex flex-col gap-1">
         <span className="text-muted text-xs">
           {kind === 'openAiCompatible' ? t('ai.apiKeyOptional') : t('ai.apiKey')}
         </span>
-        <input
+        <TextField
           type="password"
           autoComplete="off"
           value={key}
           disabled={removeKey}
-          onChange={(event) => setKey(event.target.value)}
+          onChange={setKey}
           placeholder={
             provider?.keyHint ? t('ai.savedKey', { hint: provider.keyHint }) : t('ai.pasteKey')
           }
-          className={INPUT}
+          aria-label={kind === 'openAiCompatible' ? t('ai.apiKeyOptional') : t('ai.apiKey')}
+          className={FIELD}
+          inputClassName={FIELD_TEXT}
         />
       </label>
       {provider?.hasKey && (
@@ -116,22 +124,29 @@ const ProviderForm: FC<{ provider?: AiProvider; onDone: () => void }> = ({ provi
       )}
       <label className="flex flex-col gap-1">
         <span className="text-muted text-xs">{t('ai.baseUrl')}</span>
-        <input
+        <TextField
           value={baseUrl}
-          onChange={(event) => setBaseUrl(event.target.value)}
+          onChange={setBaseUrl}
           placeholder={t(`ai.basePlaceholder.${kind}`)}
           inputMode="url"
-          className={INPUT}
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          aria-label={t('ai.baseUrl')}
+          className={FIELD}
+          inputClassName={FIELD_TEXT}
         />
       </label>
       {kind !== 'deepl' && (
         <label className="flex flex-col gap-1">
           <span className="text-muted text-xs">{t('ai.model')}</span>
-          <input
+          <TextField
             value={model}
-            onChange={(event) => setModel(event.target.value)}
+            onChange={setModel}
             placeholder={t(`ai.modelPlaceholder.${kind}`)}
-            className={INPUT}
+            aria-label={t('ai.model')}
+            className={FIELD}
+            inputClassName={FIELD_TEXT}
           />
         </label>
       )}
@@ -357,9 +372,9 @@ const TranscriptionSection: FC<{ providers: AiProvider[]; models: AiModel[] }> =
           )}
           <label className="flex flex-col gap-1">
             <span className="text-muted text-xs">{t('ai.model')}</span>
-            <input
-              value={modelName ?? prefs.onlineModel}
-              onChange={(event) => setModelName(event.target.value)}
+            <TextField
+              value={modelName ?? prefs.onlineModel ?? ''}
+              onChange={setModelName}
               onBlur={() => {
                 if (modelName !== null && modelName.trim() !== prefs.onlineModel) {
                   save({ onlineModel: modelName.trim() || 'whisper-1' });
@@ -367,7 +382,9 @@ const TranscriptionSection: FC<{ providers: AiProvider[]; models: AiModel[] }> =
                 setModelName(null);
               }}
               placeholder="whisper-1"
-              className={INPUT}
+              aria-label={t('ai.model')}
+              className={FIELD}
+              inputClassName={FIELD_TEXT}
             />
           </label>
           <p className="text-muted text-xs">{t('ai.transcription.onlineHint')}</p>

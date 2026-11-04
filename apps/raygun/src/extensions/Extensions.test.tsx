@@ -422,7 +422,12 @@ describe('Extensions', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: 'Language' }), 'ja');
     expect(await names()).toEqual(['Kakuyomu']);
 
-    await user.click(within(kinds).getByRole('button', { name: 'All' }));
+    // A kind pressed again shows every kind.
+    await user.click(within(kinds).getByRole('button', { name: 'Books' }));
+    expect(within(kinds).getByRole('button', { name: 'Books' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
     await user.selectOptions(screen.getByRole('combobox', { name: 'Language' }), '');
     await user.selectOptions(screen.getByRole('combobox', { name: 'Repository' }), 'repo-1');
     expect(await names()).toEqual(['Radio Browser', 'MangaDex']);
@@ -430,6 +435,137 @@ describe('Extensions', () => {
     expect(await names()).toEqual(['MangaDex']);
     await user.type(screen.getByRole('searchbox', { name: 'Search extensions' }), 'zzz');
     expect(await screen.findByText('No extensions match.')).toBeInTheDocument();
+  });
+
+  it('lists All, Installed, Not installed and Updates, in that order', async () => {
+    const user = userEvent.setup();
+    commands.extensionsList.mockResolvedValue(ok([extension()]));
+    commands.extensionCatalog.mockResolvedValue(
+      ok(
+        catalog([
+          entry({ state: 'installed' }),
+          entry({ id: 'dev.raygun.md', name: 'MangaDex', provides: ['manga.source'] }),
+          entry({
+            id: 'dev.raygun.ia',
+            name: 'Internet Archive',
+            state: 'updateAvailable',
+            installedVersion: '1.0.0',
+            version: '1.1.0',
+          }),
+        ]),
+      ),
+    );
+    await AppShellWrapper.mount('/browse?tab=extensions');
+    const pills = await screen.findByRole('navigation', { name: 'Extension views' });
+    await within(pills).findByRole('link', { name: 'Updates · 1' });
+    expect(
+      within(pills)
+        .getAllByRole('link')
+        .map((link) => link.textContent),
+    ).toEqual(['All', 'Installed', 'Not installed', 'Updates · 1']);
+    expect(within(pills).getByRole('link', { name: 'Installed' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+
+    await user.click(within(pills).getByRole('link', { name: 'Not installed' }));
+    await vi.waitFor(() =>
+      expect(screen.getAllByTestId('catalog-entry').map((row) => row.textContent)).toEqual([
+        expect.stringContaining('MangaDex'),
+      ]),
+    );
+
+    await user.click(within(pills).getByRole('link', { name: 'Updates · 1' }));
+    await vi.waitFor(() => expect(screen.getAllByTestId('catalog-entry')).toHaveLength(1));
+    expect(screen.getByTestId('catalog-entry')).toHaveTextContent('Internet Archive');
+    expect(screen.getByRole('button', { name: 'Update all (1)' })).toBeInTheDocument();
+
+    await user.click(within(pills).getByRole('link', { name: 'All' }));
+    await vi.waitFor(() => expect(screen.getAllByTestId('catalog-entry')).toHaveLength(3));
+  });
+
+  it('finds installed extensions by name and kind', async () => {
+    const user = userEvent.setup();
+    commands.extensionsList.mockResolvedValue(
+      ok(
+        Array.from({ length: 8 }, (_, index) =>
+          extension({
+            id: `dev.example.${index}`,
+            name: index === 3 ? 'MangaDex' : `Radio ${index}`,
+            provides: index === 3 ? ['manga.source'] : ['music.metadata'],
+          }),
+        ),
+      ),
+    );
+    await AppShellWrapper.mount('/browse?tab=extensions');
+    await screen.findAllByTestId('extension-row');
+    await user.type(
+      screen.getByRole('searchbox', { name: 'Search installed extensions' }),
+      'manga',
+    );
+    expect(screen.getAllByTestId('extension-row').map((row) => row.textContent)).toEqual([
+      expect.stringContaining('MangaDex'),
+    ]);
+    await user.clear(screen.getByRole('searchbox', { name: 'Search installed extensions' }));
+    const kinds = screen.getByRole('group', { name: 'Show' });
+    await user.click(within(kinds).getByRole('button', { name: 'Audio' }));
+    expect(screen.getAllByTestId('extension-row')).toHaveLength(7);
+  });
+
+  it('shows what each repository holds', async () => {
+    commands.extensionRepos.mockResolvedValue(ok([REPO]));
+    commands.extensionCatalog.mockResolvedValue(
+      ok(
+        catalog([
+          entry(),
+          entry({ id: 'dev.raygun.md', name: 'MangaDex', provides: ['manga.source'] }),
+          entry({ id: 'dev.raygun.ck', name: 'Comick', provides: ['manga.source'] }),
+          entry({ id: 'shosetsu.en.x', name: 'NovelFull', provides: ['novel.source'] }),
+        ]),
+      ),
+    );
+    await AppShellWrapper.mount('/extensions?tab=repos');
+    const row = await screen.findByTestId('repo-row');
+    const contents = await within(row).findByRole('list', { name: 'What Raygun Extensions holds' });
+    expect(
+      within(contents)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      'Music sources · 1',
+      'Comics sources · 2',
+      'Book sources · 1',
+      'Shosetsu scripts · 1',
+    ]);
+  });
+
+  it("shows what a repository holds while its address is typed, before it's added", async () => {
+    const user = userEvent.setup();
+    commands.extensionRepoPreview.mockResolvedValue(
+      ok({
+        repo: { id: '', url: 'https://example.org/s/index.json', name: 'Shosetsu' },
+        entries: [
+          entry({ id: 'shosetsu.en.a', name: 'A', provides: ['novel.source'] }),
+          entry({ id: 'shosetsu.en.b', name: 'B', provides: ['novel.source'] }),
+        ],
+        error: null,
+      }),
+    );
+    await AppShellWrapper.mount('/extensions?tab=repos');
+    await user.click(await screen.findByRole('button', { name: 'Add repository' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Add repository' });
+    const field = within(sheet).getByRole('textbox', { name: 'Repository URL' });
+    await user.type(field, 'https://example.org/s/index.json');
+    const preview = await within(sheet).findByTestId('repo-preview', {}, { timeout: 3000 });
+    expect(preview).toHaveTextContent('Shosetsu');
+    expect(within(preview).getByRole('list')).toHaveTextContent('Book sources · 2');
+    expect(commands.extensionRepoPreview).toHaveBeenCalledWith('https://example.org/s/index.json');
+    expect(commands.extensionRepoPreview).toHaveBeenCalledTimes(1);
+
+    // A long address goes with one tap.
+    await user.click(within(sheet).getByRole('button', { name: 'Clear Repository URL' }));
+    expect(field).toHaveValue('');
+    expect(field).toHaveFocus();
   });
 
   it('adds a suggested repository with one tap', async () => {

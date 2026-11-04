@@ -15,6 +15,7 @@ import type {
   MangaUpdateStatus,
   PlaybackState,
   QueueSnapshot,
+  SearchProgress,
   Settings,
   SongDownload,
   SpeechCommand,
@@ -47,6 +48,7 @@ type EventPayloads = {
   queueEvent: QueueSnapshot;
   libraryScanEvent: LibraryScanProgress;
   extensionsChangedEvent: ExtensionInfo[];
+  searchProgressEvent: SearchProgress;
   syncChangedEvent: number;
   mangaUpdateEvent: MangaUpdateStatus;
   mangaDownloadsEvent: string;
@@ -136,7 +138,7 @@ export const DEFAULT_SETTINGS: Settings = {
   language: 'en',
   showNsfw: false,
   explicitMusic: true,
-  privacy: { history: true, recentlyPlayed: true },
+  privacy: { history: true, recentlyPlayed: true, searchHistory: true },
   hidden: { artists: [], items: [] },
   lyricsCache: { forgetAfterDays: 30, keepFavorites: true, keepDownloaded: true, keepLocal: true },
   preferredVideoQuality: null,
@@ -255,6 +257,8 @@ export const bindingsMock = {
     coverSave: vi.fn(),
     detailEdit: vi.fn(),
     trackAssignSource: vi.fn(),
+    trackUseSource: vi.fn(),
+    trackImportStatus: vi.fn(),
     spokenItem: vi.fn(),
     captions: vi.fn(),
     captionsVideoTranscribe: vi.fn(),
@@ -272,6 +276,7 @@ export const bindingsMock = {
     localFolderAdd: vi.fn(),
     localFolderRemove: vi.fn(),
     localFoldersRescan: vi.fn(),
+    localFilesAllowAccess: vi.fn(),
     importSave: vi.fn(),
     audiobooks: vi.fn(),
     audiobook: vi.fn(),
@@ -292,6 +297,7 @@ export const bindingsMock = {
     artistUnfollow: vi.fn(),
     artistSetAlerts: vi.fn(),
     artistReleaseNews: vi.fn(),
+    artistReleasesCheck: vi.fn(),
     musicArtistEvents: vi.fn(),
     coverFallback: vi.fn(),
     musicSearchPlaylists: vi.fn(),
@@ -368,6 +374,7 @@ export const bindingsMock = {
     extensionOpenWebsite: vi.fn(),
     extensionRepos: vi.fn(),
     extensionRepoAdd: vi.fn(),
+    extensionRepoPreview: vi.fn(),
     extensionSuggestedRepos: vi.fn(),
     extensionRepoRemove: vi.fn(),
     extensionCatalog: vi.fn(),
@@ -375,12 +382,17 @@ export const bindingsMock = {
     extensionUninstall: vi.fn(),
     extensionSettingSet: vi.fn(),
     onlineSearch: vi.fn(),
+    searchRecent: vi.fn(),
+    searchRecentAdd: vi.fn(),
+    searchRecentRemove: vi.fn(),
+    searchRecentClear: vi.fn(),
     lyricsGet: vi.fn(),
     songEditGet: vi.fn(),
     songEditSet: vi.fn(),
     favoritesList: vi.fn(),
     favoriteGet: vi.fn(),
     collectionsSaves: vi.fn(),
+    collectionsSavedIndex: vi.fn(),
     collectionsSetSaves: vi.fn(),
     musicArtist: vi.fn(),
     musicArtistInfo: vi.fn(),
@@ -527,6 +539,7 @@ export const bindingsMock = {
     websiteEdit: vi.fn(),
     websiteRemove: vi.fn(),
     websiteReset: vi.fn(),
+    websiteSetBlockAds: vi.fn(),
     websiteOpen: vi.fn(),
     websiteBlocklistStatus: vi.fn(),
     websiteBlocklistUpdate: vi.fn(),
@@ -588,6 +601,7 @@ export const bindingsMock = {
     queueEvent: makeEvent('queueEvent'),
     libraryScanEvent: makeEvent('libraryScanEvent'),
     extensionsChangedEvent: makeEvent('extensionsChangedEvent'),
+    searchProgressEvent: makeEvent('searchProgressEvent'),
     syncChangedEvent: makeEvent('syncChangedEvent'),
     mangaUpdateEvent: makeEvent('mangaUpdateEvent'),
     mangaDownloadsEvent: makeEvent('mangaDownloadsEvent'),
@@ -720,6 +734,8 @@ export const seedBindings = () => {
   );
   commands.tracksUnavailable.mockResolvedValue(ok([]));
   commands.trackAssignSource.mockResolvedValue(ok(null));
+  commands.trackUseSource.mockResolvedValue(ok(null));
+  commands.trackImportStatus.mockResolvedValue(ok({ imported: false, unavailable: false }));
   commands.spokenItem.mockResolvedValue(ok(null));
   commands.captionsTranscribe.mockResolvedValue(ok(null));
   commands.captionsStop.mockResolvedValue(null);
@@ -747,6 +763,7 @@ export const seedBindings = () => {
   commands.localFolderAdd.mockResolvedValue(ok(null));
   commands.localFolderRemove.mockResolvedValue(ok([]));
   commands.localFoldersRescan.mockResolvedValue(ok(null));
+  commands.localFilesAllowAccess.mockResolvedValue(ok(true));
   commands.audiobooks.mockResolvedValue(ok([]));
   commands.audiobookDirectory.mockResolvedValue(ok({ books: [], hasMore: false }));
   commands.audiobookPlay.mockResolvedValue(ok(null));
@@ -763,6 +780,7 @@ export const seedBindings = () => {
   commands.artistUnfollow.mockResolvedValue(ok(null));
   commands.artistSetAlerts.mockResolvedValue(ok(null));
   commands.artistReleaseNews.mockResolvedValue(ok([]));
+  commands.artistReleasesCheck.mockResolvedValue(ok([]));
   commands.musicArtistEvents.mockResolvedValue(ok([]));
   commands.coverFallback.mockResolvedValue(ok(null));
   commands.musicSearchPlaylists.mockResolvedValue(ok([]));
@@ -827,6 +845,7 @@ export const seedBindings = () => {
   commands.extensionOpenWebsite.mockResolvedValue(ok(null));
   commands.extensionRepos.mockResolvedValue(ok([]));
   commands.extensionRepoAdd.mockResolvedValue(ok([]));
+  commands.extensionRepoPreview.mockResolvedValue({ status: 'error', error: 'not mocked' });
   commands.extensionSuggestedRepos.mockResolvedValue(ok([]));
   commands.extensionRepoRemove.mockResolvedValue(ok([]));
   commands.extensionCatalog.mockResolvedValue(ok([]));
@@ -834,12 +853,17 @@ export const seedBindings = () => {
   commands.extensionUninstall.mockResolvedValue(ok([]));
   commands.extensionSettingSet.mockResolvedValue(ok([]));
   commands.onlineSearch.mockResolvedValue(ok({ library: [], top: [], providers: [] }));
+  commands.searchRecent.mockResolvedValue(ok([]));
+  commands.searchRecentAdd.mockResolvedValue(ok([]));
+  commands.searchRecentRemove.mockResolvedValue(ok([]));
+  commands.searchRecentClear.mockResolvedValue(ok(null));
   commands.lyricsGet.mockResolvedValue(ok(null));
   commands.songEditGet.mockResolvedValue({});
   commands.songEditSet.mockImplementation(async (_query: unknown, edit: unknown) => ok(edit));
   commands.favoritesList.mockResolvedValue(ok([]));
   commands.favoriteGet.mockResolvedValue(ok(false));
   commands.collectionsSaves.mockResolvedValue(ok({ favorite: false, playlistIds: [] }));
+  commands.collectionsSavedIndex.mockResolvedValue(ok([]));
   commands.collectionsSetSaves.mockResolvedValue(ok(null));
   commands.musicArtist.mockResolvedValue(ok({ name: '', popular: [], albums: [], tracks: [] }));
   commands.musicArtistInfo.mockResolvedValue(ok(null));
@@ -868,7 +892,9 @@ export const seedBindings = () => {
   );
   commands.playlistRename.mockResolvedValue(ok(null));
   commands.playlistDelete.mockResolvedValue(ok(null));
-  commands.playlistAdd.mockResolvedValue(ok(null));
+  commands.playlistAdd.mockImplementation(async (_id: string, tracks: unknown[]) =>
+    ok({ added: tracks.length, already: 0 }),
+  );
   commands.playlistRemoveItem.mockResolvedValue(ok(null));
   commands.playlistMoveItem.mockResolvedValue(ok(null));
   commands.historyRecent.mockResolvedValue(ok([]));
@@ -1019,6 +1045,7 @@ export const seedBindings = () => {
     commands.websiteEdit,
     commands.websiteRemove,
     commands.websiteReset,
+    commands.websiteSetBlockAds,
     commands.websiteOpen,
     commands.websiteClearData,
   ]) {

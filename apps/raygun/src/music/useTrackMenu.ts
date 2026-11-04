@@ -4,11 +4,11 @@ import { useNavigate } from '@tanstack/react-router';
 import type { MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { useFavorites } from '../collections/useCollections';
+import { savesIn, useSavedSongs } from '../collections/savedSongs';
 import { openContextMenu } from '../shell/contextMenuStore';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { useHidden, useHideActions } from './hidden';
-import { trackKey } from './trackKey';
+import { keysOf } from './trackKey';
 import { trackMenu } from './trackMenu';
 import { useDownloadedKeys } from './useSongDownloads';
 
@@ -26,18 +26,20 @@ export const useTrackMenuItems = () => {
   const navigate = useNavigate();
   const client = useQueryClient();
   const downloaded = useDownloadedKeys();
-  const favorites = useFavorites();
+  const saved = useSavedSongs();
   const hidden = useHidden();
   const hideActions = useHideActions();
   return (track: TrackInput, extras: Extras, at: { x: number; y: number }): MenuItem[] => {
-    const key = trackKey(track.title, track.artist);
+    // A download made under the title with or without its " - Remastered" (M46.48).
+    const keys = keysOf(track.title, track.artist);
     return trackMenu(track, {
       t,
       client,
       navigate: (target) => void navigate(target as never),
       at,
-      downloaded: downloaded.has(key),
-      favorite: (favorites.data ?? []).some((saved) => saved.trackKey === key),
+      downloaded: keys.some((key) => downloaded.has(key)),
+      // Under whatever names it was favorited (M46.48).
+      favorite: saved.data ? savesIn(saved.data, track).favorite : false,
       hidden,
       hideActions,
       ...extras,

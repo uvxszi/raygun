@@ -3,7 +3,7 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
-import { bindingsMock } from '../test/bindingsMock';
+import { bindingsMock, emitEvent } from '../test/bindingsMock';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -177,6 +177,105 @@ describe('Music search: songs, artists and albums', () => {
       'aria-pressed',
       'true',
     );
+  });
+
+  it('mixes in playlists (the services’ own first) and audiobooks, each leading to its pill', async () => {
+    const user = userEvent.setup();
+    const playlist = (id: string, title: string, featured: boolean) => ({
+      provider: DEEZER,
+      id,
+      title,
+      author: null,
+      artworkUrl: null,
+      trackCount: 10,
+      featured,
+    });
+    commands.musicSearchPlaylists.mockResolvedValue(
+      ok([playlist('1', 'Daft Punk mix', false), playlist('2', 'Daft Punk essentials', true)]),
+    );
+    commands.audiobookDirectory.mockResolvedValue(
+      ok({
+        books: [
+          {
+            title: 'The Daft Book',
+            author: 'Someone',
+            feedUrl: 'https://librivox.org/rss/1',
+            artworkUrl: null,
+            runtime: null,
+            language: 'eng',
+            description: null,
+            source: 'LibriVox',
+          },
+        ],
+        hasMore: false,
+      }),
+    );
+    await AppShellWrapper.mount('/browse?tab=search&type=music&q=daft%20punk');
+    const relevant = await screen.findByTestId('relevant-music');
+    const playlists = await within(relevant).findByRole('region', { name: 'Playlists' });
+    expect(
+      within(playlists)
+        .getAllByRole('link')
+        .map((link) => link.textContent),
+    ).toEqual([
+      expect.stringContaining('Daft Punk essentials'),
+      expect.stringContaining('Daft Punk mix'),
+    ]);
+    const books = await within(relevant).findByRole('region', { name: 'Audiobooks' });
+    expect(within(books).getByText('The Daft Book')).toBeInTheDocument();
+    expect(commands.audiobookDirectory).toHaveBeenCalledWith('search', 'daft punk', 1);
+
+    await user.click(within(books).getByRole('button', { name: 'See all' }));
+    expect(await screen.findByRole('button', { name: 'Audiobooks' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(await screen.findByTestId('audiobook-search')).toBeInTheDocument();
+  });
+
+  it("shows each source's songs as it answers, without waiting for the slowest", async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    commands.onlineSearch.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    await AppShellWrapper.mount('/browse?tab=search&type=music&view=songs&q=get%20lucky');
+    await vi.waitFor(() => expect(commands.onlineSearch).toHaveBeenCalledWith('get lucky'));
+    emitEvent('searchProgressEvent', {
+      query: 'get lucky',
+      total: 2,
+      part: {
+        kind: 'songs',
+        result: { provider: DEEZER, tracks: [song('Get Lucky', 'Daft Punk')], error: null },
+      },
+    });
+    expect(await screen.findByText('Get Lucky')).toBeInTheDocument();
+    expect(screen.getByText('1 of 2 sources answered')).toBeInTheDocument();
+
+    // Another search's answers don't show here.
+    emitEvent('searchProgressEvent', {
+      query: 'something else',
+      total: 1,
+      part: {
+        kind: 'songs',
+        result: { provider: MUSICBRAINZ, tracks: [song('Elsewhere', 'Nobody')], error: null },
+      },
+    });
+    answer(
+      ok({
+        library: [],
+        top: [],
+        providers: [
+          { provider: DEEZER, tracks: [song('Get Lucky', 'Daft Punk')], error: null },
+          { provider: MUSICBRAINZ, tracks: [song('Lucky Star', 'Madonna')], error: null },
+        ],
+      }),
+    );
+    expect(await screen.findByText('Lucky Star')).toBeInTheDocument();
+    expect(screen.queryByText('Elsewhere')).not.toBeInTheDocument();
+    expect(screen.queryByText('1 of 2 sources answered')).not.toBeInTheDocument();
   });
 
   it("opens podcasts from old links on Music's Podcasts pill", async () => {

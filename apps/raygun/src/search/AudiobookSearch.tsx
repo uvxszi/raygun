@@ -1,0 +1,74 @@
+import { LoaderCircle } from 'lucide-react';
+import type { FC } from 'react';
+import { useTranslation } from 'react-i18next';
+
+import { BookCard, BookRow } from '../audiobooks/BookRow';
+import { useBookDirectory } from '../audiobooks/useAudiobooks';
+import type { useOpenAudiobook } from '../audiobooks/useAudiobooks';
+import { LoadMore } from '../shell/LoadMore';
+import { SourceIssue } from '../shell/SourceIssue';
+import { useOpenBook } from './useOpenBook';
+
+/** What opening a book shows: a line while it opens, a calm note when it couldn't. */
+export const OpeningBook: FC<{ open: ReturnType<typeof useOpenAudiobook> }> = ({ open }) => {
+  const { t } = useTranslation();
+  if (open.isPending) {
+    return (
+      <p role="status" className="text-muted flex items-center gap-2 text-sm">
+        <LoaderCircle aria-hidden size={16} className="animate-spin" />
+        {t('audiobooks.opening')}
+      </p>
+    );
+  }
+  return open.error ? <SourceIssue>{open.error.message}</SourceIssue> : null;
+};
+
+/**
+ * Search → Audio → Audiobooks: the audiobook sources' books for the query, more as you go;
+ * before anything is typed, their popular and newest books.
+ */
+export const AudiobookSearch: FC<{ query: string }> = ({ query }) => {
+  const { t } = useTranslation();
+  const wanted = query.trim();
+  const { openBook, open } = useOpenBook();
+  const results = useBookDirectory('search', wanted);
+  const found = results.data?.pages.flatMap((page) => page.books) ?? [];
+
+  return (
+    <div data-testid="audiobook-search" className="flex flex-col gap-6">
+      <OpeningBook open={open} />
+      {wanted ? (
+        <section aria-label={t('audiobooks.results')} className="flex flex-col gap-2">
+          {results.isPending && (
+            <LoaderCircle aria-label={t('search.searching')} className="text-muted animate-spin" />
+          )}
+          {results.error && (
+            <SourceIssue onRetry={() => void results.refetch()}>
+              {results.error.message}
+            </SourceIssue>
+          )}
+          {results.isSuccess && found.length === 0 && (
+            <p className="text-muted text-sm">{t('search.noResults', { query: wanted })}</p>
+          )}
+          {found.length > 0 && (
+            <ul className="grid grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-2 sm:grid-cols-[repeat(auto-fill,minmax(10rem,1fr))]">
+              {found.map((book) => (
+                <BookCard key={book.feedUrl} book={book} onOpen={openBook} />
+              ))}
+            </ul>
+          )}
+          <LoadMore
+            hasNextPage={results.hasNextPage}
+            fetching={results.isFetchingNextPage}
+            onLoad={() => void results.fetchNextPage()}
+          />
+        </section>
+      ) : (
+        <>
+          <BookRow list="popular" title={t('audiobooks.popular')} onOpen={openBook} />
+          <BookRow list="latest" title={t('audiobooks.latest')} onOpen={openBook} />
+        </>
+      )}
+    </div>
+  );
+};

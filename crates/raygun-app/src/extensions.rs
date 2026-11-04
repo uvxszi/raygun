@@ -377,6 +377,23 @@ impl ExtensionService {
         self.host.search_music(query, SEARCH_LIMIT).await
     }
 
+    /// [`Self::search`] for Search itself: each source's answer goes to `report` as it comes,
+    /// with how many sources were asked; the answers come back in that order.
+    pub async fn search_as_answered(
+        &self,
+        query: &str,
+        report: impl Fn(&ProviderSearchResult, usize),
+    ) -> Vec<ProviderSearchResult> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Vec::new();
+        }
+        let _ready = self.loading.read().await;
+        self.host
+            .search_music_as_answered(query, SEARCH_LIMIT, report)
+            .await
+    }
+
     /// Stream candidates for a track from every `music.stream` provider (M14), aiming for
     /// `quality` (M46.18).
     pub async fn stream_candidates(
@@ -407,16 +424,30 @@ impl ExtensionService {
         self.host.all_lyrics(query).await
     }
 
-    /// Artists for a search, from every source that searches artists (M46.9).
-    pub async fn search_artists(&self, query: &str) -> Vec<raygun_model::MusicArtist> {
+    /// Artists for a search, from every source that searches artists (M46.9); each source's go
+    /// to `report` as they come, with how many sources were asked.
+    pub async fn search_artists(
+        &self,
+        query: &str,
+        report: impl Fn(&ProviderInfo, &[raygun_model::MusicArtist], usize),
+    ) -> Vec<raygun_model::MusicArtist> {
         let _ready = self.loading.read().await;
-        self.host.search_artists(query, SEARCH_LIMIT).await
+        self.host
+            .search_artists_as_answered(query, SEARCH_LIMIT, report)
+            .await
     }
 
-    /// Albums for a search, from every source that searches albums (M46.9).
-    pub async fn search_albums(&self, query: &str) -> Vec<raygun_model::MusicAlbum> {
+    /// Albums for a search, from every source that searches albums (M46.9); each source's go to
+    /// `report` as they come, with how many sources were asked.
+    pub async fn search_albums(
+        &self,
+        query: &str,
+        report: impl Fn(&ProviderInfo, &[raygun_model::MusicAlbum], usize),
+    ) -> Vec<raygun_model::MusicAlbum> {
         let _ready = self.loading.read().await;
-        self.host.search_albums(query, SEARCH_LIMIT).await
+        self.host
+            .search_albums_as_answered(query, SEARCH_LIMIT, report)
+            .await
     }
 
     /// An artist's discography (M46.36): every source's releases credited to them, one of each
@@ -539,15 +570,17 @@ impl ExtensionService {
         events
     }
 
-    /// Playlists for a search from every source that searches them (M46.39).
+    /// Playlists for a search from every source that searches them (M46.39); each source's go
+    /// to `report` as they come, with how many sources were asked.
     pub async fn search_playlists(
         &self,
         query: &str,
         featured: bool,
+        report: impl Fn(&ProviderInfo, &[raygun_model::MusicPlaylist], usize),
     ) -> Vec<raygun_model::MusicPlaylist> {
         let _ready = self.loading.read().await;
         self.host
-            .search_playlists(query, featured, SEARCH_LIMIT)
+            .search_playlists_as_answered(query, featured, SEARCH_LIMIT, report)
             .await
     }
 
@@ -808,10 +841,28 @@ impl ExtensionService {
             .collect())
     }
 
-    pub async fn catalog(&self, refresh: bool) -> Result<Vec<RepoCatalog>, String> {
-        let repos = self.repos().await?;
-        let local: HashMap<String, Installed> = self
-            .list()
+    /// What a repository holds, read from its index without adding it, so the extensions it
+    /// brings can be shown before it's added.
+    pub async fn preview_repo(&self, url: &str) -> Result<RepoCatalog, String> {
+        let url = repo::check_index_url(url).map_err(|error| error.to_string())?;
+        let index = self.fetch_index(url.as_str(), false).await?;
+        let local = self.installed_versions().await;
+        let repo = ExtensionRepo {
+            id: String::new(),
+            url: url.to_string(),
+            name: repo_name(&index, url.as_str()),
+        };
+        let entries = self.entries_of(&repo, &index, &local);
+        Ok(RepoCatalog {
+            repo,
+            entries,
+            error: None,
+        })
+    }
+
+    /// The extensions on this device by id, for marking a repository's entries.
+    async fn installed_versions(&self) -> HashMap<String, Installed> {
+        self.list()
             .await
             .into_iter()
             .map(|info| {
@@ -823,7 +874,37 @@ impl ExtensionService {
                 };
                 (info.id, installed)
             })
-            .collect();
+            .collect()
+    }
+
+    /// A repository index's entries as the catalog lists them: NSFW-rated ones only while NSFW
+    /// content is shown, icons through the cover cache.
+    fn entries_of(
+        &self,
+        repo: &ExtensionRepo,
+        index: &RepoIndex,
+        local: &HashMap<String, Installed>,
+    ) -> Vec<CatalogEntry> {
+        let show_nsfw = self.host.content().show_nsfw();
+        let index_url: Option<reqwest::Url> = repo.url.parse().ok();
+        let images = self.app.state::<raygun_net::ImageLinks>();
+        index
+            .extensions
+            .iter()
+            .filter(|entry| show_nsfw || entry.content_rating != "nsfw")
+            .map(|entry| CatalogEntry {
+                icon: index_url
+                    .as_ref()
+                    .and_then(|base| repo::icon_url(base, entry))
+                    .map(|url| images.cover(url.as_str(), &Default::default())),
+                ..catalog_entry(&repo.id, entry, local.get(&entry.id))
+            })
+            .collect()
+    }
+
+    pub async fn catalog(&self, refresh: bool) -> Result<Vec<RepoCatalog>, String> {
+        let repos = self.repos().await?;
+        let local = self.installed_versions().await;
         let listings = repos.into_iter().map(|repo| {
             let local = &local;
             async move {
@@ -834,21 +915,7 @@ impl ExtensionService {
                             let _ = store::rename_repo(self.db(), &repo.id, &name).await;
                         }
                         let repo = ExtensionRepo { name, ..repo };
-                        let show_nsfw = self.host.content().show_nsfw();
-                        let index_url: Option<reqwest::Url> = repo.url.parse().ok();
-                        let images = self.app.state::<raygun_net::ImageLinks>();
-                        let entries = index
-                            .extensions
-                            .iter()
-                            .filter(|entry| show_nsfw || entry.content_rating != "nsfw")
-                            .map(|entry| CatalogEntry {
-                                icon: index_url
-                                    .as_ref()
-                                    .and_then(|base| repo::icon_url(base, entry))
-                                    .map(|url| images.cover(url.as_str(), &Default::default())),
-                                ..catalog_entry(&repo.id, entry, local.get(&entry.id))
-                            })
-                            .collect();
+                        let entries = self.entries_of(&repo, &index, local);
                         RepoCatalog {
                             repo,
                             entries,

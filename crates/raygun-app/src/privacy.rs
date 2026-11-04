@@ -16,6 +16,7 @@
 //! - when lyrics were last shown and lyrics found then (`LyricsStore`), and the tags of a song
 //!   looked up on its own (`DiscoveryService::track_tags`);
 //! - a website's last address ([`site_address`]);
+//! - Search's recent searches (`search_recent_add`);
 //! - log lines that name what's played, watched, read or searched ([`log_filter`]).
 //!
 //! What's saved on purpose still is: favorites, playlists, library titles, downloads, follows,
