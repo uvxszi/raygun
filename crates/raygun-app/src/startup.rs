@@ -243,6 +243,14 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         paths.root(),
         raygun_net::http_client()?,
     ));
+    // Files saved from sites in the built-in browser.
+    let website_downloads = crate::website_downloads::WebsiteDownloadService::new(
+        app.handle().clone(),
+        paths.downloads().join("files"),
+        raygun_net::http_client()?,
+    );
+    website_downloads.start();
+    app.manage(website_downloads);
     let songs = crate::music_downloads::SongDownloadService::new(
         app.handle().clone(),
         paths.downloads(),

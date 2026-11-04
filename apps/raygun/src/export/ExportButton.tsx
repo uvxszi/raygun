@@ -6,14 +6,16 @@ import { useTranslation } from 'react-i18next';
 import type { Medium } from '../manga/medium';
 import { TopBarAction } from '../shell/TopBar';
 import { ExportSheet } from './ExportSheet';
-import type { ExportChapter } from './ExportSheet';
+import type { ExportChapter, ExportEpisode } from './ExportSheet';
 
 /** A title page's Export action (M46.1). */
 export const ExportButton: FC<{
   medium: Medium;
   titleIds: string[];
   chapters?: ExportChapter[];
-}> = ({ medium, titleIds, chapters }) => {
+  /** A video title's episodes, for seasons, ranges and picking episodes. */
+  episodes?: ExportEpisode[];
+}> = ({ medium, titleIds, chapters, episodes }) => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   return (
@@ -24,6 +26,7 @@ export const ExportButton: FC<{
           medium={medium}
           titleIds={titleIds}
           chapters={chapters}
+          episodes={episodes}
           onClose={() => setOpen(false)}
         />
       )}

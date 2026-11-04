@@ -1,7 +1,7 @@
 import type { StremioMeta, StremioVideo, VideoDownloadItem } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSearch } from '@tanstack/react-router';
-import { Check, Eye, EyeOff, Film, ListVideo, LoaderCircle, Play } from 'lucide-react';
+import { Check, Eye, EyeOff, Film, ListChecks, ListVideo, LoaderCircle, Play } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -21,6 +21,9 @@ import { TitleRatings } from '../watch/TitleRatings';
 import type { StreamTarget } from '../watch/StreamPicker';
 import { StremioPoster } from '../watch/StremioRow';
 import { VideoDownloadControl } from '../watch/VideoDownloadControl';
+import { EpisodeCheck, EpisodeSelectionBar } from '../watch/EpisodeSelection';
+import { useEpisodeSelection } from '../watch/useEpisodeSelection';
+import type { ExportEpisode } from '../export/ExportSheet';
 import { useSetWatched, useStremioMeta, useStremioPlay } from '../watch/useStremio';
 import {
   stremioKey,
@@ -65,6 +68,17 @@ const useSeasons = (videos: StremioVideo[], continueId: string | null) =>
     return { seasons, first: continueAt(videos, continueId)?.season ?? seasons[0] ?? 0 };
   }, [videos, continueId]);
 
+/** A series' episodes as the export sheet lists them. */
+const exportEpisodes = (meta: StremioMeta): ExportEpisode[] => {
+  const showSeason = showsSeasons(meta.name, meta.videos);
+  return meta.videos.map((video) => ({
+    id: video.id,
+    name: videoLabel(video, showSeason, meta.name),
+    season: video.season,
+    downloaded: video.downloaded,
+  }));
+};
+
 /** Episodes drawn at a time: a long season (a thousand anime episodes) is drawn as it's scrolled. */
 const EPISODE_CHUNK = 60;
 
@@ -79,6 +93,7 @@ const Episodes: FC<{
   const shown = season ?? first;
   const [drawn, setDrawn] = useState({ season: shown, count: EPISODE_CHUNK });
   const setWatched = useSetWatched();
+  const selection = useEpisodeSelection();
   const numbered = seasons.length > 1 || meta.videos.some((video) => video.season !== null);
   const videos = numbered
     ? meta.videos.filter((video) => (video.season ?? 0) === shown)
@@ -89,9 +104,21 @@ const Episodes: FC<{
 
   return (
     <section aria-labelledby="watch-episodes" className="flex flex-col gap-3">
-      <h2 id="watch-episodes" className="font-semibold">
-        {t('watch.episodes')}
-      </h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 id="watch-episodes" className="font-semibold">
+          {t('watch.episodes')}
+        </h2>
+        {!selection.selecting && (
+          <button
+            type="button"
+            onClick={selection.start}
+            className="bg-surface flex items-center gap-2 rounded-full px-3 py-1.5 text-sm"
+          >
+            <ListChecks aria-hidden size={16} />
+            {t('watch.selectEpisodes')}
+          </button>
+        )}
+      </div>
       {numbered && seasons.length > 1 && (
         <div
           role="tablist"
@@ -128,7 +155,9 @@ const Episodes: FC<{
             <li key={video.id} aria-label={label} className="flex gap-3">
               <button
                 type="button"
-                onClick={() => onPick(target, 'watch')}
+                onClick={() =>
+                  selection.selecting ? selection.toggle(video.id) : onPick(target, 'watch')
+                }
                 onContextMenu={(event) => {
                   // A long press chooses the stream.
                   event.preventDefault();
@@ -159,12 +188,20 @@ const Episodes: FC<{
                 </span>
               </button>
               <span className="self-center">
-                <VideoDownloadControl
-                  item={downloads.get(stremioKey(meta.kind, video.id))}
-                  downloaded={video.downloaded}
-                  name={label}
-                  onDownload={() => onPick(target, 'download')}
-                />
+                {selection.selecting ? (
+                  <EpisodeCheck
+                    checked={selection.selected.has(video.id)}
+                    name={label}
+                    onToggle={() => selection.toggle(video.id)}
+                  />
+                ) : (
+                  <VideoDownloadControl
+                    item={downloads.get(stremioKey(meta.kind, video.id))}
+                    downloaded={video.downloaded}
+                    name={label}
+                    onDownload={() => onPick(target, 'download')}
+                  />
+                )}
               </span>
               <button
                 type="button"
@@ -196,6 +233,15 @@ const Episodes: FC<{
         onLoad={() => setDrawn({ season: shown, count: count + EPISODE_CHUNK * 2 })}
         label={t('search.more')}
       />
+      {selection.selecting && (
+        <EpisodeSelectionBar
+          selection={selection}
+          group={`stremio:${meta.kind}:${meta.id}`}
+          shownIds={videos.map((video) => video.id)}
+          episodes={exportEpisodes(meta)}
+          titleId={meta.titleId}
+        />
+      )}
     </section>
   );
 };
@@ -346,7 +392,13 @@ export const WatchTitlePage: FC = () => {
               icon={ListVideo}
               onClick={() => pick(nextVideo ? episodeTarget(nextVideo) : ownTarget, 'play')}
             />
-            {view.titleId && <ExportButton medium="video" titleIds={[view.titleId]} />}
+            {view.titleId && (
+              <ExportButton
+                medium="video"
+                titleIds={[view.titleId]}
+                episodes={exportEpisodes(view)}
+              />
+            )}
           </>
         }
       />
@@ -361,6 +413,7 @@ export const WatchTitlePage: FC = () => {
           view.runtime,
           view.ratings.length === 0 && view.rating && `★ ${view.rating}`,
         ]}
+        source={view.addonName}
         factsExtra={
           view.ratings.length > 0 && (
             <TitleRatings kind={view.kind} id={view.id} ratings={view.ratings} />

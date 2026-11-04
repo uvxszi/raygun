@@ -18,7 +18,21 @@ import androidx.core.content.FileProvider
 import java.io.File
 
 /** A file made for Rust to write: where it is and the descriptor Rust now owns. */
-internal class Output(val uri: Uri, val fd: Int)
+internal class Output(val uri: Uri, val fd: Int, val name: String)
+
+/** `name`, or `name (1)`, `name (2)`… before its extension: the first one not `taken` (as Rust's `unique_name`). */
+internal fun uniqueName(name: String, taken: (String) -> Boolean): String {
+    if (!taken(name)) return name
+    val dot = name.lastIndexOf('.')
+    val extension = name.substring(dot + 1)
+    val hasExtension = dot > 0 && extension.isNotEmpty() && extension.length <= 8 && ' ' !in extension
+    val stem = if (hasExtension) name.substring(0, dot) else name
+    for (number in 1 until 10_000) {
+        val candidate = if (hasExtension) "$stem ($number).$extension" else "$stem ($number)"
+        if (!taken(candidate)) return candidate
+    }
+    return "$stem (${System.currentTimeMillis()})" + if (hasExtension) ".$extension" else ""
+}
 
 /**
  * Files Raygun writes outside its own storage (M46.1): the phone's Downloads and Pictures
@@ -67,17 +81,18 @@ internal class Storage(private val context: Context) {
 
     /**
      * Makes `name` in `place` (`downloads`, `pictures` or `tree`) under the folders in `path`,
-     * replacing a file of the same name there, and opens it for writing.
+     * replacing a file of the same name there (or, `unique`, keeping it and taking `name (1)`…),
+     * and opens it for writing.
      */
-    fun create(place: String, tree: String?, path: List<String>, name: String, mime: String): Output = when (place) {
-        "tree" -> createInTree(Uri.parse(tree ?: error("No folder was picked")), path, name, mime)
+    fun create(place: String, tree: String?, path: List<String>, name: String, mime: String, unique: Boolean = false): Output = when (place) {
+        "tree" -> createInTree(Uri.parse(tree ?: error("No folder was picked")), path, name, mime, unique)
         "downloads", "pictures", "music" ->
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) createInMediaStore(place, path, name, mime)
-            else createInPublicFolder(place, path, name)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) createInMediaStore(place, path, name, mime, unique)
+            else createInPublicFolder(place, path, name, unique)
         else -> error("Unknown place $place")
     }
 
-    private fun createInMediaStore(place: String, path: List<String>, name: String, mime: String): Output {
+    private fun createInMediaStore(place: String, path: List<String>, wanted: String, mime: String, unique: Boolean): Output {
         // MediaStore's picture collection refuses types Android doesn't know, such as JPEG XL
         // (M46.38): those go to Download/Raygun.
         val pictures = place == "pictures" && mime.startsWith("image/") &&
@@ -95,6 +110,16 @@ internal class Storage(private val context: Context) {
             else -> Environment.DIRECTORY_DOWNLOADS
         }
         val relative = (listOf(top, "Raygun") + path).joinToString("/") + "/"
+        val named = { candidate: String ->
+            resolver.query(
+                collection,
+                arrayOf(MediaStore.MediaColumns._ID),
+                "${MediaStore.MediaColumns.RELATIVE_PATH}=? AND ${MediaStore.MediaColumns.DISPLAY_NAME}=?",
+                arrayOf(relative, candidate),
+                null,
+            )?.use { it.moveToFirst() } ?: false
+        }
+        val name = if (unique) uniqueName(wanted, named) else wanted
         val existing = resolver.query(
             collection,
             arrayOf(MediaStore.MediaColumns._ID),
@@ -115,11 +140,14 @@ internal class Storage(private val context: Context) {
             }
             resolver.insert(collection, values) ?: error("Android refused to make $name")
         }
-        return Output(uri, open(uri))
+        // MediaStore may still rename it; the name it holds is the one shown.
+        val given = resolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)
+            ?.use { if (it.moveToFirst()) it.getString(0) else null }
+        return Output(uri, open(uri), given ?: name)
     }
 
     /** Android 9 and older: plain folders under shared storage. */
-    private fun createInPublicFolder(place: String, path: List<String>, name: String): Output {
+    private fun createInPublicFolder(place: String, path: List<String>, wanted: String, unique: Boolean): Output {
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
             PackageManager.PERMISSION_GRANTED
         if (!granted) error("Allow Raygun to use storage in the system settings to save files")
@@ -133,15 +161,16 @@ internal class Storage(private val context: Context) {
         )
         val dir = File(top, (listOf("Raygun") + path).joinToString(File.separator))
         if (!dir.isDirectory && !dir.mkdirs()) error("Couldn't make ${dir.path}")
+        val name = if (unique) uniqueName(wanted) { File(dir, it).exists() } else wanted
         val file = File(dir, name)
         val descriptor = ParcelFileDescriptor.open(
             file,
             ParcelFileDescriptor.MODE_WRITE_ONLY or ParcelFileDescriptor.MODE_CREATE or ParcelFileDescriptor.MODE_TRUNCATE,
         )
-        return Output(Uri.fromFile(file), descriptor.detachFd())
+        return Output(Uri.fromFile(file), descriptor.detachFd(), name)
     }
 
-    private fun createInTree(tree: Uri, path: List<String>, name: String, mime: String): Output {
+    private fun createInTree(tree: Uri, path: List<String>, wanted: String, mime: String, unique: Boolean): Output {
         var parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
         var key = tree.toString()
         for (segment in path) {
@@ -152,10 +181,17 @@ internal class Storage(private val context: Context) {
                 ?: error("Couldn't make the folder $segment"))
             folders[key] = parent
         }
-        val uri = child(tree, parent, name, directory = false)
+        val folder = parent
+        val name = if (unique) uniqueName(wanted) { child(tree, folder, it, directory = false) != null } else wanted
+        val uri = (if (unique) null else child(tree, parent, name, directory = false))
             ?: DocumentsContract.createDocument(resolver, parent, mime, name)
             ?: error("Couldn't make $name")
-        return Output(uri, open(uri))
+        // The provider may change the name (an extension added); the one it holds is shown.
+        val given = runCatching {
+            resolver.query(uri, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)
+                ?.use { if (it.moveToFirst()) it.getString(0) else null }
+        }.getOrNull()
+        return Output(uri, open(uri), given ?: name)
     }
 
     /** A child document of `parent` named `name`, if there is one. */
@@ -195,6 +231,47 @@ internal class Storage(private val context: Context) {
             !ok -> runCatching { DocumentsContract.deleteDocument(resolver, uri) }
         }
     }
+
+    /** Deletes a saved file: a MediaStore entry, a picked folder's document or a plain file. */
+    fun delete(uri: Uri) {
+        when {
+            uri.scheme == "file" -> {
+                val file = File(uri.path ?: return)
+                if (file.exists() && !file.delete()) error("The file couldn't be deleted")
+            }
+            uri.authority == MediaStore.AUTHORITY -> resolver.delete(uri, null, null)
+            else -> if (!DocumentsContract.deleteDocument(resolver, uri)) error("The file couldn't be deleted")
+        }
+    }
+
+    /** Opens a saved file in the app Android picks. */
+    fun view(uri: Uri, mime: String): Intent {
+        val shown = if (uri.scheme == "file") shareUriOrNull(uri.path) ?: uri else uri
+        val type = mime.takeIf { it.isNotBlank() && it != "*/*" }
+            ?: resolver.getType(shown)
+            ?: "*/*"
+        val view = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(shown, type)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        return Intent.createChooser(view, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    /** The folder a saved file is in: a picked folder's own view, else the system's downloads. */
+    fun folderOf(uri: Uri): Intent {
+        if (uri.authority != MediaStore.AUTHORITY && uri.scheme == "content" && DocumentsContract.isDocumentUri(context, uri)) {
+            runCatching {
+                val tree = DocumentsContract.getTreeDocumentId(uri)
+                val folder = DocumentsContract.buildDocumentUriUsingTree(uri, tree)
+                return Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(folder, DocumentsContract.Document.MIME_TYPE_DIR)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        }
+        return Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    private fun shareUriOrNull(path: String?): Uri? =
+        path?.let { runCatching { shareUri(it) }.getOrNull() }
 
     private fun shareUri(path: String): Uri =
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(path))

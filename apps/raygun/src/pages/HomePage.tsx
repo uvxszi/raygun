@@ -56,6 +56,7 @@ import {
   PopularTitlesSection,
 } from '../home/MoreRows';
 import { MascotButton } from '../shell/MascotButton';
+import { SmartChipsButton } from '../shell/SmartChipsButton';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { openContextMenu } from '../shell/contextMenuStore';
 import { useIsDesktop } from '../shell/useIsDesktop';
@@ -513,10 +514,16 @@ export const HomePage: FC = () => {
           <>
             {/* The desktop bar has its own (M46.24). */}
             {!desktop && (
-              <MascotButton
-                className="hover:bg-surface grid size-11 place-items-center rounded-full"
-                iconSize={22}
-              />
+              <>
+                <MascotButton
+                  className="hover:bg-surface grid size-11 place-items-center rounded-full"
+                  iconSize={22}
+                />
+                <SmartChipsButton
+                  className="hover:bg-surface grid size-11 place-items-center rounded-full"
+                  iconSize={22}
+                />
+              </>
             )}
             <TopBarAction
               label={t('search.title')}

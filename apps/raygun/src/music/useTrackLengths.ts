@@ -9,11 +9,14 @@ import type { TableTrack } from './tableView';
 /** Lengths learned this session, by Rust's track key (filled by answers and events). */
 const learned = new Map<string, number>();
 
+/** What a row needs for its length to be filled. */
+export type LengthRow = Pick<TableTrack, 'rowKey' | 'title' | 'artist' | 'album' | 'durationMs'>;
+
 /**
  * Fills the lengths songs lack (M46.26): Rust answers with what it knows and looks the rest up in
  * the background, sending `TrackDurationsEvent`s as lengths arrive. Rows keep a length they have.
  */
-export const useTrackLengths = (tracks: TableTrack[]): TableTrack[] => {
+export const useTrackLengths = <Row extends LengthRow>(tracks: Row[]): Row[] => {
   const missing = useMemo(() => tracks.filter((track) => !track.durationMs), [tracks]);
   const asked = useQuery({
     queryKey: [

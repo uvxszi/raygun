@@ -31,6 +31,7 @@ import { TextField } from './TextField';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { AppMenu } from './AppMenu';
 import { MascotButton } from './MascotButton';
+import { SmartChipsButton } from './SmartChipsButton';
 import { closeWindow, minimizeWindow, toggleMaximizeWindow, useWindowState } from './appWindow';
 import { backFromLayers, useDesktopBack, useLayersOpen } from './backLayers';
 import { useAppMenuGroups } from './useAppMenuGroups';
@@ -399,6 +400,7 @@ export const AppBar: FC<{ frame: WindowFrame; onShortcuts: () => void; immersive
       </div>
       <IncognitoBadge labelled className="mr-1" />
       <MascotButton className={roundButton} iconSize={20} />
+      <SmartChipsButton className={roundButton} iconSize={20} />
       <BarPopoverButtons className={roundButton} />
       {frame === 'app' ? <WindowButtons /> : <span className="w-2" />}
       {creating && <NewPlaylistForm onDone={() => setCreating(false)} />}

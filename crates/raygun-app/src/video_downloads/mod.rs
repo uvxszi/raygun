@@ -1,10 +1,14 @@
-//! Video downloads (M43): a queue in `local_video_download` worked one video at a time by a
+//! Video downloads (M43): a queue in `local_video_download` worked two videos at a time by a
 //! background task. A plain file downloads with Range resume; an HLS stream saves its chosen
 //! variant's segments (four at a time) with their keys and init maps, plus a playlist pointing at
 //! them. Files land in `downloads/video/<id>/` and play back through the stream proxy's `/local`
-//! route under the same progress key, so resuming and Continue watching carry over.
+//! route under the same progress key, so resuming and Continue watching carry over. Episodes can
+//! be queued without a link (`auto`): their links are looked up when their turn comes. Subtitle
+//! tracks are picked per download and remembered per source (`subtitles`).
 
+pub mod auto;
 pub mod hls;
+pub mod subtitles;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -19,6 +23,7 @@ use raygun_model::{
 };
 use raygun_net::ImageLinks;
 use reqwest::header::{CONTENT_RANGE, CONTENT_TYPE, RANGE};
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 use tokio::io::AsyncWriteExt;
@@ -28,6 +33,7 @@ use crate::catalog::{now_ms, to_message};
 use crate::events::VideoDownloadsEvent;
 use crate::local_network::{self, LocalNetwork};
 use crate::startup::AppDb;
+use crate::video_session::{EpisodeRef, Origin};
 
 /// Folder under the downloads root, and the first segment of the files' proxy paths.
 const FOLDER: &str = "video";
@@ -41,6 +47,24 @@ const MAX_TEXT_BYTES: usize = 16 * 1024 * 1024;
 const PROGRESS_EVERY: Duration = Duration::from_millis(700);
 /// The playable file of an HLS download.
 const HLS_INDEX: &str = "index.m3u8";
+/// Downloads that run at once.
+const PARALLEL: usize = 2;
+/// The link an episode queued without one is downloading from, kept beside its files so a
+/// resumed download continues from the same link.
+const LINK_FILE: &str = "link.json";
+/// `local_value` key of the device's language (for the subtitles ticked at first).
+const DEVICE_LANGUAGE: &str = "video.deviceLanguage";
+
+/// Which subtitle tracks a download keeps (`subtitles`).
+#[derive(Debug, Clone, Default)]
+pub struct SubtitlePick {
+    /// The source whose choice is remembered: a video source's id, or `auto::STREMIO_SUBTITLES`.
+    pub source: String,
+    /// The tracks the picker showed.
+    pub shown: Vec<VideoSubtitle>,
+    /// The addresses ticked there; `None` takes the remembered choice.
+    pub chosen: Option<Vec<String>>,
+}
 
 pub struct VideoDownloadService {
     app: AppHandle,
@@ -52,6 +76,10 @@ pub struct VideoDownloadService {
     paused: AtomicBool,
     /// Downloads removed while they run; the worker deletes what it fetched.
     cancelled: Mutex<HashSet<String>>,
+    /// Downloads running now.
+    running: AtomicUsize,
+    /// The device's language, as the UI reports it (kept for downloads after a restart).
+    device_language: Mutex<Option<String>>,
 }
 
 impl VideoDownloadService {
@@ -69,6 +97,8 @@ impl VideoDownloadService {
             wake: Notify::new(),
             paused: AtomicBool::new(false),
             cancelled: Mutex::new(HashSet::new()),
+            running: AtomicUsize::new(0),
+            device_language: Mutex::new(None),
         })
     }
 
@@ -86,18 +116,39 @@ impl VideoDownloadService {
         });
     }
 
-    async fn work(&self) {
+    async fn work(self: Arc<Self>) {
         loop {
             // Registered before checking, so a wake-up between the check and the wait isn't lost.
             let woken = self.wake.notified();
-            if self.paused.load(Ordering::SeqCst) {
+            if self.paused.load(Ordering::SeqCst) || self.running.load(Ordering::SeqCst) >= PARALLEL
+            {
                 woken.await;
                 continue;
             }
             // Battery saver holds the next download (unless allowed); one under way finishes.
             crate::device_state::wait_for_downloads().await;
-            match store::next_queued(&self.db()).await {
-                Ok(Some(row)) => self.download(row).await,
+            let db = self.db();
+            match store::next_queued(&db).await {
+                Ok(Some(row)) => {
+                    // Marked before the next look at the queue, so it isn't taken twice.
+                    match store::set_downloading(&db, &row.id).await {
+                        Ok(true) => {}
+                        // Removed between the look at the queue and now.
+                        Ok(false) => continue,
+                        Err(error) => {
+                            tracing::warn!(%error, "could not start a video download");
+                            woken.await;
+                            continue;
+                        }
+                    }
+                    self.running.fetch_add(1, Ordering::SeqCst);
+                    let downloads = self.clone();
+                    tauri::async_runtime::spawn(async move {
+                        downloads.download(row).await;
+                        downloads.running.fetch_sub(1, Ordering::SeqCst);
+                        downloads.wake.notify_one();
+                    });
+                }
                 Ok(None) => woken.await,
                 Err(error) => {
                     tracing::warn!(%error, "video download queue unreadable");
@@ -109,31 +160,50 @@ impl VideoDownloadService {
 
     async fn download(&self, row: VideoDownloadRow) {
         let db = self.db();
-        if let Err(error) = store::set_downloading(&db, &row.id).await {
-            tracing::warn!(%error, "could not start a video download");
-            return;
-        }
         self.changed(&row.id);
         let started = Instant::now();
-        let result = self.fetch(&row).await;
-        let cancelled = self
+        let result = match auto::parse_pending(&row.download.url) {
+            Some(episode) => self.fetch_episode(&row, &episode).await,
+            None => {
+                let link = Source::of_row(&row);
+                self.fetch(&row.id, &link)
+                    .await
+                    .map(|(file, subtitles)| (file, subtitles, None))
+            }
+        };
+        let removed = self
             .cancelled
             .lock()
             .expect("cancel set poisoned")
             .remove(&row.id);
+        // Removed while it ran, even if the removal came before it was marked as running.
+        let cancelled = removed || matches!(store::get(&db, &row.id).await, Ok(None));
         let finished = !cancelled && result.is_ok();
         let outcome = match result {
             _ if cancelled => {
                 self.delete_files(&row.id).await;
                 Ok(())
             }
-            Ok((file, subtitles)) => {
+            Ok((file, subtitles, link)) => {
                 tracing::info!(
                     key = %row.download.key,
                     file,
                     elapsed_ms = started.elapsed().as_millis() as u64,
                     "video downloaded"
                 );
+                if let Some(link) = link {
+                    // The episode's row keeps the link it was saved from.
+                    let _ = store::set_link(
+                        &db,
+                        &row.id,
+                        &link.url,
+                        &serde_json::to_string(&link.headers).unwrap_or_else(|_| "{}".into()),
+                        link.format.as_deref(),
+                        &serde_json::to_string(&link.subtitles).unwrap_or_else(|_| "[]".into()),
+                    )
+                    .await;
+                    let _ = tokio::fs::remove_file(self.dir(&row.id).join(LINK_FILE)).await;
+                }
                 let subtitles = serde_json::to_string(&subtitles).unwrap_or_else(|_| "[]".into());
                 store::set_done(&db, &row.id, &file, &subtitles, now_ms()).await
             }
@@ -153,26 +223,93 @@ impl VideoDownloadService {
         self.changed(&row.id);
     }
 
+    /// Downloads an episode queued without a link: from the link a cut-off run used, else from
+    /// the best links found now, one after another until one works.
+    async fn fetch_episode(
+        &self,
+        row: &VideoDownloadRow,
+        episode: &EpisodeRef,
+    ) -> Result<(String, Vec<VideoSubtitle>, Option<Source>), Failure> {
+        let dir = self.dir(&row.id);
+        let kept = tokio::fs::read_to_string(dir.join(LINK_FILE))
+            .await
+            .ok()
+            .and_then(|text| serde_json::from_str::<Source>(&text).ok());
+        let mut last_error = None;
+        if let Some(link) = kept {
+            match self.fetch(&row.id, &link).await {
+                Ok((file, subtitles)) => return Ok((file, subtitles, Some(link))),
+                Err(Failure::Stopped) => return Err(Failure::Stopped),
+                Err(Failure::Error(error)) => {
+                    last_error = Some(error);
+                    self.delete_files(&row.id).await;
+                }
+            }
+        }
+        let (links, source) = auto::candidates(&self.app, episode)
+            .await
+            .map_err(Failure::Error)?;
+        let memory = self.subtitle_memory(&source).await;
+        let device = self.device_language().await;
+        for request in links {
+            if self.is_stopped(&row.id) {
+                return Err(Failure::Stopped);
+            }
+            let link = Source {
+                subtitles: subtitles::apply(
+                    &memory,
+                    request.subtitles,
+                    &HashSet::new(),
+                    None,
+                    &device,
+                ),
+                url: request.url,
+                headers: request.headers,
+                format: request.format,
+            };
+            tokio::fs::create_dir_all(&dir).await.map_err(io_failure)?;
+            let text = serde_json::to_string(&link).unwrap_or_default();
+            tokio::fs::write(dir.join(LINK_FILE), text)
+                .await
+                .map_err(io_failure)?;
+            match self.fetch(&row.id, &link).await {
+                Ok((file, subtitles)) => return Ok((file, subtitles, Some(link))),
+                Err(Failure::Stopped) => return Err(Failure::Stopped),
+                Err(Failure::Error(error)) => {
+                    tracing::info!(%error, "an episode's link couldn't be downloaded; trying the next");
+                    last_error = Some(error);
+                    self.delete_files(&row.id).await;
+                }
+            }
+        }
+        Err(Failure::Error(last_error.unwrap_or_else(|| {
+            "No source had a link that can be downloaded".into()
+        })))
+    }
+
     /// Downloads the video and its subtitles; returns the playable file's name and the saved
     /// tracks.
-    async fn fetch(&self, row: &VideoDownloadRow) -> Result<(String, Vec<VideoSubtitle>), Failure> {
-        let dir = self.dir(&row.id);
+    async fn fetch(
+        &self,
+        id: &str,
+        link: &Source,
+    ) -> Result<(String, Vec<VideoSubtitle>), Failure> {
+        let dir = self.dir(id);
         tokio::fs::create_dir_all(&dir).await.map_err(io_failure)?;
-        let headers: std::collections::BTreeMap<String, String> =
-            serde_json::from_str(&row.download.headers).unwrap_or_default();
+        let headers = &link.headers;
         let progress = Arc::new(Progress::default());
-        let stopped = || self.is_stopped(&row.id);
+        let stopped = || self.is_stopped(id);
         let job = Job {
             client: &self.client,
             dir: &dir,
-            headers: &headers,
+            headers,
             preferred: self.preferred_quality().await,
             stopped: &stopped,
             progress: &progress,
         };
         // Progress is written from a side task, so fetching never waits on the database.
         let reporter = {
-            let (progress, id, db) = (progress.clone(), row.id.clone(), self.db());
+            let (progress, id, db) = (progress.clone(), id.to_owned(), self.db());
             let app = self.app.clone();
             tauri::async_runtime::spawn(async move {
                 let mut written = (0, 0);
@@ -190,24 +327,23 @@ impl VideoDownloadService {
                 }
             })
         };
-        let file = job
-            .video(&row.download.url, row.download.format.as_deref())
-            .await;
+        let file = job.video(&link.url, link.format.as_deref()).await;
         reporter.abort();
-        let _ = progress.save(&self.db(), &row.id).await;
+        let _ = progress.save(&self.db(), id).await;
         let file = file?;
-        let remote: Vec<VideoSubtitle> =
-            serde_json::from_str(&row.download.subtitles).unwrap_or_default();
-        let subtitles = job.subtitles(remote, &self.subtitle_language().await).await;
+        let subtitles = job
+            .subtitles(link.subtitles.clone(), &self.subtitle_language().await)
+            .await;
         Ok((file, subtitles))
     }
 
     /// Queues a video (one already queued, downloading or downloaded is left alone; a failed one
-    /// tries again with this link).
+    /// tries again with this link), with the subtitle tracks `pick` keeps.
     pub async fn enqueue(
         &self,
-        request: VideoRequest,
+        mut request: VideoRequest,
         title_id: Option<String>,
+        pick: SubtitlePick,
     ) -> Result<(), String> {
         if !request.url.starts_with("https://") && !request.url.starts_with("http://") {
             return Err("Only web addresses can be downloaded".into());
@@ -219,6 +355,7 @@ impl VideoDownloadService {
             .state::<LocalNetwork>()
             .check(&request.url, local_network::VIDEOS_DENIED)
             .await?;
+        request.subtitles = self.pick_subtitles(request.subtitles, pick).await;
         let new = NewDownload {
             key: request.key,
             title_id,
@@ -242,13 +379,170 @@ impl VideoDownloadService {
         Ok(())
     }
 
+    /// Queues episodes of a title (`group` is `Origin::group_key`; `episode_ids` their ids at the
+    /// source) without a link: each finds one when its turn comes. Episodes not out yet, and those
+    /// queued or downloaded already, are skipped. Returns how many were queued.
+    pub async fn enqueue_episodes(
+        &self,
+        group: &str,
+        episode_ids: &[String],
+    ) -> Result<u32, String> {
+        let origin = Origin::from_group(group).ok_or("This title can't be downloaded")?;
+        let db = self.db();
+        if let Origin::Source { title_id } = &origin
+            && titles_source(&db, title_id).await.as_deref()
+                == Some(crate::local_files::LOCAL_VIDEO)
+        {
+            return Err("These videos are already on this device".into());
+        }
+        let sessions = self.app.state::<crate::video_session::VideoSessions>();
+        let (title, poster, episodes) = sessions.title_episodes(&origin).await?;
+        let wanted: HashSet<&str> = episode_ids.iter().map(String::as_str).collect();
+        let now = now_ms();
+        let chosen: Vec<_> = episodes
+            .iter()
+            .filter(|episode| wanted.contains(episode.remote_id.as_str()))
+            .filter(|episode| episode.released.is_none_or(|date| date <= now))
+            .collect();
+        let keys: Vec<String> = chosen.iter().map(|episode| episode.key.clone()).collect();
+        let known = store::states_for_keys(&db, &keys)
+            .await
+            .map_err(to_message)?;
+        let title_id = match &origin {
+            Origin::Source { title_id } => Some(title_id.clone()),
+            Origin::Stremio { kind, id } => raygun_db::titles::find_title(
+                &db,
+                crate::video_library::STREMIO_SOURCE,
+                &format!("{kind}:{id}"),
+            )
+            .await
+            .ok()
+            .flatten()
+            .map(|row| row.id),
+        };
+        let poster = poster.as_deref().map(|poster| self.images.original(poster));
+        let single = episodes.len() == 1;
+        let mut queued = 0;
+        for (index, episode) in chosen.into_iter().enumerate() {
+            if known
+                .get(&episode.key)
+                .is_some_and(|state| state != store::FAILED)
+            {
+                continue;
+            }
+            let reference = EpisodeRef {
+                origin: origin.clone(),
+                episode: episode.remote_id.clone(),
+            };
+            let new = NewDownload {
+                key: episode.key.clone(),
+                title_id: title_id.clone(),
+                title: title.clone(),
+                subtitle: (!single).then(|| episode.label.clone()),
+                poster: poster.clone(),
+                url: auto::pending_url(&reference),
+                headers: "{}".into(),
+                format: None,
+                subtitles: "[]".into(),
+            };
+            // In watching order: the queue runs oldest first.
+            store::enqueue(&db, &new, now + index as i64)
+                .await
+                .map_err(to_message)?;
+            queued += 1;
+        }
+        if queued > 0 {
+            self.wake.notify_one();
+            self.changed("");
+        }
+        Ok(queued)
+    }
+
+    /// The tracks a download keeps, remembering a pick for its source.
+    async fn pick_subtitles(
+        &self,
+        tracks: Vec<VideoSubtitle>,
+        pick: SubtitlePick,
+    ) -> Vec<VideoSubtitle> {
+        let mut memory = self.subtitle_memory(&pick.source).await;
+        let shown: HashSet<String> = pick.shown.iter().map(|track| track.url.clone()).collect();
+        let chosen: Option<HashSet<String>> = pick.chosen.map(|urls| urls.into_iter().collect());
+        if let Some(chosen) = &chosen
+            && !pick.source.is_empty()
+        {
+            subtitles::remember(&mut memory, &pick.shown, chosen);
+            if let Ok(text) = serde_json::to_string(&memory)
+                && let Err(error) = raygun_db::set_local_value(
+                    &self.db(),
+                    &subtitles::memory_key(&pick.source),
+                    &text,
+                )
+                .await
+            {
+                tracing::warn!(%error, "could not remember the subtitles picked");
+            }
+        }
+        let device = self.device_language().await;
+        subtitles::apply(&memory, tracks, &shown, chosen.as_ref(), &device)
+    }
+
+    /// The subtitle tracks ticked at first in a download's picker.
+    pub async fn subtitle_defaults(&self, source: &str, tracks: &[VideoSubtitle]) -> Vec<String> {
+        let memory = self.subtitle_memory(source).await;
+        subtitles::defaults(&memory, tracks, &self.device_language().await)
+    }
+
+    async fn subtitle_memory(&self, source: &str) -> subtitles::SubtitleMemory {
+        if source.is_empty() {
+            return Default::default();
+        }
+        raygun_db::local_value(&self.db(), &subtitles::memory_key(source))
+            .await
+            .ok()
+            .flatten()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default()
+    }
+
+    /// The device's language, as the UI reports it.
+    pub async fn set_device_language(&self, language: &str) {
+        let language = language.trim().to_owned();
+        let changed = {
+            let mut known = self.device_language.lock().expect("language poisoned");
+            let changed = known.as_deref() != Some(language.as_str());
+            *known = Some(language.clone());
+            changed
+        };
+        if changed {
+            let _ = raygun_db::set_local_value(&self.db(), DEVICE_LANGUAGE, &language).await;
+        }
+    }
+
+    async fn device_language(&self) -> String {
+        let known = self
+            .device_language
+            .lock()
+            .expect("language poisoned")
+            .clone();
+        match known {
+            Some(language) => language,
+            None => raygun_db::local_value(&self.db(), DEVICE_LANGUAGE)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_default(),
+        }
+    }
+
     /// Takes a download out, stopping it if it runs; its files are deleted.
     pub async fn remove(&self, id: &str) -> Result<(), String> {
         let db = self.db();
         let Some(row) = store::get(&db, id).await.map_err(to_message)? else {
             return Ok(());
         };
-        if row.state == store::DOWNLOADING {
+        // A queued one may be starting right now: either way the worker stops and deletes what
+        // it fetched instead of finishing it.
+        if row.state == store::DOWNLOADING || row.state == store::QUEUED {
             self.cancelled
                 .lock()
                 .expect("cancel set poisoned")
@@ -279,6 +573,10 @@ impl VideoDownloadService {
         self.changed("");
     }
 
+    pub fn is_paused(&self) -> bool {
+        self.paused.load(Ordering::SeqCst)
+    }
+
     /// Plays a download: a finished one from the device, else its link.
     pub async fn play(&self, id: &str) -> Result<(), String> {
         let row = store::get(&self.db(), id)
@@ -286,6 +584,16 @@ impl VideoDownloadService {
             .map_err(to_message)?
             .ok_or_else(|| "This download was removed".to_owned())?;
         let download = row.download;
+        if row.state != store::DONE
+            && let Some(episode) = auto::parse_pending(&download.url)
+        {
+            // No link yet: a session finds one.
+            return self
+                .app
+                .state::<crate::video_session::VideoSessions>()
+                .start(episode.origin, Some(episode.episode))
+                .await;
+        }
         let request = VideoRequest {
             key: download.key,
             title: download.title,
@@ -414,6 +722,34 @@ impl VideoDownloadService {
     fn db(&self) -> Arc<raygun_db::Db> {
         self.app.state::<AppDb>().inner().0.clone()
     }
+}
+
+/// The link a download saves from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Source {
+    url: String,
+    headers: std::collections::BTreeMap<String, String>,
+    format: Option<String>,
+    subtitles: Vec<VideoSubtitle>,
+}
+
+impl Source {
+    fn of_row(row: &VideoDownloadRow) -> Self {
+        Self {
+            url: row.download.url.clone(),
+            headers: serde_json::from_str(&row.download.headers).unwrap_or_default(),
+            format: row.download.format.clone(),
+            subtitles: serde_json::from_str(&row.download.subtitles).unwrap_or_default(),
+        }
+    }
+}
+
+async fn titles_source(db: &raygun_db::Db, title_id: &str) -> Option<String> {
+    raygun_db::titles::title(db, title_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|row| row.fields.source_id)
 }
 
 /// A finished download as the player gets it.

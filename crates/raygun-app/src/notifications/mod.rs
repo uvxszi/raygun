@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use raygun_model::{
     AiModelProgress, AiModelState, DownloadState, ExportState, PermissionReason, SongDownloadState,
-    UpdateState, YtDlpState,
+    UpdateState, WebsiteDownloadState, YtDlpState,
 };
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
@@ -30,17 +30,18 @@ use tokio::sync::Notify;
 use crate::events::{
     AiModelEvent, AppUpdateEvent, ExportEvent, ExtensionInstallsEvent, MangaDownloadsEvent,
     OpenRouteEvent, PodcastsChangedEvent, SongDownloadProgressEvent, SongDownloadsEvent,
-    VideoDownloadsEvent, YtDlpEvent,
+    VideoDownloadsEvent, WebsiteDownloadsEvent, YtDlpEvent,
 };
 use model::{Abilities, Download, Kind, Phase, Plan, Tracker, Unit};
 
 /// Notifications change at most this often (Android drops updates that come faster).
 const TICK: Duration = Duration::from_secs(1);
 
-/// A podcast download that hasn't moved for this long isn't running (the app stopped under it).
-const PODCAST_STALE: Duration = Duration::from_secs(120);
+/// A download cancelled from its notification is left out for this long while its service
+/// stops it (an export notices at its next chapter), so the notification goes at once.
+const CANCEL_HIDES: Duration = Duration::from_secs(120);
 
-const ALL_KINDS: [Kind; 9] = [
+const ALL_KINDS: [Kind; 10] = [
     Kind::Songs,
     Kind::Videos,
     Kind::Chapters,
@@ -49,6 +50,7 @@ const ALL_KINDS: [Kind; 9] = [
     Kind::Models,
     Kind::Update,
     Kind::YtDlp,
+    Kind::Files,
     Kind::Extensions,
 ];
 
@@ -63,6 +65,8 @@ pub struct DownloadNotices {
     /// and the whole list again when it changes (`SongDownloadsEvent`).
     songs: Mutex<HashMap<String, raygun_model::SongDownload>>,
     songs_changed: std::sync::atomic::AtomicBool,
+    /// Downloads cancelled from their notification, by key, and when.
+    cancelled: Mutex<HashMap<String, Instant>>,
     /// The screen a tapped notification opens, until the UI takes it.
     route: Mutex<Option<String>>,
 }
@@ -76,6 +80,7 @@ impl DownloadNotices {
             models: Mutex::new(HashMap::new()),
             songs: Mutex::new(HashMap::new()),
             songs_changed: std::sync::atomic::AtomicBool::new(true),
+            cancelled: Mutex::new(HashMap::new()),
             route: Mutex::new(None),
         });
         app.manage(notices.clone());
@@ -100,10 +105,17 @@ impl DownloadNotices {
             let song = event.payload.0;
             {
                 let mut songs = notices.songs.lock().expect("songs poisoned");
-                if !takes_report(songs.get(&song.id).map(|known| known.state), song.state) {
-                    return;
+                match takes_report(songs.get(&song.id).map(|known| known.state), song.state) {
+                    Report::Take => {
+                        songs.insert(song.id.clone(), song);
+                    }
+                    Report::Drop => return,
+                    // Not in the last list: removed (a late report from its worker), or new;
+                    // the list says which.
+                    Report::ReadList => notices
+                        .songs_changed
+                        .store(true, std::sync::atomic::Ordering::SeqCst),
                 }
-                songs.insert(song.id.clone(), song);
             }
             notices.touch(Kind::Songs);
         });
@@ -120,15 +132,27 @@ impl DownloadNotices {
         let notices = self.clone();
         YtDlpEvent::listen(app, move |_| notices.touch(Kind::YtDlp));
         let notices = self.clone();
+        WebsiteDownloadsEvent::listen(app, move |_| notices.touch(Kind::Files));
+        let notices = self.clone();
         ExtensionInstallsEvent::listen(app, move |_| notices.touch(Kind::Extensions));
         let notices = self.clone();
         AiModelEvent::listen(app, move |event| {
             let progress = event.payload.0;
-            notices
-                .models
-                .lock()
-                .expect("models poisoned")
-                .insert(progress.id.clone(), progress);
+            {
+                let mut models = notices.models.lock().expect("models poisoned");
+                // A report sent before the model's end doesn't bring it back as running.
+                let ended = models
+                    .get(&progress.id)
+                    .is_some_and(|known| known.state != AiModelState::Downloading);
+                let running = notices
+                    .app
+                    .try_state::<crate::ai::AiService>()
+                    .is_none_or(|ai| ai.is_downloading(&progress.id));
+                if ended && progress.state == AiModelState::Downloading && !running {
+                    return;
+                }
+                models.insert(progress.id.clone(), progress);
+            }
             notices.touch(Kind::Models);
         });
     }
@@ -158,6 +182,7 @@ impl DownloadNotices {
         let mut lists: HashMap<Kind, Vec<Download>> = HashMap::new();
         let mut memory = Memory::default();
         let mut shown = Plan::default();
+        let mut sent_at: Option<f64> = None;
         let mut last = Instant::now() - TICK;
         let mut asked = false;
         loop {
@@ -195,10 +220,12 @@ impl DownloadNotices {
                 .cloned()
                 .map(|download| hold(download, held))
                 .collect();
-            let update = tracker.update(crate::catalog::now_ms() as f64, &downloads);
-            if update.plan != shown || update.finished.is_some() {
+            let now = crate::catalog::now_ms() as f64;
+            let update = tracker.update(now, &downloads);
+            if model::should_send(sent_at.map(|at| (at, &shown)), now, &update) {
                 platform::show(&self.app, &update.plan, update.finished.as_ref()).await;
                 shown = update.plan;
+                sent_at = Some(now);
             }
             if !asked && !update.started.is_empty() {
                 asked = true;
@@ -223,6 +250,7 @@ impl DownloadNotices {
             Kind::Models => self.models_now(),
             Kind::Update => update(&self.app),
             Kind::YtDlp => ytdlp(&self.app),
+            Kind::Files => files(&self.app),
             Kind::Extensions => {
                 state::<Arc<crate::extension_installs::ExtensionInstalls>>(&self.app)
                     .ok()
@@ -231,11 +259,21 @@ impl DownloadNotices {
                     .collect()
             }
         };
+        let mut cancelled = self.cancelled.lock().expect("cancelled poisoned");
+        let prefix = format!("{}:", kind.tag());
+        cancelled.retain(|key, at| {
+            !key.starts_with(&prefix)
+                || (at.elapsed() < CANCEL_HIDES
+                    && downloads
+                        .iter()
+                        .any(|download| download.key() == *key && download.phase.active()))
+        });
         downloads
             .into_iter()
             .filter(|download| {
-                !matches!(download.phase, Phase::Done | Phase::Failed)
-                    || tracker.watching(&download.key())
+                !cancelled.contains_key(&download.key())
+                    && (!matches!(download.phase, Phase::Done | Phase::Failed)
+                        || tracker.watching(&download.key()))
             })
             .collect()
     }
@@ -265,9 +303,9 @@ impl DownloadNotices {
     }
 
     fn models_now(&self) -> Vec<Download> {
-        let names: HashMap<String, String> = self
-            .app
-            .try_state::<crate::ai::AiService>()
+        let ai = self.app.try_state::<crate::ai::AiService>();
+        let names: HashMap<String, String> = ai
+            .as_ref()
             .map(|ai| {
                 ai.models()
                     .into_iter()
@@ -276,6 +314,13 @@ impl DownloadNotices {
             })
             .unwrap_or_default();
         let mut models = self.models.lock().expect("models poisoned");
+        // A progress report that arrived after the model's end (or one whose download stopped
+        // without an end) isn't a download running.
+        if let Some(ai) = &ai {
+            models.retain(|id, progress| {
+                progress.state != AiModelState::Downloading || ai.is_downloading(id)
+            });
+        }
         // Finished ones are only kept while their batch is reported.
         let list: Vec<Download> = models
             .values()
@@ -325,6 +370,12 @@ impl DownloadNotices {
             if matches!(action, "pause" | "resume") && !queues_done.insert(kind) {
                 continue;
             }
+            if action == "cancel" {
+                self.cancelled
+                    .lock()
+                    .expect("cancelled poisoned")
+                    .insert(key.clone(), Instant::now());
+            }
             if let Err(error) = act_on(&self.app, kind, id, action).await {
                 tracing::info!(%error, %key, action, "a notification's button didn't work");
             }
@@ -364,6 +415,11 @@ async fn act_on(app: &AppHandle, kind: Kind, id: &str, action: &str) -> Result<(
         (Kind::Chapters, "retry") => {
             state::<Arc<MangaDownloadService>>(app)?
                 .enqueue(&[id.to_owned()])
+                .await
+        }
+        (Kind::Podcasts, "cancel") => {
+            state::<Arc<crate::podcasts::PodcastService>>(app)?
+                .cancel_download(id)
                 .await
         }
         (Kind::Podcasts, "retry") => {
@@ -406,6 +462,13 @@ async fn act_on(app: &AppHandle, kind: Kind, id: &str, action: &str) -> Result<(
             state::<Arc<crate::extension_installs::ExtensionInstalls>>(app)?.retry_failed();
             Ok(())
         }
+        (Kind::Files, "cancel") => {
+            state::<Arc<crate::website_downloads::WebsiteDownloadService>>(app)?.cancel(id);
+            Ok(())
+        }
+        (Kind::Files, "retry") => {
+            state::<Arc<crate::website_downloads::WebsiteDownloadService>>(app)?.retry(id)
+        }
         (Kind::YtDlp, "cancel") => {
             state::<Arc<crate::ytdlp::YtDlpService>>(app)?.cancel(id);
             Ok(())
@@ -425,20 +488,29 @@ fn state<T: Clone + Send + Sync + 'static>(app: &AppHandle) -> Result<T, String>
 struct Memory {
     /// Chapters seen in the queue, by id: done ones leave it.
     chapters: HashMap<String, Download>,
-    /// Podcast downloads by episode: their bytes, and when those last changed (`None`: not since
-    /// the first read, which finds the ones the last run left behind).
-    podcast_moves: HashMap<String, (i64, Option<Instant>)>,
-    podcasts_read: bool,
     /// Episode titles, their podcast's and its id, by episode.
     episodes: HashMap<String, (String, String, String)>,
 }
 
-/// Whether a song's progress report is taken, given what's known of it: a late report from a
-/// download that already ended doesn't bring it back as running (it would show as downloading
-/// for good); starting it again is read from the list.
-fn takes_report(known: Option<SongDownloadState>, report: SongDownloadState) -> bool {
+/// What's done with a song's progress report.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Report {
+    Take,
+    Drop,
+    /// The song isn't in the last list read: the list is read again instead.
+    ReadList,
+}
+
+/// What's done with a song's progress report, given what's known of it. A late report from a
+/// download that already ended, or that was removed, doesn't bring it back as running (it would
+/// show as downloading for good); starting it again is read from the list.
+fn takes_report(known: Option<SongDownloadState>, report: SongDownloadState) -> Report {
     let ended = |state| matches!(state, SongDownloadState::Done | SongDownloadState::Failed);
-    !known.is_some_and(ended) || ended(report)
+    match known {
+        None => Report::ReadList,
+        Some(known) if ended(known) && !ended(report) => Report::Drop,
+        Some(_) => Report::Take,
+    }
 }
 
 /// A waiting download whose queue battery saver holds shows as held, not as about to start.
@@ -644,29 +716,19 @@ async fn podcasts(app: &AppHandle, memory: &mut Memory) -> Vec<Download> {
     else {
         return Vec::new();
     };
+    let Ok(service) = state::<Arc<crate::podcasts::PodcastService>>(app) else {
+        return Vec::new();
+    };
     let Ok(rows) = raygun_db::podcasts::downloads(&db).await else {
         return Vec::new();
     };
-    let first = !std::mem::replace(&mut memory.podcasts_read, true);
     let mut list = Vec::new();
     for row in rows {
-        if row.state == "downloading" {
-            // The podcast service doesn't say which downloads run: one that moves does, and
-            // one the last run left behind ("downloading" at the first read) waits until it moves.
-            let bytes = row.received_bytes;
-            let moved = match memory.podcast_moves.get(&row.episode_id) {
-                None => (!first).then(Instant::now),
-                Some((before, at)) if *before == bytes => *at,
-                Some(_) => Some(Instant::now()),
-            };
-            memory
-                .podcast_moves
-                .insert(row.episode_id.clone(), (bytes, moved));
-            if !moved.is_some_and(|at| at.elapsed() < PODCAST_STALE) {
-                continue;
-            }
-        } else {
-            memory.podcast_moves.remove(&row.episode_id);
+        let unfinished = matches!(row.state.as_str(), "downloading" | "queued");
+        // The service says which run: a record a run that ended left behind, or one cancelled
+        // while its job hasn't noticed yet, isn't shown as downloading.
+        if unfinished && !service.download_active(&row.episode_id) {
+            continue;
         }
         let names = match memory.episodes.get(&row.episode_id) {
             Some(names) => names.clone(),
@@ -689,6 +751,8 @@ async fn podcasts(app: &AppHandle, memory: &mut Memory) -> Vec<Download> {
         let (title, podcast, podcast_id) = names;
         let phase = match row.state.as_str() {
             "downloading" => Phase::Running,
+            // Waiting for one of the two turns.
+            "queued" => Phase::Queued,
             "done" => Phase::Done,
             _ => Phase::Failed,
         };
@@ -706,8 +770,9 @@ async fn podcasts(app: &AppHandle, memory: &mut Memory) -> Vec<Download> {
             speed: None,
             error: row.error,
             abilities: Abilities {
+                pause: false,
+                cancel: phase.active(),
                 retry: phase == Phase::Failed,
-                ..Abilities::default()
             },
             route: format!("/podcast?id={podcast_id}"),
         });
@@ -841,6 +906,46 @@ fn ytdlp(app: &AppHandle) -> Vec<Download> {
                     ..Abilities::default()
                 },
                 route: Kind::YtDlp.route().to_owned(),
+            })
+        })
+        .collect()
+}
+
+/// Files saved from websites.
+fn files(app: &AppHandle) -> Vec<Download> {
+    let Ok(service) = state::<Arc<crate::website_downloads::WebsiteDownloadService>>(app) else {
+        return Vec::new();
+    };
+    service
+        .list()
+        .into_iter()
+        .filter_map(|file| {
+            let phase = match file.state {
+                WebsiteDownloadState::Queued => Phase::Queued,
+                WebsiteDownloadState::Downloading => Phase::Running,
+                WebsiteDownloadState::Done => Phase::Done,
+                WebsiteDownloadState::Failed => Phase::Failed,
+                WebsiteDownloadState::Cancelled => return None,
+            };
+            Some(Download {
+                kind: Kind::Files,
+                id: file.id,
+                title: file.name,
+                subtitle: file.site,
+                phase,
+                done: file.done_bytes,
+                total: file.total_bytes,
+                unit: Unit::Bytes,
+                bytes: None,
+                left_ms: None,
+                speed: file.bytes_per_second,
+                error: file.error,
+                abilities: Abilities {
+                    cancel: true,
+                    retry: file.state == WebsiteDownloadState::Failed,
+                    ..Abilities::default()
+                },
+                route: Kind::Files.route().to_owned(),
             })
         })
         .collect()

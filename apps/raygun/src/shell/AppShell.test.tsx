@@ -78,7 +78,15 @@ describe('AppShell', () => {
     await AppShellWrapper.mount('/settings');
 
     const settings = await AppShellWrapper.page('settings');
-    for (const name of ['Appearance', 'Library', 'Reader', 'Player', 'Browse', 'Data and backup']) {
+    for (const name of [
+      'Appearance',
+      'Library',
+      'Reader',
+      'Music player',
+      'Video player',
+      'Browse',
+      'Data and backup',
+    ]) {
       expect(within(settings).getByRole('link', { name: new RegExp(`^${name}`) })).toBeVisible();
     }
     await user.click(within(settings).getByRole('link', { name: /^About/ }));

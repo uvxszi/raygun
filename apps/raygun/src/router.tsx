@@ -120,6 +120,7 @@ const routeTree = rootRoute.addChildren([
     validateSearch: (search: Record<string, unknown>): { tab?: DownloadsTab } =>
       search.tab === 'videos' ||
       search.tab === 'exports' ||
+      search.tab === 'files' ||
       search.tab === 'music' ||
       search.tab === 'chapters'
         ? { tab: search.tab }
@@ -330,8 +331,30 @@ const routeTree = rootRoute.addChildren([
   ),
   createRoute({
     getParentRoute: () => rootRoute,
-    path: '/settings/player/$page',
+    path: '/settings/video/$page',
     component: PlayerSettingsPage,
+  }),
+  // Player and Sound were one screen each until the music and video players got their own.
+  ...(['/settings/player', '/settings/sound'] as const).map((path) =>
+    createRoute({
+      getParentRoute: () => rootRoute,
+      path,
+      beforeLoad: ({ location }) => {
+        throw redirect({ to: '/settings/music', hash: location.hash, replace: true });
+      },
+    }),
+  ),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/settings/player/$page',
+    beforeLoad: ({ params, location }) => {
+      throw redirect({
+        to: '/settings/video/$page',
+        params: { page: params.page },
+        hash: location.hash,
+        replace: true,
+      });
+    },
   }),
   createRoute({
     getParentRoute: () => rootRoute,

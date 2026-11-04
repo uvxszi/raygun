@@ -392,6 +392,18 @@ export const commands = {
 	 *  PNG, JPEG or WebP; returns where it went (M46.26).
 	 */
 	coverSave: (url: string, title: string, format: ImageFileFormat, destination: ImageDestination) => typedError<string, string>(__TAURI_INVOKE("cover_save", { url, title, format, destination })),
+	/**
+	 *  Links to the larger versions of a cover, poster or backdrop that its host serves, largest
+	 *  first, the cover itself last: the cover viewer shows the first that loads.
+	 */
+	coverVersions: (url: string) => __TAURI_INVOKE<string[]>("cover_versions", { url }),
+	/**
+	 *  Opens the share sheet for a cover at its largest size (desktop: saves it to Pictures and shows
+	 *  it in its folder).
+	 */
+	coverShare: (url: string, title: string) => typedError<null, string>(__TAURI_INVOKE("cover_share", { url, title })),
+	/**  Puts a cover at its largest size on the clipboard. */
+	coverCopy: (url: string, title: string) => typedError<null, string>(__TAURI_INVOKE("cover_copy", { url, title })),
 	/**  The user's own details for a song, an album or an artist (M46.30). */
 	detailEdit: (target: DetailTarget) => typedError<DetailEdit, string>(__TAURI_INVOKE("detail_edit", { target })),
 	/**  Saves the user's details for a song, an album or an artist; an empty edit resets them. */
@@ -957,10 +969,25 @@ export const commands = {
 	 *  returns how many were queued.
 	 */
 	libraryDownloadNext: (medium: string, titleIds: string[], amount: number | null) => typedError<number, string>(__TAURI_INVOKE("library_download_next", { medium, titleIds, amount })),
+	/**
+	 *  Adds titles picked from search or a source's page to the library (fetching the ones never
+	 *  opened) and puts them into `category_ids` (groups for comics and books, folders for videos).
+	 */
+	libraryAddTitles: (medium: string, titles: RemoteTitleRef[], categoryIds: string[]) => typedError<BulkResult, string>(__TAURI_INVOKE("library_add_titles", { medium, titles, categoryIds })),
+	/**
+	 *  Downloads the next `amount` chapters or episodes (all unread ones without an amount) of
+	 *  titles picked from search or a source's page, through the normal download queues.
+	 */
+	libraryDownloadTitles: (medium: string, titles: RemoteTitleRef[], amount: number | null) => typedError<BulkResult, string>(__TAURI_INVOKE("library_download_titles", { medium, titles, amount })),
 	/**  The chapter or episode a title continues at. */
 	libraryContinue: (medium: string, titleId: string) => typedError<string | null, string>(__TAURI_INVOKE("library_continue", { medium, titleId })),
 	/**  Library titles with the same name as `title` from other sources. */
 	libraryDuplicates: (medium: string, titleId: string, title: string) => typedError<LibraryDuplicate[], string>(__TAURI_INVOKE("library_duplicates", { medium, titleId, title })),
+	/**
+	 *  "Use this source instead": moves a library title onto the same title in another source,
+	 *  keeping progress by chapter or episode number. Returns the new title's id.
+	 */
+	libraryMigrate: (medium: string, titleId: string, sourceId: string, remoteId: string) => typedError<string, string>(__TAURI_INVOKE("library_migrate", { medium, titleId, sourceId, remoteId })),
 	/**  Gives a category its own display and sort, or makes it follow the library's again. */
 	librarySetCategoryDisplay: (medium: string, categoryId: string, display: {
 	mode: LibraryDisplayMode,
@@ -1094,6 +1121,11 @@ export const commands = {
 	lyricsTranslation: LyricsTranslationPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
+	/**
+	 *  The Browse tab opened without one in the address: a `LAYOUT_BROWSE_TABS` id, Browse all
+	 *  (`discover`) by default; a hidden choice falls back to the first shown tab.
+	 */
+	browseStartTab?: string,
 	/**  Search's own switches: no 18+ sources or titles, no explicit songs; both off by default. */
 	searchFilter: SearchFilterPrefs,
 	/**
@@ -1166,6 +1198,18 @@ export const commands = {
 	websiteBlocklistUpdate: () => typedError<BlocklistStatus, string>(__TAURI_INVOKE("website_blocklist_update")),
 	/**  Clears the built-in browser's cookies, storage and cache. */
 	websiteClearData: () => typedError<null, string>(__TAURI_INVOKE("website_clear_data")),
+	/**  Files saved from websites, newest first. */
+	websiteDownloads: () => __TAURI_INVOKE<WebsiteDownload[]>("website_downloads"),
+	/**  Stops a file download. */
+	websiteDownloadCancel: (id: string) => __TAURI_INVOKE<void>("website_download_cancel", { id }),
+	/**  Starts a failed or cancelled file download again. */
+	websiteDownloadRetry: (id: string) => typedError<null, string>(__TAURI_INVOKE("website_download_retry", { id })),
+	/**  Takes a file download off the list; `delete_file` deletes its file too. */
+	websiteDownloadRemove: (id: string, deleteFile: boolean) => typedError<null, string>(__TAURI_INVOKE("website_download_remove", { id, deleteFile })),
+	/**  Opens a downloaded file. */
+	websiteDownloadOpen: (id: string) => typedError<null, string>(__TAURI_INVOKE("website_download_open", { id })),
+	/**  Shows a downloaded file in its folder. */
+	websiteDownloadReveal: (id: string) => typedError<null, string>(__TAURI_INVOKE("website_download_reveal", { id })),
 	/**  The filters a manga or novel source offers for its search. */
 	catalogFilters: (medium: string, sourceId: string) => typedError<SourceFilter[], string>(__TAURI_INVOKE("catalog_filters", { medium, sourceId })),
 	/**
@@ -1288,10 +1332,29 @@ export const commands = {
 	stremioSetInLibrary: (kind: string, id: string, inLibrary: boolean) => typedError<null, string>(__TAURI_INVOKE("stremio_set_in_library", { kind, id, inLibrary })),
 	/**  Every video download, newest first; changes arrive as `VideoDownloadsEvent`s. */
 	videoDownloads: () => typedError<VideoDownloads, string>(__TAURI_INVOKE("video_downloads")),
-	/**  Downloads a link of a stored episode. */
-	videoSourceDownload: (request: VideoSourcePlay) => typedError<null, string>(__TAURI_INVOKE("video_source_download", { request })),
-	/**  Downloads a direct stream of a movie or episode, with subtitles (`language` first). */
-	stremioDownload: (request: StremioPlayRequest, language: string, titleId: string | null) => typedError<null, string>(__TAURI_INVOKE("stremio_download", { request, language, titleId })),
+	/**
+	 *  Downloads a link of a stored episode, with the subtitle tracks ticked (`subtitles`, their
+	 *  addresses; `None` keeps the source's remembered choice).
+	 */
+	videoSourceDownload: (request: VideoSourcePlay, subtitles: string[] | null) => typedError<null, string>(__TAURI_INVOKE("video_source_download", { request, subtitles })),
+	/**
+	 *  Downloads a direct stream of a movie or episode, with the subtitle tracks ticked among the
+	 *  stream's (`subtitles`), and the subtitle addons' in the languages picked before.
+	 */
+	stremioDownload: (request: StremioPlayRequest, language: string, titleId: string | null, subtitles: string[] | null) => typedError<null, string>(__TAURI_INVOKE("stremio_download", { request, language, titleId, subtitles })),
+	/**
+	 *  Downloads episodes of a title without picking links: `group` is the title's player group
+	 *  (`title:<id>` or `stremio:<type>:<id>`), `episode_ids` the episodes' ids at the source. Each
+	 *  finds its best link when its turn comes. Returns how many were queued.
+	 */
+	videoDownloadEpisodes: (group: string, episodeIds: string[]) => typedError<number, string>(__TAURI_INVOKE("video_download_episodes", { group, episodeIds })),
+	/**
+	 *  The subtitle tracks ticked at first when downloading from `source` (a video source's id, or
+	 *  `stremio`): the languages picked there before, and the device's unless it was left out.
+	 */
+	videoDownloadSubtitleDefaults: (source: string, tracks: VideoSubtitle[]) => typedError<string[], string>(__TAURI_INVOKE("video_download_subtitle_defaults", { source, tracks })),
+	/**  The device's language, for the subtitles downloads keep. */
+	videoDownloadsSetDeviceLanguage: (language: string) => typedError<null, string>(__TAURI_INVOKE("video_downloads_set_device_language", { language })),
 	/**  Tries a failed download again, keeping what it saved. */
 	videoDownloadRetry: (id: string) => typedError<null, string>(__TAURI_INVOKE("video_download_retry", { id })),
 	/**  Cancels a download or deletes a downloaded video. */
@@ -1379,6 +1442,7 @@ export const events = {
 	videoDownloadsEvent: makeEvent<VideoDownloadsEvent>("video-downloads-event"),
 	videoPlayerEvent: makeEvent<VideoPlayerEvent>("video-player-event"),
 	watchChangedEvent: makeEvent<WatchChangedEvent>("watch-changed-event"),
+	websiteDownloadsEvent: makeEvent<WebsiteDownloadsEvent>("website-downloads-event"),
 	youTubeVideoEvent: makeEvent<YouTubeVideoEvent>("you-tube-video-event"),
 	ytDlpEvent: makeEvent<YtDlpEvent>("yt-dlp-event"),
 };
@@ -1765,6 +1829,21 @@ export type BrowserCheckTarget = {
 	url: string,
 };
 
+export type BulkFailure = {
+	title: string,
+	message: string,
+};
+
+/**
+ *  What a bulk action did: the titles' library ids, how many chapters or episodes it queued,
+ *  and the titles it couldn't do.
+ */
+export type BulkResult = {
+	titleIds: string[],
+	queued: number,
+	failed: BulkFailure[],
+};
+
 /**  Image cache limits and refreshing. One stored row; missing fields keep their defaults. */
 export type CachePrefs = {
 	/**  Covers, posters, thumbnails and icons. Library covers count but are never removed. */
@@ -1889,6 +1968,13 @@ export type Collection = { kind: "favorites" } | { kind: "playlist"; id: string 
 /**  Songs downloaded into the app (M46.18). */
 { kind: "downloaded" };
 
+/**  The summed length of a collection's items whose length is known. */
+export type CollectionLength = {
+	knownSecs: number,
+	/**  How many items have a known length (the rest add an unknown amount). */
+	knownCount: number,
+};
+
 export type CollectionPlayRequest = {
 	collection: Collection,
 	/**
@@ -1996,6 +2082,12 @@ export type ContinueWatching = {
 	/**  Unix ms. */
 	updatedAt: number | null,
 	watched: boolean,
+	/**
+	 *  The title it belongs to, for its page: a video source's id (or `stremio`, then
+	 *  `remote_id` is `<type>:<id>`). None for a link played on its own.
+	 */
+	sourceId?: string | null,
+	remoteId?: string | null,
 };
 
 /**  A cover a source has for a song, an album or an artist (M46.36), offered in Edit details. */
@@ -2990,6 +3082,8 @@ export type MangaCard = {
 	inLibrary: boolean,
 	/**  The source marks it adult: the UI marks it 18+. */
 	adult?: boolean,
+	/**  Found by matching the source's listings, not by its search (which found little). */
+	fromListing?: boolean,
 };
 
 export type MangaChapterInfo = {
@@ -3748,6 +3842,8 @@ export type PlaylistSummary = {
 	artworkUrls: string[],
 	/**  The cover the user picked (M46.45), shown instead of the artworks. */
 	coverUrl: string | null,
+	/**  How long the items with a known length play together. */
+	length?: CollectionLength | null,
 };
 
 export type PodcastEpisode = {
@@ -4022,6 +4118,18 @@ export type RemoteStatus = {
 	error: string | null,
 };
 
+/**
+ *  A title picked from a source's search or listing for a bulk action (a search selection):
+ *  it may never have been opened. Stremio titles have source `stremio` and remote id
+ *  `<type>:<id>`.
+ */
+export type RemoteTitleRef = {
+	sourceId: string,
+	remoteId: string,
+	/**  Its name as listed, for saying which one failed. */
+	title: string,
+};
+
 export type RepeatMode = "off" | "all" | "one";
 
 /**  One repository's listing; a repository that couldn't be read reports why. */
@@ -4190,7 +4298,7 @@ export type SearchResults_Serialize = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "contentOverrides"; value: ContentOverrides } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -4305,6 +4413,11 @@ export type Settings = {
 	lyricsTranslation: LyricsTranslationPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
+	/**
+	 *  The Browse tab opened without one in the address: a `LAYOUT_BROWSE_TABS` id, Browse all
+	 *  (`discover`) by default; a hidden choice falls back to the first shown tab.
+	 */
+	browseStartTab?: string,
 	/**  Search's own switches: no 18+ sources or titles, no explicit songs; both off by default. */
 	searchFilter: SearchFilterPrefs,
 	/**
@@ -5623,6 +5736,36 @@ export type Website = {
 	lastUrl: string | null,
 	blockAds: boolean,
 };
+
+/**  A file saved from a site in Raygun's browser, as Downloads → Files lists it. */
+export type WebsiteDownload = {
+	id: string,
+	url: string,
+	/**  The file's name (the one it was saved under once done). */
+	name: string,
+	mime: string | null,
+	/**  The site it came from (its host). */
+	site: string | null,
+	state: WebsiteDownloadState,
+	doneBytes: number | null,
+	totalBytes: number | null,
+	bytesPerSecond: number | null,
+	/**  The server takes ranges: a stopped download carries on where it was. */
+	resumable: boolean,
+	/**  Where it goes, as the user sees it ("Download/Raygun", a picked folder's name). */
+	folder: string,
+	/**  Where it is once saved, as the user sees it. */
+	shown: string | null,
+	error: string | null,
+	/**  Unix ms. */
+	createdAt: number | null,
+};
+
+/**  Where a file saved from a website stands. */
+export type WebsiteDownloadState = "queued" | "downloading" | "done" | "failed" | "cancelled";
+
+/**  Files saved from websites changed; carries the download's id (empty when the list did). */
+export type WebsiteDownloadsEvent = string;
 
 /**  The built-in browser and its blocker. One stored row; missing fields keep their defaults. */
 export type WebsitePrefs = {

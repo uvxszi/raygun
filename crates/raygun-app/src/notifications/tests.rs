@@ -335,18 +335,111 @@ fn a_song_tapped_to_download_ends_with_its_notice_and_nothing_left_loading() {
 }
 
 #[test]
-fn late_progress_never_brings_an_ended_song_back() {
+fn late_progress_never_brings_an_ended_or_removed_song_back() {
+    use super::Report;
     use raygun_model::SongDownloadState as State;
 
-    assert!(super::takes_report(None, State::Downloading));
-    assert!(super::takes_report(Some(State::Queued), State::Downloading));
-    assert!(super::takes_report(Some(State::Downloading), State::Done));
-    assert!(
-        !super::takes_report(Some(State::Failed), State::Downloading),
+    // Not in the last list: removed (its worker's last report) or new; the list decides.
+    assert_eq!(
+        super::takes_report(None, State::Downloading),
+        Report::ReadList
+    );
+    assert_eq!(
+        super::takes_report(Some(State::Queued), State::Downloading),
+        Report::Take
+    );
+    assert_eq!(
+        super::takes_report(Some(State::Downloading), State::Done),
+        Report::Take
+    );
+    assert_eq!(
+        super::takes_report(Some(State::Failed), State::Downloading),
+        Report::Drop,
         "a report sent before it failed"
     );
-    assert!(!super::takes_report(Some(State::Done), State::Downloading));
-    assert!(super::takes_report(Some(State::Failed), State::Done));
+    assert_eq!(
+        super::takes_report(Some(State::Done), State::Downloading),
+        Report::Drop
+    );
+    assert_eq!(
+        super::takes_report(Some(State::Failed), State::Done),
+        Report::Take
+    );
+}
+
+#[test]
+fn cancelling_one_of_several_leaves_only_the_others() {
+    let mut tracker = Tracker::default();
+    tracker.update(
+        0.0,
+        &[
+            song("a", Phase::Running, 1_000.0),
+            song("b", Phase::Running, 1_000.0),
+        ],
+    );
+    // "a" is cancelled: it leaves its service's list.
+    let after = tracker.update(1_000.0, &[song("b", Phase::Running, 2_000.0)]);
+    let summary = after.plan.summary.expect("b still shows");
+    assert_eq!(summary.title, "Song b");
+    assert!(after.plan.items.is_empty(), "a's own notification is gone");
+    // "b" finishes: the notice is about b alone.
+    let end = tracker.update(2_000.0, &[song("b", Phase::Done, 5_000_000.0)]);
+    assert_eq!(end.plan, Plan::default());
+    let notice = end.finished.expect("a notice");
+    assert_eq!(notice.title, "Song b");
+}
+
+#[test]
+fn cancelling_the_last_one_clears_everything_without_a_notice() {
+    let mut tracker = Tracker::default();
+    tracker.update(0.0, &[song("a", Phase::Running, 1_000.0)]);
+    tracker.update(1_000.0, &[song("a", Phase::Paused, 1_000.0)]);
+    let end = tracker.update(2_000.0, &[]);
+    assert_eq!(end.plan, Plan::default());
+    assert!(!end.plan.foreground);
+    assert!(end.finished.is_none());
+}
+
+#[test]
+fn the_first_turn_always_goes_out_so_a_killed_run_leaves_nothing() {
+    // After a restart nothing downloads: the empty plan is still sent, which clears what the
+    // last process left in the shade.
+    let mut tracker = Tracker::default();
+    let first = tracker.update(0.0, &[]);
+    assert_eq!(first.plan, Plan::default());
+    assert!(should_send(None, 0.0, &first));
+    let next = tracker.update(1_000.0, &[]);
+    assert!(!should_send(Some((0.0, &first.plan)), 1_000.0, &next));
+}
+
+#[test]
+fn a_plan_that_stays_the_same_is_sent_again_now_and_then() {
+    let mut tracker = Tracker::default();
+    let first = tracker.update(0.0, &[song("a", Phase::Paused, 0.0)]);
+    let plan = first.plan.clone();
+    let soon = tracker.update(5_000.0, &[song("a", Phase::Paused, 0.0)]);
+    assert_eq!(soon.plan, plan);
+    assert!(!should_send(Some((0.0, &plan)), 5_000.0, &soon));
+    let later = tracker.update(RESEND_MS, &[song("a", Phase::Paused, 0.0)]);
+    assert!(should_send(Some((0.0, &plan)), RESEND_MS, &later));
+}
+
+#[test]
+fn a_queue_that_never_starts_lets_go_of_the_foreground() {
+    let mut tracker = Tracker::default();
+    let first = tracker.update(0.0, &[song("a", Phase::Queued, 0.0)]);
+    assert!(first.plan.foreground);
+    assert!(first.plan.summary.as_ref().is_some_and(|s| s.ongoing));
+    let stuck = tracker.update(6.0 * 60.0 * 1000.0, &[song("a", Phase::Queued, 0.0)]);
+    assert!(!stuck.plan.foreground);
+    let summary = stuck.plan.summary.expect("still told");
+    assert!(!summary.ongoing, "it can be swiped away");
+    // It starts after all: back in the foreground.
+    let moving = tracker.update(
+        6.0 * 60.0 * 1000.0 + 1_000.0,
+        &[song("a", Phase::Running, 10.0)],
+    );
+    assert!(moving.plan.foreground);
 }
 
 #[test]
@@ -451,6 +544,7 @@ fn keys_name_their_kind() {
         Kind::Models,
         Kind::Update,
         Kind::YtDlp,
+        Kind::Files,
     ] {
         assert_eq!(Kind::from_tag(kind.tag()), Some(kind));
     }

@@ -1,5 +1,5 @@
 //! Saving a cover image (M46.26): the source's largest version, as PNG, JPEG or WebP, into
-//! `Pictures/Raygun` or the picked folder.
+//! `Pictures/Raygun` or the picked folder; shown large, shared or copied as it came.
 
 use std::sync::Arc;
 
@@ -36,6 +36,50 @@ pub fn larger_versions(url: &str) -> Vec<String> {
     {
         versions.push(format!("{head}/maxresdefault.jpg"));
         versions.push(format!("{head}/hqdefault.jpg"));
+    }
+    // TMDB (Stremio posters and backgrounds): `/t/p/w500/<file>` → `/t/p/original/<file>`.
+    if url.contains("image.tmdb.org/t/p/")
+        && let Some((head, rest)) = url.split_once("/t/p/")
+        && let Some((size, file)) = rest.split_once('/')
+        && size != "original"
+    {
+        versions.push(format!("{head}/t/p/original/{file}"));
+        if size.starts_with('w') {
+            versions.push(format!("{head}/t/p/w1280/{file}"));
+        }
+    }
+    // Metahub (Cinemeta): `/poster/small/<imdb id>/img` → `large`, then `medium`.
+    if url.contains("metahub.space/") {
+        for kind in ["/poster/", "/background/"] {
+            if let Some((head, rest)) = url.split_once(kind)
+                && let Some((size, tail)) = rest.split_once('/')
+                && size != "large"
+            {
+                versions.push(format!("{head}{kind}large/{tail}"));
+                if size != "medium" {
+                    versions.push(format!("{head}{kind}medium/{tail}"));
+                }
+            }
+        }
+    }
+    // IMDb posters on Amazon's CDN: `…._V1_SX300.jpg` → `…._V1_.jpg` (the full picture).
+    if url.contains("media-amazon.com/images/")
+        && let Some(at) = url.find("._V1_")
+        && let Some(dot) = url.rfind('.')
+        && dot > at + 4
+    {
+        let bigger = format!("{}._V1_{}", &url[..at], &url[dot..]);
+        if bigger != url {
+            versions.push(bigger);
+        }
+    }
+    // MangaDex: `<file>.256.jpg` / `<file>.512.jpg` thumbnails → the file itself.
+    if url.contains("uploads.mangadex.org/covers/") {
+        for thumb in [".256.jpg", ".512.jpg"] {
+            if let Some(file) = url.strip_suffix(thumb) {
+                versions.push(file.to_owned());
+            }
+        }
     }
     // Last.fm and Audius-style sizes in the path.
     if url.contains("lastfm") && url.contains("/i/u/") {
@@ -153,6 +197,60 @@ fn encode_jxl(image: &image::DynamicImage) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
+/// Proxy links to the larger versions of the cover at `url` (a source address or Raygun's link to
+/// one), largest first, each fetched with the cover's own headers; the cover itself comes last.
+pub fn shown_versions(app: &AppHandle, url: &str) -> Vec<String> {
+    let links = app.state::<raygun_net::ImageLinks>();
+    let (original, headers) = links.source(url);
+    let mut shown: Vec<String> = larger_versions(&original)
+        .into_iter()
+        .map(|candidate| {
+            if links.is_remote(&candidate) {
+                links.cover(&candidate, &headers)
+            } else {
+                candidate
+            }
+        })
+        .collect();
+    if !shown.iter().any(|each| each == url) {
+        shown.push(url.to_owned());
+    }
+    shown.dedup();
+    shown
+}
+
+/// The largest version of the cover at `url` that its host gives, through the cover cache (so the
+/// one the viewer showed isn't fetched twice).
+async fn fetch_largest(
+    app: &AppHandle,
+    service: &ExportService,
+    url: &str,
+) -> Result<Vec<u8>, String> {
+    for candidate in shown_versions(app, url) {
+        let Ok(response) = service.client().get(&candidate).send().await else {
+            continue;
+        };
+        if !response.status().is_success() {
+            continue;
+        }
+        if let Ok(body) = response.bytes().await
+            && body.len() <= MAX_BYTES
+            && format_of(&body).is_some()
+        {
+            return Ok(body.to_vec());
+        }
+    }
+    Err("The image couldn't be downloaded from its source".into())
+}
+
+fn stem(title: &str) -> &str {
+    if title.trim().is_empty() {
+        "Cover"
+    } else {
+        title
+    }
+}
+
 /// Saves the cover at `url` (a source address or Raygun's link to one) as `format`. Returns
 /// where it went.
 pub async fn save(
@@ -162,30 +260,12 @@ pub async fn save(
     format: ImageFileFormat,
     destination: ImageDestination,
 ) -> Result<String, String> {
-    let original = app.state::<raygun_net::ImageLinks>().original(url);
-    let client = raygun_net::http_client().map_err(|error| error.to_string())?;
-    let mut bytes = None;
-    for candidate in larger_versions(&original) {
-        let Ok(response) = client.get(&candidate).send().await else {
-            continue;
-        };
-        if !response.status().is_success() {
-            continue;
-        }
-        if let Ok(body) = response.bytes().await
-            && body.len() <= MAX_BYTES
-            && image::guess_format(&body).is_ok()
-        {
-            bytes = Some(body.to_vec());
-            break;
-        }
-    }
-    let bytes = bytes.ok_or("Couldn't download the image")?;
+    let service: Arc<ExportService> = app.state::<Arc<ExportService>>().inner().clone();
+    let bytes = fetch_largest(app, &service, url).await?;
     let converted = tauri::async_runtime::spawn_blocking(move || convert(bytes, format))
         .await
         .map_err(|error| error.to_string())??;
 
-    let service: Arc<ExportService> = app.state::<Arc<ExportService>>().inner().clone();
     let place = match destination {
         ImageDestination::Pictures => Place::Pictures,
         ImageDestination::Folder => {
@@ -193,12 +273,7 @@ pub async fn save(
             super::place_for(&prefs, raygun_model::ExportDestination::Folder)?
         }
     };
-    let stem = if title.trim().is_empty() {
-        "Cover"
-    } else {
-        title
-    };
-    let name = names::file_name(stem, extension(format));
+    let name = names::file_name(stem(title), extension(format));
     let outputs = service.outputs().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let mut output = outputs.create(&place, &[], &name, mime(format))?;
@@ -207,6 +282,55 @@ pub async fn save(
         let saved = outputs.finish(output, ok)?;
         written.map_err(|error| error.to_string())?;
         Ok::<_, String>(saved.shown)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Opens the share sheet for the cover at `url` (its largest version, as it came), or puts it on
+/// the clipboard when `copy`. Desktop has no share sheet: sharing saves to Pictures and shows the
+/// file in its folder, as reader pages do (M46.6).
+pub async fn share(app: &AppHandle, url: &str, title: &str, copy: bool) -> Result<(), String> {
+    let service: Arc<ExportService> = app.state::<Arc<ExportService>>().inner().clone();
+    let bytes = fetch_largest(app, &service, url).await?;
+    // Other apps and the clipboard don't read JPEG XL: it goes as PNG.
+    let (bytes, format) = match format_of(&bytes) {
+        Some(ImageFileFormat::Jxl) | None => {
+            let png =
+                tauri::async_runtime::spawn_blocking(move || convert(bytes, ImageFileFormat::Png))
+                    .await
+                    .map_err(|error| error.to_string())??;
+            (png, ImageFileFormat::Png)
+        }
+        Some(format) => (bytes, format),
+    };
+    let name = names::file_name(stem(title), extension(format));
+    let place = if copy || cfg!(target_os = "android") {
+        Place::Share
+    } else {
+        Place::Pictures
+    };
+    let outputs = service.outputs().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        if place == Place::Share {
+            outputs.clear_shared();
+        }
+        let mut output = outputs.create(&place, &[], &name, mime(format))?;
+        let written = std::io::Write::write_all(&mut output.file, &bytes);
+        let ok = written.is_ok();
+        let saved = outputs.finish(output, ok)?;
+        written.map_err(|error| error.to_string())?;
+        let path = if place == Place::Share {
+            saved.path
+        } else {
+            saved.local
+        }
+        .ok_or("The image has no file to hand over")?;
+        if copy {
+            outputs.copy_image(&path, &name)
+        } else {
+            outputs.share(&path, mime(format), &name)
+        }
     })
     .await
     .map_err(|error| error.to_string())?
@@ -232,6 +356,34 @@ mod tests {
         assert_eq!(
             larger_versions("https://i.ytimg.com/vi/xyz/mqdefault.jpg")[0],
             "https://i.ytimg.com/vi/xyz/maxresdefault.jpg"
+        );
+        assert_eq!(
+            larger_versions("https://image.tmdb.org/t/p/w500/abc.jpg")[0],
+            "https://image.tmdb.org/t/p/original/abc.jpg"
+        );
+        assert_eq!(
+            larger_versions("https://image.tmdb.org/t/p/original/abc.jpg"),
+            vec!["https://image.tmdb.org/t/p/original/abc.jpg".to_owned()]
+        );
+        assert_eq!(
+            larger_versions("https://images.metahub.space/poster/small/tt0111161/img"),
+            vec![
+                "https://images.metahub.space/poster/large/tt0111161/img".to_owned(),
+                "https://images.metahub.space/poster/medium/tt0111161/img".to_owned(),
+                "https://images.metahub.space/poster/small/tt0111161/img".to_owned(),
+            ]
+        );
+        assert_eq!(
+            larger_versions("https://images.metahub.space/background/medium/tt0111161/img")[0],
+            "https://images.metahub.space/background/large/tt0111161/img"
+        );
+        assert_eq!(
+            larger_versions("https://m.media-amazon.com/images/M/MV5Babc._V1_SX300.jpg")[0],
+            "https://m.media-amazon.com/images/M/MV5Babc._V1_.jpg"
+        );
+        assert_eq!(
+            larger_versions("https://uploads.mangadex.org/covers/id/file.jpg.256.jpg")[0],
+            "https://uploads.mangadex.org/covers/id/file.jpg"
         );
         let plain = larger_versions("https://example.com/a.png");
         assert_eq!(plain, vec!["https://example.com/a.png".to_owned()]);

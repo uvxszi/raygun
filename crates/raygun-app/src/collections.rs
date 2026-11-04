@@ -11,10 +11,10 @@ use std::sync::Arc;
 use raygun_db::collections::{self, SavedRef, TrackFields};
 use raygun_db::local_music::TrackRow;
 use raygun_model::{
-    Collection, CollectionPlayRequest, DetailTarget, HistoryEntry, MediaKind, MediaSource,
-    OnlineTrack, PlaylistAdded, PlaylistDetail, PlaylistItem, PlaylistSummary, QueueItem,
-    QueueItemInput, SavedSong, SavedTrack, SourceChoice, TrackImportStatus, TrackInput, TrackQuery,
-    TrackSaves,
+    Collection, CollectionLength, CollectionPlayRequest, DetailTarget, HistoryEntry, MediaKind,
+    MediaSource, OnlineTrack, PlaylistAdded, PlaylistDetail, PlaylistItem, PlaylistSummary,
+    QueueItem, QueueItemInput, SavedSong, SavedTrack, SourceChoice, TrackImportStatus, TrackInput,
+    TrackQuery, TrackSaves,
 };
 use tauri::{AppHandle, Manager};
 
@@ -915,6 +915,10 @@ impl CollectionsService {
                     item_count: row.item_count as u32,
                     artwork_urls,
                     cover_url,
+                    length: Some(CollectionLength {
+                        known_secs: u32::try_from(row.known_ms / 1000).unwrap_or(u32::MAX),
+                        known_count: row.known_count as u32,
+                    }),
                 }
             })
             .collect())

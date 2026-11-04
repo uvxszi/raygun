@@ -1,4 +1,6 @@
 import { Link } from '@tanstack/react-router';
+import { openContextMenu } from '../shell/contextMenuStore';
+import { useExtensionMenuItems } from './extensionMenu';
 import { ChevronRight } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FC } from 'react';
@@ -9,7 +11,6 @@ import { AdultMark } from '../shell/AdultMark';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { ListSearchField } from '../shell/ListSearchField';
 import { matchesSearch } from '../shell/useListSearch';
-import { OverflowMenu } from '../shell/OverflowMenu';
 import { useContentRating } from './contentRating';
 import { RatingHint } from './RatingHint';
 import { KindChips } from './BrowseTab';
@@ -28,6 +29,7 @@ export const InstalledTab: FC = () => {
   const rating = useContentRating();
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState<ExtensionKind | null>(null);
+  const menu = useExtensionMenuItems();
   const error = extensions.error;
   const all = useMemo(() => extensions.data ?? [], [extensions.data]);
   const kinds = useMemo(() => {
@@ -62,12 +64,13 @@ export const InstalledTab: FC = () => {
       )}
       <ul className="flex flex-col">
         {shown.map((extension) => (
-          <li key={`${extension.origin}-${extension.id}`} className="flex items-center gap-1">
+          <li key={`${extension.origin}-${extension.id}`}>
             <Link
               to="/extensions/detail"
               search={{ id: extension.id }}
               data-testid="extension-row"
-              className="hover:bg-surface flex min-w-0 flex-1 items-center gap-4 rounded-xl px-1 py-2.5"
+              onContextMenu={(event) => openContextMenu(event, menu(extension))}
+              className="hover:bg-surface flex items-center gap-4 rounded-xl px-1 py-2.5"
             >
               <LetterAvatar name={extension.name} logo={extension.icon} />
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -98,10 +101,6 @@ export const InstalledTab: FC = () => {
               </span>
               <ChevronRight aria-hidden size={18} className="text-muted shrink-0" />
             </Link>
-            <OverflowMenu
-              label={t('extensions.extensionActions', { name: extension.name })}
-              items={rating.menuItems('extensions', extension.id, extension.adult)}
-            />
           </li>
         ))}
       </ul>

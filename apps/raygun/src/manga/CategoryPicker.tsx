@@ -5,6 +5,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { Medium } from './medium';
+import { groupWords } from './groupWords';
 import { useCategories, useSetTitleCategories } from './useCategories';
 import { useMangaLibrary } from './useManga';
 
@@ -35,16 +36,18 @@ export const CategoryPicker: FC<{ medium: Medium; titleId: string }> = ({ medium
         className="bg-surface flex w-fit items-center gap-2 rounded-full px-4 py-2 text-sm"
       >
         <FolderOpen aria-hidden size={16} className="text-primary" />
-        {names && names.length > 0 ? names.join(', ') : t('library.categories.choose')}
+        {names && names.length > 0
+          ? names.join(', ')
+          : t('library.categories.choose', groupWords(medium))}
       </button>
       {open && (
         <div
           role="group"
-          aria-label={t('library.categories.title')}
+          aria-label={t('library.categories.title', groupWords(medium))}
           className="bg-surface flex flex-col gap-2 rounded-xl px-4 py-3 text-sm"
         >
           {categories.data?.length === 0 && (
-            <p className="text-muted">{t('library.categories.noneYet')}</p>
+            <p className="text-muted">{t('library.categories.noneYet', groupWords(medium))}</p>
           )}
           {categories.data?.map((category) => (
             <label key={category.id} className="flex items-center gap-2">
@@ -59,7 +62,7 @@ export const CategoryPicker: FC<{ medium: Medium; titleId: string }> = ({ medium
             </label>
           ))}
           <Link to="/library/categories" search={{ medium }} className="text-primary w-fit">
-            {t('library.categories.edit')}
+            {t('library.categories.edit', groupWords(medium))}
           </Link>
         </div>
       )}

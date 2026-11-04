@@ -60,6 +60,7 @@ mod tests {
             cover_url: None,
             in_library: false,
             adult,
+            from_listing: false,
         }
     }
 

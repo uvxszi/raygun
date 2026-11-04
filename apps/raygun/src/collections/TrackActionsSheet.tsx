@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { TrackTagChips } from '../music/TrackTagChips';
 import { useTrackMenuItems } from '../music/useTrackMenu';
-import { useBackLayer } from '../shell/backLayers';
+import { afterLayersClose, useBackLayer } from '../shell/backLayers';
 import { Popover } from '../shell/Popover';
 import { TextField } from '../shell/TextField';
 import { useWideScreen } from '../shell/useWideScreen';
@@ -318,7 +318,7 @@ const MoreActions: FC<{ track: TrackInput; onDone: () => void }> = ({ track, onD
                 return;
               }
               onDone();
-              item.onSelect();
+              afterLayersClose(item.onSelect);
             }}
             className={`${ROW_CLASS} ${askingHere ? 'text-primary font-semibold' : item.danger ? 'text-red-400' : ''}`}
           >

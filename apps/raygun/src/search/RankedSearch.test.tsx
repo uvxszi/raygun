@@ -117,6 +117,31 @@ describe('Ranked search across sources', () => {
     );
   });
 
+  it('marks titles found in a source’s listings rather than its search', async () => {
+    commands.novelSources.mockResolvedValue(ok([ROYAL, SCRIBBLE]));
+    commands.catalogGlobalSearch.mockImplementation(async (_medium, _query, sources) => {
+      if (sources[0] === SCRIBBLE.id) return ok([result(SCRIBBLE, ['Mother of Learning'])]);
+      return ok([
+        {
+          ...result(ROYAL, []),
+          items: [{ ...card('listed', 'Mother of Learning 2', ROYAL.id), fromListing: true }],
+        },
+      ]);
+    });
+    await AppShellWrapper.mount('/browse?tab=search&type=novel&q=mother%20of%20learning');
+    const ranked = await screen.findByTestId('ranked-results');
+    await vi.waitFor(() =>
+      expect(
+        within(ranked)
+          .getAllByTestId('manga-card')
+          .map((item) => item.textContent),
+      ).toEqual([
+        'Mother of LearningScribble Hub',
+        'Mother of Learning 2From its listingsRoyal Road',
+      ]),
+    );
+  });
+
   it('orders sources by their answers: results, then none, then failures; unknown ones stay', () => {
     const answers: Record<string, SourceAnswer | undefined> = {
       a: undefined,

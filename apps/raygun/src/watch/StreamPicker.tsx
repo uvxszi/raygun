@@ -24,6 +24,7 @@ import { formatBytes } from './episodeLabel';
 import type { PickIntent } from './ServerPicker';
 import { inRankOrder, streamLabel, useSourceOrder } from './useSourceOrder';
 import { useOpenStremioLink, useStremioPlay, useStremioStreams } from './useStremio';
+import { SubtitleChoice } from './SubtitleChoice';
 import { useDownloadStremio } from './useVideoLibrary';
 import { SourceIssue } from '../shell/SourceIssue';
 
@@ -314,8 +315,16 @@ export const StreamPicker: FC<{
   const busy = play.isPending || download.isPending;
   const error = play.error ?? download.error;
 
+  // A stream with subtitle tracks asks which to save first; the subtitle addons' follow the
+  // languages picked.
+  const [choosing, setChoosing] = useState<StremioStream | null>(null);
+  const downloadStream = (stream: StremioStream, subtitles: string[] | null) =>
+    download.mutate(
+      { request: { ...request, stream }, titleId, subtitles },
+      { onSuccess: onClose },
+    );
   const save = (stream: StremioStream) =>
-    download.mutate({ request: { ...request, stream }, titleId }, { onSuccess: onClose });
+    stream.subtitles.length > 0 ? setChoosing(stream) : downloadStream(stream, null);
   const pick = (stream: StremioStream, external = false) => {
     if (stream.kind === 'title') {
       const split = stream.target.indexOf('/');
@@ -360,7 +369,16 @@ export const StreamPicker: FC<{
           </button>
         </div>
         <div className="flex min-h-0 flex-col gap-4 overflow-y-auto px-5">
-          {groups.isPending && (
+          {choosing && (
+            <SubtitleChoice
+              source="stremio"
+              tracks={choosing.subtitles}
+              busy={download.isPending}
+              onDownload={(urls) => downloadStream(choosing, urls)}
+              onBack={() => setChoosing(null)}
+            />
+          )}
+          {!choosing && groups.isPending && (
             <LoaderCircle
               role="status"
               aria-label={t('watch.findingStreams')}
@@ -371,7 +389,7 @@ export const StreamPicker: FC<{
           {groups.data && withStreams.length === 0 && (
             <p className="text-muted text-sm">{t('watch.noStreams')}</p>
           )}
-          {inRankOrder(withStreams, ranks).map(({ item: group, rank }) => (
+          {(choosing ? [] : inRankOrder(withStreams, ranks)).map(({ item: group, rank }) => (
             <StreamGroup
               key={`${group.addonId}-${rank?.index ?? group.addonName}`}
               group={group}

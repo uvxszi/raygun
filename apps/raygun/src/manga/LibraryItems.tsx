@@ -1,17 +1,22 @@
 import type { LibraryDisplayMode, MangaLibraryEntry } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
-import { Check, FolderOpen, Pin, Play } from 'lucide-react';
+import { Check, CheckSquare, FolderOpen, Pin, Play } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { FC, MouseEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useSettings } from '../settings/useSettings';
+import type { MenuItem } from '../shell/contextMenuStore';
+import { MenuButton } from '../shell/MenuButton';
+import { SourceTag } from '../shell/SourceTag';
 import { videoTitleLink } from '../watch/useVideoLibrary';
+import { CARD_MENU_CLASS } from './CardPlayButton';
 import type { LibraryDisplay } from './libraryDisplay';
 import { COVER_GRID_CLASS, coverGridStyle } from './coverGrid';
 import { MangaCover } from './MangaCover';
 import { ROUTES } from './medium';
 import type { Medium } from './medium';
+import { useTitleCardMenu } from './titleMenu';
 
 /** Titles drawn at first and added as the end comes near: a library can hold thousands. */
 const ITEMS_AT_ONCE = 120;
@@ -132,11 +137,46 @@ const LibraryItem: FC<ItemProps> = ({
     event.preventDefault();
     onToggle(entry);
   };
+  const { t } = useTranslation();
+  const titleMenu = useTitleCardMenu();
+  // The title's full menu, with Select first (what a long press does).
+  const menu = (): MenuItem[] => {
+    const items = titleMenu({
+      medium,
+      sourceId: entry.sourceId,
+      id: entry.remoteId,
+      title: entry.title,
+      coverUrl: entry.coverUrl,
+      subtitle: entry.authors.join(', ') || null,
+      inLibrary: true,
+      titleId: entry.titleId,
+    });
+    const first = items.findIndex((item) => item.kind !== 'heading');
+    return [
+      ...items.slice(0, first),
+      { label: t('menu.select'), icon: CheckSquare, onSelect: () => onLongPress(entry) },
+      { kind: 'separator' },
+      ...items.slice(first),
+    ];
+  };
   const onContextMenu = (event: MouseEvent) => {
-    // A long press selects (Mihon), adding everything between it and the last pick.
+    // A long press (or right click) selects (Mihon), adding everything between it and the last
+    // pick; the title's menu is on its ⋮.
     event.preventDefault();
     onLongPress(entry);
   };
+  const options = !selecting && (
+    <MenuButton
+      label={t('menu.options', { name: entry.title })}
+      items={menu}
+      className={
+        mode === 'list'
+          ? 'text-muted hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full'
+          : CARD_MENU_CLASS
+      }
+      iconSize={16}
+    />
+  );
   const common = {
     to: link.to,
     search: link.search,
@@ -163,7 +203,12 @@ const LibraryItem: FC<ItemProps> = ({
         </span>
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="line-clamp-2 text-sm font-medium">{entry.title}</span>
-          <span className="text-muted truncate text-xs">{entry.sourceName}</span>
+          {entry.authors.length > 0 && (
+            <span className="text-muted truncate text-xs">{entry.authors.join(', ')}</span>
+          )}
+          <span className="flex min-w-0">
+            <SourceTag name={entry.sourceName} />
+          </span>
         </span>
         <span className="flex shrink-0 items-center gap-1">
           <Badges entry={entry} medium={medium} badges={badges} />
@@ -172,6 +217,7 @@ const LibraryItem: FC<ItemProps> = ({
         {continueShown && (
           <ContinueButton entry={entry} medium={medium} large={false} onContinue={onContinue} />
         )}
+        {options}
       </Link>
     );
   }
@@ -192,6 +238,7 @@ const LibraryItem: FC<ItemProps> = ({
           <Badges entry={entry} medium={medium} badges={badges} />
         </span>
         {check}
+        {options}
         {compact && (
           <span className="absolute inset-x-0 bottom-0 flex items-end gap-1 bg-gradient-to-t from-black/85 via-black/50 to-transparent px-2 pt-8 pb-2">
             <span className="line-clamp-2 flex-1 text-xs font-semibold text-white">

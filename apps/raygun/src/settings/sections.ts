@@ -5,11 +5,11 @@ import {
   Download,
   Info,
   LibraryBig,
+  Music,
   Palette,
   PlayCircle,
   Shield,
   ShieldCheck,
-  SlidersVertical,
   Smartphone,
   Sparkles,
 } from 'lucide-react';
@@ -17,7 +17,6 @@ import type { LucideIcon } from 'lucide-react';
 import type { FC } from 'react';
 
 import type { PlatformOnly } from '../shell/useIsDesktop';
-import { SoundSettings } from '../sound/SoundSettings';
 import { DownloadSettings } from './DownloadSettings';
 import { PermissionsSettings } from './PermissionsSettings';
 import { resetAll, resetKeys } from './resets';
@@ -26,9 +25,10 @@ import { AppearanceSettings } from './screens/AppearanceSettings';
 import { BrowseSettings } from './screens/BrowseSettings';
 import { DataSettings } from './screens/DataSettings';
 import { LibrarySettings } from './screens/LibrarySettings';
-import { PlayerSettings } from './screens/PlayerSettings';
+import { MusicPlayerSettings } from './screens/MusicPlayerSettings';
 import { PrivacySettings } from './screens/PrivacySettings';
 import { ReaderSettings } from './screens/ReaderSettings';
+import { VideoPlayerSettings } from './screens/VideoPlayerSettings';
 
 /**
  * An entry of the Settings list: a category screen at `/settings/<id>` (`screen`, with its
@@ -64,14 +64,25 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
     ),
   },
   {
-    id: 'player',
+    id: 'music',
+    icon: Music,
+    screen: MusicPlayerSettings,
+    reset: resetAll(
+      resetKeys('audioQuality', 'resumeOnStart', 'keepMusicPlaying', 'playerView', 'sound'),
+      // Of the panel sizes, only the queue's rows are this screen's.
+      (current, defaults) => [
+        {
+          key: 'panels',
+          value: { ...current.panels, nextUpRows: defaults.panels.nextUpRows },
+        },
+      ],
+    ),
+  },
+  {
+    id: 'video',
     icon: PlayCircle,
-    screen: PlayerSettings,
+    screen: VideoPlayerSettings,
     reset: resetKeys(
-      'audioQuality',
-      'resumeOnStart',
-      'keepMusicPlaying',
-      'playerView',
       'resumeVideos',
       'watchedPercent',
       'autoplayNext',
@@ -82,7 +93,12 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
       'videoPlayer',
     ),
   },
-  { id: 'sound', icon: SlidersVertical, screen: SoundSettings, reset: resetKeys('sound') },
+  {
+    id: 'reader',
+    icon: BookOpen,
+    screen: ReaderSettings,
+    reset: resetKeys('mangaReader', 'novelReader'),
+  },
   {
     id: 'library',
     icon: LibraryBig,
@@ -123,12 +139,6 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
     ],
   },
   {
-    id: 'reader',
-    icon: BookOpen,
-    screen: ReaderSettings,
-    reset: resetKeys('mangaReader', 'novelReader'),
-  },
-  {
     id: 'browse',
     icon: Compass,
     screen: BrowseSettings,
@@ -137,6 +147,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
       'explicitMusic',
       'contentOverrides',
       'failingSourcesLast',
+      'browseStartTab',
       'manualBrowserChecks',
       'autoLoad',
       'userAgent',
@@ -161,11 +172,11 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
 /** The category screens' ids: the router needs each path spelled out. */
 export type SettingsSectionId =
   | 'appearance'
-  | 'player'
-  | 'sound'
+  | 'music'
+  | 'video'
+  | 'reader'
   | 'library'
   | 'downloads'
-  | 'reader'
   | 'browse'
   | 'privacy'
   | 'permissions'

@@ -430,7 +430,8 @@ const VIDEO: &str = r#"
     return [{ title: JSON.stringify({ kw, page, filter }), url: 'found' }];
   }
   async detail(url) {
-    return { title: `Show ${url}`, cover: 'http://img.example/c.jpg', desc: 'About it', episodes: [
+    return { title: `Show ${url}`, cover: 'http://img.example/c.jpg', desc: 'About it',
+      studio: ['video test', 'Studio Ghibli'], cast: [{ name: 'Ann' }, 'Bob'], episodes: [
       { title: 'Line 1', urls: [{ name: 'Episode 1', url: 'l1e1' }, { name: 'Episode 2', url: 'l1e2' }] },
       { title: 'Line 2', urls: [{ name: 'Episode 1', url: 'l2e1' }, { name: 'Episode 2', url: 'l2e2' }, { name: 'Episode 3', url: 'l2e3' }] },
     ] };
@@ -542,6 +543,10 @@ async fn video_sources_list_search_and_play() {
     let details = host.manga_details(provider, "show-1a").await.unwrap();
     assert_eq!(details.title, "Show show-1a");
     assert_eq!(details.description.as_deref(), Some("About it"));
+    // The studio is who made it (Raygun's directors), the cast as given; the source's own name
+    // is never one of them.
+    assert_eq!(details.artists, ["Studio Ghibli"]);
+    assert_eq!(details.authors, ["Ann", "Bob"]);
     // Lines that list the same episodes become each episode's servers.
     let episodes = host.video_episodes(provider, "show-1a").await.unwrap();
     let names: Vec<(&str, Option<f64>)> = episodes
@@ -905,9 +910,9 @@ async fn miru_survey() {
 /// The legal sources of miru-repo, on the network: `cargo test -p raygun-ext-host -- --ignored
 /// miru_live --nocapture`. Scripts come from `MIRU_REPO` (or reference/miru-repo), else from
 /// miru-project/repo on GitHub; each lists, opens a title and opens an episode or chapter.
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs network access to the sources' sites"]
-async fn miru_live() {
+/// Installs miru-repo scripts by id (from `MIRU_REPO` or reference/miru-repo, else GitHub) into a
+/// temporary folder; returns it and the ids.
+async fn install_live(wanted: &str) -> (tempfile::TempDir, Vec<String>) {
     const RAW: &str = "https://raw.githubusercontent.com/miru-project/repo/main/";
     let root = miru_repo();
     let client = raygun_net::http_client().unwrap();
@@ -932,11 +937,6 @@ async fn miru_live() {
     };
     let index = String::from_utf8(read("index.json".into()).await).unwrap();
     let index = crate::repo::parse_index(&index).unwrap();
-    // Also legal, failing on their sites' side (2026-11): miru.mangadex.org (MangaDex answers a
-    // browser User-Agent from a non-browser with a bot check, and the script names none) and
-    // miru.mangacross.jp (its site answers 403). Ask for them with MIRU_SOURCES.
-    let wanted = std::env::var("MIRU_SOURCES")
-        .unwrap_or_else(|_| "miru.de.ccc.media,miru.royalroad.com,miru.iptv-org".into());
     let temp = tempfile::TempDir::new().unwrap();
     let mut ids = Vec::new();
     for id in wanted.split(',') {
@@ -956,6 +956,18 @@ async fn miru_live() {
         crate::package::install(temp.path(), &package).unwrap();
         ids.push(entry.id.clone());
     }
+    (temp, ids)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs network access to the sources' sites"]
+async fn miru_live() {
+    // Also legal, failing on their sites' side (2026-11): miru.mangadex.org (MangaDex answers a
+    // browser User-Agent from a non-browser with a bot check, and the script names none) and
+    // miru.mangacross.jp (its site answers 403). Ask for them with MIRU_SOURCES.
+    let wanted = std::env::var("MIRU_SOURCES")
+        .unwrap_or_else(|_| "miru.de.ccc.media,miru.royalroad.com,miru.iptv-org".into());
+    let (temp, ids) = install_live(&wanted).await;
     let host = ExtensionHost::start(HostConfig::default()).unwrap();
     let infos = host.load(crate::discover_installed(temp.path())).await;
     let mut failures = Vec::new();
@@ -1020,5 +1032,47 @@ async fn miru_live() {
         }
     }
     assert_eq!(infos.len(), ids.len());
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// Searching legal Miru sources the way Search's rows do: `cargo test -p raygun-ext-host --
+/// --ignored miru_search_live --nocapture`. Each query names titles the source lists.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs network access to the sources' sites"]
+async fn miru_search_live() {
+    let cases = [
+        ("miru.de.ccc.media", "congress"),
+        ("miru.iptv-org", "news"),
+        ("miru.royalroad.com", "dungeon"),
+    ];
+    let wanted: Vec<&str> = cases.iter().map(|(id, _)| *id).collect();
+    let (temp, _) = install_live(&wanted.join(",")).await;
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    let infos = host.load(crate::discover_installed(temp.path())).await;
+    let mut failures = Vec::new();
+    for (id, query) in cases {
+        let info = infos.iter().find(|info| info.id == id).unwrap();
+        let provider = &info.providers[0].id;
+        let started = Instant::now();
+        match host.catalog_search_row(provider, query).await {
+            Ok(listing) => {
+                eprintln!(
+                    "{id} {query:?}: {} in {:?}: {:?}",
+                    listing.items.len(),
+                    started.elapsed(),
+                    listing
+                        .items
+                        .iter()
+                        .take(3)
+                        .map(|item| &item.title)
+                        .collect::<Vec<_>>()
+                );
+                if listing.items.is_empty() {
+                    failures.push(format!("{id}: nothing for {query:?}"));
+                }
+            }
+            Err(error) => failures.push(format!("{id}: {error}")),
+        }
+    }
     assert!(failures.is_empty(), "{failures:#?}");
 }

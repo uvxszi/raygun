@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { matchesSearch } from '../shell/useListSearch';
 import { shownOn, useIsDesktop } from '../shell/useIsDesktop';
+import { VIDEO_SETTINGS_PATH } from './playerOptions';
 import { SETTINGS_INDEX } from './searchIndex';
 import { SETTINGS_ENTRIES, settingsEntry } from './sections';
 
@@ -19,7 +20,7 @@ const addressOf = (at: string) =>
   at.startsWith('/') ? at : (settingsEntry(at)?.to ?? `/settings/${at}`);
 
 /** The Settings screen a page belongs to, for the result's second line. */
-const sectionOf = (at: string) => (at.startsWith('/settings/player') ? 'player' : at);
+const sectionOf = (at: string) => (at.startsWith(`${VIDEO_SETTINGS_PATH}/`) ? 'video' : at);
 
 /** Settings matching `query`: categories by their name, rows by their title or group. */
 export const useSettingsSearch = (query: string): Result[] => {

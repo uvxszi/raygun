@@ -277,3 +277,38 @@ fn a_folder_chosen_for_the_export_wins_over_the_settings_one() {
         Ok(Place::Downloads)
     ));
 }
+
+#[test]
+fn a_cancelled_export_reads_cancelled_at_once_and_stays_so() {
+    use raygun_model::{ExportDestination, ExportFormat, ExportJob, ExportState};
+    let mut job = ExportJob {
+        id: "j".into(),
+        label: "Show".into(),
+        medium: "video".into(),
+        format: ExportFormat::Video,
+        destination: ExportDestination::Downloads,
+        state: ExportState::Downloading,
+        downloaded: 0,
+        to_download: 3,
+        written: 0,
+        to_write: 3,
+        files: Vec::new(),
+        failed_chapters: 0,
+        skipped_pages: 0,
+        message: Some("Downloads are paused".into()),
+        started_at: 0.0,
+    };
+    assert!(super::cancel_job(&mut job));
+    assert_eq!(job.state, ExportState::Cancelled);
+    assert_eq!(job.message, None);
+    // Work still under way reports once more before it sees the flag: it stays cancelled.
+    super::change_job(&mut job, true, |job| {
+        job.state = ExportState::Writing;
+        job.downloaded = 1;
+    });
+    assert_eq!((job.state, job.downloaded), (ExportState::Cancelled, 1));
+    assert!(
+        !super::cancel_job(&mut job),
+        "a finished job isn't cancelled again"
+    );
+}

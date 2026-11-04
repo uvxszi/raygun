@@ -5,6 +5,7 @@ import {
   Check,
   ExternalLink,
   Eye,
+  ListChecks,
   EyeOff,
   ListVideo,
   LoaderCircle,
@@ -32,6 +33,9 @@ import { ServerPicker } from '../watch/ServerPicker';
 import type { PickIntent, ServerTarget } from '../watch/ServerPicker';
 import { StremioPoster } from '../watch/StremioRow';
 import { VideoDownloadControl } from '../watch/VideoDownloadControl';
+import { EpisodeCheck, EpisodeSelectionBar } from '../watch/EpisodeSelection';
+import { useEpisodeSelection } from '../watch/useEpisodeSelection';
+import type { ExportEpisode } from '../export/ExportSheet';
 
 /** Videos from Local Files folders (M46.27): already on this device. */
 const LOCAL_VIDEO = 'local.video';
@@ -81,6 +85,8 @@ const Episodes: FC<{
 }> = ({ view, downloads, onPick }) => {
   const { t } = useTranslation();
   const setWatched = useSetEpisodeWatched();
+  const selection = useEpisodeSelection();
+  const canDownload = view.sourceId !== LOCAL_VIDEO;
   const seasons = useMemo(
     () => [...new Set(view.episodes.map((episode) => episode.season))],
     [view.episodes],
@@ -95,9 +101,21 @@ const Episodes: FC<{
 
   return (
     <section aria-labelledby="video-episodes" className="flex flex-col gap-3">
-      <h2 id="video-episodes" className="font-semibold">
-        {t('watch.episodes')}
-      </h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 id="video-episodes" className="font-semibold">
+          {t('watch.episodes')}
+        </h2>
+        {canDownload && !selection.selecting && (
+          <button
+            type="button"
+            onClick={selection.start}
+            className="bg-surface flex items-center gap-2 rounded-full px-3 py-1.5 text-sm"
+          >
+            <ListChecks aria-hidden size={16} />
+            {t('watch.selectEpisodes')}
+          </button>
+        )}
+      </div>
       {seasons.length > 1 && (
         <div
           role="tablist"
@@ -127,7 +145,11 @@ const Episodes: FC<{
             <li key={episode.id} aria-label={label} className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => onPick(episode, 'watch')}
+                onClick={() =>
+                  selection.selecting
+                    ? selection.toggle(episode.remoteId)
+                    : onPick(episode, 'watch')
+                }
                 onContextMenu={(event) => {
                   // A long press chooses the link (Aniyomi's episode options).
                   event.preventDefault();
@@ -147,13 +169,21 @@ const Episodes: FC<{
                 )}
                 <Progress episode={episode} />
               </button>
-              {view.sourceId !== LOCAL_VIDEO && (
-                <VideoDownloadControl
-                  item={downloads.get(sourceKey(view.sourceId, episode.remoteId))}
-                  downloaded={episode.downloaded}
+              {selection.selecting ? (
+                <EpisodeCheck
+                  checked={selection.selected.has(episode.remoteId)}
                   name={label}
-                  onDownload={() => onPick(episode, 'download')}
+                  onToggle={() => selection.toggle(episode.remoteId)}
                 />
+              ) : (
+                canDownload && (
+                  <VideoDownloadControl
+                    item={downloads.get(sourceKey(view.sourceId, episode.remoteId))}
+                    downloaded={episode.downloaded}
+                    name={label}
+                    onDownload={() => onPick(episode, 'download')}
+                  />
+                )
               )}
               <button
                 type="button"
@@ -176,9 +206,27 @@ const Episodes: FC<{
           );
         })}
       </ul>
+      {selection.selecting && (
+        <EpisodeSelectionBar
+          selection={selection}
+          group={`title:${view.id}`}
+          shownIds={episodes.map((episode) => episode.remoteId)}
+          episodes={exportEpisodes(view)}
+          titleId={view.id}
+        />
+      )}
     </section>
   );
 };
+
+/** A title's episodes as the export sheet lists them, by their ids at the source. */
+const exportEpisodes = (view: VideoTitleView): ExportEpisode[] =>
+  view.episodes.map((episode) => ({
+    id: episode.remoteId,
+    name: episodeLabel(episode, true, view.title),
+    season: episode.season,
+    downloaded: episode.downloaded,
+  }));
 
 /** A title from a video source: details, episodes, and servers to play from. */
 export const VideoTitlePage: FC = () => {
@@ -251,7 +299,9 @@ export const VideoTitlePage: FC = () => {
                 onClick={() => void commands.catalogOpenPage(view.sourceId, view.url)}
               />
             )}
-            <ExportButton medium="video" titleIds={[view.id]} />
+            {view.sourceId !== LOCAL_VIDEO && (
+              <ExportButton medium="video" titleIds={[view.id]} episodes={exportEpisodes(view)} />
+            )}
           </>
         )
       }
@@ -342,10 +392,12 @@ export const VideoTitlePage: FC = () => {
         title={view.title}
         adult={view.adult}
         facts={[
+          // Who made it (a studio or director) leads, as an author does; the source is a tag.
+          view.directors.slice(0, 2).join(', '),
           view.mediaType && t(`watch.mediaType.${view.mediaType}`),
           view.year,
-          view.sourceName,
         ]}
+        source={view.sourceName}
         genres={view.genres}
         genresLabel={t('watch.genres')}
       >
@@ -455,7 +507,15 @@ export const VideoTitlePage: FC = () => {
           {t('otherSources.find')}
         </button>
       )}
-      {finding && <OtherSources medium="video" title={view.title} sourceId={view.sourceId} />}
+      {finding && (
+        <OtherSources
+          medium="video"
+          title={view.title}
+          sourceId={view.sourceId}
+          titleId={view.id}
+          inLibrary={view.inLibrary}
+        />
+      )}
       {!movie && view.episodes.length > 0 && (
         <Episodes view={view} downloads={downloads} onPick={pick} />
       )}

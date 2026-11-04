@@ -200,8 +200,8 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
         facts={[
           [...new Set([...view.authors, ...view.artists])].join(', '),
           t(`manga.status.${view.status}`),
-          view.sourceName,
         ]}
+        source={view.sourceName}
       >
         <div className="flex gap-2">
           <button
@@ -258,7 +258,15 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
           {t('otherSources.find')}
         </button>
       )}
-      {finding && <OtherSources medium={medium} title={view.title} sourceId={view.sourceId} />}
+      {finding && (
+        <OtherSources
+          medium={medium}
+          title={view.title}
+          sourceId={view.sourceId}
+          titleId={view.id}
+          inLibrary={view.inLibrary}
+        />
+      )}
       {view.description && (
         <button
           type="button"

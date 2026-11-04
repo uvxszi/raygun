@@ -693,6 +693,48 @@ pub async fn set_units_completed(
     Ok(())
 }
 
+/// Progress carried onto a unit of another title (a migration to another source).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProgressCopy {
+    pub unit_id: String,
+    pub position: i64,
+    pub total: Option<i64>,
+    pub completed_at: Option<i64>,
+}
+
+/// Writes copied progress in one transaction. A unit finished already stays finished.
+pub async fn merge_progress(db: &Db, copies: &[ProgressCopy]) -> Result<(), DbError> {
+    if copies.is_empty() {
+        return Ok(());
+    }
+    let stamp = db.tick();
+    let device = db.device_id().to_string();
+    let mut transaction = db.pool().begin().await?;
+    for copy in copies {
+        sqlx::query(
+            "INSERT INTO unit_progress (unit_id, position, total, completed_at, updated_at_hlc,
+                 origin_device, deleted)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)
+             ON CONFLICT (unit_id) DO UPDATE SET
+                 position = excluded.position, total = COALESCE(excluded.total, total),
+                 completed_at = COALESCE(completed_at, excluded.completed_at),
+                 updated_at_hlc = excluded.updated_at_hlc, origin_device = excluded.origin_device,
+                 deleted = 0",
+        )
+        .bind(&copy.unit_id)
+        .bind(copy.position)
+        .bind(copy.total)
+        .bind(copy.completed_at)
+        .bind(stamp as i64)
+        .bind(&device)
+        .execute(&mut *transaction)
+        .await?;
+    }
+    persist_hlc(&mut *transaction, stamp).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
 fn title_row(row: &SqliteRow) -> TitleRow {
     let list = |column: &str| -> Vec<String> {
         serde_json::from_str(&row.get::<String, _>(column)).unwrap_or_default()

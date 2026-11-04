@@ -55,7 +55,11 @@ import { useIsDesktop } from './useIsDesktop';
 import { useIsPhone } from './useIsPhone';
 import { useLiveInvalidation } from './useLiveInvalidation';
 import { useRailStamps } from './useRail';
+import { useScrollMemory } from './scrollMemory';
 import { movesFreely, useDeviceStateSync } from './deviceState';
+
+const READER_PATHS = ['/manga/read', '/novel/read'];
+const isReaderPath = (pathname: string) => READER_PATHS.includes(pathname);
 
 /**
  * With motion off, motion's animations (the player sheet, the bar's swipe) jump to their end at
@@ -154,16 +158,13 @@ export const AppShell: FC = () => {
   useYouTubeVideoEvents();
   useNotificationRoutes();
 
-  // Pages scroll inside <main>, not the window, so start each page at the top.
+  // Pages scroll inside <main>, not the window: a new page starts at the top, Back and Forward
+  // return to where each page was. The readers take the whole screen and keep their own place.
   const mainRef = useRef<HTMLElement>(null);
-  const href = useRouterState({ select: (state) => state.location.href });
-  // The readers take the whole screen.
   const immersive = useRouterState({
-    select: (state) => ['/manga/read', '/novel/read'].includes(state.location.pathname),
+    select: (state) => isReaderPath(state.location.pathname),
   });
-  useEffect(() => {
-    mainRef.current?.scrollTo?.(0, 0);
-  }, [href]);
+  useScrollMemory(mainRef, isReaderPath);
   // Playback keys everywhere but the readers, whose keys turn pages (M46.8).
   usePlaybackKeys(openShortcuts, !immersive);
 

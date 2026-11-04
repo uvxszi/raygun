@@ -699,6 +699,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn browse_start_tab_is_one_of_browses_tabs() {
+        let temp = TempDir::new().unwrap();
+        let db = open(&temp).await;
+        assert_eq!(load(&db).await.unwrap().browse_start_tab, "discover");
+
+        for (tab, _) in raygun_model::LAYOUT_BROWSE_TABS {
+            let saved = update(&db, SettingChange::BrowseStartTab(tab.into()))
+                .await
+                .unwrap();
+            assert_eq!(saved.browse_start_tab, tab);
+        }
+        assert!(
+            update(&db, SettingChange::BrowseStartTab("charts".into()))
+                .await
+                .is_err()
+        );
+        assert!(
+            update(&db, SettingChange::BrowseStartTab(String::new()))
+                .await
+                .is_err()
+        );
+        assert_eq!(load(&db).await.unwrap().browse_start_tab, "extensions");
+    }
+
+    #[tokio::test]
     async fn custom_accents_cover_sizes_and_reader_zoom_keep_to_what_is_offered() {
         use raygun_model::{
             Accent, CustomColors, MangaReaderPrefs, PagedScale, PanelPrefs, PlayerLayout,

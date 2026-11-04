@@ -55,6 +55,10 @@ const ADDON: StremioAddon = {
 const withMarks = (contentOverrides: Settings['contentOverrides']) =>
   commands.settingsGet.mockResolvedValue(ok({ ...DEFAULT_SETTINGS, contentOverrides }));
 
+/** Opens an installed extension's right-click menu. */
+const openMenu = async () =>
+  userEvent.pointer({ keys: '[MouseRight]', target: await screen.findByTestId('extension-row') });
+
 /** The last `contentOverrides` change sent to Rust. */
 const lastMarks = () =>
   commands.settingsUpdate.mock.calls
@@ -67,20 +71,20 @@ describe('18+ marks', () => {
     AppShellWrapper.seedCore();
   });
 
-  it('marks an installed extension 18+, shows who set it, and goes back to its own rating', async () => {
+  it('marks an installed extension 18+ from its menu, shows who set it, and goes back to its own rating', async () => {
     commands.extensionsList.mockResolvedValue(ok([extension()]));
     await AppShellWrapper.mount('/extensions');
 
-    await userEvent.click(await screen.findByRole('button', { name: 'More for Comics Source' }));
-    const menu = screen.getByRole('menu');
+    await openMenu();
+    const menu = await screen.findByRole('menu');
     // Not rated 18+: only the mark that changes that.
     expect(within(menu).queryByRole('menuitem', { name: 'Not 18+' })).not.toBeInTheDocument();
     await userEvent.click(within(menu).getByRole('menuitem', { name: 'Mark as 18+' }));
     expect(lastMarks()?.extensions).toEqual({ 'dev.test.comics': 'adult' });
     expect(await screen.findByTestId('rating-hint')).toHaveTextContent('Set by you');
 
-    await userEvent.click(screen.getByRole('button', { name: 'More for Comics Source' }));
-    await userEvent.click(screen.getByRole('menuitem', { name: "Use the source's rating" }));
+    await openMenu();
+    await userEvent.click(await screen.findByRole('menuitem', { name: "Use the source's rating" }));
     expect(lastMarks()?.extensions).toEqual({});
   });
 
@@ -90,7 +94,8 @@ describe('18+ marks', () => {
     );
     await AppShellWrapper.mount('/extensions');
 
-    await userEvent.click(await screen.findByRole('button', { name: 'More for Comics Source' }));
+    await openMenu();
+    await screen.findByRole('menu');
     expect(screen.queryByRole('menuitem', { name: 'Mark as 18+' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('menuitem', { name: 'Not 18+' }));
     expect(lastMarks()?.extensions).toEqual({ 'dev.test.comics': 'notAdult' });

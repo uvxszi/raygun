@@ -37,7 +37,8 @@ import { LoadMore } from '../shell/LoadMore';
 import { useSettings } from '../settings/useSettings';
 import { SourceIssue } from '../shell/SourceIssue';
 
-const toGridItems = (items: MangaCard[]) =>
+/** Cards for a grid; `fromListing` labels titles found in a source's listings, not its search. */
+const toGridItems = (items: MangaCard[], fromListing?: string) =>
   items.map((item) => ({
     sourceId: item.sourceId,
     id: item.id,
@@ -45,6 +46,7 @@ const toGridItems = (items: MangaCard[]) =>
     coverUrl: item.coverUrl,
     inLibrary: item.inLibrary,
     ...(item.adult ? { adult: true } : {}),
+    ...(item.fromListing && fromListing ? { subtitle: fromListing } : {}),
   }));
 
 /** One source's first results in a global search, as a short row. */
@@ -90,7 +92,7 @@ export const SourceRow: FC<{
         <MangaGrid
           medium={medium}
           landscape={Boolean(result.source.searchPill)}
-          items={toGridItems(result.items.slice(0, limit))}
+          items={toGridItems(result.items.slice(0, limit), t('search.fromListing'))}
         />
       )}
     </section>
@@ -277,7 +279,8 @@ export const RankedResults: FC<{
           medium={medium}
           items={ranked.slice(0, cap).map(({ card, sourceName }) => ({
             ...toGridItems([card])[0]!,
-            subtitle: sourceName,
+            source: sourceName,
+            ...(card.fromListing ? { subtitle: t('search.fromListing') } : {}),
             ...(card.adult || adultSources.has(card.sourceId) ? { adult: true } : {}),
           }))}
         />
@@ -412,7 +415,11 @@ const SourceSearch: FC<{
         </p>
       )}
       {items.length > 0 && (
-        <MangaGrid medium={medium} landscape={landscape} items={toGridItems(items)} />
+        <MangaGrid
+          medium={medium}
+          landscape={landscape}
+          items={toGridItems(items, t('search.fromListing'))}
+        />
       )}
       <LoadMore
         hasNextPage={search.hasNextPage}

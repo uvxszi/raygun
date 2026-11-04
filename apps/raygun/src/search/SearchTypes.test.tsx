@@ -258,7 +258,7 @@ describe('Search by type', () => {
     expect(screen.getByRole('region', { name: 'From your sources' })).toBeInTheDocument();
   });
 
-  it("puts a video site's own pill beside Videos, and its best answers on Relevant", async () => {
+  it("puts a video site's own pill in Videos' row, not beside the kinds, and its best answers on Relevant", async () => {
     const user = userEvent.setup();
     const youtube = {
       id: 'dev.raygun.youtube/videos',
@@ -296,13 +296,15 @@ describe('Search by type', () => {
       ),
     );
     await AppShellWrapper.mount('/browse?tab=search&type=video&q=sintel');
-    const pills = await screen.findByRole('tablist', { name: 'Search in' });
-    await within(pills).findByRole('tab', { name: 'YouTube' });
+    // The main kinds stay as they are; a site's pill sits in Videos' own row.
+    const kinds = await screen.findByRole('tablist', { name: 'Search in' });
     expect(
-      within(pills)
+      within(kinds)
         .getAllByRole('tab')
         .map((tab) => tab.textContent),
-    ).toEqual(['All', 'Audio', 'Videos', 'YouTube', 'Comics', 'Books', 'Your library']);
+    ).toEqual(['All', 'Audio', 'Videos', 'Comics', 'Books', 'Your library']);
+    const pills = await screen.findByRole('group', { name: 'What to find' });
+    await within(pills).findByRole('button', { name: 'YouTube' });
 
     // Relevant: the sources' best answers, and a row of the site's with its pill a tap away.
     const sources = await screen.findByRole('region', { name: 'From your sources' });
@@ -310,8 +312,8 @@ describe('Search by type', () => {
     expect(await screen.findByText('Sintel trailer')).toBeInTheDocument();
     const site = screen.getByRole('region', { name: 'YouTube' });
     await user.click(within(site).getByRole('button', { name: 'More' }));
-    expect(within(pills).getByRole('tab', { name: 'YouTube' })).toHaveAttribute(
-      'aria-selected',
+    expect(within(pills).getByRole('button', { name: 'YouTube' })).toHaveAttribute(
+      'aria-pressed',
       'true',
     );
   });

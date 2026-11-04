@@ -1,11 +1,12 @@
 import { X } from 'lucide-react';
-import { useId, useRef } from 'react';
+import { useContext, useId, useRef } from 'react';
 import type { FC, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
 import { useBackLayer } from './backLayers';
 import { Popover } from './Popover';
+import { SheetAboveContext } from './sheetAbove';
 import { useWideScreen } from './useWideScreen';
 
 type SheetProps = {
@@ -52,11 +53,12 @@ const DialogSheet: FC<Omit<SheetProps, 'anchor' | 'popoverWidth'>> = ({
   const pressedBackdrop = useRef(false);
   // Back and Escape close it, and only it (not a sheet under it).
   useBackLayer(true, onClose);
+  const above = useContext(SheetAboveContext);
 
   // On the document's body, so a transformed or scrolling ancestor never carries it along.
   return createPortal(
     <div
-      className="motion-fade fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center"
+      className={`motion-fade fixed inset-0 flex items-end justify-center bg-black/60 sm:items-center ${above ? 'z-[80]' : 'z-50'}`}
       onPointerDown={(event) => {
         pressedBackdrop.current = event.target === event.currentTarget;
       }}

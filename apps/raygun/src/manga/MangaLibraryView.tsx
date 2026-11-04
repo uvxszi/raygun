@@ -53,6 +53,7 @@ import { LibraryItems } from './LibraryItems';
 import { SelectionActions, SelectionTopBar } from './LibrarySelection';
 import { ROUTES } from './medium';
 import type { Medium } from './medium';
+import { groupWords } from './groupWords';
 import { useCategories } from './useCategories';
 import { useImportComics } from './useImportComics';
 import { fetchContinue, useSetCategoryDisplay, useUpdateCategory } from './useLibraryActions';
@@ -125,10 +126,10 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
       { id: ALL_CATEGORIES, label: t('library.categories.all') },
       ...categoryList.map((category) => ({ id: category.id, label: category.name })),
       ...(hasUncategorized
-        ? [{ id: UNCATEGORIZED, label: t('library.categories.uncategorized') }]
+        ? [{ id: UNCATEGORIZED, label: t('library.categories.uncategorized', groupWords(medium)) }]
         : []),
     ];
-  }, [display.tabs, categoryList, hasUncategorized, t, video]);
+  }, [display.tabs, categoryList, hasUncategorized, t, video, medium]);
   const activeTab = tabs.some((item) => item.id === tab) ? tab : ALL_CATEGORIES;
 
   // A category may keep its own layout and sort (Mihon's per-category settings).
@@ -319,7 +320,7 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
         ]
       : []),
     {
-      label: t('library.categories.edit'),
+      label: t('library.categories.edit', groupWords(medium)),
       icon: FolderCog,
       to: '/library/categories',
       search: { medium },
@@ -450,6 +451,7 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
               role="tablist"
               aria-label={t(
                 display.tabs === 'lists' ? 'library.lists.title' : 'library.categories.title',
+                groupWords(medium),
               )}
               className="-mx-4 flex no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
             >

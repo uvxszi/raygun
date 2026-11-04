@@ -18,6 +18,7 @@ import { CaptionsView } from './CaptionsView';
 import { FavoriteButton } from './FavoriteButton';
 import { LyricsView } from './LyricsView';
 import { MediaArt, VideoToggle } from './MediaArt';
+import { MusicSettingsButton } from './MusicSettingsButton';
 import { ArtistCard, CreditsCard } from './PlayerCards';
 import { usePlayerWide } from './playerLayout';
 import type { PlayerPanel } from './playerUiStore';
@@ -105,6 +106,7 @@ export const SidePanel: FC = () => {
               </button>
             ))}
           </div>
+          <MusicSettingsButton />
           <button
             type="button"
             aria-label={t('player.panel.close')}

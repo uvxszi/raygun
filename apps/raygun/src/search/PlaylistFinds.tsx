@@ -9,6 +9,7 @@ import { menuHandler, useSourcePlaylistMenuItems } from '../music/cardMenus';
 import { SourceIssue } from '../shell/SourceIssue';
 import { Asking } from './MusicFinds';
 import { usePlaylistFinds } from './useMusicFinds';
+import { SourceTag } from '../shell/SourceTag';
 
 /** A source's playlist as a cover with its name, author, size and source. */
 export const PlaylistTile: FC<{
@@ -30,10 +31,12 @@ export const PlaylistTile: FC<{
         {[
           playlist.author,
           playlist.trackCount ? t('library.trackCount', { count: playlist.trackCount }) : null,
-          playlist.provider.name,
         ]
           .filter(Boolean)
           .join(' · ')}
+      </span>
+      <span className="flex min-w-0">
+        <SourceTag name={playlist.provider.name} />
       </span>
     </Link>
   );

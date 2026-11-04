@@ -34,6 +34,7 @@ import {
 import { unwrapResult } from '../lib/commandResult';
 import { playFromLibrary } from '../library/useLibrary';
 import { ROUTES } from '../manga/medium';
+import { useTitleCardMenu } from '../manga/titleMenu';
 import type { Medium } from '../manga/medium';
 import { playResults } from '../search/useOnlineSearch';
 import { openContextMenu } from '../shell/contextMenuStore';
@@ -682,42 +683,11 @@ export const titlePage = (title: TitleRef) => ({
   search: { source: title.sourceId, id: title.id },
 });
 
-/** A title's menu on Home: open, pin, copy its name, Not interested. */
+/** A title's menu on Home: the full card menu (`manga/titleMenu`). */
 export const useTitleMenuItems = () => {
-  const { t } = useTranslation();
-  const navigate = useNavigate();
-  const pinItems = usePinMenuItem();
-  const hideActions = useHideActions();
-  return (title: TitleRef, options: CardMenuOptions = {}): MenuItem[] => {
-    const page = titlePage(title);
-    return buildMenu({
-      heading: { label: title.title, artworkUrl: title.coverUrl },
-      play: [
-        {
-          label: t('menu.open'),
-          icon: Play,
-          onSelect: () => void navigate({ to: page.to, search: page.search as never }),
-        },
-      ],
-      keep: pinItems({
-        kind: title.medium,
-        to: page.to,
-        search: page.search,
-        name: title.title,
-        artworkUrl: title.coverUrl,
-      }),
-      share: [copyNameItem(t, title.title)],
-      hide: [
-        options.notInterested &&
-          notInterestedItem(
-            pageTarget(title.medium, page, title.title, null, title.coverUrl),
-            hideActions,
-            t,
-          ),
-        ...(options.hide ?? []),
-      ],
-    });
-  };
+  const menu = useTitleCardMenu();
+  return (title: TitleRef, options: CardMenuOptions = {}): MenuItem[] =>
+    menu({ ...title }, options);
 };
 
 /** The songs of a playlist made in Raygun (a Your music tile), by its id. */
