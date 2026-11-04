@@ -283,6 +283,9 @@ export const bindingsMock = {
     importMatch: vi.fn(),
     trackDurations: vi.fn(),
     coverSave: vi.fn(),
+    coverVersions: vi.fn(),
+    coverShare: vi.fn(),
+    coverCopy: vi.fn(),
     detailEdit: vi.fn(),
     trackAssignSource: vi.fn(),
     trackUseSource: vi.fn(),
@@ -826,6 +829,9 @@ export const seedBindings = () => {
   commands.importMatch.mockResolvedValue(ok([]));
   commands.trackDurations.mockResolvedValue(ok([]));
   commands.coverSave.mockResolvedValue(ok('Pictures/Raygun/Cover.png'));
+  commands.coverVersions.mockImplementation(async (url: string) => [url]);
+  commands.coverShare.mockResolvedValue(ok(null));
+  commands.coverCopy.mockResolvedValue(ok(null));
   commands.detailEdit.mockResolvedValue(
     ok({ title: null, artist: null, album: null, artworkUrl: null }),
   );

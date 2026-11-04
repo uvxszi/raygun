@@ -1,7 +1,9 @@
 import { Play } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { FC, ReactNode } from 'react';
+import type { FC, MouseEvent, ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
+import { useCoverSheetStore } from '../music/coverSheetStore';
 import { AdultMark } from './AdultMark';
 
 /**
@@ -40,12 +42,25 @@ export const TitleHero: FC<{
   aside,
   adult = false,
 }) => {
+  const { t } = useTranslation();
   const shown = facts.filter(Boolean);
+  // The cover and the backdrop open close up, to zoom and save: a tap or right-click on the cover,
+  // a right-click (a long press on phones) on the backdrop.
+  const view = (url: string, name: string) => (event?: MouseEvent) => {
+    event?.preventDefault();
+    useCoverSheetStore.getState().open({ url, title: name });
+  };
+  const viewBackdrop = backdrop ? view(backdrop, t('cover.backdropName', { title })) : undefined;
   return (
     <div className="relative isolate -mx-4 -mt-2 overflow-hidden px-4 pt-2 pb-4 lg:-mx-10 lg:px-10">
       {backdrop && (
         // At most about half the window (M46.34), so the title, facts and Play show at once.
-        <div aria-hidden className="relative -mx-4 -mt-2 h-[min(56.25vw,52vh)] lg:-mx-10">
+        <div
+          aria-hidden
+          data-testid="title-backdrop"
+          onContextMenu={viewBackdrop}
+          className="relative -mx-4 -mt-2 h-[min(56.25vw,52vh)] lg:-mx-10"
+        >
           <img src={backdrop} alt="" className="size-full object-cover object-[50%_25%]" />
           <div className="to-background absolute inset-0 bg-gradient-to-b from-transparent from-30%" />
         </div>
@@ -57,7 +72,21 @@ export const TitleHero: FC<{
         </div>
       )}
       <header className={`relative flex gap-4 ${backdrop ? '-mt-20' : ''}`}>
-        <div className={`shrink-0 ${wideCover ? 'w-40 sm:w-64' : 'w-28 sm:w-36'}`}>{cover}</div>
+        <div className={`shrink-0 ${wideCover ? 'w-40 sm:w-64' : 'w-28 sm:w-36'}`}>
+          {art ? (
+            <button
+              type="button"
+              aria-label={t('cover.open')}
+              onClick={view(art, title)}
+              onContextMenu={view(art, title)}
+              className="block w-full cursor-zoom-in"
+            >
+              {cover}
+            </button>
+          ) : (
+            cover
+          )}
+        </div>
         <div className="flex min-w-0 flex-col justify-end gap-2">
           <h1 className="text-xl leading-tight font-bold tracking-tight wrap-anywhere sm:text-2xl">
             {title}

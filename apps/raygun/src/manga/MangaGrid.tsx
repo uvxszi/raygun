@@ -1,8 +1,10 @@
 import { Link, useNavigate } from '@tanstack/react-router';
-import { BookOpen, Copy, Search } from 'lucide-react';
+import { BookOpen, Copy, ImageIcon, Search } from 'lucide-react';
 import type { FC, MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useCoverSheetStore } from '../music/coverSheetStore';
+import type { MenuItem } from '../shell/contextMenuStore';
 import { useSettings } from '../settings/useSettings';
 import { openContextMenu } from '../shell/contextMenuStore';
 import { COVER_GRID_CLASS, coverGridStyle } from './coverGrid';
@@ -41,10 +43,23 @@ export const MangaGrid: FC<{
   const { t } = useTranslation();
   const navigate = useNavigate();
   const settings = useSettings().data;
-  // A cover's right-click options (M46.8): open it, find it in every source, copy its name.
+  // A cover's right-click options (M46.8): open it, find it in every source, view the cover close
+  // up, copy its name.
   const coverMenu = (item: MangaGridItem) => (event: MouseEvent) => {
     const to = item.link?.to ?? ROUTES[medium].title;
     const search = item.link?.search ?? { source: item.sourceId, id: item.id };
+    const viewCover: MenuItem[] = item.coverUrl
+      ? [
+          {
+            label: t('cover.view'),
+            icon: ImageIcon,
+            onSelect: () =>
+              useCoverSheetStore
+                .getState()
+                .open({ url: item.coverUrl as string, title: item.title }),
+          },
+        ]
+      : [];
     openContextMenu(event, [
       { kind: 'heading', label: item.title },
       { label: t('menu.open'), icon: BookOpen, onSelect: () => void navigate({ to, search }) },
@@ -57,6 +72,7 @@ export const MangaGrid: FC<{
             search: { tab: 'search', type: medium, q: item.title } as never,
           }),
       },
+      ...viewCover,
       {
         label: t('menu.copyTitle'),
         icon: Copy,
