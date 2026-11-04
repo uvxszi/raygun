@@ -38,7 +38,7 @@ pub use content::ContentFilter;
 pub use host::{
     CATALOG_SEARCH_TIMEOUT, CallError, ExtensionFiles, ExtensionHost, ExtensionSource, HostConfig,
     INTERACTIVE_TIMEOUT, LYRICS, MUSIC_CHARTS, MUSIC_METADATA, MUSIC_STREAM, MUSIC_TAGS,
-    ProviderCandidates, ResolvedStream, UserSettings, discover_installed,
+    ProviderCandidates, ResolvedStream, StreamUse, UserSettings, discover_installed,
 };
 pub use js::Limits;
 pub use manifest::{MANIFEST_FILE, Manifest, ManifestError};

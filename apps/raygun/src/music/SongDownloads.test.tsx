@@ -55,7 +55,7 @@ const download = (
 });
 
 const BROKEN = download('4', 'Broken', 'failed', {
-  error: 'Audius had it, but the download didn’t work. Choose another source.',
+  error: 'Couldn’t download it from Audius.',
   errorDetail: 'Audius: The server answered 404 Not Found',
   finishedAt: 50,
 });
@@ -167,7 +167,7 @@ describe('Song downloads', () => {
     );
     expect(row('Saved song')).toHaveTextContent('On this device · MP3 · Internet Archive');
     // What went wrong, with the source's own error under More info.
-    expect(row('Broken')).toHaveTextContent('Audius had it, but the download didn’t work');
+    expect(row('Broken')).toHaveTextContent('Couldn’t download it from Audius.');
     expect(row('Broken')).not.toHaveTextContent('404');
     await user.click(within(row('Broken')).getByRole('button', { name: 'More info' }));
     expect(row('Broken')).toHaveTextContent('Audius: The server answered 404 Not Found');
@@ -223,7 +223,7 @@ describe('Song downloads', () => {
     // Before Rust answers: queued, the error gone, nothing left to try again.
     await vi.waitFor(() => expect(row('Broken')).toHaveTextContent('Queued'));
     expect(commands.songDownloadRetry).toHaveBeenCalledWith('4');
-    expect(row('Broken')).not.toHaveTextContent('Audius had it');
+    expect(row('Broken')).not.toHaveTextContent('Couldn’t download it');
     expect(within(row('Broken')).queryByRole('button', { name: 'Try Broken again' })).toBeNull();
     expect(
       within(screen.getByRole('list', { name: 'Downloading' })).getByRole('listitem', {
@@ -269,7 +269,7 @@ describe('Song downloads', () => {
     await act(async () => answer(ok(BROKEN)));
     await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
     expect(row('Broken')).toHaveTextContent('Queued');
-    expect(row('Broken')).not.toHaveTextContent('Audius had it');
+    expect(row('Broken')).not.toHaveTextContent('Couldn’t download it');
 
     // A removal (no download follows the change) is asked about and taken out.
     commands.songDownload.mockResolvedValue(ok(null));
@@ -329,13 +329,14 @@ describe('Song downloads', () => {
       within(row('Broken')).getByRole('button', { name: 'Choose a source for Broken' }),
     );
     const sheet = await screen.findByTestId('source-picker');
-    // Why it's asked, then only what this phone can save (not YouTube's copy).
-    expect(sheet).toHaveTextContent('Audius had it, but the download didn’t work');
+    // Why it's asked, then every answer with a stream of its own: YouTube's audio file downloads
+    // on a phone too (M46.51).
+    expect(sheet).toHaveTextContent('Couldn’t download it from Audius.');
     const offers = await within(sheet).findAllByRole('button', { name: 'Download from this' });
-    expect(offers).toHaveLength(1);
+    expect(offers).toHaveLength(2);
 
     // A preview joins the queue instead of replacing it.
-    await user.click(within(sheet).getByRole('button', { name: 'Preview: Broken' }));
+    await user.click(within(sheet).getAllByRole('button', { name: 'Preview: Broken' })[0]!);
     expect(commands.playbackEnqueue).toHaveBeenCalledWith(
       [expect.objectContaining({ title: 'Broken' })],
       true,
@@ -345,7 +346,7 @@ describe('Song downloads', () => {
     await user.click(offers[0] as HTMLElement);
     expect(commands.songDownloadUseSource).toHaveBeenCalledWith('4', audius, 'Audius');
     await vi.waitFor(() => expect(row('Broken')).toHaveTextContent('Queued · Audius'));
-    expect(row('Broken')).not.toHaveTextContent('download didn’t work');
+    expect(row('Broken')).not.toHaveTextContent('Couldn’t download it');
     await act(async () => answer());
     await vi.waitFor(() => expect(screen.queryByTestId('source-picker')).not.toBeInTheDocument());
   });
@@ -358,7 +359,7 @@ describe('Song downloads', () => {
         download('qa', 'Queued A', 'queued', { queuedAt: 10 }),
         download('qb', 'Queued B', 'queued', { queuedAt: 20 }),
         BROKEN,
-        download('3', 'Only here', 'failed', { error: 'Only YouTube has this song.' }),
+        download('3', 'Only here', 'failed', { error: 'No source has this song.' }),
       ]),
     );
     await AppShellWrapper.mount('/downloads?tab=music');
@@ -394,6 +395,23 @@ describe('Song downloads', () => {
     expect(commands.songDownloadsRetryFailed).toHaveBeenCalled();
     await vi.waitFor(() => expect(queue()).toEqual(['Now', 'Broken', 'Only here']));
     expect(screen.queryByRole('button', { name: /failed$/ })).not.toBeInTheDocument();
+  });
+
+  it('says waiting songs wait for battery saver to end, unless downloads may run in it', async () => {
+    commands.songDownloads.mockResolvedValue(
+      ok([download('qa', 'Queued A', 'queued', { queuedAt: 10 })]),
+    );
+    await AppShellWrapper.mount('/downloads?tab=music');
+    await list();
+    expect(row('Queued A')).toHaveTextContent('Queued');
+    act(() => emitEvent('deviceStateEvent', { foreground: true, powerSave: true, motion: 'full' }));
+    await vi.waitFor(() =>
+      expect(row('Queued A')).toHaveTextContent('Waiting for battery saver to end'),
+    );
+    act(() =>
+      emitEvent('deviceStateEvent', { foreground: true, powerSave: false, motion: 'full' }),
+    );
+    await vi.waitFor(() => expect(row('Queued A')).not.toHaveTextContent('battery saver'));
   });
 
   it('checks downloads and downloads the mismatched ones again, keeping their copies', async () => {

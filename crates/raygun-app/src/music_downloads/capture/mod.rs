@@ -72,10 +72,7 @@ pub async fn capture(
     stop: &Notify,
 ) -> Result<Captured, CaptureError> {
     let MediaSource::Url { url, headers } = request.source else {
-        return Err(CaptureError::Failed(match request.source {
-            MediaSource::YouTube { .. } => "YouTube's player can't be captured".into(),
-            _ => "It has no stream to capture".into(),
-        }));
+        return Err(CaptureError::Failed("It has no stream to capture".into()));
     };
     let link = app
         .try_state::<raygun_net::MediaLinks>()

@@ -38,6 +38,8 @@ import type { CSSProperties, FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
+import { useSettings } from '../settings/useSettings';
+import { useDeviceState } from '../shell/deviceState';
 import { EmptyState } from '../shell/EmptyState';
 import { formatBytes } from '../watch/episodeLabel';
 import { SaveSongsSheet } from './SaveSongsSheet';
@@ -110,6 +112,13 @@ export const ProgressBar: FC<{ share: number; label: string }> = ({ share, label
   </span>
 );
 
+/** Battery saver holds the queue, unless downloads may run in it (Settings → Downloads). */
+const useDownloadsHeld = () => {
+  const { device } = useDeviceState();
+  const allowed = useSettings().data?.downloadsInBatterySaver ?? false;
+  return device.powerSave && !allowed;
+};
+
 type Drag = {
   setNodeRef: (node: HTMLElement | null) => void;
   style: CSSProperties;
@@ -132,6 +141,7 @@ const Row: FC<RowProps> = memo(({ item, paused, onSave, onFirst, drag }: RowProp
   const line = useStateLine();
   const problemLine = useProblemLine();
   const { remove, retry, redownload } = useSongDownloadActions();
+  const held = useDownloadsHeld();
   const share = shareOf(item);
   const failed = isFailed(item);
   const busy = isBusy(item);
@@ -165,7 +175,7 @@ const Row: FC<RowProps> = memo(({ item, paused, onSave, onFirst, drag }: RowProp
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate font-medium">{item.title}</span>
         {item.artist && <span className="text-muted truncate text-sm">{item.artist}</span>}
-        <span className="text-muted truncate text-xs">{line(item, paused)}</span>
+        <span className="text-muted truncate text-xs">{line(item, paused, held)}</span>
         {(failed || item.state === 'done') && item.error && (
           <Issue
             summary={

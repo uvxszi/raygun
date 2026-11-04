@@ -724,15 +724,16 @@ impl ExtensionService {
         self.host.music_tags(query).await
     }
 
-    /// The stream behind a candidate that came without one.
+    /// The stream behind a candidate that came without one, for `using` (M46.51).
     pub async fn resolve_stream(
         &self,
         provider_id: &str,
         candidate_id: &str,
+        using: raygun_ext_host::StreamUse,
     ) -> Result<ResolvedStream, String> {
         let _ready = self.loading.read().await;
         self.host
-            .resolve_stream(provider_id, candidate_id)
+            .resolve_stream(provider_id, candidate_id, using)
             .await
             .map_err(|error| error.to_string())
     }

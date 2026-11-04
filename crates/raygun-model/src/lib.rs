@@ -4059,8 +4059,7 @@ impl SongDownloadState {
         match text {
             "downloading" => Self::Downloading,
             "done" => Self::Done,
-            // Also what versions that recorded songs as they played left.
-            "failed" | "needsRecording" | "recording" => Self::Failed,
+            "failed" => Self::Failed,
             _ => Self::Queued,
         }
     }
@@ -4216,7 +4215,8 @@ pub struct SongCaptureReport {
     pub error: Option<String>,
 }
 
-/// yt-dlp on this device (M46.47): YouTube downloads on desktop, and songs only YouTube has.
+/// yt-dlp on this device (M46.47): YouTube downloads on desktop, and songs YouTube's own audio
+/// files didn't give.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct YtDlpStatus {

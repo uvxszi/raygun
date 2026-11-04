@@ -11,7 +11,6 @@ import { unwrapResult } from '../lib/commandResult';
 import { formatTime } from '../player/formatTime';
 import { playResults, toQueueItem, useOnlineSearch } from '../search/useOnlineSearch';
 import { Sheet } from '../shell/Sheet';
-import { useYtDlpStatus } from '../youtube/useYtDlp';
 import { useSourcePickerStore } from './sourcePickerStore';
 import { SourceIssue } from '../shell/SourceIssue';
 import { TextField } from '../shell/TextField';
@@ -48,10 +47,10 @@ export const SourcePickerSheet: FC = () => {
 };
 
 /**
- * With `download` (M46.47), a failed or YouTube-only download's sources: why it didn't download,
- * then only answers with a stream of their own that this device can save (YouTube's only where
- * yt-dlp runs), each with a preview and Download from this. The download shows as queued from the
- * picked source at once.
+ * With `download` (M46.47), a failed download's sources: why it didn't download, then only answers
+ * with a stream of their own (YouTube's too: its audio files download everywhere, M46.51), each
+ * with a preview and Download from this. The download shows as queued from the picked source at
+ * once.
  */
 const SourcePickerBody: FC<{ song: TrackInput; download: string | null; onClose: () => void }> = ({
   song,
@@ -63,15 +62,12 @@ const SourcePickerBody: FC<{ song: TrackInput; download: string | null; onClose:
   const [names, setNames] = useState({ title: song.title, artist: song.artist ?? '' });
   const [query, setQuery] = useState([song.artist, song.title].filter(Boolean).join(' '));
   const search = useOnlineSearch(query);
-  // Phones can't save YouTube's copy: its answers would fail again.
-  const savesYouTube = useYtDlpStatus(download !== null).data?.supported === true;
   const why = useSongDownloadsSelect(
     (list) => list.find((item) => item.id === download)?.error ?? null,
   ).data;
   const { useSource } = useSongDownloadActions();
   const renamed = names.title.trim() !== song.title || names.artist.trim() !== (song.artist ?? '');
-  const saveable = (track: OnlineTrack) =>
-    track.source !== null && (track.source.kind !== 'youTube' || savesYouTube);
+  const saveable = (track: OnlineTrack) => track.source !== null;
   // Each source's own answers: the same song from Audius and from YouTube are two choices.
   const ranked = sourceAnswers(query, search.data?.providers ?? [], (track) =>
     download ? saveable(track) : true,

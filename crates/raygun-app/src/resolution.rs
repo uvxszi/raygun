@@ -17,6 +17,12 @@ pub struct Exclusions {
     /// The quality to aim for; `None` takes the streaming setting (or the mobile data one while
     /// on mobile data). Downloads pass theirs (M46.18).
     pub quality: Option<raygun_model::AudioQuality>,
+    /// The item's own YouTube video (M46.51): its audio file is tried first, then its embed,
+    /// before other sources are searched.
+    pub youtube: Option<String>,
+    /// Raygun reads the stream itself (downloads, captions): sources with several formats give
+    /// one it decodes (M46.51).
+    pub decodable: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,9 +59,25 @@ struct Attempt {
 #[derive(Debug, Default)]
 pub struct Tracker {
     current: Option<Attempt>,
+    /// A YouTube song's video is shown (M46.51): YouTube songs play in the embed, which has it.
+    video: bool,
 }
 
 impl Tracker {
+    /// Shows or hides YouTube songs' videos; whether that changed.
+    pub fn set_video(&mut self, shown: bool) -> bool {
+        std::mem::replace(&mut self.video, shown) != shown
+    }
+
+    /// The stream `load_id` plays now, when the resolver picked it.
+    pub fn playing(&self, load_id: u32) -> Option<&MediaSource> {
+        self.current
+            .as_ref()
+            .filter(|attempt| attempt.load_id == load_id)
+            .and_then(|attempt| attempt.playing.as_ref())
+            .map(|pick| &pick.source)
+    }
+
     /// Starts tracking a new load.
     pub fn begin(
         &mut self,
@@ -64,10 +86,17 @@ impl Tracker {
         start_ms: f64,
         autoplay: bool,
     ) -> LoadPlan {
+        let mut exclusions = Exclusions::default();
         let (plan, concrete) = match &item.source {
             MediaSource::Lookup { .. } => (LoadPlan::Resolve, None),
             // A file on this device has no alternative worth searching for.
             MediaSource::LocalFile { .. } => (LoadPlan::Direct, None),
+            // YouTube's own audio file plays in the native player (M46.51); the resolver tries it
+            // first, then the embed, then other sources. With its video shown, the embed plays.
+            MediaSource::YouTube { video_id } if !self.video => {
+                exclusions.youtube = Some(video_id.clone());
+                (LoadPlan::Resolve, None)
+            }
             source => (LoadPlan::Direct, Some(source.clone())),
         };
         self.current = Some(Attempt {
@@ -75,7 +104,7 @@ impl Tracker {
             query: TrackQuery::for_item(item),
             start_ms,
             autoplay,
-            exclusions: Exclusions::default(),
+            exclusions,
             playing: None,
             concrete,
             fell_back: false,
@@ -275,6 +304,44 @@ mod tests {
         ));
         // No second fallback for the item's own source.
         assert_eq!(tracker.engine_error(3), ErrorPlan::Forward);
+    }
+
+    #[test]
+    fn youtube_videos_are_resolved_to_their_own_audio_first() {
+        let mut tracker = Tracker::default();
+        let video = MediaSource::YouTube {
+            video_id: "dQw4w9WgXcQ".into(),
+        };
+        assert_eq!(tracker.begin(5, &item(video), 0.0, true), LoadPlan::Resolve);
+        let (query, exclusions) = tracker.request(5).unwrap();
+        assert_eq!(query.title, "Song");
+        assert_eq!(exclusions.youtube.as_deref(), Some("dQw4w9WgXcQ"));
+        assert!(exclusions.tried.is_empty());
+        // Its audio file failed in the engine: tried again without it (its embed, then others).
+        tracker.resolved(5, pick("audio:dQw4w9WgXcQ"), 0.0);
+        assert!(matches!(
+            tracker.engine_error(5),
+            ErrorPlan::Retry { failed: Some(_) }
+        ));
+        let (_, exclusions) = tracker.request(5).unwrap();
+        assert_eq!(exclusions.tried, vec![pick("audio:dQw4w9WgXcQ").key]);
+        assert_eq!(exclusions.youtube.as_deref(), Some("dQw4w9WgXcQ"));
+        assert_eq!(
+            tracker.playing(5),
+            None,
+            "nothing plays until the next pick"
+        );
+        tracker.resolved(5, pick("dQw4w9WgXcQ"), 0.0);
+        assert_eq!(tracker.playing(5), Some(&url("dQw4w9WgXcQ")));
+
+        // With the video shown, YouTube songs play in the embed, which has it.
+        assert!(tracker.set_video(true));
+        assert!(!tracker.set_video(true), "no change");
+        let video = MediaSource::YouTube {
+            video_id: "dQw4w9WgXcQ".into(),
+        };
+        assert_eq!(tracker.begin(6, &item(video), 0.0, true), LoadPlan::Direct);
+        assert_eq!(tracker.playing(6), None);
     }
 
     #[test]

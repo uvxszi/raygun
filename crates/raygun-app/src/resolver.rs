@@ -5,7 +5,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
-use raygun_db::streams;
+use raygun_db::streams::{self, CandidateRow};
+use raygun_ext_host::{ResolvedStream, StreamUse};
 use raygun_model::{AudioQuality, MediaSource, TrackQuery};
 use raygun_resolver::{
     Candidate, CandidateKey, History, Pick, ProviderRecord, QualityTarget, Scored, rank_for,
@@ -21,10 +22,35 @@ use crate::startup::AppDb;
 const CANDIDATES_TTL: Duration = Duration::from_secs(10 * 60);
 /// A failed candidate is skipped for this long.
 const FAILURE_COOLDOWN_MS: i64 = 24 * 60 * 60 * 1000;
+/// A YouTube video's own audio file that didn't resolve is asked for again after this long
+/// when the video itself plays (M46.51).
+const OWN_AUDIO_COOLDOWN_MS: i64 = 60 * 60 * 1000;
 /// A cached URL this close to expiring is resolved again.
 const EXPIRY_MARGIN_MS: i64 = 60 * 1000;
 /// Matches tried again when all of them failed within the cooldown (M46.48).
 const COOLED_RETRIES: usize = 1;
+/// YouTube's stream provider (M46.51): its `audio:<video>` candidates resolve to the video's own
+/// audio file, its plain `<video>` ones play in the embed.
+pub const YOUTUBE_STREAMS: &str = "dev.raygun.youtube/stream";
+const YOUTUBE_AUDIO: &str = "audio:";
+
+/// The YouTube video a pick of YouTube's stream provider is, its audio file or its embed.
+pub fn youtube_video(key: &CandidateKey) -> Option<&str> {
+    (key.provider_id == YOUTUBE_STREAMS).then(|| {
+        key.candidate_id
+            .strip_prefix(YOUTUBE_AUDIO)
+            .unwrap_or(&key.candidate_id)
+    })
+}
+
+/// Whether a remembered pick played in YouTube's embed: it's found again, since the video's audio
+/// file may play now (M46.51).
+fn plays_in_embed(row: &CandidateRow) -> bool {
+    row.source
+        .as_deref()
+        .and_then(|json| serde_json::from_str::<MediaSource>(json).ok())
+        .is_some_and(|source| matches!(source, MediaSource::YouTube { .. }))
+}
 
 pub struct ResolverService {
     app: AppHandle,
@@ -56,6 +82,10 @@ impl ResolverService {
         let key = track_key(query);
         let now = unix_ms();
         let target = self.quality_target(exclusions.quality).await;
+        let using = StreamUse {
+            quality: target,
+            decodable: exclusions.decodable,
+        };
         let rows = streams::candidates(self.db(), &key)
             .await
             .unwrap_or_else(|error| {
@@ -69,8 +99,21 @@ impl ResolverService {
         let recently_failed =
             |failed_at: Option<i64>| failed_at.is_some_and(|at| now - at < FAILURE_COOLDOWN_MS);
 
-        // 1. A pick that played before and is still valid plays right away.
-        for row in rows.iter().filter(|_| !exclusions.fresh_only) {
+        // 0. The item's own YouTube video: its audio file, else its embed (M46.51).
+        if let Some(video_id) = &exclusions.youtube
+            && let Some(pick) = self
+                .own_video(&key, query, video_id, &rows, exclusions, using, now)
+                .await
+        {
+            return Ok(pick);
+        }
+
+        // 1. A pick that played before and is still valid plays right away. One that played in
+        // YouTube's embed is found again: the video's audio file may play now (M46.51).
+        for row in rows
+            .iter()
+            .filter(|row| !exclusions.fresh_only && !plays_in_embed(row))
+        {
             let candidate_key = CandidateKey {
                 provider_id: row.provider_id.clone(),
                 candidate_id: row.candidate_id.clone(),
@@ -112,7 +155,8 @@ impl ResolverService {
                 provider_id: row.provider_id.clone(),
                 candidate_id: row.candidate_id.clone(),
             };
-            if row.verified_at.is_some() {
+            // Having played in the embed doesn't put it ahead of the video's audio file.
+            if row.verified_at.is_some() && !plays_in_embed(row) {
                 history.verified.insert(candidate_key.clone());
             }
             if recently_failed(row.failed_at) {
@@ -150,7 +194,7 @@ impl ResolverService {
                 Some(source) => Ok((source, None)),
                 None => self
                     .extensions()
-                    .resolve_stream(&candidate.provider_id, &candidate.id)
+                    .resolve_stream(&candidate.provider_id, &candidate.id, using)
                     .await
                     .map(|stream| (stream.source, stream.expires_at)),
             };
@@ -195,6 +239,124 @@ impl ResolverService {
             "No playable source found for \u{201c}{}\u{201d}",
             query.title
         ))
+    }
+
+    /// The item's own YouTube video (M46.51): its audio file, remembered or asked for now, else its
+    /// embed (only to play: downloads and captions read the file); `None` once both were tried.
+    #[allow(clippy::too_many_arguments)]
+    async fn own_video(
+        &self,
+        key: &str,
+        query: &TrackQuery,
+        video_id: &str,
+        rows: &[CandidateRow],
+        exclusions: &Exclusions,
+        using: StreamUse,
+        now: i64,
+    ) -> Option<Pick> {
+        let candidate = |id: String| CandidateKey {
+            provider_id: YOUTUBE_STREAMS.into(),
+            candidate_id: id,
+        };
+        let audio = candidate(format!("{YOUTUBE_AUDIO}{video_id}"));
+        let embed = candidate(video_id.to_owned());
+        let provider_name = self.provider_name(YOUTUBE_STREAMS).await;
+        let pick = |key_of: CandidateKey, source, expires_at, from_cache| Pick {
+            key: key_of,
+            track_key: key.to_owned(),
+            title: query.title.clone(),
+            artist: query.artist.clone(),
+            provider_name: provider_name.clone(),
+            source,
+            expires_at,
+            from_cache,
+            bitrate_kbps: None,
+        };
+        if !exclusions.tried.contains(&audio) {
+            let row = rows.iter().find(|row| {
+                row.provider_id == audio.provider_id && row.candidate_id == audio.candidate_id
+            });
+            let failed_lately = row
+                .and_then(|row| row.failed_at)
+                .is_some_and(|at| now - at < OWN_AUDIO_COOLDOWN_MS);
+            let remembered = row
+                .filter(|row| {
+                    !exclusions.fresh_only
+                        && row.verified_at.is_some()
+                        && row
+                            .expires_at
+                            .is_some_and(|expires| expires - EXPIRY_MARGIN_MS > now)
+                })
+                .and_then(|row| {
+                    let source =
+                        serde_json::from_str::<MediaSource>(row.source.as_deref()?).ok()?;
+                    Some((source, row.expires_at))
+                });
+            match remembered {
+                Some((source, expires_at)) if !failed_lately => {
+                    return Some(pick(audio, source, expires_at, true));
+                }
+                _ if failed_lately => {}
+                _ => match self
+                    .extensions()
+                    .resolve_stream(YOUTUBE_STREAMS, &audio.candidate_id, using)
+                    .await
+                {
+                    Ok(stream) => {
+                        return Some(pick(audio, stream.source, stream.expires_at, false));
+                    }
+                    Err(error) => {
+                        tracing::info!(video = %video_id, %error, "no audio file from YouTube; its embed plays");
+                        let _ = streams::mark_failed(
+                            self.db(),
+                            key,
+                            YOUTUBE_STREAMS,
+                            &audio.candidate_id,
+                            &query.title,
+                            &error,
+                            now,
+                        )
+                        .await;
+                    }
+                },
+            }
+        }
+        if using.decodable || exclusions.tried.contains(&embed) {
+            return None;
+        }
+        Some(pick(
+            embed,
+            MediaSource::YouTube {
+                video_id: video_id.to_owned(),
+            },
+            None,
+            false,
+        ))
+    }
+
+    /// A YouTube video's own audio file (M46.51), for `using`: downloads and captions ask for it
+    /// by the video.
+    pub async fn youtube_audio(
+        &self,
+        video_id: &str,
+        using: StreamUse,
+    ) -> Result<ResolvedStream, String> {
+        self.extensions()
+            .resolve_stream(
+                YOUTUBE_STREAMS,
+                &format!("{YOUTUBE_AUDIO}{video_id}"),
+                using,
+            )
+            .await
+    }
+
+    /// What a stream is for (M46.51): the quality `asked` (else the streaming setting's), read by
+    /// Raygun itself when `decodable`.
+    pub async fn stream_use(&self, asked: Option<AudioQuality>, decodable: bool) -> StreamUse {
+        StreamUse {
+            quality: self.quality_target(asked).await,
+            decodable,
+        }
     }
 
     /// The quality a resolution aims for (M46.18): what was asked (downloads), else the
@@ -361,6 +523,44 @@ mod tests {
             bitrate_kbps: None,
             source: None,
         }
+    }
+
+    #[test]
+    fn youtube_picks_name_their_video_and_embeds_are_found_again() {
+        let key = |provider: &str, id: &str| CandidateKey {
+            provider_id: provider.into(),
+            candidate_id: id.into(),
+        };
+        assert_eq!(
+            youtube_video(&key(YOUTUBE_STREAMS, "audio:dQw4w9WgXcQ")),
+            Some("dQw4w9WgXcQ")
+        );
+        assert_eq!(
+            youtube_video(&key(YOUTUBE_STREAMS, "dQw4w9WgXcQ")),
+            Some("dQw4w9WgXcQ")
+        );
+        assert_eq!(
+            youtube_video(&key("dev.raygun.audius/stream", "audio:x")),
+            None
+        );
+
+        let row = |source: Option<&str>| CandidateRow {
+            provider_id: YOUTUBE_STREAMS.into(),
+            candidate_id: "dQw4w9WgXcQ".into(),
+            title: "Song".into(),
+            source: source.map(str::to_owned),
+            expires_at: None,
+            verified_at: Some(1),
+            failed_at: None,
+            bitrate_kbps: None,
+        };
+        assert!(plays_in_embed(&row(Some(
+            r#"{"kind":"youTube","videoId":"dQw4w9WgXcQ"}"#
+        ))));
+        assert!(!plays_in_embed(&row(Some(
+            r#"{"kind":"url","url":"https://rr1---sn-x.googlevideo.com/videoplayback","headers":{}}"#
+        ))));
+        assert!(!plays_in_embed(&row(None)));
     }
 
     #[test]

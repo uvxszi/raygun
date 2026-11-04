@@ -1,4 +1,4 @@
-// dev.raygun.youtube 2.3.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.youtube 2.4.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -56,7 +56,9 @@
       throw new Error("YouTube is limiting requests from this network; try again in a while");
     }
     if (!response.ok) throw new Error(`YouTube Music answered HTTP ${response.status}`);
-    return response.json();
+    const answer = await response.json();
+    rememberVisitor(answer.responseContext?.visitorData);
+    return answer;
   };
   var pageType = (run) => run.navigationEndpoint?.browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
   var TIME = /^(?:(\d+):)?(\d{1,2}):(\d{2})$/;
@@ -310,26 +312,248 @@
       return { tracks };
     }
   });
-  var streams = defineProvider({
+  var PLAYER_CLIENTS = [
+    {
+      name: "VISIONOS",
+      id: 101,
+      version: "1.04",
+      userAgent: "com.google.visionos.youtube/1.04 (RealityDevice17,1; U; CPU visionOS 26_6_0 like Mac OS X; US) gzip",
+      context: {
+        deviceMake: "Apple",
+        deviceModel: "RealityDevice17,1",
+        osName: "visionOS",
+        osVersion: "26.6.0"
+      }
+    },
+    {
+      name: "ANDROID_VR",
+      id: 28,
+      version: "1.65.10",
+      userAgent: "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; en_US; Quest 3 Build/SQ3A.220605.009.A1) gzip",
+      context: {
+        deviceMake: "Oculus",
+        deviceModel: "Quest 3",
+        osName: "Android",
+        osVersion: "12L",
+        androidSdkVersion: 32,
+        platform: "MOBILE"
+      }
+    },
+    {
+      name: "IOS",
+      id: 5,
+      version: "20.10.4",
+      userAgent: "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+      context: {
+        deviceMake: "Apple",
+        deviceModel: "iPhone16,2",
+        osName: "iPhone",
+        osVersion: "18.3.2.22D82"
+      }
+    },
+    {
+      name: "ANDROID",
+      id: 3,
+      version: "20.10.38",
+      userAgent: "com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip",
+      context: { osName: "Android", osVersion: "11", androidSdkVersion: 30, platform: "MOBILE" }
+    }
+  ];
+  var AUDIO_PREFIX = "audio:";
+  var VISITOR_TTL_MS = 12 * 60 * 60 * 1e3;
+  var FAILURES_TO_REST = 3;
+  var REST_MS = 10 * 60 * 1e3;
+  var visitor = null;
+  var preferredClient = 0;
+  var failuresInARow = 0;
+  var restingUntil = 0;
+  var isVisitor = (value) => typeof value === "string" && /^Cg[\w%-]{12,}/.test(value);
+  var rememberVisitor = (value) => {
+    if (!isVisitor(value) || visitor?.value === value) return;
+    visitor = { value, at: Date.now() };
+    try {
+      raygun.storage.set("visitor", visitor);
+    } catch {
+    }
+  };
+  var findVisitor = (value, depth = 0) => {
+    if (isVisitor(value)) return value;
+    if (depth > 8 || value === null || typeof value !== "object") return null;
+    for (const child of Object.values(value)) {
+      const found = findVisitor(child, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  };
+  var visitorData = async () => {
+    if (!visitor) {
+      try {
+        const stored = raygun.storage.get("visitor");
+        if (stored && isVisitor(stored.value)) visitor = stored;
+      } catch {
+      }
+    }
+    if (visitor && Date.now() - visitor.at < VISITOR_TTL_MS) return visitor.value;
+    const response = await raygun.http.fetch(`${WEB}/sw.js_data`, {
+      headers: { "User-Agent": USER_AGENT }
+    });
+    if (response.ok) {
+      const text = await response.text();
+      const start = text.indexOf("[");
+      if (start >= 0) {
+        const data = JSON.parse(text.slice(start));
+        const known = data?.[0]?.[2]?.[0]?.[0]?.[13];
+        rememberVisitor(isVisitor(known) ? known : findVisitor(data));
+      }
+    }
+    return visitor?.value ?? null;
+  };
+  var askPlayer = async (client, videoId, visitorValue) => {
+    const response = await raygun.http.fetch(`${WEB}/youtubei/v1/player?prettyPrint=false`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": client.userAgent,
+        "X-Goog-Api-Format-Version": "2",
+        "X-YouTube-Client-Name": String(client.id),
+        "X-YouTube-Client-Version": client.version,
+        ...visitorValue ? { "X-Goog-Visitor-Id": visitorValue } : {}
+      },
+      body: JSON.stringify({
+        context: {
+          client: {
+            clientName: client.name,
+            clientVersion: client.version,
+            ...client.context,
+            hl: "en",
+            gl: region() || "US",
+            utcOffsetMinutes: 0,
+            ...visitorValue ? { visitorData: visitorValue } : {}
+          },
+          user: { lockedSafetyMode: false }
+        },
+        videoId,
+        contentCheckOk: true,
+        racyCheckOk: true
+      })
+    });
+    if (response.status === 429) {
+      throw new Error("YouTube is limiting requests from this network; try again in a while");
+    }
+    if (!response.ok) throw new Error(`YouTube answered HTTP ${response.status}`);
+    return response.json();
+  };
+  var kbpsOf = (format) => Math.round((format.averageBitrate ?? format.bitrate ?? 0) / 1e3);
+  var isAac = (format) => format.mimeType.startsWith("audio/mp4");
+  var distance = (kbps, target) => Math.max(kbps, target, 1) * 100 / Math.max(Math.min(kbps, target), 1) - 100;
+  var pickFormat = (formats, targetKbps, decodable) => {
+    const audio = formats.filter((format) => format.mimeType.startsWith("audio/") && format.url);
+    const regular = audio.filter(
+      (format) => !format.isDrc && format.audioTrack?.audioIsDefault !== false
+    );
+    const usable = regular.length > 0 ? regular : audio;
+    const aac = usable.filter(isAac);
+    const choices = decodable && aac.length > 0 ? aac : usable;
+    const score = (format) => (typeof targetKbps === "number" && targetKbps > 0 ? -distance(kbpsOf(format), targetKbps) * 1e3 : kbpsOf(format) * 1e3) + (isAac(format) === decodable ? 1 : 0);
+    return choices.reduce(
+      (best, format) => best === null || score(format) > score(best) ? format : best,
+      null
+    );
+  };
+  var expiryOf = (answer, url) => {
+    const seconds = Number(answer.streamingData?.expiresInSeconds);
+    if (Number.isFinite(seconds) && seconds > 0) return Date.now() + seconds * 1e3;
+    const expire = Number(/[?&]expire=(\d+)/.exec(url)?.[1]);
+    return Number.isFinite(expire) && expire > 0 ? expire * 1e3 : null;
+  };
+  var streams = async (url, userAgent) => {
+    try {
+      const response = await raygun.http.fetch(url, {
+        headers: { Range: "bytes=0-1", "User-Agent": userAgent }
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  };
+  var unplayable = (answer) => {
+    const status = answer.playabilityStatus?.status;
+    const reason = answer.playabilityStatus?.reason?.trim();
+    if (status === "LOGIN_REQUIRED" && reason && /age/i.test(reason)) {
+      return "YouTube wants a sign-in to play it (age-restricted)";
+    }
+    if (status === "UNPLAYABLE" || status === "ERROR") {
+      return reason ? `YouTube can't play it: ${reason}` : "YouTube can't play it";
+    }
+    return null;
+  };
+  var audioStream = async (videoId, args) => {
+    if (!/^[\w-]{11}$/.test(videoId)) throw new Error("Not a YouTube video");
+    if (Date.now() < restingUntil) throw new Error("YouTube isn't giving streams right now");
+    const visitorValue = await visitorData().catch(() => null);
+    const order = [
+      PLAYER_CLIENTS[preferredClient],
+      ...PLAYER_CLIENTS.filter((_, index) => index !== preferredClient)
+    ].filter((client) => client !== void 0);
+    let refusal = null;
+    for (const client of order) {
+      const answer = await askPlayer(client, videoId, visitorValue).catch(() => null);
+      if (!answer) continue;
+      const why = unplayable(answer);
+      if (why) {
+        refusal ??= why;
+        if (answer.playabilityStatus?.status === "ERROR") break;
+        continue;
+      }
+      if (answer.playabilityStatus?.status !== "OK") continue;
+      const format = pickFormat(
+        answer.streamingData?.adaptiveFormats ?? [],
+        args.targetKbps,
+        args.decodable === true
+      );
+      if (!format?.url || !await streams(format.url, client.userAgent)) continue;
+      preferredClient = PLAYER_CLIENTS.indexOf(client);
+      failuresInARow = 0;
+      return {
+        source: { kind: "url", url: format.url, headers: { "User-Agent": client.userAgent } },
+        expiresAt: expiryOf(answer, format.url)
+      };
+    }
+    if (refusal) throw new Error(refusal);
+    failuresInARow += 1;
+    if (failuresInARow >= FAILURES_TO_REST) {
+      failuresInARow = 0;
+      restingUntil = Date.now() + REST_MS;
+    }
+    throw new Error("YouTube didn't give a stream for it");
+  };
+  var streamProvider = defineProvider({
     kind: "music.stream",
     id: "stream",
     name: "YouTube",
+    // Each video twice: its audio file (resolved when it's tried), then its embed, the fallback.
     async candidates({ title, artist, limit }) {
       if (!title.trim()) return { candidates: [] };
       const videos2 = await searchVideos(
         [artist, title].filter(Boolean).join(" "),
         Math.min(limit, 5)
       );
+      const named = (video) => ({
+        title: video.title,
+        artist: video.artist,
+        durationMs: video.durationMs,
+        quality: "YouTube"
+      });
       return {
-        candidates: videos2.map((video) => ({
-          id: video.videoId,
-          title: video.title,
-          artist: video.artist,
-          durationMs: video.durationMs,
-          quality: "YouTube",
-          source: embed(video.videoId)
-        }))
+        candidates: videos2.flatMap((video) => [
+          { id: `${AUDIO_PREFIX}${video.videoId}`, ...named(video) },
+          { id: video.videoId, ...named(video), source: embed(video.videoId) }
+        ])
       };
+    },
+    resolve: async (args) => {
+      const videoId = args.id.startsWith(AUDIO_PREFIX) ? args.id.slice(AUDIO_PREFIX.length) : args.id;
+      return audioStream(videoId, args);
     }
   });
   var WEB = "https://www.youtube.com";
@@ -576,7 +800,7 @@
     })
   });
   registerProvider(search);
-  registerProvider(streams);
+  registerProvider(streamProvider);
   registerProvider(videos);
   registerProvider(
     defineProvider({

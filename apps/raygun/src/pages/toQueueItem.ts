@@ -27,7 +27,7 @@ export const parseYouTubeId = (input: string): string | null => {
 };
 
 /**
- * Turns what the user typed into a queue item: YouTube links play in YouTube's player, other
+ * Turns what the user typed into a queue item: YouTube links play the video's sound, other
  * http(s) URLs stream, anything else is a file path.
  */
 export const toQueueItem = (location: string, referer: string): QueueItemInput | null => {

@@ -395,9 +395,10 @@ impl CaptionService {
     }
 
     /// Hears a song's words (M46.36): from its downloaded copy, else a stream one of the sources
-    /// has (YouTube's player gives none). The lines become the song's synced lyrics, to edit like
-    /// any others. The job's key is [`song_key`]. The song goes first in the song queue; one
-    /// heard to the end before is heard anew, one stopped partway goes on from there.
+    /// has (a YouTube video's own audio file too, M46.51). The lines become the song's synced
+    /// lyrics, to edit like any others. The job's key is [`song_key`]. The song goes first in the
+    /// song queue; one heard to the end before is heard anew, one stopped partway goes on from
+    /// there.
     pub async fn transcribe_song(self: &Arc<Self>, query: TrackQuery) -> Result<(), String> {
         let prefs = self.prefs().await;
         self.engine(&prefs).await?;
@@ -643,8 +644,9 @@ impl CaptionService {
     }
 
     /// What a song sounds like, for hearing its words: its downloaded copy, else the first stream
-    /// the resolver finds that names it (not YouTube's, whose player gives no sound to hear).
-    /// Errors say what was tried, in words, with the details on the lines after.
+    /// the resolver finds that names it, a YouTube video's own audio file included (M46.51: M4A,
+    /// which decodes here). Errors say what was tried, in words, with the details on the lines
+    /// after.
     async fn song_sound(&self, query: &TrackQuery) -> Result<VideoAudio, String> {
         let songs = self
             .app
@@ -667,8 +669,13 @@ impl CaptionService {
             .inner()
             .clone();
         let media = self.app.state::<raygun_net::MediaLinks>().inner().clone();
-        let mut exclusions = crate::resolution::Exclusions::default();
-        let mut youtube = false;
+        // Streams read here: sources with several formats give one that decodes (M46.51).
+        let mut exclusions = crate::resolution::Exclusions {
+            decodable: true,
+            ..crate::resolution::Exclusions::default()
+        };
+        let using = resolver.stream_use(None, true).await;
+        let mut heard_videos: Vec<String> = Vec::new();
         let mut unresolved = None;
         for _ in 0..SONG_TRIES {
             let pick = match resolver.resolve(query, &exclusions).await {
@@ -680,7 +687,27 @@ impl CaptionService {
             };
             exclusions.tried.push(pick.key.clone());
             exclusions.failed_sources.push(pick.source.clone());
-            let opened = match &pick.source {
+            // YouTube's embed has no sound to read: the video's own audio file has (M46.51).
+            let source = match &pick.source {
+                raygun_model::MediaSource::YouTube { video_id } => {
+                    if heard_videos.contains(video_id) {
+                        continue;
+                    }
+                    heard_videos.push(video_id.clone());
+                    match resolver.youtube_audio(video_id, using).await {
+                        Ok(stream) => stream.source,
+                        Err(error) => {
+                            failures.push((format!("{}'s stream", pick.provider_name), error));
+                            continue;
+                        }
+                    }
+                }
+                source => source.clone(),
+            };
+            if let Some(video_id) = crate::resolver::youtube_video(&pick.key) {
+                heard_videos.push(video_id.to_owned());
+            }
+            let opened = match &source {
                 raygun_model::MediaSource::Url { url, headers } => {
                     let Some(link) = media.link(url, headers) else {
                         continue;
@@ -699,18 +726,15 @@ impl CaptionService {
                         .map_err(to_message)?
                         .map(VideoAudio::File)
                 }
-                raygun_model::MediaSource::YouTube { .. } => {
-                    youtube = true;
-                    continue;
-                }
-                raygun_model::MediaSource::Lookup { .. } => continue,
+                raygun_model::MediaSource::YouTube { .. }
+                | raygun_model::MediaSource::Lookup { .. } => continue,
             };
             match opened {
                 Ok(sound) => return Ok(sound),
                 Err(error) => failures.push((format!("{}'s stream", pick.provider_name), error)),
             }
         }
-        Err(no_sound(&failures, youtube, unresolved.as_deref()))
+        Err(no_sound(&failures, unresolved.as_deref()))
     }
 
     /// Keeps what was heard of a song as its own synced lyrics (M46.36).
@@ -1294,8 +1318,6 @@ pub const TRANSCRIBED: &str = "transcribed";
 const SONG_PREFIX: &str = "song:";
 const UNEXPECTED: &str = "Transcribing stopped unexpectedly: try again";
 const NO_WORDS: &str = "No words were heard in this song";
-const YOUTUBE_ONLY: &str =
-    "Only YouTube has this song, and its player gives no sound to hear: download the song first";
 
 /// The captions key of a song's transcription (M46.36): `song:` and its track key.
 pub fn song_key(query: &TrackQuery) -> String {
@@ -1303,7 +1325,7 @@ pub fn song_key(query: &TrackQuery) -> String {
 }
 
 /// Why no sound was found for a song: the first line says it in words, the rest are details.
-fn no_sound(failures: &[(String, String)], youtube: bool, unresolved: Option<&str>) -> String {
+fn no_sound(failures: &[(String, String)], unresolved: Option<&str>) -> String {
     let details: Vec<String> = failures
         .iter()
         .map(|(what, error)| format!("{what}: {error}"))
@@ -1311,7 +1333,6 @@ fn no_sound(failures: &[(String, String)], youtube: bool, unresolved: Option<&st
         .collect();
     let headline = match failures.first() {
         Some((what, _)) => format!("Couldn't read {what} of this song"),
-        None if youtube => YOUTUBE_ONLY.to_owned(),
         None => "No source has this song to hear".to_owned(),
     };
     std::iter::once(headline)
@@ -1505,19 +1526,30 @@ mod tests {
 
     #[test]
     fn failures_say_what_was_tried_first() {
-        let youtube = no_sound(&[], true, Some("no stream"));
-        assert!(youtube.starts_with(YOUTUBE_ONLY), "{youtube}");
-        let none = no_sound(&[], false, Some("no stream matched"));
+        let none = no_sound(&[], Some("no stream matched"));
         assert_eq!(none, "No source has this song to hear\nno stream matched");
         let unreadable = no_sound(
             &[("Audius's stream".into(), "unsupported codec".into())],
-            true,
             None,
         );
         assert_eq!(
             unreadable,
             "Couldn't read Audius's stream of this song\nAudius's stream: unsupported codec"
         );
+        // YouTube's own audio file that wasn't given is one more source that was tried (M46.51).
+        let youtube = no_sound(
+            &[(
+                "YouTube's stream".into(),
+                "YouTube didn't give a stream for it".into(),
+            )],
+            None,
+        );
+        assert_eq!(
+            youtube,
+            "Couldn't read YouTube's stream of this song\nYouTube's stream: YouTube didn't give \
+             a stream for it"
+        );
+        assert!(!youtube.to_lowercase().contains("only youtube"));
         assert_eq!(
             song_failure("Couldn't read the sound at 1:30\nend of stream", true),
             "Couldn't read the sound at 1:30. What was heard is kept; trying again goes on from \

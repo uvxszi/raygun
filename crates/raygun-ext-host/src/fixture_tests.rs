@@ -586,8 +586,17 @@ async fn youtube_searches_youtube_music_without_a_key_or_the_api_with_one() {
         )
         .await;
     let candidates = candidates[0].result.as_ref().unwrap();
-    assert_eq!(candidates[0].id, "abc123def45");
+    // Each video twice (M46.51): its audio file, resolved when tried, then its embed.
+    assert_eq!(candidates[0].id, "audio:abc123def45");
+    assert_eq!(candidates[0].source, None);
     assert_eq!(candidates[0].quality.as_deref(), Some("YouTube"));
+    assert_eq!(candidates[1].id, "abc123def45");
+    assert_eq!(
+        candidates[1].source,
+        Some(raygun_model::MediaSource::YouTube {
+            video_id: "abc123def45".into()
+        })
+    );
 
     // With a key: the official API.
     let host = load("test-key").await;
@@ -618,6 +627,166 @@ async fn youtube_searches_youtube_music_without_a_key_or_the_api_with_one() {
             .unwrap()
             .contains("quota is used up")
     );
+}
+
+/// YouTube's `player` as the app clients get it (M46.51): VISIONOS hands out addresses whose
+/// streams are refused, ANDROID_VR gets the bot check, iOS's work.
+fn youtube_player_app(visionos_asks: std::sync::Arc<std::sync::atomic::AtomicUsize>) -> Router {
+    const VISITOR: &str = "CgtGaXh0dXJlVmlzaXRvcg%3D%3D";
+    Router::new()
+        .route(
+            "/sw.js_data",
+            get(|| async {
+                format!(r#")]}}'
+[["data",null,[[[0,1,2,3,4,5,6,7,8,9,10,11,12,"{VISITOR}"]]]]]"#)
+            }),
+        )
+        .route(
+            "/youtubei/v1/player",
+            post(move |headers: axum::http::HeaderMap, body: String| {
+                let visionos_asks = visionos_asks.clone();
+                async move {
+                    let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+                    let client = &body["context"]["client"];
+                    assert_eq!(client["visitorData"], VISITOR, "the visitor data goes along");
+                    assert_eq!(headers["x-goog-visitor-id"], VISITOR);
+                    let video = body["videoId"].as_str().unwrap().to_owned();
+                    let name = client["clientName"].as_str().unwrap().to_ascii_lowercase();
+                    if name == "visionos" {
+                        visionos_asks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    if video == "gone0000000" {
+                        return json_response(
+                            StatusCode::OK,
+                            json!({ "playabilityStatus": { "status": "ERROR", "reason": "Video unavailable" } }),
+                        );
+                    }
+                    if name == "android_vr" {
+                        return json_response(
+                            StatusCode::OK,
+                            json!({ "playabilityStatus": { "status": "LOGIN_REQUIRED", "reason": "Sign in to confirm you're not a bot" } }),
+                        );
+                    }
+                    let format = |itag: u32, mime: &str, bitrate: u32| {
+                        json!({
+                            "itag": itag,
+                            "mimeType": mime,
+                            "bitrate": bitrate,
+                            "averageBitrate": bitrate,
+                            "url": format!("http://{}/videoplayback?client={name}&itag={itag}", headers["host"].to_str().unwrap()),
+                        })
+                    };
+                    json_response(
+                        StatusCode::OK,
+                        json!({
+                            "playabilityStatus": { "status": "OK" },
+                            "streamingData": {
+                                "expiresInSeconds": "21540",
+                                "adaptiveFormats": [
+                                    { "itag": 137, "mimeType": "video/mp4; codecs=\"avc1\"", "bitrate": 4_000_000,
+                                      "url": "http://example.invalid/video" },
+                                    format(140, "audio/mp4; codecs=\"mp4a.40.2\"", 130_000),
+                                    format(250, "audio/webm; codecs=\"opus\"", 70_000),
+                                    format(251, "audio/webm; codecs=\"opus\"", 150_000),
+                                    { "itag": 251, "mimeType": "audio/webm; codecs=\"opus\"", "bitrate": 150_000,
+                                      "signatureCipher": "s=x&sp=sig&url=y" },
+                                ],
+                            },
+                        }),
+                    )
+                }
+            }),
+        )
+        .route(
+            "/videoplayback",
+            get(|uri: Uri, headers: axum::http::HeaderMap| async move {
+                let params = query_params(&uri);
+                if params["client"] == "visionos" {
+                    return StatusCode::FORBIDDEN.into_response();
+                }
+                assert!(headers.contains_key(header::RANGE), "asked for by range");
+                (
+                    StatusCode::PARTIAL_CONTENT,
+                    [(header::CONTENT_TYPE, "audio/webm")],
+                    "ok",
+                )
+                    .into_response()
+            }),
+        )
+}
+
+#[tokio::test]
+async fn youtube_hands_out_audio_files_from_the_first_client_whose_streams_play() {
+    use std::sync::atomic::Ordering;
+
+    let visionos_asks = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let address = serve(youtube_player_app(visionos_asks.clone()));
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(vec![patched_extension_bases(
+        "youtube",
+        &["https://www.youtube.com"],
+        address,
+    )])
+    .await;
+    const STREAMS: &str = "dev.raygun.youtube/stream";
+    let url_of = |source: &raygun_model::MediaSource| match source {
+        raygun_model::MediaSource::Url { url, headers } => (url.clone(), headers.clone()),
+        other => panic!("not a file: {other:?}"),
+    };
+
+    // VISIONOS's stream is refused, ANDROID_VR meets the bot check: iOS's Opus, the best there is.
+    let played = host
+        .resolve_stream(
+            STREAMS,
+            "audio:abc123def45",
+            crate::host::StreamUse::default(),
+        )
+        .await
+        .unwrap();
+    let (url, headers) = url_of(&played.source);
+    assert!(url.ends_with("client=ios&itag=251"), "{url}");
+    assert!(headers["User-Agent"].starts_with("com.google.ios.youtube/"));
+    assert!(played.expires_at.is_some());
+    assert_eq!(visionos_asks.load(Ordering::SeqCst), 1);
+
+    // Read by Raygun: the M4A. iOS, which worked, is asked first now.
+    let read = host
+        .resolve_stream(
+            STREAMS,
+            "abc123def45",
+            crate::host::StreamUse {
+                quality: raygun_resolver::QualityTarget::Kbps(128),
+                decodable: true,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(url_of(&read.source).0.ends_with("client=ios&itag=140"));
+    assert_eq!(visionos_asks.load(Ordering::SeqCst), 1, "not asked again");
+    // The bitrate nearest a low target.
+    let low = host
+        .resolve_stream(
+            STREAMS,
+            "abc123def45",
+            crate::host::StreamUse {
+                quality: raygun_resolver::QualityTarget::Kbps(64),
+                decodable: false,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(url_of(&low.source).0.ends_with("itag=250"));
+
+    // A video YouTube has no more says so.
+    let error = host
+        .resolve_stream(
+            STREAMS,
+            "audio:gone0000000",
+            crate::host::StreamUse::default(),
+        )
+        .await
+        .unwrap_err();
+    assert!(error.detail().contains("Video unavailable"), "{error}");
 }
 
 #[test]

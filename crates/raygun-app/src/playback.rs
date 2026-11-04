@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 
 use raygun_model::{
     ConnectCommand, EngineCommand, EngineEvent, EngineReport, MediaSource, PlayContext,
-    PlaybackControl, PlaybackState, QueueItem, QueueItemInput, QueueSnapshot, SleepTimer,
-    SoundPrefs, TrackQuery,
+    PlaybackControl, PlaybackState, PlaybackStatus, QueueItem, QueueItemInput, QueueSnapshot,
+    SleepTimer, SoundPrefs, TrackQuery,
 };
 use raygun_net::StreamProxy;
 use raygun_playback::{Effect, PlaybackCore};
@@ -454,6 +454,53 @@ impl PlaybackService {
                 outbox
                     .engine
                     .push((engine, EngineCommand::SetEffects { sound }));
+            }
+        }
+        self.send(outbox);
+    }
+
+    /// A YouTube song's video shown or hidden (M46.51). YouTube songs play as their audio file,
+    /// and in YouTube's embed while the video shows: showing it moves the song playing now there,
+    /// from where it is. Hiding it leaves the song where it plays; the next one plays its file.
+    pub fn set_video(&self, shown: bool) {
+        let mut outbox = Outbox::default();
+        {
+            let mut inner = self.lock();
+            if !inner.tracker.set_video(shown) || !shown {
+                return;
+            }
+            let Some(item) = inner.core.current_item().cloned() else {
+                return;
+            };
+            let load_id = inner.core.load_id();
+            let in_embed = matches!(
+                inner.tracker.playing(load_id),
+                Some(MediaSource::YouTube { .. })
+            );
+            if !matches!(item.source, MediaSource::YouTube { .. }) || in_embed {
+                return;
+            }
+            let state = inner.core.state();
+            let autoplay = matches!(
+                state.status,
+                PlaybackStatus::Playing | PlaybackStatus::Buffering | PlaybackStatus::Loading
+            );
+            if inner
+                .tracker
+                .begin(load_id, &item, state.position_ms, autoplay)
+                == LoadPlan::Direct
+            {
+                let source = item.source.clone();
+                self.load_into(
+                    &mut inner,
+                    &mut outbox,
+                    load_id,
+                    &item,
+                    &source,
+                    state.position_ms,
+                    autoplay,
+                    0.0,
+                );
             }
         }
         self.send(outbox);

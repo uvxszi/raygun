@@ -733,6 +733,25 @@ async fn serve_file(path: &str, request: Request) -> Response {
     }
 }
 
+/// The client's `Range`, or `bytes=0-` for a stream that must be asked for by range (YouTube's,
+/// [`crate::wants_range`]); `true` when it was added, so the whole file goes back as asked.
+fn upstream_range(url: &str, request_headers: &HeaderMap) -> (Option<HeaderValue>, bool) {
+    match request_headers.get(header::RANGE) {
+        Some(range) => (Some(range.clone()), false),
+        None if crate::wants_range(url) => (Some(HeaderValue::from_static("bytes=0-")), true),
+        None => (None, false),
+    }
+}
+
+/// The status the player gets: the whole file it asked for is `200`, though asked for by range.
+fn client_status(status: reqwest::StatusCode, added_range: bool) -> u16 {
+    if added_range && status == reqwest::StatusCode::PARTIAL_CONTENT {
+        200
+    } else {
+        status.as_u16()
+    }
+}
+
 async fn forward(
     client: &reqwest::Client,
     url: &str,
@@ -743,7 +762,8 @@ async fn forward(
     for (name, value) in source_headers {
         upstream = upstream.header(name, value);
     }
-    if let Some(range) = request_headers.get(header::RANGE) {
+    let (range, added_range) = upstream_range(url, request_headers);
+    if let Some(range) = range {
         upstream = upstream.header(header::RANGE, range);
     }
 
@@ -755,8 +775,12 @@ async fn forward(
         }
     };
 
-    let mut response = Response::builder().status(upstream.status().as_u16());
+    let status = client_status(upstream.status(), added_range);
+    let mut response = Response::builder().status(status);
     for name in FORWARDED_RESPONSE_HEADERS {
+        if status == 200 && name == header::CONTENT_RANGE {
+            continue;
+        }
         if let Some(value) = upstream.headers().get(&name) {
             response = response.header(name, value.as_bytes());
         }
@@ -804,7 +828,8 @@ async fn forward_media(
     for (name, value) in source_headers {
         upstream = upstream.header(name, value);
     }
-    if let Some(range) = request_headers.get(header::RANGE) {
+    let (range, added_range) = upstream_range(url.as_str(), request_headers);
+    if let Some(range) = range {
         upstream = upstream.header(header::RANGE, range);
     }
     let upstream = match upstream.send().await {
@@ -815,9 +840,13 @@ async fn forward_media(
         }
     };
     let status = upstream.status();
+    let shown_status = client_status(status, added_range);
     let final_url = upstream.url().clone();
     let mut forwarded = Vec::new();
     for name in FORWARDED_RESPONSE_HEADERS {
+        if shown_status == 200 && name == header::CONTENT_RANGE {
+            continue;
+        }
         if let Some(value) = upstream.headers().get(&name) {
             forwarded.push((name, value.clone()));
         }
@@ -841,7 +870,7 @@ async fn forward_media(
         None
     };
     let Some(kind) = kind else {
-        let mut response = Response::builder().status(status.as_u16());
+        let mut response = Response::builder().status(shown_status);
         for (name, value) in forwarded {
             response = response.header(name, value);
         }

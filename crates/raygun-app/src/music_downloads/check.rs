@@ -3,13 +3,18 @@
 //! (Find a source, a source switch: a newer remembered pick than the download), or other names
 //! (Edit details) its stream doesn't carry.
 
+use std::collections::HashMap;
 use std::path::Path;
 
-use raygun_db::music_downloads::SongDownloadRow;
+use raygun_db::music_downloads::{Origin, SongDownloadRow};
 use raygun_db::streams::CandidateRow;
 use raygun_model::{MediaSource, SongDownloadProblem, SongDownloadProblemKind};
+use raygun_resolver::CandidateKey;
 
 use super::{covers_title, names_artist, source_name, transcode};
+
+/// Sources' names by their provider id, for saying which one a song has now.
+pub type Names = HashMap<String, String>;
 
 /// What's wrong with a saved file: gone, another size than it was saved at (`recorded` bytes),
 /// or not audio anymore. Blocking.
@@ -61,6 +66,7 @@ pub fn current_pick<'a>(
 pub fn source_problem(
     row: &SongDownloadRow,
     picks: &[CandidateRow],
+    names: &Names,
 ) -> Option<SongDownloadProblem> {
     let pick = current_pick(row, picks)?;
     let origin = &row.origin;
@@ -70,15 +76,47 @@ pub fn source_problem(
         (Some(was), Some(now)) => same_media(was, now),
         _ => false,
     };
-    if same_stream || same_source {
+    // One YouTube video, its audio file or its embed, whatever address it had (M46.51).
+    let same_video = origin_video(origin).is_some_and(|was| pick_video(pick) == Some(was));
+    if same_stream || same_source || same_video {
         return None;
     }
     Some(SongDownloadProblem {
         kind: SongDownloadProblemKind::SourceChanged,
         was: row.provider.clone(),
-        now: Some(pick_name(pick)),
+        now: Some(pick_name(pick, names)),
         detail: None,
     })
+}
+
+/// The YouTube video a source (JSON) plays in the embed.
+fn embedded_video(source: Option<&str>) -> Option<String> {
+    match serde_json::from_str::<MediaSource>(source?).ok()? {
+        MediaSource::YouTube { video_id } => Some(video_id),
+        _ => None,
+    }
+}
+
+/// The YouTube video a saved copy came from, if it did.
+fn origin_video(origin: &Origin) -> Option<String> {
+    let key = CandidateKey {
+        provider_id: origin.provider.clone()?,
+        candidate_id: origin.stream.clone().unwrap_or_default(),
+    };
+    crate::resolver::youtube_video(&key)
+        .map(str::to_owned)
+        .or_else(|| embedded_video(origin.source.as_deref()))
+}
+
+/// The YouTube video a pick plays, if it does.
+fn pick_video(pick: &CandidateRow) -> Option<String> {
+    let key = CandidateKey {
+        provider_id: pick.provider_id.clone(),
+        candidate_id: pick.candidate_id.clone(),
+    };
+    crate::resolver::youtube_video(&key)
+        .map(str::to_owned)
+        .or_else(|| embedded_video(pick.source.as_deref()))
 }
 
 /// Whether two sources (JSON) are one stream: the same address or video.
@@ -95,11 +133,10 @@ fn same_media(was: &str, now: &str) -> bool {
     }
 }
 
-/// What a pick is called: its source's name (an extension's id, or the name it was picked
-/// under), else its site.
-pub fn pick_name(pick: &CandidateRow) -> String {
-    if pick.provider_id != "picked" {
-        return pick.provider_id.clone();
+/// What a pick is called: its source's name (from `names`), else its site, or what it's titled.
+pub fn pick_name(pick: &CandidateRow, names: &Names) -> String {
+    if let Some(name) = names.get(&pick.provider_id) {
+        return name.clone();
     }
     match pick
         .source
@@ -199,24 +236,31 @@ mod tests {
 
     #[test]
     fn a_song_given_another_source_after_it_downloaded_is_told() {
+        let names = Names::from([("jamendo".to_owned(), "Jamendo".to_owned())]);
         let saved = row();
         // Picks from before it downloaded don't count, nor the stream it came from.
         assert_eq!(
             source_problem(
                 &saved,
-                &[pick("jamendo", "9", "https://jamendo.com/9", 500)]
+                &[pick("jamendo", "9", "https://jamendo.com/9", 500)],
+                &names
             ),
             None
         );
         assert_eq!(
             source_problem(
                 &saved,
-                &[pick("audius", "track-1", "https://audius.co/1", 2_000)]
+                &[pick("audius", "track-1", "https://audius.co/1", 2_000)],
+                &names
             ),
             None
         );
         assert_eq!(
-            source_problem(&saved, &[pick("other", "x", "https://audius.co/1", 2_000)]),
+            source_problem(
+                &saved,
+                &[pick("other", "x", "https://audius.co/1", 2_000)],
+                &names
+            ),
             None,
             "the same address under another name is the same stream"
         );
@@ -227,6 +271,7 @@ mod tests {
                 pick("audius", "track-1", "https://audius.co/1", 1_500),
                 pick("picked", "p", "https://archive.org/details/swim.mp3", 3_000),
             ],
+            &names,
         )
         .unwrap();
         assert_eq!(problem.kind, SongDownloadProblemKind::SourceChanged);
@@ -237,17 +282,66 @@ mod tests {
         // A newer pick that failed since isn't the song's source.
         let mut failed = pick("jamendo", "9", "https://jamendo.com/9", 2_000);
         failed.failed_at = Some(2_500);
-        assert_eq!(source_problem(&saved, &[failed]), None);
+        assert_eq!(source_problem(&saved, &[failed], &names), None);
         // A download from before origins were kept: any pick since is another source.
         let mut old = row();
         old.origin = Origin::default();
         assert!(
             source_problem(
                 &old,
-                &[pick("audius", "track-1", "https://audius.co/1", 2_000)]
+                &[pick("audius", "track-1", "https://audius.co/1", 2_000)],
+                &names
             )
             .is_some()
         );
+    }
+
+    #[test]
+    fn a_youtube_copy_stays_the_same_video_whatever_address_it_plays_from() {
+        let youtube = crate::resolver::YOUTUBE_STREAMS;
+        let names = Names::from([(youtube.to_owned(), "YouTube".to_owned())]);
+        let audio_file = |at: i64| {
+            CandidateRow {
+            provider_id: youtube.into(),
+            candidate_id: "audio:dQw4w9WgXcQ".into(),
+            title: "Swim".into(),
+            source: Some(
+                r#"{"kind":"url","url":"https://rr1---sn-x.googlevideo.com/videoplayback?sig=2","headers":{}}"#
+                    .into(),
+            ),
+            expires_at: Some(9_000),
+            verified_at: Some(at),
+            failed_at: None,
+            bitrate_kbps: None,
+        }
+        };
+        // Saved from the song's own YouTube video, then played as its audio file.
+        let mut saved = row();
+        saved.origin = Origin {
+            provider: Some("own".into()),
+            stream: None,
+            source: Some(r#"{"kind":"youTube","videoId":"dQw4w9WgXcQ"}"#.into()),
+            title: Some("Swim".into()),
+            artist: None,
+        };
+        assert_eq!(source_problem(&saved, &[audio_file(2_000)], &names), None);
+        // Saved from another address of that file.
+        saved.origin = Origin {
+            provider: Some(youtube.into()),
+            stream: Some("audio:dQw4w9WgXcQ".into()),
+            source: Some(
+                r#"{"kind":"url","url":"https://rr9---sn-y.googlevideo.com/videoplayback?sig=1","headers":{}}"#
+                    .into(),
+            ),
+            title: Some("Swim".into()),
+            artist: None,
+        };
+        assert_eq!(source_problem(&saved, &[audio_file(2_000)], &names), None);
+        // Another video is another source, named as the listener knows it.
+        let mut other = audio_file(2_000);
+        other.candidate_id = "audio:otherVideo1".into();
+        let problem = source_problem(&saved, &[other], &names).unwrap();
+        assert_eq!(problem.now.as_deref(), Some("YouTube"));
     }
 
     #[test]

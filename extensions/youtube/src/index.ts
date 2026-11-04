@@ -10,11 +10,24 @@
 // videos) and reads a video's comments. The response shapes (lockup view models, comment entity
 // payloads) were read from Grayjay's YouTube plugin (futo-org/grayjay-plugin-youtube, AGPL-3.0).
 //
-// Deliberately no direct stream extraction (signature deciphering, proof-of-origin tokens): those
-// defeat YouTube's bot checks. The embed pauses when Android backgrounds the app, so the resolver
-// prefers direct streams and keeps YouTube as the fallback.
+// M46.51: songs play and download as YouTube's own audio files (Opus or M4A), so Android plays
+// them in its own player, in the background too. They come from InnerTube's `player` request
+// with YouTube's public app clients, the way Grayjay's YouTube plugin asks for them (VISIONOS,
+// ANDROID_VR, iOS, Android; adapted from futo-org/grayjay-plugin-youtube, AGPL-3.0): those
+// clients' answers carry plain stream addresses. Nothing is deciphered and no proof-of-origin
+// token is made: a client whose streams want one is skipped, as every stream is checked with a
+// two-byte request before it's handed out. The embed stays the fallback.
 import { defineProvider, registerProvider } from '@raygun/sdk';
-import type { LyricsQuery, MangaPage, MediaSource, Playlist, Track } from '@raygun/sdk';
+import type {
+  LyricsQuery,
+  MangaPage,
+  MediaSource,
+  Playlist,
+  ResolveArgs,
+  ResolvedStream,
+  StreamCandidate,
+  Track,
+} from '@raygun/sdk';
 
 type Video = {
   videoId: string;
@@ -128,7 +141,9 @@ const innertube = async <T>(endpoint: string, body: Record<string, unknown>): Pr
     throw new Error('YouTube is limiting requests from this network; try again in a while');
   }
   if (!response.ok) throw new Error(`YouTube Music answered HTTP ${response.status}`);
-  return response.json<T>();
+  const answer = await response.json<T & { responseContext?: { visitorData?: string } }>();
+  rememberVisitor(answer.responseContext?.visitorData);
+  return answer;
 };
 
 const pageType = (run: Run) =>
@@ -488,27 +503,328 @@ const search = defineProvider({
   },
 });
 
-const streams = defineProvider({
+// ---- Audio streams (M46.51) ----
+
+/** A YouTube app InnerTube answers `player` for: its context and the User-Agent it sends. */
+type PlayerClient = {
+  name: string;
+  /** `X-YouTube-Client-Name`. */
+  id: number;
+  version: string;
+  userAgent: string;
+  context: Record<string, string | number>;
+};
+
+/**
+ * The clients asked, in this order (the last one that worked goes first). Their answers carry
+ * plain addresses; ones whose streams want a proof-of-origin token fail the check and are passed.
+ */
+const PLAYER_CLIENTS: PlayerClient[] = [
+  {
+    name: 'VISIONOS',
+    id: 101,
+    version: '1.04',
+    userAgent:
+      'com.google.visionos.youtube/1.04 (RealityDevice17,1; U; CPU visionOS 26_6_0 like Mac OS X; US) gzip',
+    context: {
+      deviceMake: 'Apple',
+      deviceModel: 'RealityDevice17,1',
+      osName: 'visionOS',
+      osVersion: '26.6.0',
+    },
+  },
+  {
+    name: 'ANDROID_VR',
+    id: 28,
+    version: '1.65.10',
+    userAgent:
+      'com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; en_US; Quest 3 Build/SQ3A.220605.009.A1) gzip',
+    context: {
+      deviceMake: 'Oculus',
+      deviceModel: 'Quest 3',
+      osName: 'Android',
+      osVersion: '12L',
+      androidSdkVersion: 32,
+      platform: 'MOBILE',
+    },
+  },
+  {
+    name: 'IOS',
+    id: 5,
+    version: '20.10.4',
+    userAgent: 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
+    context: {
+      deviceMake: 'Apple',
+      deviceModel: 'iPhone16,2',
+      osName: 'iPhone',
+      osVersion: '18.3.2.22D82',
+    },
+  },
+  {
+    name: 'ANDROID',
+    id: 3,
+    version: '20.10.38',
+    userAgent: 'com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip',
+    context: { osName: 'Android', osVersion: '11', androidSdkVersion: 30, platform: 'MOBILE' },
+  },
+];
+
+type AudioFormat = {
+  itag: number;
+  url?: string;
+  mimeType: string;
+  bitrate?: number;
+  averageBitrate?: number;
+  isDrc?: boolean;
+  audioTrack?: { audioIsDefault?: boolean };
+};
+type PlayerAnswer = {
+  playabilityStatus?: { status?: string; reason?: string };
+  streamingData?: { expiresInSeconds?: string; adaptiveFormats?: AudioFormat[] };
+};
+
+/** Candidates whose stream is YouTube's audio file; the rest play in the embed. */
+const AUDIO_PREFIX = 'audio:';
+/** Visitor data is read again after this long. */
+const VISITOR_TTL_MS = 12 * 60 * 60 * 1000;
+/** After this many songs in a row without a stream, streams aren't asked for a while. */
+const FAILURES_TO_REST = 3;
+const REST_MS = 10 * 60 * 1000;
+
+let visitor: { value: string; at: number } | null = null;
+let preferredClient = 0;
+let failuresInARow = 0;
+let restingUntil = 0;
+
+/** A visitor token as YouTube hands them out (base64 starting `Cg`). */
+const isVisitor = (value: unknown): value is string =>
+  typeof value === 'string' && /^Cg[\w%-]{12,}/.test(value);
+
+/** Keeps the visitor data an InnerTube answer carries: the anonymous session YouTube expects. */
+const rememberVisitor = (value: unknown) => {
+  if (!isVisitor(value) || visitor?.value === value) return;
+  visitor = { value, at: Date.now() };
+  try {
+    raygun.storage.set('visitor', visitor);
+  } catch {
+    // Kept in memory only.
+  }
+};
+
+/** The first visitor token anywhere in an answer. */
+const findVisitor = (value: unknown, depth = 0): string | null => {
+  if (isVisitor(value)) return value;
+  if (depth > 8 || value === null || typeof value !== 'object') return null;
+  for (const child of Object.values(value as Record<string, unknown>)) {
+    const found = findVisitor(child, depth + 1);
+    if (found) return found;
+  }
+  return null;
+};
+
+/** The visitor data `player` requests carry: kept, else read from youtube.com's service worker data. */
+const visitorData = async (): Promise<string | null> => {
+  if (!visitor) {
+    try {
+      const stored = raygun.storage.get<{ value: string; at: number }>('visitor');
+      if (stored && isVisitor(stored.value)) visitor = stored;
+    } catch {
+      // Nothing kept.
+    }
+  }
+  if (visitor && Date.now() - visitor.at < VISITOR_TTL_MS) return visitor.value;
+  const response = await raygun.http.fetch(`${WEB}/sw.js_data`, {
+    headers: { 'User-Agent': USER_AGENT },
+  });
+  if (response.ok) {
+    const text = await response.text();
+    const start = text.indexOf('[');
+    if (start >= 0) {
+      const data = JSON.parse(text.slice(start)) as unknown;
+      const known = (data as unknown[][][][][])?.[0]?.[2]?.[0]?.[0]?.[13];
+      rememberVisitor(isVisitor(known) ? known : findVisitor(data));
+    }
+  }
+  return visitor?.value ?? null;
+};
+
+/** One client's `player` answer for a video. */
+const askPlayer = async (client: PlayerClient, videoId: string, visitorValue: string | null) => {
+  const response = await raygun.http.fetch(`${WEB}/youtubei/v1/player?prettyPrint=false`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': client.userAgent,
+      'X-Goog-Api-Format-Version': '2',
+      'X-YouTube-Client-Name': String(client.id),
+      'X-YouTube-Client-Version': client.version,
+      ...(visitorValue ? { 'X-Goog-Visitor-Id': visitorValue } : {}),
+    },
+    body: JSON.stringify({
+      context: {
+        client: {
+          clientName: client.name,
+          clientVersion: client.version,
+          ...client.context,
+          hl: 'en',
+          gl: region() || 'US',
+          utcOffsetMinutes: 0,
+          ...(visitorValue ? { visitorData: visitorValue } : {}),
+        },
+        user: { lockedSafetyMode: false },
+      },
+      videoId,
+      contentCheckOk: true,
+      racyCheckOk: true,
+    }),
+  });
+  if (response.status === 429) {
+    throw new Error('YouTube is limiting requests from this network; try again in a while');
+  }
+  if (!response.ok) throw new Error(`YouTube answered HTTP ${response.status}`);
+  return response.json<PlayerAnswer>();
+};
+
+const kbpsOf = (format: AudioFormat) =>
+  Math.round((format.averageBitrate ?? format.bitrate ?? 0) / 1000);
+const isAac = (format: AudioFormat) => format.mimeType.startsWith('audio/mp4');
+
+/** How far `kbps` is from `target`: the percent by which the larger exceeds the smaller. */
+const distance = (kbps: number, target: number) =>
+  (Math.max(kbps, target, 1) * 100) / Math.max(Math.min(kbps, target), 1) - 100;
+
+/**
+ * The audio format to hand out: the nearest to `targetKbps` (the highest without one), Opus on a
+ * tie; AAC (M4A) when Raygun decodes it itself, as it has no Opus decoder. Plain addresses only,
+ * the regular sound (not "stable volume") and the video's own language first.
+ */
+const pickFormat = (
+  formats: readonly AudioFormat[],
+  targetKbps: number | null | undefined,
+  decodable: boolean,
+): AudioFormat | null => {
+  const audio = formats.filter((format) => format.mimeType.startsWith('audio/') && format.url);
+  const regular = audio.filter(
+    (format) => !format.isDrc && format.audioTrack?.audioIsDefault !== false,
+  );
+  const usable = regular.length > 0 ? regular : audio;
+  const aac = usable.filter(isAac);
+  const choices = decodable && aac.length > 0 ? aac : usable;
+  const score = (format: AudioFormat) =>
+    (typeof targetKbps === 'number' && targetKbps > 0
+      ? -distance(kbpsOf(format), targetKbps) * 1000
+      : kbpsOf(format) * 1000) + (isAac(format) === decodable ? 1 : 0);
+  return choices.reduce<AudioFormat | null>(
+    (best, format) => (best === null || score(format) > score(best) ? format : best),
+    null,
+  );
+};
+
+/** When an address stops working, ms: what the answer says, else the address's own `expire`. */
+const expiryOf = (answer: PlayerAnswer, url: string) => {
+  const seconds = Number(answer.streamingData?.expiresInSeconds);
+  if (Number.isFinite(seconds) && seconds > 0) return Date.now() + seconds * 1000;
+  const expire = Number(/[?&]expire=(\d+)/.exec(url)?.[1]);
+  return Number.isFinite(expire) && expire > 0 ? expire * 1000 : null;
+};
+
+/** Whether YouTube's server hands out the stream: two bytes, as a player starts. */
+const streams = async (url: string, userAgent: string) => {
+  try {
+    const response = await raygun.http.fetch(url, {
+      headers: { Range: 'bytes=0-1', 'User-Agent': userAgent },
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+};
+
+/** Why YouTube won't play a video anywhere, in its words. */
+const unplayable = (answer: PlayerAnswer) => {
+  const status = answer.playabilityStatus?.status;
+  const reason = answer.playabilityStatus?.reason?.trim();
+  if (status === 'LOGIN_REQUIRED' && reason && /age/i.test(reason)) {
+    return 'YouTube wants a sign-in to play it (age-restricted)';
+  }
+  if (status === 'UNPLAYABLE' || status === 'ERROR') {
+    return reason ? `YouTube can't play it: ${reason}` : "YouTube can't play it";
+  }
+  return null;
+};
+
+/** YouTube's own audio file of a video, checked to stream, with the headers it wants. */
+const audioStream = async (videoId: string, args: ResolveArgs): Promise<ResolvedStream> => {
+  if (!/^[\w-]{11}$/.test(videoId)) throw new Error('Not a YouTube video');
+  if (Date.now() < restingUntil) throw new Error("YouTube isn't giving streams right now");
+  const visitorValue = await visitorData().catch(() => null);
+  const order = [
+    PLAYER_CLIENTS[preferredClient],
+    ...PLAYER_CLIENTS.filter((_, index) => index !== preferredClient),
+  ].filter((client): client is PlayerClient => client !== undefined);
+  let refusal: string | null = null;
+  for (const client of order) {
+    const answer = await askPlayer(client, videoId, visitorValue).catch((): null => null);
+    if (!answer) continue;
+    const why = unplayable(answer);
+    if (why) {
+      refusal ??= why;
+      // Gone for every client; otherwise another app's client may play it.
+      if (answer.playabilityStatus?.status === 'ERROR') break;
+      continue;
+    }
+    if (answer.playabilityStatus?.status !== 'OK') continue;
+    const format = pickFormat(
+      answer.streamingData?.adaptiveFormats ?? [],
+      args.targetKbps,
+      args.decodable === true,
+    );
+    if (!format?.url || !(await streams(format.url, client.userAgent))) continue;
+    preferredClient = PLAYER_CLIENTS.indexOf(client);
+    failuresInARow = 0;
+    return {
+      source: { kind: 'url', url: format.url, headers: { 'User-Agent': client.userAgent } },
+      expiresAt: expiryOf(answer, format.url),
+    };
+  }
+  if (refusal) throw new Error(refusal);
+  failuresInARow += 1;
+  if (failuresInARow >= FAILURES_TO_REST) {
+    failuresInARow = 0;
+    restingUntil = Date.now() + REST_MS;
+  }
+  throw new Error("YouTube didn't give a stream for it");
+};
+
+const streamProvider = defineProvider({
   kind: 'music.stream',
   id: 'stream',
   name: 'YouTube',
 
+  // Each video twice: its audio file (resolved when it's tried), then its embed, the fallback.
   async candidates({ title, artist, limit }) {
     if (!title.trim()) return { candidates: [] };
     const videos = await searchVideos(
       [artist, title].filter(Boolean).join(' '),
       Math.min(limit, 5),
     );
+    const named = (video: Video) => ({
+      title: video.title,
+      artist: video.artist,
+      durationMs: video.durationMs,
+      quality: 'YouTube',
+    });
     return {
-      candidates: videos.map((video) => ({
-        id: video.videoId,
-        title: video.title,
-        artist: video.artist,
-        durationMs: video.durationMs,
-        quality: 'YouTube',
-        source: embed(video.videoId),
-      })),
+      candidates: videos.flatMap((video): StreamCandidate[] => [
+        { id: `${AUDIO_PREFIX}${video.videoId}`, ...named(video) },
+        { id: video.videoId, ...named(video), source: embed(video.videoId) },
+      ]),
     };
+  },
+
+  resolve: async (args) => {
+    const videoId = args.id.startsWith(AUDIO_PREFIX) ? args.id.slice(AUDIO_PREFIX.length) : args.id;
+    return audioStream(videoId, args);
   },
 });
 
@@ -919,7 +1235,7 @@ const videos = defineProvider({
 });
 
 registerProvider(search);
-registerProvider(streams);
+registerProvider(streamProvider);
 registerProvider(videos);
 registerProvider(
   defineProvider({

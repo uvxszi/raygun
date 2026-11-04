@@ -49,6 +49,11 @@ impl Kind {
         })
     }
 
+    /// Its queue waits in battery saver (unless downloads are allowed in it).
+    pub fn waits_in_battery_saver(self) -> bool {
+        matches!(self, Kind::Songs | Kind::Videos | Kind::Chapters)
+    }
+
     /// Where its downloads are listed.
     pub fn route(self) -> &'static str {
         match self {
@@ -85,13 +90,18 @@ pub enum Phase {
     Running,
     /// Its queue is paused.
     Paused,
+    /// It waits for battery saver to end.
+    Held,
     Done,
     Failed,
 }
 
 impl Phase {
     fn active(self) -> bool {
-        matches!(self, Phase::Queued | Phase::Running | Phase::Paused)
+        matches!(
+            self,
+            Phase::Queued | Phase::Running | Phase::Paused | Phase::Held
+        )
     }
 
     fn moving(self) -> bool {
@@ -467,6 +477,25 @@ impl Tracker {
                 route: kind.route().to_owned(),
             });
         }
+        // Ones held by battery saver: one notification, without a bar that would seem to load.
+        let held: Vec<&Download> = active
+            .iter()
+            .copied()
+            .filter(|d| d.phase == Phase::Held)
+            .collect();
+        if !held.is_empty() {
+            let kinds = kinds_of(held.iter().copied());
+            shown.push(Shown {
+                key: "held".into(),
+                title: "Waiting for battery saver to end".into(),
+                text: kinds_text(held.iter().copied()),
+                info: None,
+                progress: None,
+                ongoing: false,
+                actions: Vec::new(),
+                route: route_for(&kinds),
+            });
+        }
         let foreground = active
             .iter()
             .any(|d| d.phase == Phase::Queued || (d.phase.moving() && !self.stalled(now_ms, d)));
@@ -510,6 +539,23 @@ impl Tracker {
         let progress = (fractions.len() == moving.len() && !fractions.is_empty())
             .then(|| fractions.iter().sum::<f64>() / fractions.len() as f64);
         let kinds = kinds_of(active.iter().copied());
+        if moving.is_empty() {
+            // Paused and held queues only: nothing loads, nothing keeps Raygun running.
+            return Plan {
+                summary: Some(Shown {
+                    key: "summary".into(),
+                    title: format!("{} downloads waiting", active.len()),
+                    text: kinds_text(active.iter().copied()),
+                    info: None,
+                    progress: None,
+                    ongoing: false,
+                    actions: Vec::new(),
+                    route: route_for(&kinds),
+                }),
+                items: shown,
+                foreground,
+            };
+        }
         Plan {
             summary: Some(Shown {
                 key: "summary".into(),

@@ -151,7 +151,7 @@ describe('Downloads beside the Plus (M46.18)', () => {
     commands.songDownloads.mockResolvedValue(
       ok([
         download('failed', {
-          error: 'No source has this song. Choose another source.',
+          error: 'No source has this song.',
           errorDetail: 'Search: No streaming source has “Sinnerman”',
         }),
       ]),
@@ -159,7 +159,7 @@ describe('Downloads beside the Plus (M46.18)', () => {
     const sheet = await openPlayer();
     await user.click(await within(sheet).findByRole('button', { name: 'Download didn’t work' }));
     const confirm = await screen.findByTestId('download-confirm');
-    expect(confirm).toHaveTextContent('No source has this song. Choose another source.');
+    expect(confirm).toHaveTextContent('No source has this song.');
     await user.click(within(confirm).getByRole('button', { name: 'More info' }));
     expect(confirm).toHaveTextContent('Search: No streaming source has “Sinnerman”');
     await user.click(within(confirm).getByRole('button', { name: 'Try again' }));

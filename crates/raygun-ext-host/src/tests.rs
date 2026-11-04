@@ -749,9 +749,11 @@ async fn stream_providers_offer_and_resolve_candidates() {
         { id: 'lookup', title, source: { kind: 'lookup', title, artist: null, album: null, durationMs: null } },
         { id: 'untitled', title: ' ' },
       ].slice(0, limit) }),
-      resolve: async ({ id }) => id === 'lazy'
+      resolve: async ({ id, targetKbps, decodable }) => id === 'lazy'
         ? { source: { kind: 'youTube', videoId: 'dQw4w9WgXcQ' }, expiresAt: 1700000000000 }
-        : { source: { kind: 'localFile', path: '/etc/passwd' } },
+        : id === 'hints'
+          ? { source: { kind: 'url', url: `https://cdn.example.org/${targetKbps}-${decodable}.m4a`, headers: {} } }
+          : { source: { kind: 'localFile', path: '/etc/passwd' } },
     });"#;
     host.load(vec![ExtensionSource::built_in(&[
         ("raygun-extension.json", &manifest),
@@ -784,14 +786,29 @@ async fn stream_providers_offer_and_resolve_candidates() {
     assert_eq!(candidates[0].provider_name, "Streams");
     assert_eq!(candidates[1].source, None);
 
+    let playing = crate::host::StreamUse::default();
     let resolved = host
-        .resolve_stream("dev.raygun.test/streams", "lazy")
+        .resolve_stream("dev.raygun.test/streams", "lazy", playing)
         .await
         .unwrap();
     assert!(matches!(resolved.source, MediaSource::YouTube { .. }));
     assert_eq!(resolved.expires_at, Some(1_700_000_000_000));
+    // What the stream is for reaches the provider (M46.51).
+    let download = crate::host::StreamUse {
+        quality: raygun_resolver::QualityTarget::Kbps(128),
+        decodable: true,
+    };
+    let resolved = host
+        .resolve_stream("dev.raygun.test/streams", "hints", download)
+        .await
+        .unwrap();
+    assert!(
+        matches!(&resolved.source, MediaSource::Url { url, .. } if url.ends_with("/128-true.m4a")),
+        "{:?}",
+        resolved.source
+    );
     let error = host
-        .resolve_stream("dev.raygun.test/streams", "other")
+        .resolve_stream("dev.raygun.test/streams", "other", playing)
         .await
         .unwrap_err();
     assert_eq!(error.kind(), Some(raygun_net::IssueKind::NotFound));
@@ -2088,6 +2105,115 @@ async fn youtube_live_searches_without_a_key() {
         first.source,
         Some(raygun_model::MediaSource::YouTube { .. })
     ));
+}
+
+/// YouTube's own audio files for a few known songs (M46.51), for playing and for downloading
+/// (M4A), each checked by fetching its first MB as a player does:
+/// `cargo test -p raygun-ext-host -- --ignored youtube_streams_live --nocapture`.
+#[tokio::test]
+#[ignore = "needs network access to youtube.com"]
+async fn youtube_streams_live_play_and_download() {
+    use crate::host::StreamUse;
+    use raygun_resolver::QualityTarget;
+
+    const STREAMS: &str = "dev.raygun.youtube/stream";
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(discover_installed(&dir)).await;
+    let client = reqwest::Client::new();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    let songs = [
+        ("Daft Punk", "Get Lucky"),
+        ("Adele", "Hello"),
+        ("Queen", "Bohemian Rhapsody"),
+    ];
+    for (artist, title) in songs {
+        let query = raygun_model::TrackQuery {
+            title: title.into(),
+            artist: Some(artist.into()),
+            album: None,
+            duration_ms: None,
+        };
+        let answers = host.stream_candidates(&query, 10, QualityTarget::Any).await;
+        let youtube = answers
+            .iter()
+            .find(|answer| answer.provider.id == STREAMS)
+            .expect("YouTube offered streams");
+        let candidates = youtube.result.as_ref().expect("YouTube searched");
+        let audio = candidates
+            .iter()
+            .find(|candidate| candidate.source.is_none())
+            .expect("an audio file to resolve");
+        assert!(audio.id.starts_with("audio:"), "{}", audio.id);
+        assert!(
+            candidates
+                .iter()
+                .any(|candidate| matches!(candidate.source, Some(MediaSource::YouTube { .. }))),
+            "the embed stays the fallback"
+        );
+        let video_id = audio.id.trim_start_matches("audio:").to_owned();
+        let uses = [
+            (audio.id.clone(), StreamUse::default()),
+            (
+                video_id,
+                StreamUse {
+                    quality: QualityTarget::Kbps(128),
+                    decodable: true,
+                },
+            ),
+        ];
+        for (id, using) in uses {
+            let resolved = host
+                .resolve_stream(STREAMS, &id, using)
+                .await
+                .unwrap_or_else(|error| panic!("{title}: {error}"));
+            let MediaSource::Url { url, headers } = &resolved.source else {
+                panic!("{title}: not a file: {:?}", resolved.source);
+            };
+            assert!(
+                resolved.expires_at.is_some_and(|at| at > now),
+                "{title}: {:?}",
+                resolved.expires_at
+            );
+            let mut request = client
+                .get(url)
+                .header(reqwest::header::RANGE, "bytes=0-1048575");
+            for (name, value) in headers {
+                request = request.header(name.as_str(), value.as_str());
+            }
+            let response = request.send().await.unwrap();
+            assert_eq!(
+                response.status(),
+                reqwest::StatusCode::PARTIAL_CONTENT,
+                "{title}"
+            );
+            let content_type = response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_owned();
+            assert!(
+                content_type.starts_with("audio/"),
+                "{title}: {content_type}"
+            );
+            if using.decodable {
+                assert!(
+                    content_type.starts_with("audio/mp4"),
+                    "{title}: {content_type}"
+                );
+            }
+            let bytes = response.bytes().await.unwrap();
+            assert_eq!(bytes.len(), 1_048_576, "{title}");
+            println!(
+                "{artist} - {title} ({id}): {content_type}, first MB in hand, until {:?}",
+                resolved.expires_at
+            );
+        }
+    }
 }
 
 /// `cargo test -p raygun-ext-host -- --ignored gutenberg`.

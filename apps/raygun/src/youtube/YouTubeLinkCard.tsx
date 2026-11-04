@@ -1,5 +1,5 @@
 import { commands } from '@raygun/bindings';
-import type { OnlineTrack, YouTubeLink } from '@raygun/bindings';
+import type { OnlineTrack, TrackInput, YouTubeLink } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import { ExternalLink, Music, Play, Video } from 'lucide-react';
 import type { FC } from 'react';
@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 
 import { ROUTES } from '../manga/medium';
 import { useMangaSources } from '../manga/useManga';
+import { DownloadSongButton } from '../music/DownloadSongButton';
 import { playResults } from '../search/useOnlineSearch';
 import { SourceIssue } from '../shell/SourceIssue';
 import { YtDlpJobCard } from './YtDlpJobs';
@@ -28,10 +29,21 @@ const asTrack = (link: YouTubeLink): OnlineTrack => ({
   source: { kind: 'youTube', videoId: link.id },
 });
 
+/** The video's sound as a song to download into the app (M46.51: YouTube's own audio file). */
+const asSong = (link: YouTubeLink): TrackInput => ({
+  title: link.title ?? link.id,
+  artist: link.author,
+  album: null,
+  durationMs: null,
+  artworkUrl: link.thumbnailUrl,
+  source: { kind: 'youTube', videoId: link.id },
+});
+
 /**
  * A YouTube address typed in Search (M46.47): the video with Play, Play as music, and on desktop
- * Download video or Download audio through yt-dlp, with the download's progress. Playlists and
- * channels open on the YouTube extension's pages.
+ * Download video or Download audio through yt-dlp, with the download's progress; elsewhere its
+ * sound downloads as a song (M46.51). Playlists and channels open on the YouTube extension's
+ * pages.
  */
 export const YouTubeLinkCard: FC<{ query: string }> = ({ query }) => {
   const link = useYouTubeLink(query);
@@ -112,6 +124,9 @@ const LinkCard: FC<{ link: YouTubeLink }> = ({ link }) => {
               </button>
             </>
           )}
+          {status.data && !supported && (
+            <DownloadSongButton track={asSong(link)} className="self-center" />
+          )}
         </div>
       ) : youtube ? (
         <Link
@@ -124,9 +139,6 @@ const LinkCard: FC<{ link: YouTubeLink }> = ({ link }) => {
         </Link>
       ) : (
         <p className="text-muted text-sm">{t('youtube.needsExtension')}</p>
-      )}
-      {link.kind === 'video' && status.data && !supported && (
-        <p className="text-muted text-xs">{t('youtube.desktopOnly')}</p>
       )}
       {supported && status.data && (
         <p className="text-muted text-xs">

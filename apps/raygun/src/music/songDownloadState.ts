@@ -57,15 +57,24 @@ export const sectionsOf = (list: readonly SongDownload[]) => {
 /**
  * One line saying where a download stands: "Queued", "Audius · 45% · 3.1 MB of 7 MB · 0:12
  * left", "Capturing from Radio · 40%", "On this device · MP3 · 7.2 MB · Internet Archive"...
+ * `held` when battery saver holds the queue.
  */
 export const useStateLine = () => {
   const { t, i18n } = useTranslation();
   const size = (bytes: number) => formatBytes(bytes, i18n.language);
-  return (item: SongDownload, paused = false) => {
+  return (item: SongDownload, paused = false, held = false) => {
     const again = item.replacing ? t('songs.state.again') : null;
     switch (item.state) {
       case 'queued':
-        return [paused ? t('songs.state.paused') : t('songs.state.queued'), again, item.provider]
+        return [
+          paused
+            ? t('songs.state.paused')
+            : held
+              ? t('songs.state.batterySaver')
+              : t('songs.state.queued'),
+          again,
+          item.provider,
+        ]
           .filter(Boolean)
           .join(' · ');
       case 'downloading': {

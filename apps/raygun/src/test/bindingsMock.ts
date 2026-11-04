@@ -378,6 +378,7 @@ export const bindingsMock = {
     playbackGetState: vi.fn(),
     playbackGetQueue: vi.fn(),
     playbackArmContext: vi.fn(),
+    playbackSetVideo: vi.fn(),
     playbackEnqueue: vi.fn(),
     playbackControl: vi.fn(),
     playbackEngineReport: vi.fn(),
@@ -738,6 +739,7 @@ export const seedBindings = () => {
   commands.playbackGetState.mockResolvedValue(IDLE_STATE);
   commands.playbackGetQueue.mockResolvedValue(EMPTY_QUEUE);
   commands.playbackArmContext.mockResolvedValue(undefined);
+  commands.playbackSetVideo.mockResolvedValue(undefined);
   commands.playbackEnqueue.mockResolvedValue(undefined);
   commands.playbackControl.mockResolvedValue(undefined);
   commands.playbackEngineReport.mockResolvedValue(undefined);

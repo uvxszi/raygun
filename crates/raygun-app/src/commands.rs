@@ -159,6 +159,14 @@ pub fn playback_arm_context(
     playback.arm_context(context);
 }
 
+/// Shows or hides YouTube songs' videos (M46.51): they play as their audio file, and in YouTube's
+/// embed while the video shows (the song playing now moves there).
+#[tauri::command]
+#[specta::specta]
+pub fn playback_set_video(playback: tauri::State<'_, PlaybackService>, shown: bool) {
+    playback.set_video(shown);
+}
+
 /// Adds items to the queue; with `play_now` the first one starts immediately.
 #[tauri::command]
 #[specta::specta]
@@ -1221,9 +1229,9 @@ pub async fn collections_saved_keys(
     collections.saved_keys().await
 }
 
-/// Downloads a song from a picked source (M46.47: Choose a source on a failed or YouTube-only
-/// download), first in the queue; the others are tried after it if it fails. `source` is the
-/// source's name, shown while it downloads and in what went wrong.
+/// Downloads a song from a picked source (M46.47: Choose a source on a failed download), first
+/// in the queue; the others are tried after it if it fails. `source` is the source's name, shown
+/// while it downloads and in what went wrong.
 #[tauri::command]
 #[specta::specta]
 pub async fn song_download_use_source(

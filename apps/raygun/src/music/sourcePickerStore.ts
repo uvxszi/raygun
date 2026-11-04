@@ -17,7 +17,7 @@ export const useSourcePickerStore = create<SourcePickerState>((set) => ({
   close: () => set({ song: null, download: null }),
 }));
 
-/** Choose a source for a failed or YouTube-only download (M46.47). */
+/** Choose a source for a failed download (M46.47). */
 export const chooseDownloadSource = (item: SongDownload) =>
   useSourcePickerStore.getState().open(
     {

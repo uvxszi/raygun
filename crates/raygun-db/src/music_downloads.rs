@@ -459,6 +459,21 @@ pub async fn reset_interrupted(db: &Db) -> Result<u64, DbError> {
     )
 }
 
+/// Songs earlier versions gave up on because only YouTube had them go back to the queue, at the
+/// back (M46.51: YouTube's own audio files download now). Returns how many.
+pub async fn requeue_youtube_failures(db: &Db, now_ms: i64) -> Result<u64, DbError> {
+    Ok(sqlx::query(
+        "UPDATE local_music_download
+            SET state = 'queued', error = NULL, error_detail = NULL, kind = NULL,
+                finished_at = NULL, done_bytes = 0, total_bytes = NULL, queued_at = ?1
+          WHERE state = 'failed' AND error LIKE 'Only YouTube has this song%'",
+    )
+    .bind(now_ms)
+    .execute(db.pool())
+    .await?
+    .rows_affected())
+}
+
 pub async fn remove(db: &Db, id: &str) -> Result<(), DbError> {
     sqlx::query("DELETE FROM local_music_download WHERE id = ?1")
         .bind(id)
@@ -792,5 +807,33 @@ mod tests {
             "a recorded copy counts as captured"
         );
         assert_eq!(find("plain").1, "failed", "others stay as they were");
+    }
+
+    #[tokio::test]
+    async fn songs_given_up_on_for_youtube_are_queued_again() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = Db::open(&temp.path().join("raygun.db")).await.unwrap();
+        let (youtube, _) = enqueue(&db, &song("a|youtube"), 1).await.unwrap();
+        let (other, _) = enqueue(&db, &song("a|other"), 2).await.unwrap();
+        set_failed(
+            &db,
+            &youtube,
+            "Only YouTube has this song, and it couldn't be saved from there. Choose another \
+             source.",
+            None,
+            3,
+        )
+        .await
+        .unwrap();
+        set_failed(&db, &other, "No source has this song.", None, 3)
+            .await
+            .unwrap();
+
+        assert_eq!(requeue_youtube_failures(&db, 10).await.unwrap(), 1);
+        let row = get(&db, &youtube).await.unwrap().unwrap();
+        assert_eq!(row.state, QUEUED);
+        assert_eq!((row.error, row.queued_at), (None, 10));
+        assert_eq!(get(&db, &other).await.unwrap().unwrap().state, FAILED);
+        assert_eq!(requeue_youtube_failures(&db, 11).await.unwrap(), 0, "once");
     }
 }

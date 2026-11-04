@@ -2744,7 +2744,7 @@
     "downloadSelected": "Download",
     "downloaded": "Downloaded",
     "emptyTitle": "No songs downloaded yet",
-    "emptyHint": "Download songs from their menu (right-click or ⋯) to play them without the internet. They're listed here.",
+    "emptyHint": "Download songs from their menu (right-click or ⋯) to play them offline.",
     "retry": "Try {{title}} again",
     "retryAll_one": "Try {{count}} again",
     "retryAll_other": "Try {{count}} again",
@@ -2818,7 +2818,7 @@
       "downloaded": "Downloaded",
       "failed": "Download didn’t work",
       "removeTitle": "Remove from downloads?",
-      "removeHint": "“{{title}}” won’t play offline anymore. You can download it again.",
+      "removeHint": "“{{title}}” won’t play offline anymore.",
       "cancelTitle": "Cancel this download?",
       "cancelHint": "What it saved so far is deleted.",
       "againTitle": "Downloading again",
@@ -2843,6 +2843,7 @@
     "state": {
       "queued": "Queued",
       "paused": "Paused",
+      "batterySaver": "Waiting for battery saver to end",
       "finding": "Finding a source",
       "from": "Downloading from {{source}}",
       "downloading": "Downloading",
@@ -3594,10 +3595,8 @@
     "state": {
       "queued": "Waiting",
       "downloading": "Downloading",
-      "recording": "Recording",
       "done": "Done",
-      "failed": "Failed",
-      "needsRecording": "Needs recording"
+      "failed": "Failed"
     }
   },
   "chapterOrder": {
@@ -3715,7 +3714,6 @@
       "channel": "Open the channel"
     },
     "needsExtension": "Install the YouTube extension (Browse → Extensions) to open playlists and channels.",
-    "desktopOnly": "Downloading from YouTube needs Raygun on a computer (yt-dlp).",
     "ytdlpVersion": "Downloads with yt-dlp {{version}}.",
     "ytdlpFetched": "yt-dlp is fetched from its GitHub releases the first time you download",
     "noFfmpeg": "Videos save at up to 360p without FFmpeg.",

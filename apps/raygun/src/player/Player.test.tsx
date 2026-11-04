@@ -182,8 +182,11 @@ describe('Player with video', () => {
     expect(within(sheet).queryByTestId('video-surface')).not.toBeInTheDocument();
     await userEvent.click(within(sheet).getAllByRole('button', { name: 'Show the video' })[0]!);
     expect(within(sheet).getByTestId('video-surface')).toBeInTheDocument();
+    // The song moves to YouTube's embed, which has the picture (M46.51: else its audio file).
+    expect(bindingsMock.commands.playbackSetVideo).toHaveBeenLastCalledWith(true);
     await userEvent.click(within(sheet).getByRole('button', { name: 'Show artwork' }));
     expect(within(sheet).queryByTestId('video-surface')).not.toBeInTheDocument();
+    expect(bindingsMock.commands.playbackSetVideo).toHaveBeenLastCalledWith(false);
   });
 });
 

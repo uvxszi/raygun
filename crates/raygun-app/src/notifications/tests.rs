@@ -261,6 +261,170 @@ fn only_waiting_downloads_show_as_waiting() {
     assert!(update.plan.foreground);
 }
 
+fn song_download(state: raygun_model::SongDownloadState) -> raygun_model::SongDownload {
+    raygun_model::SongDownload {
+        id: "s".into(),
+        track_key: "bts|swim".into(),
+        title: "Swim".into(),
+        artist: Some("BTS".into()),
+        album: None,
+        duration_ms: Some(180_000),
+        artwork_url: None,
+        state,
+        kind: None,
+        provider: None,
+        format: None,
+        done_bytes: 0.0,
+        total_bytes: None,
+        fraction: None,
+        bytes_per_second: None,
+        eta_ms: None,
+        error: None,
+        error_detail: None,
+        replacing: false,
+        problem: None,
+        queued_at: 1.0,
+        finished_at: None,
+    }
+}
+
+#[test]
+fn a_song_tapped_to_download_ends_with_its_notice_and_nothing_left_loading() {
+    use raygun_model::SongDownloadState as State;
+
+    let mut tracker = Tracker::default();
+    // Queued, then looking for a source: the bar can't say how far yet.
+    let queued = super::songs(vec![song_download(State::Queued)], false);
+    let first = tracker.update(0.0, &queued);
+    assert_eq!(first.plan.summary.unwrap().title, "1 waiting to download");
+    let finding = super::songs(vec![song_download(State::Downloading)], false);
+    let update = tracker.update(1_000.0, &finding);
+    let summary = update.plan.summary.expect("a notification");
+    assert_eq!(summary.title, "Swim");
+    assert_eq!(summary.text, "BTS · Finding a source");
+    assert_eq!(summary.progress, None);
+    assert!(summary.ongoing && update.plan.foreground);
+    let ids: Vec<&str> = summary.actions.iter().map(|action| action.id).collect();
+    assert_eq!(ids, ["pause", "cancel"]);
+
+    // From YouTube, then its bytes.
+    let mut from = song_download(State::Downloading);
+    from.provider = Some("YouTube".into());
+    let update = tracker.update(2_000.0, &super::songs(vec![from.clone()], false));
+    assert_eq!(update.plan.summary.unwrap().text, "BTS · From YouTube");
+    (from.done_bytes, from.total_bytes) = (1_000_000.0, Some(4_000_000.0));
+    let update = tracker.update(3_000.0, &super::songs(vec![from], false));
+    let summary = update.plan.summary.unwrap();
+    assert_eq!(summary.text, "BTS · 1.0 of 4.0 MB");
+    assert_eq!(summary.progress, Some(0.25));
+
+    // It fails: the running notification goes, the notice says why, nothing keeps running.
+    let mut failed = song_download(State::Failed);
+    failed.error = Some("No source has this song.".into());
+    let end = tracker.update(4_000.0, &super::songs(vec![failed.clone()], false));
+    assert_eq!(end.plan, Plan::default(), "nothing is left loading");
+    assert!(!end.plan.foreground);
+    let notice = end.finished.expect("a notice");
+    assert_eq!(notice.title, "Swim didn't download");
+    assert_eq!(notice.text, "No source has this song.");
+    assert_eq!(notice.actions[0].id, "retry");
+    // The next turns have nothing more to show.
+    let after = tracker.update(5_000.0, &super::songs(vec![failed], false));
+    assert_eq!(after.plan, Plan::default());
+    assert!(after.finished.is_none());
+}
+
+#[test]
+fn late_progress_never_brings_an_ended_song_back() {
+    use raygun_model::SongDownloadState as State;
+
+    assert!(super::takes_report(None, State::Downloading));
+    assert!(super::takes_report(Some(State::Queued), State::Downloading));
+    assert!(super::takes_report(Some(State::Downloading), State::Done));
+    assert!(
+        !super::takes_report(Some(State::Failed), State::Downloading),
+        "a report sent before it failed"
+    );
+    assert!(!super::takes_report(Some(State::Done), State::Downloading));
+    assert!(super::takes_report(Some(State::Failed), State::Done));
+}
+
+#[test]
+fn a_paused_song_queue_shows_paused_instead_of_waiting_for_good() {
+    use raygun_model::SongDownloadState as State;
+
+    let mut tracker = Tracker::default();
+    let list = super::songs(
+        vec![song_download(State::Queued), {
+            let mut other = song_download(State::Queued);
+            other.id = "t".into();
+            other
+        }],
+        true,
+    );
+    let update = tracker.update(0.0, &list);
+    let summary = update.plan.summary.expect("a notification");
+    assert_eq!(summary.title, "2 songs paused");
+    assert!(!summary.ongoing, "no bar, and it can be swiped away");
+    assert!(!update.plan.foreground);
+    assert_eq!(summary.actions[0].id, "resume");
+}
+
+#[test]
+fn downloads_held_by_battery_saver_say_so_without_a_bar() {
+    let mut tracker = Tracker::default();
+    let downloads: Vec<Download> = [
+        song("a", Phase::Queued, 0.0),
+        chapter("1", Phase::Queued, 0.0),
+    ]
+    .into_iter()
+    .map(|download| super::hold(download, true))
+    .collect();
+    let update = tracker.update(0.0, &downloads);
+    let summary = update.plan.summary.expect("a notification");
+    assert_eq!(summary.title, "Waiting for battery saver to end");
+    assert_eq!(summary.text, "1 song, 1 chapter");
+    assert_eq!(summary.progress, None);
+    assert!(!summary.ongoing);
+    assert!(!update.plan.foreground, "nothing to keep running for");
+    // A running one carries on; the held ones show beside it.
+    let downloads: Vec<Download> = [
+        song("a", Phase::Running, 10.0),
+        song("b", Phase::Queued, 0.0),
+    ]
+    .into_iter()
+    .map(|download| super::hold(download, true))
+    .collect();
+    let update = tracker.update(1_000.0, &downloads);
+    assert_eq!(update.plan.summary.unwrap().title, "1 downloading");
+    assert_eq!(
+        update.plan.items[1].title,
+        "Waiting for battery saver to end"
+    );
+    // Battery saver off: they wait as usual.
+    let free = super::hold(song("b", Phase::Queued, 0.0), false);
+    assert_eq!(free.phase, Phase::Queued);
+    // Kinds that don't wait in battery saver aren't held.
+    let mut model = song("m", Phase::Queued, 0.0);
+    model.kind = Kind::Models;
+    assert_eq!(super::hold(model, true).phase, Phase::Queued);
+}
+
+#[test]
+fn queues_paused_and_held_together_arent_zero_downloading() {
+    let mut tracker = Tracker::default();
+    let downloads = [
+        chapter("1", Phase::Paused, 3.0),
+        super::hold(song("a", Phase::Queued, 0.0), true),
+    ];
+    let update = tracker.update(0.0, &downloads);
+    let summary = update.plan.summary.expect("a summary");
+    assert_eq!(summary.title, "2 downloads waiting");
+    assert!(!summary.ongoing);
+    assert_eq!(update.plan.items.len(), 2);
+    assert!(!update.plan.foreground);
+}
+
 #[test]
 fn sizes_speeds_and_times_read_like_androids() {
     assert_eq!(size_text(820.0), "820 B");

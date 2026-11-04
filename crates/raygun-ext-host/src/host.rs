@@ -79,6 +79,15 @@ pub struct ResolvedStream {
     pub expires_at: Option<i64>,
 }
 
+/// What a resolved stream is for (M46.51): providers with several formats of a song pick by it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StreamUse {
+    /// The quality to aim for.
+    pub quality: raygun_resolver::QualityTarget,
+    /// Raygun reads it itself (a download, captions): a format it decodes.
+    pub decodable: bool,
+}
+
 /// The user's setting values, per extension id, then per setting key.
 pub type UserSettings = std::collections::HashMap<String, BTreeMap<String, serde_json::Value>>;
 
@@ -1405,18 +1414,20 @@ impl ExtensionHost {
         None
     }
 
-    /// Asks a provider for the stream behind one of its candidates.
+    /// Asks a provider for the stream behind one of its candidates, for `using` (M46.51). A play
+    /// or a download waits on it, so it gives up after [`INTERACTIVE_TIMEOUT`].
     pub async fn resolve_stream(
         &self,
         provider_id: &str,
         candidate_id: &str,
+        using: StreamUse,
     ) -> Result<ResolvedStream, CallError> {
+        let mut args = serde_json::json!({ "id": candidate_id, "decodable": using.decodable });
+        if using.quality != raygun_resolver::QualityTarget::Any {
+            args["targetKbps"] = serde_json::json!(using.quality.kbps());
+        }
         let value = self
-            .call(
-                provider_id,
-                "resolve",
-                serde_json::json!({ "id": candidate_id }),
-            )
+            .call_within(provider_id, "resolve", args, INTERACTIVE_TIMEOUT)
             .await?;
         let source = value
             .get("source")
