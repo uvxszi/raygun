@@ -22,7 +22,6 @@
     "unfavorite": "Odebrat z oblíbených"
   },
   "devices": {
-    "copied": "Zkopírováno",
     "kind": {
       "history": "Historie",
       "settings": "Nastavení"
@@ -71,8 +70,6 @@
   },
   "manga": {
     "addToLibrary": "Přidat do knihovny",
-    "chapters_few": "{{count}} kapitoly",
-    "chapters_many": "{{count}} kapitol",
     "chapters_one": "{{count}} kapitola",
     "chapters_other": "{{count}} kapitol",
     "downloads": "Stahování",

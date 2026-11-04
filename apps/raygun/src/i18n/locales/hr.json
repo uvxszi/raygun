@@ -59,7 +59,6 @@
   },
   "manga": {
     "addToLibrary": "Dodaj u biblioteku",
-    "chapters_few": "{{count}} poglavlja",
     "chapters_one": "{{count}} poglavlje",
     "chapters_other": "{{count}} poglavlja",
     "downloads": "Preuzimanja",

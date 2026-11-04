@@ -22,7 +22,6 @@
     "unfavorite": "즐겨찾기에서 제거"
   },
   "devices": {
-    "copied": "복사됨",
     "kind": {
       "history": "기록",
       "settings": "설정"

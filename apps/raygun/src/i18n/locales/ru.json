@@ -24,7 +24,6 @@
     "unfavorite": "Удалить из Избранного"
   },
   "devices": {
-    "copied": "Скопировано",
     "kind": {
       "history": "История",
       "settings": "Настройки"
@@ -79,8 +78,6 @@
   },
   "manga": {
     "addToLibrary": "Добавить",
-    "chapters_few": "{{count}} главы",
-    "chapters_many": "{{count}} глав",
     "chapters_one": "{{count}} глава",
     "chapters_other": "{{count}} глав",
     "downloads": "Загрузки",

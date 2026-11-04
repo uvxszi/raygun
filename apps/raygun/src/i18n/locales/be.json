@@ -59,8 +59,6 @@
   },
   "manga": {
     "addToLibrary": "Дадаць у бібліятэку",
-    "chapters_few": "{{count}} раздзелы",
-    "chapters_many": "{{count}} раздзелаў",
     "chapters_one": "{{count}} раздзел",
     "chapters_other": "{{count}} раздзелаў",
     "downloads": "Пампоўкі",

@@ -22,7 +22,6 @@
     "unfavorite": "Elimină din favoriți/te"
   },
   "devices": {
-    "copied": "Copiat",
     "kind": {
       "history": "Istoric",
       "settings": "Setări"
@@ -71,7 +70,6 @@
   },
   "manga": {
     "addToLibrary": "Adaugă în bibliotecă",
-    "chapters_few": "{{count}} capitole",
     "chapters_one": "{{count}} capitol",
     "chapters_other": "{{count}} de capitole",
     "downloads": "Descărcări",

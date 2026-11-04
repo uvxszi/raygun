@@ -50,8 +50,6 @@
   },
   "manga": {
     "addToLibrary": "Pridėti į biblioteką",
-    "chapters_few": "{{count}} skyriai",
-    "chapters_many": "{{count}} skyriai",
     "chapters_one": "{{count}} skyrius",
     "chapters_other": "{{count}} skyriai",
     "downloads": "Atsiuntimai",

@@ -22,7 +22,6 @@
     "unfavorite": "Eliminar dels favorits"
   },
   "devices": {
-    "copied": "Copiat",
     "kind": {
       "history": "Historial",
       "settings": "Configuració"
@@ -70,7 +69,6 @@
   },
   "manga": {
     "addToLibrary": "Afegeix a la biblioteca",
-    "chapters_many": "{{count}} de capítols",
     "chapters_one": "{{count}} capítol",
     "chapters_other": "{{count}} capítols",
     "downloads": "Baixades",

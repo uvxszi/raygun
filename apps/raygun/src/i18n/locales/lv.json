@@ -59,7 +59,6 @@
     "addToLibrary": "Pievienot bibliotēkai",
     "chapters_one": "{{count}} nodaļa",
     "chapters_other": "{{count}} nodaļas",
-    "chapters_zero": "{{count}} nodaļu",
     "downloads": "Lejupieladējumi",
     "downloadState": {
       "done": "Lejupielādēts",

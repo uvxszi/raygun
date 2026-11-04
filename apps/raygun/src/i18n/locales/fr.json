@@ -23,7 +23,6 @@
     "unfavorite": "Retirer des favoris"
   },
   "devices": {
-    "copied": "Copié",
     "kind": {
       "history": "Historique",
       "settings": "Paramètres"
@@ -75,7 +74,6 @@
   },
   "manga": {
     "addToLibrary": "Ajouter à la bibliothèque",
-    "chapters_many": "{{count}} chapitres",
     "chapters_one": "{{count}} chapitre",
     "chapters_other": "{{count}} chapitres",
     "downloads": "Téléchargements",

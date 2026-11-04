@@ -21,7 +21,6 @@
     "save": "Сачувај"
   },
   "devices": {
-    "copied": "Kopirano",
     "kind": {
       "history": "Историја",
       "settings": "Подешавања"
@@ -69,7 +68,6 @@
   },
   "manga": {
     "addToLibrary": "Додати у колекцију",
-    "chapters_few": "{{count}} поглавља",
     "chapters_one": "{{count}} поглавље",
     "chapters_other": "{{count}} поглавља",
     "downloads": "Преузимања",

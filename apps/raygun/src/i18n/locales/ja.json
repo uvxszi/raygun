@@ -23,7 +23,6 @@
     "unfavorite": "お気に入りから削除"
   },
   "devices": {
-    "copied": "コピーしました",
     "kind": {
       "history": "履歴",
       "settings": "設定"

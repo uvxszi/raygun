@@ -22,7 +22,6 @@
     "unfavorite": "Вилучити з обраного"
   },
   "devices": {
-    "copied": "Скопійовано",
     "kind": {
       "history": "Історія",
       "settings": "Налаштування"
@@ -71,8 +70,6 @@
   },
   "manga": {
     "addToLibrary": "Додати до бібліотеки",
-    "chapters_few": "{{count}} розділів",
-    "chapters_many": "{{count}} розділів",
     "chapters_one": "{{count}} розділ",
     "chapters_other": "{{count}} розділів",
     "downloads": "Завантаження",

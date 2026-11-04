@@ -23,7 +23,6 @@
     "unfavorite": "从收藏中移除"
   },
   "devices": {
-    "copied": "已复制",
     "kind": {
       "history": "历史记录",
       "settings": "设置"
