@@ -2964,6 +2964,8 @@ export type MangaCard = {
 	inLibrary: boolean,
 	/**  The source marks it adult: the UI marks it 18+. */
 	adult?: boolean,
+	/**  Found by matching the source's listings, not by its search (which found little). */
+	fromListing?: boolean,
 };
 
 export type MangaChapterInfo = {

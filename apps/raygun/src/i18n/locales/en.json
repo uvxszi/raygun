@@ -312,6 +312,7 @@
     "noSources": "No music sources yet.",
     "noResults": "Nothing found for “{{query}}”.",
     "providerEmpty": "No results from this source.",
+    "fromListing": "From its listings",
     "providerFailed": "This source failed: {{message}}",
     "yourLibrary": "Your library",
     "topResults": "Top results",
