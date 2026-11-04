@@ -1,6 +1,6 @@
 // MusicBrainz: song, album and artist facts from the open music database (its core data is CC0),
-// for tagging and finding music. Results carry no stream and no artwork: album covers belong to
-// their publishers, so none are offered.
+// for tagging and finding music. Results carry no stream; Raygun plays only what other sources
+// offer. Cover art comes from the Cover Art Archive, loaded by the app rather than this extension.
 import { defineProvider, registerProvider } from '@raygun/sdk';
 import type { Album, Track } from '@raygun/sdk';
 
@@ -90,7 +90,7 @@ const toTrack = (recording: Recording): Track => {
     artist: credit(recording) || null,
     album: release?.title ?? null,
     durationMs: recording.length ?? null,
-    artworkUrl: null,
+    artworkUrl: release ? `https://coverartarchive.org/release/${release.id}/front-250` : null,
   };
 };
 
@@ -136,7 +136,7 @@ const toAlbum = (group: ReleaseGroup): Album => ({
   title: group.title,
   artist: creditOf(group['artist-credit']) || null,
   year: Number(group['first-release-date']?.slice(0, 4)) || null,
-  artworkUrl: null,
+  artworkUrl: `https://coverartarchive.org/release-group/${group.id}/front-250`,
   kind: kindOf(group),
 });
 
@@ -262,7 +262,7 @@ const search = defineProvider({
         artist,
         album: group.title,
         durationMs: track.length ?? null,
-        artworkUrl: null,
+        artworkUrl: `https://coverartarchive.org/release-group/${id}/front-250`,
       })),
     );
     return { album: toAlbum(group), tracks };
@@ -345,8 +345,6 @@ registerProvider(
 
 /** Wikimedia asks clients to name themselves too. */
 const WIKI_HEADERS = HEADERS;
-/** Files on Wikimedia Commons, every one under a free licence or in the public domain. */
-const COMMONS = /^https:\/\/upload\.wikimedia\.org\/wikipedia\/commons\//;
 
 type Relation = {
   type: string;
@@ -373,11 +371,7 @@ const unique = (names: string[]) => [...new Set(names.filter((name) => name.trim
 
 const year = (date: string | null | undefined) => date?.slice(0, 4) ?? '';
 
-/**
- * Wikipedia's summary of the page Wikidata links the artist to: a few sentences (CC BY-SA) and a
- * picture when it's a Wikimedia Commons file, which are freely licensed; pictures kept on a
- * Wikipedia itself may be someone's under fair use, so they're left out.
- */
+/** Wikipedia's summary of the page Wikidata links the artist to: a few sentences (CC BY-SA) and a picture. */
 const wikipediaSummary = async (wikidataUrl: string) => {
   const id = wikidataUrl.split('/').pop();
   if (!id || !/^Q\d+$/.test(id)) return null;
@@ -402,10 +396,9 @@ const wikipediaSummary = async (wikidataUrl: string) => {
     originalimage?: { source: string };
     content_urls?: { desktop?: { page?: string } };
   }>();
-  const picture = page.thumbnail?.source ?? page.originalimage?.source ?? null;
   return {
     bio: page.extract ?? null,
-    imageUrl: picture && COMMONS.test(picture) ? picture : null,
+    imageUrl: page.thumbnail?.source ?? page.originalimage?.source ?? null,
     url: page.content_urls?.desktop?.page ?? null,
   };
 };

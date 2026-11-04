@@ -1644,12 +1644,17 @@ async fn discography_live_releases() {
             .iter()
             .any(|release| release.kind == Some(raygun_model::ReleaseKind::Single))
     );
-    // Facts only: no release artwork comes with them.
-    assert!(releases.iter().all(|release| release.artwork_url.is_none()));
+    // Covers come from the Cover Art Archive.
+    assert!(releases.iter().all(|release| {
+        release
+            .artwork_url
+            .as_deref()
+            .is_some_and(|url| url.starts_with("https://coverartarchive.org/"))
+    }));
 }
 
 /// MusicBrainz's song, album and artist lookups and its genres, as tagging a library uses them,
-/// with no album artwork: `cargo test -p raygun-ext-host -- --ignored musicbrainz_live
+/// with Cover Art Archive covers: `cargo test -p raygun-ext-host -- --ignored musicbrainz_live
 /// --nocapture`.
 #[tokio::test]
 #[ignore = "needs network access to MusicBrainz"]
@@ -1677,14 +1682,24 @@ async fn musicbrainz_live_lookups_and_genres() {
             .iter()
             .any(|track| track.title.contains("Get Lucky"))
     );
-    assert!(found.tracks.iter().all(|track| track.artwork_url.is_none()));
+    assert!(found.tracks.iter().any(|track| {
+        track
+            .artwork_url
+            .as_deref()
+            .is_some_and(|url| url.starts_with("https://coverartarchive.org/"))
+    }));
 
     let albums = host.search_albums("random access memories", 5).await;
     let album = albums
         .iter()
         .find(|album| musicbrainz(&album.provider.extension_id))
         .expect("MusicBrainz finds the album");
-    assert!(album.artwork_url.is_none());
+    assert!(
+        album
+            .artwork_url
+            .as_deref()
+            .is_some_and(|url| url.starts_with("https://coverartarchive.org/"))
+    );
     let detail = host
         .music_album(&album.provider.id, &album.id)
         .await
@@ -1699,7 +1714,7 @@ async fn musicbrainz_live_lookups_and_genres() {
         detail
             .tracks
             .iter()
-            .all(|track| track.artwork_url.is_none())
+            .all(|track| track.artwork_url.is_some())
     );
     assert!(!host.search_artists("daft punk", 5).await.is_empty());
 

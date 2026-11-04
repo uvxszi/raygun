@@ -55,7 +55,7 @@ The code is kept cross-platform, but Linux, macOS and iOS builds are not produce
 
 Raygun is a client: it runs the add-ons people install. The sources it ships and suggests serve only public-domain or openly licensed content.
 
-- **First-party extensions** are built into the app from `extensions/`: Internet Archive (public-domain films and openly licensed audio), Internet Archive comics, LibriVox, Loyal Books, MusicBrainz (metadata only), Pepper&Carrot, Project Gutenberg and xkcd.
+- **First-party extensions** are built into the app from `extensions/`: Internet Archive (public-domain films and openly licensed audio), Internet Archive comics, LibriVox, Loyal Books, MusicBrainz (metadata and cover art), Pepper&Carrot, Project Gutenberg, Standard Ebooks, Wikisource, Wikimedia Commons, NASA, Blender's open movies and xkcd.
 - **Repositories** are managed under Browse → ⋯ → Repositories. [Paraline](https://github.com/uvxszi/paraline-raygun), Raygun's own repository of public-domain and openly licensed sources, is added by default and is the only suggestion. Any other repository is added by its address: Raygun reads Raygun indexes, Shosetsu repositories (Lua novel sources), Miru repositories and the Nuclear plugin registry (plugins are converted at install). Stremio addons are added by address too; OpenSubtitles v3 comes preinstalled for subtitles.
 - **Writing extensions:** extensions are TypeScript on `@raygun/sdk` (`packages/sdk`), built and tested with its `raygun-ext` CLI (`init`, `build`, `dev --android`). Debug builds of the app hot-reload extensions while they are being developed.
 - Raygun does not solve captchas or other bot checks for sources.
