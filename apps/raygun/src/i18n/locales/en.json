@@ -3321,6 +3321,11 @@
     "soon": "Mascots are coming soon",
     "what": "They'll dance and sing along to what you're playing."
   },
+  "smartChips": {
+    "label": "Smart Chips",
+    "soon": "Smart Chips are coming soon",
+    "what": "Small AI models that work with your Raygun in the background: sorting your library, transcribing, and finding songs you'd like."
+  },
   "forYou": {
     "title": "Made for You",
     "refresh": "Make new mixes",
