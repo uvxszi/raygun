@@ -27,6 +27,7 @@ import { matchesSearch } from '../shell/useListSearch';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { Tabs } from '../shell/Tabs';
 import { BrowseAll } from '../music/BrowseAll';
+import { useIncognitoItem } from '../privacy/useIncognito';
 import { SearchPanel } from '../search/SearchPanel';
 import { failingLast, useSourceHealth } from '../search/sourceHealth';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
@@ -164,7 +165,7 @@ const SourcesList: FC = () => {
 
   const videoRows: SourceRow[] = [
     ...(addons.data ?? [])
-      .filter((addon) => addon.catalogs > 0 && !addon.error)
+      .filter((addon) => addon.catalogs > 0 && !addon.error && addon.enabled)
       .map((addon) => ({
         key: addon.id,
         name: addon.name,
@@ -277,6 +278,7 @@ export const BrowsePage: FC = () => {
   const desktop = useIsDesktop();
   const updateSetting = useUpdateSetting();
   const failingAtEnd = useSettings().data?.failingSourcesLast ?? true;
+  const incognitoItem = useIncognitoItem();
   const { tab = firstTab, list = 'installed', q = '', type = 'all', view, pill } = current;
   const navigate = useNavigate({ from: '/browse' });
   const reload = useReloadExtensions();
@@ -349,6 +351,7 @@ export const BrowsePage: FC = () => {
         { label: t('watch.addons'), icon: Puzzle, to: '/watch/addons' },
         { label: t('browse.repos'), icon: Package, to: '/extensions/repos' },
         { label: t('systems.title'), icon: Blocks, to: '/extensions/systems' },
+        incognitoItem,
         {
           label: t('layout.editBrowse'),
           icon: LayoutList,

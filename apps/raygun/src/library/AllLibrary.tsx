@@ -1,23 +1,29 @@
 import type { MangaLibraryEntry } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
-import { ChevronRight, Heart, Library, Search } from 'lucide-react';
+import { ChevronRight, Library, Search } from 'lucide-react';
+import { useMemo } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useAudiobooks } from '../audiobooks/useAudiobooks';
 import { PlaylistCover } from '../collections/PlaylistCover';
 import { useFavorites, usePlaylists } from '../collections/useCollections';
 import { usePlaylistMenu } from '../collections/usePlaylistMenu';
 import { useLayout } from '../layout/useLayout';
+import { useLocalFolders } from '../localFiles/useLocalFolders';
 import { MangaCover } from '../manga/MangaCover';
 import { ROUTES } from '../manga/medium';
 import { useMangaLibrary } from '../manga/useManga';
+import { useDownloadedSongs } from '../music/useSongDownloads';
 import { useSubscriptions } from '../podcasts/usePodcasts';
 import { PodcastArt } from '../podcasts/PodcastArt';
 import { Carousel } from '../shell/Carousel';
 import { EmptyState } from '../shell/EmptyState';
 import { videoTitleLink } from '../watch/useVideoLibrary';
+import { DownloadedTile, FavoritesTile, LocalFilesTile } from './LocalFilesTile';
 import { LibraryTop } from './LibraryTop';
 import type { LibraryMediaTab } from './LibraryTop';
+import { useLibraryStatus } from './useLibrary';
 
 /** Items each row of the All tab shows (M46.37). */
 const ROW_ITEMS = 16;
@@ -62,7 +68,7 @@ const TitleRow: FC<{ medium: 'manga' | 'novel' | 'video'; title: string }> = ({
   title,
 }) => {
   const library = useMangaLibrary(medium);
-  const entries = recent(library.data);
+  const entries = useMemo(() => recent(library.data), [library.data]);
   if (entries.length === 0) return null;
   return (
     <Row title={title} media={medium}>
@@ -93,26 +99,21 @@ const TitleRow: FC<{ medium: 'manga' | 'novel' | 'video'; title: string }> = ({
   );
 };
 
-/** Audio's row: Favorites, playlists and followed podcasts. */
+/**
+ * Audio's row: Favorites, Downloaded and Local files (always first, M46.29), then playlists,
+ * followed podcasts and audiobooks.
+ */
 const AudioRow: FC = () => {
   const { t } = useTranslation();
-  const favorites = useFavorites();
   const playlists = usePlaylists();
   const playlistMenu = usePlaylistMenu();
   const podcasts = useSubscriptions();
+  const audiobooks = useAudiobooks();
   return (
     <Row title={t('library.tabs.music')} media="music">
-      <li className="w-28 shrink-0">
-        <Link to="/library" search={{ view: 'favorites' }} className={TILE}>
-          <span className="bg-primary/15 text-primary grid aspect-square place-items-center rounded-xl">
-            <Heart aria-hidden size={30} fill="currentColor" />
-          </span>
-          <span className="truncate font-medium">{t('collections.favorites')}</span>
-          <span className="text-muted -mt-1 text-xs">
-            {t('library.trackCount', { count: favorites.data?.length ?? 0 })}
-          </span>
-        </Link>
-      </li>
+      <FavoritesTile />
+      <DownloadedTile />
+      <LocalFilesTile />
       {playlists.data?.slice(0, ROW_ITEMS).map((playlist) => (
         <li key={playlist.id} className="w-28 shrink-0">
           <Link
@@ -138,6 +139,14 @@ const AudioRow: FC = () => {
           </Link>
         </li>
       ))}
+      {audiobooks.data?.slice(0, ROW_ITEMS).map((book) => (
+        <li key={book.id} className="w-28 shrink-0">
+          <Link to="/audiobook" search={{ id: book.id }} className={TILE}>
+            <PodcastArt url={book.artworkUrl} className="w-full rounded-xl" />
+            <span className="truncate font-medium">{book.title}</span>
+          </Link>
+        </li>
+      ))}
     </Row>
   );
 };
@@ -153,13 +162,24 @@ export const AllLibrary: FC = () => {
   const favorites = useFavorites();
   const playlists = usePlaylists();
   const podcasts = useSubscriptions();
+  const audiobooks = useAudiobooks();
+  const downloaded = useDownloadedSongs();
+  const status = useLibraryStatus();
+  // Followed here too: a scan that ends while this shows fills the rows below.
+  const folders = useLocalFolders();
   const manga = useMangaLibrary('manga');
   const novels = useMangaLibrary('novel');
   const videos = useMangaLibrary('video');
-  const lists = [favorites, playlists, podcasts, manga, novels, videos];
+  const lists = [favorites, playlists, podcasts, audiobooks, downloaded, manga, novels, videos];
+  // Empty only when every kind answered with nothing, the device's own songs included; a list
+  // that failed to load counts as nothing rather than leaving the page blank.
   const empty =
-    lists.every((list) => list.data !== undefined) &&
-    lists.every((list) => (list.data?.length ?? 0) === 0);
+    lists.every((list) => list.data !== undefined || list.isError) &&
+    lists.every((list) => (list.data?.length ?? 0) === 0) &&
+    (status.data !== undefined || status.isError) &&
+    (status.data?.trackCount ?? 0) === 0 &&
+    (folders.data !== undefined || folders.isError) &&
+    (folders.data?.length ?? 0) === 0;
   const rows: Record<string, ReactNode> = {
     music: <AudioRow key="music" />,
     manga: <TitleRow key="manga" medium="manga" title={t('library.tabs.manga')} />,
@@ -174,7 +194,6 @@ export const AllLibrary: FC = () => {
           <EmptyState
             icon={Library}
             title={t('library.emptyTitle')}
-            body={t('library.allEmptyHint')}
             action={{
               label: t('library.findInBrowse'),
               icon: Search,

@@ -25,6 +25,10 @@ export const useSpokenItem = (item: QueueItem | undefined): SpokenItem | null =>
   return lookable ? (query.data ?? null) : null;
 };
 
+/** Who a spoken item is by, as shown: a book's author (or its title), or a podcast's show. */
+export const spokenName = (spoken: SpokenItem) =>
+  spoken.kind === 'audiobook' ? (spoken.author ?? spoken.show) : spoken.show;
+
 /**
  * An episode's captions, read again whenever Rust says they changed, and when transcription is
  * set up (a setting changes or a model finishes downloading), which changes what the card offers.

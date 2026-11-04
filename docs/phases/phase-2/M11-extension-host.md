@@ -24,7 +24,7 @@ Raygun runs sandboxed JavaScript extensions that register **providers**, and the
   - `raygun.http.fetch(url, { method, headers, body })` → `Promise<{ status, ok, url, headers, text(), json() }>`, permission-checked.
   - `raygun.html.select(html, selector)` → `[{ text, html, inner, attrs, select(sub) }]` (`scraper` crate).
   - `raygun.storage.{get,set,remove,keys}`: per-extension JSON key–value store, kept at `extensions/.data/<id>/storage.json` (outside the code folder, so updates in M13 can replace code freely). Capped at 1 MiB.
-  - `raygun.settings.get(key)`: the user's value, otherwise the manifest default. (User values arrive with the settings UI in M13.)
+  - `raygun.settings.get(key)`: the value set in the app, otherwise the manifest default. (Values set in the app arrive with the settings UI in M13.)
   - `raygun.providers.register({ kind, id, name, ...methods })`.
   - Plain JS is accepted for now; the `@raygun/sdk` types come in M12.
 - **Providers:**

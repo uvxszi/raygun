@@ -59,12 +59,17 @@ pub async fn settings_get(db: tauri::State<'_, AppDb>) -> Result<Settings, Strin
 }
 
 /// What was played from lately: albums, playlists, mixes, artists, podcasts, books (M46.37).
+/// Hidden artists' pages and tiles marked Not interested are left out.
 #[tauri::command]
 #[specta::specta]
 pub async fn recent_contexts(
+    db: tauri::State<'_, AppDb>,
     collections: tauri::State<'_, CollectionsService>,
 ) -> Result<Vec<raygun_model::PlayContext>, String> {
-    collections.recent_contexts().await
+    let mut contexts = collections.recent_contexts().await?;
+    let hidden = crate::hidden::Hidden::load(&db.0).await;
+    contexts.retain(|context| !hidden.hides_context(context));
+    Ok(contexts)
 }
 
 /// Remembers where a play started (the page the user played from), for Home's Your music.
@@ -95,6 +100,8 @@ pub async fn settings_update(
     let discovery_changed = matches!(change, SettingChange::Discovery(_));
     let agent_changed = matches!(change, SettingChange::UserAgent(_));
     let sound_changed = matches!(change, SettingChange::Sound(_));
+    // Incognito (M47): the sidebar doesn't remember pages opened or played from.
+    let change = crate::privacy::without_new_stamps(&app, &db.0, change).await;
     let settings = settings::update(&db.0, change)
         .await
         .map_err(|error| error.to_string())?;
@@ -756,6 +763,16 @@ pub async fn artist_release_news(
     Ok(follows.news().await)
 }
 
+/// Checks followed artists with alerts for new releases now; returns the news afterwards.
+#[tauri::command]
+#[specta::specta]
+pub async fn artist_releases_check(
+    follows: tauri::State<'_, Arc<crate::follows::ArtistFollows>>,
+) -> Result<Vec<raygun_model::ArtistReleaseNews>, String> {
+    follows.check_now().await;
+    Ok(follows.news().await)
+}
+
 /// An artist's coming concerts and other events (M46.42).
 #[tauri::command]
 #[specta::specta]
@@ -890,6 +907,16 @@ pub async fn song_downloads(
     songs.list().await
 }
 
+/// One song download as it is now; `None` once it was removed.
+#[tauri::command]
+#[specta::specta]
+pub async fn song_download(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+    id: String,
+) -> Result<Option<raygun_model::SongDownload>, String> {
+    songs.get(&id).await
+}
+
 /// Removes a song download and its file (M46.10).
 #[tauri::command]
 #[specta::specta]
@@ -900,7 +927,17 @@ pub async fn song_download_remove(
     songs.remove(&id).await
 }
 
-/// Queues a failed song download again (M46.10).
+/// Removes several song downloads and their files at once (cancels waiting ones).
+#[tauri::command]
+#[specta::specta]
+pub async fn song_downloads_remove(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+    ids: Vec<String>,
+) -> Result<(), String> {
+    songs.remove_many(&ids).await
+}
+
+/// Queues a failed song download again, first in the queue (M46.10).
 #[tauri::command]
 #[specta::specta]
 pub async fn song_download_retry(
@@ -908,6 +945,39 @@ pub async fn song_download_retry(
     id: String,
 ) -> Result<(), String> {
     songs.retry(&id).await
+}
+
+/// Queues every failed song download again; returns how many.
+#[tauri::command]
+#[specta::specta]
+pub async fn song_downloads_retry_failed(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+) -> Result<u32, String> {
+    songs.retry_failed().await
+}
+
+/// Puts the queued song downloads in this order, first to download first.
+#[tauri::command]
+#[specta::specta]
+pub async fn song_downloads_reorder(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+    ids: Vec<String>,
+) -> Result<(), String> {
+    songs.reorder(&ids).await
+}
+
+/// Whether song downloads are paused.
+#[tauri::command]
+#[specta::specta]
+pub fn song_downloads_paused(songs: tauri::State<'_, Arc<SongDownloadService>>) -> bool {
+    songs.paused()
+}
+
+/// Pauses song downloads (the running one waits, keeping what it saved) or resumes them.
+#[tauri::command]
+#[specta::specta]
+pub fn song_downloads_set_paused(songs: tauri::State<'_, Arc<SongDownloadService>>, paused: bool) {
+    songs.set_paused(paused);
 }
 
 /// Plays a song only YouTube has and records it as it plays (M46.10).
@@ -941,16 +1011,18 @@ pub async fn collections_saved_keys(
     collections.saved_keys().await
 }
 
-/// Downloads a song from a source the user picked (M46.47: Choose a source on a failed or
-/// YouTube-only download); the others are tried after it if it fails.
+/// Downloads a song from a picked source (M46.47: Choose a source on a failed or YouTube-only
+/// download), first in the queue; the others are tried after it if it fails. `source` is the
+/// source's name, shown while it downloads and in what went wrong.
 #[tauri::command]
 #[specta::specta]
 pub async fn song_download_use_source(
     songs: tauri::State<'_, Arc<SongDownloadService>>,
     id: String,
     track: raygun_model::OnlineTrack,
+    source: Option<String>,
 ) -> Result<(), String> {
-    songs.use_source(&id, track).await
+    songs.use_source(&id, track, source).await
 }
 
 /// A YouTube address typed in Search (M46.47): what it points at, with the video's title and
@@ -1341,13 +1413,24 @@ pub async fn local_folder_remove(
     local.remove(&id).await
 }
 
-/// Scans every Local Files folder again.
+/// Scans a Local Files folder again, or every one; files that couldn't be added are tried again.
 #[tauri::command]
 #[specta::specta]
 pub async fn local_folders_rescan(
     local: tauri::State<'_, Arc<crate::local_files::LocalFilesService>>,
+    id: Option<String>,
 ) -> Result<(), String> {
-    local.inner().rescan_all().await
+    local.inner().rescan(id.as_deref(), true).await
+}
+
+/// Asks for the media access Local Files' songs and videos need (Android); opens Raygun's page
+/// in the system settings when the system won't ask. Whether it's allowed now.
+#[tauri::command]
+#[specta::specta]
+pub async fn local_files_allow_access(
+    local: tauri::State<'_, Arc<crate::local_files::LocalFilesService>>,
+) -> Result<bool, String> {
+    local.inner().allow_access().await
 }
 
 /// The user's own details for a song, an album or an artist (M46.30).
@@ -1554,10 +1637,45 @@ pub async fn made_for_you_save(
     service.save(&id, &name).await
 }
 
-/// Every chart source's songs for a genre or a mood (M46.19).
+/// Hides an artist from Home, Made for You, charts, genre rows and recommendations, or shows
+/// them again; returns the settings as saved.
+#[tauri::command]
+#[specta::specta]
+pub async fn hidden_artist_set(
+    app: tauri::AppHandle,
+    name: String,
+    hidden: bool,
+) -> Result<Settings, String> {
+    crate::hidden::set_artist(&app, &name, hidden).await
+}
+
+/// Marks a song, album, podcast or other Home item Not interested, or takes the mark away.
+#[tauri::command]
+#[specta::specta]
+pub async fn hidden_item_set(
+    app: tauri::AppHandle,
+    item: raygun_model::HiddenItem,
+    hidden: bool,
+) -> Result<Settings, String> {
+    crate::hidden::set_item(&app, item, hidden).await
+}
+
+/// Shows every hidden artist, every hidden item, or both, again.
+#[tauri::command]
+#[specta::specta]
+pub async fn hidden_clear(
+    app: tauri::AppHandle,
+    artists: bool,
+    items: bool,
+) -> Result<Settings, String> {
+    crate::hidden::clear(&app, artists, items).await
+}
+
+/// Every chart source's songs for a genre or a mood (M46.19), without hidden artists' songs.
 #[tauri::command]
 #[specta::specta]
 pub async fn music_tag_sources(
+    db: tauri::State<'_, AppDb>,
     discovery: tauri::State<'_, Arc<DiscoveryService>>,
     durations: tauri::State<'_, Arc<crate::durations::DurationService>>,
     name: String,
@@ -1565,17 +1683,21 @@ pub async fn music_tag_sources(
 ) -> Result<raygun_model::MusicTagSources, String> {
     let mut sources = discovery.tag_sources(name, region).await;
     let details = tauri::Manager::state::<Arc<crate::details::DetailService>>(durations.app());
+    let hidden = crate::hidden::Hidden::load(&db.0).await;
     for row in &mut sources.rows {
         durations.learn_tracks(&row.tracks);
         details.apply_online(&mut row.tracks);
+        hidden.retain_tracks(&mut row.tracks);
     }
+    sources.rows.retain(|row| !row.tracks.is_empty());
     Ok(sources)
 }
 
-/// A chart's songs (M46.9).
+/// A chart's songs (M46.9), without hidden artists' songs.
 #[tauri::command]
 #[specta::specta]
 pub async fn music_chart(
+    db: tauri::State<'_, AppDb>,
     discovery: tauri::State<'_, Arc<DiscoveryService>>,
     durations: tauri::State<'_, Arc<crate::durations::DurationService>>,
     provider_id: String,
@@ -1586,6 +1708,9 @@ pub async fn music_chart(
     durations.learn_tracks(&tracks);
     tauri::Manager::state::<Arc<crate::details::DetailService>>(durations.app())
         .apply_online(&mut tracks);
+    crate::hidden::Hidden::load(&db.0)
+        .await
+        .retain_tracks(&mut tracks);
     Ok(tracks)
 }
 
@@ -2128,6 +2253,26 @@ pub async fn history_clear(
     collections.clear_history().await
 }
 
+/// Whether incognito is on (M47). Afterwards, changes arrive as `IncognitoEvent`.
+#[tauri::command]
+#[specta::specta]
+pub fn incognito_status(
+    privacy: tauri::State<'_, crate::privacy::Privacy>,
+) -> raygun_model::IncognitoStatus {
+    privacy.status()
+}
+
+/// Turns incognito on or off (M47): while it's on, nothing records what's played, watched, read
+/// or searched.
+#[tauri::command]
+#[specta::specta]
+pub async fn incognito_set_enabled(
+    app: tauri::AppHandle,
+    enabled: bool,
+) -> Result<raygun_model::IncognitoStatus, String> {
+    crate::privacy::set_incognito(&app, enabled).await
+}
+
 /// The MCP server's switch, address and token.
 #[tauri::command]
 #[specta::specta]
@@ -2342,13 +2487,14 @@ pub async fn manga_set_progress(
     manga.set_progress(&chapter_id, page, total).await
 }
 
-/// Remembers how a title is read (webtoon strip or paged, left or right to left).
+/// Remembers how a title is read (webtoon strip or paged, left or right to left); `null` follows
+/// the reader's default mode again.
 #[tauri::command]
 #[specta::specta]
 pub async fn manga_set_reader_mode(
     manga: tauri::State<'_, MangaService>,
     title_id: String,
-    mode: ReaderMode,
+    mode: Option<ReaderMode>,
 ) -> Result<(), String> {
     manga.set_reader_mode(&title_id, mode).await
 }
@@ -2638,6 +2784,23 @@ pub async fn novel_import_epub(
     contents: String,
 ) -> Result<ImportedBook, String> {
     let (source_id, novel_id) = novels.import_epub(&contents).await?;
+    Ok(ImportedBook {
+        source_id,
+        novel_id,
+    })
+}
+
+/// Imports an uploaded EPUB (sent with `upload_*` in slices) into the novel library; returns its
+/// source and id.
+#[tauri::command]
+#[specta::specta]
+pub async fn novel_import_epub_upload(
+    novels: tauri::State<'_, NovelService>,
+    uploads: tauri::State<'_, crate::uploads::Uploads>,
+    upload_id: String,
+) -> Result<ImportedBook, String> {
+    let file = uploads.take(&upload_id)?;
+    let (source_id, novel_id) = novels.import_epub_file(file).await?;
     Ok(ImportedBook {
         source_id,
         novel_id,
@@ -3072,6 +3235,34 @@ pub async fn library_mark_read(
     crate::library_actions::set_read(catalog_for(&app, &medium)?, &title_ids, read).await
 }
 
+/// Marks chapters of a title read or unread together (a selection in its chapter list).
+#[tauri::command]
+#[specta::specta]
+pub async fn library_set_chapters_read(
+    app: tauri::AppHandle,
+    medium: String,
+    chapter_ids: Vec<String>,
+    read: bool,
+) -> Result<(), String> {
+    catalog_for(&app, &medium)?
+        .set_units_read(&chapter_ids, read)
+        .await
+}
+
+/// Marks every chapter before one read (in reading order); returns how many were marked.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_mark_previous_read(
+    app: tauri::AppHandle,
+    medium: String,
+    title_id: String,
+    chapter_id: String,
+) -> Result<u32, String> {
+    catalog_for(&app, &medium)?
+        .mark_previous_read(&title_id, &chapter_id)
+        .await
+}
+
 /// Takes titles out of the library and/or deletes their downloads.
 #[tauri::command]
 #[specta::specta]
@@ -3158,7 +3349,7 @@ pub async fn library_set_category_display(
         .await
 }
 
-/// Updates one category's titles (manga and video libraries).
+/// Updates one category's titles (comics, books and videos).
 #[tauri::command]
 #[specta::specta]
 pub async fn library_update_category(
@@ -3167,9 +3358,6 @@ pub async fn library_update_category(
     medium: String,
     category_id: String,
 ) -> Result<raygun_model::MangaUpdateStatus, String> {
-    if medium == "novel" {
-        return Err("Novels aren't updated yet".into());
-    }
     let only =
         crate::library_actions::category_titles(catalog_for(&app, &medium)?, &category_id).await?;
     Ok(manga.start_update_of(true, Some(only)).await)
@@ -3507,7 +3695,7 @@ pub async fn website_add(
     name: Option<String>,
     url: String,
 ) -> Result<raygun_model::Website, String> {
-    websites.add(name, &url).await
+    websites.inner().add(name, &url).await
 }
 
 #[tauri::command]
@@ -3532,6 +3720,17 @@ pub async fn website_remove(websites: Websites<'_>, id: String) -> Result<(), St
 #[specta::specta]
 pub async fn website_reset(websites: Websites<'_>, id: String) -> Result<(), String> {
     websites.reset(&id).await
+}
+
+/// Turns a site's own ad blocker on or off.
+#[tauri::command]
+#[specta::specta]
+pub async fn website_set_block_ads(
+    websites: Websites<'_>,
+    id: String,
+    on: bool,
+) -> Result<(), String> {
+    websites.set_block_ads(&id, on).await
 }
 
 /// Opens a site in the built-in browser.
@@ -3678,7 +3877,19 @@ pub async fn stremio_suggestions(
     stremio.suggestions().await
 }
 
-/// Adds an addon by its address (`.../manifest.json`, `stremio://...` or a bare host).
+/// What the addon at an address is, before adding it: its name, what it provides, whether it
+/// must be set up first (`id` is empty unless it's added).
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_preview(
+    stremio: Stremio<'_>,
+    url: String,
+) -> Result<raygun_model::StremioAddon, String> {
+    stremio.preview(&url).await
+}
+
+/// Adds an addon by its address (`.../manifest.json`, `stremio://...` or a bare host). The same
+/// addon set up again under a new address takes the old one's place.
 #[tauri::command]
 #[specta::specta]
 pub async fn stremio_add(
@@ -3694,6 +3905,48 @@ pub async fn stremio_remove(stremio: Stremio<'_>, id: String) -> Result<(), Stri
     stremio.remove(&id).await
 }
 
+/// Turns an addon on or off; one that's off is asked for nothing.
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_set_enabled(
+    stremio: Stremio<'_>,
+    id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    stremio.set_enabled(&id, enabled).await
+}
+
+/// Puts the addons in this order: details come from the first that has them.
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_set_order(stremio: Stremio<'_>, ids: Vec<String>) -> Result<(), String> {
+    stremio.set_order(&ids).await
+}
+
+/// Opens the setup page of the addon at `url` in the browser.
+#[tauri::command]
+#[specta::specta]
+pub fn stremio_configure(stremio: Stremio<'_>, url: String) -> Result<(), String> {
+    stremio.configure(&url)
+}
+
+/// Opens a stream's web page in the browser, or (on desktop) a torrent's magnet link in the
+/// torrent app.
+#[tauri::command]
+#[specta::specta]
+pub fn stremio_open_link(stremio: Stremio<'_>, url: String) -> Result<(), String> {
+    stremio.open_link(&url)
+}
+
+/// Every catalog of the addons that answer: board rows, searches and what Discover browses.
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_catalogs(
+    stremio: Stremio<'_>,
+) -> Result<Vec<raygun_model::StremioCatalogInfo>, String> {
+    stremio.catalogs().await
+}
+
 /// The Watch home: the first page of every browsable catalog.
 #[tauri::command]
 #[specta::specta]
@@ -3703,7 +3956,7 @@ pub async fn stremio_home(
     stremio.home().await
 }
 
-/// One catalog's page, optionally for a genre, `skip` items in.
+/// One catalog's page with the extras chosen (a genre, a year...), `skip` items in.
 #[tauri::command]
 #[specta::specta]
 pub async fn stremio_catalog(
@@ -3711,11 +3964,11 @@ pub async fn stremio_catalog(
     addon_id: String,
     kind: String,
     catalog_id: String,
-    genre: Option<String>,
+    extra: Vec<raygun_model::StremioExtraValue>,
     skip: u32,
 ) -> Result<raygun_model::StremioCatalogRow, String> {
     stremio
-        .catalog(&addon_id, &kind, &catalog_id, genre.as_deref(), skip)
+        .catalog(&addon_id, &kind, &catalog_id, &extra, skip)
         .await
 }
 
@@ -3729,6 +3982,21 @@ pub async fn stremio_search(
     stremio.search(&query).await
 }
 
+/// One searchable catalog's results for `query`; a search for another query stops it.
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_search_catalog(
+    stremio: Stremio<'_>,
+    addon_id: String,
+    kind: String,
+    catalog_id: String,
+    query: String,
+) -> Result<raygun_model::StremioCatalogRow, String> {
+    stremio
+        .search_catalog(&addon_id, &kind, &catalog_id, &query)
+        .await
+}
+
 /// A title's details, seasons and episodes, with watching progress.
 #[tauri::command]
 #[specta::specta]
@@ -3740,15 +4008,16 @@ pub async fn stremio_meta(
     stremio.meta(&kind, &id).await
 }
 
-/// Streams for a movie or an episode, grouped by addon.
+/// Streams for a movie or an episode of the title `meta_id`, grouped by addon.
 #[tauri::command]
 #[specta::specta]
 pub async fn stremio_streams(
     stremio: Stremio<'_>,
     kind: String,
+    meta_id: Option<String>,
     video_id: String,
 ) -> Result<Vec<raygun_model::StremioStreamGroup>, String> {
-    stremio.streams(&kind, &video_id).await
+    stremio.streams(&kind, meta_id.as_deref(), &video_id).await
 }
 
 /// Plays a stream; `language` puts its subtitles first.

@@ -42,7 +42,7 @@
 ## Out of scope
 - **Right-to-left layout:** text is translated, but the layout stays left-to-right until an RTL locale is well along (noted in the guide).
 - **Text from extensions** (source names, setting labels).
-- **Filters Mihon has that this milestone doesn't:** a three-way "safe / mixed / 18+" filter. The single switch the user asked for covers it.
+- **Filters Mihon has that this milestone doesn't:** a three-way "safe / mixed / 18+" filter. The single switch covers it.
 
 ## Done-check
 - **Rust:**
@@ -60,7 +60,7 @@
   - MangaDex browsing works with the filter off and on.
 
 ## Decisions
-- **One switch rather than Mihon's three levels,** as asked. `suggestive` extensions (most novel sources, MangaDex) stay visible and filter their own results.
+- **One switch rather than Mihon's three levels.** `suggestive` extensions (most novel sources, MangaDex) stay visible and filter their own results.
 - **Hide, don't uninstall:** installed NSFW extensions stay listed (marked) so they can be removed, but provide nothing while the filter is off. This matches Mihon's "also apply to installed extensions".
 - **Genre matching is a backstop:** sources that know better mark listings `nsfw` themselves. Genres are compared whole and in lower case, so "Adult Life" and "Ecchi" aren't hidden, but "Mature" is, because novel sites use it for explicit content.
 - **Exact-match imports only:** short, context-free strings ("Cancel", "Library", "Every 6 hours") match well. Sentences specific to Raygun stay English until someone translates them. About 25–30% of strings came through for the major languages (German 126 of 415, Spanish 132, Russian 133), with 80 languages over the 40-string bar.

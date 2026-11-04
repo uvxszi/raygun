@@ -4,7 +4,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use raygun_model::{
     ConnectCommand, EngineCommand, EngineEvent, EngineReport, MediaSource, PlaybackControl,
@@ -73,6 +73,8 @@ pub struct PlaybackService {
     saved: Mutex<Option<String>>,
     /// The saved queue was put back (or there was none): only once per run.
     restored: std::sync::atomic::AtomicBool,
+    /// The state the webviews last got, and when: see [`worth_sending`].
+    sent: Mutex<Option<(PlaybackState, Instant)>>,
 }
 
 /// Everything to emit once the core lock is released.
@@ -80,6 +82,9 @@ pub struct PlaybackService {
 struct Outbox {
     engine: Vec<(Engine, EngineCommand)>,
     state: Option<PlaybackState>,
+    /// Someone asked for this change (a control, a new queue): its state goes out at once, even
+    /// when only the position moved (a seek while paused).
+    asked: bool,
     queue: Option<QueueSnapshot>,
     /// Find a stream for this load.
     resolve: Option<u32>,
@@ -113,6 +118,7 @@ impl PlaybackService {
             redirect: Mutex::new(None),
             saved: Mutex::new(None),
             restored: std::sync::atomic::AtomicBool::new(false),
+            sent: Mutex::new(None),
         }
     }
 
@@ -139,10 +145,44 @@ impl PlaybackService {
                     }
                     changed
                 };
-                if changed {
+                // Incognito (M47): nothing is kept for reopening, and the queue it leaves stays
+                // unsaved after it ends until that queue changes.
+                if changed && !crate::privacy::incognito(&app) {
                     let db = app.state::<crate::startup::AppDb>().inner().0.clone();
                     crate::last_played::save(&db, &json).await;
                 }
+            }
+        });
+    }
+
+    /// Checks every second that what the state says plays does (`PlaybackCore::watchdog`): an
+    /// engine that stands still while "playing", or has the stream and never starts, is nudged,
+    /// and the state stops claiming it plays.
+    pub fn start_watchdog(app: AppHandle) {
+        tauri::async_runtime::spawn(async move {
+            let clock = Instant::now();
+            let mut every = tokio::time::interval(WATCH_EVERY);
+            every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                every.tick().await;
+                let playback = app.state::<PlaybackService>();
+                let outbox = {
+                    let mut inner = playback.lock();
+                    let before = inner.core.state().status;
+                    let effects = inner.core.watchdog(clock.elapsed().as_secs_f64() * 1_000.0);
+                    if effects.is_empty() {
+                        continue;
+                    }
+                    let after = inner.core.state().status;
+                    tracing::warn!(
+                        load_id = inner.core.load_id(),
+                        ?before,
+                        ?after,
+                        "the engine doesn't play what the state says plays: nudged it",
+                    );
+                    playback.resolve(&mut inner, effects)
+                };
+                playback.send(outbox);
             }
         });
     }
@@ -331,6 +371,7 @@ impl PlaybackService {
             PlaybackControl::PlayItem { item_id } => core.play_item(&item_id),
             PlaybackControl::Remove { item_id } => core.remove(&item_id),
             PlaybackControl::Clear => core.clear(),
+            PlaybackControl::ClearUpcoming => core.clear_upcoming(),
             PlaybackControl::Move {
                 item_id,
                 before_item_id,
@@ -579,9 +620,27 @@ impl PlaybackService {
         let outbox = {
             let mut inner = self.lock();
             let effects = operation(&mut inner.core);
-            self.resolve(&mut inner, effects)
+            Outbox {
+                asked: true,
+                ..self.resolve(&mut inner, effects)
+            }
         };
         self.send(outbox);
+    }
+
+    /// Whether `state` goes to the webviews now; remembers it when it does.
+    fn should_send(&self, state: &PlaybackState, asked: bool) -> bool {
+        let mut sent = self.sent.lock().expect("sent state poisoned");
+        let now = Instant::now();
+        let send = match sent.as_ref() {
+            Some((last, at)) if !asked => worth_sending(last, state, now.duration_since(*at)),
+            Some((last, _)) => last != state,
+            None => true,
+        };
+        if send {
+            *sent = Some((state.clone(), now));
+        }
+        send
     }
 
     fn resolve(&self, inner: &mut Inner, effects: Vec<Effect>) -> Outbox {
@@ -672,7 +731,10 @@ impl PlaybackService {
             {
                 durations.on_playback(&state, outbox.current.as_ref());
             }
-            log_emit(PlaybackStateEvent(state).emit(&self.app));
+            // Followers here see every report; the webviews move the playhead on their own.
+            if self.should_send(&state, outbox.asked) {
+                log_emit(PlaybackStateEvent(state).emit(&self.app));
+            }
         }
         if outbox.verified.is_some() || outbox.failed.is_some() {
             let resolver = self.app.state::<Arc<ResolverService>>().inner().clone();
@@ -771,8 +833,9 @@ impl PlaybackService {
     }
 
     /// An engine that never starts a load must not leave the player stuck (M46.16): after
-    /// [`START_TIMEOUT`] still loading, it counts as the stream failing, so the next stream or
-    /// the next song plays.
+    /// [`START_TIMEOUT`] without having played (loading, or buffering: engines say they buffer
+    /// as soon as they're given a stream), it counts as the stream failing, so the next stream
+    /// or the next song plays.
     fn watch_start(&self, load_id: u32) {
         let app = self.app.clone();
         tauri::async_runtime::spawn(async move {
@@ -782,7 +845,12 @@ impl PlaybackService {
                 let inner = playback.lock();
                 let state = inner.core.state();
                 inner.core.load_id() == load_id
-                    && state.status == raygun_model::PlaybackStatus::Loading
+                    && matches!(
+                        state.status,
+                        raygun_model::PlaybackStatus::Loading
+                            | raygun_model::PlaybackStatus::Buffering
+                    )
+                    && !inner.core.started()
                     && !inner.core.held()
             };
             if stuck {
@@ -805,8 +873,41 @@ impl PlaybackService {
 /// How often the queue is saved for reopening (M46.16).
 const SAVE_EVERY: Duration = Duration::from_secs(5);
 
+/// A position that only moves on with playback reaches the webviews at most this often: engines
+/// report two to four times a second, and each report re-rendered every player view. The views
+/// move the playhead themselves between reports (`player/useLivePosition.ts`).
+const POSITION_EVERY: Duration = Duration::from_secs(1);
+
+/// A position this far (ms) from where playback would have moved to is a jump (an engine's own
+/// seek, a stream starting over), sent at once.
+const POSITION_JUMP_MS: f64 = 1_000.0;
+
+/// Whether the webviews need `next`, `since` after they got `last`: any change but the position
+/// goes at once; a position moving on as it plays waits for [`POSITION_EVERY`].
+fn worth_sending(last: &PlaybackState, next: &PlaybackState, since: Duration) -> bool {
+    if last == next {
+        return false;
+    }
+    let only_position = PlaybackState {
+        position_ms: last.position_ms,
+        ..next.clone()
+    } == *last;
+    if !only_position || since >= POSITION_EVERY {
+        return true;
+    }
+    let expected = if next.status == raygun_model::PlaybackStatus::Playing {
+        last.position_ms + since.as_secs_f64() * 1_000.0 * next.rate
+    } else {
+        last.position_ms
+    };
+    (next.position_ms - expected).abs() > POSITION_JUMP_MS
+}
+
 /// How long a load may take to start playing before another stream is tried (M46.16).
 const START_TIMEOUT: Duration = Duration::from_secs(25);
+
+/// How often the watchdog checks that what plays moves on.
+const WATCH_EVERY: Duration = Duration::from_secs(1);
 
 /// Another kind of media starts here (a video, a trailer, read-aloud): music pauses, unless
 /// Settings → Playback keeps it playing (M46.16). Music playing on another device plays on.
@@ -841,6 +942,79 @@ mod tests {
         };
         assert_eq!(engine_for(&source, true), Engine::Webview);
         assert_eq!(engine_for(&source, false), Engine::Webview);
+    }
+
+    fn playing_at(position_ms: f64) -> PlaybackState {
+        PlaybackState {
+            status: raygun_model::PlaybackStatus::Playing,
+            current_item_id: Some("a".into()),
+            position_ms,
+            duration_ms: Some(180_000.0),
+            volume: 1.0,
+            repeat: raygun_model::RepeatMode::Off,
+            shuffle: false,
+            error: None,
+            source_label: None,
+            rate: 1.0,
+            sleep_at: None,
+            stop_after_current: false,
+        }
+    }
+
+    #[test]
+    fn positions_moving_on_reach_the_webviews_once_a_second() {
+        let last = playing_at(10_000.0);
+        let quarter = Duration::from_millis(250);
+
+        // The same state, or the position moving on as it plays, waits.
+        assert!(!worth_sending(&last, &last, quarter));
+        assert!(!worth_sending(&last, &playing_at(10_250.0), quarter));
+        // A second on, it goes.
+        assert!(worth_sending(
+            &last,
+            &playing_at(11_000.0),
+            Duration::from_secs(1)
+        ));
+        // A jump the engine made goes at once, as does any other change.
+        assert!(worth_sending(&last, &playing_at(42_000.0), quarter));
+        let paused = PlaybackState {
+            status: raygun_model::PlaybackStatus::Paused,
+            ..playing_at(10_250.0)
+        };
+        assert!(worth_sending(&last, &paused, quarter));
+        let louder = PlaybackState {
+            volume: 0.5,
+            ..last.clone()
+        };
+        assert!(worth_sending(&last, &louder, quarter));
+        // At double speed, two seconds a second is still moving on.
+        let fast = PlaybackState {
+            rate: 2.0,
+            ..last.clone()
+        };
+        let fast_later = PlaybackState {
+            position_ms: 11_000.0,
+            ..fast.clone()
+        };
+        assert!(!worth_sending(
+            &fast,
+            &fast_later,
+            Duration::from_millis(500)
+        ));
+        // Paused, any move is a seek.
+        let paused_later = PlaybackState {
+            position_ms: 10_900.0,
+            ..paused.clone()
+        };
+        assert!(!worth_sending(&paused, &paused, quarter));
+        assert!(worth_sending(
+            &paused,
+            &PlaybackState {
+                position_ms: 12_000.0,
+                ..paused_later
+            },
+            quarter
+        ));
     }
 
     #[test]

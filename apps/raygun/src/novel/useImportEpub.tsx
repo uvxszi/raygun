@@ -6,12 +6,13 @@ import type { ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
-import { readAsBase64 } from '../lib/readFile';
+import { uploadFile } from '../manga/useImportComics';
 import { NOVEL } from './useNovel';
 
 /**
  * Imports an EPUB from the device into the novel library and opens it. `pick` opens the file
- * chooser; render `input` once (it's hidden).
+ * chooser; render `input` once (it's hidden). The file goes to Rust in slices, so a big book
+ * never has to fit in one message.
  */
 export const useImportEpub = () => {
   const { t } = useTranslation();
@@ -20,7 +21,7 @@ export const useImportEpub = () => {
   const navigate = useNavigate();
   const importBook = useMutation({
     mutationFn: async (file: File) =>
-      unwrapResult(commands.novelImportEpub(await readAsBase64(file))),
+      unwrapResult(commands.novelImportEpubUpload(await uploadFile(file))),
     onSuccess: (book) => {
       void queryClient.invalidateQueries({ queryKey: [NOVEL] });
       void navigate({ to: '/novel/title', search: { source: book.sourceId, id: book.novelId } });

@@ -6,6 +6,7 @@ import { useEffect } from 'react';
 import { unwrapResult } from '../lib/commandResult';
 
 const CONTINUE = ['watch', 'continue'];
+const HISTORY = ['watch', 'history'];
 
 /** Videos started and not finished, kept current as the player reports progress. */
 export const useContinueWatching = () => {
@@ -21,6 +22,23 @@ export const useContinueWatching = () => {
   return useQuery({
     queryKey: CONTINUE,
     queryFn: () => unwrapResult(commands.videoContinueWatching()),
+  });
+};
+
+/** Everything watched or started, newest first, kept current as the player reports progress. */
+export const useWatchHistory = () => {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    const unlisten = events.watchChangedEvent.listen(() => {
+      void queryClient.invalidateQueries({ queryKey: HISTORY });
+    });
+    return () => {
+      void unlisten.then((stop) => stop());
+    };
+  }, [queryClient]);
+  return useQuery({
+    queryKey: HISTORY,
+    queryFn: () => unwrapResult(commands.videoHistory()),
   });
 };
 
@@ -40,6 +58,10 @@ export const useRemoveContinue = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (key: string) => unwrapResult(commands.videoRemove(key)),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: CONTINUE }),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: CONTINUE }),
+        queryClient.invalidateQueries({ queryKey: HISTORY }),
+      ]),
   });
 };

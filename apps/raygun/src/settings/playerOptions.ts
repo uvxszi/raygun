@@ -4,6 +4,7 @@ import type {
   PlayerOrientation,
   SubtitleEdge,
   SubtitleFont,
+  SubtitleMode,
   SubtitleStyle,
   TapAction,
   VideoAspect,
@@ -58,6 +59,7 @@ export const MEDIA_KEY_ACTIONS: MediaKeyAction[] = ['switchEpisode', 'seek'];
 export const DECODERS: DecoderMode[] = ['auto', 'software'];
 export const SUBTITLE_EDGES: SubtitleEdge[] = ['none', 'outline', 'shadow', 'raised', 'depressed'];
 export const SUBTITLE_FONTS: SubtitleFont[] = ['default', 'sans', 'serif', 'mono'];
+export const SUBTITLE_MODES: SubtitleMode[] = ['foreign', 'always', 'never'];
 
 /** Colours offered for subtitles, as 0xAARRGGBB, named for the choices. */
 export const TEXT_COLORS: { value: number; name: string }[] = [
@@ -166,6 +168,8 @@ export const PLAYER_DEFAULTS: PlayerPrefs = {
   subtitleFallback: '',
   subtitlePreferWords: '',
   subtitleSkipWords: '',
+  // Unset: the older `autoSubtitles` switch decides.
+  subtitleMode: null,
   subtitleStyle: DEFAULT_SUBTITLE_STYLE,
   audioLanguage: '',
   audioFallback: '',

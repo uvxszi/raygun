@@ -1,0 +1,39 @@
+{
+  "meta": {
+    "id": "kitsu:1",
+    "kitsu_id": "1",
+    "type": "series",
+    "name": "Cowboy Bebop",
+    "poster": "https://media.kitsu.app/anime/poster_images/1/medium.jpg",
+    "releaseInfo": "1998-1999",
+    "imdbRating": "8.2",
+    "runtime": "25 min",
+    "imdb_id": "tt0213338",
+    "genres": ["Comedy", "Sci-Fi"],
+    "videos": [
+      {
+        "id": "kitsu:1:2",
+        "title": "Stray Dog Strut",
+        "released": "1998-10-25T01:00:00.000Z",
+        "season": 1,
+        "episode": 2,
+        "imdb_id": "tt0213338",
+        "imdbSeason": 1,
+        "imdbEpisode": 2
+      },
+      {
+        "id": "kitsu:1:1",
+        "title": "Asteroid Blues",
+        "released": "1998-10-25T01:00:00.000Z",
+        "season": 1,
+        "episode": 1,
+        "thumbnail": "https://media.kitsu.app/episodes/thumbnails/229115/original.jpeg",
+        "imdb_id": "tt0213338",
+        "imdbSeason": 1,
+        "imdbEpisode": 1
+      },
+      { "id": "kitsu:1:1", "title": "Asteroid Blues (again)", "season": 1, "episode": 1 },
+      { "id": "kitsu:1:27", "title": "Session 27", "season": "1", "episode": "27" }
+    ]
+  }
+}

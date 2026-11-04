@@ -7,7 +7,8 @@ import { Artwork } from '../library/Artwork';
 import { formatTime } from '../player/formatTime';
 import { usePlaybackState } from '../player/usePlayback';
 import { useLivePosition } from '../player/useLivePosition';
-import { useSongDownloadEvents, useSongDownloads } from './useSongDownloads';
+import { SPIN } from './songDownloadState';
+import { useSongDownloadsSelect, useSongDownloadSync } from './useSongDownloads';
 
 /**
  * A song being recorded (M46.46), in its own window over the app: the song, how far it is, and
@@ -16,9 +17,10 @@ import { useSongDownloadEvents, useSongDownloads } from './useSongDownloads';
  * download changes are listened for, once for every list.
  */
 export const RecordingWindow: FC = () => {
-  useSongDownloadEvents();
-  const downloads = useSongDownloads();
-  const recording = downloads.data?.find((song) => song.state === 'recording');
+  useSongDownloadSync();
+  const recording = useSongDownloadsSelect(
+    (list) => list.find((song) => song.state === 'recording') ?? null,
+  ).data;
   if (!recording) return null;
   return (
     <RecordingCard title={recording.title} artist={recording.artist} art={recording.artworkUrl} />
@@ -45,7 +47,7 @@ const RecordingCard: FC<{ title: string; artist: string | null; art: string | nu
     >
       <div className="bg-surface motion-pop flex w-full max-w-sm flex-col items-center gap-4 rounded-3xl p-6 text-center shadow-2xl">
         <span className="text-primary flex items-center gap-2 text-xs font-semibold tracking-wide uppercase">
-          <Disc3 aria-hidden size={14} className="animate-spin" />
+          <Disc3 aria-hidden size={14} className={SPIN} />
           {t('songs.recordingNow')}
         </span>
         <Artwork url={art} className="size-40 rounded-xl shadow-lg" iconSize={40} />
@@ -64,7 +66,11 @@ const RecordingCard: FC<{ title: string; artist: string | null; art: string | nu
             aria-valuenow={Math.round(progress * 100)}
             className="bg-background h-1.5 w-full overflow-hidden rounded-full"
           >
-            <div className="bg-primary h-full" style={{ width: `${progress * 100}%` }} />
+            {/* Scaled, not resized: the bar moves without laying the window out again. */}
+            <div
+              className="bg-primary h-full w-full origin-left"
+              style={{ transform: `scaleX(${progress})` }}
+            />
           </div>
           <div className="text-muted flex justify-between text-xs tabular-nums">
             <span>{formatTime(positionMs)}</span>

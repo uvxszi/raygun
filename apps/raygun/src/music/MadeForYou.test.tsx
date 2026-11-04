@@ -121,7 +121,10 @@ describe('Made for You', () => {
     await AppShellWrapper.mount('/');
     const row = await screen.findByTestId('made-for-you-row');
     expect(within(row).getAllByTestId('mix-card')).toHaveLength(MIXES.length);
-    expect(within(row).getByRole('link', { name: 'See all' })).toBeInTheDocument();
+    expect(within(row).getByRole('link', { name: 'Show all of Made for You' })).toHaveAttribute(
+      'href',
+      '/music/for-you',
+    );
   });
 
   it('says how mixes start when there is nothing to make them from', async () => {

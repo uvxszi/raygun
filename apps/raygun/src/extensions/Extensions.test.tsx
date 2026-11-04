@@ -356,7 +356,12 @@ describe('Extensions', () => {
     expect(await within(sheet).findByRole('alert')).toHaveTextContent('use https');
     await userEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
 
+    // Removing takes a second tap; moving away cancels it.
     await userEvent.click(screen.getByRole('button', { name: 'Remove Raygun Extensions' }));
+    expect(commands.extensionRepoRemove).not.toHaveBeenCalled();
+    await userEvent.tab();
+    await userEvent.click(screen.getByRole('button', { name: 'Remove Raygun Extensions' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Tap again to remove' }));
     expect(commands.extensionRepoRemove).toHaveBeenCalledWith('repo-1');
   });
 
@@ -431,7 +436,7 @@ describe('Extensions', () => {
     const user = userEvent.setup();
     commands.extensionSuggestedRepos.mockResolvedValue(
       ok([
-        { url: REPO.url, name: 'Raygun Extensions', description: 'Official.', added: true },
+        { url: REPO.url, name: 'Paraline', description: 'Official.', added: true },
         {
           url: 'https://example.org/s/index.json',
           name: 'Shosetsu extensions',
@@ -442,7 +447,8 @@ describe('Extensions', () => {
     );
     await AppShellWrapper.mount('/extensions?tab=repos');
 
-    const official = await screen.findByRole('listitem', { name: 'Raygun Extensions' });
+    expect(await screen.findByText('No repositories yet.')).toBeInTheDocument();
+    const official = await screen.findByRole('listitem', { name: 'Paraline' });
     expect(within(official).getByText('Added')).toBeInTheDocument();
     const shosetsu = screen.getByRole('listitem', { name: 'Shosetsu extensions' });
     await user.click(within(shosetsu).getByRole('button', { name: 'Add Shosetsu extensions' }));

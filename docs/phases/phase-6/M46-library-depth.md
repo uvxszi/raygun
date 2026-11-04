@@ -22,7 +22,7 @@ The library still never browses (finding content stays in Browse).
 ## Design
 
 ### Storage (migration 0017)
-- **On `title`**, the user's own data (`user_*`, synced conventions):
+- **On `title`**, marks set in the app (`user_*`, synced conventions):
   - `user_list` (`reading`, `planned`, `completed`, `onHold`, `dropped`, or NULL);
   - `user_favorite_at`;
   - `user_pinned_at`.
@@ -171,7 +171,7 @@ These go to later milestones, each with a reason:
   - clean up afterwards.
 
 ## Decisions
-- **Storage:** the user's own marks are columns on `title` (`user_list`, `user_favorite_at`, `user_pinned_at`), so they travel with the title like its other `user_*` fields. A category's own layout and sort is one JSON column (`category.user_display`).
+- **Storage:** the list, favorite and pin marks are columns on `title` (`user_list`, `user_favorite_at`, `user_pinned_at`), so they travel with the title like its other `user_*` fields. A category's own layout and sort is one JSON column (`category.user_display`).
 - **Lists are CloudStream's, with manga words:** Reading, Completed, On hold, Dropped and Plan to read ("Watching" and "Plan to watch" for videos).
   - A title is on at most one list. Favorites are separate, so a favorite can be on any list.
   - Choosing a list or favoriting adds the title to the library, after the duplicate check. Removing a title clears its list, pin and favorite.

@@ -205,6 +205,28 @@ describe('YouTubeEmbedEngine', () => {
     vi.useRealTimers();
   });
 
+  it('says paused when the embed sits unstarted after being asked to play', () => {
+    vi.useFakeTimers();
+    const { engine, reports, load, fromPage } = setup();
+    load();
+    fromPage({ type: 'ready' });
+    reports.length = 0;
+
+    // The webview held the start back until a tap: the player shows Play, not a dead Pause.
+    fromPage({ type: 'state', state: 'unstarted' });
+    vi.advanceTimersByTime(3000);
+    expect(reports.map((report) => report.event)).toEqual([{ type: 'paused' }]);
+
+    // Asked again (the listener's Play), a start that comes in time says nothing more.
+    reports.length = 0;
+    engine.handle({ type: 'play' });
+    fromPage({ type: 'state', state: 'unstarted' });
+    fromPage({ type: 'state', state: 'playing' });
+    vi.advanceTimersByTime(5000);
+    expect(reports.map((report) => report.event)).toEqual([{ type: 'playing' }]);
+    vi.useRealTimers();
+  });
+
   it('ends a video at its end trim', () => {
     const { fromPage, load, posted, reports } = setup();
     load('M7lc1UVf-VE', { endMs: 60_000 });

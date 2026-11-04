@@ -4,6 +4,8 @@ import type { LucideIcon } from 'lucide-react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { IncognitoBadge } from '../privacy/IncognitoBadge';
+
 type TopBarProps = {
   title: string;
   subtitle?: string | null;
@@ -109,6 +111,8 @@ export const TopBar: FC<TopBarProps> = ({
           </div>
         </>
       )}
+      {/* Incognito (M47) shows on every screen while it's on; the desktop bar has its own. */}
+      <IncognitoBadge phoneOnly className="mx-1" />
       {actions && <div className="flex shrink-0 items-center">{actions}</div>}
     </header>
   );

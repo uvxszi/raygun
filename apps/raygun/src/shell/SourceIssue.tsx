@@ -14,6 +14,8 @@ type SourceIssueProps = {
   children: ReactNode;
   /** The source's name, when known: "MangaDex didn't answer in time". */
   source?: string | null;
+  /** What failed, when it isn't a source: "Couldn't add the folder". */
+  title?: string;
   /** Asks the source again. */
   onRetry?: () => void;
   /** One line, for rows and small spaces. */
@@ -30,6 +32,7 @@ type SourceIssueProps = {
 export const SourceIssue: FC<SourceIssueProps> = ({
   children,
   source,
+  title,
   onRetry,
   compact = false,
   testId,
@@ -42,8 +45,9 @@ export const SourceIssue: FC<SourceIssueProps> = ({
   const issue =
     typeof children === 'string' && children.trim() ? readIssue(children, t, source) : null;
   const headline =
-    issue?.summary ?? (source ? t('issue.withSource', { source }) : t('issue.title'));
-  const more: ReactNode = issue ? issue.details : children;
+    title ?? issue?.summary ?? (source ? t('issue.withSource', { source }) : t('issue.title'));
+  // A given title says what failed; then the whole error is the detail.
+  const more: ReactNode = issue && !title ? issue.details : children;
 
   const copy = () => {
     const text = details?.textContent?.trim();
@@ -89,7 +93,7 @@ export const SourceIssue: FC<SourceIssueProps> = ({
         </span>
       </div>
       {/* Content that isn't an error text (older callers) keeps the general line. */}
-      {!compact && !issue && <p>{t('issue.calm')}</p>}
+      {!compact && !title && !issue && <p>{t('issue.calm')}</p>}
       {more && (
         <div hidden={!open} className="flex flex-col gap-1">
           <div

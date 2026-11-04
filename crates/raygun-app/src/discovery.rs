@@ -250,7 +250,10 @@ impl DiscoveryService {
             return Ok(parse_tags(json));
         }
         let tags = self.fetch_tags(&query, None).await?;
-        self.store(&key, &tags).await?;
+        // Incognito (M47): a song looked up while it's on isn't remembered.
+        if !crate::privacy::incognito(&self.app) {
+            self.store(&key, &tags).await?;
+        }
         Ok(tags)
     }
 

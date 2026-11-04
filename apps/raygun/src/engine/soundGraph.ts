@@ -82,6 +82,18 @@ export class WebAudioSound implements SoundBackend {
   private reverb: Reverb = 'off';
 
   constructor(private readonly context: AudioContext) {
+    // Browsers start a context asleep until there's been a click, and only a click (or a key)
+    // may wake it: the first one anywhere does, so a song started later by Rust has sound.
+    const wake = () => {
+      if (context.state !== 'suspended') {
+        window.removeEventListener('pointerdown', wake, true);
+        window.removeEventListener('keydown', wake, true);
+        return;
+      }
+      void context.resume().catch(() => undefined);
+    };
+    window.addEventListener('pointerdown', wake, true);
+    window.addEventListener('keydown', wake, true);
     this.mix = context.createGain();
     this.preamp = context.createGain();
     this.bands = EQ_FREQUENCIES.map((frequency, index) => {
