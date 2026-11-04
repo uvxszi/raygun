@@ -5,6 +5,8 @@ import { useTranslation } from 'react-i18next';
 
 import { PlaylistCover } from '../collections/PlaylistCover';
 import { useFavorites, usePlaylists } from '../collections/useCollections';
+import type { LengthSummary } from '../music/collectionLength';
+import { playlistLengthSummary, useLengthLabel } from '../music/collectionLength';
 import { useDownloadedSongs } from '../music/useSongDownloads';
 import { useAudiobooks } from '../audiobooks/useAudiobooks';
 import { PodcastArt } from '../podcasts/PodcastArt';
@@ -116,6 +118,7 @@ export const MusicOverview: FC<{
                   />
                 }
                 count={playlist.itemCount}
+                length={playlistLengthSummary(playlist.length ?? undefined, playlist.itemCount)}
               />
             </li>
           ))}
@@ -252,13 +255,15 @@ export const MusicOverview: FC<{
   );
 };
 
-const PlaylistTile: FC<{ id: string; name: string; cover: ReactNode; count: number }> = ({
-  id,
-  name,
-  cover,
-  count,
-}) => {
+const PlaylistTile: FC<{
+  id: string;
+  name: string;
+  cover: ReactNode;
+  count: number;
+  length: LengthSummary | null;
+}> = ({ id, name, cover, count, length }) => {
   const { t } = useTranslation();
+  const lengthLabel = useLengthLabel(length);
   return (
     <Link to="/library/playlist" search={{ id }} className="flex flex-col gap-1.5">
       {cover}
@@ -266,6 +271,7 @@ const PlaylistTile: FC<{ id: string; name: string; cover: ReactNode; count: numb
       <span className="text-muted -mt-1 truncate text-xs">
         {t('library.trackCount', { count })}
       </span>
+      {lengthLabel && <span className="text-muted -mt-1 truncate text-xs">{lengthLabel}</span>}
     </Link>
   );
 };

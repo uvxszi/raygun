@@ -402,6 +402,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::library_remove,
             commands::library_change_categories,
             commands::library_download_next,
+            commands::library_add_titles,
+            commands::library_download_titles,
             commands::library_continue,
             commands::library_duplicates,
             commands::library_set_category_display,

@@ -1,9 +1,11 @@
 import { Link } from '@tanstack/react-router';
 import { CircleArrowDown, Settings2 } from 'lucide-react';
 import { useMemo } from 'react';
+import type { SavedTrack } from '@raygun/bindings';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { joinCount, useSongsLength } from '../music/collectionLength';
 import { usePlayContext } from '../music/playContext';
 import { savedRow } from '../music/tableView';
 import { TrackTable } from '../music/TrackTable';
@@ -15,6 +17,8 @@ import {
 import { EmptyState } from '../shell/EmptyState';
 import { PlayButtons } from './PlayButtons';
 import { playCollection } from './useCollections';
+
+const NO_SONGS: SavedTrack[] = [];
 
 /**
  * Library → Audio → Downloaded (M46.18): every song downloaded into the app, whether or not it's
@@ -32,6 +36,7 @@ export const DownloadedView: FC = () => {
   ).data;
   const idFor = useMemo(() => new Map(pairs ?? []), [pairs]);
   const { removeMany } = useSongDownloadActions();
+  const length = useSongsLength(songs.data ?? NO_SONGS);
   usePlayContext({
     kind: 'downloaded',
     name: t('library.view.downloaded'),
@@ -55,6 +60,9 @@ export const DownloadedView: FC = () => {
   const rows = songs.data.map((track) => savedRow(track, track.trackKey));
   return (
     <div data-testid="downloaded-view" className="flex flex-col gap-3">
+      <p className="text-muted text-xs">
+        {joinCount(t('library.trackCount', { count: rows.length }), length)}
+      </p>
       <TrackTable
         kind="downloaded"
         tracks={rows}

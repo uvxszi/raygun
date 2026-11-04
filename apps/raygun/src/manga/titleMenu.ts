@@ -58,6 +58,9 @@ export type CardTitle = {
   link?: { to: string; search: Record<string, string> };
 };
 
+/** What a card adds to the menu: Select (inside a selection scope), Add to a group. */
+export type TitleMenuOptions = CardMenuOptions & { select?: MenuItem; addToGroup?: MenuItem };
+
 /** At most this many episodes are looked up and queued by one Download all. */
 const MAX_EPISODES = 200;
 
@@ -222,7 +225,7 @@ export const useTitleCardMenu = () => {
   const play = usePlayTitle();
   const pinItems = usePinMenuItem();
   const hideActions = useHideActions();
-  return (card: CardTitle, options: CardMenuOptions = {}): MenuItem[] => {
+  return (card: CardTitle, options: TitleMenuOptions = {}): MenuItem[] => {
     const page = cardPage(card);
     const video = card.medium === 'video';
     const stremio = card.sourceId === STREMIO_SOURCE;
@@ -351,6 +354,7 @@ export const useTitleCardMenu = () => {
     return buildMenu({
       heading: { label: name, subtitle: card.subtitle, artworkUrl: card.coverUrl },
       play: [
+        options.select,
         {
           label: t(video ? 'menu.play' : 'menu.read'),
           icon: video ? Play : BookOpen,
@@ -374,6 +378,7 @@ export const useTitleCardMenu = () => {
               icon: BookmarkPlus,
               onSelect: () => setInLibrary(true),
             },
+        options.addToGroup,
         (inLibrary || !stremio || !stremioParts(card.id).kind.includes('series')) && {
           label: t(video ? 'menu.markWatched' : 'menu.markRead'),
           icon: CheckCheck,

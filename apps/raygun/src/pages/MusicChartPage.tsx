@@ -10,6 +10,7 @@ import { OnlineTrackRow } from '../search/OnlineTrackRow';
 import { playResults } from '../search/useOnlineSearch';
 import { TopBar } from '../shell/TopBar';
 import { SourceIssue } from '../shell/SourceIssue';
+import { joinCount, useSongsLength } from '../music/collectionLength';
 import { usePlayContext } from '../music/playContext';
 
 /** A chart's page (M46.9): its songs in order, played from any of them. */
@@ -22,6 +23,7 @@ export const MusicChartPage: FC = () => {
   );
   const songs = useChartSongs(provider, id);
   const list = songs.data ?? [];
+  const length = useSongsLength(list);
   usePlayContext(
     chart
       ? {
@@ -55,7 +57,9 @@ export const MusicChartPage: FC = () => {
           </h1>
           {chart?.description && <p className="text-muted text-sm">{chart.description}</p>}
           {list.length > 0 && (
-            <p className="text-muted text-sm">{t('discover.songs', { count: list.length })}</p>
+            <p className="text-muted text-sm">
+              {joinCount(t('discover.songs', { count: list.length }), length)}
+            </p>
           )}
         </div>
       </header>

@@ -19,6 +19,7 @@ import { useSourceAnswers } from './useCatalogSearch';
 import { pill, SEARCH_TYPES, VIDEO_VIEWS, viewIn } from './searchTypes';
 import type { MusicView, SearchType, SearchView, VideoView } from './searchTypes';
 import { VideoResults } from './VideoResults';
+import { SelectionScope } from '../select/Selectable';
 import { useSettings } from '../settings/useSettings';
 import { usePlayContext } from '../music/playContext';
 import { YouTubeLinkCard } from '../youtube/YouTubeLinkCard';
@@ -223,83 +224,86 @@ export const SearchPanel: FC<{
 
   return (
     <div data-testid="search-page" className="flex flex-col gap-4">
-      {/* The kinds, then Search's "No 18+" and "No explicit" beside them (below on phones). */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <div
-          role="tablist"
-          aria-label={t('search.typeLabel')}
-          className="-mx-4 flex min-w-0 flex-1 gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
-        >
-          {SEARCH_TYPES.map((option) => (
-            <Fragment key={option}>
-              {typePill(option)}
-              {/* A video site's own pill sits beside Videos. */}
-              {option === 'video' &&
-                pills.map((source) => {
-                  const current = pillSource?.id === source.id;
-                  return (
-                    <button
-                      key={source.id}
-                      ref={current ? selected : undefined}
-                      type="button"
-                      role="tab"
-                      aria-selected={current}
-                      onClick={() => onType('video', undefined, source.id)}
-                      className={`shrink-0 rounded-full px-4 py-1.5 text-sm ${current ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
-                    >
-                      {source.searchPill}
-                    </button>
-                  );
-                })}
-            </Fragment>
-          ))}
+      {/* Holding a result (or Ctrl/Shift-click) picks it; the bar acts on all picked (M46.50). */}
+      <SelectionScope>
+        {/* The kinds, then Search's "No 18+" and "No explicit" beside them (below on phones). */}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div
+            role="tablist"
+            aria-label={t('search.typeLabel')}
+            className="-mx-4 flex min-w-0 flex-1 gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
+          >
+            {SEARCH_TYPES.map((option) => (
+              <Fragment key={option}>
+                {typePill(option)}
+                {/* A video site's own pill sits beside Videos. */}
+                {option === 'video' &&
+                  pills.map((source) => {
+                    const current = pillSource?.id === source.id;
+                    return (
+                      <button
+                        key={source.id}
+                        ref={current ? selected : undefined}
+                        type="button"
+                        role="tab"
+                        aria-selected={current}
+                        onClick={() => onType('video', undefined, source.id)}
+                        className={`shrink-0 rounded-full px-4 py-1.5 text-sm ${current ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
+                      >
+                        {source.searchPill}
+                      </button>
+                    );
+                  })}
+              </Fragment>
+            ))}
+          </div>
+          <SearchFilterToggles />
         </div>
-        <SearchFilterToggles />
-      </div>
-      {/* A YouTube address plays or downloads as it is (M46.47). */}
-      <YouTubeLinkCard query={query} />
-      {blank && (
-        <RecentSearches
-          type={type}
-          onPick={(search: RecentSearch) => onSearch(search.query, kindOf(search))}
-        />
-      )}
-      {blank && type === 'library' && (
-        <p className="text-muted text-sm">{t('search.hintFor.library')}</p>
-      )}
-      {/* Opening or playing something found remembers the search. */}
-      <div
-        className="flex flex-col gap-4"
-        onClickCapture={(event) => {
-          if (!blank && opensResult(event)) remember(query, type);
-        }}
-      >
-        {type === 'all' && <AllResults query={query} onType={onType} />}
-        {type === 'music' && (
-          <MusicResults query={query} view={musicView} onView={(next) => onType('music', next)} />
-        )}
-        {type === 'video' && pillSource && (
-          <CatalogSearch key={pillSource.id} medium="video" query={query} only={pillSource.id} />
-        )}
-        {type === 'video' && !pillSource && (
-          <VideoSearch
-            query={query}
-            view={videoView}
-            onView={(next) => onType('video', next)}
-            pills={pills}
-            onPill={(id) => onType('video', undefined, id)}
+        {/* A YouTube address plays or downloads as it is (M46.47). */}
+        <YouTubeLinkCard query={query} />
+        {blank && (
+          <RecentSearches
+            type={type}
+            onPick={(search: RecentSearch) => onSearch(search.query, kindOf(search))}
           />
         )}
-        {!blank && type === 'library' && <LibraryMatches query={query} />}
-        {(type === 'manga' || type === 'novel') && (
-          <CatalogSearch
-            key={type}
-            medium={type}
-            query={query}
-            onLibrary={() => onType('library')}
-          />
+        {blank && type === 'library' && (
+          <p className="text-muted text-sm">{t('search.hintFor.library')}</p>
         )}
-      </div>
+        {/* Opening or playing something found remembers the search. */}
+        <div
+          className="flex flex-col gap-4"
+          onClickCapture={(event) => {
+            if (!blank && opensResult(event)) remember(query, type);
+          }}
+        >
+          {type === 'all' && <AllResults query={query} onType={onType} />}
+          {type === 'music' && (
+            <MusicResults query={query} view={musicView} onView={(next) => onType('music', next)} />
+          )}
+          {type === 'video' && pillSource && (
+            <CatalogSearch key={pillSource.id} medium="video" query={query} only={pillSource.id} />
+          )}
+          {type === 'video' && !pillSource && (
+            <VideoSearch
+              query={query}
+              view={videoView}
+              onView={(next) => onType('video', next)}
+              pills={pills}
+              onPill={(id) => onType('video', undefined, id)}
+            />
+          )}
+          {!blank && type === 'library' && <LibraryMatches query={query} />}
+          {(type === 'manga' || type === 'novel') && (
+            <CatalogSearch
+              key={type}
+              medium={type}
+              query={query}
+              onLibrary={() => onType('library')}
+            />
+          )}
+        </div>
+      </SelectionScope>
     </div>
   );
 };

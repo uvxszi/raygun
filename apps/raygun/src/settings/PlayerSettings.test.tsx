@@ -41,7 +41,7 @@ const lastPlayer = () =>
     .filter((change) => change.key === 'videoPlayer')
     .at(-1)?.value;
 
-describe('Settings → Player', () => {
+describe('Settings → Video player', () => {
   beforeEach(() => {
     AppShellWrapper.seedCore();
   });
@@ -49,7 +49,7 @@ describe('Settings → Player', () => {
   it('lists its screens and the sources list options', async () => {
     const user = userEvent.setup();
     storeSettings();
-    await AppShellWrapper.mount('/settings/player');
+    await AppShellWrapper.mount('/settings/video');
     for (const name of [
       /^Controls/,
       /^Gestures/,
@@ -71,7 +71,7 @@ describe('Settings → Player', () => {
   it('saves controls: orientation, speed presets and the hold speed', async () => {
     const user = userEvent.setup();
     storeSettings();
-    await AppShellWrapper.mount('/settings/player/controls');
+    await AppShellWrapper.mount('/settings/video/controls');
     await choose(user, /^Orientation/, 'Follow the video');
     expect(lastPlayer()).toMatchObject({ orientation: 'video' });
 
@@ -94,7 +94,7 @@ describe('Settings → Player', () => {
   it('sets up double taps and swipes', async () => {
     const user = userEvent.setup();
     storeSettings();
-    await AppShellWrapper.mount('/settings/player/gestures');
+    await AppShellWrapper.mount('/settings/video/gestures');
     await choose(user, /^Left/, 'Previous or next episode');
     await user.click(screen.getByRole('switch', { name: /Swap sides/ }));
     expect(lastPlayer()).toMatchObject({ doubleTapLeft: 'switchEpisode', swapSides: true });
@@ -107,7 +107,7 @@ describe('Settings → Player', () => {
   it('styles subtitles with a live preview, and resets the style', async () => {
     const user = userEvent.setup();
     storeSettings();
-    await AppShellWrapper.mount('/settings/player/subtitles');
+    await AppShellWrapper.mount('/settings/video/subtitles');
     const text = await screen.findByTestId('subtitle-preview-text');
     expect(text).toHaveStyle({ color: 'rgb(255, 255, 255)' });
 
@@ -126,21 +126,21 @@ describe('Settings → Player', () => {
   it('turns on AniSkip and picks another app', async () => {
     const user = userEvent.setup();
     storeSettings();
-    await AppShellWrapper.mount('/settings/player/skip');
+    await AppShellWrapper.mount('/settings/video/skip');
     const unless = await screen.findByRole('switch', { name: /Not when the video has chapters/ });
     expect(unless).toBeDisabled();
     await user.click(screen.getByRole('switch', { name: /Find openings and endings of anime/ }));
     expect(lastPlayer()).toMatchObject({ aniskip: true });
     expect(await screen.findByRole('switch', { name: /Not when the video/ })).toBeEnabled();
 
-    await AppShellWrapper.mount('/settings/player/advanced');
+    await AppShellWrapper.mount('/settings/video/advanced');
     await choose(user, /^Other app/, 'VLC');
     expect(lastPlayer()).toMatchObject({ externalPackage: 'org.videolan.vlc' });
   });
 
   it('reads the settings again when the player changes one', async () => {
     const store = storeSettings();
-    await AppShellWrapper.mount('/settings/player/controls');
+    await AppShellWrapper.mount('/settings/video/controls');
     expect(await screen.findByRole('switch', { name: /Show the time left/ })).not.toBeChecked();
 
     store.replace({ ...PLAYER_DEFAULTS, showRemaining: true });

@@ -20,7 +20,7 @@ use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
 use crate::catalog::now_ms;
-use crate::events::{SettingsChangedEvent, WatchChangedEvent};
+use crate::events::{OpenRouteEvent, SettingsChangedEvent, WatchChangedEvent};
 use crate::startup::AppDb;
 use crate::video_session::{EpisodeRef, Origin, VideoSessions};
 
@@ -375,6 +375,9 @@ fn merge_prefs(saved: &mut Value, change: &Map<String, Value>) {
     }
 }
 
+/// Settings → Video player, as the player's "More settings" opens it.
+const SETTINGS_ROUTE: &str = "/settings/video";
+
 /// The player's own requests (M45), for sessions and single videos alike.
 async fn player_request(app: &AppHandle, action: &str, raw: &Value) {
     let db = app.state::<AppDb>().0.clone();
@@ -420,6 +423,28 @@ async fn player_request(app: &AppHandle, action: &str, raw: &Value) {
                     let _ = SettingsChangedEvent("videoPlayer".into()).emit(app);
                 }
                 Err(error) => tracing::warn!(%error, "could not save a player setting"),
+            }
+        }
+        "seekStep" => {
+            let Some(seconds) = raw
+                .get("seconds")
+                .and_then(Value::as_u64)
+                .and_then(|seconds| u32::try_from(seconds).ok())
+            else {
+                return;
+            };
+            match crate::settings::update(&db, SettingChange::SeekSeconds(seconds)).await {
+                Ok(_) => {
+                    let _ = SettingsChangedEvent("seekSeconds".into()).emit(app);
+                }
+                Err(error) => tracing::warn!(%error, "could not save the seek step"),
+            }
+        }
+        // The player's "More settings": the app shows Settings → Video player while the paused
+        // video waits in its small window.
+        "openSettings" => {
+            if let Err(error) = OpenRouteEvent(SETTINGS_ROUTE.into()).emit(app) {
+                tracing::warn!(%error, "could not open the player's settings");
             }
         }
         "brightness" => {
@@ -602,7 +627,7 @@ async fn handle_report(app: &AppHandle, json: &str) {
             .and_then(Value::as_str)
             .unwrap_or_default();
         match action {
-            "state" | "prefs" | "brightness" | "duration" => {
+            "state" | "prefs" | "seekStep" | "openSettings" | "brightness" | "duration" => {
                 player_request(app, action, &raw).await;
             }
             _ => app.state::<VideoSessions>().on_report(&raw).await,

@@ -11,6 +11,7 @@ import { playResults } from '../search/useOnlineSearch';
 import { SourceIssue } from '../shell/SourceIssue';
 import { TopBar } from '../shell/TopBar';
 import { PinButton } from '../shell/PinButton';
+import { joinCount, useSongsLength } from '../music/collectionLength';
 import { usePlayContext } from '../music/playContext';
 
 /** A Made for You mix (M46.20): its songs, played from any of them, and saved as a playlist. */
@@ -21,6 +22,7 @@ export const MixPage: FC = () => {
   const save = useSaveMix();
   const list = mix.data?.tracks ?? [];
   const title = mix.data ? mixTitle(t, mix.data) : t('forYou.title');
+  const length = useSongsLength(list);
   usePlayContext(
     mix.data
       ? {
@@ -76,7 +78,9 @@ export const MixPage: FC = () => {
           </h1>
           {mix.data && <p className="text-muted text-sm">{mixDescription(t, mix.data)}</p>}
           {list.length > 0 && (
-            <p className="text-muted text-sm">{t('discover.songs', { count: list.length })}</p>
+            <p className="text-muted text-sm">
+              {joinCount(t('discover.songs', { count: list.length }), length)}
+            </p>
           )}
         </div>
       </header>

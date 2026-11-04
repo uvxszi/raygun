@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
@@ -1300,6 +1301,57 @@ class VideoPlayerActivity : AppCompatActivity() {
         } else {
             result?.positionMs?.let { player.seekTo(it) }
         }
+    }
+
+    /** When subtitles turn on (`foreign`, `always`, `never`): saved, and tracks picked again. */
+    internal fun setSubtitleMode(mode: String) {
+        subtitleMode = mode
+        savePrefs(JSONObject().put("subtitleMode", mode))
+        repickTracks()
+    }
+
+    internal val currentSubtitleMode: String get() = subtitleMode
+
+    /** The audio language to look for ("" for yours, `original`, or a code): saved and applied. */
+    internal fun setAudioLanguage(language: String) {
+        prefs.audioLanguage = language
+        savePrefs(JSONObject().put("audioLanguage", language))
+        repickTracks()
+    }
+
+    /** Picks audio and subtitles again by the languages; this title's own picks still win. */
+    private fun repickTracks() {
+        languages = LanguagePrefs.from(prefs, appLanguage, subtitleLanguage, subtitleMode, spokenLanguage)
+        if (tracksPicked) tracks.pick(state, prefs, languages)
+    }
+
+    /** The largest picture automatic quality may use, from now on. */
+    internal fun setResolution(resolution: String) {
+        prefs.preferredResolution = resolution
+        savePrefs(JSONObject().put("preferredResolution", resolution))
+        tracks.limit(prefs.maxHeight)
+    }
+
+    internal fun setSeekStep(seconds: Int) {
+        seekStepMs = seconds * 1000L
+        controls.setSeekStep(seekStepMs)
+        updatePip()
+        request("seekStep", JSONObject().put("seconds", seconds))
+    }
+
+    /** Whether the video can wait in a small window while the app shows something else. */
+    internal val canPip: Boolean
+        get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+
+    /**
+     * Settings → Video player in the app: the video pauses in its small window (tapping it comes
+     * back), and the app opens the screen.
+     */
+    internal fun openAppSettings() {
+        player.pause()
+        request("openSettings")
+        enterPip()
     }
 
     internal fun setDecoder(mode: String) {

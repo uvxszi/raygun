@@ -24,6 +24,7 @@ import { EpisodeItem } from '../podcasts/EpisodeItem';
 import { EpisodeList } from '../podcasts/EpisodeList';
 import { EpisodeOrderButton } from '../podcasts/EpisodeOrderButton';
 import { formatLength } from '../podcasts/formatLength';
+import { describeLength, summarizeLengths } from '../music/collectionLength';
 import { PodcastArt } from '../podcasts/PodcastArt';
 import { ShowNotes } from '../podcasts/ShowNotes';
 import { ShowSpeedButton } from '../podcasts/ShowSpeedButton';
@@ -49,7 +50,7 @@ import { findInCache } from '../shell/queryMemory';
  * filtered its own way (M46.48).
  */
 export const AudiobookPage: FC = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const find = useSearchMode(t('audiobooks.findChapter'));
   const { id } = useSearch({ from: '/audiobook' });
   const book = useAudiobook(id);
@@ -109,6 +110,15 @@ export const AudiobookPage: FC = () => {
   const share = totalMs > 0 ? Math.min(1, listenedMs / totalMs) : 0;
   const shown = view.chapters.filter((chapter) => matchesSearch(find.query, [chapter.title]));
   const filtered = view.order.filters.length > 0 || find.query.trim() !== '';
+  // The whole book's listening time; "about …" or "…+" while some chapters' lengths are unknown.
+  const length = describeLength(
+    summarizeLengths(
+      view.chapters.map((chapter) => chapter.durationMs),
+      Math.max(view.chapterCount, view.chapters.length),
+    ),
+    t,
+    i18n.language,
+  );
   const allDownloaded = view.chapterCount > 0 && view.downloaded === view.chapterCount;
   const downloadedCount = view.chapters.filter((chapter) => chapter.download).length;
   const error =
@@ -196,7 +206,7 @@ export const AudiobookPage: FC = () => {
             {[
               view.edition,
               t('audiobooks.chapters', { count: view.chapterCount }),
-              totalMs > 0 ? formatLength(totalMs, t) : null,
+              length,
               started && totalMs > 0 && left > 0
                 ? t('podcasts.left', { time: formatLength(left, t) })
                 : null,

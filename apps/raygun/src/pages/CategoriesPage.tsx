@@ -4,7 +4,9 @@ import { useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { groupWords } from '../manga/groupWords';
 import type { Medium } from '../manga/medium';
+import { Tabs } from '../shell/Tabs';
 import {
   useCategories,
   useCreateCategory,
@@ -22,11 +24,15 @@ import { matchesSearch } from '../shell/useListSearch';
 const ICON =
   'bg-background grid size-9 shrink-0 place-items-center rounded-full disabled:opacity-40';
 
-/** Library → Edit categories: add, rename, reorder and delete a library's categories. */
+/**
+ * Library → Edit groups (comics, books) or folders (videos): add, rename, reorder and delete a
+ * library's categories, with a tab for each library.
+ */
 export const CategoriesPage: FC = () => {
   const { t } = useTranslation();
-  const find = useSearchMode(t('library.categories.find'));
   const { medium } = useSearch({ from: '/library/categories' }) as { medium: Medium };
+  const words = groupWords(medium);
+  const find = useSearchMode(t('library.categories.find', words));
   const categories = useCategories(medium);
   const create = useCreateCategory(medium);
   const rename = useRenameCategory(medium);
@@ -78,15 +84,25 @@ export const CategoriesPage: FC = () => {
           <>
             {find.action}
             <TopBarAction
-              label={t('library.categories.add')}
+              label={t('library.categories.add', words)}
               icon={Plus}
               onClick={() => setCreating(true)}
             />
           </>
         }
       />
+      <Tabs
+        label={t('more.categories')}
+        active={medium}
+        items={(['manga', 'novel', 'video'] as const).map((id) => ({
+          id,
+          label: t(`library.tabs.${id}`),
+          to: '/library/categories',
+          search: { medium: id },
+        }))}
+      />
       {list.length === 0 && categories.data && (
-        <p className="text-sm">{t('library.categories.empty')}</p>
+        <p className="text-sm">{t('library.categories.empty', words)}</p>
       )}
       <ul className="bg-surface flex flex-col rounded-xl">
         {list.map((item, index) =>
@@ -97,7 +113,7 @@ export const CategoriesPage: FC = () => {
                   <TextField
                     value={editing.name}
                     onChange={(name) => setEditing({ id: item.id, name })}
-                    aria-label={t('library.categories.name')}
+                    aria-label={t('library.categories.name', words)}
                     maxLength={40}
                     className="bg-background flex-1 rounded-lg pr-0.5 pl-3"
                     inputClassName="py-2 text-sm"
@@ -186,14 +202,14 @@ export const CategoriesPage: FC = () => {
         </p>
       )}
       {creating && (
-        <Sheet title={t('library.categories.add')} onClose={() => setCreating(false)}>
+        <Sheet title={t('library.categories.add', words)} onClose={() => setCreating(false)}>
           <form onSubmit={onCreate} className="flex flex-col gap-3 text-sm">
             <TextField
               autoFocus
               value={name}
               onChange={setName}
-              placeholder={t('library.categories.newPlaceholder')}
-              aria-label={t('library.categories.newName')}
+              placeholder={t('library.categories.newPlaceholder', words)}
+              aria-label={t('library.categories.newName', words)}
               maxLength={40}
               className={SHEET_FIELD}
               inputClassName={SHEET_INPUT}
@@ -209,7 +225,7 @@ export const CategoriesPage: FC = () => {
               className="bg-primary text-background flex items-center gap-1.5 self-end rounded-full px-5 py-2.5 font-semibold disabled:opacity-60"
             >
               <Plus aria-hidden size={16} />
-              {t('library.categories.add')}
+              {t('library.categories.add', words)}
             </button>
           </form>
         </Sheet>
