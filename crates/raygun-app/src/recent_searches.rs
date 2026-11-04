@@ -1,5 +1,6 @@
 //! Recent searches: what was searched for lately on this device, newest first, for Search to
-//! offer again. Kept in `local_meta` (never synced), and not at all while search history is off.
+//! offer again. Kept in `local_meta` (never synced); none are kept while search history is off,
+//! and none are added while incognito is on (`search_recent_add`).
 
 use raygun_db::Db;
 use raygun_model::{RecentSearch, Settings};

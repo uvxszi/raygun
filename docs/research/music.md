@@ -18,14 +18,14 @@ Research of 2026-11-01. It compares `reference/nuclear` and `reference/RiPlay` w
 - M = a few days, touching Rust, the UI and maybe the plugin;
 - L = a milestone of its own.
 
-## How each app separates discovery from the user's library
+## How each app separates discovery from the library
 
 - **Nuclear:**
   - **Discovery:**
     - Dashboard (`NP/views/Dashboard`, widgets from `dashboard` providers: editorial playlists, top artists, top albums, new releases, top tracks);
     - Search (unified results: artists, albums, tracks, playlists);
     - artist and album pages built from `metadata` provider capabilities (`NP/views/Artist/artistWidgets.ts`).
-  - **The user's own:**
+  - **The library:**
     - Favorites (tracks, albums, artists: `NP/views/Favorites`);
     - Playlists (with folders);
     - History (with stats).
@@ -35,11 +35,11 @@ Research of 2026-11-01. It compares `reference/nuclear` and `reference/RiPlay` w
   - **Search** is its own tab, with history and filters.
   - **Other pages:** Artist, album, playlist, podcast, mood and new-release pages are reached from the feed or Search. Statistics, Rewind, History, Events and Blacklist sit in menus.
 - **Raygun today:**
-  - **Library → Music** has only the user's content: local albums/artists/tracks, playlists, favorites.
+  - **Library → Music** has only saved content: local albums/artists/tracks, playlists, favorites.
   - **Home** shows Continue watching/reading, Recently played and Favorites.
   - **Search** finds tracks only; it has no artist, album or playlist results and no landing content.
   - **No artist or album pages for online music:** `pages/ArtistPage.tsx` and `AlbumPage.tsx` are local-file views.
-- **Fit with the user's rule** (Library = own content; finding things happens in Search):
+- **Fit with Raygun's rule** (Library = own content; finding things happens in Search):
   - Nuclear's Dashboard and RiPlay's discovery feed belong in **Search's empty state** (an "Explore" landing: charts, moods/genres, new releases, radio stations, top podcasts).
   - Online artist, album and playlist pages are reached from Search results.
   - Library keeps Songs, Albums, Artists, Playlists, Favorites, Folders, plus History and Stats.
@@ -95,7 +95,7 @@ Research of 2026-11-01. It compares `reference/nuclear` and `reference/RiPlay` w
 | **Internet radio browsing:** by country, tag or language; favorite stations; station logos | — (Raygun's Radio Browser extension) | Stations are only search results from `music.metadata`, sorted by a setting; nothing to browse and no station favorites list | S–M |
 | **Provider choice per kind** and why one is locked | Nuclear `NP/views/Sources` (active provider per kind, `LockedReasonMessage`, `ProviderPill`) | All providers are asked in parallel; no per-kind order or off switch in the UI | S–M |
 
-## 4. Local library (the user's files)
+## 4. Local library (files on the device)
 
 | Gap | Reference | Raygun today | Size |
 |---|---|---|---|
@@ -165,7 +165,7 @@ Research of 2026-11-01. It compares `reference/nuclear` and `reference/RiPlay` w
 
 | Gap | Reference | Raygun today | Size |
 |---|---|---|---|
-| **Last.fm scrobbling** (simple, or with now playing), web login | `RPm/lastfm`, `RP/extensions/lastfm/LastFmAuthScreen.kt`, `LastFmScrobbleType` | Missing (roadmap M54, needs the user's account) | M |
+| **Last.fm scrobbling** (simple, or with now playing), web login | `RPm/lastfm`, `RP/extensions/lastfm/LastFmAuthScreen.kt`, `LastFmScrobbleType` | Missing (roadmap M54, needs a Last.fm account) | M |
 | **ListenBrainz** (token-based; neither reference has it) | — | Missing | S–M |
 | **Discord rich presence** (with token) | `RP/extensions/discord`; Nuclear `integrations.discord.enabled` | Missing | S–M |
 | **YouTube Music account sync** (likes, playlists, history) | RiPlay `enableYouTubeSyncKey`, `RP/extensions/accountlogin` | Missing (and against the M15 decision on YouTube terms) | ✖ likely |
@@ -278,7 +278,7 @@ The references are thin here: RiPlay's podcasts are YouTube Music podcasts (`RP/
 4. **Sleep timer** (minutes or end of song). (S)
 5. **Equalizer** with presets, bass boost, reverb, or the system EQ. (M)
 6. **Online artist and album pages** (bio, top tracks, albums, similar artists) and **search by category** (artists, albums, playlists): new SDK capabilities plus extensions. (L)
-7. **An Explore landing in Search:** charts, moods and genres, new releases, Quick picks from history, radio browsing; the user's library stays separate. (M)
+7. **An Explore landing in Search:** charts, moods and genres, new releases, Quick picks from history, radio browsing; the library stays separate. (M)
 8. **Endless radio / auto-continue:** start radio from a song, and add related tracks at the end of the queue (needs a `discovery` capability). (M)
 9. **Offline for streamed music:** stream cache with a size limit, and download songs, albums and playlists (reuse M43's downloader). (M)
 10. **Listening stats and history:** day-grouped history, top lists by period, charts, then Rewind and listener levels. (M)
@@ -293,4 +293,4 @@ The references are thin here: RiPlay's podcasts are YouTube Music podcasts (`RP/
 14. **Android Auto browse tree, notification buttons, home-screen widgets.** (L/M)
 15. **Player customization and Last.fm/ListenBrainz scrobbling:**
     - background styles, action-bar buttons, mini-player swipes, visualizer, dynamic colours from the cover;
-    - scrobbling with the user's tokens. (M)
+    - scrobbling with personal tokens. (M)

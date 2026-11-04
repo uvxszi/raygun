@@ -31,7 +31,7 @@ Covers what Aniyomi adds for anime beyond Mihon, and what Raygun lacks or has on
   - global search across sources;
   - Extensions;
   - Migrate.
-- **Raygun today (contradicts the user's latest feedback):**
+- **Raygun today (contradicts the rule that the Library carries no discovery):**
   - Library → Videos' menu has Browse and Addons.
   - Manga, Novels and Videos empty states have a "Browse sources" button.
   - Home's empty card links Browse.
@@ -220,7 +220,7 @@ All are **S–M** in Raygun, which today has the interval only and always skips 
 | # | Aniyomi | Raygun SDK | Size |
 |---|---|---|---|
 | 13.1 | `Video`: <br>• `videoTitle`, `resolution`, **`bitrate`**, `headers`, `preferred`; <br>• `subtitleTracks`, **`audioTracks`**, **`timestamps`** (typed chapters); <br>• `mpvArgs` / `ffmpegStreamArgs` / `ffmpegVideoArgs`; <br>• `internalData`, `initialized` plus **`resolveVideo(video)`** to resolve a video only when picked. | url, label, quality, headers, format, subtitles. Missing: bitrate, audio tracks, timestamps, preferred flag, lazy resolve. | S–M |
-| 13.2 | `Hoster`: `hosterName`, `videoList?`, **`lazy`** (resolve only when the user taps it); `sortHosters()` / `sortVideos()` (source-side ordering by user preferences). | Server: id, name, videos?. No lazy flag. App-side ordering only by height. | S |
+| 13.2 | `Hoster`: `hosterName`, `videoList?`, **`lazy`** (resolved only when tapped); `sortHosters()` / `sortVideos()` (source-side ordering by user preferences). | Server: id, name, videos?. No lazy flag. App-side ordering only by height. | S |
 | 13.3 | `SEpisode`: `fillermark`, `summary`, `preview_url`, `scanlator`. | Missing all four. | S |
 | 13.4 | `SAnime`: `background_url`, `update_strategy` (only fetch details once), **`fetch_type` Seasons/Episodes**, `season_number`, status incl. **Upcoming**. | Missing background, update strategy, seasons-as-entries. | S (L for seasons) |
 | 13.5 | **Extra calls:** <br>• `getRelatedAnimeList`; <br>• `getAnimeEpisodeUpdate` / `getAnimeSeasonUpdate` (combined, cheaper refresh); <br>• `getVideoThumbnails` + `getImageTile` (seek previews); <br>• `createHttpServer` (a source-hosted local server); <br>• `ResolvableAnimeSource` (open a pasted URL as an entry). | None. | M |

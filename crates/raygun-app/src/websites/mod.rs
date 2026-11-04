@@ -378,6 +378,8 @@ pub fn install(app: &AppHandle) {
                 .url
                 .filter(|url| url.starts_with("https://") || url.starts_with("http://"));
             let db = app.state::<AppDb>().inner().0.clone();
+            // Incognito (M47): the site stays where it was left before.
+            let url = crate::privacy::site_address(&app, &db, &report.id, url).await;
             if let Err(error) =
                 store::set_state(&db, &report.id, url.as_deref(), report.block_ads).await
             {

@@ -35,6 +35,7 @@ import { matchesSearch } from '../shell/useListSearch';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { Tabs } from '../shell/Tabs';
 import { BrowseAll } from '../music/BrowseAll';
+import { useIncognitoItem } from '../privacy/useIncognito';
 import { useRememberSearch } from '../search/useRecentSearches';
 import { SearchPanel } from '../search/SearchPanel';
 import { failingLast, useSourceHealth } from '../search/sourceHealth';
@@ -306,6 +307,7 @@ export const BrowsePage: FC = () => {
   const desktop = useIsDesktop();
   const updateSetting = useUpdateSetting();
   const failingAtEnd = useSettings().data?.failingSourcesLast ?? true;
+  const incognitoItem = useIncognitoItem();
   const { tab = firstTab, list = 'installed', q = '', type = 'all', view, pill } = current;
   const navigate = useNavigate({ from: '/browse' });
   const reload = useReloadExtensions();
@@ -410,6 +412,7 @@ export const BrowsePage: FC = () => {
         },
         { label: t('watch.addons'), icon: Puzzle, to: '/watch/addons' },
         { label: t('browse.repos'), icon: Package, to: '/extensions/repos' },
+        incognitoItem,
         {
           label: t('layout.editBrowse'),
           icon: LayoutList,

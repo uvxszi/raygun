@@ -139,7 +139,9 @@ impl PlaybackService {
                     }
                     changed
                 };
-                if changed {
+                // Incognito (M47): nothing is kept for reopening, and the queue it leaves stays
+                // unsaved after it ends until that queue changes.
+                if changed && !crate::privacy::incognito(&app) {
                     let db = app.state::<crate::startup::AppDb>().inner().0.clone();
                     crate::last_played::save(&db, &json).await;
                 }

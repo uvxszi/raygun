@@ -160,7 +160,10 @@ export const commands = {
 	onlineSearch: (query: string) => typedError<SearchResults_Serialize, string>(__TAURI_INVOKE("online_search", { query })),
 	/**  Searches kept on this device, newest first. */
 	searchRecent: () => typedError<RecentSearch[], string>(__TAURI_INVOKE("search_recent")),
-	/**  Remembers a search (`kind` is Search's kind); answers with the searches kept. */
+	/**
+	 *  Remembers a search (`kind` is Search's kind); answers with the searches kept. Nothing is
+	 *  remembered while incognito is on (M47).
+	 */
 	searchRecentAdd: (query: string, kind: string) => typedError<RecentSearch[], string>(__TAURI_INVOKE("search_recent_add", { query, kind })),
 	/**  Forgets one kept search; answers with the searches left. */
 	searchRecentRemove: (query: string, kind: string) => typedError<RecentSearch[], string>(__TAURI_INVOKE("search_recent_remove", { query, kind })),
@@ -502,6 +505,13 @@ export const commands = {
 	/**  The latest play of each recently played track, newest first. */
 	historyRecent: (limit: number) => typedError<HistoryEntry[], string>(__TAURI_INVOKE("history_recent", { limit })),
 	historyClear: () => typedError<null, string>(__TAURI_INVOKE("history_clear")),
+	/**  Whether incognito is on (M47). Afterwards, changes arrive as `IncognitoEvent`. */
+	incognitoStatus: () => __TAURI_INVOKE<IncognitoStatus>("incognito_status"),
+	/**
+	 *  Turns incognito on or off (M47): while it's on, nothing records what's played, watched, read
+	 *  or searched.
+	 */
+	incognitoSetEnabled: (enabled: boolean) => typedError<IncognitoStatus, string>(__TAURI_INVOKE("incognito_set_enabled", { enabled })),
 	/**  Replaces the queue with favorites, a playlist or history and starts playing. */
 	collectionPlay: (request: CollectionPlayRequest) => typedError<null, string>(__TAURI_INVOKE("collection_play", { request })),
 	/**  The MCP server's switch, address and token. */
@@ -973,6 +983,7 @@ export const events = {
 	exportEvent: makeEvent<ExportEvent>("export-event"),
 	extensionsChangedEvent: makeEvent<ExtensionsChangedEvent_Deserialize>("extensions-changed-event"),
 	importEvent: makeEvent<ImportEvent>("import-event"),
+	incognitoEvent: makeEvent<IncognitoEvent>("incognito-event"),
 	libraryScanEvent: makeEvent<LibraryScanEvent>("library-scan-event"),
 	localFilesEvent: makeEvent<LocalFilesEvent>("local-files-event"),
 	madeForYouEvent: makeEvent<MadeForYouEvent>("made-for-you-event"),
@@ -1924,6 +1935,16 @@ export type ImportedSong = {
 export type ImportedTitle = {
 	sourceId: string,
 	remoteId: string,
+};
+
+/**  Incognito was turned on or off (M47). */
+export type IncognitoEvent = IncognitoStatus;
+
+/**  Incognito (M47): while it's on, nothing records what's played, watched, read or searched. */
+export type IncognitoStatus = {
+	on: boolean,
+	/**  When it was turned on (Unix ms), or when Raygun started with it kept on. */
+	sinceMs: number | null,
 };
 
 /**  How this copy of Raygun was installed (M46.47), which decides how it updates. */
@@ -2917,6 +2938,8 @@ export type PrivacyPrefs = {
 	recentlyPlayed?: boolean,
 	/**  Searches are kept for Search's recent searches. */
 	searchHistory?: boolean,
+	/**  Incognito stays on when Raygun starts again; otherwise it ends with the app (M47). */
+	keepIncognito?: boolean,
 };
 
 /**  A provider an extension registered, e.g. a `music.metadata` search. */

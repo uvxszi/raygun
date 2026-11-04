@@ -1,9 +1,9 @@
 # M30 — Backup, restore and Mihon import
 
-**Relevant docs:** ARCHITECTURE §5 (synced tables, HLC), §10 (merging); M21 (sync rows); reference-notes (mihon: protobuf backups). Trackers (M29) wait for the user's accounts and OAuth sign-in, so M30 comes first.
+**Relevant docs:** ARCHITECTURE §5 (synced tables, HLC), §10 (merging); M21 (sync rows); reference-notes (mihon: protobuf backups). Trackers (M29) need tracker accounts and OAuth sign-in, so M30 comes first.
 
 ## Goal
-- Everything the user built can be saved to one file and brought back on this device or another: settings, favorites, playlists, history, manga library and reading progress, and extension repositories.
+- Everything built up in the app can be saved to one file and brought back on this device or another: settings, favorites, playlists, history, manga library and reading progress, and extension repositories.
 - A Mihon (or Tachiyomi fork) backup brings its library and reading progress into Raygun, where Raygun has the source.
 
 ## Design
@@ -61,7 +61,7 @@
   - the title shows up in the library with its read chapters.
 
 ## Decisions
-- **Restore and gaps:** restore is last-writer-wins per row, like sync, with one exception. When our newer title row has no library date but the backup's does, the library date comes back as a new local write. Without it, browsing a title on the new device would silently drop it from the restored library.
+- **Restore and gaps:** restore is last-writer-wins per row, like sync, with one exception. When the newer local title row has no library date but the backup's does, the library date comes back as a new local write. Without it, browsing a title on the new device would silently drop it from the restored library.
 - **Imports onto stored titles:** an import keeps the source's data for titles already stored here (a backup carries less: no cover headers, often no dates) and applies only library state and progress.
   - New titles are marked stale, so their first view fetches full details.
 - **No file save dialog yet:** backups live in the app's `backups/` folder. Files come in through the webview's file chooser, read as base64.

@@ -24,6 +24,7 @@ import { SidePanel } from '../player/SidePanel';
 import { usePlaybackKeys } from '../player/usePlaybackKeys';
 import { useMediaSession } from '../engine/useMediaSession';
 import { usePlaybackSync } from '../player/usePlayback';
+import { useIncognitoSync } from '../privacy/useIncognito';
 import { useApplyColors, useApplyFeel, useApplyTheme } from '../settings/useApplyTheme';
 import { useSettings, useSettingsEvents } from '../settings/useSettings';
 import { VideoPlayer } from '../video/VideoPlayer';
@@ -101,8 +102,9 @@ export const AppShell: FC = () => {
   const { fullscreen } = useWindowState();
   useApplyWindow(desktop, settings.data?.windowFrame, settings.data?.zoom);
   useEngineHost();
-  // The sidebar is the desktop's (M46.29).
-  useRailStamps(desktop);
+  // The sidebar is the desktop's (M46.29); incognito (M47) leaves its stamps alone.
+  const incognito = useIncognitoSync();
+  useRailStamps(desktop && incognito === false);
   useSpeechHost();
   useFullscreenKey();
   useHorizontalWheel();

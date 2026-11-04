@@ -29,6 +29,7 @@ import { MixCard } from '../music/MixCard';
 import { useTrackMenu } from '../music/useTrackMenu';
 import { pickChart, useMusicCharts } from '../music/useDiscovery';
 import { useMadeForYou } from '../music/useMadeForYou';
+import { useIncognitoItem } from '../privacy/useIncognito';
 import { useSettings } from '../settings/useSettings';
 import { HomeFixedTiles } from '../library/LocalFilesTile';
 import {
@@ -391,6 +392,7 @@ const HOME_SECTIONS: Record<string, FC> = {
 export const HomePage: FC = () => {
   const { t } = useTranslation();
   const desktop = useIsDesktop();
+  const incognitoItem = useIncognitoItem();
   const layout = useLayout();
   const watching = useContinueWatching();
   const history = useHistory(HOME_HISTORY_LIMIT);
@@ -422,6 +424,7 @@ export const HomePage: FC = () => {
             />
             <OverflowMenu
               items={[
+                incognitoItem,
                 {
                   label: t('layout.editHome'),
                   icon: LayoutList,

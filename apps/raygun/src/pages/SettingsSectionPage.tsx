@@ -27,6 +27,7 @@ import type { LibraryDisplay } from '../manga/libraryDisplay';
 import { useLibraryStatus } from '../library/useLibrary';
 import { ReaderDisplaySettings } from '../manga/ReaderDisplaySettings';
 import { PlayerViewSettings } from '../player/PlayerViewSettings';
+import { IncognitoPrefs } from '../privacy/IncognitoSwitch';
 import { AppearanceCard } from '../settings/AppearanceCard';
 import { AudioQualitySettings } from '../settings/AudioQualitySettings';
 import { BackupCard } from '../settings/BackupCard';
@@ -90,6 +91,7 @@ const PrivacySettings: FC = () => {
   const privacy = data.privacy;
   return (
     <PrefGroup title={t('settings.privacy.title')}>
+      <IncognitoPrefs />
       <PrefSwitch
         title={t('settings.privacy.history')}
         summary={t('settings.privacy.historyHint')}

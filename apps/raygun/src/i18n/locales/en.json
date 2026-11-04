@@ -500,7 +500,7 @@
       },
       "data": {
         "title": "Data and backup",
-        "summary": "Back up and restore, import from Mihon, storage and caches"
+        "summary": "Privacy and incognito, back up and restore, import from Mihon, storage and caches"
       },
       "connections": {
         "title": "Connections",
@@ -892,8 +892,16 @@
       "recentlyPlayed": "Keep recently played",
       "recentlyPlayedHint": "Off: Home doesn't show or remember what you played from.",
       "searchHistory": "Keep search history",
-      "searchHistoryHint": "Off: Search doesn't show or remember what you searched for."
+      "searchHistoryHint": "Off: Search doesn't show or remember what you searched for.",
+      "keepIncognito": "Stay incognito after a restart",
+      "keepIncognitoHint": "Off: incognito ends when Raygun closes."
     }
+  },
+  "incognito": {
+    "title": "Incognito",
+    "hint": "What you play, watch, read or search isn't remembered",
+    "turnOn": "Turn on incognito",
+    "turnOff": "Turn off incognito"
   },
   "player": {
     "nothingPlaying": "Nothing playing",

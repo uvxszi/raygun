@@ -1161,16 +1161,21 @@ async fn watched_searches_report_each_source_as_it_answers() {
     let reported = std::cell::RefCell::new(Vec::new());
     let songs = host
         .search_music_as_answered("song", 10, |result, total| {
-            reported
-                .borrow_mut()
-                .push((result.provider.name.clone(), result.error.is_some(), total));
+            reported.borrow_mut().push((
+                result.provider.name.clone(),
+                result.error.is_some(),
+                total,
+            ));
         })
         .await;
     let mut reported = reported.into_inner();
     reported.sort();
     assert_eq!(
         reported,
-        [("Broken".to_owned(), true, 2), ("Full".to_owned(), false, 2)]
+        [
+            ("Broken".to_owned(), true, 2),
+            ("Full".to_owned(), false, 2)
+        ]
     );
     assert_eq!(songs.len(), 2, "every answer comes back, failures too");
 

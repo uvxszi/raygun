@@ -567,13 +567,17 @@ impl Catalog {
         })
     }
 
-    /// Stores how far a chapter was read; reaching `total - 1` completes it.
+    /// Stores how far a chapter was read; reaching `total - 1` completes it. Nothing is stored
+    /// while incognito is on (M47).
     pub async fn set_progress(
         &self,
         unit_id: &str,
         position: u32,
         total: u32,
     ) -> Result<(), String> {
+        if crate::privacy::incognito(&self.app) {
+            return Ok(());
+        }
         titles::set_progress(
             &self.db(),
             unit_id,

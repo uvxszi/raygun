@@ -111,6 +111,10 @@ pub struct ExportEvent(pub Option<raygun_model::ExportJob>);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SettingsChangedEvent(pub String);
 
+/// Incognito was turned on or off (M47).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct IncognitoEvent(pub raygun_model::IncognitoStatus);
+
 /// Watching progress changed (the player closed or finished something); carries the content key
 /// (M38).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]

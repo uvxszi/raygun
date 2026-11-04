@@ -23,6 +23,7 @@ import { NewPlaylistForm } from '../collections/PlaylistsView';
 import { useImportComics } from '../manga/useImportComics';
 import { useImportEpub } from '../novel/useImportEpub';
 import { SEARCH_DEBOUNCE_MS } from '../pages/BrowsePage';
+import { IncognitoBadge } from '../privacy/IncognitoBadge';
 import { kindOf, useRecentSearches, useRememberSearch } from '../search/useRecentSearches';
 import { isSearchType } from '../search/searchTypes';
 import type { SearchType } from '../search/searchTypes';
@@ -390,6 +391,7 @@ export const AppBar: FC<{ frame: WindowFrame; onShortcuts: () => void; immersive
         </Link>
         <AppSearch inputRef={searchRef} />
       </div>
+      <IncognitoBadge labelled className="mr-1" />
       <MascotButton className={roundButton} iconSize={20} />
       <BarPopoverButtons className={roundButton} />
       {frame === 'app' ? <WindowButtons /> : <span className="w-2" />}

@@ -368,6 +368,8 @@ pub struct PrivacyPrefs {
     pub recently_played: bool,
     /// Searches are kept for Search's recent searches.
     pub search_history: bool,
+    /// Incognito stays on when Raygun starts again; otherwise it ends with the app (M47).
+    pub keep_incognito: bool,
 }
 
 impl Default for PrivacyPrefs {
@@ -376,8 +378,18 @@ impl Default for PrivacyPrefs {
             history: true,
             recently_played: true,
             search_history: true,
+            keep_incognito: false,
         }
     }
+}
+
+/// Incognito (M47): while it's on, nothing records what's played, watched, read or searched.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct IncognitoStatus {
+    pub on: bool,
+    /// When it was turned on (Unix ms), or when Raygun started with it kept on.
+    pub since_ms: Option<f64>,
 }
 
 /// How good a song should sound against how much data it takes, as Spotify offers it. Sources
