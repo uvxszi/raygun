@@ -44,8 +44,11 @@ describe('Updates (M46.47)', () => {
     expect(await within(card).findByTestId('update-status')).toHaveTextContent(
       'Raygun 1.1.0 is out (you have 1.0.0).',
     );
-    await user.click(within(card).getByRole('button', { name: "What's new" }));
-    expect(within(card).getByText(/Faster starts/)).toBeInTheDocument();
+    await user.click(within(card).getByRole('button', { name: "What's new in 1.1.0" }));
+    const notes = await screen.findByRole('dialog', { name: "What's new in 1.1.0" });
+    expect(within(notes).getByRole('heading', { name: 'What is new' })).toBeInTheDocument();
+    expect(within(notes).getByRole('listitem')).toHaveTextContent('Faster starts');
+    await user.click(within(notes).getByRole('button', { name: 'Close' }));
 
     await user.click(within(card).getByRole('button', { name: 'Update to 1.1.0' }));
     expect(commands.appUpdateInstall).toHaveBeenCalled();
@@ -81,7 +84,36 @@ describe('Updates (M46.47)', () => {
 
     emitEvent('appUpdateEvent', OUT);
     const banner = await screen.findByTestId('update-banner');
+    await user.click(within(banner).getByRole('button', { name: "What's new" }));
+    const notes = await screen.findByRole('dialog', { name: "What's new in 1.1.0" });
+    expect(notes).toHaveTextContent('Faster starts');
+    await user.click(within(notes).getByRole('button', { name: 'Close' }));
     await user.click(within(banner).getByRole('button', { name: 'Hide until the next release' }));
     expect(screen.queryByTestId('update-banner')).not.toBeInTheDocument();
+  });
+
+  it("shows this version's notes once after an update, and again from About", async () => {
+    const user = userEvent.setup();
+    const notes = { version: '1.1.0', notes: '## Playback\n- **Gapless** songs' };
+    commands.appWhatsNew.mockResolvedValue(ok(notes));
+    commands.appReleaseNotes.mockResolvedValue([
+      notes,
+      { version: '1.0.0', notes: 'The first one' },
+    ]);
+    await AppShellWrapper.mount('/about');
+
+    const sheet = await screen.findByRole('dialog', { name: "What's new in 1.1.0" });
+    expect(within(sheet).getByText('Gapless').tagName).toBe('STRONG');
+    await user.click(within(sheet).getByRole('button', { name: 'Close' }));
+    expect(commands.appWhatsNewSeen).toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    const card = await screen.findByTestId('app-update');
+    await user.click(await within(card).findByRole('button', { name: /^What's new/ }));
+    const again = await screen.findByRole('dialog', { name: "What's new in 1.1.0" });
+    await user.click(within(again).getByRole('button', { name: '1.0.0' }));
+    expect(screen.getByRole('dialog', { name: "What's new in 1.0.0" })).toHaveTextContent(
+      'The first one',
+    );
   });
 });

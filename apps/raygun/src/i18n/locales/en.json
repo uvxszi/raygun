@@ -3748,9 +3748,12 @@
     "failed": "The update didn't work",
     "needsPermission": "Allow Raygun to install unknown apps in the settings page that opened, then tap Install the update.",
     "portableHint": "This is the portable Raygun: download the new portable exe and put it in place of this one. Your data stays in raygun-data.",
-    "showNotes": "What's new",
-    "hideNotes": "Hide what's new",
-    "banner": "Raygun {{latest}} is out: see what's new and update",
+    "whatsNew": "What's new",
+    "whatsNewIn": "What's new in {{version}}",
+    "whatsNewSummary": "Raygun {{current}} and earlier versions",
+    "versions": "Versions",
+    "linkFailed": "Couldn't open the link",
+    "banner": "Raygun {{latest}} is out: update",
     "dismiss": "Hide until the next release"
   },
   "link": {
