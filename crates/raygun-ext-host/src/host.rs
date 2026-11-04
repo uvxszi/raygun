@@ -36,6 +36,7 @@ use crate::failure::{self, Failure};
 use crate::fanout::{self, Asked, Health, Plan, Turns};
 use crate::js::{JsExtension, Limits};
 use crate::manifest::{self, MANIFEST_FILE, Manifest, Runtime};
+use crate::servers::ServerExtension;
 use crate::shosetsu::ShosetsuExtension;
 use crate::storage::KvStore;
 
@@ -90,6 +91,10 @@ pub struct StreamUse {
 
 /// The user's setting values, per extension id, then per setting key.
 pub type UserSettings = std::collections::HashMap<String, BTreeMap<String, serde_json::Value>>;
+
+/// The sign-ins of connected servers (`crate::servers`), per extension id: what the app keeps in
+/// its secrets store and hands over at each load.
+pub type ServerSecrets = std::collections::HashMap<String, String>;
 
 #[derive(Debug, Clone)]
 pub struct HostConfig {
@@ -292,6 +297,8 @@ struct LoadItem {
     source: ExtensionSource,
     manifest: Manifest,
     settings: BTreeMap<String, serde_json::Value>,
+    /// A connected server's sign-in.
+    secret: Option<String>,
 }
 
 /// Handle to the host; cheap to clone and usable from any thread or runtime.
@@ -400,7 +407,18 @@ impl ExtensionHost {
     pub async fn load_with_settings(
         &self,
         sources: Vec<ExtensionSource>,
+        settings: UserSettings,
+    ) -> Vec<ExtensionInfo> {
+        self.load_with(sources, settings, ServerSecrets::new())
+            .await
+    }
+
+    /// Like [`Self::load_with_settings`], with the sign-ins of connected servers.
+    pub async fn load_with(
+        &self,
+        sources: Vec<ExtensionSource>,
         mut settings: UserSettings,
+        mut secrets: ServerSecrets,
     ) -> Vec<ExtensionInfo> {
         let (chosen, mut infos) = choose(sources);
         let previous = self.directory().lanes.clone();
@@ -410,6 +428,7 @@ impl ExtensionHost {
         for (id, (source, manifest)) in chosen {
             let item = LoadItem {
                 settings: settings.remove(&id).unwrap_or_default(),
+                secret: secrets.remove(&id),
                 source,
                 manifest,
             };
@@ -427,7 +446,7 @@ impl ExtensionHost {
         let miru = batches
             .iter()
             .flatten()
-            .filter(|item| item.manifest.runtime == Runtime::Miru)
+            .filter(|item| item.manifest.runtime.declares_settings())
             .map(|item| item.manifest.id.clone())
             .collect();
         let placed: HashMap<String, usize> = batches
@@ -1505,10 +1524,11 @@ fn choose(
     (chosen, infos)
 }
 
-/// A loaded extension: JavaScript, or a Shosetsu script (M32).
+/// A loaded extension: JavaScript, a Shosetsu script (M32), or a connected server.
 enum Extension {
     Js(JsExtension),
     Shosetsu(Box<ShosetsuExtension>),
+    Server(Box<ServerExtension>),
 }
 
 impl Extension {
@@ -1516,6 +1536,7 @@ impl Extension {
         match self {
             Self::Js(extension) => extension.manifest(),
             Self::Shosetsu(extension) => extension.manifest(),
+            Self::Server(extension) => extension.manifest(),
         }
     }
 
@@ -1523,6 +1544,7 @@ impl Extension {
         match self {
             Self::Js(extension) => extension.user_settings(),
             Self::Shosetsu(extension) => extension.user_settings(),
+            Self::Server(extension) => extension.user_settings(),
         }
     }
 
@@ -1531,6 +1553,7 @@ impl Extension {
         match self {
             Self::Js(extension) => extension.settings(),
             Self::Shosetsu(extension) => extension.manifest().settings.clone(),
+            Self::Server(extension) => extension.manifest().settings.clone(),
         }
     }
 
@@ -1538,6 +1561,7 @@ impl Extension {
         match self {
             Self::Js(extension) => extension.providers(),
             Self::Shosetsu(extension) => extension.providers(),
+            Self::Server(extension) => extension.providers(),
         }
     }
 
@@ -1545,7 +1569,7 @@ impl Extension {
     fn website(&self) -> Option<String> {
         let declared = self.manifest().website.clone();
         match self {
-            Self::Js(_) => declared,
+            Self::Js(_) | Self::Server(_) => declared,
             Self::Shosetsu(extension) => {
                 declared.or_else(|| extension.website().map(str::to_owned))
             }
@@ -1564,6 +1588,7 @@ impl Extension {
                 .call(local_id, method, args)
                 .await
                 .map_err(Failure::said),
+            Self::Server(extension) => extension.call(local_id, method, args).await,
         }
     }
 }
@@ -1606,12 +1631,13 @@ impl LaneState {
                 let _ = reply.send(infos);
             }
             Request::Settings { reply } => {
-                // A Miru script registers settings while it sets up, which may end after loading.
+                // A Miru script (or an LNReader plugin) registers settings while it sets up, which
+                // may end after loading.
                 let settings = self
                     .loaded
                     .borrow()
                     .iter()
-                    .filter(|(_, extension)| extension.manifest().runtime == Runtime::Miru)
+                    .filter(|(_, extension)| extension.manifest().runtime.declares_settings())
                     .map(|(id, extension)| (id.clone(), settings_info(extension)))
                     .collect();
                 let _ = reply.send(settings);
@@ -1645,6 +1671,7 @@ impl LaneState {
             source,
             manifest,
             settings,
+            secret,
         } in items
         {
             let id = manifest.id.clone();
@@ -1655,7 +1682,7 @@ impl LaneState {
             let compatibility = manifest.nuclear.as_ref().and_then(compat_report);
             let shosetsu = manifest.runtime == Runtime::Shosetsu;
             let load = async move {
-                let result = self.load_one(source, manifest, settings).await;
+                let result = self.load_one(source, manifest, settings, secret).await;
                 (id, origin, name, version, compatibility, result)
             };
             if shosetsu {
@@ -1702,7 +1729,19 @@ impl LaneState {
         source: ExtensionSource,
         manifest: Manifest,
         mut user_settings: BTreeMap<String, serde_json::Value>,
+        secret: Option<String>,
     ) -> Result<Extension, String> {
+        if manifest.runtime == Runtime::Server {
+            user_settings.retain(|key, value| manifest.check_setting(key, value).is_ok());
+            let data_dir = self
+                .config
+                .storage_dir
+                .as_ref()
+                .map(|dir| dir.join(&manifest.id));
+            return ServerExtension::load(manifest, &source, secret, user_settings, data_dir)
+                .await
+                .map(|extension| Extension::Server(Box::new(extension)));
+        }
         let data_dir = self
             .config
             .storage_dir
@@ -1717,8 +1756,9 @@ impl LaneState {
                 .map_err(|_| "loading timed out".to_owned())?
                 .map(|extension| Extension::Shosetsu(Box::new(extension)));
         }
-        // A Miru script declares its settings as it runs: its values are checked when listed.
-        if manifest.runtime != Runtime::Miru {
+        // A Miru script or an LNReader plugin declares its settings as it runs: its values are
+        // checked when listed.
+        if !manifest.runtime.declares_settings() {
             user_settings.retain(|key, value| manifest.check_setting(key, value).is_ok());
         }
         let code = source.read(&manifest.entry)?;
@@ -1760,7 +1800,7 @@ impl LaneState {
             .ok_or_else(unknown)?;
         // Shosetsu scripts block on each request and may page through long chapter lists.
         let timeout = match extension.as_ref() {
-            Extension::Js(_) => self.config.call_timeout,
+            Extension::Js(_) | Extension::Server(_) => self.config.call_timeout,
             Extension::Shosetsu(_) => self
                 .config
                 .call_timeout

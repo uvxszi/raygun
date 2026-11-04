@@ -8,10 +8,10 @@ import { unwrapResult } from '../lib/commandResult';
 import { useBackLayer } from '../shell/backLayers';
 
 /**
- * What reaching the local network is for: an addon there, devices there reaching the remote, or
- * playing on another device there (Connect, M46.15).
+ * What reaching the local network is for: an addon there, devices there reaching the remote,
+ * playing on another device there (Connect, M46.15), or a server there.
  */
-export type LocalNetworkReason = 'addon' | 'remote' | 'connect' | 'cast';
+export type LocalNetworkReason = 'addon' | 'remote' | 'connect' | 'cast' | 'server';
 
 type LocalNetworkSheetProps = {
   reason: LocalNetworkReason;

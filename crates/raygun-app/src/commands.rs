@@ -611,6 +611,36 @@ pub async fn extension_setting_set(
     extensions.set_setting(&extension_id, &key, value).await
 }
 
+/// The servers connected (Jellyfin, Emby, Subsonic, Audiobookshelf, OPDS catalogues), each
+/// with why it isn't working when it isn't.
+#[tauri::command]
+#[specta::specta]
+pub async fn servers_list(
+    servers: tauri::State<'_, crate::servers::ServerService>,
+) -> Result<Vec<raygun_model::ServerInfo>, String> {
+    servers.list().await
+}
+
+/// Signs in to a server and connects it; the same server and user again signs in anew.
+#[tauri::command]
+#[specta::specta]
+pub async fn servers_add(
+    servers: tauri::State<'_, crate::servers::ServerService>,
+    input: raygun_model::ServerInput,
+) -> Result<Vec<raygun_model::ServerInfo>, String> {
+    servers.add(input).await
+}
+
+/// Disconnects a server and forgets its sign-in.
+#[tauri::command]
+#[specta::specta]
+pub async fn servers_remove(
+    servers: tauri::State<'_, crate::servers::ServerService>,
+    id: String,
+) -> Result<Vec<raygun_model::ServerInfo>, String> {
+    servers.remove(&id).await
+}
+
 /// Lyrics for a track, or `null` when no provider has any. The song's own lyrics (M46.12) win, and
 /// its lyrics offset comes along, with every translation kept for the song lined up under the
 /// lines (M46.48).

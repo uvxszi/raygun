@@ -113,6 +113,19 @@ pub enum Runtime {
     Shosetsu,
     /// A Miru JavaScript extension, run unchanged in Raygun's Miru runtime (`crate::miru`).
     Miru,
+    /// An LNReader plugin, run unchanged in Raygun's LNReader runtime (`crate::lnreader`).
+    LnReader,
+    /// A server people connect (Jellyfin, Subsonic, Audiobookshelf, OPDS), answered in Rust
+    /// (`crate::servers`); the entry is its `server.json`.
+    Server,
+}
+
+impl Runtime {
+    /// Whether the script declares its settings as it runs (Miru's `registerSetting`, LNReader's
+    /// `pluginSettings`), so they're known only once it has loaded.
+    pub fn declares_settings(self) -> bool {
+        matches!(self, Self::Miru | Self::LnReader)
+    }
 }
 
 /// A validated manifest.
@@ -182,6 +195,8 @@ impl Manifest {
             "js" => Runtime::Js,
             "shosetsu" => Runtime::Shosetsu,
             "miru" => Runtime::Miru,
+            "lnreader" => Runtime::LnReader,
+            "server" => Runtime::Server,
             _ => return Err(ManifestError::Runtime(raw.runtime)),
         };
         if !is_safe_entry(&raw.entry, runtime) {
@@ -291,8 +306,9 @@ fn is_label(label: &str, extra: &[u8]) -> bool {
 
 fn is_safe_entry(entry: &str, runtime: Runtime) -> bool {
     let extension = match runtime {
-        Runtime::Js | Runtime::Miru => ".js",
+        Runtime::Js | Runtime::Miru | Runtime::LnReader => ".js",
         Runtime::Shosetsu => ".lua",
+        Runtime::Server => ".json",
     };
     entry.ends_with(extension)
         && !entry.contains('\\')

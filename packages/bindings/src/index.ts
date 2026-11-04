@@ -217,6 +217,15 @@ export const commands = {
 	/**  Saves one of an extension's settings and reloads it. */
 	extensionSettingSet: (extensionId: string, key: string, value: SettingValue) => typedError<ExtensionInfo_Serialize[], string>(__TAURI_INVOKE("extension_setting_set", { extensionId, key, value })),
 	/**
+	 *  The servers connected (Jellyfin, Emby, Subsonic, Audiobookshelf, OPDS catalogues), each
+	 *  with why it isn't working when it isn't.
+	 */
+	serversList: () => typedError<ServerInfo[], string>(__TAURI_INVOKE("servers_list")),
+	/**  Signs in to a server and connects it; the same server and user again signs in anew. */
+	serversAdd: (input: ServerInput) => typedError<ServerInfo[], string>(__TAURI_INVOKE("servers_add", { input })),
+	/**  Disconnects a server and forgets its sign-in. */
+	serversRemove: (id: string) => typedError<ServerInfo[], string>(__TAURI_INVOKE("servers_remove", { id })),
+	/**
 	 *  Searches the local library and every online music provider at once. Each provider answers
 	 *  with tracks or an error; songs several providers found are merged into `top`. Each answer is
 	 *  also sent as a [`crate::events::SearchProgressEvent`] as it comes, in the order they came.
@@ -2024,6 +2033,11 @@ export type CatalogEntry = {
 	installedVersion: string | null,
 	/**  The icon the repository lists, through the cover cache (M46.2). */
 	icon: string | null,
+	/**
+	 *  Why Raygun can't install it, for another app's plugins listed but not runnable (Kodi's
+	 *  Python add-ons); `None` when it can.
+	 */
+	unsupported?: string | null,
 };
 
 export type CatalogState = "available" | "installed" | "updateAvailable" | 
@@ -4395,6 +4409,35 @@ export type SearchResults_Serialize = {
 	top: OnlineTrack[],
 	providers: ProviderSearchResult_Serialize[],
 };
+
+/**  A connected server, as Browse → Sources → Servers lists it. */
+export type ServerInfo = {
+	/**  The connection's extension id. */
+	id: string,
+	kind: ServerKind,
+	name: string,
+	address: string,
+	/**  Who signed in; empty for API keys and open catalogues. */
+	username: string,
+	/**  What it brings, as provider kinds (`video.source`, `music.metadata`...). */
+	provides: string[],
+	/**  Why it isn't working (signed out, a load that failed), when it isn't. */
+	error: string | null,
+};
+
+/**  What adding a server asks for. */
+export type ServerInput = {
+	kind: ServerKind,
+	/**  The server's address, or an OPDS catalogue's. */
+	address: string,
+	username?: string,
+	/**  The password, or the API key when `api_key` is set; empty for none. */
+	secret?: string,
+	apiKey?: boolean,
+};
+
+/**  What kind of server a connection is: servers people own, added by address and sign-in. */
+export type ServerKind = "jellyfin" | "emby" | "subsonic" | "audiobookshelf" | "opds";
 
 /**
  *  A change to a single setting. The tagged shape (`{ key, value }`) lets the UI send only valid

@@ -1786,12 +1786,15 @@ impl DownloadJob {
                 .await
                 .map_err(|error| failed(error.to_string()))?;
         }
-        let response = self
-            .client
-            .get(&self.episode.fields.audio_url)
-            .send()
-            .await
-            .map_err(|error| failed(format!("Couldn't reach the episode: {error}")))?;
+        // A connected server's chapters sign in (Audiobookshelf).
+        let response = raygun_net::server_auth::get(
+            &self.client,
+            &self.episode.fields.audio_url,
+            &Default::default(),
+        )
+        .send()
+        .await
+        .map_err(|error| failed(format!("Couldn't reach the episode: {error}")))?;
         if !response.status().is_success() {
             return Err(failed(format!("The server answered {}", response.status())));
         }

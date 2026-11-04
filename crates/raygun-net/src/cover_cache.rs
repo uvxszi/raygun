@@ -78,10 +78,8 @@ async fn fetch(
     headers: &BTreeMap<String, String>,
     known: Option<&Meta>,
 ) -> Result<Fetched, String> {
-    let mut request = client.get(url);
-    for (name, value) in headers {
-        request = request.header(name, value);
-    }
+    // A connected server's covers sign in (`server_auth`).
+    let mut request = crate::server_auth::get(client, url, headers);
     if let Some(meta) = known {
         if let Some(etag) = &meta.etag {
             request = request.header(header::IF_NONE_MATCH, etag);

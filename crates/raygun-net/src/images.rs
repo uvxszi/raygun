@@ -42,11 +42,8 @@ pub async fn fetch_image(
     url: &str,
     headers: &BTreeMap<String, String>,
 ) -> Result<Image, ImageError> {
-    let mut request = client.get(url);
-    for (name, value) in headers {
-        request = request.header(name, value);
-    }
-    let response = request
+    // Pages of a connected server's comics sign in (`server_auth`).
+    let response = crate::server_auth::get(client, url, headers)
         .send()
         .await
         .map_err(|error| ImageError::Network(error.to_string()))?;

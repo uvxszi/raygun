@@ -180,6 +180,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         extensions.clone(),
     ));
     app.manage(extensions);
+    app.manage(crate::servers::ServerService::new(app.handle().clone()));
     app.manage(std::sync::Arc::new(crate::resolver::ResolverService::new(
         app.handle().clone(),
     )));

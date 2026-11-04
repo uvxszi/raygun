@@ -8,6 +8,7 @@ pub mod local_network;
 pub mod manifest;
 pub mod page_cache;
 mod proxy;
+pub mod server_auth;
 pub mod subtitles;
 
 use std::sync::{Arc, RwLock};

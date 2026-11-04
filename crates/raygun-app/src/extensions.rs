@@ -724,7 +724,13 @@ impl ExtensionService {
         let mut sources = built_in();
         sources.extend(discover_installed(&self.extensions_dir));
         let settings = self.user_settings().await;
-        let infos = self.host.load_with_settings(sources, settings).await;
+        // Connected servers' sign-ins, from the secrets store (`servers`).
+        let (app, dir) = (self.app.clone(), self.extensions_dir.clone());
+        let secrets =
+            tauri::async_runtime::spawn_blocking(move || crate::servers::secrets(&app, &dir))
+                .await
+                .unwrap_or_default();
+        let infos = self.host.load_with(sources, settings, secrets).await;
         let infos = self.with_icons(infos).await;
         tracing::info!(count = infos.len(), "extensions ready");
         if let Err(error) = ExtensionsChangedEvent(infos.clone()).emit(&self.app) {
@@ -946,6 +952,24 @@ impl ExtensionService {
         match self.fetch_index(url.as_str(), refresh).await {
             Ok(index) => Ok((url, index)),
             Err(error) => {
+                // A Kodi repository shared as its own add-on (its addon.xml or zip) names its
+                // index.
+                let path = url.path().to_ascii_lowercase();
+                // A large Kodi index (Kodi's own is 12 MB) is read gzipped, as Kodi reads it.
+                if path.ends_with("/addons.xml")
+                    && let Ok(packed) = reqwest::Url::parse(&format!("{url}.gz"))
+                    && let Ok(index) = self.fetch_index(packed.as_str(), refresh).await
+                {
+                    return Ok((packed, index));
+                }
+                let addon = path.ends_with(".xml") || path.ends_with(".zip");
+                if addon
+                    && let Ok(bytes) = self.download(url.as_str(), MAX_PACKAGE_BYTES).await
+                    && let Some(named) = raygun_ext_host::kodi::index_address(&bytes, &url)
+                {
+                    let index = self.fetch_index(named.as_str(), refresh).await?;
+                    return Ok((named, index));
+                }
                 let beside = repo::index_beside(&url).ok_or_else(|| error.clone())?;
                 let index = self
                     .fetch_index(beside.as_str(), refresh)
@@ -964,8 +988,9 @@ impl ExtensionService {
             return Ok(index.clone());
         }
         let bytes = self.download(url, MAX_INDEX_BYTES).await?;
-        let index = repo::parse_index(&String::from_utf8_lossy(&bytes))
-            .map_err(|error| error.to_string())?;
+        // Kodi's indexes come gzipped as often as not (`addons.xml.gz`).
+        let text = raygun_ext_host::kodi::unpack(&bytes)?;
+        let index = repo::parse_index(&text).map_err(|error| error.to_string())?;
         self.indexes
             .lock()
             .unwrap()
@@ -1073,6 +1098,9 @@ impl ExtensionService {
             .iter()
             .find(|entry| entry.id == extension_id)
             .ok_or_else(|| format!("{} no longer lists {extension_id}", repo.name))?;
+        if entry.format == PackageFormat::Kodi {
+            return Err(raygun_ext_host::kodi::UNSUPPORTED.to_owned());
+        }
         let index_url: reqwest::Url = repo.url.parse().map_err(|_| "invalid repository URL")?;
         let package_url =
             repo::package_url(&index_url, entry).map_err(|error| error.to_string())?;
@@ -1150,6 +1178,13 @@ impl ExtensionService {
                 raygun_ext_host::miru::package::package(entry, script, &header)
                     .map_err(|error| error.to_string())?
             }
+            PackageFormat::LnReader => {
+                let script = raygun_ext_host::lnreader::package::verify_script(&bytes, entry)
+                    .map_err(|error| error.to_string())?;
+                raygun_ext_host::lnreader::package::package(entry, script)
+                    .map_err(|error| error.to_string())?
+            }
+            PackageFormat::Kodi => return Err(raygun_ext_host::kodi::UNSUPPORTED.to_owned()),
         };
         phase(Phase::Installing);
         let extensions_dir = self.extensions_dir.clone();
@@ -1192,6 +1227,29 @@ impl ExtensionService {
         Ok(self.reload().await)
     }
 
+    /// Where installed extensions live (connected servers read their folders there).
+    pub fn extensions_dir(&self) -> &Path {
+        &self.extensions_dir
+    }
+
+    /// Installs a package built on this device (a connected server's folder), then reloads.
+    pub async fn install_verified(
+        &self,
+        verified: package::VerifiedPackage,
+    ) -> Result<Vec<ExtensionInfo>, String> {
+        {
+            let _changing = self.changing.lock().await;
+            let extensions_dir = self.extensions_dir.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                package::install(&extensions_dir, &verified)
+            })
+            .await
+            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())?;
+        }
+        Ok(self.reload().await)
+    }
+
     /// The site an extension's sources read, when it names one (M46.11).
     pub async fn website(&self, extension_id: &str) -> Option<String> {
         let _ready = self.loading.read().await;
@@ -1228,6 +1286,13 @@ impl ExtensionService {
         store::remove_install(self.db(), extension_id)
             .await
             .map_err(|error| error.to_string())?;
+        // A connected server's sign-in goes with it (`servers`).
+        if extension_id.starts_with(raygun_ext_host::servers::ID_PREFIX)
+            && let Some(ai) = self.app.try_state::<crate::ai::AiService>()
+            && let Err(error) = ai.set_server_secret(extension_id, None)
+        {
+            tracing::warn!(%error, "could not forget a server's sign-in");
+        }
         tracing::info!(extension = %extension_id, "extension uninstalled");
         Ok(self.reload().await)
     }
@@ -1388,6 +1453,8 @@ fn catalog_entry(repo_id: &str, entry: &RepoEntry, local: Option<&Installed>) ->
         state,
         installed_version: local.map(|installed| installed.version.clone()),
         icon: None,
+        unsupported: (entry.format == PackageFormat::Kodi)
+            .then(|| raygun_ext_host::kodi::UNSUPPORTED.to_owned()),
     }
 }
 

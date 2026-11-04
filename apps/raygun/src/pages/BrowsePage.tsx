@@ -56,6 +56,7 @@ import { useSourceMenuItems } from '../search/sourceMenuItems';
 import { buildMenu, copyText } from '../music/mediaMenu';
 import { openContextMenu } from '../shell/contextMenuStore';
 import type { MenuItem } from '../shell/contextMenuStore';
+import { ServersSection } from '../servers/ServersSection';
 import { WebsitesSection } from '../websites/WebsitesSection';
 import { OnOffSwitch } from '../shell/OnOffSwitch';
 import { BulkSwitchBar, SelectButton, SelectCheck } from '../shell/BulkSwitch';
@@ -246,13 +247,17 @@ const SourceSection: FC<{
   );
 };
 
-type SourceKind = 'all' | 'video' | 'manga' | 'novel' | 'websites';
+type SourceKind = 'all' | 'video' | 'manga' | 'novel' | 'websites' | 'servers';
 const SOURCE_KIND_KEY = 'raygun.browse.sourceKind';
 
 const readKind = (): SourceKind => {
   try {
     const saved = localStorage.getItem(SOURCE_KIND_KEY);
-    return saved === 'video' || saved === 'manga' || saved === 'novel' || saved === 'websites'
+    return saved === 'video' ||
+      saved === 'manga' ||
+      saved === 'novel' ||
+      saved === 'websites' ||
+      saved === 'servers'
       ? saved
       : 'all';
   } catch {
@@ -379,6 +384,7 @@ const SourcesList: FC = () => {
       />
     ),
     websites: <WebsitesSection query={query} />,
+    servers: <ServersSection query={query} />,
   };
   const visible = layout.browseSections.filter((item) => item.visible);
   const counts: Record<string, number | null> = {
@@ -386,6 +392,7 @@ const SourcesList: FC = () => {
     manga: mangaRows.length,
     novel: novelRows.length,
     websites: null,
+    servers: null,
   };
   const chip = (on: boolean) =>
     `shrink-0 rounded-full px-3 py-1.5 text-sm ${on ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`;
@@ -430,7 +437,9 @@ const SourcesList: FC = () => {
                 ? t('browse.allKinds')
                 : id === 'websites'
                   ? t('websites.title')
-                  : `${t(id === 'video' ? 'browse.kind.video' : `library.media.${id}`)} · ${counts[id] ?? 0}`}
+                  : id === 'servers'
+                    ? t('servers.title')
+                    : `${t(id === 'video' ? 'browse.kind.video' : `library.media.${id}`)} · ${counts[id] ?? 0}`}
             </button>
           ))}
         </div>

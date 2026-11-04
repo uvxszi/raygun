@@ -668,10 +668,7 @@ async fn fetch_subtitle(
     url: &str,
     headers: &BTreeMap<String, String>,
 ) -> Result<Vec<u8>, String> {
-    let mut request = client.get(url).timeout(SUBTITLE_TIMEOUT);
-    for (name, value) in headers {
-        request = request.header(name, value);
-    }
+    let request = crate::server_auth::get(client, url, headers).timeout(SUBTITLE_TIMEOUT);
     let response = request.send().await.map_err(|error| error.to_string())?;
     if !response.status().is_success() {
         return Err(format!("the host answered {}", response.status()));
@@ -778,10 +775,8 @@ async fn forward(
     source_headers: &std::collections::BTreeMap<String, String>,
     request_headers: &HeaderMap,
 ) -> Response {
-    let mut upstream = client.get(url);
-    for (name, value) in source_headers {
-        upstream = upstream.header(name, value);
-    }
+    // A connected server's address signs in (`server_auth`): stored addresses carry no secrets.
+    let mut upstream = crate::server_auth::get(client, url, source_headers);
     let (range, added_range) = upstream_range(url, request_headers);
     if let Some(range) = range {
         upstream = upstream.header(header::RANGE, range);
@@ -844,10 +839,7 @@ async fn forward_media(
     source_headers: &BTreeMap<String, String>,
     request_headers: &HeaderMap,
 ) -> Response {
-    let mut upstream = state.client.get(url.clone());
-    for (name, value) in source_headers {
-        upstream = upstream.header(name, value);
-    }
+    let mut upstream = crate::server_auth::get(&state.client, url.as_str(), source_headers);
     let (range, added_range) = upstream_range(url.as_str(), request_headers);
     if let Some(range) = range {
         upstream = upstream.header(header::RANGE, range);

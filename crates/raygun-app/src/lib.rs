@@ -63,6 +63,7 @@ mod resolver;
 mod search;
 mod search_fallback;
 mod search_filter;
+mod servers;
 mod settings;
 mod sound;
 mod startup;
@@ -156,6 +157,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::extension_installs_dismiss,
             commands::extension_uninstall,
             commands::extension_setting_set,
+            commands::servers_list,
+            commands::servers_add,
+            commands::servers_remove,
             commands::online_search,
             commands::search_recent,
             commands::search_recent_add,

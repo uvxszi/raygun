@@ -10,6 +10,8 @@ pub mod fanout;
 mod host;
 mod html;
 mod js;
+pub mod kodi;
+pub mod lnreader;
 pub mod manga;
 pub mod manifest;
 pub mod miru;
@@ -20,6 +22,7 @@ pub mod permissions;
 pub mod podcast;
 pub mod repo;
 pub mod review;
+pub mod servers;
 pub mod shosetsu;
 mod storage;
 pub mod video;
@@ -41,7 +44,7 @@ pub use content::{ContentFilter, without_adult_sources};
 pub use host::{
     CATALOG_SEARCH_TIMEOUT, CallError, ExtensionFiles, ExtensionHost, ExtensionSource, HostConfig,
     INTERACTIVE_TIMEOUT, LYRICS, MUSIC_CHARTS, MUSIC_METADATA, MUSIC_STREAM, MUSIC_TAGS,
-    ProviderCandidates, ResolvedStream, StreamUse, UserSettings, discover_installed,
+    ProviderCandidates, ResolvedStream, ServerSecrets, StreamUse, UserSettings, discover_installed,
 };
 pub use js::Limits;
 pub use manifest::{MANIFEST_FILE, Manifest, ManifestError};
