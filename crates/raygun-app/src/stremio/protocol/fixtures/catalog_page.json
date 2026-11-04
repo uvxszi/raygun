@@ -1,0 +1,18 @@
+{
+  "metas": [
+    {
+      "id": "tt12042730",
+      "type": "movie",
+      "name": "Project Hail Mary",
+      "poster": "https://image.tmdb.org/t/p/w500/iOb2fjXLbpJgyQXe46n1WtGCnaa.jpg",
+      "releaseInfo": 2026,
+      "imdbRating": 8.2
+    },
+    { "id": "tt39195970", "type": "movie", "behaviorHints": { "hasScheduledVideos": false } },
+    { "id": "tt39195971", "type": "movie", "poster": "https://img.example/only-a-poster.jpg" },
+    { "id": "csi-en-espanol", "name": "CSI en Español", "poster": "", "logo": "", "genres": [] },
+    { "id": "tt12042730", "type": "movie", "name": "Project Hail Mary (repeated)" },
+    { "name": "No id" },
+    "not an item"
+  ]
+}

@@ -16,7 +16,7 @@ use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
 use crate::ai::AiService;
-use crate::collections::CollectionsService;
+use crate::collections::{CollectionsService, identity};
 use crate::extensions::ExtensionService;
 use crate::uploads::Uploads;
 
@@ -204,10 +204,20 @@ impl ImportService {
         match best {
             Some((points, provider, track)) if points >= MIN_SCORE => {
                 // A stream only counts when it plays anywhere (not the YouTube embed, which is a
-                // video; the resolver finds a song's stream when it plays).
+                // video). Otherwise the song plays by the names it matched under (M46.48): the
+                // resolver then finds what that source has, as the review's preview did.
                 let source = track
                     .source
-                    .filter(|source| matches!(source, MediaSource::Url { .. }));
+                    .clone()
+                    .filter(|source| matches!(source, MediaSource::Url { .. }))
+                    .or_else(|| {
+                        Some(MediaSource::Lookup {
+                            title: track.title.clone(),
+                            artist: track.artist.clone(),
+                            album: track.album.clone(),
+                            duration_ms: track.duration_ms,
+                        })
+                    });
                 MatchedSong {
                     song: ImportedSong {
                         album: agreed_album(song.album.as_deref(), &candidates)
@@ -215,6 +225,12 @@ impl ImportService {
                             .or(track.album),
                         duration_ms: song.duration_ms.or(track.duration_ms),
                         artwork_url: song.artwork_url.or(track.artwork_url),
+                        // A title alone ("Yesterday") is saved with its match's artist, so it's
+                        // the same song as the one other screens show (M46.48).
+                        artist: song
+                            .artist
+                            .filter(|artist| !artist.trim().is_empty())
+                            .or(track.artist.filter(|artist| !artist.trim().is_empty())),
                         ..song
                     },
                     matched_by: Some(provider),
@@ -233,15 +249,16 @@ impl ImportService {
         }
     }
 
-    /// Saves songs as a new playlist named `name`; returns its id. Songs still `pending` are
-    /// matched in the background and filled in as they're found (M46.31); songs no source has
-    /// are kept, marked unavailable.
     /// Saves the songs where `target` says, in their order; returns the playlist's id, or
-    /// `favorites` (M46.45).
+    /// `favorites` (M46.45). Songs the playlist or Favorites already holds, under any of their
+    /// names, are left out unless `add_existing` (Favorites hold a song once whatever it says,
+    /// M46.48). Songs still `pending` are matched in the background and filled in as they're
+    /// found (M46.31); songs no source has are kept, marked unavailable.
     pub async fn save(
         &self,
         target: raygun_model::ImportTarget,
         songs: Vec<MatchedSong>,
+        add_existing: bool,
     ) -> Result<String, String> {
         use raygun_model::ImportTarget;
         let collections = self.app.state::<CollectionsService>();
@@ -259,35 +276,54 @@ impl ImportService {
                 duration_ms: None,
             })
         };
-        let missing: Vec<String> = songs
-            .iter()
-            .filter(|matched| !matched.pending && matched.matched_by.is_none())
-            .map(|matched| key_of(&matched.song))
-            .collect();
-        let pending: Vec<ImportedSong> = songs
-            .iter()
-            .filter(|matched| matched.pending)
-            .map(|matched| matched.song.clone())
-            .collect();
         let tracks: Vec<TrackInput> = songs
-            .into_iter()
+            .iter()
             .map(|matched| TrackInput {
-                title: matched.song.title,
-                artist: matched.song.artist,
-                album: matched.song.album,
+                title: matched.song.title.clone(),
+                artist: matched.song.artist.clone(),
+                album: matched.song.album.clone(),
                 duration_ms: matched.song.duration_ms,
-                artwork_url: matched.song.artwork_url,
-                source: matched.source,
+                artwork_url: matched.song.artwork_url.clone(),
+                source: matched.source.clone(),
             })
             .collect();
-        if target == ImportTarget::Favorites {
+        let added: Vec<bool> = if target == ImportTarget::Favorites {
+            let index = collections.index().await?;
+            let mut added = vec![false; tracks.len()];
+            let mut favorited = identity::SongSet::default();
             // Newest first: the first song is added last, so it comes out on top.
-            for track in tracks.into_iter().rev() {
+            for (at, track) in tracks.into_iter().enumerate().rev() {
+                let keys = identity::keys_of(&track.title, track.artist.as_deref());
+                if index.holds(None, &keys) || !favorited.insert(keys) {
+                    continue;
+                }
                 collections.set_favorite(track, true).await?;
+                added[at] = true;
             }
+            added
         } else {
-            collections.add_to_playlist(&id, tracks).await?;
-        }
+            collections.add_tracks(&id, tracks, add_existing).await?
+        };
+        // Marks and background matching only for the songs this import added.
+        let imported: Vec<String> = songs
+            .iter()
+            .zip(&added)
+            .filter(|(_, added)| **added)
+            .map(|(matched, _)| key_of(&matched.song))
+            .collect();
+        let _ = raygun_db::collections::mark_imported(&db, &imported, now_ms()).await;
+        let missing: Vec<String> = songs
+            .iter()
+            .zip(&added)
+            .filter(|(matched, added)| **added && !matched.pending && matched.matched_by.is_none())
+            .map(|(matched, _)| key_of(&matched.song))
+            .collect();
+        let pending: Vec<ImportedSong> = songs
+            .into_iter()
+            .zip(&added)
+            .filter(|(matched, added)| **added && matched.pending)
+            .map(|(matched, _)| matched.song)
+            .collect();
         let _ = raygun_db::collections::mark_unavailable(&db, &missing, now_ms()).await;
         if !pending.is_empty() {
             let app = self.app.clone();
@@ -326,38 +362,26 @@ impl ImportService {
         Ok(id)
     }
 
-    /// Gives every saved copy of a song the source the user picked (M46.31).
+    /// Gives every saved copy of a song the source the user picked (M46.31): copies saved under
+    /// another artist credit or shown with names the user gave it too, the song in the queue and
+    /// the resolver's remembered pick (M46.48, `CollectionsService::assign_source`).
     pub async fn assign_source(
         &self,
         song: TrackInput,
         chosen: raygun_model::OnlineTrack,
     ) -> Result<(), String> {
-        let key = raygun_resolver::track_key(&TrackQuery {
-            title: song.title.clone(),
-            artist: song.artist.clone(),
-            album: song.album.clone(),
-            duration_ms: None,
-        });
-        let db = &self.app.state::<crate::startup::AppDb>().inner().0;
-        let found = raygun_db::collections::TrackFields {
-            track_key: key.clone(),
-            title: song.title,
-            artist: song.artist,
-            album: chosen.album.clone(),
-            duration_ms: chosen.duration_ms.map(i64::from),
-            artwork_url: chosen.artwork_url.clone(),
-            source: chosen
-                .source
-                .as_ref()
-                .and_then(|source| serde_json::to_string(source).ok()),
+        let choice = raygun_model::SourceChoice {
+            assign: true,
+            source_name: None,
+            title: false,
+            artist: false,
+            album: false,
+            cover: false,
         };
-        raygun_db::collections::set_track_source(db, &key, &found, true)
+        self.app
+            .state::<CollectionsService>()
+            .assign_source(song, chosen, choice)
             .await
-            .map_err(|error| error.to_string())?;
-        raygun_db::collections::clear_unavailable(db, &key)
-            .await
-            .map_err(|error| error.to_string())?;
-        Ok(())
     }
 
     /// Which saved songs no source had (M46.31).

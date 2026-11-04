@@ -41,6 +41,7 @@ const chapterPages = (readerMode: MangaChapterPages['readerMode']): MangaChapter
   titleId: 't1',
   title: 'Frieren',
   readerMode,
+  ownReaderMode: readerMode,
   chapter: {
     id: 'c1',
     remoteId: 'r1',
@@ -139,31 +140,44 @@ describe('Customization', () => {
   });
 
   it("names a catalog's rows in Search when nothing is typed", async () => {
-    commands.stremioHome.mockResolvedValue(
-      ok([
-        {
-          addonId: 'cinemeta',
-          addonName: 'Cinemeta',
-          kind: 'movie',
-          catalogId: 'top',
-          name: 'Popular',
-          items: [],
-          genres: [],
-          hasMore: false,
-          error: null,
-        },
-        {
-          addonId: 'cinemeta',
-          addonName: 'Cinemeta',
-          kind: 'movie',
-          catalogId: 'year',
-          name: 'New',
-          items: [],
-          genres: [],
-          hasMore: false,
-          error: null,
-        },
-      ]),
+    const catalog = (catalogId: string, name: string) => ({
+      addonId: 'cinemeta',
+      addonName: 'Cinemeta',
+      kind: 'movie',
+      catalogId,
+      name,
+      extras: [],
+      board: true,
+      searchable: false,
+      discoverable: true,
+      pages: true,
+      failing: false,
+    });
+    commands.stremioCatalogs.mockResolvedValue(
+      ok([catalog('top', 'Popular'), catalog('year', 'New')]),
+    );
+    commands.stremioCatalog.mockImplementation(async (addonId, kind, catalogId) =>
+      ok({
+        addonId,
+        addonName: 'Cinemeta',
+        kind,
+        catalogId,
+        name: catalogId,
+        items: [
+          {
+            kind,
+            id: `tt-${catalogId}`,
+            name: `Film from ${catalogId}`,
+            poster: null,
+            posterShape: 'poster',
+            releaseInfo: null,
+            rating: null,
+          },
+        ],
+        genres: [],
+        hasMore: false,
+        error: null,
+      }),
     );
     await AppShellWrapper.mount('/browse?tab=search&type=video');
     expect(await screen.findByRole('region', { name: 'Popular · Movies' })).toBeInTheDocument();
@@ -184,20 +198,17 @@ describe('Customization', () => {
       })[0]!,
     );
     const sheet = await AppShellWrapper.playerSheet.element;
-    const button = within(sheet).getByRole('button', { name: 'Add to playlist' });
-
-    await user.click(button);
+    // The player's More options opens the song's menu beside it; Add to playlist pops up there.
+    await user.click(within(sheet).getByRole('button', { name: 'More options' }));
+    const menu = await screen.findByTestId('context-menu');
+    expect(within(menu).getByRole('menuitem', { name: 'Go to Raygun' })).toBeInTheDocument();
+    await user.click(within(menu).getByRole('menuitem', { name: 'Add to playlist' }));
     const popover = await screen.findByTestId('popover');
     expect(popover).toHaveAccessibleName('Intro');
     expect(popover).not.toHaveAttribute('aria-modal');
     expect(within(popover).getByText('Add to playlist')).toBeInTheDocument();
 
-    // The same button closes it…
-    await user.click(button);
-    expect(screen.queryByTestId('popover')).not.toBeInTheDocument();
-    // …and so does a click anywhere else.
-    await user.click(button);
-    expect(await screen.findByTestId('popover')).toBeInTheDocument();
+    // A click anywhere else closes it.
     await user.click(within(sheet).getByTestId('sheet-title'));
     expect(screen.queryByTestId('popover')).not.toBeInTheDocument();
   });

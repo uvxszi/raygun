@@ -38,6 +38,7 @@ const VOLATILE = new Set([
   'ai',
   'localNetwork',
   'ytdlp',
+  'incognito',
 ]);
 
 type Saved = { build: string; savedAt: number; state: DehydratedState };
@@ -45,8 +46,29 @@ type Saved = { build: string; savedAt: number; state: DehydratedState };
 /** Builds differ in what answers look like, so each starts from its own saved cache. */
 const BUILD = typeof __RAYGUN_BUILD__ === 'string' ? __RAYGUN_BUILD__ : 'dev';
 
+/** When incognito was on in this run (M47), in Unix ms; `to` is null while it still is. */
+const incognitoSpans: { from: number; to: number | null }[] = [];
+
+/**
+ * Follows incognito (M47): answers that come while it's on (searches, titles, pages) are never
+ * saved, even after it ends, until they're asked again.
+ */
+export const noteIncognito = (status: { on: boolean; sinceMs: number | null }) => {
+  const last = incognitoSpans.at(-1);
+  const running = last !== undefined && last.to === null;
+  if (status.on && !running) incognitoSpans.push({ from: status.sinceMs ?? Date.now(), to: null });
+  if (!status.on && running) last.to = Date.now();
+};
+
+/** Whether an answer updated at `updatedAt` came while incognito was on. */
+export const cameInIncognito = (updatedAt: number) =>
+  incognitoSpans.some(
+    (span) => updatedAt >= span.from && (span.to === null || updatedAt <= span.to),
+  );
+
 const saveable = (query: Query) => {
   if (query.state.status !== 'success' || query.state.data === undefined) return false;
+  if (cameInIncognito(query.state.dataUpdatedAt)) return false;
   const key = query.queryKey;
   if (typeof key[0] === 'string' && VOLATILE.has(key[0])) return false;
   // Download and recording progress goes stale at once.
@@ -150,7 +172,10 @@ export const persistQueryCache = (client: QueryClient) => {
     save();
   };
   const unsubscribe = client.getQueryCache().subscribe((event) => {
-    if (event.type === 'updated' && event.action.type === 'success') later();
+    // Progress and other answers that aren't kept don't cause a save (downloads report often).
+    if (event.type === 'updated' && event.action.type === 'success' && saveable(event.query)) {
+      later();
+    }
     if (event.type === 'removed') later();
   });
   const hidden = () => {

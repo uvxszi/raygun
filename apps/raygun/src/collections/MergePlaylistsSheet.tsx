@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
 import { Sheet } from '../shell/Sheet';
+import { TextField } from '../shell/TextField';
 import { PlaylistCover } from './PlaylistCover';
 import { COLLECTIONS, usePlaylists } from './useCollections';
 
@@ -115,12 +116,13 @@ export const MergePlaylistsSheet: FC<{ picked: string[]; onClose: () => void }> 
             );
           })}
         </ul>
-        <input
+        <TextField
           value={name}
-          onChange={(event) => setName(event.target.value)}
+          onChange={setName}
           aria-label={t('collections.merge.name')}
           placeholder={suggested || t('collections.merge.name')}
-          className="bg-background placeholder:text-muted rounded-xl px-4 py-2.5 text-sm outline-none"
+          className="bg-background rounded-xl pr-1.5 pl-4"
+          inputClassName="py-2.5 text-sm"
         />
         {(
           [

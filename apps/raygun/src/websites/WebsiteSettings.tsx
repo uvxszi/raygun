@@ -7,6 +7,8 @@ import { usePlatform } from '../lib/usePlatform';
 import { PrefBlock, PrefChoice, PrefGroup, PrefSwitch } from '../settings/prefs';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { Sheet } from '../shell/Sheet';
+import { SourceIssue } from '../shell/SourceIssue';
+import { SHEET_FIELD, SHEET_INPUT, TextField } from '../shell/TextField';
 import { useBlocklist, useClearWebsiteData, useUpdateBlocklist } from './useWebsites';
 
 const LISTS: Blocklist[] = ['hageziMulti', 'hageziLight', 'hageziPro', 'stevenBlack', 'custom'];
@@ -100,9 +102,9 @@ export const WebsiteSettings: FC = () => {
           </button>
         </div>
         {(refresh.isError || status.data?.error) && (
-          <p role="alert" className="text-primary mt-2 text-sm wrap-anywhere">
+          <SourceIssue compact title={t('websites.listFailed')} className="mt-2">
             {refresh.error?.message ?? status.data?.error}
-          </p>
+          </SourceIssue>
         )}
         {clear.isSuccess && (
           <p role="status" className="text-muted mt-2 text-sm">
@@ -134,7 +136,7 @@ export const WebsiteSettings: FC = () => {
               );
             }}
           >
-            <input
+            <TextField
               type="text"
               inputMode="url"
               autoCapitalize="off"
@@ -142,16 +144,17 @@ export const WebsiteSettings: FC = () => {
               spellCheck={false}
               autoFocus
               value={customUrl}
-              onChange={(event) => setCustomUrl(event.target.value)}
+              onChange={setCustomUrl}
               placeholder="https://…/list.txt"
               aria-label={t('websites.customUrl')}
-              className="bg-background placeholder:text-muted rounded-xl px-4 py-3 outline-none"
+              className={SHEET_FIELD}
+              inputClassName={SHEET_INPUT}
             />
             <p className="text-muted text-xs">{t('websites.customHint')}</p>
             {update.isError && (
-              <p role="alert" className="text-primary text-xs">
+              <SourceIssue compact title={t('websites.saveFailed')}>
                 {update.error.message}
-              </p>
+              </SourceIssue>
             )}
             <button
               type="submit"

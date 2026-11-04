@@ -70,10 +70,11 @@ export const useReloadExtensions = () => {
   });
 };
 
-export const useCatalog = () =>
+export const useCatalog = (enabled = true) =>
   useQuery({
     queryKey: CATALOG,
     queryFn: () => unwrapResult(commands.extensionCatalog(false)),
+    enabled,
   });
 
 /** Re-fetches every repository index, bypassing the cache. */

@@ -271,8 +271,20 @@ describe('Player bar', () => {
     expect(commands.playbackControl).toHaveBeenCalledWith({ type: 'playItem', itemId: 'id-Third' });
     await user.click(within(next).getByRole('button', { name: 'Remove Second from the queue' }));
     expect(commands.playbackControl).toHaveBeenCalledWith({ type: 'remove', itemId: 'id-Second' });
+    // Clear asks first, then takes everything after the playing song out in one go.
     await user.click(within(queue).getByRole('button', { name: 'Clear' }));
-    expect(commands.playbackControl).toHaveBeenCalledWith({ type: 'remove', itemId: 'id-Third' });
+    const ask = within(queue).getByRole('alertdialog', { name: 'Take 2 songs out of Up next?' });
+    await user.click(within(ask).getByRole('button', { name: 'Clear' }));
+    expect(commands.playbackControl).toHaveBeenLastCalledWith({ type: 'clearUpcoming' });
+
+    // The grip moves a song with the arrow keys.
+    within(next).getByRole('button', { name: 'Move Third' }).focus();
+    await user.keyboard('{ArrowUp}');
+    expect(commands.playbackControl).toHaveBeenLastCalledWith({
+      type: 'move',
+      itemId: 'id-Third',
+      beforeItemId: 'id-Second',
+    });
 
     await user.click(within(queue).getByRole('button', { name: 'Close the side panel' }));
     expect(screen.queryByRole('complementary', { name: 'Queue' })).not.toBeInTheDocument();

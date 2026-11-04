@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use raygun_model::{YouTubeLink, YouTubeLinkKind, YtDlpJob, YtDlpKind, YtDlpState, YtDlpStatus};
 use tauri::AppHandle;
@@ -41,6 +41,8 @@ const MAX_TOOL_BYTES: u64 = 400 << 20;
 const SONG_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// Finished jobs kept in the list.
 const KEPT_JOBS: usize = 40;
+/// How often a running download's progress is announced at most.
+const PROGRESS_EVERY: Duration = Duration::from_millis(400);
 /// Marks Raygun's own lines among yt-dlp's output.
 const PROGRESS: &str = "RAYGUN_PROGRESS";
 const FILE: &str = "RAYGUN_FILE";
@@ -270,8 +272,15 @@ impl YtDlpService {
     // ---- Songs (only YouTube has them) ----
 
     /// Saves a YouTube video's sound as `<dir>/track.<ext>` (M4A where YouTube has it) for the
-    /// song downloads; the file's name comes back.
-    pub async fn fetch_song(&self, video_id: &str, dir: &Path) -> Result<String, String> {
+    /// song downloads; the file's name comes back. `progress` hears the bytes saved and the size
+    /// when yt-dlp knows it; `cancel` stops yt-dlp (what it saved stays for the next go).
+    pub async fn fetch_song(
+        &self,
+        video_id: &str,
+        dir: &Path,
+        cancel: Arc<Notify>,
+        progress: impl Fn(u64, Option<u64>) + Send + Sync + 'static,
+    ) -> Result<String, String> {
         let program = self.ready().await?;
         let url = watch_url(video_id);
         let mut command = command(&program);
@@ -280,6 +289,11 @@ impl YtDlpService {
                 "--no-playlist",
                 "--no-warnings",
                 "--newline",
+                "--progress",
+                "--progress-template",
+                &format!(
+                    "download:{PROGRESS} %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s"
+                ),
                 "-f",
                 "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/best[ext=m4a]",
                 "-o",
@@ -288,8 +302,11 @@ impl YtDlpService {
             .args(["--print", &format!("after_move:{FILE} %(filepath)s")])
             .arg("--")
             .arg(&url);
-        let never = Arc::new(Notify::new());
-        let run = run(command, never, |_| {});
+        let run = run(command, cancel, move |numbers| {
+            if let Some((done, total)) = progress_bytes(numbers) {
+                progress(done, total);
+            }
+        });
         let path = tokio::time::timeout(SONG_TIMEOUT, run)
             .await
             .map_err(|_| "yt-dlp took too long".to_owned())??;
@@ -450,8 +467,25 @@ impl YtDlpService {
             .arg(url);
         let service = self.clone();
         let job = id.to_owned();
-        run(command, cancel, move |progress| {
-            service.update(&job, |job| job.info.progress = Some(progress));
+        // A video above 360p is two downloads (picture, then sound) that FFmpeg joins.
+        let parts = if kind == YtDlpKind::Video && ffmpeg.is_some() {
+            2
+        } else {
+            1
+        };
+        let overall = Mutex::new(Overall::new(parts));
+        run(command, cancel, move |numbers| {
+            let Some(share) = progress_share(numbers) else {
+                return;
+            };
+            // yt-dlp reports every block: the list hears each whole percent, never backwards.
+            let shown = overall
+                .lock()
+                .expect("yt-dlp progress poisoned")
+                .next(share);
+            if let Some(progress) = shown {
+                service.update(&job, |job| job.info.progress = Some(progress));
+            }
         })
         .await
     }
@@ -529,12 +563,12 @@ impl YtDlpService {
     }
 }
 
-/// Runs yt-dlp, reporting progress (0 to 1) as it reads, until it ends or `cancel` fires; the
-/// saved file's path comes back.
+/// Runs yt-dlp, handing each progress line's numbers to `progress` as it reads, until it ends or
+/// `cancel` fires; the saved file's path comes back.
 async fn run(
     mut command: tokio::process::Command,
     cancel: Arc<Notify>,
-    progress: impl Fn(f64) + Send + Sync + 'static,
+    progress: impl Fn(&str) + Send + Sync + 'static,
 ) -> Result<PathBuf, String> {
     let mut child = command
         .spawn()
@@ -554,9 +588,7 @@ async fn run(
                     *saved.lock().expect("yt-dlp output poisoned") =
                         Some(PathBuf::from(path.trim()));
                 } else if let Some(numbers) = line.strip_prefix(PROGRESS) {
-                    if let Some(share) = progress_share(numbers) {
-                        progress(share);
-                    }
+                    progress(numbers);
                 } else if line.starts_with("ERROR:") {
                     errors
                         .lock()
@@ -692,6 +724,50 @@ fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
+/// yt-dlp's progress through each file it fetches (each going 0 → 1) as one share of the whole
+/// download that only moves forward, given when it moved a percent and a moment has passed.
+struct Overall {
+    parts: u32,
+    part: u32,
+    last: f64,
+    shown: f64,
+    announced: Option<Instant>,
+}
+
+impl Overall {
+    fn new(parts: u32) -> Self {
+        Self {
+            parts: parts.max(1),
+            part: 0,
+            last: 0.0,
+            shown: 0.0,
+            announced: None,
+        }
+    }
+
+    fn next(&mut self, share: f64) -> Option<f64> {
+        // Starting again from the bottom: the next file.
+        if share + 0.5 < self.last && self.part + 1 < self.parts {
+            self.part += 1;
+        }
+        self.last = share;
+        let overall = ((f64::from(self.part) + share) / f64::from(self.parts)).clamp(0.0, 1.0);
+        if overall < self.shown + 0.01 {
+            return None;
+        }
+        if self
+            .announced
+            .is_some_and(|at| at.elapsed() < PROGRESS_EVERY)
+            && overall < 1.0
+        {
+            return None;
+        }
+        self.shown = overall;
+        self.announced = Some(Instant::now());
+        Some(overall)
+    }
+}
+
 /// "downloaded total estimate" as a share, from whichever size yt-dlp knows.
 fn progress_share(numbers: &str) -> Option<f64> {
     let mut parts = numbers
@@ -700,6 +776,20 @@ fn progress_share(numbers: &str) -> Option<f64> {
     let done = parts.next().flatten()?;
     let total = parts.next().flatten().or_else(|| parts.next().flatten())?;
     (total > 0.0).then(|| (done / total).clamp(0.0, 1.0))
+}
+
+/// The bytes a progress line says were saved, and the size (exact, else yt-dlp's estimate).
+fn progress_bytes(numbers: &str) -> Option<(u64, Option<u64>)> {
+    let mut parts = numbers
+        .split_whitespace()
+        .map(|part| part.parse::<f64>().ok());
+    let done = parts.next().flatten()?;
+    let total = parts
+        .next()
+        .flatten()
+        .or_else(|| parts.next().flatten())
+        .filter(|total| *total > 0.0);
+    Some((done.max(0.0) as u64, total.map(|total| total as u64)))
 }
 
 fn shown_path(path: &Path) -> String {
@@ -859,5 +949,30 @@ mod tests {
         assert_eq!(progress_share("50 200 NA"), Some(0.25));
         assert_eq!(progress_share("50 NA 100"), Some(0.5));
         assert_eq!(progress_share("50 NA NA"), None);
+        assert_eq!(progress_bytes("50 200 NA"), Some((50, Some(200))));
+        assert_eq!(progress_bytes("50 NA 100.5"), Some((50, Some(100))));
+        assert_eq!(progress_bytes("50 NA NA"), Some((50, None)));
+        assert_eq!(progress_bytes("NA NA NA"), None);
+    }
+
+    #[test]
+    fn progress_of_a_picture_and_its_sound_only_moves_forward() {
+        let mut overall = Overall::new(2);
+        assert_eq!(overall.next(0.5), Some(0.25));
+        // Too soon after the last one, and too small a step: not announced.
+        assert_eq!(overall.next(0.51), None);
+        overall.announced = None;
+        assert_eq!(overall.next(1.0), Some(0.5));
+        // The sound starts from zero: the whole goes on from half.
+        overall.announced = None;
+        assert_eq!(overall.next(0.1), Some(0.55));
+        overall.announced = None;
+        assert_eq!(overall.next(1.0), Some(1.0));
+
+        // One file: a second drop doesn't go past the end.
+        let mut single = Overall::new(1);
+        assert_eq!(single.next(0.8), Some(0.8));
+        single.announced = None;
+        assert_eq!(single.next(0.1), None, "never backwards");
     }
 }

@@ -1,31 +1,23 @@
 import { commands } from '@raygun/bindings';
-import type { MangaChapterInfo } from '@raygun/bindings';
 import { useMutation } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import {
-  BookOpen,
-  Check,
-  Download,
-  Globe,
-  Heart,
-  LoaderCircle,
-  RefreshCw,
-  SearchCheck,
-} from 'lucide-react';
-import { useState } from 'react';
+import { BookOpen, Globe, Heart, LoaderCircle, RefreshCw, SearchCheck } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { CategoryPicker } from '../manga/CategoryPicker';
+import { ChapterList, SelectChaptersButton } from '../manga/ChapterList';
 import { useKnownCard } from '../manga/knownCard';
 import { ChapterOrderButton } from '../manga/ChapterOrderButton';
 import { orderChapters, useChapterOrder } from '../manga/chapterOrder';
+import { DownloadMenu } from '../manga/DownloadMenu';
+import { SelectionTopBar } from '../manga/LibrarySelection';
 import { OtherSources } from '../manga/OtherSources';
 import { unwrapResult } from '../lib/commandResult';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { PinButton } from '../shell/PinButton';
-import { DownloadButton } from '../manga/DownloadButton';
 import { MangaCover } from '../manga/MangaCover';
 import { ExportButton } from '../export/ExportButton';
 import { TitleListActions } from '../manga/TitleListActions';
@@ -33,67 +25,14 @@ import { useDuplicateCheck } from '../manga/useDuplicateCheck';
 import { ROUTES, isLocalSource } from '../manga/medium';
 import type { ReadingMedium } from '../manga/medium';
 import {
-  useDownloadChapters,
   useMangaLiveEvents,
   useMangaTitle,
   useRefreshTitle,
-  useSetChapterRead,
   useSetInLibrary,
 } from '../manga/useManga';
 import { SourceIssue } from '../shell/SourceIssue';
 
-/** Where a partly read chapter stands: a page for manga, a share of the text for novels. */
-const progressLabel = (
-  chapter: MangaChapterInfo,
-  medium: ReadingMedium,
-  t: (key: string, options?: Record<string, unknown>) => string,
-) => {
-  if (chapter.lastPage === null || !chapter.totalPages) return null;
-  return medium === 'novel'
-    ? t('novel.percentRead', {
-        percent: Math.min(99, Math.round((chapter.lastPage / chapter.totalPages) * 100)),
-      })
-    : t('manga.pageOf', { page: chapter.lastPage + 1, total: chapter.totalPages });
-};
-
-const ChapterRow: FC<{
-  titleId: string;
-  chapter: MangaChapterInfo;
-  medium: ReadingMedium;
-  downloadable: boolean;
-}> = ({ titleId, chapter, medium, downloadable }) => {
-  const { t, i18n } = useTranslation();
-  const setRead = useSetChapterRead(medium);
-  const date = chapter.dateUpload
-    ? new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' }).format(chapter.dateUpload)
-    : null;
-  return (
-    <div className="flex items-center gap-2">
-      <Link
-        to={ROUTES[medium].read}
-        search={{ title: titleId, chapter: chapter.id }}
-        data-testid="chapter-row"
-        className={`flex min-w-0 flex-1 flex-col py-2 ${chapter.read ? 'opacity-50' : ''}`}
-      >
-        <span className="truncate text-sm font-medium">{chapter.name}</span>
-        <span className="text-muted truncate text-xs">
-          {[date, chapter.scanlator, progressLabel(chapter, medium, t)].filter(Boolean).join(' · ')}
-        </span>
-      </Link>
-      <button
-        type="button"
-        aria-label={t(chapter.read ? 'manga.markUnread' : 'manga.markRead', { name: chapter.name })}
-        aria-pressed={chapter.read}
-        disabled={setRead.isPending}
-        onClick={() => setRead.mutate({ chapterId: chapter.id, read: !chapter.read })}
-        className={`grid size-9 shrink-0 place-items-center rounded-full ${chapter.read ? 'text-primary' : 'text-muted'}`}
-      >
-        <Check aria-hidden size={18} />
-      </button>
-      {downloadable && <DownloadButton chapter={chapter} />}
-    </div>
-  );
-};
+const NONE: Set<string> = new Set();
 
 /** A title: details, library button, continue reading and chapters. */
 export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga' }) => {
@@ -101,14 +40,20 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
   const { source = '', id = '' }: { source?: string; id?: string } = useSearch({ strict: false });
   useMangaLiveEvents();
   const title = useMangaTitle(source, id, medium);
-  const download = useDownloadChapters();
   const refresh = useRefreshTitle(medium);
   const setInLibrary = useSetInLibrary(medium);
   const duplicates = useDuplicateCheck(medium);
   const [expanded, setExpanded] = useState(false);
   const [finding, setFinding] = useState(false);
+  // Selection mode and the chapters picked in it, for the title they belong to.
+  const [selection, setSelection] = useState<{ key: string; ids: Set<string> } | null>(null);
   const navigate = useNavigate();
   const view = refresh.data && refresh.data.remoteId === id ? refresh.data : title.data;
+  const titleKey = `${source}:${id}`;
+  const selecting = selection?.key === titleKey;
+  const selected = selecting ? selection.ids : NONE;
+  const setSelected = (ids: Set<string>) => setSelection({ key: titleKey, ids });
+  const stopSelecting = () => setSelection(null);
   const [order, setOrder] = useChapterOrder(view?.id ?? '');
   // What the search or list already showed (M46.38): the header shows at once, and stays when
   // the source then fails.
@@ -126,6 +71,17 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
     mutationFn: () =>
       unwrapResult(commands.catalogOpenPage(view?.sourceId ?? source, view?.url ?? null)),
   });
+
+  // Escape stops selecting.
+  useEffect(() => {
+    if (!selecting) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSelection(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selecting]);
+
   const top = (
     <TopBar
       back
@@ -171,7 +127,7 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
       <section data-testid="manga-title-page" className="flex flex-col gap-5">
         {top}
         {knownHero}
-        <SourceIssue>{title.error.message}</SourceIssue>
+        <SourceIssue onRetry={() => void title.refetch()}>{title.error.message}</SourceIssue>
       </section>
     );
   }
@@ -208,17 +164,33 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
 
   const continueChapter = view.chapters.find((chapter) => chapter.id === view.continueChapterId);
   const started = view.chapters.some((chapter) => chapter.read || chapter.lastPage !== null);
+  // Once everything is read there's nothing to continue (Mihon hides the button).
+  const finished = view.chapters.length > 0 && view.chapters.every((chapter) => chapter.read);
   // Imported books are already on the device.
   const downloadable = !isLocalSource(view.sourceId);
-  // Oldest first, so the queue reads in order (the list is newest first).
-  const unreadToDownload = view.chapters
-    .filter((chapter) => downloadable && !chapter.read && !chapter.download)
-    .map((chapter) => chapter.id)
-    .reverse();
+  const shown = orderChapters(view.chapters, order);
+  const issue = refresh.error ?? setInLibrary.error ?? website.error;
 
   return (
     <section data-testid="manga-title-page" className="flex min-h-full flex-col gap-5">
-      {top}
+      {selecting ? (
+        <SelectionTopBar
+          count={selected.size}
+          onSelectAll={() =>
+            setSelected(new Set([...selected, ...shown.map((chapter) => chapter.id)]))
+          }
+          onInvert={() =>
+            setSelected(
+              new Set(
+                shown.map((chapter) => chapter.id).filter((chapterId) => !selected.has(chapterId)),
+              ),
+            )
+          }
+          onClose={stopSelecting}
+        />
+      ) : (
+        top
+      )}
       <TitleHero
         art={view.coverUrl}
         cover={<MangaCover url={view.coverUrl} className="w-full rounded-xl shadow-lg" />}
@@ -247,34 +219,7 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
           </button>
           <TitleListActions medium={medium} titleId={view.id} title={view.title} />
           {downloadable && (
-            <button
-              type="button"
-              disabled={download.isPending || unreadToDownload.length === 0}
-              onClick={() => download.mutate(unreadToDownload)}
-              aria-label={
-                unreadToDownload.length > 0
-                  ? t('manga.downloadUnread', { count: unreadToDownload.length })
-                  : undefined
-              }
-              className="flex flex-1 flex-col items-center gap-1 rounded-xl px-2 py-2 text-xs font-medium disabled:opacity-60"
-            >
-              <span className="relative">
-                <Download aria-hidden size={22} />
-                {unreadToDownload.length > 0 && (
-                  <span
-                    aria-hidden
-                    className="bg-primary text-background absolute -top-2 -right-3 min-w-5 rounded-full px-1 text-center text-[10px] leading-4 font-bold"
-                  >
-                    {unreadToDownload.length}
-                  </span>
-                )}
-              </span>
-              {view.chapters.length > 0 &&
-              unreadToDownload.length === 0 &&
-              view.chapters.every((chapter) => chapter.download)
-                ? t('manga.allDownloaded')
-                : t('manga.downloadAction')}
-            </button>
+            <DownloadMenu medium={medium} titleId={view.id} chapters={view.chapters} />
           )}
           {!isLocalSource(view.sourceId) && (
             <button
@@ -291,9 +236,14 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
       </TitleHero>
       {view.inLibrary && <CategoryPicker medium={medium} titleId={view.id} />}
       {duplicates.dialog}
-      {(refresh.error ?? setInLibrary.error ?? download.error ?? website.error) && (
-        <SourceIssue>
-          {(refresh.error ?? setInLibrary.error ?? download.error ?? website.error)?.message}
+      {issue && (
+        <SourceIssue
+          source={view.sourceName}
+          onRetry={
+            refresh.error ? () => refresh.mutate({ sourceId: source, mangaId: id }) : undefined
+          }
+        >
+          {issue.message}
         </SourceIssue>
       )}
       {!isLocalSource(view.sourceId) && (
@@ -321,26 +271,31 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between gap-2">
           <h2 className="font-semibold">{t('manga.chapters', { count: view.chapters.length })}</h2>
-          {view.chapters.length > 1 && <ChapterOrderButton order={order} onChange={setOrder} />}
+          <span className="flex items-center gap-1">
+            {view.chapters.length > 0 && !selecting && (
+              <SelectChaptersButton onClick={() => setSelected(new Set())} />
+            )}
+            {view.chapters.length > 1 && <ChapterOrderButton order={order} onChange={setOrder} />}
+          </span>
         </div>
         {view.chapters.length === 0 ? (
           <p className="text-muted text-sm">{t('manga.noChapters')}</p>
+        ) : shown.length === 0 ? (
+          <p className="text-muted text-sm">{t('chapterOrder.noneShown')}</p>
         ) : (
-          <ul className="flex flex-col">
-            {orderChapters(view.chapters, order).map((chapter) => (
-              <li key={chapter.id}>
-                <ChapterRow
-                  titleId={view.id}
-                  chapter={chapter}
-                  medium={medium}
-                  downloadable={downloadable}
-                />
-              </li>
-            ))}
-          </ul>
+          <ChapterList
+            titleId={view.id}
+            medium={medium}
+            chapters={shown}
+            downloadable={downloadable}
+            selecting={selecting}
+            selected={selected}
+            onSelectedChange={setSelected}
+            onDone={stopSelecting}
+          />
         )}
       </div>
-      {continueChapter && (
+      {continueChapter && !finished && !selecting && (
         <ResumeFab
           icon={BookOpen}
           label={started ? t('manga.continue', { name: continueChapter.name }) : t('manga.start')}

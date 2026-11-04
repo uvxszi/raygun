@@ -1,5 +1,5 @@
-import type { TrackInput } from '@raygun/bindings';
-import { Heart, ListMinus, ListPlus, LoaderCircle, Plus } from 'lucide-react';
+import type { PlaylistSummary, TrackInput } from '@raygun/bindings';
+import { CircleCheck, Heart, ListMinus, ListPlus, LoaderCircle, Plus } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -8,12 +8,13 @@ import { TrackTagChips } from '../music/TrackTagChips';
 import { useTrackMenuItems } from '../music/useTrackMenu';
 import { useCloseOnBack } from '../player/useCloseOnBack';
 import { Popover } from '../shell/Popover';
+import { TextField } from '../shell/TextField';
 import { useWideScreen } from '../shell/useWideScreen';
+import { useSongSaves } from './savedSongs';
 import { useTrackActionsStore } from './trackActionsStore';
 import {
   useAddToPlaylist,
   useCreatePlaylist,
-  useIsFavorite,
   usePlaylists,
   useRemovePlaylistItem,
   useSetFavorite,
@@ -21,23 +22,73 @@ import {
 
 const ROW_CLASS = 'flex h-12 w-full items-center gap-3 rounded-lg px-2 text-left text-sm';
 
-/** Picks a playlist for `track`, or makes a new one with it. */
+/**
+ * Picks a playlist for `track`, or makes a new one with it. A playlist that holds the song already
+ * says so and asks first, like Spotify: Add anyway, or Don't add (M46.48).
+ */
 const PlaylistPicker: FC<{ track: TrackInput; onDone: () => void }> = ({ track, onDone }) => {
   const { t } = useTranslation();
   const playlists = usePlaylists();
+  const saves = useSongSaves(track);
   const add = useAddToPlaylist();
   const create = useCreatePlaylist();
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState('');
+  const [already, setAlready] = useState<Pick<PlaylistSummary, 'id' | 'name'> | null>(null);
 
-  const addTo = (id: string) => add.mutate({ id, tracks: [track] }, { onSuccess: onDone });
+  const addTo = (playlist: Pick<PlaylistSummary, 'id' | 'name'>, duplicates = false) =>
+    add.mutate(
+      { id: playlist.id, tracks: [track], duplicates },
+      {
+        // Rust checks too: a song saved meanwhile (another device, another name) still asks.
+        onSuccess: (result) =>
+          result.added === 0 && result.already > 0 ? setAlready(playlist) : onDone(),
+      },
+    );
+  const pick = (playlist: PlaylistSummary) =>
+    saves?.playlistIds.includes(playlist.id) ? setAlready(playlist) : addTo(playlist);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    create.mutate(name, { onSuccess: (playlist) => addTo(playlist.id) });
+    create.mutate(name, { onSuccess: (playlist) => addTo(playlist) });
   };
 
   const error = add.error ?? create.error;
+  if (already) {
+    return (
+      <div
+        role="alertdialog"
+        aria-labelledby="already-in-playlist"
+        className="flex flex-col gap-3 px-2 py-1"
+      >
+        <p id="already-in-playlist" className="text-sm font-medium">
+          {t('collections.alreadyIn', { name: already.name })}
+        </p>
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setAlready(null)}
+            className="bg-background rounded-full px-4 py-2 text-sm"
+          >
+            {t('collections.dontAdd')}
+          </button>
+          <button
+            type="button"
+            disabled={add.isPending}
+            onClick={() => addTo(already, true)}
+            className="bg-primary text-background rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-60"
+          >
+            {t('collections.addAnyway')}
+          </button>
+        </div>
+        {add.error && (
+          <p role="alert" className="text-primary text-sm wrap-anywhere">
+            {add.error.message}
+          </p>
+        )}
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-1">
       <h3 className="text-muted px-2 text-xs font-medium tracking-wide uppercase">
@@ -45,14 +96,15 @@ const PlaylistPicker: FC<{ track: TrackInput; onDone: () => void }> = ({ track, 
       </h3>
       {naming ? (
         <form onSubmit={submit} className="flex items-center gap-2 px-2">
-          <input
+          <TextField
             // Tapping "New playlist" asked for this field; focusing it saves a tap.
             autoFocus
             value={name}
-            onChange={(event) => setName(event.target.value)}
+            onChange={setName}
             aria-label={t('collections.playlistName')}
             placeholder={t('collections.playlistName')}
-            className="bg-background min-w-0 flex-1 rounded-lg px-3 py-2 text-sm outline-none"
+            className="bg-background flex-1 rounded-lg pr-0.5 pl-3"
+            inputClassName="py-2 text-sm"
           />
           <button
             type="submit"
@@ -69,22 +121,34 @@ const PlaylistPicker: FC<{ track: TrackInput; onDone: () => void }> = ({ track, 
         </button>
       )}
       <ul className="flex max-h-60 flex-col overflow-y-auto">
-        {playlists.data?.map((playlist) => (
-          <li key={playlist.id}>
-            <button
-              type="button"
-              disabled={add.isPending}
-              onClick={() => addTo(playlist.id)}
-              className={ROW_CLASS}
-            >
-              <ListPlus aria-hidden size={18} className="text-muted" />
-              <span className="min-w-0 flex-1 truncate">{playlist.name}</span>
-              <span className="text-muted text-xs">
-                {t('library.trackCount', { count: playlist.itemCount })}
-              </span>
-            </button>
-          </li>
-        ))}
+        {playlists.data?.map((playlist) => {
+          const held = saves?.playlistIds.includes(playlist.id) ?? false;
+          return (
+            <li key={playlist.id}>
+              <button
+                type="button"
+                disabled={add.isPending}
+                onClick={() => pick(playlist)}
+                className={ROW_CLASS}
+              >
+                {held ? (
+                  <CircleCheck
+                    role="img"
+                    aria-label={t('collections.savedHere')}
+                    size={18}
+                    className="text-primary shrink-0"
+                  />
+                ) : (
+                  <ListPlus aria-hidden size={18} className="text-muted shrink-0" />
+                )}
+                <span className="min-w-0 flex-1 truncate">{playlist.name}</span>
+                <span className="text-muted text-xs">
+                  {t('library.trackCount', { count: playlist.itemCount })}
+                </span>
+              </button>
+            </li>
+          );
+        })}
       </ul>
       {error && (
         <p role="alert" className="text-primary px-2 text-sm wrap-anywhere">
@@ -143,10 +207,11 @@ const TrackActions: FC<{ track: TrackInput; sheet?: boolean }> = ({ track, sheet
   const { t } = useTranslation();
   const playlistItemId = useTrackActionsStore((state) => state.playlistItemId);
   const close = useTrackActionsStore((state) => state.close);
-  const favorite = useIsFavorite(track);
+  // Under whatever names it was favorited (M46.48).
+  const saves = useSongSaves(track);
   const setFavorite = useSetFavorite();
   const remove = useRemovePlaylistItem();
-  const isFavorite = favorite.data === true;
+  const isFavorite = saves?.favorite === true;
 
   return (
     <>
@@ -161,7 +226,8 @@ const TrackActions: FC<{ track: TrackInput; sheet?: boolean }> = ({ track, sheet
       </div>
       <button
         type="button"
-        disabled={favorite.isPending || setFavorite.isPending}
+        // Rust favorites a song once, so a tap before the list loads is safe.
+        disabled={setFavorite.isPending}
         onClick={() =>
           setFavorite.mutate({ track, favorite: !isFavorite }, { onSuccess: () => close() })
         }

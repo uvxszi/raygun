@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Package, Puzzle } from 'lucide-react';
+import { EyeOff, Package, Puzzle } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -104,6 +104,20 @@ export const BrowseSettings: FC = () => {
           title={t('settings.explicitMusic')}
           checked={data.explicitMusic}
           onChange={(value) => update.mutate({ key: 'explicitMusic', value }, refreshAll)}
+        />
+        {/* Don't show this artist and Not interested, to show again. */}
+        <PrefLink
+          icon={EyeOff}
+          to="/settings/hidden"
+          title={t('hidden.title')}
+          summary={
+            data.hidden.artists.length + data.hidden.items.length === 0
+              ? t('hidden.none')
+              : [
+                  t('hidden.summaryArtists', { count: data.hidden.artists.length }),
+                  t('hidden.summaryItems', { count: data.hidden.items.length }),
+                ].join(' · ')
+          }
         />
       </PrefGroup>
       <PrefGroup title={t('settings.sources')}>

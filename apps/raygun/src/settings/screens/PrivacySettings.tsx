@@ -4,6 +4,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useClearHistory } from '../../collections/useCollections';
+import { IncognitoPrefs } from '../../privacy/IncognitoSwitch';
 import { ConfirmSheet } from '../ConfirmSheet';
 import { PrefAction, PrefGroup, PrefSwitch } from '../prefs';
 import { Problem } from '../Problem';
@@ -20,6 +21,7 @@ export const PrivacySettings: FC = () => {
   const privacy = data.privacy;
   return (
     <PrefGroup>
+      <IncognitoPrefs />
       <PrefSwitch
         title={t('settings.privacy.history')}
         checked={privacy.history ?? true}
@@ -30,6 +32,13 @@ export const PrivacySettings: FC = () => {
         checked={privacy.recentlyPlayed ?? true}
         onChange={(recentlyPlayed) =>
           update.mutate({ key: 'privacy', value: { ...privacy, recentlyPlayed } })
+        }
+      />
+      <PrefSwitch
+        title={t('settings.privacy.searchHistory')}
+        checked={privacy.searchHistory ?? true}
+        onChange={(searchHistory) =>
+          update.mutate({ key: 'privacy', value: { ...privacy, searchHistory } })
         }
       />
       <PrefAction

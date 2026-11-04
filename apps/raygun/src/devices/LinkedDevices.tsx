@@ -31,6 +31,7 @@ import { PrefAction, PrefGroup, PrefSwitch } from '../settings/prefs';
 import { Problem } from '../settings/Problem';
 import { useRemoteStatus } from '../settings/remoteQueries';
 import { Sheet } from '../shell/Sheet';
+import { TextField } from '../shell/TextField';
 import { useSince } from './since';
 import { useRemovePeer, useSyncNow, useSyncStatus } from './useDeviceSync';
 
@@ -79,17 +80,18 @@ const AddByAddress: FC<{ onClose: () => void }> = ({ onClose }) => {
   return (
     <Sheet title={t('link.addTitle')} onClose={onClose}>
       <form onSubmit={submit} className="flex flex-col gap-3 text-sm">
-        <input
+        <TextField
           autoFocus
-          inputMode="url"
+          type="url"
           autoCapitalize="off"
           autoCorrect="off"
           spellCheck={false}
           value={address}
-          onChange={(event) => setAddress(event.target.value)}
+          onChange={setAddress}
           aria-label={t('link.address')}
           placeholder={t('link.addressHint')}
-          className="bg-background placeholder:text-muted rounded-xl px-4 py-3 outline-none"
+          className="bg-background rounded-xl pr-0.5 pl-4"
+          inputClassName="py-3"
         />
         {add.error && <Problem title={t('link.addFailed')} detail={add.error.message} />}
         <button

@@ -27,8 +27,14 @@ const download = (
   format: null,
   doneBytes: 0,
   totalBytes: null,
+  fraction: null,
+  bytesPerSecond: null,
+  etaMs: null,
   error: null,
+  errorDetail: null,
   canRecord: false,
+  queuedAt: 1,
+  finishedAt: null,
   ...extra,
 });
 
@@ -45,17 +51,22 @@ const saved = (title: string): SavedTrack => ({
   playCount: 0,
 });
 
+/** The full player's download button, for the playing song. */
+const openPlayer = async () => {
+  await AppShellWrapper.mount('/');
+  AppShellWrapper.playing([makeItem('Sinnerman', 'Nina Simone')], 0);
+  await AppShellWrapper.miniPlayer.open();
+  return AppShellWrapper.playerSheet.element;
+};
+
 describe('Downloads beside the Plus (M46.18)', () => {
   beforeEach(() => {
     AppShellWrapper.seedCore();
   });
 
-  it('downloads the playing song, then asks before removing it', async () => {
+  it('downloads the playing song, shows it on its way, then asks before removing it', async () => {
     const user = userEvent.setup();
-    await AppShellWrapper.mount('/');
-    AppShellWrapper.playing([makeItem('Sinnerman', 'Nina Simone')], 0);
-    await AppShellWrapper.miniPlayer.open();
-    const sheet = await AppShellWrapper.playerSheet.element;
+    const sheet = await openPlayer();
 
     const button = await within(sheet).findByRole('button', { name: 'Download' });
     await vi.waitFor(() => expect(button).toBeEnabled());
@@ -64,9 +75,21 @@ describe('Downloads beside the Plus (M46.18)', () => {
       expect.objectContaining({ title: 'Sinnerman', artist: 'Nina Simone' }),
     ]);
 
+    // Rust queues it and it comes in.
+    emitEvent('songDownloadProgressEvent', download('queued'));
+    expect(await within(sheet).findByRole('button', { name: 'Downloading' })).toBeInTheDocument();
+    emitEvent(
+      'songDownloadProgressEvent',
+      download('downloading', { provider: 'Audius', fraction: 0.5, doneBytes: 5, totalBytes: 10 }),
+    );
+    await user.click(within(sheet).getByRole('button', { name: 'Downloading' }));
+    const progress = await screen.findByTestId('download-confirm');
+    expect(progress).toHaveTextContent('Cancel this download?');
+    expect(progress).toHaveTextContent('Audius · 50%');
+    await user.click(within(progress).getByRole('button', { name: 'Keep' }));
+
     // Once it's downloaded the button fills in, and removing it takes a confirmation.
-    commands.songDownloadFor.mockResolvedValue(ok(download('done', { format: 'mp3' })));
-    emitEvent('songDownloadsEvent', 'd1');
+    emitEvent('songDownloadProgressEvent', download('done', { format: 'mp3', fraction: 1 }));
     const done = await within(sheet).findByRole('button', { name: 'Downloaded' });
     await user.click(done);
     const confirm = await screen.findByTestId('download-confirm');
@@ -78,22 +101,34 @@ describe('Downloads beside the Plus (M46.18)', () => {
       within(await screen.findByTestId('download-confirm')).getByRole('button', { name: 'Remove' }),
     );
     expect(commands.songDownloadRemove).toHaveBeenCalledWith('d1');
+    // Gone at once, and nothing left open.
+    expect(await within(sheet).findByRole('button', { name: 'Download' })).toBeInTheDocument();
+    expect(screen.queryByTestId('download-confirm')).not.toBeInTheDocument();
   });
 
-  it('offers to cancel a download in progress or retry a failed one', async () => {
+  it('says why a download failed, and shows it on its way again at once after Try again', async () => {
     const user = userEvent.setup();
-    commands.songDownloadFor.mockResolvedValue(
-      ok(download('failed', { error: 'No streaming source has “Sinnerman”' })),
+    commands.songDownloadRetry.mockReturnValue(new Promise(() => undefined));
+    commands.songDownloads.mockResolvedValue(
+      ok([
+        download('failed', {
+          error: 'No source has this song. Choose another source.',
+          errorDetail: 'Search: No streaming source has “Sinnerman”',
+        }),
+      ]),
     );
-    await AppShellWrapper.mount('/');
-    AppShellWrapper.playing([makeItem('Sinnerman', 'Nina Simone')], 0);
-    await AppShellWrapper.miniPlayer.open();
-    const sheet = await AppShellWrapper.playerSheet.element;
+    const sheet = await openPlayer();
     await user.click(await within(sheet).findByRole('button', { name: 'Download didn’t work' }));
     const confirm = await screen.findByTestId('download-confirm');
-    expect(confirm).toHaveTextContent('No streaming source has “Sinnerman”');
+    expect(confirm).toHaveTextContent('No source has this song. Choose another source.');
+    await user.click(within(confirm).getByRole('button', { name: 'More info' }));
+    expect(confirm).toHaveTextContent('Search: No streaming source has “Sinnerman”');
     await user.click(within(confirm).getByRole('button', { name: 'Try again' }));
     expect(commands.songDownloadRetry).toHaveBeenCalledWith('d1');
+    // Before Rust answers: on its way, not the warning.
+    expect(within(sheet).getByRole('button', { name: 'Downloading' })).toBeInTheDocument();
+    expect(within(sheet).queryByRole('button', { name: 'Download didn’t work' })).toBeNull();
+    expect(screen.queryByTestId('download-confirm')).not.toBeInTheDocument();
   });
 
   it('lists downloaded songs in Library → Audio → Downloaded and plays them', async () => {

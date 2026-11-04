@@ -30,6 +30,7 @@ import {
 } from '../watch/useVideoLibrary';
 import { findInCache } from '../shell/queryMemory';
 import { SourceIssue } from '../shell/SourceIssue';
+import { LoadMore } from '../shell/LoadMore';
 
 /** "S1 E2 · Pilot", or the title alone when it isn't numbered. */
 const episodeLabel = (video: StremioVideo) =>
@@ -50,13 +51,32 @@ const Progress: FC<{ position: number | null; duration: number | null }> = ({
     </span>
   ) : null;
 
+/** Whether an episode is out (no date, or one that can't be read, counts as out). */
+const released = (video: StremioVideo, now: number) => {
+  const at = video.released ? Date.parse(video.released) : Number.NaN;
+  return Number.isNaN(at) || at <= now;
+};
+
+/** The episode to watch next: the first one out and not watched, outside the specials. */
+const nextUp = (videos: StremioVideo[]) => {
+  const now = Date.now();
+  return (
+    videos.find((video) => !video.watched && (video.season ?? 1) > 0 && released(video, now)) ??
+    videos.find((video) => released(video, now)) ??
+    videos[0]
+  );
+};
+
 /** Seasons in order (specials last), and the one to open: where watching left off. */
 const useSeasons = (videos: StremioVideo[]) =>
   useMemo(() => {
     const seasons = [...new Set(videos.map((video) => video.season ?? 0))];
-    const next = videos.find((video) => !video.watched && (video.season ?? 0) > 0);
+    const next = nextUp(videos);
     return { seasons, first: next?.season ?? seasons[0] ?? 0 };
   }, [videos]);
+
+/** Episodes drawn at a time: a long season (a thousand anime episodes) is drawn as it's scrolled. */
+const EPISODE_CHUNK = 60;
 
 const Episodes: FC<{
   meta: StremioMeta;
@@ -67,11 +87,14 @@ const Episodes: FC<{
   const { seasons, first } = useSeasons(meta.videos);
   const [season, setSeason] = useState<number | null>(null);
   const shown = season ?? first;
+  const [drawn, setDrawn] = useState({ season: shown, count: EPISODE_CHUNK });
   const setWatched = useSetWatched();
   const numbered = seasons.length > 1 || meta.videos.some((video) => video.season !== null);
   const videos = numbered
     ? meta.videos.filter((video) => (video.season ?? 0) === shown)
     : meta.videos;
+  // A newly picked season is drawn from its top again.
+  const count = drawn.season === shown ? drawn.count : EPISODE_CHUNK;
 
   return (
     <section aria-labelledby="watch-episodes" className="flex flex-col gap-3">
@@ -99,7 +122,7 @@ const Episodes: FC<{
         </div>
       )}
       <ul className="flex flex-col gap-3">
-        {videos.map((video) => {
+        {videos.slice(0, count).map((video) => {
           const label = episodeLabel(video);
           const target = {
             kind: meta.kind,
@@ -174,6 +197,12 @@ const Episodes: FC<{
           );
         })}
       </ul>
+      <LoadMore
+        hasNextPage={count < videos.length}
+        fetching={false}
+        onLoad={() => setDrawn({ season: shown, count: count + EPISODE_CHUNK * 2 })}
+        label={t('search.more')}
+      />
     </section>
   );
 };
@@ -196,7 +225,7 @@ export const WatchTitlePage: FC = () => {
     if (intent !== 'watch') {
       setPicking({ target, intent });
     } else if (meta.data) {
-      const movie = target.videoId === meta.data.id;
+      const movie = meta.data.videos.length === 0;
       watch.mutate({
         kind: meta.data.kind,
         id: meta.data.id,
@@ -263,7 +292,7 @@ export const WatchTitlePage: FC = () => {
   const ownTarget: StreamTarget = {
     kind: view.kind,
     metaId: view.id,
-    videoId: view.id,
+    videoId: view.videoId,
     title: view.name,
     subtitle: view.releaseInfo,
     poster: view.background ?? view.poster,
@@ -280,10 +309,8 @@ export const WatchTitlePage: FC = () => {
   });
   const hasEpisodes = view.videos.length > 0;
   const trailerId = view.trailerYtIds[0];
-  // The floating button plays the movie, or the first episode not yet watched.
-  const nextVideo = hasEpisodes
-    ? (view.videos.find((video) => !video.watched && (video.season ?? 0) > 0) ?? view.videos[0])
-    : null;
+  // The floating button plays the movie, or the first episode out and not yet watched.
+  const nextVideo = hasEpisodes ? nextUp(view.videos) : null;
   const resumable = nextVideo ? (nextVideo.positionMs ?? 0) > 0 : (view.positionMs ?? 0) > 0;
   const playLabel = t(resumable ? 'watch.resume' : hasEpisodes ? 'watch.start' : 'watch.play');
   const playNow = () => pick(nextVideo ? episodeTarget(nextVideo) : ownTarget);
@@ -302,6 +329,10 @@ export const WatchTitlePage: FC = () => {
         headers: {},
         subtitles: [],
         bingeGroup: null,
+        filename: null,
+        size: null,
+        videoHash: null,
+        notWebReady: false,
       },
     });
 
@@ -376,14 +407,15 @@ export const WatchTitlePage: FC = () => {
           {view.inLibrary && view.titleId && (
             <TitleListActions medium="video" titleId={view.titleId} title={view.name} pill />
           )}
-          {!hasEpisodes && (
+          {/* A live channel is neither watched to the end nor saved. */}
+          {!hasEpisodes && !view.live && (
             <button
               type="button"
               aria-pressed={view.watched}
               onClick={() =>
                 setWatched.mutate({
                   kind: view.kind,
-                  videoId: view.id,
+                  videoId: view.videoId,
                   title: view.name,
                   subtitle: view.releaseInfo,
                   poster: ownTarget.poster,
@@ -396,10 +428,10 @@ export const WatchTitlePage: FC = () => {
               {t(view.watched ? 'watch.watched' : 'watch.markWatchedShort')}
             </button>
           )}
-          {!hasEpisodes && (
+          {!hasEpisodes && !view.live && (
             <span className="bg-surface/80 rounded-full">
               <VideoDownloadControl
-                item={downloads.get(stremioKey(view.kind, view.id))}
+                item={downloads.get(stremioKey(view.kind, view.videoId))}
                 downloaded={view.downloaded}
                 name={view.name}
                 onDownload={() => pick(ownTarget, 'download')}
@@ -418,7 +450,7 @@ export const WatchTitlePage: FC = () => {
             </button>
           )}
         </div>
-        {!hasEpisodes && (
+        {!hasEpisodes && !view.live && (
           <div className="mt-3">
             <Progress position={view.positionMs} duration={view.durationMs} />
           </div>

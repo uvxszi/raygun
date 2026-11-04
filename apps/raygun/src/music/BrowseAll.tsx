@@ -17,6 +17,7 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { searchLink } from '../search/searchTypes';
 import {
   chartKey,
   tileColor,
@@ -152,31 +153,16 @@ export const BrowseAll: FC = () => {
     [
       { title: t('discover.madeForYou'), icon: Sparkles, to: '/music/for-you' },
       { title: t('discover.music'), icon: Music, to: '/music/charts' },
-      { title: t('discover.audiobooks'), icon: BookAudio, to: '/audiobooks' },
+      // Kinds open their Search pill with nothing typed: what's popular there.
       {
-        title: t('discover.podcasts'),
-        icon: Mic,
-        to: '/browse',
-        search: { tab: 'search', type: 'music', view: 'podcasts' },
+        title: t('discover.audiobooks'),
+        icon: BookAudio,
+        ...searchLink('music', 'audiobooks'),
       },
-      {
-        title: t('discover.comics'),
-        icon: LibraryBig,
-        to: '/browse',
-        search: { tab: 'search', type: 'manga' },
-      },
-      {
-        title: t('discover.books'),
-        icon: BookOpen,
-        to: '/browse',
-        search: { tab: 'search', type: 'novel' },
-      },
-      {
-        title: t('discover.videos'),
-        icon: Clapperboard,
-        to: '/browse',
-        search: { tab: 'search', type: 'video' },
-      },
+      { title: t('discover.podcasts'), icon: Mic, ...searchLink('music', 'podcasts') },
+      { title: t('discover.comics'), icon: LibraryBig, ...searchLink('manga') },
+      { title: t('discover.books'), icon: BookOpen, ...searchLink('novel') },
+      { title: t('discover.videos'), icon: Clapperboard, ...searchLink('video') },
       { title: t('discover.websites'), icon: Globe, to: '/browse', search: { tab: 'sources' } },
     ];
 

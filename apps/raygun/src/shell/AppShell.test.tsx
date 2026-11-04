@@ -14,7 +14,7 @@ describe('AppShell', () => {
     await AppShellWrapper.mount();
 
     const home = await AppShellWrapper.page('home');
-    expect(await screen.findByText('Nothing to pick up yet')).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Get started' })).toBeInTheDocument();
     expect(home).toHaveTextContent('Home');
     expect(AppShellWrapper.activeTab).toHaveTextContent('Home');
     expect(screen.queryByTestId('mini-player')).not.toBeInTheDocument();

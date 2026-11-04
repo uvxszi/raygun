@@ -90,6 +90,52 @@ describe('The desktop app bar', () => {
     expect(search).toHaveValue('new song');
   });
 
+  it('clears what is typed on Escape, then leaves the field', async () => {
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/');
+    const bar = await screen.findByTestId('app-bar');
+    const search = within(bar).getByRole('searchbox', { name: 'Search' });
+    await user.type(search, 'a long query');
+    await user.keyboard('{Escape}');
+    expect(search).toHaveValue('');
+    expect(search).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(search).not.toHaveFocus();
+  });
+
+  it('offers the searches made lately, chosen with the arrow keys', async () => {
+    const user = userEvent.setup();
+    commands.searchRecent.mockResolvedValue(
+      ok([
+        { query: 'daft punk', kind: 'music', searchedAt: 2 },
+        { query: 'frieren', kind: 'manga', searchedAt: 1 },
+      ]),
+    );
+    await AppShellWrapper.mount('/');
+    const bar = await screen.findByTestId('app-bar');
+    const search = within(bar).getByRole('searchbox', { name: 'Search' });
+    await user.click(search);
+    const list = await within(bar).findByRole('listbox', { name: 'Recent searches' });
+    expect(
+      within(list)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['daft punkAudio', 'frierenComics']);
+    await user.keyboard('{ArrowDown}{ArrowDown}');
+    expect(within(list).getByRole('option', { name: /frieren/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await user.keyboard('{Enter}');
+    await screen.findByTestId('browse-page');
+    expect(search).toHaveValue('frieren');
+    expect(await screen.findByRole('tab', { name: 'Comics' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(commands.searchRecentAdd).toHaveBeenCalledWith('frieren', 'manga');
+  });
+
   it('runs File, View, Playback and Help from the ⋯ menu', async () => {
     const user = userEvent.setup();
     await AppShellWrapper.mount('/');

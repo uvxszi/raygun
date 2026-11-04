@@ -1,13 +1,14 @@
 import { commands } from '@raygun/bindings';
-import type { MangaChapterPages, PagedScale, ReaderMode } from '@raygun/bindings';
+import type { MangaChapterPages, ReaderMode } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate, useRouter, useSearch } from '@tanstack/react-router';
+import { useNavigate, useRouter, useSearch } from '@tanstack/react-router';
 import {
   ArrowLeft,
   BookOpen,
   Check,
   ChevronLeft,
   ChevronRight,
+  ImageOff,
   LoaderCircle,
   Maximize,
   Minimize,
@@ -17,23 +18,24 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
-import { useEffect, useEffectEvent, useRef, useState } from 'react';
-import type {
-  CSSProperties,
-  FC,
-  MouseEvent as ReactMouseEvent,
-  PointerEvent as ReactPointerEvent,
-} from 'react';
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
+import type { CSSProperties, FC, MouseEvent as ReactMouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { PageActionsSheet } from '../export/PageActionsSheet';
 import { unwrapResult } from '../lib/commandResult';
-import { Sheet } from '../shell/Sheet';
-import { useWindowFullscreen } from '../shell/useWindowFullscreen';
-import { clampZoom, sizedFrom, useReaderDisplay, ZOOM_STEP } from '../manga/readerDisplay';
+import { PagedView } from '../manga/reader/PagedView';
+import { tapAction } from '../manga/reader/tapZones';
+import type { TapAction } from '../manga/reader/tapZones';
+import { useReaderZoom } from '../manga/reader/useReaderZoom';
+import { useWakeLock } from '../manga/reader/useWakeLock';
+import { WebtoonView } from '../manga/reader/WebtoonView';
+import { READER_MODES, sizedFrom, useReaderDisplay, ZOOM_STEP } from '../manga/readerDisplay';
 import { ReaderDisplaySettings } from '../manga/ReaderDisplaySettings';
 import { MANGA, saveProgress, useMangaChapter } from '../manga/useManga';
+import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
+import { useWindowFullscreen } from '../shell/useWindowFullscreen';
 
 /** Progress is saved this long after reading stops, and right away on the last page. */
 const SAVE_DELAY_MS = 800;
@@ -41,9 +43,8 @@ const SAVE_DELAY_MS = 800;
 const NEXT_CHAPTER_LEAD = 3;
 /** A second tap within this long is a double tap (zoom), not a page turn. */
 const DOUBLE_TAP_MS = 250;
-/** Horizontal movement that counts as a swipe. */
-const SWIPE_PX = 50;
-const MODES: ReaderMode[] = ['webtoon', 'pagedRtl', 'pagedLtr'];
+/** A tap zone scrolls the strip by this share of the screen. */
+const SCROLL_SHARE = 0.85;
 
 const preload = (urls: string[]) => {
   for (const url of urls) {
@@ -52,19 +53,24 @@ const preload = (urls: string[]) => {
   }
 };
 
-type EndCardProps = { data: MangaChapterPages; onGo: (chapterId: string | null) => void };
+type EndCardProps = {
+  data: MangaChapterPages;
+  onGo: (chapterId: string | null) => void;
+  onClose: () => void;
+};
 
-const EndCard: FC<EndCardProps> = ({ data, onGo }) => {
+const EndCard: FC<EndCardProps> = ({ data, onGo, onClose }) => {
   const { t } = useTranslation();
   return (
-    <div className="text-foreground flex flex-col items-center gap-3 px-4 py-10">
-      <p className="text-muted text-sm">{t('manga.endOf', { name: data.chapter.name })}</p>
-      <div className="flex gap-3">
+    <div className="flex flex-col items-center gap-3 px-4 py-10 text-white">
+      <p className="text-sm text-white/70">{t('manga.endOf', { name: data.chapter.name })}</p>
+      {!data.nextChapterId && <p className="text-sm text-white/70">{t('manga.lastChapter')}</p>}
+      <div className="flex flex-wrap justify-center gap-3">
         {data.previousChapterId && (
           <button
             type="button"
             onClick={() => onGo(data.previousChapterId)}
-            className="bg-surface flex items-center gap-1 rounded-full px-4 py-2 text-sm"
+            className="flex items-center gap-1 rounded-full bg-white/15 px-4 py-2 text-sm"
           >
             <ChevronLeft aria-hidden size={16} />
             {t('manga.previousChapter')}
@@ -80,237 +86,15 @@ const EndCard: FC<EndCardProps> = ({ data, onGo }) => {
             <ChevronRight aria-hidden size={16} />
           </button>
         ) : (
-          <Link
-            to="/library"
-            search={{ media: 'manga' }}
-            className="bg-surface rounded-full px-4 py-2 text-sm"
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full bg-white/15 px-4 py-2 text-sm"
           >
-            {t('manga.backToLibrary')}
-          </Link>
+            {t('manga.closeReader')}
+          </button>
         )}
       </div>
-    </div>
-  );
-};
-
-type ViewProps = {
-  data: MangaChapterPages;
-  current: number;
-  onCurrent: (page: number) => void;
-  onToggleChrome: () => void;
-  onGo: (chapterId: string | null) => void;
-  /** A long press on a page (M46.1). */
-  onPageMenu: (page: number) => void;
-  /** The reader's zoom, 1 being the page's fit (M46.7). */
-  zoom: number;
-};
-
-/** One continuous strip; the page most in view is the current one. */
-const WebtoonView: FC<ViewProps & { jumpTo: number | null; size: number }> = ({
-  data,
-  zoom,
-  size,
-  onCurrent,
-  onToggleChrome,
-  onGo,
-  onPageMenu,
-  jumpTo,
-}) => {
-  const { t } = useTranslation();
-  const pages = useRef<(HTMLImageElement | null)[]>([]);
-
-  useEffect(() => {
-    if (typeof IntersectionObserver === 'undefined') return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting)
-            onCurrent(Number((entry.target as HTMLElement).dataset.index ?? 0));
-        }
-      },
-      { threshold: 0.5 },
-    );
-    for (const page of pages.current) {
-      if (page) observer.observe(page);
-    }
-    return () => observer.disconnect();
-  }, [data, onCurrent]);
-
-  useEffect(() => {
-    if (jumpTo !== null) pages.current[jumpTo]?.scrollIntoView?.();
-  }, [jumpTo]);
-
-  return (
-    <>
-      <button
-        type="button"
-        aria-label={t('manga.toggleControls')}
-        onClick={onToggleChrome}
-        // The column: the screen's width up to 768 px (M46.7), made bigger or smaller by the
-        // webtoon size (M46.48), then zoomed.
-        className="mx-auto flex max-w-none flex-col"
-        style={{ width: `calc(${sizedFrom('48rem', size)} * ${zoom})` }}
-      >
-        {data.pages.map((url, index) => (
-          <img
-            key={url}
-            ref={(element) => {
-              pages.current[index] = element;
-            }}
-            data-index={index}
-            data-testid="manga-page"
-            src={url}
-            alt={t('manga.pageAlt', { page: index + 1 })}
-            loading={index < 3 ? 'eager' : 'lazy'}
-            decoding="async"
-            className="min-h-[60vh] w-full bg-neutral-900 object-contain"
-            onLoad={(event) => event.currentTarget.classList.remove('min-h-[60vh]')}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              onPageMenu(index);
-            }}
-          />
-        ))}
-      </button>
-      <EndCard data={data} onGo={onGo} />
-    </>
-  );
-};
-
-/** How a page sits in the paged modes: the chosen fit, made `zoom` times bigger (M46.7). */
-const pageLayout = (
-  scale: PagedScale,
-  zoom: number,
-): { className: string; style: CSSProperties } => {
-  switch (scale) {
-    case 'fitWidth':
-      return { className: 'h-auto max-w-none', style: { width: `${Math.round(100 * zoom)}%` } };
-    case 'fitHeight':
-      return { className: 'w-auto max-w-none', style: { height: `${Math.round(100 * zoom)}dvh` } };
-    case 'original':
-      return { className: 'max-w-none', style: { zoom } };
-    default:
-      return zoom === 1
-        ? { className: 'max-h-full max-w-full object-contain', style: {} }
-        : {
-            className: 'max-w-none object-contain',
-            style: { width: `${Math.round(100 * zoom)}%`, height: `${Math.round(100 * zoom)}dvh` },
-          };
-  }
-};
-
-/** One page at a time with tap zones, swipes, arrow keys and double-tap zoom. */
-const PagedView: FC<
-  ViewProps & { rtl: boolean; scale: PagedScale; onZoom: (zoom: number) => void }
-> = ({ data, current, onCurrent, onToggleChrome, onGo, onPageMenu, rtl, zoom, scale, onZoom }) => {
-  const { t } = useTranslation();
-  const total = data.pages.length;
-  const zoomed = zoom > 1;
-  const fitted = zoom === 1 && scale === 'fitScreen';
-  const box = useRef<HTMLDivElement>(null);
-  const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const swipeStart = useRef<number | null>(null);
-  const swiped = useRef(false);
-
-  // Index `total` is the end card after the last page.
-  const step = (delta: number) => {
-    onCurrent(Math.min(Math.max(current + delta, 0), total));
-  };
-
-  // A new page starts at its top left.
-  useEffect(() => {
-    box.current?.scrollTo?.(0, 0);
-  }, [current]);
-  const forward = () => step(1);
-  const back = () => step(-1);
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'ArrowRight') (rtl ? back : forward)();
-      if (event.key === 'ArrowLeft') (rtl ? forward : back)();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  });
-
-  useEffect(
-    () => () => {
-      if (tapTimer.current) clearTimeout(tapTimer.current);
-    },
-    [],
-  );
-
-  const onTap = (event: ReactMouseEvent<HTMLDivElement>) => {
-    if (swiped.current) {
-      swiped.current = false;
-      return;
-    }
-    const box = event.currentTarget.getBoundingClientRect();
-    const fraction = box.width > 0 ? (event.clientX - box.left) / box.width : 0.5;
-    if (tapTimer.current) clearTimeout(tapTimer.current);
-    tapTimer.current = setTimeout(() => {
-      tapTimer.current = null;
-      if (zoomed || (fraction > 1 / 3 && fraction < 2 / 3)) onToggleChrome();
-      else if (fraction <= 1 / 3) (rtl ? forward : back)();
-      else (rtl ? back : forward)();
-    }, DOUBLE_TAP_MS);
-  };
-
-  const onDoubleTap = () => {
-    if (tapTimer.current) clearTimeout(tapTimer.current);
-    tapTimer.current = null;
-    onZoom(zoomed ? 1 : 2);
-  };
-
-  const onPointerDown = (event: ReactPointerEvent) => {
-    swipeStart.current = zoomed ? null : event.clientX;
-  };
-  const onPointerUp = (event: ReactPointerEvent) => {
-    if (swipeStart.current === null) return;
-    const moved = event.clientX - swipeStart.current;
-    swipeStart.current = null;
-    if (Math.abs(moved) < SWIPE_PX) return;
-    swiped.current = true;
-    // Swiping toward the reading direction's start turns forward.
-    if (moved < 0 !== rtl) forward();
-    else back();
-  };
-
-  if (current >= total) {
-    return (
-      <div className="flex min-h-[80vh] flex-col justify-center">
-        <EndCard data={data} onGo={onGo} />
-        <button type="button" onClick={back} className="text-muted self-center py-4 text-sm">
-          {t('manga.backToLastPage')}
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      ref={box}
-      data-testid="paged-reader"
-      data-scale={scale}
-      onClick={onTap}
-      onDoubleClick={onDoubleTap}
-      onPointerDown={onPointerDown}
-      onPointerUp={onPointerUp}
-      className={`h-[100dvh] w-full select-none ${fitted ? 'flex items-center justify-center overflow-hidden' : 'grid overflow-auto [place-items:safe_center]'}`}
-    >
-      <img
-        key={data.pages[current]}
-        data-testid="manga-page"
-        src={data.pages[current]}
-        alt={t('manga.pageAlt', { page: current + 1 })}
-        draggable={false}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          onPageMenu(current);
-        }}
-        className={pageLayout(scale, zoom).className}
-        style={pageLayout(scale, zoom).style}
-      />
     </div>
   );
 };
@@ -325,32 +109,43 @@ export const MangaReaderPage: FC = () => {
   const loaded = useMangaChapter(title, chapter);
   const [current, setCurrent] = useState(0);
   const [chrome, setChrome] = useState(true);
-  const [modeOverride, setModeOverride] = useState<ReaderMode | null>(null);
-  const [jumpTo, setJumpTo] = useState<number | null>(null);
+  /** A mode picked in this reader (`own: null` follows the default again). */
+  const [modeChoice, setModeChoice] = useState<{ own: ReaderMode | null } | null>(null);
+  const [jump, setJump] = useState<{ page: number; nonce: number } | null>(null);
   const [pageMenu, setPageMenu] = useState<number | null>(null);
-  const [zoom, setZoomState] = useState(1);
   const [showingDisplay, setShowingDisplay] = useState(false);
-  const { display } = useReaderDisplay();
+  const [choosingMode, setChoosingMode] = useState(false);
+  const { display, ready } = useReaderDisplay();
   const fullscreen = useWindowFullscreen();
-  const setZoom = (next: number) => setZoomState(clampZoom(next));
+  const zoom = useReaderZoom();
+  const sectionRef = useRef<HTMLElement>(null);
+  const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const data = loaded.data;
   const total = data?.pages.length ?? 0;
-  const mode = modeOverride ?? data?.readerMode ?? 'webtoon';
+  const own = modeChoice ? modeChoice.own : (data?.ownReaderMode ?? null);
+  const mode: ReaderMode =
+    own ?? (ready ? display.defaultMode : (data?.readerMode ?? display.defaultMode));
   const page = Math.min(current, Math.max(total - 1, 0));
+  useWakeLock(display.keepScreenOn && data !== undefined);
+
+  const jumpTo = (target: number) => {
+    setCurrent(target);
+    setJump((last) => ({ page: target, nonce: (last?.nonce ?? 0) + 1 }));
+  };
 
   // Resume where this chapter was left.
   const resumed = useRef<string | null>(null);
   useEffect(() => {
     if (!data || resumed.current === data.chapter.id) return;
     resumed.current = data.chapter.id;
-    const resume = data.chapter.lastPage ?? 0;
+    const resume = Math.min(data.chapter.lastPage ?? 0, Math.max(data.pages.length - 1, 0));
     setCurrent(resume);
-    setJumpTo(resume || null);
+    setJump(resume > 0 ? { page: resume, nonce: Date.now() } : null);
   }, [data]);
 
   useEffect(() => {
     if (!data || total === 0) return;
-    const save = () => void saveProgress(data.chapter.id, page, total);
+    const save = () => void saveProgress(data.chapter.id, page, total).catch(() => undefined);
     if (page >= total - 1) {
       save();
       return;
@@ -359,29 +154,26 @@ export const MangaReaderPage: FC = () => {
     return () => clearTimeout(timer);
   }, [page, data, total]);
 
-  // Load ahead: the next few pages, and near the end the next chapter.
+  // Near the end, the next chapter's page list and first pages load ahead.
   useEffect(() => {
-    if (!data) return;
-    preload(data.pages.slice(page + 1, page + 1 + display.preloadPages));
-    const next = data.nextChapterId;
-    if (next && page >= total - NEXT_CHAPTER_LEAD) {
-      void queryClient
-        .fetchQuery({
-          queryKey: [MANGA, 'chapter', title, next],
-          queryFn: () => unwrapResult(commands.mangaChapter(title, next)),
-          staleTime: 60_000,
-        })
-        .then((upcoming) => preload(upcoming.pages.slice(0, display.preloadPages)))
-        .catch(() => undefined);
-    }
+    const next = data?.nextChapterId;
+    if (!next || page < total - NEXT_CHAPTER_LEAD) return;
+    void queryClient
+      .fetchQuery({
+        queryKey: [MANGA, 'chapter', title, next],
+        queryFn: () => unwrapResult(commands.mangaChapter(title, next)),
+        staleTime: 60_000,
+      })
+      .then((upcoming) => preload(upcoming.pages.slice(0, display.preloadPages)))
+      .catch(() => undefined);
   }, [data, page, total, title, queryClient, display.preloadPages]);
 
-  // Zoom (M46.7): Ctrl+scroll, Ctrl+plus/minus, Ctrl+0 back to the fit. Plain scrolling scrolls.
+  // Zoom (M46.7): Ctrl+scroll at the pointer, Ctrl+plus/minus, Ctrl+0 back to the fit.
   const onZoomKey = useEffectEvent((event: KeyboardEvent) => {
     if (!event.ctrlKey && !event.metaKey) return;
-    if (event.key === '=' || event.key === '+') setZoom(zoom + ZOOM_STEP);
-    else if (event.key === '-') setZoom(zoom - ZOOM_STEP);
-    else if (event.key === '0') setZoom(1);
+    if (event.key === '=' || event.key === '+') zoom.zoomAt(zoom.zoom + ZOOM_STEP);
+    else if (event.key === '-') zoom.zoomAt(zoom.zoom - ZOOM_STEP);
+    else if (event.key === '0') zoom.zoomAt(1);
     else return;
     event.preventDefault();
   });
@@ -389,7 +181,10 @@ export const MangaReaderPage: FC = () => {
     if (!event.ctrlKey) return;
     // Otherwise the webview zooms the whole app.
     event.preventDefault();
-    setZoom(zoom + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
+    zoom.zoomAt(zoom.zoom + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP), {
+      x: event.clientX,
+      y: event.clientY,
+    });
   });
   useEffect(() => {
     const key = (event: KeyboardEvent) => onZoomKey(event);
@@ -402,37 +197,106 @@ export const MangaReaderPage: FC = () => {
     };
   }, []);
 
+  // Two fingers zoom the page or the strip.
+  const bindPinch = useEffectEvent((element: HTMLElement | null) => zoom.bindPinch(element));
+  useEffect(() => bindPinch(sectionRef.current), []);
+
   // The title page and library show read state; refresh them when leaving the reader.
   useEffect(
     () => () => {
       void queryClient.invalidateQueries({ queryKey: [MANGA, 'title'] });
       void queryClient.invalidateQueries({ queryKey: [MANGA, 'library'] });
+      void queryClient.invalidateQueries({ queryKey: [MANGA, 'updates'] });
     },
     [queryClient],
   );
+  useEffect(
+    () => () => {
+      if (tapTimer.current) clearTimeout(tapTimer.current);
+    },
+    [],
+  );
 
+  // Chapters replace each other: Back leaves the reader.
   const goTo = (chapterId: string | null) => {
     if (!chapterId) return;
     setCurrent(0);
-    setJumpTo(null);
-    void navigate({ search: { title, chapter: chapterId } });
+    setJump(null);
+    void navigate({ search: { title, chapter: chapterId }, replace: true });
+  };
+  const close = () => router.history.back();
+  const hideChrome = useCallback(() => setChrome(false), []);
+
+  const act = (action: TapAction) => {
+    if (action === 'menu') {
+      setChrome((shown) => !shown);
+      return;
+    }
+    const delta = action === 'forward' ? 1 : -1;
+    if (mode === 'webtoon') {
+      const scroller = sectionRef.current?.closest('main');
+      scroller?.scrollBy?.({ top: delta * scroller.clientHeight * SCROLL_SHARE });
+    } else {
+      setCurrent((at) => Math.min(Math.max(at + delta, 0), total));
+    }
   };
 
-  const [choosingMode, setChoosingMode] = useState(false);
-  const changeMode = (next: ReaderMode) => {
-    setModeOverride(next);
+  const onTap = (event: ReactMouseEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.closest('button, a, input')) return;
+    // The strip is taller than the screen: its zones are the screen's.
+    const area = (
+      (mode === 'webtoon' ? target.closest('main') : null) ?? event.currentTarget
+    ).getBoundingClientRect();
+    const x = area.width > 0 ? (event.clientX - area.left) / area.width : 0.5;
+    const y = area.height > 0 ? (event.clientY - area.top) / area.height : 0.5;
+    // A zoomed page pans; taps only show the controls.
+    const action =
+      mode !== 'webtoon' && zoom.zoom > 1
+        ? 'menu'
+        : tapAction(display.tapZones, display.invertTaps, mode, x, y);
+    if (tapTimer.current) clearTimeout(tapTimer.current);
+    if (!display.doubleTapZoom) {
+      act(action);
+      return;
+    }
+    tapTimer.current = setTimeout(() => {
+      tapTimer.current = null;
+      act(action);
+    }, DOUBLE_TAP_MS);
+  };
+
+  const onDoubleTap = (event: ReactMouseEvent<HTMLElement>) => {
+    if (!display.doubleTapZoom || (event.target as HTMLElement).closest('button, a')) return;
+    if (tapTimer.current) clearTimeout(tapTimer.current);
+    tapTimer.current = null;
+    zoom.zoomAt(zoom.zoom > 1 ? 1 : 2, { x: event.clientX, y: event.clientY });
+  };
+
+  const changeMode = (next: ReaderMode | null) => {
+    setModeChoice({ own: next });
     setChoosingMode(false);
+    // The strip opens on the page being read, not at its top.
+    if (page > 0) jumpTo(page);
     if (data) void commands.mangaSetReaderMode(data.titleId, next);
   };
 
+  const endCard = data && <EndCard data={data} onGo={goTo} onClose={close} />;
+  const modeLabel = (value: ReaderMode) => t(`manga.mode.${value}`);
+
   return (
-    <section data-testid="manga-reader" className="-mx-4 flex flex-col bg-black lg:-mx-10">
+    <section
+      ref={sectionRef}
+      data-testid="manga-reader"
+      // Edge to edge: the page area's side and bottom padding is the reader's too.
+      className="-mx-4 -mb-4 flex min-h-full flex-col bg-black lg:-mx-10"
+    >
       {chrome && (
         <header className="bg-surface/95 fixed inset-x-0 top-[var(--app-bar,0px)] z-30 flex min-h-16 items-center gap-1 px-1 pt-[env(safe-area-inset-top)] shadow-md backdrop-blur">
           <button
             type="button"
             aria-label={t('manga.closeReader')}
-            onClick={() => router.history.back()}
+            onClick={close}
             className="hover:bg-background grid size-11 shrink-0 place-items-center rounded-full"
           >
             <ArrowLeft aria-hidden size={22} />
@@ -461,39 +325,75 @@ export const MangaReaderPage: FC = () => {
           </button>
         </header>
       )}
-      {loaded.error && <SourceIssue>{loaded.error.message}</SourceIssue>}
+      {loaded.error && (
+        <div className="px-4 pt-24">
+          <SourceIssue onRetry={() => void loaded.refetch()}>{loaded.error.message}</SourceIssue>
+        </div>
+      )}
       {!data && !loaded.error && (
         <LoaderCircle
           aria-label={t('manga.loading')}
           className="text-muted m-auto mt-32 animate-spin"
         />
       )}
-      {data && mode === 'webtoon' && (
+      {data && total === 0 && (
+        <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-3 px-6 text-center text-white">
+          <ImageOff aria-hidden size={32} className="text-white/60" />
+          <p className="text-sm">{t('manga.noPages')}</p>
+          <button
+            type="button"
+            onClick={() => void loaded.refetch()}
+            className="rounded-full bg-white/15 px-4 py-2 text-sm"
+          >
+            {t('issue.retry')}
+          </button>
+          {endCard}
+        </div>
+      )}
+      {data && total > 0 && mode === 'webtoon' && (
         <WebtoonView
-          data={data}
+          key={data.chapter.id}
+          pages={data.pages}
           current={current}
-          onCurrent={setCurrent}
-          onToggleChrome={() => setChrome((shown) => !shown)}
-          onGo={goTo}
-          onPageMenu={setPageMenu}
-          jumpTo={jumpTo}
-          zoom={zoom}
+          jump={jump}
+          zoom={zoom.zoom}
           size={display.webtoonSize}
+          preload={display.preloadPages}
+          chrome={chrome}
+          contentRef={zoom.contentRef}
+          onCurrent={setCurrent}
+          onTap={onTap}
+          onDoubleTap={onDoubleTap}
+          onHideChrome={hideChrome}
+          onPageMenu={setPageMenu}
+          endCard={endCard}
         />
       )}
-      {data && mode !== 'webtoon' && (
+      {data && total > 0 && mode !== 'webtoon' && (
         <PagedView
-          data={data}
+          pages={data.pages}
           current={current}
-          onCurrent={setCurrent}
-          onToggleChrome={() => setChrome((shown) => !shown)}
-          onGo={goTo}
-          onPageMenu={setPageMenu}
           rtl={mode === 'pagedRtl'}
-          zoom={zoom}
+          zoom={zoom.zoom}
           scale={display.pagedScale}
-          onZoom={setZoom}
+          preload={display.preloadPages}
+          contentRef={zoom.contentRef}
+          onCurrent={setCurrent}
+          onTap={onTap}
+          onDoubleTap={onDoubleTap}
+          onPageMenu={setPageMenu}
+          pinching={zoom.pinching}
+          endCard={endCard}
         />
+      )}
+      {data && !chrome && display.pageNumber && total > 0 && current < total && (
+        <span
+          data-testid="page-number"
+          aria-hidden
+          className="pointer-events-none fixed inset-x-0 bottom-[calc(0.5rem+env(safe-area-inset-bottom))] z-20 mx-auto w-fit rounded-full bg-black/60 px-2.5 py-0.5 text-xs font-medium text-white/90 tabular-nums"
+        >
+          {page + 1} / {total}
+        </span>
       )}
       {data && chrome && total > 0 && (
         <footer className="fixed inset-x-0 bottom-0 z-30 flex justify-center px-3 pt-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
@@ -525,11 +425,7 @@ export const MangaReaderPage: FC = () => {
                 max={total - 1}
                 value={page}
                 dir={mode === 'pagedRtl' ? 'rtl' : 'ltr'}
-                onChange={(event) => {
-                  const target = Number(event.target.value);
-                  setCurrent(target);
-                  setJumpTo(target);
-                }}
+                onChange={(event) => jumpTo(Number(event.target.value))}
                 className="accent-primary min-w-0 flex-1"
               />
               <span
@@ -544,7 +440,7 @@ export const MangaReaderPage: FC = () => {
                 <button
                   type="button"
                   aria-label={t('reader.display.zoomOut')}
-                  onClick={() => setZoom(zoom - ZOOM_STEP)}
+                  onClick={() => zoom.zoomAt(zoom.zoom - ZOOM_STEP)}
                   className="hover:bg-background grid size-12 place-items-center rounded-full"
                 >
                   <ZoomOut aria-hidden size={20} />
@@ -552,15 +448,15 @@ export const MangaReaderPage: FC = () => {
                 <button
                   type="button"
                   aria-label={t('reader.display.zoomReset')}
-                  onClick={() => setZoom(1)}
+                  onClick={() => zoom.zoomAt(1)}
                   className="min-w-12 px-1 text-sm font-medium tabular-nums"
                 >
-                  {Math.round(zoom * 100)}%
+                  {Math.round(zoom.zoom * 100)}%
                 </button>
                 <button
                   type="button"
                   aria-label={t('reader.display.zoomIn')}
-                  onClick={() => setZoom(zoom + ZOOM_STEP)}
+                  onClick={() => zoom.zoomAt(zoom.zoom + ZOOM_STEP)}
                   className="hover:bg-background grid size-12 place-items-center rounded-full"
                 >
                   <ZoomIn aria-hidden size={20} />
@@ -614,17 +510,21 @@ export const MangaReaderPage: FC = () => {
             aria-label={t('manga.readingMode')}
             className="-mx-2 flex flex-col"
           >
-            {MODES.map((option) => (
+            {[null, ...READER_MODES].map((option) => (
               <button
-                key={option}
+                key={option ?? 'default'}
                 type="button"
                 role="radio"
-                aria-checked={mode === option}
+                aria-checked={own === option}
                 onClick={() => changeMode(option)}
                 className="hover:bg-background flex items-center gap-4 rounded-xl px-3 py-3 text-left"
               >
-                <span className="flex-1">{t(`manga.mode.${option}`)}</span>
-                {mode === option && <Check aria-hidden size={20} className="text-primary" />}
+                <span className="flex-1">
+                  {option
+                    ? modeLabel(option)
+                    : t('manga.mode.default', { mode: modeLabel(display.defaultMode) })}
+                </span>
+                {own === option && <Check aria-hidden size={20} className="text-primary" />}
               </button>
             ))}
           </div>
@@ -639,7 +539,7 @@ export const MangaReaderPage: FC = () => {
                 <button
                   type="button"
                   aria-label={t('reader.display.zoomOut')}
-                  onClick={() => setZoom(zoom - ZOOM_STEP)}
+                  onClick={() => zoom.zoomAt(zoom.zoom - ZOOM_STEP)}
                   className="bg-background grid size-9 place-items-center rounded-full"
                 >
                   <ZoomOut aria-hidden size={18} />
@@ -647,22 +547,21 @@ export const MangaReaderPage: FC = () => {
                 <button
                   type="button"
                   aria-label={t('reader.display.zoomReset')}
-                  onClick={() => setZoom(1)}
+                  onClick={() => zoom.zoomAt(1)}
                   className="min-w-14 text-sm font-medium tabular-nums"
                 >
-                  {Math.round(zoom * 100)}%
+                  {Math.round(zoom.zoom * 100)}%
                 </button>
                 <button
                   type="button"
                   aria-label={t('reader.display.zoomIn')}
-                  onClick={() => setZoom(zoom + ZOOM_STEP)}
+                  onClick={() => zoom.zoomAt(zoom.zoom + ZOOM_STEP)}
                   className="bg-background grid size-9 place-items-center rounded-full"
                 >
                   <ZoomIn aria-hidden size={18} />
                 </button>
               </div>
             </div>
-            <p className="text-muted px-1 text-xs">{t('reader.display.zoomHint')}</p>
             <ReaderDisplaySettings />
           </div>
         </Sheet>

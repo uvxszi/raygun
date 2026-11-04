@@ -826,8 +826,9 @@ mod tests {
         // The full player's layout.
         let view = PlayerViewPrefs {
             layout: PlayerLayout::SideBySide,
-            width: 85,
-            lyrics_size: 32,
+            cover_offset: -20,
+            width_offset: 15,
+            lyrics_offset: 6,
             lyrics_align: TextAlign::Center,
             background: false,
         };
@@ -839,18 +840,56 @@ mod tests {
             view
         );
         for bad in [
-            PlayerViewPrefs { width: 30, ..view },
-            PlayerViewPrefs { width: 87, ..view },
             PlayerViewPrefs {
-                lyrics_size: 13,
+                cover_offset: 41,
                 ..view
             },
             PlayerViewPrefs {
-                lyrics_size: 50,
+                width_offset: -45,
+                ..view
+            },
+            PlayerViewPrefs {
+                lyrics_offset: -6,
+                ..view
+            },
+            PlayerViewPrefs {
+                lyrics_offset: 11,
                 ..view
             },
         ] {
             assert!(update(&db, SettingChange::PlayerView(bad)).await.is_err());
         }
+    }
+
+    #[tokio::test]
+    async fn old_player_sizes_become_offsets() {
+        let temp = TempDir::new().unwrap();
+        let db = open(&temp).await;
+        // Before the offsets: the whole window's width and 32 px lyrics, centred.
+        settings::put(
+            &db,
+            "playerView",
+            r#"{"layout":"stacked","width":100,"lyricsSize":32,"lyricsAlign":"center"}"#,
+        )
+        .await
+        .unwrap();
+
+        let view = load(&db).await.unwrap().player_view;
+
+        assert_eq!(view.layout, raygun_model::PlayerLayout::Stacked);
+        assert_eq!(view.width_offset, 33);
+        assert_eq!(view.lyrics_offset, 10);
+        assert_eq!(view.cover_offset, 0);
+        assert_eq!(view.lyrics_align, raygun_model::TextAlign::Center);
+        assert!(view.background);
+
+        // "By screen" was 0, and stays the screen's size.
+        settings::put(&db, "playerView", r#"{"width":0,"lyricsSize":0}"#)
+            .await
+            .unwrap();
+        assert_eq!(
+            load(&db).await.unwrap().player_view,
+            raygun_model::PlayerViewPrefs::default()
+        );
     }
 }

@@ -2,19 +2,20 @@ import type { PlayerLayout, TextAlign } from '@raygun/bindings';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { PrefChoice, PrefGroup, PrefSwitch } from '../settings/prefs';
+import { PrefChoice, PrefGroup, PrefSize, PrefSwitch } from '../settings/prefs';
 import {
-  LYRICS_SIZES,
+  LYRICS_OFFSETS,
+  PERCENT_OFFSETS,
   PLAYER_LAYOUTS,
-  PLAYER_WIDTHS,
   TEXT_ALIGNS,
   usePlayerView,
 } from './playerView';
 
 /**
- * How the full music player looks (M46.7): side by side or stacked, its width, the lyrics' size
- * and alignment, and the blurred artwork behind it. In Settings → Player and the player's own
- * Layout button.
+ * How the full music player looks (M46.7): side by side or stacked, and its sizes, each starting
+ * from what the screen gives it and moved from there (the cover, the player's width, the
+ * lyrics), the lyrics' alignment and the blurred artwork behind it. In Settings → Player and the
+ * player's own Layout button.
  */
 export const PlayerViewSettings: FC<{ title?: string }> = ({ title }) => {
   const { t } = useTranslation();
@@ -32,27 +33,29 @@ export const PlayerViewSettings: FC<{ title?: string }> = ({ title }) => {
         }))}
         onChange={(layout) => set({ layout })}
       />
-      <PrefChoice<number>
-        title={t('player.view.width')}
-        summary={t('player.view.widthHint')}
-        value={view.width}
+      <PrefSize
+        title={t('player.view.cover')}
+        value={view.coverOffset}
+        {...PERCENT_OFFSETS}
+        unit="%"
         disabled={busy}
-        options={PLAYER_WIDTHS.map((value) => ({
-          value,
-          label:
-            value === 0 ? t('reader.display.byScreen') : t('reader.display.percent', { n: value }),
-        }))}
-        onChange={(width) => set({ width })}
+        onChange={(coverOffset) => set({ coverOffset })}
       />
-      <PrefChoice<number>
-        title={t('player.view.lyricsSize')}
-        value={view.lyricsSize}
+      <PrefSize
+        title={t('player.view.width')}
+        value={view.widthOffset}
+        {...PERCENT_OFFSETS}
+        unit="%"
         disabled={busy}
-        options={LYRICS_SIZES.map((value) => ({
-          value,
-          label: value === 0 ? t('reader.display.byScreen') : t('player.view.px', { n: value }),
-        }))}
-        onChange={(lyricsSize) => set({ lyricsSize })}
+        onChange={(widthOffset) => set({ widthOffset })}
+      />
+      <PrefSize
+        title={t('player.view.lyricsSize')}
+        value={view.lyricsOffset}
+        {...LYRICS_OFFSETS}
+        unit="px"
+        disabled={busy}
+        onChange={(lyricsOffset) => set({ lyricsOffset })}
       />
       <PrefChoice<TextAlign>
         title={t('player.view.lyricsAlign')}

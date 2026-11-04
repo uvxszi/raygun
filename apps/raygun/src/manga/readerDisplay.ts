@@ -1,4 +1,4 @@
-import type { MangaReaderPrefs, PagedScale } from '@raygun/bindings';
+import type { MangaReaderPrefs, PagedScale, ReaderMode } from '@raygun/bindings';
 
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 
@@ -14,6 +14,13 @@ export const READER_DISPLAY_DEFAULTS: ReaderDisplay = {
   barMode: true,
   barFullscreen: true,
   preloadPages: 3,
+  defaultMode: 'webtoon',
+  tapZones: 'auto',
+  invertTaps: 'none',
+  doubleTapZoom: true,
+  pageNumber: true,
+  keepScreenOn: true,
+  skipDuplicates: true,
 };
 
 export const PAGED_SCALES: PagedScale[] = ['fitScreen', 'fitWidth', 'fitHeight', 'original'];
@@ -26,6 +33,8 @@ export const READER_SIZE = { min: -70, max: 100, step: 5 } as const;
 /** `percent` more or less than `base` (a CSS length), never wider than what holds it. */
 export const sizedFrom = (base: string, percent: number) =>
   percent === 0 ? `min(100%, ${base})` : `min(100%, calc(${base} * ${1 + percent / 100}))`;
+/** The reading modes, in the order the reader offers them. */
+export const READER_MODES: ReaderMode[] = ['webtoon', 'pagedRtl', 'pagedLtr'];
 
 /** Zoom steps in the reader: Ctrl+scroll, Ctrl+plus/minus and the bar's buttons. */
 export const ZOOM_STEP = 0.1;

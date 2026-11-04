@@ -1,4 +1,4 @@
-import type { NovelFont, NovelReaderPrefs, NovelWidth } from '@raygun/bindings';
+import type { NovelFont, NovelReaderPrefs, NovelTheme, NovelWidth } from '@raygun/bindings';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -54,15 +54,34 @@ export const ReaderSettings: FC = () => {
           ]}
           onChange={(width) => set({ width })}
         />
+        <PrefChoice<NovelTheme>
+          title={t('novel.theme')}
+          value={prefs.theme ?? 'app'}
+          options={(['app', 'light', 'sepia', 'dark', 'black'] as const).map((value) => ({
+            value,
+            label: t(`novel.themes.${value}`),
+          }))}
+          onChange={(theme) => set({ theme })}
+        />
         <PrefSwitch
           title={t('settings.indent')}
           checked={prefs.indent ?? false}
           onChange={(indent) => set({ indent })}
         />
         <PrefSwitch
+          title={t('settings.justify')}
+          checked={prefs.justify ?? false}
+          onChange={(justify) => set({ justify })}
+        />
+        <PrefSwitch
           title={t('settings.paged')}
           checked={prefs.paged}
           onChange={(paged) => set({ paged })}
+        />
+        <PrefSwitch
+          title={t('reader.display.keepScreenOn')}
+          checked={prefs.keepScreenOn ?? true}
+          onChange={(keepScreenOn) => set({ keepScreenOn })}
         />
         <PrefSlider
           title={t('settings.speechRate')}

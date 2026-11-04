@@ -14,6 +14,9 @@ export const DEFAULT_PREFS: NovelReaderPrefs = {
   paged: false,
   ttsRate: 10,
   indent: false,
+  theme: 'app',
+  justify: false,
+  keepScreenOn: true,
 };
 
 /** Matches `NOVEL_TEXT_SIZES` in raygun-model: px more or less than the screen's own (M46.48). */

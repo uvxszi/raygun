@@ -65,6 +65,36 @@ fn enqueue_with_play_now_loads_the_first_new_item() {
 }
 
 #[test]
+fn queued_items_change_in_place() {
+    let mut core = core_with(&["a", "b"]);
+    core.play();
+    let picked = MediaSource::YouTube {
+        video_id: "v".into(),
+    };
+    let effects = core.update_items(|item| {
+        if item.title != "b" {
+            return false;
+        }
+        item.source = picked.clone();
+        item.media_kind = MediaKind::Video;
+        true
+    });
+    assert_eq!(effects, vec![Effect::QueueChanged]);
+    assert_eq!(
+        current_title(&core),
+        Some("a".into()),
+        "the current item stays"
+    );
+    let next = core.next();
+    let source = next.iter().find_map(|effect| match effect {
+        Effect::Load { item, .. } => Some(item.source.clone()),
+        _ => None,
+    });
+    assert_eq!(source, Some(picked), "b loads its new source");
+    assert!(core.update_items(|_| false).is_empty());
+}
+
+#[test]
 fn play_on_a_fresh_queue_starts_at_the_beginning() {
     let mut core = core_with(&["a", "b"]);
 
@@ -447,6 +477,152 @@ fn clear_empties_the_queue_and_stops() {
     assert!(effects.contains(&Effect::Engine(EngineCommand::Stop)));
     assert!(core.queue().items.is_empty());
     assert_eq!(core.state().current_item_id, None);
+}
+
+#[test]
+fn clear_upcoming_keeps_the_current_item_and_what_played() {
+    let mut core = core_with(&["a", "b", "c", "d"]);
+    core.play_item(&core.queue().items[1].id.clone());
+    report(&mut core, EngineEvent::Playing);
+
+    let effects = core.clear_upcoming();
+
+    assert_eq!(effects, vec![Effect::QueueChanged]);
+    assert_eq!(order_titles(&core), ["a", "b"]);
+    assert_eq!(current_title(&core).as_deref(), Some("b"));
+    assert_eq!(core.state().status, PlaybackStatus::Playing);
+    // Nothing comes next any more; the current song plays on.
+    assert!(core.next().is_empty());
+    assert!(core.clear_upcoming().is_empty());
+}
+
+#[test]
+fn clear_upcoming_follows_the_shuffled_order() {
+    let mut core = core_with(&["a", "b", "c", "d", "e"]);
+    core.play_item(&core.queue().items[2].id.clone());
+    core.set_shuffle(true);
+    let before = order_titles(&core);
+    assert_eq!(before[0], "c");
+
+    core.clear_upcoming();
+
+    assert_eq!(order_titles(&core), ["c"]);
+    assert_eq!(core.queue().items.len(), 1);
+    assert_eq!(current_title(&core).as_deref(), Some("c"));
+}
+
+#[test]
+fn clear_upcoming_with_nothing_current_empties_the_queue() {
+    let mut core = core_with(&["a", "b"]);
+
+    let effects = core.clear_upcoming();
+
+    assert!(effects.contains(&Effect::QueueChanged));
+    assert!(core.queue().items.is_empty());
+    assert!(PlaybackCore::new(1).clear_upcoming().is_empty());
+}
+
+#[test]
+fn an_engine_that_says_it_plays_but_stands_still_is_nudged() {
+    let mut core = core_with(&["a"]);
+    core.play();
+    report(&mut core, EngineEvent::Playing);
+    progress(&mut core, 10_000.0);
+
+    // The stretch starts, and moving on keeps it fresh.
+    assert!(core.watchdog(0.0).is_empty());
+    progress(&mut core, 11_000.0);
+    assert!(core.watchdog(1_000.0).is_empty());
+    assert!(core.watchdog(2_000.0).is_empty());
+    assert!(core.watchdog(3_900.0).is_empty());
+    assert!(core.started());
+
+    // Three seconds standing still: told again, and no longer said to play.
+    let effects = core.watchdog(4_100.0);
+    assert_eq!(
+        effects,
+        vec![
+            Effect::Engine(EngineCommand::Seek {
+                position_ms: 11_000.0
+            }),
+            Effect::Engine(EngineCommand::Play),
+            Effect::StateChanged,
+        ]
+    );
+    assert_eq!(core.state().status, PlaybackStatus::Buffering);
+    // Buffering after it played is left to the engine.
+    assert!(core.watchdog(9_000.0).is_empty());
+    report(&mut core, EngineEvent::Playing);
+    assert_eq!(core.state().status, PlaybackStatus::Playing);
+}
+
+#[test]
+fn a_ready_engine_that_never_starts_is_nudged_then_shown_paused() {
+    let mut core = core_with(&["a"]);
+    core.play();
+    report(&mut core, EngineEvent::Buffering);
+    // Waiting for its stream isn't the watchdog's business.
+    assert!(core.watchdog(0.0).is_empty());
+    assert!(core.watchdog(10_000.0).is_empty());
+
+    // It has the stream (it says how long it is) but doesn't start.
+    progress(&mut core, 0.0);
+    assert!(core.watchdog(10_500.0).is_empty());
+    assert_eq!(
+        core.watchdog(13_600.0),
+        vec![
+            Effect::Engine(EngineCommand::Pause),
+            Effect::Engine(EngineCommand::Play),
+        ]
+    );
+    // The nudge's own pause doesn't count as the listener's.
+    assert!(report(&mut core, EngineEvent::Paused).is_empty());
+    assert_eq!(core.state().status, PlaybackStatus::Buffering);
+
+    // Still nothing: it shows paused, so Play (a tap) starts it.
+    let effects = core.watchdog(16_700.0);
+    assert!(effects.contains(&Effect::Engine(EngineCommand::Pause)));
+    assert_eq!(core.state().status, PlaybackStatus::Paused);
+    assert!(core.held());
+    assert!(core.watchdog(30_000.0).is_empty());
+
+    core.play();
+    report(&mut core, EngineEvent::Playing);
+    assert_eq!(core.state().status, PlaybackStatus::Playing);
+    assert!(core.started());
+}
+
+#[test]
+fn a_nudged_engine_that_starts_plays_on() {
+    let mut core = core_with(&["a"]);
+    core.play();
+    progress(&mut core, 0.0);
+    core.watchdog(0.0);
+    assert_eq!(core.watchdog(3_100.0).len(), 2);
+
+    report(&mut core, EngineEvent::Playing);
+    assert_eq!(core.state().status, PlaybackStatus::Playing);
+    // A real pause after that is the listener's.
+    report(&mut core, EngineEvent::Paused);
+    assert_eq!(core.state().status, PlaybackStatus::Paused);
+}
+
+#[test]
+fn the_watchdog_leaves_paused_and_new_loads_alone() {
+    let mut core = core_with(&["a", "b"]);
+    core.play();
+    report(&mut core, EngineEvent::Playing);
+    progress(&mut core, 5_000.0);
+    core.pause();
+
+    assert!(core.watchdog(0.0).is_empty());
+    assert!(core.watchdog(10_000.0).is_empty());
+
+    // A new load starts over: not started, nothing to nudge until it's ready.
+    core.next();
+    assert!(!core.started());
+    assert!(core.watchdog(20_000.0).is_empty());
+    assert!(core.watchdog(40_000.0).is_empty());
 }
 
 #[test]

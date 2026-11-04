@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { Sheet } from '../shell/Sheet';
 import { parseSize, shownSize, signedSize } from './sizes';
 import type { SizeLimits } from './sizes';
+import { SHEET_FIELD, SHEET_INPUT, TextField } from '../shell/TextField';
 
 /**
  * Preference rows (Mihon's): a short title, the chosen value or a second line only where it helps
@@ -428,17 +429,18 @@ export const PrefText: FC<{
         <Sheet title={title} onClose={() => setDraft(null)}>
           <form onSubmit={save} className="flex flex-col gap-3 text-sm">
             {summary && <p className="text-muted">{summary}</p>}
-            <input
+            <TextField
               autoFocus
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={setDraft}
               placeholder={placeholder}
               aria-label={title}
               aria-invalid={problem !== null}
               autoCapitalize="off"
               autoCorrect="off"
               spellCheck={false}
-              className="bg-background placeholder:text-muted rounded-xl px-4 py-3 outline-none"
+              className={SHEET_FIELD}
+              inputClassName={SHEET_INPUT}
             />
             {problem && (
               <p role="alert" className="text-primary">

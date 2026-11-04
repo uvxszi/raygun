@@ -1,4 +1,4 @@
-import type { Captions, PlaybackState, SpokenItem, TextAlign } from '@raygun/bindings';
+import type { Caption, Captions, SpokenItem, TextAlign } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import { commands } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
@@ -11,8 +11,8 @@ import {
   Square,
   Subtitles,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
-import type { FC } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
+import type { FC, Ref, RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
@@ -20,113 +20,132 @@ import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
 import { currentCue, useCaptions, useStopCaptions, useTranscribe } from './spoken';
 import { useSongEdit } from '../sound/useSound';
+import { useLyricsLook } from './playerView';
 import { trackQueryFor } from './lyricsQuery';
-import { useLivePosition } from './useLivePosition';
-import { sendControl, useNowPlaying } from './usePlayback';
+import { useLiveValue } from './useLivePosition';
+import { sendControl, useCurrentItem, usePlayerTiming, useReadPosition } from './usePlayback';
+
+type Variant = 'sheet' | 'panel';
 
 type CaptionsViewProps = {
   spoken: SpokenItem;
-  state: PlaybackState | undefined;
   /** `panel`: the smaller card in the side panel and under the phone's player. */
-  variant?: 'sheet' | 'panel';
-  /** Text size in px; 0 picks it by screen. */
-  size?: number;
-  align?: TextAlign;
+  variant?: Variant;
 };
-
-const LINE_SIZE = {
-  sheet: 'text-xl md:text-2xl lg:text-3xl',
-  panel: 'text-lg',
-} as const;
 
 /**
  * Captions for a podcast episode or a book's chapter (M46.32), in place of lyrics: the feed's
  * transcript or what AI heard, following playback; a tap on a line goes there. With none yet the
  * card is one slim line with a way to transcribe, or to set transcription up.
  */
-export const CaptionsView: FC<CaptionsViewProps> = ({
-  spoken,
-  state,
-  variant = 'sheet',
-  size = 0,
-  align = 'left',
-}) => {
+export const CaptionsView: FC<CaptionsViewProps> = ({ spoken, variant = 'sheet' }) => {
   const { t } = useTranslation();
   const captions = useCaptions(spoken.episodeId);
-  const positionMs = useLivePosition(state);
+  const { align, style } = useLyricsLook();
   const containerRef = useRef<HTMLDivElement>(null);
-  const currentRef = useRef<HTMLButtonElement>(null);
   const trims = useTrims();
   // Only what plays shows (M46.36): lines the item's trims cut off are left out.
   const cues = (captions.data?.cues ?? []).filter(
     (cue) => cue.endMs > trims.startMs && (trims.endMs === null || cue.startMs < trims.endMs),
   );
-  const current = currentCue(cues, positionMs);
   const hasLines = cues.length > 0;
-  const alignClass = align === 'center' ? 'text-center' : 'text-left';
-  const height = variant === 'panel' ? (hasLines ? 'h-[26rem]' : 'h-auto') : '';
-
-  useEffect(() => {
-    const container = containerRef.current;
-    const line = currentRef.current;
-    if (!container || !line) return;
-    container.scrollTo?.({
-      top: line.offsetTop - container.clientHeight / 2 + line.clientHeight / 2,
-      behavior: 'smooth',
-    });
-  }, [current]);
+  const height = variant === 'panel' ? (hasLines ? 'h-[min(26rem,60svh)]' : 'h-auto') : '';
 
   return (
     <div
       ref={containerRef}
       data-testid="captions-view"
-      className={`relative flex min-h-0 flex-col overflow-y-auto ${hasLines || variant === 'sheet' ? 'py-4' : 'py-3'} ${
-        variant === 'sheet' ? 'w-full flex-1 pr-4' : 'w-full px-4'
-      } ${height}`}
+      style={style}
+      className={`@container relative flex min-h-0 flex-col overflow-y-auto overscroll-contain ${
+        hasLines || variant === 'sheet' ? 'py-4' : 'py-3'
+      } ${variant === 'sheet' ? 'w-full flex-1 pr-4' : 'w-full px-4'} ${height}`}
     >
       {captions.isPending && (
         <p className="text-muted text-center text-sm">{t('captions.loading')}</p>
       )}
       {captions.error && <SourceIssue compact>{captions.error.message}</SourceIssue>}
       {hasLines && (
-        <ol className="flex flex-col gap-3">
-          {cues.map((cue, index) => (
-            <li key={cue.startMs}>
-              <button
-                type="button"
-                ref={index === current ? currentRef : undefined}
-                aria-current={index === current ? 'true' : undefined}
-                onClick={() => void sendControl({ type: 'seek', positionMs: cue.startMs })}
-                style={size > 0 ? { fontSize: size } : undefined}
-                className={`w-full leading-snug font-semibold transition-colors ${alignClass} ${size > 0 ? '' : LINE_SIZE[variant]} ${
-                  index === current ? 'text-foreground' : 'text-muted/60'
-                }`}
-              >
-                {cue.text}
-              </button>
-            </li>
-          ))}
-        </ol>
+        <CaptionLines cues={cues} variant={variant} align={align} container={containerRef} />
       )}
       {captions.data && (
-        <CaptionsFooter
-          captions={captions.data}
-          spoken={spoken}
-          positionMs={positionMs}
-          slim={!hasLines}
-        />
+        <CaptionsFooter captions={captions.data} spoken={spoken} slim={!hasLines} />
       )}
     </div>
   );
 };
 
+/** The lines, following the playhead: only the line said and the one before it re-render. */
+const CaptionLines: FC<{
+  cues: Caption[];
+  variant: Variant;
+  align: TextAlign;
+  container: RefObject<HTMLDivElement | null>;
+}> = ({ cues, variant, align, container }) => {
+  const timing = usePlayerTiming();
+  const current = useLiveValue(timing, (position) => currentCue(cues, position));
+  const currentRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const box = container.current;
+    const line = currentRef.current;
+    if (!box || !line) return;
+    box.scrollTo?.({
+      top: line.offsetTop - box.clientHeight / 2 + line.clientHeight / 2,
+      behavior: 'smooth',
+    });
+  }, [current, container]);
+
+  return (
+    <ol className="flex flex-col gap-[0.6em]">
+      {cues.map((cue, index) => (
+        <CaptionLine
+          key={cue.startMs}
+          text={cue.text}
+          startMs={cue.startMs}
+          said={index === current}
+          variant={variant}
+          align={align}
+          lineRef={index === current ? currentRef : undefined}
+        />
+      ))}
+    </ol>
+  );
+};
+
+const CaptionLine: FC<{
+  text: string;
+  startMs: number;
+  said: boolean;
+  variant: Variant;
+  align: TextAlign;
+  lineRef?: Ref<HTMLButtonElement>;
+}> = memo(function CaptionLine({ text, startMs, said, variant, align, lineRef }) {
+  return (
+    <li>
+      <button
+        type="button"
+        ref={lineRef}
+        aria-current={said ? 'true' : undefined}
+        onClick={() => void sendControl({ type: 'seek', positionMs: startMs })}
+        data-variant={variant}
+        className={`lyric-text w-full leading-snug font-semibold transition-colors ${
+          align === 'center' ? 'text-center' : 'text-left'
+        } ${said ? 'text-foreground' : 'text-muted/60'}`}
+      >
+        {text}
+      </button>
+    </li>
+  );
+});
+
 /** Where the captions came from, and transcribing: start, follow, stop, or set it up. */
 const CaptionsFooter: FC<{
   captions: Captions;
   spoken: SpokenItem;
-  positionMs: number;
   slim: boolean;
-}> = ({ captions, spoken, positionMs, slim }) => {
+}> = ({ captions, spoken, slim }) => {
+  // Transcribing starts from where the listener is, read when they ask.
+  const readPosition = useReadPosition();
   const { t } = useTranslation();
   const settings = useSettings();
   const update = useUpdateSetting();
@@ -144,7 +163,7 @@ const CaptionsFooter: FC<{
       setConfirming(true);
       return;
     }
-    transcribe.mutate({ episodeId: spoken.episodeId, fromMs: positionMs });
+    transcribe.mutate({ episodeId: spoken.episodeId, fromMs: readPosition() });
   };
 
   const status = captions.running
@@ -179,7 +198,7 @@ const CaptionsFooter: FC<{
       }
       void (
         ai
-          ? commands.captionsUseAi(spoken.episodeId, positionMs)
+          ? commands.captionsUseAi(spoken.episodeId, readPosition())
           : commands.captionsUseFeed(spoken.episodeId)
       ).then(() => client.invalidateQueries({ queryKey: ['captions', spoken.episodeId] }));
     };
@@ -281,12 +300,12 @@ const CaptionsFooter: FC<{
                 // From the feed's transcript, it's kept aside first (M46.45).
                 if (captions.source === 'feed') {
                   void commands
-                    .captionsUseAi(spoken.episodeId, positionMs)
+                    .captionsUseAi(spoken.episodeId, readPosition())
                     .then(() =>
                       client.invalidateQueries({ queryKey: ['captions', spoken.episodeId] }),
                     );
                 } else {
-                  transcribe.mutate({ episodeId: spoken.episodeId, fromMs: positionMs });
+                  transcribe.mutate({ episodeId: spoken.episodeId, fromMs: readPosition() });
                 }
               }}
               className="bg-primary text-background rounded-full px-3 py-1 font-semibold"
@@ -312,7 +331,7 @@ const CaptionsFooter: FC<{
 
 /** The playing item's trims (M46.36), so captions show only what plays. */
 const useTrims = () => {
-  const { item } = useNowPlaying();
+  const item = useCurrentItem();
   const edit = useSongEdit(
     item ? trackQueryFor(item) : { title: '', artist: null, album: null, durationMs: null },
   );

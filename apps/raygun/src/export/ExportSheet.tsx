@@ -194,10 +194,9 @@ export const ExportSheet: FC<{
         </Group>
         {plan.data && !problem && (
           <p role="status" className="text-muted">
-            {t(video ? 'export.planVideo' : 'export.plan', {
-              count: plan.data.chapters,
-              files: plan.data.files,
-            })}
+            {video
+              ? t('export.planVideo', { count: plan.data.chapters })
+              : `${t('export.plan', { count: plan.data.chapters })} · ${t('export.files', { count: plan.data.files })}.`}
             {plan.data.missing > 0 && (
               <> {t('export.downloadFirst', { count: plan.data.missing })}</>
             )}

@@ -45,7 +45,7 @@ export const TrackRow: FC<TrackRowProps> = ({ track, onPlay, variant = 'artwork'
             {track.trackNo ?? ''}
           </span>
         )}
-        <span className="flex min-w-0 flex-1 flex-col">
+        <span className="flex min-w-0 flex-1 flex-col gap-1.5">
           <span
             className={`flex min-w-0 items-center gap-1.5 text-sm font-medium ${playing ? 'text-primary' : ''}`}
           >
@@ -54,7 +54,7 @@ export const TrackRow: FC<TrackRowProps> = ({ track, onPlay, variant = 'artwork'
             <SongMarks title={track.title} artist={track.artist} />
           </span>
           <span className="text-muted block truncate text-xs">
-            <ArtistLinks credit={track.artist} nested />
+            <ArtistLinks credit={track.artist} nested row />
             {variant === 'artwork' && <> · {track.album}</>}
           </span>
         </span>

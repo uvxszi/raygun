@@ -1,5 +1,5 @@
 import { commands, events } from '@raygun/bindings';
-import type { NovelChapter, NovelReaderPrefs, TextBlock } from '@raygun/bindings';
+import type { NovelChapter, NovelReaderPrefs, NovelTheme, TextBlock } from '@raygun/bindings';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useRouter, useSearch } from '@tanstack/react-router';
 import {
@@ -25,10 +25,11 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { FC, KeyboardEvent, MouseEvent, PointerEvent, ReactNode, TouchEvent } from 'react';
+import type { FC, MouseEvent, PointerEvent, ReactNode, TouchEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
+import { useWakeLock } from '../manga/reader/useWakeLock';
 import {
   DEFAULT_PREFS,
   LINE_SPACING,
@@ -54,6 +55,8 @@ const SWIPE_PX = 50;
 const LONG_PRESS_MS = 500;
 /** A press that moves farther than this is a scroll, not a long press. */
 const PRESS_SLOP_PX = 10;
+/** Reading-aloud speeds the toolbar steps through, in tenths. */
+const SPEEDS = [8, 10, 12, 15, 20] as const;
 /** Side margin of a page in paged mode. */
 const PAGE_PADDING = 20;
 /** A page's widest, by the Width setting (M46.38): the scrolled column's width and a little more. */
@@ -64,14 +67,37 @@ const FONTS: Record<NovelReaderPrefs['font'], string> = {
   sans: 'system-ui, "Noto Sans", sans-serif',
 };
 
+/** The page colours of each theme; the app's own follows the app's theme. */
+const THEMES: Record<NovelTheme, { background: string; text: string } | null> = {
+  app: null,
+  light: { background: '#fbfaf6', text: '#1f1f1f' },
+  sepia: { background: '#f4ecd8', text: '#5b4636' },
+  dark: { background: '#1c1c1e', text: '#d6d6d6' },
+  black: { background: '#000000', text: '#bdbdbd' },
+};
+const THEME_ORDER: NovelTheme[] = ['app', 'light', 'sepia', 'dark', 'black'];
+
+/** Keys typed into fields or dialogs aren't the reader's. */
+const ownKeys = (event: globalThis.KeyboardEvent) => {
+  const target = event.target as HTMLElement | null;
+  return !(
+    target?.closest('input, select, textarea, [role="dialog"]') ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey
+  );
+};
+
 const Block: FC<{
   block: TextBlock;
   index: number;
   active: boolean;
   /** Paragraphs start their first line further in (M46.10). */
   indent: boolean;
+  /** Lines run to both edges, words hyphenated. */
+  justify: boolean;
   register: (index: number, element: HTMLElement | null) => void;
-}> = ({ block, index, active, indent, register }) => {
+}> = ({ block, index, active, indent, justify, register }) => {
   const ref = (element: HTMLElement | null) => register(index, element);
   // The paragraph being read aloud.
   const highlight = active ? 'bg-primary/15 -mx-1 rounded px-1' : '';
@@ -106,7 +132,10 @@ const Block: FC<{
           ref={ref}
           data-block={index}
           aria-current={active || undefined}
-          style={indent ? { textIndent: '2em' } : undefined}
+          style={{
+            ...(indent ? { textIndent: '2em' } : {}),
+            ...(justify ? { textAlign: 'justify', hyphens: 'auto' } : {}),
+          }}
           className={`mb-[0.9em] ${highlight}`}
         >
           {block.text}
@@ -219,6 +248,37 @@ const PrefsPanel: FC<{ prefs: NovelReaderPrefs; onChange: (prefs: NovelReaderPre
         <Choice pressed={prefs.indent ?? false} onClick={() => set({ indent: true })}>
           {t('novel.indent')}
         </Choice>
+      </div>
+      <div className="flex gap-2">
+        <Choice pressed={!prefs.justify} onClick={() => set({ justify: false })}>
+          {t('novel.alignStart')}
+        </Choice>
+        <Choice pressed={prefs.justify ?? false} onClick={() => set({ justify: true })}>
+          {t('novel.justify')}
+        </Choice>
+      </div>
+      <div role="radiogroup" aria-label={t('novel.theme')} className="flex gap-2">
+        {THEME_ORDER.map((theme) => {
+          const colors = THEMES[theme];
+          const chosen = (prefs.theme ?? 'app') === theme;
+          return (
+            <button
+              key={theme}
+              type="button"
+              role="radio"
+              aria-checked={chosen}
+              aria-label={t(`novel.themes.${theme}`)}
+              title={t(`novel.themes.${theme}`)}
+              onClick={() => set({ theme })}
+              style={
+                colors ? { backgroundColor: colors.background, color: colors.text } : undefined
+              }
+              className={`grid h-10 flex-1 place-items-center rounded-lg border text-sm font-semibold ${colors ? '' : 'bg-background text-foreground'} ${chosen ? 'border-primary ring-primary ring-2' : 'border-muted/40'}`}
+            >
+              Aa
+            </button>
+          );
+        })}
       </div>
       <Stepper
         label={t('novel.speed')}
@@ -391,7 +451,15 @@ const ChapterView: FC<{
   useLayoutEffect(() => {
     if (prefs.paged || currentBlock.current === 0) return;
     refs.current[currentBlock.current]?.scrollIntoView?.({ block: 'start' });
-  }, [prefs.paged, prefs.textSize, prefs.lineSpacing, prefs.font, prefs.width]);
+  }, [
+    prefs.paged,
+    prefs.textSize,
+    prefs.lineSpacing,
+    prefs.font,
+    prefs.width,
+    prefs.indent,
+    prefs.justify,
+  ]);
 
   // ---- Paged mode ----
   const pageWidth = () => pagesRef.current?.clientWidth ?? 0;
@@ -426,31 +494,47 @@ const ChapterView: FC<{
     if (!prefs.paged) return;
     const container = pagesRef.current;
     if (!container) return;
-    const measure = () => {
+    /** Counts the pages and shows the one holding `block`. */
+    const place = (block: number) => {
       const width = container.clientWidth;
       const count = width > 0 ? Math.max(1, Math.round(container.scrollWidth / width)) : 1;
       setPageCount(count);
-      return { width, count };
+      const element = refs.current[block];
+      // Where the text starts, scrolled or not.
+      const left = container.getBoundingClientRect().left - container.scrollLeft;
+      const start =
+        element && width > 0
+          ? Math.min(
+              count - 1,
+              Math.max(0, Math.floor((element.getBoundingClientRect().left - left) / width)),
+            )
+          : 0;
+      container.scrollTo?.({ left: start * width });
+      setPage(start);
+      return { start, count };
     };
-    const { width, count } = measure();
-    // Open on the page holding the resume point.
-    const element = refs.current[resumeAt];
-    const left = container.getBoundingClientRect().left;
-    const start =
-      element && width > 0
-        ? Math.min(count - 1, Math.floor((element.getBoundingClientRect().left - left) / width))
-        : 0;
-    container.scrollTo?.({ left: start * width });
-    setPage(start);
+    // Open on the page holding the resume point; new typography keeps the paragraph being read.
+    const { start, count } = place(currentBlock.current > 0 ? currentBlock.current : resumeAt);
     onProgress(
       start / Math.max(count - 1, 1),
       t('novel.pageOf', { page: start + 1, total: count }),
     );
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    // A turned phone or a resized window lays the pages out again around the same paragraph.
+    const onResize = () => place(currentBlock.current);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
     // Re-measure when the layout changes, not on every page turn.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prefs.paged, prefs.textSize, prefs.lineSpacing, prefs.font, chapterId]);
+  }, [
+    prefs.paged,
+    prefs.textSize,
+    prefs.lineSpacing,
+    prefs.font,
+    prefs.width,
+    prefs.indent,
+    prefs.justify,
+    chapterId,
+  ]);
 
   // Keeps the paragraph being read aloud in view.
   useEffect(() => {
@@ -561,10 +645,27 @@ const ChapterView: FC<{
     else onToggleChrome();
   };
 
-  const onKey = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'ArrowRight') forward();
-    if (event.key === 'ArrowLeft') back();
-  };
+  // Keys: arrows, Space and Page Up/Down turn pages, or scroll the column a screen at a time.
+  const onKey = useEffectEvent((event: globalThis.KeyboardEvent) => {
+    if (!ownKeys(event)) return;
+    const ahead = event.key === 'PageDown' || (event.key === ' ' && !event.shiftKey);
+    const behind = event.key === 'PageUp' || (event.key === ' ' && event.shiftKey);
+    if (prefs.paged) {
+      if (event.key === 'ArrowRight' || ahead) forward();
+      else if (event.key === 'ArrowLeft' || behind) back();
+      else return;
+    } else {
+      const scroller = endRef.current?.closest('main');
+      if (!scroller || !(ahead || behind)) return;
+      scroller.scrollBy?.({ top: (ahead ? 1 : -1) * scroller.clientHeight * 0.85 });
+    }
+    event.preventDefault();
+  });
+  useEffect(() => {
+    const listener = (event: globalThis.KeyboardEvent) => onKey(event);
+    window.addEventListener('keydown', listener);
+    return () => window.removeEventListener('keydown', listener);
+  }, []);
 
   const onTouchStart = (event: TouchEvent) => {
     swipeStart.current = event.touches[0]?.clientX ?? null;
@@ -611,6 +712,7 @@ const ChapterView: FC<{
       index={index}
       active={index === speaking}
       indent={prefs.indent ?? false}
+      justify={prefs.justify ?? false}
       register={register}
     />
   ));
@@ -621,9 +723,7 @@ const ChapterView: FC<{
         ref={pagesRef}
         data-testid="novel-pages"
         role="presentation"
-        tabIndex={0}
         onClick={onPageClick}
-        onKeyDown={onKey}
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
         {...pressHandlers}
@@ -711,7 +811,15 @@ export const NovelReaderPage: FC = () => {
   const [chrome, setChrome] = useState(true);
   const [panel, setPanel] = useState(false);
   const [progress, setProgress] = useState({ fraction: 0, label: '' });
+  const [speechNotice, setSpeechNotice] = useState<string | null>(null);
   const data = loaded.data;
+  const theme = THEMES[prefs.theme ?? 'app'];
+  useWakeLock((prefs.keepScreenOn ?? true) && data !== undefined);
+  useEffect(() => {
+    if (!speechNotice) return;
+    const timer = setTimeout(() => setSpeechNotice(null), 4000);
+    return () => clearTimeout(timer);
+  }, [speechNotice]);
 
   // ---- Reading aloud ----
   const speechAvailable = useQuery({
@@ -736,11 +844,14 @@ export const NovelReaderPage: FC = () => {
   const speakFrom = useCallback((chapter: NovelChapter, first: number) => {
     const paragraphs = speechParagraphs(chapter.blocks, first);
     if (paragraphs.length === 0) return;
-    void unwrapResult(commands.ttsSpeak(paragraphs, rateRef.current / 10)).catch(() => {
-      readingRef.current = false;
-      setReading(false);
-      setSpeaking(null);
-    });
+    void unwrapResult(commands.ttsSpeak(paragraphs, rateRef.current / 10)).catch(
+      (error: unknown) => {
+        readingRef.current = false;
+        setReading(false);
+        setSpeaking(null);
+        setSpeechNotice(error instanceof Error ? error.message : String(error));
+      },
+    );
   }, []);
 
   const stopReading = useCallback(() => {
@@ -806,13 +917,15 @@ export const NovelReaderPage: FC = () => {
           stopReading();
         }
       } else {
+        // The voice engine gave up (no voice for the language, or it was taken away).
         stopReading();
+        setSpeechNotice(t('novel.readAloudStopped'));
       }
     });
     return () => {
       void unlisten.then((stop) => stop());
     };
-  }, [navigate, stopReading, title]);
+  }, [navigate, stopReading, title, t]);
 
   // The next chapter keeps reading aloud from its start.
   useEffect(() => {
@@ -854,7 +967,10 @@ export const NovelReaderPage: FC = () => {
   return (
     <section
       data-testid="novel-reader"
-      className="bg-background text-foreground -mx-4 flex min-h-dvh flex-col lg:-mx-10"
+      data-theme-page={prefs.theme ?? 'app'}
+      // Edge to edge: the page area's side and bottom padding is the reader's too.
+      className="bg-background text-foreground -mx-4 -mb-4 flex min-h-dvh flex-col lg:-mx-10"
+      style={theme ? { backgroundColor: theme.background, color: theme.text } : undefined}
     >
       {chrome && (
         <header className="bg-surface/95 fixed inset-x-0 top-[var(--app-bar,0px)] z-30 flex min-h-16 items-center gap-1 px-1 pt-[env(safe-area-inset-top)] shadow-md backdrop-blur">
@@ -887,7 +1003,11 @@ export const NovelReaderPage: FC = () => {
           onChange={(next) => updateSetting.mutate({ key: 'novelReader', value: next })}
         />
       )}
-      {loaded.error && <SourceIssue>{loaded.error.message}</SourceIssue>}
+      {loaded.error && (
+        <div className="px-4 pt-24">
+          <SourceIssue onRetry={() => void loaded.refetch()}>{loaded.error.message}</SourceIssue>
+        </div>
+      )}
       {!data && !loaded.error && (
         <LoaderCircle
           aria-label={t('manga.loading')}
@@ -918,9 +1038,6 @@ export const NovelReaderPage: FC = () => {
           aria-label={t('novel.speechControls')}
           className={`bg-surface/95 fixed inset-x-0 z-30 mx-auto flex w-fit flex-wrap items-center justify-center gap-1 rounded-3xl px-2 py-1 shadow-lg backdrop-blur ${chrome ? 'bottom-24' : 'bottom-4'}`}
         >
-          <p className="text-muted w-full px-2 pt-1 text-center text-xs">
-            {t('novel.readAloudHint')}
-          </p>
           <button
             type="button"
             aria-label={t('novel.previousParagraph')}
@@ -947,6 +1064,19 @@ export const NovelReaderPage: FC = () => {
           </button>
           <button
             type="button"
+            aria-label={`${t('novel.speed')}: ${(rate / 10).toFixed(1)}×`}
+            onClick={() =>
+              updateSetting.mutate({
+                key: 'novelReader',
+                value: { ...prefs, ttsRate: SPEEDS.find((speed) => speed > rate) ?? SPEEDS[0] },
+              })
+            }
+            className="min-w-12 rounded-full px-2 text-sm font-semibold tabular-nums"
+          >
+            {(rate / 10).toFixed(1)}×
+          </button>
+          <button
+            type="button"
             aria-label={t('novel.stopReading')}
             onClick={stopReading}
             className="bg-primary text-background grid size-10 place-items-center rounded-full"
@@ -954,6 +1084,14 @@ export const NovelReaderPage: FC = () => {
             <Square aria-hidden size={16} />
           </button>
         </div>
+      )}
+      {speechNotice && !reading && (
+        <p
+          role="status"
+          className={`bg-surface/95 text-foreground fixed inset-x-0 z-30 mx-auto w-fit max-w-[90vw] rounded-full px-4 py-2 text-sm shadow-lg ${chrome ? 'bottom-24' : 'bottom-4'}`}
+        >
+          {speechNotice}
+        </p>
       )}
       {chrome && data && (
         <footer className="fixed inset-x-0 bottom-0 z-30 flex items-center gap-2 px-3 pt-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
