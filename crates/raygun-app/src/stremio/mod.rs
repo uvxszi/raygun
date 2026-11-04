@@ -1411,6 +1411,14 @@ impl StremioService {
                     .collect::<Vec<_>>()
                     .join(" · ");
                 let binge_group = stream.binge_group.clone();
+                // Addons name the size in the stream's name ("Torrentio\n4k"), its description,
+                // the file's name or the binge group ("torrentio|1080p|…").
+                let height = crate::video_quality::texts_height([
+                    stream.name.as_deref(),
+                    stream.description.as_deref(),
+                    stream.filename.as_deref(),
+                    stream.binge_group.as_deref(),
+                ]);
                 let blocked = if youtube {
                     None
                 } else {
@@ -1448,6 +1456,7 @@ impl StremioService {
                     tag: binge_group,
                     failed: blocked,
                     mismatch: false,
+                    height,
                     request,
                 });
             }

@@ -14,7 +14,7 @@ use futures_util::stream::FuturesUnordered;
 use raygun_db::titles;
 use raygun_db::video::{self as store, VideoEntry};
 use raygun_db::video_downloads;
-use raygun_model::{SettingChange, VideoRequest};
+use raygun_model::{SettingChange, VideoRequest, VideoResolution};
 use raygun_resolver::video_match;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -151,6 +151,8 @@ pub struct Link {
     pub failed: Option<String>,
     /// Its name says it's another episode or season ("S01E01" for S2E1): tried after the rest.
     pub mismatch: bool,
+    /// Its picture height, when its source or name says (`video_quality`).
+    pub height: Option<u32>,
     pub request: VideoRequest,
 }
 
@@ -240,6 +242,8 @@ struct Session {
     show_memory: Option<String>,
     /// How servers and addons did lately (M46.17): those that worked first, failing ones last.
     health: SourceHealth,
+    /// The picture size links are ordered by within each standing.
+    resolution: VideoResolution,
     /// Addresses that failed in this session: never tried again, whichever source lists them.
     dead_urls: HashSet<String>,
     /// The link loaded, until it counts as working.
@@ -274,7 +278,7 @@ impl Session {
     }
 
     fn ranking(&self, now: i64) -> Ranking<'_> {
-        Ranking::new(&self.memory, &self.health, now)
+        Ranking::new(&self.memory, &self.health, self.resolution, now)
     }
 
     /// The best untried link: what played last time, the same release, sources that worked,
@@ -433,6 +437,7 @@ impl VideoSessions {
         }
         .unwrap_or_default();
         let health = self.health().await;
+        let resolution = self.resolution().await;
         let generation = self.generations.fetch_add(1, Ordering::SeqCst) + 1;
         let label = episodes[index].label.clone();
         *self.session.lock().expect("session poisoned") = Some(Session {
@@ -449,6 +454,7 @@ impl VideoSessions {
             memory,
             show_memory,
             health,
+            resolution,
             dead_urls: HashSet::new(),
             watching: None,
             resolving_since: now,
@@ -737,10 +743,11 @@ impl VideoSessions {
         sources: Vec<SourceCandidate>,
     ) -> Vec<SourceRank> {
         let health = self.health().await;
+        let resolution = self.resolution().await;
         let Some(origin) = Origin::from_group(group) else {
             return rank_candidates(
                 &sources,
-                &Ranking::new(&Remembered::default(), &health, now_ms()),
+                &Ranking::new(&Remembered::default(), &health, resolution, now_ms()),
             );
         };
         let show = match &origin {
@@ -773,7 +780,18 @@ impl VideoSessions {
                 .collect(),
             None => sources,
         };
-        rank_candidates(&sources, &Ranking::new(&memory, &health, now_ms()))
+        rank_candidates(
+            &sources,
+            &Ranking::new(&memory, &health, resolution, now_ms()),
+        )
+    }
+
+    /// The picture size links are ordered by (`VideoPlayerPrefs::preferred_resolution`).
+    async fn resolution(&self) -> VideoResolution {
+        crate::settings::load(&self.db())
+            .await
+            .map(|settings| settings.video_player.preferred_resolution)
+            .unwrap_or_default()
     }
 
     async fn health(&self) -> SourceHealth {
@@ -850,6 +868,7 @@ impl VideoSessions {
                 tag: None,
                 failed: None,
                 mismatch: false,
+                height: None,
                 request,
             };
             let group = Group::finished(
@@ -946,6 +965,7 @@ impl VideoSessions {
                     ),
                     tag: None,
                     mismatch: false,
+                    height: link.quality,
                     // Torrents (Miru) need a torrent app: listed, never played.
                     failed: (link.format.as_deref() == Some(raygun_ext_host::video::TORRENT))
                         .then(|| self.label("needsTorrentApp", "Needs a torrent app")),
@@ -1023,7 +1043,12 @@ impl VideoSessions {
                 };
                 *group = Group::finished(group.id.clone(), group.name.clone(), links, error);
                 // Its place in the list stays (indices are in use); its links are ordered.
-                let ranking = Ranking::new(&session.memory, &session.health, now_ms());
+                let ranking = Ranking::new(
+                    &session.memory,
+                    &session.health,
+                    session.resolution,
+                    now_ms(),
+                );
                 order_links(group, &ranking);
             }
         }
@@ -1622,6 +1647,7 @@ mod tests {
             tag: tag.map(str::to_owned),
             failed: None,
             mismatch: false,
+            height: crate::video_quality::label_height(label),
             request: VideoRequest {
                 key: "k".into(),
                 title: "T".into(),
@@ -1680,6 +1706,7 @@ mod tests {
             memory: Remembered::default(),
             show_memory: None,
             health: SourceHealth::default(),
+            resolution: VideoResolution::default(),
             dead_urls: HashSet::new(),
             watching: None,
             resolving_since: 0,
@@ -1889,6 +1916,53 @@ mod tests {
     }
 
     #[test]
+    fn links_follow_the_resolution_within_each_standing() {
+        let addon = || {
+            vec![Group::finished(
+                "a".into(),
+                "Addon".into(),
+                vec![
+                    link("Addon 720p", Some("web-720")),
+                    link("Addon 4k", Some("web-4k")),
+                    link("Addon", None),
+                    link("Addon 1080p", Some("web-1080")),
+                    link("Addon 2160p S01E05", None),
+                ],
+                None,
+            )]
+        };
+        let health = SourceHealth::default();
+        let order = |memory: &Remembered, resolution| {
+            let mut groups = addon();
+            groups[0].links[4].mismatch = true;
+            order_groups(&mut groups, &Ranking::new(memory, &health, resolution, NOW));
+            groups[0]
+                .links
+                .iter()
+                .map(|link| link.label.clone())
+                .collect::<Vec<_>>()
+        };
+        let nothing = Remembered::default();
+        assert_eq!(
+            order(&nothing, VideoResolution::P1080),
+            [
+                "Addon 1080p",
+                "Addon 720p",
+                "Addon 4k",
+                "Addon",
+                "Addon 2160p S01E05"
+            ]
+        );
+        assert_eq!(order(&nothing, VideoResolution::Highest)[0], "Addon 4k");
+        // The link that played last time stays first; the rest follow the resolution.
+        let memory = worked_memory("Addon", "Addon 720p", Some("web-720"));
+        assert_eq!(
+            order(&memory, VideoResolution::Highest)[..3],
+            ["Addon 720p", "Addon 4k", "Addon 1080p"]
+        );
+    }
+
+    #[test]
     fn the_link_that_played_comes_first_then_its_release_then_what_worked() {
         let mut groups = vec![
             Group::finished("a".into(), "Alpha".into(), vec![link("a1", None)], None),
@@ -1909,7 +1983,10 @@ mod tests {
         let memory = worked_memory("Beta", "Beta 1080p", Some("release"));
         let mut health = SourceHealth::default();
         health.worked("Worked", NOW - 1_000);
-        order_groups(&mut groups, &Ranking::new(&memory, &health, NOW));
+        order_groups(
+            &mut groups,
+            &Ranking::new(&memory, &health, VideoResolution::default(), NOW),
+        );
         assert_eq!(names(&groups), ["Beta", "Charlie", "Worked", "Alpha"]);
         assert_eq!(groups[0].links[0].label, "Beta 1080p", "the very link");
         assert_eq!(groups[1].links[0].label, "c2", "the same bingeGroup");
@@ -1918,16 +1995,20 @@ mod tests {
         let mut fresh = groups.clone();
         let empty = Remembered::default();
         let none = SourceHealth::default();
-        order_groups(&mut fresh, &Ranking::new(&empty, &none, NOW));
+        order_groups(
+            &mut fresh,
+            &Ranking::new(&empty, &none, VideoResolution::default(), NOW),
+        );
         assert_eq!(names(&fresh), names(&groups));
     }
 
     #[test]
-    fn the_same_quality_on_the_server_that_played_comes_next_across_episodes() {
-        // The next episode's links have other labels; 1080p on the same server is next best.
-        let memory = worked_memory("Vidstream", "1080p · Episode 3", None);
+    fn the_server_that_played_comes_next_across_episodes_at_the_preferred_resolution() {
+        // The next episode's links have other labels: the server that played comes first, its
+        // links by the preferred resolution (1080p unless changed).
+        let memory = worked_memory("Vidstream", "720p · Episode 3", None);
         let health = SourceHealth::default();
-        let ranking = Ranking::new(&memory, &health, NOW);
+        let ranking = Ranking::new(&memory, &health, VideoResolution::default(), NOW);
         let mut groups = vec![
             Group::finished("o".into(), "Other".into(), vec![link("1080p", None)], None),
             Group::finished(
@@ -1945,12 +2026,11 @@ mod tests {
         assert_eq!(groups[0].links[0].label, "1080p · Episode 4");
         assert_eq!(
             ranking.link_standing("Vidstream", "1080p · Episode 4", None),
-            Standing::SameRelease
-        );
-        assert_eq!(
-            ranking.link_standing("Vidstream", "720p · Episode 4", None),
             Standing::Worked
         );
+        let capped = Ranking::new(&memory, &health, VideoResolution::P720, NOW);
+        order_groups(&mut groups, &capped);
+        assert_eq!(groups[0].links[0].label, "720p · Episode 4");
     }
 
     #[test]
@@ -1963,12 +2043,18 @@ mod tests {
             Group::finished("b".into(), "Beta".into(), vec![link("b1", None)], None),
             Group::finished("a".into(), "Alpha".into(), vec![link("a1", None)], None),
         ];
-        order_groups(&mut groups, &Ranking::new(&memory, &health, NOW));
+        order_groups(
+            &mut groups,
+            &Ranking::new(&memory, &health, VideoResolution::default(), NOW),
+        );
         assert_eq!(names(&groups), ["Alpha", "Beta"]);
 
         // Working again clears it.
         health.worked("Beta", NOW);
-        order_groups(&mut groups, &Ranking::new(&memory, &health, NOW));
+        order_groups(
+            &mut groups,
+            &Ranking::new(&memory, &health, VideoResolution::default(), NOW),
+        );
         assert_eq!(names(&groups), ["Beta", "Alpha"]);
     }
 
@@ -1977,14 +2063,19 @@ mod tests {
         let mut memory = worked_memory("Alpha", "a1", None);
         memory.failed("Alpha", &link("a1", None), NOW);
         let health = SourceHealth::default();
-        let ranking = Ranking::new(&memory, &health, NOW);
+        let ranking = Ranking::new(&memory, &health, VideoResolution::default(), NOW);
         assert_eq!(
             ranking.link_standing("Alpha", "a1", None),
             Standing::Failing
         );
         assert_eq!(ranking.link_standing("Alpha", "a2", None), Standing::Worked);
         // Forgotten after three days.
-        let later = Ranking::new(&memory, &health, NOW + memory::FAILING_FOR_MS);
+        let later = Ranking::new(
+            &memory,
+            &health,
+            VideoResolution::default(),
+            NOW + memory::FAILING_FOR_MS,
+        );
         assert_eq!(
             later.link_standing("Alpha", "a1", None),
             Standing::LastPlayed
@@ -2029,7 +2120,7 @@ mod tests {
         assert_eq!(health.sources["New"].failed, 5);
         let memory: Remembered = serde_json::from_str(r#"{"group":"Beta","tag":null}"#).unwrap();
         assert_eq!(memory.group, "Beta");
-        let ranking = Ranking::new(&memory, &health, NOW);
+        let ranking = Ranking::new(&memory, &health, VideoResolution::default(), NOW);
         assert!(!ranking.played_last("Beta"), "only loaded, never confirmed");
         assert_eq!(ranking.group_standing("Beta"), Standing::LastPlayed);
     }
@@ -2121,7 +2212,7 @@ mod tests {
         let memory = worked_memory("Beta", "Beta 1080p", None);
         let mut health = SourceHealth::default();
         health.failed("Gamma", NOW - 1_000);
-        let ranking = Ranking::new(&memory, &health, NOW);
+        let ranking = Ranking::new(&memory, &health, VideoResolution::default(), NOW);
         let candidate = |name: &str, labels: &[&str]| SourceCandidate {
             name: name.into(),
             links: labels

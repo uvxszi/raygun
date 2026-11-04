@@ -725,7 +725,7 @@ class VideoPlayerActivity : AppCompatActivity() {
             launchExternal(request, startMs, only = true)
             return
         }
-        tracks.reset(languages)
+        tracks.reset(languages, prefs.maxHeight)
         player.setMediaSource(buildSource(request), startMs)
         player.prepare()
         player.playWhenReady = true

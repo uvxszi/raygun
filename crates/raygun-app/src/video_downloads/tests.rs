@@ -109,7 +109,7 @@ fn job<'a>(
         client,
         dir,
         headers,
-        preferred: Some(720),
+        preferred: raygun_model::VideoResolution::P720,
         stopped,
         progress,
     }

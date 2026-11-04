@@ -6,8 +6,8 @@ use raygun_db::titles::{self, TitleRow, UnitRow};
 use raygun_db::video::{self as progress_store, VideoEntry, VideoProgress};
 use raygun_ext_host::video::{VIDEO_SOURCE, VideoLink};
 use raygun_model::{
-    AnimeEpisode, VideoEpisodeView, VideoLinkView, VideoRequest, VideoServerView, VideoSourcePlay,
-    VideoSubtitle, VideoTitleView,
+    AnimeEpisode, VideoEpisodeView, VideoLinkView, VideoRequest, VideoResolution, VideoServerView,
+    VideoSourcePlay, VideoSubtitle, VideoTitleView,
 };
 use raygun_net::ImageLinks;
 use raygun_resolver::video_match;
@@ -287,15 +287,15 @@ impl VideoSourceService {
         Ok(vec![VideoServerView {
             id: "local".into(),
             name: "This device".into(),
-            links: Some(link_views(vec![video], None)),
+            links: Some(link_views(vec![video], VideoResolution::default())),
         }])
     }
 
-    async fn preferred_quality(&self) -> Option<u32> {
+    async fn preferred_quality(&self) -> VideoResolution {
         crate::settings::load(&self.catalog.db())
             .await
-            .ok()
-            .and_then(|settings| settings.preferred_video_quality)
+            .map(|settings| settings.video_player.preferred_resolution)
+            .unwrap_or_default()
     }
 }
 
@@ -461,7 +461,7 @@ fn episode_view(
     }
 }
 
-fn link_views(mut videos: Vec<VideoLink>, preferred: Option<u32>) -> Vec<VideoLinkView> {
+fn link_views(mut videos: Vec<VideoLink>, preferred: VideoResolution) -> Vec<VideoLinkView> {
     order_links(&mut videos, preferred);
     videos
         .into_iter()
@@ -488,16 +488,18 @@ fn link_views(mut videos: Vec<VideoLink>, preferred: Option<u32>) -> Vec<VideoLi
         .collect()
 }
 
-/// Orders links by the preferred height: at or below it, closest first; then above it, lowest
-/// first; unknown heights last. With no preference, the highest first. Ties keep the source's
-/// order.
-pub fn order_links(videos: &mut [VideoLink], preferred: Option<u32>) {
-    videos.sort_by_key(|video| match (video.quality, preferred) {
-        (None, _) => (2, 0),
-        (Some(height), None) => (0, u32::MAX - height),
-        (Some(height), Some(limit)) if height <= limit => (0, limit - height),
-        (Some(height), Some(limit)) => (1, height - limit),
-    });
+/// Orders links by the preferred resolution (`video_quality::rank`), first reading the heights
+/// that sources only put in their labels ("FHD", "720"). Ties keep the source's order.
+pub fn order_links(videos: &mut [VideoLink], preferred: VideoResolution) {
+    for video in videos.iter_mut() {
+        if video.quality.is_none() {
+            video.quality = video
+                .label
+                .as_deref()
+                .and_then(crate::video_quality::label_height);
+        }
+    }
+    videos.sort_by_key(|video| crate::video_quality::rank(video.quality, preferred));
 }
 
 #[cfg(test)]
@@ -537,19 +539,42 @@ mod tests {
             ]
         };
         let mut highest = all();
-        order_links(&mut highest, None);
+        order_links(&mut highest, VideoResolution::Highest);
         assert_eq!(labels(&highest), ["1080", "720", "480", "360", "auto"]);
 
         let mut capped = all();
-        order_links(&mut capped, Some(720));
+        order_links(&mut capped, VideoResolution::P720);
         assert_eq!(labels(&capped), ["720", "480", "360", "1080", "auto"]);
 
-        let mut low = all();
-        order_links(&mut low, Some(240));
+        let mut default = all();
+        order_links(&mut default, VideoResolution::default());
+        assert_eq!(labels(&default), ["1080", "720", "480", "360", "auto"]);
+
+        let mut low = vec![link(Some(1080), "1080"), link(Some(720), "720")];
+        order_links(&mut low, VideoResolution::P360);
         assert_eq!(
             labels(&low),
-            ["360", "480", "720", "1080", "auto"],
+            ["720", "1080"],
             "nothing small enough: the smallest above it"
         );
+    }
+
+    #[test]
+    fn heights_only_in_labels_count() {
+        let mut videos = vec![
+            link(None, "SD"),
+            link(None, "Server · FHD"),
+            link(None, "4K"),
+            link(None, "Default"),
+            link(None, "HD"),
+        ];
+        order_links(&mut videos, VideoResolution::P1080);
+        assert_eq!(
+            labels(&videos),
+            ["Server · FHD", "HD", "SD", "4K", "Default"]
+        );
+        assert_eq!(videos[0].quality, Some(1080));
+        order_links(&mut videos, VideoResolution::Highest);
+        assert_eq!(labels(&videos)[0], "4K");
     }
 }
