@@ -1914,6 +1914,29 @@ pub async fn cover_save(
     crate::export::covers::save(&app, &url, &title, format, destination).await
 }
 
+/// Links to the larger versions of a cover, poster or backdrop that its host serves, largest
+/// first, the cover itself last: the cover viewer shows the first that loads.
+#[tauri::command]
+#[specta::specta]
+pub fn cover_versions(app: tauri::AppHandle, url: String) -> Vec<String> {
+    crate::export::covers::shown_versions(&app, &url)
+}
+
+/// Opens the share sheet for a cover at its largest size (desktop: saves it to Pictures and shows
+/// it in its folder).
+#[tauri::command]
+#[specta::specta]
+pub async fn cover_share(app: tauri::AppHandle, url: String, title: String) -> Result<(), String> {
+    crate::export::covers::share(&app, &url, &title, false).await
+}
+
+/// Puts a cover at its largest size on the clipboard.
+#[tauri::command]
+#[specta::specta]
+pub async fn cover_copy(app: tauri::AppHandle, url: String, title: String) -> Result<(), String> {
+    crate::export::covers::share(&app, &url, &title, true).await
+}
+
 /// Song lengths Raygun knows for `tracks`, in their order; the rest are looked up in the
 /// background and arrive as `TrackDurationsEvent`s (M46.26).
 #[tauri::command]

@@ -59,7 +59,11 @@ export type CardTitle = {
 };
 
 /** What a card adds to the menu: Select (inside a selection scope), Add to a group. */
-export type TitleMenuOptions = CardMenuOptions & { select?: MenuItem; addToGroup?: MenuItem };
+export type TitleMenuOptions = CardMenuOptions & {
+  select?: MenuItem;
+  addToGroup?: MenuItem;
+  viewCover?: MenuItem;
+};
 
 /** At most this many episodes are looked up and queued by one Download all. */
 const MAX_EPISODES = 200;
@@ -379,6 +383,7 @@ export const useTitleCardMenu = () => {
               onSelect: () => setInLibrary(true),
             },
         options.addToGroup,
+        options.viewCover,
         (inLibrary || !stremio || !stremioParts(card.id).kind.includes('series')) && {
           label: t(video ? 'menu.markWatched' : 'menu.markRead'),
           icon: CheckCheck,

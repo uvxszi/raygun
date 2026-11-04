@@ -1,9 +1,10 @@
 import { Link } from '@tanstack/react-router';
-import { CheckSquare, FolderPlus } from 'lucide-react';
+import { CheckSquare, FolderPlus, ImageIcon } from 'lucide-react';
 import { useState } from 'react';
 import type { FC, MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useCoverSheetStore } from '../music/coverSheetStore';
 import { useSettings } from '../settings/useSettings';
 import { openContextMenu } from '../shell/contextMenuStore';
 import { MenuButton } from '../shell/MenuButton';
@@ -91,6 +92,18 @@ export const MangaGrid: FC<{
                     label: t('search.select.pick', { title: item.title }),
                     icon: CheckSquare,
                     onSelect: () => useSelectionStore.getState().toggle(pickOf(item)),
+                  },
+                }
+              : {}),
+            ...(item.coverUrl
+              ? {
+                  viewCover: {
+                    label: t('cover.view'),
+                    icon: ImageIcon,
+                    onSelect: () =>
+                      useCoverSheetStore
+                        .getState()
+                        .open({ url: item.coverUrl as string, title: item.title }),
                   },
                 }
               : {}),

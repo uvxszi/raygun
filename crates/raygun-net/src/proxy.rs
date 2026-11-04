@@ -263,6 +263,11 @@ impl ImageLinks {
     /// The source address behind one of this proxy's image or cover links; other URLs as they
     /// are. Stored posters must outlive the app, and a proxy link doesn't.
     pub fn original(&self, url: &str) -> String {
+        self.source(url).0
+    }
+
+    /// Like [`Self::original`], with the headers the image is fetched with (a source's Referer).
+    pub fn source(&self, url: &str) -> (String, BTreeMap<String, String>) {
         let token = url
             .strip_prefix(&format!("http://{}/", self.address))
             .and_then(|rest| {
@@ -276,9 +281,9 @@ impl ImageLinks {
                     .expect("image registry poisoned")
                     .images
                     .get(token)
-                    .map(|(source, _)| source.clone())
+                    .cloned()
             })
-            .unwrap_or_else(|| url.to_owned())
+            .unwrap_or_else(|| (url.to_owned(), BTreeMap::new()))
     }
 
     /// Whether `url` is a remote address this proxy can cache (not already one of its own).

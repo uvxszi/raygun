@@ -392,6 +392,18 @@ export const commands = {
 	 *  PNG, JPEG or WebP; returns where it went (M46.26).
 	 */
 	coverSave: (url: string, title: string, format: ImageFileFormat, destination: ImageDestination) => typedError<string, string>(__TAURI_INVOKE("cover_save", { url, title, format, destination })),
+	/**
+	 *  Links to the larger versions of a cover, poster or backdrop that its host serves, largest
+	 *  first, the cover itself last: the cover viewer shows the first that loads.
+	 */
+	coverVersions: (url: string) => __TAURI_INVOKE<string[]>("cover_versions", { url }),
+	/**
+	 *  Opens the share sheet for a cover at its largest size (desktop: saves it to Pictures and shows
+	 *  it in its folder).
+	 */
+	coverShare: (url: string, title: string) => typedError<null, string>(__TAURI_INVOKE("cover_share", { url, title })),
+	/**  Puts a cover at its largest size on the clipboard. */
+	coverCopy: (url: string, title: string) => typedError<null, string>(__TAURI_INVOKE("cover_copy", { url, title })),
 	/**  The user's own details for a song, an album or an artist (M46.30). */
 	detailEdit: (target: DetailTarget) => typedError<DetailEdit, string>(__TAURI_INVOKE("detail_edit", { target })),
 	/**  Saves the user's details for a song, an album or an artist; an empty edit resets them. */
