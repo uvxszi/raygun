@@ -3,6 +3,7 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { TextField } from '../shell/TextField';
 import { useSetExtensionSetting } from './useExtensions';
 
 type FieldProps = {
@@ -11,7 +12,7 @@ type FieldProps = {
 };
 
 /** Text and numbers save when the field is left (or Enter is pressed), not on every keystroke. */
-const TextField: FC<FieldProps> = ({ setting, onSave }) => {
+const TextSetting: FC<FieldProps> = ({ setting, onSave }) => {
   const current = setting.value === null ? '' : String(setting.value);
   const [draft, setDraft] = useState(current);
   const commit = () => {
@@ -25,19 +26,20 @@ const TextField: FC<FieldProps> = ({ setting, onSave }) => {
     }
   };
   return (
-    <input
+    <TextField
       id={`setting-${setting.key}`}
       type={setting.kind === 'number' ? 'number' : 'text'}
       inputMode={setting.kind === 'number' ? 'decimal' : 'text'}
       autoCapitalize="off"
       autoCorrect="off"
       value={draft}
-      onChange={(event) => setDraft(event.target.value)}
+      onChange={setDraft}
       onBlur={commit}
       onKeyDown={(event) => {
         if (event.key === 'Enter') event.currentTarget.blur();
       }}
-      className="bg-background w-full rounded-lg px-3 py-2 outline-none"
+      className="bg-background w-full rounded-lg pr-1 pl-3"
+      inputClassName="py-2"
     />
   );
 };
@@ -78,7 +80,7 @@ const Field: FC<FieldProps> = ({ setting, onSave }) => {
       );
     default:
       // Re-mount when the stored value changes so the draft follows it.
-      return <TextField key={String(setting.value)} setting={setting} onSave={onSave} />;
+      return <TextSetting key={String(setting.value)} setting={setting} onSave={onSave} />;
   }
 };
 

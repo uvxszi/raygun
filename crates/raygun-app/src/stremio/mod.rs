@@ -144,6 +144,9 @@ pub(crate) async fn at_most<T, F: Future<Output = T>>(
     .await
 }
 
+/// A manifest read from storage: the addon's address, when it was fetched, and what it says.
+type StoredManifest = (String, Option<i64>, Manifest);
+
 pub struct StremioService {
     app: AppHandle,
     client: reqwest::Client,
@@ -160,7 +163,7 @@ pub struct StremioService {
     refreshing: Mutex<HashSet<String>>,
     /// Manifests read from storage, by addon: its address and when it was fetched, and what it
     /// says (each request would otherwise read every manifest again).
-    manifests: Mutex<HashMap<String, (String, Option<i64>, Manifest)>>,
+    manifests: Mutex<HashMap<String, StoredManifest>>,
     /// Addons whose manifest couldn't be fetched lately: when, and why.
     unreachable: Mutex<HashMap<String, (i64, String)>>,
 }

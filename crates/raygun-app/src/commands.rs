@@ -451,6 +451,17 @@ pub async fn extension_repo_add(
     extensions.add_repo(&url).await
 }
 
+/// What a repository holds, read from its index without adding it (the repository's `id` is
+/// empty).
+#[tauri::command]
+#[specta::specta]
+pub async fn extension_repo_preview(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    url: String,
+) -> Result<RepoCatalog, String> {
+    extensions.preview_repo(&url).await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn extension_repo_remove(
@@ -616,30 +627,37 @@ pub async fn song_edit_set(
 const SEARCH_LIBRARY_LIMIT: u32 = 8;
 
 /// Searches the local library and every online music provider at once. Each provider answers
-/// with tracks or an error; songs several providers found are merged into `top`.
+/// with tracks or an error; songs several providers found are merged into `top`. Each answer is
+/// also sent as a [`crate::events::SearchProgressEvent`] as it comes, in the order they came.
 #[tauri::command]
 #[specta::specta]
 pub async fn online_search(
+    app: tauri::AppHandle,
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     library: tauri::State<'_, LibraryService>,
     durations: tauri::State<'_, Arc<crate::durations::DurationService>>,
     query: String,
 ) -> Result<SearchResults, String> {
-    // M46.48: the answer doesn't wait on the slowest sources; asking again brings their songs.
-    let (local, (providers, pending)) = futures_util::future::join(
-        library.search(&query, SEARCH_LIBRARY_LIMIT),
-        extensions.search_now(&query),
-    )
-    .await;
+    let trimmed = query.trim();
+    let details = tauri::Manager::state::<Arc<crate::details::DetailService>>(&app);
+    let songs = extensions.search_as_answered(trimmed, |result, total| {
+        // Lengths the sources sent are kept for lists that lack them (M46.26).
+        durations.learn_tracks(&result.tracks);
+        let mut result = result.clone();
+        details.apply_online(&mut result.tracks);
+        report_progress(
+            &app,
+            trimmed,
+            total,
+            raygun_model::SearchPart::Songs { result },
+        );
+    });
+    let (local, providers) =
+        futures_util::future::join(library.search(&query, SEARCH_LIBRARY_LIMIT), songs).await;
     let library = local.unwrap_or_else(|message| {
         tracing::warn!(%message, "library search failed");
         Vec::new()
     });
-    // Lengths the sources sent are kept for lists that lack them (M46.26).
-    for result in &providers {
-        durations.learn_tracks(&result.tracks);
-    }
-    let details = tauri::Manager::state::<Arc<crate::details::DetailService>>(durations.app());
     let mut providers = providers;
     for result in &mut providers {
         details.apply_online(&mut result.tracks);
@@ -648,31 +666,114 @@ pub async fn online_search(
         library,
         top: crate::search::merge_top(&providers),
         providers,
-        pending,
     })
+}
+
+/// Tells Search what one source answered while the others are still asked.
+fn report_progress(
+    app: &tauri::AppHandle,
+    query: &str,
+    total: usize,
+    part: raygun_model::SearchPart,
+) {
+    use tauri_specta::Event;
+    let progress = raygun_model::SearchProgress {
+        query: query.to_owned(),
+        total: u32::try_from(total).unwrap_or(u32::MAX),
+        part,
+    };
+    if let Err(error) = crate::events::SearchProgressEvent(progress).emit(app) {
+        tracing::warn!(%error, "could not send a search's progress");
+    }
+}
+
+/// Searches kept on this device, newest first.
+#[tauri::command]
+#[specta::specta]
+pub async fn search_recent(
+    db: tauri::State<'_, AppDb>,
+) -> Result<Vec<raygun_model::RecentSearch>, String> {
+    crate::recent_searches::list(&db.0).await
+}
+
+/// Remembers a search (`kind` is Search's kind); answers with the searches kept. Nothing is
+/// remembered while incognito is on (M47).
+#[tauri::command]
+#[specta::specta]
+pub async fn search_recent_add(
+    app: tauri::AppHandle,
+    db: tauri::State<'_, AppDb>,
+    query: String,
+    kind: String,
+) -> Result<Vec<raygun_model::RecentSearch>, String> {
+    if crate::privacy::incognito(&app) {
+        return crate::recent_searches::list(&db.0).await;
+    }
+    let now = crate::catalog::now_ms() as f64;
+    crate::recent_searches::add(&db.0, &query, &kind, now).await
+}
+
+/// Forgets one kept search; answers with the searches left.
+#[tauri::command]
+#[specta::specta]
+pub async fn search_recent_remove(
+    db: tauri::State<'_, AppDb>,
+    query: String,
+    kind: String,
+) -> Result<Vec<raygun_model::RecentSearch>, String> {
+    crate::recent_searches::remove(&db.0, &query, &kind).await
+}
+
+/// Forgets every kept search.
+#[tauri::command]
+#[specta::specta]
+pub async fn search_recent_clear(db: tauri::State<'_, AppDb>) -> Result<(), String> {
+    crate::recent_searches::clear(&db.0).await
 }
 
 /// Songs an artist page shows (M46.8).
 const ARTIST_POPULAR_LIMIT: usize = 20;
 
-/// Artists for a search, from every source that searches artists (M46.9).
+/// Artists for a search, from every source that searches artists (M46.9); each source's are also
+/// sent as a [`crate::events::SearchProgressEvent`] as they come.
 #[tauri::command]
 #[specta::specta]
 pub async fn music_search_artists(
+    app: tauri::AppHandle,
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     query: String,
 ) -> Result<Vec<raygun_model::MusicArtist>, String> {
-    Ok(extensions.search_artists(&query).await)
+    let query = query.trim();
+    Ok(extensions
+        .search_artists(query, |provider, artists, total| {
+            let part = raygun_model::SearchPart::Artists {
+                provider: provider.clone(),
+                artists: artists.to_vec(),
+            };
+            report_progress(&app, query, total, part);
+        })
+        .await)
 }
 
-/// Albums for a search, from every source that searches albums (M46.9).
+/// Albums for a search, from every source that searches albums (M46.9); each source's are also
+/// sent as a [`crate::events::SearchProgressEvent`] as they come.
 #[tauri::command]
 #[specta::specta]
 pub async fn music_search_albums(
+    app: tauri::AppHandle,
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     query: String,
 ) -> Result<Vec<raygun_model::MusicAlbum>, String> {
-    Ok(extensions.search_albums(&query).await)
+    let query = query.trim();
+    Ok(extensions
+        .search_albums(query, |provider, albums, total| {
+            let part = raygun_model::SearchPart::Albums {
+                provider: provider.clone(),
+                albums: albums.to_vec(),
+            };
+            report_progress(&app, query, total, part);
+        })
+        .await)
 }
 
 /// Where this device's sound can come out (M46.43). Android lists its outputs; desktop's are the
@@ -786,15 +887,27 @@ pub async fn music_artist_events(
 }
 
 /// Playlists for a search from every source that searches them; `featured` keeps the services'
-/// own (M46.39).
+/// own (M46.39). Each source's are also sent as a [`crate::events::SearchProgressEvent`] as they
+/// come.
 #[tauri::command]
 #[specta::specta]
 pub async fn music_search_playlists(
+    app: tauri::AppHandle,
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     query: String,
     featured: bool,
 ) -> Result<Vec<raygun_model::MusicPlaylist>, String> {
-    Ok(extensions.search_playlists(&query, featured).await)
+    let query = query.trim();
+    Ok(extensions
+        .search_playlists(query, featured, |provider, playlists, total| {
+            let part = raygun_model::SearchPart::Playlists {
+                provider: provider.clone(),
+                featured,
+                playlists: playlists.to_vec(),
+            };
+            report_progress(&app, query, total, part);
+        })
+        .await)
 }
 
 /// A source's playlist with its songs (M46.39).
@@ -1569,6 +1682,31 @@ pub async fn track_assign_source(
     import.assign_source(song, chosen).await
 }
 
+/// A source picked for a song (M46.48): with `choice.assign`, its stream for every saved copy,
+/// the queue and the resolver's remembered pick; the details `choice` ticks become the song's
+/// own (Edit details reverts them).
+#[tauri::command]
+#[specta::specta]
+pub async fn track_use_source(
+    collections: tauri::State<'_, CollectionsService>,
+    song: TrackInput,
+    chosen: raygun_model::OnlineTrack,
+    choice: raygun_model::SourceChoice,
+) -> Result<(), String> {
+    collections.assign_source(song, chosen, choice).await
+}
+
+/// Whether a saved song came in through Import songs, and whether no source had it then
+/// (M46.48: picking a source offers its details by default for those).
+#[tauri::command]
+#[specta::specta]
+pub async fn track_import_status(
+    collections: tauri::State<'_, CollectionsService>,
+    song: TrackInput,
+) -> Result<raygun_model::TrackImportStatus, String> {
+    collections.import_status(&song).await
+}
+
 /// Which saved songs no source had when imported (M46.31).
 #[tauri::command]
 #[specta::specta]
@@ -1590,15 +1728,16 @@ pub async fn import_match(
 }
 
 /// Saves imported songs as a new playlist, into one, or into Favorites; returns the playlist's
-/// id or `favorites` (M46.21, M46.45).
+/// id or `favorites` (M46.21, M46.45). Songs already there stay out unless `add_existing`.
 #[tauri::command]
 #[specta::specta]
 pub async fn import_save(
     import: tauri::State<'_, crate::import::ImportService>,
     target: raygun_model::ImportTarget,
     songs: Vec<raygun_model::MatchedSong>,
+    add_existing: bool,
 ) -> Result<String, String> {
-    import.save(target, songs).await
+    import.save(target, songs, add_existing).await
 }
 
 /// Made for You (M46.20): today's mixes (made in the background when they're from another day,
@@ -2057,6 +2196,16 @@ pub async fn collections_saves(
     collections.saves(track).await
 }
 
+/// Every saved song with the keys it answers to and where it's saved (M46.48): what lists'
+/// saved marks and Save buttons read, matching a shown song with `sameSong`.
+#[tauri::command]
+#[specta::specta]
+pub async fn collections_saved_index(
+    collections: tauri::State<'_, CollectionsService>,
+) -> Result<Vec<raygun_model::SavedSong>, String> {
+    collections.saved_index().await
+}
+
 /// Saves a song exactly where `saves` says (the Add to playlist popover's Done, M46.8).
 #[tauri::command]
 #[specta::specta]
@@ -2148,7 +2297,8 @@ pub async fn playlist_delete(
     collections.delete_playlist(&id).await
 }
 
-/// Appends tracks to the end of a playlist.
+/// Appends tracks to the end of a playlist; songs it already holds stay out unless `duplicates`
+/// (Add anyway, M46.48).
 #[tauri::command]
 #[specta::specta]
 pub async fn playlist_add(
@@ -2156,10 +2306,13 @@ pub async fn playlist_add(
     discovery: tauri::State<'_, Arc<DiscoveryService>>,
     id: String,
     tracks: Vec<TrackInput>,
-) -> Result<(), String> {
-    collections.add_to_playlist(&id, tracks).await?;
-    discovery.nudge();
-    Ok(())
+    duplicates: bool,
+) -> Result<raygun_model::PlaylistAdded, String> {
+    let added = collections.add_to_playlist(&id, tracks, duplicates).await?;
+    if added.added > 0 {
+        discovery.nudge();
+    }
+    Ok(added)
 }
 
 #[tauri::command]

@@ -3,8 +3,7 @@
 //! medium's service wraps a `Catalog` and adds what reading it takes (pages or text).
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 
 use raygun_db::titles::{self, TitleFields, TitleRow, UnitFields, UnitRow};
 use raygun_ext_host::manga::MangaList;
@@ -16,7 +15,6 @@ use raygun_model::{
 };
 use raygun_net::ImageLinks;
 use tauri::{AppHandle, Manager};
-use tokio::sync::Notify;
 
 use crate::extensions::ExtensionService;
 use crate::startup::AppDb;
@@ -31,102 +29,6 @@ pub struct Catalog {
     kind: &'static str,
     /// The provider capability: `manga.source`, `novel.source` or `video.source`.
     capability: &'static str,
-    /// The search running per source, so a newer query stops an older one.
-    searches: RowSearches,
-}
-
-/// The search running per source for a search row (M46.48). A search for another query stops
-/// the one running (the query changed, or the page was left for one that searches the source);
-/// searches for the same query share it.
-#[derive(Default)]
-struct RowSearches(Mutex<HashMap<String, RowSearch>>);
-
-/// A source's search for a row: its query, how many ask it, and how to stop it.
-struct RowSearch {
-    query: String,
-    askers: usize,
-    stop: Arc<Stop>,
-}
-
-/// Stops a search that a newer one replaced.
-#[derive(Default)]
-struct Stop {
-    stopped: AtomicBool,
-    notify: Notify,
-}
-
-/// A search noted as running; dropping it ends the note.
-struct RowGuard<'a> {
-    searches: &'a RowSearches,
-    source_id: &'a str,
-    stop: Arc<Stop>,
-}
-
-impl RowSearches {
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, RowSearch>> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// Notes a search of `source_id` for `query` until the guard drops.
-    fn begin<'a>(&'a self, source_id: &'a str, query: &str) -> RowGuard<'a> {
-        let mut searches = self.lock();
-        if let Some(running) = searches.get_mut(source_id) {
-            if running.query == query {
-                running.askers += 1;
-                return RowGuard {
-                    searches: self,
-                    source_id,
-                    stop: running.stop.clone(),
-                };
-            }
-            running.stop.fire();
-        }
-        let stop = Arc::new(Stop::default());
-        searches.insert(
-            source_id.to_owned(),
-            RowSearch {
-                query: query.to_owned(),
-                askers: 1,
-                stop: stop.clone(),
-            },
-        );
-        RowGuard {
-            searches: self,
-            source_id,
-            stop,
-        }
-    }
-}
-
-impl Drop for RowGuard<'_> {
-    fn drop(&mut self) {
-        let mut searches = self.searches.lock();
-        if let Some(running) = searches.get_mut(self.source_id)
-            && Arc::ptr_eq(&running.stop, &self.stop)
-        {
-            running.askers -= 1;
-            if running.askers == 0 {
-                searches.remove(self.source_id);
-            }
-        }
-    }
-}
-
-impl Stop {
-    fn fire(&self) {
-        self.stopped.store(true, Ordering::SeqCst);
-        self.notify.notify_waiters();
-    }
-
-    async fn stopped(&self) {
-        loop {
-            let notified = self.notify.notified();
-            if self.stopped.load(Ordering::SeqCst) {
-                return;
-            }
-            notified.await;
-        }
-    }
 }
 
 /// A chapter with its neighbours in reading order.
@@ -155,7 +57,6 @@ impl Catalog {
             images,
             kind,
             capability,
-            searches: RowSearches::default(),
         }
     }
 
@@ -307,23 +208,16 @@ impl Catalog {
         Ok(results)
     }
 
-    /// A source's first page for a search row. A newer search of the source for another query
-    /// stops this one (the query changed, or the page was left for one that searches it), and
-    /// with it the source's requests.
+    /// A source's first page for a search row.
     async fn search_row(&self, source_id: &str, query: &str) -> Result<MangaListingPage, String> {
-        let running = self.searches.begin(source_id, query);
         let listing = {
             let extensions = self.extensions();
             let (_ready, host) = extensions.ready().await;
-            tokio::select! {
-                listing = host.catalog_search_row(source_id, query) => {
-                    listing.map_err(|error| error.to_string())
-                }
-                () = running.stop.stopped() => Err("Stopped for a newer search".to_owned()),
-            }
-        };
-        drop(running);
-        self.listing_page(source_id, listing?).await
+            host.catalog_search_row(source_id, query)
+                .await
+                .map_err(|error| error.to_string())
+        }?;
+        self.listing_page(source_id, listing).await
     }
 
     /// A stored title, fetched first when `refresh` is set or it never was; fetching stores it,
@@ -1103,40 +997,6 @@ mod tests {
         let done = chapter_info(&unit("c", Some(1.0), 0, Some(19), true), &none);
         assert_eq!((done.read, done.last_page), (true, None));
         assert_eq!(done.download, None);
-    }
-
-    #[tokio::test]
-    async fn a_newer_search_of_a_source_stops_the_older_one() {
-        let searches = RowSearches::default();
-        let first = searches.begin("src", "frie");
-        let same = searches.begin("src", "frie");
-        assert!(
-            Arc::ptr_eq(&first.stop, &same.stop),
-            "one query, one search"
-        );
-        let elsewhere = searches.begin("other", "frie");
-        let newer = searches.begin("src", "frieren");
-        // The older search hears it at once; the other source's and the newer one go on.
-        tokio::time::timeout(std::time::Duration::from_secs(1), first.stop.stopped())
-            .await
-            .expect("stopped");
-        assert!(!elsewhere.stop.stopped.load(Ordering::SeqCst));
-        assert!(!newer.stop.stopped.load(Ordering::SeqCst));
-        // The older ones ending leaves the newer one noted; it ending clears the source.
-        drop((first, same));
-        assert_eq!(searches.lock()["src"].query, "frieren");
-        drop(newer);
-        assert!(!searches.lock().contains_key("src"));
-        drop(elsewhere);
-        assert!(searches.lock().is_empty());
-    }
-
-    #[test]
-    fn category_names_are_compared_without_case() {
-        assert!(same_name("Reading", " reading "));
-        assert!(!same_name("Reading", "Read"));
-        assert_eq!(category_name("  Later ").unwrap(), "Later");
-        assert!(category_name("   ").is_err());
     }
 
     #[test]

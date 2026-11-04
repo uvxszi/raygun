@@ -119,13 +119,6 @@ export const readIssue = (raw: string, t: TFunction, source?: string | null): Is
   return { summary, details: text, kind };
 };
 
-/**
- * Whether a search was stopped for a newer one (M46.48: the query changed): nothing went wrong
- * with the source.
- */
-export const isStopped = (error: unknown) =>
-  /^Stopped\b/.test(error instanceof Error ? error.message : String(error ?? ''));
-
 /** The sentence to show for an error, its details left out (for places with room for one line). */
 export const issueSummary = (raw: string, t: TFunction, source?: string | null) =>
   readIssue(raw, t, source).summary;

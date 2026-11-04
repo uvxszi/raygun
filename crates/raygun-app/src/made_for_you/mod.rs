@@ -267,7 +267,9 @@ impl MadeForYouService {
                 source: track.source,
             })
             .collect();
-        collections.add_to_playlist(&playlist.id, tracks).await?;
+        collections
+            .add_to_playlist(&playlist.id, tracks, false)
+            .await?;
         Ok(playlist.id)
     }
 

@@ -1,16 +1,21 @@
 import type { MangaCard, MangaSource, SourceSearchResult } from '@raygun/bindings';
 import { useQueries } from '@tanstack/react-query';
-import { ChevronRight, LoaderCircle, Search, SlidersHorizontal } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import type { UseQueryResult } from '@tanstack/react-query';
+import { ChevronRight, LoaderCircle, SlidersHorizontal } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { COVER_GRID_CLASS, coverGridStyle } from '../manga/coverGrid';
 import { MangaGrid } from '../manga/MangaGrid';
 import type { Medium } from '../manga/medium';
-import { useMangaSources } from '../manga/useManga';
+import { useMangaLibrary, useMangaSources } from '../manga/useManga';
 import { ROUTES } from '../manga/medium';
+import { ListSearchField } from '../shell/ListSearchField';
+import { matchesSearch } from '../shell/useListSearch';
 import { useInView } from '../shell/useInView';
+import { FailedSources } from './FailedSources';
+import { NoSources } from './NoSources';
 import { SourceMenu } from './SourceMenu';
 import { SourceFiltersPanel } from './SourceFiltersPanel';
 import { rankResults } from './rankResults';
@@ -25,7 +30,6 @@ import {
 } from './useCatalogSearch';
 import type { FilterValues } from './useCatalogSearch';
 import { LoadMore } from '../shell/LoadMore';
-import { isStopped } from '../lib/issue';
 import { useSettings } from '../settings/useSettings';
 import { SourceIssue } from '../shell/SourceIssue';
 
@@ -152,16 +156,19 @@ const useHealthReport = (
 ) => {
   const { failed, worked } = useSourceHealth();
   useEffect(() => {
-    // A search stopped for a newer one says nothing about the source.
-    if (isStopped(error) || isStopped(data?.error)) return;
     if (error || data?.error) failed(id);
     else if (data) worked(id);
   }, [id, error, data, failed, worked]);
 };
 
+/** Titles a ranked list draws at first, and how many more each "Show more" adds. */
+const RANKED_PAGE = 48;
+
 /**
  * Every searched source's results in one list (M46.9), the best answers first, each with its
- * source's name. Sources answer a few at a time; the list grows as they do.
+ * source's name. Sources answer a few at a time; the list grows as they do, and draws a page of
+ * covers at a time however many sources answer. Sources that couldn't search are named once,
+ * quietly, at the end.
  */
 export const RankedResults: FC<{
   sources: MangaSource[];
@@ -172,16 +179,41 @@ export const RankedResults: FC<{
 }> = ({ sources, medium, query, limit }) => {
   const { t } = useTranslation();
   const { failed, worked } = useSourceHealth();
+  const [shownCount, setShownCount] = useState(RANKED_PAGE);
+  const ids = sources.map((source) => source.id).join('\n');
+  // Only what the list needs from each search, worked out again only when an answer comes.
+  const combine = useCallback(
+    (answers: UseQueryResult<SourceSearchResult | null>[]) => {
+      const order = ids.split('\n');
+      return {
+        results: answers
+          .map((search) => search.data)
+          .filter((result): result is SourceSearchResult => Boolean(result)),
+        answered: answers.filter((search) => search.isSuccess || search.isError).length,
+        errorKey: answers
+          .map((search, index) => `${order[index]}:${search.status}:${search.data?.error ?? ''}`)
+          .join('|'),
+        failedIds: answers
+          .map((search, index) =>
+            search.isError || search.data?.error ? (order[index] ?? null) : null,
+          )
+          .filter((id): id is string => id !== null),
+      };
+    },
+    [ids],
+  );
   const searches = useQueries({
     queries: sources.map((source) => sourceSearchOptions(medium, source.id, query)),
+    combine,
   });
-  const answered = searches.filter((search) => search.isSuccess || search.isError).length;
-  const results = searches
-    .map((search) => search.data)
-    .filter((result): result is SourceSearchResult => Boolean(result));
-  const answers = rankResults(
-    results.filter((result) => !result.error),
-    query,
+  const { results, answered, errorKey } = searches;
+  const answers = useMemo(
+    () =>
+      rankResults(
+        results.filter((result) => !result.error),
+        query,
+      ),
+    [results, query],
   );
   // Titles already seen (Home, sources' pages, the library) show until every source has
   // answered (M46.47), after the answers that came.
@@ -203,20 +235,18 @@ export const RankedResults: FC<{
             .map((card) => ({ card, sourceName: named.get(card.sourceId) ?? '' })),
         ]
       : answers;
-  const errors = results.filter((result) => result.error);
-  const errorKey = searches
-    .map((search, index) => `${sources[index]?.id}:${search.status}:${search.data?.error ?? ''}`)
-    .join('|');
+  const failures = results
+    .filter((result) => result.error)
+    .map((result) => ({ name: result.source.name, error: result.error ?? '' }));
   useEffect(() => {
-    searches.forEach((search, index) => {
-      const id = sources[index]?.id;
-      if (!id || isStopped(search.error) || isStopped(search.data?.error)) return;
-      if (search.isError || search.data?.error) failed(id);
-      else if (search.isSuccess) worked(id);
-    });
+    for (const id of searches.failedIds) failed(id);
+    for (const result of results) {
+      if (!result.error) worked(result.source.id);
+    }
     // Reported once per change of the sources' answers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [errorKey]);
+  const cap = limit ?? shownCount;
   return (
     <div data-testid="ranked-results" className="flex flex-col gap-3">
       {answered < sources.length && (
@@ -233,21 +263,65 @@ export const RankedResults: FC<{
       {ranked.length > 0 && (
         <MangaGrid
           medium={medium}
-          items={ranked.slice(0, limit ?? ranked.length).map(({ card, sourceName }) => ({
+          items={ranked.slice(0, cap).map(({ card, sourceName }) => ({
             ...toGridItems([card])[0]!,
             subtitle: sourceName,
           }))}
         />
       )}
-      {/* A quiet mark: what each one met shows in All sources. */}
-      {errors.length > 0 && (
-        <p className="text-muted text-xs wrap-anywhere">
-          {t('search.someFailed', {
-            sources: errors.map((result) => result.source.name).join(', '),
-          })}
-        </p>
+      {limit === undefined && ranked.length > cap && (
+        <button
+          type="button"
+          onClick={() => setShownCount(cap + RANKED_PAGE)}
+          className="bg-surface self-center rounded-full px-5 py-2 text-sm"
+        >
+          {t('search.showMore', { count: Math.min(RANKED_PAGE, ranked.length - cap) })}
+        </button>
       )}
+      <FailedSources failed={failures} />
     </div>
+  );
+};
+
+/** Titles in the library that match, before the sources' answers (Relevant). */
+const InYourLibrary: FC<{ medium: Medium; query: string; onMore: () => void }> = ({
+  medium,
+  query,
+  onMore,
+}) => {
+  const { t } = useTranslation();
+  const library = useMangaLibrary(medium);
+  const wanted = query.trim();
+  const matches = wanted
+    ? (library.data ?? []).filter((entry) => matchesSearch(wanted, [entry.title]))
+    : [];
+  if (matches.length === 0) return null;
+  return (
+    <section aria-label={t('search.inYourLibrary')} className="flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <h3 className="text-muted text-sm font-medium">{t('search.inYourLibrary')}</h3>
+        {matches.length > 6 && (
+          <button
+            type="button"
+            onClick={onMore}
+            className="text-primary flex items-center gap-0.5 text-sm"
+          >
+            {t('search.seeAll')}
+            <ChevronRight aria-hidden size={16} />
+          </button>
+        )}
+      </div>
+      <MangaGrid
+        medium={medium}
+        items={matches.slice(0, 6).map((entry) => ({
+          sourceId: entry.sourceId,
+          id: entry.remoteId,
+          title: entry.title,
+          coverUrl: entry.coverUrl,
+          unread: entry.unread,
+        }))}
+      />
+    </section>
   );
 };
 
@@ -312,7 +386,9 @@ const SourceSearch: FC<{
         <SourceFiltersPanel filters={filters.data} values={values} onChange={setValues} />
       )}
       {!query.trim() && active === 0 && <h2 className="font-semibold">{t('search.popular')}</h2>}
-      {search.error && <SourceIssue>{search.error.message}</SourceIssue>}
+      {search.error && (
+        <SourceIssue onRetry={() => void search.refetch()}>{search.error.message}</SourceIssue>
+      )}
       {search.isFetching && items.length === 0 && (
         <LoaderCircle aria-label={t('search.searching')} className="text-muted animate-spin" />
       )}
@@ -348,8 +424,9 @@ const readChosen = (medium: Medium): string[] => {
 };
 
 /**
- * Search → Manga, Novels or Videos: sources picked with chips (several at once; none is every
+ * Search → Comics, Books or Videos: sources picked with chips (several at once; none is every
  * source). Several sources search together; one source searches with its filters and tags.
+ * Relevant also leads with what's already in the library.
  */
 export const CatalogSearch: FC<{
   medium: Medium;
@@ -358,7 +435,9 @@ export const CatalogSearch: FC<{
   only?: string;
   /** Sources with their own pill (YouTube, PeerTube…) among the chips too (M46.40). */
   withPills?: boolean;
-}> = ({ medium, query, only, withPills = false }) => {
+  /** Where Relevant's "In your library" leads. */
+  onLibrary?: () => void;
+}> = ({ medium, query, only, withPills = false, onLibrary }) => {
   const { t } = useTranslation();
   const listed = useMangaSources(medium);
   // A source with its own pill searches there, not among the rest (M46.35).
@@ -408,39 +487,31 @@ export const CatalogSearch: FC<{
     failingAtEnd,
   );
   // Finding a source by name shows every match; otherwise the list folds after a dozen.
-  const needle = finding.trim().toLowerCase();
+  const needle = finding.trim();
   const shown = needle
-    ? all.filter(
-        (source) => source.name.toLowerCase().includes(needle) || picked.includes(source.id),
-      )
+    ? all.filter((source) => matchesSearch(needle, [source.name]) || picked.includes(source.id))
     : unfolded || all.length <= FOLDED_CHIPS
       ? all
       : all.filter((source, index) => index < FOLDED_CHIPS || picked.includes(source.id));
+  const relevant = picked.length === 0 && !grouped;
 
   return (
     <div data-testid={`${medium}-search`} className="flex flex-col gap-4">
-      {sources.data?.length === 0 && (
-        <p className="text-muted text-sm">{t('search.noCatalogSources')}</p>
-      )}
+      {sources.data?.length === 0 && <NoSources label={t('search.noCatalogSources')} />}
       {all.length > 0 && !only && (
         <div role="group" aria-label={t('search.sources')} className="flex flex-wrap gap-2">
           {all.length > FOLDED_CHIPS && (
-            <label className="bg-surface flex items-center gap-2 rounded-full px-3 py-1.5">
-              <Search aria-hidden size={14} className="text-muted" />
-              <input
-                type="search"
-                value={finding}
-                onChange={(event) => setFinding(event.target.value)}
-                placeholder={t('search.findSource')}
-                aria-label={t('search.findSource')}
-                className="placeholder:text-muted w-32 bg-transparent text-sm outline-none"
-              />
-            </label>
+            <ListSearchField
+              value={finding}
+              onChange={setFinding}
+              label={t('search.findSource')}
+              className="w-44"
+            />
           )}
           {/* Relevant (M46.35): every source's answers ranked as one list; the default. */}
           <SourceChip
             label={t('search.relevant')}
-            pressed={picked.length === 0 && !grouped}
+            pressed={relevant}
             onClick={() => {
               setChosen([]);
               setGrouped(false);
@@ -475,6 +546,9 @@ export const CatalogSearch: FC<{
             </button>
           )}
         </div>
+      )}
+      {relevant && !only && medium !== 'video' && onLibrary && (
+        <InYourLibrary medium={medium} query={query} onMore={onLibrary} />
       )}
       {sourceId === '' ? (
         <>
@@ -513,7 +587,7 @@ export const CatalogSearch: FC<{
               />
             ))
           ) : (
-            <RankedResults sources={searched} medium={medium} query={query} />
+            <RankedResults key={query.trim()} sources={searched} medium={medium} query={query} />
           )}
         </>
       ) : (

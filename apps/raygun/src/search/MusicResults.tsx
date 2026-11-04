@@ -1,22 +1,26 @@
 import type { LibraryTrack, OnlineTrack, ProviderSearchResult } from '@raygun/bindings';
-import { LoaderCircle } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { TrackRow } from '../library/TrackRow';
 import { playFromLibrary } from '../library/useLibrary';
-import { AlbumFinds, ArtistFinds, BestSongs } from './MusicFinds';
+import { AudiobookSearch } from './AudiobookSearch';
+import { FailedSources } from './FailedSources';
+import { NoSources } from './NoSources';
+import { AlbumFinds, ArtistFinds, Asking, BestSongs } from './MusicFinds';
 import { PlaylistFinds } from './PlaylistFinds';
 import { OnlineTrackRow } from './OnlineTrackRow';
 import { PodcastSearch } from './PodcastSearch';
 import { RelevantMusic } from './RelevantMusic';
 import { useSeenSongs } from './seenBefore';
+import { failingLast, useSourceHealth } from './sourceHealth';
 import { MUSIC_VIEWS, pill } from './searchTypes';
 import type { MusicView } from './searchTypes';
 import { SourceMenu } from './SourceMenu';
 import { playResults, useOnlineSearch } from './useOnlineSearch';
 import { SourceIssue } from '../shell/SourceIssue';
+import { useSettings } from '../settings/useSettings';
 
 type ProviderResultsProps = { result: ProviderSearchResult; ambiguous: boolean; limit?: number };
 
@@ -112,11 +116,25 @@ const readGrouped = () => {
   }
 };
 
+/** Remembers which music sources failed, so they go last next time (M46.9). */
+const useMusicHealth = (results: ProviderSearchResult[]) => {
+  const { failed, worked } = useSourceHealth();
+  const report = results.map((result) => `${result.provider.id}:${result.error ? 1 : 0}`).join();
+  useEffect(() => {
+    for (const result of results) {
+      if (result.error) failed(result.provider.id);
+      else worked(result.provider.id);
+    }
+    // Reported once per change of the sources' answers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [report]);
+};
+
 /**
- * Music results (M46.9): Relevant (M46.25: a bit of everything), songs, artists, albums or
- * podcasts. Songs are your library's, then the best matches from every source (each naming its
- * source), or each source's own list. `compact` keeps it short for the All view (top results,
- * else the first provider's). The pill lives in the address (`view`).
+ * Music results (M46.9): Relevant (M46.25: a bit of everything), songs, artists, albums,
+ * playlists, podcasts or audiobooks. Songs are your library's, then the best matches from every
+ * source (each naming its source), or each source's own list. `compact` keeps it short for the
+ * All view (top results, else the first provider's). The pill lives in the address (`view`).
  */
 export const MusicResults: FC<{
   query: string;
@@ -138,30 +156,41 @@ export const MusicResults: FC<{
   const search = useOnlineSearch(query);
   // Songs already seen show while the sources are asked (M46.47).
   const seen = useSeenSongs(query);
-  const results = search.data?.providers ?? [];
-  const failed = results.filter((result) => result.error);
-  const pending = search.data?.pending?.length ?? 0;
+  const failures = useSourceHealth((state) => state.failures);
+  const failingAtEnd = useSettings().data?.failingSourcesLast ?? true;
+  const answered = search.data?.providers ?? [];
+  useMusicHealth(answered);
+  // Sources that failed lately go last, as they do in every source list (M46.9).
+  const results = failingLast(
+    answered.map((result) => ({ ...result, id: result.provider.id })),
+    failures,
+    failingAtEnd,
+  );
   const library = search.data?.library ?? [];
   const top = search.data?.top ?? [];
   const names = results.map((result) => result.provider.name);
+  const working = results.filter((result) => !result.error);
+  const failed = results
+    .filter((result) => result.error)
+    .map((result) => ({ name: result.provider.name, error: result.error ?? '' }));
+  const asking = search.isFetching;
   const nothingFound =
+    !asking &&
     library.length === 0 &&
     results.length > 0 &&
-    results.every((result) => !result.error && result.tracks.length === 0);
+    working.every((result) => result.tracks.length === 0);
 
   if (compact && search.error) {
-    return (
-      <SourceIssue>{t('common.coreUnavailable', { message: search.error.message })}</SourceIssue>
-    );
+    return <SourceIssue>{search.error.message}</SourceIssue>;
   }
   if (compact) {
-    const first = results.find((result) => result.tracks.length > 0);
+    const first = working.find((result) => result.tracks.length > 0);
     if (top.length > 0) return <TopResults tracks={top.slice(0, 5)} />;
     if (first) return <ProviderResults result={first} ambiguous={false} limit={5} />;
-    return search.isSuccess ? (
-      <p className="text-muted text-sm">{t('search.noResults', { query })}</p>
+    return search.isFetching ? (
+      <Asking progress={search.progress} />
     ) : (
-      <p className="text-muted text-sm">{t('search.searching')}</p>
+      <p className="text-muted text-sm">{t('search.noResults', { query })}</p>
     );
   }
   const blank = query.trim() === '';
@@ -206,45 +235,31 @@ export const MusicResults: FC<{
         )}
       </div>
       {view === 'podcasts' && <PodcastSearch query={query} />}
-      {blank && view !== 'podcasts' && (
-        <p className="text-muted text-sm">{t('search.hintFor.music')}</p>
+      {view === 'audiobooks' && <AudiobookSearch query={query} />}
+      {blank && view !== 'podcasts' && view !== 'audiobooks' && (
+        <p className="text-muted text-sm">{t(`search.typeFor.${view}`)}</p>
       )}
       {!blank && view === 'relevant' && <RelevantMusic query={query} onView={setView} />}
       {!blank && view === 'artists' && <ArtistFinds query={query} />}
       {!blank && view === 'albums' && <AlbumFinds query={query} />}
       {!blank && view === 'playlists' && <PlaylistFinds query={query} />}
       {!blank && view === 'songs' && search.error && (
-        <SourceIssue>{t('common.coreUnavailable', { message: search.error.message })}</SourceIssue>
+        <SourceIssue>{search.error.message}</SourceIssue>
       )}
       {!blank && view === 'songs' && !search.error && (
         <>
-          {search.isSuccess && results.length === 0 && library.length === 0 && (
-            <p className="text-muted text-sm">{t('search.noSources')}</p>
+          {search.isSuccess && !asking && results.length === 0 && library.length === 0 && (
+            <NoSources label={t('search.noSources')} />
           )}
           {library.length > 0 && <LibraryResults tracks={library} />}
-          {search.isPending && (
-            <p role="status" className="text-muted flex items-center gap-2 text-sm">
-              <LoaderCircle aria-hidden size={14} className="animate-spin" />
-              {seen.length > 0 ? t('search.seenWhileSearching') : t('search.searching')}
-            </p>
-          )}
-          {search.isPending && seen.length > 0 && (
-            <BestSongs query={query} top={seen} results={[]} />
-          )}
-          {/* Slow sources answer on the next ask (M46.48), a moment later. */}
-          {pending > 0 && (
-            <p role="status" className="text-muted flex items-center gap-2 text-xs">
-              <LoaderCircle aria-hidden size={12} className="animate-spin" />
-              {t('search.sourcesAnswered', {
-                done: results.length,
-                total: results.length + pending,
-              })}
-            </p>
-          )}
+          {asking && <Asking progress={search.progress} />}
           {nothingFound ? (
             <p className="text-muted text-sm">{t('search.noResults', { query })}</p>
           ) : grouped ? (
             <>
+              {!search.data && seen.length > 0 && (
+                <BestSongs query={query} top={seen} results={[]} />
+              )}
               {top.length > 0 && <TopResults tracks={top} />}
               {results.map((result) => (
                 <ProviderResults
@@ -256,19 +271,15 @@ export const MusicResults: FC<{
             </>
           ) : (
             <>
-              <BestSongs
-                query={query}
-                top={top}
-                results={results.filter((result) => !result.error)}
-              />
-              {/* A quiet mark: what each one met shows when grouped by source. */}
-              {failed.length > 0 && (
-                <p className="text-muted text-xs wrap-anywhere">
-                  {t('search.someFailed', {
-                    sources: failed.map((result) => result.provider.name).join(', '),
-                  })}
-                </p>
+              {/* Songs seen before show in the same list until the sources answer. */}
+              {(working.length > 0 || (!search.data && seen.length > 0)) && (
+                <BestSongs
+                  query={query}
+                  top={search.data ? top : seen}
+                  results={search.data ? working : []}
+                />
               )}
+              <FailedSources failed={failed} />
             </>
           )}
         </>

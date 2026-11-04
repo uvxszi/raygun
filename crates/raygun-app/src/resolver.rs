@@ -8,7 +8,8 @@ use std::time::{Duration, Instant, SystemTime};
 use raygun_db::streams;
 use raygun_model::{AudioQuality, MediaSource, TrackQuery};
 use raygun_resolver::{
-    Candidate, CandidateKey, History, Pick, ProviderRecord, QualityTarget, rank_for, track_key,
+    Candidate, CandidateKey, History, Pick, ProviderRecord, QualityTarget, Scored, rank_for,
+    track_key,
 };
 use tauri::{AppHandle, Manager};
 
@@ -22,6 +23,8 @@ const CANDIDATES_TTL: Duration = Duration::from_secs(10 * 60);
 const FAILURE_COOLDOWN_MS: i64 = 24 * 60 * 60 * 1000;
 /// A cached URL this close to expiring is resolved again.
 const EXPIRY_MARGIN_MS: i64 = 60 * 1000;
+/// Matches tried again when all of them failed within the cooldown (M46.48).
+const COOLED_RETRIES: usize = 1;
 
 pub struct ResolverService {
     app: AppHandle,
@@ -132,7 +135,7 @@ impl ResolverService {
                 query.title
             ));
         }
-        let ranked = rank_for(query, candidates, &history, target);
+        let ranked = to_try(query, candidates, &history, target, exclusions);
         tracing::info!(track = %key, ranked = ranked.len(), ?target, "stream candidates ranked");
 
         // 3. The best one that resolves.
@@ -305,4 +308,106 @@ fn unix_ms() -> i64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_millis() as i64)
+}
+
+/// The matches to try for a track, best first, leaving out what this load tried. Matches that
+/// failed lately are kept out for a day, but when that leaves nothing, the best of them gets
+/// one real try per load (M46.48): a song played on purpose is never skipped untried.
+fn to_try(
+    query: &TrackQuery,
+    candidates: Vec<Candidate>,
+    history: &History,
+    target: QualityTarget,
+    exclusions: &Exclusions,
+) -> Vec<Scored> {
+    let untried = |scored: &Scored| {
+        !exclusions.tried.contains(&scored.candidate.key())
+            && scored
+                .candidate
+                .source
+                .as_ref()
+                .is_none_or(|source| !exclusions.failed_sources.contains(source))
+    };
+    let ranked = rank_for(query, candidates.clone(), history, target);
+    let retried = exclusions
+        .tried
+        .iter()
+        .any(|tried| history.failed.contains(tried));
+    if ranked.iter().any(untried) || history.failed.is_empty() || retried {
+        return ranked;
+    }
+    let mut again = history.clone();
+    again.failed.clear();
+    rank_for(query, candidates, &again, target)
+        .into_iter()
+        .filter(untried)
+        .take(COOLED_RETRIES)
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn candidate(id: &str, title: &str) -> Candidate {
+        Candidate {
+            provider_id: "dev.example/stream".into(),
+            provider_name: "Example".into(),
+            id: id.into(),
+            title: title.into(),
+            artist: Some("Artist".into()),
+            duration_ms: None,
+            quality: None,
+            bitrate_kbps: None,
+            source: None,
+        }
+    }
+
+    #[test]
+    fn matches_that_failed_lately_still_get_one_try() {
+        let query = TrackQuery {
+            title: "Song".into(),
+            artist: Some("Artist".into()),
+            album: None,
+            duration_ms: None,
+        };
+        let found = vec![candidate("a", "Song"), candidate("b", "Song")];
+        let mut history = History::default();
+        let titles = |scored: &[Scored]| -> Vec<String> {
+            scored
+                .iter()
+                .map(|scored| scored.candidate.id.clone())
+                .collect()
+        };
+        let none = Exclusions::default();
+        // Nothing failed: both, best first.
+        assert_eq!(
+            titles(&to_try(
+                &query,
+                found.clone(),
+                &history,
+                QualityTarget::Any,
+                &none
+            ))
+            .len(),
+            2
+        );
+        // Both failed within the day: one of them is tried anyway.
+        history.failed.insert(found[0].key());
+        history.failed.insert(found[1].key());
+        let once = to_try(&query, found.clone(), &history, QualityTarget::Any, &none);
+        assert_eq!(once.len(), 1);
+        // It failed again in this load: the song is skipped, saying why.
+        let tried = Exclusions {
+            tried: vec![once[0].candidate.key()],
+            ..Exclusions::default()
+        };
+        assert!(to_try(&query, found.clone(), &history, QualityTarget::Any, &tried).is_empty());
+        // One still fresh: only it, the failed one stays out.
+        history.failed.remove(&found[1].key());
+        assert_eq!(
+            titles(&to_try(&query, found, &history, QualityTarget::Any, &none)),
+            ["b"]
+        );
+    }
 }

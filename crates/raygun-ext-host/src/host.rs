@@ -17,7 +17,7 @@ use std::rc::Rc;
 use std::sync::{Arc, PoisonError, RwLock};
 use std::time::Duration;
 
-use futures_util::FutureExt;
+use futures_util::StreamExt;
 use raygun_model::{
     ArtistEvent, ExtensionInfo, ExtensionOrigin, ExtensionSetting, ExtensionStatus, LyricLine,
     Lyrics, MediaSource, MusicAlbum, MusicAlbumDetail, MusicArtist, MusicChart, MusicPlaylist,
@@ -32,7 +32,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::content::ContentFilter;
 use crate::cookies::CookieJar;
 use crate::failure::{self, Failure};
-use crate::fanout::{self, Asked, Health, Memo, Patience, Plan, Turns};
+use crate::fanout::{self, Asked, Health, Plan, Turns};
 use crate::js::{JsExtension, Limits};
 use crate::manifest::{self, MANIFEST_FILE, Manifest, Runtime};
 use crate::shosetsu::ShosetsuExtension;
@@ -59,9 +59,6 @@ pub const FAN_OUT_CONCURRENCY: usize = 16;
 pub const CATALOG_SEARCH_TIMEOUT: Duration = Duration::from_secs(15);
 /// Catalogue searches running at once across every source; more wait, good sources first.
 const CATALOG_SEARCHES: usize = 6;
-/// A music search someone waits on: once a source answered with songs, the slower ones get this
-/// much longer before the answer goes out; their songs come with asking again.
-const SEARCH_SETTLE: Duration = Duration::from_millis(2500);
 
 /// Longest tag name kept from a provider.
 const MAX_TAG_CHARS: usize = 60;
@@ -292,7 +289,6 @@ struct HostShared {
     directory: RwLock<Directory>,
     content: ContentFilter,
     health: Health,
-    memo: Memo,
     catalog_turns: Arc<Turns>,
 }
 
@@ -340,7 +336,6 @@ impl ExtensionHost {
                 directory: RwLock::new(Directory::default()),
                 content: config.content.clone(),
                 health: Health::default(),
-                memo: Memo::default(),
                 catalog_turns: Turns::new(CATALOG_SEARCHES),
             }),
         })
@@ -464,8 +459,6 @@ impl ExtensionHost {
                 }
             }
         }
-        // Answers kept from the extensions replaced don't hold any more.
-        self.shared.memo.clear();
         infos
     }
 
@@ -546,35 +539,6 @@ impl ExtensionHost {
         }
     }
 
-    /// Like [`Self::call_within`], shared with identical asks running now, and answered from a
-    /// recent success for a moment (`fanout::MEMO_TTL`). The call goes on when its asker stops
-    /// waiting, so asking again picks up its answer: searches answer with what came in time
-    /// and the rest comes on asking again.
-    pub async fn call_memo(
-        &self,
-        provider: &str,
-        method: &str,
-        args: serde_json::Value,
-        limit: Duration,
-    ) -> Result<serde_json::Value, CallError> {
-        let key = format!("{provider}\n{method}\n{args}");
-        // Weak, so a kept call never keeps the host alive.
-        let host = Arc::downgrade(&self.shared);
-        let (provider, method) = (provider.to_owned(), method.to_owned());
-        let answer = self.shared.memo.answer(key, move || {
-            async move {
-                let Some(shared) = host.upgrade() else {
-                    return Err(CallError::HostStopped);
-                };
-                ExtensionHost { shared }
-                    .call_within(&provider, &method, args, limit)
-                    .await
-            }
-            .boxed()
-        });
-        answer.await
-    }
-
     /// Calls `method` on a provider (its full `<extension>/<provider>` id), JSON in and out,
     /// within the host's call limit. Dropping the future stops the call.
     pub async fn call(
@@ -607,36 +571,33 @@ impl ExtensionHost {
     /// error, the good sources first.
     pub async fn search_music(&self, query: &str, limit: u32) -> Vec<ProviderSearchResult> {
         let providers = self.providers(MUSIC_METADATA).await;
-        fanout::collect(self.search_asks(providers, query, limit, false))
+        fanout::collect(self.search_asks(providers, query, limit))
             .await
             .into_iter()
             .map(search_result)
             .collect()
     }
 
-    /// A music search someone waits on: the sources' songs that came in time, and the sources
-    /// still searching. It never waits long on the slowest once others answered; those calls go
-    /// on, and asking again (soon) brings their songs.
-    pub async fn search_music_now(
+    /// [`Self::search_music`] for a search someone watches: each provider's answer goes to
+    /// `report` as soon as it comes (with how many providers were asked), so the first answers
+    /// show before the slowest provider's. The fan-out's order, limits and resting apply; the
+    /// answers come back in the order they came.
+    pub async fn search_music_as_answered(
         &self,
         query: &str,
         limit: u32,
-    ) -> (Vec<ProviderSearchResult>, Vec<ProviderInfo>) {
+        report: impl Fn(&ProviderSearchResult, usize),
+    ) -> Vec<ProviderSearchResult> {
         let providers = self.providers(MUSIC_METADATA).await;
-        let (answers, _) = fanout::gather(
-            self.search_asks(providers.clone(), query, limit, true),
-            Patience {
-                total: INTERACTIVE_TIMEOUT,
-                settle: SEARCH_SETTLE,
-            },
-            |answer| answer.as_ref().is_ok_and(|tracks| !tracks.is_empty()),
-        )
-        .await;
-        let pending = providers
-            .into_iter()
-            .filter(|provider| !answers.iter().any(|asked| asked.provider.id == provider.id))
-            .collect();
-        (answers.into_iter().map(search_result).collect(), pending)
+        let total = providers.len();
+        let mut answers = std::pin::pin!(self.search_asks(providers, query, limit));
+        let mut results = Vec::with_capacity(total);
+        while let Some(asked) = answers.next().await {
+            let result = search_result(asked);
+            report(&result, total);
+            results.push(result);
+        }
+        results
     }
 
     fn search_asks<'a>(
@@ -644,7 +605,6 @@ impl ExtensionHost {
         providers: Vec<ProviderInfo>,
         query: &str,
         limit: u32,
-        memo: bool,
     ) -> impl futures_util::Stream<Item = Asked<Vec<OnlineTrack>>> + 'a {
         let args = serde_json::json!({ "query": query, "limit": limit });
         fanout::fan_out(
@@ -655,12 +615,7 @@ impl ExtensionHost {
                 let args = args.clone();
                 async move {
                     let started = std::time::Instant::now();
-                    let value = if memo {
-                        self.call_memo(&provider.id, "search", args, INTERACTIVE_TIMEOUT)
-                            .await
-                    } else {
-                        self.call_interactive(&provider.id, "search", args).await
-                    }?;
+                    let value = self.call_interactive(&provider.id, "search", args).await?;
                     let tracks = self.tracks(value);
                     tracing::info!(
                         provider = %provider.id,
@@ -803,43 +758,64 @@ impl ExtensionHost {
     pub async fn search_artists(&self, query: &str, limit: u32) -> Vec<MusicArtist> {
         let answers = self.ask_metadata("searchArtists", query, limit).await;
         answers
-            .into_iter()
-            .flat_map(|(provider, value)| {
-                value
-                    .get("artists")
-                    .and_then(serde_json::Value::as_array)
-                    .cloned()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(move |artist| {
-                        let name = artist.get("name")?.as_str()?.trim().to_owned();
-                        let id = json_id(artist.get("id"))?;
-                        (!name.is_empty()).then(|| MusicArtist {
-                            provider: provider.clone(),
-                            id,
-                            name,
-                            image_url: web_url(artist.get("imageUrl")),
-                        })
-                    })
-            })
+            .iter()
+            .flat_map(|(provider, value)| artists_in(provider, value))
             .collect()
+    }
+
+    /// [`Self::search_artists`] for a search someone watches: each provider's artists go to
+    /// `report` as they come, with how many providers were asked.
+    pub async fn search_artists_as_answered(
+        &self,
+        query: &str,
+        limit: u32,
+        report: impl Fn(&ProviderInfo, &[MusicArtist], usize),
+    ) -> Vec<MusicArtist> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Vec::new();
+        }
+        let args = serde_json::json!({ "query": query, "limit": limit });
+        let mut found = Vec::new();
+        self.ask_metadata_as_answered("searchArtists", args, |provider, value, total| {
+            let artists = value.map_or_else(Vec::new, |value| artists_in(provider, value));
+            report(provider, &artists, total);
+            found.extend(artists);
+        })
+        .await;
+        found
     }
 
     /// Albums for `query` from every `music.metadata` provider that searches albums (M46.9).
     pub async fn search_albums(&self, query: &str, limit: u32) -> Vec<MusicAlbum> {
         let answers = self.ask_metadata("searchAlbums", query, limit).await;
         answers
-            .into_iter()
-            .flat_map(|(provider, value)| {
-                value
-                    .get("albums")
-                    .and_then(serde_json::Value::as_array)
-                    .cloned()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(move |album| parse_album(&provider, &album))
-            })
+            .iter()
+            .flat_map(|(provider, value)| albums_in(provider, value, "albums"))
             .collect()
+    }
+
+    /// [`Self::search_albums`] for a search someone watches: each provider's albums go to
+    /// `report` as they come, with how many providers were asked.
+    pub async fn search_albums_as_answered(
+        &self,
+        query: &str,
+        limit: u32,
+        report: impl Fn(&ProviderInfo, &[MusicAlbum], usize),
+    ) -> Vec<MusicAlbum> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Vec::new();
+        }
+        let args = serde_json::json!({ "query": query, "limit": limit });
+        let mut found = Vec::new();
+        self.ask_metadata_as_answered("searchAlbums", args, |provider, value, total| {
+            let albums = value.map_or_else(Vec::new, |value| albums_in(provider, value, "albums"));
+            report(provider, &albums, total);
+            found.extend(albums);
+        })
+        .await;
+        found
     }
 
     /// An artist's releases (M46.36: albums, singles, EPs...) from every `music.metadata` provider
@@ -847,16 +823,8 @@ impl ExtensionHost {
     pub async fn artist_releases(&self, name: &str, limit: u32) -> Vec<MusicAlbum> {
         let answers = self.ask_metadata("artistReleases", name, limit).await;
         answers
-            .into_iter()
-            .flat_map(|(provider, value)| {
-                value
-                    .get("releases")
-                    .and_then(serde_json::Value::as_array)
-                    .cloned()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(move |album| parse_album(&provider, &album))
-            })
+            .iter()
+            .flat_map(|(provider, value)| albums_in(provider, value, "releases"))
             .collect()
     }
 
@@ -907,6 +875,58 @@ impl ExtensionHost {
             })
             .filter(|playlist| !featured || playlist.featured)
             .collect()
+    }
+
+    /// [`Self::search_playlists`] for a search someone watches: each provider's playlists go to
+    /// `report` as they come, with how many providers were asked.
+    pub async fn search_playlists_as_answered(
+        &self,
+        query: &str,
+        featured: bool,
+        limit: u32,
+        report: impl Fn(&ProviderInfo, &[MusicPlaylist], usize),
+    ) -> Vec<MusicPlaylist> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Vec::new();
+        }
+        let args = serde_json::json!({ "query": query, "limit": limit, "featured": featured });
+        let mut found = Vec::new();
+        self.ask_metadata_as_answered("searchPlaylists", args, |provider, value, total| {
+            let playlists =
+                value.map_or_else(Vec::new, |value| playlists_in(provider, value, featured));
+            report(provider, &playlists, total);
+            found.extend(playlists);
+        })
+        .await;
+        found
+    }
+
+    /// Asks every `music.metadata` provider for `method` at once, handing each one's answer to
+    /// `report` as it comes (`None` when it failed or lacks the call), with how many were asked.
+    async fn ask_metadata_as_answered(
+        &self,
+        method: &str,
+        args: serde_json::Value,
+        mut report: impl FnMut(&ProviderInfo, Option<&serde_json::Value>, usize),
+    ) {
+        let providers = self.providers(MUSIC_METADATA).await;
+        let total = providers.len();
+        let mut answers = std::pin::pin!(fanout::fan_out(
+            &self.shared.health,
+            providers,
+            plan(INTERACTIVE_TIMEOUT),
+            |provider| {
+                let args = args.clone();
+                async move { self.call_interactive(&provider.id, method, args).await }
+            },
+        ));
+        while let Some(asked) = answers.next().await {
+            if let Err(error) = &asked.answer {
+                log_unless_missing(&asked.provider, method, error);
+            }
+            report(&asked.provider, asked.answer.as_ref().ok(), total);
+        }
     }
 
     /// An artist's coming events (M46.42) from every `music.metadata` provider that lists them
@@ -1855,6 +1875,55 @@ fn web_url(value: Option<&serde_json::Value>) -> Option<String> {
         .and_then(serde_json::Value::as_str)
         .filter(|url| is_web_url(url))
         .map(str::to_owned)
+}
+
+/// The artists in a provider's `{ artists: [{ id, name, imageUrl? }] }` answer.
+fn artists_in(provider: &ProviderInfo, value: &serde_json::Value) -> Vec<MusicArtist> {
+    value
+        .get("artists")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|artist| {
+            let name = artist.get("name")?.as_str()?.trim().to_owned();
+            let id = json_id(artist.get("id"))?;
+            (!name.is_empty()).then(|| MusicArtist {
+                provider: provider.clone(),
+                id,
+                name,
+                image_url: web_url(artist.get("imageUrl")),
+            })
+        })
+        .collect()
+}
+
+/// The albums listed under `key` in a provider's answer (`albums`, or `releases` for an
+/// artist's discography).
+fn albums_in(provider: &ProviderInfo, value: &serde_json::Value, key: &str) -> Vec<MusicAlbum> {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|album| parse_album(provider, album))
+        .collect()
+}
+
+/// The playlists in a provider's `{ playlists: [...] }` answer; only the services' own when
+/// `featured`.
+fn playlists_in(
+    provider: &ProviderInfo,
+    value: &serde_json::Value,
+    featured: bool,
+) -> Vec<MusicPlaylist> {
+    value
+        .get("playlists")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|playlist| parse_playlist(provider, playlist))
+        .filter(|playlist| !featured || playlist.featured)
+        .collect()
 }
 
 /// Reads `{ id, title, author?, artworkUrl?, trackCount?, featured? }` (M46.39).

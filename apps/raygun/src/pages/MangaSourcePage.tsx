@@ -16,6 +16,7 @@ import { SourceFiltersPanel } from '../search/SourceFiltersPanel';
 import { useFilteredSearch, useSourceFilters } from '../search/useCatalogSearch';
 import type { FilterValues } from '../search/useCatalogSearch';
 import { LoadMore } from '../shell/LoadMore';
+import { TextField } from '../shell/TextField';
 import { SourceIssue } from '../shell/SourceIssue';
 import { TopBarAction } from '../shell/TopBar';
 import { PageHeader } from './PageHeader';
@@ -101,16 +102,18 @@ export const MangaSourcePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) =
           )
         }
       />
-      <form onSubmit={submit} className="bg-surface flex items-center gap-3 rounded-xl px-4 py-3">
-        <Search aria-hidden size={20} className="text-muted" />
-        <input
+      <form onSubmit={submit}>
+        <TextField
           type="search"
-          enterKeyHint="search"
           value={input}
-          onChange={(event) => setInput(event.target.value)}
+          onChange={setInput}
+          icon={Search}
+          iconSize={20}
+          autoComplete="off"
           placeholder={t('manga.searchPlaceholder')}
           aria-label={t('manga.search')}
-          className="placeholder:text-muted w-full bg-transparent outline-none"
+          className="bg-surface gap-3 rounded-xl py-1.5 pr-2 pl-4"
+          inputClassName="py-1.5"
         />
       </form>
       <nav className="flex flex-wrap gap-2" aria-label={t('manga.lists')}>

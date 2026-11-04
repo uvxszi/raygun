@@ -139,6 +139,11 @@ export const commands = {
 	extensionSuggestedRepos: () => typedError<SuggestedRepo[], string>(__TAURI_INVOKE("extension_suggested_repos")),
 	/**  Adds a repository by its `index.json` URL, after checking the index can be read. */
 	extensionRepoAdd: (url: string) => typedError<ExtensionRepo[], string>(__TAURI_INVOKE("extension_repo_add", { url })),
+	/**
+	 *  What a repository holds, read from its index without adding it (the repository's `id` is
+	 *  empty).
+	 */
+	extensionRepoPreview: (url: string) => typedError<RepoCatalog, string>(__TAURI_INVOKE("extension_repo_preview", { url })),
 	extensionRepoRemove: (id: string) => typedError<ExtensionRepo[], string>(__TAURI_INVOKE("extension_repo_remove", { id })),
 	/**
 	 *  Every repository's extensions, marked against what this device has. Indexes are cached for a
@@ -152,9 +157,21 @@ export const commands = {
 	extensionSettingSet: (extensionId: string, key: string, value: SettingValue) => typedError<ExtensionInfo_Serialize[], string>(__TAURI_INVOKE("extension_setting_set", { extensionId, key, value })),
 	/**
 	 *  Searches the local library and every online music provider at once. Each provider answers
-	 *  with tracks or an error; songs several providers found are merged into `top`.
+	 *  with tracks or an error; songs several providers found are merged into `top`. Each answer is
+	 *  also sent as a [`crate::events::SearchProgressEvent`] as it comes, in the order they came.
 	 */
 	onlineSearch: (query: string) => typedError<SearchResults_Serialize, string>(__TAURI_INVOKE("online_search", { query })),
+	/**  Searches kept on this device, newest first. */
+	searchRecent: () => typedError<RecentSearch[], string>(__TAURI_INVOKE("search_recent")),
+	/**
+	 *  Remembers a search (`kind` is Search's kind); answers with the searches kept. Nothing is
+	 *  remembered while incognito is on (M47).
+	 */
+	searchRecentAdd: (query: string, kind: string) => typedError<RecentSearch[], string>(__TAURI_INVOKE("search_recent_add", { query, kind })),
+	/**  Forgets one kept search; answers with the searches left. */
+	searchRecentRemove: (query: string, kind: string) => typedError<RecentSearch[], string>(__TAURI_INVOKE("search_recent_remove", { query, kind })),
+	/**  Forgets every kept search. */
+	searchRecentClear: () => typedError<null, string>(__TAURI_INVOKE("search_recent_clear")),
 	/**
 	 *  Lyrics for a track, or `null` when no provider has any. The song's own lyrics (M46.12) win, and
 	 *  its lyrics offset comes along.
@@ -238,6 +255,11 @@ export const commands = {
 } | null, string>(__TAURI_INVOKE("song_download_for", { track })),
 	/**  Where a song is saved: Favorites and the playlists holding it (M46.8). */
 	collectionsSaves: (track: TrackInput) => typedError<TrackSaves, string>(__TAURI_INVOKE("collections_saves", { track })),
+	/**
+	 *  Every saved song with the keys it answers to and where it's saved (M46.48): what lists'
+	 *  saved marks and Save buttons read, matching a shown song with `sameSong`.
+	 */
+	collectionsSavedIndex: () => typedError<SavedSong[], string>(__TAURI_INVOKE("collections_saved_index")),
 	/**  Saves a song exactly where `saves` says (the Add to playlist popover's Done, M46.8). */
 	collectionsSetSaves: (track: TrackInput, saves: TrackSaves) => typedError<null, string>(__TAURI_INVOKE("collections_set_saves", { track, saves })),
 	/**  An artist's page: popular songs from the sources, and the library's albums and songs by them. */
@@ -316,11 +338,22 @@ export const commands = {
 	localFilesAllowAccess: () => typedError<boolean, string>(__TAURI_INVOKE("local_files_allow_access")),
 	/**
 	 *  Saves imported songs as a new playlist, into one, or into Favorites; returns the playlist's
-	 *  id or `favorites` (M46.21, M46.45).
+	 *  id or `favorites` (M46.21, M46.45). Songs already there stay out unless `add_existing`.
 	 */
-	importSave: (target: ImportTarget, songs: MatchedSong[]) => typedError<string, string>(__TAURI_INVOKE("import_save", { target, songs })),
+	importSave: (target: ImportTarget, songs: MatchedSong[], addExisting: boolean) => typedError<string, string>(__TAURI_INVOKE("import_save", { target, songs, addExisting })),
 	/**  Gives every saved copy of a song the source the user picked (M46.31). */
 	trackAssignSource: (song: TrackInput, chosen: OnlineTrack) => typedError<null, string>(__TAURI_INVOKE("track_assign_source", { song, chosen })),
+	/**
+	 *  A source picked for a song (M46.48): with `choice.assign`, its stream for every saved copy,
+	 *  the queue and the resolver's remembered pick; the details `choice` ticks become the song's
+	 *  own (Edit details reverts them).
+	 */
+	trackUseSource: (song: TrackInput, chosen: OnlineTrack, choice: SourceChoice) => typedError<null, string>(__TAURI_INVOKE("track_use_source", { song, chosen, choice })),
+	/**
+	 *  Whether a saved song came in through Import songs, and whether no source had it then
+	 *  (M46.48: picking a source offers its details by default for those).
+	 */
+	trackImportStatus: (song: TrackInput) => typedError<TrackImportStatus, string>(__TAURI_INVOKE("track_import_status", { song })),
 	/**  Which saved songs no source had when imported (M46.31). */
 	tracksUnavailable: (keys: string[]) => typedError<string[], string>(__TAURI_INVOKE("tracks_unavailable", { keys })),
 	/**  The audiobooks in the library (M46.22). */
@@ -367,9 +400,15 @@ export const commands = {
 	musicTagSongs: (name: string) => typedError<SavedTrack[], string>(__TAURI_INVOKE("music_tag_songs", { name })),
 	/**  Every genre and mood Raygun knows, moods first (M46.9). */
 	musicTagVocabulary: () => __TAURI_INVOKE<MusicTag[]>("music_tag_vocabulary"),
-	/**  Artists for a search, from every source that searches artists (M46.9). */
+	/**
+	 *  Artists for a search, from every source that searches artists (M46.9); each source's are also
+	 *  sent as a [`crate::events::SearchProgressEvent`] as they come.
+	 */
 	musicSearchArtists: (query: string) => typedError<MusicArtist_Serialize[], string>(__TAURI_INVOKE("music_search_artists", { query })),
-	/**  Albums for a search, from every source that searches albums (M46.9). */
+	/**
+	 *  Albums for a search, from every source that searches albums (M46.9); each source's are also
+	 *  sent as a [`crate::events::SearchProgressEvent`] as they come.
+	 */
 	musicSearchAlbums: (query: string) => typedError<MusicAlbum_Serialize[], string>(__TAURI_INVOKE("music_search_albums", { query })),
 	/**  An album's songs from the source that knows it (M46.9). */
 	musicAlbum: (providerId: string, albumId: string) => typedError<MusicAlbumDetail_Serialize, string>(__TAURI_INVOKE("music_album", { providerId, albumId })),
@@ -377,7 +416,8 @@ export const commands = {
 	musicArtistReleases: (name: string) => typedError<MusicAlbum_Serialize[], string>(__TAURI_INVOKE("music_artist_releases", { name })),
 	/**
 	 *  Playlists for a search from every source that searches them; `featured` keeps the services'
-	 *  own (M46.39).
+	 *  own (M46.39). Each source's are also sent as a [`crate::events::SearchProgressEvent`] as they
+	 *  come.
 	 */
 	musicSearchPlaylists: (query: string, featured: boolean) => typedError<MusicPlaylist_Serialize[], string>(__TAURI_INVOKE("music_search_playlists", { query, featured })),
 	/**  Followed artists, the latest followed first (M46.42). */
@@ -489,8 +529,11 @@ export const commands = {
 	playlistCreate: (name: string) => typedError<PlaylistSummary, string>(__TAURI_INVOKE("playlist_create", { name })),
 	playlistRename: (id: string, name: string) => typedError<null, string>(__TAURI_INVOKE("playlist_rename", { id, name })),
 	playlistDelete: (id: string) => typedError<null, string>(__TAURI_INVOKE("playlist_delete", { id })),
-	/**  Appends tracks to the end of a playlist. */
-	playlistAdd: (id: string, tracks: TrackInput[]) => typedError<null, string>(__TAURI_INVOKE("playlist_add", { id, tracks })),
+	/**
+	 *  Appends tracks to the end of a playlist; songs it already holds stay out unless `duplicates`
+	 *  (Add anyway, M46.48).
+	 */
+	playlistAdd: (id: string, tracks: TrackInput[], duplicates: boolean) => typedError<PlaylistAdded, string>(__TAURI_INVOKE("playlist_add", { id, tracks, duplicates })),
 	playlistRemoveItem: (itemId: string) => typedError<null, string>(__TAURI_INVOKE("playlist_remove_item", { itemId })),
 	/**  Moves an item before another one, or to the end when `before_item_id` is null. */
 	playlistMoveItem: (itemId: string, beforeItemId: string | null) => typedError<null, string>(__TAURI_INVOKE("playlist_move_item", { itemId, beforeItemId })),
@@ -1112,6 +1155,7 @@ export const events = {
 	playbackStateEvent: makeEvent<PlaybackStateEvent>("playback-state-event"),
 	podcastsChangedEvent: makeEvent<PodcastsChangedEvent>("podcasts-changed-event"),
 	queueEvent: makeEvent<QueueEvent>("queue-event"),
+	searchProgressEvent: makeEvent<SearchProgressEvent_Deserialize>("search-progress-event"),
 	settingsChangedEvent: makeEvent<SettingsChangedEvent>("settings-changed-event"),
 	songDownloadProgressEvent: makeEvent<SongDownloadProgressEvent>("song-download-progress-event"),
 	songDownloadsEvent: makeEvent<SongDownloadsEvent>("song-downloads-event"),
@@ -3070,6 +3114,15 @@ export type PlayerViewPrefs = {
 	background?: boolean,
 };
 
+/**
+ *  What adding songs to a playlist did (M46.48): songs it already held stay out unless they're
+ *  added anyway.
+ */
+export type PlaylistAdded = {
+	added: number,
+	already: number,
+};
+
 export type PlaylistDetail = {
 	playlist: PlaylistSummary,
 	items: PlaylistItem[],
@@ -3155,6 +3208,8 @@ export type PrivacyPrefs = {
 	history?: boolean,
 	/**  Where plays started from is kept for Home (Recently played, Your music). */
 	recentlyPlayed?: boolean,
+	/**  Searches are kept for Search's recent searches. */
+	searchHistory?: boolean,
 	/**  Incognito stays on when Raygun starts again; otherwise it ends with the app (M47). */
 	keepIncognito?: boolean,
 };
@@ -3290,6 +3345,18 @@ export type ReaderMode =
 /**  One page at a time, right to left (most manga). */
 "pagedRtl";
 
+/**  A search someone made, kept on this device for Search's recent searches. */
+export type RecentSearch = {
+	query: string,
+	/**
+	 *  What it looked through: Search's kind (`all`, `music`, `video`, `manga`, `novel`,
+	 *  `library`).
+	 */
+	kind: string,
+	/**  Unix ms. */
+	searchedAt: number | null,
+};
+
 /**  A release's kind (M46.36), as MusicBrainz and Deezer name them. */
 export type ReleaseKind = "album" | "single" | "ep" | "compilation" | "live" | "other";
 
@@ -3355,6 +3422,18 @@ export type SavePrefs = {
 };
 
 /**
+ *  A saved song as lists mark it (M46.48): the key it's stored under, every key its copies answer
+ *  to (their names', and the names they show with the user's details), and where it's saved.
+ *  `music/trackKey.ts` finds a shown song among them with `sameSong`.
+ */
+export type SavedSong = {
+	trackKey: string,
+	songKeys: string[],
+	favorite: boolean,
+	playlistIds: string[],
+};
+
+/**
  *  A track as saved in favorites, a playlist or history. Artwork comes from the local library when
  *  the same song is there.
  */
@@ -3384,6 +3463,54 @@ export type ScanPhase = "discovering" | "reading" | "done" | "failed";
  */
 export type ScrollbarStyle = "thin" | "wide" | "hidden";
 
+/**  What one source answered, by kind of search. */
+export type SearchPart = SearchPart_Serialize | SearchPart_Deserialize;
+
+/**  What one source answered, by kind of search. */
+export type SearchPart_Deserialize = ({ kind: "songs"; result: ProviderSearchResult_Deserialize }) & { albums?: never; artists?: never; featured?: never; playlists?: never; provider?: never } | ({ kind: "artists"; provider: ProviderInfo_Deserialize; artists: MusicArtist_Deserialize[] }) & { albums?: never; featured?: never; playlists?: never; result?: never } | ({ kind: "albums"; provider: ProviderInfo_Deserialize; albums: MusicAlbum_Deserialize[] }) & { artists?: never; featured?: never; playlists?: never; result?: never } | ({ kind: "playlists"; provider: ProviderInfo_Deserialize; featured: boolean; playlists: MusicPlaylist_Deserialize[] }) & { albums?: never; artists?: never; result?: never };
+
+/**  What one source answered, by kind of search. */
+export type SearchPart_Serialize = ({ kind: "songs"; result: ProviderSearchResult_Serialize }) & { albums?: never; artists?: never; featured?: never; playlists?: never; provider?: never } | ({ kind: "artists"; provider: ProviderInfo_Serialize; artists: MusicArtist_Serialize[] }) & { albums?: never; featured?: never; playlists?: never; result?: never } | ({ kind: "albums"; provider: ProviderInfo_Serialize; albums: MusicAlbum_Serialize[] }) & { artists?: never; featured?: never; playlists?: never; result?: never } | ({ kind: "playlists"; provider: ProviderInfo_Serialize; featured: boolean; playlists: MusicPlaylist_Serialize[] }) & { albums?: never; artists?: never; result?: never };
+
+/**
+ *  One source's answer while a search still waits for the others, so Search shows the first
+ *  answers without waiting for the slowest source.
+ */
+export type SearchProgress = SearchProgress_Serialize | SearchProgress_Deserialize;
+
+/**  One source answered a music search that's still waiting for others; one event per source. */
+export type SearchProgressEvent = SearchProgressEvent_Serialize | SearchProgressEvent_Deserialize;
+
+/**  One source answered a music search that's still waiting for others; one event per source. */
+export type SearchProgressEvent_Deserialize = SearchProgress_Deserialize;
+
+/**  One source answered a music search that's still waiting for others; one event per source. */
+export type SearchProgressEvent_Serialize = SearchProgress_Serialize;
+
+/**
+ *  One source's answer while a search still waits for the others, so Search shows the first
+ *  answers without waiting for the slowest source.
+ */
+export type SearchProgress_Deserialize = {
+	/**  What was searched for, trimmed as the search command trims it. */
+	query: string,
+	/**  How many sources the search asks. */
+	total: number,
+	part: SearchPart_Deserialize,
+};
+
+/**
+ *  One source's answer while a search still waits for the others, so Search shows the first
+ *  answers without waiting for the slowest source.
+ */
+export type SearchProgress_Serialize = {
+	/**  What was searched for, trimmed as the search command trims it. */
+	query: string,
+	/**  How many sources the search asks. */
+	total: number,
+	part: SearchPart_Serialize,
+};
+
 /**  Everything a search found (M18). */
 export type SearchResults = SearchResults_Serialize | SearchResults_Deserialize;
 
@@ -3394,8 +3521,6 @@ export type SearchResults_Deserialize = {
 	/**  Tracks merged across providers, best first; empty unless two or more providers found some. */
 	top: OnlineTrack[],
 	providers: ProviderSearchResult_Deserialize[],
-	/**  Sources still searching (M46.48): searching again soon brings their songs. */
-	pending?: ProviderInfo_Deserialize[],
 };
 
 /**  Everything a search found (M18). */
@@ -3405,8 +3530,6 @@ export type SearchResults_Serialize = {
 	/**  Tracks merged across providers, best first; empty unless two or more providers found some. */
 	top: OnlineTrack[],
 	providers: ProviderSearchResult_Serialize[],
-	/**  Sources still searching (M46.48): searching again soon brings their songs. */
-	pending?: ProviderInfo_Serialize[],
 };
 
 /**
@@ -3691,6 +3814,21 @@ export type SoundPrefs = {
 	normalizeTarget?: number,
 	/**  How long one song fades into the next, ms (0 = off, up to [`CROSSFADE_MAX_MS`]). */
 	crossfadeMs?: number,
+};
+
+/**
+ *  What picking a source for a song does (M46.48): with `assign`, every saved copy, the queue
+ *  and the resolver's remembered pick take its stream (the download mode only downloads from
+ *  it); the details ticked become the song's own (Edit details reverts them). `source_name` is
+ *  the source's name, which the player shows the stream came from.
+ */
+export type SourceChoice = {
+	assign: boolean,
+	sourceName: string | null,
+	title: boolean,
+	artist: boolean,
+	album: boolean,
+	cover: boolean,
 };
 
 /**  A source that didn't answer, and why. */
@@ -4230,6 +4368,12 @@ export type TrackDuration = {
 
 /**  Song lengths Raygun just learned (M46.26). */
 export type TrackDurationsEvent = TrackDuration[];
+
+/**  Where a saved song came from (M46.48): Import songs, and whether no source had it then. */
+export type TrackImportStatus = {
+	imported: boolean,
+	unavailable: boolean,
+};
 
 /**  A track to save, from the player, the library or a search result. */
 export type TrackInput = {

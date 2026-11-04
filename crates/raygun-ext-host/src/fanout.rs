@@ -1,16 +1,13 @@
 //! Asking many sources at once. There may be dozens of them and many fail, so they're asked a
 //! few at a time, the healthy ones first, each within its time, and their answers come as they
 //! arrive. A source that keeps failing goes last and sits out a while (its last failure is the
-//! answer meanwhile). Identical asks share one call, and an answer stays for a moment, so asking
-//! again (a list refreshing to pick up late answers) costs nothing.
+//! answer meanwhile).
 
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
-use std::pin::pin;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use futures_util::future::{BoxFuture, FutureExt, Shared};
 use futures_util::stream::{self, Stream, StreamExt};
 use raygun_model::ProviderInfo;
 use tokio::sync::oneshot;
@@ -32,16 +29,6 @@ const SLOW: Duration = Duration::from_secs(4);
 /// Longest a call holds its place among the calls running at once: a source slower than this
 /// goes on without one, so sources that hang can't hold up the rest for their whole timeout.
 pub const HOLD: Duration = Duration::from_secs(2);
-/// How long an answer is kept for asking again.
-pub const MEMO_TTL: Duration = Duration::from_secs(90);
-/// How long a failure is kept: long enough that asking again soon (a list picking up late
-/// answers) gets it instead of asking the source anew, short enough for a retry to ask.
-const MEMO_FAILURE_TTL: Duration = Duration::from_secs(20);
-/// Longest a call nobody waits for is kept going for someone asking again.
-const MEMO_IN_FLIGHT: Duration = Duration::from_secs(120);
-/// Most answers kept.
-const MEMO_ENTRIES: usize = 256;
-
 /// Where a source stands, from what its calls did lately: the good first, then the slow, then
 /// the failing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -234,7 +221,8 @@ where
             async move {
                 let mut place = places.acquire_owned().await.ok();
                 let started = Instant::now();
-                let mut call = pin!(tokio::time::timeout(plan.timeout, ask(provider.clone())));
+                let mut call =
+                    std::pin::pin!(tokio::time::timeout(plan.timeout, ask(provider.clone())));
                 let answer = tokio::select! {
                     answer = &mut call => answer,
                     () = tokio::time::sleep(HOLD) => {
@@ -266,95 +254,6 @@ pub async fn collect<T>(answers: impl Stream<Item = Asked<T>>) -> Vec<Asked<T>> 
     let mut all: Vec<Asked<T>> = answers.collect().await;
     all.sort_by_key(|asked| asked.order);
     all
-}
-
-/// How long to wait for a fan-out's answers when someone waits on them.
-#[derive(Debug, Clone, Copy)]
-pub struct Patience {
-    /// Longest to wait for all of them.
-    pub total: Duration,
-    /// Once a useful answer is in, how much longer to wait for the rest.
-    pub settle: Duration,
-}
-
-/// The answers of a fan-out that came in time, in its order, and whether every source answered.
-/// Waits for all of them, but not past `patience`: never for the slowest when others answered
-/// well before.
-pub async fn gather<T>(
-    answers: impl Stream<Item = Asked<T>>,
-    patience: Patience,
-    useful: impl Fn(&Result<T, CallError>) -> bool,
-) -> (Vec<Asked<T>>, bool) {
-    let mut answers = pin!(answers);
-    let mut got = Vec::new();
-    let deadline = Instant::now() + patience.total;
-    let mut settle_by: Option<Instant> = None;
-    let complete = loop {
-        let until = settle_by.map_or(deadline, |settle| settle.min(deadline));
-        match tokio::time::timeout_at(until, answers.next()).await {
-            Ok(Some(asked)) => {
-                if settle_by.is_none() && useful(&asked.answer) {
-                    settle_by = Some(Instant::now() + patience.settle);
-                }
-                got.push(asked);
-            }
-            Ok(None) => break true,
-            Err(_) => break false,
-        }
-    };
-    got.sort_by_key(|asked| asked.order);
-    (got, complete)
-}
-
-type SharedAnswer = Shared<BoxFuture<'static, Result<serde_json::Value, CallError>>>;
-
-/// Calls shared by identical asks, and their answers for a moment after (failures for less).
-/// A call stays going while it's kept, even when its first asker stopped waiting, so asking
-/// again picks up its answer.
-#[derive(Default)]
-pub struct Memo {
-    entries: Mutex<HashMap<String, (Instant, SharedAnswer)>>,
-}
-
-impl Memo {
-    /// The answer for `key`: kept, joined while running, or from a call `start` makes now.
-    pub fn answer(
-        &self,
-        key: String,
-        start: impl FnOnce() -> BoxFuture<'static, Result<serde_json::Value, CallError>>,
-    ) -> SharedAnswer {
-        let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
-        let fresh = |at: &Instant, answer: &SharedAnswer| match answer.peek() {
-            Some(Ok(_)) => at.elapsed() < MEMO_TTL,
-            Some(Err(_)) => at.elapsed() < MEMO_FAILURE_TTL,
-            None => at.elapsed() < MEMO_IN_FLIGHT,
-        };
-        if let Some((at, answer)) = entries.get(&key)
-            && fresh(at, answer)
-        {
-            return answer.clone();
-        }
-        entries.retain(|_, (at, answer)| fresh(at, answer));
-        if entries.len() >= MEMO_ENTRIES
-            && let Some(oldest) = entries
-                .iter()
-                .min_by_key(|(_, (at, _))| *at)
-                .map(|(key, _)| key.clone())
-        {
-            entries.remove(&oldest);
-        }
-        let answer = start().shared();
-        entries.insert(key, (Instant::now(), answer.clone()));
-        answer
-    }
-
-    /// Forgets every kept answer (extensions were reloaded).
-    pub fn clear(&self) {
-        self.entries
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clear();
-    }
 }
 
 /// Turns for calls, a few at a time. Those waiting go by standing (good sources first), then in
@@ -572,37 +471,6 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn waiting_settles_soon_after_good_answers() {
-        let health = Health::default();
-        let providers: Vec<_> = (0..32).map(provider).collect();
-        let started = tokio::time::Instant::now();
-        let (answers, complete) = gather(
-            fan_out(&health, providers, plan(), |provider| {
-                answer(index_of(&provider))
-            }),
-            Patience {
-                total: Duration::from_secs(12),
-                settle: Duration::from_millis(1500),
-            },
-            Result::is_ok,
-        )
-        .await;
-        assert!(!complete);
-        // The fast ones and the failing ones are in; the slow and the hanging aren't awaited.
-        assert!(
-            started.elapsed() < Duration::from_secs(2),
-            "{:?}",
-            started.elapsed()
-        );
-        assert!(answers.iter().any(|asked| asked.answer.is_ok()));
-        assert!(
-            answers
-                .iter()
-                .all(|asked| !matches!(behaviour(index_of(&asked.provider)), Behaviour::Hanging))
-        );
-    }
-
-    #[tokio::test(start_paused = true)]
     async fn failing_sources_go_last_then_sit_out() {
         let health = Health::default();
         let providers: Vec<_> = (0..36).map(provider).collect();
@@ -699,61 +567,6 @@ mod tests {
             health.record(&offline, Err(&failure(IssueKind::Offline)), Duration::ZERO);
         }
         assert!(health.resting(&offline).is_none());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn identical_asks_share_one_call_and_a_late_answer_waits() {
-        let memo = Memo::default();
-        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let start = || {
-            let calls = calls.clone();
-            move || {
-                async move {
-                    calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    Ok(serde_json::json!(1))
-                }
-                .boxed()
-            }
-        };
-        // The first asker stops waiting; the call goes on for the next one.
-        let first = memo.answer("k".into(), start());
-        assert!(
-            tokio::time::timeout(Duration::from_secs(1), first)
-                .await
-                .is_err()
-        );
-        let second = memo.answer("k".into(), start());
-        assert_eq!(second.await.unwrap(), serde_json::json!(1));
-        let third = memo.answer("k".into(), start());
-        assert_eq!(third.await.unwrap(), serde_json::json!(1));
-        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
-        // Kept answers expire; failures sooner, so asking again soon gets them, a retry later
-        // asks anew.
-        tokio::time::advance(MEMO_TTL).await;
-        let _ = memo.answer("k".into(), start()).await;
-        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
-        let failing = || || async { Err(CallError::Cancelled) }.boxed();
-        let _ = memo.answer("f".into(), failing()).await;
-        let working = || {
-            let calls = calls.clone();
-            move || {
-                async move {
-                    calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    Ok(serde_json::json!(2))
-                }
-                .boxed()
-            }
-        };
-        assert_eq!(
-            memo.answer("f".into(), working()).await,
-            Err(CallError::Cancelled)
-        );
-        tokio::time::advance(MEMO_FAILURE_TTL).await;
-        assert_eq!(
-            memo.answer("f".into(), working()).await.unwrap(),
-            serde_json::json!(2)
-        );
     }
 
     #[tokio::test(start_paused = true)]

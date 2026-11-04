@@ -1,14 +1,15 @@
 import type { CatalogEntry, RepoCatalog } from '@raygun/bindings';
-import { Check, Info, LoaderCircle, Search } from 'lucide-react';
+import { Check, Info, LoaderCircle } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { nativeName } from '../i18n/languages';
 import { LetterAvatar } from '../shell/LetterAvatar';
+import { ListSearchField } from '../shell/ListSearchField';
 import { Sheet } from '../shell/Sheet';
 import { NO_FILTER, catalogFacets, filterCatalog } from './catalogFilters';
-import type { CatalogFilter, ExtensionKind } from './catalogFilters';
+import type { CatalogFilter, CatalogShow, ExtensionKind } from './catalogFilters';
 import { EntryInfo } from './EntryInfo';
 import { entryKey, useInstallQueue } from './installQueue';
 import type { InstallStatus } from './installQueue';
@@ -19,6 +20,41 @@ const SELECT = 'bg-surface min-w-0 flex-1 rounded-lg px-3 py-2 text-sm outline-n
 
 const languageName = (lang: string, multi: string) => (lang === 'multi' ? multi : nativeName(lang));
 
+/**
+ * Chips for the kinds present: each narrows the list to its kind, and pressed again shows every
+ * kind (Installed and the catalog share them).
+ */
+export const KindChips: FC<{
+  kinds: ExtensionKind[];
+  kind: ExtensionKind | null;
+  onChange: (kind: ExtensionKind | null) => void;
+}> = ({ kinds, kind, onChange }) => {
+  const { t } = useTranslation();
+  if (kinds.length < 2) return null;
+  return (
+    <div
+      role="group"
+      aria-label={t('extensions.kindFilter')}
+      className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
+    >
+      {kinds.map((option) => {
+        const selected = kind === option;
+        return (
+          <button
+            key={option}
+            type="button"
+            aria-pressed={selected}
+            onClick={() => onChange(selected ? null : option)}
+            className={`shrink-0 rounded-full px-3 py-1.5 text-sm ${selected ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
+          >
+            {t(`extensions.kind.${option}`)}
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
 /** Search, kind chips, and language and repository pickers over the whole catalog. */
 const Filters: FC<{
   catalog: RepoCatalog[];
@@ -27,51 +63,20 @@ const Filters: FC<{
 }> = ({ catalog, filter, onChange }) => {
   const { t } = useTranslation();
   const facets = useMemo(() => catalogFacets(catalog), [catalog]);
-  const chip = (kind: ExtensionKind | null, label: string) => {
-    const selected = filter.kind === kind;
-    return (
-      <button
-        key={kind ?? 'all'}
-        type="button"
-        aria-pressed={selected}
-        onClick={() => onChange({ ...filter, kind })}
-        className={`shrink-0 rounded-full px-3 py-1.5 text-sm ${selected ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
-      >
-        {label}
-      </button>
-    );
-  };
 
   return (
     <div className="flex flex-col gap-2">
-      <label className="bg-surface flex items-center gap-2 rounded-lg px-3 py-2">
-        <Search aria-hidden size={16} className="text-muted" />
-        <input
-          type="search"
-          value={filter.query}
-          onChange={(event) => onChange({ ...filter, query: event.target.value })}
-          placeholder={t('extensions.searchPlaceholder')}
-          aria-label={t('extensions.search')}
-          className="placeholder:text-muted min-w-0 flex-1 bg-transparent text-sm outline-none"
-        />
-      </label>
-      <div
-        role="group"
-        aria-label={t('extensions.kindFilter')}
-        className="flex gap-2 no-scrollbar overflow-x-auto"
-      >
-        {/* What isn't installed yet, beside the Installed tab (M46.40). */}
-        <button
-          type="button"
-          aria-pressed={filter.notInstalled}
-          onClick={() => onChange({ ...filter, notInstalled: !filter.notInstalled })}
-          className={`shrink-0 rounded-full px-3 py-1.5 text-sm ${filter.notInstalled ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
-        >
-          {t('extensions.notInstalled')}
-        </button>
-        {chip(null, t('extensions.kind.all'))}
-        {facets.kinds.map((kind) => chip(kind, t(`extensions.kind.${kind}`)))}
-      </div>
+      <ListSearchField
+        value={filter.query}
+        onChange={(query) => onChange({ ...filter, query })}
+        label={t('extensions.search')}
+        className="w-full"
+      />
+      <KindChips
+        kinds={facets.kinds}
+        kind={filter.kind}
+        onChange={(kind) => onChange({ ...filter, kind })}
+      />
       <div className="flex gap-2">
         {facets.langs.length > 0 && (
           <select
@@ -165,7 +170,11 @@ const EntryAction: FC<{
   }
 };
 
-export const BrowseTab: FC = () => {
+/**
+ * Browse → Extensions' catalogue: every repository's extensions (All), the ones not installed
+ * yet, or the ones with an update, with filters over them.
+ */
+export const BrowseTab: FC<{ show?: CatalogShow }> = ({ show = 'all' }) => {
   const { t } = useTranslation();
   const catalog = useCatalog();
   const queue = useInstallQueue();
@@ -174,8 +183,8 @@ export const BrowseTab: FC = () => {
   const [filter, setFilter] = useState<CatalogFilter>(NO_FILTER);
   const error = catalog.error;
   const listings = useMemo(
-    () => (catalog.data ? filterCatalog(catalog.data, filter) : undefined),
-    [catalog.data, filter],
+    () => (catalog.data ? filterCatalog(catalog.data, filter, show) : undefined),
+    [catalog.data, filter, show],
   );
   const shown = useMemo(() => listings?.flatMap((listing) => listing.entries) ?? [], [listings]);
   // Entries that can still be installed, among those shown; a selection keeps only these.
@@ -244,7 +253,7 @@ export const BrowseTab: FC = () => {
           </button>
         </div>
       ) : (
-        updates.length > 1 && (
+        (updates.length > 1 || (show === 'updates' && updates.length > 0)) && (
           <button
             type="button"
             onClick={() => queue.install(updates)}
@@ -255,7 +264,13 @@ export const BrowseTab: FC = () => {
         )
       )}
       {listings?.length === 0 && catalog.data && catalog.data.length > 0 && (
-        <p className="text-muted text-sm">{t('extensions.noMatches')}</p>
+        <p className="text-muted text-sm">
+          {show === 'updates' && filter === NO_FILTER
+            ? t('extensions.allUpToDate')
+            : show === 'notInstalled' && filter === NO_FILTER
+              ? t('extensions.allInstalled')
+              : t('extensions.noMatches')}
+        </p>
       )}
       {listings?.map((listing) => (
         <section key={listing.repo.id} data-testid="repo-catalog" className="flex flex-col gap-2">

@@ -332,6 +332,68 @@ async fn stream_candidates_and_provider_stats_round_trip() {
 }
 
 #[tokio::test]
+async fn a_picked_stream_is_remembered_and_failures_forgotten() {
+    let temp = TempDir::new().unwrap();
+    let db = open_in(temp.path()).await;
+    let song = "artst|sogn";
+    let picked = "artist|song";
+    // Every candidate failed when the song played under its misread names.
+    streams::mark_failed(&db, song, "dev.a/stream", "1", "Sogn", "HTTP 404", 10)
+        .await
+        .unwrap();
+    // The preview played the picked source's names.
+    streams::mark_verified(
+        &db,
+        streams::Played {
+            track_key: picked,
+            provider_id: "dev.b/stream",
+            candidate_id: "2",
+            title: "Song",
+            source_json: r#"{"kind":"url","url":"https://b.example/2","headers":{}}"#,
+            expires_at: None,
+            bitrate_kbps: Some(128),
+        },
+        20,
+    )
+    .await
+    .unwrap();
+
+    streams::clear_failures(&db, &[song.to_owned()])
+        .await
+        .unwrap();
+    streams::copy_picks(&db, picked, song, 30).await.unwrap();
+    let rows = streams::candidates(&db, song).await.unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].candidate_id, "2", "the pick plays first");
+    assert_eq!(rows[0].verified_at, Some(30));
+    assert_eq!(rows[0].bitrate_kbps, Some(128));
+    assert_eq!(rows[1].failed_at, None, "the old failure is forgotten");
+
+    streams::remember_pick(
+        &db,
+        streams::Played {
+            track_key: song,
+            provider_id: "Audius",
+            candidate_id: "https://c.example/3",
+            title: "Song",
+            source_json: r#"{"kind":"url","url":"https://c.example/3","headers":{}}"#,
+            expires_at: None,
+            bitrate_kbps: None,
+        },
+        40,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        streams::candidates(&db, song).await.unwrap()[0].provider_id,
+        "Audius"
+    );
+    // A pick counts for no provider.
+    let stats = streams::provider_stats(&db).await.unwrap();
+    assert!(stats.iter().all(|row| row.provider_id != "Audius"));
+}
+
+#[tokio::test]
 async fn local_values_round_trip_and_never_touch_synced_settings() {
     let dir = TempDir::new().unwrap();
     let db = open_in(dir.path()).await;

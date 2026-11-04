@@ -452,55 +452,37 @@ async fn many_sources_search_without_waiting_on_the_slowest() {
     load(&host, sources).await;
     let loaded = loading.elapsed();
 
+    // Each answer is reported as it comes: when it came, and whether it failed.
     let started = Instant::now();
-    let (results, pending) = host.search_music_now("song", 10).await;
-    let first = started.elapsed();
+    let seen = std::sync::Mutex::new(Vec::new());
+    let search = host.search_music_as_answered("song", 10, |result, total| {
+        assert_eq!(total, 33);
+        seen.lock().unwrap().push((
+            started.elapsed(),
+            result.provider.name.clone(),
+            result.error.is_some(),
+        ));
+    });
+    // The hanging sources take the whole timeout; what matters is what came before.
+    let _ = tokio::time::timeout(Duration::from_secs(5), search).await;
+    let seen = seen.into_inner().unwrap();
+    let in_time = |limit: Duration| seen.iter().filter(|(at, ..)| *at < limit).count();
     println!(
-        "33 sources: loaded in {loaded:?}; first answer in {first:?} with {} sources in, {} still searching",
-        results.len(),
-        pending.len()
+        "33 sources: loaded in {loaded:?}; {} answered within 1 s, {} within 5 s (8 hang)",
+        in_time(Duration::from_secs(1)),
+        seen.len()
     );
-    // The fast, slow and failing ones are in; the search didn't wait on the hanging or late ones.
-    assert!(first < Duration::from_secs(4), "{first:?}");
-    assert_eq!(results.len(), 24);
-    assert_eq!(pending.len(), 9);
-    assert!(pending.iter().any(|provider| provider.name == "Late"));
-    let failed = results
-        .iter()
-        .filter(|result| result.error.is_some())
-        .count();
-    assert_eq!(failed, 8);
+    // The fast, slow and failing ones answer at once; the late one when it's done; none waits
+    // on the hanging ones.
+    assert!(in_time(Duration::from_secs(2)) >= 24, "{seen:?}");
+    assert_eq!(seen.iter().filter(|(_, _, failed)| *failed).count(), 8);
     assert!(
-        results
-            .iter()
-            .filter_map(|result| result.error.as_deref())
-            .all(|error| error.ends_with(": this source is broken"))
+        seen.iter()
+            .any(|(at, name, _)| name == "Late" && *at < Duration::from_secs(5))
     );
-    // Good answers come before failures.
-    let first_failure = results
-        .iter()
-        .position(|result| result.error.is_some())
-        .unwrap();
     assert!(
-        results[..first_failure]
+        !seen
             .iter()
-            .all(|result| result.error.is_none())
+            .any(|(_, name, _)| ["S3", "S7"].contains(&name.as_str()))
     );
-
-    // The late source kept going: asking again picks up its answer without asking it twice.
-    tokio::time::sleep(Duration::from_millis(1500)).await;
-    let again = Instant::now();
-    let (results, pending) = host.search_music_now("song", 10).await;
-    println!(
-        "asked again: {:?}, {} sources in, {} still searching",
-        again.elapsed(),
-        results.len(),
-        pending.len()
-    );
-    let late = results
-        .iter()
-        .find(|result| result.provider.name == "Late")
-        .expect("the late source answered by now");
-    assert_eq!(late.tracks[0].title, "asked 1");
-    assert_eq!(pending.len(), 8);
 }

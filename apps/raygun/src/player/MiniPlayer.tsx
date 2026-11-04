@@ -56,6 +56,7 @@ import {
   usePlayerSelect,
   useSourceNote,
 } from './usePlayback';
+import { SkipNotice } from './SkipNotice';
 
 /** The song before the current one in play order (the last one with repeat all), to swipe back
  * to: unlike Previous, it never just restarts the song. */
@@ -94,6 +95,7 @@ export const MiniPlayer: FC = () => {
     <>
       <WideBar item={item} />
       <PlayingOn className="-mt-1 mx-2 mb-2 rounded-xl lg:mx-4" />
+      <SkipNotice />
     </>
   ) : (
     <PhoneBar item={item} />
@@ -176,6 +178,7 @@ const PhoneBar: FC<BarProps> = ({ item }) => {
         </span>
       </div>
       <PlayingOn />
+      <SkipNotice />
     </motion.div>
   );
 };

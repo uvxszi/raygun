@@ -3,6 +3,7 @@ import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Sheet } from '../shell/Sheet';
+import { SHEET_FIELD, SHEET_INPUT, TextField } from '../shell/TextField';
 import { useAddRoot } from './useLibrary';
 
 /** Adds a music folder by its path, in a sheet (from the Library's menu or the empty library). */
@@ -21,13 +22,17 @@ export const AddFolderSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
   return (
     <Sheet title={t('library.addFolder')} onClose={onClose}>
       <form onSubmit={onSubmit} className="flex flex-col gap-3 text-sm">
-        <input
+        <TextField
           autoFocus
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
           value={path}
-          onChange={(event) => setPath(event.target.value)}
+          onChange={setPath}
           placeholder={t('library.folderPlaceholder')}
           aria-label={t('library.folderPath')}
-          className="bg-background placeholder:text-muted rounded-xl px-4 py-3 outline-none"
+          className={SHEET_FIELD}
+          inputClassName={SHEET_INPUT}
         />
         <p className="text-muted text-xs">{t('library.folderHint')}</p>
         {addRoot.isError && (

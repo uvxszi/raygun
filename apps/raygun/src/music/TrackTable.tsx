@@ -49,6 +49,7 @@ import { unwrapResult } from '../lib/commandResult';
 import { Artwork } from '../library/Artwork';
 import { formatTime } from '../player/formatTime';
 import { Sheet } from '../shell/Sheet';
+import { TextField } from '../shell/TextField';
 import { useCoarsePointer, useWideScreen } from '../shell/useWideScreen';
 import { ArtistLinks } from './ArtistLinks';
 import {
@@ -501,19 +502,20 @@ export const TrackTable: FC<TrackTableProps> = ({
             <ListChecks aria-hidden size={18} />
           </button>
           {filtering || filter ? (
-            <label className="bg-surface flex items-center gap-2 rounded-full px-3 py-1.5">
-              <Search aria-hidden size={14} className="text-muted" />
-              <input
-                autoFocus
-                type="search"
-                value={filter}
-                onChange={(event) => setFilter(event.target.value)}
-                onBlur={() => setFiltering(false)}
-                aria-label={t('tracks.filter')}
-                placeholder={t('tracks.filter')}
-                className="placeholder:text-muted w-40 bg-transparent text-sm outline-none"
-              />
-            </label>
+            <TextField
+              autoFocus
+              type="search"
+              value={filter}
+              onChange={setFilter}
+              onBlur={() => setFiltering(false)}
+              icon={Search}
+              iconSize={14}
+              autoComplete="off"
+              aria-label={t('tracks.filter')}
+              placeholder={t('tracks.filter')}
+              className="bg-surface rounded-full py-0.5 pr-0.5 pl-3"
+              inputClassName="w-40 py-1 text-sm"
+            />
           ) : (
             <button
               type="button"

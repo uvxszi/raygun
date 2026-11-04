@@ -370,6 +370,8 @@ pub struct PrivacyPrefs {
     pub history: bool,
     /// Where plays started from is kept for Home (Recently played, Your music).
     pub recently_played: bool,
+    /// Searches are kept for Search's recent searches.
+    pub search_history: bool,
     /// Incognito stays on when Raygun starts again; otherwise it ends with the app (M47).
     pub keep_incognito: bool,
 }
@@ -379,6 +381,7 @@ impl Default for PrivacyPrefs {
         Self {
             history: true,
             recently_played: true,
+            search_history: true,
             keep_incognito: false,
         }
     }
@@ -3361,10 +3364,52 @@ pub struct SearchResults {
     /// Tracks merged across providers, best first; empty unless two or more providers found some.
     pub top: Vec<OnlineTrack>,
     pub providers: Vec<ProviderSearchResult>,
-    /// Sources still searching (M46.48): searching again soon brings their songs.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    #[specta(optional)]
-    pub pending: Vec<ProviderInfo>,
+}
+
+/// One source's answer while a search still waits for the others, so Search shows the first
+/// answers without waiting for the slowest source.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchProgress {
+    /// What was searched for, trimmed as the search command trims it.
+    pub query: String,
+    /// How many sources the search asks.
+    pub total: u32,
+    pub part: SearchPart,
+}
+
+/// What one source answered, by kind of search.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum SearchPart {
+    Songs {
+        result: ProviderSearchResult,
+    },
+    Artists {
+        provider: ProviderInfo,
+        artists: Vec<MusicArtist>,
+    },
+    Albums {
+        provider: ProviderInfo,
+        albums: Vec<MusicAlbum>,
+    },
+    Playlists {
+        provider: ProviderInfo,
+        featured: bool,
+        playlists: Vec<MusicPlaylist>,
+    },
+}
+
+/// A search someone made, kept on this device for Search's recent searches.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentSearch {
+    pub query: String,
+    /// What it looked through: Search's kind (`all`, `music`, `video`, `manga`, `novel`,
+    /// `library`).
+    pub kind: String,
+    /// Unix ms.
+    pub searched_at: f64,
 }
 
 // ---- Favorites, playlists, history (M18) ----
@@ -3429,6 +3474,50 @@ pub struct SavedTrack {
 pub struct TrackSaves {
     pub favorite: bool,
     pub playlist_ids: Vec<String>,
+}
+
+/// A saved song as lists mark it (M46.48): the key it's stored under, every key its copies answer
+/// to (their names', and the names they show with the user's details), and where it's saved.
+/// `music/trackKey.ts` finds a shown song among them with `sameSong`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedSong {
+    pub track_key: String,
+    pub song_keys: Vec<String>,
+    pub favorite: bool,
+    pub playlist_ids: Vec<String>,
+}
+
+/// What picking a source for a song does (M46.48): with `assign`, every saved copy, the queue
+/// and the resolver's remembered pick take its stream (the download mode only downloads from
+/// it); the details ticked become the song's own (Edit details reverts them). `source_name` is
+/// the source's name, which the player shows the stream came from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceChoice {
+    pub assign: bool,
+    pub source_name: Option<String>,
+    pub title: bool,
+    pub artist: bool,
+    pub album: bool,
+    pub cover: bool,
+}
+
+/// Where a saved song came from (M46.48): Import songs, and whether no source had it then.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackImportStatus {
+    pub imported: bool,
+    pub unavailable: bool,
+}
+
+/// What adding songs to a playlist did (M46.48): songs it already held stay out unless they're
+/// added anyway.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistAdded {
+    pub added: u32,
+    pub already: u32,
 }
 
 /// An artist's page (M46.8): popular songs from the sources, and what the library has by them.

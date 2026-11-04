@@ -90,12 +90,16 @@ describe('Importing songs', () => {
     await user.clear(name);
     await user.type(name, 'Hits');
     await user.click(within(review).getByRole('button', { name: 'Make a playlist of 1 song' }));
-    expect(commands.importSave).toHaveBeenCalledWith({ kind: 'new', name: 'Hits' }, [
-      expect.objectContaining({
-        song: expect.objectContaining({ title: 'Loser' }),
-        matchedBy: 'Deezer',
-      }),
-    ]);
+    expect(commands.importSave).toHaveBeenCalledWith(
+      { kind: 'new', name: 'Hits' },
+      [
+        expect.objectContaining({
+          song: expect.objectContaining({ title: 'Loser' }),
+          matchedBy: 'Deezer',
+        }),
+      ],
+      false,
+    );
   });
 
   it('fixes names, adds and moves songs, picks another source, and imports while matching', async () => {
@@ -135,14 +139,58 @@ describe('Importing songs', () => {
 
     // Imported at once; what isn't matched yet is matched by Rust afterwards.
     await user.click(within(review).getByRole('button', { name: 'Make a playlist of 3 songs' }));
-    expect(commands.importSave).toHaveBeenCalledWith({ kind: 'new', name: "Today's Top Hits" }, [
-      expect.objectContaining({ song: expect.objectContaining({ title: 'Housewife (Live)' }) }),
-      expect.objectContaining({ matchedBy: 'Audius' }),
-      expect.objectContaining({
-        song: expect.objectContaining({ title: 'New One' }),
-        pending: true,
-      }),
-    ]);
+    expect(commands.importSave).toHaveBeenCalledWith(
+      { kind: 'new', name: "Today's Top Hits" },
+      [
+        expect.objectContaining({ song: expect.objectContaining({ title: 'Housewife (Live)' }) }),
+        expect.objectContaining({ matchedBy: 'Audius' }),
+        expect.objectContaining({
+          song: expect.objectContaining({ title: 'New One' }),
+          pending: true,
+        }),
+      ],
+      false,
+    );
+  });
+
+  it('marks songs a playlist has already and asks before adding them again', async () => {
+    const user = userEvent.setup();
+    commands.importReadLink.mockResolvedValue(ok(list(SONGS)));
+    commands.importSave.mockResolvedValue(ok('p1'));
+    commands.playlistsList.mockResolvedValue(
+      ok([{ id: 'p1', name: 'Road', itemCount: 1, artworkUrls: [], coverUrl: null }]),
+    );
+    commands.collectionsSavedIndex.mockResolvedValue(
+      ok([
+        {
+          trackKey: 'tame impala|loser',
+          songKeys: ['tame impala|loser'],
+          favorite: false,
+          playlistIds: ['p1'],
+        },
+      ]),
+    );
+    await AppShellWrapper.mount('/library?view=playlists');
+    await user.click(await screen.findByRole('button', { name: 'Import songs' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Import songs' });
+    await user.type(
+      within(sheet).getByRole('textbox', { name: 'Playlist, album or song link' }),
+      'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M',
+    );
+    await user.click(within(sheet).getByRole('button', { name: 'Read songs' }));
+    const review = await within(sheet).findByTestId('import-review');
+    await user.selectOptions(within(review).getByRole('combobox'), 'p1');
+    expect(await within(review).findByText('Already in Road')).toBeInTheDocument();
+
+    await user.click(within(review).getByRole('button', { name: 'Add 2 songs to Road' }));
+    expect(within(review).getByRole('alertdialog')).toHaveTextContent('1 song is already in Road');
+    expect(commands.importSave).not.toHaveBeenCalled();
+    await user.click(within(review).getByRole('button', { name: 'Add new ones' }));
+    expect(commands.importSave).toHaveBeenCalledWith(
+      { kind: 'playlist', id: 'p1' },
+      expect.any(Array),
+      false,
+    );
   });
 
   it('reads pasted lines and says calmly when a link fails', async () => {

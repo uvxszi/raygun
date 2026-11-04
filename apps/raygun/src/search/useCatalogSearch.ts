@@ -3,29 +3,78 @@ import type { FilterValue, SourceSearchResult } from '@raygun/bindings';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 
 import { unwrapResult } from '../lib/commandResult';
-import { isStopped } from '../lib/issue';
 import type { Medium } from '../manga/medium';
 
 const STALE_MS = 5 * 60_000;
 
-/**
- * Source requests Search keeps in flight at once (M46.7); the rest wait their turn. Rust takes
- * them a few at a time, good sources first, and a slow one makes way (M46.48), so a few hanging
- * sources don't hold up the rows behind them.
- */
-const MAX_IN_FLIGHT = 8;
+/** Source requests Search keeps in flight at once (M46.7); the rest wait their turn. */
+export const MAX_IN_FLIGHT = 6;
 let inFlight = 0;
 const waiting: (() => void)[] = [];
+/** Requests asking now, by what they ask: a second ask for the same waits for the first. */
+const asking = new Map<string, Promise<unknown>>();
 
-const queued = async <T>(task: () => Promise<T>): Promise<T> => {
-  if (inFlight >= MAX_IN_FLIGHT) await new Promise<void>((resolve) => waiting.push(resolve));
-  inFlight += 1;
-  try {
-    return await task();
-  } finally {
+const startNext = () => {
+  if (inFlight < MAX_IN_FLIGHT) waiting.shift()?.();
+};
+
+/**
+ * Takes one of the places, waiting for it when they're all taken; a search nobody waits for any
+ * more leaves the line.
+ */
+const turn = (signal: AbortSignal | undefined) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new Error('aborted'));
+      return;
+    }
+    if (inFlight < MAX_IN_FLIGHT && waiting.length === 0) {
+      inFlight += 1;
+      resolve();
+      return;
+    }
+    const go = () => {
+      signal?.removeEventListener('abort', leave);
+      inFlight += 1;
+      resolve();
+    };
+    const leave = () => {
+      const at = waiting.indexOf(go);
+      if (at >= 0) waiting.splice(at, 1);
+      reject(signal?.reason ?? new Error('aborted'));
+    };
+    waiting.push(go);
+    signal?.addEventListener('abort', leave, { once: true });
+  });
+
+/**
+ * Runs `task` when one of the few places is free (M46.7). A search whose query changed before
+ * its turn (TanStack aborts it) never runs, so the new query's sources aren't kept waiting
+ * behind the old one's. Once asked, a source's answer is waited for even if the query moves on
+ * (the call can't be taken back), and asking the same again meanwhile waits for that answer.
+ */
+export const queued = async <T>(
+  key: string,
+  task: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> => {
+  const running = asking.get(key);
+  if (running) return running as Promise<T>;
+  await turn(signal);
+  // The same was asked while this one waited for its turn: its answer does for both.
+  const started = asking.get(key);
+  if (started) {
     inFlight -= 1;
-    waiting.shift()?.();
+    startNext();
+    return started as Promise<T>;
   }
+  const answer = task().finally(() => {
+    asking.delete(key);
+    inFlight -= 1;
+    startNext();
+  });
+  asking.set(key, answer);
+  return answer;
 };
 
 /**
@@ -34,16 +83,14 @@ const queued = async <T>(task: () => Promise<T>): Promise<T> => {
  */
 export const sourceSearchOptions = (medium: Medium, sourceId: string, query: string) => ({
   queryKey: [medium, 'sourceSearch', sourceId, query.trim()],
-  queryFn: async (): Promise<SourceSearchResult | null> => {
-    const results = await queued(() =>
-      unwrapResult(commands.catalogGlobalSearch(medium, query.trim(), [sourceId])),
+  queryFn: async ({ signal }: { signal?: AbortSignal }): Promise<SourceSearchResult | null> => {
+    const results = await queued(
+      JSON.stringify([medium, sourceId, query.trim()]),
+      () => unwrapResult(commands.catalogGlobalSearch(medium, query.trim(), [sourceId])),
+      signal,
     );
-    const result = results.find((found) => found.source.id === sourceId) ?? null;
-    // Stopped for a newer search (M46.48): no answer to keep; coming back to it asks again.
-    if (result?.error && isStopped(result.error)) throw new Error(result.error);
-    return result;
+    return results.find((found) => found.source.id === sourceId) ?? null;
   },
-  retry: (failures: number, error: Error) => !isStopped(error) && failures < 3,
   staleTime: STALE_MS,
 });
 
