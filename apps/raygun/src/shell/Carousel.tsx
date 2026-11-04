@@ -15,8 +15,9 @@ type CarouselProps = {
 
 /**
  * A row of cards that pages sideways (M46.14), as Spotify's rows do: buttons at its ends glide it a
- * page at a time and show on hover, Shift with the wheel scrolls it, a finger swipes it, and no
- * scrollbar shows under it.
+ * page at a time and show on hover, Shift with the wheel scrolls it, a finger swipes it (and the
+ * row comes to rest on a card's edge, lined up with the row's padding), and no scrollbar shows
+ * under it.
  */
 export const Carousel: FC<CarouselProps> = ({ children, className = '', testId }) => {
   const { t } = useTranslation();
@@ -31,6 +32,20 @@ export const Carousel: FC<CarouselProps> = ({ children, className = '', testId }
     setEdges((previous) =>
       previous.start === start && previous.end === end ? previous : { start, end },
     );
+  }, []);
+
+  // Cards come to rest where the row's padding starts, not under the window's edge; the padding
+  // changes with the window's width.
+  useEffect(() => {
+    const row = list.current;
+    if (!row) return;
+    const align = () => {
+      const style = getComputedStyle(row);
+      row.style.scrollPaddingInline = `${style.paddingLeft} ${style.paddingRight}`;
+    };
+    align();
+    window.addEventListener('resize', align);
+    return () => window.removeEventListener('resize', align);
   }, []);
 
   useEffect(() => {
@@ -73,7 +88,7 @@ export const Carousel: FC<CarouselProps> = ({ children, className = '', testId }
         data-testid={testId}
         data-carousel=""
         onScroll={update}
-        className={`no-scrollbar flex overflow-x-auto overscroll-x-contain ${className}`}
+        className={`no-scrollbar flex overflow-x-auto overscroll-x-contain *:snap-start [@media(pointer:coarse)]:snap-x [@media(pointer:coarse)]:snap-mandatory ${className}`}
       >
         {children}
       </ul>

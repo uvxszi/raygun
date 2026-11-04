@@ -14,7 +14,10 @@ export const commands = {
 	settingsGet: () => typedError<Settings, string>(__TAURI_INVOKE("settings_get")),
 	/**  Changes one setting and returns the updated settings. */
 	settingsUpdate: (change: SettingChange) => typedError<Settings, string>(__TAURI_INVOKE("settings_update", { change })),
-	/**  What was played from lately: albums, playlists, mixes, artists, podcasts, books (M46.37). */
+	/**
+	 *  What was played from lately: albums, playlists, mixes, artists, podcasts, books (M46.37).
+	 *  Hidden artists' pages and tiles marked Not interested are left out.
+	 */
 	recentContexts: () => typedError<PlayContext[], string>(__TAURI_INVOKE("recent_contexts")),
 	/**  Remembers where a play started (the page the user played from), for Home's Your music. */
 	recentContextsAdd: (context: PlayContext) => typedError<null, string>(__TAURI_INVOKE("recent_contexts_add", { context })),
@@ -201,17 +204,37 @@ export const commands = {
 	/**  A cover link through the image cache. */
 	artworkUrl: string | null,
 	state: SongDownloadState,
-	/**  `file` (a source's stream) or `recording`, once done. */
-	kind: string | null,
-	/**  Where the audio came from. */
+	/**
+	 *  How it's made: `file` while downloading, `recording` while recorded, and how it was made
+	 *  once done.
+	 */
+	kind: SongDownloadKind | null,
+	/**
+	 *  Where the audio came from once done; while downloading, the source being tried now; while
+	 *  queued, the source picked for it, if any.
+	 */
 	provider: string | null,
 	/**  The saved file's extension ("mp3", "flac"...), once done. */
 	format: string | null,
+	/**  While downloading, what came so far; once done, the file's size. */
 	doneBytes: number | null,
 	totalBytes: number | null,
+	/**  How far it is, 0–1, when known: the file's bytes, or how much of a recording has played. */
+	fraction: number | null,
+	/**  How fast it downloads now, while it does. */
+	bytesPerSecond: number | null,
+	/**  Time left in ms, when known: from the speed and the size, or the song left to record. */
+	etaMs: number | null,
+	/**  What went wrong, in a line for the listener. */
 	error: string | null,
+	/**  Each source's own error behind `error` ("More info"). */
+	errorDetail: string | null,
 	/**  This device can record what plays (Windows for now). */
 	canRecord: boolean,
+	/**  Its place in the queue (unix ms): queued songs download earliest first. */
+	queuedAt: number | null,
+	/**  When it finished, or stopped with an error (unix ms). */
+	finishedAt: number | null,
 } | null, string>(__TAURI_INVOKE("song_download_for", { track })),
 	/**  Where a song is saved: Favorites and the playlists holding it (M46.8). */
 	collectionsSaves: (track: TrackInput) => typedError<TrackSaves, string>(__TAURI_INVOKE("collections_saves", { track })),
@@ -226,9 +249,9 @@ export const commands = {
 	musicArtist: (name: string) => typedError<ArtistOverview, string>(__TAURI_INVOKE("music_artist", { name })),
 	/**  Every source's charts for a country (M46.9), cached for an hour. */
 	musicCharts: (region: string | null) => typedError<MusicCharts_Serialize, string>(__TAURI_INVOKE("music_charts", { region })),
-	/**  A chart's songs (M46.9). */
+	/**  A chart's songs (M46.9), without hidden artists' songs. */
 	musicChart: (providerId: string, chartId: string, region: string | null) => typedError<OnlineTrack[], string>(__TAURI_INVOKE("music_chart", { providerId, chartId, region })),
-	/**  Every chart source's songs for a genre or a mood (M46.19). */
+	/**  Every chart source's songs for a genre or a mood (M46.19), without hidden artists' songs. */
 	musicTagSources: (name: string, region: string | null) => typedError<MusicTagSources_Serialize, string>(__TAURI_INVOKE("music_tag_sources", { name, region })),
 	/**
 	 *  Made for You (M46.20): today's mixes (made in the background when they're from another day,
@@ -239,6 +262,15 @@ export const commands = {
 	madeForYouMix: (id: string) => typedError<Mix, string>(__TAURI_INVOKE("made_for_you_mix", { id })),
 	/**  Saves a mix as a playlist named `name`; returns the playlist's id (M46.20). */
 	madeForYouSave: (id: string, name: string) => typedError<string, string>(__TAURI_INVOKE("made_for_you_save", { id, name })),
+	/**
+	 *  Hides an artist from Home, Made for You, charts, genre rows and recommendations, or shows
+	 *  them again; returns the settings as saved.
+	 */
+	hiddenArtistSet: (name: string, hidden: boolean) => typedError<Settings, string>(__TAURI_INVOKE("hidden_artist_set", { name, hidden })),
+	/**  Marks a song, album, podcast or other Home item Not interested, or takes the mark away. */
+	hiddenItemSet: (item: HiddenItem, hidden: boolean) => typedError<Settings, string>(__TAURI_INVOKE("hidden_item_set", { item, hidden })),
+	/**  Shows every hidden artist, every hidden item, or both, again. */
+	hiddenClear: (artists: boolean, items: boolean) => typedError<Settings, string>(__TAURI_INVOKE("hidden_clear", { artists, items })),
 	/**  The songs a Spotify playlist, album or song link points at (M46.21). */
 	importReadLink: (link: string) => typedError<ImportedList, string>(__TAURI_INVOKE("import_read_link", { link })),
 	/**  Songs in a CSV export or pasted lines (M46.21). */
@@ -395,10 +427,63 @@ export const commands = {
 	songsDownload: (tracks: TrackInput[]) => typedError<null, string>(__TAURI_INVOKE("songs_download", { tracks })),
 	/**  Every song download, newest first (M46.10). */
 	songDownloads: () => typedError<SongDownload[], string>(__TAURI_INVOKE("song_downloads")),
+	/**  One song download as it is now; `None` once it was removed. */
+	songDownload: (id: string) => typedError<{
+	id: string,
+	trackKey: string,
+	title: string,
+	artist: string | null,
+	album: string | null,
+	durationMs: number | null,
+	/**  A cover link through the image cache. */
+	artworkUrl: string | null,
+	state: SongDownloadState,
+	/**
+	 *  How it's made: `file` while downloading, `recording` while recorded, and how it was made
+	 *  once done.
+	 */
+	kind: SongDownloadKind | null,
+	/**
+	 *  Where the audio came from once done; while downloading, the source being tried now; while
+	 *  queued, the source picked for it, if any.
+	 */
+	provider: string | null,
+	/**  The saved file's extension ("mp3", "flac"...), once done. */
+	format: string | null,
+	/**  While downloading, what came so far; once done, the file's size. */
+	doneBytes: number | null,
+	totalBytes: number | null,
+	/**  How far it is, 0–1, when known: the file's bytes, or how much of a recording has played. */
+	fraction: number | null,
+	/**  How fast it downloads now, while it does. */
+	bytesPerSecond: number | null,
+	/**  Time left in ms, when known: from the speed and the size, or the song left to record. */
+	etaMs: number | null,
+	/**  What went wrong, in a line for the listener. */
+	error: string | null,
+	/**  Each source's own error behind `error` ("More info"). */
+	errorDetail: string | null,
+	/**  This device can record what plays (Windows for now). */
+	canRecord: boolean,
+	/**  Its place in the queue (unix ms): queued songs download earliest first. */
+	queuedAt: number | null,
+	/**  When it finished, or stopped with an error (unix ms). */
+	finishedAt: number | null,
+} | null, string>(__TAURI_INVOKE("song_download", { id })),
 	/**  Removes a song download and its file (M46.10). */
 	songDownloadRemove: (id: string) => typedError<null, string>(__TAURI_INVOKE("song_download_remove", { id })),
-	/**  Queues a failed song download again (M46.10). */
+	/**  Removes several song downloads and their files at once (cancels waiting ones). */
+	songDownloadsRemove: (ids: string[]) => typedError<null, string>(__TAURI_INVOKE("song_downloads_remove", { ids })),
+	/**  Queues a failed song download again, first in the queue (M46.10). */
 	songDownloadRetry: (id: string) => typedError<null, string>(__TAURI_INVOKE("song_download_retry", { id })),
+	/**  Queues every failed song download again; returns how many. */
+	songDownloadsRetryFailed: () => typedError<number, string>(__TAURI_INVOKE("song_downloads_retry_failed")),
+	/**  Puts the queued song downloads in this order, first to download first. */
+	songDownloadsReorder: (ids: string[]) => typedError<null, string>(__TAURI_INVOKE("song_downloads_reorder", { ids })),
+	/**  Whether song downloads are paused. */
+	songDownloadsPaused: () => __TAURI_INVOKE<boolean>("song_downloads_paused"),
+	/**  Pauses song downloads (the running one waits, keeping what it saved) or resumes them. */
+	songDownloadsSetPaused: (paused: boolean) => __TAURI_INVOKE<void>("song_downloads_set_paused", { paused }),
 	/**  Plays a song only YouTube has and records it as it plays (M46.10). */
 	songDownloadRecord: (id: string) => typedError<null, string>(__TAURI_INVOKE("song_download_record", { id })),
 	/**  Writes saved songs out as files (M46.10). */
@@ -430,10 +515,11 @@ export const commands = {
 	/**  Stops the song being recorded without keeping it (M46.46: the recording window's Cancel). */
 	songDownloadCancelRecording: () => __TAURI_INVOKE<void>("song_download_cancel_recording"),
 	/**
-	 *  Downloads a song from a source the user picked (M46.47: Choose a source on a failed or
-	 *  YouTube-only download); the others are tried after it if it fails.
+	 *  Downloads a song from a picked source (M46.47: Choose a source on a failed or YouTube-only
+	 *  download), first in the queue; the others are tried after it if it fails. `source` is the
+	 *  source's name, shown while it downloads and in what went wrong.
 	 */
-	songDownloadUseSource: (id: string, track: OnlineTrack) => typedError<null, string>(__TAURI_INVOKE("song_download_use_source", { id, track })),
+	songDownloadUseSource: (id: string, track: OnlineTrack, source: string | null) => typedError<null, string>(__TAURI_INVOKE("song_download_use_source", { id, track, source })),
 	/**
 	 *  A YouTube address typed in Search (M46.47): what it points at, with the video's title and
 	 *  channel when YouTube says; `None` for anything else.
@@ -500,6 +586,13 @@ export const commands = {
 	/**  The latest play of each recently played track, newest first. */
 	historyRecent: (limit: number) => typedError<HistoryEntry[], string>(__TAURI_INVOKE("history_recent", { limit })),
 	historyClear: () => typedError<null, string>(__TAURI_INVOKE("history_clear")),
+	/**  Whether incognito is on (M47). Afterwards, changes arrive as `IncognitoEvent`. */
+	incognitoStatus: () => __TAURI_INVOKE<IncognitoStatus>("incognito_status"),
+	/**
+	 *  Turns incognito on or off (M47): while it's on, nothing records what's played, watched, read
+	 *  or searched.
+	 */
+	incognitoSetEnabled: (enabled: boolean) => typedError<IncognitoStatus, string>(__TAURI_INVOKE("incognito_set_enabled", { enabled })),
 	/**  Replaces the queue with favorites, a playlist or history and starts playing. */
 	collectionPlay: (request: CollectionPlayRequest) => typedError<null, string>(__TAURI_INVOKE("collection_play", { request })),
 	/**  The MCP server's switch, address and token. */
@@ -543,8 +636,17 @@ export const commands = {
 	/**  The page reached in a chapter; reaching the last page marks it read. */
 	mangaSetProgress: (chapterId: string, page: number, total: number) => typedError<null, string>(__TAURI_INVOKE("manga_set_progress", { chapterId, page, total })),
 	mangaSetRead: (chapterId: string, read: boolean) => typedError<null, string>(__TAURI_INVOKE("manga_set_read", { chapterId, read })),
-	/**  Remembers how a title is read (webtoon strip or paged, left or right to left). */
-	mangaSetReaderMode: (titleId: string, mode: ReaderMode) => typedError<null, string>(__TAURI_INVOKE("manga_set_reader_mode", { titleId, mode })),
+	/**
+	 *  Remembers how a title is read (webtoon strip or paged, left or right to left); `null` follows
+	 *  the reader's default mode again.
+	 */
+	mangaSetReaderMode: (titleId: string, mode: 
+/**  One continuous vertical strip. */
+"webtoon" | 
+/**  One page at a time, left to right. */
+"pagedLtr" | 
+/**  One page at a time, right to left (most manga). */
+"pagedRtl" | null) => typedError<null, string>(__TAURI_INVOKE("manga_set_reader_mode", { titleId, mode })),
 	/**  Chapters library updates found, newest first. */
 	mangaUpdates: () => typedError<MangaUpdateItem[], string>(__TAURI_INVOKE("manga_updates")),
 	/**
@@ -584,6 +686,11 @@ export const commands = {
 	novelSetRead: (chapterId: string, read: boolean) => typedError<null, string>(__TAURI_INVOKE("novel_set_read", { chapterId, read })),
 	/**  Imports an EPUB (its contents as base64) into the novel library; returns its source and id. */
 	novelImportEpub: (contents: string) => typedError<ImportedBook, string>(__TAURI_INVOKE("novel_import_epub", { contents })),
+	/**
+	 *  Imports an uploaded EPUB (sent with `upload_*` in slices) into the novel library; returns its
+	 *  source and id.
+	 */
+	novelImportEpubUpload: (uploadId: string) => typedError<ImportedBook, string>(__TAURI_INVOKE("novel_import_epub_upload", { uploadId })),
 	/**  Whether the device can read text aloud. */
 	ttsAvailable: () => typedError<boolean, string>(__TAURI_INVOKE("tts_available")),
 	/**
@@ -657,6 +764,10 @@ export const commands = {
 	librarySetPinned: (medium: string, titleIds: string[], pinned: boolean) => typedError<null, string>(__TAURI_INVOKE("library_set_pinned", { medium, titleIds, pinned })),
 	/**  Marks every released chapter or episode of titles read (or all unread). */
 	libraryMarkRead: (medium: string, titleIds: string[], read: boolean) => typedError<null, string>(__TAURI_INVOKE("library_mark_read", { medium, titleIds, read })),
+	/**  Marks chapters of a title read or unread together (a selection in its chapter list). */
+	librarySetChaptersRead: (medium: string, chapterIds: string[], read: boolean) => typedError<null, string>(__TAURI_INVOKE("library_set_chapters_read", { medium, chapterIds, read })),
+	/**  Marks every chapter before one read (in reading order); returns how many were marked. */
+	libraryMarkPreviousRead: (medium: string, titleId: string, chapterId: string) => typedError<number, string>(__TAURI_INVOKE("library_mark_previous_read", { medium, titleId, chapterId })),
 	/**  Takes titles out of the library and/or deletes their downloads. */
 	libraryRemove: (medium: string, titleIds: string[], fromLibrary: boolean, deleteDownloads: boolean) => typedError<null, string>(__TAURI_INVOKE("library_remove", { medium, titleIds, fromLibrary, deleteDownloads })),
 	/**  Adds titles to some categories and takes them out of others. */
@@ -677,7 +788,7 @@ export const commands = {
 	sort: string,
 	descending: boolean,
 } | null) => typedError<null, string>(__TAURI_INVOKE("library_set_category_display", { medium, categoryId, display })),
-	/**  Updates one category's titles (manga and video libraries). */
+	/**  Updates one category's titles (comics, books and videos). */
 	libraryUpdateCategory: (medium: string, categoryId: string) => typedError<MangaUpdateStatus, string>(__TAURI_INVOKE("library_update_category", { medium, categoryId })),
 	/**  Starts sending a file picked in the app; returns the upload's id. */
 	uploadBegin: () => typedError<string, string>(__TAURI_INVOKE("upload_begin")),
@@ -733,9 +844,15 @@ export const commands = {
 	watchedPercent: number,
 	/**  Seconds a double tap or the skip buttons jump in the video player. */
 	seekSeconds: number,
-	/**  Subtitles turn on by themselves when a video has them in the subtitle language. */
+	/**
+	 *  Subtitles turn on by themselves when a video has them in the subtitle language. Read only
+	 *  while `VideoPlayerPrefs::subtitle_mode` is unset (on: always, off: for other languages).
+	 */
 	autoSubtitles: boolean,
-	/**  Subtitles' language as a BCP 47 tag; empty follows the app's language. */
+	/**
+	 *  Subtitles' language as a BCP 47 tag; empty follows the device's languages, then the
+	 *  app's (the player knows the device's).
+	 */
 	subtitleLanguage: string,
 	/**  The next episode plays by itself at the end of one (M44). */
 	autoplayNext: boolean,
@@ -785,6 +902,8 @@ export const commands = {
 	transcription: TranscriptionPrefs,
 	/**  What's remembered of listening (M46.41). */
 	privacy: PrivacyPrefs,
+	/**  Artists and things not to show on Home and in recommendations. */
+	hidden: HiddenPrefs,
 	/**  How long lyrics stay kept (M46.46). */
 	lyricsCache: LyricsCachePrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
@@ -854,19 +973,42 @@ export const commands = {
 	stremioAddons: () => typedError<StremioAddon[], string>(__TAURI_INVOKE("stremio_addons")),
 	/**  Well-known addons to add with one tap, marked when already added. */
 	stremioSuggestions: () => typedError<StremioSuggestion[], string>(__TAURI_INVOKE("stremio_suggestions")),
-	/**  Adds an addon by its address (`.../manifest.json`, `stremio://...` or a bare host). */
+	/**
+	 *  What the addon at an address is, before adding it: its name, what it provides, whether it
+	 *  must be set up first (`id` is empty unless it's added).
+	 */
+	stremioPreview: (url: string) => typedError<StremioAddon, string>(__TAURI_INVOKE("stremio_preview", { url })),
+	/**
+	 *  Adds an addon by its address (`.../manifest.json`, `stremio://...` or a bare host). The same
+	 *  addon set up again under a new address takes the old one's place.
+	 */
 	stremioAdd: (url: string) => typedError<StremioAddon, string>(__TAURI_INVOKE("stremio_add", { url })),
 	stremioRemove: (id: string) => typedError<null, string>(__TAURI_INVOKE("stremio_remove", { id })),
+	/**  Turns an addon on or off; one that's off is asked for nothing. */
+	stremioSetEnabled: (id: string, enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("stremio_set_enabled", { id, enabled })),
+	/**  Puts the addons in this order: details come from the first that has them. */
+	stremioSetOrder: (ids: string[]) => typedError<null, string>(__TAURI_INVOKE("stremio_set_order", { ids })),
+	/**  Opens the setup page of the addon at `url` in the browser. */
+	stremioConfigure: (url: string) => typedError<null, string>(__TAURI_INVOKE("stremio_configure", { url })),
+	/**
+	 *  Opens a stream's web page in the browser, or (on desktop) a torrent's magnet link in the
+	 *  torrent app.
+	 */
+	stremioOpenLink: (url: string) => typedError<null, string>(__TAURI_INVOKE("stremio_open_link", { url })),
+	/**  Every catalog of the addons that answer: board rows, searches and what Discover browses. */
+	stremioCatalogs: () => typedError<StremioCatalogInfo[], string>(__TAURI_INVOKE("stremio_catalogs")),
 	/**  The Watch home: the first page of every browsable catalog. */
 	stremioHome: () => typedError<StremioCatalogRow[], string>(__TAURI_INVOKE("stremio_home")),
-	/**  One catalog's page, optionally for a genre, `skip` items in. */
-	stremioCatalog: (addonId: string, kind: string, catalogId: string, genre: string | null, skip: number) => typedError<StremioCatalogRow, string>(__TAURI_INVOKE("stremio_catalog", { addonId, kind, catalogId, genre, skip })),
+	/**  One catalog's page with the extras chosen (a genre, a year...), `skip` items in. */
+	stremioCatalog: (addonId: string, kind: string, catalogId: string, extra: StremioExtraValue[], skip: number) => typedError<StremioCatalogRow, string>(__TAURI_INVOKE("stremio_catalog", { addonId, kind, catalogId, extra, skip })),
 	/**  Every searchable catalog's results for `query`. */
 	stremioSearch: (query: string) => typedError<StremioCatalogRow[], string>(__TAURI_INVOKE("stremio_search", { query })),
+	/**  One searchable catalog's results for `query`; a search for another query stops it. */
+	stremioSearchCatalog: (addonId: string, kind: string, catalogId: string, query: string) => typedError<StremioCatalogRow, string>(__TAURI_INVOKE("stremio_search_catalog", { addonId, kind, catalogId, query })),
 	/**  A title's details, seasons and episodes, with watching progress. */
 	stremioMeta: (kind: string, id: string) => typedError<StremioMeta, string>(__TAURI_INVOKE("stremio_meta", { kind, id })),
-	/**  Streams for a movie or an episode, grouped by addon. */
-	stremioStreams: (kind: string, videoId: string) => typedError<StremioStreamGroup[], string>(__TAURI_INVOKE("stremio_streams", { kind, videoId })),
+	/**  Streams for a movie or an episode of the title `meta_id`, grouped by addon. */
+	stremioStreams: (kind: string, metaId: string | null, videoId: string) => typedError<StremioStreamGroup[], string>(__TAURI_INVOKE("stremio_streams", { kind, metaId, videoId })),
 	/**  Plays a stream; `language` puts its subtitles first. */
 	stremioPlay: (request: StremioPlayRequest, language: string) => typedError<null, string>(__TAURI_INVOKE("stremio_play", { request, language })),
 	/**  Marks a movie or episode watched (or not). */
@@ -971,6 +1113,7 @@ export const events = {
 	exportEvent: makeEvent<ExportEvent>("export-event"),
 	extensionsChangedEvent: makeEvent<ExtensionsChangedEvent_Deserialize>("extensions-changed-event"),
 	importEvent: makeEvent<ImportEvent>("import-event"),
+	incognitoEvent: makeEvent<IncognitoEvent>("incognito-event"),
 	libraryScanEvent: makeEvent<LibraryScanEvent>("library-scan-event"),
 	localFilesEvent: makeEvent<LocalFilesEvent>("local-files-event"),
 	madeForYouEvent: makeEvent<MadeForYouEvent>("made-for-you-event"),
@@ -980,6 +1123,7 @@ export const events = {
 	podcastsChangedEvent: makeEvent<PodcastsChangedEvent>("podcasts-changed-event"),
 	queueEvent: makeEvent<QueueEvent>("queue-event"),
 	settingsChangedEvent: makeEvent<SettingsChangedEvent>("settings-changed-event"),
+	songDownloadProgressEvent: makeEvent<SongDownloadProgressEvent>("song-download-progress-event"),
 	songDownloadsEvent: makeEvent<SongDownloadsEvent>("song-downloads-event"),
 	speechCommandEvent: makeEvent<SpeechCommandEvent>("speech-command-event"),
 	syncChangedEvent: makeEvent<SyncChangedEvent>("sync-changed-event"),
@@ -1865,6 +2009,41 @@ export type FoundSubtitles = {
 	note: string | null,
 };
 
+/**  An artist not shown (Don't show this artist). */
+export type HiddenArtist = {
+	/**  As it was shown; compared without case. */
+	name: string,
+	/**  Unix seconds. */
+	hiddenAt: number,
+};
+
+/**  Something Home doesn't show again (Not interested). */
+export type HiddenItem = {
+	/**  One of [`HIDDEN_KINDS`]. */
+	kind: string,
+	/**
+	 *  What it's known by: a song's track key, the address of its page
+	 *  (`/music/album?id=…&provider=…`), or its feed (`feed:<url>`).
+	 */
+	key: string,
+	/**  Its name, artist or show and cover as last seen, for the list in Settings. */
+	name: string,
+	subtitle: string | null,
+	artworkUrl: string | null,
+	/**  Unix seconds. */
+	hiddenAt: number,
+};
+
+/**
+ *  What the listener asked not to be shown, as Spotify's "Don't play this artist" and "Not
+ *  interested": artists left out of Home, Made for You, charts, genre rows and recommendations,
+ *  and things Home doesn't show again. Searches and an artist's own page still find them.
+ */
+export type HiddenPrefs = {
+	artists: HiddenArtist[],
+	items: HiddenItem[],
+};
+
 export type HistoryEntry = {
 	track: SavedTrack,
 	/**  Unix ms. */
@@ -1921,6 +2100,16 @@ export type ImportedSong = {
 export type ImportedTitle = {
 	sourceId: string,
 	remoteId: string,
+};
+
+/**  Incognito was turned on or off (M47). */
+export type IncognitoEvent = IncognitoStatus;
+
+/**  Incognito (M47): while it's on, nothing records what's played, watched, read or searched. */
+export type IncognitoStatus = {
+	on: boolean,
+	/**  When it was turned on (Unix ms), or when Raygun started with it kept on. */
+	sinceMs: number | null,
 };
 
 /**  How this copy of Raygun was installed (M46.47), which decides how it updates. */
@@ -2086,6 +2275,11 @@ export type ListeningStats = {
 	peakHour: number | null,
 	/**  Songs the user has played or saved. */
 	songsKnown: number,
+	/**
+	 *  The artists played most now, the most first (Home's Your top artists), without hidden
+	 *  ones.
+	 */
+	topArtists?: string[],
 };
 
 export type LocalCounts = {
@@ -2213,7 +2407,10 @@ export type MangaChapterInfo = {
 export type MangaChapterPages = {
 	titleId: string,
 	title: string,
+	/**  How the chapter is read: the title's own mode, else the reader's default. */
 	readerMode: ReaderMode,
+	/**  The title's own mode; `None` follows the default. */
+	ownReaderMode: ReaderMode | null,
 	chapter: MangaChapterInfo,
 	/**  Through the local image proxy, in reading order. */
 	pages: string[],
@@ -2304,6 +2501,18 @@ export type MangaReaderPrefs = {
 	barFullscreen?: boolean,
 	/**  Pages loaded ahead of the one being read, 1–10. */
 	preloadPages?: number,
+	/**  How titles without a reading mode of their own are read. */
+	defaultMode?: ReaderMode,
+	tapZones?: TapZones,
+	invertTaps?: TapInvert,
+	/**  A double tap zooms; single taps then wait a moment to tell the two apart. */
+	doubleTapZoom?: boolean,
+	/**  The page number stays on screen while the controls are hidden. */
+	pageNumber?: boolean,
+	/**  The screen doesn't turn off while a chapter is open. */
+	keepScreenOn?: boolean,
+	/**  Next and previous chapter skip other uploads of the same chapter number. */
+	skipDuplicates?: boolean,
 };
 
 export type MangaSource = MangaSource_Serialize | MangaSource_Deserialize;
@@ -2357,6 +2566,8 @@ export type MangaUpdateEvent = MangaUpdateStatus;
 
 /**  A chapter a library update found. */
 export type MangaUpdateItem = {
+	/**  `manga` or `novel`: which reader opens it. */
+	medium: string,
 	titleId: string,
 	sourceId: string,
 	remoteId: string,
@@ -2376,6 +2587,8 @@ export type MangaUpdateStatus = {
 	failed: number,
 	/**  Unix ms of the last finished run. */
 	lastRunAt: number | null,
+	/**  The titles this session's last update couldn't check, and why. */
+	failures?: UpdateFailure[],
 };
 
 export type MatchedSong = {
@@ -2688,7 +2901,15 @@ export type NovelReaderPrefs = {
 	ttsRate?: number,
 	/**  The first line of each paragraph starts further in, as in printed books (M46.10). */
 	indent?: boolean,
+	theme?: NovelTheme,
+	/**  Lines run to both edges, words hyphenated. */
+	justify?: boolean,
+	/**  The screen doesn't turn off while a chapter is open. */
+	keepScreenOn?: boolean,
 };
+
+/**  The novel reader's page colours: the app's, or a page of its own. */
+export type NovelTheme = "app" | "light" | "sepia" | "dark" | "black";
 
 export type NovelWidth = "narrow" | "wide";
 
@@ -2921,6 +3142,8 @@ export type PrivacyPrefs = {
 	history?: boolean,
 	/**  Where plays started from is kept for Home (Recently played, Your music). */
 	recentlyPlayed?: boolean,
+	/**  Incognito stays on when Raygun starts again; otherwise it ends with the app (M47). */
+	keepIncognito?: boolean,
 };
 
 /**  A provider an extension registered, e.g. a `music.metadata` search. */
@@ -3187,7 +3410,7 @@ export type SearchResults_Serialize = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -3232,9 +3455,15 @@ export type Settings = {
 	watchedPercent: number,
 	/**  Seconds a double tap or the skip buttons jump in the video player. */
 	seekSeconds: number,
-	/**  Subtitles turn on by themselves when a video has them in the subtitle language. */
+	/**
+	 *  Subtitles turn on by themselves when a video has them in the subtitle language. Read only
+	 *  while `VideoPlayerPrefs::subtitle_mode` is unset (on: always, off: for other languages).
+	 */
 	autoSubtitles: boolean,
-	/**  Subtitles' language as a BCP 47 tag; empty follows the app's language. */
+	/**
+	 *  Subtitles' language as a BCP 47 tag; empty follows the device's languages, then the
+	 *  app's (the player knows the device's).
+	 */
 	subtitleLanguage: string,
 	/**  The next episode plays by itself at the end of one (M44). */
 	autoplayNext: boolean,
@@ -3284,6 +3513,8 @@ export type Settings = {
 	transcription: TranscriptionPrefs,
 	/**  What's remembered of listening (M46.41). */
 	privacy: PrivacyPrefs,
+	/**  Artists and things not to show on Home and in recommendations. */
+	hidden: HiddenPrefs,
 	/**  How long lyrics stay kept (M46.46). */
 	lyricsCache: LyricsCachePrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
@@ -3338,7 +3569,10 @@ export type SongDestination =
 /**  The folder picked in Settings → Downloads. */
 "folder";
 
-/**  A song saved (or being saved) into the app to play offline (M46.10). */
+/**
+ *  A song saved (or being saved) into the app to play offline (M46.10). It is also the payload of
+ *  `SongDownloadProgressEvent`, sent on every change of state or source and while it downloads.
+ */
 export type SongDownload = {
 	id: string,
 	trackKey: string,
@@ -3349,18 +3583,51 @@ export type SongDownload = {
 	/**  A cover link through the image cache. */
 	artworkUrl: string | null,
 	state: SongDownloadState,
-	/**  `file` (a source's stream) or `recording`, once done. */
-	kind: string | null,
-	/**  Where the audio came from. */
+	/**
+	 *  How it's made: `file` while downloading, `recording` while recorded, and how it was made
+	 *  once done.
+	 */
+	kind: SongDownloadKind | null,
+	/**
+	 *  Where the audio came from once done; while downloading, the source being tried now; while
+	 *  queued, the source picked for it, if any.
+	 */
 	provider: string | null,
 	/**  The saved file's extension ("mp3", "flac"...), once done. */
 	format: string | null,
+	/**  While downloading, what came so far; once done, the file's size. */
 	doneBytes: number | null,
 	totalBytes: number | null,
+	/**  How far it is, 0–1, when known: the file's bytes, or how much of a recording has played. */
+	fraction: number | null,
+	/**  How fast it downloads now, while it does. */
+	bytesPerSecond: number | null,
+	/**  Time left in ms, when known: from the speed and the size, or the song left to record. */
+	etaMs: number | null,
+	/**  What went wrong, in a line for the listener. */
 	error: string | null,
+	/**  Each source's own error behind `error` ("More info"). */
+	errorDetail: string | null,
 	/**  This device can record what plays (Windows for now). */
 	canRecord: boolean,
+	/**  Its place in the queue (unix ms): queued songs download earliest first. */
+	queuedAt: number | null,
+	/**  When it finished, or stopped with an error (unix ms). */
+	finishedAt: number | null,
 };
+
+/**
+ *  How a song download is made: a source's file (yt-dlp's copy of a YouTube video included), or a
+ *  recording of the song as it plays.
+ */
+export type SongDownloadKind = "file" | "recording";
+
+/**
+ *  One song download as it is now: sent when its state or source changes, and while it downloads
+ *  or is recorded, at most four times a second and only when what it shows moved on (its percent,
+ *  or 100 KB without a known size). Not sent for removals (`SongDownloadsEvent` is).
+ */
+export type SongDownloadProgressEvent = SongDownload;
 
 /**  Where a song saved into the app stands (M46.10). */
 export type SongDownloadState = "queued" | "downloading" | 
@@ -3554,6 +3821,38 @@ export type StremioAddon = {
 	adult: boolean,
 	/**  Why its manifest couldn't be read, when it couldn't. */
 	error: string | null,
+	/**  Off: listed, asked for nothing. */
+	enabled: boolean,
+	/**  What it offers, as the Addons page lists it. */
+	provides: StremioProvides[],
+	/**  Its streams are torrents (`behaviorHints.p2p`). */
+	p2p: boolean,
+	/**  Its setup page, when it can be set up. */
+	configureUrl: string | null,
+	/**  It must be set up on its website before it's added. */
+	needsSetup: boolean,
+	/**  It didn't answer lately: failed since it last worked, within three days. */
+	failing: boolean,
+};
+
+/**  A catalog an addon offers, before anything is asked of it. */
+export type StremioCatalogInfo = {
+	addonId: string,
+	addonName: string,
+	kind: string,
+	catalogId: string,
+	name: string,
+	/**  What it can be narrowed by (genres, years...), with the choices. */
+	extras: StremioExtra[],
+	/**  A row on the board: it lists without being asked anything. */
+	board: boolean,
+	searchable: boolean,
+	/**  Discover can browse it (what it requires has choices). */
+	discoverable: boolean,
+	/**  It pages (`skip`). */
+	pages: boolean,
+	/**  Its addon didn't answer lately. */
+	failing: boolean,
 };
 
 /**  One catalog's first page on the Watch home, in search, or a catalog page. */
@@ -3568,6 +3867,20 @@ export type StremioCatalogRow = {
 	genres: string[],
 	hasMore: boolean,
 	error: string | null,
+};
+
+export type StremioExtra = {
+	/**  `genre`, or another name an addon gives. */
+	name: string,
+	/**  The catalog lists nothing without one (its first choice then). */
+	required: boolean,
+	options: string[],
+};
+
+/**  A choice for a catalog's extra. */
+export type StremioExtraValue = {
+	name: string,
+	value: string,
 };
 
 /**  A movie, series or channel in a catalog. */
@@ -3609,6 +3922,15 @@ export type StremioMeta = {
 	/**  For a movie: saved on the device (M43). */
 	downloaded: boolean,
 	addonName: string,
+	/**  The addon whose details these are (empty when shown as stored). */
+	addonId: string,
+	/**
+	 *  What the title itself plays by (a movie, a channel): the details' default video, else
+	 *  its id.
+	 */
+	videoId: string,
+	/**  A live channel. */
+	live: boolean,
 	/**  Saved in the video library (M43). */
 	inLibrary: boolean,
 	/**  The stored title, once it was saved. */
@@ -3630,6 +3952,18 @@ export type StremioPlayRequest = {
 	external?: boolean,
 };
 
+/**
+ *  One thing an addon offers: catalogs of a type (with how many), details of a type, streams,
+ *  subtitles.
+ */
+export type StremioProvides = {
+	/**  `catalog`, `meta`, `stream` or `subtitles`. */
+	resource: string,
+	/**  The type it's for (`movie`, `series`...), for catalogs and details. */
+	kind: string | null,
+	count: number,
+};
+
 export type StremioStream = {
 	kind: StremioStreamKind,
 	name: string | null,
@@ -3640,6 +3974,12 @@ export type StremioStream = {
 	subtitles: VideoSubtitle[],
 	/**  Streams of one release across episodes (Stremio's `bingeGroup`), for binge watching. */
 	bingeGroup: string | null,
+	/**  The file's name, size (bytes) and OpenSubtitles hash, which subtitle addons match by. */
+	filename?: string | null,
+	size?: number | null,
+	videoHash?: string | null,
+	/**  A browser can't play it as it is (`behaviorHints.notWebReady`). */
+	notWebReady?: boolean,
 };
 
 export type StremioStreamGroup = {
@@ -3647,6 +3987,8 @@ export type StremioStreamGroup = {
 	addonName: string,
 	streams: StremioStream[],
 	error: string | null,
+	/**  The addon didn't answer lately. */
+	failing: boolean,
 };
 
 export type StremioStreamKind = 
@@ -3654,10 +3996,14 @@ export type StremioStreamKind =
 "direct" | 
 /**  Plays in the embedded YouTube player. */
 "youTube" | 
-/**  Opens outside Raygun. */
+/**  Opens outside Raygun (a web page). */
 "external" | 
-/**  Needs a torrent engine (not supported yet). */
-"torrent";
+/**  A torrent: a torrent app plays it; `target` is its magnet link. */
+"torrent" | 
+/**  Opens another title's page; `target` is `<type>/<id>`. */
+"title" | 
+/**  Archives, Usenet and other streams only Stremio's streaming server opens. */
+"server";
 
 /**  A well-known addon offered with one tap. */
 export type StremioSuggestion = {
@@ -3687,6 +4033,18 @@ export type StremioVideo = {
 export type SubtitleEdge = "none" | "outline" | "shadow" | "raised" | "depressed";
 
 export type SubtitleFont = "default" | "sans" | "serif" | "mono";
+
+/**
+ *  When the video player turns subtitles on by itself, in the first subtitle language a video
+ *  has (mpv's `subs-with-matching-audio`).
+ */
+export type SubtitleMode = 
+/**  When the audio isn't in one of the subtitle languages; forced subtitles otherwise. */
+"foreign" | 
+/**  Whenever the video has subtitles in one of them. */
+"always" | 
+/**  Only when turned on in the player. */
+"never";
 
 /**  How subtitles look in the video player (M45). */
 export type SubtitleStyle = {
@@ -3798,6 +4156,24 @@ export type TagSongsRow_Serialize = {
 export type TapAction = "seek" | "playPause" | 
 /**  The previous episode on the left, the next on the right. */
 "switchEpisode" | "off";
+
+/**  How the tap zones are mirrored. */
+export type TapInvert = "none" | "horizontal" | "vertical" | "both";
+
+/**  Where taps turn pages in the manga reader (Mihon's navigation layouts). */
+export type TapZones = 
+/**  The sides in the paged modes, the L shape in the vertical strip. */
+"auto" | 
+/**  The top and the left of the middle go back; the right of the middle and the bottom on. */
+"lShaped" | 
+/**  The top shows the controls; the left third goes back, the rest on. */
+"kindle" | 
+/**  Both sides go on; the bottom of the middle goes back. */
+"edge" | 
+/**  The left third and the right third, as the reading direction has them. */
+"sides" | 
+/**  Taps only show and hide the controls. */
+"off";
 
 export type TestSourceFailure = {
 	url: string,
@@ -3972,6 +4348,18 @@ export type TtsUpdate = {
 	paragraph: number,
 };
 
+/**  A library title an update couldn't check. */
+export type UpdateFailure = {
+	/**  `manga`, `novel` or `video`: which page opens it. */
+	medium: string,
+	sourceId: string,
+	remoteId: string,
+	title: string,
+	sourceName: string,
+	/**  The source's error, for "More info". */
+	message: string,
+};
+
 /**  Where an update stands (M46.47). */
 export type UpdateState = "idle" | "checking" | "downloading" | 
 /**  The installer is open (or about to take over). */
@@ -4142,8 +4530,17 @@ export type VideoPlayerPrefs = {
 	subtitlePreferWords?: string,
 	/**  Comma-separated words that keep a subtitle track from being picked ("Signs, Songs"). */
 	subtitleSkipWords?: string,
+	/**
+	 *  When subtitles turn on by themselves. Unset follows `Settings::auto_subtitles`, the
+	 *  older switch: on is `Always`, off is `Foreign`.
+	 */
+	subtitleMode?: SubtitleMode | null,
 	subtitleStyle?: SubtitleStyle,
-	/**  Empty plays the video's own default track. */
+	/**
+	 *  The audio track's language: empty follows the device's languages, then the app's;
+	 *  `ORIGINAL_AUDIO` plays the video's own default track; else a BCP 47 tag. Without a
+	 *  match, the track marked default (or original) plays, else the first.
+	 */
 	audioLanguage?: string,
 	audioFallback?: string,
 	/**  Leaving the app while a video plays keeps it in a small window. */

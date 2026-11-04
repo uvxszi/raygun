@@ -1,6 +1,6 @@
 # M39 — Library by media type and category, with filters and tags
 
-**Relevant docs:** M24 (episodic library), M28 (downloads), M37 (podcasts), M38 (Watch), `docs/feature-parity.md` (Manga: categories, filters, sort, badges). Asked for by the user on 2026-11-01: "the library should show in categories and types of media".
+**Relevant docs:** M24 (episodic library), M28 (downloads), M37 (podcasts), M38 (Watch), `docs/feature-parity.md` (Manga: categories, filters, sort, badges).
 
 ## Goal
 - **Media types:** Library is organised by type: Music, Podcasts, Manga, Novels, Videos.
@@ -50,7 +50,7 @@
   - clean up afterwards.
 
 ## Decisions
-- **Podcasts move from a Music view to their own media type:** the user wanted the library "in categories and types of media". Old links to the Music → Podcasts view still land on Podcasts.
+- **Podcasts move from a Music view to their own media type:** the library is organized by media type first, then by category. Old links to the Music → Podcasts view still land on Podcasts.
 - **Filtering in the UI, over one library call:** a library is at most a few thousand titles, and filtering locally makes every tap instant. Rust supplies the fields; `libraryFilters.ts` is pure and unit-tested.
 - **Last read comes from the HLC of the latest progress write:** that HLC already holds physical milliseconds, so no new column is needed.
 - **Genres serve as tags:** sources already provide them (MangaDex genres and themes, Shosetsu and Gutenberg subjects), so tags work for every source without new extension APIs.

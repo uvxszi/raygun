@@ -44,7 +44,7 @@ import { formatTime } from '../player/formatTime';
 import { useCaptions, useStopCaptions } from '../player/spoken';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { attachMedia, embeddedCueLines, engineKind } from './mediaEngine';
-import type { MediaEngine } from './mediaEngine';
+import type { MediaEngine, StreamProblem } from './mediaEngine';
 import { PanelHeading, PanelOption, PlayerPanel } from './PlayerPanel';
 import { sendReport, sendRequest } from './protocol';
 import type { PlayerRequest, Position, TitleState } from './protocol';
@@ -55,9 +55,11 @@ import type { CueEdit, CueEdits } from './cueEdits';
 import { cuesAt, parseSubtitles } from './subtitles';
 import type { Cue } from './subtitles';
 import { TimeBar } from './TimeBar';
-import { choiceOf, matchChoice, pickByLanguage } from './trackPicking';
+import { choiceOf, languageOf, languagePrefs, pickAudio, pickSubtitles } from './trackPicking';
 import type { TrackOption } from './trackPicking';
 import { useVideoPlayerStore } from './videoPlayerStore';
+import { sourceName, sourceNote, sourcesChecked } from './waiting';
+import type { WaitingNote } from './waiting';
 
 type PanelKind =
   | 'episodes'
@@ -236,6 +238,7 @@ const WaitingScreen: FC<WaitingProps> = ({
   const { t } = useTranslation();
   const loadingText = useVideoPlayerStore((state) => state.loadingText);
   const notice = useVideoPlayerStore((state) => state.notice);
+  const sources = useVideoPlayerStore((state) => state.sources);
 
   const onKey = useEffectEvent((event: KeyboardEvent) => {
     if (event.key !== 'Escape') return;
@@ -261,7 +264,10 @@ const WaitingScreen: FC<WaitingProps> = ({
         {notice ? (
           <NoticeBox onSources={() => setPanel('sources')} />
         ) : (
-          <Spinner text={loadingText || t('videoPlayer.findingSource')} />
+          <LoadingRing
+            text={loadingText || t('videoPlayer.findingSource')}
+            note={sourcesChecked(sources)}
+          />
         )}
       </Middle>
       {(panel === 'episodes' || panel === 'sources') && (
@@ -305,7 +311,9 @@ const VideoStage: FC<StageProps> = ({
   const session = useVideoPlayerStore((state) => state.session);
   const prefs = useVideoPlayerStore((state) => state.prefs);
   const seekStepMs = useVideoPlayerStore((state) => state.seekStepMs);
-  const autoSubtitleLanguage = useVideoPlayerStore((state) => state.autoSubtitleLanguage);
+  const appLanguage = useVideoPlayerStore((state) => state.appLanguage);
+  const subtitleLanguage = useVideoPlayerStore((state) => state.subtitleLanguage);
+  const subtitleMode = useVideoPlayerStore((state) => state.subtitleMode);
   const autoplay = useVideoPlayerStore((state) => state.autoplay);
   const nextPromptMs = useVideoPlayerStore((state) => state.nextPromptMs);
   const loadingText = useVideoPlayerStore((state) => state.loadingText);
@@ -358,6 +366,10 @@ const VideoStage: FC<StageProps> = ({
   const [overControls, setOverControls] = useState(false);
   const [showRemaining, setShowRemaining] = useState(prefs.showRemaining);
   const [hint, setHint] = useState<string | null>(null);
+  /** The video has played: the source it comes from no longer shows under the ring. */
+  const [begun, setBegun] = useState(false);
+  const sources = useVideoPlayerStore((state) => state.sources);
+  const pickedSource = useVideoPlayerStore((state) => state.pickedSource);
 
   const heading = request.subtitle
     ? `${request.title ?? ''} · ${request.subtitle}`
@@ -377,16 +389,17 @@ const VideoStage: FC<StageProps> = ({
       : [];
 
   // ---- What can be chosen ----
-  const fileOptions: SubtitleOption[] = (request.subtitles ?? []).map((subtitle, index) => ({
-    key: `file:${index}`,
-    label: subtitle.label || subtitle.lang || t('videoPlayer.track', { n: index + 1 }),
-    language: subtitle.lang,
-  }));
+  const fileOptions: SubtitleOption[] = (request.subtitles ?? []).map((subtitle, index) => {
+    const label = subtitle.label || subtitle.lang || t('videoPlayer.track', { n: index + 1 });
+    return { key: `file:${index}`, label, language: subtitle.lang, forced: /forced/i.test(label) };
+  });
   const subtitleOptions = (current: MediaEngine | null): SubtitleOption[] => [
     ...(current?.textTracks() ?? []).map((track) => ({
       key: `embedded:${track.id}`,
       label: track.label,
       language: track.language,
+      original: track.original,
+      forced: track.forced || /forced/i.test(track.label),
     })),
     // The saved AI track is the live one when that's there.
     ...fileOptions.filter(
@@ -487,46 +500,54 @@ const VideoStage: FC<StageProps> = ({
   const pickTracks = () => {
     if (flags.current.picked) return;
     flags.current.picked = true;
-    const options = subtitleOptions(engineRef.current);
-    const remembered = titleState.subtitle;
-    let chosen: SubtitleOption | null = null;
-    if (remembered && !('off' in remembered)) chosen = matchChoice(options, remembered);
-    else if (!remembered && autoSubtitleLanguage)
-      chosen = pickByLanguage(
-        options,
-        [autoSubtitleLanguage, prefs.subtitleFallback],
-        prefs.subtitlePreferWords,
-        prefs.subtitleSkipWords,
-      );
+    const current = engineRef.current;
+    const languages = languagePrefs({
+      audioLanguage: prefs.audioLanguage,
+      audioFallback: prefs.audioFallback,
+      subtitleFallback: prefs.subtitleFallback,
+      appLanguage,
+      subtitleLanguage,
+      subtitleMode,
+      spoken: request.spokenLanguage ?? null,
+      device: typeof navigator === 'undefined' ? [] : navigator.languages,
+    });
+    // Audio first: whether subtitles turn on depends on the language it's in.
+    const audio = (current?.audioTracks() ?? []).map((track) => ({
+      key: String(track.id),
+      label: track.label,
+      language: track.language,
+      original: track.original,
+      extra: track.extra,
+    }));
+    const playing = current ? String(current.audioTrack()) : undefined;
+    const chosenAudio = pickAudio(audio, titleState.audio, languages, playing);
+    if (chosenAudio && chosenAudio.key !== playing) current?.setAudioTrack(Number(chosenAudio.key));
+    const heard = chosenAudio ?? audio.find((option) => option.key === playing);
+    const spoken = (heard ? languageOf(heard) : null) ?? languages.spoken;
+    const chosen = pickSubtitles(
+      subtitleOptions(current),
+      titleState.subtitle,
+      languages,
+      spoken,
+      prefs.subtitlePreferWords,
+      prefs.subtitleSkipWords,
+    );
     selectSubtitle(chosen?.key ?? null, false);
-    const audio = engineRef.current?.audioTracks() ?? [];
-    if (audio.length > 1) {
-      const audioOptions = audio.map((track) => ({
-        key: String(track.id),
-        label: track.label,
-        language: track.language,
-      }));
-      const pick = titleState.audio
-        ? matchChoice(audioOptions, titleState.audio)
-        : pickByLanguage(audioOptions, [prefs.audioLanguage, prefs.audioFallback]);
-      if (pick) engineRef.current?.setAudioTrack(Number(pick.key));
-    }
   };
 
   // ---- The stream ----
-  const onTracks = useEffectEvent(() => setTracksVersion((version) => version + 1));
-  const onFatal = useEffectEvent((message: string, unsupported: boolean) => {
+  const onTracks = useEffectEvent(() => {
+    setTracksVersion((version) => version + 1);
+    // HLS and DASH know their tracks before the video's metadata: picking now spares a switch.
+    if (engineRef.current?.tracksKnown()) pickTracks();
+  });
+  const onFatal = useEffectEvent((message: string, problem: StreamProblem) => {
     const video = videoRef.current;
     sendReport(id, 'error', positionOf(video), message);
     if (session) {
       useVideoPlayerStore.setState({ loadingText: t('videoPlayer.tryingNext'), notice: null });
     } else {
-      setNotice({
-        text: unsupported
-          ? t('desktopPlayer.cantPlayHere')
-          : t('videoPlayer.cantPlay', { n: message }),
-        elsewhere: true,
-      });
+      setNotice({ text: t(PROBLEM_TEXT[problem]), detail: message, elsewhere: true });
     }
   });
   const startElsewhere = useEffectEvent(() => {
@@ -546,16 +567,16 @@ const VideoStage: FC<StageProps> = ({
         onTracks: () => {
           if (!cancelled) onTracks();
         },
-        onFatal: (message, unsupported) => {
+        onFatal: (message, problem) => {
           if (cancelled) return;
           // An address without an extension may be HLS after all.
-          if (unsupported && kind === 'native' && !request.format && !triedHls) {
+          if (problem === 'unsupported' && kind === 'native' && !request.format && !triedHls) {
             triedHls = true;
             attached?.destroy();
             start('hls');
             return;
           }
-          onFatal(message, unsupported);
+          onFatal(message, problem);
         },
       })
         .then((engineAttached) => {
@@ -569,7 +590,7 @@ const VideoStage: FC<StageProps> = ({
           onTracks();
         })
         .catch((error: unknown) => {
-          if (!cancelled) onFatal(String(error), false);
+          if (!cancelled) onFatal(String(error), 'other');
         });
     };
     start(engineKind(url, request.format));
@@ -610,6 +631,12 @@ const VideoStage: FC<StageProps> = ({
         setEnded(false);
         break;
       case 'playing':
+        setPlaying(!video.paused);
+        setWaiting(false);
+        setBegun(true);
+        if (useVideoPlayerStore.getState().pickedSource)
+          useVideoPlayerStore.setState({ pickedSource: false });
+        break;
       case 'canplay':
         setPlaying(!video.paused);
         setWaiting(false);
@@ -897,18 +924,29 @@ const VideoStage: FC<StageProps> = ({
     timeMs < 5 * 60_000 &&
     !chapters.some((chapter) => chapter.kind === 'opening');
   const remainingMs = durationMs - timeMs;
+  // Over credits (an ending chapter that runs to the end) the prompt shows from their start; it
+  // counts down in its last seconds.
+  const countdownMs = nextPromptMs > 0 ? nextPromptMs : 1_000;
+  const credits = [...chapters]
+    .reverse()
+    .find(
+      (chapter) =>
+        chapter.kind === 'ending' && (chapter.endMs ?? durationMs) >= durationMs - CREDITS_SLACK_MS,
+    );
+  const promptWindowMs = Math.max(countdownMs, credits ? durationMs - credits.startMs : 0);
   const nextPrompt =
     session &&
     hasNext &&
     durationMs > 0 &&
-    nextPromptMs > 0 &&
     !ended &&
     !nextCancelled &&
-    remainingMs <= nextPromptMs;
+    remainingMs <= promptWindowMs;
   const chapterNow = [...chapters].reverse().find((chapter) => chapter.startMs <= timeMs);
   const audioTracks = engine?.audioTracks() ?? [];
   const qualities = engine?.qualities() ?? [];
   const busy = (waiting || loadingText !== null) && !notice;
+  // Before the picture: which source it comes from ("Trying source 2 of 5 · Vidstream").
+  const waitingNote = begun || loadingText !== null ? null : sourceNote(sources, pickedSource);
   const VolumeIcon = muted || volume <= 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
 
   return (
@@ -954,7 +992,7 @@ const VideoStage: FC<StageProps> = ({
             onElsewhere={notice.elsewhere ? () => setPanel('players') : undefined}
           />
         ) : busy ? (
-          <Spinner text={loadingText ?? undefined} />
+          <LoadingRing text={loadingText} note={waitingNote} />
         ) : null}
       </Middle>
 
@@ -967,7 +1005,8 @@ const VideoStage: FC<StageProps> = ({
         </p>
       )}
 
-      {(skippable || offerIntro) && (
+      {/* Over the credits the next-episode prompt takes the skip button's place. */}
+      {(skippable || offerIntro) && !nextPrompt && (
         <button
           type="button"
           onClick={() =>
@@ -984,7 +1023,7 @@ const VideoStage: FC<StageProps> = ({
       {nextPrompt && (
         <div className="absolute right-6 bottom-28 z-10 flex items-center gap-2 rounded-xl bg-neutral-900/95 p-2 pl-4 shadow-xl ring-1 ring-white/10">
           <span className="text-sm">
-            {autoplay
+            {autoplay && remainingMs <= countdownMs
               ? t('videoPlayer.nextIn', { seconds: Math.max(0, Math.ceil(remainingMs / 1000)) })
               : t('videoPlayer.nextEpisode')}
           </span>
@@ -1363,6 +1402,19 @@ const SKIP_LABEL = {
   recap: 'videoPlayer.skipRecap',
   other: 'videoPlayer.skipOpening',
 } as const;
+
+/** What a stream's failure means for the viewer (as `describeProblem` says on Android). */
+const PROBLEM_TEXT: Record<StreamProblem, string> = {
+  unsupported: 'desktopPlayer.cantPlayHere',
+  network: 'videoPlayer.problemNetwork',
+  refused: 'videoPlayer.problemRefused',
+  gone: 'videoPlayer.problemGone',
+  server: 'videoPlayer.problemServer',
+  other: 'videoPlayer.problemOther',
+};
+
+/** An ending that reaches this close to the end is the credits: the next-episode prompt shows. */
+const CREDITS_SLACK_MS = 5_000;
 
 const ASPECT_LABEL = {
   fit: 'videoPlayer.aspectFit',
@@ -1820,9 +1872,19 @@ const SessionPanel: FC<SessionPanelProps> = ({ kind, positionMs, onClose }) => {
               label={link.label}
               hint={link.failed ? t('videoPlayer.failed') : null}
               selected={link.current}
-              onSelect={() =>
-                sendRequest(id, 'source', positionMs, { group: index, link: linkIndex })
-              }
+              onSelect={() => {
+                if (link.current) return;
+                // Loads from where the video is; the ring names the source while it does.
+                useVideoPlayerStore.setState({
+                  pickedSource: true,
+                  notice: null,
+                  loadingText: t('videoPlayer.loadingSource', {
+                    n: sourceName(group, linkIndex) ?? group.name,
+                  }),
+                });
+                sendRequest(id, 'source', positionMs, { group: index, link: linkIndex });
+                onClose();
+              }}
             />
           ))}
         </div>
@@ -1837,6 +1899,7 @@ const NoticeBox: FC<NoticeProps> = ({ onSources, onRetry, onElsewhere }) => {
   const { t } = useTranslation();
   const notice = useVideoPlayerStore((state) => state.notice);
   const session = useVideoPlayerStore((state) => state.session);
+  const [details, setDetails] = useState(false);
   if (!notice) return null;
   return (
     <div
@@ -1844,6 +1907,23 @@ const NoticeBox: FC<NoticeProps> = ({ onSources, onRetry, onElsewhere }) => {
       className="pointer-events-auto flex max-w-md flex-col items-center gap-3 rounded-2xl bg-neutral-900/90 px-6 py-5 text-center"
     >
       <p className="text-sm wrap-anywhere">{notice.text}</p>
+      {notice.detail && (
+        <>
+          <button
+            type="button"
+            aria-expanded={details}
+            onClick={() => setDetails(!details)}
+            className="text-xs text-white/70 underline-offset-2 hover:underline"
+          >
+            {t('videoPlayer.moreInfo')}
+          </button>
+          {details && (
+            <p className="selectable max-w-full font-mono text-xs wrap-anywhere text-white/60">
+              {notice.detail}
+            </p>
+          )}
+        </>
+      )}
       <div className="flex flex-wrap justify-center gap-2">
         {onRetry && (
           <button
@@ -1877,14 +1957,59 @@ const NoticeBox: FC<NoticeProps> = ({ onSources, onRetry, onElsewhere }) => {
   );
 };
 
-const Spinner: FC<{ text?: string }> = ({ text }) => (
-  <div role="status" className="flex flex-col items-center gap-3">
-    <LoaderCircle aria-hidden size={40} className="animate-spin text-white/80" />
-    {text && (
-      <p className="max-w-sm text-center text-sm whitespace-pre-line text-white/80">{text}</p>
-    )}
-  </div>
-);
+/** A note under the loading ring, in words. */
+const useNoteText = () => {
+  const { t } = useTranslation();
+  return (note: WaitingNote | null): string | null => {
+    if (!note) return null;
+    switch (note.kind) {
+      case 'checked':
+        return t('videoPlayer.sourcesChecked', { n: note.answered, of: note.total });
+      case 'trying':
+        return `${t('videoPlayer.tryingSource', { n: note.number, of: note.of })} · ${note.source}`;
+      default:
+        return note.source;
+    }
+  };
+};
+
+/**
+ * The player's waiting ring (as the Android player draws it): an accent arc turning over a faint
+ * track (only its rotation animates), with what's happening and a note under it.
+ */
+const LoadingRing: FC<{ text?: string | null; note?: WaitingNote | null }> = ({ text, note }) => {
+  const { t } = useTranslation();
+  const noteText = useNoteText()(note ?? null);
+  return (
+    <div role="status" className="flex flex-col items-center gap-3">
+      <svg
+        aria-hidden
+        viewBox="0 0 48 48"
+        className="text-primary size-14 animate-spin drop-shadow [animation-duration:1.1s]"
+      >
+        <circle cx="24" cy="24" r="20" fill="none" strokeWidth="4" className="stroke-white/20" />
+        <circle
+          cx="24"
+          cy="24"
+          r="20"
+          fill="none"
+          strokeWidth="4"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeDasharray="42 84"
+        />
+      </svg>
+      {text ? (
+        <p className="max-w-sm text-center text-sm whitespace-pre-line text-white/90">{text}</p>
+      ) : (
+        <span className="sr-only">{t('videoPlayer.loading')}</span>
+      )}
+      {noteText && (
+        <p className="max-w-sm truncate text-center text-xs text-white/70">{noteText}</p>
+      )}
+    </div>
+  );
+};
 
 const Middle: FC<{ children: ReactNode }> = ({ children }) => (
   <div className="pointer-events-none absolute inset-0 grid place-items-center">{children}</div>

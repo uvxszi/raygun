@@ -18,6 +18,9 @@ export const useMediaQuery = (query: string) =>
 /** Whether the window is wide enough for desktop layouts (the player bar's full controls): `md`. */
 export const useWideScreen = () => useMediaQuery('(min-width: 768px)');
 
+/** A finger rather than a mouse: rows play on a tap anywhere, and their artists aren't links. */
+export const useCoarsePointer = () => useMediaQuery('(pointer: coarse)');
+
 /** Whether the side rail replaces the bottom tabs: Tailwind's `lg`. */
 export const useSideRail = () => useMediaQuery('(min-width: 1024px)');
 

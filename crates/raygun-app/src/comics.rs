@@ -5,7 +5,7 @@
 //! name otherwise. Archives of the same series join one title.
 
 use std::cmp::Ordering;
-use std::io::{Cursor, Read};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::catalog::to_message;
@@ -18,7 +18,9 @@ const MAX_ENTRIES: usize = 10_000;
 const MAX_PAGES: usize = 2_000;
 /// The largest single page unpacked.
 const MAX_PAGE_BYTES: u64 = 64 * 1024 * 1024;
-const IMAGE_EXTENSIONS: [&str; 6] = ["jpg", "jpeg", "png", "webp", "gif", "avif"];
+/// Pictures a comic's pages may be. JPEG XL pages become PNG when unpacked: webviews can't show
+/// them.
+const IMAGE_EXTENSIONS: [&str; 8] = ["jpg", "jpeg", "png", "webp", "gif", "avif", "bmp", "jxl"];
 
 /// What ComicInfo.xml says (the ComicRack schema), all optional.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -198,9 +200,10 @@ pub fn unpack(
     comics_dir: &Path,
     series_key: impl Fn(&str) -> String,
 ) -> Result<(Unpacked, PathBuf), String> {
-    let bytes = std::fs::read(archive_path).map_err(to_message)?;
-    let hash = raygun_ext_host::package::sha256_hex(&bytes);
-    let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
+    // Read from the file as needed: an archive can be far bigger than a phone wants in memory.
+    let hash = file_sha256(archive_path).map_err(to_message)?;
+    let file = std::fs::File::open(archive_path).map_err(to_message)?;
+    let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file))
         .map_err(|_| "This isn't a CBZ or ZIP file".to_owned())?;
     if archive.len() > MAX_ENTRIES {
         return Err("This archive has too many files".into());
@@ -268,6 +271,18 @@ pub fn unpack(
         let mut file = archive
             .by_index(*index)
             .map_err(|_| "This archive is damaged".to_owned())?;
+        if extension == "jxl" {
+            let mut bytes = Vec::new();
+            file.by_ref()
+                .take(MAX_PAGE_BYTES)
+                .read_to_end(&mut bytes)
+                .map_err(|_| "This archive is damaged".to_owned())?;
+            let png = raygun_net::images::jxl_to_png(&bytes)
+                .map_err(|_| format!("Page {} of this archive couldn't be read", page + 1))?;
+            std::fs::write(partial.join(format!("{:04}.png", page + 1)), png)
+                .map_err(to_message)?;
+            continue;
+        }
         let mut out = std::fs::File::create(partial.join(format!("{:04}.{extension}", page + 1)))
             .map_err(to_message)?;
         std::io::copy(&mut file.by_ref().take(MAX_PAGE_BYTES), &mut out).map_err(to_message)?;
@@ -287,6 +302,26 @@ pub fn unpack(
     ))
 }
 
+/// A file's SHA-256 in hex, read a block at a time.
+fn file_sha256(path: &Path) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 256 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
 /// An unpacked chapter's page files, in order.
 pub fn pages(dir: &Path) -> std::io::Result<Vec<String>> {
     let mut names: Vec<String> = std::fs::read_dir(dir)?
@@ -300,7 +335,7 @@ pub fn pages(dir: &Path) -> std::io::Result<Vec<String>> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::io::{Cursor, Write};
 
     use super::*;
 
@@ -399,5 +434,10 @@ mod tests {
 
         std::fs::write(&file, archive(&[("readme.txt", b"no pages")])).unwrap();
         assert!(unpack(&file, "x.cbz", &comics, |s| s.to_owned()).is_err());
+
+        // JPEG XL pages are turned into PNG; one that isn't a picture says which page.
+        std::fs::write(&file, archive(&[("01.jxl", b"not a picture")])).unwrap();
+        let error = unpack(&file, "x.cbz", &comics, |s| s.to_owned()).unwrap_err();
+        assert_eq!(error, "Page 1 of this archive couldn't be read");
     }
 }

@@ -1,0 +1,30 @@
+{
+  "meta": {
+    "id": "yt_id:UCq-Fj5jknLsUf-MWSy4_brA",
+    "type": "channel",
+    "name": "T-Series",
+    "posterShape": "square",
+    "poster": "https://yt3.ggpht.com/y1F4EOGuP19nZcBlzcyCtnHiYhkAOPQiRxwKeaGrOjXarUZZjcx_heiDiC06_Qj6ERea_qWK9A=s800",
+    "videos": [
+      {
+        "id": "yt_id:UCq-Fj5jknLsUf-MWSy4_brA:b9V_q3Wvo8U",
+        "thumbnail": "https://i.ytimg.com/vi/b9V_q3Wvo8U/default.jpg",
+        "publishedAt": "2023-04-28T14:20:00.000Z",
+        "title": "Older upload",
+        "released": "2023-04-28T14:20:00.000Z"
+      },
+      {
+        "id": "yt_id:UCq-Fj5jknLsUf-MWSy4_brA:oNIN5ZY5t54",
+        "thumbnail": "https://i.ytimg.com/vi/oNIN5ZY5t54/default.jpg",
+        "title": "Newer upload",
+        "released": "2023-04-28T15:25:00.000Z"
+      },
+      {
+        "id": "live-1",
+        "title": "A video with its own stream",
+        "released": "2023-01-01T00:00:00.000Z",
+        "stream": { "url": "https://cdn.example/live-1.m3u8", "name": "HLS" }
+      }
+    ]
+  }
+}

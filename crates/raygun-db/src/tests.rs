@@ -101,7 +101,7 @@ async fn extension_repos_settings_and_installs_round_trip() {
     let temp = TempDir::new().unwrap();
     let db = open_in(temp.path()).await;
 
-    // The official repository is seeded.
+    // Raygun's first repository is seeded (the app moves it to Paraline: `replace_repos`).
     let seeded = extensions::repos(&db).await.unwrap();
     assert_eq!(seeded.len(), 1);
     assert!(seeded[0].url.ends_with("/repo/index.json"));
@@ -164,6 +164,99 @@ async fn extension_repos_settings_and_installs_round_trip() {
         .await
         .unwrap();
     assert!(extensions::installs(&db).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn replaced_repositories_fold_into_their_replacement() {
+    const OFFICIAL: &str = "https://raw.githubusercontent.com/uvxszi/raygun/main/repo/index.json";
+    const NOVELS: &str = "https://example.org/old/shosetsu/index.json";
+    const SOURCES: &str = "https://example.org/old/raygun/index.json";
+    let replacement = extensions::RepoRow {
+        id: "0192a000-0000-7000-8000-000000000002".into(),
+        url: "https://example.org/index.json".into(),
+        name: "Paraline".into(),
+    };
+    let retired = [OFFICIAL, NOVELS, SOURCES];
+    let install = |extension_id: &str, repo_url: &str| extensions::InstallRow {
+        extension_id: extension_id.into(),
+        repo_url: repo_url.into(),
+        version: "1.0.0".into(),
+        sha256: "ab".repeat(32),
+        installed_at: 1,
+    };
+
+    // A new install: the seeded official repository becomes the replacement, which leads.
+    let temp = TempDir::new().unwrap();
+    let db = open_in(temp.path()).await;
+    let other = extensions::add_repo(&db, "https://example.org/other/index.json", "Other")
+        .await
+        .unwrap();
+    // Another spelling of a retired address counts too.
+    extensions::add_repo(&db, &format!("{}/", NOVELS.to_uppercase()), "Novels")
+        .await
+        .unwrap();
+    extensions::record_install(&db, &install("dev.raygun.deezer", OFFICIAL))
+        .await
+        .unwrap();
+    extensions::record_install(&db, &install("dev.example.x", &other.url))
+        .await
+        .unwrap();
+    assert!(
+        extensions::replace_repos(&db, &retired, &replacement)
+            .await
+            .unwrap()
+    );
+    let repos = extensions::repos(&db).await.unwrap();
+    assert_eq!(repos, vec![replacement.clone(), other.clone()]);
+    let installs = extensions::installs(&db).await.unwrap();
+    let from = |id: &str| {
+        installs
+            .iter()
+            .find(|install| install.extension_id == id)
+            .map(|install| install.repo_url.clone())
+    };
+    assert_eq!(
+        from("dev.raygun.deezer").as_deref(),
+        Some(replacement.url.as_str())
+    );
+    assert_eq!(from("dev.example.x"), Some(other.url.clone()));
+    // Nothing more to do on the next start.
+    assert!(
+        !extensions::replace_repos(&db, &retired, &replacement)
+            .await
+            .unwrap()
+    );
+    // Removing the replacement stays removed.
+    extensions::remove_repo(&db, &replacement.id).await.unwrap();
+    assert!(
+        !extensions::replace_repos(&db, &retired, &replacement)
+            .await
+            .unwrap()
+    );
+    assert_eq!(extensions::repos(&db).await.unwrap(), vec![other]);
+
+    // A retired repository back from a backup revives the replacement, under its row.
+    let revived = extensions::add_repo(&db, SOURCES, "Sources").await.unwrap();
+    assert!(
+        extensions::replace_repos(&db, &retired, &replacement)
+            .await
+            .unwrap()
+    );
+    let repos = extensions::repos(&db).await.unwrap();
+    assert!(repos.iter().all(|repo| repo.id != revived.id));
+    assert!(repos.contains(&replacement));
+
+    // A device that had removed every retired repository doesn't get the replacement.
+    let temp = TempDir::new().unwrap();
+    let db = open_in(temp.path()).await;
+    let seeded = extensions::repos(&db).await.unwrap();
+    extensions::remove_repo(&db, &seeded[0].id).await.unwrap();
+    assert!(
+        !extensions::replace_repos(&db, &retired, &replacement)
+            .await
+            .unwrap()
+    );
+    assert!(extensions::repos(&db).await.unwrap().is_empty());
 }
 
 #[tokio::test]

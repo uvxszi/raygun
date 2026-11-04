@@ -14,6 +14,9 @@ export const DEFAULT_PREFS: NovelReaderPrefs = {
   paged: false,
   ttsRate: 10,
   indent: false,
+  theme: 'app',
+  justify: false,
+  keepScreenOn: true,
 };
 
 export const novelChapterQuery = (titleId: string, chapterId: string) => ({

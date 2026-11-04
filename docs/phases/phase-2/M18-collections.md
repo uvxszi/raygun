@@ -3,7 +3,7 @@
 **Relevant docs:** ARCHITECTURE §5 (data model, sync-ready columns), §10 (what syncs and how history merges), M07 (local library), M14 (resolver and `track_key`).
 
 ## Goal
-Music the user cares about stays with them: a heart keeps a track, playlists collect tracks from any source, and Raygun remembers what was played. Search shows the user's own matching tracks first and merges what several providers found into one "Top results" list.
+Favorite music stays in Raygun: a heart keeps a track, playlists collect tracks from any source, and Raygun remembers what was played. Search shows matching tracks from the library first and merges what several providers found into one "Top results" list.
 
 ## Design
 
