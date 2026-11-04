@@ -69,14 +69,13 @@ export type PagedViewProps = {
   /** Index `pages.length` is the end card after the last page. */
   onCurrent: (page: number) => void;
   onTap: (event: ReactMouseEvent<HTMLElement>) => void;
-  onDoubleTap: (event: ReactMouseEvent<HTMLElement>) => void;
   onPageMenu: (page: number) => void;
   /** Fingers are pinching (or just were): their lifting isn't a swipe. */
   pinching: () => boolean;
   endCard: ReactNode;
 };
 
-/** One page at a time with tap zones, swipes, keys, double-tap and pinch zoom. */
+/** One page at a time with tap zones, swipes, keys and pinch zoom (double taps come as taps). */
 export const PagedView: FC<PagedViewProps> = ({
   pages,
   current,
@@ -87,7 +86,6 @@ export const PagedView: FC<PagedViewProps> = ({
   contentRef,
   onCurrent,
   onTap,
-  onDoubleTap,
   onPageMenu,
   pinching,
   endCard,
@@ -176,7 +174,6 @@ export const PagedView: FC<PagedViewProps> = ({
       data-reader-scroll
       data-scale={scale}
       onClick={onClick}
-      onDoubleClick={onDoubleTap}
       onPointerDown={onPointerDown}
       onPointerUp={onPointerUp}
       onPointerCancel={() => {

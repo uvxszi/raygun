@@ -892,6 +892,25 @@ pub fn audio_output_set(app: tauri::AppHandle, id: Option<String>) -> Result<(),
     }
 }
 
+/// Hides Android's status and navigation bars while a reader is open and its own bars are put
+/// away, or shows them again. Desktop has F11 instead, so this does nothing there.
+#[tauri::command]
+#[specta::specta]
+pub fn reader_system_bars(app: tauri::AppHandle, hidden: bool) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        use tauri::Manager;
+        return app
+            .state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+            .system_bars(hidden);
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, hidden);
+        Ok(())
+    }
+}
+
 /// Followed artists, the latest followed first (M46.42).
 #[tauri::command]
 #[specta::specta]

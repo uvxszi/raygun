@@ -642,7 +642,7 @@ mod tests {
     async fn custom_accents_cover_sizes_and_reader_zoom_keep_to_what_is_offered() {
         use raygun_model::{
             Accent, CustomColors, MangaReaderPrefs, PagedScale, PanelPrefs, PlayerLayout,
-            PlayerViewPrefs, TextAlign, TrackTablePrefs, TrackTableView,
+            PlayerViewPrefs, TapCell, TapZones, TextAlign, TrackTablePrefs, TrackTableView,
         };
         let temp = TempDir::new().unwrap();
         let db = open(&temp).await;
@@ -749,6 +749,30 @@ mod tests {
         ] {
             assert!(update(&db, SettingChange::MangaReader(bad)).await.is_err());
         }
+        // Rows from before the custom tap grids read with the default layouts.
+        let older: MangaReaderPrefs = serde_json::from_str(r#"{"tapZones":"kindle"}"#).unwrap();
+        assert_eq!(
+            older.tap_grid_paged,
+            MangaReaderPrefs::default().tap_grid_paged
+        );
+        assert_eq!(
+            older.tap_grid_webtoon,
+            MangaReaderPrefs::default().tap_grid_webtoon
+        );
+        assert!(older.bar_progress);
+        assert!(older.full_screen);
+        let mut custom = MangaReaderPrefs {
+            tap_zones: TapZones::Custom,
+            ..zoom
+        };
+        custom.tap_grid_webtoon[4] = TapCell::NextChapter;
+        assert_eq!(
+            update(&db, SettingChange::MangaReader(custom))
+                .await
+                .unwrap()
+                .manga_reader,
+            custom
+        );
 
         // Song tables, panels and colours (M46.8).
         let mut tables = TrackTablePrefs::default();

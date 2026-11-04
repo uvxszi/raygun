@@ -2226,7 +2226,29 @@
         "kindle": "Kindle",
         "edge": "Edges",
         "sides": "Left and right",
-        "off": "Off"
+        "off": "Off",
+        "custom": "Custom"
+      },
+      "tapGrid": {
+        "label": "Tap zones for {{mode}}",
+        "paged": "Pages",
+        "webtoon": "Webtoon",
+        "cell": "Row {{row}}, column {{column}}: {{action}}",
+        "actions": "Tap action",
+        "presets": "Start from",
+        "reset": "Reset",
+        "action": {
+          "menu": "Menu",
+          "previous": "Previous",
+          "next": "Next",
+          "left": "Left",
+          "right": "Right",
+          "firstPage": "First page",
+          "lastPage": "Last page",
+          "previousChapter": "Chapter before",
+          "nextChapter": "Chapter after",
+          "nothing": "Nothing"
+        }
       },
       "invertTaps": "Mirror tap zones",
       "invert": {
@@ -2238,6 +2260,7 @@
       "doubleTapZoom": "Double tap to zoom",
       "skipDuplicates": "Skip other uploads of a chapter",
       "keepScreenOn": "Keep the screen on",
+      "fullScreen": "Full screen",
       "pageNumber": "Page number while reading",
       "byScreen": "By screen",
       "percent": "{{n}} %",
@@ -2253,6 +2276,7 @@
       "barChapters": "Chapter buttons in the page bar",
       "barZoom": "Zoom buttons in the page bar",
       "barMode": "Reading mode button in the page bar",
+      "barProgress": "Show progress",
       "barFullscreen": "Full screen button in the page bar",
       "preload": "Pages to load ahead",
       "pages_one": "{{count}} page",

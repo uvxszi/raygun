@@ -503,6 +503,11 @@ export const commands = {
 	audioOutputs: () => __TAURI_INVOKE<AudioOutputs>("audio_outputs"),
 	/**  Plays through one of this device's outputs, or the system's choice for `null` (M46.43). */
 	audioOutputSet: (id: string | null) => typedError<null, string>(__TAURI_INVOKE("audio_output_set", { id })),
+	/**
+	 *  Hides Android's status and navigation bars while a reader is open and its own bars are put
+	 *  away, or shows them again. Desktop has F11 instead, so this does nothing there.
+	 */
+	readerSystemBars: (hidden: boolean) => typedError<null, string>(__TAURI_INVOKE("reader_system_bars", { hidden })),
 	/**  Follows an artist: the library and quick access (M46.42). */
 	artistFollow: (name: string, imageUrl: string | null) => typedError<null, string>(__TAURI_INVOKE("artist_follow", { name, imageUrl })),
 	artistUnfollow: (name: string) => typedError<null, string>(__TAURI_INVOKE("artist_unfollow", { name })),
@@ -2930,6 +2935,8 @@ export type MangaReaderPrefs = {
 	 *  70 % on wide windows; never wider than the window.
 	 */
 	barSize?: number,
+	/**  The page bar's page slider and page count. */
+	barProgress?: boolean,
 	/**  The page bar's buttons beside the page slider. */
 	barChapters?: boolean,
 	barZoom?: boolean,
@@ -2940,6 +2947,10 @@ export type MangaReaderPrefs = {
 	/**  How titles without a reading mode of their own are read. */
 	defaultMode?: ReaderMode,
 	tapZones?: TapZones,
+	/**  The paged modes' grid when `tap_zones` is `Custom`. */
+	tapGridPaged?: [TapCell, TapCell, TapCell, TapCell, TapCell, TapCell, TapCell, TapCell, TapCell],
+	/**  The vertical strip's grid when `tap_zones` is `Custom`. */
+	tapGridWebtoon?: [TapCell, TapCell, TapCell, TapCell, TapCell, TapCell, TapCell, TapCell, TapCell],
 	invertTaps?: TapInvert,
 	/**  A double tap zooms; single taps then wait a moment to tell the two apart. */
 	doubleTapZoom?: boolean,
@@ -2947,6 +2958,11 @@ export type MangaReaderPrefs = {
 	pageNumber?: boolean,
 	/**  The screen doesn't turn off while a chapter is open. */
 	keepScreenOn?: boolean,
+	/**
+	 *  Android's status and navigation bars are hidden while reading, and shown with the
+	 *  reader's own bars.
+	 */
+	fullScreen?: boolean,
 	/**  Next and previous chapter skip other uploads of the same chapter number. */
 	skipDuplicates?: boolean,
 };
@@ -4828,6 +4844,21 @@ export type TapAction = "seek" | "playPause" |
 /**  The previous episode on the left, the next on the right. */
 "switchEpisode" | "off";
 
+/**  What a tap on one cell of the reader's 3×3 tap grid does. */
+export type TapCell = 
+/**  Shows or hides the reader's bars. */
+"menu" | 
+/**  The page before (paged) or a screen up (webtoon). */
+"previous" | 
+/**  The next page (paged) or a screen down (webtoon). */
+"next" | 
+/**  Toward the left: previous left to right, next right to left. */
+"left" | 
+/**  Toward the right: next left to right, previous right to left. */
+"right" | "firstPage" | "lastPage" | "previousChapter" | "nextChapter" | 
+/**  The tap does nothing. */
+"nothing";
+
 /**  How the tap zones are mirrored. */
 export type TapInvert = "none" | "horizontal" | "vertical" | "both";
 
@@ -4844,7 +4875,9 @@ export type TapZones =
 /**  The left third and the right third, as the reading direction has them. */
 "sides" | 
 /**  Taps only show and hide the controls. */
-"off";
+"off" | 
+/**  Each mode's own 3×3 grid (`MangaReaderPrefs::tap_grid_paged`, `tap_grid_webtoon`). */
+"custom";
 
 export type TestSourceFailure = {
 	url: string,

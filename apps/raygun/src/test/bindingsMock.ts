@@ -306,6 +306,7 @@ export const bindingsMock = {
     musicFindAlbum: vi.fn(),
     audioOutputs: vi.fn(),
     audioOutputSet: vi.fn(),
+    readerSystemBars: vi.fn(),
     artistsFollowed: vi.fn(),
     artistFollow: vi.fn(),
     artistUnfollow: vi.fn(),
@@ -841,6 +842,7 @@ export const seedBindings = () => {
   commands.musicFindAlbum.mockResolvedValue(ok(null));
   commands.audioOutputs.mockResolvedValue({ outputs: [], chosen: null });
   commands.audioOutputSet.mockResolvedValue(ok(null));
+  commands.readerSystemBars.mockResolvedValue(ok(null));
   commands.artistsFollowed.mockResolvedValue(ok([]));
   commands.artistFollow.mockResolvedValue(ok(null));
   commands.artistUnfollow.mockResolvedValue(ok(null));

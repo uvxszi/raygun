@@ -225,6 +225,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::artists_followed,
             commands::audio_outputs,
             commands::audio_output_set,
+            commands::reader_system_bars,
             commands::artist_follow,
             commands::artist_unfollow,
             commands::artist_set_alerts,
