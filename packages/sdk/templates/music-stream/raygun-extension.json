@@ -1,0 +1,13 @@
+{
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Streams of openly licensed and public-domain recordings on the Internet Archive, for songs found by other sources.",
+  "website": "https://archive.org/details/audio",
+  "provides": ["music.stream"],
+  "permissions": { "net": ["archive.org"] },
+  "contentRating": "safe"
+}

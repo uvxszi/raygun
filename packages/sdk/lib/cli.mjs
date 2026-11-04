@@ -1,61 +1,39 @@
-// raygun-ext: builds Raygun extensions and installs them into a running app (M12).
-// Plain ESM with JSDoc types, so it runs on Node without a build step; tsc checks it (checkJs).
+// raygun-ext: creates, checks, tries and builds Raygun extensions, installs them into a running
+// app and packs them into repositories (M12, M13). Plain ESM with JSDoc types, so it runs on Node
+// without a build step; tsc checks it (checkJs). The guide is docs/extensions.
 
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { watch } from 'node:fs';
+import { existsSync, watch } from 'node:fs';
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
 import * as esbuild from 'esbuild';
 import { unzipSync, zipSync } from 'fflate';
 
+import { checkBundle } from './check.mjs';
+import { KINDS, checkManifest, manifestProblems } from './manifest.mjs';
+import { typeProblems } from './typecheck.mjs';
+
+export { KINDS, checkManifest, manifestProblems };
+
 export const MANIFEST_FILE = 'raygun-extension.json';
 export const SOURCE_ENTRY = 'src/index.ts';
 export const ANDROID_PACKAGE = 'app.raygun.player';
-const TEMPLATE_DIR = fileURLToPath(new URL('../template', import.meta.url));
+const SDK_DIR = fileURLToPath(new URL('..', import.meta.url));
+const SDK_INDEX = join(SDK_DIR, 'src', 'index.ts');
+const TEMPLATES_DIR = join(SDK_DIR, 'templates');
+/** The Raygun checkout the SDK sits in: its Cargo workspace runs `raygun-ext test`. */
+export const RAYGUN_ROOT = resolve(SDK_DIR, '..', '..');
+/** The kind `init` creates without `--kind`. */
+export const DEFAULT_KIND = 'music.metadata';
+/** Raygun's largest package (crates/raygun-ext-host/src/package.rs). */
+const MAX_PACKAGE_BYTES = 10 * 1024 * 1024;
 
 /** @typedef {import('../src/types').Manifest} Manifest */
-
-const ID_PATTERN = /^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+$/;
-const SEMVER_PATTERN = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
-
-/**
- * Problems with a manifest, mirroring the host's checks (crates/raygun-ext-host/src/manifest.rs)
- * closely enough to catch mistakes before the app does.
- * @param {Record<string, unknown>} manifest
- * @returns {string[]}
- */
-export const manifestProblems = (manifest) => {
-  const problems = [];
-  const { id, name, version, apiVersion, runtime, entry, provides } = manifest;
-  if (typeof id !== 'string' || !ID_PATTERN.test(id) || id.length > 100) {
-    problems.push('id must be reverse-DNS in lower case, like dev.example.my-source');
-  }
-  if (typeof name !== 'string' || name.trim() === '' || name.length > 80) {
-    problems.push('name must be 1-80 characters');
-  }
-  if (typeof version !== 'string' || !SEMVER_PATTERN.test(version)) {
-    problems.push('version must be semver, like 1.0.0');
-  }
-  if (apiVersion !== 1) problems.push('apiVersion must be 1');
-  if (runtime !== 'js') problems.push('runtime must be "js"');
-  if (
-    typeof entry !== 'string' ||
-    !entry.endsWith('.js') ||
-    entry.includes('\\') ||
-    entry.split('/').some((part) => part === '' || part === '.' || part === '..')
-  ) {
-    problems.push('entry must be a relative path to a .js file, like dist/index.js');
-  }
-  if (!Array.isArray(provides) || provides.length === 0) {
-    problems.push('provides must list at least one provider kind, like "music.metadata"');
-  }
-  return problems;
-};
 
 /**
  * @param {string} dir
@@ -80,7 +58,8 @@ export const readManifest = async (dir) => {
 
 /**
  * esbuild options: one self-contained script, since the host evaluates the entry as a plain
- * script with no module loader.
+ * script with no module loader. `@raygun/sdk` is this CLI's own, so an extension builds against
+ * the contracts it's checked with, even before its packages are installed.
  * @param {string} dir
  * @param {Manifest} manifest
  * @returns {esbuild.BuildOptions & { write: false }}
@@ -89,6 +68,7 @@ const buildOptions = (dir, manifest) => ({
   absWorkingDir: resolve(dir),
   entryPoints: [SOURCE_ENTRY],
   outfile: manifest.entry,
+  alias: { '@raygun/sdk': SDK_INDEX },
   bundle: true,
   write: false,
   format: 'iife',
@@ -289,24 +269,235 @@ export const dev = async (dir, target, onEvent) => {
   };
 };
 
+/** The template folder of a provider kind: `manga.source` → `templates/manga-source`. */
+const templateDir = (/** @type {string} */ kind) => join(TEMPLATES_DIR, kind.replace(/\./g, '-'));
+
 /**
- * Creates a new extension from the template.
+ * How a new extension in `dir` depends on the SDK: through the workspace inside the Raygun
+ * checkout's `extensions/` folder, else by a link to this checkout's SDK (it isn't published).
  * @param {string} dir
- * @param {{ id: string, name: string }} options
  */
-export const init = async (dir, { id, name }) => {
+export const sdkDependency = (dir) => {
+  const inWorkspace = relative(join(RAYGUN_ROOT, 'extensions'), resolve(dir));
+  if (inWorkspace !== '' && !inWorkspace.startsWith('..') && !inWorkspace.includes(sep)) {
+    return 'workspace:*';
+  }
+  return `link:${relative(resolve(dir), SDK_DIR).split(sep).join('/')}`;
+};
+
+/**
+ * Creates a new extension from the template of `kind`: a working source for a legal site, with
+ * its manifest, sources and package files.
+ * @param {string} dir
+ * @param {{ id: string, name: string, kind?: string }} options
+ */
+export const init = async (dir, { id, name, kind = DEFAULT_KIND }) => {
+  if (!(kind in KINDS)) {
+    throw new Error(
+      `there's no template for ${kind}; pick one of ${Object.keys(KINDS).join(', ')}`,
+    );
+  }
   const existing = await readdir(dir).catch(() => []);
   if (existing.length > 0) {
     throw new Error(`${dir} is not empty`);
   }
-  await cp(TEMPLATE_DIR, dir, { recursive: true });
+  await cp(join(TEMPLATES_DIR, 'common'), dir, { recursive: true });
+  await cp(templateDir(kind), dir, { recursive: true });
+  const values = { __ID__: id, __NAME__: name, __SDK__: sdkDependency(dir) };
   for (const file of [MANIFEST_FILE, 'package.json', SOURCE_ENTRY]) {
     const path = join(dir, file);
-    const text = await readFile(path, 'utf8');
-    await writeFile(path, text.replaceAll('__ID__', id).replaceAll('__NAME__', name));
+    await writeFile(path, fillTemplate(file, await readFile(path, 'utf8'), values));
   }
   const manifest = await readManifest(dir);
   return manifest;
+};
+
+/**
+ * A template file with its placeholders filled: JSON-escaped in JSON files; in the source, the
+ * name as a string literal where it is one (`'__NAME__'`) and as words in comments.
+ * @param {string} file
+ * @param {string} text
+ * @param {{ __ID__: string, __NAME__: string, __SDK__: string }} values
+ */
+const fillTemplate = (file, text, values) => {
+  if (file.endsWith('.json')) {
+    return Object.entries(values).reduce(
+      (filled, [placeholder, value]) =>
+        filled.replaceAll(placeholder, JSON.stringify(value).slice(1, -1)),
+      text,
+    );
+  }
+  const literal = `'${values.__NAME__.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+  return text
+    .replaceAll("'__NAME__'", literal)
+    .replaceAll('__NAME__', values.__NAME__.replace(/\s+/g, ' '))
+    .replaceAll('__ID__', values.__ID__);
+};
+
+/**
+ * @typedef {{ manifest: Manifest | null, errors: string[], warnings: string[],
+ *   providers: import('./check.mjs').FoundProvider[], bytes: number }} Validation
+ */
+
+/**
+ * Checks an extension as Raygun would load it, without the app: the manifest (every rule the app
+ * applies), a build of the sources, their types against the provider contracts (`types`), the
+ * providers the script registers and the calls each has, the hosts the code fetches from against
+ * `permissions.net`, and browser or Node APIs QuickJS lacks. `errors` make Raygun refuse the
+ * extension or a call; `warnings` are likely mistakes.
+ * @param {string} dir
+ * @param {{ types?: boolean }} [options]
+ * @returns {Promise<Validation>}
+ */
+export const validate = async (dir, { types = true } = {}) => {
+  const path = join(dir, MANIFEST_FILE);
+  let raw;
+  try {
+    raw = JSON.parse(await readFile(path, 'utf8'));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      manifest: null,
+      errors: [`can't read ${path}: ${message}`],
+      warnings: [],
+      providers: [],
+      bytes: 0,
+    };
+  }
+  const { errors, warnings } = checkManifest(raw);
+  if (errors.length > 0) {
+    return { manifest: null, errors, warnings, providers: [], bytes: 0 };
+  }
+  /** @type {Manifest} */
+  const manifest = raw;
+  let code;
+  try {
+    code = (await bundle(dir)).code;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { manifest, errors: [`the build fails: ${message}`], warnings, providers: [], bytes: 0 };
+  }
+  const bytes = Buffer.byteLength(code);
+  if (bytes > MAX_PACKAGE_BYTES) {
+    errors.push(`the bundle is ${bytes} bytes; Raygun takes packages of 10 MB at most`);
+  }
+  if (types) {
+    const problems = await typeProblems(dir);
+    if (problems === null) {
+      warnings.push("TypeScript isn't installed in this Raygun checkout: types weren't checked");
+    }
+    errors.push(...(problems ?? []).map((problem) => `type error: ${problem}`));
+  }
+  const checked = await checkBundle(manifest, code);
+  return {
+    manifest,
+    errors: [...errors, ...checked.errors],
+    warnings: [...warnings, ...checked.warnings],
+    providers: checked.providers,
+    bytes,
+  };
+};
+
+/**
+ * Arguments for a provider call from `key=value` words, over the ones the app passes that call
+ * (`kinds.json`). A value is read as JSON when it can be (`page=2`, `artist=null`), else as text.
+ * @param {string} kind
+ * @param {string} method
+ * @param {string[]} words
+ */
+export const callArgs = (kind, method, words) => {
+  if (words.length === 1 && /^\s*[{[]/.test(words[0] ?? '')) {
+    return JSON.parse(words[0] ?? '');
+  }
+  /** @type {Record<string, unknown>} */
+  const args = { ...(KINDS[kind]?.args[method] ?? {}) };
+  for (const word of words) {
+    const equals = word.indexOf('=');
+    if (equals < 1) {
+      throw new Error(`"${word}": give arguments as key=value, or as one JSON object`);
+    }
+    const value = word.slice(equals + 1);
+    try {
+      args[word.slice(0, equals)] = JSON.parse(value);
+    } catch {
+      args[word.slice(0, equals)] = value;
+    }
+  }
+  return args;
+};
+
+/**
+ * @typedef {{ provider?: string, method?: string, args?: unknown, settings?: string[],
+ *   nsfw?: boolean, data?: string }} TestOptions
+ */
+
+/**
+ * The command that loads an extension folder into Raygun's own extension host and calls a
+ * provider (`crates/raygun-ext-host/examples/call.rs`), with cargo in this checkout.
+ * @param {string} dir
+ * @param {TestOptions} [options]
+ */
+export const testCommand = (
+  dir,
+  { provider, method, args, settings = [], nsfw = false, data } = {},
+) => ({
+  command: 'cargo',
+  args: [
+    'run',
+    '--quiet',
+    '--manifest-path',
+    join(RAYGUN_ROOT, 'Cargo.toml'),
+    '-p',
+    'raygun-ext-host',
+    '--example',
+    'call',
+    '--',
+    resolve(dir),
+    ...(provider && method ? [provider, method] : []),
+    ...(provider && method && args !== undefined ? [JSON.stringify(args)] : []),
+    ...settings.flatMap((setting) => ['--set', setting]),
+    ...(nsfw ? ['--nsfw'] : []),
+    ...(data ? ['--data', resolve(data)] : []),
+  ],
+});
+
+/**
+ * Builds an extension, then runs one provider call in Raygun's extension host: the answer as
+ * JSON, what Raygun keeps of it, and how long it took against the time the app gives the call.
+ * Without a provider it lists the providers the extension registers. Resolves to the exit code.
+ * @param {string} dir
+ * @param {Omit<TestOptions, 'args'> & { words?: string[] }} [options]
+ * @returns {Promise<number>}
+ */
+export const runTest = async (dir, { words = [], ...options } = {}) => {
+  if (!existsSync(join(RAYGUN_ROOT, 'Cargo.toml'))) {
+    throw new Error(
+      `raygun-ext test runs Raygun's extension host from a Raygun checkout; ${RAYGUN_ROOT} isn't one`,
+    );
+  }
+  await build(dir);
+  let args;
+  if (options.provider && options.method) {
+    // The provider's kind says what the app passes the call; types don't matter here.
+    const found = (await validate(dir, { types: false })).providers.find(
+      (provider) => provider.id === options.provider?.split('/').pop(),
+    );
+    args = callArgs(found?.kind ?? '', options.method, words);
+  }
+  const { command, args: commandArgs } = testCommand(dir, { ...options, args });
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(command, commandArgs, { stdio: 'inherit' });
+    child.on('error', (error) =>
+      reject(
+        /** @type {NodeJS.ErrnoException} */ (error).code === 'ENOENT'
+          ? new Error(
+              "raygun-ext test needs cargo, Rust's build tool: install it from https://rustup.rs",
+            )
+          : error,
+      ),
+    );
+    child.on('close', (code) => resolvePromise(code ?? 1));
+  });
 };
 
 // ---- Repositories (M13) ----
@@ -375,6 +566,11 @@ const samePackage = (published, files) => {
  * @param {string} repoDir
  */
 const packPackage = async (dir, repoDir) => {
+  // A package Raygun would refuse, or whose calls would fail, is never published.
+  const { errors } = await validate(dir);
+  if (errors.length > 0) {
+    throw new Error(`${dir} isn't ready to publish:\n  - ${errors.join('\n  - ')}`);
+  }
   const { manifest, outfile } = await build(dir);
   /** @type {Record<string, Uint8Array>} */
   const files = {
@@ -405,8 +601,36 @@ const packPackage = async (dir, repoDir) => {
   } else if (!published) {
     await writeFile(target, archive);
   }
+  await copyIcon(dir, repoDir, manifest.id);
   return { manifest, package: `packages/${name}`, bytes: archive.length, kept };
 };
+
+/** Picture types an extension's icon may be, in the order they're looked for. */
+const ICON_TYPES = ['png', 'webp', 'jpg'];
+
+/**
+ * Copies an extension's `icon.png` (or `.webp`, `.jpg`) to the repository's `icons/<id>.<type>`,
+ * which the index then names. Icons aren't part of packages, so one can change without a version.
+ * @param {string} dir
+ * @param {string} repoDir
+ * @param {string} id
+ */
+const copyIcon = async (dir, repoDir, id) => {
+  for (const type of ICON_TYPES) {
+    const icon = join(dir, `icon.${type}`);
+    if (!existsSync(icon)) continue;
+    await mkdir(join(repoDir, 'icons'), { recursive: true });
+    // One icon per extension: another type left from before would be listed instead.
+    for (const other of ICON_TYPES)
+      await rm(join(repoDir, 'icons', `${id}.${other}`), { force: true });
+    await cp(icon, join(repoDir, 'icons', `${id}.${type}`));
+    return;
+  }
+};
+
+/** The icon the repository holds for an extension, relative to its index. */
+const iconOf = (/** @type {string} */ repoDir, /** @type {string} */ id) =>
+  ICON_TYPES.map((type) => `icons/${id}.${type}`).find((path) => existsSync(join(repoDir, path)));
 
 /** @typedef {{ name?: string }} IndexOptions */
 
@@ -477,6 +701,7 @@ export const writeIndex = async (repoDir, options = {}) => {
     if (!manifestBytes) throw new Error(`${name} has no ${MANIFEST_FILE}`);
     /** @type {Manifest} */
     const manifest = JSON.parse(new TextDecoder().decode(manifestBytes));
+    const icon = iconOf(repoDir, manifest.id);
     const entry = {
       id: manifest.id,
       name: manifest.name,
@@ -491,6 +716,7 @@ export const writeIndex = async (repoDir, options = {}) => {
       },
       contentRating: manifest.contentRating ?? 'safe',
       package: `packages/${name}`,
+      ...(icon ? { icon } : {}),
       sha256: createHash('sha256').update(bytes).digest('hex'),
       size: bytes.length,
     };

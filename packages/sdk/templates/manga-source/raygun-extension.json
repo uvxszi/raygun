@@ -1,0 +1,22 @@
+{
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Pepper&Carrot, David Revoy's webcomic, free under CC BY 4.0.",
+  "website": "https://www.peppercarrot.com",
+  "provides": ["manga.source"],
+  "permissions": { "net": ["www.peppercarrot.com"] },
+  "contentRating": "safe",
+  "settings": [
+    {
+      "key": "language",
+      "type": "select",
+      "label": "Language",
+      "options": ["English", "French", "Spanish", "German", "Italian", "Japanese"],
+      "default": "English"
+    }
+  ]
+}

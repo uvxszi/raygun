@@ -1,0 +1,13 @@
+{
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Public-domain audiobooks read by LibriVox volunteers, found through the Internet Archive.",
+  "website": "https://librivox.org",
+  "provides": ["audiobook.directory"],
+  "permissions": { "net": ["archive.org"] },
+  "contentRating": "safe"
+}

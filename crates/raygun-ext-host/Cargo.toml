@@ -38,7 +38,14 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 [dev-dependencies]
 tempfile = "3"
 axum.workspace = true
+# The `call` example prints the extension's log.
+tracing-subscriber.workspace = true
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "macros", "test-util"] }
 # KuGou's compressed KRC lyrics for its fixture (M46.48).
 flate2 = "1"
 base64 = "0.22"
+
+# Calls a provider of one extension folder (`raygun-ext test`); its tests run with the crate's.
+[[example]]
+name = "call"
+test = true

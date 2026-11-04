@@ -19,6 +19,7 @@ pub mod package;
 pub mod permissions;
 pub mod podcast;
 pub mod repo;
+pub mod review;
 pub mod shosetsu;
 mod storage;
 pub mod video;

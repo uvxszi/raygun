@@ -1,0 +1,13 @@
+{
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Public-domain feature films, cartoons and silent films from the Internet Archive.",
+  "website": "https://archive.org/details/moviesandfilms",
+  "provides": ["video.source"],
+  "permissions": { "net": ["archive.org"] },
+  "contentRating": "safe"
+}

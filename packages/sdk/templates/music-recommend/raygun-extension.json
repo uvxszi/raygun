@@ -1,0 +1,13 @@
+{
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Artists' songs, similar artists and radios from Creative Commons music on Openverse.",
+  "website": "https://openverse.org",
+  "provides": ["music.recommend"],
+  "permissions": { "net": ["api.openverse.org"] },
+  "contentRating": "safe"
+}
