@@ -20,8 +20,8 @@ class MainActivity : TauriActivity() {
   }
 
   /** wry hands over its webview here: it goes in a parent that can keep it playing off screen. */
-  override fun setContentView(view: View) {
-    super.setContentView(WebAwake.host(this, view))
+  override fun setContentView(view: View?) {
+    super.setContentView(view?.let { WebAwake.host(this, it) })
   }
 
   // Held only while Raygun is in front: it costs battery, and sync runs in the foreground (M21).
