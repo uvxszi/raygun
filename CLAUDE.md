@@ -222,7 +222,7 @@ pnpm repo:publish        # pack first-party extensions into repo/ (the official 
 - Run `tauri android dev|build` in a real terminal tab (Terminal panel), not a headless shell. Without a TTY, the CLI's device prompt loops forever (it once wrote a 13 GB log), and `adb shell` blocks on an open stdin pipe.
 - Only one Tauri Android command can run at a time. A stuck one shows `Blocking waiting for file lock on Android` in the next. Find leftover `tauri.js android ...` node processes and stop them.
 - Verify on the emulator with `adb install -r .../app-universal-debug.apk`, `adb shell am force-stop app.raygun.player`, a relaunch, then `adb exec-out screencap -p`. App logs: `adb shell "run-as app.raygun.player cat logs/<file>"`.
-- Env for headless runs: `ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk`, `NDK_HOME=...\Sdk\ndk\28.2.13676358`.
+- Env for headless runs (user variables; set them per command in a shell that predates them): `ANDROID_HOME=N:\Toolchains\android-sdk`, `NDK_HOME=N:\Toolchains\android-sdk\ndk\28.2.13676358`, `ANDROID_USER_HOME=N:\Toolchains\android-user`, `GRADLE_USER_HOME=N:\Toolchains\gradle`, `CARGO_HOME=N:\Toolchains\cargo`, `RUSTUP_HOME=N:\Toolchains\rustup`, `TEMP`/`TMP=N:\Raygun\cache\temp`.
 
 ## Rules
 
