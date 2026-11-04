@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { PrefBlock, PrefChoice, PrefGroup, PrefSlider, PrefSwitch } from '../settings/prefs';
 import { EqualizerPanel } from './EqualizerPanel';
+import { LyricsTranslationSettings } from './LyricsTranslationSettings';
 import { useSoundPrefs } from './useSound';
 
 const REVERBS: Reverb[] = [
@@ -104,6 +105,7 @@ export const SoundSettings: FC = () => {
           onChange={(seconds) => change({ crossfadeMs: seconds * 1000 })}
         />
       </PrefGroup>
+      <LyricsTranslationSettings />
     </>
   );
 };

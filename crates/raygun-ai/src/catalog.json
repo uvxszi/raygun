@@ -171,5 +171,431 @@
         "size": 290403936
       }
     ]
+  },
+  {
+    "id": "opus-mt-mul-en",
+    "name": "Translate into English (OPUS-MT)",
+    "kind": "translate",
+    "description": "Translates lyrics from about 100 languages into English on this device.",
+    "license": "Apache-2.0",
+    "licenseUrl": "https://huggingface.co/Helsinki-NLP/opus-mt-mul-en",
+    "sourceUrl": "https://github.com/Helsinki-NLP/Opus-MT",
+    "translate": {
+      "from": ["mul"],
+      "to": ["en"]
+    },
+    "files": [
+      {
+        "name": "config.json",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-mul-en/resolve/f1cb6c159c1361d9ef170a4758beca41d7f37b2a/config.json",
+        "sha256": "7253aeecb4f20d42ed1c6cd1fc7cfd270e3e0f5a88919a4992e8001bd50f4695",
+        "size": 1395
+      },
+      {
+        "name": "vocab.json",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-mul-en/resolve/f1cb6c159c1361d9ef170a4758beca41d7f37b2a/vocab.json",
+        "sha256": "6f223b108c7ea7622561eb943a09ffd2329f493387bf12ab0e3aa341d355f837",
+        "size": 1423947
+      },
+      {
+        "name": "source.spm",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-mul-en/resolve/f1cb6c159c1361d9ef170a4758beca41d7f37b2a/source.spm",
+        "sha256": "c4a99ea3602b29fbf901ade8b93a45efa3d7c64eab8fc5fa812383efa327a87d",
+        "size": 706917
+      },
+      {
+        "name": "model.safetensors",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-mul-en/resolve/f1cb6c159c1361d9ef170a4758beca41d7f37b2a/model.safetensors",
+        "sha256": "8b8ff7a54cd65dd0015c620755dd62f956796035d2cafd43446e960e13c79c28",
+        "size": 310361360
+      }
+    ]
+  },
+  {
+    "id": "opus-mt-en-mul",
+    "name": "Translate from English (OPUS-MT)",
+    "kind": "translate",
+    "description": "Translates English into about 100 languages on this device; with the English model, any language into them.",
+    "license": "Apache-2.0",
+    "licenseUrl": "https://huggingface.co/Helsinki-NLP/opus-mt-en-mul",
+    "sourceUrl": "https://github.com/Helsinki-NLP/Opus-MT",
+    "translate": {
+      "from": ["en"],
+      "to": [],
+      "targets": {
+        "af": "afr",
+        "am": "amh",
+        "ar": "ara",
+        "as": "asm",
+        "az": "aze_Latn",
+        "ba": "bak",
+        "be": "bel",
+        "bg": "bul",
+        "bn": "ben",
+        "br": "bre",
+        "bs": "bos_Latn",
+        "ca": "cat",
+        "ceb": "ceb",
+        "cs": "ces",
+        "cv": "chv",
+        "cy": "cym",
+        "da": "dan",
+        "de": "deu",
+        "el": "ell",
+        "eo": "epo",
+        "es": "spa",
+        "et": "est",
+        "eu": "eus",
+        "fa": "pes",
+        "fi": "fin",
+        "fo": "fao",
+        "fr": "fra",
+        "fy": "fry",
+        "ga": "gle",
+        "gd": "gla",
+        "gl": "glg",
+        "gu": "guj",
+        "ha": "hau_Latn",
+        "he": "heb",
+        "hi": "hin",
+        "hr": "hrv",
+        "ht": "hat",
+        "hu": "hun",
+        "hy": "hye",
+        "ia": "ina_Latn",
+        "id": "ind",
+        "ig": "ibo",
+        "is": "isl",
+        "it": "ita",
+        "ja": "jpn",
+        "jv": "jav",
+        "ka": "kat",
+        "kk": "kaz_Cyrl",
+        "km": "khm",
+        "kn": "kan",
+        "ku": "kur_Latn",
+        "ky": "kir_Cyrl",
+        "la": "lat_Latn",
+        "lb": "ltz",
+        "lo": "lao",
+        "lt": "lit",
+        "lv": "lav",
+        "mg": "mlg",
+        "mi": "mri",
+        "mk": "mkd",
+        "ml": "mal",
+        "mn": "mon",
+        "mr": "mar",
+        "mt": "mlt",
+        "my": "mya",
+        "nb": "nob",
+        "nl": "nld",
+        "nn": "nno",
+        "no": "nob",
+        "ny": "nya",
+        "oc": "oci",
+        "or": "ori",
+        "pa": "pan_Guru",
+        "pl": "pol",
+        "ps": "pus",
+        "pt": "por",
+        "ro": "ron",
+        "ru": "rus",
+        "sa": "san_Deva",
+        "si": "sin",
+        "sl": "slv",
+        "sm": "smo",
+        "sn": "sna",
+        "so": "som",
+        "sq": "sqi",
+        "sr": "srp_Cyrl",
+        "su": "sun",
+        "sv": "swe",
+        "ta": "tam",
+        "te": "tel",
+        "tg": "tgk_Cyrl",
+        "th": "tha",
+        "tk": "tuk",
+        "tr": "tur",
+        "tt": "tat",
+        "ug": "uig_Arab",
+        "uk": "ukr",
+        "ur": "urd",
+        "uz": "uzb_Latn",
+        "vi": "vie",
+        "xh": "xho",
+        "yi": "yid",
+        "yo": "yor",
+        "zh-Hans": "cmn_Hans",
+        "zh-Hant": "cmn_Hant",
+        "yue": "yue_Hant",
+        "zu": "zul"
+      }
+    },
+    "files": [
+      {
+        "name": "config.json",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-mul/resolve/d41ab23bbe31592b09f084b7063f1460a84600aa/config.json",
+        "sha256": "31d6ee3edd0ae559448c63d145b96a21dbb4ceb4c160287eacafd5fca2572b37",
+        "size": 1395
+      },
+      {
+        "name": "vocab.json",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-mul/resolve/d41ab23bbe31592b09f084b7063f1460a84600aa/vocab.json",
+        "sha256": "430864f6ef403ad2d660fc4e1a571047631fb6d71d3c79b5aff184a281c68c63",
+        "size": 1419970
+      },
+      {
+        "name": "source.spm",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-mul/resolve/d41ab23bbe31592b09f084b7063f1460a84600aa/source.spm",
+        "sha256": "9129bf81ef9d5fcc1797ea3061e789dc5f9e5602786b0490238d207d4219e0f5",
+        "size": 790473
+      },
+      {
+        "name": "model.safetensors",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-mul/resolve/d41ab23bbe31592b09f084b7063f1460a84600aa/model.safetensors",
+        "sha256": "dd4c874ecad8853d94415c21937c7e35ea09cc22f178b63821294ed010121436",
+        "size": 310234136
+      }
+    ]
+  },
+  {
+    "id": "opus-mt-en-de",
+    "name": "English to German (OPUS-MT)",
+    "kind": "translate",
+    "description": "Translates English into German on this device, better than the many-language model.",
+    "license": "CC-BY-4.0",
+    "licenseUrl": "https://huggingface.co/Helsinki-NLP/opus-mt-en-de",
+    "sourceUrl": "https://github.com/Helsinki-NLP/Opus-MT",
+    "translate": {
+      "from": ["en"],
+      "to": ["de"]
+    },
+    "files": [
+      {
+        "name": "config.json",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-de/resolve/0012d6d6ff4b4dd06bee042d3294295f0e587abd/config.json",
+        "sha256": "41c7890e6f6c1f72c5c626569cfe739a8362080940edbb1747f25173f541653b",
+        "size": 1335
+      },
+      {
+        "name": "vocab.json",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-de/resolve/0012d6d6ff4b4dd06bee042d3294295f0e587abd/vocab.json",
+        "sha256": "0d70d89fee4a8b4ef99a56d712163baadcabd5600a597f71515547ee70306329",
+        "size": 1273232
+      },
+      {
+        "name": "source.spm",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-de/resolve/0012d6d6ff4b4dd06bee042d3294295f0e587abd/source.spm",
+        "sha256": "678f2a1177d8389f67b66299762dcc4fc567e89b07e212ba91b0c56daecf47ce",
+        "size": 768489
+      },
+      {
+        "name": "model.safetensors",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-de/resolve/0012d6d6ff4b4dd06bee042d3294295f0e587abd/model.safetensors",
+        "sha256": "3fb78700bce624990eff6468d0e14fbde18a6aedac35821fa8c0c4ead5fae014",
+        "size": 297903668
+      }
+    ]
+  },
+  {
+    "id": "opus-mt-en-es",
+    "name": "English to Spanish (OPUS-MT)",
+    "kind": "translate",
+    "description": "Translates English into Spanish on this device, better than the many-language model.",
+    "license": "Apache-2.0",
+    "licenseUrl": "https://huggingface.co/Helsinki-NLP/opus-mt-en-es",
+    "sourceUrl": "https://github.com/Helsinki-NLP/Opus-MT",
+    "translate": {
+      "from": ["en"],
+      "to": ["es"]
+    },
+    "files": [
+      {
+        "name": "config.json",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-es/resolve/fdaddf76f50fcc1583ba42f95965862a7ab30f97/config.json",
+        "sha256": "666ad3c2943674b6a789e311d221e44ec23e27f1bd9727930754bf773ec8e464",
+        "size": 1473
+      },
+      {
+        "name": "vocab.json",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-es/resolve/fdaddf76f50fcc1583ba42f95965862a7ab30f97/vocab.json",
+        "sha256": "257f346d7a6b2ecceafcca8ba05648ce2fd68dfaf105fb0e913dca7198f3f6d5",
+        "size": 1590040
+      },
+      {
+        "name": "source.spm",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-es/resolve/fdaddf76f50fcc1583ba42f95965862a7ab30f97/source.spm",
+        "sha256": "4dd547c24816a335e7b0b2e63376a8f1b3cbfc671eda5ab808dd44fdadaa8791",
+        "size": 801636
+      },
+      {
+        "name": "model.safetensors",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-es/resolve/fdaddf76f50fcc1583ba42f95965862a7ab30f97/model.safetensors",
+        "sha256": "b3ecbf954573c2fd95d05d3ad4618baf961793db0da07c2add2e8a3a6cd78d0b",
+        "size": 312062468
+      }
+    ]
+  },
+  {
+    "id": "opus-mt-en-fr",
+    "name": "English to French (OPUS-MT)",
+    "kind": "translate",
+    "description": "Translates English into French on this device, better than the many-language model.",
+    "license": "Apache-2.0",
+    "licenseUrl": "https://huggingface.co/Helsinki-NLP/opus-mt-en-fr",
+    "sourceUrl": "https://github.com/Helsinki-NLP/Opus-MT",
+    "translate": {
+      "from": ["en"],
+      "to": ["fr"]
+    },
+    "files": [
+      {
+        "name": "config.json",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-fr/resolve/c96fcd7f38a4c0d1ac9b61e255b47f3f7ff55e5e/config.json",
+        "sha256": "df92c371911b45282caac6101fe7e7f5d5e9af7f9a99356067ffe306278ce72b",
+        "size": 1416
+      },
+      {
+        "name": "vocab.json",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-fr/resolve/c96fcd7f38a4c0d1ac9b61e255b47f3f7ff55e5e/vocab.json",
+        "sha256": "945c604346ce15ce4aff9001001e7f925e336d942c4087017f191871162cbdc4",
+        "size": 1339166
+      },
+      {
+        "name": "source.spm",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-fr/resolve/c96fcd7f38a4c0d1ac9b61e255b47f3f7ff55e5e/source.spm",
+        "sha256": "173e9f493a668fe396d599e28d414a201193094e6ffd7a4678e5aab0f6d3d838",
+        "size": 778395
+      },
+      {
+        "name": "model.safetensors",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-fr/resolve/c96fcd7f38a4c0d1ac9b61e255b47f3f7ff55e5e/model.safetensors",
+        "sha256": "c32d3003ced798c78b9ca90fb69c8e23ad5b4c64c500628bdf3303bbc9272816",
+        "size": 300803256
+      }
+    ]
+  },
+  {
+    "id": "opus-mt-en-it",
+    "name": "English to Italian (OPUS-MT)",
+    "kind": "translate",
+    "description": "Translates English into Italian on this device, better than the many-language model.",
+    "license": "Apache-2.0",
+    "licenseUrl": "https://huggingface.co/Helsinki-NLP/opus-mt-en-it",
+    "sourceUrl": "https://github.com/Helsinki-NLP/Opus-MT",
+    "translate": {
+      "from": ["en"],
+      "to": ["it"]
+    },
+    "files": [
+      {
+        "name": "config.json",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-it/resolve/5483bd70fe6e934c56875647d5dbad58f09bbd16/config.json",
+        "sha256": "e0500492a3168b45a79bb6e3f0373d0190a9e3730e83d1316628b31f1b5a50c0",
+        "size": 1381
+      },
+      {
+        "name": "vocab.json",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-it/resolve/5483bd70fe6e934c56875647d5dbad58f09bbd16/vocab.json",
+        "sha256": "eb0d25eea013793e15cd574a698105dc147a5d4ba522ba5ddb8fb7554c51d37b",
+        "size": 2351575
+      },
+      {
+        "name": "source.spm",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-it/resolve/5483bd70fe6e934c56875647d5dbad58f09bbd16/source.spm",
+        "sha256": "2efff2c37e51842c2817a6770280979b5dd803cebbe2928e576d42a888f89537",
+        "size": 789468
+      },
+      {
+        "name": "model.safetensors",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-it/resolve/5483bd70fe6e934c56875647d5dbad58f09bbd16/model.safetensors",
+        "sha256": "7012b826195f82a68efc878b39e763d2fbf8ebb485811375e9d9632899eba7d0",
+        "size": 342912236
+      }
+    ]
+  },
+  {
+    "id": "opus-mt-en-ru",
+    "name": "English to Russian (OPUS-MT)",
+    "kind": "translate",
+    "description": "Translates English into Russian on this device, better than the many-language model.",
+    "license": "Apache-2.0",
+    "licenseUrl": "https://huggingface.co/Helsinki-NLP/opus-mt-en-ru",
+    "sourceUrl": "https://github.com/Helsinki-NLP/Opus-MT",
+    "translate": {
+      "from": ["en"],
+      "to": ["ru"]
+    },
+    "files": [
+      {
+        "name": "config.json",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-ru/resolve/3ff4dbd98515ba253f08f183e0de0b7ccf189ee3/config.json",
+        "sha256": "d3c2614fd099bc228fc257f047e46f1c6f94cfa12dee2b1fa6c0d780e6b7de06",
+        "size": 1381
+      },
+      {
+        "name": "vocab.json",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-ru/resolve/3ff4dbd98515ba253f08f183e0de0b7ccf189ee3/vocab.json",
+        "sha256": "33e95da3be3fa3b50169c4c46693ba2f29fbf4cb29d99044bd07d72d181fa1e9",
+        "size": 2601758
+      },
+      {
+        "name": "source.spm",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-ru/resolve/3ff4dbd98515ba253f08f183e0de0b7ccf189ee3/source.spm",
+        "sha256": "16bebef1389a0b8ab452772c4e35b9e605e5713f8ac7baa71ca701394eaa086d",
+        "size": 802781
+      },
+      {
+        "name": "model.safetensors",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-ru/resolve/3ff4dbd98515ba253f08f183e0de0b7ccf189ee3/model.safetensors",
+        "sha256": "07f5d90a45955a73412a118f0635315a28ea5a5d82522f3be008e71d452526c0",
+        "size": 306967464
+      }
+    ]
+  },
+  {
+    "id": "opus-mt-en-zh",
+    "name": "English to Chinese (OPUS-MT)",
+    "kind": "translate",
+    "description": "Translates English into Chinese (Simplified or Traditional) and Cantonese on this device.",
+    "license": "Apache-2.0",
+    "licenseUrl": "https://huggingface.co/Helsinki-NLP/opus-mt-en-zh",
+    "sourceUrl": "https://github.com/Helsinki-NLP/Opus-MT",
+    "translate": {
+      "from": ["en"],
+      "to": [],
+      "targets": {
+        "zh-Hans": "cmn_Hans",
+        "zh-Hant": "cmn_Hant",
+        "yue": "yue_Hant"
+      }
+    },
+    "files": [
+      {
+        "name": "config.json",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-zh/resolve/68e1208cb5c05563fa24b83785b660c65ba7b047/config.json",
+        "sha256": "bcae8ed74fed77fb51c58462b62397fee6b1a1a34aece79183a0dd02ad329e71",
+        "size": 1403
+      },
+      {
+        "name": "vocab.json",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-zh/resolve/68e1208cb5c05563fa24b83785b660c65ba7b047/vocab.json",
+        "sha256": "f1832ca38f7aa158b9a944ff583e4901e6b37d9d4ad9241f03838e636e9cfb03",
+        "size": 1617791
+      },
+      {
+        "name": "source.spm",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-zh/resolve/68e1208cb5c05563fa24b83785b660c65ba7b047/source.spm",
+        "sha256": "5775ddc9e3ff2fae91554da56468ad35ff56edaba870fea74447bc7234bfdaa8",
+        "size": 806435
+      },
+      {
+        "name": "model.safetensors",
+        "url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-zh/resolve/68e1208cb5c05563fa24b83785b660c65ba7b047/model.safetensors",
+        "sha256": "2faa8895e5a0427c2ff8b9b692b1198975964d8143bb84f55193587ab62314f2",
+        "size": 312062580
+      }
+    ]
   }
 ]

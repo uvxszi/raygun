@@ -499,12 +499,14 @@ pub async fn extension_setting_set(
 }
 
 /// Lyrics for a track, or `null` when no provider has any. The song's own lyrics (M46.12) win, and
-/// its lyrics offset comes along.
+/// its lyrics offset comes along, with every translation kept for the song lined up under the
+/// lines (M46.48).
 #[tauri::command]
 #[specta::specta]
 pub async fn lyrics_get(
     lyrics: tauri::State<'_, Arc<crate::lyrics_store::LyricsStore>>,
     sound: tauri::State<'_, Arc<crate::sound::SoundService>>,
+    translations: tauri::State<'_, Arc<crate::lyrics_translation::LyricsTranslations>>,
     query: TrackQuery,
 ) -> Result<Option<Lyrics>, String> {
     // Kept on the device, and asked again with simpler words when none come (M46.46).
@@ -514,7 +516,49 @@ pub async fn lyrics_get(
     } else {
         lyrics.lyrics(&query).await?
     };
-    Ok(sound.lyrics(&query, fetched))
+    let Some(shown) = sound.lyrics_untrimmed(&query, fetched) else {
+        return Ok(None);
+    };
+    let shown = translations.attach(&query, shown).await;
+    Ok(Some(sound.trim(&query, shown)))
+}
+
+/// Translates a song's lyrics into `language` (a BCP 47 tag) with `translator`: `device` (a model
+/// from the AI catalogue, downloaded first) or `ai:<provider id>`. The translation is kept and
+/// comes with the song's lyrics from then on (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn lyrics_translate(
+    translations: tauri::State<'_, Arc<crate::lyrics_translation::LyricsTranslations>>,
+    query: TrackQuery,
+    language: String,
+    translator: String,
+) -> Result<raygun_model::LyricsTranslation, String> {
+    translations.translate(&query, &language, &translator).await
+}
+
+/// Who can translate a song's lyrics into `language`: this device, with what it would download,
+/// then the translators from Settings → AI (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn lyrics_translate_options(
+    translations: tauri::State<'_, Arc<crate::lyrics_translation::LyricsTranslations>>,
+    query: TrackQuery,
+    language: String,
+) -> Result<Vec<raygun_model::LyricsTranslatorOption>, String> {
+    translations.options(&query, &language).await
+}
+
+/// Makes one of a song's kept translations the one that shows first (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn lyrics_translation_pick(
+    translations: tauri::State<'_, Arc<crate::lyrics_translation::LyricsTranslations>>,
+    query: TrackQuery,
+    language: String,
+    translator: String,
+) -> Result<(), String> {
+    translations.pick(&query, &language, &translator).await
 }
 
 /// Forgets a song's kept lyrics, transcription and own lyrics (M46.46: Delete saved lyrics).
@@ -564,9 +608,12 @@ pub async fn lyrics_transcribe_many(
 pub async fn lyrics_options(
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     captions: tauri::State<'_, Arc<crate::captions::CaptionService>>,
+    lyrics: tauri::State<'_, Arc<crate::lyrics_store::LyricsStore>>,
     query: TrackQuery,
 ) -> Result<Vec<Lyrics>, String> {
     let mut options = extensions.all_lyrics(&query).await?;
+    // Their translations follow whichever version is picked (M46.48).
+    lyrics.keep_sources(&query, &options).await;
     // What a transcription heard before stays one of the choices (M46.45).
     if let Some(heard) = captions.song_transcript(&query).await {
         options.push(heard);

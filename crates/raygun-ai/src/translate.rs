@@ -86,6 +86,18 @@ pub enum TranslateError {
     CountMismatch { expected: usize, got: usize },
 }
 
+/// What the texts are, so the translator keeps to their form.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Content {
+    #[default]
+    Text,
+    /// A song's lines, in order (M46.48).
+    Lyrics,
+}
+
+/// DeepL takes at most this many texts per request.
+const DEEPL_BATCH: usize = 50;
+
 /// Translates `texts` from `from` (a language code, or `None` to detect) to `to`.
 pub async fn translate(
     client: &reqwest::Client,
@@ -95,14 +107,34 @@ pub async fn translate(
     from: Option<&str>,
     to: &str,
 ) -> Result<Vec<String>, TranslateError> {
+    translate_as(client, provider, key, texts, from, to, Content::Text).await
+}
+
+/// [`translate`] for a kind of content: the translator is told what the texts are.
+pub async fn translate_as(
+    client: &reqwest::Client,
+    provider: &Provider,
+    key: Option<&str>,
+    texts: &[String],
+    from: Option<&str>,
+    to: &str,
+    content: Content,
+) -> Result<Vec<String>, TranslateError> {
     if texts.is_empty() {
         return Ok(Vec::new());
     }
     let key = key.map(str::trim).filter(|key| !key.is_empty());
+    let system = instructions(from, to, content);
     let translations = match provider.kind {
-        ProviderKind::Claude => claude(client, provider, key, texts, from, to).await?,
-        ProviderKind::OpenAiCompatible => openai(client, provider, key, texts, from, to).await?,
-        ProviderKind::Deepl => deepl(client, provider, key, texts, from, to).await?,
+        ProviderKind::Claude => claude(client, provider, key, texts, &system).await?,
+        ProviderKind::OpenAiCompatible => openai(client, provider, key, texts, &system).await?,
+        ProviderKind::Deepl => {
+            let mut all = Vec::with_capacity(texts.len());
+            for batch in texts.chunks(DEEPL_BATCH) {
+                all.extend(deepl(client, provider, key, batch, from, to).await?);
+            }
+            all
+        }
     };
     if translations.len() != texts.len() {
         return Err(TranslateError::CountMismatch {
@@ -113,14 +145,24 @@ pub async fn translate(
     Ok(translations)
 }
 
-fn instructions(from: Option<&str>, to: &str) -> String {
+fn instructions(from: Option<&str>, to: &str, content: Content) -> String {
     let source = from.map_or("the source language".to_owned(), |from| format!("`{from}`"));
-    format!(
-        "You translate text from {source} into the language with code `{to}`. You get a JSON \
-         array of strings and answer with a JSON object {{\"translations\": [...]}} holding one \
-         translation per string, in the same order. Keep names, line breaks and formatting; \
-         translate meaning naturally rather than word for word; never add notes."
-    )
+    match content {
+        Content::Text => format!(
+            "You translate text from {source} into the language with code `{to}`. You get a JSON \
+             array of strings and answer with a JSON object {{\"translations\": [...]}} holding \
+             one translation per string, in the same order. Keep names, line breaks and \
+             formatting; translate meaning naturally rather than word for word; never add notes."
+        ),
+        Content::Lyrics => format!(
+            "You translate song lyrics from {source} into the language with code `{to}`. You get \
+             a JSON array of the song's lines in order and answer with a JSON object \
+             {{\"translations\": [...]}} holding one translation per line, in the same order and \
+             as many as there are lines. Translate each line so it reads naturally and the song's \
+             meaning carries across lines; keep names; leave a line that is only sounds (\"oh\", \
+             \"la la\") as it is; never merge, split, skip or explain lines."
+        ),
+    }
 }
 
 /// The `{translations: string[]}` answer schema.
@@ -140,14 +182,13 @@ async fn claude(
     provider: &Provider,
     key: Option<&str>,
     texts: &[String],
-    from: Option<&str>,
-    to: &str,
+    system: &str,
 ) -> Result<Vec<String>, TranslateError> {
     let key = key.ok_or(TranslateError::MissingKey("Claude"))?;
     let body = json!({
         "model": provider.model_or(CLAUDE_MODEL),
         "max_tokens": 16000,
-        "system": instructions(from, to),
+        "system": system,
         "output_config": { "format": { "type": "json_schema", "schema": answer_schema() } },
         "messages": [{ "role": "user", "content": serde_json::to_string(texts).unwrap_or_default() }],
     });
@@ -180,8 +221,7 @@ async fn openai(
     provider: &Provider,
     key: Option<&str>,
     texts: &[String],
-    from: Option<&str>,
-    to: &str,
+    system: &str,
 ) -> Result<Vec<String>, TranslateError> {
     let model = provider
         .model
@@ -192,7 +232,7 @@ async fn openai(
     let body = json!({
         "model": model,
         "messages": [
-            { "role": "system", "content": instructions(from, to) },
+            { "role": "system", "content": system },
             { "role": "user", "content": serde_json::to_string(texts).unwrap_or_default() },
         ],
         "response_format": { "type": "json_object" },

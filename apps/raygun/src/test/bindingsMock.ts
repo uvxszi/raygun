@@ -12,6 +12,7 @@ import type {
   HiddenPrefs,
   LibraryScanProgress,
   LibraryStatus,
+  LyricsTranslationProgress,
   MangaUpdateStatus,
   PlaybackState,
   QueueSnapshot,
@@ -63,6 +64,7 @@ type EventPayloads = {
   trackDurationsEvent: TrackDuration[];
   importEvent: string;
   captionsEvent: string;
+  lyricsTranslationEvent: LyricsTranslationProgress;
   localFilesEvent: string;
   settingsChangedEvent: string;
   incognitoEvent: IncognitoStatus;
@@ -141,6 +143,7 @@ export const DEFAULT_SETTINGS: Settings = {
   privacy: { history: true, recentlyPlayed: true, searchHistory: true },
   hidden: { artists: [], items: [] },
   lyricsCache: { forgetAfterDays: 30, keepFavorites: true, keepDownloaded: true, keepLocal: true },
+  lyricsTranslation: { language: '', automatic: true, romanized: false, localModel: '' },
   preferredVideoQuality: null,
   accent: 'red',
   startScreen: 'home',
@@ -310,6 +313,9 @@ export const bindingsMock = {
     lyricsForget: vi.fn(),
     lyricsCacheUsage: vi.fn(),
     lyricsCacheClear: vi.fn(),
+    lyricsTranslate: vi.fn(),
+    lyricsTranslateOptions: vi.fn(),
+    lyricsTranslationPick: vi.fn(),
     songDownloadCancelRecording: vi.fn(),
     songDownloadUseSource: vi.fn(),
     youtubeLink: vi.fn(),
@@ -617,6 +623,7 @@ export const bindingsMock = {
     trackDurationsEvent: makeEvent('trackDurationsEvent'),
     importEvent: makeEvent('importEvent'),
     captionsEvent: makeEvent('captionsEvent'),
+    lyricsTranslationEvent: makeEvent('lyricsTranslationEvent'),
     localFilesEvent: makeEvent('localFilesEvent'),
     settingsChangedEvent: makeEvent('settingsChangedEvent'),
     incognitoEvent: makeEvent('incognitoEvent'),
@@ -810,8 +817,10 @@ export const seedBindings = () => {
   commands.lyricsTranscribe.mockResolvedValue(ok('song:|'));
   commands.lyricsTranscribeMany.mockResolvedValue(ok(null));
   commands.lyricsForget.mockResolvedValue(ok(null));
-  commands.lyricsCacheUsage.mockResolvedValue(ok({ songs: 0, transcriptions: 0 }));
+  commands.lyricsCacheUsage.mockResolvedValue(ok({ songs: 0, transcriptions: 0, translations: 0 }));
   commands.lyricsCacheClear.mockResolvedValue(ok(0));
+  commands.lyricsTranslateOptions.mockResolvedValue(ok([]));
+  commands.lyricsTranslationPick.mockResolvedValue(ok(null));
   commands.songDownloadCancelRecording.mockResolvedValue(null);
   commands.songDownloadUseSource.mockResolvedValue(ok(null));
   commands.youtubeLink.mockResolvedValue(ok(null));

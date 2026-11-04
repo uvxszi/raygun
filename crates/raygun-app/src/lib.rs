@@ -34,6 +34,7 @@ mod library_actions;
 mod local_files;
 mod local_network;
 mod lyrics_store;
+mod lyrics_translation;
 mod made_for_you;
 mod manga;
 mod manga_downloads;
@@ -142,6 +143,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::lyrics_get,
             commands::lyrics_options,
             commands::lyrics_transcribe,
+            commands::lyrics_translate,
+            commands::lyrics_translate_options,
+            commands::lyrics_translation_pick,
             commands::captions_use_feed,
             commands::captions_use_ai,
             commands::stremio_ratings,
@@ -475,6 +479,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::LocalFilesEvent,
             events::ImportEvent,
             events::CaptionsEvent,
+            events::LyricsTranslationEvent,
             events::ArtistReleasesEvent,
             events::SettingsChangedEvent,
             events::IncognitoEvent,

@@ -206,6 +206,8 @@ pub struct Settings {
     pub hidden: HiddenPrefs,
     /// How long lyrics stay kept (M46.46).
     pub lyrics_cache: LyricsCachePrefs,
+    /// Translations under lyrics (M46.48).
+    pub lyrics_translation: LyricsTranslationPrefs,
     /// Sources that didn't answer lately go to the end of Browse and Search (M46.9).
     pub failing_sources_last: bool,
     /// The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default.
@@ -347,6 +349,35 @@ impl Default for LyricsCachePrefs {
 pub struct LyricsCacheUsage {
     pub songs: u32,
     pub transcriptions: u32,
+    /// Songs with translations made on this device or by AI (M46.48).
+    #[serde(default)]
+    pub translations: u32,
+}
+
+/// Translations under lyrics (M46.48).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LyricsTranslationPrefs {
+    /// The language translations show in, a BCP 47 tag; empty follows the app's language.
+    pub language: String,
+    /// Translations in that language show under the lines by themselves: a lyrics source's, or
+    /// one made before. The lyrics view's Translate menu switches it too.
+    pub automatic: bool,
+    /// Romanized lines show when a source has them.
+    pub romanized: bool,
+    /// The AI catalogue model "On this device" translates with; empty picks one by language.
+    pub local_model: String,
+}
+
+impl Default for LyricsTranslationPrefs {
+    fn default() -> Self {
+        Self {
+            language: String::new(),
+            automatic: true,
+            romanized: false,
+            local_model: String::new(),
+        }
+    }
 }
 
 /// Whose kept lyrics a clear takes (M46.46).
@@ -1850,6 +1881,7 @@ impl Default for Settings {
             privacy: PrivacyPrefs::default(),
             hidden: HiddenPrefs::default(),
             lyrics_cache: LyricsCachePrefs::default(),
+            lyrics_translation: LyricsTranslationPrefs::default(),
             failing_sources_last: true,
             user_agent: String::new(),
             sound: SoundPrefs::default(),
@@ -1912,6 +1944,12 @@ impl Settings {
             SettingChange::Privacy(prefs) => self.privacy = prefs,
             SettingChange::Hidden(prefs) => self.hidden = prefs,
             SettingChange::LyricsCache(prefs) => self.lyrics_cache = prefs,
+            SettingChange::LyricsTranslation(prefs) => {
+                self.lyrics_translation = LyricsTranslationPrefs {
+                    language: prefs.language.trim().to_owned(),
+                    ..prefs
+                }
+            }
             SettingChange::Transcription(prefs) => {
                 self.transcription = TranscriptionPrefs {
                     online_model: prefs.online_model.trim().to_owned(),
@@ -1993,6 +2031,7 @@ pub enum SettingChange {
     Privacy(PrivacyPrefs),
     Hidden(HiddenPrefs),
     LyricsCache(LyricsCachePrefs),
+    LyricsTranslation(LyricsTranslationPrefs),
 }
 
 impl SettingChange {
@@ -2050,6 +2089,7 @@ impl SettingChange {
             Self::Privacy(_) => "privacy",
             Self::Hidden(_) => "hidden",
             Self::LyricsCache(_) => "lyricsCache",
+            Self::LyricsTranslation(_) => "lyricsTranslation",
         }
     }
 
@@ -2082,6 +2122,16 @@ impl SettingChange {
                 Err("Lyrics can be kept for at most ten years".into())
             }
             Self::LyricsCache(_) => Ok(()),
+            Self::LyricsTranslation(prefs) => {
+                let language = prefs.language.trim();
+                if !language.is_empty() {
+                    language_tag(language)?;
+                }
+                if prefs.local_model.len() > 100 {
+                    return Err("a model id is at most 100 characters".to_owned());
+                }
+                Ok(())
+            }
             Self::Hidden(prefs) => prefs.validate(),
             Self::Rail(prefs) => prefs.validate(),
             Self::Transcription(prefs) => {
@@ -2880,6 +2930,95 @@ pub struct Lyrics {
     /// These are the person's own lyrics, not a source's (M46.12).
     #[serde(default)]
     pub edited: bool,
+    /// The lines in other languages or romanized (M46.48), each aligned to these lines.
+    #[serde(default)]
+    pub translations: Vec<LyricsTranslation>,
+}
+
+impl Lyrics {
+    /// The lines translations line up with: the synced lines' words, else the plain text's lines.
+    pub fn line_texts(&self) -> Vec<&str> {
+        if self.synced.is_empty() {
+            self.plain
+                .as_deref()
+                .map(|plain| plain.lines().collect())
+                .unwrap_or_default()
+        } else {
+            self.synced.iter().map(|line| line.text.as_str()).collect()
+        }
+    }
+}
+
+/// What lines under the lyrics are (M46.48).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum LyricsTranslationKind {
+    /// The words in another language.
+    Translation,
+    /// The original's sounds in Latin letters (romaji, pinyin, romanized Korean).
+    Romanization,
+}
+
+/// Who made a translation of lyrics (M46.48).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum LyricsTranslationOrigin {
+    /// The lyrics' own source.
+    Source,
+    /// Another lyrics source's version of the song, matched to these lines.
+    OtherSource,
+    /// A translation model on this device.
+    Device,
+    /// A translator set up in Settings → AI.
+    Ai,
+}
+
+/// Lyrics in another language, or romanized, line for line (M46.48).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LyricsTranslation {
+    /// BCP 47 tag of what it's written in: a translation's language (`en`, `zh-Hans`); a
+    /// romanization's is the original's with `-Latn` (`ja-Latn`), or `und-Latn`.
+    pub language: String,
+    pub kind: LyricsTranslationKind,
+    pub origin: LyricsTranslationOrigin,
+    /// Who made it: the source's or the translator's name; empty for this device.
+    pub by: String,
+    /// What made it: `device`, `ai:<provider id>`, or `source:<name>` for a lyrics source.
+    #[serde(default)]
+    pub translator: String,
+    /// One per line of the lyrics (`Lyrics::line_texts`); empty where a line has none.
+    pub lines: Vec<String>,
+}
+
+/// A translator that can translate a song's lyrics (M46.48), as the Translate menu lists it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LyricsTranslatorOption {
+    /// `device`, or `ai:<provider id>`.
+    pub id: String,
+    /// The translator's kind; `None` for this device.
+    pub kind: Option<AiProviderKind>,
+    /// The provider's name; empty for this device.
+    pub name: String,
+    /// The models this device uses for it, from the AI catalogue.
+    pub models: Vec<String>,
+    /// What's still to download first, in bytes; 0 when it's ready.
+    pub download_bytes: f64,
+    /// It can translate into the language: this device has a model for it, a translator its key.
+    pub supported: bool,
+}
+
+/// A lyrics translation being made (M46.48): lines done out of all of them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LyricsTranslationProgress {
+    /// The song's track key.
+    pub key: String,
+    pub language: String,
+    pub translator: String,
+    pub done: u32,
+    pub total: u32,
 }
 
 /// A chart a `music.charts` provider keeps (M46.9): its most played, trending, or a genre's top.

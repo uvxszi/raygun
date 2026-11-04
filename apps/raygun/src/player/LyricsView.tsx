@@ -7,6 +7,10 @@ import { useTranslation } from 'react-i18next';
 import { openContextMenu } from '../shell/contextMenuStore';
 import { SourceIssue } from '../shell/SourceIssue';
 import { LyricsSourceMenu } from '../sound/LyricsSourceMenu';
+import { LyricsTranslateMenu } from '../sound/LyricsTranslateMenu';
+import { useShownTranslation } from '../sound/lyricsTranslation';
+import type { ShownTranslation } from '../sound/lyricsTranslation';
+import { TranslatedPlain } from '../sound/TranslatedLines';
 import { useSongEditStore } from '../sound/songEditStore';
 import { currentLine, trackQueryFor, useLyricsFor } from './lyricsQuery';
 import { usePlayerUiStore } from './playerUiStore';
@@ -34,6 +38,8 @@ export const LyricsView: FC<LyricsViewProps> = ({ item, variant = 'sheet' }) => 
   const query = trackQueryFor(item);
   const lyrics = useLyricsFor(query);
   const { align, style } = useLyricsLook();
+  // Translations and romanized lines under each line (M46.48).
+  const shown = useShownTranslation(query, lyrics.data);
   const selectable = usePlayerUiStore((store) => store.lyricsSelectable);
   const setSelectable = usePlayerUiStore((store) => store.setLyricsSelectable);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -78,7 +84,10 @@ export const LyricsView: FC<LyricsViewProps> = ({ item, variant = 'sheet' }) => 
           variant={variant}
           align={align}
           container={containerRef}
+          shown={shown}
         />
+      ) : lyrics.data?.plain && (shown.translation || shown.romanization) ? (
+        <TranslatedPlain lyrics={lyrics.data} shown={shown} variant={variant} align={align} />
       ) : (
         lyrics.data?.plain && (
           <p
@@ -101,6 +110,9 @@ export const LyricsView: FC<LyricsViewProps> = ({ item, variant = 'sheet' }) => 
         {/* One dropdown to switch where the lyrics come from (M46.45). */}
         {query && !lyrics.isPending && (
           <LyricsSourceMenu query={query} current={lyrics.data ?? undefined} />
+        )}
+        {lyrics.data && hasLines && (
+          <LyricsTranslateMenu query={query} lyrics={lyrics.data} shown={shown} />
         )}
         {!lyrics.isPending && (
           <button
@@ -127,7 +139,9 @@ const SyncedLyrics: FC<{
   variant: Variant;
   align: TextAlign;
   container: RefObject<HTMLDivElement | null>;
-}> = ({ lines, offsetMs, variant, align, container }) => {
+  /** Translations and romanized lines under the lines (M46.48). */
+  shown: ShownTranslation;
+}> = ({ lines, offsetMs, variant, align, container, shown }) => {
   const timing = usePlayerTiming();
   const current = useLiveValue(timing, (position) => currentLine(lines, position, offsetMs));
   const currentRef = useRef<HTMLButtonElement>(null);
@@ -170,6 +184,8 @@ const SyncedLyrics: FC<{
           playing={index === current}
           variant={variant}
           align={align}
+          translation={shown.translation?.lines[index] || null}
+          romanized={shown.romanization?.lines[index] || null}
           lineRef={index === current ? currentRef : undefined}
         />
       ))}
@@ -186,6 +202,8 @@ type LyricLineProps = {
   align: TextAlign;
   /** A translation of the line, shown under it. */
   translation?: string | null;
+  /** The line in Latin letters, shown under it (M46.48). */
+  romanized?: string | null;
   lineRef?: Ref<HTMLButtonElement>;
 };
 
@@ -197,6 +215,7 @@ export const LyricLine: FC<LyricLineProps> = memo(function LyricLine({
   variant,
   align,
   translation,
+  romanized,
   lineRef,
 }) {
   return (
@@ -212,8 +231,19 @@ export const LyricLine: FC<LyricLineProps> = memo(function LyricLine({
         } ${playing ? 'text-foreground' : 'text-muted/60'}`}
       >
         {text || '♪'}
+        {romanized && (
+          <span
+            data-testid="lyrics-romanized"
+            className="mt-0.5 block text-[0.62em] leading-snug font-medium"
+          >
+            {romanized}
+          </span>
+        )}
         {translation && (
-          <span className="mt-0.5 block text-[0.7em] leading-snug font-medium opacity-80">
+          <span
+            data-testid="lyrics-translation"
+            className="mt-0.5 block text-[0.7em] leading-snug font-medium opacity-80"
+          >
             {translation}
           </span>
         )}

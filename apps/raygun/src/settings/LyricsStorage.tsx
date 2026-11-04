@@ -61,6 +61,7 @@ export const LyricsStorage: FC = () => {
             ? t('lyricsCache.usage', {
                 songs: usage.data.songs,
                 transcriptions: usage.data.transcriptions,
+                translations: usage.data.translations ?? 0,
               })
             : ''}
         </p>

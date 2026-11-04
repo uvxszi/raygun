@@ -181,7 +181,8 @@ export const commands = {
 	searchRecentClear: () => typedError<null, string>(__TAURI_INVOKE("search_recent_clear")),
 	/**
 	 *  Lyrics for a track, or `null` when no provider has any. The song's own lyrics (M46.12) win, and
-	 *  its lyrics offset comes along.
+	 *  its lyrics offset comes along, with every translation kept for the song lined up under the
+	 *  lines (M46.48).
 	 */
 	lyricsGet: (query: TrackQuery) => typedError<{
 	providerName: string,
@@ -192,6 +193,8 @@ export const commands = {
 	offsetMs?: number,
 	/**  These are the person's own lyrics, not a source's (M46.12). */
 	edited?: boolean,
+	/**  The lines in other languages or romanized (M46.48), each aligned to these lines. */
+	translations?: LyricsTranslation[],
 } | null, string>(__TAURI_INVOKE("lyrics_get", { query })),
 	/**  Every lyrics source's lyrics for a song (M46.36): the user picks which to keep. */
 	lyricsOptions: (query: TrackQuery) => typedError<Lyrics[], string>(__TAURI_INVOKE("lyrics_options", { query })),
@@ -200,6 +203,19 @@ export const commands = {
 	 *  lyrics (M46.36). Follow it with `captions` on the key it returns (`song:<track key>`).
 	 */
 	lyricsTranscribe: (query: TrackQuery) => typedError<string, string>(__TAURI_INVOKE("lyrics_transcribe", { query })),
+	/**
+	 *  Translates a song's lyrics into `language` (a BCP 47 tag) with `translator`: `device` (a model
+	 *  from the AI catalogue, downloaded first) or `ai:<provider id>`. The translation is kept and
+	 *  comes with the song's lyrics from then on (M46.48).
+	 */
+	lyricsTranslate: (query: TrackQuery, language: string, translator: string) => typedError<LyricsTranslation, string>(__TAURI_INVOKE("lyrics_translate", { query, language, translator })),
+	/**
+	 *  Who can translate a song's lyrics into `language`: this device, with what it would download,
+	 *  then the translators from Settings → AI (M46.48).
+	 */
+	lyricsTranslateOptions: (query: TrackQuery, language: string) => typedError<LyricsTranslatorOption[], string>(__TAURI_INVOKE("lyrics_translate_options", { query, language })),
+	/**  Makes one of a song's kept translations the one that shows first (M46.48). */
+	lyricsTranslationPick: (query: TrackQuery, language: string, translator: string) => typedError<null, string>(__TAURI_INVOKE("lyrics_translation_pick", { query, language, translator })),
 	/**  Goes back to an episode's own transcript from what AI heard (M46.36). */
 	captionsUseFeed: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("captions_use_feed", { episodeId })),
 	/**
@@ -948,6 +964,8 @@ export const commands = {
 	hidden: HiddenPrefs,
 	/**  How long lyrics stay kept (M46.46). */
 	lyricsCache: LyricsCachePrefs,
+	/**  Translations under lyrics (M46.48). */
+	lyricsTranslation: LyricsTranslationPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
 	/**  The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default. */
@@ -1160,6 +1178,7 @@ export const events = {
 	incognitoEvent: makeEvent<IncognitoEvent>("incognito-event"),
 	libraryScanEvent: makeEvent<LibraryScanEvent>("library-scan-event"),
 	localFilesEvent: makeEvent<LocalFilesEvent>("local-files-event"),
+	lyricsTranslationEvent: makeEvent<LyricsTranslationEvent>("lyrics-translation-event"),
 	madeForYouEvent: makeEvent<MadeForYouEvent>("made-for-you-event"),
 	mangaDownloadsEvent: makeEvent<MangaDownloadsEvent>("manga-downloads-event"),
 	mangaUpdateEvent: makeEvent<MangaUpdateEvent>("manga-update-event"),
@@ -2397,6 +2416,8 @@ export type Lyrics = {
 	offsetMs?: number,
 	/**  These are the person's own lyrics, not a source's (M46.12). */
 	edited?: boolean,
+	/**  The lines in other languages or romanized (M46.48), each aligned to these lines. */
+	translations?: LyricsTranslation[],
 };
 
 /**  How long lyrics stay kept on the device (M46.46). */
@@ -2415,6 +2436,8 @@ export type LyricsCachePrefs = {
 export type LyricsCacheUsage = {
 	songs: number,
 	transcriptions: number,
+	/**  Songs with translations made on this device or by AI (M46.48). */
+	translations?: number,
 };
 
 /**  Whose kept lyrics a clear takes (M46.46). */
@@ -2423,6 +2446,85 @@ export type LyricsClearScope = "all" |
 "notSaved" | "favorites" | 
 /**  Favorites and playlists. */
 "saved" | "downloaded";
+
+/**  Lyrics in another language, or romanized, line for line (M46.48). */
+export type LyricsTranslation = {
+	/**
+	 *  BCP 47 tag of what it's written in: a translation's language (`en`, `zh-Hans`); a
+	 *  romanization's is the original's with `-Latn` (`ja-Latn`), or `und-Latn`.
+	 */
+	language: string,
+	kind: LyricsTranslationKind,
+	origin: LyricsTranslationOrigin,
+	/**  Who made it: the source's or the translator's name; empty for this device. */
+	by: string,
+	/**  What made it: `device`, `ai:<provider id>`, or `source:<name>` for a lyrics source. */
+	translator?: string,
+	/**  One per line of the lyrics (`Lyrics::line_texts`); empty where a line has none. */
+	lines: string[],
+};
+
+/**  How far a song's lyrics translation on this device is (M46.48), a few times a second. */
+export type LyricsTranslationEvent = LyricsTranslationProgress;
+
+/**  What lines under the lyrics are (M46.48). */
+export type LyricsTranslationKind = 
+/**  The words in another language. */
+"translation" | 
+/**  The original's sounds in Latin letters (romaji, pinyin, romanized Korean). */
+"romanization";
+
+/**  Who made a translation of lyrics (M46.48). */
+export type LyricsTranslationOrigin = 
+/**  The lyrics' own source. */
+"source" | 
+/**  Another lyrics source's version of the song, matched to these lines. */
+"otherSource" | 
+/**  A translation model on this device. */
+"device" | 
+/**  A translator set up in Settings → AI. */
+"ai";
+
+/**  Translations under lyrics (M46.48). */
+export type LyricsTranslationPrefs = {
+	/**  The language translations show in, a BCP 47 tag; empty follows the app's language. */
+	language?: string,
+	/**
+	 *  Translations in that language show under the lines by themselves: a lyrics source's, or
+	 *  one made before. The lyrics view's Translate menu switches it too.
+	 */
+	automatic?: boolean,
+	/**  Romanized lines show when a source has them. */
+	romanized?: boolean,
+	/**  The AI catalogue model "On this device" translates with; empty picks one by language. */
+	localModel?: string,
+};
+
+/**  A lyrics translation being made (M46.48): lines done out of all of them. */
+export type LyricsTranslationProgress = {
+	/**  The song's track key. */
+	key: string,
+	language: string,
+	translator: string,
+	done: number,
+	total: number,
+};
+
+/**  A translator that can translate a song's lyrics (M46.48), as the Translate menu lists it. */
+export type LyricsTranslatorOption = {
+	/**  `device`, or `ai:<provider id>`. */
+	id: string,
+	/**  The translator's kind; `None` for this device. */
+	kind: AiProviderKind | null,
+	/**  The provider's name; empty for this device. */
+	name: string,
+	/**  The models this device uses for it, from the AI catalogue. */
+	models: string[],
+	/**  What's still to download first, in bytes; 0 when it's ready. */
+	downloadBytes: number | null,
+	/**  It can translate into the language: this device has a model for it, a translator its key. */
+	supported: boolean,
+};
 
 /**  Made for You: today's mixes, and whether new ones are being made. */
 export type MadeForYou = {
@@ -3544,7 +3646,7 @@ export type SearchResults_Serialize = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -3655,6 +3757,8 @@ export type Settings = {
 	hidden: HiddenPrefs,
 	/**  How long lyrics stay kept (M46.46). */
 	lyricsCache: LyricsCachePrefs,
+	/**  Translations under lyrics (M46.48). */
+	lyricsTranslation: LyricsTranslationPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
 	/**  The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default. */
