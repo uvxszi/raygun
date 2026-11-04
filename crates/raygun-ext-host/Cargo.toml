@@ -17,7 +17,9 @@ thiserror.workspace = true
 tracing.workspace = true
 tokio = { version = "1", features = ["rt", "sync", "time", "macros", "net"] }
 rquickjs = { version = "0.14", features = ["futures"] }
-scraper = "0.24"
+# `deterministic` keeps attributes in source order when serialized, as Jsoup and Dart's `html`
+# do; Shosetsu and Miru scripts match patterns against that HTML.
+scraper = { version = "0.24", features = ["deterministic"] }
 ego-tree = "0.10"
 regex = "1"
 mlua = { version = "0.10", features = ["lua52", "vendored"] }

@@ -121,6 +121,14 @@ impl NetPolicy {
         &self.patterns
     }
 
+    /// Whether a pattern other than `*` names `host` (it may then be a local address).
+    pub fn names(&self, host: &str) -> bool {
+        let host = host.trim_end_matches('.').to_ascii_lowercase();
+        self.patterns
+            .iter()
+            .any(|pattern| *pattern != HostPattern::AnyPublic && pattern.matches(&host))
+    }
+
     /// Whether a request to `url` is allowed: http(s) only, to a listed host.
     pub fn allows(&self, url: &Url) -> bool {
         matches!(url.scheme(), "http" | "https")

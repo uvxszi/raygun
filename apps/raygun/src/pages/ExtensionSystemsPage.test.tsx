@@ -17,6 +17,7 @@ describe('What Raygun can run', () => {
       'Raygun extensions',
       'Nuclear plugins',
       'Shosetsu sources',
+      'Miru extensions',
       'Stremio addons',
       'Podcast and audiobook feeds',
       'Websites',

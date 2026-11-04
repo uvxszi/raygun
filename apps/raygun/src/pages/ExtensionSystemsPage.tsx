@@ -8,6 +8,7 @@ import {
   Puzzle,
   ScrollText,
   Sparkles,
+  Tv,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { FC } from 'react';
@@ -27,6 +28,7 @@ const SYSTEMS: System[] = [
   { id: 'raygun', icon: Puzzle, to: '/extensions/repos' },
   { id: 'nuclear', icon: Music, to: '/extensions/repos' },
   { id: 'shosetsu', icon: ScrollText, to: '/extensions/repos' },
+  { id: 'miru', icon: Tv, to: '/extensions/repos' },
   { id: 'stremio', icon: Clapperboard, to: '/watch/addons' },
   { id: 'feeds', icon: BookAudio },
   { id: 'websites', icon: Globe },

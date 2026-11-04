@@ -1570,6 +1570,8 @@
     "downloadLink": "Download {{name}}",
     "downloadTitle": "Choose what to download",
     "cantDownload": "This stream can't be downloaded",
+    "torrent": "Torrent",
+    "needsTorrentApp": "Needs a torrent app: copy its link",
     "deleteDownload": "Delete the download of {{name}}",
     "cancelQueued": "Cancel the queued download of {{name}}",
     "cancelDownloading": "Downloading {{name}}, {{percent}}%. Cancel",
@@ -1659,6 +1661,7 @@
     "autoplayOff": "Autoplay: off",
     "findingSource": "Finding a source…",
     "tryingNext": "That source failed. Trying the next one…",
+    "needsTorrentApp": "Needs a torrent app",
     "noSourceWorked": "No source could play this. Pick another in Sources.",
     "resolving": "finding links…",
     "failed": "failed",
@@ -2421,6 +2424,11 @@
         "name": "Shosetsu sources",
         "what": "Light novels: hundreds of sites, read chapter by chapter.",
         "how": "Lua scripts run in Raygun's Shosetsu runtime, from Shosetsu repositories."
+      },
+      "miru": {
+        "name": "Miru extensions",
+        "what": "Anime, films, series and live channels, manga and novels, from the sites each one reads.",
+        "how": "JavaScript run in Raygun's Miru runtime, from Miru repositories. Torrents need a torrent app; sources that open a web view for bot checks may fail."
       },
       "stremio": {
         "name": "Stremio addons",

@@ -166,6 +166,15 @@ pub fn parse_videos(value: &Value) -> Vec<VideoLink> {
     value.get("videos").map(videos_of).unwrap_or_default()
 }
 
+/// The format a link marks as needing a torrent app (Miru's `torrent` videos): a `.torrent`
+/// file's address or a magnet link. Raygun doesn't play these; the app says so.
+pub const TORRENT: &str = "torrent";
+
+/// A torrent's link: a web address or a magnet link.
+fn torrent_link(value: Option<&Value>) -> Option<String> {
+    url(value).or_else(|| text(value).filter(|link| link.starts_with("magnet:?")))
+}
+
 fn videos_of(list: &Value) -> Vec<VideoLink> {
     list.as_array()
         .into_iter()
@@ -176,17 +185,23 @@ fn videos_of(list: &Value) -> Vec<VideoLink> {
                 .and_then(Value::as_u64)
                 .filter(|height| (1..=10_000).contains(height))
                 .map(|height| height as u32);
+            let format = video
+                .get("format")
+                .and_then(Value::as_str)
+                .filter(|format| matches!(*format, "hls" | "dash" | TORRENT))
+                .map(str::to_owned);
+            let link = if format.as_deref() == Some(TORRENT) {
+                torrent_link(video.get("url"))
+            } else {
+                url(video.get("url")).or_else(|| youtube_link(video.get("url")))
+            };
             Some(VideoLink {
-                url: url(video.get("url")).or_else(|| youtube_link(video.get("url")))?,
+                url: link?,
                 label: label(video.get("label"))
                     .or_else(|| quality.map(|height| format!("{height}p"))),
                 quality,
                 headers: headers(video.get("headers")),
-                format: video
-                    .get("format")
-                    .and_then(Value::as_str)
-                    .filter(|format| matches!(*format, "hls" | "dash"))
-                    .map(str::to_owned),
+                format,
                 subtitles: video
                     .get("subtitles")
                     .and_then(Value::as_array)
@@ -265,6 +280,25 @@ mod tests {
         }));
         assert_eq!(links.len(), 1);
         assert_eq!(links[0].url, "youtube:dQw4w9WgXcQ");
+    }
+
+    #[test]
+    fn torrents_stay_marked() {
+        let links = parse_videos(&json!({
+            "videos": [
+                { "url": "https://nyaa.example/download/1.torrent", "format": "torrent" },
+                { "url": "magnet:?xt=urn:btih:abc", "format": "torrent" },
+                { "url": "magnet:?xt=urn:btih:abc" },
+                { "url": "javascript:alert(1)", "format": "torrent" }
+            ]
+        }));
+        assert_eq!(links.len(), 2, "a magnet link is kept only as a torrent");
+        assert!(
+            links
+                .iter()
+                .all(|link| link.format.as_deref() == Some(TORRENT))
+        );
+        assert_eq!(links[1].url, "magnet:?xt=urn:btih:abc");
     }
 
     #[test]

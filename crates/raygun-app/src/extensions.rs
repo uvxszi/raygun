@@ -686,8 +686,20 @@ impl ExtensionService {
 
     /// Adds a repository after checking that its index can be read.
     pub async fn add_repo(&self, url: &str) -> Result<Vec<ExtensionRepo>, String> {
-        let url = repo::check_index_url(url).map_err(|error| error.to_string())?;
-        let index = self.fetch_index(url.as_str(), true).await?;
+        let mut url = repo::check_index_url(url).map_err(|error| error.to_string())?;
+        let index = match self.fetch_index(url.as_str(), true).await {
+            Ok(index) => index,
+            // A folder's address (as Miru takes repositories): its index.json.
+            Err(error) => {
+                let beside = repo::index_beside(&url).ok_or_else(|| error.clone())?;
+                let index = self
+                    .fetch_index(beside.as_str(), true)
+                    .await
+                    .map_err(|_| error)?;
+                url = beside;
+                index
+            }
+        };
         store::add_repo(self.db(), url.as_str(), &index.name)
             .await
             .map_err(|error| error.to_string())?;
@@ -931,6 +943,12 @@ impl ExtensionService {
                 }
                 tracing::info!(extension = %entry.id, libraries = libraries.len(), "Shosetsu script fetched");
                 shosetsu::package::package(entry, script, libraries)
+                    .map_err(|error| error.to_string())?
+            }
+            PackageFormat::Miru => {
+                let (script, header) = raygun_ext_host::miru::package::verify_script(&bytes, entry)
+                    .map_err(|error| error.to_string())?;
+                raygun_ext_host::miru::package::package(entry, script, &header)
                     .map_err(|error| error.to_string())?
             }
         };
