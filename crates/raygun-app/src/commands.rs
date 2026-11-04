@@ -776,10 +776,13 @@ pub async fn online_search(
 ) -> Result<SearchResults, String> {
     let trimmed = query.trim();
     let details = tauri::Manager::state::<Arc<crate::details::DetailService>>(&app);
+    // Search's "No 18+" and "No explicit": 18+ music sources aren't asked, explicit songs drop.
+    let filter = crate::search_filter::current(&app).await;
     let songs = extensions.search_as_answered(trimmed, |result, total| {
         // Lengths the sources sent are kept for lists that lack them (M46.26).
         durations.learn_tracks(&result.tracks);
         let mut result = result.clone();
+        crate::search_filter::keep_songs(filter, &mut result);
         details.apply_online(&mut result.tracks);
         report_progress(
             &app,
@@ -788,6 +791,10 @@ pub async fn online_search(
             raygun_model::SearchPart::Songs { result },
         );
     });
+    let songs = raygun_ext_host::without_adult_sources(
+        crate::search_filter::skips_adult_music(filter),
+        songs,
+    );
     let (local, providers) =
         futures_util::future::join(library.search(&query, SEARCH_LIBRARY_LIMIT), songs).await;
     let library = local.unwrap_or_else(|message| {
@@ -796,6 +803,7 @@ pub async fn online_search(
     });
     let mut providers = providers;
     for result in &mut providers {
+        crate::search_filter::keep_songs(filter, result);
         details.apply_online(&mut result.tracks);
     }
     Ok(SearchResults {
@@ -880,15 +888,19 @@ pub async fn music_search_artists(
     query: String,
 ) -> Result<Vec<raygun_model::MusicArtist>, String> {
     let query = query.trim();
-    Ok(extensions
-        .search_artists(query, |provider, artists, total| {
-            let part = raygun_model::SearchPart::Artists {
-                provider: provider.clone(),
-                artists: artists.to_vec(),
-            };
-            report_progress(&app, query, total, part);
-        })
-        .await)
+    let filter = crate::search_filter::current(&app).await;
+    let found = extensions.search_artists(query, |provider, artists, total| {
+        let part = raygun_model::SearchPart::Artists {
+            provider: provider.clone(),
+            artists: artists.to_vec(),
+        };
+        report_progress(&app, query, total, part);
+    });
+    Ok(raygun_ext_host::without_adult_sources(
+        crate::search_filter::skips_adult_music(filter),
+        found,
+    )
+    .await)
 }
 
 /// Albums for a search, from every source that searches albums (M46.9); each source's are also
@@ -901,15 +913,19 @@ pub async fn music_search_albums(
     query: String,
 ) -> Result<Vec<raygun_model::MusicAlbum>, String> {
     let query = query.trim();
-    Ok(extensions
-        .search_albums(query, |provider, albums, total| {
-            let part = raygun_model::SearchPart::Albums {
-                provider: provider.clone(),
-                albums: albums.to_vec(),
-            };
-            report_progress(&app, query, total, part);
-        })
-        .await)
+    let filter = crate::search_filter::current(&app).await;
+    let found = extensions.search_albums(query, |provider, albums, total| {
+        let part = raygun_model::SearchPart::Albums {
+            provider: provider.clone(),
+            albums: albums.to_vec(),
+        };
+        report_progress(&app, query, total, part);
+    });
+    Ok(raygun_ext_host::without_adult_sources(
+        crate::search_filter::skips_adult_music(filter),
+        found,
+    )
+    .await)
 }
 
 /// Where this device's sound can come out (M46.43). Android lists its outputs; desktop's are the
@@ -1053,16 +1069,20 @@ pub async fn music_search_playlists(
     featured: bool,
 ) -> Result<Vec<raygun_model::MusicPlaylist>, String> {
     let query = query.trim();
-    Ok(extensions
-        .search_playlists(query, featured, |provider, playlists, total| {
-            let part = raygun_model::SearchPart::Playlists {
-                provider: provider.clone(),
-                featured,
-                playlists: playlists.to_vec(),
-            };
-            report_progress(&app, query, total, part);
-        })
-        .await)
+    let filter = crate::search_filter::current(&app).await;
+    let found = extensions.search_playlists(query, featured, |provider, playlists, total| {
+        let part = raygun_model::SearchPart::Playlists {
+            provider: provider.clone(),
+            featured,
+            playlists: playlists.to_vec(),
+        };
+        report_progress(&app, query, total, part);
+    });
+    Ok(raygun_ext_host::without_adult_sources(
+        crate::search_filter::skips_adult_music(filter),
+        found,
+    )
+    .await)
 }
 
 /// A source's playlist with its songs (M46.39).
@@ -4384,8 +4404,9 @@ pub async fn catalog_global_search(
     query: String,
     sources: Vec<String>,
 ) -> Result<Vec<raygun_model::SourceSearchResult>, String> {
+    let filter = crate::search_filter::current(&app).await;
     catalog_for(&app, &medium)?
-        .global_search(&query, &sources)
+        .global_search(&query, &sources, filter)
         .await
 }
 

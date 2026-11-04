@@ -19,6 +19,7 @@ import { NoSources } from './NoSources';
 import { MusicResults } from './MusicResults';
 import { VideoResults } from './VideoResults';
 import type { SearchType, SearchView } from './searchTypes';
+import { keepSource, useSearchFilter } from './searchFilter';
 import { sourceSearchOptions } from './useCatalogSearch';
 import { SourceIssue } from '../shell/SourceIssue';
 import { RankedResults } from './CatalogSearch';
@@ -60,13 +61,15 @@ const PREVIEW_ITEMS = 12;
 const CatalogPreview: FC<{ medium: Medium; query: string }> = ({ medium, query }) => {
   const { t } = useTranslation();
   const sources = useMangaSources(medium);
+  const filter = useSearchFilter();
   if (!sources.data) return <p className="text-muted text-sm">{t('search.searching')}</p>;
   if (sources.data.length === 0) {
     return <NoSources label={t('search.noCatalogSources')} />;
   }
+  const asked = sources.data.filter((source) => keepSource(filter, source));
   // Comics and books: one list ranked across the first sources (M46.35), not a few per source.
   if (medium !== 'video') {
-    const enabled = sources.data.filter((source) => source.enabled).slice(0, PREVIEW_SOURCES);
+    const enabled = asked.filter((source) => source.enabled).slice(0, PREVIEW_SOURCES);
     return (
       <RankedResults
         key={query.trim()}
@@ -77,7 +80,7 @@ const CatalogPreview: FC<{ medium: Medium; query: string }> = ({ medium, query }
       />
     );
   }
-  return <PreviewRows key={query.trim()} medium={medium} query={query} sources={sources.data} />;
+  return <PreviewRows key={query.trim()} medium={medium} query={query} sources={asked} />;
 };
 
 const PreviewRows: FC<{ medium: Medium; query: string; sources: MangaSource[] }> = ({
@@ -87,6 +90,7 @@ const PreviewRows: FC<{ medium: Medium; query: string; sources: MangaSource[] }>
 }) => {
   const { t } = useTranslation();
   const client = useQueryClient();
+  const filter = useSearchFilter();
   // Sources are asked in order, as many as could still fill the rows: answered ones with
   // results count, pending ones might (M46.7). Each answer re-renders and may ask the next.
   let asked = 0;
@@ -101,7 +105,9 @@ const PreviewRows: FC<{ medium: Medium; query: string; sources: MangaSource[] }>
     if (!answered || (state.data?.items.length ?? 0) > 0) filled += 1;
   }
   const results = useQueries({
-    queries: sources.slice(0, asked).map((source) => sourceSearchOptions(medium, source.id, query)),
+    queries: sources
+      .slice(0, asked)
+      .map((source) => sourceSearchOptions(medium, source.id, query, filter)),
   });
   const settled = results.every((result) => !result.isPending);
   const found = results

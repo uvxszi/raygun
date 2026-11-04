@@ -6,6 +6,22 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 
+tokio::task_local! {
+    /// Set while a search leaves out sources rated for adults (Search's "No 18+").
+    static WITHOUT_ADULT: bool;
+}
+
+/// Runs `work` with providers rated for adults left out of every provider list it asks for when
+/// `skip` is set, so a search doesn't ask them at all. Other calls meanwhile are untouched.
+pub async fn without_adult_sources<F: Future>(skip: bool, work: F) -> F::Output {
+    WITHOUT_ADULT.scope(skip, work).await
+}
+
+/// Whether the running task leaves adult providers out ([`without_adult_sources`]).
+pub(crate) fn adult_left_out() -> bool {
+    WITHOUT_ADULT.try_with(|skip| *skip).unwrap_or(false)
+}
+
 /// Shared by the host thread, the extensions and the app; cloning shares the same switch.
 /// It also holds the sources the user disabled (M46.8): their providers drop out like NSFW ones.
 #[derive(Debug, Clone, Default)]
@@ -57,5 +73,18 @@ impl ContentFilter {
         if let Ok(mut disabled) = self.1.write() {
             *disabled = provider_ids.iter().cloned().collect();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn adult_sources_are_left_out_only_inside_the_scope() {
+        assert!(!adult_left_out());
+        assert!(without_adult_sources(true, async { adult_left_out() }).await);
+        assert!(!without_adult_sources(false, async { adult_left_out() }).await);
+        assert!(!adult_left_out());
     }
 }

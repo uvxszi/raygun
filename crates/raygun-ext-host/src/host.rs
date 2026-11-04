@@ -516,12 +516,15 @@ impl ExtensionHost {
     }
 
     /// Providers of `kind` that searches and lookups use: not the disabled ones, and those of
-    /// NSFW-rated extensions only while NSFW content is shown.
+    /// NSFW-rated extensions only while NSFW content is shown, and no adult ones inside
+    /// [`crate::without_adult_sources`].
     pub async fn providers(&self, kind: &str) -> Vec<ProviderInfo> {
+        let no_adult = crate::content::adult_left_out();
         self.listed_providers(kind)
             .await
             .into_iter()
             .filter(|provider| !self.shared.content.is_disabled(&provider.id))
+            .filter(|provider| !(no_adult && provider.adult))
             .collect()
     }
 

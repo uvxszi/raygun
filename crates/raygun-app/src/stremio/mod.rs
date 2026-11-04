@@ -619,6 +619,20 @@ impl StremioService {
             .find(|addon| addon.row.id == addon_id)
             .ok_or_else(|| "This addon was removed or turned off".to_owned())?;
         let manifest = addon.manifest().ok_or("This addon has no manifest")?;
+        // Search's "No 18+": an adult addon isn't asked.
+        if manifest.adult && crate::search_filter::current(&self.app).await.no_adult {
+            return Ok(StremioCatalogRow {
+                addon_id: addon_id.to_owned(),
+                addon_name: manifest.name.clone(),
+                kind: kind.to_owned(),
+                catalog_id: catalog_id.to_owned(),
+                name: String::new(),
+                items: Vec::new(),
+                genres: Vec::new(),
+                has_more: false,
+                error: None,
+            });
+        }
         let catalog = manifest
             .catalogs
             .iter()
@@ -639,9 +653,11 @@ impl StremioService {
             return Ok(Vec::new());
         }
         let active = self.active().await?;
+        let no_adult = crate::search_filter::current(&self.app).await.no_adult;
         let rows = active
             .iter()
             .filter_map(|addon| Some((addon, addon.manifest()?)))
+            .filter(|(_, manifest)| !(no_adult && manifest.adult))
             .flat_map(|(addon, manifest)| {
                 manifest
                     .catalogs

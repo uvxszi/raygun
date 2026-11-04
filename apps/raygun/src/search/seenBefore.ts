@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 
 import type { Medium } from '../manga/medium';
 import { collectFromCache } from '../shell/queryMemory';
+import { useSearchFilter } from './searchFilter';
 import { videoTitleScore } from '../watch/videoMatch';
 import { titleScore } from './rankResults';
 
@@ -44,6 +45,7 @@ const songScore = (track: OnlineTrack, query: string) =>
  */
 export const useSeenSongs = (query: string): OnlineTrack[] => {
   const client = useQueryClient();
+  const { noExplicit } = useSearchFilter();
   const wanted = query.trim();
   return useMemo(() => {
     if (wanted.length < 2) return [];
@@ -51,6 +53,7 @@ export const useSeenSongs = (query: string): OnlineTrack[] => {
     const tracks = new Map<string, OnlineTrack>();
     for (const root of SONG_ROOTS) {
       for (const track of collectFromCache(client, root, asTrack, key)) {
+        if (noExplicit && track.explicit) continue;
         if (!tracks.has(key(track))) tracks.set(key(track), track);
       }
     }
@@ -61,7 +64,7 @@ export const useSeenSongs = (query: string): OnlineTrack[] => {
       .slice(0, SHOWN)
       .map((entry) => entry.track);
     // Read once per query: the live answers take over when they come.
-  }, [client, wanted]);
+  }, [client, wanted, noExplicit]);
 };
 
 /** A cached title as a card: search results and browse pages as they are, titles by remote id. */
@@ -80,6 +83,7 @@ const asCard = (record: Record<string, unknown>): MangaCard | null => {
     title: record.title,
     coverUrl: typeof record.coverUrl === 'string' ? record.coverUrl : null,
     inLibrary: record.inLibrary === true || typeof record.titleId === 'string',
+    ...(record.adult === true ? { adult: true } : {}),
   };
 };
 
@@ -89,6 +93,7 @@ const asCard = (record: Record<string, unknown>): MangaCard | null => {
  */
 export const useSeenTitles = (medium: Medium, query: string): MangaCard[] => {
   const client = useQueryClient();
+  const { noAdult } = useSearchFilter();
   const wanted = query.trim();
   return useMemo(() => {
     if (wanted.length < 2) return [];
@@ -100,10 +105,11 @@ export const useSeenTitles = (medium: Medium, query: string): MangaCard[] => {
     );
     const score = medium === 'video' ? videoTitleScore : titleScore;
     return cards
+      .filter((card) => !(noAdult && card.adult))
       .map((card) => ({ card, score: score(card.title, wanted) }))
       .filter((entry) => entry.score >= GOOD_ENOUGH)
       .sort((a, b) => b.score - a.score)
       .slice(0, SHOWN)
       .map((entry) => entry.card);
-  }, [client, medium, wanted]);
+  }, [client, medium, wanted, noAdult]);
 };

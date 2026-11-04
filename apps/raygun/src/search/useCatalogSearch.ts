@@ -6,6 +6,8 @@ import { useMemo } from 'react';
 import { unwrapResult } from '../lib/commandResult';
 import type { Medium } from '../manga/medium';
 import type { SourceAnswer } from './sourceHealth';
+import { selectSourceResult, useSearchFilter } from './searchFilter';
+import type { SearchFilter } from './searchFilter';
 
 const STALE_MS = 5 * 60_000;
 
@@ -81,9 +83,16 @@ export const queued = async <T>(
 
 /**
  * One source's first page of results for `query` (its popular titles while blank), queued with
- * the other sources' (M46.7): rows ask as they come into view, a few at a time.
+ * the other sources' (M46.7): rows ask as they come into view, a few at a time. With a `filter`
+ * (Search's "No 18+"), what was kept from before leaves the same out as Rust does.
  */
-export const sourceSearchOptions = (medium: Medium, sourceId: string, query: string) => ({
+export const sourceSearchOptions = (
+  medium: Medium,
+  sourceId: string,
+  query: string,
+  filter?: SearchFilter,
+) => ({
+  ...(filter ? { select: selectSourceResult(filter) } : {}),
   queryKey: [medium, 'sourceSearch', sourceId, query.trim()],
   queryFn: async ({ signal }: { signal?: AbortSignal }): Promise<SourceSearchResult | null> => {
     const results = await queued(
@@ -101,7 +110,10 @@ export const useSourceSearch = (
   sourceId: string,
   query: string,
   enabled: boolean,
-) => useQuery({ ...sourceSearchOptions(medium, sourceId, query), enabled });
+) => {
+  const filter = useSearchFilter();
+  return useQuery({ ...sourceSearchOptions(medium, sourceId, query, filter), enabled });
+};
 
 /** How a source's search answered, or `undefined` while it hasn't (`''` as a key part). */
 const answerOf = (result: {

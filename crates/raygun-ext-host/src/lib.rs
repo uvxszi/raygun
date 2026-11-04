@@ -34,7 +34,7 @@ mod repo_tests;
 #[cfg(test)]
 mod tests;
 
-pub use content::ContentFilter;
+pub use content::{ContentFilter, without_adult_sources};
 pub use host::{
     CATALOG_SEARCH_TIMEOUT, CallError, ExtensionFiles, ExtensionHost, ExtensionSource, HostConfig,
     INTERACTIVE_TIMEOUT, LYRICS, MUSIC_CHARTS, MUSIC_METADATA, MUSIC_STREAM, MUSIC_TAGS,
