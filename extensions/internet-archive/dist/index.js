@@ -1,4 +1,4 @@
-// dev.raygun.internet-archive 1.3.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.internet-archive 1.4.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -24,8 +24,12 @@
     { value: "Film_Noir", label: "Film noir" },
     { value: "SciFi_Horror", label: "Sci-fi and horror" },
     { value: "Comedy_Films", label: "Comedy films" },
-    { value: "classic_tv", label: "Classic TV" }
+    { value: "classic_tv", label: "Classic TV" },
+    { value: "prelinger", label: "Prelinger Archives" }
   ];
+  var PUBLIC_DOMAIN_BEFORE = (/* @__PURE__ */ new Date()).getUTCFullYear() - 95;
+  var PUBLIC_DOMAIN_MARK = "(licenseurl:*publicdomain\\/mark* OR licenseurl:*licenses\\/publicdomain*)";
+  var PUBLIC_DOMAIN = `(year:[1800 TO ${PUBLIC_DOMAIN_BEFORE - 1}] OR (${PUBLIC_DOMAIN_MARK} AND year:[1800 TO 1977]))`;
   var SORTS = [
     { value: "downloads desc", label: "Most viewed" },
     { value: "addeddate desc", label: "Recently added" },
@@ -61,7 +65,7 @@
       hasNextPage: page * ROWS < (result.response?.numFound ?? 0)
     };
   };
-  var inCollection = (collection) => `collection:(${collection}) AND mediatype:(movies)`;
+  var inCollection = (collection) => `collection:(${collection}) AND mediatype:(movies) AND ${collection === "prelinger" ? "licenseurl:*publicdomain*" : PUBLIC_DOMAIN}`;
   var items = /* @__PURE__ */ new Map();
   var metadata = (identifier) => {
     let item = items.get(identifier);
@@ -173,6 +177,11 @@
 
   // src/index.ts
   var API2 = "https://archive.org";
+  var OPEN_AUDIO = [
+    "mediatype:audio",
+    "((collection:netlabels AND (licenseurl:*creativecommons.org* OR licenseurl:*publicdomain*)) OR collection:musopen)",
+    "-collection:(78rpm OR georgeblood)"
+  ].join(" AND ");
   var escapeQuery2 = (query) => query.replace(/[+\-!(){}[\]^"~*?:\\/&|]/g, " ").trim();
   var firstString2 = (value) => (Array.isArray(value) ? value[0] : value) ?? null;
   var parseLength = (length) => {
@@ -218,7 +227,7 @@
     const result = await fetchJson(`${API2}/advancedsearch.php?${params.join("&")}`);
     return result.response?.docs ?? [];
   };
-  var searchItems = (query, rows) => searchDocs(`(title:(${query}) OR creator:(${query})) AND mediatype:audio`, rows);
+  var searchItems = (query, rows) => searchDocs(`(title:(${query}) OR creator:(${query})) AND ${OPEN_AUDIO}`, rows);
   var bareTitle = (title) => title.replace(/\([^)]*\)|\[[^\]]*\]/g, " ").trim() || title;
   var mainArtist = (artist) => artist.split(/\s*(?:&|,|;|\/|\bfeat\.?|\bft\.?|\band\b|\bwith\b|\bx\b)\s*/i)[0]?.trim() || artist;
   var words = (text) => escapeQuery2(text).toLowerCase().split(/\s+/).filter(Boolean);
@@ -282,7 +291,7 @@
         `title:(${wantedTitle})`
       ] : [`title:(${wantedTitle})`];
       const lists = await Promise.allSettled(
-        queries.map((query) => searchDocs(`${query} AND mediatype:audio`, 4))
+        queries.map((query) => searchDocs(`${query} AND ${OPEN_AUDIO}`, 4))
       );
       const failures = lists.flatMap((list) => list.status === "rejected" ? [list.reason] : []);
       if (failures.length === lists.length) throw failures[0];

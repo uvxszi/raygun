@@ -6,6 +6,17 @@ import type { Track } from '@raygun/sdk';
 import { films } from './films';
 
 const API = 'https://archive.org';
+/**
+ * The audio songs come from: netlabel releases whose licence is Creative Commons or a
+ * public-domain mark, and Musopen's recordings, which Musopen released without copyright. Open
+ * community uploads are left out (their licences are self-declared, and commercial recordings
+ * marked CC0 turn up among them), and so are the Great 78 Project's transfers.
+ */
+const OPEN_AUDIO = [
+  'mediatype:audio',
+  '((collection:netlabels AND (licenseurl:*creativecommons.org* OR licenseurl:*publicdomain*)) OR collection:musopen)',
+  '-collection:(78rpm OR georgeblood)',
+].join(' AND ');
 
 type SearchDoc = { identifier: string; title?: string | string[]; creator?: string | string[] };
 type SearchResponse = { response?: { docs?: SearchDoc[] } };
@@ -94,7 +105,7 @@ const searchDocs = async (q: string, rows: number): Promise<SearchDoc[]> => {
 };
 
 const searchItems = (query: string, rows: number) =>
-  searchDocs(`(title:(${query}) OR creator:(${query})) AND mediatype:audio`, rows);
+  searchDocs(`(title:(${query}) OR creator:(${query})) AND ${OPEN_AUDIO}`, rows);
 
 /** "Hello Dolly (Live) [Remastered]" -> "Hello Dolly": archive titles rarely carry the extras. */
 const bareTitle = (title: string) => title.replace(/\([^)]*\)|\[[^\]]*\]/g, ' ').trim() || title;
@@ -184,7 +195,7 @@ const streams = defineProvider({
         ]
       : [`title:(${wantedTitle})`];
     const lists = await Promise.allSettled(
-      queries.map((query) => searchDocs(`${query} AND mediatype:audio`, 4)),
+      queries.map((query) => searchDocs(`${query} AND ${OPEN_AUDIO}`, 4)),
     );
     const failures = lists.flatMap((list) => (list.status === 'rejected' ? [list.reason] : []));
     // If every search failed, say why instead of claiming there's nothing.

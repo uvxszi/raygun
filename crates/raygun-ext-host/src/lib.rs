@@ -30,6 +30,8 @@ mod many_tests;
 #[cfg(test)]
 mod nuclear_tests;
 #[cfg(test)]
+mod open_sources_tests;
+#[cfg(test)]
 mod repo_tests;
 #[cfg(test)]
 mod tests;

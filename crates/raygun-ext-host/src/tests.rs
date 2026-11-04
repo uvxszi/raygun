@@ -694,8 +694,12 @@ async fn internet_archive_extension_finds_playable_tracks() {
         archive.error
     );
 
-    let results = host.search_music("louis armstrong", 20).await;
-    let result = &results[0];
+    // A netlabel artist: the extension keeps to openly licensed recordings.
+    let results = host.search_music("kai engel", 20).await;
+    let result = results
+        .iter()
+        .find(|result| result.provider.extension_id == "dev.raygun.internet-archive")
+        .unwrap();
     assert_eq!(result.error, None);
     assert!(!result.tracks.is_empty());
     for track in &result.tracks {
@@ -825,9 +829,8 @@ async fn musicbrainz_song_resolves_through_internet_archive() {
     let host = ExtensionHost::start(HostConfig::default()).unwrap();
     host.load(discover_installed(&dir)).await;
 
-    let results = host
-        .search_music("what a wonderful world armstrong", 10)
-        .await;
+    // A Creative Commons netlabel release, the kind of recording the extension streams.
+    let results = host.search_music("calls and echoes kai engel", 10).await;
     let musicbrainz = results
         .iter()
         .find(|result| result.provider.extension_id == "dev.raygun.musicbrainz")
@@ -836,12 +839,12 @@ async fn musicbrainz_song_resolves_through_internet_archive() {
     let song = musicbrainz
         .tracks
         .iter()
-        .find(|track| track.artist.as_deref() == Some("Louis Armstrong"))
-        .expect("Louis Armstrong's recording ranks among the results");
+        .find(|track| track.artist.as_deref() == Some("Kai Engel"))
+        .expect("Kai Engel's recording ranks among the results");
     assert_eq!(song.source, None, "MusicBrainz has metadata only");
 
     // A second search right away stays within MusicBrainz's one-request-per-second limit.
-    let again = host.search_music("hello dolly armstrong", 5).await;
+    let again = host.search_music("rain catcher kai engel", 5).await;
     let again = again
         .iter()
         .find(|result| result.provider.extension_id == "dev.raygun.musicbrainz")
@@ -861,10 +864,12 @@ async fn musicbrainz_song_resolves_through_internet_archive() {
         album: song.album.clone(),
         duration_ms: song.duration_ms,
     };
+    // The Internet Archive's own candidates: other stream sources may know the song too.
     let candidates: Vec<_> = host
         .stream_candidates(&query, 10, raygun_resolver::QualityTarget::Any)
         .await
         .into_iter()
+        .filter(|answer| answer.provider.extension_id == "dev.raygun.internet-archive")
         .flat_map(|answer| answer.result.unwrap_or_default())
         .collect();
     assert!(!candidates.is_empty());
@@ -904,10 +909,10 @@ async fn internet_archive_streams_match_credited_duets() {
     let host = ExtensionHost::start(HostConfig::default()).unwrap();
     host.load(discover_installed(&dir)).await;
     let query = raygun_model::TrackQuery {
-        title: "Hello Dolly (Hello Dolly)".into(),
-        artist: Some("Ella Fitzgerald & Louis Armstrong".into()),
+        title: "Calls and Echoes (Original Mix)".into(),
+        artist: Some("Kai Engel & Friends".into()),
         album: None,
-        duration_ms: Some(148_000),
+        duration_ms: Some(248_000),
     };
     let candidates: Vec<_> = host
         .stream_candidates(&query, 10, raygun_resolver::QualityTarget::Any)

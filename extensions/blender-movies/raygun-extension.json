@@ -1,0 +1,16 @@
+{
+  "id": "dev.raygun.blender-movies",
+  "name": "Blender open movies",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "CC BY and CC BY-SA: Blender Studio's open movies, from Elephants Dream and Big Buck Bunny to Singularity, played from Wikimedia Commons.",
+  "author": "Raygun",
+  "website": "https://studio.blender.org/films/",
+  "provides": ["video.source"],
+  "permissions": {
+    "net": ["commons.wikimedia.org"]
+  },
+  "contentRating": "safe"
+}

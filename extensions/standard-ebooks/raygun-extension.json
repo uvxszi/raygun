@@ -1,0 +1,16 @@
+{
+  "id": "dev.raygun.standard-ebooks",
+  "name": "Standard Ebooks",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Public domain (CC0): classic books in Standard Ebooks' carefully produced editions, read chapter by chapter.",
+  "author": "Raygun",
+  "website": "https://standardebooks.org",
+  "provides": ["novel.source"],
+  "permissions": {
+    "net": ["standardebooks.org"]
+  },
+  "contentRating": "safe"
+}

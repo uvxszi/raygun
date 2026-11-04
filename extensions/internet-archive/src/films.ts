@@ -1,6 +1,12 @@
 // Internet Archive films (M42): public-domain film collections as a video source. A title is an
 // archive item; each original video file in it is an episode (most items hold one film), and its
 // MP4 derivatives, with their heights, are the videos of a single server.
+//
+// Uploaders mark their own items, so a film is listed only when its public-domain status holds
+// up: published more than 95 years ago, or from before 1978 (when US copyright still needed a
+// notice and a renewal) and carrying a public-domain mark. Newer uploads marked CC0 or with a
+// Creative Commons licence are left out; commercial films are often uploaded that way. Prelinger
+// Archives' films are in the public domain by its own uploads.
 import { defineProvider, fetchJson } from '@raygun/sdk';
 import type {
   FilterValues,
@@ -46,7 +52,14 @@ const COLLECTIONS = [
   { value: 'SciFi_Horror', label: 'Sci-fi and horror' },
   { value: 'Comedy_Films', label: 'Comedy films' },
   { value: 'classic_tv', label: 'Classic TV' },
+  { value: 'prelinger', label: 'Prelinger Archives' },
 ];
+/** Works published before this year are in the US public domain: 95 years have passed. */
+const PUBLIC_DOMAIN_BEFORE = new Date().getUTCFullYear() - 95;
+/** A public-domain mark, in the current form or the one the Archive's uploader used to set. */
+const PUBLIC_DOMAIN_MARK =
+  '(licenseurl:*publicdomain\\/mark* OR licenseurl:*licenses\\/publicdomain*)';
+const PUBLIC_DOMAIN = `(year:[1800 TO ${PUBLIC_DOMAIN_BEFORE - 1}] OR (${PUBLIC_DOMAIN_MARK} AND year:[1800 TO 1977]))`;
 const SORTS = [
   { value: 'downloads desc', label: 'Most viewed' },
   { value: 'addeddate desc', label: 'Recently added' },
@@ -107,7 +120,10 @@ const searchPage = async (q: string, sort: string, page: number): Promise<MangaP
   };
 };
 
-const inCollection = (collection: string) => `collection:(${collection}) AND mediatype:(movies)`;
+const inCollection = (collection: string) =>
+  `collection:(${collection}) AND mediatype:(movies) AND ${
+    collection === 'prelinger' ? 'licenseurl:*publicdomain*' : PUBLIC_DOMAIN
+  }`;
 
 // Item metadata is read for details, episodes and servers; keep the last few.
 const items = new Map<string, Promise<ItemMetadata>>();

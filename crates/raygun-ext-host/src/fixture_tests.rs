@@ -13,7 +13,7 @@ use serde_json::json;
 
 use crate::{ExtensionHost, ExtensionSource, HostConfig};
 
-fn query_params(uri: &Uri) -> HashMap<String, String> {
+pub(crate) fn query_params(uri: &Uri) -> HashMap<String, String> {
     uri.query()
         .unwrap_or_default()
         .split('&')
@@ -44,7 +44,7 @@ fn percent_decode(text: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-fn json_response(status: StatusCode, body: serde_json::Value) -> Response {
+pub(crate) fn json_response(status: StatusCode, body: serde_json::Value) -> Response {
     (
         status,
         [(header::CONTENT_TYPE, "application/json")],
@@ -54,7 +54,7 @@ fn json_response(status: StatusCode, body: serde_json::Value) -> Response {
 }
 
 /// Serves `app` on a free local port from its own thread.
-fn serve(app: Router) -> SocketAddr {
+pub(crate) fn serve(app: Router) -> SocketAddr {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let address = listener.local_addr().unwrap();
