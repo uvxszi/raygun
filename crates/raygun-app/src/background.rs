@@ -272,6 +272,7 @@ mod tests {
 
     fn item() -> QueueItem {
         QueueItem {
+            explicit: false,
             id: "a".into(),
             title: "Song".into(),
             artist: Some("Artist".into()),

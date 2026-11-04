@@ -153,6 +153,7 @@ mod tests {
 
     fn item(source: MediaSource) -> QueueItem {
         QueueItem {
+            explicit: false,
             id: "item".into(),
             title: "Song".into(),
             artist: Some("Band".into()),

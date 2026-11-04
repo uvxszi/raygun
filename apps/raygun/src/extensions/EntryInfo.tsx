@@ -3,6 +3,7 @@ import { Globe } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { AdultMark } from '../shell/AdultMark';
 import { hostLabel } from './hostLabel';
 
 /**
@@ -15,7 +16,10 @@ export const EntryInfo: FC<{ entry: CatalogEntry; repoName: string }> = ({ entry
   return (
     <div data-testid="entry-info" className="flex flex-col gap-3 px-3 pb-2 text-sm">
       <div className="flex flex-col gap-0.5">
-        <span className="text-base font-semibold">{entry.name}</span>
+        <span className="flex items-center gap-2">
+          <span className="text-base font-semibold">{entry.name}</span>
+          {entry.contentRating === 'nsfw' && <AdultMark />}
+        </span>
         <span className="text-muted">
           {[entry.version, entry.author, repoName].filter(Boolean).join(' · ')}
         </span>

@@ -2387,6 +2387,9 @@ pub struct QueueItemInput {
     pub artwork_url: Option<String>,
     pub media_kind: MediaKind,
     pub source: MediaSource,
+    /// The source marks it explicit: lists and the player show "E".
+    #[serde(default)]
+    pub explicit: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -2400,6 +2403,9 @@ pub struct QueueItem {
     pub artwork_url: Option<String>,
     pub media_kind: MediaKind,
     pub source: MediaSource,
+    /// The source marks it explicit: lists and the player show "E".
+    #[serde(default)]
+    pub explicit: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -2744,6 +2750,9 @@ pub struct ProviderInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub search_pill: Option<String>,
+    /// Its extension is rated `nsfw`: the UI marks it 18+.
+    #[serde(default)]
+    pub adult: bool,
 }
 
 /// A source that met a browser check, whose site can be opened to pass it by hand
@@ -3589,6 +3598,9 @@ pub struct TrackInput {
     pub artwork_url: Option<String>,
     /// Local files and lookups aren't stored; the track is found again by its key.
     pub source: Option<MediaSource>,
+    /// The source marks it explicit: lists and the player show "E".
+    #[serde(default)]
+    pub explicit: bool,
 }
 
 /// Where something was played from (M46.37: Home's Your music shows the latest): an album, a
@@ -3630,6 +3642,9 @@ pub struct SavedTrack {
     pub added_at: Option<f64>,
     /// Times it was played, from the history (M46.8).
     pub play_count: u32,
+    /// The source marks it explicit: lists and the player show "E".
+    #[serde(default)]
+    pub explicit: bool,
 }
 
 /// Where a song is saved (M46.8): Favorites and the playlists that hold it. The Add to playlist
@@ -3973,6 +3988,9 @@ pub struct MangaSource {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub search_pill: Option<String>,
+    /// Its extension is rated `nsfw`: the UI marks it 18+.
+    #[serde(default)]
+    pub adult: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -3994,6 +4012,9 @@ pub struct MangaCard {
     /// Through the local image proxy.
     pub cover_url: Option<String>,
     pub in_library: bool,
+    /// The source marks it adult: the UI marks it 18+.
+    #[serde(default)]
+    pub adult: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -4522,6 +4543,9 @@ pub struct MangaTitleView {
     pub in_library: bool,
     /// An adult title while NSFW content is hidden: the UI shows a notice instead (M35).
     pub hidden_nsfw: bool,
+    /// Adult genres, or a source rated `nsfw`: the page marks it 18+.
+    #[serde(default)]
+    pub adult: bool,
     /// In the source's order (usually newest first).
     pub chapters: Vec<MangaChapterInfo>,
     /// Where "Continue" opens: the partly read chapter, else the first unread after the last read.
@@ -6176,6 +6200,9 @@ pub struct StremioMeta {
     pub addon_name: String,
     /// The addon whose details these are (empty when shown as stored).
     pub addon_id: String,
+    /// Adult genres, or an addon marked adult: the page marks it 18+.
+    #[serde(default)]
+    pub adult: bool,
     /// What the title itself plays by (a movie, a channel): the details' default video, else
     /// its id.
     pub video_id: String,
@@ -6366,6 +6393,9 @@ pub struct VideoTitleView {
     pub in_library: bool,
     /// Adult content while NSFW is off: the page shows a notice instead.
     pub hidden_nsfw: bool,
+    /// Adult genres, or a source rated `nsfw`: the page marks it 18+.
+    #[serde(default)]
+    pub adult: bool,
     /// In the source's order; a movie has one.
     pub episodes: Vec<VideoEpisodeView>,
     /// The episode Continue plays (its stored id): the one watched last, or the next one that is

@@ -24,6 +24,7 @@ import type { FC, MouseEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { fromQueueItem } from '../collections/useCollections';
+import { ExplicitMark } from '../music/ExplicitMark';
 import { PlayingOn } from '../connect/PlayingOn';
 import { ConnectButton } from '../devices/ConnectButton';
 import { Artwork } from '../library/Artwork';
@@ -343,11 +344,14 @@ const TrackText: FC<BarProps> = ({ item }) => {
       className="title-gap flex min-w-0 flex-col"
       onContextMenu={spoken ? spokenMenu : menu(fromQueueItem(item))}
     >
-      <Marquee
-        testId="mini-player-title"
-        text={item.title}
-        className="text-sm leading-tight font-medium"
-      />
+      <span className="flex min-w-0 items-center gap-1.5">
+        <Marquee
+          testId="mini-player-title"
+          text={item.title}
+          className="min-w-0 text-sm leading-tight font-medium"
+        />
+        {item.explicit && <ExplicitMark />}
+      </span>
       {note?.kind === 'finding' ? (
         <span data-testid="source-note" className="text-muted truncate text-xs leading-tight">
           {t('player.findingSource')}

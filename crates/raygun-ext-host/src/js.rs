@@ -639,6 +639,7 @@ fn register(shared: &Shared, meta: &str) -> Result<(), String> {
         .map(|pill| pill.trim().chars().take(24).collect::<String>())
         .filter(|pill| !pill.is_empty() && kind == "video.source");
     providers.push(ProviderInfo {
+        adult: false,
         id: full_id,
         extension_id: manifest.id.clone(),
         kind,

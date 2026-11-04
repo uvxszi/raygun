@@ -11,6 +11,7 @@ import { MangaGrid } from '../manga/MangaGrid';
 import type { Medium } from '../manga/medium';
 import { useMangaLibrary, useMangaSources } from '../manga/useManga';
 import { ROUTES } from '../manga/medium';
+import { AdultMark } from '../shell/AdultMark';
 import { ListSearchField } from '../shell/ListSearchField';
 import { matchesSearch } from '../shell/useListSearch';
 import { useInView } from '../shell/useInView';
@@ -41,6 +42,7 @@ const toGridItems = (items: MangaCard[]) =>
     title: item.title,
     coverUrl: item.coverUrl,
     inLibrary: item.inLibrary,
+    ...(item.adult ? { adult: true } : {}),
   }));
 
 /** One source's first results in a global search, as a short row. */
@@ -56,6 +58,7 @@ export const SourceRow: FC<{
       <div className="flex items-center justify-between">
         <h3 className="text-muted flex min-w-0 items-center gap-1 text-sm font-medium">
           <span className="truncate">{result.source.name}</span>
+          {result.source.adult && <AdultMark />}
           <SourceMenu
             sourceId={result.source.id}
             extensionId={result.source.extensionId}
@@ -133,7 +136,10 @@ export const LazySourceRow: FC<{
         <SourceRow result={search.data} medium={medium} limit={limit} onMore={onMore} />
       ) : (
         <section aria-label={source.name} aria-busy={!search.error} className="flex flex-col gap-2">
-          <h3 className="text-muted text-sm font-medium">{source.name}</h3>
+          <h3 className="text-muted flex min-w-0 items-center gap-1 text-sm font-medium">
+            <span className="truncate">{source.name}</span>
+            {source.adult && <AdultMark />}
+          </h3>
           {search.error ? (
             <SourceIssue compact source={source.name} onRetry={() => void search.refetch()}>
               {search.error.message}
@@ -222,6 +228,7 @@ export const RankedResults: FC<{
   const seen = useSeenTitles(medium, query);
   const searchedIds = new Set(sources.map((source) => source.id));
   const named = new Map(sources.map((source) => [source.id, source.name]));
+  const adultSources = new Set(sources.filter((source) => source.adult).map((source) => source.id));
   const ranked: RankedCard[] =
     answered < sources.length
       ? [
@@ -268,6 +275,7 @@ export const RankedResults: FC<{
           items={ranked.slice(0, cap).map(({ card, sourceName }) => ({
             ...toGridItems([card])[0]!,
             subtitle: sourceName,
+            ...(card.adult || adultSources.has(card.sourceId) ? { adult: true } : {}),
           }))}
         />
       )}

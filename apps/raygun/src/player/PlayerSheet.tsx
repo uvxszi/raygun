@@ -23,6 +23,7 @@ import type {
 import { useTranslation } from 'react-i18next';
 
 import { useTrackActionsStore } from '../collections/trackActionsStore';
+import { ExplicitMark } from '../music/ExplicitMark';
 import { fromQueueItem } from '../collections/useCollections';
 import { PlayingOn } from '../connect/PlayingOn';
 import { ArtistLinks } from '../music/ArtistLinks';
@@ -541,11 +542,14 @@ const Controls: FC<ControlsProps> = ({ item, spoken, onScrub, compact = false })
     >
       <div className="flex w-full items-center gap-1">
         <div className="title-gap flex min-w-0 flex-1 flex-col">
-          <Marquee
-            testId="sheet-title"
-            text={item?.title ?? t('player.nothingPlaying')}
-            className={`w-full font-bold ${compact ? 'text-lg' : 'text-2xl'}`}
-          />
+          <span className="flex w-full min-w-0 items-center gap-2">
+            <Marquee
+              testId="sheet-title"
+              text={item?.title ?? t('player.nothingPlaying')}
+              className={`min-w-0 font-bold ${compact ? 'text-lg' : 'text-2xl'}`}
+            />
+            {item?.explicit && <ExplicitMark />}
+          </span>
           {/* On a phone the names are text (the menu goes to them); with a pointer, only the
               names themselves are links, kept apart from the title. */}
           {spoken ? (

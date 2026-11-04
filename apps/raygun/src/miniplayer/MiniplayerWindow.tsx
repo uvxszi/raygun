@@ -18,6 +18,7 @@ import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
+import { ExplicitMark } from '../music/ExplicitMark';
 import { FavoriteButton } from '../player/FavoriteButton';
 import { formatTime } from '../player/formatTime';
 import { useLivePosition } from '../player/useLivePosition';
@@ -229,10 +230,13 @@ export const MiniplayerWindow: FC = () => {
         {item ? (
           <>
             <div className="min-w-0 flex-1">
-              <Marquee
-                text={item.title}
-                className="text-[clamp(1.05rem,6.5vw,2.75rem)] leading-tight font-extrabold"
-              />
+              <span className="flex min-w-0 items-center gap-2">
+                <Marquee
+                  text={item.title}
+                  className="min-w-0 text-[clamp(1.05rem,6.5vw,2.75rem)] leading-tight font-extrabold"
+                />
+                {item.explicit && <ExplicitMark />}
+              </span>
               <p className="text-muted mt-[clamp(0.125rem,1.2vw,0.5rem)] truncate text-[clamp(0.85rem,4.4vw,1.75rem)]">
                 {item.artist}
               </p>

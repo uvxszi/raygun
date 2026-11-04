@@ -10,6 +10,7 @@ import { formatTime } from '../player/formatTime';
 import { NowPlayingBars } from '../player/NowPlayingBars';
 import { usePlayingMatch } from '../player/usePlayingMatch';
 import { ExplicitMark } from '../music/ExplicitMark';
+import { AdultMark } from '../shell/AdultMark';
 import { songCover } from '../library/coverTargets';
 import { SongMarks } from '../music/SongMarks';
 import { songReveal } from '../music/reveal';
@@ -19,10 +20,17 @@ type OnlineTrackRowProps = {
   onPlay: (track: OnlineTrack) => void;
   /** The source it came from, in lists that mix sources (M46.9). */
   source?: string;
+  /** That source is rated for adults: an 18+ tag after its name. */
+  sourceAdult?: boolean;
 };
 
 /** A search result. Tracks without a stream get one from the resolver when they play (M14). */
-export const OnlineTrackRow: FC<OnlineTrackRowProps> = ({ track, onPlay, source }) => {
+export const OnlineTrackRow: FC<OnlineTrackRowProps> = ({
+  track,
+  onPlay,
+  source,
+  sourceAdult = false,
+}) => {
   const menu = useTrackMenu();
   const playing = usePlayingMatch()(track);
   return (
@@ -56,6 +64,7 @@ export const OnlineTrackRow: FC<OnlineTrackRowProps> = ({ track, onPlay, source 
             <ArtistLinks credit={track.artist} nested row />
             {track.album && <> · {track.album}</>}
             {source && <span className="text-primary/80"> · {source}</span>}
+            {source && sourceAdult && <AdultMark className="ml-1" />}
           </span>
         </span>
         <span className="text-muted shrink-0 text-xs tabular-nums">

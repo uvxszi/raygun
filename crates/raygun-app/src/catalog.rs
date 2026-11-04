@@ -67,6 +67,7 @@ impl Catalog {
             .await
             .into_iter()
             .map(|provider| MangaSource {
+                adult: provider.adult,
                 enabled: !host.content().is_disabled(&provider.id),
                 id: provider.id,
                 name: provider.name,
@@ -121,6 +122,7 @@ impl Catalog {
                 .items
                 .into_iter()
                 .map(|item| MangaCard {
+                    adult: item.nsfw,
                     source_id: source_id.to_owned(),
                     in_library: in_library.contains(&item.id),
                     cover_url: item
@@ -350,16 +352,19 @@ impl Catalog {
         let units = titles::units(&self.db(), &row.id)
             .await
             .map_err(to_message)?;
-        let source_name = self
+        let source = self
             .sources()
             .await
             .into_iter()
-            .find(|source| source.id == row.fields.source_id)
-            .map_or_else(|| row.fields.source_id.clone(), |source| source.name);
+            .find(|source| source.id == row.fields.source_id);
+        let adult =
+            is_adult(&row.fields.genres) || source.as_ref().is_some_and(|source| source.adult);
+        let source_name = source.map_or_else(|| row.fields.source_id.clone(), |source| source.name);
         let continue_chapter_id = continue_from(&units).map(|unit| unit.id.clone());
         let hidden_nsfw = !self.extensions().show_nsfw() && is_adult(&row.fields.genres);
         Ok(MangaTitleView {
             hidden_nsfw,
+            adult,
             id: row.id,
             source_id: row.fields.source_id,
             source_name,

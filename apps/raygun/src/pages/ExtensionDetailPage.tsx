@@ -8,6 +8,7 @@ import { hostLabel } from '../extensions/hostLabel';
 
 import { SettingsForm } from '../extensions/SettingsForm';
 import { useExtension, useUninstallExtension } from '../extensions/useExtensions';
+import { AdultMark } from '../shell/AdultMark';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { PageHeader } from './PageHeader';
 import { SourceIssue } from '../shell/SourceIssue';
@@ -52,7 +53,10 @@ export const ExtensionDetailPage: FC = () => {
       <header className="flex items-center gap-4">
         <LetterAvatar name={info.name} logo={info.icon} size="lg" />
         <div className="flex min-w-0 flex-col gap-0.5">
-          <h1 className="text-xl font-bold tracking-tight wrap-anywhere">{info.name}</h1>
+          <h1 className="text-xl font-bold tracking-tight wrap-anywhere">
+            {info.name}
+            {info.contentRating === 'nsfw' && <AdultMark className="ml-2" />}
+          </h1>
           <p className="text-muted text-sm">
             {[
               info.version,

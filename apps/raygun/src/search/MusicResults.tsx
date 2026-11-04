@@ -19,6 +19,7 @@ import { MUSIC_VIEWS, pill } from './searchTypes';
 import type { MusicView } from './searchTypes';
 import { SourceMenu } from './SourceMenu';
 import { playResults, useOnlineSearch } from './useOnlineSearch';
+import { AdultMark } from '../shell/AdultMark';
 import { SourceIssue } from '../shell/SourceIssue';
 import { useSettings } from '../settings/useSettings';
 
@@ -35,6 +36,7 @@ const ProviderResults: FC<ProviderResultsProps> = ({ result, ambiguous, limit })
           {/* Two sources with one name (a Nuclear plugin beside Raygun's own) need telling apart. */}
           {ambiguous && <span className="font-normal"> · {result.provider.extensionId}</span>}
         </span>
+        {result.provider.adult && <AdultMark />}
         <SourceMenu
           sourceId={result.provider.id}
           extensionId={result.provider.extensionId}

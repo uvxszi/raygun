@@ -12,6 +12,7 @@ import type {
 import { useTranslation } from 'react-i18next';
 
 import { fromQueueItem, useAddToPlaylist, useCreatePlaylist } from '../collections/useCollections';
+import { ExplicitMark } from '../music/ExplicitMark';
 import { Artwork } from '../library/Artwork';
 import { songCover } from '../library/coverTargets';
 import { useTrackMenuItems } from '../music/useTrackMenu';
@@ -521,7 +522,10 @@ const QueueRow: FC<{ item: QueueItem; dragged: boolean; first: boolean; actions:
               iconSize={18}
             />
             <span className="title-gap flex min-w-0 flex-col">
-              <span className="truncate text-sm leading-tight font-medium">{item.title}</span>
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="truncate text-sm leading-tight font-medium">{item.title}</span>
+                {item.explicit && <ExplicitMark />}
+              </span>
               {item.artist && (
                 <span className="text-muted truncate text-xs leading-tight">{item.artist}</span>
               )}

@@ -329,6 +329,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let db = Db::open(&temp.path().join("raygun.db")).await.unwrap();
         let sources = [MangaSource {
+            adult: false,
             id: "dev.raygun.mangadex/mangadex".into(),
             name: "MangaDex".into(),
             extension_id: "dev.raygun.mangadex".into(),

@@ -1026,6 +1026,7 @@ impl PodcastService {
             ),
         };
         QueueItemInput {
+            explicit: false,
             title,
             artist,
             album,

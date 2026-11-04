@@ -2,6 +2,8 @@ import { Play } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { FC, ReactNode } from 'react';
 
+import { AdultMark } from './AdultMark';
+
 /**
  * A title screen's header (Mihon's and CloudStream's): a blurred copy of the art behind the
  * cover, title, facts and genres.
@@ -22,6 +24,8 @@ export const TitleHero: FC<{
   children?: ReactNode;
   /** Shown over the backdrop's right side on wide windows, under the title on phones. */
   aside?: ReactNode;
+  /** Adult genres or a source rated for adults: an 18+ tag after the title. */
+  adult?: boolean;
 }> = ({
   art,
   backdrop,
@@ -34,6 +38,7 @@ export const TitleHero: FC<{
   genresLabel,
   children,
   aside,
+  adult = false,
 }) => {
   const shown = facts.filter(Boolean);
   return (
@@ -56,6 +61,7 @@ export const TitleHero: FC<{
         <div className="flex min-w-0 flex-col justify-end gap-2">
           <h1 className="text-xl leading-tight font-bold tracking-tight wrap-anywhere sm:text-2xl">
             {title}
+            {adult && <AdultMark className="ml-2" />}
           </h1>
           {(shown.length > 0 || factsExtra) && (
             <p className="text-muted flex flex-wrap items-center gap-x-1.5 text-sm">

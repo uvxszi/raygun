@@ -351,6 +351,7 @@ export const WatchTitlePage: FC = () => {
         backdrop={view.background}
         cover={<StremioPoster url={view.poster} className="w-full shadow-lg" />}
         title={view.name}
+        adult={view.adult}
         facts={[
           view.releaseInfo,
           view.runtime,

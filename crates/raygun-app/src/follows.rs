@@ -314,6 +314,7 @@ mod tests {
     fn album(id: &str, year: Option<u32>) -> raygun_model::MusicAlbum {
         raygun_model::MusicAlbum {
             provider: raygun_model::ProviderInfo {
+                adult: false,
                 id: "dz".into(),
                 extension_id: "dz".into(),
                 kind: "music.metadata".into(),

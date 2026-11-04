@@ -1110,6 +1110,8 @@
     "pausedMark": "Paused"
   },
   "common": {
+    "adult": "18+",
+    "adultLabel": "For adults (18+)",
     "coreUnavailable": "Core unavailable: {{message}}",
     "cancel": "Cancel",
     "clear": "Clear",

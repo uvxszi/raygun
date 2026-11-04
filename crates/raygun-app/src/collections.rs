@@ -5,7 +5,7 @@
 
 pub mod identity;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use raygun_db::collections::{self, SavedRef, TrackFields};
@@ -32,6 +32,10 @@ const MAX_NAME_CHARS: usize = 100;
 /// The `local_meta` key of what was played from lately (M46.37), and how many are kept.
 const RECENT_CONTEXTS: &str = "music.recentContexts";
 const RECENT_CONTEXTS_KEPT: usize = 24;
+/// The `local_meta` key of the songs saved or played that their source marked explicit, by
+/// song key (the saved tables don't store the mark), and how many are kept.
+const EXPLICIT_SONGS: &str = "music.explicitSongs";
+const EXPLICIT_SONGS_KEPT: usize = 5000;
 /// The `local_meta` key set once saved songs were repaired (M46.48, see [`repair`]).
 const REPAIRED: &str = "collections.identityRepaired";
 
@@ -129,6 +133,7 @@ impl CollectionsService {
         let index = self.index().await?;
         let keys = keys_of(&track.title, track.artist.as_deref());
         let plan = index.plan(&keys, &saves);
+        self.note_explicit(std::slice::from_ref(&track)).await;
         let mut saved = fields(track);
         // A new copy plays what the others do (a source the user picked, M46.48).
         if saved.source.is_none() {
@@ -293,6 +298,7 @@ impl CollectionsService {
                 .await
                 .map_err(to_message);
         }
+        self.note_explicit(std::slice::from_ref(&track)).await;
         if !copies.is_empty() {
             return Ok(());
         }
@@ -326,6 +332,7 @@ impl CollectionsService {
                 .await
                 .map_err(to_message);
         }
+        self.note_explicit(&tracks).await;
         let now = now_ms();
         for (place, track) in tracks.into_iter().enumerate() {
             if !favorites_of(&track).is_empty() {
@@ -501,6 +508,7 @@ impl CollectionsService {
             return Err("This playlist no longer exists".into());
         }
         let index = self.index().await?;
+        self.note_explicit(&tracks).await;
         let mut added = Vec::with_capacity(tracks.len());
         let mut adding: Vec<TrackFields> = Vec::new();
         for track in tracks {
@@ -653,7 +661,9 @@ impl CollectionsService {
             if !keep {
                 return;
             }
+            let explicit = item.explicit;
             let track = fields(TrackInput {
+                explicit: item.explicit,
                 title: item.title,
                 artist: item.artist,
                 album: item.album,
@@ -661,6 +671,11 @@ impl CollectionsService {
                 artwork_url: item.artwork_url,
                 source: Some(item.source),
             });
+            if explicit {
+                service
+                    .remember_explicit(vec![track.track_key.clone()])
+                    .await;
+            }
             tracing::info!(track = %track.track_key, "play counted");
             if let Err(error) = collections::record_play(service.db(), &track, now_ms()).await {
                 tracing::warn!(%error, "failed to record a play");
@@ -702,7 +717,10 @@ impl CollectionsService {
         let items = tracks
             .into_iter()
             .map(|track| match local.remove(&track.track_key) {
-                Some(row) => library.queue_item(row),
+                Some(row) => QueueItemInput {
+                    explicit: track.explicit,
+                    ..library.queue_item(row)
+                },
                 None => queue_item(track),
             })
             .collect();
@@ -722,18 +740,64 @@ impl CollectionsService {
             .app
             .state::<Arc<DetailService>>()
             .original_song_key(&track.title, track.artist.as_deref());
+        let explicit = track.explicit;
         let saved = fields(track);
         let mut keys = vec![saved.track_key.clone()];
         keys.extend(original);
         let mut local = self.local_matches(&keys).await?;
         if let Some(row) = keys.iter().find_map(|key| local.remove(key)) {
-            return Ok(self.app.state::<LibraryService>().queue_item(row));
+            let mut item = self.app.state::<LibraryService>().queue_item(row);
+            item.explicit = explicit;
+            return Ok(item);
         }
         let mut tracks = self.saved(vec![saved]).await?;
-        Ok(queue_item(tracks.remove(0)))
+        let mut item = queue_item(tracks.remove(0));
+        item.explicit |= explicit;
+        Ok(item)
     }
 
     // ---- Helpers ----
+
+    /// The song keys remembered as explicit.
+    async fn explicit_keys(&self) -> HashSet<String> {
+        raygun_db::local_value(self.db(), EXPLICIT_SONGS)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|json| serde_json::from_str::<Vec<String>>(&json).ok())
+            .unwrap_or_default()
+            .into_iter()
+            .collect()
+    }
+
+    /// Remembers the explicit ones among songs being saved, so saved lists mark them too.
+    pub(crate) async fn note_explicit(&self, tracks: &[TrackInput]) {
+        let keys: Vec<String> = tracks
+            .iter()
+            .filter(|track| track.explicit)
+            .map(|track| shown_key_of(&track.title, track.artist.as_deref()))
+            .collect();
+        self.remember_explicit(keys).await;
+    }
+
+    async fn remember_explicit(&self, keys: Vec<String>) {
+        if keys.is_empty() {
+            return;
+        }
+        let stored: Vec<String> = raygun_db::local_value(self.db(), EXPLICIT_SONGS)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|json| serde_json::from_str(&json).ok())
+            .unwrap_or_default();
+        let list = with_explicit(stored, keys);
+        let Ok(json) = serde_json::to_string(&list) else {
+            return;
+        };
+        if let Err(error) = raygun_db::set_local_value(self.db(), EXPLICIT_SONGS, &json).await {
+            tracing::warn!(%error, "failed to remember explicit songs");
+        }
+    }
 
     async fn local_matches(&self, keys: &[String]) -> Result<HashMap<String, TrackRow>, String> {
         self.app.state::<LibraryService>().matches(keys).await
@@ -751,6 +815,7 @@ impl CollectionsService {
                 let found = local.get(&row.track_key);
                 let local_art = found.and_then(|track| library.artwork_url(track.art.clone()));
                 let mut track = SavedTrack {
+                    explicit: false,
                     local: found.is_some(),
                     play_count: 0,
                     added_at: None,
@@ -770,6 +835,10 @@ impl CollectionsService {
                 track
             })
             .collect();
+        let explicit = self.explicit_keys().await;
+        for track in &mut tracks {
+            track.explicit = explicit.contains(&track.track_key);
+        }
         // Plays count under the song's key and under the names it shows: the player records a
         // renamed song by its new names (M46.48).
         let shown: Vec<String> = tracks.iter().map(shown_key).collect();
@@ -1165,6 +1234,7 @@ fn queue_item(track: SavedTrack) -> QueueItemInput {
         duration_ms: track.duration_ms,
     });
     QueueItemInput {
+        explicit: track.explicit,
         media_kind: match source {
             MediaSource::YouTube { .. } => MediaKind::Video,
             _ => MediaKind::Audio,
@@ -1185,6 +1255,19 @@ fn playlist_name(name: &str) -> Result<String, String> {
     } else {
         Ok(name)
     }
+}
+
+/// `stored` with `keys` last (newest), each once, keeping the newest [`EXPLICIT_SONGS_KEPT`].
+fn with_explicit(mut stored: Vec<String>, keys: Vec<String>) -> Vec<String> {
+    stored.retain(|key| !keys.contains(key));
+    for key in keys {
+        if !stored.contains(&key) {
+            stored.push(key);
+        }
+    }
+    let over = stored.len().saturating_sub(EXPLICIT_SONGS_KEPT);
+    stored.drain(..over);
+    stored
 }
 
 /// `tracks` with the dates they were saved, in the same order.
@@ -1231,6 +1314,7 @@ mod tests {
 
     fn input(source: Option<MediaSource>, artwork: Option<&str>) -> TrackInput {
         TrackInput {
+            explicit: false,
             title: "Feeling Good (Remastered)".into(),
             artist: Some("Nina Simone".into()),
             album: Some("I Put a Spell on You".into()),
@@ -1314,6 +1398,7 @@ mod tests {
     #[test]
     fn tables_play_in_the_order_they_show() {
         let song = |key: &str| SavedTrack {
+            explicit: false,
             track_key: key.into(),
             title: key.into(),
             artist: None,
@@ -1344,6 +1429,7 @@ mod tests {
     #[test]
     fn saved_tracks_without_a_source_play_through_the_resolver() {
         let track = SavedTrack {
+            explicit: false,
             track_key: "a|b".into(),
             title: "B".into(),
             artist: Some("A".into()),
@@ -1359,6 +1445,7 @@ mod tests {
         assert!(matches!(item.source, MediaSource::Lookup { ref title, .. } if title == "B"));
 
         let video = queue_item(SavedTrack {
+            explicit: false,
             source: Some(MediaSource::YouTube {
                 video_id: "v".into(),
             }),
@@ -1381,8 +1468,21 @@ mod tests {
     }
 
     /// A saved row as `play` queues it, reading its source the same way.
+    #[test]
+    fn explicit_keys_stay_once_and_newest_last() {
+        let stored = vec!["a".to_owned(), "b".to_owned()];
+        let list = with_explicit(stored, vec!["a".to_owned(), "c".to_owned(), "c".to_owned()]);
+        assert_eq!(list, ["b", "a", "c"]);
+        let many: Vec<String> = (0..EXPLICIT_SONGS_KEPT).map(|n| n.to_string()).collect();
+        let list = with_explicit(many, vec!["new".to_owned()]);
+        assert_eq!(list.len(), EXPLICIT_SONGS_KEPT);
+        assert_eq!(list.first().map(String::as_str), Some("1"));
+        assert_eq!(list.last().map(String::as_str), Some("new"));
+    }
+
     fn played(row: &TrackFields) -> QueueItem {
         let input = queue_item(SavedTrack {
+            explicit: false,
             track_key: row.track_key.clone(),
             title: row.title.clone(),
             artist: row.artist.clone(),
@@ -1399,6 +1499,7 @@ mod tests {
             play_count: 0,
         });
         QueueItem {
+            explicit: false,
             id: "q1".into(),
             title: input.title,
             artist: input.artist,
@@ -1420,6 +1521,7 @@ mod tests {
             .unwrap();
         // Imported from a screenshot with its names misread, and no source had it.
         let song = TrackInput {
+            explicit: false,
             title: "Sogn".into(),
             artist: Some("Artst".into()),
             album: None,

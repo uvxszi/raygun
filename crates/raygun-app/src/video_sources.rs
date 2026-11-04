@@ -79,22 +79,24 @@ impl VideoSourceService {
         let progress = progress_store::progress_for_keys(&db, &keys)
             .await
             .map_err(to_message)?;
-        let source_name = self
+        let source = self
             .catalog
             .sources()
             .await
             .into_iter()
-            .find(|source| source.id == row.fields.source_id)
-            .map_or_else(
-                || {
-                    if row.fields.source_id == crate::local_files::LOCAL_VIDEO {
-                        "Local files".to_owned()
-                    } else {
-                        row.fields.source_id.clone()
-                    }
-                },
-                |source| source.name,
-            );
+            .find(|source| source.id == row.fields.source_id);
+        let adult =
+            is_adult(&row.fields.genres) || source.as_ref().is_some_and(|source| source.adult);
+        let source_name = source.map_or_else(
+            || {
+                if row.fields.source_id == crate::local_files::LOCAL_VIDEO {
+                    "Local files".to_owned()
+                } else {
+                    row.fields.source_id.clone()
+                }
+            },
+            |source| source.name,
+        );
         let hidden_nsfw = !self.catalog.extensions().show_nsfw() && is_adult(&row.fields.genres);
         let downloaded = crate::video_library::downloaded_keys(&db, &keys).await?;
         let continue_episode_id =
@@ -109,6 +111,7 @@ impl VideoSourceService {
                 .map(|unit| episode_view(&fields.source_id, unit, &progress, &downloaded))
                 .collect(),
             hidden_nsfw,
+            adult,
             id: row.id,
             source_name,
             cover_url: fields
