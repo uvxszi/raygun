@@ -1,5 +1,6 @@
 //! Downloads in the system's notifications, in one place for every kind: songs, videos, chapters,
-//! podcast episodes, exports, AI models, Raygun's own update and yt-dlp's jobs.
+//! podcast episodes, exports, AI models, Raygun's own update, yt-dlp's jobs and extension
+//! installs.
 //!
 //! Nothing here is called by the download services: it listens to the events they already send,
 //! reads their lists when one changes (at most once a second, coalescing the rest), and works out
@@ -27,9 +28,9 @@ use tauri_specta::Event;
 use tokio::sync::Notify;
 
 use crate::events::{
-    AiModelEvent, AppUpdateEvent, ExportEvent, MangaDownloadsEvent, OpenRouteEvent,
-    PodcastsChangedEvent, SongDownloadProgressEvent, SongDownloadsEvent, VideoDownloadsEvent,
-    YtDlpEvent,
+    AiModelEvent, AppUpdateEvent, ExportEvent, ExtensionInstallsEvent, MangaDownloadsEvent,
+    OpenRouteEvent, PodcastsChangedEvent, SongDownloadProgressEvent, SongDownloadsEvent,
+    VideoDownloadsEvent, YtDlpEvent,
 };
 use model::{Abilities, Download, Kind, Phase, Plan, Tracker, Unit};
 
@@ -39,7 +40,7 @@ const TICK: Duration = Duration::from_secs(1);
 /// A podcast download that hasn't moved for this long isn't running (the app stopped under it).
 const PODCAST_STALE: Duration = Duration::from_secs(120);
 
-const ALL_KINDS: [Kind; 8] = [
+const ALL_KINDS: [Kind; 9] = [
     Kind::Songs,
     Kind::Videos,
     Kind::Chapters,
@@ -48,6 +49,7 @@ const ALL_KINDS: [Kind; 8] = [
     Kind::Models,
     Kind::Update,
     Kind::YtDlp,
+    Kind::Extensions,
 ];
 
 /// Follows every download for its notifications.
@@ -115,6 +117,8 @@ impl DownloadNotices {
         AppUpdateEvent::listen(app, move |_| notices.touch(Kind::Update));
         let notices = self.clone();
         YtDlpEvent::listen(app, move |_| notices.touch(Kind::YtDlp));
+        let notices = self.clone();
+        ExtensionInstallsEvent::listen(app, move |_| notices.touch(Kind::Extensions));
         let notices = self.clone();
         AiModelEvent::listen(app, move |event| {
             let progress = event.payload.0;
@@ -210,6 +214,13 @@ impl DownloadNotices {
             Kind::Models => self.models_now(),
             Kind::Update => update(&self.app),
             Kind::YtDlp => ytdlp(&self.app),
+            Kind::Extensions => {
+                state::<Arc<crate::extension_installs::ExtensionInstalls>>(&self.app)
+                    .ok()
+                    .and_then(|installs| model::extension_installs(&installs.status()))
+                    .into_iter()
+                    .collect()
+            }
         };
         downloads
             .into_iter()
@@ -371,6 +382,15 @@ async fn act_on(app: &AppHandle, kind: Kind, id: &str, action: &str) -> Result<(
                     tracing::info!(%error, "the update didn't download again");
                 }
             });
+            Ok(())
+        }
+        // The batch's Cancel stops the installs still waiting; Retry queues its failures again.
+        (Kind::Extensions, "cancel") => {
+            state::<Arc<crate::extension_installs::ExtensionInstalls>>(app)?.cancel_all();
+            Ok(())
+        }
+        (Kind::Extensions, "retry") => {
+            state::<Arc<crate::extension_installs::ExtensionInstalls>>(app)?.retry_failed();
             Ok(())
         }
         (Kind::YtDlp, "cancel") => {

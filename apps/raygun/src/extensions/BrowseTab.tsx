@@ -1,5 +1,5 @@
 import type { CatalogEntry, RepoCatalog } from '@raygun/bindings';
-import { Check, Info, LoaderCircle } from 'lucide-react';
+import { Check, Info, LoaderCircle, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -121,7 +121,8 @@ const EntryAction: FC<{
   entry: CatalogEntry;
   status: InstallStatus | undefined;
   onInstall: () => void;
-}> = ({ entry, status, onInstall }) => {
+  onCancel: () => void;
+}> = ({ entry, status, onInstall, onCancel }) => {
   const { t } = useTranslation();
   if (status?.state === 'done') {
     return (
@@ -146,6 +147,16 @@ const EntryAction: FC<{
           className={status.state === 'installing' ? 'animate-spin' : ''}
         />
         {t(status.state === 'installing' ? 'extensions.installing' : 'extensions.queued')}
+        {status.state === 'queued' && (
+          <button
+            type="button"
+            aria-label={t('extensions.cancelInstall', { name: entry.name })}
+            onClick={onCancel}
+            className="hover:text-foreground grid size-7 place-items-center rounded-full"
+          >
+            <X aria-hidden size={14} />
+          </button>
+        )}
       </span>
     );
   }
@@ -327,9 +338,9 @@ export const BrowseTab: FC<{ show?: CatalogShow }> = ({ show = 'all' }) => {
                       <span className="text-muted line-clamp-2 text-xs">{entry.description}</span>
                     )}
                     {status?.state === 'failed' && (
-                      <span role="alert" className="text-primary text-xs wrap-anywhere">
+                      <SourceIssue compact title={t('extensions.installFailed')} className="mt-1">
                         {status.message}
-                      </span>
+                      </SourceIssue>
                     )}
                   </span>
                   <button
@@ -348,6 +359,7 @@ export const BrowseTab: FC<{ show?: CatalogShow }> = ({ show = 'all' }) => {
                     entry={entry}
                     status={status}
                     onInstall={() => queue.install([entry])}
+                    onCancel={() => queue.cancel(entry)}
                   />
                 </li>
               );

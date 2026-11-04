@@ -194,6 +194,17 @@ export const commands = {
 	extensionCatalog: (refresh: boolean) => typedError<RepoCatalog[], string>(__TAURI_INVOKE("extension_catalog", { refresh })),
 	/**  Installs, or updates to, the version a repository lists. */
 	extensionInstall: (repoId: string, extensionId: string) => typedError<ExtensionInfo_Serialize[], string>(__TAURI_INVOKE("extension_install", { repoId, extensionId })),
+	/**  Adds installs to the queue (one, a selection, every update); they run in the background. */
+	extensionInstallsEnqueue: (entries: ExtensionInstallRequest[]) => __TAURI_INVOKE<ExtensionInstallStatus>("extension_installs_enqueue", { entries }),
+	extensionInstallsStatus: () => __TAURI_INVOKE<ExtensionInstallStatus>("extension_installs_status"),
+	/**  Takes one waiting install out of the queue (a running one finishes). */
+	extensionInstallsCancel: (repoId: string, extensionId: string) => __TAURI_INVOKE<ExtensionInstallStatus>("extension_installs_cancel", { repoId, extensionId }),
+	/**  Stops the installs still waiting; the running one finishes. */
+	extensionInstallsCancelAll: () => __TAURI_INVOKE<ExtensionInstallStatus>("extension_installs_cancel_all"),
+	/**  Queues every failed install again. */
+	extensionInstallsRetry: () => __TAURI_INVOKE<ExtensionInstallStatus>("extension_installs_retry"),
+	/**  Forgets a failed install, or every failure when no extension is named. */
+	extensionInstallsDismiss: (repoId: string | null, extensionId: string | null) => __TAURI_INVOKE<ExtensionInstallStatus>("extension_installs_dismiss", { repoId, extensionId }),
 	extensionUninstall: (extensionId: string) => typedError<ExtensionInfo_Serialize[], string>(__TAURI_INVOKE("extension_uninstall", { extensionId })),
 	/**  Saves one of an extension's settings and reloads it. */
 	extensionSettingSet: (extensionId: string, key: string, value: SettingValue) => typedError<ExtensionInfo_Serialize[], string>(__TAURI_INVOKE("extension_setting_set", { extensionId, key, value })),
@@ -1297,6 +1308,7 @@ export const events = {
 	deviceStateEvent: makeEvent<DeviceStateEvent>("device-state-event"),
 	engineCommandEvent: makeEvent<EngineCommandEvent>("engine-command-event"),
 	exportEvent: makeEvent<ExportEvent>("export-event"),
+	extensionInstallsEvent: makeEvent<ExtensionInstallsEvent>("extension-installs-event"),
 	extensionsChangedEvent: makeEvent<ExtensionsChangedEvent_Deserialize>("extensions-changed-event"),
 	importEvent: makeEvent<ImportEvent>("import-event"),
 	incognitoEvent: makeEvent<IncognitoEvent>("incognito-event"),
@@ -2229,6 +2241,62 @@ export type ExtensionInfo_Serialize = {
 	 */
 	website: string | null,
 };
+
+/**  One install in the queue. */
+export type ExtensionInstall = {
+	repoId: string,
+	extensionId: string,
+	name: string,
+	state: ExtensionInstallState,
+	/**  While it installs. */
+	phase: ExtensionInstallPhase | null,
+	/**  Why it failed. */
+	error: string | null,
+	/**  When it ended (Unix ms). */
+	finishedAt: number | null,
+	/**  The batch it belongs to; failures of earlier batches stay listed until retried. */
+	batch: number,
+};
+
+/**  What the install running now does. */
+export type ExtensionInstallPhase = "downloading" | 
+/**  A Nuclear plugin converts, a Shosetsu script gathers its libraries, a package is checked. */
+"converting" | 
+/**  The files are written. */
+"installing" | 
+/**  The extensions load again with the new ones (once, at the end of a batch). */
+"loading";
+
+/**  An extension to install from a repository, as the catalogue lists it. */
+export type ExtensionInstallRequest = {
+	repoId: string,
+	extensionId: string,
+	name: string,
+};
+
+/**  Where an install in the queue is. */
+export type ExtensionInstallState = "queued" | "installing" | "done" | "failed";
+
+/**  The extension install queue (one at a time, in the order asked). */
+export type ExtensionInstallStatus = {
+	/**  Counts from 1; 0 before the first batch. */
+	batch: number,
+	/**  Installs of this batch still queued or running, then ones that ended. */
+	items: ExtensionInstall[],
+	/**  This batch's installs, cancelled ones left out. */
+	total: number,
+	done: number,
+	failed: number,
+	cancelled: number,
+	/**  Something installs, waits to, or the extensions load again. */
+	running: boolean,
+	/**  The extension installing now, by name. */
+	current: string | null,
+	phase: ExtensionInstallPhase | null,
+};
+
+/**  The extension install queue changed: an install started, moved on a phase or ended. */
+export type ExtensionInstallsEvent = ExtensionInstallStatus;
 
 /**  Where an extension was loaded from. */
 export type ExtensionOrigin = 

@@ -8,6 +8,7 @@ import type {
   EngineCommand,
   ExportJob,
   ExtensionInfo,
+  ExtensionInstallStatus,
   PermissionPrompt,
   IncognitoStatus,
   HiddenItem,
@@ -55,6 +56,7 @@ type EventPayloads = {
   queueEvent: QueueSnapshot;
   libraryScanEvent: LibraryScanProgress;
   extensionsChangedEvent: ExtensionInfo[];
+  extensionInstallsEvent: ExtensionInstallStatus;
   searchProgressEvent: SearchProgress;
   syncChangedEvent: number;
   mangaUpdateEvent: MangaUpdateStatus;
@@ -243,6 +245,19 @@ export const IDLE_UPDATE: MangaUpdateStatus = {
 
 export const EMPTY_LIBRARY: LibraryStatus = { roots: [], trackCount: 0, scanning: false };
 
+/** The extension install queue before anything was asked. */
+export const NO_INSTALLS: ExtensionInstallStatus = {
+  batch: 0,
+  items: [],
+  total: 0,
+  done: 0,
+  failed: 0,
+  cancelled: 0,
+  running: false,
+  current: null,
+  phase: null,
+};
+
 export const bindingsMock = {
   commands: {
     appInfo: vi.fn(),
@@ -402,6 +417,12 @@ export const bindingsMock = {
     extensionRepoRemove: vi.fn(),
     extensionCatalog: vi.fn(),
     extensionInstall: vi.fn(),
+    extensionInstallsEnqueue: vi.fn(),
+    extensionInstallsStatus: vi.fn(),
+    extensionInstallsCancel: vi.fn(),
+    extensionInstallsCancelAll: vi.fn(),
+    extensionInstallsRetry: vi.fn(),
+    extensionInstallsDismiss: vi.fn(),
     extensionUninstall: vi.fn(),
     extensionSettingSet: vi.fn(),
     onlineSearch: vi.fn(),
@@ -644,6 +665,7 @@ export const bindingsMock = {
     queueEvent: makeEvent('queueEvent'),
     libraryScanEvent: makeEvent('libraryScanEvent'),
     extensionsChangedEvent: makeEvent('extensionsChangedEvent'),
+    extensionInstallsEvent: makeEvent('extensionInstallsEvent'),
     searchProgressEvent: makeEvent('searchProgressEvent'),
     syncChangedEvent: makeEvent('syncChangedEvent'),
     mangaUpdateEvent: makeEvent('mangaUpdateEvent'),
@@ -921,6 +943,16 @@ export const seedBindings = () => {
   commands.extensionRepoRemove.mockResolvedValue(ok([]));
   commands.extensionCatalog.mockResolvedValue(ok([]));
   commands.extensionInstall.mockResolvedValue(ok([]));
+  for (const name of [
+    'extensionInstallsEnqueue',
+    'extensionInstallsStatus',
+    'extensionInstallsCancel',
+    'extensionInstallsCancelAll',
+    'extensionInstallsRetry',
+    'extensionInstallsDismiss',
+  ] as const) {
+    commands[name].mockResolvedValue(NO_INSTALLS);
+  }
   commands.extensionUninstall.mockResolvedValue(ok([]));
   commands.extensionSettingSet.mockResolvedValue(ok([]));
   commands.onlineSearch.mockResolvedValue(ok({ library: [], top: [], providers: [] }));

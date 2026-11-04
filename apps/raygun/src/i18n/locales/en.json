@@ -1234,7 +1234,26 @@
     "installSelected_one": "Install {{count}}",
     "installSelected_other": "Install {{count}}",
     "updateAll": "Update all ({{count}})",
-    "installedNow": "Installed"
+    "installedNow": "Installed",
+    "installFailed": "Didn't install",
+    "cancelInstall": "Don't install {{name}}",
+    "installs": {
+      "label": "Extension installs",
+      "title": "Installing extensions · {{position}} of {{total}}",
+      "phase": {
+        "downloading": "Downloading",
+        "converting": "Converting",
+        "installing": "Installing",
+        "loading": "Loading extensions"
+      },
+      "cancel": "Cancel",
+      "installed_one": "{{count}} installed",
+      "installed_other": "{{count}} installed",
+      "failed_one": "{{count}} failed",
+      "failed_other": "{{count}} failed",
+      "retry": "Retry",
+      "dismiss": "Dismiss"
+    }
   },
   "collections": {
     "moreActions": "More for {{title}}",

@@ -170,10 +170,12 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     crate::playback::PlaybackService::start_saving(app.handle().clone());
     crate::playback::PlaybackService::start_watchdog(app.handle().clone());
 
-    app.manage(crate::extensions::ExtensionService::start(
-        app.handle().clone(),
-        &paths,
-    )?);
+    let extensions = crate::extensions::ExtensionService::start(app.handle().clone(), &paths)?;
+    app.manage(crate::extension_installs::ExtensionInstalls::start_in(
+        app.handle(),
+        extensions.clone(),
+    ));
+    app.manage(extensions);
     app.manage(std::sync::Arc::new(crate::resolver::ResolverService::new(
         app.handle().clone(),
     )));
