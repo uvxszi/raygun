@@ -87,19 +87,6 @@ const VideoSearch: FC<{
   const pillRows = answeredFirst(pills, (source) => answers(source.id));
   return (
     <div className="flex flex-col gap-5">
-      <div role="group" aria-label={t('search.video.kind')} className="flex gap-2">
-        {VIDEO_VIEWS.map((option) => (
-          <button
-            key={option}
-            type="button"
-            aria-pressed={view === option}
-            onClick={() => onView(option)}
-            className={pill(view === option)}
-          >
-            {t(`search.video.${option}`)}
-          </button>
-        ))}
-      </div>
       {view === 'sources' && (
         // Every video source by its chip, the ones with their own pill too (M46.40).
         <CatalogSearch key="video-sources" medium="video" query={query} withPills />
@@ -137,6 +124,47 @@ const VideoSearch: FC<{
           </Section>
         </>
       )}
+    </div>
+  );
+};
+
+/** Videos' own pills: its views, then each video site that brings a pill (YouTube, PeerTube…). */
+const VideoPillRow: FC<{
+  view: VideoView;
+  site: string | null;
+  sites: MangaSource[];
+  onView: (view: VideoView) => void;
+  onSite: (id: string) => void;
+}> = ({ view, site, sites, onView, onSite }) => {
+  const { t } = useTranslation();
+  return (
+    <div
+      role="group"
+      aria-label={t('search.video.kind')}
+      className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
+    >
+      {VIDEO_VIEWS.map((option) => (
+        <button
+          key={option}
+          type="button"
+          aria-pressed={site === null && view === option}
+          onClick={() => onView(option)}
+          className={`shrink-0 ${pill(site === null && view === option)}`}
+        >
+          {t(`search.video.${option}`)}
+        </button>
+      ))}
+      {sites.map((source) => (
+        <button
+          key={source.id}
+          type="button"
+          aria-pressed={site === source.id}
+          onClick={() => onSite(source.id)}
+          className={`shrink-0 ${pill(site === source.id)}`}
+        >
+          {source.searchPill}
+        </button>
+      ))}
     </div>
   );
 };
@@ -234,27 +262,7 @@ export const SearchPanel: FC<{
             className="-mx-4 flex min-w-0 flex-1 gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
           >
             {SEARCH_TYPES.map((option) => (
-              <Fragment key={option}>
-                {typePill(option)}
-                {/* A video site's own pill sits beside Videos. */}
-                {option === 'video' &&
-                  pills.map((source) => {
-                    const current = pillSource?.id === source.id;
-                    return (
-                      <button
-                        key={source.id}
-                        ref={current ? selected : undefined}
-                        type="button"
-                        role="tab"
-                        aria-selected={current}
-                        onClick={() => onType('video', undefined, source.id)}
-                        className={`shrink-0 rounded-full px-4 py-1.5 text-sm ${current ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
-                      >
-                        {source.searchPill}
-                      </button>
-                    );
-                  })}
-              </Fragment>
+              <Fragment key={option}>{typePill(option)}</Fragment>
             ))}
           </div>
           <SearchFilterToggles />
@@ -280,6 +288,15 @@ export const SearchPanel: FC<{
           {type === 'all' && <AllResults query={query} onType={onType} />}
           {type === 'music' && (
             <MusicResults query={query} view={musicView} onView={(next) => onType('music', next)} />
+          )}
+          {type === 'video' && (
+            <VideoPillRow
+              view={videoView}
+              site={pillSource?.id ?? null}
+              sites={pills}
+              onView={(next) => onType('video', next)}
+              onSite={(id) => onType('video', undefined, id)}
+            />
           )}
           {type === 'video' && pillSource && (
             <CatalogSearch key={pillSource.id} medium="video" query={query} only={pillSource.id} />
