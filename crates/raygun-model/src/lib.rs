@@ -1076,25 +1076,37 @@ pub enum TextAlign {
 }
 
 /// The full music player's layout (M46.7). One stored row; missing fields keep their defaults.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+///
+/// Sizes start from the screen: the cover is as large as fits beside the controls, the column as
+/// wide as the window suits, lyrics as large as their column. Each offset moves away from that
+/// size, so the player stays right on any window, zoom or orientation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
 #[serde(default, rename_all = "camelCase")]
 pub struct PlayerViewPrefs {
     pub layout: PlayerLayout,
-    /// The player's width in percent of the window's (40-100, steps of 5); 0 picks it by screen.
-    pub width: u32,
-    /// Lyrics text size in px (14-48, even); 0 picks it by screen.
-    pub lyrics_size: u32,
+    /// The cover, in percent larger or smaller than what fits ([`PLAYER_PERCENT_OFFSETS`]).
+    pub cover_offset: i32,
+    /// The player's width, in percent wider or narrower than the screen's ([`PLAYER_PERCENT_OFFSETS`]).
+    pub width_offset: i32,
+    /// Lyrics text, in px (at 100 % zoom) larger or smaller than by screen ([`LYRICS_OFFSETS`]).
+    pub lyrics_offset: i32,
     pub lyrics_align: TextAlign,
     /// The artwork, blurred, behind the player.
     pub background: bool,
 }
 
+/// How far the cover and the player's width move from their size by screen, in percent.
+pub const PLAYER_PERCENT_OFFSETS: std::ops::RangeInclusive<i32> = -40..=40;
+/// How far lyrics text moves from its size by screen, in px.
+pub const LYRICS_OFFSETS: std::ops::RangeInclusive<i32> = -5..=10;
+
 impl Default for PlayerViewPrefs {
     fn default() -> Self {
         Self {
             layout: PlayerLayout::Auto,
-            width: 0,
-            lyrics_size: 0,
+            cover_offset: 0,
+            width_offset: 0,
+            lyrics_offset: 0,
             lyrics_align: TextAlign::Left,
             background: true,
         }
@@ -1103,19 +1115,77 @@ impl Default for PlayerViewPrefs {
 
 impl PlayerViewPrefs {
     pub fn validate(&self) -> Result<(), String> {
-        if !(self.width == 0 || ((40..=100).contains(&self.width) && self.width.is_multiple_of(5)))
-        {
-            return Err(format!("{}% isn't an offered player width", self.width));
+        for (name, offset) in [("cover", self.cover_offset), ("width", self.width_offset)] {
+            if !PLAYER_PERCENT_OFFSETS.contains(&offset) {
+                return Err(format!("{offset}% is out of range for the player's {name}"));
+            }
         }
-        if !(self.lyrics_size == 0
-            || ((14..=48).contains(&self.lyrics_size) && self.lyrics_size.is_multiple_of(2)))
-        {
+        if !LYRICS_OFFSETS.contains(&self.lyrics_offset) {
             return Err(format!(
-                "{} px isn't an offered lyrics size",
-                self.lyrics_size
+                "{} px is out of range for lyrics",
+                self.lyrics_offset
             ));
         }
         Ok(())
+    }
+}
+
+/// Reads a stored row, also one from before the offsets: a width in percent of the window and
+/// a lyrics size in px (0 meant "by screen") become the nearest offsets.
+impl<'de> Deserialize<'de> for PlayerViewPrefs {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(default, rename_all = "camelCase")]
+        struct Stored {
+            layout: PlayerLayout,
+            cover_offset: Option<i32>,
+            width_offset: Option<i32>,
+            lyrics_offset: Option<i32>,
+            lyrics_align: TextAlign,
+            background: Option<bool>,
+            /// Before the offsets: 40–100 % of the window.
+            width: Option<u32>,
+            /// Before the offsets: 14–48 px.
+            lyrics_size: Option<u32>,
+        }
+        impl Default for Stored {
+            fn default() -> Self {
+                Self {
+                    layout: PlayerLayout::Auto,
+                    cover_offset: None,
+                    width_offset: None,
+                    lyrics_offset: None,
+                    lyrics_align: TextAlign::Left,
+                    background: None,
+                    width: None,
+                    lyrics_size: None,
+                }
+            }
+        }
+        let stored = Stored::deserialize(deserializer)?;
+        // The by-screen column was about three quarters of a desktop window, and lyrics about
+        // 20 px on a phone: an old choice keeps its direction and roughly its size.
+        let width_offset = stored.width_offset.unwrap_or_else(|| match stored.width {
+            Some(width) if width > 0 => (((i64::from(width) - 75) * 4) / 3) as i32,
+            _ => 0,
+        });
+        let lyrics_offset = stored
+            .lyrics_offset
+            .unwrap_or_else(|| match stored.lyrics_size {
+                Some(size) if size > 0 => (i64::from(size) - 20) as i32,
+                _ => 0,
+            });
+        let clamp = |offset: i32, range: &std::ops::RangeInclusive<i32>| {
+            offset.clamp(*range.start(), *range.end())
+        };
+        Ok(Self {
+            layout: stored.layout,
+            cover_offset: clamp(stored.cover_offset.unwrap_or(0), &PLAYER_PERCENT_OFFSETS),
+            width_offset: clamp(width_offset, &PLAYER_PERCENT_OFFSETS),
+            lyrics_offset: clamp(lyrics_offset, &LYRICS_OFFSETS),
+            lyrics_align: stored.lyrics_align,
+            background: stored.background.unwrap_or(true),
+        })
     }
 }
 
@@ -2377,6 +2447,8 @@ pub enum PlaybackControl {
         item_id: String,
     },
     Clear,
+    /// Removes everything after the current item in play order, keeping it playing.
+    ClearUpcoming,
     /// Moves a queued item before another in the play order, or to the end (M46.8).
     #[serde(rename_all = "camelCase")]
     Move {

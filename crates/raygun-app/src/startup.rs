@@ -163,6 +163,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         native_engine(app),
     ));
     crate::playback::PlaybackService::start_saving(app.handle().clone());
+    crate::playback::PlaybackService::start_watchdog(app.handle().clone());
 
     app.manage(crate::extensions::ExtensionService::start(
         app.handle().clone(),

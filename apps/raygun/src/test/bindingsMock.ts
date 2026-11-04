@@ -169,7 +169,7 @@ export const DEFAULT_SETTINGS: Settings = {
   accentColor: '#e5484d',
   coverWidth: 0,
   mangaReader: { pagedScale: 'fitScreen', webtoonWidth: 0 },
-  playerView: { layout: 'auto', width: 0 },
+  playerView: { layout: 'auto', widthOffset: 0 },
   scrollbars: 'thin',
   motion: 'lively',
   trackTables: { tables: {} },
