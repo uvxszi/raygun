@@ -14,6 +14,7 @@ import { AdultMark } from '../shell/AdultMark';
 import { songCover } from '../library/coverTargets';
 import { SongMarks } from '../music/SongMarks';
 import { songReveal } from '../music/reveal';
+import { Selectable } from '../select/Selectable';
 
 type OnlineTrackRowProps = {
   track: OnlineTrack;
@@ -34,44 +35,46 @@ export const OnlineTrackRow: FC<OnlineTrackRowProps> = ({
   const menu = useTrackMenu();
   const playing = usePlayingMatch()(track);
   return (
-    <div
-      className="flex items-center"
-      data-reveal={songReveal(track.title, track.artist)}
-      onContextMenu={menu(fromOnlineTrack(track), { onPlay: () => onPlay(track) })}
-    >
-      <button
-        type="button"
-        data-testid="online-track-row"
-        onClick={() => onPlay(track)}
-        className="flex h-14 min-w-0 flex-1 items-center gap-3 text-left"
+    <Selectable picked={{ kind: 'song', track }} layout="row">
+      <div
+        className="flex items-center"
+        data-reveal={songReveal(track.title, track.artist)}
+        onContextMenu={menu(fromOnlineTrack(track), { onPlay: () => onPlay(track) })}
       >
-        <Artwork
-          url={track.artworkUrl}
-          fallback={songCover(track)}
-          className="size-10 shrink-0 rounded"
-          iconSize={18}
-        />
-        <span className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <span
-            className={`flex min-w-0 items-center gap-1.5 text-sm font-medium ${playing ? 'text-primary' : ''}`}
-          >
-            {playing && <NowPlayingBars playing={playing === 'playing'} />}
-            <span className="truncate">{track.title}</span>
-            <SongMarks title={track.title} artist={track.artist} />
-            {track.explicit && <ExplicitMark />}
+        <button
+          type="button"
+          data-testid="online-track-row"
+          onClick={() => onPlay(track)}
+          className="flex h-14 min-w-0 flex-1 items-center gap-3 text-left"
+        >
+          <Artwork
+            url={track.artworkUrl}
+            fallback={songCover(track)}
+            className="size-10 shrink-0 rounded"
+            iconSize={18}
+          />
+          <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <span
+              className={`flex min-w-0 items-center gap-1.5 text-sm font-medium ${playing ? 'text-primary' : ''}`}
+            >
+              {playing && <NowPlayingBars playing={playing === 'playing'} />}
+              <span className="truncate">{track.title}</span>
+              <SongMarks title={track.title} artist={track.artist} />
+              {track.explicit && <ExplicitMark />}
+            </span>
+            <span className="text-muted block truncate text-xs">
+              <ArtistLinks credit={track.artist} nested row />
+              {track.album && <> · {track.album}</>}
+              {source && <span className="text-primary/80"> · {source}</span>}
+              {source && sourceAdult && <AdultMark className="ml-1" />}
+            </span>
           </span>
-          <span className="text-muted block truncate text-xs">
-            <ArtistLinks credit={track.artist} nested row />
-            {track.album && <> · {track.album}</>}
-            {source && <span className="text-primary/80"> · {source}</span>}
-            {source && sourceAdult && <AdultMark className="ml-1" />}
+          <span className="text-muted shrink-0 text-xs tabular-nums">
+            {track.durationMs ? formatTime(track.durationMs) : ''}
           </span>
-        </span>
-        <span className="text-muted shrink-0 text-xs tabular-nums">
-          {track.durationMs ? formatTime(track.durationMs) : ''}
-        </span>
-      </button>
-      <TrackMoreButton track={fromOnlineTrack(track)} />
-    </div>
+        </button>
+        <TrackMoreButton track={fromOnlineTrack(track)} />
+      </div>
+    </Selectable>
   );
 };

@@ -3825,11 +3825,44 @@ pub async fn library_download_next(
     title_ids: Vec<String>,
     amount: Option<u32>,
 ) -> Result<u32, String> {
-    if medium == "video" {
-        return Err("Episodes are downloaded from their title page".into());
-    }
     let catalog = catalog_for(&app, &medium)?;
+    if medium == "video" {
+        let (queued, failed) =
+            crate::library_actions::download_episodes(&app, catalog, &title_ids, amount).await;
+        return match failed.into_iter().next() {
+            Some(failure) if queued == 0 => Err(failure.message),
+            _ => Ok(queued),
+        };
+    }
     crate::library_actions::download_next(&app, catalog, &title_ids, amount).await
+}
+
+/// Adds titles picked from search or a source's page to the library (fetching the ones never
+/// opened) and puts them into `category_ids` (groups for comics and books, folders for videos).
+#[tauri::command]
+#[specta::specta]
+pub async fn library_add_titles(
+    app: tauri::AppHandle,
+    medium: String,
+    titles: Vec<raygun_model::RemoteTitleRef>,
+    category_ids: Vec<String>,
+) -> Result<raygun_model::BulkResult, String> {
+    let catalog = catalog_for(&app, &medium)?;
+    Ok(crate::library_actions::add_titles(&app, catalog, &titles, &category_ids).await)
+}
+
+/// Downloads the next `amount` chapters or episodes (all unread ones without an amount) of
+/// titles picked from search or a source's page, through the normal download queues.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_download_titles(
+    app: tauri::AppHandle,
+    medium: String,
+    titles: Vec<raygun_model::RemoteTitleRef>,
+    amount: Option<u32>,
+) -> Result<raygun_model::BulkResult, String> {
+    let catalog = catalog_for(&app, &medium)?;
+    Ok(crate::library_actions::download_titles(&app, catalog, &titles, amount).await)
 }
 
 /// The chapter or episode a title continues at.

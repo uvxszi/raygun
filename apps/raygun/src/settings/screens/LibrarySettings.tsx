@@ -71,7 +71,7 @@ export const LibrarySettings: FC = () => {
           value={display.tabs}
           options={TAB_MODES.map((value) => ({
             value,
-            label: t(`library.display.tabModes.${value}`),
+            label: t(`library.display.tabModes.${value}`, { context: 'all' }),
           }))}
           onChange={(tabs) => setDisplay({ tabs })}
         />
@@ -81,7 +81,7 @@ export const LibrarySettings: FC = () => {
           onChange={(showCounts) => setDisplay({ showCounts })}
         />
         <PrefSwitch
-          title={t('library.display.perCategory')}
+          title={t('library.display.perCategory', { context: 'all' })}
           checked={display.perCategory}
           onChange={(perCategory) => setDisplay({ perCategory })}
         />
@@ -124,7 +124,7 @@ export const LibrarySettings: FC = () => {
           onChange={(value) => update.mutate({ key: 'mangaUpdateHours', value })}
         />
       </PrefGroup>
-      <PrefGroup title={t('library.categories.title')}>
+      <PrefGroup title={t('more.categories')}>
         <PrefLink
           icon={Tag}
           to="/library/categories"
@@ -136,6 +136,12 @@ export const LibrarySettings: FC = () => {
           to="/library/categories"
           search={{ medium: 'novel' }}
           title={t('library.categories.novelTitle')}
+        />
+        <PrefLink
+          icon={Tag}
+          to="/library/categories"
+          search={{ medium: 'video' }}
+          title={t('library.categories.videoTitle')}
         />
       </PrefGroup>
       <PrefGroup title={t('settings.musicFolders')}>

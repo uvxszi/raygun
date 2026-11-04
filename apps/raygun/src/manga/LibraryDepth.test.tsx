@@ -87,9 +87,9 @@ describe('Library depth', () => {
     await press(user, within(library).getByRole('link', { name: 'Frieren' }));
     await press(user, within(library).getByRole('link', { name: 'Berserk' }));
     await user.click(
-      within(within(library).getByRole('toolbar')).getByRole('button', { name: 'Set categories' }),
+      within(within(library).getByRole('toolbar')).getByRole('button', { name: 'Set groups' }),
     );
-    const sheet = await screen.findByRole('dialog', { name: 'Set categories' });
+    const sheet = await screen.findByRole('dialog', { name: 'Set groups' });
     // Only some of them are in Reading: its box starts mixed.
     const reading = within(sheet).getByRole('checkbox', { name: 'Reading' });
     expect(reading).toHaveAttribute('aria-checked', 'mixed');

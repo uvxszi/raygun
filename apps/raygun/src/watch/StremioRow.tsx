@@ -8,7 +8,10 @@ import { AdultMark } from '../shell/AdultMark';
 import { Carousel } from '../shell/Carousel';
 import { SourceIssue } from '../shell/SourceIssue';
 import { useInView } from '../shell/useInView';
+import { Selectable } from '../select/Selectable';
+import { useInSelectionScope } from '../select/scopeContext';
 import { useStremioAddons, useStremioRow } from './useStremio';
+import { STREMIO_SOURCE } from './useVideoLibrary';
 
 const ASPECT: Record<string, string> = {
   landscape: 'aspect-video',
@@ -46,22 +49,37 @@ export const StremioPoster: FC<{ url: string | null; shape?: string; className?:
 export const StremioCard: FC<{ item: StremioItem; className?: string }> = ({
   item,
   className = '',
-}) => (
-  <Link
-    to="/watch/title"
-    search={{ type: item.kind, id: item.id }}
-    aria-label={item.name || item.id}
-    className={`flex flex-col gap-1 ${className}`}
-  >
-    <StremioPoster url={item.poster} shape={item.posterShape} />
-    {item.name && <span className="line-clamp-2 text-sm font-medium">{item.name}</span>}
-    {(item.releaseInfo || item.rating) && (
-      <span className="text-muted line-clamp-1 text-xs">
-        {[item.releaseInfo, item.rating && `★ ${item.rating}`].filter(Boolean).join(' · ')}
-      </span>
-    )}
-  </Link>
-);
+}) => {
+  // In search a card can be picked (M46.50); the box around it then takes the card's size.
+  const pickable = useInSelectionScope();
+  return (
+    <Selectable
+      picked={{
+        kind: 'title',
+        medium: 'video',
+        sourceId: STREMIO_SOURCE,
+        remoteId: `${item.kind}:${item.id}`,
+        title: item.name || item.id,
+      }}
+      className={className}
+    >
+      <Link
+        to="/watch/title"
+        search={{ type: item.kind, id: item.id }}
+        aria-label={item.name || item.id}
+        className={`flex flex-col gap-1 ${pickable ? '' : className}`}
+      >
+        <StremioPoster url={item.poster} shape={item.posterShape} />
+        {item.name && <span className="line-clamp-2 text-sm font-medium">{item.name}</span>}
+        {(item.releaseInfo || item.rating) && (
+          <span className="text-muted line-clamp-1 text-xs">
+            {[item.releaseInfo, item.rating && `★ ${item.rating}`].filter(Boolean).join(' · ')}
+          </span>
+        )}
+      </Link>
+    </Selectable>
+  );
+};
 
 /** A row's heading: what it lists, which addon, and a way to all of it. */
 const RowHeading: FC<{
