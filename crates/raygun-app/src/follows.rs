@@ -282,13 +282,16 @@ impl ArtistFollows {
             let _ = raygun_db::set_local_value(&self.db(), NEWS, &json).await;
         }
         for item in &fresh {
-            let _ = self
+            let builder = self
                 .app
                 .notification()
                 .builder()
                 .title(format!("New from {}", item.artist))
-                .body(item.album.title.clone())
-                .show();
+                .body(item.album.title.clone());
+            // Raygun's mark (the `raygun-audio` plugin's drawable), not Android's info icon.
+            #[cfg(target_os = "android")]
+            let builder = builder.icon("ic_stat_raygun");
+            let _ = builder.show();
         }
         let _ = ArtistReleasesEvent.emit(&self.app);
     }

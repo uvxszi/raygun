@@ -1,6 +1,7 @@
 package app.raygun.audio
 
 import android.app.Notification
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
@@ -30,6 +31,10 @@ import org.json.JSONObject
  *
  * Android drops a package's notifications when they change faster than a few a second, so
  * changes beyond [MAX_POSTS] a second wait for the next round; Rust sends at most one plan a second.
+ *
+ * Nothing is left behind: every plan also cancels this channel's notifications it doesn't name
+ * (ones a killed process posted, or a cancel Android ignored right after `stopForeground`), and
+ * all but the foreground one time out unless Rust's plan, sent again every minute, renews them.
  */
 object DownloadNotices {
     const val CHANNEL = "raygun.downloads"
@@ -38,14 +43,22 @@ object DownloadNotices {
     private const val FINISHED_ID = 0x52590002
     private const val FIRST_ITEM_ID = 0x52590100
     private const val MAX_POSTS = 4
+    /** Notifications not renewed for this long go by themselves (Raygun was killed), ms. */
+    private const val TIMEOUT_MS = 10 * 60 * 1000L
+    /** One still showing the same is posted again after this long, renewing its timeout, ms. */
+    private const val RENEW_MS = 2 * 60 * 1000L
+    private const val LAST_ITEM_ID = FIRST_ITEM_ID + 0xFFFF
     const val ACTION = "app.raygun.audio.DOWNLOAD_ACTION"
 
     private val main = Handler(Looper.getMainLooper())
     private val ids = mutableMapOf<String, Int>()
     private var nextId = FIRST_ITEM_ID
-    /** What each posted notification shows, to post only what changed. */
-    private val posted = mutableMapOf<Int, String>()
-    private var plan: JSONObject? = null
+    /** What each posted notification shows, to post only what changed, and when it was posted. */
+    private val posted = mutableMapOf<Int, Pair<String, Long>>()
+    /** Rust's last plan; none before this process got one. */
+    @Volatile
+    var plan: JSONObject? = null
+        private set
     private val postTimes = ArrayDeque<Long>()
     private var retryScheduled = false
 
@@ -57,6 +70,13 @@ object DownloadNotices {
     @Volatile
     var foreground = false
         private set
+
+    /**
+     * Android refused the foreground service (Android 15's daily limit for `dataSync`, or a start
+     * from the background): not asked again until the downloads end.
+     */
+    @Volatile
+    private var refused = false
 
     /** Takes Rust's plan and the batch's end, if one ended. Main thread. */
     fun show(context: Context, next: JSONObject, finished: JSONObject?) {
@@ -71,30 +91,39 @@ object DownloadNotices {
         val manager = NotificationManagerCompat.from(context)
         val summaryJson = current.optJSONObject("summary")
         val items = current.optJSONArray("items") ?: JSONArray()
+        val wantsForeground = current.optBoolean("foreground", false) && summaryJson != null
         val wanted = mutableMapOf<Int, Pair<String, () -> Notification>>()
         if (summaryJson != null) {
             val grouped = items.length() > 0
-            wanted[SUMMARY_ID] = summaryJson.toString() + grouped to { build(context, summaryJson, grouped, summary = true) }
+            // The foreground one never times out: it goes with the service.
+            wanted[SUMMARY_ID] = summaryJson.toString() + grouped + wantsForeground to {
+                build(context, summaryJson, grouped, summary = true, expires = !wantsForeground)
+            }
         }
         for (index in 0 until items.length()) {
             val item = items.getJSONObject(index)
             val id = ids.getOrPut(item.optString("key")) { nextId++ }
-            wanted[id] = item.toString() to { build(context, item, grouped = true, summary = false) }
+            wanted[id] = item.toString() to { build(context, item, grouped = true, summary = false, expires = true) }
         }
-        // Gone ones go at once: removing isn't limited.
+        ids.entries.removeAll { it.value !in wanted }
+        // Gone ones go at once: removing isn't limited. The summary standing with the service goes
+        // with it (setForeground below).
+        if (summaryJson == null) summary = null
         for (id in posted.keys.toList()) {
             if (id !in wanted) {
                 if (id != SUMMARY_ID || !foreground) manager.cancel(id)
                 posted.remove(id)
             }
         }
-        ids.entries.removeAll { it.value !in wanted }
-        val wantsForeground = current.optBoolean("foreground", false) && summaryJson != null
+        cancelStrays(context, wanted.keys)
         var deferred = false
-        // The summary first: it's the foreground notification.
-        for ((id, entry) in wanted.toSortedMap(compareBy { if (it == SUMMARY_ID) 0 else 1 })) {
+        val now = SystemClock.elapsedRealtime()
+        // The summary first: it's the foreground notification. (Ordered by id too: a comparator
+        // that called every item equal kept only one of them.)
+        for ((id, entry) in wanted.toSortedMap(compareBy<Int>({ if (it == SUMMARY_ID) 0 else 1 }, { it }))) {
             val (fingerprint, make) = entry
-            if (posted[id] == fingerprint) continue
+            val last = posted[id]
+            if (last != null && last.first == fingerprint && now - last.second < RENEW_MS) continue
             if (!mayPost()) {
                 deferred = true
                 continue
@@ -102,9 +131,8 @@ object DownloadNotices {
             val notification = make()
             if (id == SUMMARY_ID) summary = notification
             notify(context, manager, id, notification)
-            posted[id] = fingerprint
+            posted[id] = fingerprint to now
         }
-        if (summaryJson == null) summary = null
         setForeground(context, wantsForeground)
         if (deferred && !retryScheduled) {
             retryScheduled = true
@@ -132,11 +160,27 @@ object DownloadNotices {
         }
     }
 
-    private fun setForeground(context: Context, on: Boolean) {
-        if (on == foreground) {
-            if (on) RaygunDownloadService.refresh()
-            return
+    /**
+     * Cancels this channel's notifications that the plan doesn't name: ones posted by a process
+     * that was killed (this one never knew them), and cancels Android ignored.
+     */
+    private fun cancelStrays(context: Context, wanted: Set<Int>) {
+        val system = context.getSystemService(NotificationManager::class.java) ?: return
+        val active = runCatching { system.activeNotifications }.getOrNull() ?: return
+        val manager = NotificationManagerCompat.from(context)
+        for (shown in active) {
+            val id = shown.id
+            val ours = id == SUMMARY_ID || id in FIRST_ITEM_ID..LAST_ITEM_ID
+            if (!ours || id in wanted || shown.tag != null) continue
+            // The service's own notification goes with the service.
+            if (id == SUMMARY_ID && foreground && RaygunDownloadService.isRunning) continue
+            manager.cancel(id)
         }
+    }
+
+    private fun setForeground(context: Context, on: Boolean) {
+        if (!on) refused = false
+        if (on == foreground || (on && refused)) return
         foreground = on
         if (on) {
             try {
@@ -145,6 +189,7 @@ object DownloadNotices {
                 // Android 12+ refuses from the background; the notifications still show.
                 Log.w("RaygunAudio", "downloads couldn't run in the foreground", error)
                 foreground = false
+                refused = true
             }
         } else if (!RaygunDownloadService.finish()) {
             // No service stood with it (it couldn't start). A paused or waiting queue keeps its
@@ -154,9 +199,42 @@ object DownloadNotices {
         }
     }
 
+    /** The service stopped standing in the foreground on its own (refused, or out of time). */
+    fun serviceEnded(context: Context) {
+        main.post {
+            if (!foreground) return@post
+            foreground = false
+            refused = true
+            // The summary is posted again as an ordinary notification, or goes.
+            val manager = NotificationManagerCompat.from(context)
+            summary?.let { notify(context, manager, SUMMARY_ID, it) } ?: manager.cancel(SUMMARY_ID)
+        }
+    }
+
+    /**
+     * Clears every download notification but the batch's notice: a button was pressed in a
+     * process that never got a plan (Raygun was killed and nothing downloads in this one).
+     */
+    fun clearStale(context: Context) {
+        main.post {
+            if (plan != null) return@post
+            val manager = NotificationManagerCompat.from(context)
+            manager.cancel(SUMMARY_ID)
+            cancelStrays(context, emptySet())
+        }
+    }
+
+    /** Cancels the summary in a moment, if it's still not wanted: Android may ignore a cancel
+     * that comes right after `stopForeground`. */
+    fun cancelSummaryLater(context: Context) {
+        main.postDelayed({
+            if (summary == null && !foreground) NotificationManagerCompat.from(context).cancel(SUMMARY_ID)
+        }, 1500)
+    }
+
     private fun postFinished(context: Context, finished: JSONObject) {
         val builder = NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(R.drawable.media3_notification_small_icon)
+            .setSmallIcon(R.drawable.ic_stat_raygun)
             .setContentTitle(finished.optString("title"))
             .setContentText(finished.optString("text"))
             .setStyle(NotificationCompat.BigTextStyle().bigText(finished.optString("text")))
@@ -169,10 +247,10 @@ object DownloadNotices {
         notify(context, NotificationManagerCompat.from(context), FINISHED_ID, builder.build())
     }
 
-    private fun build(context: Context, shown: JSONObject, grouped: Boolean, summary: Boolean): Notification {
+    private fun build(context: Context, shown: JSONObject, grouped: Boolean, summary: Boolean, expires: Boolean): Notification {
         val route = shown.optString("route", "/downloads")
         val builder = NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(R.drawable.media3_notification_small_icon)
+            .setSmallIcon(R.drawable.ic_stat_raygun)
             .setContentTitle(shown.optString("title"))
             .setContentText(shown.optString("text"))
             .setOngoing(shown.optBoolean("ongoing", true))
@@ -182,6 +260,7 @@ object DownloadNotices {
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+        if (expires) builder.setTimeoutAfter(TIMEOUT_MS)
         if (!shown.isNull("info")) builder.setSubText(shown.optString("info"))
         if (shown.optBoolean("ongoing", true)) {
             if (shown.isNull("progress")) {
@@ -245,6 +324,12 @@ class DownloadActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != DownloadNotices.ACTION) return
         val keys = runCatching { JSONArray(intent.getStringExtra("keys") ?: "[]") }.getOrDefault(JSONArray())
+        // Pressed on a notification left by a Raygun that was killed: nothing in this process
+        // downloads, so it goes.
+        if (DownloadNotices.plan == null) {
+            DownloadNotices.clearStale(context.applicationContext)
+            return
+        }
         NativeBridge.notificationAction(
             JSONObject().put("action", intent.getStringExtra("action").orEmpty()).put("keys", keys).toString(),
         )
@@ -276,6 +361,7 @@ class RaygunDownloadService : Service() {
         } catch (error: Exception) {
             Log.w("RaygunAudio", "downloads couldn't run in the foreground", error)
             stopSelf()
+            DownloadNotices.serviceEnded(applicationContext)
             return START_NOT_STICKY
         }
         if (!DownloadNotices.foreground) finishNow()
@@ -284,11 +370,12 @@ class RaygunDownloadService : Service() {
 
     override fun onTimeout(startId: Int, fgsType: Int) {
         finishNow()
+        DownloadNotices.serviceEnded(applicationContext)
     }
 
     private fun placeholder(): Notification =
         NotificationCompat.Builder(this, DownloadNotices.CHANNEL)
-            .setSmallIcon(R.drawable.media3_notification_small_icon)
+            .setSmallIcon(R.drawable.ic_stat_raygun)
             .setContentTitle("Downloading")
             .setOngoing(true)
             .setSilent(true)
@@ -310,10 +397,14 @@ class RaygunDownloadService : Service() {
             if (keep != null) ServiceCompat.STOP_FOREGROUND_DETACH else ServiceCompat.STOP_FOREGROUND_REMOVE,
         )
         stopSelf()
+        val manager = NotificationManagerCompat.from(this)
         if (keep != null) {
-            NotificationManagerCompat.from(this).let {
-                if (it.areNotificationsEnabled()) runCatching { it.notify(DownloadNotices.SUMMARY_ID, keep) }
-            }
+            if (manager.areNotificationsEnabled()) runCatching { manager.notify(DownloadNotices.SUMMARY_ID, keep) }
+        } else {
+            // `REMOVE` only takes the notification while it's the foreground one, and Android may
+            // ignore a cancel that comes right after: both, and once more in a moment.
+            manager.cancel(DownloadNotices.SUMMARY_ID)
+            DownloadNotices.cancelSummaryLater(applicationContext)
         }
     }
 
@@ -326,14 +417,7 @@ class RaygunDownloadService : Service() {
         @Volatile
         private var running: RaygunDownloadService? = null
 
-        /** The summary changed: the foreground notification shows it. */
-        fun refresh() {
-            val service = running ?: return
-            val notification = DownloadNotices.summary ?: return
-            NotificationManagerCompat.from(service).let {
-                if (it.areNotificationsEnabled()) runCatching { it.notify(DownloadNotices.SUMMARY_ID, notification) }
-            }
-        }
+        val isRunning: Boolean get() = running != null
 
         /** Stops the service if it runs; false when none did. */
         fun finish(): Boolean {

@@ -104,7 +104,7 @@ pub enum Phase {
 }
 
 impl Phase {
-    fn active(self) -> bool {
+    pub fn active(self) -> bool {
         matches!(
             self,
             Phase::Queued | Phase::Running | Phase::Paused | Phase::Held
@@ -247,6 +247,22 @@ pub struct Update {
     pub started: Vec<String>,
 }
 
+/// A plan that hasn't changed is sent again this often while anything shows: the notifications
+/// time out on their own unless refreshed, so a Raygun that was killed leaves none behind, ms.
+pub const RESEND_MS: f64 = 60_000.0;
+
+/// Whether `update` goes to the notifications, given the last plan sent and when (`None` before
+/// the first): the first turn always (it clears what a killed run left on screen), then every
+/// change, a batch's end, and a refresh while anything shows.
+pub fn should_send(last: Option<(f64, &Plan)>, now_ms: f64, update: &Update) -> bool {
+    let Some((sent_at, sent)) = last else {
+        return true;
+    };
+    update.plan != *sent
+        || update.finished.is_some()
+        || (update.plan.summary.is_some() && now_ms - sent_at >= RESEND_MS)
+}
+
 /// A download's speed, learned from its progress over time.
 #[derive(Debug, Clone, Copy)]
 struct Rate {
@@ -267,6 +283,9 @@ const MIN_SAMPLE_MS: f64 = 800.0;
 const SMOOTHING: f64 = 0.3;
 /// A download that hasn't moved for this long doesn't keep Raygun running, ms.
 const STALLED_MS: f64 = 10.0 * 60.0 * 1000.0;
+/// Downloads that only wait (none has run for this long) don't keep Raygun running or hold an
+/// ongoing notification: their queue is stuck (no network, a source that never answers), ms.
+const IDLE_MS: f64 = 5.0 * 60.0 * 1000.0;
 /// Times left past this aren't worth saying, ms.
 const LONGEST_LEFT_MS: f64 = 24.0 * 60.0 * 60.0 * 1000.0;
 
@@ -279,6 +298,8 @@ pub struct Tracker {
     batch_number: u64,
     /// Keys seen active at the last update; `None` before the first.
     active: Option<Vec<String>>,
+    /// Since when downloads only wait, with none running, ms.
+    idle_since: Option<f64>,
 }
 
 impl Tracker {
@@ -295,6 +316,11 @@ impl Tracker {
         }
         let mut finished = None;
         let active: Vec<&Download> = downloads.iter().filter(|d| d.phase.active()).collect();
+        if active.is_empty() || active.iter().any(|d| d.phase.moving()) {
+            self.idle_since = None;
+        } else if self.idle_since.is_none() {
+            self.idle_since = Some(now_ms);
+        }
         if active.is_empty() {
             if !self.batch.is_empty() {
                 // The batch's own downloads as they ended. One that left the lists while it was
@@ -505,9 +531,12 @@ impl Tracker {
                 route: route_for(&kinds),
             });
         }
-        let foreground = active
-            .iter()
-            .any(|d| d.phase == Phase::Queued || (d.phase.moving() && !self.stalled(now_ms, d)));
+        let stuck = self
+            .idle_since
+            .is_some_and(|since| now_ms - since > IDLE_MS);
+        let foreground = active.iter().any(|d| {
+            (d.phase == Phase::Queued && !stuck) || (d.phase.moving() && !self.stalled(now_ms, d))
+        });
         if shown.is_empty() {
             // Between two downloads of a queue: only waiting ones.
             let kinds = kinds_of(active.iter().copied());
@@ -518,7 +547,8 @@ impl Tracker {
                     text: kinds_text(active.iter().copied()),
                     info: None,
                     progress: None,
-                    ongoing: true,
+                    // A queue that hasn't moved for long can be swiped away.
+                    ongoing: !stuck,
                     actions: Vec::new(),
                     route: route_for(&kinds),
                 }),

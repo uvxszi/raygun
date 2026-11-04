@@ -2,12 +2,10 @@ import type { VideoResolution } from '@raygun/bindings';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { PlayerViewSettings } from '../../player/PlayerViewSettings';
 import { shownOn, useIsDesktop } from '../../shell/useIsDesktop';
-import { AudioQualitySettings } from '../AudioQualitySettings';
-import { PLAYER_PAGES, withDefaults } from '../playerOptions';
-import type { PlayerPrefs } from '../playerOptions';
-import { PrefChoice, PrefGroup, PrefLink, PrefSlider, PrefSwitch } from '../prefs';
+import { PLAYER_PAGES, playerPagePath, withDefaults } from '../playerOptions';
+import type { PlayerPrefs, PlayerSettingsPage } from '../playerOptions';
+import { PrefAction, PrefChoice, PrefGroup, PrefLink, PrefSlider, PrefSwitch } from '../prefs';
 import { useSettings, useUpdateSetting } from '../useSettings';
 
 /** Matches `VideoResolution::ALL` in raygun-model. */
@@ -23,8 +21,13 @@ const RESOLUTIONS: VideoResolution[] = [
 /** Matches `NEXT_PROMPT_SECONDS` in raygun-model (0: at the end). */
 const NEXT_PROMPT_SECONDS = [0, 5, 10, 15, 30];
 
-/** Settings → Player: music first (quality, what happens on start), then videos and their player. */
-export const PlayerSettings: FC = () => {
+type Props = {
+  /** Opens one of the player's screens in place (the player's own panel) instead of routing. */
+  openPage?: (page: PlayerSettingsPage) => void;
+};
+
+/** Settings → Video player: resolution and what happens around videos, then the player's screens. */
+export const VideoPlayerSettings: FC<Props> = ({ openPage }) => {
   const { t } = useTranslation();
   const data = useSettings().data;
   const update = useUpdateSetting();
@@ -35,20 +38,6 @@ export const PlayerSettings: FC = () => {
     update.mutate({ key: 'videoPlayer', value: { ...prefs, ...change } });
   return (
     <>
-      <AudioQualitySettings />
-      <PrefGroup>
-        <PrefSwitch
-          title={t('settings.resumeOnStart')}
-          checked={data.resumeOnStart ?? true}
-          onChange={(value) => update.mutate({ key: 'resumeOnStart', value })}
-        />
-        <PrefSwitch
-          title={t('settings.keepMusicPlaying')}
-          checked={data.keepMusicPlaying ?? false}
-          onChange={(value) => update.mutate({ key: 'keepMusicPlaying', value })}
-        />
-      </PrefGroup>
-      <PlayerViewSettings title={t('player.view.musicTitle')} />
       <PrefGroup title={t('settings.videoPlayback')}>
         <PrefChoice<VideoResolution>
           title={t('settings.videoQuality')}
@@ -107,14 +96,19 @@ export const PlayerSettings: FC = () => {
         />
       </PrefGroup>
       <PrefGroup title={t('settings.videoPlayer')}>
-        {PLAYER_PAGES.filter((page) => shownOn(page.only, desktop)).map((page) => (
-          <PrefLink
-            key={page.id}
-            icon={page.icon}
-            title={t(`settings.player.section.${page.id}.title`)}
-            to={`/settings/player/${page.id}`}
-          />
-        ))}
+        {PLAYER_PAGES.filter((page) => shownOn(page.only, desktop)).map((page) => {
+          const title = t(`settings.player.section.${page.id}.title`);
+          return openPage ? (
+            <PrefAction
+              key={page.id}
+              icon={page.icon}
+              title={title}
+              onClick={() => openPage(page.id)}
+            />
+          ) : (
+            <PrefLink key={page.id} icon={page.icon} title={title} to={playerPagePath(page.id)} />
+          );
+        })}
       </PrefGroup>
     </>
   );

@@ -65,15 +65,15 @@ describe('Library categories and filters', () => {
     const library = await screen.findByTestId('manga-library');
     await within(library).findByText('Frieren');
 
-    const tabs = within(library).getByRole('tablist', { name: 'Categories' });
+    const tabs = within(library).getByRole('tablist', { name: 'Groups' });
     expect(
       within(tabs)
         .getAllByRole('tab')
         .map((tab) => tab.textContent),
-    ).toEqual(['All 3', 'Reading 1', 'Later 1', 'Uncategorized 1']);
+    ).toEqual(['All 3', 'Reading 1', 'Later 1', 'Not in a group 1']);
     await user.click(within(tabs).getByRole('tab', { name: /Reading/ }));
     expect(shownTitles(library)).toEqual(['Frieren']);
-    await user.click(within(tabs).getByRole('tab', { name: /Uncategorized/ }));
+    await user.click(within(tabs).getByRole('tab', { name: /Not in a group/ }));
     expect(shownTitles(library)).toEqual(['Berserk']);
   });
 
@@ -127,17 +127,17 @@ describe('Library categories and filters', () => {
     const page = await screen.findByTestId('categories-page');
     await within(page).findByRole('listitem', { name: 'Reading' });
 
-    await user.click(within(page).getByRole('button', { name: 'New category' }));
-    const sheet = await screen.findByRole('dialog', { name: 'New category' });
-    await user.type(within(sheet).getByRole('textbox', { name: 'New category name' }), 'Done');
-    await user.click(within(sheet).getByRole('button', { name: 'New category' }));
+    await user.click(within(page).getByRole('button', { name: 'New group' }));
+    const sheet = await screen.findByRole('dialog', { name: 'New group' });
+    await user.type(within(sheet).getByRole('textbox', { name: 'New group name' }), 'Done');
+    await user.click(within(sheet).getByRole('button', { name: 'New group' }));
     expect(commands.libraryCategoryCreate).toHaveBeenCalledWith('manga', 'Done');
 
     await user.click(within(page).getByRole('button', { name: 'Move Later up' }));
     expect(commands.libraryCategoryReorder).toHaveBeenCalledWith('manga', ['c2', 'c1']);
 
     await user.click(within(page).getByRole('button', { name: 'Rename Reading' }));
-    const input = within(page).getByRole('textbox', { name: 'Category name' });
+    const input = within(page).getByRole('textbox', { name: 'Group name' });
     await user.clear(input);
     await user.type(input, 'Reading now{Enter}');
     expect(commands.libraryCategoryRename).toHaveBeenCalledWith('manga', 'c1', 'Reading now');

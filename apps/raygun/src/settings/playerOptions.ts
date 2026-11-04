@@ -23,9 +23,13 @@ import type { LucideIcon } from 'lucide-react';
 
 import type { PlatformOnly } from '../shell/useIsDesktop';
 
-/** Settings → Player's screens after Playback (`/settings/player/<id>`), as in Aniyomi. */
+/** Settings → Video player's screens after Playback (`/settings/video/<id>`), as in Aniyomi. */
 export type PlayerSettingsPage =
   'controls' | 'gestures' | 'subtitles' | 'audio' | 'skip' | 'pip' | 'advanced';
+
+/** Where Settings → Video player and its screens live (`/settings/player/…` redirects there). */
+export const VIDEO_SETTINGS_PATH = '/settings/video';
+export const playerPagePath = (page: PlayerSettingsPage) => `${VIDEO_SETTINGS_PATH}/${page}`;
 
 /** `only`: swipes, double taps and Android's picture-in-picture are the phone player's. */
 export const PLAYER_PAGES: { id: PlayerSettingsPage; icon: LucideIcon; only?: PlatformOnly }[] = [

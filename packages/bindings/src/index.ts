@@ -957,6 +957,16 @@ export const commands = {
 	 *  returns how many were queued.
 	 */
 	libraryDownloadNext: (medium: string, titleIds: string[], amount: number | null) => typedError<number, string>(__TAURI_INVOKE("library_download_next", { medium, titleIds, amount })),
+	/**
+	 *  Adds titles picked from search or a source's page to the library (fetching the ones never
+	 *  opened) and puts them into `category_ids` (groups for comics and books, folders for videos).
+	 */
+	libraryAddTitles: (medium: string, titles: RemoteTitleRef[], categoryIds: string[]) => typedError<BulkResult, string>(__TAURI_INVOKE("library_add_titles", { medium, titles, categoryIds })),
+	/**
+	 *  Downloads the next `amount` chapters or episodes (all unread ones without an amount) of
+	 *  titles picked from search or a source's page, through the normal download queues.
+	 */
+	libraryDownloadTitles: (medium: string, titles: RemoteTitleRef[], amount: number | null) => typedError<BulkResult, string>(__TAURI_INVOKE("library_download_titles", { medium, titles, amount })),
 	/**  The chapter or episode a title continues at. */
 	libraryContinue: (medium: string, titleId: string) => typedError<string | null, string>(__TAURI_INVOKE("library_continue", { medium, titleId })),
 	/**  Library titles with the same name as `title` from other sources. */
@@ -1782,6 +1792,21 @@ export type BrowserCheckTarget = {
 	url: string,
 };
 
+export type BulkFailure = {
+	title: string,
+	message: string,
+};
+
+/**
+ *  What a bulk action did: the titles' library ids, how many chapters or episodes it queued,
+ *  and the titles it couldn't do.
+ */
+export type BulkResult = {
+	titleIds: string[],
+	queued: number,
+	failed: BulkFailure[],
+};
+
 /**  Image cache limits and refreshing. One stored row; missing fields keep their defaults. */
 export type CachePrefs = {
 	/**  Covers, posters, thumbnails and icons. Library covers count but are never removed. */
@@ -1904,6 +1929,13 @@ export type Collection = { kind: "favorites" } | { kind: "playlist"; id: string 
 /**  Songs downloaded into the app (M46.18). */
 { kind: "downloaded" };
 
+/**  The summed length of a collection's items whose length is known. */
+export type CollectionLength = {
+	knownSecs: number,
+	/**  How many items have a known length (the rest add an unknown amount). */
+	knownCount: number,
+};
+
 export type CollectionPlayRequest = {
 	collection: Collection,
 	/**
@@ -1999,6 +2031,12 @@ export type ContinueWatching = {
 	/**  Unix ms. */
 	updatedAt: number | null,
 	watched: boolean,
+	/**
+	 *  The title it belongs to, for its page: a video source's id (or `stremio`, then
+	 *  `remote_id` is `<type>:<id>`). None for a link played on its own.
+	 */
+	sourceId?: string | null,
+	remoteId?: string | null,
 };
 
 /**  A cover a source has for a song, an album or an artist (M46.36), offered in Edit details. */
@@ -3741,6 +3779,8 @@ export type PlaylistSummary = {
 	artworkUrls: string[],
 	/**  The cover the user picked (M46.45), shown instead of the artworks. */
 	coverUrl: string | null,
+	/**  How long the items with a known length play together. */
+	length?: CollectionLength | null,
 };
 
 export type PodcastEpisode = {
@@ -4007,6 +4047,18 @@ export type RemoteStatus = {
 	/**  Unix ms when the open code stops working. */
 	linkExpiresAt: number | null,
 	error: string | null,
+};
+
+/**
+ *  A title picked from a source's search or listing for a bulk action (a search selection):
+ *  it may never have been opened. Stremio titles have source `stremio` and remote id
+ *  `<type>:<id>`.
+ */
+export type RemoteTitleRef = {
+	sourceId: string,
+	remoteId: string,
+	/**  Its name as listed, for saying which one failed. */
+	title: string,
 };
 
 export type RepeatMode = "off" | "all" | "one";

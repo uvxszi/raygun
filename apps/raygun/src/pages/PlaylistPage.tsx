@@ -3,7 +3,7 @@ import type { PlaylistDetail, PlaylistItem } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { ArrowDown, ArrowUp, ImageIcon, Pencil, Trash2, X } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -16,6 +16,7 @@ import { DetailEditForm } from '../music/DetailEditForm';
 
 import { PlayButtons } from '../collections/PlayButtons';
 import { PlaylistCover } from '../collections/PlaylistCover';
+import { joinCount, useSongsLength } from '../music/collectionLength';
 import { savedRow } from '../music/tableView';
 import { TrackTable } from '../music/TrackTable';
 import { unwrapResult } from '../lib/commandResult';
@@ -216,6 +217,11 @@ export const PlaylistPage: FC = () => {
   const [editAnchor, setEditAnchor] = useState<HTMLElement | null>(null);
   // On touch screens the Edit sheet stands on its own, never tied to the list (M46.49).
   const touch = useCoarsePointer();
+  const songs = useMemo(
+    () => playlist.data?.items.map((item) => item.track) ?? [],
+    [playlist.data],
+  );
+  const length = useSongsLength(songs);
 
   if (playlist.error) {
     return (
@@ -262,7 +268,7 @@ export const PlaylistPage: FC = () => {
             {detail.playlist.name}
           </h1>
           <p className="text-muted text-xs">
-            {t('library.trackCount', { count: detail.playlist.itemCount })}
+            {joinCount(t('library.trackCount', { count: detail.playlist.itemCount }), length)}
           </p>
         </div>
       </header>

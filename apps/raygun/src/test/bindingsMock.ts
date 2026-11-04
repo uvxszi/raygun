@@ -572,6 +572,8 @@ export const bindingsMock = {
     libraryRemove: vi.fn(),
     libraryChangeCategories: vi.fn(),
     libraryDownloadNext: vi.fn(),
+    libraryAddTitles: vi.fn(),
+    libraryDownloadTitles: vi.fn(),
     libraryContinue: vi.fn(),
     libraryDuplicates: vi.fn(),
     librarySetCategoryDisplay: vi.fn(),
@@ -1152,6 +1154,8 @@ export const seedBindings = () => {
     command.mockResolvedValue(ok(null));
   }
   commands.libraryDownloadNext.mockResolvedValue(ok(0));
+  commands.libraryAddTitles.mockResolvedValue(ok({ titleIds: [], queued: 0, failed: [] }));
+  commands.libraryDownloadTitles.mockResolvedValue(ok({ titleIds: [], queued: 0, failed: [] }));
   commands.libraryContinue.mockResolvedValue(ok(null));
   commands.libraryDuplicates.mockResolvedValue(ok([]));
   commands.libraryUpdateCategory.mockResolvedValue(

@@ -277,7 +277,7 @@ export const RankedResults: FC<{
           medium={medium}
           items={ranked.slice(0, cap).map(({ card, sourceName }) => ({
             ...toGridItems([card])[0]!,
-            subtitle: sourceName,
+            source: sourceName,
             ...(card.adult || adultSources.has(card.sourceId) ? { adult: true } : {}),
           }))}
         />

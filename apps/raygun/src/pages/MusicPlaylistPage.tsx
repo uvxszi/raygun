@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { COLLECTIONS, fromOnlineTrack } from '../collections/useCollections';
 import { unwrapResult } from '../lib/commandResult';
 import { Artwork } from '../library/Artwork';
+import { useSongsLength } from '../music/collectionLength';
 import { usePlayContext } from '../music/playContext';
 import { downloadSongs } from '../music/useSongDownloads';
 import { OnlineTrackRow } from '../search/OnlineTrackRow';
@@ -34,6 +35,7 @@ export const MusicPlaylistPage: FC = () => {
     staleTime: 30 * 60_000,
   });
   const tracks = playlist.data?.tracks ?? [];
+  const length = useSongsLength(tracks);
   // The playlist as the search showed it (M46.40), until its songs come.
   const known = useMemo(
     () =>
@@ -100,6 +102,7 @@ export const MusicPlaylistPage: FC = () => {
             {[
               info?.author,
               tracks.length > 0 ? t('discover.songs', { count: tracks.length }) : null,
+              tracks.length > 0 ? length : null,
               info?.provider.name,
             ]
               .filter(Boolean)

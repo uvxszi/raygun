@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
 import { MangaGrid } from '../manga/MangaGrid';
+import { SelectionScope } from '../select/Selectable';
 import { ROUTES } from '../manga/medium';
 import type { Medium } from '../manga/medium';
 import { useMangaBrowse, useMangaSources } from '../manga/useManga';
@@ -181,12 +182,14 @@ export const MangaSourcePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) =
       {list.isSuccess && items.length === 0 && (
         <p className="text-muted text-sm">{t('manga.nothingFound')}</p>
       )}
-      <MangaGrid items={items} medium={medium} />
-      <LoadMore
-        hasNextPage={list.hasNextPage}
-        fetching={list.isFetchingNextPage}
-        onLoad={() => void list.fetchNextPage()}
-      />
+      <SelectionScope>
+        <MangaGrid items={items} medium={medium} />
+        <LoadMore
+          hasNextPage={list.hasNextPage}
+          fetching={list.isFetchingNextPage}
+          onLoad={() => void list.fetchNextPage()}
+        />
+      </SelectionScope>
     </section>
   );
 };

@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useFavorites } from '../collections/useCollections';
 import { useLocalFolders } from '../localFiles/useLocalFolders';
+import { summarizeLengths, useLengthLabel } from '../music/collectionLength';
 import { useDownloadedSongs } from '../music/useSongDownloads';
 
 /** What Local Files' folders hold, all kinds together, and whether one is being scanned. */
@@ -31,7 +32,11 @@ const DETAIL = 'text-muted -mt-1 truncate text-xs';
 /** The Library's red Favorites block (M46.29), always shown, with how many songs it has. */
 export const FavoritesTile: FC = () => {
   const { t } = useTranslation();
-  const count = useFavorites().data?.length ?? 0;
+  const favorites = useFavorites().data;
+  const count = favorites?.length ?? 0;
+  const length = useLengthLabel(
+    favorites ? summarizeLengths(favorites.map((song) => song.durationMs)) : null,
+  );
   return (
     <li className="w-28 shrink-0">
       <Link to="/library" search={{ view: 'favorites' }} className={TILE}>
@@ -40,6 +45,7 @@ export const FavoritesTile: FC = () => {
         </span>
         <span className={NAME}>{t('collections.favorites')}</span>
         <span className={DETAIL}>{t('library.trackCount', { count })}</span>
+        {length && <span className={DETAIL}>{length}</span>}
       </Link>
     </li>
   );
@@ -48,7 +54,11 @@ export const FavoritesTile: FC = () => {
 /** The Library's blue Downloaded block (M46.29), always shown, with how many songs it has. */
 export const DownloadedTile: FC = () => {
   const { t } = useTranslation();
-  const count = useDownloadedSongs().data?.length ?? 0;
+  const downloaded = useDownloadedSongs().data;
+  const count = downloaded?.length ?? 0;
+  const length = useLengthLabel(
+    downloaded ? summarizeLengths(downloaded.map((song) => song.durationMs)) : null,
+  );
   return (
     <li className="w-28 shrink-0">
       <Link to="/library" search={{ view: 'downloaded' }} className={TILE}>
@@ -59,6 +69,7 @@ export const DownloadedTile: FC = () => {
         </span>
         <span className={NAME}>{t('library.view.downloaded')}</span>
         <span className={DETAIL}>{t('library.trackCount', { count })}</span>
+        {length && <span className={DETAIL}>{length}</span>}
       </Link>
     </li>
   );

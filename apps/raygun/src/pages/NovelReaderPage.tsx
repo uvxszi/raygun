@@ -32,6 +32,7 @@ import { unwrapResult } from '../lib/commandResult';
 import { useSystemBars } from '../manga/reader/useSystemBars';
 import { useWakeLock } from '../manga/reader/useWakeLock';
 import { useReaderDisplay } from '../manga/readerDisplay';
+import { ReaderSettingsLink } from '../manga/ReaderSettingsLink';
 import {
   DEFAULT_PREFS,
   LINE_SPACING,
@@ -298,6 +299,7 @@ const PrefsPanel: FC<{ prefs: NovelReaderPrefs; onChange: (prefs: NovelReaderPre
           {t('novel.paged')}
         </Choice>
       </div>
+      <ReaderSettingsLink />
     </div>
   );
 };

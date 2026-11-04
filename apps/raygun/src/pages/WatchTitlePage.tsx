@@ -413,6 +413,7 @@ export const WatchTitlePage: FC = () => {
           view.runtime,
           view.ratings.length === 0 && view.rating && `★ ${view.rating}`,
         ]}
+        source={view.addonName}
         factsExtra={
           view.ratings.length > 0 && (
             <TitleRatings kind={view.kind} id={view.id} ratings={view.ratings} />

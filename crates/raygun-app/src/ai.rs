@@ -331,6 +331,14 @@ impl AiService {
         }
     }
 
+    /// Whether a model is downloading now.
+    pub fn is_downloading(&self, id: &str) -> bool {
+        self.downloads
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains_key(id)
+    }
+
     pub async fn delete_model(&self, id: &str) -> Result<(), String> {
         if self
             .downloads

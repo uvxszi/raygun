@@ -40,21 +40,21 @@ describe('Settings shown per platform', () => {
   });
 
   it("shows the phone player's gestures, picture-in-picture and rotation on a phone", async () => {
-    await AppShellWrapper.mount('/settings/player');
+    await AppShellWrapper.mount('/settings/video');
     expect(await screen.findByRole('link', { name: /^Gestures/ })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /^Picture-in-picture/ })).toBeInTheDocument();
     cleanup();
-    await AppShellWrapper.mount('/settings/player/controls');
+    await AppShellWrapper.mount('/settings/video/controls');
     expect(await screen.findByRole('button', { name: /^Orientation/ })).toBeInTheDocument();
     cleanup();
-    await AppShellWrapper.mount('/settings/player/advanced');
+    await AppShellWrapper.mount('/settings/video/advanced');
     expect(await screen.findByRole('button', { name: /^Decoder/ })).toBeInTheDocument();
   });
 
   it("hides the phone player's settings on desktop, in the screens and in search", async () => {
     const user = userEvent.setup();
     onDesktop();
-    await AppShellWrapper.mount('/settings/player');
+    await AppShellWrapper.mount('/settings/video');
     expect(await screen.findByRole('link', { name: /^Subtitles/ })).toBeInTheDocument();
     await vi.waitFor(() =>
       expect(screen.queryByRole('link', { name: /^Gestures/ })).not.toBeInTheDocument(),
@@ -62,7 +62,7 @@ describe('Settings shown per platform', () => {
     expect(screen.queryByRole('link', { name: /^Picture-in-picture/ })).not.toBeInTheDocument();
 
     cleanup();
-    await AppShellWrapper.mount('/settings/player/controls');
+    await AppShellWrapper.mount('/settings/video/controls');
     expect(await screen.findByRole('button', { name: /^Aspect/ })).toBeInTheDocument();
     await vi.waitFor(() =>
       expect(screen.queryByRole('button', { name: /^Orientation/ })).not.toBeInTheDocument(),
@@ -70,7 +70,7 @@ describe('Settings shown per platform', () => {
     expect(screen.queryByRole('switch', { name: /brightness/i })).not.toBeInTheDocument();
 
     cleanup();
-    await AppShellWrapper.mount('/settings/player/advanced');
+    await AppShellWrapper.mount('/settings/video/advanced');
     expect(await screen.findByRole('switch', { name: /trailer/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Decoder/ })).not.toBeInTheDocument();
 
@@ -100,9 +100,7 @@ describe('Settings shown per platform', () => {
 
   it("offers the reader's full screen button on desktop only", async () => {
     await AppShellWrapper.mount('/settings/reader');
-    expect(
-      await screen.findByRole('switch', { name: /Show progress/ }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('switch', { name: /Show progress/ })).toBeInTheDocument();
     expect(screen.queryByRole('switch', { name: /Full screen button/ })).not.toBeInTheDocument();
 
     onDesktop();

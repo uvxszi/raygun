@@ -3925,6 +3925,19 @@ pub struct PlaylistSummary {
     pub artwork_urls: Vec<String>,
     /// The cover the user picked (M46.45), shown instead of the artworks.
     pub cover_url: Option<String>,
+    /// How long the items with a known length play together.
+    #[serde(default)]
+    #[specta(optional)]
+    pub length: Option<CollectionLength>,
+}
+
+/// The summed length of a collection's items whose length is known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectionLength {
+    pub known_secs: u32,
+    /// How many items have a known length (the rest add an unknown amount).
+    pub known_count: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
@@ -4838,6 +4851,35 @@ pub struct TitleMarks {
     pub list: Option<LibraryList>,
     pub favorite: bool,
     pub pinned: bool,
+}
+
+/// A title picked from a source's search or listing for a bulk action (a search selection):
+/// it may never have been opened. Stremio titles have source `stremio` and remote id
+/// `<type>:<id>`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteTitleRef {
+    pub source_id: String,
+    pub remote_id: String,
+    /// Its name as listed, for saying which one failed.
+    pub title: String,
+}
+
+/// What a bulk action did: the titles' library ids, how many chapters or episodes it queued,
+/// and the titles it couldn't do.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkResult {
+    pub title_ids: Vec<String>,
+    pub queued: u32,
+    pub failed: Vec<BulkFailure>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkFailure {
+    pub title: String,
+    pub message: String,
 }
 
 /// A library title another one may duplicate (same name, another source; M46).
@@ -6174,6 +6216,14 @@ pub struct ContinueWatching {
     /// Unix ms.
     pub updated_at: f64,
     pub watched: bool,
+    /// The title it belongs to, for its page: a video source's id (or `stremio`, then
+    /// `remote_id` is `<type>:<id>`). None for a link played on its own.
+    #[serde(default)]
+    #[specta(optional)]
+    pub source_id: Option<String>,
+    #[serde(default)]
+    #[specta(optional)]
+    pub remote_id: Option<String>,
 }
 
 // ---- Search across sources and source filters (M40) ----
