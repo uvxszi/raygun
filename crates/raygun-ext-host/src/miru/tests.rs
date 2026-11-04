@@ -752,7 +752,7 @@ async fn missing_methods_and_broken_scripts_say_what_happened() {
         error("miru.noclass")
     );
     assert!(
-        error("miru.syntax").starts_with("The Miru script stopped with an error")
+        error("miru.syntax").contains("The Miru script stopped with an error")
             && error("miru.syntax").contains("Unexpected token"),
         "{}",
         error("miru.syntax")

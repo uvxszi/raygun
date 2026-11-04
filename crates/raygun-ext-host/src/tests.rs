@@ -259,10 +259,14 @@ async fn registers_providers_and_calls_them_with_json() {
         host.call("dev.raygun.test/missing", "run", json!({})).await,
         Err(CallError::UnknownProvider("dev.raygun.test/missing".into()))
     );
-    assert!(matches!(
+    assert_eq!(
         host.call("dev.raygun.test/p", "nope", json!({})).await,
-        Err(CallError::Script(message)) if message.contains("has no method nope")
-    ));
+        Err(CallError::MissingMethod {
+            name: "P".into(),
+            provider: "dev.raygun.test/p".into(),
+            method: "nope".into(),
+        })
+    );
 }
 
 #[tokio::test]
@@ -317,10 +321,23 @@ async fn cookies_last_per_extension_until_its_data_is_cleared() {
 async fn thrown_errors_become_script_errors() {
     let host = provider_host("throw new Error('boom from js');").await;
     // Users see the message alone; the stack trace only goes to the log.
+    let error = run(&host, json!({})).await.unwrap_err();
     assert_eq!(
-        run(&host, json!({})).await,
-        Err(CallError::Script("boom from js".into()))
+        error,
+        CallError::Said {
+            name: "P".into(),
+            message: "boom from js".into()
+        }
     );
+    assert_eq!(error.to_string(), "P: boom from js");
+    // JavaScript's own errors say the extension failed, the details below.
+    let host = provider_host("return args.missing.field;").await;
+    let error = run(&host, json!({})).await.unwrap_err();
+    assert_eq!(error.kind(), Some(raygun_net::IssueKind::ExtensionFailed));
+    let text = error.to_string();
+    let (summary, detail) = text.split_once('\n').unwrap();
+    assert_eq!(summary, "P's extension failed");
+    assert!(detail.contains("undefined"), "{detail}");
 }
 
 #[tokio::test]
@@ -439,10 +456,17 @@ async fn storage_persists_across_loads() {
 
     // Oversized values are refused and leave the store unchanged.
     let huge = "x".repeat(crate::storage::STORAGE_LIMIT_BYTES + 1);
-    assert!(matches!(
-        host.call("dev.raygun.test/p", "set", json!({ "key": "big", "value": huge })).await,
-        Err(CallError::Script(message)) if message.contains("limited")
-    ));
+    assert!(
+        host.call(
+            "dev.raygun.test/p",
+            "set",
+            json!({ "key": "big", "value": huge })
+        )
+        .await
+        .unwrap_err()
+        .detail()
+        .contains("limited")
+    );
     assert_eq!(get("big").await.unwrap(), json!(null));
 }
 
@@ -466,10 +490,9 @@ async fn settings_fall_back_to_manifest_defaults() {
 #[tokio::test]
 async fn interrupts_runaway_scripts() {
     let host = provider_host("if (args.spin) { for (;;) {} } return 'ok';").await;
-    assert!(matches!(
-        run(&host, json!({ "spin": true })).await,
-        Err(CallError::Script(message)) if message.contains("interrupted")
-    ));
+    let error = run(&host, json!({ "spin": true })).await.unwrap_err();
+    assert_eq!(error.kind(), Some(raygun_net::IssueKind::ExtensionFailed));
+    assert!(error.detail().contains("ran too long"), "{error}");
     // The extension keeps working afterwards.
     assert_eq!(run(&host, json!({})).await.unwrap(), json!("ok"));
 }
@@ -720,10 +743,12 @@ async fn stream_providers_offer_and_resolve_candidates() {
         .unwrap();
     assert!(matches!(resolved.source, MediaSource::YouTube { .. }));
     assert_eq!(resolved.expires_at, Some(1_700_000_000_000));
-    assert!(matches!(
-        host.resolve_stream("dev.raygun.test/streams", "other").await,
-        Err(CallError::Script(message)) if message.contains("no playable source")
-    ));
+    let error = host
+        .resolve_stream("dev.raygun.test/streams", "other")
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), Some(raygun_net::IssueKind::NotFound));
+    assert!(error.detail().contains("no playable stream"), "{error}");
 }
 
 /// MusicBrainz finds a song with no stream; Internet Archive's `music.stream` provider offers
@@ -890,7 +915,11 @@ async fn lyrics_prefer_synced_answers_and_validate_lines() {
         "throw new Error('lyrics site is down');",
     )])
     .await;
-    assert_eq!(host.lyrics(&query).await, Err("lyrics site is down".into()));
+    // The source's own words, with its name.
+    assert_eq!(
+        host.lyrics(&query).await,
+        Err("dev.raygun.down: lyrics site is down".into())
+    );
 }
 
 #[tokio::test]

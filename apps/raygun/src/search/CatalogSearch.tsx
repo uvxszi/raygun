@@ -77,7 +77,7 @@ export const SourceRow: FC<{
       </div>
       {result.error ? (
         <SourceIssue compact source={result.source.name}>
-          {t('search.providerFailed', { message: result.error })}
+          {result.error}
         </SourceIssue>
       ) : result.items.length === 0 ? (
         <p className="text-muted text-xs">{t('search.providerEmpty')}</p>
@@ -136,7 +136,7 @@ export const LazySourceRow: FC<{
           <h3 className="text-muted text-sm font-medium">{source.name}</h3>
           {search.error ? (
             <SourceIssue compact source={source.name} onRetry={() => void search.refetch()}>
-              {t('search.providerFailed', { message: search.error.message })}
+              {search.error.message}
             </SourceIssue>
           ) : search.isSuccess ? (
             <p className="text-muted text-xs">{t('search.providerEmpty')}</p>

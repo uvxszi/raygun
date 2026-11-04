@@ -3463,7 +3463,25 @@
     "less": "Less",
     "retry": "Try again",
     "copy": "Copy details",
-    "copied": "Copied"
+    "copied": "Copied",
+    "someSource": "The source",
+    "kind": {
+      "offline": "No internet connection",
+      "dns": "Couldn’t find {{source}}’s site — check your connection",
+      "timeout": "{{source}} didn’t answer in time",
+      "tls": "Couldn’t connect securely to {{source}}",
+      "refused": "{{source}} refused the connection — try later",
+      "unreachable": "Couldn’t reach {{source}} — check your connection",
+      "bot-check": "{{source}} wants a browser check, which Raygun can’t do",
+      "denied": "{{source}} refused access",
+      "not-found": "Not found on {{source}}",
+      "rate-limited": "{{source}} is limiting requests — try later",
+      "server-error": "{{source}} is having problems — try later",
+      "site-changed": "{{source}} changed its site — its extension needs an update",
+      "extension-failed": "{{source}}’s extension failed",
+      "storage": "Couldn’t read or write a file on this device",
+      "permission": "Raygun isn’t allowed to do that on this device"
+    }
   },
   "developer": {
     "title": "Test sources",

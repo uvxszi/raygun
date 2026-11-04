@@ -217,8 +217,8 @@ export const EpisodeItem: FC<{
         </div>
       )}
       {downloadState === 'failed' && episode.download?.error && (
-        <SourceIssue compact>
-          {t('podcasts.downloadFailed', { message: episode.download.error })}
+        <SourceIssue compact source={episode.podcastTitle}>
+          {episode.download.error}
         </SourceIssue>
       )}
       {expanded && episode.description && <ShowNotes text={episode.description} />}

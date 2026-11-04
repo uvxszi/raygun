@@ -112,7 +112,7 @@ describe('Search', () => {
     ]);
     await AppShellWrapper.mount('/search?type=music&view=songs&q=blues');
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('This source failed: offline');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Other: offline');
     expect(screen.getAllByTestId('online-track-row')).toHaveLength(1);
   });
 

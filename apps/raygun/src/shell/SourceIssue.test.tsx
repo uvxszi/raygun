@@ -20,11 +20,46 @@ describe('Source issues', () => {
     await AppShellWrapper.mount('/music/chart?provider=x&id=top');
 
     const issue = await screen.findByTestId('source-issue');
-    expect(issue).toHaveTextContent('Issue with source');
+    expect(issue).toHaveTextContent('Apple is having problems — try later');
     expect(within(issue).getByText('Apple answered HTTP 503')).not.toBeVisible();
     await user.click(within(issue).getByRole('button', { name: 'More info' }));
     expect(within(issue).getByText('Apple answered HTTP 503')).toBeVisible();
     expect(within(issue).getByRole('button', { name: 'Copy details' })).toBeInTheDocument();
+  });
+
+  it('shows the sentence Rust sends and keeps its details under More info', async () => {
+    const user = userEvent.setup();
+    commands.musicChart.mockResolvedValue({
+      status: 'error',
+      error:
+        'Deezer wants a browser check, which Raygun can’t do\napi.deezer.com answered HTTP 403 with a browser check',
+    });
+    await AppShellWrapper.mount('/music/chart?provider=x&id=top');
+
+    const issue = await screen.findByTestId('source-issue');
+    expect(
+      within(issue).getByText('Deezer wants a browser check, which Raygun can’t do'),
+    ).toBeVisible();
+    const details = within(issue).getByText(
+      'api.deezer.com answered HTTP 403 with a browser check',
+    );
+    expect(details).not.toBeVisible();
+    await user.click(within(issue).getByRole('button', { name: 'More info' }));
+    expect(details).toBeVisible();
+  });
+
+  it('shows a plain message as it is, with nothing more to tell', async () => {
+    commands.musicChart.mockResolvedValue({
+      status: 'error',
+      error: 'Spotify has no such list; it may be private or removed',
+    });
+    await AppShellWrapper.mount('/music/chart?provider=x&id=top');
+
+    const issue = await screen.findByTestId('source-issue');
+    expect(
+      within(issue).getByText('Spotify has no such list; it may be private or removed'),
+    ).toBeVisible();
+    expect(within(issue).queryByRole('button', { name: 'More info' })).not.toBeInTheDocument();
   });
 
   it('adds the test sources from Settings → Data', async () => {
@@ -45,7 +80,7 @@ describe('Source issues', () => {
       '2 added, 0 already there, 1 couldn’t be added.',
     );
     expect(within(card).getByTestId('source-issue')).toHaveTextContent(
-      'Issue with https://c.example/manifest.json',
+      'Not found on https://c.example/manifest.json',
     );
   });
 });

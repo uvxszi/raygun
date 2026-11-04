@@ -98,7 +98,7 @@ describe('Ranked search across sources', () => {
     );
     // The failing source is named once, quietly, after the answers; its error is under More info.
     const failed = within(ranked).getByTestId('failed-sources');
-    expect(failed).toHaveTextContent('Issue with Broken Site');
+    expect(failed).toHaveTextContent('Broken Site refused access');
     expect(failed).toHaveTextContent('HTTP 403');
 
     // Relevant is the default chip (M46.35); All sources groups by source, the failing one last.

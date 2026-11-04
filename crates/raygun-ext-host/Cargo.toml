@@ -15,7 +15,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-tokio = { version = "1", features = ["rt", "sync", "time", "macros", "net"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "time", "macros", "net"] }
 rquickjs = { version = "0.14", features = ["futures"] }
 # `deterministic` keeps attributes in source order when serialized, as Jsoup and Dart's `html`
 # do; Shosetsu and Miru scripts match patterns against that HTML.
@@ -38,7 +38,7 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 [dev-dependencies]
 tempfile = "3"
 axum.workspace = true
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "macros"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "macros", "test-util"] }
 # KuGou's compressed KRC lyrics for its fixture (M46.48).
 flate2 = "1"
 base64 = "0.22"

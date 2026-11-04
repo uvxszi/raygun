@@ -63,7 +63,7 @@ export const ExtensionDetailPage: FC = () => {
       </header>
       {info.description && <p className="text-sm leading-relaxed">{info.description}</p>}
       {info.status === 'failed' && (
-        <SourceIssue>{t('extensions.failed', { message: info.error ?? '' })}</SourceIssue>
+        <SourceIssue source={info.name}>{info.error ?? t('issue.title')}</SourceIssue>
       )}
       {info.providers.length > 0 && (
         <section aria-labelledby="extension-provides" className="flex flex-col gap-1 text-sm">

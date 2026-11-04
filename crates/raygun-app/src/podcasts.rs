@@ -431,15 +431,13 @@ impl PodcastService {
         for (provider, answer) in providers.into_iter().zip(answers) {
             match answer {
                 Some(Ok(found)) => pages.push((provider.name, found)),
-                Some(Err(error)) => errors.push(format!("{}: {error}", provider.name)),
+                Some(Err(error)) => errors.push(raygun_net::issue::named(&provider.name, &error)),
                 None => {}
             }
         }
         if pages.is_empty() && !errors.is_empty() {
-            return Err(format!(
-                "No audiobook source answered. {}",
-                errors.join("; ")
-            ));
+            // The first source's sentence leads; every source's error follows for More info.
+            return Err(raygun_net::issue::joined(&errors));
         }
         let (books, has_more) = directory::merge(pages, search);
         let books = directory::after(books, &earlier);
@@ -934,11 +932,11 @@ impl PodcastService {
                         });
                     }
                 }
-                Err(error) => errors.push(format!("{}: {error}", provider.name)),
+                Err(error) => errors.push(raygun_net::issue::named(&provider.name, &error)),
             }
         }
         if results.is_empty() && !errors.is_empty() {
-            return Err(errors.join("; "));
+            return Err(raygun_net::issue::joined(&errors));
         }
         let db = self.db();
         for result in &mut results {

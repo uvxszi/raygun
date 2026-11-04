@@ -330,9 +330,9 @@ describe('Extensions', () => {
     commands.extensionCatalog.mockResolvedValue(ok(catalog([], 'could not reach example.org')));
     await AppShellWrapper.mount('/extensions?tab=browse');
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      "Couldn't load this repository: could not reach example.org",
-    );
+    const issue = await screen.findByRole('alert');
+    expect(issue).toHaveTextContent('Couldn’t reach');
+    expect(issue).toHaveTextContent('could not reach example.org');
   });
 
   it('adds and removes repositories', async () => {

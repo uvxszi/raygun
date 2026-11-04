@@ -113,7 +113,9 @@ impl DiscoveryService {
                         .map(|tag| genres::canonical(&tag).map_or(tag, |known| known.name));
                     chart
                 })),
-                Err(error) => found.errors.push(format!("{}: {error}", provider.name)),
+                Err(error) => found
+                    .errors
+                    .push(raygun_net::issue::named(&provider.name, &error)),
             }
         }
         // A failure is asked again next time; an answer is kept.
@@ -219,7 +221,7 @@ impl DiscoveryService {
                     answered = true;
                     found.push(tags);
                 }
-                Err(error) => errors.push(format!("{}: {error}", provider.name)),
+                Err(error) => errors.push(raygun_net::issue::named(&provider.name, &error)),
             }
         }
         if !answered {

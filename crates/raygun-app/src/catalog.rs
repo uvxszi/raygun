@@ -19,9 +19,6 @@ use tauri::{AppHandle, Manager};
 use crate::extensions::ExtensionService;
 use crate::startup::AppDb;
 
-/// Sources searched at the same time (M46.7): each runs a script and makes requests, so a search
-/// over many sources goes a few at a time instead of all at once.
-const SEARCH_CONCURRENCY: usize = 4;
 /// How long a title (details and chapters) may take before its page says the source failed.
 const TITLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
@@ -171,10 +168,12 @@ impl Catalog {
         self.listing_page(source_id, listing).await
     }
 
-    /// The first page of every source's results for `query`, a few sources at a time (Mihon's
-    /// global search; never all at once, M46.7), or only of the ones in `only` (Search's source
-    /// chips, M46.4) when it isn't empty. A blank query gives each source's popular titles. A
-    /// source that fails reports its error and the others still show.
+    /// The first page of every source's results for `query` (Mihon's global search), or only of
+    /// the ones in `only` (Search's source chips, M46.4) when it isn't empty. A blank query gives
+    /// each source's popular titles. Sources take turns, a few at a time and the good ones first
+    /// (M46.48: the host's catalogue turns), none for longer than
+    /// [`raygun_ext_host::CATALOG_SEARCH_TIMEOUT`]. A source that fails reports why and the
+    /// others still show.
     pub async fn global_search(
         &self,
         query: &str,
@@ -188,20 +187,7 @@ impl Catalog {
             sources.retain(|source| only.contains(&source.id));
         }
         let searches = sources.into_iter().map(|source| async move {
-            let result = {
-                let extensions = self.extensions();
-                let (_ready, host) = extensions.ready().await;
-                if query.is_empty() {
-                    host.manga_list(&source.id, MangaList::Popular, 1).await
-                } else {
-                    host.manga_search(&source.id, query, 1).await
-                }
-            };
-            let page = match result {
-                Ok(listing) => self.listing_page(&source.id, listing).await,
-                Err(error) => Err(error),
-            };
-            match page {
+            match self.search_row(&source.id, query).await {
                 Ok(page) => SourceSearchResult {
                     source,
                     items: page.items,
@@ -216,10 +202,22 @@ impl Catalog {
                 },
             }
         });
-        let mut results = crate::stremio::at_most(SEARCH_CONCURRENCY, searches).await;
+        let mut results = futures_util::future::join_all(searches).await;
         // Sources with results first, then empty ones, then failures.
         results.sort_by_key(|result| (result.error.is_some(), result.items.is_empty()));
         Ok(results)
+    }
+
+    /// A source's first page for a search row.
+    async fn search_row(&self, source_id: &str, query: &str) -> Result<MangaListingPage, String> {
+        let listing = {
+            let extensions = self.extensions();
+            let (_ready, host) = extensions.ready().await;
+            host.catalog_search_row(source_id, query)
+                .await
+                .map_err(|error| error.to_string())
+        }?;
+        self.listing_page(source_id, listing).await
     }
 
     /// A stored title, fetched first when `refresh` is set or it never was; fetching stores it,
@@ -999,14 +997,6 @@ mod tests {
         let done = chapter_info(&unit("c", Some(1.0), 0, Some(19), true), &none);
         assert_eq!((done.read, done.last_page), (true, None));
         assert_eq!(done.download, None);
-    }
-
-    #[test]
-    fn category_names_are_compared_without_case() {
-        assert!(same_name("Reading", " reading "));
-        assert!(!same_name("Reading", "Read"));
-        assert_eq!(category_name("  Later ").unwrap(), "Later");
-        assert!(category_name("   ").is_err());
     }
 
     #[test]

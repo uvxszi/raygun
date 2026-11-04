@@ -75,7 +75,10 @@ impl ExtensionHost {
             .map_err(|error| error.to_string())?;
         let blocks = parse_passage(&value);
         if blocks.is_empty() {
-            return Err("This chapter has no text".into());
+            return Err(format!(
+                "{} has no text for this chapter",
+                self.provider_name(provider)
+            ));
         }
         Ok(blocks)
     }

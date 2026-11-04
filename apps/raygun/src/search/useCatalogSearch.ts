@@ -89,7 +89,7 @@ export const sourceSearchOptions = (medium: Medium, sourceId: string, query: str
       () => unwrapResult(commands.catalogGlobalSearch(medium, query.trim(), [sourceId])),
       signal,
     );
-    return results.find((result) => result.source.id === sourceId) ?? null;
+    return results.find((found) => found.source.id === sourceId) ?? null;
   },
   staleTime: STALE_MS,
 });

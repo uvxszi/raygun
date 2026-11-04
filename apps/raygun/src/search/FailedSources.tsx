@@ -10,6 +10,14 @@ import { SourceIssue } from '../shell/SourceIssue';
 export const FailedSources: FC<{ failed: { name: string; error: string }[] }> = ({ failed }) => {
   const { t } = useTranslation();
   if (failed.length === 0) return null;
+  // One source: its error read into what happened (M46.48), the raw details under More info.
+  if (failed.length === 1) {
+    return (
+      <SourceIssue compact testId="failed-sources" source={failed[0]!.name}>
+        {failed[0]!.error}
+      </SourceIssue>
+    );
+  }
   return (
     <SourceIssue
       compact

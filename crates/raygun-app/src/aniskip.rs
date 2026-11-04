@@ -394,6 +394,7 @@ mod tests {
     }
 
     /// AniList's answers as they come (2026-11-03), shortened.
+    #[allow(clippy::type_complexity)]
     fn media(entries: &[(u32, Option<u32>, &str, &str, &[&str])]) -> Value {
         let media: Vec<Value> = entries
             .iter()

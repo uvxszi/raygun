@@ -43,7 +43,7 @@ const ProviderResults: FC<ProviderResultsProps> = ({ result, ambiguous, limit })
       </h3>
       {result.error ? (
         <SourceIssue compact source={result.provider.name}>
-          {t('search.providerFailed', { message: result.error })}
+          {result.error}
         </SourceIssue>
       ) : result.tracks.length === 0 ? (
         <p className="text-muted text-sm">{t('search.providerEmpty')}</p>

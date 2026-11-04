@@ -1,25 +1,29 @@
 //! The `js` runtime: one QuickJS runtime and context per extension (ARCHITECTURE §7.2).
 //!
-//! Everything here runs on the host thread (see `host.rs`), so JS values and the `Rc` state
-//! behind the native functions never cross threads.
+//! Everything here runs on the extension's lane (see `host.rs`), so JS values and the `Rc` state
+//! behind the native functions never cross threads. Requests run on a shared network runtime
+//! instead (`network`), a few per site at a time, so they go on while a lane is busy with script.
 
 use std::cell::{Cell, RefCell};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use raygun_model::ProviderInfo;
+use raygun_net::issue::{self, IssueKind};
 use reqwest::Url;
 use rquickjs::prelude::Async;
 use rquickjs::{
-    AsyncContext, AsyncRuntime, CatchResultExt, CaughtError, Ctx, Function, Object, Promise,
+    AsyncContext, AsyncRuntime, CatchResultExt, CaughtError, Ctx, Function, IntoJs, Object, Promise,
 };
 use serde::Deserialize;
 use serde_json::json;
+use tokio::sync::{Notify, Semaphore};
 
 use crate::content::ContentFilter;
 use crate::cookies::CookieJar;
+use crate::failure::{Failure, Trouble};
 use crate::html;
 use crate::manifest::{Manifest, Runtime, SettingDef, is_provider_id};
 use crate::permissions::{HostPattern, NetPolicy, is_public_ip};
@@ -31,6 +35,16 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 pub const MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 /// Longest single `raygun.time.sleep`: enough to pace rate-limited APIs, short of the call timeout.
 const MAX_SLEEP_MS: f64 = 10_000.0;
+/// Requests to one site at once, across every extension; more wait their turn, so many sources
+/// on one site don't get them all refused.
+const SITE_REQUESTS: usize = 6;
+/// Requests extensions make at once in all: a phone has only so many sockets and TLS handshakes
+/// in it.
+const ALL_REQUESTS: usize = 32;
+/// What requests met, kept per extension to explain a failed call (newest last).
+const NET_LOG: usize = 32;
+/// How much of a failed answer is kept to tell a browser check from a plain refusal.
+const CHECK_BYTES: usize = 16 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct Limits {
@@ -65,11 +79,83 @@ struct Shared {
     deadline: Rc<Cell<Instant>>,
     cpu_budget: Duration,
     content: ContentFilter,
+    /// What requests met lately, newest last.
+    net_log: RefCell<VecDeque<(Instant, NetEvent)>>,
+    /// Calls (and the load) running now; requests stop once none is left to wait for them.
+    calls: Cell<usize>,
+    idle: Notify,
+}
+
+/// What one request met.
+#[derive(Debug, Clone)]
+enum NetEvent {
+    /// The site answered (2xx or 3xx).
+    Answered,
+    Trouble(Trouble),
 }
 
 impl Shared {
     fn restart_budget(&self) {
         self.deadline.set(Instant::now() + self.cpu_budget);
+    }
+
+    fn note(&self, event: NetEvent) {
+        let mut log = self.net_log.borrow_mut();
+        if log.len() >= NET_LOG {
+            log.pop_front();
+        }
+        log.push_back((Instant::now(), event));
+    }
+
+    /// The worst trouble requests met since `since`, and whether one got a good answer.
+    fn since(&self, since: Instant) -> (Option<Trouble>, bool) {
+        let log = self.net_log.borrow();
+        let mut worst: Option<&Trouble> = None;
+        let mut answered = false;
+        for (_, event) in log.iter().filter(|(at, _)| *at >= since) {
+            match event {
+                NetEvent::Answered => answered = true,
+                NetEvent::Trouble(trouble) => {
+                    if worst.is_none_or(|worst| trouble.kind.weight() > worst.kind.weight()) {
+                        worst = Some(trouble);
+                    }
+                }
+            }
+        }
+        (worst.cloned(), answered)
+    }
+
+    /// Resolves once no call is running.
+    async fn idle(&self) {
+        loop {
+            let notified = self.idle.notified();
+            if self.calls.get() == 0 {
+                return;
+            }
+            notified.await;
+        }
+    }
+}
+
+/// A running call (or the load): the extension's requests go on while one is held.
+struct Running(Rc<Shared>);
+
+impl Running {
+    fn new(shared: &Rc<Shared>) -> Self {
+        shared.calls.set(shared.calls.get() + 1);
+        Self(shared.clone())
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        let left = self.0.calls.get().saturating_sub(1);
+        self.0.calls.set(left);
+        if left == 0 {
+            // Nobody waits for the extension's requests any more (a search was left, or gave
+            // up): stop them rather than finish them for nothing.
+            self.0.idle.notify_waiters();
+        }
     }
 }
 
@@ -112,7 +198,12 @@ impl JsExtension {
             deadline: deadline.clone(),
             cpu_budget: limits.cpu_budget,
             content,
+            net_log: RefCell::new(VecDeque::new()),
+            calls: Cell::new(0),
+            idle: Notify::new(),
         });
+        // Requests made while the script sets up belong to the load.
+        let loading = Running::new(&shared);
 
         let runtime = AsyncRuntime::new().map_err(|error| error.to_string())?;
         // Drives the extension's own futures (its fetches) whatever call is waiting on them. Without
@@ -169,6 +260,7 @@ impl JsExtension {
                 Ok(())
             })
             .await?;
+        drop(loading);
 
         Ok(Self {
             shared,
@@ -202,16 +294,20 @@ impl JsExtension {
     }
 
     /// Calls `method` on one of this extension's providers (its local id) and awaits the result.
+    /// A failure carries what the call's requests met along the way.
     pub async fn call(
         &self,
         provider: &str,
         method: &str,
         args: &serde_json::Value,
-    ) -> Result<serde_json::Value, String> {
+    ) -> Result<serde_json::Value, Failure> {
+        let _running = Running::new(&self.shared);
+        let started = Instant::now();
         let (provider, method, args) = (provider.to_owned(), method.to_owned(), args.to_string());
         let label = format!("{}/{provider}.{method}", self.shared.manifest.id);
         self.shared.restart_budget();
-        self.context
+        let answer = self
+            .context
             .async_with(async move |ctx| {
                 let call: Function = ctx
                     .globals()
@@ -228,7 +324,15 @@ impl JsExtension {
                     .map_err(|error| call_error(&label, error))?;
                 serde_json::from_str(&text).map_err(|error| error.to_string())
             })
-            .await
+            .await;
+        answer.map_err(|message| {
+            let (trouble, answered) = self.shared.since(started);
+            Failure {
+                message,
+                trouble,
+                answered,
+            }
+        })
     }
 }
 
@@ -361,8 +465,8 @@ fn install_natives<'js>(ctx: &Ctx<'js>, shared: Rc<Shared>) -> rquickjs::Result<
                     let result = fetch(&s, &url, &options).await;
                     s.restart_budget();
                     match result {
-                        Ok(response) => ok(response),
-                        Err(message) => err(message),
+                        Ok(response) => Fetched::Answer(response),
+                        Err(message) => Fetched::Failed(message),
                     }
                 }
             }),
@@ -533,13 +637,90 @@ struct FetchOptions {
     body: Option<String>,
 }
 
-#[derive(serde::Serialize)]
 struct FetchResponse {
     status: u16,
     url: String,
     headers: BTreeMap<String, String>,
     body: String,
 }
+
+/// What `raygun.http.fetch` hands the script: the answer as an object, its body a string of its
+/// own (never escaped into a JSON envelope and parsed back), or why the request failed.
+enum Fetched {
+    Answer(FetchResponse),
+    Failed(String),
+}
+
+impl<'js> IntoJs<'js> for Fetched {
+    fn into_js(self, ctx: &Ctx<'js>) -> rquickjs::Result<rquickjs::Value<'js>> {
+        let object = Object::new(ctx.clone())?;
+        match self {
+            Self::Answer(response) => {
+                let headers = Object::new(ctx.clone())?;
+                for (name, value) in response.headers {
+                    headers.set(name, value)?;
+                }
+                object.set("status", response.status)?;
+                object.set("url", response.url)?;
+                object.set("headers", headers)?;
+                object.set("body", response.body)?;
+            }
+            Self::Failed(message) => object.set("error", message)?,
+        }
+        Ok(object.into_value())
+    }
+}
+
+/// The runtime extensions' requests run on, apart from the lanes, so answers keep arriving while
+/// a lane is busy running script. `None` if it couldn't start: requests then run on the lane.
+fn network() -> Option<&'static tokio::runtime::Runtime> {
+    static NETWORK: OnceLock<Option<tokio::runtime::Runtime>> = OnceLock::new();
+    NETWORK
+        .get_or_init(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .thread_name("raygun-ext-net")
+                .enable_all()
+                .build()
+                .inspect_err(|error| tracing::warn!(%error, "no network runtime for extensions"))
+                .ok()
+        })
+        .as_ref()
+}
+
+/// Turns for requests: a few per site, more in all.
+struct Gates {
+    all: Arc<Semaphore>,
+    sites: Mutex<HashMap<String, Arc<Semaphore>>>,
+}
+
+impl Gates {
+    fn get() -> &'static Self {
+        static GATES: OnceLock<Gates> = OnceLock::new();
+        GATES.get_or_init(|| Self {
+            all: Arc::new(Semaphore::new(ALL_REQUESTS)),
+            sites: Mutex::new(HashMap::new()),
+        })
+    }
+
+    fn site(&self, host: &str) -> Arc<Semaphore> {
+        let mut sites = self
+            .sites
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if sites.len() > 256 {
+            // Forget sites no request is using.
+            sites.retain(|_, gate| Arc::strong_count(gate) > 1);
+        }
+        sites
+            .entry(host.to_ascii_lowercase())
+            .or_insert_with(|| Arc::new(Semaphore::new(SITE_REQUESTS)))
+            .clone()
+    }
+}
+
+/// An answer and what it says went wrong (a failed status), or why there was none.
+type Exchanged = Result<(FetchResponse, Option<Trouble>), Trouble>;
 
 async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchResponse, String> {
     let url = Url::parse(url).map_err(|error| format!("invalid URL {url:?}: {error}"))?;
@@ -552,6 +733,8 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
         .map_err(|_| format!("invalid method {:?}", options.method))?;
 
     let host = url.host_str().unwrap_or_default().to_owned();
+    // Requests take turns per server: the host and its port.
+    let site = format!("{host}:{}", url.port_or_known_default().unwrap_or_default());
     let mut request = shared.client.request(method, url);
     for (name, value) in &options.headers {
         request = request.header(name, value);
@@ -560,10 +743,49 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
     if let Some(body) = options.body {
         request = request.body(body);
     }
+    let exchange = exchange(request, host, site);
+    let stopped = || "stopped: nothing waits for this request any more".to_owned();
+    let exchanged = match network() {
+        Some(network) => {
+            let task = network.spawn(exchange);
+            let abort = task.abort_handle();
+            tokio::select! {
+                joined = task => joined.map_err(|_| stopped())?,
+                () = shared.idle() => {
+                    abort.abort();
+                    return Err(stopped());
+                }
+            }
+        }
+        None => tokio::select! {
+            exchanged = exchange => exchanged,
+            () = shared.idle() => return Err(stopped()),
+        },
+    };
+    match exchanged {
+        Ok((response, trouble)) => {
+            shared.note(trouble.map_or(NetEvent::Answered, NetEvent::Trouble));
+            Ok(response)
+        }
+        Err(trouble) => {
+            let message = trouble.detail.clone();
+            shared.note(NetEvent::Trouble(trouble));
+            Err(message)
+        }
+    }
+}
+
+/// Sends a request and reads its answer, waiting for a turn with the site (`host:port`) first.
+/// Runs on the network runtime.
+async fn exchange(request: reqwest::RequestBuilder, host: String, site: String) -> Exchanged {
+    let gates = Gates::get();
+    // The gates are never closed, so acquiring only waits.
+    let _site = gates.site(&site).acquire_owned().await;
+    let _all = gates.all.clone().acquire_owned().await;
     let mut response = request
         .send()
         .await
-        .map_err(|error| request_error(&host, &error))?;
+        .map_err(|error| request_trouble(&host, &error))?;
 
     let status = response.status().as_u16();
     let final_url = response.url().to_string();
@@ -578,44 +800,68 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
             })
             .or_insert_with(|| value.into_owned());
     }
-    if response
-        .content_length()
-        .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
-    {
-        return Err(format!(
-            "response is larger than {MAX_RESPONSE_BYTES} bytes"
-        ));
+    let too_large = || Trouble {
+        kind: IssueKind::ExtensionFailed,
+        detail: format!(
+            "{host} sent more than {} MB",
+            MAX_RESPONSE_BYTES / (1024 * 1024)
+        ),
+    };
+    let length = response.content_length();
+    if length.is_some_and(|length| length > MAX_RESPONSE_BYTES as u64) {
+        return Err(too_large());
     }
-    let mut body = Vec::new();
+    let mut body = Vec::with_capacity(length.map_or(0, |length| length as usize));
     while let Some(chunk) = response
         .chunk()
         .await
-        .map_err(|error| request_error(&host, &error))?
+        .map_err(|error| request_trouble(&host, &error))?
     {
         if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
-            return Err(format!(
-                "response is larger than {MAX_RESPONSE_BYTES} bytes"
-            ));
+            return Err(too_large());
         }
         body.extend_from_slice(&chunk);
     }
-    Ok(FetchResponse {
+    // Valid UTF-8 (nearly every page) becomes the string without a copy.
+    let body = String::from_utf8(body)
+        .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
+    let mut check_end = body.len().min(CHECK_BYTES);
+    while !body.is_char_boundary(check_end) {
+        check_end -= 1;
+    }
+    let trouble = issue::answer_kind(
         status,
-        url: final_url,
-        headers,
-        body: String::from_utf8_lossy(&body).into_owned(),
-    })
+        headers
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str())),
+        &body[..check_end],
+    )
+    .map(|kind| Trouble {
+        kind,
+        detail: issue::answer_detail(&host, status, kind),
+    });
+    Ok((
+        FetchResponse {
+            status,
+            url: final_url,
+            headers,
+            body,
+        },
+        trouble,
+    ))
 }
 
-/// A short reason for a failed request. reqwest's own message repeats the whole URL; the innermost
-/// cause ("operation timed out", a denied redirect) is what the user needs.
-fn request_error(host: &str, error: &reqwest::Error) -> String {
-    if error.is_timeout() {
-        return format!("{host} didn't answer in time");
+/// What a failed request met. reqwest's own message repeats the whole URL; the innermost cause
+/// ("operation timed out", a denied redirect) says what happened.
+fn request_trouble(host: &str, error: &reqwest::Error) -> Trouble {
+    // A redirect the manifest doesn't allow: the site moved where the extension may not go.
+    let kind = if error.is_redirect() {
+        IssueKind::SiteChanged
+    } else {
+        issue::request_kind(error)
+    };
+    Trouble {
+        kind,
+        detail: issue::request_detail(host, error),
     }
-    let mut cause: &dyn std::error::Error = error;
-    while let Some(inner) = cause.source() {
-        cause = inner;
-    }
-    format!("could not reach {host}: {cause}")
 }

@@ -1,14 +1,5 @@
 import type { VideoLinkView, VideoServerView } from '@raygun/bindings';
-import {
-  CircleAlert,
-  Copy,
-  Download,
-  ExternalLink,
-  LoaderCircle,
-  Play,
-  Star,
-  X,
-} from 'lucide-react';
+import { Copy, Download, ExternalLink, LoaderCircle, Play, Star, X } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -170,10 +161,9 @@ const ServerItem: FC<{
       </h3>
       {state === 'empty' && <p className="text-muted text-sm">{t('watch.serverEmpty')}</p>}
       {state === 'failed' && (
-        <p className="text-muted flex items-start gap-1.5 text-sm wrap-anywhere">
-          <CircleAlert aria-hidden size={16} className="mt-0.5 shrink-0" />
-          {t('watch.serverFailed', { message: links.error?.message ?? '' })}
-        </p>
+        <SourceIssue compact onRetry={() => void links.refetch()}>
+          {links.error?.message ?? ''}
+        </SourceIssue>
       )}
       {list && list.length > 0 && (
         <LinkList

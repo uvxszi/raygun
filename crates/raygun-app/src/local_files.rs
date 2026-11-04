@@ -1485,6 +1485,7 @@ mod tests {
     }
 
     /// (key, name, series, [(file, season, number, name)]) of each title.
+    #[allow(clippy::type_complexity)]
     fn grouped(
         rels: &[&str],
     ) -> Vec<(

@@ -4,6 +4,8 @@
 pub mod audiobook;
 mod content;
 pub mod cookies;
+mod failure;
+pub mod fanout;
 mod host;
 mod html;
 mod js;
@@ -23,6 +25,8 @@ pub mod video;
 #[cfg(test)]
 mod fixture_tests;
 #[cfg(test)]
+mod many_tests;
+#[cfg(test)]
 mod nuclear_tests;
 #[cfg(test)]
 mod repo_tests;
@@ -31,9 +35,9 @@ mod tests;
 
 pub use content::ContentFilter;
 pub use host::{
-    CallError, ExtensionFiles, ExtensionHost, ExtensionSource, HostConfig, LYRICS, MUSIC_CHARTS,
-    MUSIC_METADATA, MUSIC_STREAM, MUSIC_TAGS, ProviderCandidates, ResolvedStream, UserSettings,
-    discover_installed,
+    CATALOG_SEARCH_TIMEOUT, CallError, ExtensionFiles, ExtensionHost, ExtensionSource, HostConfig,
+    INTERACTIVE_TIMEOUT, LYRICS, MUSIC_CHARTS, MUSIC_METADATA, MUSIC_STREAM, MUSIC_TAGS,
+    ProviderCandidates, ResolvedStream, UserSettings, discover_installed,
 };
 pub use js::Limits;
 pub use manifest::{MANIFEST_FILE, Manifest, ManifestError};
