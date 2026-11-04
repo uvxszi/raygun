@@ -66,7 +66,9 @@ impl ExtensionHost {
             .call(provider, "episodes", serde_json::json!({ "id": id }))
             .await
             .map_err(|error| error.to_string())?;
-        Ok(parse_units(&value, "episodes", "Episode"))
+        let mut episodes = parse_units(&value, "episodes", "Episode");
+        fill_from_names(&mut episodes);
+        Ok(episodes)
     }
 
     /// A title's comments, a page at a time (M46.45); a source without them has none.
@@ -130,6 +132,33 @@ impl ExtensionHost {
 
 fn label(value: Option<&Value>) -> Option<String> {
     text(value).map(|label| label.chars().take(MAX_LABEL).collect())
+}
+
+/// Episodes as a source lists them, made whole: each id once (the first), a number read from the
+/// name when the source gives none ("Episode 12", "第12話"), and seasons read from the names
+/// ("S2 E5", "Season 2 Episode 5") when the source gives none and every name says one, so
+/// seasons numbered from 1 each don't interleave.
+pub fn fill_from_names(episodes: &mut Vec<MangaChapter>) {
+    let mut seen = std::collections::HashSet::new();
+    episodes.retain(|episode| seen.insert(episode.id.clone()));
+    let read: Vec<raygun_resolver::video_match::EpisodeInfo> = episodes
+        .iter()
+        .map(|episode| raygun_resolver::video_match::parse_episode(&episode.name))
+        .collect();
+    for (episode, info) in episodes.iter_mut().zip(&read) {
+        if episode.number.is_none() && !info.weak {
+            episode.number = info.episode.filter(|number| *number >= 0.0);
+        }
+    }
+    let seasons: Option<Vec<u32>> = read.iter().map(|info| info.season).collect();
+    if let Some(seasons) = seasons
+        && episodes.iter().all(|episode| episode.volume.is_none())
+        && read.iter().all(|info| !info.weak && info.episode.is_some())
+    {
+        for (episode, season) in episodes.iter_mut().zip(seasons) {
+            episode.volume = Some(season.to_string());
+        }
+    }
 }
 
 /// A `servers` answer: servers with ids and names, and any videos they came with.
@@ -409,6 +438,51 @@ mod tests {
         assert_eq!(
             (episodes[2].number, episodes[2].volume.as_deref()),
             (None, None)
+        );
+    }
+
+    #[test]
+    fn names_fill_in_numbers_and_seasons() {
+        let parse = |episodes: Value| {
+            let mut episodes = parse_units(&json!({ "episodes": episodes }), "episodes", "Episode");
+            fill_from_names(&mut episodes);
+            episodes
+                .into_iter()
+                .map(|episode| (episode.id, episode.volume, episode.number))
+                .collect::<Vec<_>>()
+        };
+        let seasons = parse(json!([
+            { "id": "a", "name": "S2 E5" },
+            { "id": "b", "name": "Season 1 Episode 3" },
+            { "id": "a", "name": "S2 E5 again" }
+        ]));
+        assert_eq!(
+            seasons,
+            [
+                ("a".into(), Some("2".into()), Some(5.0)),
+                ("b".into(), Some("1".into()), Some(3.0)),
+            ],
+            "each id once, seasons and numbers from the names"
+        );
+        let partly = parse(json!([
+            { "id": "a", "name": "Episode 12" },
+            { "id": "b", "name": "S2 E1" },
+            { "id": "c", "name": "Film 2" }
+        ]));
+        assert_eq!(
+            partly,
+            [
+                ("a".into(), None, Some(12.0)),
+                ("b".into(), None, Some(1.0)),
+                ("c".into(), None, None),
+            ],
+            "no seasons unless every name gives one; a trailing number is only a hint"
+        );
+        let given = parse(json!([{ "id": "a", "name": "Episode 9", "number": 4, "season": 3 }]));
+        assert_eq!(
+            given,
+            [("a".into(), Some("3".into()), Some(4.0))],
+            "the source's own numbers win"
         );
     }
 }

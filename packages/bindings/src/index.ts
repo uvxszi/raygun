@@ -1263,6 +1263,12 @@ export type AnimeEpisode = {
 	title: string,
 	episode: number,
 	malId: number | null,
+	/**
+	 *  The entry's Kitsu or AniList id, whose MyAnimeList id is looked up before searching by
+	 *  name (each season has its own).
+	 */
+	kitsuId?: number | null,
+	anilistId?: number | null,
 };
 
 /**  Build and runtime facts about the running app. */

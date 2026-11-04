@@ -205,20 +205,22 @@ describe('Stremio addons in Watch', () => {
       'aria-selected',
       'true',
     );
-    expect(
-      within(page).getByRole('button', { name: 'Mark S1 E1 · Episode 1 unwatched' }),
-    ).toHaveAttribute('aria-pressed', 'true');
+    expect(within(page).getByRole('button', { name: 'Mark S1 E1 unwatched' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
 
-    const second = within(page).getByRole('listitem', { name: 'S1 E2 · Episode 2' });
+    // A name that only repeats the number isn't repeated: "S1 E2", not "S1 E2 · Episode 2".
+    const second = within(page).getByRole('listitem', { name: 'S1 E2' });
     // A tap watches: the player opens and finds the best stream itself (M44).
-    await user.click(within(second).getByRole('button', { name: /^2\. Episode 2/ }));
+    await user.click(within(second).getByRole('button', { name: /^Episode 2/ }));
     expect(commands.stremioWatch).toHaveBeenCalledWith('series', 'tt0903747', 'tt0903747:1:2');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
     // A long press picks the stream.
     await user.pointer({
       keys: '[MouseRight]',
-      target: within(second).getByRole('button', { name: /^2\. Episode 2/ }),
+      target: within(second).getByRole('button', { name: /^Episode 2/ }),
     });
     const picker = await screen.findByRole('dialog', { name: 'Streams' });
     // Streams are asked for with the series, whose details say which ids its episodes go by.
@@ -242,7 +244,7 @@ describe('Stremio addons in Watch', () => {
         metaId: 'tt0903747',
         videoId: 'tt0903747:1:2',
         title: 'Breaking Bad',
-        subtitle: 'S1 E2 · Episode 2',
+        subtitle: 'S1 E2',
         poster: null,
         stream: stream('direct', 'HLS 720p', 'https://cdn.example/e2.m3u8'),
         external: false,
@@ -252,12 +254,12 @@ describe('Stremio addons in Watch', () => {
     await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 
     await user.click(within(page).getByRole('tab', { name: 'Season 2' }));
-    await user.click(within(page).getByRole('button', { name: 'Mark S2 E1 · Episode 1 watched' }));
+    await user.click(within(page).getByRole('button', { name: 'Mark S2 E1 watched' }));
     expect(commands.stremioSetWatched).toHaveBeenCalledWith(
       'series',
       'tt0903747:2:1',
       'Breaking Bad',
-      'S2 E1 · Episode 1',
+      'S2 E1',
       null,
       true,
     );

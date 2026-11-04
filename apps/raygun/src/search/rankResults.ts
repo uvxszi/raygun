@@ -29,13 +29,18 @@ export const titleScore = (title: string, query: string) => {
  * Every source's results in one list, the best answers to `query` first, each title once per
  * source. Among equals a source's own order wins, then the sources' order. With nothing typed
  * (each source's popular titles) the sources take turns, so no one source fills the top.
+ * `score` rates a title against the query (videos weigh seasons: `videoTitleScore`).
  */
-export const rankResults = (results: SourceSearchResult[], query: string): RankedCard[] => {
+export const rankResults = (
+  results: SourceSearchResult[],
+  query: string,
+  score: (title: string, query: string) => number = titleScore,
+): RankedCard[] => {
   const scored = results.flatMap((result, sourceIndex) =>
     result.items.map((card, position) => ({
       card,
       sourceName: result.source.name,
-      score: query.trim() ? titleScore(card.title, query) : 0,
+      score: query.trim() ? score(card.title, query) : 0,
       position,
       sourceIndex,
     })),

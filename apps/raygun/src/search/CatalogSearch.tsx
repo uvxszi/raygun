@@ -18,8 +18,9 @@ import { FailedSources } from './FailedSources';
 import { NoSources } from './NoSources';
 import { SourceMenu } from './SourceMenu';
 import { SourceFiltersPanel } from './SourceFiltersPanel';
-import { rankResults } from './rankResults';
+import { rankResults, titleScore } from './rankResults';
 import type { RankedCard } from './rankResults';
+import { videoTitleScore } from '../watch/videoMatch';
 import { useSeenTitles } from './seenBefore';
 import { failingLast, useSourceHealth } from './sourceHealth';
 import {
@@ -212,8 +213,9 @@ export const RankedResults: FC<{
       rankResults(
         results.filter((result) => !result.error),
         query,
+        medium === 'video' ? videoTitleScore : titleScore,
       ),
-    [results, query],
+    [results, query, medium],
   );
   // Titles already seen (Home, sources' pages, the library) show until every source has
   // answered (M46.47), after the answers that came.

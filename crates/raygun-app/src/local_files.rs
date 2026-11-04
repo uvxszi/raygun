@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 use raygun_db::local_folders::{self as store, FileRow};
 use raygun_db::titles::{self, TitleFields, UnitFields};
 use raygun_model::{LocalCounts, LocalFolder, LocalScanProgress};
+use raygun_resolver::video_match;
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
@@ -170,46 +171,163 @@ fn percent_decode(text: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// A video file's season and episode from its name (`S01E02`, `1x02`, `Episode 3`, `E05`).
-pub fn episode_of(name: &str) -> Option<(Option<f64>, f64)> {
-    let lower = name.to_ascii_lowercase();
-    let chars: Vec<char> = lower.chars().collect();
-    let number_at = |start: usize| -> Option<(f64, usize)> {
-        let digits: String = chars[start..]
+/// A video file's season and episode from its name: `S01E02`, `1x02`, `Episode 3`,
+/// `[Group] Show - 03`, `Show II - 03`, `Show 2nd Season - 03`; see `video_match::parse_episode`.
+/// (The scan groups files with `group_videos`, which also weighs numbers ending names.)
+#[cfg(test)]
+fn episode_of(name: &str) -> Option<(Option<f64>, f64)> {
+    video_match::episode_of(name).map(|(season, episode)| (season.map(f64::from), episode))
+}
+
+/// A folder named only for a season ("Season 2", "S02", "Specials"): its videos are its parent
+/// folder's show's.
+fn season_folder(name: &str) -> Option<u32> {
+    if matches!(name.trim().to_lowercase().as_str(), "specials" | "special") {
+        return Some(0);
+    }
+    let info = video_match::parse_title(name);
+    info.season.filter(|_| info.base.is_empty())
+}
+
+/// A folder's videos as titles: the episodes of one show are a series (season folders join
+/// their show's: "Show/Season 2/…"; "Show - 01" and "Show II - 01" are its seasons 1 and 2), a
+/// folder holding several shows gives each its own, and other files are movies of their own.
+#[derive(Debug, Clone, PartialEq)]
+struct VideoTitle {
+    /// After the folder's id in the title's remote id.
+    key: String,
+    name: String,
+    series: bool,
+    /// Indices of its files in the list grouped, with their season, number and name.
+    episodes: Vec<(usize, Option<u32>, Option<f64>, String)>,
+}
+
+/// Groups video files (paths inside the folder, in natural order) into titles.
+fn group_videos(folder_name: &str, rels: &[&str]) -> Vec<VideoTitle> {
+    struct File {
+        index: usize,
+        info: video_match::EpisodeInfo,
+        season: Option<u32>,
+    }
+    // By the folder their show is in.
+    let mut shows_dirs: BTreeMap<String, Vec<File>> = BTreeMap::new();
+    for (index, rel) in rels.iter().enumerate() {
+        let dir = parent(rel);
+        let last = dir.rsplit('/').next().unwrap_or(dir);
+        let (dir, folder_season) = match season_folder(last).filter(|_| !dir.is_empty()) {
+            Some(season) => (parent(dir), Some(season)),
+            None => (dir, None),
+        };
+        let info = video_match::parse_episode(&stem(rel));
+        shows_dirs.entry(dir.to_owned()).or_default().push(File {
+            index,
+            season: info.season.or(folder_season),
+            info,
+        });
+    }
+    let mut titles = Vec::new();
+    for (dir, files) in shows_dirs {
+        // A number ending a name ("Show 03") counts once two names of the show have one.
+        let numbered = |file: &File| {
+            file.info.episode.is_some()
+                && (!file.info.weak
+                    || files
+                        .iter()
+                        .filter(|other| {
+                            other.info.weak
+                                && other.info.episode.is_some()
+                                && other.info.show.key() == file.info.show.key()
+                        })
+                        .count()
+                        >= 2)
+        };
+        // Names that are only a number ("01.mkv") are of the folder's show, whichever it is.
+        let mut shows: Vec<String> = Vec::new();
+        for file in files.iter().filter(|file| numbered(file)) {
+            let key = file.info.show.key();
+            if !key.is_empty() && !shows.contains(&key) {
+                shows.push(key);
+            }
+        }
+        let episode = |file: &File| {
+            let number = numbered(file).then_some(file.info.episode).flatten();
+            let name = match (number, file.info.rest.as_str()) {
+                (Some(number), "") => format!("Episode {}", video_match::format_number(number)),
+                (Some(_), rest) => rest.to_owned(),
+                (None, _) => stem(rels[file.index]),
+            };
+            (file.index, file.season, number, name)
+        };
+        let movie = |file: &File| VideoTitle {
+            key: rels[file.index].to_owned(),
+            name: stem(rels[file.index]),
+            series: false,
+            episodes: vec![(file.index, None, None, stem(rels[file.index]))],
+        };
+        let named = files.iter().filter(|file| numbered(file)).count();
+        if shows.len() <= 1 {
+            // One show: the folder is its series when half its files or more are episodes.
+            if files.len() > 1 && named * 2 >= files.len() {
+                let name = if dir.is_empty() {
+                    folder_name.to_owned()
+                } else {
+                    dir.rsplit('/').next().unwrap_or(&dir).to_owned()
+                };
+                titles.push(VideoTitle {
+                    key: format!("{dir}/"),
+                    name,
+                    series: true,
+                    episodes: files.iter().map(episode).collect(),
+                });
+            } else {
+                titles.extend(files.iter().map(movie));
+            }
+            continue;
+        }
+        // Several shows in one folder: each its own series; files of none are movies.
+        for show in &shows {
+            let members: Vec<&File> = files
+                .iter()
+                .filter(|file| numbered(file) && file.info.show.key() == *show)
+                .collect();
+            if members.len() < 2 {
+                titles.extend(members.into_iter().map(movie));
+                continue;
+            }
+            let name = members
+                .iter()
+                .map(|file| file.info.show.name.clone())
+                .find(|name| !name.is_empty())
+                .unwrap_or_else(|| show.clone());
+            titles.push(VideoTitle {
+                key: format!("{dir}/{show}"),
+                name,
+                series: true,
+                episodes: members.into_iter().map(episode).collect(),
+            });
+        }
+        titles.extend(
+            files
+                .iter()
+                .filter(|file| !numbered(file) || file.info.show.key().is_empty())
+                .map(movie),
+        );
+    }
+    // A series with seasons: its episodes without one are the first season's.
+    for title in titles.iter_mut().filter(|title| title.series) {
+        if title
+            .episodes
             .iter()
-            .take_while(|c| c.is_ascii_digit())
-            .collect();
-        (!digits.is_empty()).then(|| (digits.parse().unwrap_or(0.0), start + digits.len()))
-    };
-    for (index, &c) in chars.iter().enumerate() {
-        let before_ok = index == 0 || !chars[index - 1].is_ascii_alphanumeric();
-        // S01E02
-        if c == 's'
-            && before_ok
-            && let Some((season, after)) = number_at(index + 1)
-            && chars.get(after) == Some(&'e')
-            && let Some((episode, _)) = number_at(after + 1)
+            .any(|(_, season, ..)| season.is_some())
         {
-            return Some((Some(season), episode));
-        }
-        // 1x02
-        if c.is_ascii_digit()
-            && before_ok
-            && let Some((season, after)) = number_at(index)
-            && chars.get(after) == Some(&'x')
-            && let Some((episode, _)) = number_at(after + 1)
-        {
-            return Some((Some(season), episode));
+            for (_, season, number, _) in &mut title.episodes {
+                if season.is_none() && number.is_some() {
+                    *season = Some(1);
+                }
+            }
         }
     }
-    for marker in ["episode ", "episode", "ep ", "ep."] {
-        if let Some(at) = lower.find(marker)
-            && let Some((episode, _)) = number_at(at + marker.len())
-        {
-            return Some((None, episode));
-        }
-    }
-    None
+    titles
 }
 
 fn stem(name: &str) -> String {
@@ -945,16 +1063,18 @@ impl LocalFilesService {
                 .await?;
         }
 
-        // Files that are gone: their rows go; a video title with no files left leaves the library.
+        // Files that are gone: their rows go. A video title no file belongs to any more (its
+        // files gone, or grouped anew: a second episode makes a movie a series) leaves the
+        // library.
         let mut gone_titles = HashSet::new();
         for (rel, row) in &known {
-            if seen.contains(rel) {
-                continue;
-            }
             if row.kind == "video"
                 && let Some(item) = &row.item
             {
                 gone_titles.insert(item.clone());
+            }
+            if seen.contains(rel) {
+                continue;
             }
             let _ = store::delete_file(db, id, rel).await;
         }
@@ -1108,61 +1228,37 @@ impl LocalFilesService {
         seen: &mut HashSet<String>,
     ) -> Result<u32, String> {
         let db = self.db();
-        let mut by_dir: BTreeMap<String, Vec<&Found>> = BTreeMap::new();
-        for file in found
-            .iter()
-            .filter(|file| kind_of(&file.rel) == Some(Kind::Video))
-        {
-            by_dir
-                .entry(parent(&file.rel).to_owned())
-                .or_default()
-                .push(file);
-        }
         let now = now_ms();
         let mut count = 0;
-        for (dir, mut files) in by_dir {
-            let known_here = known
-                .iter()
-                .filter(|(rel, row)| row.kind == "video" && parent(rel) == dir)
-                .count();
-            let unchanged = known_here == files.len()
-                && files.iter().all(|file| {
-                    known.get(&file.rel).is_some_and(|row| {
-                        row.size == file.size && row.modified == file.modified && row.item.is_some()
-                    })
-                });
-            if unchanged {
-                count += files.len() as u32;
-                seen.extend(files.iter().map(|file| file.rel.clone()));
-                continue;
-            }
-            files.sort_by(|a, b| crate::comics::natural_cmp(&a.rel, &b.rel));
-            let episodes = files
-                .iter()
-                .filter(|file| episode_of(&stem(&file.rel)).is_some())
-                .count();
-            let series = files.len() > 1 && episodes * 2 >= files.len();
-            let groups: Vec<(String, String, Vec<&Found>)> = if series {
-                let name = if dir.is_empty() {
-                    folder.name.clone()
-                } else {
-                    file_name(&dir).to_owned()
-                };
-                vec![(format!("{}:{dir}/", folder.id), name, files)]
-            } else {
-                files
-                    .into_iter()
-                    .map(|file| {
-                        (
-                            format!("{}:{}", folder.id, file.rel),
-                            stem(&file.rel),
-                            vec![file],
-                        )
-                    })
-                    .collect()
-            };
-            for (remote_id, name, members) in groups {
-                let single = members.len() == 1;
+        let mut files: Vec<&Found> = found
+            .iter()
+            .filter(|file| kind_of(&file.rel) == Some(Kind::Video))
+            .collect();
+        // Videos as they were at the last scan are left as they are, so a title taken out of
+        // the library stays out.
+        let known_videos = known.values().filter(|row| row.kind == "video").count();
+        let unchanged = known_videos == files.len()
+            && files.iter().all(|file| {
+                known.get(&file.rel).is_some_and(|row| {
+                    row.size == file.size && row.modified == file.modified && row.item.is_some()
+                })
+            });
+        if unchanged {
+            seen.extend(files.iter().map(|file| file.rel.clone()));
+            return Ok(files.len() as u32);
+        }
+        files.sort_by(|a, b| crate::comics::natural_cmp(&a.rel, &b.rel));
+        let rels: Vec<&str> = files.iter().map(|file| file.rel.as_str()).collect();
+        for group in group_videos(&folder.name, &rels) {
+            let remote_id = format!("{}:{}", folder.id, group.key);
+            let name = group.name;
+            let members: Vec<(&Found, Option<u32>, Option<f64>, String)> = group
+                .episodes
+                .into_iter()
+                .map(|(index, season, number, name)| (files[index], season, number, name))
+                .collect();
+            {
+                let single = !group.series;
                 let title_id = titles::upsert_title(
                     db,
                     &TitleFields {
@@ -1187,18 +1283,13 @@ impl LocalFilesService {
                 .map_err(|error| error.to_string())?;
                 let units: Vec<UnitFields> = members
                     .iter()
-                    .enumerate()
-                    .map(|(index, file)| {
-                        let (season, number) =
-                            episode_of(&stem(&file.rel)).unwrap_or((None, (index + 1) as f64));
-                        UnitFields {
-                            remote_id: format!("{}/{}", folder.id, file.rel),
-                            name: stem(&file.rel),
-                            number: Some(number),
-                            volume: season.map(|season| format!("{season}")),
-                            scanlator: None,
-                            date: None,
-                        }
+                    .map(|(file, season, number, name)| UnitFields {
+                        remote_id: format!("{}/{}", folder.id, file.rel),
+                        name: name.clone(),
+                        number: *number,
+                        volume: season.map(|season| season.to_string()),
+                        scanlator: None,
+                        date: None,
                     })
                     .collect();
                 titles::sync_units(db, &title_id, &units, "episode", now)
@@ -1209,7 +1300,7 @@ impl LocalFilesService {
                 {
                     let _ = titles::set_in_library(db, &title_id, Some(now)).await;
                 }
-                for file in members {
+                for (file, ..) in members {
                     count += 1;
                     seen.insert(file.rel.clone());
                     let row = FileRow {
@@ -1365,6 +1456,124 @@ mod tests {
         assert_eq!(episode_of("Anime - Episode 12"), Some((None, 12.0)));
         assert_eq!(episode_of("Sintel"), None);
         assert_eq!(stem("Movies/Big_Buck.Bunny.mp4"), "Big Buck Bunny");
+        assert_eq!(episode_of("Show II - 03"), Some((Some(2.0), 3.0)));
+        assert_eq!(episode_of("Show S2 - 03"), Some((Some(2.0), 3.0)));
+        assert_eq!(
+            episode_of("[Group] Show 2nd Season - 03 [1080p]"),
+            Some((Some(2.0), 3.0))
+        );
+        assert_eq!(
+            episode_of("[SubsPlease] One Piece - 1071 (1080p)"),
+            Some((None, 1071.0))
+        );
+        assert_eq!(
+            episode_of("Movie 1920x1080"),
+            None,
+            "a resolution isn't 1920x1080"
+        );
+        assert_eq!(
+            episode_of("Sleep 2"),
+            None,
+            "\"ep\" inside a word isn't a marker"
+        );
+        assert_eq!(
+            episode_of("Ça Commence – Épisode 7"),
+            Some((None, 7.0)),
+            "text that isn't ASCII before the marker"
+        );
+        assert_eq!(episode_of("ジョジョ ep 3"), Some((None, 3.0)));
+    }
+
+    /// (key, name, series, [(file, season, number, name)]) of each title.
+    fn grouped(
+        rels: &[&str],
+    ) -> Vec<(
+        String,
+        String,
+        bool,
+        Vec<(usize, Option<u32>, Option<f64>, String)>,
+    )> {
+        group_videos("Videos", rels)
+            .into_iter()
+            .map(|title| (title.key, title.name, title.series, title.episodes))
+            .collect()
+    }
+
+    #[test]
+    fn videos_group_into_shows_and_seasons() {
+        // Season folders join their show.
+        let seasons = grouped(&[
+            "Show/Season 1/Show S01E01.mkv",
+            "Show/Season 1/Show S01E02.mkv",
+            "Show/Season 2/01.mkv",
+            "Show/Season 2/02.mkv",
+            "Show/Specials/Show - Recap.mkv",
+        ]);
+        assert_eq!(seasons.len(), 1, "{seasons:?}");
+        let (key, name, series, episodes) = &seasons[0];
+        assert_eq!(
+            (key.as_str(), name.as_str(), *series),
+            ("Show/", "Show", true)
+        );
+        let numbers: Vec<(Option<u32>, Option<f64>)> = episodes
+            .iter()
+            .map(|(_, season, number, _)| (*season, *number))
+            .collect();
+        assert_eq!(
+            numbers,
+            [
+                (Some(1), Some(1.0)),
+                (Some(1), Some(2.0)),
+                (Some(2), Some(1.0)),
+                (Some(2), Some(2.0)),
+                (Some(0), None),
+            ]
+        );
+
+        // "Show" and "Show II" in one folder: one series, seasons 1 and 2.
+        let sequel = grouped(&[
+            "Mushoku/[SubsPlease] Mushoku Tensei - 01 (1080p).mkv",
+            "Mushoku/[SubsPlease] Mushoku Tensei - 02 (1080p).mkv",
+            "Mushoku/[SubsPlease] Mushoku Tensei II - 01 (1080p).mkv",
+        ]);
+        assert_eq!(sequel.len(), 1);
+        let seasons: Vec<Option<u32>> = sequel[0].3.iter().map(|episode| episode.1).collect();
+        assert_eq!(seasons, [Some(1), Some(1), Some(2)]);
+        assert_eq!(
+            sequel[0].3[0].3, "Episode 1",
+            "a release name isn't an episode's name"
+        );
+
+        // Several shows in the folder itself: a series each, movies on their own.
+        let mixed = grouped(&[
+            "[SubsPlease] Dandadan - 01 (1080p).mkv",
+            "[SubsPlease] Dandadan - 02 (1080p).mkv",
+            "[SubsPlease] Sousou no Frieren - 01 (1080p).mkv",
+            "[SubsPlease] Sousou no Frieren - 02 (1080p).mkv",
+            "Sintel.mkv",
+        ]);
+        let titles: Vec<(&str, &str, bool, usize)> = mixed
+            .iter()
+            .map(|(key, name, series, episodes)| {
+                (key.as_str(), name.as_str(), *series, episodes.len())
+            })
+            .collect();
+        assert_eq!(
+            titles,
+            [
+                ("/dandadan", "Dandadan", true, 2),
+                ("/sosonofrieren", "Sousou no Frieren", true, 2),
+                ("Sintel.mkv", "Sintel", false, 1),
+            ]
+        );
+
+        // Numbers ending names count once two of the show's have one; a lone sequel is a movie.
+        let numbered = grouped(&["Show 01.mkv", "Show 02.mkv"]);
+        assert_eq!(numbered.len(), 1);
+        assert!(numbered[0].2);
+        let films = grouped(&["Films/Big Movie.mkv", "Films/Big Movie 2.mkv"]);
+        assert_eq!(films.len(), 2);
+        assert!(films.iter().all(|film| !film.2));
     }
 
     #[test]

@@ -10,6 +10,7 @@ use raygun_model::{
     VideoSubtitle, VideoTitleView,
 };
 use raygun_net::ImageLinks;
+use raygun_resolver::video_match;
 use tauri::{AppHandle, Manager};
 
 use crate::catalog::{Catalog, is_adult, to_message};
@@ -99,8 +100,9 @@ impl VideoSourceService {
         let downloaded = crate::video_library::downloaded_keys(&db, &keys).await?;
         let fields = row.fields;
         Ok(VideoTitleView {
-            episodes: units
-                .iter()
+            // The order they're watched in, as the player has them (seasons don't interleave).
+            episodes: watching_order(&units)
+                .into_iter()
                 .map(|unit| episode_view(&fields.source_id, unit, &progress, &downloaded))
                 .collect(),
             hidden_nsfw,
@@ -325,6 +327,8 @@ pub(crate) fn link_request(
             title: row.fields.title.clone(),
             episode: number as u32,
             mal_id: None,
+            kitsu_id: None,
+            anilist_id: None,
         });
     VideoRequest {
         group: Some(format!("title:{}", row.id)),
@@ -345,22 +349,14 @@ pub(crate) fn link_request(
 /// "S1 E2 · Name", "E2 · Name", the name alone, or a movie's year.
 fn episode_subtitle(row: &TitleRow, unit: &UnitRow, single: bool) -> Option<String> {
     let season = season(unit);
-    let number = unit
-        .fields
-        .number
-        .map(raygun_ext_host::manga::format_number);
-    let name = &unit.fields.name;
-    match (single && season.is_none(), season, number) {
-        (true, ..) => row.fields.year.map(|year| year.to_string()),
-        (false, Some(season), Some(number)) => Some(format!(
-            "S{} E{number} · {name}",
-            raygun_ext_host::manga::format_number(season)
-        )),
-        (false, None, Some(number)) if !name.ends_with(&format!(" {number}")) => {
-            Some(format!("E{number} · {name}"))
-        }
-        _ => Some(name.clone()),
+    if single && season.is_none() {
+        return row.fields.year.map(|year| year.to_string());
     }
+    Some(video_match::episode_label(
+        season,
+        unit.fields.number,
+        &unit.fields.name,
+    ))
 }
 
 /// A video episode's season, kept as its volume.
@@ -370,6 +366,33 @@ pub(crate) fn season(unit: &UnitRow) -> Option<f64> {
         .as_deref()
         .and_then(|volume| volume.parse::<f64>().ok())
         .filter(|season| season.is_finite())
+}
+
+/// A title's episodes in watching order: by season (specials last), then number; see
+/// [`video_match::watching_order`].
+pub(crate) fn watching_order(units: &[UnitRow]) -> Vec<&UnitRow> {
+    let mut listed: Vec<&UnitRow> = units.iter().collect();
+    listed.sort_by_key(|unit| unit.source_order);
+    let keys: Vec<video_match::EpisodeOrder> = listed
+        .iter()
+        .map(|unit| video_match::EpisodeOrder {
+            season: season(unit),
+            number: unit.fields.number,
+            date: unit.fields.date,
+        })
+        .collect();
+    video_match::watching_order(&keys)
+        .into_iter()
+        .map(|index| listed[index])
+        .collect()
+}
+
+/// Whether an episode is a special: season 0, or none where the title's others have one.
+pub(crate) fn is_special(unit: &UnitRow, units: &[UnitRow]) -> bool {
+    let seasons = units
+        .iter()
+        .any(|other| season(other).is_some_and(|season| season >= 1.0));
+    video_match::is_special(season(unit), seasons)
 }
 
 fn episode_view(
