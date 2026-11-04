@@ -280,9 +280,12 @@ export const WatchTitlePage: FC = () => {
   });
   const hasEpisodes = view.videos.length > 0;
   const trailerId = view.trailerYtIds[0];
-  // The floating button plays the movie, or the first episode not yet watched.
+  // The floating button plays the movie, or where watching continues (the episode watched last,
+  // or the next one once it was finished).
   const nextVideo = hasEpisodes
-    ? (view.videos.find((video) => !video.watched && (video.season ?? 0) > 0) ?? view.videos[0])
+    ? (view.videos.find((video) => video.id === view.continueVideoId) ??
+      view.videos.find((video) => !video.watched && (video.season ?? 0) > 0) ??
+      view.videos[0])
     : null;
   const resumable = nextVideo ? (nextVideo.positionMs ?? 0) > 0 : (view.positionMs ?? 0) > 0;
   const playLabel = t(resumable ? 'watch.resume' : hasEpisodes ? 'watch.start' : 'watch.play');

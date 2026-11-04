@@ -4,6 +4,7 @@
 
 pub mod protocol;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -445,36 +446,52 @@ impl StremioService {
         let db = self.db();
         let kind = meta.preview.kind.clone();
         let own_key = content_key(&kind, &meta.preview.id);
-        let mut progress = progress_store::progress_with_prefix(&db, &format!("{own_key}:"))
-            .await
-            .map_err(to_message)?;
-        if let Some(own) = progress_store::progress(&db, &own_key)
-            .await
-            .map_err(to_message)?
-        {
-            progress.push(own);
-        }
-        let find = |key: &str| progress.iter().find(|row| row.entry.key == key);
-        let own = find(&own_key);
         let keys: Vec<String> = meta
             .videos
             .iter()
             .map(|video| content_key(&kind, &video.id))
             .chain([own_key.clone()])
             .collect();
+        // By the episodes' own keys: an addon's video ids needn't start with the title's id.
+        let progress: HashMap<String, progress_store::VideoProgress> =
+            progress_store::progress_for_keys(&db, &keys)
+                .await
+                .map_err(to_message)?
+                .into_iter()
+                .map(|row| (row.entry.key.clone(), row))
+                .collect();
+        let find = |key: &str| progress.get(key);
+        let own = find(&own_key);
+        // Episodes marked in the library (a whole title marked watched) are marked on its
+        // stored episodes only.
+        let units: HashMap<String, titles::UnitRow> = match stored {
+            Some(row) => titles::units(&db, &row.id)
+                .await
+                .map_err(to_message)?
+                .into_iter()
+                .map(|unit| (unit.fields.remote_id.clone(), unit))
+                .collect(),
+            None => HashMap::new(),
+        };
+        let continue_video_id =
+            continue_video(&kind, &meta.videos, &progress, &units, now_ms()).map(str::to_owned);
         let downloaded = video_library::downloaded_keys(&db, &keys).await?;
         let in_library = stored.is_some_and(|row| row.in_library_at.is_some());
         Ok(StremioMeta {
+            continue_video_id,
             videos: meta
                 .videos
                 .into_iter()
                 .map(|video| {
                     let key = content_key(&kind, &video.id);
                     let saved = find(&key);
+                    let marked = units
+                        .get(&video.id)
+                        .is_some_and(|unit| unit.completed_at.is_some());
                     StremioVideo {
                         position_ms: saved.map_or(0.0, |row| row.position_ms as f64),
                         duration_ms: saved.and_then(|row| row.duration_ms).map(|ms| ms as f64),
-                        watched: saved.is_some_and(|row| row.watched_at.is_some()),
+                        watched: saved.is_some_and(|row| row.watched_at.is_some()) || marked,
                         downloaded: downloaded.contains(&key),
                         id: video.id,
                         title: video.title,
@@ -917,6 +934,47 @@ impl StremioService {
 /// The key watching progress is kept under for a movie or episode.
 pub fn content_key(kind: &str, video_id: &str) -> String {
     format!("stremio:{kind}:{video_id}")
+}
+
+/// The episode a series continues from (M46.48): the one watched last (its progress here, or a
+/// mark on the stored episode), or the next one that is out once that was finished; extras
+/// (season 0) only when they were watched last. See [`crate::catalog::continue_index`].
+pub(crate) fn continue_video<'a>(
+    kind: &str,
+    videos: &'a [protocol::Video],
+    progress: &HashMap<String, progress_store::VideoProgress>,
+    units: &HashMap<String, titles::UnitRow>,
+    now: i64,
+) -> Option<&'a str> {
+    let saved = |video: &protocol::Video| progress.get(&content_key(kind, &video.id));
+    let index = crate::catalog::continue_index(
+        videos,
+        |video| {
+            let watched = saved(video)
+                .filter(|row| row.position_ms > 0 || row.watched_at.is_some())
+                .map(|row| row.updated_at);
+            let marked = units
+                .get(&video.id)
+                .filter(|unit| unit.completed_at.is_some() || unit.position.unwrap_or(0) > 0)
+                .and_then(|unit| unit.progress_at);
+            watched.max(marked)
+        },
+        |video| {
+            saved(video).is_some_and(|row| row.watched_at.is_some())
+                || units
+                    .get(&video.id)
+                    .is_some_and(|unit| unit.completed_at.is_some())
+        },
+        |video| {
+            video.season != Some(0)
+                && video
+                    .released
+                    .as_deref()
+                    .and_then(release_ms)
+                    .is_none_or(|at| at <= now)
+        },
+    )?;
+    videos.get(index).map(|video| video.id.as_str())
 }
 
 /// A saved title as an addon would describe it, from the title store: its details and episodes

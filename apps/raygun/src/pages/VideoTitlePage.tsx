@@ -79,9 +79,12 @@ const Episodes: FC<{
     () => [...new Set(view.episodes.map((episode) => episode.season))],
     [view.episodes],
   );
-  const firstUnwatched = view.episodes.find((episode) => !episode.watched);
+  // The season shown first is the one watching continues in.
+  const continuing =
+    view.episodes.find((episode) => episode.id === view.continueEpisodeId) ??
+    view.episodes.find((episode) => !episode.watched);
   const [season, setSeason] = useState<number | null | undefined>(undefined);
-  const shown = season === undefined ? (firstUnwatched?.season ?? seasons[0] ?? null) : season;
+  const shown = season === undefined ? (continuing?.season ?? seasons[0] ?? null) : season;
   const episodes =
     seasons.length > 1
       ? view.episodes.filter((episode) => episode.season === shown)
@@ -301,8 +304,13 @@ export const VideoTitlePage: FC = () => {
     });
   };
   const movie = isMovie(view) ? view.episodes[0]! : null;
-  // The floating button plays the movie, or the first episode not yet watched.
-  const next = movie ?? view.episodes.find((episode) => !episode.watched) ?? view.episodes[0];
+  // The floating button plays the movie, or where watching continues (the episode watched last,
+  // or the next one once it was finished).
+  const next =
+    movie ??
+    view.episodes.find((episode) => episode.id === view.continueEpisodeId) ??
+    view.episodes.find((episode) => !episode.watched) ??
+    view.episodes[0];
 
   return (
     <section data-testid="video-title-page" className="flex min-h-full flex-col gap-5">

@@ -287,7 +287,15 @@ const ChapterView: FC<{
   const remember = useCallback(
     (offset: number) => {
       pending.current = null;
-      void saveNovelProgress(chapterId, offset, total).catch(() => {});
+      // The title page and Continue reading ask again once it's saved, not before.
+      void saveNovelProgress(chapterId, offset, total)
+        .then(() =>
+          Promise.all([
+            queryClient.invalidateQueries({ queryKey: [NOVEL, 'title'] }),
+            queryClient.invalidateQueries({ queryKey: [NOVEL, 'library'] }),
+          ]),
+        )
+        .catch(() => {});
       queryClient.setQueryData<NovelChapter>(
         novelChapterQuery(data.titleId, chapterId).queryKey,
         (cached) =>
@@ -301,8 +309,6 @@ const ChapterView: FC<{
             },
           },
       );
-      void queryClient.invalidateQueries({ queryKey: [NOVEL, 'title'] });
-      void queryClient.invalidateQueries({ queryKey: [NOVEL, 'library'] });
     },
     [chapterId, data.titleId, queryClient, total],
   );

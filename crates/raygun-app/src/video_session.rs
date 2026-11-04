@@ -18,8 +18,10 @@ use raygun_model::{SettingChange, VideoRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tauri::{AppHandle, Manager};
+use tauri_specta::Event;
 
-use crate::catalog::{now_ms, reading_order, to_message};
+use crate::catalog::{continue_index, now_ms, reading_order, to_message};
+use crate::events::WatchChangedEvent;
 use crate::startup::AppDb;
 use crate::stremio::{StremioPlayTarget, StremioService};
 use crate::video_library;
@@ -62,6 +64,21 @@ impl Origin {
         anime.then_some(None)
     }
 
+    /// The title a request's `group` names (the inverse of [`Origin::group_key`]): what a video
+    /// played without a session belongs to.
+    pub fn from_group(group: &str) -> Option<Self> {
+        if let Some(title_id) = group.strip_prefix("title:") {
+            return Some(Self::Source {
+                title_id: title_id.to_owned(),
+            });
+        }
+        let (kind, id) = group.strip_prefix("stremio:")?.split_once(':')?;
+        (!kind.is_empty() && !id.is_empty()).then(|| Self::Stremio {
+            kind: kind.to_owned(),
+            id: id.to_owned(),
+        })
+    }
+
     /// The key a title's remembered source is kept under.
     fn memory_key(&self) -> String {
         match self {
@@ -98,6 +115,8 @@ pub struct Episode {
     pub downloaded: bool,
     /// Its episode number, when it's a whole one (for AniSkip).
     pub number: Option<u32>,
+    /// An extra (season 0): watching doesn't start or continue there by itself.
+    pub special: bool,
 }
 
 /// A playable link.
@@ -319,22 +338,21 @@ impl VideoSessions {
             .to_owned()
     }
 
-    /// Opens the player on an episode (or the first one not watched yet) and starts finding its
-    /// links.
+    /// Opens the player on an episode (or where watching continues: the episode watched last, or
+    /// the next one once it was finished) and starts finding its links.
     pub async fn start(&self, origin: Origin, episode: Option<String>) -> Result<(), String> {
         let (title, poster, episodes) = self.episodes(&origin).await?;
         if episodes.is_empty() {
             return Err("This title has no episodes".into());
         }
-        let now = now_ms();
-        let index = episode
-            .and_then(|id| episodes.iter().position(|item| item.remote_id == id))
-            .or_else(|| {
-                episodes
-                    .iter()
-                    .position(|item| !item.watched && released(item, now))
-            })
-            .unwrap_or(0);
+        let chosen = episode.and_then(|id| episodes.iter().position(|item| item.remote_id == id));
+        let index = match chosen {
+            Some(index) => index,
+            None => {
+                let watched_at = self.watched_at(&origin, &episodes).await;
+                continue_episode(&episodes, &watched_at, now_ms())
+            }
+        };
         let remembered = self.remembered(&origin).await;
         let failing = self.health().await.failing(now_ms());
         let generation = self.generations.fetch_add(1, Ordering::SeqCst) + 1;
@@ -932,51 +950,104 @@ impl VideoSessions {
     }
 
     /// An episode was watched: Continue watching moves on to the next one that is out, as Stremio
-    /// does (its position is 1 ms, so it shows as up next).
-    pub async fn on_watched(&self, key: &str) {
-        let next = {
+    /// does (its position is 1 ms, so it shows as up next). A video played without a session (a
+    /// source picked by hand) moves on too, once, when `newly` finished: its title's episodes are
+    /// looked up in the background.
+    pub async fn on_watched(&self, key: &str, newly: bool) {
+        let in_session = {
             let guard = self.session.lock().expect("session poisoned");
-            let Some(session) = guard.as_ref() else {
-                return;
-            };
-            let Some(index) = session.episodes.iter().position(|item| item.key == key) else {
-                return;
-            };
-            session.next_after(index, now_ms()).map(|next| {
-                let episode = &session.episodes[next];
-                (
-                    VideoEntry {
-                        key: episode.key.clone(),
-                        title: session.title.clone(),
-                        subtitle: Some(episode.label.clone()),
-                        poster: session.poster.clone(),
-                        request: serde_json::to_string(&EpisodeRef {
-                            origin: session.origin.clone(),
-                            episode: episode.remote_id.clone(),
-                        })
-                        .unwrap_or_else(|_| "{}".into()),
-                    },
-                    episode.watched,
+            guard.as_ref().and_then(|session| {
+                let index = session.episodes.iter().position(|item| item.key == key)?;
+                Some(
+                    session
+                        .next_after(index, now_ms())
+                        .map(|next| next_entry(session, next)),
                 )
             })
         };
-        let Some((entry, already_watched)) = next else {
+        match in_session {
+            Some(Some((entry, already_watched))) => {
+                self.queue_next(entry, already_watched).await;
+            }
+            Some(None) => {}
+            None if newly => {
+                let app = self.app.clone();
+                let key = key.to_owned();
+                tauri::async_runtime::spawn(async move {
+                    app.state::<VideoSessions>().queue_next_outside(&key).await;
+                });
+            }
+            None => {}
+        }
+    }
+
+    /// Moves Continue watching on from `key`, played without a session, to the next episode of the
+    /// title its request names.
+    async fn queue_next_outside(&self, key: &str) {
+        let db = self.db();
+        let Some(saved) = store::progress(&db, key).await.ok().flatten() else {
             return;
         };
+        let Some(origin) = serde_json::from_str::<VideoRequest>(&saved.entry.request)
+            .ok()
+            .and_then(|request| request.group)
+            .and_then(|group| Origin::from_group(&group))
+        else {
+            return;
+        };
+        let (title, poster, episodes) = match self.episodes(&origin).await {
+            Ok(found) => found,
+            Err(error) => {
+                tracing::info!(%error, "couldn't look up the next episode");
+                return;
+            }
+        };
+        let now = now_ms();
+        let next = episodes
+            .iter()
+            .position(|item| item.key == key)
+            .and_then(|index| {
+                (index + 1..episodes.len()).find(|&next| released(&episodes[next], now))
+            });
+        let Some(next) = next else {
+            return;
+        };
+        let episode = &episodes[next];
+        let entry = VideoEntry {
+            key: episode.key.clone(),
+            title,
+            subtitle: Some(episode.label.clone()),
+            poster,
+            request: serde_json::to_string(&EpisodeRef {
+                origin,
+                episode: episode.remote_id.clone(),
+            })
+            .unwrap_or_else(|_| "{}".into()),
+        };
+        if self.queue_next(entry, episode.watched).await {
+            let _ = WatchChangedEvent(episode.key.clone()).emit(&self.app);
+        }
+    }
+
+    /// Puts `entry` in Continue watching as up next, unless it was watched or started already;
+    /// says whether it did.
+    async fn queue_next(&self, entry: VideoEntry, already_watched: bool) -> bool {
         let db = self.db();
         let saved = store::progress(&db, &entry.key).await.ok().flatten();
         let untouched = saved
             .as_ref()
             .is_none_or(|row| row.position_ms <= 0 && row.watched_at.is_none());
         if already_watched || !untouched {
-            return;
+            return false;
         }
         let now = now_ms();
         if let Err(error) = store::started(&db, &entry, now).await {
             tracing::warn!(%error, "could not queue the next episode");
-            return;
+            return false;
         }
-        let _ = store::set_progress(&db, &entry.key, 1, None, false, now).await;
+        store::set_progress(&db, &entry.key, 1, None, false, now)
+            .await
+            .is_ok()
     }
 
     async fn push_episodes(&self) {
@@ -1124,6 +1195,7 @@ impl VideoSessions {
                                 .number
                                 .filter(|number| *number >= 1.0 && number.fract() == 0.0)
                                 .map(|number| number as u32),
+                            special: video_sources::season(unit) == Some(0.0),
                             key,
                         }
                     })
@@ -1143,6 +1215,7 @@ impl VideoSessions {
                         watched: meta.watched,
                         downloaded: meta.downloaded,
                         number: None,
+                        special: false,
                     }]
                 } else {
                     meta.videos
@@ -1164,6 +1237,7 @@ impl VideoSessions {
                             watched: video.watched,
                             downloaded: video.downloaded,
                             number: video.episode.filter(|number| *number >= 1),
+                            special: video.season == Some(0),
                         })
                         .collect()
                 };
@@ -1172,9 +1246,83 @@ impl VideoSessions {
         }
     }
 
+    /// When each episode with progress was last watched (or marked in the library), by key.
+    async fn watched_at(&self, origin: &Origin, episodes: &[Episode]) -> HashMap<String, i64> {
+        let db = self.db();
+        let keys: Vec<String> = episodes.iter().map(|episode| episode.key.clone()).collect();
+        let mut watched_at: HashMap<String, i64> = store::progress_for_keys(&db, &keys)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|row| row.position_ms > 0 || row.watched_at.is_some())
+            .map(|row| (row.entry.key, row.updated_at))
+            .collect();
+        // Marks made in the library are on the stored episodes only.
+        let stored = match origin {
+            Origin::Source { title_id } => Some(title_id.clone()),
+            Origin::Stremio { kind, id } => {
+                titles::find_title(&db, video_library::STREMIO_SOURCE, &format!("{kind}:{id}"))
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|row| row.id)
+            }
+        };
+        if let Some(title_id) = stored {
+            let units = titles::units(&db, &title_id).await.unwrap_or_default();
+            let units: HashMap<&str, &titles::UnitRow> = units
+                .iter()
+                .map(|unit| (unit.fields.remote_id.as_str(), unit))
+                .collect();
+            for episode in episodes {
+                let marked = units
+                    .get(episode.remote_id.as_str())
+                    .filter(|unit| unit.completed_at.is_some() || unit.position.unwrap_or(0) > 0)
+                    .and_then(|unit| unit.progress_at);
+                if let Some(at) = marked {
+                    let entry = watched_at.entry(episode.key.clone()).or_insert(at);
+                    *entry = (*entry).max(at);
+                }
+            }
+        }
+        watched_at
+    }
+
     fn db(&self) -> std::sync::Arc<raygun_db::Db> {
         self.app.state::<AppDb>().0.clone()
     }
+}
+
+/// The episode `next` of the session as Continue watching's up next, and whether it was watched.
+fn next_entry(session: &Session, next: usize) -> (VideoEntry, bool) {
+    let episode = &session.episodes[next];
+    (
+        VideoEntry {
+            key: episode.key.clone(),
+            title: session.title.clone(),
+            subtitle: Some(episode.label.clone()),
+            poster: session.poster.clone(),
+            request: serde_json::to_string(&EpisodeRef {
+                origin: session.origin.clone(),
+                episode: episode.remote_id.clone(),
+            })
+            .unwrap_or_else(|_| "{}".into()),
+        },
+        episode.watched,
+    )
+}
+
+/// Where watching a title's episodes continues (M46.48): the episode watched last (`watched_at`,
+/// by key), or the next one that is out once that was finished; extras only when they were
+/// watched last. See [`continue_index`].
+fn continue_episode(episodes: &[Episode], watched_at: &HashMap<String, i64>, now: i64) -> usize {
+    continue_index(
+        episodes,
+        |episode| watched_at.get(&episode.key).copied(),
+        |episode| episode.watched,
+        |episode| released(episode, now) && !episode.special,
+    )
+    .unwrap_or(0)
 }
 
 /// What a player request asks for.
@@ -1221,6 +1369,7 @@ mod tests {
             watched: false,
             downloaded: false,
             number: None,
+            special: false,
         }
     }
 
@@ -1339,6 +1488,55 @@ mod tests {
         state.index = 3;
         assert_eq!(state.previous_before(3, 100), Some(1));
         assert_eq!(state.previous_before(0, 100), None);
+    }
+
+    #[test]
+    fn a_session_without_an_episode_continues_where_watching_was() {
+        let mut episodes: Vec<Episode> = (1..=8)
+            .map(|number| episode(&format!("tt1:1:{number}"), None))
+            .collect();
+        episodes.insert(
+            0,
+            Episode {
+                special: true,
+                ..episode("tt1:0:1", None)
+            },
+        );
+        let at = |pairs: &[(&str, i64)]| -> HashMap<String, i64> {
+            pairs
+                .iter()
+                .map(|(id, at)| (format!("stremio:series:{id}"), *at))
+                .collect()
+        };
+        assert_eq!(
+            continue_episode(&episodes, &HashMap::new(), 0),
+            1,
+            "a fresh series starts at its first episode, not an extra"
+        );
+        // Episode 1 opened for a moment, then episode 7 watched.
+        let watched = at(&[("tt1:1:1", 10), ("tt1:1:7", 20)]);
+        assert_eq!(continue_episode(&episodes, &watched, 0), 7);
+        // Episode 7 finished: the next one.
+        episodes[7].watched = true;
+        assert_eq!(continue_episode(&episodes, &watched, 0), 8);
+        // Not out yet: back to the first one not watched.
+        episodes[8].released = Some(1_000);
+        assert_eq!(continue_episode(&episodes, &watched, 500), 1);
+    }
+
+    #[test]
+    fn groups_name_their_titles() {
+        let source = Origin::Source {
+            title_id: "t1".into(),
+        };
+        assert_eq!(Origin::from_group(&source.group_key()), Some(source));
+        let anime = Origin::Stremio {
+            kind: "series".into(),
+            id: "kitsu:7442".into(),
+        };
+        assert_eq!(Origin::from_group(&anime.group_key()), Some(anime));
+        assert_eq!(Origin::from_group("url:https://cdn.example/a.mp4"), None);
+        assert_eq!(Origin::from_group("stremio:series:"), None);
     }
 
     #[test]

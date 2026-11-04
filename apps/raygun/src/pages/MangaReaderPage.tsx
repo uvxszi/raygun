@@ -349,16 +349,35 @@ export const MangaReaderPage: FC = () => {
     setJumpTo(resume || null);
   }, [data]);
 
+  // The page not saved yet: written when the timer fires, or when the reader closes first.
+  const unsaved = useRef<(() => Promise<unknown>) | null>(null);
   useEffect(() => {
     if (!data || total === 0) return;
-    const save = () => void saveProgress(data.chapter.id, page, total);
+    const save = () => {
+      unsaved.current = null;
+      return saveProgress(data.chapter.id, page, total).catch(() => undefined);
+    };
     if (page >= total - 1) {
-      save();
+      void save();
       return;
     }
-    const timer = setTimeout(save, SAVE_DELAY_MS);
+    unsaved.current = save;
+    const timer = setTimeout(() => void save(), SAVE_DELAY_MS);
     return () => clearTimeout(timer);
   }, [page, data, total]);
+  // Leaving the reader saves where reading stopped, then the title page and Continue reading ask
+  // again (they would read the old place if they asked before it was saved).
+  useEffect(
+    () => () => {
+      void (unsaved.current?.() ?? Promise.resolve()).then(() =>
+        Promise.all([
+          queryClient.invalidateQueries({ queryKey: [MANGA, 'title'] }),
+          queryClient.invalidateQueries({ queryKey: [MANGA, 'library'] }),
+        ]),
+      );
+    },
+    [queryClient],
+  );
 
   // Load ahead: the next few pages, and near the end the next chapter.
   useEffect(() => {

@@ -54,6 +54,7 @@ const episode = (season: number, number: number, extra: Partial<StremioVideo> = 
 });
 
 const SERIES: StremioMeta = {
+  continueVideoId: null,
   kind: 'series',
   id: 'tt0903747',
   name: 'Breaking Bad',

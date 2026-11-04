@@ -1,28 +1,21 @@
-import { commands, events } from '@raygun/bindings';
+import { commands } from '@raygun/bindings';
 import type { VideoRequest } from '@raygun/bindings';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
 
-const CONTINUE = ['watch', 'continue'];
+const WATCH = ['watch'];
+const CONTINUE = [...WATCH, 'continue'];
 
-/** Videos started and not finished, kept current as the player reports progress. */
-export const useContinueWatching = () => {
-  const queryClient = useQueryClient();
-  useEffect(() => {
-    const unlisten = events.watchChangedEvent.listen(() => {
-      void queryClient.invalidateQueries({ queryKey: CONTINUE });
-    });
-    return () => {
-      void unlisten.then((stop) => stop());
-    };
-  }, [queryClient]);
-  return useQuery({
+/**
+ * What to continue watching, one entry per title; kept current as the player reports progress
+ * (`shell/useLiveInvalidation`).
+ */
+export const useContinueWatching = () =>
+  useQuery({
     queryKey: CONTINUE,
     queryFn: () => unwrapResult(commands.videoContinueWatching()),
   });
-};
 
 export const usePlayVideo = () =>
   useMutation({ mutationFn: (request: VideoRequest) => unwrapResult(commands.videoPlay(request)) });
@@ -40,6 +33,7 @@ export const useRemoveContinue = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (key: string) => unwrapResult(commands.videoRemove(key)),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: CONTINUE }),
+    // Continue watching and the history both list it.
+    onSettled: () => queryClient.invalidateQueries({ queryKey: WATCH }),
   });
 };

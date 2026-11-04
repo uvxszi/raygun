@@ -684,24 +684,55 @@ pub fn reading_order(units: &[UnitRow]) -> Vec<&UnitRow> {
     order
 }
 
-/// Where reading continues: a partly read chapter, else the first unread one after the last read
-/// chapter, else the first chapter.
+/// Where reading continues: the chapter read last while it's unfinished, else the next unread one
+/// after it, else the first unread one, else the first chapter (see [`continue_index`]).
 pub fn continue_from(units: &[UnitRow]) -> Option<&UnitRow> {
     let order = reading_order(units);
-    if let Some(partly) = order
-        .iter()
-        .find(|unit| unit.completed_at.is_none() && unit.position.unwrap_or(0) > 0)
-    {
-        return Some(partly);
+    let index = continue_index(
+        &order,
+        |unit| {
+            (unit.completed_at.is_some() || unit.position.unwrap_or(0) > 0)
+                .then(|| unit.progress_at.unwrap_or(0))
+        },
+        |unit| unit.completed_at.is_some(),
+        |_| true,
+    )?;
+    order.get(index).copied()
+}
+
+/// Where reading or watching a title continues, as an index into `order` (its chapters or
+/// episodes in order): the one read or watched last (`touched` gives when, for those with
+/// progress or finished), with its place, while it's unfinished; after a finished one, the next
+/// unfinished one that is `out`. Without either, the first unfinished one that is out, else the
+/// first. Picking the first partly watched one instead sent "continue" back to an episode opened
+/// by mistake long before the one watched last.
+pub fn continue_index<T>(
+    order: &[T],
+    touched: impl Fn(&T) -> Option<i64>,
+    finished: impl Fn(&T) -> bool,
+    out: impl Fn(&T) -> bool,
+) -> Option<usize> {
+    if order.is_empty() {
+        return None;
     }
-    let after_last_read = order
+    let unfinished_from = |from: usize| {
+        (from..order.len()).find(|&index| !finished(&order[index]) && out(&order[index]))
+    };
+    // Of two touched at the same moment (chapters marked read together), the later one.
+    let last = order
         .iter()
-        .rposition(|unit| unit.completed_at.is_some())
-        .map_or(0, |index| index + 1);
-    order
-        .get(after_last_read)
-        .or_else(|| order.first())
-        .copied()
+        .enumerate()
+        .filter_map(|(index, item)| touched(item).map(|at| (at, index)))
+        .max();
+    if let Some((_, index)) = last {
+        if !finished(&order[index]) {
+            return Some(index);
+        }
+        if let Some(next) = unfinished_from(index + 1) {
+            return Some(next);
+        }
+    }
+    unfinished_from(0).or(Some(0))
 }
 
 pub fn chapter_info(
@@ -763,7 +794,14 @@ mod tests {
             position,
             total: Some(20),
             completed_at: done.then_some(1),
+            progress_at: (done || position.is_some()).then_some(1),
         }
+    }
+
+    /// A unit read or watched at `at`.
+    fn touched(mut unit: UnitRow, at: i64) -> UnitRow {
+        unit.progress_at = Some(at);
+        unit
     }
 
     fn ids(units: Vec<&UnitRow>) -> Vec<&str> {
@@ -813,6 +851,61 @@ mod tests {
         let all_read = [unit("c1", Some(1.0), 0, None, true)];
         assert_eq!(continue_from(&all_read).unwrap().id, "c1");
         assert!(continue_from(&[]).is_none());
+    }
+
+    #[test]
+    fn continue_follows_what_was_read_or_watched_last() {
+        // Episode 1 was opened for a moment, then episode 7 watched well into it.
+        let mut episodes: Vec<UnitRow> = (1..=10)
+            .map(|number| {
+                unit(
+                    &format!("e{number}"),
+                    Some(f64::from(number)),
+                    i64::from(10 - number),
+                    None,
+                    false,
+                )
+            })
+            .collect();
+        episodes[0] = touched(unit("e1", Some(1.0), 9, Some(4_000), false), 100);
+        episodes[6] = touched(unit("e7", Some(7.0), 3, Some(1_500_000), false), 900);
+        assert_eq!(continue_from(&episodes).unwrap().id, "e7", "not episode 1");
+
+        // Finished: the next one, even with an older episode left half watched.
+        episodes[6] = touched(unit("e7", Some(7.0), 3, None, true), 950);
+        assert_eq!(continue_from(&episodes).unwrap().id, "e8");
+
+        // The last one finished: back to the first one left unfinished.
+        episodes[9] = touched(unit("e10", Some(10.0), 0, None, true), 990);
+        assert_eq!(continue_from(&episodes).unwrap().id, "e1");
+
+        // Marked read together (one stamp): after the last of them.
+        let marked = [
+            touched(unit("c1", Some(1.0), 2, None, true), 50),
+            touched(unit("c2", Some(2.0), 1, None, true), 50),
+            unit("c3", Some(3.0), 0, None, false),
+        ];
+        assert_eq!(continue_from(&marked).unwrap().id, "c3");
+    }
+
+    #[test]
+    fn continue_index_skips_what_is_not_out_yet() {
+        // (watched at, finished, out)
+        let items = [
+            (Some(10), true, true),
+            (None, false, false),
+            (None, false, true),
+        ];
+        let pick = |items: &[(Option<i64>, bool, bool)]| {
+            continue_index(items, |item| item.0, |item| item.1, |item| item.2)
+        };
+        assert_eq!(pick(&items), Some(2));
+        assert_eq!(
+            pick(&[(None, false, false)]),
+            Some(0),
+            "nothing out: the first"
+        );
+        assert_eq!(pick(&[]), None);
     }
 
     #[test]

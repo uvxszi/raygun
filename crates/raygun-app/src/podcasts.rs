@@ -685,8 +685,16 @@ impl PodcastService {
         }
         follow.saved_ms = position;
         let db = self.db();
+        let app = self.app.clone();
         tauri::async_runtime::spawn(async move {
-            let _ = store::set_position(&db, &episode_id, position as i64).await;
+            // Shown progress follows a pause at once; while it plays, views read it when asked.
+            if store::set_position(&db, &episode_id, position as i64)
+                .await
+                .is_ok()
+                && paused
+            {
+                announce(&app, "");
+            }
         });
     }
 
