@@ -356,7 +356,7 @@ impl UpdateService {
 
     /// Opens the release page or the repository in the system's browser.
     pub fn open_page(&self, url: &str) -> Result<(), String> {
-        if !url.starts_with(REPO_URL) {
+        if !is_own_page(url) {
             return Err("Only Raygun's own pages open from here".into());
         }
         #[cfg(target_os = "android")]
@@ -448,6 +448,13 @@ fn install_kind() -> InstallKind {
     InstallKind::Portable
 }
 
+/// Whether `url` is the repository or one of its pages (not another repository whose name starts
+/// the same).
+fn is_own_page(url: &str) -> bool {
+    url.strip_prefix(REPO_URL)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with(['/', '#', '?']))
+}
+
 /// The release file this kind of copy updates from (named by the release workflow).
 fn pick_asset(kind: InstallKind, assets: &[Asset]) -> Option<Asset> {
     let lower = |asset: &&Asset| asset.name.to_ascii_lowercase();
@@ -497,6 +504,17 @@ fn newer(latest: &str, current: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opens_only_raygun_pages() {
+        assert!(is_own_page(REPO_URL));
+        assert!(is_own_page(RELEASES_URL));
+        assert!(is_own_page(&format!("{REPO_URL}/blob/main/LICENSE")));
+        assert!(!is_own_page("https://github.com/uvxszi/raygun-elsewhere"));
+        assert!(!is_own_page(
+            "https://example.com/?https://github.com/uvxszi/raygun"
+        ));
+    }
 
     #[test]
     fn versions_compare_as_numbers() {

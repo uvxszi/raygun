@@ -11,6 +11,7 @@ use raygun_paths::{Environment, Paths, Resolution};
 use tauri::{App, Manager, WebviewWindowBuilder};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing_subscriber::filter::FilterExt;
 use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
 const MAIN_WINDOW: &str = "main";
@@ -40,6 +41,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     tracing::info!(device_id = %db.device_id(), "database ready");
     // Before the services: some read the database from background tasks right away.
     app.manage(AppDb(std::sync::Arc::new(db)));
+    // Incognito (M47), known before anything records.
+    let privacy =
+        tauri::async_runtime::block_on(crate::privacy::Privacy::load(&app.state::<AppDb>().0));
+    app.manage(privacy);
 
     let art_dir = paths.cache(raygun_paths::CacheKind::Images);
     // Image caches with their limits from settings (M46.2).
@@ -158,6 +163,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         native_engine(app),
     ));
     crate::playback::PlaybackService::start_saving(app.handle().clone());
+    crate::playback::PlaybackService::start_watchdog(app.handle().clone());
 
     app.manage(crate::extensions::ExtensionService::start(
         app.handle().clone(),
@@ -179,7 +185,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(local_files.clone());
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-        if let Err(error) = local_files.rescan_all().await {
+        if let Err(error) = local_files.rescan(None, false).await {
             tracing::warn!(%error, "couldn't scan the local folders");
         }
     });
@@ -191,6 +197,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     let lyrics = crate::lyrics_store::LyricsStore::new(app.handle().clone());
     lyrics.start();
     app.manage(lyrics);
+    // Translations under the lyrics (M46.48).
+    app.manage(crate::lyrics_translation::LyricsTranslations::new(
+        app.handle().clone(),
+    ));
     // Covers from other sources when one's missing or fails (M46.40).
     app.manage(crate::cover_fallback::CoverFallbacks::new(
         app.handle().clone(),
@@ -199,6 +209,9 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     let details = crate::details::DetailService::new(app.handle().clone(), paths.downloads());
     app.manage(details.clone());
     tauri::async_runtime::block_on(details.start());
+    // Copies of a song saved under several names merged, once (M46.48); it reads the details.
+    let repairing = app.handle().clone();
+    tauri::async_runtime::spawn(async move { crate::collections::repair(&repairing).await });
     // Song lengths (M46.26): learned from playback, sources and lookups.
     let durations = crate::durations::DurationService::new(app.handle().clone());
     durations.start();
@@ -410,10 +423,11 @@ fn init_logging(paths: &Paths) -> Result<WorkerGuard, Box<dyn Error>> {
     // lofty warns about every MP3 without a duration header, which floods the log during scans.
     let filter =
         || EnvFilter::try_from_env("RAYGUN_LOG").unwrap_or_else(|_| "info,lofty=error".into());
+    // Incognito (M47): the files don't name what's played, watched, read or searched.
     let file_layer = tracing_subscriber::fmt::layer()
         .with_ansi(false)
         .with_writer(writer)
-        .with_filter(filter());
+        .with_filter(filter().and(crate::privacy::log_filter()));
     let stderr_layer = cfg!(debug_assertions).then(|| {
         tracing_subscriber::fmt::layer()
             .with_writer(std::io::stderr)

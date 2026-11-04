@@ -65,7 +65,7 @@ export const MusicPlaylistPage: FC = () => {
       const created = await unwrapResult(
         commands.playlistCreate(info?.title ?? t('playlist.saved')),
       );
-      await unwrapResult(commands.playlistAdd(created.id, tracks.map(fromOnlineTrack)));
+      await unwrapResult(commands.playlistAdd(created.id, tracks.map(fromOnlineTrack), false));
       return created.id;
     },
     onSuccess: (playlistId) => {

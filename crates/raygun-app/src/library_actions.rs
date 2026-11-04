@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use raygun_db::titles::{self, TitleMark};
 use raygun_model::{CategoryDisplay, LibraryDuplicate, LibraryList, TitleMarks};
+use raygun_resolver::video_match;
 use tauri::{AppHandle, Manager};
 
 use crate::catalog::{
@@ -219,6 +220,14 @@ pub fn may_duplicate(a: &str, b: &str) -> bool {
     long.contains(short.as_str())
 }
 
+/// [`may_duplicate`] for videos: another season of a show isn't the same title ("Overlord" and
+/// "Overlord II"), and the same season spelled another way is ("Mushoku Tensei II: …" and
+/// "Mushoku Tensei: … 2nd Season").
+pub fn may_duplicate_video(a: &str, b: &str) -> bool {
+    let (first, second) = (video_match::parse_title(a), video_match::parse_title(b));
+    first.same_title(&second) || (may_duplicate(a, b) && first.same_season(&second))
+}
+
 /// Library titles whose names may be the same as `name` (Mihon asks before adding one).
 pub async fn duplicates(
     catalog: &Catalog,
@@ -226,12 +235,19 @@ pub async fn duplicates(
     name: &str,
 ) -> Result<Vec<LibraryDuplicate>, String> {
     let names = catalog.source_names().await;
+    let video = catalog.kind() == crate::video_library::KIND;
     Ok(titles::library(&catalog.db(), catalog.kind())
         .await
         .map_err(to_message)?
         .into_iter()
         .filter(|entry| {
-            entry.title.id != title_id && may_duplicate(&entry.title.fields.title, name)
+            let other = &entry.title.fields.title;
+            entry.title.id != title_id
+                && if video {
+                    may_duplicate_video(other, name)
+                } else {
+                    may_duplicate(other, name)
+                }
         })
         .map(|entry| LibraryDuplicate {
             source_name: names
@@ -305,5 +321,23 @@ mod tests {
         );
         assert!(may_duplicate("Up", "UP!"));
         assert!(!may_duplicate("!!!", "!!!"));
+    }
+
+    #[test]
+    fn another_season_of_a_video_is_no_duplicate() {
+        assert!(!may_duplicate_video("Overlord", "Overlord II"));
+        assert!(!may_duplicate_video(
+            "Attack on Titan",
+            "Attack on Titan Season 2"
+        ));
+        assert!(may_duplicate_video(
+            "Mushoku Tensei II: Isekai Ittara Honki Dasu",
+            "Mushoku Tensei: Isekai Ittara Honki Dasu 2nd Season"
+        ));
+        assert!(may_duplicate_video("Frieren (Dub)", "Frieren"));
+        assert!(
+            may_duplicate_video("Naruto", "Naruto Shippuden"),
+            "names that contain each other still ask"
+        );
     }
 }

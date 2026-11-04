@@ -10,9 +10,10 @@ use raygun_model::{
     VideoSubtitle, VideoTitleView,
 };
 use raygun_net::ImageLinks;
+use raygun_resolver::video_match;
 use tauri::{AppHandle, Manager};
 
-use crate::catalog::{Catalog, continue_index, is_adult, now_ms, reading_order, to_message};
+use crate::catalog::{Catalog, continue_index, is_adult, now_ms, to_message};
 
 /// `title.kind` of video titles.
 const KIND: &str = "video";
@@ -102,8 +103,9 @@ impl VideoSourceService {
         let fields = row.fields;
         Ok(VideoTitleView {
             continue_episode_id,
-            episodes: units
-                .iter()
+            // The order they're watched in, as the player has them (seasons don't interleave).
+            episodes: watching_order(&units)
+                .into_iter()
                 .map(|unit| episode_view(&fields.source_id, unit, &progress, &downloaded))
                 .collect(),
             hidden_nsfw,
@@ -182,6 +184,12 @@ impl VideoSourceService {
 
     /// Plays a link of a stored episode, resuming where it was left.
     pub async fn play(&self, request: VideoSourcePlay) -> Result<(), String> {
+        if request.link.format.as_deref() == Some(raygun_ext_host::video::TORRENT) {
+            return Err(
+                "This video is a torrent, which Raygun doesn't play: copy its link into a torrent app"
+                    .into(),
+            );
+        }
         let external = request.external;
         let video = self.request(request).await?;
         if external {
@@ -322,6 +330,8 @@ pub(crate) fn link_request(
             title: row.fields.title.clone(),
             episode: number as u32,
             mal_id: None,
+            kitsu_id: None,
+            anilist_id: None,
         });
     VideoRequest {
         group: Some(format!("title:{}", row.id)),
@@ -342,22 +352,14 @@ pub(crate) fn link_request(
 /// "S1 E2 · Name", "E2 · Name", the name alone, or a movie's year.
 fn episode_subtitle(row: &TitleRow, unit: &UnitRow, single: bool) -> Option<String> {
     let season = season(unit);
-    let number = unit
-        .fields
-        .number
-        .map(raygun_ext_host::manga::format_number);
-    let name = &unit.fields.name;
-    match (single && season.is_none(), season, number) {
-        (true, ..) => row.fields.year.map(|year| year.to_string()),
-        (false, Some(season), Some(number)) => Some(format!(
-            "S{} E{number} · {name}",
-            raygun_ext_host::manga::format_number(season)
-        )),
-        (false, None, Some(number)) if !name.ends_with(&format!(" {number}")) => {
-            Some(format!("E{number} · {name}"))
-        }
-        _ => Some(name.clone()),
+    if single && season.is_none() {
+        return row.fields.year.map(|year| year.to_string());
     }
+    Some(video_match::episode_label(
+        season,
+        unit.fields.number,
+        &unit.fields.name,
+    ))
 }
 
 /// A video episode's season, kept as its volume.
@@ -370,8 +372,8 @@ pub(crate) fn season(unit: &UnitRow) -> Option<f64> {
 }
 
 /// The stored episode a title continues from (M46.48): the one watched last (its progress, or a
-/// mark made in the library), or the next one that is out once that was finished; extras
-/// (season 0) only when they were watched last. See [`crate::catalog::continue_index`].
+/// mark made in the library), or the next one that is out once that was finished, in watching
+/// order; see [`crate::catalog::continue_index`].
 pub(crate) fn continue_episode<'a>(
     source_id: &str,
     units: &'a [UnitRow],
@@ -382,7 +384,7 @@ pub(crate) fn continue_episode<'a>(
         let key = content_key(source_id, &unit.fields.remote_id);
         progress.iter().find(|row| row.entry.key == key)
     };
-    let order = reading_order(units);
+    let order = watching_order(units);
     let index = continue_index(
         &order,
         |unit| {
@@ -397,9 +399,37 @@ pub(crate) fn continue_episode<'a>(
         |unit| {
             unit.completed_at.is_some() || saved(unit).is_some_and(|row| row.watched_at.is_some())
         },
-        |unit| unit.fields.date.is_none_or(|date| date <= now) && season(unit) != Some(0.0),
+        |unit| unit.fields.date.is_none_or(|date| date <= now),
+        |unit| is_special(unit, units),
     )?;
     order.get(index).copied()
+}
+
+/// A title's episodes in watching order: by season (specials last), then number; see
+/// [`video_match::watching_order`].
+pub(crate) fn watching_order(units: &[UnitRow]) -> Vec<&UnitRow> {
+    let mut listed: Vec<&UnitRow> = units.iter().collect();
+    listed.sort_by_key(|unit| unit.source_order);
+    let keys: Vec<video_match::EpisodeOrder> = listed
+        .iter()
+        .map(|unit| video_match::EpisodeOrder {
+            season: season(unit),
+            number: unit.fields.number,
+            date: unit.fields.date,
+        })
+        .collect();
+    video_match::watching_order(&keys)
+        .into_iter()
+        .map(|index| listed[index])
+        .collect()
+}
+
+/// Whether an episode is a special: season 0, or none where the title's others have one.
+pub(crate) fn is_special(unit: &UnitRow, units: &[UnitRow]) -> bool {
+    let seasons = units
+        .iter()
+        .any(|other| season(other).is_some_and(|season| season >= 1.0));
+    video_match::is_special(season(unit), seasons)
 }
 
 fn episode_view(

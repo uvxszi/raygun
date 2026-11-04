@@ -134,8 +134,6 @@ pub struct Settings {
     pub start_screen: StartScreen,
     /// Navigation bar labels: on every tab, or on the selected one only.
     pub nav_labels: NavLabels,
-    /// Covers per row in library and browse grids; 0 fits them to the screen.
-    pub grid_columns: u32,
     /// Titles over covers (compact, as in Mihon) or under them (comfortable).
     pub cover_style: CoverStyle,
     /// The unread count on library covers.
@@ -148,9 +146,11 @@ pub struct Settings {
     pub watched_percent: u32,
     /// Seconds a double tap or the skip buttons jump in the video player.
     pub seek_seconds: u32,
-    /// Subtitles turn on by themselves when a video has them in the subtitle language.
+    /// Subtitles turn on by themselves when a video has them in the subtitle language. Read only
+    /// while `VideoPlayerPrefs::subtitle_mode` is unset (on: always, off: for other languages).
     pub auto_subtitles: bool,
-    /// Subtitles' language as a BCP 47 tag; empty follows the app's language.
+    /// Subtitles' language as a BCP 47 tag; empty follows the device's languages, then the
+    /// app's (the player knows the device's).
     pub subtitle_language: String,
     /// The next episode plays by itself at the end of one (M44).
     pub autoplay_next: bool,
@@ -170,8 +170,9 @@ pub struct Settings {
     pub layout: LayoutPrefs,
     /// The accent when `accent` is `Custom`: `#rrggbb` (M46.7).
     pub accent_color: String,
-    /// Smallest cover width in px when covers per row is automatic; 0 picks it by screen (M46.7).
-    pub cover_width: u32,
+    /// Covers in library and browse grids, in percent more (or less) than the screen's own size
+    /// (M46.48): as many as fit across at that size.
+    pub cover_size: i32,
     /// How manga pages fit the reader (M46.7).
     pub manga_reader: MangaReaderPrefs,
     /// How the full music player is laid out (M46.7).
@@ -192,7 +193,8 @@ pub struct Settings {
     pub auto_load: AutoLoadPrefs,
     /// Who draws the desktop window's top edge (M46.9).
     pub window_frame: WindowFrame,
-    /// The desktop app's zoom in percent (M46.9): 50 to 200, in steps of 10.
+    /// Interface size in percent of the size the screen gives (M46.48): 50 to 200. The desktop
+    /// app zooms its window; phones scale their text and spacing.
     pub zoom: u32,
     /// Charts and song tags (M46.9).
     pub discovery: DiscoveryPrefs,
@@ -200,8 +202,12 @@ pub struct Settings {
     pub transcription: TranscriptionPrefs,
     /// What's remembered of listening (M46.41).
     pub privacy: PrivacyPrefs,
+    /// Artists and things not to show on Home and in recommendations.
+    pub hidden: HiddenPrefs,
     /// How long lyrics stay kept (M46.46).
     pub lyrics_cache: LyricsCachePrefs,
+    /// Translations under lyrics (M46.48).
+    pub lyrics_translation: LyricsTranslationPrefs,
     /// Sources that didn't answer lately go to the end of Browse and Search (M46.9).
     pub failing_sources_last: bool,
     /// The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default.
@@ -343,6 +349,35 @@ impl Default for LyricsCachePrefs {
 pub struct LyricsCacheUsage {
     pub songs: u32,
     pub transcriptions: u32,
+    /// Songs with translations made on this device or by AI (M46.48).
+    #[serde(default)]
+    pub translations: u32,
+}
+
+/// Translations under lyrics (M46.48).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LyricsTranslationPrefs {
+    /// The language translations show in, a BCP 47 tag; empty follows the app's language.
+    pub language: String,
+    /// Translations in that language show under the lines by themselves: a lyrics source's, or
+    /// one made before. The lyrics view's Translate menu switches it too.
+    pub automatic: bool,
+    /// Romanized lines show when a source has them.
+    pub romanized: bool,
+    /// The AI catalogue model "On this device" translates with; empty picks one by language.
+    pub local_model: String,
+}
+
+impl Default for LyricsTranslationPrefs {
+    fn default() -> Self {
+        Self {
+            language: String::new(),
+            automatic: true,
+            romanized: false,
+            local_model: String::new(),
+        }
+    }
 }
 
 /// Whose kept lyrics a clear takes (M46.46).
@@ -366,6 +401,10 @@ pub struct PrivacyPrefs {
     pub history: bool,
     /// Where plays started from is kept for Home (Recently played, Your music).
     pub recently_played: bool,
+    /// Searches are kept for Search's recent searches.
+    pub search_history: bool,
+    /// Incognito stays on when Raygun starts again; otherwise it ends with the app (M47).
+    pub keep_incognito: bool,
 }
 
 impl Default for PrivacyPrefs {
@@ -373,7 +412,102 @@ impl Default for PrivacyPrefs {
         Self {
             history: true,
             recently_played: true,
+            search_history: true,
+            keep_incognito: false,
         }
+    }
+}
+
+/// Incognito (M47): while it's on, nothing records what's played, watched, read or searched.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct IncognitoStatus {
+    pub on: bool,
+    /// When it was turned on (Unix ms), or when Raygun started with it kept on.
+    pub since_ms: Option<f64>,
+}
+
+/// What the listener asked not to be shown, as Spotify's "Don't play this artist" and "Not
+/// interested": artists left out of Home, Made for You, charts, genre rows and recommendations,
+/// and things Home doesn't show again. Searches and an artist's own page still find them.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HiddenPrefs {
+    pub artists: Vec<HiddenArtist>,
+    pub items: Vec<HiddenItem>,
+}
+
+/// An artist not shown (Don't show this artist).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HiddenArtist {
+    /// As it was shown; compared without case.
+    pub name: String,
+    /// Unix seconds.
+    pub hidden_at: u32,
+}
+
+/// Something Home doesn't show again (Not interested).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HiddenItem {
+    /// One of [`HIDDEN_KINDS`].
+    pub kind: String,
+    /// What it's known by: a song's track key, the address of its page
+    /// (`/music/album?id=…&provider=…`), or its feed (`feed:<url>`).
+    pub key: String,
+    /// Its name, artist or show and cover as last seen, for the list in Settings.
+    pub name: String,
+    pub subtitle: Option<String>,
+    pub artwork_url: Option<String>,
+    /// Unix seconds.
+    pub hidden_at: u32,
+}
+
+/// What can be hidden from Home.
+pub const HIDDEN_KINDS: [&str; 14] = [
+    "song",
+    "album",
+    "playlist",
+    "mix",
+    "artist",
+    "podcast",
+    "episode",
+    "audiobook",
+    "chart",
+    "tag",
+    "manga",
+    "novel",
+    "video",
+    "page",
+];
+/// Hidden artists and items kept at most; past them the oldest go first.
+pub const HIDDEN_ARTISTS_MAX: usize = 1_000;
+pub const HIDDEN_ITEMS_MAX: usize = 2_000;
+
+impl HiddenPrefs {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.artists.len() > HIDDEN_ARTISTS_MAX || self.items.len() > HIDDEN_ITEMS_MAX {
+            return Err(format!(
+                "at most {HIDDEN_ARTISTS_MAX} artists and {HIDDEN_ITEMS_MAX} other things can be hidden"
+            ));
+        }
+        if self
+            .artists
+            .iter()
+            .any(|artist| artist.name.trim().is_empty() || artist.name.len() > 300)
+        {
+            return Err("a hidden artist needs a name of up to 300 characters".to_owned());
+        }
+        if let Some(item) = self.items.iter().find(|item| {
+            !HIDDEN_KINDS.contains(&item.kind.as_str())
+                || item.key.trim().is_empty()
+                || item.key.len() > 2_000
+                || item.name.len() > 500
+        }) {
+            return Err(format!("{:?} can't be hidden", item.name));
+        }
+        Ok(())
     }
 }
 
@@ -713,7 +847,7 @@ pub struct SpokenItem {
     pub author: Option<String>,
 }
 
-/// Zoom levels the desktop app offers, in percent (M46.9).
+/// Interface sizes offered, in percent of the screen's (M46.9, M46.48).
 pub const ZOOM_LEVELS: std::ops::RangeInclusive<u32> = 50..=200;
 
 /// Next pages load as a list's end comes near (M46.8), at most one per `cooldown_ms`, so sources
@@ -976,25 +1110,37 @@ pub enum TextAlign {
 }
 
 /// The full music player's layout (M46.7). One stored row; missing fields keep their defaults.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+///
+/// Sizes start from the screen: the cover is as large as fits beside the controls, the column as
+/// wide as the window suits, lyrics as large as their column. Each offset moves away from that
+/// size, so the player stays right on any window, zoom or orientation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
 #[serde(default, rename_all = "camelCase")]
 pub struct PlayerViewPrefs {
     pub layout: PlayerLayout,
-    /// The player's width in percent of the window's (40-100, steps of 5); 0 picks it by screen.
-    pub width: u32,
-    /// Lyrics text size in px (14-48, even); 0 picks it by screen.
-    pub lyrics_size: u32,
+    /// The cover, in percent larger or smaller than what fits ([`PLAYER_PERCENT_OFFSETS`]).
+    pub cover_offset: i32,
+    /// The player's width, in percent wider or narrower than the screen's ([`PLAYER_PERCENT_OFFSETS`]).
+    pub width_offset: i32,
+    /// Lyrics text, in px (at 100 % zoom) larger or smaller than by screen ([`LYRICS_OFFSETS`]).
+    pub lyrics_offset: i32,
     pub lyrics_align: TextAlign,
     /// The artwork, blurred, behind the player.
     pub background: bool,
 }
 
+/// How far the cover and the player's width move from their size by screen, in percent.
+pub const PLAYER_PERCENT_OFFSETS: std::ops::RangeInclusive<i32> = -40..=40;
+/// How far lyrics text moves from its size by screen, in px.
+pub const LYRICS_OFFSETS: std::ops::RangeInclusive<i32> = -5..=10;
+
 impl Default for PlayerViewPrefs {
     fn default() -> Self {
         Self {
             layout: PlayerLayout::Auto,
-            width: 0,
-            lyrics_size: 0,
+            cover_offset: 0,
+            width_offset: 0,
+            lyrics_offset: 0,
             lyrics_align: TextAlign::Left,
             background: true,
         }
@@ -1003,24 +1149,82 @@ impl Default for PlayerViewPrefs {
 
 impl PlayerViewPrefs {
     pub fn validate(&self) -> Result<(), String> {
-        if !(self.width == 0 || ((40..=100).contains(&self.width) && self.width.is_multiple_of(5)))
-        {
-            return Err(format!("{}% isn't an offered player width", self.width));
+        for (name, offset) in [("cover", self.cover_offset), ("width", self.width_offset)] {
+            if !PLAYER_PERCENT_OFFSETS.contains(&offset) {
+                return Err(format!("{offset}% is out of range for the player's {name}"));
+            }
         }
-        if !(self.lyrics_size == 0
-            || ((14..=48).contains(&self.lyrics_size) && self.lyrics_size.is_multiple_of(2)))
-        {
+        if !LYRICS_OFFSETS.contains(&self.lyrics_offset) {
             return Err(format!(
-                "{} px isn't an offered lyrics size",
-                self.lyrics_size
+                "{} px is out of range for lyrics",
+                self.lyrics_offset
             ));
         }
         Ok(())
     }
 }
 
-/// Cover widths offered, in px (0: by screen).
-pub const COVER_WIDTHS: [u32; 10] = [0, 90, 100, 110, 120, 140, 160, 180, 200, 240];
+/// Reads a stored row, also one from before the offsets: a width in percent of the window and
+/// a lyrics size in px (0 meant "by screen") become the nearest offsets.
+impl<'de> Deserialize<'de> for PlayerViewPrefs {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(default, rename_all = "camelCase")]
+        struct Stored {
+            layout: PlayerLayout,
+            cover_offset: Option<i32>,
+            width_offset: Option<i32>,
+            lyrics_offset: Option<i32>,
+            lyrics_align: TextAlign,
+            background: Option<bool>,
+            /// Before the offsets: 40–100 % of the window.
+            width: Option<u32>,
+            /// Before the offsets: 14–48 px.
+            lyrics_size: Option<u32>,
+        }
+        impl Default for Stored {
+            fn default() -> Self {
+                Self {
+                    layout: PlayerLayout::Auto,
+                    cover_offset: None,
+                    width_offset: None,
+                    lyrics_offset: None,
+                    lyrics_align: TextAlign::Left,
+                    background: None,
+                    width: None,
+                    lyrics_size: None,
+                }
+            }
+        }
+        let stored = Stored::deserialize(deserializer)?;
+        // The by-screen column was about three quarters of a desktop window, and lyrics about
+        // 20 px on a phone: an old choice keeps its direction and roughly its size.
+        let width_offset = stored.width_offset.unwrap_or_else(|| match stored.width {
+            Some(width) if width > 0 => (((i64::from(width) - 75) * 4) / 3) as i32,
+            _ => 0,
+        });
+        let lyrics_offset = stored
+            .lyrics_offset
+            .unwrap_or_else(|| match stored.lyrics_size {
+                Some(size) if size > 0 => (i64::from(size) - 20) as i32,
+                _ => 0,
+            });
+        let clamp = |offset: i32, range: &std::ops::RangeInclusive<i32>| {
+            offset.clamp(*range.start(), *range.end())
+        };
+        Ok(Self {
+            layout: stored.layout,
+            cover_offset: clamp(stored.cover_offset.unwrap_or(0), &PLAYER_PERCENT_OFFSETS),
+            width_offset: clamp(width_offset, &PLAYER_PERCENT_OFFSETS),
+            lyrics_offset: clamp(lyrics_offset, &LYRICS_OFFSETS),
+            lyrics_align: stored.lyrics_align,
+            background: stored.background.unwrap_or(true),
+        })
+    }
+}
+
+/// Cover sizes offered, in percent more or less than the screen's own (M46.48).
+pub const COVER_SIZES: std::ops::RangeInclusive<i32> = -50..=100;
 
 /// How a page fits the screen in the paged reader modes (M46.7).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -1037,17 +1241,47 @@ pub enum PagedScale {
     Original,
 }
 
+/// Where taps turn pages in the manga reader (Mihon's navigation layouts).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TapZones {
+    /// The sides in the paged modes, the L shape in the vertical strip.
+    #[default]
+    Auto,
+    /// The top and the left of the middle go back; the right of the middle and the bottom on.
+    LShaped,
+    /// The top shows the controls; the left third goes back, the rest on.
+    Kindle,
+    /// Both sides go on; the bottom of the middle goes back.
+    Edge,
+    /// The left third and the right third, as the reading direction has them.
+    Sides,
+    /// Taps only show and hide the controls.
+    Off,
+}
+
+/// How the tap zones are mirrored.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TapInvert {
+    #[default]
+    None,
+    Horizontal,
+    Vertical,
+    Both,
+}
+
 /// The manga reader's display (M46.7). One stored row; missing fields keep their defaults.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(default, rename_all = "camelCase")]
 pub struct MangaReaderPrefs {
     pub paged_scale: PagedScale,
-    /// The webtoon column in percent of the window's width; 0 is the screen's width on phones and
-    /// at most 768 px on wide windows.
-    pub webtoon_width: u32,
-    /// The page bar's width in percent of the window's; 0 is the full width on phones and 70 %
-    /// on wide windows.
-    pub bar_width: u32,
+    /// The webtoon column, in percent more or less than the screen's own (M46.48): the screen's
+    /// width on phones, at most 768 px on wide windows; never wider than the window.
+    pub webtoon_size: i32,
+    /// The page bar, in percent more or less than the screen's own: the full width on phones,
+    /// 70 % on wide windows; never wider than the window.
+    pub bar_size: i32,
     /// The page bar's buttons beside the page slider.
     pub bar_chapters: bool,
     pub bar_zoom: bool,
@@ -1055,36 +1289,52 @@ pub struct MangaReaderPrefs {
     pub bar_fullscreen: bool,
     /// Pages loaded ahead of the one being read, 1–10.
     pub preload_pages: u32,
+    /// How titles without a reading mode of their own are read.
+    pub default_mode: ReaderMode,
+    pub tap_zones: TapZones,
+    pub invert_taps: TapInvert,
+    /// A double tap zooms; single taps then wait a moment to tell the two apart.
+    pub double_tap_zoom: bool,
+    /// The page number stays on screen while the controls are hidden.
+    pub page_number: bool,
+    /// The screen doesn't turn off while a chapter is open.
+    pub keep_screen_on: bool,
+    /// Next and previous chapter skip other uploads of the same chapter number.
+    pub skip_duplicates: bool,
 }
 
 impl Default for MangaReaderPrefs {
     fn default() -> Self {
         Self {
             paged_scale: PagedScale::FitScreen,
-            webtoon_width: 0,
-            bar_width: 0,
+            webtoon_size: 0,
+            bar_size: 0,
             bar_chapters: true,
             bar_zoom: true,
             bar_mode: true,
             bar_fullscreen: true,
             preload_pages: 3,
+            default_mode: ReaderMode::Webtoon,
+            tap_zones: TapZones::Auto,
+            invert_taps: TapInvert::None,
+            double_tap_zoom: true,
+            page_number: true,
+            keep_screen_on: true,
+            skip_duplicates: true,
         }
     }
 }
 
 impl MangaReaderPrefs {
     pub fn validate(&self) -> Result<(), String> {
-        let percent = |value: u32, low: u32| {
-            value == 0 || ((low..=100).contains(&value) && value.is_multiple_of(5))
-        };
-        if !percent(self.webtoon_width, 30) {
+        if !READER_SIZES.contains(&self.webtoon_size) {
             return Err(format!(
-                "{}% isn't an offered webtoon width",
-                self.webtoon_width
+                "{}% isn't an offered webtoon size",
+                self.webtoon_size
             ));
         }
-        if !percent(self.bar_width, 40) {
-            return Err(format!("{}% isn't an offered bar width", self.bar_width));
+        if !READER_SIZES.contains(&self.bar_size) {
+            return Err(format!("{}% isn't an offered page bar size", self.bar_size));
         }
         if !(1..=10).contains(&self.preload_pages) {
             return Err("Load between 1 and 10 pages ahead".into());
@@ -1092,6 +1342,9 @@ impl MangaReaderPrefs {
         Ok(())
     }
 }
+
+/// The manga reader's column and page bar sizes, in percent more or less than the screen's.
+pub const READER_SIZES: std::ops::RangeInclusive<i32> = -70..=100;
 
 /// Whether `color` is a `#rrggbb` colour.
 fn is_hex_color(color: &str) -> bool {
@@ -1172,12 +1425,25 @@ pub enum NovelWidth {
     Wide,
 }
 
+/// The novel reader's page colours: the app's, or a page of its own.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum NovelTheme {
+    #[default]
+    App,
+    Light,
+    Sepia,
+    Dark,
+    Black,
+}
+
 /// The novel reader's typography and layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct NovelReaderPrefs {
-    /// CSS pixels, 14–30.
-    pub font_size: u32,
+    /// Text size in CSS pixels more or less than the screen's own (M46.48), −6 to 12.
+    #[serde(default)]
+    pub text_size: i32,
     /// Line height in tenths, 12–22 (1.2–2.2).
     pub line_spacing: u32,
     pub font: NovelFont,
@@ -1190,22 +1456,40 @@ pub struct NovelReaderPrefs {
     /// The first line of each paragraph starts further in, as in printed books (M46.10).
     #[serde(default)]
     pub indent: bool,
+    #[serde(default)]
+    pub theme: NovelTheme,
+    /// Lines run to both edges, words hyphenated.
+    #[serde(default)]
+    pub justify: bool,
+    /// The screen doesn't turn off while a chapter is open.
+    #[serde(default = "screen_kept_on")]
+    pub keep_screen_on: bool,
 }
+
+/// Novel text sizes offered, in CSS pixels more or less than the screen's own (M46.48).
+pub const NOVEL_TEXT_SIZES: std::ops::RangeInclusive<i32> = -6..=12;
 
 fn normal_rate() -> u32 {
     10
 }
 
+fn screen_kept_on() -> bool {
+    true
+}
+
 impl Default for NovelReaderPrefs {
     fn default() -> Self {
         Self {
-            font_size: 18,
+            text_size: 0,
             line_spacing: 16,
             font: NovelFont::Serif,
             width: NovelWidth::Narrow,
             paged: false,
             tts_rate: 10,
             indent: false,
+            theme: NovelTheme::App,
+            justify: false,
+            keep_screen_on: true,
         }
     }
 }
@@ -1292,6 +1576,23 @@ pub enum SubtitleFont {
     Serif,
     Mono,
 }
+
+/// When the video player turns subtitles on by itself, in the first subtitle language a video
+/// has (mpv's `subs-with-matching-audio`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SubtitleMode {
+    /// When the audio isn't in one of the subtitle languages; forced subtitles otherwise.
+    #[default]
+    Foreign,
+    /// Whenever the video has subtitles in one of them.
+    Always,
+    /// Only when turned on in the player.
+    Never,
+}
+
+/// `VideoPlayerPrefs::audio_language` for the video's own track (the one marked default).
+pub const ORIGINAL_AUDIO: &str = "original";
 
 /// How subtitles look in the video player (M45).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -1386,8 +1687,13 @@ pub struct VideoPlayerPrefs {
     pub subtitle_prefer_words: String,
     /// Comma-separated words that keep a subtitle track from being picked ("Signs, Songs").
     pub subtitle_skip_words: String,
+    /// When subtitles turn on by themselves. Unset follows `Settings::auto_subtitles`, the
+    /// older switch: on is `Always`, off is `Foreign`.
+    pub subtitle_mode: Option<SubtitleMode>,
     pub subtitle_style: SubtitleStyle,
-    /// Empty plays the video's own default track.
+    /// The audio track's language: empty follows the device's languages, then the app's;
+    /// `ORIGINAL_AUDIO` plays the video's own default track; else a BCP 47 tag. Without a
+    /// match, the track marked default (or original) plays, else the first.
     pub audio_language: String,
     pub audio_fallback: String,
 
@@ -1439,6 +1745,7 @@ impl Default for VideoPlayerPrefs {
             subtitle_fallback: String::new(),
             subtitle_prefer_words: String::new(),
             subtitle_skip_words: String::new(),
+            subtitle_mode: None,
             subtitle_style: SubtitleStyle::default(),
             audio_language: String::new(),
             audio_fallback: String::new(),
@@ -1540,7 +1847,6 @@ impl Default for Settings {
             accent: Accent::Red,
             start_screen: StartScreen::Home,
             nav_labels: NavLabels::Always,
-            grid_columns: 0,
             cover_style: CoverStyle::Compact,
             unread_badges: true,
             download_badges: true,
@@ -1558,7 +1864,7 @@ impl Default for Settings {
             websites: WebsitePrefs::default(),
             layout: LayoutPrefs::default(),
             accent_color: "#e5484d".into(),
-            cover_width: 0,
+            cover_size: 0,
             manga_reader: MangaReaderPrefs::default(),
             player_view: PlayerViewPrefs::default(),
             scrollbars: ScrollbarStyle::Thin,
@@ -1573,7 +1879,9 @@ impl Default for Settings {
             discovery: DiscoveryPrefs::default(),
             transcription: TranscriptionPrefs::default(),
             privacy: PrivacyPrefs::default(),
+            hidden: HiddenPrefs::default(),
             lyrics_cache: LyricsCachePrefs::default(),
+            lyrics_translation: LyricsTranslationPrefs::default(),
             failing_sources_last: true,
             user_agent: String::new(),
             sound: SoundPrefs::default(),
@@ -1598,7 +1906,6 @@ impl Settings {
             SettingChange::Accent(accent) => self.accent = accent,
             SettingChange::StartScreen(screen) => self.start_screen = screen,
             SettingChange::NavLabels(labels) => self.nav_labels = labels,
-            SettingChange::GridColumns(columns) => self.grid_columns = columns,
             SettingChange::CoverStyle(style) => self.cover_style = style,
             SettingChange::UnreadBadges(show) => self.unread_badges = show,
             SettingChange::DownloadBadges(show) => self.download_badges = show,
@@ -1616,7 +1923,7 @@ impl Settings {
             SettingChange::Websites(prefs) => self.websites = prefs,
             SettingChange::Layout(prefs) => self.layout = prefs.normalized(),
             SettingChange::AccentColor(color) => self.accent_color = color.to_ascii_lowercase(),
-            SettingChange::CoverWidth(width) => self.cover_width = width,
+            SettingChange::CoverSize(percent) => self.cover_size = percent,
             SettingChange::MangaReader(prefs) => self.manga_reader = prefs,
             SettingChange::PlayerView(prefs) => self.player_view = prefs,
             SettingChange::Scrollbars(style) => self.scrollbars = style,
@@ -1635,7 +1942,14 @@ impl Settings {
             SettingChange::AudioQuality(prefs) => self.audio_quality = prefs,
             SettingChange::Rail(prefs) => self.rail = prefs,
             SettingChange::Privacy(prefs) => self.privacy = prefs,
+            SettingChange::Hidden(prefs) => self.hidden = prefs,
             SettingChange::LyricsCache(prefs) => self.lyrics_cache = prefs,
+            SettingChange::LyricsTranslation(prefs) => {
+                self.lyrics_translation = LyricsTranslationPrefs {
+                    language: prefs.language.trim().to_owned(),
+                    ..prefs
+                }
+            }
             SettingChange::Transcription(prefs) => {
                 self.transcription = TranscriptionPrefs {
                     online_model: prefs.online_model.trim().to_owned(),
@@ -1675,7 +1989,6 @@ pub enum SettingChange {
     Accent(Accent),
     StartScreen(StartScreen),
     NavLabels(NavLabels),
-    GridColumns(u32),
     CoverStyle(CoverStyle),
     UnreadBadges(bool),
     DownloadBadges(bool),
@@ -1694,7 +2007,7 @@ pub enum SettingChange {
     Websites(WebsitePrefs),
     Layout(LayoutPrefs),
     AccentColor(String),
-    CoverWidth(u32),
+    CoverSize(i32),
     MangaReader(MangaReaderPrefs),
     PlayerView(PlayerViewPrefs),
     Scrollbars(ScrollbarStyle),
@@ -1716,7 +2029,9 @@ pub enum SettingChange {
     Rail(RailPrefs),
     Transcription(TranscriptionPrefs),
     Privacy(PrivacyPrefs),
+    Hidden(HiddenPrefs),
     LyricsCache(LyricsCachePrefs),
+    LyricsTranslation(LyricsTranslationPrefs),
 }
 
 impl SettingChange {
@@ -1733,7 +2048,6 @@ impl SettingChange {
             Self::Accent(_) => "accent",
             Self::StartScreen(_) => "startScreen",
             Self::NavLabels(_) => "navLabels",
-            Self::GridColumns(_) => "gridColumns",
             Self::CoverStyle(_) => "coverStyle",
             Self::UnreadBadges(_) => "unreadBadges",
             Self::DownloadBadges(_) => "downloadBadges",
@@ -1751,7 +2065,7 @@ impl SettingChange {
             Self::Websites(_) => "websites",
             Self::Layout(_) => "layout",
             Self::AccentColor(_) => "accentColor",
-            Self::CoverWidth(_) => "coverWidth",
+            Self::CoverSize(_) => "coverSize",
             Self::MangaReader(_) => "mangaReader",
             Self::PlayerView(_) => "playerView",
             Self::Scrollbars(_) => "scrollbars",
@@ -1773,7 +2087,9 @@ impl SettingChange {
             Self::Rail(_) => "rail",
             Self::Transcription(_) => "transcription",
             Self::Privacy(_) => "privacy",
+            Self::Hidden(_) => "hidden",
             Self::LyricsCache(_) => "lyricsCache",
+            Self::LyricsTranslation(_) => "lyricsTranslation",
         }
     }
 
@@ -1800,11 +2116,23 @@ impl SettingChange {
             | Self::KeepMusicPlaying(_)
             | Self::ResumeOnStart(_)
             | Self::AudioQuality(_)
+            | Self::LibraryDisplay(_)
             | Self::Privacy(_) => Ok(()),
             Self::LyricsCache(prefs) if prefs.forget_after_days > 3650 => {
                 Err("Lyrics can be kept for at most ten years".into())
             }
             Self::LyricsCache(_) => Ok(()),
+            Self::LyricsTranslation(prefs) => {
+                let language = prefs.language.trim();
+                if !language.is_empty() {
+                    language_tag(language)?;
+                }
+                if prefs.local_model.len() > 100 {
+                    return Err("a model id is at most 100 characters".to_owned());
+                }
+                Ok(())
+            }
+            Self::Hidden(prefs) => prefs.validate(),
             Self::Rail(prefs) => prefs.validate(),
             Self::Transcription(prefs) => {
                 if prefs.online_model.trim().len() > 200 {
@@ -1833,7 +2161,7 @@ impl SettingChange {
                 }
             }
             Self::Zoom(percent) => {
-                if ZOOM_LEVELS.contains(percent) && percent % 10 == 0 {
+                if ZOOM_LEVELS.contains(percent) {
                     Ok(())
                 } else {
                     Err(format!("{percent}% isn't an offered zoom"))
@@ -1844,13 +2172,6 @@ impl SettingChange {
                     Ok(())
                 } else {
                     Err(format!("{seconds} s isn't an offered prompt time"))
-                }
-            }
-            Self::GridColumns(columns) => {
-                if GRID_COLUMNS.contains(columns) {
-                    Ok(())
-                } else {
-                    Err(format!("{columns} covers per row isn't offered"))
                 }
             }
             Self::WatchedPercent(percent) => {
@@ -1897,11 +2218,11 @@ impl SettingChange {
                     Err(format!("{color} isn't a colour like #e5484d"))
                 }
             }
-            Self::CoverWidth(width) => {
-                if COVER_WIDTHS.contains(width) {
+            Self::CoverSize(percent) => {
+                if COVER_SIZES.contains(percent) {
                     Ok(())
                 } else {
-                    Err(format!("{width} px isn't an offered cover size"))
+                    Err(format!("{percent}% isn't an offered cover size"))
                 }
             }
             Self::Save(prefs) => {
@@ -1909,16 +2230,6 @@ impl SettingChange {
                     Err("Pick a folder first".into())
                 } else {
                     Ok(())
-                }
-            }
-            Self::LibraryDisplay(prefs) => {
-                if GRID_COLUMNS.contains(&prefs.columns_landscape) {
-                    Ok(())
-                } else {
-                    Err(format!(
-                        "{} covers per row isn't offered",
-                        prefs.columns_landscape
-                    ))
                 }
             }
             Self::SubtitleLanguage(tag) if tag.is_empty() => Ok(()),
@@ -1931,10 +2242,10 @@ impl SettingChange {
                 }
             }
             Self::NovelReader(prefs) => {
-                if !(14..=30).contains(&prefs.font_size) {
+                if !NOVEL_TEXT_SIZES.contains(&prefs.text_size) {
                     Err(format!(
-                        "{} px is outside the font sizes offered",
-                        prefs.font_size
+                        "{} px is outside the text sizes offered",
+                        prefs.text_size
                     ))
                 } else if !(12..=22).contains(&prefs.line_spacing) {
                     Err("That line spacing isn't offered".into())
@@ -2173,6 +2484,8 @@ pub enum PlaybackControl {
         item_id: String,
     },
     Clear,
+    /// Removes everything after the current item in play order, keeping it playing.
+    ClearUpcoming,
     /// Moves a queued item before another in the play order, or to the end (M46.8).
     #[serde(rename_all = "camelCase")]
     Move {
@@ -2617,6 +2930,95 @@ pub struct Lyrics {
     /// These are the person's own lyrics, not a source's (M46.12).
     #[serde(default)]
     pub edited: bool,
+    /// The lines in other languages or romanized (M46.48), each aligned to these lines.
+    #[serde(default)]
+    pub translations: Vec<LyricsTranslation>,
+}
+
+impl Lyrics {
+    /// The lines translations line up with: the synced lines' words, else the plain text's lines.
+    pub fn line_texts(&self) -> Vec<&str> {
+        if self.synced.is_empty() {
+            self.plain
+                .as_deref()
+                .map(|plain| plain.lines().collect())
+                .unwrap_or_default()
+        } else {
+            self.synced.iter().map(|line| line.text.as_str()).collect()
+        }
+    }
+}
+
+/// What lines under the lyrics are (M46.48).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum LyricsTranslationKind {
+    /// The words in another language.
+    Translation,
+    /// The original's sounds in Latin letters (romaji, pinyin, romanized Korean).
+    Romanization,
+}
+
+/// Who made a translation of lyrics (M46.48).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum LyricsTranslationOrigin {
+    /// The lyrics' own source.
+    Source,
+    /// Another lyrics source's version of the song, matched to these lines.
+    OtherSource,
+    /// A translation model on this device.
+    Device,
+    /// A translator set up in Settings → AI.
+    Ai,
+}
+
+/// Lyrics in another language, or romanized, line for line (M46.48).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LyricsTranslation {
+    /// BCP 47 tag of what it's written in: a translation's language (`en`, `zh-Hans`); a
+    /// romanization's is the original's with `-Latn` (`ja-Latn`), or `und-Latn`.
+    pub language: String,
+    pub kind: LyricsTranslationKind,
+    pub origin: LyricsTranslationOrigin,
+    /// Who made it: the source's or the translator's name; empty for this device.
+    pub by: String,
+    /// What made it: `device`, `ai:<provider id>`, or `source:<name>` for a lyrics source.
+    #[serde(default)]
+    pub translator: String,
+    /// One per line of the lyrics (`Lyrics::line_texts`); empty where a line has none.
+    pub lines: Vec<String>,
+}
+
+/// A translator that can translate a song's lyrics (M46.48), as the Translate menu lists it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LyricsTranslatorOption {
+    /// `device`, or `ai:<provider id>`.
+    pub id: String,
+    /// The translator's kind; `None` for this device.
+    pub kind: Option<AiProviderKind>,
+    /// The provider's name; empty for this device.
+    pub name: String,
+    /// The models this device uses for it, from the AI catalogue.
+    pub models: Vec<String>,
+    /// What's still to download first, in bytes; 0 when it's ready.
+    pub download_bytes: f64,
+    /// It can translate into the language: this device has a model for it, a translator its key.
+    pub supported: bool,
+}
+
+/// A lyrics translation being made (M46.48): lines done out of all of them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LyricsTranslationProgress {
+    /// The song's track key.
+    pub key: String,
+    pub language: String,
+    pub translator: String,
+    pub done: u32,
+    pub total: u32,
 }
 
 /// A chart a `music.charts` provider keeps (M46.9): its most played, trending, or a genre's top.
@@ -2802,6 +3204,10 @@ pub struct ListeningStats {
     pub peak_hour: Option<u8>,
     /// Songs the user has played or saved.
     pub songs_known: u32,
+    /// The artists played most now, the most first (Home's Your top artists), without hidden
+    /// ones.
+    #[serde(default)]
+    pub top_artists: Vec<String>,
 }
 
 /// Made for You: today's mixes, and whether new ones are being made.
@@ -3083,6 +3489,52 @@ pub struct SearchResults {
     pub providers: Vec<ProviderSearchResult>,
 }
 
+/// One source's answer while a search still waits for the others, so Search shows the first
+/// answers without waiting for the slowest source.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchProgress {
+    /// What was searched for, trimmed as the search command trims it.
+    pub query: String,
+    /// How many sources the search asks.
+    pub total: u32,
+    pub part: SearchPart,
+}
+
+/// What one source answered, by kind of search.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum SearchPart {
+    Songs {
+        result: ProviderSearchResult,
+    },
+    Artists {
+        provider: ProviderInfo,
+        artists: Vec<MusicArtist>,
+    },
+    Albums {
+        provider: ProviderInfo,
+        albums: Vec<MusicAlbum>,
+    },
+    Playlists {
+        provider: ProviderInfo,
+        featured: bool,
+        playlists: Vec<MusicPlaylist>,
+    },
+}
+
+/// A search someone made, kept on this device for Search's recent searches.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentSearch {
+    pub query: String,
+    /// What it looked through: Search's kind (`all`, `music`, `video`, `manga`, `novel`,
+    /// `library`).
+    pub kind: String,
+    /// Unix ms.
+    pub searched_at: f64,
+}
+
 // ---- Favorites, playlists, history (M18) ----
 
 /// A track to save, from the player, the library or a search result.
@@ -3145,6 +3597,50 @@ pub struct SavedTrack {
 pub struct TrackSaves {
     pub favorite: bool,
     pub playlist_ids: Vec<String>,
+}
+
+/// A saved song as lists mark it (M46.48): the key it's stored under, every key its copies answer
+/// to (their names', and the names they show with the user's details), and where it's saved.
+/// `music/trackKey.ts` finds a shown song among them with `sameSong`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedSong {
+    pub track_key: String,
+    pub song_keys: Vec<String>,
+    pub favorite: bool,
+    pub playlist_ids: Vec<String>,
+}
+
+/// What picking a source for a song does (M46.48): with `assign`, every saved copy, the queue
+/// and the resolver's remembered pick take its stream (the download mode only downloads from
+/// it); the details ticked become the song's own (Edit details reverts them). `source_name` is
+/// the source's name, which the player shows the stream came from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceChoice {
+    pub assign: bool,
+    pub source_name: Option<String>,
+    pub title: bool,
+    pub artist: bool,
+    pub album: bool,
+    pub cover: bool,
+}
+
+/// Where a saved song came from (M46.48): Import songs, and whether no source had it then.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackImportStatus {
+    pub imported: bool,
+    pub unavailable: bool,
+}
+
+/// What adding songs to a playlist did (M46.48): songs it already held stay out unless they're
+/// added anyway.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistAdded {
+    pub added: u32,
+    pub already: u32,
 }
 
 /// An artist's page (M46.8): popular songs from the sources, and what the library has by them.
@@ -3507,7 +4003,27 @@ impl SongDownloadState {
     }
 }
 
-/// A song saved (or being saved) into the app to play offline (M46.10).
+/// How a song download is made: a source's file (yt-dlp's copy of a YouTube video included), or a
+/// recording of the song as it plays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SongDownloadKind {
+    File,
+    Recording,
+}
+
+impl SongDownloadKind {
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "file" => Some(Self::File),
+            "recording" => Some(Self::Recording),
+            _ => None,
+        }
+    }
+}
+
+/// A song saved (or being saved) into the app to play offline (M46.10). It is also the payload of
+/// `SongDownloadProgressEvent`, sent on every change of state or source and while it downloads.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SongDownload {
@@ -3520,17 +4036,33 @@ pub struct SongDownload {
     /// A cover link through the image cache.
     pub artwork_url: Option<String>,
     pub state: SongDownloadState,
-    /// `file` (a source's stream) or `recording`, once done.
-    pub kind: Option<String>,
-    /// Where the audio came from.
+    /// How it's made: `file` while downloading, `recording` while recorded, and how it was made
+    /// once done.
+    pub kind: Option<SongDownloadKind>,
+    /// Where the audio came from once done; while downloading, the source being tried now; while
+    /// queued, the source picked for it, if any.
     pub provider: Option<String>,
     /// The saved file's extension ("mp3", "flac"...), once done.
     pub format: Option<String>,
+    /// While downloading, what came so far; once done, the file's size.
     pub done_bytes: f64,
     pub total_bytes: Option<f64>,
+    /// How far it is, 0–1, when known: the file's bytes, or how much of a recording has played.
+    pub fraction: Option<f64>,
+    /// How fast it downloads now, while it does.
+    pub bytes_per_second: Option<f64>,
+    /// Time left in ms, when known: from the speed and the size, or the song left to record.
+    pub eta_ms: Option<f64>,
+    /// What went wrong, in a line for the listener.
     pub error: Option<String>,
+    /// Each source's own error behind `error` ("More info").
+    pub error_detail: Option<String>,
     /// This device can record what plays (Windows for now).
     pub can_record: bool,
+    /// Its place in the queue (unix ms): queued songs download earliest first.
+    pub queued_at: f64,
+    /// When it finished, or stopped with an error (unix ms).
+    pub finished_at: Option<f64>,
 }
 
 /// yt-dlp on this device (M46.47): YouTube downloads on desktop, and songs only YouTube has.
@@ -3675,6 +4207,13 @@ pub struct LocalFolder {
     /// Unix ms.
     pub scanned_at: Option<f64>,
     pub scanning: bool,
+    /// How far a running scan got with the comics and books it adds; `None` while it lists.
+    pub progress: Option<LocalScanProgress>,
+    /// Its songs and videos can't be read until media access is allowed (Android).
+    pub needs_access: bool,
+    /// The folder couldn't be opened at the last scan (moved, unplugged, or its access lost);
+    /// what it added stays until it's back.
+    pub missing: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -3684,6 +4223,19 @@ pub struct LocalCounts {
     pub comics: u32,
     pub books: u32,
     pub videos: u32,
+    /// Comics and books that couldn't be read or added.
+    pub failed: u32,
+    /// Songs and videos that can't play from where the folder is (a cloud or Downloads folder
+    /// the picker gave without a path).
+    pub unplayable: u32,
+}
+
+/// A Local Files scan adding comics and books: how many it has done of how many.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalScanProgress {
+    pub done: u32,
+    pub total: u32,
 }
 
 /// The file type a saved cover image gets (M46.26).
@@ -3788,12 +4340,31 @@ pub struct MangaUpdateStatus {
     pub failed: u32,
     /// Unix ms of the last finished run.
     pub last_run_at: Option<f64>,
+    /// The titles this session's last update couldn't check, and why.
+    #[serde(default)]
+    pub failures: Vec<UpdateFailure>,
+}
+
+/// A library title an update couldn't check.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateFailure {
+    /// `manga`, `novel` or `video`: which page opens it.
+    pub medium: String,
+    pub source_id: String,
+    pub remote_id: String,
+    pub title: String,
+    pub source_name: String,
+    /// The source's error, for "More info".
+    pub message: String,
 }
 
 /// A chapter a library update found.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct MangaUpdateItem {
+    /// `manga` or `novel`: which reader opens it.
+    pub medium: String,
     pub title_id: String,
     pub source_id: String,
     pub remote_id: String,
@@ -4074,22 +4645,29 @@ pub const LAYOUT_AUDIO_VIEWS: [(&str, bool); 9] = [
     ("artists", true),
     ("tracks", true),
 ];
-pub const LAYOUT_HOME_SECTIONS: [(&str, bool); 18] = [
-    // "Nothing to pick up yet" (M46.37): shown while nothing is under way; closing it hides it.
+pub const LAYOUT_HOME_SECTIONS: [(&str, bool); 22] = [
+    // "Get started" (M46.37): shown while nothing is under way; closing it hides it.
     ("getStarted", true),
     ("continueWatching", true),
     ("continueReading", true),
     ("madeForYou", true),
     ("yourMusic", true),
+    // The artists played most now, from Made for You's numbers.
+    ("topArtists", true),
     ("recentlyPlayed", true),
+    // New episodes of followed shows.
+    ("newEpisodes", true),
     ("popularMusic", true),
     ("trendingMusic", true),
     // More rows from Browse all's kinds (M46.47).
     ("newReleases", true),
+    // Releases found for followed artists (M46.42).
+    ("followedReleases", true),
     ("popularVideos", true),
     ("popularComics", true),
     ("popularBooks", true),
     ("popularAudiobooks", true),
+    ("popularPodcasts", true),
     ("charts", true),
     ("viralMusic", true),
     ("genres", true),
@@ -4550,9 +5128,6 @@ pub struct PageRef {
 #[serde(default, rename_all = "camelCase")]
 pub struct LibraryDisplayPrefs {
     pub mode: LibraryDisplayMode,
-    /// Covers per row in landscape; 0 fits them to the screen. (`Settings::grid_columns` is the
-    /// portrait value.)
-    pub columns_landscape: u32,
     pub tabs: LibraryTabs,
     /// The number of titles on each tab.
     pub show_counts: bool,
@@ -4570,7 +5145,6 @@ impl Default for LibraryDisplayPrefs {
     fn default() -> Self {
         Self {
             mode: LibraryDisplayMode::CompactGrid,
-            columns_landscape: 0,
             tabs: LibraryTabs::Categories,
             show_counts: true,
             per_category: false,
@@ -4580,9 +5154,6 @@ impl Default for LibraryDisplayPrefs {
         }
     }
 }
-
-/// Covers per row offered (0 fits them to the screen).
-pub const GRID_COLUMNS: [u32; 8] = [0, 2, 3, 4, 5, 6, 7, 8];
 
 /// How a title is read (M27).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -4606,10 +5177,16 @@ impl ReaderMode {
     }
 
     pub fn parse(text: &str) -> Self {
+        Self::chosen(text).unwrap_or(Self::Webtoon)
+    }
+
+    /// A title's own mode as stored; `None` (an empty value) follows the reader's default.
+    pub fn chosen(text: &str) -> Option<Self> {
         match text {
-            "pagedLtr" => Self::PagedLtr,
-            "pagedRtl" => Self::PagedRtl,
-            _ => Self::Webtoon,
+            "webtoon" => Some(Self::Webtoon),
+            "pagedLtr" => Some(Self::PagedLtr),
+            "pagedRtl" => Some(Self::PagedRtl),
+            _ => None,
         }
     }
 }
@@ -4620,7 +5197,10 @@ impl ReaderMode {
 pub struct MangaChapterPages {
     pub title_id: String,
     pub title: String,
+    /// How the chapter is read: the title's own mode, else the reader's default.
     pub reader_mode: ReaderMode,
+    /// The title's own mode; `None` follows the default.
+    pub own_reader_mode: Option<ReaderMode>,
     pub chapter: MangaChapterInfo,
     /// Through the local image proxy, in reading order.
     pub pages: Vec<String>,
@@ -5014,6 +5594,12 @@ pub struct AnimeEpisode {
     pub title: String,
     pub episode: u32,
     pub mal_id: Option<u32>,
+    /// The entry's Kitsu or AniList id, whose MyAnimeList id is looked up before searching by
+    /// name (each season has its own).
+    #[serde(default)]
+    pub kitsu_id: Option<u32>,
+    #[serde(default)]
+    pub anilist_id: Option<u32>,
 }
 
 /// What to play in the video player.
@@ -5190,6 +5776,70 @@ pub struct StremioAddon {
     pub adult: bool,
     /// Why its manifest couldn't be read, when it couldn't.
     pub error: Option<String>,
+    /// Off: listed, asked for nothing.
+    pub enabled: bool,
+    /// What it offers, as the Addons page lists it.
+    pub provides: Vec<StremioProvides>,
+    /// Its streams are torrents (`behaviorHints.p2p`).
+    pub p2p: bool,
+    /// Its setup page, when it can be set up.
+    pub configure_url: Option<String>,
+    /// It must be set up on its website before it's added.
+    pub needs_setup: bool,
+    /// It didn't answer lately: failed since it last worked, within three days.
+    pub failing: bool,
+}
+
+/// One thing an addon offers: catalogs of a type (with how many), details of a type, streams,
+/// subtitles.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StremioProvides {
+    /// `catalog`, `meta`, `stream` or `subtitles`.
+    pub resource: String,
+    /// The type it's for (`movie`, `series`...), for catalogs and details.
+    pub kind: Option<String>,
+    pub count: u32,
+}
+
+/// A catalog an addon offers, before anything is asked of it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StremioCatalogInfo {
+    pub addon_id: String,
+    pub addon_name: String,
+    pub kind: String,
+    pub catalog_id: String,
+    pub name: String,
+    /// What it can be narrowed by (genres, years...), with the choices.
+    pub extras: Vec<StremioExtra>,
+    /// A row on the board: it lists without being asked anything.
+    pub board: bool,
+    pub searchable: bool,
+    /// Discover can browse it (what it requires has choices).
+    pub discoverable: bool,
+    /// It pages (`skip`).
+    pub pages: bool,
+    /// Its addon didn't answer lately.
+    pub failing: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StremioExtra {
+    /// `genre`, or another name an addon gives.
+    pub name: String,
+    /// The catalog lists nothing without one (its first choice then).
+    pub required: bool,
+    pub options: Vec<String>,
+}
+
+/// A choice for a catalog's extra.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StremioExtraValue {
+    pub name: String,
+    pub value: String,
 }
 
 /// A well-known addon offered with one tap.
@@ -5294,6 +5944,13 @@ pub struct StremioMeta {
     /// For a movie: saved on the device (M43).
     pub downloaded: bool,
     pub addon_name: String,
+    /// The addon whose details these are (empty when shown as stored).
+    pub addon_id: String,
+    /// What the title itself plays by (a movie, a channel): the details' default video, else
+    /// its id.
+    pub video_id: String,
+    /// A live channel.
+    pub live: bool,
     /// Saved in the video library (M43).
     pub in_library: bool,
     /// The stored title, once it was saved.
@@ -5307,13 +5964,17 @@ pub enum StremioStreamKind {
     Direct,
     /// Plays in the embedded YouTube player.
     YouTube,
-    /// Opens outside Raygun.
+    /// Opens outside Raygun (a web page).
     External,
-    /// Needs a torrent engine (not supported yet).
+    /// A torrent: a torrent app plays it; `target` is its magnet link.
     Torrent,
+    /// Opens another title's page; `target` is `<type>/<id>`.
+    Title,
+    /// Archives, Usenet and other streams only Stremio's streaming server opens.
+    Server,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct StremioStream {
     pub kind: StremioStreamKind,
@@ -5325,19 +5986,31 @@ pub struct StremioStream {
     pub subtitles: Vec<VideoSubtitle>,
     /// Streams of one release across episodes (Stremio's `bingeGroup`), for binge watching.
     pub binge_group: Option<String>,
+    /// The file's name, size (bytes) and OpenSubtitles hash, which subtitle addons match by.
+    #[serde(default)]
+    pub filename: Option<String>,
+    #[serde(default)]
+    pub size: Option<f64>,
+    #[serde(default)]
+    pub video_hash: Option<String>,
+    /// A browser can't play it as it is (`behaviorHints.notWebReady`).
+    #[serde(default)]
+    pub not_web_ready: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct StremioStreamGroup {
     pub addon_id: String,
     pub addon_name: String,
     pub streams: Vec<StremioStream>,
     pub error: Option<String>,
+    /// The addon didn't answer lately.
+    pub failing: bool,
 }
 
 /// What to play: a stream of a movie or episode, with what the player shows.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct StremioPlayRequest {
     pub kind: String,

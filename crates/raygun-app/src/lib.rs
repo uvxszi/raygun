@@ -25,6 +25,7 @@ mod export;
 mod extensions;
 mod follows;
 mod genres;
+mod hidden;
 mod history;
 mod import;
 mod last_played;
@@ -33,6 +34,7 @@ mod library_actions;
 mod local_files;
 mod local_network;
 mod lyrics_store;
+mod lyrics_translation;
 mod made_for_you;
 mod manga;
 mod manga_downloads;
@@ -45,7 +47,9 @@ mod novel;
 mod playback;
 mod podcast_feed;
 mod podcasts;
+mod privacy;
 mod quick_access;
+mod recent_searches;
 mod remote;
 mod resolution;
 mod resolver;
@@ -81,6 +85,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::storage_info,
             commands::settings_get,
             commands::settings_update,
+            commands::settings_update_many,
+            commands::settings_defaults,
             commands::recent_contexts,
             commands::recent_contexts_add,
             commands::playback_get_state,
@@ -123,15 +129,23 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::extension_repos,
             commands::extension_suggested_repos,
             commands::extension_repo_add,
+            commands::extension_repo_preview,
             commands::extension_repo_remove,
             commands::extension_catalog,
             commands::extension_install,
             commands::extension_uninstall,
             commands::extension_setting_set,
             commands::online_search,
+            commands::search_recent,
+            commands::search_recent_add,
+            commands::search_recent_remove,
+            commands::search_recent_clear,
             commands::lyrics_get,
             commands::lyrics_options,
             commands::lyrics_transcribe,
+            commands::lyrics_translate,
+            commands::lyrics_translate_options,
+            commands::lyrics_translation_pick,
             commands::captions_use_feed,
             commands::captions_use_ai,
             commands::stremio_ratings,
@@ -141,6 +155,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::downloaded_songs,
             commands::song_download_for,
             commands::collections_saves,
+            commands::collections_saved_index,
             commands::collections_set_saves,
             commands::music_artist,
             commands::music_charts,
@@ -149,6 +164,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::made_for_you,
             commands::made_for_you_mix,
             commands::made_for_you_save,
+            commands::hidden_artist_set,
+            commands::hidden_item_set,
+            commands::hidden_clear,
             commands::import_read_link,
             commands::import_read_text,
             commands::import_reader_ready,
@@ -166,8 +184,11 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::local_folder_add,
             commands::local_folder_remove,
             commands::local_folders_rescan,
+            commands::local_files_allow_access,
             commands::import_save,
             commands::track_assign_source,
+            commands::track_use_source,
+            commands::track_import_status,
             commands::tracks_unavailable,
             commands::audiobooks,
             commands::audiobook,
@@ -198,13 +219,20 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::artist_unfollow,
             commands::artist_set_alerts,
             commands::artist_release_news,
+            commands::artist_releases_check,
             commands::music_artist_events,
             commands::music_playlist,
             commands::music_find_album,
             commands::songs_download,
             commands::song_downloads,
+            commands::song_download,
             commands::song_download_remove,
+            commands::song_downloads_remove,
             commands::song_download_retry,
+            commands::song_downloads_retry_failed,
+            commands::song_downloads_reorder,
+            commands::song_downloads_paused,
+            commands::song_downloads_set_paused,
             commands::song_download_record,
             commands::songs_save,
             commands::song_downloaded_keys,
@@ -246,6 +274,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::favorites_set_order,
             commands::history_recent,
             commands::history_clear,
+            commands::incognito_status,
+            commands::incognito_set_enabled,
             commands::collection_play,
             commands::mcp_status,
             commands::mcp_set_enabled,
@@ -293,6 +323,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::novel_set_progress,
             commands::novel_set_read,
             commands::novel_import_epub,
+            commands::novel_import_epub_upload,
             commands::tts_available,
             commands::tts_speak,
             commands::tts_stop,
@@ -332,6 +363,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::library_set_favorite,
             commands::library_set_pinned,
             commands::library_mark_read,
+            commands::library_set_chapters_read,
+            commands::library_mark_previous_read,
             commands::library_remove,
             commands::library_change_categories,
             commands::library_download_next,
@@ -361,6 +394,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::website_edit,
             commands::website_remove,
             commands::website_reset,
+            commands::website_set_block_ads,
             commands::website_open,
             commands::website_blocklist_status,
             commands::website_blocklist_update,
@@ -371,11 +405,18 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::library_search,
             commands::stremio_addons,
             commands::stremio_suggestions,
+            commands::stremio_preview,
             commands::stremio_add,
             commands::stremio_remove,
+            commands::stremio_set_enabled,
+            commands::stremio_set_order,
+            commands::stremio_configure,
+            commands::stremio_open_link,
+            commands::stremio_catalogs,
             commands::stremio_home,
             commands::stremio_catalog,
             commands::stremio_search,
+            commands::stremio_search_catalog,
             commands::stremio_meta,
             commands::stremio_streams,
             commands::stremio_play,
@@ -420,6 +461,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::QueueEvent,
             events::LibraryScanEvent,
             events::ExtensionsChangedEvent,
+            events::SearchProgressEvent,
             events::SyncChangedEvent,
             events::MangaUpdateEvent,
             events::MangaDownloadsEvent,
@@ -429,6 +471,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::WatchChangedEvent,
             events::VideoDownloadsEvent,
             events::SongDownloadsEvent,
+            events::SongDownloadProgressEvent,
             events::YtDlpEvent,
             events::AppUpdateEvent,
             events::MadeForYouEvent,
@@ -436,8 +479,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::LocalFilesEvent,
             events::ImportEvent,
             events::CaptionsEvent,
+            events::LyricsTranslationEvent,
             events::ArtistReleasesEvent,
             events::SettingsChangedEvent,
+            events::IncognitoEvent,
             events::ExportEvent,
             events::VideoPlayerEvent,
             events::YouTubeVideoEvent,

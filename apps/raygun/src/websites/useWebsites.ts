@@ -35,6 +35,12 @@ export const useRemoveWebsite = () =>
 export const useResetWebsite = () =>
   useWebsiteMutation((id: string) => unwrapResult(commands.websiteReset(id)));
 
+/** A site's own ad blocker, as its menu in the browser sets it. */
+export const useSetWebsiteBlocking = () =>
+  useWebsiteMutation(({ id, on }: { id: string; on: boolean }) =>
+    unwrapResult(commands.websiteSetBlockAds(id, on)),
+  );
+
 export const useOpenWebsite = () =>
   useMutation({ mutationFn: (id: string) => unwrapResult(commands.websiteOpen(id)) });
 

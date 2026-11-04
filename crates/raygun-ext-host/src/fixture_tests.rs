@@ -1,7 +1,7 @@
 //! First-party extensions against local fixture servers (M15): the real bundles, with their API
 //! base rewritten to point at a server on this machine.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
 use std::path::Path;
 
@@ -207,6 +207,169 @@ async fn lrclib_finds_exact_and_searched_lyrics() {
         host.lyrics(&query("Unknown", Some(200_000))).await,
         Ok(None)
     );
+}
+
+/// KRC's XOR key, as KuGou's files use it.
+const KRC_KEY: [u8; 16] = [
+    64, 71, 97, 119, 94, 50, 116, 71, 81, 54, 49, 45, 206, 210, 110, 105,
+];
+
+/// A KRC file as KuGou's download sends it: `krc1`, then zlib data XORed with the key, all base64.
+fn krc_content(text: &str) -> String {
+    use base64::Engine;
+    use std::io::Write;
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(text.as_bytes()).unwrap();
+    let compressed = encoder.finish().unwrap();
+    let mut bytes = b"krc1".to_vec();
+    bytes.extend(
+        compressed
+            .iter()
+            .enumerate()
+            .map(|(index, byte)| byte ^ KRC_KEY[index % KRC_KEY.len()]),
+    );
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+#[tokio::test]
+async fn kugou_reads_krc_with_translations_and_falls_back_to_lrc() {
+    use base64::Engine;
+    let base64 = |text: &str| base64::engine::general_purpose::STANDARD.encode(text);
+    let language = base64(
+        &json!({
+            "content": [
+                { "language": 0, "type": 1, "lyricContent": [[""], [""], ["你的名字"], ["奔向夜晚"]] },
+                {
+                    "language": 0, "type": 0,
+                    "lyricContent": [["so", "ng"], [""], ["ki mi ", "no ", "na ma e"], ["yo ru ", "ni ", "ka ke ru"]]
+                }
+            ],
+            "version": 1
+        })
+        .to_string(),
+    );
+    // The song's name and a credit first (both dropped), then two sung lines with word timings.
+    let krc = format!(
+        "[id:$00000000]\r\n[ar:Band]\r\n[ti:Song]\r\n[language:{language}]\r\n\
+         [0,1000]<0,500,0>Song<500,500,0> - Band\r\n[1000,1000]<0,1000,0>作词：Someone\r\n\
+         [2000,1500]<0,700,0>君の<700,800,0>名前\r\n[4000,1500]<0,700,0>夜に<700,800,0>駆ける\r\n"
+    );
+    let krc = krc_content(&krc);
+    let lrc = base64("[00:01.00]Line one\n[00:02.50]Line two\n");
+    let app = Router::new()
+        .route(
+            "/api/v3/search/song",
+            get(|uri: Uri| async move {
+                let keyword = query_params(&uri)
+                    .get("keyword")
+                    .cloned()
+                    .unwrap_or_default();
+                let hash = if keyword.contains("Broken") {
+                    "h2"
+                } else {
+                    "h1"
+                };
+                json_response(
+                    StatusCode::OK,
+                    json!({ "data": { "info": [{ "hash": hash, "duration": 200 }] } }),
+                )
+            }),
+        )
+        .route(
+            "/search",
+            get(|uri: Uri| async move {
+                let id = match query_params(&uri).get("hash").map(String::as_str) {
+                    Some("h1") => 7,
+                    _ => 8,
+                };
+                json_response(
+                    StatusCode::OK,
+                    json!({ "candidates": [{ "id": id, "accesskey": "k" }] }),
+                )
+            }),
+        )
+        .route(
+            "/download",
+            get(move |uri: Uri| {
+                let (krc, lrc) = (krc.clone(), lrc.clone());
+                async move {
+                    let params = query_params(&uri);
+                    let content = match (
+                        params.get("id").map(String::as_str),
+                        params.get("fmt").map(String::as_str),
+                    ) {
+                        (Some("7"), Some("krc")) => krc,
+                        // A KRC that isn't one: the LRC is read instead.
+                        (Some("8"), Some("krc")) => base64("not a krc file"),
+                        _ => lrc,
+                    };
+                    json_response(StatusCode::OK, json!({ "content": content }))
+                }
+            }),
+        );
+    let address = serve(app);
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(vec![patched_extension_bases(
+        "kugou",
+        &["https://krcs.kugou.com", "https://mobileservice.kugou.com"],
+        address,
+    )])
+    .await;
+
+    let lyrics = host
+        .lyrics(&query("Song", Some(200_000)))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(lyrics.provider_name, "KuGou");
+    let lines: Vec<_> = lyrics
+        .synced
+        .iter()
+        .map(|line| (line.time_ms, line.text.as_str()))
+        .collect();
+    assert_eq!(lines, [(2_000, "君の名前"), (4_000, "夜に駆ける")]);
+    let translations: Vec<_> = lyrics
+        .translations
+        .iter()
+        .map(|translation| {
+            (
+                translation.language.as_str(),
+                translation.kind,
+                translation.lines.clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        translations,
+        [
+            (
+                "zh-Hans",
+                raygun_model::LyricsTranslationKind::Translation,
+                vec!["你的名字".to_owned(), "奔向夜晚".to_owned()]
+            ),
+            (
+                "ja-Latn",
+                raygun_model::LyricsTranslationKind::Romanization,
+                vec![
+                    "ki mi no na ma e".to_owned(),
+                    "yo ru ni ka ke ru".to_owned()
+                ]
+            ),
+        ]
+    );
+
+    let fallback = host
+        .lyrics(&query("Broken", Some(200_000)))
+        .await
+        .unwrap()
+        .unwrap();
+    let texts: Vec<&str> = fallback
+        .synced
+        .iter()
+        .map(|line| line.text.as_str())
+        .collect();
+    assert_eq!(texts, ["Line one", "Line two"]);
+    assert!(fallback.translations.is_empty());
 }
 
 /// The web client version the fixture's music.youtube.com page names; others are refused.
@@ -488,22 +651,66 @@ async fn mangadex_lists_titles_chapters_and_pages() {
             ],
         })
     };
+    let catalog = move || {
+        vec![
+            manga(
+                "m1",
+                json!({ "ja-ro": "Sousou no Frieren" }),
+                json!([{ "en": "Frieren" }]),
+            ),
+            // An English main title wins over an English alternative.
+            manga(
+                "m2",
+                json!({ "en": "Plain English" }),
+                json!([{ "en": "PE" }]),
+            ),
+            manga("m3", json!({ "ja-ro": "Third" }), json!([])),
+        ]
+    };
     let app = Router::new()
         .route(
             "/manga",
             get(move |uri: Uri| async move {
                 let params = query_params(&uri);
+                // Latest updates ask for the series of new chapters by id.
+                let ids: Vec<String> = uri
+                    .query()
+                    .unwrap_or_default()
+                    .split('&')
+                    .filter_map(|pair| pair.strip_prefix("ids%5B%5D="))
+                    .map(str::to_owned)
+                    .collect();
+                if !ids.is_empty() {
+                    let items: Vec<_> = catalog()
+                        .into_iter()
+                        .filter(|item| ids.iter().any(|id| item["id"] == id.as_str()))
+                        .collect();
+                    return json_response(StatusCode::OK, json!({ "result": "ok", "data": items, "total": items.len(), "offset": 0, "limit": 100 }));
+                }
                 let searched = params.get("title").cloned();
                 assert_eq!(params.get("availableTranslatedLanguage%5B%5D").map(String::as_str), Some("en"));
                 let items = match searched.as_deref() {
                     Some("nothing") => vec![],
-                    _ => vec![
-                        manga("m1", json!({ "ja-ro": "Sousou no Frieren" }), json!([{ "en": "Frieren" }])),
-                        manga("m2", json!({ "en": "Plain English" }), json!([])),
-                    ],
+                    _ => catalog().into_iter().take(2).collect(),
                 };
                 let offset: usize = params.get("offset").and_then(|offset| offset.parse().ok()).unwrap_or(0);
                 json_response(StatusCode::OK, json!({ "result": "ok", "data": items, "total": if items.is_empty() { 0 } else { 30 }, "offset": offset, "limit": 24 }))
+            }),
+        )
+        .route(
+            "/chapter",
+            get(|uri: Uri| async move {
+                let params = query_params(&uri);
+                assert_eq!(params.get("translatedLanguage%5B%5D").map(String::as_str), Some("en"));
+                assert_eq!(params.get("order%5BreadableAt%5D").map(String::as_str), Some("desc"));
+                let of = |manga: &str| json!({
+                    "id": format!("c-{manga}"),
+                    "attributes": { "volume": null, "chapter": "1", "title": null },
+                    "relationships": [{ "id": manga, "type": "manga" }, { "id": "g", "type": "scanlation_group" }],
+                });
+                let offset = params.get("offset").map(String::as_str).unwrap_or("0");
+                let data = if offset == "0" { vec![of("m2"), of("m1"), of("m2")] } else { vec![of("m1"), of("m3")] };
+                json_response(StatusCode::OK, json!({ "result": "ok", "data": data, "total": 102, "offset": offset.parse::<u32>().unwrap(), "limit": 100 }))
             }),
         )
         .route(
@@ -563,7 +770,10 @@ async fn mangadex_lists_titles_chapters_and_pages() {
         popular.items[0].title, "Frieren",
         "the English alternative title wins"
     );
-    assert_eq!(popular.items[1].title, "Plain English");
+    assert_eq!(
+        popular.items[1].title, "Plain English",
+        "an English main title wins over an English alternative"
+    );
     assert_eq!(
         popular.items[0].cover_url.as_deref(),
         Some("https://uploads.mangadex.org/covers/m1/cover.jpg.512.jpg")
@@ -574,6 +784,24 @@ async fn mangadex_lists_titles_chapters_and_pages() {
     );
     let none = host.manga_search(provider, "nothing", 2).await.unwrap();
     assert!(none.items.is_empty() && !none.has_next_page);
+
+    // Latest updates: the series of the newest chapters in the language, in their order, each
+    // once; a later page leaves out the series already shown.
+    let ids = |listing: &crate::manga::MangaListing| -> Vec<String> {
+        listing.items.iter().map(|item| item.id.clone()).collect()
+    };
+    let latest = host
+        .manga_list(provider, crate::manga::MangaList::Latest, 1)
+        .await
+        .unwrap();
+    assert_eq!(ids(&latest), ["m2", "m1"]);
+    assert!(latest.has_next_page);
+    let later = host
+        .manga_list(provider, crate::manga::MangaList::Latest, 2)
+        .await
+        .unwrap();
+    assert_eq!(ids(&later), ["m3"]);
+    assert!(!later.has_next_page);
 
     let details = host.manga_details(provider, "m1").await.unwrap();
     assert_eq!(details.authors, ["Yamada"]);
@@ -871,4 +1099,411 @@ async fn internet_archive_films_browse_details_episodes_and_videos() {
     );
     let again = host.video_links(provider, &film[0].id).await.unwrap();
     assert_eq!(again.len(), 2);
+}
+
+fn html_response(body: String) -> Response {
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        body,
+    )
+        .into_response()
+}
+
+/// A series card as WEBTOON's rankings, genres and search pages draw one.
+fn webtoon_card(section: &str, title_no: u32, title: &str) -> String {
+    format!(
+        r#"<li><a href="https://www.webtoons.com/en/{section}/slug/list?title_no={title_no}" class="link">
+        <div class="image_wrap"><img src="https://webtoon-phinf.pstatic.net/x/{title_no} Thumb_Poster.jpg?type=q90"></div>
+        <div class="info_text"><strong class="title"> {title} </strong></div></a></li>"#
+    )
+}
+
+fn webtoon_list(cards: &[String], more: &str) -> String {
+    format!(
+        r#"<html><body><ul class="webtoon_list">{}</ul>{more}</body></html>"#,
+        cards.concat()
+    )
+}
+
+#[tokio::test]
+async fn webtoon_lists_series_episodes_and_pages() {
+    let app = Router::new()
+        .route(
+            "/en/ranking/{name}",
+            get(|axum::extract::Path(name): axum::extract::Path<String>| async move {
+                match name.as_str() {
+                    "popular" => html_response(webtoon_list(
+                        &[webtoon_card("action", 1, "One"), webtoon_card("canvas", 9, "Nine")],
+                        "",
+                    )),
+                    // One ranking failing leaves the others.
+                    "trending" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+                    _ => html_response(webtoon_list(&[webtoon_card("drama", 1, "One again")], "")),
+                }
+            }),
+        )
+        .route(
+            "/en/search/{section}",
+            get(|axum::extract::Path(section): axum::extract::Path<String>, uri: Uri| async move {
+                let params = query_params(&uri);
+                assert_eq!(params["keyword"], "tower");
+                if section == "originals" {
+                    html_response(webtoon_list(&[webtoon_card("fantasy", 95, "Tower of God")], ""))
+                } else {
+                    let next = format!(r#"<a class="pagination" href="/en/search/canvas?keyword=tower&page={}">next</a>"#, params["page"].parse::<u32>().unwrap() + 1);
+                    html_response(webtoon_list(&[webtoon_card("canvas", 624546, "THE TOWER.")], &next))
+                }
+            }),
+        )
+        .route(
+            "/en/canvas/list",
+            get(|uri: Uri| async move {
+                let params = query_params(&uri);
+                assert_eq!((params["genreTab"].as_str(), params["sortOrder"].as_str()), ("ROMANCE", "UPDATE"));
+                html_response(format!(
+                    r#"<html><body><div class="challenge_lst"><ul><li>
+                    <a href="https://www.webtoons.com/en/canvas/love/list?title_no=77" class="challenge_item">
+                    <span class="img_area"><img src="https://webtoon-phinf.pstatic.net/c/77.png?type=f164_164"></span>
+                    <p class="subj">Love</p></a></li></ul></div>
+                    <ul class="lst_type1"><li><a href="https://www.webtoons.com/en/canvas/side/list?title_no=5"><p class="subj">Side ranking</p></a></li></ul>
+                    <a href="/en/canvas/list?genreTab=ROMANCE&page={}">2</a></body></html>"#,
+                    params["page"].parse::<u32>().unwrap() + 1
+                ))
+            }),
+        )
+        .route(
+            "/en/series/series/list",
+            get(|| async {
+                html_response(r#"<html><head><meta property="og:image" content="https://swebtoon-phinf.pstatic.net/a/2480.jpg?type=crop540_540"></head><body>
+                <div class="detail_header"><div class="info"><h2 class="genre g_action">Action</h2><h1 class="subj">Jungle Juice</h1>
+                <div class="author_area"> Hyeong Eun , Ilhwa
+                 ... <button type="button" class="ico_info2 _btnAuthorInfo">author info</button></div></div></div>
+                <div class="aside detail" id="_asideDetail"><p class="day_info"><span class="txt_ico_up">UP</span>EVERY SUNDAY</p>
+                <p class="summary">Wings  sprout.</p></div></body></html>"#.to_owned())
+            }),
+        )
+        .route(
+            "/api/v1/webtoon/2480/episodes",
+            get(|| async {
+                json_response(StatusCode::OK, json!({ "result": { "episodeList": [
+                    { "episodeNo": 1, "episodeTitle": "Episode 1", "exposureDateMillis": 1614042038000_i64 },
+                    { "episodeNo": 2, "episodeTitle": " Episode 2 ", "exposureDateMillis": 1614646838000_i64 },
+                ] }, "success": true }))
+            }),
+        )
+        .route(
+            "/en/series/series/episode/viewer",
+            get(|uri: Uri| async move {
+                let params = query_params(&uri);
+                assert_eq!((params["title_no"].as_str(), params["episode_no"].as_str()), ("2480", "2"));
+                html_response(r#"<html><body><div id="_imageList">
+                <img src="https://webtoons-static.pstatic.net/image/bg_transparency.png" class="_images" data-url="https://webtoon-phinf.pstatic.net/p/1.jpg?type=q90">
+                <img src="https://webtoons-static.pstatic.net/image/bg_transparency.png" class="_images" data-url="https://webtoon-phinf.pstatic.net/p/2.jpg?type=q90">
+                </div></body></html>"#.to_owned())
+            }),
+        );
+    let address = serve(app);
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(vec![patched_extension_bases(
+        "webtoons",
+        &["https://www.webtoons.com", "https://m.webtoons.com"],
+        address,
+    )])
+    .await;
+    let provider = "dev.raygun.webtoons/webtoons";
+    let ids = |listing: &crate::manga::MangaListing| -> Vec<String> {
+        listing.items.iter().map(|item| item.id.clone()).collect()
+    };
+
+    let popular = host
+        .manga_list(provider, crate::manga::MangaList::Popular, 1)
+        .await
+        .unwrap();
+    assert_eq!(
+        ids(&popular),
+        ["en:webtoon:1", "en:canvas:9"],
+        "each series once"
+    );
+    assert_eq!(popular.items[0].title, "One");
+    assert_eq!(
+        popular.items[0].cover_url.as_deref(),
+        Some("https://webtoon-phinf.pstatic.net/x/1%20Thumb_Poster.jpg?type=q90")
+    );
+    // The site (here this server) is the Referer the picture host wants.
+    let referer = format!("http://{address}/");
+    assert_eq!(popular.items[0].cover_headers["Referer"], referer);
+
+    let both = host.manga_search(provider, "tower", 1).await.unwrap();
+    assert_eq!(
+        ids(&both),
+        ["en:webtoon:95", "en:canvas:624546"],
+        "Originals first"
+    );
+    assert!(both.has_next_page, "Canvas has a second page");
+
+    let chosen = BTreeMap::from([
+        (
+            "type".to_owned(),
+            raygun_model::FilterValue::Select("canvas".into()),
+        ),
+        (
+            "genre".to_owned(),
+            raygun_model::FilterValue::Select("romance".into()),
+        ),
+        (
+            "sort".to_owned(),
+            raygun_model::FilterValue::Select("UPDATE".into()),
+        ),
+    ]);
+    let romance = host
+        .manga_search_filtered(provider, "", 1, &chosen)
+        .await
+        .unwrap();
+    assert_eq!(
+        ids(&romance),
+        ["en:canvas:77"],
+        "the side ranking isn't the list"
+    );
+    assert!(romance.has_next_page);
+
+    let details = host
+        .manga_details(provider, "en:webtoon:2480")
+        .await
+        .unwrap();
+    assert_eq!(details.title, "Jungle Juice");
+    assert_eq!(details.authors, ["Hyeong Eun", "Ilhwa"]);
+    assert_eq!(details.genres, ["Action"]);
+    assert_eq!(details.status, "ongoing");
+    assert_eq!(details.description.as_deref(), Some("Wings sprout."));
+    assert!(
+        details
+            .url
+            .unwrap()
+            .ends_with("/en/series/series/list?title_no=2480")
+    );
+    assert!(host.manga_details(provider, "xx:webtoon:1").await.is_err());
+
+    let chapters = host
+        .manga_chapters(provider, "en:webtoon:2480")
+        .await
+        .unwrap();
+    let names: Vec<_> = chapters
+        .iter()
+        .map(|chapter| chapter.name.as_str())
+        .collect();
+    assert_eq!(names, ["Episode 2", "Episode 1"], "newest first");
+    assert_eq!(chapters[0].id, "en:webtoon:2480:2");
+    assert_eq!(chapters[0].date_upload, Some(1_614_646_838_000));
+
+    let pages = host.manga_pages(provider, &chapters[0].id).await.unwrap();
+    let urls: Vec<_> = pages.iter().map(|page| page.url.as_str()).collect();
+    assert_eq!(
+        urls,
+        [
+            "https://webtoon-phinf.pstatic.net/p/1.jpg?type=q90",
+            "https://webtoon-phinf.pstatic.net/p/2.jpg?type=q90"
+        ]
+    );
+    assert!(pages.iter().all(|page| page.headers["Referer"] == referer));
+}
+
+#[tokio::test]
+async fn tapas_lists_series_and_only_free_episodes() {
+    let app = Router::new()
+        .route(
+            "/ranking",
+            get(|uri: Uri| async move {
+                let params = query_params(&uri);
+                assert_eq!((params["category_type"].as_str(), params["page"].as_str()), ("COMIC", "0"));
+                json_response(StatusCode::OK, json!({
+                    "data": { "items": [
+                        { "seriesId": 42, "title": " Solo ", "mature": false,
+                          "assetProperty": { "bookCoverImage": { "path": "https://story-a.tapas.io/bc/42" } } },
+                        { "seriesId": 43, "title": "Grown-ups", "mature": true },
+                        { "seriesId": "bad", "title": "Bad id" },
+                    ] },
+                    "meta": { "pagination": { "page": 0, "last": false } },
+                }))
+            }),
+        )
+        .route(
+            "/search",
+            get(|| async {
+                html_response(r#"<html><body><ul>
+                <li class="search-item-wrap"><div class="item-thumb-wrap"><a class="thumb-wrap" data-series-id="69274" href="/series/Solo-Q"><img src="https://us-a.tapas.io/sa/q.jpg"></a></div>
+                <div class="title-section"><p class="title"><a class="link" data-series-id="69274" href="/series/Solo-Q">#_h_i_g_h_L_i_g_h_t_#Solo#/_h_i_g_h_L_i_g_h_t_#-Q</a></p></div></li>
+                </ul><a class="paging__button paging__button--next" href="?pageNumber=2&q=solo">next</a></body></html>"#.to_owned())
+            }),
+        )
+        .route(
+            "/series/42/episodes",
+            get(|uri: Uri| async move {
+                let params = query_params(&uri);
+                let page: u32 = params["page"].parse().unwrap();
+                let episode = |id: u32, free: bool, scheduled: bool| json!({
+                    "id": id, "title": format!("Episode {id}"), "scene": id,
+                    "publish_date": "2025-08-24T18:00:00Z", "free": free, "scheduled": scheduled,
+                });
+                // 45 episodes, 20 to a page; only some free; one listed twice across pages.
+                let episodes = match page {
+                    1 => vec![episode(45, false, false), episode(44, true, true), episode(30, true, false)],
+                    2 => vec![episode(30, true, false), episode(21, false, false)],
+                    _ => vec![episode(2, true, false), episode(1, true, false)],
+                };
+                json_response(StatusCode::OK, json!({ "code": 200, "data": {
+                    "pagination": { "page": page + 1, "has_next": page < 3, "total": 45 },
+                    "episodes": episodes,
+                } }))
+            }),
+        )
+        .route(
+            "/episode/{id}",
+            get(|axum::extract::Path(id): axum::extract::Path<u32>| async move {
+                let body = if id == 2 {
+                    r#"<article class="viewer__body"><img class="content__img js-lazy" src="data:image/gif;base64,R0lGOD" data-src="https://us-a.tapas.io/pc/1.png?__token__=exp=1~hmac=a&amp;version=v4"></article>"#
+                } else {
+                    r#"<div class="locked">Unlock with coins</div>"#
+                };
+                html_response(format!("<html><body>{body}</body></html>"))
+            }),
+        );
+    let address = serve(app);
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(vec![patched_extension_bases(
+        "tapas",
+        &[
+            "https://story-api.tapas.io/cosmos/api/v1/landing",
+            "https://tapas.io",
+        ],
+        address,
+    )])
+    .await;
+    let provider = "dev.raygun.tapas/tapas";
+
+    let popular = host
+        .manga_list(provider, crate::manga::MangaList::Popular, 1)
+        .await
+        .unwrap();
+    assert!(popular.has_next_page);
+    assert_eq!(popular.items.len(), 2, "a series needs a number for an id");
+    assert_eq!(popular.items[0].title, "Solo");
+    assert_eq!(
+        popular.items[0].cover_url.as_deref(),
+        Some("https://story-a.tapas.io/bc/42.jpg")
+    );
+    assert!(popular.items[1].nsfw, "Tapas marks mature series");
+
+    let found = host.manga_search(provider, "solo", 1).await.unwrap();
+    assert_eq!(found.items[0].id, "69274");
+    assert_eq!(found.items[0].title, "Solo-Q", "search highlights removed");
+    assert!(found.has_next_page);
+
+    let chapters = host.manga_chapters(provider, "42").await.unwrap();
+    let ids: Vec<_> = chapters.iter().map(|chapter| chapter.id.as_str()).collect();
+    assert_eq!(ids, ["30", "2", "1"], "free, published episodes, each once");
+    assert_eq!(chapters[0].number, Some(30.0));
+    assert_eq!(chapters[0].date_upload, Some(1_756_058_400_000));
+
+    let pages = host.manga_pages(provider, "2").await.unwrap();
+    assert_eq!(
+        pages[0].url,
+        "https://us-a.tapas.io/pc/1.png?__token__=exp=1~hmac=a&version=v4"
+    );
+    let locked = host.manga_pages(provider, "45").await.unwrap_err();
+    assert!(locked.contains("coins"), "{locked}");
+}
+
+#[tokio::test]
+async fn naver_webtoon_interleaves_days_and_leaves_out_paid_episodes() {
+    let app = Router::new()
+        .route(
+            "/api/webtoon/titlelist/weekday",
+            get(|| async {
+                let title = |id: u32, adult: bool| json!({
+                    "titleId": id, "titleName": format!("Title {id}"), "adult": adult,
+                    "thumbnailUrl": format!("https://image-comic.pstatic.net/webtoon/{id}/t.jpg"),
+                });
+                json_response(StatusCode::OK, json!({
+                    "dayOfWeek": "WEDNESDAY",
+                    "titleListMap": {
+                        "MONDAY": [title(1, false), title(2, false)],
+                        "WEDNESDAY": [title(3, true), title(1, false)],
+                        "THURSDAY": [title(4, false)],
+                    },
+                }))
+            }),
+        )
+        .route(
+            "/api/article/list",
+            get(|uri: Uri| async move {
+                let page: u32 = query_params(&uri)["page"].parse().unwrap();
+                let article = |no: u32, charge: bool, date: &str| json!({
+                    "no": no, "subtitle": format!("{no}화"), "charge": charge, "serviceDateDescription": date,
+                });
+                let articles = match page {
+                    1 => vec![article(43, true, "26.11.04"), article(42, false, "26.10.28")],
+                    2 => vec![article(22, false, "3일 전")],
+                    _ => vec![article(1, false, "21.04.21")],
+                };
+                json_response(StatusCode::OK, json!({
+                    "articleList": articles,
+                    "pageInfo": { "page": page, "totalPages": 3 },
+                }))
+            }),
+        )
+        .route(
+            "/webtoon/detail",
+            get(|| async {
+                html_response(r#"<html><body><img src="https://image-comic.pstatic.net/webtoon/7/1/thumbnail_202x120.jpg">
+                <div class="wt_viewer" id="sectionContWide">
+                <img src="https://image-comic.pstatic.net/webtoon/7/1/IMAG01_1.jpg" alt="comic content" id="content_image_0">
+                <img src="https://image-comic.pstatic.net/webtoon/7/1/IMAG01_2.jpg" alt="comic content" id="content_image_1">
+                <img src="https://ssl.pstatic.net/static/ad.png" id="banner">
+                </div></body></html>"#.to_owned())
+            }),
+        );
+    let address = serve(app);
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(vec![patched_extension(
+        "naver-webtoon",
+        "https://comic.naver.com",
+        address,
+    )])
+    .await;
+    let provider = "dev.raygun.naver-webtoon/naver";
+
+    let popular = host
+        .manga_list(provider, crate::manga::MangaList::Popular, 1)
+        .await
+        .unwrap();
+    let ids: Vec<_> = popular.items.iter().map(|item| item.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        ["3", "4", "1", "2"],
+        "each day's most popular in turn, today's first, each once"
+    );
+    assert!(popular.items[0].nsfw, "series for grown-ups are marked");
+    let referer = format!("http://{address}/");
+    assert_eq!(popular.items[0].cover_headers["Referer"], referer);
+
+    let chapters = host.manga_chapters(provider, "7").await.unwrap();
+    let ids: Vec<_> = chapters.iter().map(|chapter| chapter.id.as_str()).collect();
+    assert_eq!(ids, ["7:42", "7:22", "7:1"], "paid early episodes left out");
+    assert_eq!(chapters[0].date_upload, Some(1_793_145_600_000));
+    assert_eq!(
+        chapters[1].date_upload, None,
+        "a relative date isn't guessed"
+    );
+
+    let pages = host.manga_pages(provider, "7:1").await.unwrap();
+    let urls: Vec<_> = pages.iter().map(|page| page.url.as_str()).collect();
+    assert_eq!(
+        urls,
+        [
+            "https://image-comic.pstatic.net/webtoon/7/1/IMAG01_1.jpg",
+            "https://image-comic.pstatic.net/webtoon/7/1/IMAG01_2.jpg"
+        ]
+    );
+    assert!(pages.iter().all(|page| page.headers["Referer"] == referer));
 }

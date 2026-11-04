@@ -107,6 +107,9 @@ const SERIES: StremioMeta = {
   watched: false,
   downloaded: false,
   addonName: 'Cinemeta',
+  addonId: 'cinemeta',
+  videoId: 'tt0903747',
+  live: false,
   inLibrary: true,
   titleId: 'title-bb',
 };
@@ -175,7 +178,7 @@ describe('Video library', () => {
 
     await user.click(within(library).getByRole('button', { name: 'More options' }));
     const menu = within(library).getByRole('menu');
-    for (const name of ['Updates', 'Downloads', 'History', 'Edit categories']) {
+    for (const name of ['Updates', 'Downloads', 'History', 'Local files', 'Edit categories']) {
       expect(within(menu).getByRole('menuitem', { name })).toBeInTheDocument();
     }
     // The library is what you have: finding more happens in Search.
@@ -253,9 +256,12 @@ describe('Video library', () => {
       target: 'https://cdn.example/e2.m3u8',
       headers: {},
       subtitles: [],
+      bingeGroup: null,
     };
     commands.stremioStreams.mockResolvedValue(
-      ok([{ addonId: 'local', addonName: 'Local', streams: [direct], error: null }]),
+      ok([
+        { addonId: 'local', addonName: 'Local', streams: [direct], error: null, failing: false },
+      ]),
     );
     commands.videoDownloads.mockResolvedValue(
       ok({
@@ -272,15 +278,15 @@ describe('Video library', () => {
     expect(within(page).getByRole('button', { name: 'Add to categories' })).toBeInTheDocument();
     expect(
       await within(page).findByRole('button', {
-        name: 'Delete the download of S1 E1 · Episode 1',
+        name: 'Delete the download of S1 E1',
       }),
     ).toBeInTheDocument();
     // Tapping an episode watches it through a session, which plays a download from the device.
-    await user.click(within(page).getByRole('button', { name: /^1\. Episode 1/ }));
+    await user.click(within(page).getByRole('button', { name: /^Episode 1/ }));
     expect(commands.stremioWatch).toHaveBeenCalledWith('series', 'tt0903747', 'tt0903747:1:1');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
-    await user.click(within(page).getByRole('button', { name: 'Download S1 E2 · Episode 2' }));
+    await user.click(within(page).getByRole('button', { name: 'Download S1 E2' }));
     const picker = await screen.findByRole('dialog', { name: 'Choose what to download' });
     await user.click(await within(picker).findByRole('button', { name: /^HLS 720p/ }));
     expect(commands.stremioDownload).toHaveBeenCalledWith(
@@ -289,7 +295,7 @@ describe('Video library', () => {
         metaId: 'tt0903747',
         videoId: 'tt0903747:1:2',
         title: 'Breaking Bad',
-        subtitle: 'S1 E2 · Episode 2',
+        subtitle: 'S1 E2',
         poster: null,
         stream: direct,
       },
@@ -339,10 +345,19 @@ describe('Video library', () => {
       within(failed).getByRole('button', { name: 'Retry downloading Breaking Bad · S1 E3' }),
     );
     expect(commands.videoDownloadRetry).toHaveBeenCalledWith('3');
+    // 50 MB would be lost: cancelling takes a second tap.
     await user.click(
       within(running).getByRole('button', { name: 'Cancel the download of Breaking Bad · S1 E2' }),
     );
+    expect(commands.videoDownloadRemove).not.toHaveBeenCalled();
+    await user.click(within(running).getByRole('button', { name: 'Cancel' }));
     expect(commands.videoDownloadRemove).toHaveBeenCalledWith('2');
+    // A finished download is deleted the same way.
+    await user.click(
+      within(saved).getByRole('button', { name: 'Delete the download of Breaking Bad · S1 E1' }),
+    );
+    await user.click(within(saved).getByRole('button', { name: 'Delete' }));
+    expect(commands.videoDownloadRemove).toHaveBeenCalledWith('1');
     await user.click(within(saved).getByRole('button', { name: 'Play Breaking Bad · S1 E1' }));
     expect(commands.videoDownloadPlay).toHaveBeenCalledWith('1');
 
@@ -367,7 +382,7 @@ describe('Video library', () => {
 
     const upcoming = await within(page).findByRole('region', { name: 'Upcoming' });
     const card = within(upcoming).getByRole('listitem', {
-      name: 'Breaking Bad · S1 E6 · Episode 6',
+      name: 'Breaking Bad · S1 E6',
     });
     expect(card).toHaveTextContent('Tomorrow');
     expect(within(card).getByRole('link')).toHaveAttribute(
@@ -376,7 +391,7 @@ describe('Video library', () => {
     );
 
     const rows = within(page).getAllByTestId('episode-update-row');
-    expect(rows[0]).toHaveTextContent('S1 E5 · Episode 5');
+    expect(rows[0]).toHaveTextContent('S1 E5');
     expect(within(rows[0]!).getByRole('img', { name: 'Downloaded' })).toBeInTheDocument();
     expect(rows[1]).toHaveClass('opacity-50');
     expect(within(page).getByRole('heading', { name: 'Today' })).toBeInTheDocument();

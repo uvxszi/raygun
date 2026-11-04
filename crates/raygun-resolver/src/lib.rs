@@ -8,6 +8,7 @@ use unicode_normalization::UnicodeNormalization;
 
 #[cfg(test)]
 mod tests;
+pub mod video_match;
 
 /// Candidates scoring below this are dropped: skipping a track beats playing the wrong song.
 pub const MIN_SCORE: i32 = 35;

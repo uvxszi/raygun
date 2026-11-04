@@ -169,6 +169,45 @@ async fn restore_keeps_newer_local_rows_and_adopts_local_ids() {
 }
 
 #[tokio::test]
+async fn a_song_favorited_on_both_sides_restores_as_one_favorite() {
+    use crate::collections::{TrackFields, favorites, set_favorite};
+    let song = |title: &str| TrackFields {
+        track_key: format!("nina simone|{}", title.to_lowercase()),
+        title: title.into(),
+        artist: Some("Nina Simone".into()),
+        album: None,
+        duration_ms: None,
+        artwork_url: None,
+        source: None,
+    };
+    let temp = TempDir::new().unwrap();
+    let source = open(&temp, "a.db").await;
+    set_favorite(&source, &song("Sinnerman"), true, 1)
+        .await
+        .unwrap();
+    set_favorite(&source, &song("Feeling Good"), true, 2)
+        .await
+        .unwrap();
+    let backup = export(&source, 9).await.unwrap();
+
+    // Favorited here too, under another id: the unique favorite per song used to fail the restore.
+    let target = open(&temp, "b.db").await;
+    set_favorite(&target, &song("Sinnerman"), true, 5)
+        .await
+        .unwrap();
+    let ours = favorites(&target).await.unwrap()[0].id.clone();
+    restore(&target, &backup).await.unwrap();
+
+    let restored = favorites(&target).await.unwrap();
+    let titles: Vec<&str> = restored
+        .iter()
+        .map(|row| row.track.title.as_str())
+        .collect();
+    assert_eq!(restored.len(), 2, "{titles:?}");
+    assert!(restored.iter().any(|row| row.id == ours), "our row stays");
+}
+
+#[tokio::test]
 async fn unknown_tables_are_ignored() {
     let temp = TempDir::new().unwrap();
     let db = open(&temp, "a.db").await;

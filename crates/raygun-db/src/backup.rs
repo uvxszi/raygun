@@ -203,6 +203,23 @@ pub async fn restore(db: &Db, backup: &BackupData) -> Result<Restored, DbError> 
                     }
                 }
                 "unit_progress" => remap(&mut row, "unit_id", &units),
+                // One live favorite per song (M46.48): a song favorited here too keeps our row.
+                "music_favorite"
+                    if row
+                        .get("deleted")
+                        .and_then(Value::as_i64)
+                        .unwrap_or_default()
+                        == 0 =>
+                {
+                    adopt_id(
+                        &mut transaction,
+                        &mut row,
+                        "id",
+                        "music_favorite",
+                        &["track_key"],
+                    )
+                    .await?;
+                }
                 _ => {}
             }
             let Some(key) = text_field(&row, spec.key) else {

@@ -69,7 +69,7 @@ pub async fn card_for(
     // Android 17 may refuse the local network: the link still syncs one way.
     let _ = remote.ensure_running().await;
     let (sync_id, public_key, sync_address) = sync.link_info()?;
-    let me = app.state::<Arc<ConnectService>>().me().clone();
+    let me = app.state::<Arc<ConnectService>>().me();
     let grant = if mint {
         remote.grant(other).await
     } else {

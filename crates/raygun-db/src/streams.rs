@@ -129,6 +129,84 @@ pub async fn mark_failed(
     Ok(())
 }
 
+/// Remembers a stream the user picked for a track as one that plays (M46.48): it plays at once
+/// the next time, before any search. It counts for no provider.
+pub async fn remember_pick(db: &Db, played: Played<'_>, now_ms: i64) -> Result<(), DbError> {
+    sqlx::query(
+        "INSERT INTO local_stream_candidate
+             (track_key, provider_id, candidate_id, title, source, expires_at, verified_at,
+              failed_at, failure, bitrate_kbps)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL, ?8)
+         ON CONFLICT (track_key, provider_id, candidate_id) DO UPDATE SET
+             title = excluded.title,
+             source = excluded.source,
+             expires_at = excluded.expires_at,
+             verified_at = excluded.verified_at,
+             failed_at = NULL,
+             failure = NULL,
+             bitrate_kbps = excluded.bitrate_kbps",
+    )
+    .bind(played.track_key)
+    .bind(played.provider_id)
+    .bind(played.candidate_id)
+    .bind(played.title)
+    .bind(played.source_json)
+    .bind(played.expires_at)
+    .bind(now_ms)
+    .bind(played.bitrate_kbps)
+    .execute(db.pool())
+    .await?;
+    Ok(())
+}
+
+/// Gives track `to` the streams that played for track `from` and haven't failed since, as the
+/// newest picks (M46.48: a song plays what was found under the names of the source the user
+/// picked for it).
+pub async fn copy_picks(db: &Db, from: &str, to: &str, now_ms: i64) -> Result<(), DbError> {
+    if from == to {
+        return Ok(());
+    }
+    sqlx::query(
+        "INSERT INTO local_stream_candidate
+             (track_key, provider_id, candidate_id, title, source, expires_at, verified_at,
+              failed_at, failure, bitrate_kbps)
+         SELECT ?2, provider_id, candidate_id, title, source, expires_at, ?3, NULL, NULL,
+                bitrate_kbps
+         FROM local_stream_candidate
+         WHERE track_key = ?1 AND verified_at IS NOT NULL AND failed_at IS NULL
+           AND source IS NOT NULL
+         ON CONFLICT (track_key, provider_id, candidate_id) DO UPDATE SET
+             title = excluded.title,
+             source = excluded.source,
+             expires_at = excluded.expires_at,
+             verified_at = excluded.verified_at,
+             failed_at = NULL,
+             failure = NULL,
+             bitrate_kbps = excluded.bitrate_kbps",
+    )
+    .bind(from)
+    .bind(to)
+    .bind(now_ms)
+    .execute(db.pool())
+    .await?;
+    Ok(())
+}
+
+/// Forgets tracks' failed candidates (M46.48): after the user picks a source, what failed before
+/// is tried again rather than kept out for a day.
+pub async fn clear_failures(db: &Db, track_keys: &[String]) -> Result<(), DbError> {
+    for key in track_keys {
+        sqlx::query(
+            "UPDATE local_stream_candidate SET failed_at = NULL, failure = NULL
+             WHERE track_key = ?1 AND failed_at IS NOT NULL",
+        )
+        .bind(key)
+        .execute(db.pool())
+        .await?;
+    }
+    Ok(())
+}
+
 async fn count(
     transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     provider_id: &str,

@@ -116,6 +116,211 @@ fn parses_indexes_and_skips_unusable_entries() {
     );
 }
 
+/// One Raygun index can list every format (as Paraline does): Raygun packages by absolute address
+/// (another repository's) or beside the index, Nuclear plugins, and Shosetsu scripts with the
+/// libraries they need.
+#[test]
+fn one_index_holds_every_format() {
+    let bytes = good_package();
+    let mut raygun_entry = serde_json::to_value(entry_for(&bytes)).unwrap();
+    raygun_entry["package"] =
+        json!("https://raw.githubusercontent.com/uvxszi/raygun/main/repo/packages/a-1.2.0.zip");
+    let script = json!({
+        "id": "shosetsu.ja.syosetsu", "name": "Syosetsu", "version": "2.2.6", "apiVersion": 1,
+        "author": "Bigrand", "provides": [], "permissions": { "net": [] },
+        "contentRating": "suggestive", "lang": "ja", "format": "shosetsu",
+        "package": "shosetsu/src/ja/Syosetsu.lua", "icon": "icons/Syosetsu.png",
+        "sha256": "ab".repeat(32), "size": 120,
+    });
+    let plugin = json!({
+        "id": "nuclear.nuclear-plugin-lrclib", "name": "LRCLIB", "version": "0.1.0", "apiVersion": 1,
+        "provides": ["lyrics"], "format": "nuclear",
+        "package": "https://example.org/plugin.zip", "sha256": "cd".repeat(32), "size": 0,
+    });
+    let index = json!({
+        "formatVersion": 1, "name": "Paraline",
+        "extensions": [raygun_entry, script, plugin],
+        "libraries": [{ "name": "url", "ver": "1.0.0", "hash": "ef".repeat(32) }],
+    });
+    let parsed = repo::parse_index(&index.to_string()).unwrap();
+    assert_eq!(parsed.name, "Paraline");
+    let formats: Vec<_> = parsed.extensions.iter().map(|entry| entry.format).collect();
+    assert_eq!(
+        formats,
+        [
+            repo::PackageFormat::Raygun,
+            repo::PackageFormat::Shosetsu,
+            repo::PackageFormat::Nuclear
+        ]
+    );
+    assert_eq!(parsed.libraries[0].name, "url");
+
+    // The script's entry says what installing it gives, whatever the index listed.
+    let novel = &parsed.extensions[1];
+    assert_eq!(novel.provides, ["novel.source"]);
+    assert_eq!(novel.permissions.net, ["*"]);
+    assert_eq!(novel.lang.as_deref(), Some("ja"));
+
+    let base: reqwest::Url =
+        "https://raw.githubusercontent.com/uvxszi/paraline-raygun/main/index.json"
+            .parse()
+            .unwrap();
+    let url = |entry: &RepoEntry| repo::package_url(&base, entry).unwrap().to_string();
+    assert_eq!(
+        url(&parsed.extensions[0]),
+        "https://raw.githubusercontent.com/uvxszi/raygun/main/repo/packages/a-1.2.0.zip"
+    );
+    assert_eq!(
+        url(novel),
+        "https://raw.githubusercontent.com/uvxszi/paraline-raygun/main/shosetsu/src/ja/Syosetsu.lua"
+    );
+    assert_eq!(
+        repo::icon_url(&base, novel).unwrap().as_str(),
+        "https://raw.githubusercontent.com/uvxszi/paraline-raygun/main/icons/Syosetsu.png"
+    );
+}
+
+/// `cargo test -p raygun-ext-host -- --ignored paraline_live --nocapture`: every package in
+/// Paraline's index (`PARALINE_INDEX`: another address, or the `index.json` of a checkout)
+/// downloads, verifies and installs as the app does it, and loads.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs network access to GitHub"]
+async fn paraline_live() {
+    use crate::shosetsu::package as shosetsu_package;
+    let index_url = match std::env::var("PARALINE_INDEX") {
+        Ok(place) if std::path::Path::new(&place).is_absolute() => {
+            reqwest::Url::from_file_path(&place).unwrap()
+        }
+        Ok(place) => place.parse().unwrap(),
+        Err(_) => "https://raw.githubusercontent.com/uvxszi/paraline-raygun/main/index.json"
+            .parse()
+            .unwrap(),
+    };
+    let client = raygun_net::http_client().unwrap();
+    let download = |url: reqwest::Url| {
+        let client = client.clone();
+        async move {
+            if url.scheme() == "file" {
+                return std::fs::read(url.to_file_path().unwrap())
+                    .unwrap_or_else(|error| panic!("{url}: {error}"));
+            }
+            let response = client.get(url.clone()).send().await.unwrap();
+            assert!(
+                response.status().is_success(),
+                "{url}: {}",
+                response.status()
+            );
+            response.bytes().await.unwrap().to_vec()
+        }
+    };
+    let index =
+        repo::parse_index(&String::from_utf8(download(index_url.clone()).await).unwrap()).unwrap();
+    assert_eq!(index.name, "Paraline");
+    let formats = |format| {
+        index
+            .extensions
+            .iter()
+            .filter(|entry| entry.format == format)
+            .count()
+    };
+    assert!(formats(repo::PackageFormat::Raygun) > 10);
+    assert!(formats(repo::PackageFormat::Shosetsu) > 0);
+
+    let temp = tempfile::TempDir::new().unwrap();
+    for entry in &index.extensions {
+        let bytes = download(repo::package_url(&index_url, entry).unwrap()).await;
+        let verified = match entry.format {
+            repo::PackageFormat::Raygun => package::verify(&bytes, entry)
+                .unwrap_or_else(|error| panic!("{}: {error}", entry.id)),
+            repo::PackageFormat::Shosetsu => {
+                let script = shosetsu_package::verify_script(&bytes, entry).unwrap();
+                let mut queue = shosetsu_package::dependencies(&script);
+                let mut libraries: Vec<(String, String)> = Vec::new();
+                while let Some(name) = queue.pop() {
+                    if libraries.iter().any(|(known, _)| *known == name) {
+                        continue;
+                    }
+                    let bytes = download(index_url.join(&format!("lib/{name}.lua")).unwrap()).await;
+                    let code = shosetsu_package::verify_library(&name, &bytes, &index)
+                        .unwrap_or_else(|error| panic!("{}: library {name}: {error}", entry.id));
+                    queue.extend(shosetsu_package::dependencies(&code));
+                    libraries.push((name, code));
+                }
+                shosetsu_package::package(entry, script, libraries).unwrap()
+            }
+            repo::PackageFormat::Miru => {
+                let (script, header) = crate::miru::package::verify_script(&bytes, entry).unwrap();
+                crate::miru::package::package(entry, script, &header).unwrap()
+            }
+            repo::PackageFormat::Nuclear => continue,
+        };
+        assert_eq!(verified.manifest.id, entry.id);
+        assert_eq!(verified.manifest.version.to_string(), entry.version);
+        package::install(temp.path(), &verified).unwrap();
+        eprintln!("{} {} ({:?})", entry.id, entry.version, entry.format);
+    }
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    for info in host.load(discover_installed(temp.path())).await {
+        assert_eq!(
+            info.status,
+            raygun_model::ExtensionStatus::Loaded,
+            "{}: {:?}",
+            info.id,
+            info.error
+        );
+    }
+}
+
+#[test]
+fn shosetsu_indexes_are_named_after_their_address() {
+    let index = json!({ "libraries": [], "scripts": [] });
+    assert_eq!(repo::parse_index(&index.to_string()).unwrap().name, "");
+
+    let name = |url: &str| repo::default_name(&url.parse().unwrap());
+    // Only Shosetsu's own repository reads as Shosetsu's, from any of its addresses.
+    for official in [
+        "https://gitlab.com/shosetsuorg/extensions/-/raw/dev/index.json",
+        "https://shosetsuorg.gitlab.io/extensions/index.json",
+        "https://raw.githubusercontent.com/shosetsuorg/extensions/dev/index.json",
+    ] {
+        assert_eq!(name(official), repo::SHOSETSU_REPO_NAME, "{official}");
+    }
+    assert_eq!(
+        name("https://raw.githubusercontent.com/someone/novel-sources/main/shosetsu/index.json"),
+        "novel-sources"
+    );
+    assert_eq!(
+        name("https://cdn.jsdelivr.net/gh/someone/novel-sources@main/index.json"),
+        "novel-sources"
+    );
+    assert_eq!(
+        name("https://gitlab.com/group/sub/novels/-/raw/main/index.json"),
+        "novels"
+    );
+    assert_eq!(
+        name("https://someone.github.io/novels/index.json"),
+        "novels"
+    );
+    assert_eq!(
+        name("https://someone.github.io/index.json"),
+        "someone.github.io"
+    );
+    assert_eq!(
+        name("https://Example.org/shosetsu/index.json"),
+        "example.org"
+    );
+    assert_eq!(name("http://10.0.2.2:8765/index.json"), "10.0.2.2:8765");
+    #[cfg(not(target_os = "android"))]
+    {
+        let folder = tempfile::TempDir::new().unwrap();
+        let index = folder.path().join("my-sources").join("index.json");
+        assert_eq!(
+            repo::default_name(&reqwest::Url::from_file_path(&index).unwrap()),
+            "my-sources"
+        );
+    }
+}
+
 #[test]
 fn other_apps_repositories_are_named() {
     let mihon = r#"[{"name":"Tachiyomi: X","pkg":"eu.kanade.x","apk":"x.apk","lang":"en","code":1,"version":"1.4.1","nsfw":0,"sources":[]}]"#;
@@ -355,10 +560,22 @@ fn local_repositories_are_files_on_desktop() {
         repo::check_index_url(from_path.as_str()).unwrap(),
         from_path
     );
-    // Packages sit beside the index.
-    let package = from_path.join("packages/a.zip").unwrap();
+    // Packages sit beside the index, and install from there.
+    let bytes = good_package();
+    let entry = entry_for(&bytes);
+    let package = repo::package_url(&from_path, &entry).unwrap();
     assert_eq!(
         package.to_file_path().unwrap(),
-        folder.path().join("packages").join("a.zip")
+        folder
+            .path()
+            .join("packages")
+            .join("dev.example.pkg-1.2.0.zip")
     );
+    // A web index never reaches this computer's files.
+    let web: reqwest::Url = "https://example.org/repo/index.json".parse().unwrap();
+    let local_file = RepoEntry {
+        package: package.to_string(),
+        ..entry
+    };
+    assert!(repo::package_url(&web, &local_file).is_err());
 }

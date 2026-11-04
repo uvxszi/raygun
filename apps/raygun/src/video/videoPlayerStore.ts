@@ -1,5 +1,5 @@
 import { events } from '@raygun/bindings';
-import type { VideoChapter } from '@raygun/bindings';
+import type { SubtitleMode, VideoChapter } from '@raygun/bindings';
 import { useEffect } from 'react';
 import { create } from 'zustand';
 
@@ -10,8 +10,9 @@ import type { EpisodeItem, PlayerRequest, PlayerUpdate, SourceGroup } from './pr
 const DEFAULT_SEEK_STEP_MS = 10_000;
 const DEFAULT_PROMPT_MS = 15_000;
 
-/** A note over the picture: an error from Rust, or one of the player's own. */
-export type Notice = { text: string; sources?: boolean; elsewhere?: boolean };
+/** A note over the picture: an error from Rust, or one of the player's own. `detail` is the
+ * engine's own words, under More info. */
+export type Notice = { text: string; detail?: string; sources?: boolean; elsewhere?: boolean };
 
 type VideoPlayerState = {
   open: boolean;
@@ -25,8 +26,12 @@ type VideoPlayerState = {
   loads: number;
   prefs: PlayerPrefs;
   seekStepMs: number;
-  /** `null`: subtitles start off; else the language to turn on. */
-  autoSubtitleLanguage: string | null;
+  /** The app's language; empty when it follows the device. */
+  appLanguage: string;
+  /** The first subtitle language; empty follows the device's languages, then the app's. */
+  subtitleLanguage: string;
+  /** When subtitles turn on by themselves. */
+  subtitleMode: SubtitleMode;
   autoplay: boolean;
   nextPromptMs: number;
   loadingText: string | null;
@@ -38,13 +43,13 @@ type VideoPlayerState = {
   chapters: VideoChapter[];
   /** Asks the screen to show Sources (an update said no link worked). */
   showSources: number;
+  /** The link loading was picked in Sources, not tried in turn. */
+  pickedSource: boolean;
   openWith: (request: PlayerRequest) => void;
   apply: (update: PlayerUpdate) => void;
   setNotice: (notice: Notice | null) => void;
   close: () => void;
 };
-
-const deviceLanguage = () => (navigator.language || 'en').split('-')[0] ?? 'en';
 
 /** What every request carries (`readSettings` in the Android player). */
 const settingsFrom = (request: PlayerRequest, state: VideoPlayerState) => ({
@@ -53,12 +58,9 @@ const settingsFrom = (request: PlayerRequest, state: VideoPlayerState) => ({
     request.seekStepMs !== undefined
       ? Math.min(300_000, Math.max(1_000, request.seekStepMs))
       : state.seekStepMs,
-  autoSubtitleLanguage:
-    'autoSubtitleLanguage' in request
-      ? request.autoSubtitleLanguage === null || request.autoSubtitleLanguage === undefined
-        ? null
-        : request.autoSubtitleLanguage || deviceLanguage()
-      : state.autoSubtitleLanguage,
+  appLanguage: request.appLanguage ?? state.appLanguage,
+  subtitleLanguage: request.subtitleLanguage ?? state.subtitleLanguage,
+  subtitleMode: request.subtitleMode ?? state.subtitleMode,
   session: request.session ?? state.session,
   autoplay: request.autoplay ?? state.autoplay,
   nextPromptMs:
@@ -87,7 +89,9 @@ const CLOSED = {
   loads: 0,
   prefs: PLAYER_DEFAULTS,
   seekStepMs: DEFAULT_SEEK_STEP_MS,
-  autoSubtitleLanguage: null,
+  appLanguage: '',
+  subtitleLanguage: '',
+  subtitleMode: 'foreign',
   autoplay: true,
   nextPromptMs: DEFAULT_PROMPT_MS,
   loadingText: null,
@@ -98,6 +102,7 @@ const CLOSED = {
   sources: [],
   chapters: [],
   showSources: 0,
+  pickedSource: false,
 } satisfies Partial<VideoPlayerState>;
 
 /** The webview's video player (desktop, M46.4), driven by Rust's `videoPlayerEvent`s. */
@@ -105,8 +110,15 @@ export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
   ...CLOSED,
   openWith: (request) =>
     set((state) => {
-      // A new opening starts clean, except for a session's episodes sent just before.
-      const base = { ...state, ...CLOSED, open: true, session: request.session ?? false };
+      // A new opening starts clean, except for a session's episodes sent just before. The load
+      // count goes on, so a video opened over another starts its stage afresh.
+      const base = {
+        ...state,
+        ...CLOSED,
+        loads: state.loads,
+        open: true,
+        session: request.session ?? false,
+      };
       if (request.url) return { ...base, ...loaded(request, base) };
       return {
         ...base,
@@ -123,7 +135,7 @@ export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
         case 'load':
           return loaded(update.request, state);
         case 'loading':
-          return { loadingText: update.text, notice: null };
+          return { loadingText: update.text, notice: null, pickedSource: false };
         case 'close':
           return { ...CLOSED };
         case 'error':

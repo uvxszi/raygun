@@ -6,6 +6,7 @@ import { unwrapResult } from '../lib/commandResult';
 
 const WATCH = ['watch'];
 const CONTINUE = [...WATCH, 'continue'];
+const HISTORY = [...WATCH, 'history'];
 
 /**
  * What to continue watching, one entry per title; kept current as the player reports progress
@@ -15,6 +16,16 @@ export const useContinueWatching = () =>
   useQuery({
     queryKey: CONTINUE,
     queryFn: () => unwrapResult(commands.videoContinueWatching()),
+  });
+
+/**
+ * Everything watched or started, newest first; kept current as the player reports progress
+ * (`shell/useLiveInvalidation`).
+ */
+export const useWatchHistory = () =>
+  useQuery({
+    queryKey: HISTORY,
+    queryFn: () => unwrapResult(commands.videoHistory()),
   });
 
 export const usePlayVideo = () =>

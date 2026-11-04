@@ -101,7 +101,7 @@ async fn extension_repos_settings_and_installs_round_trip() {
     let temp = TempDir::new().unwrap();
     let db = open_in(temp.path()).await;
 
-    // The official repository is seeded.
+    // Raygun's first repository is seeded (the app moves it to Paraline: `replace_repos`).
     let seeded = extensions::repos(&db).await.unwrap();
     assert_eq!(seeded.len(), 1);
     assert!(seeded[0].url.ends_with("/repo/index.json"));
@@ -164,6 +164,99 @@ async fn extension_repos_settings_and_installs_round_trip() {
         .await
         .unwrap();
     assert!(extensions::installs(&db).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn replaced_repositories_fold_into_their_replacement() {
+    const OFFICIAL: &str = "https://raw.githubusercontent.com/uvxszi/raygun/main/repo/index.json";
+    const NOVELS: &str = "https://example.org/old/shosetsu/index.json";
+    const SOURCES: &str = "https://example.org/old/raygun/index.json";
+    let replacement = extensions::RepoRow {
+        id: "0192a000-0000-7000-8000-000000000002".into(),
+        url: "https://example.org/index.json".into(),
+        name: "Paraline".into(),
+    };
+    let retired = [OFFICIAL, NOVELS, SOURCES];
+    let install = |extension_id: &str, repo_url: &str| extensions::InstallRow {
+        extension_id: extension_id.into(),
+        repo_url: repo_url.into(),
+        version: "1.0.0".into(),
+        sha256: "ab".repeat(32),
+        installed_at: 1,
+    };
+
+    // A new install: the seeded official repository becomes the replacement, which leads.
+    let temp = TempDir::new().unwrap();
+    let db = open_in(temp.path()).await;
+    let other = extensions::add_repo(&db, "https://example.org/other/index.json", "Other")
+        .await
+        .unwrap();
+    // Another spelling of a retired address counts too.
+    extensions::add_repo(&db, &format!("{}/", NOVELS.to_uppercase()), "Novels")
+        .await
+        .unwrap();
+    extensions::record_install(&db, &install("dev.raygun.deezer", OFFICIAL))
+        .await
+        .unwrap();
+    extensions::record_install(&db, &install("dev.example.x", &other.url))
+        .await
+        .unwrap();
+    assert!(
+        extensions::replace_repos(&db, &retired, &replacement)
+            .await
+            .unwrap()
+    );
+    let repos = extensions::repos(&db).await.unwrap();
+    assert_eq!(repos, vec![replacement.clone(), other.clone()]);
+    let installs = extensions::installs(&db).await.unwrap();
+    let from = |id: &str| {
+        installs
+            .iter()
+            .find(|install| install.extension_id == id)
+            .map(|install| install.repo_url.clone())
+    };
+    assert_eq!(
+        from("dev.raygun.deezer").as_deref(),
+        Some(replacement.url.as_str())
+    );
+    assert_eq!(from("dev.example.x"), Some(other.url.clone()));
+    // Nothing more to do on the next start.
+    assert!(
+        !extensions::replace_repos(&db, &retired, &replacement)
+            .await
+            .unwrap()
+    );
+    // Removing the replacement stays removed.
+    extensions::remove_repo(&db, &replacement.id).await.unwrap();
+    assert!(
+        !extensions::replace_repos(&db, &retired, &replacement)
+            .await
+            .unwrap()
+    );
+    assert_eq!(extensions::repos(&db).await.unwrap(), vec![other]);
+
+    // A retired repository back from a backup revives the replacement, under its row.
+    let revived = extensions::add_repo(&db, SOURCES, "Sources").await.unwrap();
+    assert!(
+        extensions::replace_repos(&db, &retired, &replacement)
+            .await
+            .unwrap()
+    );
+    let repos = extensions::repos(&db).await.unwrap();
+    assert!(repos.iter().all(|repo| repo.id != revived.id));
+    assert!(repos.contains(&replacement));
+
+    // A device that had removed every retired repository doesn't get the replacement.
+    let temp = TempDir::new().unwrap();
+    let db = open_in(temp.path()).await;
+    let seeded = extensions::repos(&db).await.unwrap();
+    extensions::remove_repo(&db, &seeded[0].id).await.unwrap();
+    assert!(
+        !extensions::replace_repos(&db, &retired, &replacement)
+            .await
+            .unwrap()
+    );
+    assert!(extensions::repos(&db).await.unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -236,6 +329,68 @@ async fn stream_candidates_and_provider_stats_round_trip() {
             },
         ]
     );
+}
+
+#[tokio::test]
+async fn a_picked_stream_is_remembered_and_failures_forgotten() {
+    let temp = TempDir::new().unwrap();
+    let db = open_in(temp.path()).await;
+    let song = "artst|sogn";
+    let picked = "artist|song";
+    // Every candidate failed when the song played under its misread names.
+    streams::mark_failed(&db, song, "dev.a/stream", "1", "Sogn", "HTTP 404", 10)
+        .await
+        .unwrap();
+    // The preview played the picked source's names.
+    streams::mark_verified(
+        &db,
+        streams::Played {
+            track_key: picked,
+            provider_id: "dev.b/stream",
+            candidate_id: "2",
+            title: "Song",
+            source_json: r#"{"kind":"url","url":"https://b.example/2","headers":{}}"#,
+            expires_at: None,
+            bitrate_kbps: Some(128),
+        },
+        20,
+    )
+    .await
+    .unwrap();
+
+    streams::clear_failures(&db, &[song.to_owned()])
+        .await
+        .unwrap();
+    streams::copy_picks(&db, picked, song, 30).await.unwrap();
+    let rows = streams::candidates(&db, song).await.unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].candidate_id, "2", "the pick plays first");
+    assert_eq!(rows[0].verified_at, Some(30));
+    assert_eq!(rows[0].bitrate_kbps, Some(128));
+    assert_eq!(rows[1].failed_at, None, "the old failure is forgotten");
+
+    streams::remember_pick(
+        &db,
+        streams::Played {
+            track_key: song,
+            provider_id: "Audius",
+            candidate_id: "https://c.example/3",
+            title: "Song",
+            source_json: r#"{"kind":"url","url":"https://c.example/3","headers":{}}"#,
+            expires_at: None,
+            bitrate_kbps: None,
+        },
+        40,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        streams::candidates(&db, song).await.unwrap()[0].provider_id,
+        "Audius"
+    );
+    // A pick counts for no provider.
+    let stats = streams::provider_stats(&db).await.unwrap();
+    assert!(stats.iter().all(|row| row.provider_id != "Audius"));
 }
 
 #[tokio::test]

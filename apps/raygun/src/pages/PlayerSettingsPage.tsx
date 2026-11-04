@@ -1,4 +1,4 @@
-import type { SubtitleStyle } from '@raygun/bindings';
+import type { SubtitleMode, SubtitleStyle } from '@raygun/bindings';
 import { useParams } from '@tanstack/react-router';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -21,15 +21,29 @@ import {
   SKIP_WAIT_SECONDS,
   SUBTITLE_EDGES,
   SUBTITLE_FONTS,
+  SUBTITLE_MODES,
   TAP_ACTIONS,
   TEXT_COLORS,
   withDefaults,
 } from '../settings/playerOptions';
 import type { PlayerPrefs, PlayerSettingsPage as Page } from '../settings/playerOptions';
-import { PrefChoice, PrefGroup, PrefSlider, PrefSwitch, PrefText } from '../settings/prefs';
+import {
+  PrefChoice,
+  PrefGroup,
+  PrefSize,
+  PrefSlider,
+  PrefSwitch,
+  PrefText,
+} from '../settings/prefs';
+import { SettingsSaveIssue } from '../settings/Problem';
+import { resetKeys } from '../settings/resets';
+import type { SettingsReset } from '../settings/resets';
+import { useFoundPref } from '../settings/useSettingsSearch';
+import { useResetToDefaults } from '../settings/useResetToDefaults';
 import { SubtitlePreview } from '../settings/SubtitlePreview';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { TopBar } from '../shell/TopBar';
+import { ORIGINAL_AUDIO } from '../video/trackPicking';
 
 /** Matches `SEEK_SECONDS` in raygun-model. */
 const SEEK_SECONDS = [5, 10, 15, 30, 60];
@@ -42,8 +56,69 @@ const usePlayerPrefs = () => {
   const set = (change: Partial<PlayerPrefs>) => {
     if (prefs) update.mutate({ key: 'videoPlayer', value: { ...prefs, ...change } });
   };
-  return { settings: settings.data, prefs, set, update, busy: update.isPending };
+  // Changes show at once and save in order (useUpdateSetting), so nothing waits on a save.
+  return { settings: settings.data, prefs, set, busy: false };
 };
+
+/** What each screen's Reset to defaults puts back: its player fields and its own settings. */
+const PAGE_RESETS: Record<
+  Page,
+  { fields: (keyof PlayerPrefs)[]; keys?: ('seekSeconds' | 'autoSubtitles' | 'subtitleLanguage')[] }
+> = {
+  controls: {
+    fields: [
+      'orientation',
+      'aspect',
+      'controlsSeconds',
+      'showRemaining',
+      'rememberBrightness',
+      'defaultSpeed',
+      'speedPresets',
+      'holdSpeed',
+    ],
+  },
+  gestures: {
+    fields: [
+      'brightnessGesture',
+      'volumeGesture',
+      'swapSides',
+      'seekGesture',
+      'doubleTapLeft',
+      'doubleTapCenter',
+      'doubleTapRight',
+      'mediaKeys',
+    ],
+    keys: ['seekSeconds'],
+  },
+  subtitles: {
+    fields: ['subtitleFallback', 'subtitlePreferWords', 'subtitleSkipWords', 'subtitleStyle'],
+    keys: ['autoSubtitles', 'subtitleLanguage'],
+  },
+  audio: { fields: ['audioLanguage', 'audioFallback', 'pitchCorrection', 'volumeBoost'] },
+  skip: {
+    fields: [
+      'skipButton',
+      'introSeconds',
+      'autoSkip',
+      'skipCountdown',
+      'skipWaitSeconds',
+      'aniskip',
+      'aniskipUnlessChapters',
+    ],
+  },
+  pip: { fields: ['pipOnLeave', 'pipOnBack'] },
+  advanced: { fields: ['decoder', 'externalPlayer', 'externalPackage', 'titleTrailers'] },
+};
+
+const pageReset =
+  (page: Page): SettingsReset =>
+  (current, defaults) => {
+    const { fields, keys = [] } = PAGE_RESETS[page];
+    const fresh = withDefaults(defaults.videoPlayer);
+    const value = { ...withDefaults(current.videoPlayer) };
+    for (const field of fields) Object.assign(value, { [field]: fresh[field] });
+    return [{ key: 'videoPlayer', value }, ...resetKeys(...keys)(current, defaults)];
+  };
 
 type ScreenProps = {
   prefs: PlayerPrefs;
@@ -63,7 +138,6 @@ const ControlsScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
       <PrefGroup title={t('settings.player.display')}>
         <PrefChoice
           title={t('settings.player.orientation')}
-          summary={t('settings.player.orientationHint')}
           value={prefs.orientation}
           disabled={busy}
           options={ORIENTATIONS.map((value) => ({
@@ -74,7 +148,6 @@ const ControlsScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
         />
         <PrefChoice
           title={t('settings.player.aspect')}
-          summary={t('settings.player.aspectHint')}
           value={prefs.aspect}
           disabled={busy}
           options={ASPECTS.map((value) => ({
@@ -95,14 +168,12 @@ const ControlsScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
         />
         <PrefSwitch
           title={t('settings.player.showRemaining')}
-          summary={t('settings.player.showRemainingHint')}
           checked={prefs.showRemaining}
           disabled={busy}
           onChange={(showRemaining) => set({ showRemaining })}
         />
         <PrefSwitch
           title={t('settings.player.rememberBrightness')}
-          summary={t('settings.player.rememberBrightnessHint')}
           checked={prefs.rememberBrightness}
           disabled={busy}
           onChange={(rememberBrightness) => set({ rememberBrightness })}
@@ -111,7 +182,6 @@ const ControlsScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
       <PrefGroup title={t('settings.player.speed')}>
         <PrefSlider
           title={t('settings.player.defaultSpeed')}
-          summary={t('settings.player.defaultSpeedHint')}
           value={prefs.defaultSpeed}
           min={25}
           max={400}
@@ -178,14 +248,12 @@ const GesturesScreen: FC<ScreenProps & { seekSeconds: number }> = ({
         />
         <PrefSwitch
           title={t('settings.player.swapSides')}
-          summary={t('settings.player.swapSidesHint')}
           checked={prefs.swapSides}
           disabled={busy}
           onChange={(swapSides) => set({ swapSides })}
         />
         <PrefSwitch
           title={t('settings.player.seekGesture')}
-          summary={t('settings.player.seekGestureHint')}
           checked={prefs.seekGesture}
           disabled={busy}
           onChange={(seekGesture) => set({ seekGesture })}
@@ -215,9 +283,8 @@ const GesturesScreen: FC<ScreenProps & { seekSeconds: number }> = ({
         />
         <PrefChoice<number>
           title={t('settings.seekSeconds')}
-          summary={t('settings.seekSecondsHint')}
           value={seekSeconds}
-          disabled={busy || update.isPending}
+          disabled={busy}
           options={SEEK_SECONDS.map((seconds) => ({
             value: seconds,
             label: t('settings.seconds', { count: seconds }),
@@ -228,7 +295,6 @@ const GesturesScreen: FC<ScreenProps & { seekSeconds: number }> = ({
       <PrefGroup title={t('settings.player.keys')}>
         <PrefChoice
           title={t('settings.player.mediaKeys')}
-          summary={t('settings.player.mediaKeysHint')}
           value={prefs.mediaKeys}
           disabled={busy}
           options={MEDIA_KEY_ACTIONS.map((value) => ({
@@ -257,27 +323,36 @@ const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLangua
   const style = prefs.subtitleStyle;
   const setStyle = (change: Partial<SubtitleStyle>) =>
     set({ subtitleStyle: { ...style, ...change } });
+  // Unset follows the older switch, as Rust reads it.
+  const mode: SubtitleMode = prefs.subtitleMode ?? (autoSubtitles ? 'always' : 'foreign');
   return (
     <>
       <PrefGroup title={t('settings.player.choosing')}>
-        <PrefSwitch
+        <PrefChoice<SubtitleMode>
           title={t('settings.autoSubtitles')}
-          summary={t('settings.autoSubtitlesHint')}
-          checked={autoSubtitles}
-          disabled={busy || update.isPending}
-          onChange={(value) => update.mutate({ key: 'autoSubtitles', value })}
+          summary={t('settings.player.subtitleModeHint')}
+          value={mode}
+          disabled={busy}
+          options={SUBTITLE_MODES.map((value) => ({
+            value,
+            label: t(`settings.player.subtitleModes.${value}`),
+          }))}
+          onChange={(subtitleMode) => set({ subtitleMode })}
         />
         <PrefChoice<string>
           title={t('settings.subtitleLanguage')}
-          summary={t('settings.subtitleLanguageHint')}
+          summary={
+            subtitleLanguage === ''
+              ? t('settings.player.yourLanguagesHint')
+              : t('settings.subtitleLanguageHint')
+          }
           value={subtitleLanguage}
           disabled={busy || update.isPending}
-          options={languageOptions(t('settings.subtitleLanguageApp'))}
+          options={languageOptions(t('settings.player.yourLanguages'))}
           onChange={(value) => update.mutate({ key: 'subtitleLanguage', value })}
         />
         <PrefChoice<string>
           title={t('settings.player.subtitleFallback')}
-          summary={t('settings.player.subtitleFallbackHint')}
           value={prefs.subtitleFallback}
           disabled={busy}
           options={languageOptions(t('settings.player.none'))}
@@ -306,13 +381,14 @@ const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLangua
         <li className="px-1 py-2">
           <SubtitlePreview style={style} />
         </li>
-        <PrefSlider
+        <PrefSize
           title={t('settings.player.subtitleSize')}
-          value={style.size}
+          unit="%"
+          zero={100}
           min={50}
           max={200}
           step={10}
-          format={(value) => `${value}%`}
+          value={style.size}
           disabled={busy}
           onChange={(size) => setStyle({ size })}
         />
@@ -403,21 +479,29 @@ const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLangua
 
 const AudioScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
   const { t } = useTranslation();
+  const [yours, ...languages] = languageOptions(t('settings.player.yourLanguages'));
   return (
     <PrefGroup>
       <PrefChoice<string>
         title={t('settings.player.audioLanguage')}
-        summary={t('settings.player.audioLanguageHint')}
+        summary={
+          prefs.audioLanguage === ''
+            ? t('settings.player.yourLanguagesHint')
+            : t('settings.player.audioLanguageHint')
+        }
         value={prefs.audioLanguage}
         disabled={busy}
-        options={languageOptions(t('settings.player.audioOriginal'))}
+        options={[
+          ...(yours ? [yours] : []),
+          { value: ORIGINAL_AUDIO, label: t('settings.player.audioOriginal') },
+          ...languages,
+        ]}
         onChange={(audioLanguage) => set({ audioLanguage })}
       />
       <PrefChoice<string>
         title={t('settings.player.audioFallback')}
-        summary={t('settings.player.audioFallbackHint')}
         value={prefs.audioFallback}
-        disabled={busy || prefs.audioLanguage === ''}
+        disabled={busy || prefs.audioLanguage === ORIGINAL_AUDIO}
         options={languageOptions(t('settings.player.none'))}
         onChange={(audioFallback) => set({ audioFallback })}
       />
@@ -450,14 +534,12 @@ const SkipScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
       <PrefGroup>
         <PrefSwitch
           title={t('settings.player.skipButton')}
-          summary={t('settings.player.skipButtonHint')}
           checked={prefs.skipButton}
           disabled={busy}
           onChange={(skipButton) => set({ skipButton })}
         />
         <PrefSlider
           title={t('settings.player.introSeconds')}
-          summary={t('settings.player.introSecondsHint')}
           value={prefs.introSeconds}
           min={5}
           max={300}
@@ -468,14 +550,12 @@ const SkipScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
         />
         <PrefSwitch
           title={t('settings.player.autoSkip')}
-          summary={t('settings.player.autoSkipHint')}
           checked={prefs.autoSkip}
           disabled={busy}
           onChange={(autoSkip) => set({ autoSkip })}
         />
         <PrefSwitch
           title={t('settings.player.skipCountdown')}
-          summary={t('settings.player.skipCountdownHint')}
           checked={prefs.skipCountdown}
           disabled={busy}
           onChange={(skipCountdown) => set({ skipCountdown })}
@@ -501,7 +581,6 @@ const SkipScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
         />
         <PrefSwitch
           title={t('settings.player.aniskipUnlessChapters')}
-          summary={t('settings.player.aniskipUnlessChaptersHint')}
           checked={prefs.aniskipUnlessChapters}
           disabled={busy || !prefs.aniskip}
           onChange={(aniskipUnlessChapters) => set({ aniskipUnlessChapters })}
@@ -553,7 +632,6 @@ const AdvancedScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
       <PrefGroup title={t('settings.player.titlePages')}>
         <PrefSwitch
           title={t('settings.player.titleTrailers')}
-          summary={t('settings.player.titleTrailersHint')}
           checked={prefs.titleTrailers}
           disabled={busy}
           onChange={(titleTrailers) => set({ titleTrailers })}
@@ -562,14 +640,12 @@ const AdvancedScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
       <PrefGroup title={t('settings.player.otherApps')}>
         <PrefSwitch
           title={t('settings.player.externalPlayer')}
-          summary={t('settings.player.externalPlayerHint')}
           checked={prefs.externalPlayer}
           disabled={busy}
           onChange={(externalPlayer) => set({ externalPlayer })}
         />
         <PrefChoice<string>
           title={t('settings.player.externalPackage')}
-          summary={t('settings.player.externalPackageHint')}
           value={prefs.externalPackage}
           disabled={busy}
           options={[{ value: '', label: t('settings.player.externalAsk') }, ...EXTERNAL_PLAYERS]}
@@ -584,16 +660,15 @@ const AdvancedScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
 export const PlayerSettingsPage: FC = () => {
   const { t } = useTranslation();
   const { page } = useParams({ strict: false });
-  const { settings, prefs, set, update, busy } = usePlayerPrefs();
+  const { settings, prefs, set, busy } = usePlayerPrefs();
   const current: Page = isPlayerPage(page) ? page : 'controls';
   const props = prefs ? { prefs, set, busy } : null;
+  const title = t(`settings.player.section.${current}.title`);
+  const reset = useResetToDefaults(title, pageReset(current));
+  useFoundPref();
   return (
     <section data-testid={`player-settings-${current}`} className="flex max-w-2xl flex-col">
-      <TopBar
-        back
-        fallback="/settings/player"
-        title={t(`settings.player.section.${current}.title`)}
-      />
+      <TopBar back fallback="/settings/player" title={title} actions={reset.menu} />
       {props && settings && (
         <>
           {current === 'controls' && <ControlsScreen {...props} />}
@@ -613,11 +688,8 @@ export const PlayerSettingsPage: FC = () => {
           {current === 'advanced' && <AdvancedScreen {...props} />}
         </>
       )}
-      {update.isError && (
-        <p role="alert" className="text-primary px-1 text-sm">
-          {t('settings.saveFailed', { message: update.error.message })}
-        </p>
-      )}
+      <SettingsSaveIssue />
+      {reset.sheet}
     </section>
   );
 };

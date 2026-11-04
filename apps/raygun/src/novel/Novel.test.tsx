@@ -104,12 +104,14 @@ describe('Novels', () => {
     const library = await screen.findByTestId('novel-library');
     const card = await within(library).findByTestId('library-item');
     expect(card.getAttribute('href')).toMatch(/^\/novel\/title\?source=dev\.raygun\.gutenberg/);
-    // Library actions are in the top bar's menu: no Updates for novels (they don't update).
+    // Library actions are in the top bar's menu: books from sources get updates too.
     await user.click(within(library).getByRole('button', { name: 'More options' }));
     const menu = within(library).getByRole('menu');
     expect(within(menu).getByRole('menuitem', { name: 'Downloads' })).toBeInTheDocument();
     expect(within(menu).getByRole('menuitem', { name: 'Import EPUB' })).toBeInTheDocument();
-    expect(within(menu).queryByRole('menuitem', { name: 'Updates' })).not.toBeInTheDocument();
+    expect(within(menu).getByRole('menuitem', { name: 'Updates' })).toBeInTheDocument();
+    await user.click(within(menu).getByRole('menuitem', { name: 'Update library' }));
+    expect(commands.mangaUpdateLibrary).toHaveBeenCalled();
   });
 
   it('shows a novel with reading percentages and download controls', async () => {
@@ -142,7 +144,7 @@ describe('Novels', () => {
       await within(page).findByRole('button', { name: /Continue: Letter 2/ }),
     ).toBeInTheDocument();
     expect(within(page).getByText('45% read')).toBeInTheDocument();
-    expect(within(page).getByRole('button', { name: 'Download 1 unread' })).toBeInTheDocument();
+    expect(within(page).getByRole('button', { name: 'Download' })).toBeEnabled();
     await userEvent.click(within(page).getByRole('button', { name: 'Download Letter 2' }));
     expect(commands.novelTitle).toHaveBeenCalledWith(SOURCE, '84', false);
     expect(commands.mangaDownload).toHaveBeenCalledWith(['c2']);
@@ -176,14 +178,20 @@ describe('Novels', () => {
 
   it('imports an EPUB from the novel library and opens it', async () => {
     const user = userEvent.setup();
-    commands.novelImportEpub.mockResolvedValue(ok({ sourceId: 'local.epub', novelId: 'abc' }));
+    commands.uploadBegin.mockResolvedValue(ok('u1'));
+    commands.uploadAppend.mockResolvedValue(ok(4));
+    commands.novelImportEpubUpload.mockResolvedValue(
+      ok({ sourceId: 'local.epub', novelId: 'abc' }),
+    );
     commands.novelTitle.mockResolvedValue(ok(null));
     await AppShellWrapper.mount('/library?media=novel');
     const library = await screen.findByTestId('novel-library');
 
+    // The book goes over in slices, not as one message.
     const book = new File([new Uint8Array([0x50, 0x4b, 3, 4])], 'book.epub');
     await user.upload(within(library).getByLabelText('EPUB book file'), book);
-    await vi.waitFor(() => expect(commands.novelImportEpub).toHaveBeenCalledWith('UEsDBA=='));
+    await vi.waitFor(() => expect(commands.novelImportEpubUpload).toHaveBeenCalledWith('u1'));
+    expect(commands.uploadAppend).toHaveBeenCalledWith('u1', 'UEsDBA==');
     await vi.waitFor(() =>
       expect(commands.novelTitle).toHaveBeenCalledWith('local.epub', 'abc', false),
     );
@@ -319,19 +327,24 @@ describe('Novels', () => {
 
     await user.click(within(reader).getByRole('button', { name: 'Text settings' }));
     const panel = within(reader).getByRole('dialog', { name: 'Text settings' });
-    await user.click(within(panel).getByRole('button', { name: 'More: Font size' }));
+    // Text size is what's added to the screen's own (M46.48): typed, or on the slider.
+    const size = within(panel).getByRole('spinbutton', { name: 'Font size' });
+    await user.clear(size);
+    await user.type(size, '2{Enter}');
     expect(commands.settingsUpdate).toHaveBeenLastCalledWith({
       key: 'novelReader',
-      value: { ...DEFAULT_SETTINGS.novelReader, fontSize: 20 },
+      value: { ...DEFAULT_SETTINGS.novelReader, textSize: 2 },
     });
     await vi.waitFor(() =>
-      // The size, times the wide-window scale (`calc(20px * var(--reader-scale, 1))`).
-      expect(within(reader).getByRole('article').getAttribute('style')).toContain('20px'),
+      // The screen's size plus 2 px, times the wide-window scale.
+      expect(within(reader).getByRole('article').getAttribute('style')).toContain(
+        'calc((1.125rem + 2px)',
+      ),
     );
     await user.click(within(panel).getByRole('button', { name: 'Sans' }));
     expect(commands.settingsUpdate).toHaveBeenLastCalledWith({
       key: 'novelReader',
-      value: { ...DEFAULT_SETTINGS.novelReader, fontSize: 20, font: 'sans' },
+      value: { ...DEFAULT_SETTINGS.novelReader, textSize: 2, font: 'sans' },
     });
   });
 
@@ -360,5 +373,53 @@ describe('Novels', () => {
     fireEvent.click(pages, { clientX: 290 });
     await vi.waitFor(() => expect(commands.novelChapter).toHaveBeenLastCalledWith('t1', 'c2'));
     expect(commands.novelSetProgress).toHaveBeenCalledWith('c1', 68, 68);
+  });
+
+  it('turns pages with the keyboard in paged mode', async () => {
+    const user = userEvent.setup();
+    commands.settingsGet.mockResolvedValue(
+      ok({ ...DEFAULT_SETTINGS, novelReader: { ...DEFAULT_SETTINGS.novelReader, paged: true } }),
+    );
+    commands.novelChapter.mockImplementation((_title: string, chapter: string) =>
+      Promise.resolve(
+        ok(chapter === 'c1' ? CHAPTER : { ...CHAPTER, chapter: chapterInfo('c2', 'Letter 2') }),
+      ),
+    );
+    await AppShellWrapper.mount('/novel/read?title=t1&chapter=c1');
+    await screen.findByTestId('novel-pages');
+    // Nothing needs focusing first: one page, so Space moves to the next chapter.
+    await user.keyboard(' ');
+    await vi.waitFor(() => expect(commands.novelChapter).toHaveBeenLastCalledWith('t1', 'c2'));
+  });
+
+  it('colours the page and justifies the text as set', async () => {
+    commands.settingsGet.mockResolvedValue(
+      ok({
+        ...DEFAULT_SETTINGS,
+        novelReader: { ...DEFAULT_SETTINGS.novelReader, theme: 'sepia', justify: true },
+      }),
+    );
+    commands.novelChapter.mockResolvedValue(ok(CHAPTER));
+    await AppShellWrapper.mount('/novel/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('novel-reader');
+    const paragraph = await within(reader).findByText('It was a dreary night of Nov');
+    expect(reader).toHaveAttribute('data-theme-page', 'sepia');
+    expect(reader.style.backgroundColor).toBe('rgb(244, 236, 216)');
+    expect(paragraph.style.textAlign).toBe('justify');
+  });
+
+  it('says when reading aloud stops on its own', async () => {
+    const user = userEvent.setup();
+    commands.ttsAvailable.mockResolvedValue(ok(true));
+    commands.ttsSpeak.mockResolvedValue(ok(null));
+    commands.novelChapter.mockResolvedValue(
+      ok({ ...CHAPTER, chapter: chapterInfo('c1', 'Letter 1') }),
+    );
+    await AppShellWrapper.mount('/novel/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('novel-reader');
+    await user.click(await within(reader).findByRole('button', { name: 'Read aloud' }));
+    emitEvent('ttsEvent', { state: 'error', paragraph: 1 });
+    expect(await within(reader).findByRole('status')).toHaveTextContent('Reading aloud stopped.');
+    expect(within(reader).getByRole('button', { name: 'Read aloud' })).toBeInTheDocument();
   });
 });

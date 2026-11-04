@@ -18,31 +18,202 @@ pub enum SettingsError {
 /// Keys of removed settings, which old rows may still hold.
 const RETIRED: &[&str] = &["discord"];
 
+/// Keys of the fixed cover sizes before sizes followed the screen (M46.48): covers per row, and a
+/// cover width in px; [`cover_size_from`] turns them into a cover size.
+const OLD_COVER_KEYS: [&str; 2] = ["gridColumns", "coverWidth"];
+
+/// The automatic cover width on a phone (6.5 rem), which old fixed sizes are compared with.
+const PHONE_COVER_PX: f64 = 104.0;
+
 pub async fn load(db: &Db) -> Result<Settings, SettingsError> {
     let mut settings = Settings::default();
+    let (mut old_columns, mut old_width, mut cover_size_saved) = (0, 0, false);
     for (key, value) in settings::load(db).await? {
         // Settings that no longer exist (M46.36: Discord presence) are left alone.
         if RETIRED.contains(&key.as_str()) {
             continue;
         }
-        match parse_row(&key, &value) {
+        if OLD_COVER_KEYS.contains(&key.as_str()) {
+            let number = value.trim().parse::<u32>().unwrap_or(0);
+            if key == "gridColumns" {
+                old_columns = number;
+            } else {
+                old_width = number;
+            }
+            continue;
+        }
+        cover_size_saved |= key == "coverSize";
+        match parse_row(&key, &migrate_row(&key, &value)) {
             Ok(change) => settings.apply(change),
             Err(error) => tracing::warn!(%key, %value, %error, "ignoring unreadable setting"),
         }
     }
+    if !cover_size_saved {
+        settings.cover_size = cover_size_from(old_columns, old_width);
+    }
     Ok(settings)
 }
 
-pub async fn update(db: &Db, change: SettingChange) -> Result<Settings, SettingsError> {
-    change.validate().map_err(SettingsError::Invalid)?;
-    let value = match serde_json::to_value(&change)
-        .map_err(|error| SettingsError::Invalid(error.to_string()))?
-    {
-        serde_json::Value::Object(mut fields) => fields.remove("value").unwrap_or_default(),
-        _ => unreachable!("SettingChange serializes as an object"),
+/// A cover size for what an older version stored (M46.48): more covers per row are smaller
+/// covers, three being a phone's own; a width in px against a phone's own; neither keeps the
+/// screen's size. Rounded to 5 %.
+fn cover_size_from(columns: u32, width: u32) -> i32 {
+    let ratio = if columns > 0 {
+        3.0 / f64::from(columns)
+    } else if width > 0 {
+        f64::from(width) / PHONE_COVER_PX
+    } else {
+        return 0;
     };
-    settings::put(db, change.key(), &value.to_string()).await?;
+    let percent = ((ratio - 1.0) * 20.0).round() as i32 * 5;
+    percent.clamp(
+        *raygun_model::COVER_SIZES.start(),
+        *raygun_model::COVER_SIZES.end(),
+    )
+}
+
+/// Rows stored before sizes followed the screen (M46.48), in today's shape: the novel text's
+/// size in px becomes px more or less than the screen's own (18 px then), and the manga reader's
+/// widths in percent of the window become percent more or less than the screen's own.
+fn migrate_row(key: &str, value: &str) -> String {
+    type Rename = (&'static str, &'static str, fn(i64) -> i64);
+    const NOVEL: &[Rename] = &[("fontSize", "textSize", old_novel_text)];
+    const READER: &[Rename] = &[
+        ("webtoonWidth", "webtoonSize", old_reader_width),
+        ("barWidth", "barSize", old_reader_width),
+    ];
+    let renames = match key {
+        "novelReader" => NOVEL,
+        "mangaReader" => READER,
+        _ => return value.to_owned(),
+    };
+    let Ok(serde_json::Value::Object(mut fields)) = serde_json::from_str(value) else {
+        return value.to_owned();
+    };
+    for (old, new, convert) in renames {
+        if let Some(number) = fields.remove(*old).and_then(|old| old.as_i64())
+            && !fields.contains_key(*new)
+        {
+            fields.insert((*new).to_owned(), convert(number).into());
+        }
+    }
+    serde_json::Value::Object(fields).to_string()
+}
+
+/// Novel text in px (18 being the size then) as px more or less than the screen's own.
+fn old_novel_text(px: i64) -> i64 {
+    (px - 18).clamp(-6, 12)
+}
+
+/// A reader width in percent of the window (0: the screen's) as percent more or less than the
+/// screen's own, which phones show at full width.
+fn old_reader_width(percent: i64) -> i64 {
+    if percent == 0 {
+        0
+    } else {
+        (percent - 100).clamp(-70, 100)
+    }
+}
+
+pub async fn update(db: &Db, change: SettingChange) -> Result<Settings, SettingsError> {
+    update_many(db, vec![change]).await
+}
+
+/// Changes several settings together (a settings screen's reset): every change is checked first,
+/// so a refused one leaves all of them unwritten.
+pub async fn update_many(db: &Db, changes: Vec<SettingChange>) -> Result<Settings, SettingsError> {
+    let mut rows = Vec::with_capacity(changes.len());
+    for change in &changes {
+        change.validate().map_err(SettingsError::Invalid)?;
+        rows.push((change.key(), stored_value(change)?));
+    }
+    for (key, value) in rows {
+        settings::put(db, key, &value).await?;
+    }
     load(db).await
+}
+
+/// The JSON a change is stored as: its value alone.
+fn stored_value(change: &SettingChange) -> Result<String, SettingsError> {
+    match serde_json::to_value(change).map_err(|error| SettingsError::Invalid(error.to_string()))? {
+        serde_json::Value::Object(mut fields) => {
+            Ok(fields.remove("value").unwrap_or_default().to_string())
+        }
+        _ => unreachable!("SettingChange serializes as an object"),
+    }
+}
+
+/// The settings last put into effect in running services, to tell what a sync or a restore
+/// changed.
+static APPLIED: std::sync::Mutex<Option<Settings>> = std::sync::Mutex::new(None);
+
+/// Puts settings that running services hold into effect: the system bars' theme, the content
+/// filter, cache limits, turned-off sources, the User-Agent, sound and the charts' country. With
+/// `changed`, only the keys it names; without, every key whose value differs from what was last
+/// put into effect (all of them the first time), as after a sync or a restored backup.
+pub async fn apply_live(app: &tauri::AppHandle, settings: &Settings, changed: Option<&[&str]>) {
+    use tauri::Manager;
+
+    let before = APPLIED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .replace(settings.clone());
+    let differs = |key: &str, same: &dyn Fn(&Settings) -> bool| match (changed, &before) {
+        (Some(keys), _) => keys.contains(&key),
+        (None, Some(before)) => !same(before),
+        (None, None) => true,
+    };
+    if differs("theme", &|before| before.theme == settings.theme) {
+        crate::system_ui::apply_theme(app, settings.theme);
+    }
+    if differs("userAgent", &|before| {
+        before.user_agent == settings.user_agent
+    }) {
+        raygun_net::set_user_agent(&settings.user_agent);
+    }
+    if differs("sound", &|before| before.sound == settings.sound) {
+        app.state::<crate::playback::PlaybackService>()
+            .set_sound(settings.sound.clone());
+    }
+    let content = differs("showNsfw", &|before| before.show_nsfw == settings.show_nsfw)
+        || differs("explicitMusic", &|before| {
+            before.explicit_music == settings.explicit_music
+        });
+    if content {
+        app.state::<std::sync::Arc<crate::extensions::ExtensionService>>()
+            .set_content(settings.show_nsfw, settings.explicit_music)
+            .await;
+    }
+    if differs("cache", &|before| before.cache == settings.cache) {
+        app.state::<crate::caches::Caches>().apply(&settings.cache);
+    }
+    if differs("disabledSources", &|before| {
+        before.disabled_sources == settings.disabled_sources
+    }) {
+        app.state::<std::sync::Arc<crate::extensions::ExtensionService>>()
+            .set_disabled_sources(&settings.disabled_sources);
+    }
+    if differs("discovery", &|before| {
+        before.discovery == settings.discovery
+    }) {
+        app.state::<std::sync::Arc<crate::discovery::DiscoveryService>>()
+            .nudge();
+    }
+}
+
+/// After rows arrived from elsewhere (a sync, a restored backup, an undone sync): what they
+/// changed is put into effect.
+pub fn apply_stored(app: &tauri::AppHandle) {
+    use tauri::Manager;
+
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let db = app.state::<crate::startup::AppDb>().inner().0.clone();
+        match load(&db).await {
+            Ok(settings) => apply_live(&app, &settings, None).await,
+            Err(error) => tracing::warn!(%error, "settings unreadable after a sync"),
+        }
+    });
 }
 
 fn parse_row(key: &str, value: &str) -> Result<SettingChange, String> {
@@ -97,6 +268,55 @@ mod tests {
                 ..Settings::default()
             }
         );
+    }
+
+    #[tokio::test]
+    async fn several_changes_are_written_together_or_not_at_all() {
+        let temp = TempDir::new().unwrap();
+        let db = open(&temp).await;
+
+        let refused = update_many(
+            &db,
+            vec![
+                SettingChange::Theme(Theme::Dark),
+                SettingChange::CoverSize(400),
+            ],
+        )
+        .await;
+        assert!(matches!(refused, Err(SettingsError::Invalid(_))));
+        assert_eq!(
+            load(&db).await.unwrap(),
+            Settings::default(),
+            "nothing written"
+        );
+
+        let saved = update_many(
+            &db,
+            vec![
+                SettingChange::Theme(Theme::Dark),
+                SettingChange::CoverSize(-20),
+            ],
+        )
+        .await
+        .unwrap();
+        assert_eq!((saved.theme, saved.cover_size), (Theme::Dark, -20));
+    }
+
+    #[test]
+    fn every_default_is_a_change_the_ui_can_send_back() {
+        // A screen's reset sends `{ key, value }` with each field of the defaults.
+        let defaults = serde_json::to_value(Settings::default()).unwrap();
+        let fields = defaults.as_object().unwrap();
+        for (key, value) in fields {
+            let change =
+                parse_row(key, &value.to_string()).unwrap_or_else(|error| panic!("{key}: {error}"));
+            assert_eq!(change.key(), key);
+        }
+        let mut applied = Settings::default();
+        for (key, value) in fields {
+            applied.apply(parse_row(key, &value.to_string()).unwrap());
+        }
+        assert_eq!(applied, Settings::default());
     }
 
     #[tokio::test]
@@ -189,8 +409,8 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let db = open(&temp).await;
         for bad in [
-            SettingChange::GridColumns(1),
-            SettingChange::GridColumns(9),
+            SettingChange::CoverSize(-60),
+            SettingChange::CoverSize(110),
             SettingChange::WatchedPercent(42),
             SettingChange::WatchedPercent(92),
             SettingChange::SeekSeconds(7),
@@ -201,7 +421,7 @@ mod tests {
         update(&db, SettingChange::Accent(raygun_model::Accent::Teal))
             .await
             .unwrap();
-        update(&db, SettingChange::GridColumns(4)).await.unwrap();
+        update(&db, SettingChange::CoverSize(25)).await.unwrap();
         update(&db, SettingChange::WatchedPercent(85))
             .await
             .unwrap();
@@ -215,17 +435,51 @@ mod tests {
         assert_eq!(
             (
                 saved.accent,
-                saved.grid_columns,
+                saved.cover_size,
                 saved.watched_percent,
                 saved.seek_seconds
             ),
-            (raygun_model::Accent::Teal, 4, 85, 30)
+            (raygun_model::Accent::Teal, 25, 85, 30)
         );
         assert_eq!(
             saved.subtitle_language, "",
             "empty follows the app's language"
         );
         assert!(saved.resume_videos && !saved.auto_subtitles, "defaults");
+    }
+
+    #[tokio::test]
+    async fn fixed_sizes_from_before_become_sizes_from_the_screen() {
+        let temp = TempDir::new().unwrap();
+        let db = open(&temp).await;
+        // An older version's rows: four covers per row, a cover width, 20 px novel text, a webtoon
+        // column at 60 % of the window and the page bar at the screen's own width.
+        for (key, value) in [
+            ("gridColumns", "4"),
+            ("coverWidth", "140"),
+            (
+                "novelReader",
+                r#"{"fontSize":20,"lineSpacing":16,"font":"serif","width":"narrow","paged":false}"#,
+            ),
+            ("mangaReader", r#"{"webtoonWidth":60,"barWidth":0}"#),
+        ] {
+            settings::put(&db, key, value).await.unwrap();
+        }
+        let loaded = load(&db).await.unwrap();
+        assert_eq!(
+            loaded.cover_size, -25,
+            "four across a phone: smaller covers"
+        );
+        assert_eq!(loaded.novel_reader.text_size, 2);
+        assert_eq!(loaded.manga_reader.webtoon_size, -40);
+        assert_eq!(loaded.manga_reader.bar_size, 0);
+
+        // A width alone, and what's saved now winning over both.
+        assert_eq!(cover_size_from(0, 140), 35);
+        assert_eq!(cover_size_from(0, 0), 0);
+        assert_eq!(cover_size_from(8, 0), -50, "kept within the sizes offered");
+        update(&db, SettingChange::CoverSize(10)).await.unwrap();
+        assert_eq!(load(&db).await.unwrap().cover_size, 10);
     }
 
     #[tokio::test]
@@ -393,12 +647,13 @@ mod tests {
             .unwrap();
         assert_eq!(saved.accent_color, "#1e90ff");
 
-        // The desktop window (M46.9): its frame, and zoom in steps of 10 % from 50 to 200.
+        // The desktop window (M46.9): its frame, and the interface size from 50 to 200 % of the
+        // screen's (M46.48).
         assert_eq!(saved.zoom, 100);
         assert_eq!(saved.window_frame, raygun_model::WindowFrame::App);
-        let saved = update(&db, SettingChange::Zoom(130)).await.unwrap();
-        assert_eq!(saved.zoom, 130);
-        for bad in [40, 125, 210] {
+        let saved = update(&db, SettingChange::Zoom(135)).await.unwrap();
+        assert_eq!(saved.zoom, 135);
+        for bad in [40, 49, 210] {
             assert!(
                 update(&db, SettingChange::Zoom(bad)).await.is_err(),
                 "{bad}"
@@ -440,18 +695,18 @@ mod tests {
         }
 
         assert_eq!(
-            update(&db, SettingChange::CoverWidth(120))
+            update(&db, SettingChange::CoverSize(15))
                 .await
                 .unwrap()
-                .cover_width,
-            120
+                .cover_size,
+            15
         );
-        assert!(update(&db, SettingChange::CoverWidth(125)).await.is_err());
+        assert!(update(&db, SettingChange::CoverSize(-55)).await.is_err());
 
         let zoom = MangaReaderPrefs {
             paged_scale: PagedScale::FitWidth,
-            webtoon_width: 60,
-            bar_width: 50,
+            webtoon_size: -40,
+            bar_size: -50,
             bar_zoom: false,
             preload_pages: 6,
             ..MangaReaderPrefs::default()
@@ -463,9 +718,9 @@ mod tests {
                 .manga_reader,
             zoom
         );
-        for width in [20, 62, 105] {
+        for width in [-75, 105] {
             let bad = MangaReaderPrefs {
-                webtoon_width: width,
+                webtoon_size: width,
                 ..zoom
             };
             assert!(
@@ -475,7 +730,7 @@ mod tests {
         }
         for bad in [
             MangaReaderPrefs {
-                bar_width: 35,
+                bar_size: -80,
                 ..zoom
             },
             MangaReaderPrefs {
@@ -571,8 +826,9 @@ mod tests {
         // The full player's layout.
         let view = PlayerViewPrefs {
             layout: PlayerLayout::SideBySide,
-            width: 85,
-            lyrics_size: 32,
+            cover_offset: -20,
+            width_offset: 15,
+            lyrics_offset: 6,
             lyrics_align: TextAlign::Center,
             background: false,
         };
@@ -584,18 +840,56 @@ mod tests {
             view
         );
         for bad in [
-            PlayerViewPrefs { width: 30, ..view },
-            PlayerViewPrefs { width: 87, ..view },
             PlayerViewPrefs {
-                lyrics_size: 13,
+                cover_offset: 41,
                 ..view
             },
             PlayerViewPrefs {
-                lyrics_size: 50,
+                width_offset: -45,
+                ..view
+            },
+            PlayerViewPrefs {
+                lyrics_offset: -6,
+                ..view
+            },
+            PlayerViewPrefs {
+                lyrics_offset: 11,
                 ..view
             },
         ] {
             assert!(update(&db, SettingChange::PlayerView(bad)).await.is_err());
         }
+    }
+
+    #[tokio::test]
+    async fn old_player_sizes_become_offsets() {
+        let temp = TempDir::new().unwrap();
+        let db = open(&temp).await;
+        // Before the offsets: the whole window's width and 32 px lyrics, centred.
+        settings::put(
+            &db,
+            "playerView",
+            r#"{"layout":"stacked","width":100,"lyricsSize":32,"lyricsAlign":"center"}"#,
+        )
+        .await
+        .unwrap();
+
+        let view = load(&db).await.unwrap().player_view;
+
+        assert_eq!(view.layout, raygun_model::PlayerLayout::Stacked);
+        assert_eq!(view.width_offset, 33);
+        assert_eq!(view.lyrics_offset, 10);
+        assert_eq!(view.cover_offset, 0);
+        assert_eq!(view.lyrics_align, raygun_model::TextAlign::Center);
+        assert!(view.background);
+
+        // "By screen" was 0, and stays the screen's size.
+        settings::put(&db, "playerView", r#"{"width":0,"lyricsSize":0}"#)
+            .await
+            .unwrap();
+        assert_eq!(
+            load(&db).await.unwrap().player_view,
+            raygun_model::PlayerViewPrefs::default()
+        );
     }
 }

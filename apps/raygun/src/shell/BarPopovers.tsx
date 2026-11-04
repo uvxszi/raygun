@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { chapterUpdateLink } from '../manga/chapterUpdateLink';
 import { MangaCover } from '../manga/MangaCover';
 import { useMangaDownloads, useMangaLiveEvents, useMangaUpdates } from '../manga/useManga';
 import { Artwork } from '../library/Artwork';
@@ -101,7 +102,7 @@ const UpdatesPopover: FC<{ anchor: HTMLElement; onClose: () => void }> = ({ anch
       title: item.title,
       detail: item.chapter.name,
       at: item.foundAt ?? 0,
-      link: { to: '/manga/read', search: { title: item.titleId, chapter: item.chapter.id } },
+      link: chapterUpdateLink(item),
     })),
     ...(episodes.data ?? []).map((item) => ({
       key: `e-${item.episodeId}`,

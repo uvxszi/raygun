@@ -30,12 +30,16 @@ import {
 } from '../watch/useVideoLibrary';
 import { findInCache } from '../shell/queryMemory';
 import { SourceIssue } from '../shell/SourceIssue';
+import { episodeLabel, isGenericName, showsSeasons } from '../watch/episodeLabel';
+import { LoadMore } from '../shell/LoadMore';
 
-/** "S1 E2 · Pilot", or the title alone when it isn't numbered. */
-const episodeLabel = (video: StremioVideo) =>
-  video.season !== null && video.episode !== null
-    ? `S${video.season} E${video.episode} · ${video.title}`
-    : video.title;
+/** "S1 E2 · Pilot", or the title alone when it isn't numbered; `showSeason` from `showsSeasons`. */
+const videoLabel = (video: StremioVideo, showSeason: boolean) =>
+  episodeLabel({ season: video.season, number: video.episode, name: video.title }, showSeason);
+
+/** Where watching continues, as Rust decides it (`StremioMeta.continueVideoId`). */
+const continueAt = (videos: StremioVideo[], id: string | null) =>
+  id === null ? undefined : videos.find((video) => video.id === id);
 
 const Progress: FC<{ position: number | null; duration: number | null }> = ({
   position,
@@ -51,12 +55,14 @@ const Progress: FC<{ position: number | null; duration: number | null }> = ({
   ) : null;
 
 /** Seasons in order (specials last), and the one to open: where watching left off. */
-const useSeasons = (videos: StremioVideo[]) =>
+const useSeasons = (videos: StremioVideo[], continueId: string | null) =>
   useMemo(() => {
     const seasons = [...new Set(videos.map((video) => video.season ?? 0))];
-    const next = videos.find((video) => !video.watched && (video.season ?? 0) > 0);
-    return { seasons, first: next?.season ?? seasons[0] ?? 0 };
-  }, [videos]);
+    return { seasons, first: continueAt(videos, continueId)?.season ?? seasons[0] ?? 0 };
+  }, [videos, continueId]);
+
+/** Episodes drawn at a time: a long season (a thousand anime episodes) is drawn as it's scrolled. */
+const EPISODE_CHUNK = 60;
 
 const Episodes: FC<{
   meta: StremioMeta;
@@ -64,14 +70,18 @@ const Episodes: FC<{
   onPick: (target: StreamTarget, intent: PickIntent | 'watch') => void;
 }> = ({ meta, downloads, onPick }) => {
   const { t } = useTranslation();
-  const { seasons, first } = useSeasons(meta.videos);
+  const { seasons, first } = useSeasons(meta.videos, meta.continueVideoId);
   const [season, setSeason] = useState<number | null>(null);
   const shown = season ?? first;
+  const [drawn, setDrawn] = useState({ season: shown, count: EPISODE_CHUNK });
   const setWatched = useSetWatched();
   const numbered = seasons.length > 1 || meta.videos.some((video) => video.season !== null);
   const videos = numbered
     ? meta.videos.filter((video) => (video.season ?? 0) === shown)
     : meta.videos;
+  const showSeason = showsSeasons(meta.name, meta.videos);
+  // A newly picked season is drawn from its top again.
+  const count = drawn.season === shown ? drawn.count : EPISODE_CHUNK;
 
   return (
     <section aria-labelledby="watch-episodes" className="flex flex-col gap-3">
@@ -99,8 +109,8 @@ const Episodes: FC<{
         </div>
       )}
       <ul className="flex flex-col gap-3">
-        {videos.map((video) => {
-          const label = episodeLabel(video);
+        {videos.slice(0, count).map((video) => {
+          const label = videoLabel(video, showSeason);
           const target = {
             kind: meta.kind,
             metaId: meta.id,
@@ -132,7 +142,9 @@ const Episodes: FC<{
                   <span
                     className={`line-clamp-2 text-sm font-medium ${video.watched ? 'text-muted' : ''}`}
                   >
-                    {video.episode !== null ? `${video.episode}. ${video.title}` : video.title}
+                    {video.episode !== null && !isGenericName(video.title, null, video.episode)
+                      ? `${video.episode}. ${video.title}`
+                      : video.title}
                   </span>
                   {video.released && (
                     <span className="text-muted text-xs">{video.released.slice(0, 10)}</span>
@@ -174,6 +186,12 @@ const Episodes: FC<{
           );
         })}
       </ul>
+      <LoadMore
+        hasNextPage={count < videos.length}
+        fetching={false}
+        onLoad={() => setDrawn({ season: shown, count: count + EPISODE_CHUNK * 2 })}
+        label={t('search.more')}
+      />
     </section>
   );
 };
@@ -196,7 +214,7 @@ export const WatchTitlePage: FC = () => {
     if (intent !== 'watch') {
       setPicking({ target, intent });
     } else if (meta.data) {
-      const movie = target.videoId === meta.data.id;
+      const movie = meta.data.videos.length === 0;
       watch.mutate({
         kind: meta.data.kind,
         id: meta.data.id,
@@ -263,29 +281,27 @@ export const WatchTitlePage: FC = () => {
   const ownTarget: StreamTarget = {
     kind: view.kind,
     metaId: view.id,
-    videoId: view.id,
+    videoId: view.videoId,
     title: view.name,
     subtitle: view.releaseInfo,
     poster: view.background ?? view.poster,
     titleId: view.titleId,
   };
+  const showSeason = showsSeasons(view.name, view.videos);
   const episodeTarget = (video: StremioVideo): StreamTarget => ({
     kind: view.kind,
     metaId: view.id,
     videoId: video.id,
     title: view.name,
-    subtitle: episodeLabel(video),
+    subtitle: videoLabel(video, showSeason),
     poster: video.thumbnail ?? view.poster,
     titleId: view.titleId,
   });
   const hasEpisodes = view.videos.length > 0;
   const trailerId = view.trailerYtIds[0];
-  // The floating button plays the movie, or where watching continues (the episode watched last,
-  // or the next one once it was finished).
+  // The floating button plays the movie, or where watching continues.
   const nextVideo = hasEpisodes
-    ? (view.videos.find((video) => video.id === view.continueVideoId) ??
-      view.videos.find((video) => !video.watched && (video.season ?? 0) > 0) ??
-      view.videos[0])
+    ? (continueAt(view.videos, view.continueVideoId) ?? view.videos[0])
     : null;
   const resumable = nextVideo ? (nextVideo.positionMs ?? 0) > 0 : (view.positionMs ?? 0) > 0;
   const playLabel = t(resumable ? 'watch.resume' : hasEpisodes ? 'watch.start' : 'watch.play');
@@ -305,6 +321,10 @@ export const WatchTitlePage: FC = () => {
         headers: {},
         subtitles: [],
         bingeGroup: null,
+        filename: null,
+        size: null,
+        videoHash: null,
+        notWebReady: false,
       },
     });
 
@@ -379,14 +399,15 @@ export const WatchTitlePage: FC = () => {
           {view.inLibrary && view.titleId && (
             <TitleListActions medium="video" titleId={view.titleId} title={view.name} pill />
           )}
-          {!hasEpisodes && (
+          {/* A live channel is neither watched to the end nor saved. */}
+          {!hasEpisodes && !view.live && (
             <button
               type="button"
               aria-pressed={view.watched}
               onClick={() =>
                 setWatched.mutate({
                   kind: view.kind,
-                  videoId: view.id,
+                  videoId: view.videoId,
                   title: view.name,
                   subtitle: view.releaseInfo,
                   poster: ownTarget.poster,
@@ -399,10 +420,10 @@ export const WatchTitlePage: FC = () => {
               {t(view.watched ? 'watch.watched' : 'watch.markWatchedShort')}
             </button>
           )}
-          {!hasEpisodes && (
+          {!hasEpisodes && !view.live && (
             <span className="bg-surface/80 rounded-full">
               <VideoDownloadControl
-                item={downloads.get(stremioKey(view.kind, view.id))}
+                item={downloads.get(stremioKey(view.kind, view.videoId))}
                 downloaded={view.downloaded}
                 name={view.name}
                 onDownload={() => pick(ownTarget, 'download')}
@@ -421,7 +442,7 @@ export const WatchTitlePage: FC = () => {
             </button>
           )}
         </div>
-        {!hasEpisodes && (
+        {!hasEpisodes && !view.live && (
           <div className="mt-3">
             <Progress position={view.positionMs} duration={view.durationMs} />
           </div>

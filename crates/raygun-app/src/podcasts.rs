@@ -658,6 +658,10 @@ impl PodcastService {
         let Some(episode_id) = follow.episode_id.clone() else {
             return;
         };
+        // Incognito (M47): where it was and what was finished aren't saved.
+        if crate::privacy::incognito(&self.app) {
+            return;
+        }
         let position = state.position_ms;
         let duration = state.duration_ms.unwrap_or(0.0);
         let near_end = duration > 0.0 && position >= duration * PLAYED_SHARE;
@@ -687,6 +691,10 @@ impl PodcastService {
         let db = self.db();
         let app = self.app.clone();
         tauri::async_runtime::spawn(async move {
+            // Incognito (M47) may have come on since: nothing is saved or announced then.
+            if crate::privacy::incognito(&app) {
+                return;
+            }
             // Shown progress follows a pause at once; while it plays, views read it when asked.
             if store::set_position(&db, &episode_id, position as i64)
                 .await

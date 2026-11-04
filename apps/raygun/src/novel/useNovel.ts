@@ -7,14 +7,22 @@ import { unwrapResult } from '../lib/commandResult';
 export const NOVEL = 'novel';
 
 export const DEFAULT_PREFS: NovelReaderPrefs = {
-  fontSize: 18,
+  textSize: 0,
   lineSpacing: 16,
   font: 'serif',
   width: 'narrow',
   paged: false,
   ttsRate: 10,
   indent: false,
+  theme: 'app',
+  justify: false,
+  keepScreenOn: true,
 };
+
+/** Matches `NOVEL_TEXT_SIZES` in raygun-model: px more or less than the screen's own (M46.48). */
+export const TEXT_SIZE = { min: -6, max: 12, step: 1 } as const;
+/** Line spacing in tenths, 1.2 to 2.2. */
+export const LINE_SPACING = { min: 12, max: 22, step: 1 } as const;
 
 export const novelChapterQuery = (titleId: string, chapterId: string) => ({
   queryKey: [NOVEL, 'chapter', titleId, chapterId],

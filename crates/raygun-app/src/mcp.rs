@@ -363,7 +363,11 @@ impl AppBackend {
             Some(id) => (id, false),
             None => (collections.create_playlist(&name).await?.id, true),
         };
-        collections.add_to_playlist(&id, vec![track]).await?;
+        // A song the playlist holds already isn't added twice (M46.48).
+        let added = collections.add_to_playlist(&id, vec![track], false).await?;
+        if added.added == 0 {
+            return Ok(json!({ "playlist": name, "alreadyIn": title, "created": created }));
+        }
         Ok(json!({ "playlist": name, "added": title, "created": created }))
     }
 
@@ -501,7 +505,8 @@ fn tool_defs() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "playlist_add",
-            description: "Add a song to a playlist by name, creating the playlist if needed.",
+            description: "Add a song to a playlist by name, creating the playlist if needed. A \
+                          song the playlist already holds isn't added again (alreadyIn).",
             input_schema: {
                 let mut schema =
                     track(json!({ "name": { "type": "string", "description": "Playlist name" } }));

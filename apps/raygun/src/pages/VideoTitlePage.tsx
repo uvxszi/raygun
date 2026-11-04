@@ -10,6 +10,7 @@ import {
   LoaderCircle,
   Play,
   RefreshCw,
+  SearchCheck,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FC, ReactNode } from 'react';
@@ -17,6 +18,7 @@ import { useTranslation } from 'react-i18next';
 
 import { CategoryPicker } from '../manga/CategoryPicker';
 import { MangaCover } from '../manga/MangaCover';
+import { OtherSources } from '../manga/OtherSources';
 import { useKnownCard } from '../manga/knownCard';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
@@ -68,6 +70,10 @@ const Progress: FC<{ episode: VideoEpisodeView }> = ({ episode }) => {
 const isMovie = (view: VideoTitleView) =>
   view.episodes.length === 1 && view.episodes[0]!.season === null;
 
+/** Where watching continues, as Rust decides it (`VideoTitleView.continueEpisodeId`). */
+const continueAt = (view: VideoTitleView) =>
+  view.episodes.find((episode) => episode.id === view.continueEpisodeId);
+
 const Episodes: FC<{
   view: VideoTitleView;
   downloads: Map<string, VideoDownloadItem>;
@@ -79,12 +85,9 @@ const Episodes: FC<{
     () => [...new Set(view.episodes.map((episode) => episode.season))],
     [view.episodes],
   );
-  // The season shown first is the one watching continues in.
-  const continuing =
-    view.episodes.find((episode) => episode.id === view.continueEpisodeId) ??
-    view.episodes.find((episode) => !episode.watched);
+  const next = continueAt(view);
   const [season, setSeason] = useState<number | null | undefined>(undefined);
-  const shown = season === undefined ? (continuing?.season ?? seasons[0] ?? null) : season;
+  const shown = season === undefined ? (next?.season ?? seasons[0] ?? null) : season;
   const episodes =
     seasons.length > 1
       ? view.episodes.filter((episode) => episode.season === shown)
@@ -191,6 +194,7 @@ export const VideoTitlePage: FC = () => {
   const watch = useWatchSourceTitle();
   const [picking, setPicking] = useState<{ target: ServerTarget; intent: PickIntent } | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [finding, setFinding] = useState(false);
   const view = title.data;
   // A video site's (its own Search pill: YouTube, PeerTube) thumbnails are 16:9 (M46.45).
   const siteSource = Boolean(
@@ -304,13 +308,8 @@ export const VideoTitlePage: FC = () => {
     });
   };
   const movie = isMovie(view) ? view.episodes[0]! : null;
-  // The floating button plays the movie, or where watching continues (the episode watched last,
-  // or the next one once it was finished).
-  const next =
-    movie ??
-    view.episodes.find((episode) => episode.id === view.continueEpisodeId) ??
-    view.episodes.find((episode) => !episode.watched) ??
-    view.episodes[0];
+  // The floating button plays the movie, or where watching continues.
+  const next = movie ?? continueAt(view) ?? view.episodes[0];
 
   return (
     <section data-testid="video-title-page" className="flex min-h-full flex-col gap-5">
@@ -440,6 +439,20 @@ export const VideoTitlePage: FC = () => {
           {(refresh.error ?? setWatched.error ?? setInLibrary.error ?? watch.error)?.message}
         </SourceIssue>
       )}
+      {/* The same title (and season) elsewhere, when this source is slow or gone. A video
+          site's videos (YouTube, PeerTube) aren't a catalogue's titles. */}
+      {view.sourceId !== LOCAL_VIDEO && !siteSource && (
+        <button
+          type="button"
+          aria-expanded={finding}
+          onClick={() => setFinding(!finding)}
+          className="bg-surface hover:bg-primary/15 flex items-center gap-2 self-start rounded-full px-4 py-2 text-sm font-medium"
+        >
+          <SearchCheck aria-hidden size={16} />
+          {t('otherSources.find')}
+        </button>
+      )}
+      {finding && <OtherSources medium="video" title={view.title} sourceId={view.sourceId} />}
       {!movie && view.episodes.length > 0 && (
         <Episodes view={view} downloads={downloads} onPick={pick} />
       )}

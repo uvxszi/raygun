@@ -157,8 +157,8 @@
   - one Internet Archive listing (CUKESIM's New Job!) has no playable file, an existing quirk of the extension's listing;
   - a first test MP4 was High 4:4:4, which the emulator can't decode (regenerated as 4:2:0).
 
-## Follow-up: the library holds only your content
-- **The ask** (after M43): "you shouldnt be able to browse in your library, thats your library, you should only be able to find content in the search tab".
+## Follow-up: the library holds only saved content
+- **Rule** (after M43): the library holds only what was saved or followed; content is found in Search.
 - **Library changes:**
   - The Videos menu lost Browse and Addons.
   - Empty states for manga, novels, videos, podcasts and History link to Search filtered to that type ("Find in Search").

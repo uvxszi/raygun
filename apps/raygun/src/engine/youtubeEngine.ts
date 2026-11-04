@@ -55,6 +55,9 @@ export const YOUTUBE_ERRORS: Record<number, string> = {
   153: 'YouTube refused the embedded player',
 };
 
+/** How long the embed may sit unstarted after being asked to play, ms. */
+const UNSTARTED_GRACE_MS = 3000;
+
 const STATE_EVENTS: Partial<Record<string, EngineEvent>> = {
   playing: { type: 'playing' },
   paused: { type: 'paused' },
@@ -86,6 +89,9 @@ export class YouTubeEmbedEngine {
   /** The song's end trim, ms (M46.12), and whether it was reached. */
   private endMs: number | null = null;
   private finished = false;
+  /** A load asked to play that hasn't started; the embed sitting unstarted means it was held. */
+  private awaitingStart = false;
+  private startTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly frame: EmbedFrame,
@@ -99,6 +105,8 @@ export class YouTubeEmbedEngine {
     switch (command.type) {
       case 'loadYouTube': {
         this.loadId = command.loadId;
+        this.clearStart();
+        this.awaitingStart = command.autoplay;
         this.master = command.volume ?? 1;
         this.gain = Math.min(1, 10 ** ((command.gainDb ?? 0) / 20));
         this.endMs = command.endMs ?? null;
@@ -120,9 +128,11 @@ export class YouTubeEmbedEngine {
         break;
       }
       case 'play':
+        this.awaitingStart = true;
         this.send({ type: 'play' });
         break;
       case 'pause':
+        this.clearStart();
         this.send({ type: 'pause' });
         break;
       case 'seek':
@@ -142,6 +152,7 @@ export class YouTubeEmbedEngine {
       case 'fadeOut':
         // The `<audio>` engine takes over; this video fades away under it.
         this.loadId = null;
+        this.clearStart();
         this.fadeTo(0, command.fadeMs ?? 0, () => this.send({ type: 'stop' }));
         break;
       case 'setEffects':
@@ -152,6 +163,7 @@ export class YouTubeEmbedEngine {
         break;
       case 'stop':
         this.loadId = null;
+        this.clearStart();
         this.stopFade();
         this.send({ type: 'stop' });
         break;
@@ -162,7 +174,14 @@ export class YouTubeEmbedEngine {
 
   dispose() {
     this.stopFade();
+    this.clearStart();
     this.unlisten();
+  }
+
+  private clearStart() {
+    this.awaitingStart = false;
+    if (this.startTimer) clearTimeout(this.startTimer);
+    this.startTimer = null;
   }
 
   private volume() {
@@ -233,6 +252,20 @@ export class YouTubeEmbedEngine {
         }
         break;
       case 'state': {
+        if (reply.state === 'playing' || reply.state === 'buffering') {
+          if (this.startTimer) clearTimeout(this.startTimer);
+          this.startTimer = null;
+          if (reply.state === 'playing') this.awaitingStart = false;
+        } else if (reply.state === 'unstarted' && this.awaitingStart && !this.startTimer) {
+          // Asked to play, and still unstarted a moment later: the webview held it back until
+          // there's a tap. It says paused, so Play (that tap) starts it.
+          this.startTimer = setTimeout(() => {
+            this.startTimer = null;
+            if (!this.awaitingStart) return;
+            this.awaitingStart = false;
+            this.emit({ type: 'paused' });
+          }, UNSTARTED_GRACE_MS);
+        }
         const event = STATE_EVENTS[reply.state];
         // The pause after an end trim isn't the listener's.
         if (event && !(this.finished && event.type === 'paused')) {

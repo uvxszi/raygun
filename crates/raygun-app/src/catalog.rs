@@ -509,6 +509,7 @@ impl Catalog {
 
     pub async fn create_category(&self, name: &str) -> Result<(), String> {
         let name = category_name(name)?;
+        self.name_free(&name, None).await?;
         raygun_db::categories::create(&self.db(), self.kind, &name)
             .await
             .map(|_| ())
@@ -517,9 +518,26 @@ impl Catalog {
 
     pub async fn rename_category(&self, id: &str, name: &str) -> Result<(), String> {
         let name = category_name(name)?;
+        self.name_free(&name, Some(id)).await?;
         raygun_db::categories::rename(&self.db(), id, &name)
             .await
             .map_err(to_message)
+    }
+
+    /// Two categories of one library can't share a name (Mihon's rule): their tabs would look
+    /// the same.
+    async fn name_free(&self, name: &str, except: Option<&str>) -> Result<(), String> {
+        let taken = raygun_db::categories::list(&self.db(), self.kind)
+            .await
+            .map_err(to_message)?
+            .into_iter()
+            .any(|category| {
+                Some(category.id.as_str()) != except && same_name(&category.name, name)
+            });
+        if taken {
+            return Err(format!("There's already a category called {name}"));
+        }
+        Ok(())
     }
 
     pub async fn delete_category(&self, id: &str) -> Result<(), String> {
@@ -540,11 +558,13 @@ impl Catalog {
             .map_err(to_message)
     }
 
-    /// A chapter of a stored title and its neighbours in reading order.
+    /// A chapter of a stored title and its neighbours in reading order; `skip_duplicates` steps
+    /// over other uploads of the same chapter number.
     pub async fn chapter_context(
         &self,
         title_id: &str,
         unit_id: &str,
+        skip_duplicates: bool,
     ) -> Result<ChapterContext, String> {
         let db = self.db();
         let title = titles::title(&db, title_id)
@@ -557,23 +577,46 @@ impl Catalog {
             .iter()
             .position(|unit| unit.id == unit_id)
             .ok_or_else(|| "This chapter isn't part of the title".to_owned())?;
+        let (previous, next) = neighbours(&order, index, skip_duplicates);
         Ok(ChapterContext {
-            previous_id: index
-                .checked_sub(1)
-                .map(|previous| order[previous].id.clone()),
-            next_id: order.get(index + 1).map(|next| next.id.clone()),
+            previous_id: previous.map(|unit| unit.id.clone()),
+            next_id: next.map(|unit| unit.id.clone()),
             unit: order[index].clone(),
             title,
         })
     }
 
-    /// Stores how far a chapter was read; reaching `total - 1` completes it.
+    /// Marks chapters read or unread together.
+    pub async fn set_units_read(&self, unit_ids: &[String], read: bool) -> Result<(), String> {
+        titles::set_units_completed(&self.db(), unit_ids, read, now_ms())
+            .await
+            .map_err(to_message)
+    }
+
+    /// Marks every chapter before `unit_id` in reading order read (Mihon's "Mark previous as
+    /// read"); returns how many there were.
+    pub async fn mark_previous_read(&self, title_id: &str, unit_id: &str) -> Result<u32, String> {
+        let db = self.db();
+        let units = titles::units(&db, title_id).await.map_err(to_message)?;
+        let ids = previous_unread(&units, unit_id)
+            .ok_or_else(|| "This chapter isn't part of the title".to_owned())?;
+        titles::set_units_completed(&db, &ids, true, now_ms())
+            .await
+            .map_err(to_message)?;
+        Ok(ids.len() as u32)
+    }
+
+    /// Stores how far a chapter was read; reaching `total - 1` completes it. Nothing is stored
+    /// while incognito is on (M47).
     pub async fn set_progress(
         &self,
         unit_id: &str,
         position: u32,
         total: u32,
     ) -> Result<(), String> {
+        if crate::privacy::incognito(&self.app) {
+            return Ok(());
+        }
         titles::set_progress(
             &self.db(),
             unit_id,
@@ -639,6 +682,11 @@ fn category_name(name: &str) -> Result<String, String> {
     Ok(name.chars().take(40).collect())
 }
 
+/// Whether two category names read the same, whatever their case.
+fn same_name(a: &str, b: &str) -> bool {
+    a.trim().to_lowercase() == b.trim().to_lowercase()
+}
+
 /// Genres that mark a title as adult (lower case, compared whole). Sources that know better mark
 /// listings `nsfw` themselves; this catches stored titles and sources that only tag genres.
 const ADULT_GENRES: [&str; 14] = [
@@ -684,6 +732,67 @@ pub fn reading_order(units: &[UnitRow]) -> Vec<&UnitRow> {
     order
 }
 
+/// The chapters before and after `index` in reading order. With `skip_duplicates`, other uploads
+/// of the chapter's number are stepped over, and among the uploads of the number reached the one
+/// by the same group is taken (Mihon's "skip duplicate chapters").
+pub fn neighbours<'a>(
+    order: &[&'a UnitRow],
+    index: usize,
+    skip_duplicates: bool,
+) -> (Option<&'a UnitRow>, Option<&'a UnitRow>) {
+    if !skip_duplicates {
+        return (
+            index.checked_sub(1).map(|previous| order[previous]),
+            order.get(index + 1).copied(),
+        );
+    }
+    let current = order[index];
+    (
+        step(current, order[..index].iter().rev().copied()),
+        step(current, order[index + 1..].iter().copied()),
+    )
+}
+
+/// The first chapter among `candidates` (in the direction of travel) that isn't another upload of
+/// `current`: of the uploads of that number, the one by `current`'s group if there is one.
+fn step<'a>(
+    current: &UnitRow,
+    candidates: impl Iterator<Item = &'a UnitRow>,
+) -> Option<&'a UnitRow> {
+    let mut candidates = candidates;
+    let Some(number) = current.fields.number else {
+        return candidates.next();
+    };
+    let mut group: Vec<&'a UnitRow> = Vec::new();
+    for unit in candidates {
+        match (unit.fields.number, group.first()) {
+            (Some(other), _) if other == number => continue,
+            (Some(_), None) => group.push(unit),
+            (Some(other), Some(first)) if first.fields.number == Some(other) => group.push(unit),
+            (None, None) => return Some(unit),
+            _ => break,
+        }
+    }
+    group
+        .iter()
+        .find(|unit| unit.fields.scanlator == current.fields.scanlator)
+        .or(group.first())
+        .copied()
+}
+
+/// The unread chapters before `unit_id` in reading order, or `None` when it isn't one of `units`.
+pub fn previous_unread(units: &[UnitRow], unit_id: &str) -> Option<Vec<String>> {
+    let order = reading_order(units);
+    let index = order.iter().position(|unit| unit.id == unit_id)?;
+    Some(
+        order[..index]
+            .iter()
+            .filter(|unit| unit.completed_at.is_none())
+            .map(|unit| unit.id.clone())
+            .collect(),
+    )
+}
+
 /// Where reading continues: the chapter read last while it's unfinished, else the next unread one
 /// after it, else the first unread one, else the first chapter (see [`continue_index`]).
 pub fn continue_from(units: &[UnitRow]) -> Option<&UnitRow> {
@@ -696,28 +805,41 @@ pub fn continue_from(units: &[UnitRow]) -> Option<&UnitRow> {
         },
         |unit| unit.completed_at.is_some(),
         |_| true,
+        |_| false,
     )?;
     order.get(index).copied()
 }
 
 /// Where reading or watching a title continues, as an index into `order` (its chapters or
-/// episodes in order): the one read or watched last (`touched` gives when, for those with
-/// progress or finished), with its place, while it's unfinished; after a finished one, the next
-/// unfinished one that is `out`. Without either, the first unfinished one that is out, else the
-/// first. Picking the first partly watched one instead sent "continue" back to an episode opened
-/// by mistake long before the one watched last.
+/// episodes in reading or watching order); the one rule for every Continue (M46.48):
+/// - the one read or watched last (`touched` gives when, for those with progress or finished)
+///   while it's unfinished, with its place;
+/// - after a finished one, the next unfinished one that is `out`;
+/// - else the first one out after the last one finished in order, else the first unfinished one
+///   out (a gap), else the first.
+///
+/// Specials (`special`) only count when the title has nothing else, or when one was watched last.
+/// Picking the first partly watched one instead sent Continue back to an episode opened by mistake
+/// long before the one watched last.
 pub fn continue_index<T>(
     order: &[T],
     touched: impl Fn(&T) -> Option<i64>,
     finished: impl Fn(&T) -> bool,
     out: impl Fn(&T) -> bool,
+    special: impl Fn(&T) -> bool,
 ) -> Option<usize> {
     if order.is_empty() {
         return None;
     }
-    let unfinished_from = |from: usize| {
-        (from..order.len()).find(|&index| !finished(&order[index]) && out(&order[index]))
+    let regular: Vec<usize> = (0..order.len())
+        .filter(|&index| !special(&order[index]))
+        .collect();
+    let pool = if regular.is_empty() {
+        (0..order.len()).collect()
+    } else {
+        regular
     };
+    let open = |index: usize| !finished(&order[index]) && out(&order[index]);
     // Of two touched at the same moment (chapters marked read together), the later one.
     let last = order
         .iter()
@@ -728,11 +850,20 @@ pub fn continue_index<T>(
         if !finished(&order[index]) {
             return Some(index);
         }
-        if let Some(next) = unfinished_from(index + 1) {
+        if let Some(&next) = pool.iter().find(|&&next| next > index && open(next)) {
             return Some(next);
         }
     }
-    unfinished_from(0).or(Some(0))
+    let after_last = pool
+        .iter()
+        .rposition(|&index| finished(&order[index]))
+        .map_or(0, |position| position + 1);
+    pool[after_last..]
+        .iter()
+        .find(|&&index| open(index))
+        .or_else(|| pool.iter().find(|&&index| open(index)))
+        .or(pool.first())
+        .copied()
 }
 
 pub fn chapter_info(
@@ -853,6 +984,73 @@ mod tests {
         assert!(continue_from(&[]).is_none());
     }
 
+    fn upload(id: &str, number: f64, order: i64, group: &str) -> UnitRow {
+        let mut row = unit(id, Some(number), order, None, false);
+        row.fields.scanlator = Some(group.into());
+        row
+    }
+
+    #[test]
+    fn neighbours_step_over_other_uploads_of_a_chapter() {
+        // Newest first, as sources list them: two groups upload chapters 1 and 2, one chapter 3.
+        let units = [
+            upload("3a", 3.0, 0, "A"),
+            upload("2b", 2.0, 1, "B"),
+            upload("2a", 2.0, 2, "A"),
+            upload("1b", 1.0, 3, "B"),
+            upload("1a", 1.0, 4, "A"),
+        ];
+        let order = reading_order(&units);
+        let at = |id: &str| order.iter().position(|unit| unit.id == id).unwrap();
+        fn ids<'a>(
+            (previous, next): (Option<&'a UnitRow>, Option<&'a UnitRow>),
+        ) -> (Option<&'a str>, Option<&'a str>) {
+            (
+                previous.map(|unit| unit.id.as_str()),
+                next.map(|unit| unit.id.as_str()),
+            )
+        }
+        assert_eq!(
+            ids(neighbours(&order, at("1a"), true)),
+            (None, Some("2a")),
+            "the next number, by the same group"
+        );
+        assert_eq!(
+            ids(neighbours(&order, at("2b"), true)),
+            (Some("1b"), Some("3a"))
+        );
+        assert_eq!(ids(neighbours(&order, at("3a"), true)), (Some("2a"), None));
+        assert_eq!(
+            ids(neighbours(&order, at("2a"), false)),
+            (Some("1b"), Some("2b")),
+            "every upload in order when duplicates aren't skipped"
+        );
+
+        let unnumbered = [
+            unit("extra", None, 0, None, false),
+            upload("c1", 1.0, 1, "A"),
+        ];
+        let order = reading_order(&unnumbered);
+        assert_eq!(ids(neighbours(&order, 0, true)), (None, Some("extra")));
+    }
+
+    #[test]
+    fn previous_chapters_are_the_unread_ones_before() {
+        let units = [
+            unit("c4", Some(4.0), 0, None, false),
+            unit("c3", Some(3.0), 1, None, false),
+            unit("c2", Some(2.0), 2, None, true),
+            unit("c1", Some(1.0), 3, Some(3), false),
+        ];
+        assert_eq!(
+            previous_unread(&units, "c4").unwrap(),
+            ["c1", "c3"],
+            "chapters read already are left alone"
+        );
+        assert!(previous_unread(&units, "c1").unwrap().is_empty());
+        assert!(previous_unread(&units, "gone").is_none());
+    }
+
     #[test]
     fn continue_follows_what_was_read_or_watched_last() {
         // Episode 1 was opened for a moment, then episode 7 watched well into it.
@@ -897,7 +1095,13 @@ mod tests {
             (None, false, true),
         ];
         let pick = |items: &[(Option<i64>, bool, bool)]| {
-            continue_index(items, |item| item.0, |item| item.1, |item| item.2)
+            continue_index(
+                items,
+                |item| item.0,
+                |item| item.1,
+                |item| item.2,
+                |_| false,
+            )
         };
         assert_eq!(pick(&items), Some(2));
         assert_eq!(
@@ -916,6 +1120,14 @@ mod tests {
         let done = chapter_info(&unit("c", Some(1.0), 0, Some(19), true), &none);
         assert_eq!((done.read, done.last_page), (true, None));
         assert_eq!(done.download, None);
+    }
+
+    #[test]
+    fn category_names_are_compared_without_case() {
+        assert!(same_name("Reading", " reading "));
+        assert!(!same_name("Reading", "Read"));
+        assert_eq!(category_name("  Later ").unwrap(), "Later");
+        assert!(category_name("   ").is_err());
     }
 
     #[test]

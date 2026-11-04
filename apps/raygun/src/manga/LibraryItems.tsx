@@ -1,7 +1,7 @@
 import type { LibraryDisplayMode, MangaLibraryEntry } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import { Check, FolderOpen, Pin, Play } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FC, MouseEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -13,17 +13,11 @@ import { MangaCover } from './MangaCover';
 import { ROUTES } from './medium';
 import type { Medium } from './medium';
 
-/** Whether the screen is wider than tall, kept current as it turns. */
-const useLandscape = () => {
-  const read = () => typeof window !== 'undefined' && window.innerWidth > window.innerHeight;
-  const [landscape, setLandscape] = useState(read);
-  useEffect(() => {
-    const update = () => setLandscape(read());
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, []);
-  return landscape;
-};
+/** Titles drawn at first and added as the end comes near: a library can hold thousands. */
+const ITEMS_AT_ONCE = 120;
+
+/** Which badges show, from Settings → Library. */
+type BadgeChoice = { local: boolean; unread: boolean; downloaded: boolean };
 
 /** Covers per row; 0 fits as many as have room (Mihon's adaptive columns). */
 type ItemProps = {
@@ -33,21 +27,19 @@ type ItemProps = {
   selected: boolean;
   selecting: boolean;
   showContinue: boolean;
-  localBadge: boolean;
+  badges: BadgeChoice;
   onToggle: (entry: MangaLibraryEntry) => void;
   onLongPress: (entry: MangaLibraryEntry) => void;
   onContinue: (entry: MangaLibraryEntry) => void;
 };
 
-const Badges: FC<{ entry: MangaLibraryEntry; medium: Medium; localBadge: boolean }> = ({
+const Badges: FC<{ entry: MangaLibraryEntry; medium: Medium; badges: BadgeChoice }> = ({
   entry,
   medium,
-  localBadge,
+  badges,
 }) => {
   const { t } = useTranslation();
-  const settings = useSettings().data;
-  const unreadBadges = settings?.unreadBadges ?? true;
-  const downloadBadges = settings?.downloadBadges ?? true;
+  const { local: localBadge, unread: unreadBadges, downloaded: downloadBadges } = badges;
   return (
     <>
       {(downloadBadges && entry.downloaded > 0) || (unreadBadges && entry.unread > 0) ? (
@@ -125,7 +117,7 @@ const LibraryItem: FC<ItemProps> = ({
   selected,
   selecting,
   showContinue,
-  localBadge,
+  badges,
   onToggle,
   onLongPress,
   onContinue,
@@ -174,7 +166,7 @@ const LibraryItem: FC<ItemProps> = ({
           <span className="text-muted truncate text-xs">{entry.sourceName}</span>
         </span>
         <span className="flex shrink-0 items-center gap-1">
-          <Badges entry={entry} medium={medium} localBadge={localBadge} />
+          <Badges entry={entry} medium={medium} badges={badges} />
           {selected && <Check aria-hidden size={16} className="text-primary" />}
         </span>
         {continueShown && (
@@ -197,7 +189,7 @@ const LibraryItem: FC<ItemProps> = ({
           className={`w-full ${selected ? 'opacity-75' : ''}`}
         />
         <span className="absolute top-1.5 left-1.5 flex gap-1">
-          <Badges entry={entry} medium={medium} localBadge={localBadge} />
+          <Badges entry={entry} medium={medium} badges={badges} />
         </span>
         {check}
         {compact && (
@@ -237,9 +229,27 @@ export const LibraryItems: FC<{
   footer?: ReactNode;
 }> = ({ entries, medium, mode, display, selected, onToggle, onLongPress, onContinue }) => {
   const settings = useSettings().data;
-  const landscape = useLandscape();
-  const columns = landscape ? display.columnsLandscape : (settings?.gridColumns ?? 0);
   const selecting = selected.size > 0;
+  const badges: BadgeChoice = {
+    local: display.localBadge,
+    unread: settings?.unreadBadges ?? true,
+    downloaded: settings?.downloadBadges ?? true,
+  };
+  const [count, setCount] = useState(ITEMS_AT_ONCE);
+  const sentinel = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    const element = sentinel.current;
+    if (!element || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(
+      (seen) => {
+        if (seen.some((entry) => entry.isIntersecting)) setCount((shown) => shown + ITEMS_AT_ONCE);
+      },
+      { rootMargin: '800px' },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [count, entries.length]);
+
   const item = (entry: MangaLibraryEntry) => (
     <li key={entry.titleId}>
       <LibraryItem
@@ -249,17 +259,22 @@ export const LibraryItems: FC<{
         selected={selected.has(entry.titleId)}
         selecting={selecting}
         showContinue={display.continueButton}
-        localBadge={display.localBadge}
+        badges={badges}
         onToggle={onToggle}
         onLongPress={onLongPress}
         onContinue={onContinue}
       />
     </li>
   );
+  const shown = entries.slice(0, count).map(item);
+  const more = count < entries.length && (
+    <li ref={sentinel} aria-hidden className="col-span-full h-px" />
+  );
   if (mode === 'list') {
     return (
       <ul data-testid="library-list" className="flex flex-col gap-1">
-        {entries.map(item)}
+        {shown}
+        {more}
       </ul>
     );
   }
@@ -268,9 +283,10 @@ export const LibraryItems: FC<{
       data-testid="library-grid"
       data-mode={mode}
       className={COVER_GRID_CLASS}
-      style={coverGridStyle(columns, settings?.coverWidth ?? 0)}
+      style={coverGridStyle(settings?.coverSize ?? 0)}
     >
-      {entries.map(item)}
+      {shown}
+      {more}
     </ul>
   );
 };

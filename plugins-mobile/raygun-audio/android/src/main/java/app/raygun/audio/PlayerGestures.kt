@@ -5,22 +5,25 @@ import android.media.AudioManager
 import android.os.SystemClock
 import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewConfiguration
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/** How long repeated double taps on one side keep adding up. */
-private const val TAP_STREAK_MS = 1_000L
+/** How long after a seeking tap another one on the same side adds up. */
+private const val TAP_STREAK_MS = 900L
 /** A full-height swipe moves brightness or volume this far. */
 private const val SWIPE_RANGE = 1.2f
 
 /**
  * Touch on the picture (M45, after Aniyomi's `GestureHandler`): a tap shows or hides the controls;
- * double taps on the left, centre and right do what Settings → Player → Gestures says, adding up
- * when repeated; vertical swipes change brightness (dimming below the lowest) and volume (boosted
- * past 100 %); a sideways swipe previews a seek and seeks on release; holding plays faster until
- * let go. While locked only the tap works, to bring back the unlock button.
+ * double taps on the left, centre and right do what Settings → Player → Gestures says, and after
+ * a double tap that seeks, each further tap on that side seeks again (as on YouTube); vertical
+ * swipes change brightness (dimming below the lowest) and volume (boosted past 100 %); a sideways
+ * swipe previews a seek and seeks on release; holding plays faster until let go; pinching out
+ * fills the screen and pinching in fits the picture again. While locked only the tap works, to
+ * bring back the unlock button.
  */
 internal class PlayerGestures(private val host: VideoPlayerActivity) {
     private val context: Context = host
@@ -30,7 +33,36 @@ internal class PlayerGestures(private val host: VideoPlayerActivity) {
     val brightnessBar = LevelBar(context, R.drawable.raygun_ic_brightness)
     val volumeBar = LevelBar(context, R.drawable.raygun_ic_volume)
 
-    private enum class Mode { NONE, IGNORE, SEEK, BRIGHTNESS, VOLUME, HOLD }
+    private enum class Mode { NONE, IGNORE, SEEK, BRIGHTNESS, VOLUME, HOLD, PINCH }
+
+    /** The tap that seeking on took, so it doesn't also toggle the controls. */
+    private var seekTapDown = -1L
+    /** How much a pinch has scaled the picture so far. */
+    private var pinch = 1f
+    private val scale = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+            if (host.controls.locked) return false
+            endSwipe(cancel = true)
+            mode = Mode.PINCH
+            pinch = 1f
+            return true
+        }
+
+        override fun onScale(detector: ScaleGestureDetector): Boolean {
+            pinch *= detector.scaleFactor
+            return true
+        }
+
+        override fun onScaleEnd(detector: ScaleGestureDetector) {
+            when {
+                pinch > 1.12f -> host.pinchAspect(fill = true)
+                pinch < 0.9f -> host.pinchAspect(fill = false)
+            }
+        }
+    }).apply {
+        // A double tap and drag would zoom instead of seeking.
+        isQuickScaleEnabled = false
+    }
 
     private var mode = Mode.NONE
     private var downX = 0f
@@ -53,8 +85,18 @@ internal class PlayerGestures(private val host: VideoPlayerActivity) {
     private val detector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent): Boolean = true
 
+        override fun onSingleTapUp(e: MotionEvent): Boolean {
+            // Tapping on after a double tap keeps seeking that way.
+            val side = sideOf(e.x) ?: return false
+            if (host.controls.locked || side == 0 || side != streakSide) return false
+            if (SystemClock.uptimeMillis() - streakAt > TAP_STREAK_MS || actionFor(side) != "seek") return false
+            seekTapDown = e.downTime
+            seekStreak(side)
+            return true
+        }
+
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-            host.controls.toggle()
+            if (e.downTime != seekTapDown) host.controls.toggle()
             return true
         }
 
@@ -70,7 +112,9 @@ internal class PlayerGestures(private val host: VideoPlayerActivity) {
     })
 
     fun onTouch(view: View, event: MotionEvent): Boolean {
-        detector.onTouchEvent(event)
+        scale.onTouchEvent(event)
+        // Two fingers belong to the pinch, not to taps and swipes.
+        if (mode != Mode.PINCH && !scale.isInProgress) detector.onTouchEvent(event)
         if (host.controls.locked) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -78,7 +122,9 @@ internal class PlayerGestures(private val host: VideoPlayerActivity) {
                 downY = event.y
                 mode = Mode.NONE
             }
+            MotionEvent.ACTION_POINTER_DOWN -> endSwipe(cancel = true)
             MotionEvent.ACTION_MOVE -> {
+                if (event.pointerCount > 1 || mode == Mode.PINCH) return true
                 val dx = event.x - downX
                 val dy = event.y - downY
                 if (mode == Mode.NONE && (abs(dx) > slop || abs(dy) > slop)) start(view, dx, dy)
@@ -90,22 +136,28 @@ internal class PlayerGestures(private val host: VideoPlayerActivity) {
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                when (mode) {
-                    Mode.SEEK -> {
-                        if (event.actionMasked == MotionEvent.ACTION_UP) host.player.seekTo(seekTarget)
-                        host.hideHint()
-                    }
-                    Mode.HOLD -> endHold()
-                    Mode.BRIGHTNESS, Mode.VOLUME -> {
-                        host.main.removeCallbacks(hideBars)
-                        host.main.postDelayed(hideBars, 800)
-                    }
-                    else -> {}
-                }
+                endSwipe(cancel = event.actionMasked == MotionEvent.ACTION_CANCEL)
                 mode = Mode.NONE
             }
         }
         return true
+    }
+
+    /** Finishes a swipe: a seek lands where it was dragged to, unless `cancel`. */
+    private fun endSwipe(cancel: Boolean) {
+        when (mode) {
+            Mode.SEEK -> {
+                if (!cancel) host.player.seekTo(seekTarget)
+                host.hideHint()
+            }
+            Mode.HOLD -> endHold()
+            Mode.BRIGHTNESS, Mode.VOLUME -> {
+                host.main.removeCallbacks(hideBars)
+                host.main.postDelayed(hideBars, 800)
+            }
+            else -> {}
+        }
+        mode = if (cancel) Mode.IGNORE else Mode.NONE
     }
 
     /** Decides what a swipe does from its direction and where it started. */
@@ -186,20 +238,28 @@ internal class PlayerGestures(private val host: VideoPlayerActivity) {
         host.setBoost(0f)
     }
 
-    private fun doubleTap(x: Float) {
-        val width = host.playerView.width.takeIf { it > 0 } ?: return
-        val side = when {
+    /** -1 for the left two fifths of the picture, 1 for the right ones, 0 between. */
+    private fun sideOf(x: Float): Int? {
+        val width = host.playerView.width.takeIf { it > 0 } ?: return null
+        return when {
             x < width * 2f / 5f -> -1
             x > width * 3f / 5f -> 1
             else -> 0
         }
+    }
+
+    private fun actionFor(side: Int): String {
         val prefs = host.prefs
-        val action = when (side) {
+        return when (side) {
             -1 -> prefs.doubleTapLeft
             1 -> prefs.doubleTapRight
             else -> prefs.doubleTapCenter
         }
-        when (action) {
+    }
+
+    private fun doubleTap(x: Float) {
+        val side = sideOf(x) ?: return
+        when (actionFor(side)) {
             "seek" -> if (side == 0) host.togglePlay() else seekStreak(side)
             "playPause" -> host.togglePlay()
             "switchEpisode" -> when (side) {
@@ -220,7 +280,7 @@ internal class PlayerGestures(private val host: VideoPlayerActivity) {
         streakAt = now
         host.seekBy(side * step)
         val seconds = streakMs / 1000
-        host.showHint(if (side < 0) "« $seconds s" else "$seconds s »")
+        host.showSeekHint(side, if (side < 0) "« $seconds s" else "$seconds s »")
     }
 
     private fun startHold() {

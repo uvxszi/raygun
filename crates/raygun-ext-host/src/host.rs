@@ -11,11 +11,13 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 
+use futures_util::StreamExt;
+use futures_util::stream::FuturesUnordered;
 use raygun_model::{
     ArtistEvent, ExtensionInfo, ExtensionOrigin, ExtensionSetting, ExtensionStatus, LyricLine,
-    Lyrics, MediaSource, MusicAlbum, MusicAlbumDetail, MusicArtist, MusicChart, MusicPlaylist,
-    MusicPlaylistDetail, OnlineTrack, ProviderInfo, ProviderSearchResult, SettingKind,
-    SettingValue, TrackQuery,
+    Lyrics, LyricsTranslation, LyricsTranslationKind, LyricsTranslationOrigin, MediaSource,
+    MusicAlbum, MusicAlbumDetail, MusicArtist, MusicChart, MusicPlaylist, MusicPlaylistDetail,
+    OnlineTrack, ProviderInfo, ProviderSearchResult, SettingKind, SettingValue, TrackQuery,
 };
 use raygun_resolver::Candidate;
 use serde::Deserialize;
@@ -303,37 +305,67 @@ impl ExtensionHost {
     pub async fn search_music(&self, query: &str, limit: u32) -> Vec<ProviderSearchResult> {
         let providers = self.providers(MUSIC_METADATA).await;
         let args = serde_json::json!({ "query": query, "limit": limit });
-        let searches = providers.into_iter().map(|provider| {
-            let args = args.clone();
-            async move {
-                let started = std::time::Instant::now();
-                match self.call_interactive(&provider.id, "search", args).await {
-                    Ok(value) => {
-                        let tracks = self.tracks(value);
-                        tracing::info!(
-                            provider = %provider.id,
-                            tracks = tracks.len(),
-                            elapsed_ms = started.elapsed().as_millis(),
-                            "search answered"
-                        );
-                        ProviderSearchResult {
-                            tracks,
-                            provider,
-                            error: None,
-                        }
-                    }
-                    Err(error) => {
-                        tracing::warn!(provider = %provider.id, %error, "search failed");
-                        ProviderSearchResult {
-                            provider,
-                            tracks: Vec::new(),
-                            error: Some(error.to_string()),
-                        }
-                    }
+        let searches = providers
+            .into_iter()
+            .map(|provider| self.search_provider(provider, args.clone()));
+        futures_util::future::join_all(searches).await
+    }
+
+    /// [`Self::search_music`] for a search someone watches: each provider's answer goes to
+    /// `report` as soon as it comes, with how many providers were asked, so the first answers
+    /// show before the slowest provider's. The answers come back in the order they came.
+    pub async fn search_music_as_answered(
+        &self,
+        query: &str,
+        limit: u32,
+        report: impl Fn(&ProviderSearchResult, usize),
+    ) -> Vec<ProviderSearchResult> {
+        let providers = self.providers(MUSIC_METADATA).await;
+        let total = providers.len();
+        let args = serde_json::json!({ "query": query, "limit": limit });
+        let mut searches: FuturesUnordered<_> = providers
+            .into_iter()
+            .map(|provider| self.search_provider(provider, args.clone()))
+            .collect();
+        let mut answers = Vec::with_capacity(total);
+        while let Some(answer) = searches.next().await {
+            report(&answer, total);
+            answers.push(answer);
+        }
+        answers
+    }
+
+    /// One provider's songs for a search, or why it failed.
+    async fn search_provider(
+        &self,
+        provider: ProviderInfo,
+        args: serde_json::Value,
+    ) -> ProviderSearchResult {
+        let started = std::time::Instant::now();
+        match self.call_interactive(&provider.id, "search", args).await {
+            Ok(value) => {
+                let tracks = self.tracks(value);
+                tracing::info!(
+                    provider = %provider.id,
+                    tracks = tracks.len(),
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "search answered"
+                );
+                ProviderSearchResult {
+                    tracks,
+                    provider,
+                    error: None,
                 }
             }
-        });
-        futures_util::future::join_all(searches).await
+            Err(error) => {
+                tracing::warn!(provider = %provider.id, %error, "search failed");
+                ProviderSearchResult {
+                    provider,
+                    tracks: Vec::new(),
+                    error: Some(error.to_string()),
+                }
+            }
+        }
     }
 
     /// Asks every `music.stream` provider at once for candidates for `query`.
@@ -443,43 +475,64 @@ impl ExtensionHost {
     pub async fn search_artists(&self, query: &str, limit: u32) -> Vec<MusicArtist> {
         let answers = self.ask_metadata("searchArtists", query, limit).await;
         answers
-            .into_iter()
-            .flat_map(|(provider, value)| {
-                value
-                    .get("artists")
-                    .and_then(serde_json::Value::as_array)
-                    .cloned()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(move |artist| {
-                        let name = artist.get("name")?.as_str()?.trim().to_owned();
-                        let id = json_id(artist.get("id"))?;
-                        (!name.is_empty()).then(|| MusicArtist {
-                            provider: provider.clone(),
-                            id,
-                            name,
-                            image_url: web_url(artist.get("imageUrl")),
-                        })
-                    })
-            })
+            .iter()
+            .flat_map(|(provider, value)| artists_in(provider, value))
             .collect()
+    }
+
+    /// [`Self::search_artists`] for a search someone watches: each provider's artists go to
+    /// `report` as they come, with how many providers were asked.
+    pub async fn search_artists_as_answered(
+        &self,
+        query: &str,
+        limit: u32,
+        report: impl Fn(&ProviderInfo, &[MusicArtist], usize),
+    ) -> Vec<MusicArtist> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Vec::new();
+        }
+        let args = serde_json::json!({ "query": query, "limit": limit });
+        let mut found = Vec::new();
+        self.ask_metadata_as_answered("searchArtists", args, |provider, value, total| {
+            let artists = value.map_or_else(Vec::new, |value| artists_in(provider, value));
+            report(provider, &artists, total);
+            found.extend(artists);
+        })
+        .await;
+        found
     }
 
     /// Albums for `query` from every `music.metadata` provider that searches albums (M46.9).
     pub async fn search_albums(&self, query: &str, limit: u32) -> Vec<MusicAlbum> {
         let answers = self.ask_metadata("searchAlbums", query, limit).await;
         answers
-            .into_iter()
-            .flat_map(|(provider, value)| {
-                value
-                    .get("albums")
-                    .and_then(serde_json::Value::as_array)
-                    .cloned()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(move |album| parse_album(&provider, &album))
-            })
+            .iter()
+            .flat_map(|(provider, value)| albums_in(provider, value, "albums"))
             .collect()
+    }
+
+    /// [`Self::search_albums`] for a search someone watches: each provider's albums go to
+    /// `report` as they come, with how many providers were asked.
+    pub async fn search_albums_as_answered(
+        &self,
+        query: &str,
+        limit: u32,
+        report: impl Fn(&ProviderInfo, &[MusicAlbum], usize),
+    ) -> Vec<MusicAlbum> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Vec::new();
+        }
+        let args = serde_json::json!({ "query": query, "limit": limit });
+        let mut found = Vec::new();
+        self.ask_metadata_as_answered("searchAlbums", args, |provider, value, total| {
+            let albums = value.map_or_else(Vec::new, |value| albums_in(provider, value, "albums"));
+            report(provider, &albums, total);
+            found.extend(albums);
+        })
+        .await;
+        found
     }
 
     /// An artist's releases (M46.36: albums, singles, EPs...) from every `music.metadata` provider
@@ -487,16 +540,8 @@ impl ExtensionHost {
     pub async fn artist_releases(&self, name: &str, limit: u32) -> Vec<MusicAlbum> {
         let answers = self.ask_metadata("artistReleases", name, limit).await;
         answers
-            .into_iter()
-            .flat_map(|(provider, value)| {
-                value
-                    .get("releases")
-                    .and_then(serde_json::Value::as_array)
-                    .cloned()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(move |album| parse_album(&provider, &album))
-            })
+            .iter()
+            .flat_map(|(provider, value)| albums_in(provider, value, "releases"))
             .collect()
     }
 
@@ -533,17 +578,61 @@ impl ExtensionHost {
             .await
             .into_iter()
             .flatten()
-            .flat_map(|(provider, value)| {
-                value
-                    .get("playlists")
-                    .and_then(serde_json::Value::as_array)
-                    .cloned()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(move |playlist| parse_playlist(&provider, &playlist))
-            })
-            .filter(|playlist| !featured || playlist.featured)
+            .flat_map(|(provider, value)| playlists_in(&provider, &value, featured))
             .collect()
+    }
+
+    /// [`Self::search_playlists`] for a search someone watches: each provider's playlists go to
+    /// `report` as they come, with how many providers were asked.
+    pub async fn search_playlists_as_answered(
+        &self,
+        query: &str,
+        featured: bool,
+        limit: u32,
+        report: impl Fn(&ProviderInfo, &[MusicPlaylist], usize),
+    ) -> Vec<MusicPlaylist> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Vec::new();
+        }
+        let args = serde_json::json!({ "query": query, "limit": limit, "featured": featured });
+        let mut found = Vec::new();
+        self.ask_metadata_as_answered("searchPlaylists", args, |provider, value, total| {
+            let playlists =
+                value.map_or_else(Vec::new, |value| playlists_in(provider, value, featured));
+            report(provider, &playlists, total);
+            found.extend(playlists);
+        })
+        .await;
+        found
+    }
+
+    /// Asks every `music.metadata` provider for `method` at once, handing each one's answer to
+    /// `report` as it comes (`None` when it failed or lacks the call), with how many were asked.
+    async fn ask_metadata_as_answered(
+        &self,
+        method: &str,
+        args: serde_json::Value,
+        mut report: impl FnMut(&ProviderInfo, Option<&serde_json::Value>, usize),
+    ) {
+        let providers = self.providers(MUSIC_METADATA).await;
+        let total = providers.len();
+        let mut requests: FuturesUnordered<_> = providers
+            .into_iter()
+            .map(|provider| {
+                let args = args.clone();
+                async move {
+                    let answer = self.call_interactive(&provider.id, method, args).await;
+                    if let Err(error) = &answer {
+                        log_unless_missing(&provider, method, error);
+                    }
+                    (provider, answer.ok())
+                }
+            })
+            .collect();
+        while let Some((provider, value)) = requests.next().await {
+            report(&provider, value.as_ref(), total);
+        }
     }
 
     /// An artist's coming events (M46.42) from every `music.metadata` provider that lists them
@@ -908,6 +997,14 @@ impl Extension {
         }
     }
 
+    /// Its settings: the manifest's, and for a Miru script those it registered.
+    fn settings(&self) -> Vec<manifest::SettingDef> {
+        match self {
+            Self::Js(extension) => extension.settings(),
+            Self::Shosetsu(extension) => extension.manifest().settings.clone(),
+        }
+    }
+
     fn providers(&self) -> Vec<ProviderInfo> {
         match self {
             Self::Js(extension) => extension.providers(),
@@ -982,15 +1079,39 @@ impl HostState {
                 let _ = reply.send(infos);
             }
             Request::List { reply } => {
-                let _ = reply.send(self.infos.borrow().clone());
+                let mut infos = self.infos.borrow().clone();
+                // A Miru script registers settings while it sets up, which may end after loading.
+                let loaded = self.loaded.borrow();
+                for info in &mut infos {
+                    if let Some(loaded) = loaded.get(&info.id)
+                        && loaded.extension.manifest().runtime == Runtime::Miru
+                    {
+                        info.settings = settings_info(&loaded.extension);
+                    }
+                }
+                let _ = reply.send(infos);
             }
             Request::Call {
                 provider,
                 method,
                 args,
-                reply,
+                mut reply,
             } => {
-                let _ = reply.send(self.call(&provider, &method, &args).await);
+                // A caller that stopped waiting (a search that timed out, or one a newer search
+                // replaced) doesn't keep the extension busy: its call is dropped, and the calls
+                // queued behind it run.
+                let answer = tokio::select! {
+                    answer = self.call(&provider, &method, &args) => Some(answer),
+                    () = reply.closed() => None,
+                };
+                match answer {
+                    Some(answer) => {
+                        let _ = reply.send(answer);
+                    }
+                    None => {
+                        tracing::debug!(%provider, %method, "call dropped: nobody waits for it")
+                    }
+                }
             }
         }
     }
@@ -1026,6 +1147,8 @@ impl HostState {
         }
 
         self.loaded.borrow_mut().clear();
+        let mut scripts = Vec::new();
+        let mut others = Vec::new();
         for (id, (source, manifest)) in chosen {
             let origin = source.origin;
             let (name, version) = (manifest.name.clone(), manifest.version.to_string());
@@ -1033,7 +1156,31 @@ impl HostState {
             // offered (M46.9.1).
             let compatibility = manifest.nuclear.as_ref().and_then(compat_report);
             let user_settings = settings.remove(&id).unwrap_or_default();
-            match self.load_one(source, manifest, user_settings).await {
+            let shosetsu = manifest.runtime == Runtime::Shosetsu;
+            let load = async move {
+                let result = self.load_one(source, manifest, user_settings).await;
+                (id, origin, name, version, compatibility, result)
+            };
+            if shosetsu {
+                scripts.push(load);
+            } else {
+                others.push(load);
+            }
+        }
+        // Shosetsu scripts load on threads of their own, so they all start at once; JavaScript
+        // extensions share this thread and load one after another.
+        let (mut results, rest) =
+            futures_util::future::join(futures_util::future::join_all(scripts), async {
+                let mut done = Vec::new();
+                for load in others {
+                    done.push(load.await);
+                }
+                done
+            })
+            .await;
+        results.extend(rest);
+        for (id, origin, name, version, compatibility, result) in results {
+            match result {
                 Ok(extension) => {
                     let info = loaded_info(&extension, origin);
                     tracing::info!(extension = %id, providers = info.providers.len(), "extension loaded");
@@ -1072,13 +1219,17 @@ impl HostState {
             .map(|dir| dir.join(&manifest.id));
         let cookies = CookieJar::open(data_dir.as_ref().map(|dir| dir.join("cookies.json")));
         if manifest.runtime == Runtime::Shosetsu {
-            let load = ShosetsuExtension::load(manifest, source, cookies);
+            // A script's settings come from the script itself, so they're checked there.
+            let load = ShosetsuExtension::load(manifest, source, cookies, user_settings);
             return tokio::time::timeout(self.config.call_timeout, load)
                 .await
                 .map_err(|_| "loading timed out".to_owned())?
                 .map(|extension| Extension::Shosetsu(Box::new(extension)));
         }
-        user_settings.retain(|key, value| manifest.check_setting(key, value).is_ok());
+        // A Miru script declares its settings as it runs: its values are checked when listed.
+        if manifest.runtime != Runtime::Miru {
+            user_settings.retain(|key, value| manifest.check_setting(key, value).is_ok());
+        }
         let code = source.read(&manifest.entry)?;
         let storage = KvStore::open(data_dir.map(|dir| dir.join("storage.json")));
         let load = JsExtension::load(
@@ -1132,9 +1283,41 @@ impl HostState {
     }
 }
 
+/// An extension's settings with their values; a stored value that no longer fits (a choice the
+/// extension dropped) reads as the default.
+fn settings_info(extension: &Extension) -> Vec<ExtensionSetting> {
+    let values = extension.user_settings();
+    extension
+        .settings()
+        .iter()
+        .map(|setting| {
+            let default = setting.default.as_ref().and_then(SettingValue::from_json);
+            ExtensionSetting {
+                key: setting.key.clone(),
+                label: setting
+                    .label
+                    .clone()
+                    .unwrap_or_else(|| key_label(&setting.key)),
+                kind: match setting.kind {
+                    manifest::SettingKind::Text => SettingKind::Text,
+                    manifest::SettingKind::Number => SettingKind::Number,
+                    manifest::SettingKind::Boolean => SettingKind::Boolean,
+                    manifest::SettingKind::Select => SettingKind::Select,
+                },
+                options: setting.options.clone(),
+                value: values
+                    .get(&setting.key)
+                    .filter(|value| setting.accepts(value))
+                    .and_then(SettingValue::from_json)
+                    .or_else(|| default.clone()),
+                default,
+            }
+        })
+        .collect()
+}
+
 fn loaded_info(extension: &Extension, origin: ExtensionOrigin) -> ExtensionInfo {
     let manifest = extension.manifest();
-    let values = extension.user_settings();
     ExtensionInfo {
         id: manifest.id.clone(),
         name: manifest.name.clone(),
@@ -1155,32 +1338,7 @@ fn loaded_info(extension: &Extension, origin: ExtensionOrigin) -> ExtensionInfo 
         compatibility: manifest.nuclear.as_ref().and_then(compat_report),
         icon: None,
         website: extension.website(),
-        settings: manifest
-            .settings
-            .iter()
-            .map(|setting| {
-                let default = setting.default.as_ref().and_then(SettingValue::from_json);
-                ExtensionSetting {
-                    key: setting.key.clone(),
-                    label: setting
-                        .label
-                        .clone()
-                        .unwrap_or_else(|| key_label(&setting.key)),
-                    kind: match setting.kind {
-                        manifest::SettingKind::Text => SettingKind::Text,
-                        manifest::SettingKind::Number => SettingKind::Number,
-                        manifest::SettingKind::Boolean => SettingKind::Boolean,
-                        manifest::SettingKind::Select => SettingKind::Select,
-                    },
-                    options: setting.options.clone(),
-                    value: values
-                        .get(&setting.key)
-                        .and_then(SettingValue::from_json)
-                        .or_else(|| default.clone()),
-                    default,
-                }
-            })
-            .collect(),
+        settings: settings_info(extension),
     }
 }
 
@@ -1405,6 +1563,55 @@ fn web_url(value: Option<&serde_json::Value>) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// The artists in a provider's `{ artists: [{ id, name, imageUrl? }] }` answer.
+fn artists_in(provider: &ProviderInfo, value: &serde_json::Value) -> Vec<MusicArtist> {
+    value
+        .get("artists")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|artist| {
+            let name = artist.get("name")?.as_str()?.trim().to_owned();
+            let id = json_id(artist.get("id"))?;
+            (!name.is_empty()).then(|| MusicArtist {
+                provider: provider.clone(),
+                id,
+                name,
+                image_url: web_url(artist.get("imageUrl")),
+            })
+        })
+        .collect()
+}
+
+/// The albums listed under `key` in a provider's answer (`albums`, or `releases` for an
+/// artist's discography).
+fn albums_in(provider: &ProviderInfo, value: &serde_json::Value, key: &str) -> Vec<MusicAlbum> {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|album| parse_album(provider, album))
+        .collect()
+}
+
+/// The playlists in a provider's `{ playlists: [...] }` answer; only the services' own when
+/// `featured`.
+fn playlists_in(
+    provider: &ProviderInfo,
+    value: &serde_json::Value,
+    featured: bool,
+) -> Vec<MusicPlaylist> {
+    value
+        .get("playlists")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|playlist| parse_playlist(provider, playlist))
+        .filter(|playlist| !featured || playlist.featured)
+        .collect()
+}
+
 /// Reads `{ id, title, author?, artworkUrl?, trackCount?, featured? }` (M46.39).
 fn parse_playlist(provider: &ProviderInfo, playlist: &serde_json::Value) -> Option<MusicPlaylist> {
     let title = playlist.get("title")?.as_str()?.trim().to_owned();
@@ -1539,43 +1746,128 @@ struct RawLine {
     text: String,
 }
 
-/// Reads `{ synced?: [{ timeMs, text }], plain? }`. Lines with bad times are dropped and the rest
-/// sorted; an answer with neither synced lines nor plain text counts as "no lyrics".
+/// Translations a lyrics answer may carry, at most.
+const MAX_LYRICS_TRANSLATIONS: usize = 8;
+/// A translated line longer than this is cut.
+const MAX_TRANSLATED_LINE_CHARS: usize = 1_000;
+
+/// Reads `{ synced?: [{ timeMs, text }], plain?, translations?: [{ language, kind?, lines }] }`.
+/// Lines with bad times are dropped and the rest sorted; an answer with neither synced lines nor
+/// plain text counts as "no lyrics". A translation's `lines[i]` belongs to `synced[i]` as the
+/// provider gave it (M46.48), or to the plain text's i-th line; it follows its line through the
+/// sorting.
 fn parse_lyrics(provider: &ProviderInfo, value: &serde_json::Value) -> Option<Lyrics> {
     if value.is_null() {
         return None;
     }
-    let mut synced: Vec<LyricLine> = value
+    // Each kept line with its place in the provider's list.
+    let mut synced: Vec<(usize, LyricLine)> = value
         .get("synced")
         .and_then(serde_json::Value::as_array)
         .map(|lines| {
             lines
                 .iter()
-                .filter_map(|line| serde_json::from_value::<RawLine>(line.clone()).ok())
-                .filter(|line| line.time_ms.is_finite() && line.time_ms >= 0.0)
-                .map(|line| LyricLine {
-                    time_ms: line.time_ms.min(f64::from(u32::MAX)) as u32,
-                    text: line.text.trim().to_owned(),
+                .enumerate()
+                .filter_map(|(index, line)| {
+                    let line = serde_json::from_value::<RawLine>(line.clone()).ok()?;
+                    (line.time_ms.is_finite() && line.time_ms >= 0.0).then(|| {
+                        let line = LyricLine {
+                            time_ms: line.time_ms.min(f64::from(u32::MAX)) as u32,
+                            text: line.text.trim().to_owned(),
+                        };
+                        (index, line)
+                    })
                 })
                 .collect()
         })
         .unwrap_or_default();
-    synced.sort_by_key(|line| line.time_ms);
-    let plain = value
-        .get("plain")
-        .and_then(serde_json::Value::as_str)
+    synced.sort_by_key(|(_, line)| line.time_ms);
+    let raw_plain = value.get("plain").and_then(serde_json::Value::as_str);
+    let plain = raw_plain
         .map(str::trim)
         .filter(|text| !text.is_empty())
         .map(str::to_owned);
-    if synced.iter().all(|line| line.text.is_empty()) && plain.is_none() {
+    if synced.iter().all(|(_, line)| line.text.is_empty()) && plain.is_none() {
         return None;
     }
+    // Where each line the translations line up with sat in the provider's list.
+    let places: Vec<usize> = if synced.is_empty() {
+        let leading = raw_plain.map_or(0, |raw| {
+            raw[..raw.len() - raw.trim_start().len()]
+                .matches('\n')
+                .count()
+        });
+        let count = plain.as_deref().map_or(0, |plain| plain.lines().count());
+        (leading..leading + count).collect()
+    } else {
+        synced.iter().map(|(index, _)| *index).collect()
+    };
+    let translations = value
+        .get("translations")
+        .and_then(serde_json::Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|translation| parse_translation(provider, translation, &places))
+                .take(MAX_LYRICS_TRANSLATIONS)
+                .collect()
+        })
+        .unwrap_or_default();
     Some(Lyrics {
         provider_name: provider.name.clone(),
-        synced,
+        synced: synced.into_iter().map(|(_, line)| line).collect(),
         plain,
         offset_ms: 0,
         edited: false,
+        translations,
+    })
+}
+
+/// One of a lyrics answer's translations, its lines picked for `places` (the provider's indices
+/// of the kept lines). `None` when it's malformed or every line is empty.
+fn parse_translation(
+    provider: &ProviderInfo,
+    value: &serde_json::Value,
+    places: &[usize],
+) -> Option<LyricsTranslation> {
+    let language = value.get("language")?.as_str()?.trim();
+    let tag_like = (2..=35).contains(&language.len())
+        && language
+            .split('-')
+            .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_alphanumeric()));
+    if !tag_like {
+        return None;
+    }
+    let kind = match value.get("kind").and_then(serde_json::Value::as_str) {
+        None | Some("translation") => LyricsTranslationKind::Translation,
+        Some("romanization") => LyricsTranslationKind::Romanization,
+        Some(_) => return None,
+    };
+    let given = value.get("lines")?.as_array()?;
+    let lines: Vec<String> = places
+        .iter()
+        .map(|place| {
+            given
+                .get(*place)
+                .and_then(serde_json::Value::as_str)
+                .map(|line| {
+                    line.trim()
+                        .chars()
+                        .take(MAX_TRANSLATED_LINE_CHARS)
+                        .collect()
+                })
+                .unwrap_or_default()
+        })
+        .collect();
+    if lines.iter().all(String::is_empty) {
+        return None;
+    }
+    Some(LyricsTranslation {
+        language: language.to_owned(),
+        kind,
+        origin: LyricsTranslationOrigin::Source,
+        by: provider.name.clone(),
+        translator: String::new(),
+        lines,
     })
 }
 

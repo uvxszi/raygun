@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
 import { PrefBlock, PrefChoice, PrefGroup, PrefSwitch } from './prefs';
+import { Problem } from './Problem';
 import { useSettings, useUpdateSetting } from './useSettings';
 
 const USAGE = ['lyricsCache'] as const;
@@ -60,6 +61,7 @@ export const LyricsStorage: FC = () => {
             ? t('lyricsCache.usage', {
                 songs: usage.data.songs,
                 transcriptions: usage.data.transcriptions,
+                translations: usage.data.translations ?? 0,
               })
             : ''}
         </p>
@@ -95,16 +97,17 @@ export const LyricsStorage: FC = () => {
           </p>
         )}
         {clear.error && (
-          <p role="alert" className="text-primary mt-2 text-xs">
-            {clear.error.message}
-          </p>
+          <Problem
+            title={t('lyricsCache.clearFailed')}
+            detail={clear.error.message}
+            className="mt-2"
+          />
         )}
       </PrefBlock>
       {settings.data && (
         <>
           <PrefChoice<number>
             title={t('lyricsCache.forget')}
-            summary={t('lyricsCache.forgetHint')}
             value={prefs.forgetAfterDays}
             options={DAYS.map((value) => ({
               value,

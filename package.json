@@ -18,7 +18,7 @@
     "format:check": "prettier --check .",
     "bindings": "cargo run -p raygun-app --bin export-bindings",
     "build:extensions": "pnpm --filter \"./extensions/*\" build",
-    "repo:publish": "pnpm --workspace-concurrency=1 --filter \"./extensions/*\" pack:repo",
+    "repo:publish": "node packages/sdk/bin/raygun-ext.mjs pack-all extensions --repo repo",
     "i18n:import": "node scripts/i18n-import.mjs"
   },
   "devDependencies": {

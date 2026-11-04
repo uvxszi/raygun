@@ -7,12 +7,18 @@ import type {
   EngineCommand,
   ExportJob,
   ExtensionInfo,
+  IncognitoStatus,
+  HiddenItem,
+  HiddenPrefs,
   LibraryScanProgress,
   LibraryStatus,
+  LyricsTranslationProgress,
   MangaUpdateStatus,
   PlaybackState,
   QueueSnapshot,
+  SearchProgress,
   Settings,
+  SongDownload,
   SpeechCommand,
   StorageInfo,
   TrackDuration,
@@ -43,6 +49,7 @@ type EventPayloads = {
   queueEvent: QueueSnapshot;
   libraryScanEvent: LibraryScanProgress;
   extensionsChangedEvent: ExtensionInfo[];
+  searchProgressEvent: SearchProgress;
   syncChangedEvent: number;
   mangaUpdateEvent: MangaUpdateStatus;
   mangaDownloadsEvent: string;
@@ -52,12 +59,15 @@ type EventPayloads = {
   watchChangedEvent: string;
   videoDownloadsEvent: string;
   songDownloadsEvent: string;
+  songDownloadProgressEvent: SongDownload;
   madeForYouEvent: null;
   trackDurationsEvent: TrackDuration[];
   importEvent: string;
   captionsEvent: string;
+  lyricsTranslationEvent: LyricsTranslationProgress;
   localFilesEvent: string;
   settingsChangedEvent: string;
+  incognitoEvent: IncognitoStatus;
   artistReleasesEvent: null;
   exportEvent: ExportJob | null;
   videoPlayerEvent: VideoPlayerMessage;
@@ -107,6 +117,9 @@ export const IDLE_STATE: PlaybackState = {
 
 export const EMPTY_QUEUE: QueueSnapshot = { items: [], order: [] };
 
+/** Incognito off (M47). */
+export const INCOGNITO_OFF: IncognitoStatus = { on: false, sinceMs: null };
+
 export const ANDROID_INFO: AppInfo = {
   name: 'Raygun',
   version: '0.1.0',
@@ -127,13 +140,14 @@ export const DEFAULT_SETTINGS: Settings = {
   language: 'en',
   showNsfw: false,
   explicitMusic: true,
-  privacy: { history: true, recentlyPlayed: true },
+  privacy: { history: true, recentlyPlayed: true, searchHistory: true },
+  hidden: { artists: [], items: [] },
   lyricsCache: { forgetAfterDays: 30, keepFavorites: true, keepDownloaded: true, keepLocal: true },
+  lyricsTranslation: { language: '', automatic: true, romanized: false, localModel: '' },
   preferredVideoQuality: null,
   accent: 'red',
   startScreen: 'home',
   navLabels: 'always',
-  gridColumns: 0,
   coverStyle: 'compact',
   unreadBadges: true,
   downloadBadges: true,
@@ -157,9 +171,9 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   layout: LAYOUT_DEFAULTS,
   accentColor: '#e5484d',
-  coverWidth: 0,
-  mangaReader: { pagedScale: 'fitScreen', webtoonWidth: 0 },
-  playerView: { layout: 'auto', width: 0 },
+  coverSize: 0,
+  mangaReader: { pagedScale: 'fitScreen', webtoonSize: 0 },
+  playerView: { layout: 'auto', widthOffset: 0 },
   scrollbars: 'thin',
   motion: 'lively',
   trackTables: { tables: {} },
@@ -198,7 +212,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   mangaUpdateHours: 12,
   novelReader: {
-    fontSize: 18,
+    textSize: 0,
     lineSpacing: 16,
     font: 'serif',
     width: 'narrow',
@@ -232,6 +246,9 @@ export const bindingsMock = {
     madeForYou: vi.fn(),
     madeForYouMix: vi.fn(),
     madeForYouSave: vi.fn(),
+    hiddenArtistSet: vi.fn(),
+    hiddenItemSet: vi.fn(),
+    hiddenClear: vi.fn(),
     importReadLink: vi.fn(),
     importReadText: vi.fn(),
     importReaderReady: vi.fn(),
@@ -242,6 +259,8 @@ export const bindingsMock = {
     coverSave: vi.fn(),
     detailEdit: vi.fn(),
     trackAssignSource: vi.fn(),
+    trackUseSource: vi.fn(),
+    trackImportStatus: vi.fn(),
     spokenItem: vi.fn(),
     captions: vi.fn(),
     captionsVideoTranscribe: vi.fn(),
@@ -259,6 +278,7 @@ export const bindingsMock = {
     localFolderAdd: vi.fn(),
     localFolderRemove: vi.fn(),
     localFoldersRescan: vi.fn(),
+    localFilesAllowAccess: vi.fn(),
     importSave: vi.fn(),
     audiobooks: vi.fn(),
     audiobook: vi.fn(),
@@ -279,6 +299,7 @@ export const bindingsMock = {
     artistUnfollow: vi.fn(),
     artistSetAlerts: vi.fn(),
     artistReleaseNews: vi.fn(),
+    artistReleasesCheck: vi.fn(),
     musicArtistEvents: vi.fn(),
     coverFallback: vi.fn(),
     musicSearchPlaylists: vi.fn(),
@@ -292,6 +313,9 @@ export const bindingsMock = {
     lyricsForget: vi.fn(),
     lyricsCacheUsage: vi.fn(),
     lyricsCacheClear: vi.fn(),
+    lyricsTranslate: vi.fn(),
+    lyricsTranslateOptions: vi.fn(),
+    lyricsTranslationPick: vi.fn(),
     songDownloadCancelRecording: vi.fn(),
     songDownloadUseSource: vi.fn(),
     youtubeLink: vi.fn(),
@@ -311,8 +335,14 @@ export const bindingsMock = {
     devicesSetSharing: vi.fn(),
     captionsUseFeed: vi.fn(),
     songDownloads: vi.fn(),
+    songDownload: vi.fn(),
     songDownloadRemove: vi.fn(),
+    songDownloadsRemove: vi.fn(),
     songDownloadRetry: vi.fn(),
+    songDownloadsRetryFailed: vi.fn(),
+    songDownloadsReorder: vi.fn(),
+    songDownloadsPaused: vi.fn(),
+    songDownloadsSetPaused: vi.fn(),
     songDownloadRecord: vi.fn(),
     songsSave: vi.fn(),
     songDownloadedKeys: vi.fn(),
@@ -325,6 +355,8 @@ export const bindingsMock = {
     storageInfo: vi.fn(),
     settingsGet: vi.fn(),
     settingsUpdate: vi.fn(),
+    settingsUpdateMany: vi.fn(),
+    settingsDefaults: vi.fn(),
     playbackGetState: vi.fn(),
     playbackGetQueue: vi.fn(),
     playbackEnqueue: vi.fn(),
@@ -349,6 +381,7 @@ export const bindingsMock = {
     extensionOpenWebsite: vi.fn(),
     extensionRepos: vi.fn(),
     extensionRepoAdd: vi.fn(),
+    extensionRepoPreview: vi.fn(),
     extensionSuggestedRepos: vi.fn(),
     extensionRepoRemove: vi.fn(),
     extensionCatalog: vi.fn(),
@@ -356,12 +389,17 @@ export const bindingsMock = {
     extensionUninstall: vi.fn(),
     extensionSettingSet: vi.fn(),
     onlineSearch: vi.fn(),
+    searchRecent: vi.fn(),
+    searchRecentAdd: vi.fn(),
+    searchRecentRemove: vi.fn(),
+    searchRecentClear: vi.fn(),
     lyricsGet: vi.fn(),
     songEditGet: vi.fn(),
     songEditSet: vi.fn(),
     favoritesList: vi.fn(),
     favoriteGet: vi.fn(),
     collectionsSaves: vi.fn(),
+    collectionsSavedIndex: vi.fn(),
     collectionsSetSaves: vi.fn(),
     musicArtist: vi.fn(),
     musicArtistInfo: vi.fn(),
@@ -389,6 +427,8 @@ export const bindingsMock = {
     playlistMoveItem: vi.fn(),
     historyRecent: vi.fn(),
     historyClear: vi.fn(),
+    incognitoStatus: vi.fn(),
+    incognitoSetEnabled: vi.fn(),
     collectionPlay: vi.fn(),
     mcpStatus: vi.fn(),
     mcpSetEnabled: vi.fn(),
@@ -436,6 +476,7 @@ export const bindingsMock = {
     novelSetProgress: vi.fn(),
     novelSetRead: vi.fn(),
     novelImportEpub: vi.fn(),
+    novelImportEpubUpload: vi.fn(),
     ttsAvailable: vi.fn(),
     ttsSpeak: vi.fn(),
     ttsStop: vi.fn(),
@@ -474,6 +515,8 @@ export const bindingsMock = {
     librarySetFavorite: vi.fn(),
     librarySetPinned: vi.fn(),
     libraryMarkRead: vi.fn(),
+    librarySetChaptersRead: vi.fn(),
+    libraryMarkPreviousRead: vi.fn(),
     libraryRemove: vi.fn(),
     libraryChangeCategories: vi.fn(),
     libraryDownloadNext: vi.fn(),
@@ -503,6 +546,7 @@ export const bindingsMock = {
     websiteEdit: vi.fn(),
     websiteRemove: vi.fn(),
     websiteReset: vi.fn(),
+    websiteSetBlockAds: vi.fn(),
     websiteOpen: vi.fn(),
     websiteBlocklistStatus: vi.fn(),
     websiteBlocklistUpdate: vi.fn(),
@@ -532,11 +576,18 @@ export const bindingsMock = {
     videoSetPlayerLabels: vi.fn(),
     stremioAddons: vi.fn(),
     stremioSuggestions: vi.fn(),
+    stremioPreview: vi.fn(),
     stremioAdd: vi.fn(),
     stremioRemove: vi.fn(),
+    stremioSetEnabled: vi.fn(),
+    stremioSetOrder: vi.fn(),
+    stremioConfigure: vi.fn(),
+    stremioOpenLink: vi.fn(),
+    stremioCatalogs: vi.fn(),
     stremioHome: vi.fn(),
     stremioCatalog: vi.fn(),
     stremioSearch: vi.fn(),
+    stremioSearchCatalog: vi.fn(),
     stremioMeta: vi.fn(),
     stremioStreams: vi.fn(),
     stremioPlay: vi.fn(),
@@ -557,6 +608,7 @@ export const bindingsMock = {
     queueEvent: makeEvent('queueEvent'),
     libraryScanEvent: makeEvent('libraryScanEvent'),
     extensionsChangedEvent: makeEvent('extensionsChangedEvent'),
+    searchProgressEvent: makeEvent('searchProgressEvent'),
     syncChangedEvent: makeEvent('syncChangedEvent'),
     mangaUpdateEvent: makeEvent('mangaUpdateEvent'),
     mangaDownloadsEvent: makeEvent('mangaDownloadsEvent'),
@@ -566,12 +618,15 @@ export const bindingsMock = {
     watchChangedEvent: makeEvent('watchChangedEvent'),
     videoDownloadsEvent: makeEvent('videoDownloadsEvent'),
     songDownloadsEvent: makeEvent('songDownloadsEvent'),
+    songDownloadProgressEvent: makeEvent('songDownloadProgressEvent'),
     madeForYouEvent: makeEvent('madeForYouEvent'),
     trackDurationsEvent: makeEvent('trackDurationsEvent'),
     importEvent: makeEvent('importEvent'),
     captionsEvent: makeEvent('captionsEvent'),
+    lyricsTranslationEvent: makeEvent('lyricsTranslationEvent'),
     localFilesEvent: makeEvent('localFilesEvent'),
     settingsChangedEvent: makeEvent('settingsChangedEvent'),
+    incognitoEvent: makeEvent('incognitoEvent'),
     artistReleasesEvent: makeEvent('artistReleasesEvent'),
     exportEvent: makeEvent('exportEvent'),
     videoPlayerEvent: makeEvent('videoPlayerEvent'),
@@ -618,7 +673,24 @@ export const seedBindings = () => {
   commands.ttsSetAvailable.mockResolvedValue(null);
   commands.videoPlayerExternal.mockResolvedValue({ status: 'ok', data: 'mpv' });
   commands.storageInfo.mockResolvedValue(MOBILE_STORAGE);
-  commands.settingsGet.mockResolvedValue({ status: 'ok', data: DEFAULT_SETTINGS });
+  // Saved changes are kept and read back, as Rust keeps them; tests may answer otherwise.
+  let stored: Settings = DEFAULT_SETTINGS;
+  commands.settingsGet.mockImplementation(async () => ({ status: 'ok', data: stored }));
+  const applied = async (changes: { key: string; value: unknown }[]) => {
+    const current = (await commands.settingsGet()) as { data: Settings } | undefined;
+    stored = changes.reduce<Settings>(
+      (next, change) => ({ ...next, [change.key]: change.value }),
+      current?.data ?? DEFAULT_SETTINGS,
+    );
+    return { status: 'ok' as const, data: stored };
+  };
+  commands.settingsUpdate.mockImplementation((change: { key: string; value: unknown }) =>
+    applied([change]),
+  );
+  commands.settingsUpdateMany.mockImplementation((changes: { key: string; value: unknown }[]) =>
+    applied(changes),
+  );
+  commands.settingsDefaults.mockResolvedValue(DEFAULT_SETTINGS);
   commands.playbackGetState.mockResolvedValue(IDLE_STATE);
   commands.playbackGetQueue.mockResolvedValue(EMPTY_QUEUE);
   commands.playbackEnqueue.mockResolvedValue(undefined);
@@ -648,6 +720,36 @@ export const seedBindings = () => {
     }),
   );
   commands.madeForYouSave.mockResolvedValue(ok('playlist-1'));
+  // Hiding saves into the settings, as Rust does, and answers with them.
+  const hide = async (change: (hidden: HiddenPrefs) => HiddenPrefs) => {
+    const answer = (await commands.settingsGet()) as { data?: Settings } | undefined;
+    const current = answer?.data ?? DEFAULT_SETTINGS;
+    const next = { ...current, hidden: change(current.hidden) };
+    commands.settingsGet.mockResolvedValue(ok(next));
+    return ok(next);
+  };
+  const same = (left: string, right: string) => left.toLowerCase() === right.toLowerCase();
+  commands.hiddenArtistSet.mockImplementation((name: string, hidden: boolean) =>
+    hide((prefs) => ({
+      ...prefs,
+      artists: [
+        ...prefs.artists.filter((artist) => !same(artist.name, name)),
+        ...(hidden ? [{ name, hiddenAt: 1 }] : []),
+      ],
+    })),
+  );
+  commands.hiddenItemSet.mockImplementation((item: HiddenItem, hidden: boolean) =>
+    hide((prefs) => ({
+      ...prefs,
+      items: [...prefs.items.filter((other) => other.key !== item.key), ...(hidden ? [item] : [])],
+    })),
+  );
+  commands.hiddenClear.mockImplementation((artists: boolean, items: boolean) =>
+    hide((prefs) => ({
+      artists: artists ? [] : prefs.artists,
+      items: items ? [] : prefs.items,
+    })),
+  );
   commands.importReaderReady.mockResolvedValue(true);
   commands.importMatch.mockResolvedValue(ok([]));
   commands.trackDurations.mockResolvedValue(ok([]));
@@ -657,6 +759,8 @@ export const seedBindings = () => {
   );
   commands.tracksUnavailable.mockResolvedValue(ok([]));
   commands.trackAssignSource.mockResolvedValue(ok(null));
+  commands.trackUseSource.mockResolvedValue(ok(null));
+  commands.trackImportStatus.mockResolvedValue(ok({ imported: false, unavailable: false }));
   commands.spokenItem.mockResolvedValue(ok(null));
   commands.captionsTranscribe.mockResolvedValue(ok(null));
   commands.captionsStop.mockResolvedValue(null);
@@ -684,6 +788,7 @@ export const seedBindings = () => {
   commands.localFolderAdd.mockResolvedValue(ok(null));
   commands.localFolderRemove.mockResolvedValue(ok([]));
   commands.localFoldersRescan.mockResolvedValue(ok(null));
+  commands.localFilesAllowAccess.mockResolvedValue(ok(true));
   commands.audiobooks.mockResolvedValue(ok([]));
   commands.audiobookDirectory.mockResolvedValue(ok({ books: [], hasMore: false }));
   commands.audiobookPlay.mockResolvedValue(ok(null));
@@ -700,6 +805,7 @@ export const seedBindings = () => {
   commands.artistUnfollow.mockResolvedValue(ok(null));
   commands.artistSetAlerts.mockResolvedValue(ok(null));
   commands.artistReleaseNews.mockResolvedValue(ok([]));
+  commands.artistReleasesCheck.mockResolvedValue(ok([]));
   commands.musicArtistEvents.mockResolvedValue(ok([]));
   commands.coverFallback.mockResolvedValue(ok(null));
   commands.musicSearchPlaylists.mockResolvedValue(ok([]));
@@ -711,8 +817,10 @@ export const seedBindings = () => {
   commands.lyricsTranscribe.mockResolvedValue(ok('song:|'));
   commands.lyricsTranscribeMany.mockResolvedValue(ok(null));
   commands.lyricsForget.mockResolvedValue(ok(null));
-  commands.lyricsCacheUsage.mockResolvedValue(ok({ songs: 0, transcriptions: 0 }));
+  commands.lyricsCacheUsage.mockResolvedValue(ok({ songs: 0, transcriptions: 0, translations: 0 }));
   commands.lyricsCacheClear.mockResolvedValue(ok(0));
+  commands.lyricsTranslateOptions.mockResolvedValue(ok([]));
+  commands.lyricsTranslationPick.mockResolvedValue(ok(null));
   commands.songDownloadCancelRecording.mockResolvedValue(null);
   commands.songDownloadUseSource.mockResolvedValue(ok(null));
   commands.youtubeLink.mockResolvedValue(ok(null));
@@ -732,8 +840,14 @@ export const seedBindings = () => {
   commands.devicesSetSharing.mockResolvedValue(ok(null));
   commands.captionsUseFeed.mockResolvedValue(ok(null));
   commands.songDownloads.mockResolvedValue(ok([]));
+  commands.songDownload.mockResolvedValue(ok(null));
   commands.songDownloadRemove.mockResolvedValue(ok(null));
+  commands.songDownloadsRemove.mockResolvedValue(ok(null));
   commands.songDownloadRetry.mockResolvedValue(ok(null));
+  commands.songDownloadsRetryFailed.mockResolvedValue(ok(0));
+  commands.songDownloadsReorder.mockResolvedValue(ok(null));
+  commands.songDownloadsPaused.mockResolvedValue(false);
+  commands.songDownloadsSetPaused.mockResolvedValue(null);
   commands.songDownloadRecord.mockResolvedValue(ok(null));
   commands.songsSave.mockResolvedValue(ok({ saved: [], failed: [] }));
   commands.songDownloadedKeys.mockResolvedValue([]);
@@ -758,6 +872,7 @@ export const seedBindings = () => {
   commands.extensionOpenWebsite.mockResolvedValue(ok(null));
   commands.extensionRepos.mockResolvedValue(ok([]));
   commands.extensionRepoAdd.mockResolvedValue(ok([]));
+  commands.extensionRepoPreview.mockResolvedValue({ status: 'error', error: 'not mocked' });
   commands.extensionSuggestedRepos.mockResolvedValue(ok([]));
   commands.extensionRepoRemove.mockResolvedValue(ok([]));
   commands.extensionCatalog.mockResolvedValue(ok([]));
@@ -765,12 +880,17 @@ export const seedBindings = () => {
   commands.extensionUninstall.mockResolvedValue(ok([]));
   commands.extensionSettingSet.mockResolvedValue(ok([]));
   commands.onlineSearch.mockResolvedValue(ok({ library: [], top: [], providers: [] }));
+  commands.searchRecent.mockResolvedValue(ok([]));
+  commands.searchRecentAdd.mockResolvedValue(ok([]));
+  commands.searchRecentRemove.mockResolvedValue(ok([]));
+  commands.searchRecentClear.mockResolvedValue(ok(null));
   commands.lyricsGet.mockResolvedValue(ok(null));
   commands.songEditGet.mockResolvedValue({});
   commands.songEditSet.mockImplementation(async (_query: unknown, edit: unknown) => ok(edit));
   commands.favoritesList.mockResolvedValue(ok([]));
   commands.favoriteGet.mockResolvedValue(ok(false));
   commands.collectionsSaves.mockResolvedValue(ok({ favorite: false, playlistIds: [] }));
+  commands.collectionsSavedIndex.mockResolvedValue(ok([]));
   commands.collectionsSetSaves.mockResolvedValue(ok(null));
   commands.musicArtist.mockResolvedValue(ok({ name: '', popular: [], albums: [], tracks: [] }));
   commands.musicArtistInfo.mockResolvedValue(ok(null));
@@ -799,11 +919,17 @@ export const seedBindings = () => {
   );
   commands.playlistRename.mockResolvedValue(ok(null));
   commands.playlistDelete.mockResolvedValue(ok(null));
-  commands.playlistAdd.mockResolvedValue(ok(null));
+  commands.playlistAdd.mockImplementation(async (_id: string, tracks: unknown[]) =>
+    ok({ added: tracks.length, already: 0 }),
+  );
   commands.playlistRemoveItem.mockResolvedValue(ok(null));
   commands.playlistMoveItem.mockResolvedValue(ok(null));
   commands.historyRecent.mockResolvedValue(ok([]));
   commands.historyClear.mockResolvedValue(ok(null));
+  commands.incognitoStatus.mockResolvedValue(INCOGNITO_OFF);
+  commands.incognitoSetEnabled.mockImplementation(async (on: boolean) =>
+    ok(on ? { on, sinceMs: Date.now() } : INCOGNITO_OFF),
+  );
   commands.collectionPlay.mockResolvedValue(ok(null));
   const mcpOff = { enabled: false, url: null, token: 'token-1', error: null };
   commands.mcpStatus.mockResolvedValue(ok(mcpOff));
@@ -946,6 +1072,7 @@ export const seedBindings = () => {
     commands.websiteEdit,
     commands.websiteRemove,
     commands.websiteReset,
+    commands.websiteSetBlockAds,
     commands.websiteOpen,
     commands.websiteClearData,
   ]) {
@@ -979,11 +1106,30 @@ export const seedBindings = () => {
   commands.videoSetPlayerLabels.mockResolvedValue(undefined);
   commands.stremioAddons.mockResolvedValue(ok([]));
   commands.stremioSuggestions.mockResolvedValue(ok([]));
+  commands.stremioPreview.mockResolvedValue({ status: 'error', error: 'not mocked' });
   commands.stremioAdd.mockResolvedValue(ok(null));
   commands.stremioRemove.mockResolvedValue(ok(null));
+  commands.stremioSetEnabled.mockResolvedValue(ok(null));
+  commands.stremioSetOrder.mockResolvedValue(ok(null));
+  commands.stremioConfigure.mockResolvedValue(ok(null));
+  commands.stremioOpenLink.mockResolvedValue(ok(null));
+  commands.stremioCatalogs.mockResolvedValue(ok([]));
   commands.stremioHome.mockResolvedValue(ok([]));
   commands.stremioCatalog.mockResolvedValue({ status: 'error', error: 'not mocked' });
   commands.stremioSearch.mockResolvedValue(ok([]));
+  commands.stremioSearchCatalog.mockResolvedValue(
+    ok({
+      addonId: '',
+      addonName: '',
+      kind: 'movie',
+      catalogId: '',
+      name: '',
+      items: [],
+      genres: [],
+      hasMore: false,
+      error: null,
+    }),
+  );
   commands.stremioMeta.mockResolvedValue({ status: 'error', error: 'not mocked' });
   commands.stremioStreams.mockResolvedValue(ok([]));
   commands.stremioPlay.mockResolvedValue(ok(null));

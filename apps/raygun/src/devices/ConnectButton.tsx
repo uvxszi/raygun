@@ -1,5 +1,6 @@
 import type { ConnectDevice } from '@raygun/bindings';
 import { commands } from '@raygun/bindings';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Laptop, LoaderCircle, MonitorSpeaker, Plus, QrCode, Smartphone, X } from 'lucide-react';
 import { useState } from 'react';
@@ -17,9 +18,12 @@ import {
 import { unwrapResult } from '../lib/commandResult';
 import { usePlatform } from '../lib/usePlatform';
 import { useLocalNetworkGate } from '../network/useLocalNetworkGate';
-import { useRemoteChange, useRemoteStatus } from '../settings/remoteQueries';
+import { Problem } from '../settings/Problem';
+import { useRemoteStatus } from '../settings/remoteQueries';
 import { Sheet } from '../shell/Sheet';
+import { TextField } from '../shell/TextField';
 import { AudioOutputs } from './AudioOutputs';
+import { useSyncStatus } from './useDeviceSync';
 
 const ROW = 'flex items-center gap-3 rounded-xl px-2 py-2.5';
 const HEADING = 'text-muted px-2 pt-3 text-xs font-semibold tracking-wide uppercase';
@@ -90,6 +94,11 @@ const ConnectSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
   const [adding, setAdding] = useState(false);
   const others = devices.data ?? [];
   const error = connectTo.error?.message ?? disconnect.error?.message ?? status?.error;
+  const errorTitle = connectTo.error
+    ? t('connect.playFailed', {
+        name: others.find((device) => device.id === connectTo.variables)?.name ?? '',
+      })
+    : t('connect.problem');
   const busy = connectTo.isPending || disconnect.isPending;
 
   const play = (device: ConnectDevice) =>
@@ -198,11 +207,7 @@ const ConnectSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
       {devices.isSuccess && others.length === 0 && (
         <p className="text-muted px-2 py-1 text-sm">{t('connect.noDevices')}</p>
       )}
-      {error && (
-        <p role="alert" className="text-primary px-2 text-xs wrap-anywhere">
-          {error}
-        </p>
-      )}
+      {error && <Problem title={errorTitle} detail={error} className="mx-2" />}
       {adding ? (
         <AddDevice onDone={() => setAdding(false)} />
       ) : (
@@ -247,20 +252,21 @@ const AddDevice: FC<{ onDone: () => void }> = ({ onDone }) => {
     <form onSubmit={submit} className="flex flex-col gap-2 px-2 py-2">
       <label className="flex flex-col gap-1 text-xs">
         <span className="text-muted">{t('connect.addressLabel')}</span>
-        <input
+        <TextField
           autoFocus
           inputMode="url"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
           value={address}
           placeholder="192.168.1.20:8820"
-          onChange={(event) => setAddress(event.target.value)}
-          className="bg-background rounded-lg px-3 py-2 text-sm"
+          onChange={setAddress}
+          aria-label={t('connect.addressLabel')}
+          className="bg-background rounded-lg pr-0.5 pl-3"
+          inputClassName="py-2 text-sm"
         />
       </label>
-      {add.error && (
-        <p role="alert" className="text-primary text-xs wrap-anywhere">
-          {add.error.message}
-        </p>
-      )}
+      {add.error && <Problem title={t('link.addFailed')} detail={add.error.message} />}
       <div className="flex justify-end gap-2">
         <button type="button" onClick={onDone} className="rounded-full px-3 py-1.5 text-sm">
           {t('connect.cancel')}
@@ -278,15 +284,25 @@ const AddDevice: FC<{ onDone: () => void }> = ({ onDone }) => {
   );
 };
 
-/** The switch that lets other devices play on this one: the LAN remote's server (M20). */
+/**
+ * The switch that lets your devices find this one (M46.47): the remote's server, which Connect
+ * plays through, and sync, as on the Devices page.
+ */
 const AllowHere: FC = () => {
   const { t } = useTranslation();
+  const client = useQueryClient();
   const remote = useRemoteStatus();
-  const setEnabled = useRemoteChange((enabled: boolean) =>
-    unwrapResult(commands.remoteSetEnabled(enabled)),
-  );
+  const sync = useSyncStatus();
+  const setEnabled = useMutation({
+    mutationFn: (on: boolean) => unwrapResult(commands.devicesSetSharing(on)),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: ['remote'] });
+      void client.invalidateQueries({ queryKey: ['sync'] });
+      void client.invalidateQueries({ queryKey: ['connect'] });
+    },
+  });
   const network = useLocalNetworkGate('remote');
-  const enabled = remote.data?.enabled ?? false;
+  const enabled = (remote.data?.enabled ?? false) && (sync.data?.enabled ?? false);
   const address = remote.data?.url?.replace(/^https?:\/\//, '');
   return (
     <div className="flex flex-col gap-1 px-2 py-2">
@@ -299,7 +315,7 @@ const AllowHere: FC = () => {
           role="switch"
           aria-checked={enabled}
           aria-labelledby="connect-allow"
-          disabled={!remote.data || setEnabled.isPending || network.checking}
+          disabled={!remote.data || !sync.data || setEnabled.isPending || network.checking}
           onClick={() => {
             if (enabled) setEnabled.mutate(false);
             else void network.guard(null, () => setEnabled.mutate(true));
@@ -312,15 +328,14 @@ const AllowHere: FC = () => {
           />
         </button>
       </div>
-      <p className="text-muted text-xs">
-        {enabled && address
-          ? t('connect.allowHereAddress', { address })
-          : t('connect.allowHereHint')}
-      </p>
+      {enabled && address && (
+        <p className="text-muted text-xs">{t('connect.allowHereAddress', { address })}</p>
+      )}
       {(setEnabled.error ?? remote.data?.error) && (
-        <p role="alert" className="text-primary text-xs wrap-anywhere">
-          {setEnabled.error?.message ?? remote.data?.error}
-        </p>
+        <Problem
+          title={t('link.shareFailed')}
+          detail={setEnabled.error?.message ?? remote.data?.error}
+        />
       )}
       {network.sheet}
     </div>

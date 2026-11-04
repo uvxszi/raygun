@@ -154,10 +154,25 @@ export type LyricsQuery = {
   durationMs: number | null;
 };
 
+/**
+ * The lyrics in another language, or romanized (the original's sounds in Latin letters), line for
+ * line: `lines[i]` belongs to `synced[i]` as returned, or to the i-th line of `plain`. Use `''`
+ * for a line without one.
+ */
+export type LyricsTranslationResult = {
+  /** BCP 47 tag: the translation's language (`en`, `zh-Hans`); for a romanization, the original's with `-Latn` (`ja-Latn`). */
+  language: string;
+  /** `translation` when left out. */
+  kind?: 'translation' | 'romanization';
+  lines: string[];
+};
+
 export type LyricsResult = {
   /** Timed lines; the app highlights the current one and seeks when one is tapped. */
   synced?: { timeMs: number; text: string }[];
   plain?: string | null;
+  /** Translations and romanizations the source has; shown under the lines. */
+  translations?: LyricsTranslationResult[];
 };
 
 /** Lyrics for the playing track. Return `null` when there are none (or the track is instrumental). */
