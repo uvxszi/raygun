@@ -5,6 +5,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useLocalFolderActions, useLocalFolders } from '../localFiles/useLocalFolders';
+import { useMediaGate } from '../permissions/useMediaGate';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 
 /** "12 songs · 3 comics": what a folder holds, leaving out kinds it has none of. */
@@ -26,6 +27,7 @@ export const LocalFilesPage: FC = () => {
   const { t } = useTranslation();
   const folders = useLocalFolders();
   const { add, remove, rescan } = useLocalFolderActions();
+  const mediaGate = useMediaGate();
   const list = folders.data ?? [];
 
   return (
@@ -48,7 +50,7 @@ export const LocalFilesPage: FC = () => {
               label={t('localFiles.add')}
               icon={FolderPlus}
               disabled={add.isPending}
-              onClick={() => add.mutate()}
+              onClick={() => void mediaGate.guard(() => add.mutate())}
             />
           </>
         }
@@ -75,6 +77,7 @@ export const LocalFilesPage: FC = () => {
           ))}
         </nav>
       )}
+      {mediaGate.sheet}
       {(add.error ?? remove.error) && (
         <p role="alert" className="text-primary text-sm wrap-anywhere">
           {(add.error ?? remove.error)?.message}
@@ -87,7 +90,7 @@ export const LocalFilesPage: FC = () => {
           <button
             type="button"
             disabled={add.isPending}
-            onClick={() => add.mutate()}
+            onClick={() => void mediaGate.guard(() => add.mutate())}
             className="bg-primary text-background rounded-full px-5 py-2 text-sm font-semibold disabled:opacity-60"
           >
             {t('localFiles.add')}

@@ -28,6 +28,30 @@ object NativeBridge {
     @JvmStatic
     external fun onWebsite(json: String)
 
+    /** A download notification's button: `{"action", "keys"}`. */
+    @JvmStatic
+    external fun onNotificationAction(json: String)
+
+    /** A tapped notification's screen (`player`, `/downloads?tab=music`). */
+    @JvmStatic
+    external fun onOpen(route: String)
+
+    fun notificationAction(json: String) {
+        try {
+            onNotificationAction(json)
+        } catch (error: UnsatisfiedLinkError) {
+            Log.e("RaygunAudio", "Rust engine bridge is not linked", error)
+        }
+    }
+
+    fun open(route: String) {
+        try {
+            onOpen(route)
+        } catch (error: UnsatisfiedLinkError) {
+            Log.e("RaygunAudio", "Rust engine bridge is not linked", error)
+        }
+    }
+
     fun website(json: String) {
         try {
             onWebsite(json)

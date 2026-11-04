@@ -5367,6 +5367,73 @@ pub struct LocalNetworkAccess {
     pub blocked: bool,
 }
 
+// ---- Permissions (Settings → Permissions) ----
+
+/// A permission Raygun uses on this device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum PermissionKind {
+    /// Download progress and finished downloads (playback controls show without it).
+    Notifications,
+    /// Running in the background without Android's battery limits.
+    Battery,
+    /// Reading the phone's songs and videos (Local Files, the device's music).
+    Media,
+    /// Folders picked in the system's folder picker.
+    Folders,
+    /// Android 17's local network access.
+    LocalNetwork,
+    /// Installing Raygun's own updates.
+    InstallApps,
+}
+
+/// Where a permission stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum AccessState {
+    /// Allowed (battery: unrestricted).
+    Granted,
+    /// Not allowed; asking shows the system's question.
+    Denied,
+    /// Not allowed, and only the system settings can change it now.
+    Blocked,
+    /// Battery: Android's default limits apply (asking shows its question).
+    Optimized,
+    /// Battery: restricted in the background, so playback and downloads stop when Raygun leaves
+    /// the screen; only the system settings can lift it.
+    Restricted,
+}
+
+/// One row of Settings → Permissions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AppPermission {
+    pub kind: PermissionKind,
+    pub state: AccessState,
+    /// Folders: how many picked folders Raygun may still read.
+    pub count: Option<u32>,
+}
+
+/// What a permission is asked for when a feature first needs it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum PermissionReason {
+    /// The first playback: Raygun is restricted, so music would stop in the background.
+    Playback,
+    /// The first download: progress shows in notifications.
+    Download,
+    /// Adding a folder to Local Files: its songs and videos are read by path.
+    Folders,
+}
+
+/// A question to show once: the permission and why it's needed now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionPrompt {
+    pub kind: PermissionKind,
+    pub reason: PermissionReason,
+}
+
 // ---- Video sources (M42) ----
 
 /// A video source's title page.

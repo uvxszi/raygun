@@ -18,6 +18,7 @@ import android.os.Handler
 import android.os.Looper
 import android.media.audiofx.PresetReverb
 import android.provider.Settings
+import android.webkit.WebView
 import androidx.activity.result.ActivityResult
 import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.C
@@ -160,6 +161,8 @@ class UrlArgs {
 }
 
 private const val PROGRESS_INTERVAL_MS = 500L
+/** Playing this long without the position moving is silence, not playback. */
+private const val STUCK_MS = 2500L
 /** A song measured this long reports its loudness, s; one that ends sooner, if it played this long. */
 private const val MEASURED_ENOUGH_S = 45.0
 private const val MEASURED_AT_LEAST_S = 10.0
@@ -202,6 +205,7 @@ private fun soundConfig(sound: JSONObject): SoundConfig {
         Permission(strings = [Manifest.permission.READ_MEDIA_VIDEO], alias = "video"),
         Permission(strings = [Manifest.permission.READ_EXTERNAL_STORAGE], alias = "storage"),
         Permission(strings = [Manifest.permission.ACCESS_LOCAL_NETWORK], alias = "localNetwork"),
+        Permission(strings = [Manifest.permission.POST_NOTIFICATIONS], alias = "notifications"),
     ],
 )
 class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
@@ -216,13 +220,26 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     private var theme = "system"
     private val speech by lazy { Speech(activity.applicationContext) }
     private val storage by lazy { Storage(activity.applicationContext) }
+    /** Rust's player as it last reported itself, for the media session (see MirrorPlayer). */
+    private var mirrorState: MirrorState? = null
+    /** The status last reported for the current load, so each is sent once. */
+    private var lastStatus: String? = null
+    /** Set while `load` sets up the player: the states in between aren't the song's. */
+    private var quiet = false
+    // The watchdog: where the playing song's position last moved, and the recoveries tried.
+    private var stuckPosition = -1L
+    private var stuckSince = 0L
+    private var recoveries = 0
 
     /** Waits for the song's end trim while it plays. */
     private val endWatch = Runnable { controller?.let { checkEnd(it) } }
 
     private val progressTicker = object : Runnable {
         override fun run() {
-            controller?.let { reportProgress(it) }
+            controller?.let {
+                reportProgress(it)
+                watch()
+            }
             main.postDelayed(this, PROGRESS_INTERVAL_MS)
         }
     }
@@ -231,7 +248,6 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             val player = controller ?: return
             if (isPlaying) {
-                report("playing")
                 main.removeCallbacks(progressTicker)
                 main.post(progressTicker)
                 scheduleEnd(player)
@@ -239,23 +255,30 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
                 main.removeCallbacks(progressTicker)
                 main.removeCallbacks(endWatch)
                 reportProgress(player)
-                // The pause at an end trim isn't the listener's.
-                if (player.playbackState == Player.STATE_READY && !endReported) {
-                    report("paused")
-                }
             }
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             val player = controller ?: return
             when (playbackState) {
-                Player.STATE_BUFFERING -> report("buffering")
                 Player.STATE_READY -> reportProgress(player)
                 Player.STATE_ENDED -> {
                     reportLoudnessIfHeard()
                     report("ended")
                 }
-                Player.STATE_IDLE -> Unit
+                else -> Unit
+            }
+        }
+
+        override fun onEvents(player: Player, events: Player.Events) {
+            if (events.containsAny(
+                    Player.EVENT_PLAY_WHEN_READY_CHANGED,
+                    Player.EVENT_PLAYBACK_STATE_CHANGED,
+                    Player.EVENT_IS_PLAYING_CHANGED,
+                    Player.EVENT_PLAYBACK_SUPPRESSION_REASON_CHANGED,
+                )
+            ) {
+                reportStatus(player)
             }
         }
 
@@ -263,6 +286,80 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
             report("error", JSONObject().put("message", error.message ?: error.errorCodeName))
         }
     }
+
+    /**
+     * Tells Rust what the player does, from all of its state rather than one change: a song that
+     * gets ready while paused (from the notification, a headset, a denied audio focus) or while
+     * another app holds the focus says "paused", so Rust's player never shows playing over silence.
+     */
+    private fun reportStatus(player: Player) {
+        if (quiet) return
+        val state = player.playbackState
+        // The pause at an end trim isn't the listener's.
+        if (state == Player.STATE_IDLE || state == Player.STATE_ENDED || endReported) return
+        val status = when {
+            !player.playWhenReady -> "paused"
+            state == Player.STATE_BUFFERING -> "buffering"
+            player.isPlaying -> "playing"
+            // Ready, but another app has the audio focus (a call, the assistant).
+            else -> "paused"
+        }
+        if (status == lastStatus) return
+        lastStatus = status
+        report(status)
+    }
+
+    /**
+     * A song that "plays" without its position moving is silent: the audio output stalled, or
+     * started where Android doesn't let it play. Seeking to where it is flushes the output; then
+     * pausing and playing again restarts it and asks for the audio focus again; failing both, it
+     * pauses (and says so), rather than show playing over silence.
+     */
+    private fun watch() {
+        val player = RaygunPlaybackService.instance?.deck?.player ?: return
+        if (!player.isPlaying || player.playbackState != Player.STATE_READY) {
+            stuckPosition = -1L
+            return
+        }
+        val now = android.os.SystemClock.elapsedRealtime()
+        val position = player.currentPosition
+        if (position != stuckPosition) {
+            stuckPosition = position
+            stuckSince = now
+            return
+        }
+        if (now - stuckSince < STUCK_MS) return
+        stuckSince = now
+        recoveries += 1
+        android.util.Log.w("RaygunAudio", "playing without moving at ${position}ms, recovery $recoveries")
+        when (recoveries) {
+            1 -> player.seekTo(position)
+            2 -> {
+                player.pause()
+                player.play()
+            }
+            else -> {
+                recoveries = 0
+                player.pause()
+            }
+        }
+    }
+
+    /**
+     * Which player the media session shows: the native one while it holds a song, else Rust's
+     * player as reported ([MirrorPlayer]); and whether the webview must keep playing meanwhile.
+     */
+    private fun syncSession() {
+        val service = RaygunPlaybackService.instance
+        val state = mirrorState
+        val native = loadId != null
+        if (service != null) {
+            if (native) service.useDeck() else if (state != null) service.useMirror()
+        }
+        WebAwake.set(!native && state != null && (state.active || state.webActiveState()))
+    }
+
+    private fun MirrorState.webActiveState() = web && status != "ended" && status != "error"
 
     @Command
     fun load(invoke: Invoke) {
@@ -273,6 +370,10 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
             loadId = args.loadId
             endMs = args.endMs
             endReported = false
+            lastStatus = null
+            recoveries = 0
+            stuckPosition = -1L
+            quiet = true
             main.removeCallbacks(endWatch)
             val metadata = MediaMetadata.Builder()
                 .setTitle(args.title)
@@ -298,6 +399,9 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
                 player.playWhenReady = args.autoplay
             }
             service?.deck?.processor?.onMeasured = measured(args.loadId)
+            quiet = false
+            syncSession()
+            reportStatus(player)
         }
         invoke.resolve()
     }
@@ -370,6 +474,7 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
                 it.stop()
                 it.clearMediaItems()
             }
+            syncSession()
         }
         invoke.resolve()
     }
@@ -444,6 +549,7 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
             main.removeCallbacks(endWatch)
             it.stop()
             it.clearMediaItems()
+            syncSession()
         }
         invoke.resolve()
     }
@@ -789,8 +895,10 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun requestMediaAccess(invoke: Invoke) {
         val aliases = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) arrayOf("audio", "video") else arrayOf("storage")
-        if (aliases.all { getPermissionState(it) == PermissionState.GRANTED }) {
-            invoke.resolve(JSObject().put("granted", true))
+        val granted = aliases.all { getPermissionState(it) == PermissionState.GRANTED }
+        // "Not now" to Raygun's own question just before: Android isn't asked over it.
+        if (granted || Permissions.recentlyDeclined("media")) {
+            invoke.resolve(JSObject().put("granted", granted))
         } else {
             requestPermissionForAliases(aliases, invoke, "mediaAccessResult")
         }
@@ -925,6 +1033,182 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    // ---- Background playback: Rust's player for the media session (see MirrorPlayer) ----
+
+    @Command
+    fun mediaState(invoke: Invoke) {
+        val state = MirrorState.parse(invoke.getArgs().optJSONObject("state"))
+        mirrorState = state
+        if (state == null && RaygunPlaybackService.instance == null) {
+            // Nothing plays and nothing did: no service to start for it.
+            WebAwake.set(false)
+            invoke.resolve()
+            return
+        }
+        withController {
+            RaygunPlaybackService.instance?.mirror?.update(state)
+            syncSession()
+        }
+        invoke.resolve()
+    }
+
+    // ---- Download notifications (see DownloadNotices) ----
+
+    @Command
+    fun downloadsNotify(invoke: Invoke) {
+        val args = invoke.getArgs()
+        val plan = args.optJSONObject("plan") ?: JSONObject()
+        val finished = args.optJSONObject("finished")
+        main.post { DownloadNotices.show(activity.applicationContext, plan, finished) }
+        invoke.resolve()
+    }
+
+    /** A tapped notification: the screen it opens, and a button pressed on it. */
+    private fun takeOpenExtras(intent: Intent?) {
+        val extras = intent ?: return
+        extras.getStringExtra(EXTRA_OPEN_ROUTE)?.let { route ->
+            extras.removeExtra(EXTRA_OPEN_ROUTE)
+            NativeBridge.open(route)
+        }
+        extras.getStringExtra(DownloadNotices.EXTRA_ACTION)?.let { action ->
+            extras.removeExtra(DownloadNotices.EXTRA_ACTION)
+            NativeBridge.notificationAction(action)
+        }
+    }
+
+    override fun load(webView: WebView) {
+        takeOpenExtras(activity.intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        takeOpenExtras(intent)
+    }
+
+    // ---- Settings → Permissions (see Permissions) ----
+
+    private fun permissionRows(): JSObject {
+        val context = activity.applicationContext
+        val rows = mutableListOf<JSObject>()
+        val notifications = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
+                when (getPermissionState("notifications")) {
+                    PermissionState.GRANTED -> if (Permissions.notificationsOff(context)) "blocked" else "granted"
+                    PermissionState.DENIED -> "blocked"
+                    else -> "denied"
+                }
+            Permissions.notificationsOff(context) -> "blocked"
+            else -> "granted"
+        }
+        rows.add(Permissions.row("notifications", notifications))
+        rows.add(Permissions.row("battery", Permissions.battery(context)))
+        val media = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) listOf("audio", "video") else listOf("storage")
+        val mediaStates = media.map { getPermissionState(it) }
+        rows.add(
+            Permissions.row(
+                "media",
+                when {
+                    mediaStates.all { it == PermissionState.GRANTED } -> "granted"
+                    mediaStates.any { it == PermissionState.DENIED } -> "blocked"
+                    else -> "denied"
+                },
+            ),
+        )
+        rows.add(Permissions.row("folders", "granted", Permissions.folders(context)))
+        if (localNetworkEnforced()) {
+            val local = localNetworkAccess()
+            rows.add(
+                Permissions.row(
+                    "localNetwork",
+                    when {
+                        local.optBoolean("granted") -> "granted"
+                        local.optBoolean("blocked") -> "blocked"
+                        else -> "denied"
+                    },
+                ),
+            )
+        }
+        rows.add(Permissions.row("installApps", if (Permissions.canInstall(context)) "granted" else "blocked"))
+        return Permissions.list(rows)
+    }
+
+    @Command
+    fun permissionStates(invoke: Invoke) {
+        invoke.resolve(permissionRows())
+    }
+
+    /**
+     * Asks for a permission: Android's question where it still asks, else the permission's page in
+     * the system settings; answers with every state once the user is back.
+     */
+    @Command
+    fun requestPermission(invoke: Invoke) {
+        val kind = invoke.getArgs().optString("kind")
+        val context = activity.applicationContext
+        when (kind) {
+            "notifications" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                getPermissionState("notifications") != PermissionState.DENIED &&
+                getPermissionState("notifications") != PermissionState.GRANTED
+            ) {
+                requestPermissionForAlias("notifications", invoke, "permissionAnswered")
+            } else {
+                startActivityForResult(invoke, Permissions.settingsIntent(context, kind), "permissionPageClosed")
+            }
+            "battery" -> {
+                val intent = if (Permissions.battery(context) == "optimized") {
+                    Permissions.batteryQuestion(context)
+                } else {
+                    Permissions.settingsIntent(context, kind)
+                }
+                startActivityForResult(invoke, intent, "permissionPageClosed")
+            }
+            "media" -> {
+                val aliases = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) arrayOf("audio", "video") else arrayOf("storage")
+                if (aliases.any { getPermissionState(it) == PermissionState.DENIED }) {
+                    startActivityForResult(invoke, Permissions.settingsIntent(context, kind), "permissionPageClosed")
+                } else {
+                    requestPermissionForAliases(aliases, invoke, "permissionAnswered")
+                }
+            }
+            "localNetwork" -> if (localNetworkEnforced() && getPermissionState("localNetwork") != PermissionState.DENIED) {
+                requestPermissionForAlias("localNetwork", invoke, "permissionAnswered")
+            } else {
+                startActivityForResult(invoke, Permissions.settingsIntent(context, kind), "permissionPageClosed")
+            }
+            "installApps" -> startActivityForResult(invoke, Permissions.settingsIntent(context, kind), "permissionPageClosed")
+            else -> invoke.resolve(permissionRows())
+        }
+    }
+
+    @PermissionCallback
+    fun permissionAnswered(invoke: Invoke) {
+        invoke.resolve(permissionRows())
+    }
+
+    @ActivityCallback
+    fun permissionPageClosed(invoke: Invoke, result: ActivityResult) {
+        invoke.resolve(permissionRows())
+    }
+
+    @Command
+    fun openPermissionSettings(invoke: Invoke) {
+        val kind = invoke.getArgs().optString("kind")
+        activity.runOnUiThread {
+            try {
+                activity.startActivity(Permissions.settingsIntent(activity.applicationContext, kind))
+                invoke.resolve()
+            } catch (error: Exception) {
+                invoke.reject(error.message ?: "The settings page didn't open")
+            }
+        }
+    }
+
+    /** "Not now" to Raygun's own question about `kind`. */
+    @Command
+    fun declinePermission(invoke: Invoke) {
+        Permissions.decline(invoke.getArgs().optString("kind"))
+        invoke.resolve()
+    }
+
     @Command
     fun applyTheme(invoke: Invoke) {
         theme = invoke.parseArgs(ThemeArgs::class.java).theme
@@ -960,8 +1244,23 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
             pending.add(action)
             if (connecting) return@post
             connecting = true
-            val token = SessionToken(activity, ComponentName(activity, RaygunPlaybackService::class.java))
-            val future = MediaController.Builder(activity, token).buildAsync()
+            // The application's context: the connection outlives the activity (a rotation, a
+            // recreated activity), and the hint marks this controller's commands as the engine's.
+            val context = activity.applicationContext
+            val token = SessionToken(context, ComponentName(context, RaygunPlaybackService::class.java))
+            val hints = android.os.Bundle().apply { putBoolean(ENGINE_CONTROLLER_HINT, true) }
+            val future = MediaController.Builder(context, token)
+                .setConnectionHints(hints)
+                .setListener(object : MediaController.Listener {
+                    override fun onDisconnected(controller: MediaController) {
+                        // The service went away: the next command connects to a new one.
+                        if (this@RaygunAudioPlugin.controller === controller) {
+                            this@RaygunAudioPlugin.controller = null
+                        }
+                        main.removeCallbacks(progressTicker)
+                    }
+                })
+                .buildAsync()
             future.addListener({
                 connecting = false
                 val built = runCatching { future.get() }.getOrNull() ?: return@addListener
@@ -973,7 +1272,10 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
-    private fun reportProgress(player: Player) {
+    private fun reportProgress(controller: Player) {
+        // The player itself: the controller's position is extrapolated, and would move over a
+        // stalled output.
+        val player: Player = RaygunPlaybackService.instance?.deck?.player ?: controller
         val duration = player.duration
         report(
             "progress",

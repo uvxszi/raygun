@@ -4,6 +4,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Downloads keep running in the background, shown in their own notifications. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Settings → Permissions: Android's question about running in the background. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Hearing other Raygun devices' mDNS for Connect (M46.15). -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- M46.18: whether the phone is on mobile data (the Audio quality setting for it) -->
@@ -50,6 +55,13 @@
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:theme="@android:style/Theme.NoDisplay" />
+        <service
+            android:name="app.raygun.audio.RaygunDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+        <receiver
+            android:name="app.raygun.audio.DownloadActionReceiver"
+            android:exported="false" />
         <service
             android:name="app.raygun.audio.RaygunPlaybackService"
             android:exported="true"

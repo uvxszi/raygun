@@ -7,6 +7,7 @@ import {
   LibraryBig,
   Palette,
   PlayCircle,
+  ShieldCheck,
   SlidersVertical,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -21,7 +22,8 @@ export type SettingsSection =
   | 'downloads'
   | 'browse'
   | 'data'
-  | 'connections';
+  | 'connections'
+  | 'permissions';
 
 export const SETTINGS_SECTIONS: { id: SettingsSection; icon: LucideIcon }[] = [
   { id: 'appearance', icon: Palette },
@@ -33,4 +35,5 @@ export const SETTINGS_SECTIONS: { id: SettingsSection; icon: LucideIcon }[] = [
   { id: 'browse', icon: Compass },
   { id: 'data', icon: Database },
   { id: 'connections', icon: Cable },
+  { id: 'permissions', icon: ShieldCheck },
 ];

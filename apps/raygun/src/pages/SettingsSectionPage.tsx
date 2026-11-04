@@ -33,6 +33,7 @@ import { BackupCard } from '../settings/BackupCard';
 import { DeveloperCard } from '../settings/DeveloperCard';
 import { DownloadSettings } from '../settings/DownloadSettings';
 import { McpCard } from '../settings/McpCard';
+import { PermissionsSettings } from '../settings/PermissionsSettings';
 import { PLAYER_PAGES, withDefaults } from '../settings/playerOptions';
 import type { PlayerPrefs } from '../settings/playerOptions';
 import {
@@ -794,6 +795,7 @@ const SECTIONS: Record<SettingsSection, FC> = {
     </>
   ),
   connections: ConnectionSettings,
+  permissions: PermissionsSettings,
 };
 
 /** One settings category (`/settings/<section>`). */

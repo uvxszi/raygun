@@ -12,7 +12,12 @@ pub fn control_from_system(control: &str) -> Option<PlaybackControl> {
         "previous" => Some(PlaybackControl::Previous),
         "play" => Some(PlaybackControl::Play),
         "pause" => Some(PlaybackControl::Pause),
-        _ => None,
+        // A seek from the notification's or the lock screen's bar: `seek:<ms>`.
+        other => other
+            .strip_prefix("seek:")
+            .and_then(|ms| ms.parse::<f64>().ok())
+            .filter(|ms| ms.is_finite() && *ms >= 0.0)
+            .map(|position_ms| PlaybackControl::Seek { position_ms }),
     }
 }
 
@@ -71,6 +76,14 @@ mod tests {
         assert_eq!(control_from_system("play"), Some(PlaybackControl::Play));
         assert_eq!(control_from_system("pause"), Some(PlaybackControl::Pause));
         assert_eq!(control_from_system("rewind"), None);
+        assert_eq!(
+            control_from_system("seek:90500"),
+            Some(PlaybackControl::Seek {
+                position_ms: 90_500.0
+            })
+        );
+        assert_eq!(control_from_system("seek:-1"), None);
+        assert_eq!(control_from_system("seek:soon"), None);
     }
 
     #[test]

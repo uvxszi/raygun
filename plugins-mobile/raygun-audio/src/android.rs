@@ -72,6 +72,30 @@ pub extern "system" fn Java_app_raygun_audio_NativeBridge_onWebsite(
     }
 }
 
+/// Called by `app.raygun.audio.NativeBridge.onNotificationAction` on the Android main thread.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_app_raygun_audio_NativeBridge_onNotificationAction(
+    mut env: JNIEnv,
+    _class: JClass,
+    json: JString,
+) {
+    if let Ok(json) = env.get_string(&json) {
+        crate::deliver_notification_action(json.into());
+    }
+}
+
+/// Called by `app.raygun.audio.NativeBridge.onOpen` on the Android main thread.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_app_raygun_audio_NativeBridge_onOpen(
+    mut env: JNIEnv,
+    _class: JClass,
+    route: JString,
+) {
+    if let Ok(route) = env.get_string(&route) {
+        crate::deliver_open(route.into());
+    }
+}
+
 /// Called by `app.raygun.audio.NativeBridge.onEngineEvent` on the Android main thread.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_app_raygun_audio_NativeBridge_onEngineEvent(

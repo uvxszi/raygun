@@ -24,6 +24,14 @@ pub struct ConnectEvent(pub raygun_model::ConnectStatus);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct ConnectRequestEvent(pub raygun_model::ConnectRequest);
 
+/// A feature needs a permission for the first time: the UI asks, with the reason.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct PermissionPromptEvent(pub raygun_model::PermissionPrompt);
+
+/// A notification was tapped: the screen it opens (`/downloads?tab=music`, or `player`).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct OpenRouteEvent(pub String);
+
 /// Progress of a local library scan.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct LibraryScanEvent(pub raygun_model::LibraryScanProgress);

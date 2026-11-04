@@ -212,19 +212,44 @@ class SoundProcessor : BaseAudioProcessor() {
 
     val loudness: LoudnessMeter get() = meter
 
+    /**
+     * Only checks the format: the sink configures its processors for the next song while the last
+     * one's sound is still draining through them, so the new format applies at the next flush
+     * ([onFlush]), when [inputAudioFormat] becomes it.
+     */
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
         if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT && inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT) {
             throw AudioProcessor.UnhandledAudioFormatException(inputAudioFormat)
         }
-        rate = inputAudioFormat.sampleRate
-        channels = inputAudioFormat.channelCount
-        encoding = inputAudioFormat.encoding
+        return inputAudioFormat
+    }
+
+    /** Sets the filters up for the format in use (the one configured last, from its flush on). */
+    private fun useFormat(format: AudioProcessor.AudioFormat) {
+        if (format != AudioProcessor.AudioFormat.NOT_SET) {
+            if (format.sampleRate == rate && format.channelCount == channels && format.encoding == encoding &&
+                bands.isNotEmpty()
+            ) {
+                return
+            }
+            rate = format.sampleRate
+            channels = format.channelCount
+            encoding = format.encoding
+        } else if (bands.isNotEmpty()) {
+            return
+        }
         bands = Array(EQ_FREQUENCIES.size) { Biquad(channels) }
         bass = Biquad(channels)
         shelfK = Biquad(channels).apply { highShelf(1682.0, 4.0, rate) }
         highK = Biquad(channels).apply { highPass(38.0, 0.5, rate) }
         applied = null
-        return inputAudioFormat
+    }
+
+    private fun clearFilters() {
+        for (band in bands) band.clear()
+        bass.clear()
+        shelfK.clear()
+        highK.clear()
     }
 
     private fun applyConfig() {
@@ -252,6 +277,7 @@ class SoundProcessor : BaseAudioProcessor() {
     override fun queueInput(inputBuffer: ByteBuffer) {
         val bytes = inputBuffer.remaining()
         if (bytes == 0) return
+        if (bands.isEmpty()) useFormat(inputAudioFormat)
         applyConfig()
         val current = applied ?: config
         takeFade()
@@ -294,12 +320,19 @@ class SoundProcessor : BaseAudioProcessor() {
                 }
             }
             gain += (targetGain - gain) * glide
+            if (!gain.isFinite()) gain = targetGain.takeIf { it.isFinite() } ?: 1.0
             val level = gain * fadeLevel()
             var peak = 0.0
             for (channel in 0 until channels) {
                 var x = frame[channel] * preamp
                 if (eq) for (band in bands) x = band.process(channel, x)
                 if (bassOn) x = bass.process(channel, x)
+                if (!x.isFinite()) {
+                    // One bad sample would stay in the filters' memory and silence everything
+                    // after it, until the next seek flushed them.
+                    clearFilters()
+                    x = 0.0
+                }
                 frame[channel] = x * level
             }
             if (channels == 2) {
@@ -312,6 +345,7 @@ class SoundProcessor : BaseAudioProcessor() {
                 frame[1] *= rightGain
             }
             for (channel in 0 until channels) peak = max(peak, abs(frame[channel]))
+            if (!limiterEnvelope.isFinite()) limiterEnvelope = 0.0
             limiterEnvelope = if (peak > limiterEnvelope) peak else limiterEnvelope * release
             val limit = if (limiterEnvelope > threshold) threshold / limiterEnvelope else 1.0
             for (channel in 0 until channels) {
@@ -358,10 +392,9 @@ class SoundProcessor : BaseAudioProcessor() {
     }
 
     override fun onFlush() {
-        for (band in bands) band.clear()
-        bass.clear()
-        shelfK.clear()
-        highK.clear()
+        // The format configured last applies from here on.
+        useFormat(inputAudioFormat)
+        clearFilters()
         stepSquares = 0.0
         stepFrames = 0
     }
@@ -369,5 +402,6 @@ class SoundProcessor : BaseAudioProcessor() {
     override fun onReset() {
         applied = null
         limiterEnvelope = 0.0
+        bands = emptyArray()
     }
 }
