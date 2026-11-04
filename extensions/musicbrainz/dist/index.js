@@ -1,4 +1,4 @@
-// dev.raygun.musicbrainz 1.5.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.musicbrainz 1.6.1. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -46,7 +46,7 @@
       artist: credit(recording) || null,
       album: release?.title ?? null,
       durationMs: recording.length ?? null,
-      artworkUrl: release ? `https://coverartarchive.org/release/${release.id}/front-250` : null
+      artworkUrl: null
     };
   };
   var lastRequestAt = 0;
@@ -67,7 +67,7 @@
     title: group.title,
     artist: creditOf(group["artist-credit"]) || null,
     year: Number(group["first-release-date"]?.slice(0, 4)) || null,
-    artworkUrl: `https://coverartarchive.org/release-group/${group.id}/front-250`,
+    artworkUrl: null,
     kind: kindOf(group)
   });
   var kindOf = (group) => {
@@ -166,7 +166,7 @@
           artist,
           album: group.title,
           durationMs: track.length ?? null,
-          artworkUrl: `https://coverartarchive.org/release-group/${id}/front-250`
+          artworkUrl: null
         }))
       );
       return { album: toAlbum(group), tracks };
@@ -227,6 +227,7 @@
     })
   );
   var WIKI_HEADERS = HEADERS;
+  var COMMONS = /^https:\/\/upload\.wikimedia\.org\/wikipedia\/commons\//;
   var unique = (names) => [...new Set(names.filter((name) => name.trim() !== ""))];
   var year = (date) => date?.slice(0, 4) ?? "";
   var wikipediaSummary = async (wikidataUrl) => {
@@ -246,9 +247,10 @@
     );
     if (!summary.ok) return null;
     const page = await summary.json();
+    const picture = page.thumbnail?.source ?? page.originalimage?.source ?? null;
     return {
       bio: page.extract ?? null,
-      imageUrl: page.thumbnail?.source ?? page.originalimage?.source ?? null,
+      imageUrl: picture && COMMONS.test(picture) ? picture : null,
       url: page.content_urls?.desktop?.page ?? null
     };
   };

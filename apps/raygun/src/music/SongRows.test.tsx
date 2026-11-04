@@ -11,10 +11,10 @@ const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 const { commands } = bindingsMock;
 
 const PROVIDER = {
-  id: 'dev.raygun.deezer/catalogue',
-  extensionId: 'dev.raygun.deezer',
+  id: 'dev.example.tunes/catalogue',
+  extensionId: 'dev.example.tunes',
   kind: 'music.metadata',
-  name: 'Deezer',
+  name: 'Tunes',
 };
 
 const song = (title: string, artist: string): OnlineTrack => ({

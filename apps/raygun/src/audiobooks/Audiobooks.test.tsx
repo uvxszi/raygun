@@ -179,7 +179,7 @@ describe('Audiobooks', () => {
       ok({
         books:
           list === 'subject' && query === 'Science fiction'
-            ? [{ ...result('The Time Machine'), edition: 'Version 3', source: 'Lit2Go' }]
+            ? [{ ...result('The Time Machine'), edition: 'Version 3', source: 'Readings' }]
             : [],
         hasMore: false,
       }),
@@ -191,7 +191,7 @@ describe('Audiobooks', () => {
     const genre = await within(browse).findByRole('region', { name: 'Science fiction' });
     const card = await within(genre).findByTestId('book-card');
     expect(card).toHaveTextContent('The Time Machine');
-    expect(card).toHaveTextContent('Version 3 · 13 h 7 min · Lit2Go');
+    expect(card).toHaveTextContent('Version 3 · 13 h 7 min · Readings');
   });
 
   it('numbers chapters, plays a finished book again and downloads it whole', async () => {

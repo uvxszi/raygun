@@ -1288,9 +1288,8 @@ async fn internet_archive_asks_for_open_audio_and_public_domain_films_only() {
     let audio = last(&seen)["q"].clone();
     assert!(audio.starts_with("(title:(ambient) OR creator:(ambient)) AND mediatype:audio"));
     assert!(audio.contains(
-        "(collection:netlabels AND (licenseurl:*creativecommons.org* OR licenseurl:*publicdomain*))"
+        "collection:(netlabels OR musopen) AND (licenseurl:*creativecommons.org* OR licenseurl:*publicdomain*)"
     ));
-    assert!(audio.contains("OR collection:musopen"));
     assert!(
         audio.contains("-collection:(78rpm OR georgeblood)"),
         "{audio}"

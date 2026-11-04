@@ -231,3 +231,74 @@ async fn converted_plugins_reach_public_hosts_and_register_nuclear_kinds() {
     // It still names its converter, so a newer conversion is offered.
     assert_eq!(infos[0].compatibility.as_ref().unwrap().converter, 1);
 }
+
+/// Nuclear's plugin registry added by its address, against the real registry: a plugin found in
+/// it, downloaded, checked, converted and run the way the app installs one:
+/// `cargo test -p raygun-ext-host -- --ignored nuclear_registry_live --nocapture`.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs network access to jsDelivr, GitHub and MusicBrainz"]
+async fn nuclear_registry_live_installs_and_runs_a_plugin() {
+    const REGISTRY: &str =
+        "https://cdn.jsdelivr.net/gh/NuclearPlayer/plugin-registry@master/plugins.json";
+    const PLUGIN: &str = "nuclear.nuclear-plugin-musicbrainz";
+    let client = raygun_net::http_client().unwrap();
+    let download = |url: reqwest::Url| {
+        let client = client.clone();
+        async move {
+            let response = client.get(url.clone()).send().await.unwrap();
+            assert!(
+                response.status().is_success(),
+                "{url}: {}",
+                response.status()
+            );
+            response.bytes().await.unwrap().to_vec()
+        }
+    };
+    let registry_url = reqwest::Url::parse(REGISTRY).unwrap();
+    let index =
+        crate::repo::parse_index(&String::from_utf8(download(registry_url.clone()).await).unwrap())
+            .unwrap();
+    println!(
+        "{}: {} plugins Raygun can run",
+        index.name,
+        index.extensions.len()
+    );
+    assert_eq!(index.name, "Nuclear plugins");
+    assert!(
+        index
+            .extensions
+            .iter()
+            .all(|entry| entry.format == crate::repo::PackageFormat::Nuclear)
+    );
+    let entry = index
+        .extensions
+        .iter()
+        .find(|entry| entry.id == PLUGIN)
+        .expect("the registry lists the MusicBrainz plugin");
+
+    let bytes = download(crate::repo::package_url(&registry_url, entry).unwrap()).await;
+    crate::package::check_nuclear_download(&bytes, entry).unwrap();
+    let converted = nuclear::convert(&nuclear::unzip_sources(&bytes).unwrap()).unwrap();
+    let verified = crate::package::from_converted(&converted.manifest, &converted.bundle).unwrap();
+    assert_eq!(verified.manifest.id, PLUGIN);
+    println!("converted: {:?}", converted.report);
+
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    let infos = host.load(vec![extension(&converted)]).await;
+    assert_eq!(
+        infos[0].status,
+        raygun_model::ExtensionStatus::Loaded,
+        "{:?}",
+        infos[0].error
+    );
+    let results = host.search_music("the entertainer scott joplin", 5).await;
+    let found = results
+        .iter()
+        .find(|result| result.provider.extension_id == PLUGIN)
+        .expect("the plugin searched");
+    for track in &found.tracks {
+        println!("{} | {:?} | {:?}", track.title, track.artist, track.album);
+    }
+    assert_eq!(found.error, None);
+    assert!(!found.tracks.is_empty());
+}

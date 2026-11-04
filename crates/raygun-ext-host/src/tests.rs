@@ -675,8 +675,87 @@ async fn search_music_collects_tracks_per_provider() {
     ));
 }
 
-/// Runs the bundled Internet Archive extension against the real service:
-/// `cargo test -p raygun-ext-host -- --ignored internet_archive`.
+/// Songs a source marks explicit leave every list while Explicit music is off (M46.36).
+#[tokio::test]
+async fn explicit_songs_leave_while_explicit_music_is_off() {
+    let host = test_host();
+    let code = r#"raygun.providers.register({ kind: 'music.metadata', id: 'search', name: 'Marks',
+      search: async () => ({ tracks: [
+        { title: 'Clean', artist: 'A' },
+        { title: 'Explicit', artist: 'A', explicit: true },
+      ] }) });"#;
+    host.load(vec![extension("dev.raygun.marks", code)]).await;
+    let titles = |results: Vec<raygun_model::ProviderSearchResult>| -> Vec<String> {
+        results
+            .into_iter()
+            .flat_map(|result| result.tracks)
+            .map(|track| track.title)
+            .collect()
+    };
+    let shown = host.search_music("song", 10).await;
+    assert!(shown[0].tracks[1].explicit);
+    assert_eq!(titles(shown), ["Clean", "Explicit"]);
+    host.content().set_show_explicit_music(false);
+    assert_eq!(titles(host.search_music("song", 10).await), ["Clean"]);
+}
+
+/// The Internet Archive's own record of an item (its `metadata`).
+async fn archive_record(client: &reqwest::Client, identifier: &str) -> serde_json::Value {
+    let body = client
+        .get(format!(
+            "https://archive.org/metadata/{identifier}/metadata"
+        ))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let record: serde_json::Value = serde_json::from_str(&body).unwrap();
+    record["result"].clone()
+}
+
+/// The licence address the Internet Archive's own record of an item gives (empty without one).
+async fn archive_licence(client: &reqwest::Client, identifier: &str) -> String {
+    archive_record(client, identifier).await["licenseurl"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned()
+}
+
+/// A public-domain mark or dedication, or a Creative Commons licence.
+fn open_licence(licence: &str) -> bool {
+    licence.contains("creativecommons.org") || licence.contains("publicdomain")
+}
+
+/// Whether a film's record holds up as public domain by the film source's rule: published more
+/// than 95 years ago, or marked public domain and from before 1978; or a Prelinger Archives film
+/// with Prelinger's dedication.
+fn public_domain_film(record: &serde_json::Value) -> bool {
+    let licence = record["licenseurl"].as_str().unwrap_or_default();
+    let prelinger = match &record["collection"] {
+        serde_json::Value::String(one) => one == "prelinger",
+        serde_json::Value::Array(many) => many.iter().any(|name| name == "prelinger"),
+        _ => false,
+    };
+    if prelinger && licence.contains("publicdomain") {
+        return true;
+    }
+    let year = record["year"]
+        .as_str()
+        .or_else(|| record["date"].as_str())
+        .and_then(|text| text.get(..4))
+        .and_then(|year| year.parse::<i32>().ok());
+    let Some(year) = year else {
+        return false;
+    };
+    let marked = licence.contains("publicdomain/mark") || licence.contains("licenses/publicdomain");
+    year < chrono::Datelike::year(&chrono::Utc::now()) - 95 || (marked && year <= 1977)
+}
+
+/// Runs the bundled Internet Archive extension against the real service, checking that every
+/// track comes from an item marked public domain or openly licensed:
+/// `cargo test -p raygun-ext-host -- --ignored internet_archive --nocapture`.
 #[tokio::test]
 #[ignore = "needs network access to archive.org"]
 async fn internet_archive_extension_finds_playable_tracks() {
@@ -694,50 +773,129 @@ async fn internet_archive_extension_finds_playable_tracks() {
         archive.error
     );
 
-    // A netlabel artist: the extension keeps to openly licensed recordings.
-    let results = host.search_music("kai engel", 20).await;
-    let result = results
-        .iter()
-        .find(|result| result.provider.extension_id == "dev.raygun.internet-archive")
-        .unwrap();
-    assert_eq!(result.error, None);
-    assert!(!result.tracks.is_empty());
-    for track in &result.tracks {
-        println!(
-            "{} — {:?} ({:?} ms)",
-            track.title, track.artist, track.duration_ms
-        );
-        assert!(
-            matches!(&track.source, Some(MediaSource::Url { url, .. }) if url.starts_with("https://archive.org/download/"))
-        );
+    let client = raygun_net::http_client().unwrap();
+    // A netlabel artist and two broader searches: netlabel releases and Musopen's recordings.
+    for query in ["kai engel", "ambient", "beethoven"] {
+        let results = host.search_music(query, 20).await;
+        let result = results
+            .iter()
+            .find(|result| result.provider.extension_id == "dev.raygun.internet-archive")
+            .unwrap();
+        assert_eq!(result.error, None);
+        assert!(!result.tracks.is_empty(), "{query}");
+        let mut items = std::collections::BTreeSet::new();
+        for track in &result.tracks {
+            println!(
+                "{query}: {} — {:?} ({:?} ms)",
+                track.title, track.artist, track.duration_ms
+            );
+            assert!(
+                matches!(&track.source, Some(MediaSource::Url { url, .. }) if url.starts_with("https://archive.org/download/"))
+            );
+            let id = track.external_id.as_deref().unwrap();
+            items.insert(id.split('/').next().unwrap().to_owned());
+        }
+        for item in items {
+            let licence = archive_licence(&client, &item).await;
+            println!("  {item}: {licence}");
+            assert!(open_licence(&licence), "{item} carries {licence:?}");
+        }
     }
 }
 
-/// Runs the Radio Browser extension against the real directory:
-/// `cargo test -p raygun-ext-host -- --ignored radio_browser`.
+/// The film source lists, in every collection it offers, only items whose own record holds up as
+/// public domain (by age, or marked so and from before 1978), and plays one:
+/// `cargo test -p raygun-ext-host -- --ignored internet_archive_films --nocapture`.
 #[tokio::test]
-#[ignore = "needs network access to radio-browser.info"]
-async fn radio_browser_extension_finds_stations() {
+#[ignore = "needs network access to archive.org"]
+async fn internet_archive_films_live_are_public_domain() {
+    use crate::manga::MangaList;
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
     let host = ExtensionHost::start(HostConfig::default()).unwrap();
-    let infos = host.load(discover_installed(&dir)).await;
-    let radio = infos
-        .iter()
-        .find(|info| info.id == "dev.raygun.radio-browser")
-        .unwrap();
-    assert_eq!(radio.status, ExtensionStatus::Loaded, "{:?}", radio.error);
+    host.load(discover_installed(&dir)).await;
+    let provider = "dev.raygun.internet-archive/films";
+    let client = raygun_net::http_client().unwrap();
 
-    let results = host.search_music("jazz", 10).await;
-    let result = results
+    // (what was listed, the titles)
+    let mut lists = vec![
+        (
+            "popular".to_owned(),
+            host.manga_list(provider, MangaList::Popular, 1)
+                .await
+                .unwrap(),
+        ),
+        (
+            "latest".to_owned(),
+            host.manga_list(provider, MangaList::Latest, 1)
+                .await
+                .unwrap(),
+        ),
+        (
+            "search nosferatu".to_owned(),
+            host.manga_search(provider, "nosferatu", 1).await.unwrap(),
+        ),
+    ];
+    let filters = host.manga_filters(provider).await.unwrap();
+    let collections = filters
         .iter()
-        .find(|result| result.provider.extension_id == "dev.raygun.radio-browser")
-        .unwrap();
-    assert_eq!(result.error, None);
-    assert!(!result.tracks.is_empty());
-    for track in &result.tracks {
-        println!("{} | {:?} | {:?}", track.title, track.artist, track.album);
-        assert!(matches!(&track.source, Some(MediaSource::Url { .. })));
+        .find_map(|filter| match filter {
+            raygun_model::SourceFilter::Select { key, options, .. } if key == "collection" => {
+                Some(options.clone())
+            }
+            _ => None,
+        })
+        .expect("a collection filter");
+    for option in &collections {
+        let chosen = std::collections::BTreeMap::from([(
+            "collection".to_owned(),
+            raygun_model::FilterValue::Select(option.value.clone()),
+        )]);
+        let listing = host
+            .manga_search_filtered(provider, "", 1, &chosen)
+            .await
+            .unwrap();
+        lists.push((option.label.clone(), listing));
     }
+    for (label, listing) in &lists {
+        println!("{label}: {} titles", listing.items.len());
+        assert!(!listing.items.is_empty(), "{label}");
+        for item in listing.items.iter().take(8) {
+            let record = archive_record(&client, &item.id).await;
+            println!(
+                "  {} · {} · {}",
+                item.title, record["year"], record["licenseurl"]
+            );
+            assert!(
+                public_domain_film(&record),
+                "{label}: {} ({}) doesn't hold up as public domain",
+                item.title,
+                item.id
+            );
+        }
+    }
+
+    // A film plays from the Archive's own files (an item without a playable file says so).
+    let mut played = false;
+    for film in lists[0].1.items.iter().take(5) {
+        let Ok(episodes) = host.video_episodes(provider, &film.id).await else {
+            continue;
+        };
+        let servers = host.video_servers(provider, &episodes[0].id).await.unwrap();
+        let videos = servers[0].videos.as_ref().unwrap();
+        println!(
+            "{}: {:?}",
+            film.title,
+            videos.first().map(|video| &video.url)
+        );
+        assert!(
+            videos
+                .iter()
+                .all(|video| video.url.starts_with("https://archive.org/download/"))
+        );
+        played = true;
+        break;
+    }
+    assert!(played, "one of the most viewed films plays");
 }
 
 #[tokio::test]
@@ -836,6 +994,9 @@ async fn musicbrainz_song_resolves_through_internet_archive() {
         .find(|result| result.provider.extension_id == "dev.raygun.musicbrainz")
         .unwrap();
     assert_eq!(musicbrainz.error, None);
+    for track in &musicbrainz.tracks {
+        println!("found: {} | {:?}", track.title, track.artist);
+    }
     let song = musicbrainz
         .tracks
         .iter()
@@ -870,9 +1031,13 @@ async fn musicbrainz_song_resolves_through_internet_archive() {
         .await
         .into_iter()
         .filter(|answer| answer.provider.extension_id == "dev.raygun.internet-archive")
-        .flat_map(|answer| answer.result.unwrap_or_default())
+        .flat_map(|answer| {
+            answer
+                .result
+                .unwrap_or_else(|error| panic!("{}: {error}", answer.provider.name))
+        })
         .collect();
-    assert!(!candidates.is_empty());
+    assert!(!candidates.is_empty(), "{query:?}");
     let ranked = raygun_resolver::rank(&query, candidates, &raygun_resolver::History::default());
     for scored in &ranked {
         println!(
@@ -1461,8 +1626,8 @@ async fn music_info_live_artist_and_credits() {
 
 /// `cargo test -p raygun-ext-host -- --ignored discography_live --nocapture`.
 #[tokio::test]
-#[ignore = "needs network access to Deezer and MusicBrainz"]
-async fn discography_live_releases_and_explicit_songs() {
+#[ignore = "needs network access to MusicBrainz"]
+async fn discography_live_releases() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
     let host = ExtensionHost::start(HostConfig::default()).unwrap();
     host.load(discover_installed(&dir)).await;
@@ -1479,92 +1644,76 @@ async fn discography_live_releases_and_explicit_songs() {
             .iter()
             .any(|release| release.kind == Some(raygun_model::ReleaseKind::Single))
     );
-    // Explicit songs drop out while explicit music is off (M46.36).
-    let shown = host.search_music("Eminem Lose Yourself", 10).await;
-    let explicit = shown
-        .iter()
-        .flat_map(|result| &result.tracks)
-        .filter(|track| track.explicit)
-        .count();
-    println!("explicit among shown: {explicit}");
-    assert!(explicit > 0);
-    host.content().set_show_explicit_music(false);
-    let hidden = host.search_music("Eminem Lose Yourself", 10).await;
-    assert!(
-        hidden
-            .iter()
-            .flat_map(|result| &result.tracks)
-            .all(|track| !track.explicit)
-    );
+    // Facts only: no release artwork comes with them.
+    assert!(releases.iter().all(|release| release.artwork_url.is_none()));
 }
 
-/// `cargo test -p raygun-ext-host -- --ignored playlists_live --nocapture`.
+/// MusicBrainz's song, album and artist lookups and its genres, as tagging a library uses them,
+/// with no album artwork: `cargo test -p raygun-ext-host -- --ignored musicbrainz_live
+/// --nocapture`.
 #[tokio::test]
-#[ignore = "needs network access to YouTube Music, Deezer and KuGou"]
-async fn playlists_live_search_featured_and_lyrics_sources() {
+#[ignore = "needs network access to MusicBrainz"]
+async fn musicbrainz_live_lookups_and_genres() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
     let host = ExtensionHost::start(HostConfig::default()).unwrap();
     host.load(discover_installed(&dir)).await;
-    let found = host.search_playlists("workout", false, 10).await;
-    for playlist in found.iter().take(8) {
+    let musicbrainz = |extension: &str| extension == "dev.raygun.musicbrainz";
+
+    let songs = host.search_music("daft punk get lucky", 10).await;
+    let found = songs
+        .iter()
+        .find(|result| musicbrainz(&result.provider.extension_id))
+        .expect("MusicBrainz searched");
+    assert_eq!(found.error, None);
+    for track in found.tracks.iter().take(3) {
         println!(
-            "{} · {} · {:?} · {:?} · featured {}",
-            playlist.provider.name,
-            playlist.title,
-            playlist.author,
-            playlist.track_count,
-            playlist.featured
+            "song: {} · {:?} · {:?}",
+            track.title, track.artist, track.album
         );
     }
     assert!(
-        found.iter().any(|p| p.provider.name == "YouTube"),
-        "YouTube playlists"
+        found
+            .tracks
+            .iter()
+            .any(|track| track.title.contains("Get Lucky"))
     );
+    assert!(found.tracks.iter().all(|track| track.artwork_url.is_none()));
+
+    let albums = host.search_albums("random access memories", 5).await;
+    let album = albums
+        .iter()
+        .find(|album| musicbrainz(&album.provider.extension_id))
+        .expect("MusicBrainz finds the album");
+    assert!(album.artwork_url.is_none());
+    let detail = host
+        .music_album(&album.provider.id, &album.id)
+        .await
+        .unwrap();
+    println!(
+        "album: {} with {} songs",
+        detail.album.title,
+        detail.tracks.len()
+    );
+    assert!(detail.tracks.len() > 10, "{}", detail.tracks.len());
     assert!(
-        found.iter().any(|p| p.provider.name == "Deezer"),
-        "Deezer playlists"
+        detail
+            .tracks
+            .iter()
+            .all(|track| track.artwork_url.is_none())
     );
-    let featured = host.search_playlists("workout", true, 10).await;
-    println!("featured: {}", featured.len());
-    assert!(!featured.is_empty() && featured.iter().all(|p| p.featured));
-    for provider in ["YouTube", "Deezer"] {
-        let first = found.iter().find(|p| p.provider.name == provider).unwrap();
-        let detail = host
-            .music_playlist(&first.provider.id, &first.id)
-            .await
-            .expect("playlist");
-        println!(
-            "{provider}: {} with {} songs",
-            detail.playlist.title,
-            detail.tracks.len()
-        );
-        assert!(detail.tracks.len() > 3);
-    }
+    assert!(!host.search_artists("daft punk", 5).await.is_empty());
+
     let query = raygun_model::TrackQuery {
-        title: "Shape of You".into(),
-        artist: Some("Ed Sheeran".into()),
+        title: "Get Lucky".into(),
+        artist: Some("Daft Punk".into()),
         album: None,
-        duration_ms: Some(233_000),
+        duration_ms: Some(248_000),
     };
-    let lyrics = host.all_lyrics(&query).await.expect("lyrics");
-    for answer in &lyrics {
-        println!(
-            "{}: {} synced lines, plain {}",
-            answer.provider_name,
-            answer.synced.len(),
-            answer.plain.as_ref().map_or(0, String::len)
-        );
+    for (provider, answer) in host.music_tags(&query).await {
+        let tags = answer.unwrap_or_else(|error| panic!("{}: {error}", provider.name));
+        println!("{}: {tags:?}", provider.name);
+        assert!(!tags.is_empty(), "{}", provider.name);
     }
-    assert!(
-        lyrics
-            .iter()
-            .any(|l| l.provider_name == "KuGou" && l.synced.len() > 10)
-    );
-    assert!(
-        lyrics
-            .iter()
-            .any(|l| l.provider_name == "YouTube Music" && l.plain.is_some())
-    );
 }
 
 /// `cargo test -p raygun-ext-host -- --ignored follow_live --nocapture`.
@@ -1589,145 +1738,6 @@ async fn follow_live_artist_events() {
         found > 0,
         "MusicBrainz lists coming events for touring artists"
     );
-}
-
-/// `cargo test -p raygun-ext-host -- --ignored discovery_live --nocapture`.
-#[tokio::test]
-#[ignore = "needs network access to Deezer, Apple, ListenBrainz and MusicBrainz"]
-async fn discovery_live_charts_and_tags() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
-    let host = ExtensionHost::start(HostConfig::default()).unwrap();
-    host.load(discover_installed(&dir)).await;
-
-    for (provider, answer) in host.music_charts(Some("gb")).await {
-        let charts = answer.unwrap_or_else(|error| panic!("{}: {error}", provider.name));
-        assert!(!charts.is_empty(), "{}", provider.name);
-        let first = &charts[0];
-        let songs = host
-            .music_chart(&provider.id, &first.id, Some("gb"), 10)
-            .await
-            .unwrap_or_else(|error| panic!("{} {}: {error}", provider.name, first.name));
-        println!(
-            "{}: {} charts; {}: {:?}",
-            provider.name,
-            charts.len(),
-            first.name,
-            songs
-                .iter()
-                .take(3)
-                .map(|song| (&song.title, &song.artist))
-                .collect::<Vec<_>>()
-        );
-        assert!(!songs.is_empty(), "{} {}", provider.name, first.name);
-        // Every kind of chart a source lists plays (M46.19).
-        let mut seen = std::collections::HashSet::new();
-        for chart in charts.iter().filter(|chart| seen.insert(chart.group)) {
-            let songs = host
-                .music_chart(&provider.id, &chart.id, Some("gb"), 5)
-                .await
-                .unwrap_or_else(|error| panic!("{} {}: {error}", provider.name, chart.name));
-            println!("  {:?} {}: {} songs", chart.group, chart.name, songs.len());
-            assert!(!songs.is_empty(), "{} {}", provider.name, chart.name);
-        }
-    }
-
-    // Songs for genres and moods from every source that has them (M46.19).
-    for (tag, aliases, kind) in [
-        ("Hip-Hop", vec!["hip hop", "rap"], "genre"),
-        ("Breakcore", vec![], "genre"),
-        ("Chill", vec!["relaxing", "mellow"], "mood"),
-        ("Phonk", vec!["drift phonk"], "genre"),
-    ] {
-        let aliases: Vec<String> = aliases.into_iter().map(str::to_owned).collect();
-        let answers = host
-            .music_tag_songs(tag, &aliases, kind, Some("gb"), 10)
-            .await;
-        let mut filled = 0;
-        for (provider, answer) in answers {
-            match answer {
-                Ok((name, songs)) => {
-                    println!(
-                        "{tag} / {}: {:?} {} songs {:?}",
-                        provider.name,
-                        name,
-                        songs.len(),
-                        songs.first().map(|song| (&song.title, &song.artist))
-                    );
-                    if !songs.is_empty() {
-                        filled += 1;
-                    }
-                }
-                Err(error) => panic!("{tag} / {}: {error}", provider.name),
-            }
-        }
-        assert!(filled >= 2, "{tag}: only {filled} sources had songs");
-    }
-
-    // Recommendations for Made for You (M46.20).
-    let similar = host.similar_artists("Daft Punk", 8).await;
-    println!("similar to Daft Punk: {similar:?}");
-    assert!(!similar.is_empty());
-    // Deezer lists a little-known namesake first; the famous one is meant.
-    let similar = host.similar_artists("Michael Jackson", 8).await;
-    println!("similar to Michael Jackson: {similar:?}");
-    assert!(
-        similar.iter().any(|name| name.contains("Jackson")),
-        "{similar:?}"
-    );
-    let top = host
-        .recommended_tracks("topTracks", json!({ "artist": "Daft Punk", "limit": 5 }))
-        .await;
-    assert!(!top.is_empty());
-    let radio = host
-        .recommended_tracks(
-            "radio",
-            json!({ "artist": "Daft Punk", "title": null, "limit": 10 }),
-        )
-        .await;
-    assert!(!radio.is_empty());
-    let releases = host
-        .recommended_tracks(
-            "newReleases",
-            json!({ "artist": "Taylor Swift", "days": 365, "limit": 5 }),
-        )
-        .await;
-    println!(
-        "top {:?}, radio {:?}, releases {:?}",
-        top.first().map(|song| &song.title),
-        radio.first().map(|song| &song.title),
-        releases.first().map(|song| &song.title)
-    );
-
-    let albums = host.search_albums("random access memories", 5).await;
-    println!(
-        "albums: {:?}",
-        albums
-            .iter()
-            .map(|album| (&album.provider.name, &album.title))
-            .collect::<Vec<_>>()
-    );
-    let deezer = albums
-        .iter()
-        .find(|album| album.provider.extension_id == "dev.raygun.deezer")
-        .expect("Deezer finds the album");
-    let detail = host
-        .music_album(&deezer.provider.id, &deezer.id)
-        .await
-        .unwrap();
-    assert!(detail.tracks.len() > 10, "{}", detail.tracks.len());
-    assert!(!host.search_artists("daft punk", 5).await.is_empty());
-
-    let query = raygun_model::TrackQuery {
-        title: "Get Lucky".into(),
-        artist: Some("Daft Punk".into()),
-        album: None,
-        duration_ms: Some(248_000),
-    };
-    for (provider, answer) in host.music_tags(&query).await {
-        let tags = answer.unwrap_or_else(|error| panic!("{}: {error}", provider.name));
-        println!("{}: {tags:?}", provider.name);
-        assert!(!tags.is_empty(), "{}", provider.name);
-    }
 }
 
 /// LibriVox's books through the Internet Archive (M46.22):
@@ -1802,425 +1812,6 @@ async fn loyalbooks_live_lists_and_finds_books_with_feeds() {
     }
 }
 
-/// Lit2Go (M46.48) against the site: its books list their chapters themselves. `cargo test -p
-/// raygun-ext-host -- --ignored lit2go_live --nocapture`.
-#[tokio::test]
-#[ignore = "needs network access to etc.usf.edu"]
-async fn lit2go_live_lists_books_and_their_chapters() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
-    let host = ExtensionHost::start(HostConfig::default()).unwrap();
-    host.load(discover_installed(&dir)).await;
-    let provider = "dev.raygun.lit2go/books";
-    for (list, query) in [
-        ("popular", ""),
-        ("search", "sherlock holmes"),
-        ("subject", "Mystery"),
-    ] {
-        let page = host.audiobooks(provider, list, query, 1).await.unwrap();
-        println!(
-            "{list}: {} books, more {}; first {:?}",
-            page.books.len(),
-            page.has_more,
-            page.books
-                .first()
-                .map(|book| (&book.title, &book.author, &book.feed_url))
-        );
-        assert!(!page.books.is_empty(), "{list}");
-        assert!(page.books.iter().all(|book| {
-            crate::audiobook::parse_listed_key(&book.feed_url)
-                .is_some_and(|(listed_by, _)| listed_by == provider)
-        }));
-    }
-    let found = host
-        .audiobooks(provider, "search", "adventures of sherlock holmes", 1)
-        .await
-        .unwrap();
-    let (_, id) = crate::audiobook::parse_listed_key(&found.books[0].feed_url).unwrap();
-    let book = host.audiobook_details(provider, id).await.unwrap();
-    println!(
-        "{} by {:?}: {} chapters, first {:?}",
-        book.title,
-        book.author,
-        book.chapters.len(),
-        book.chapters
-            .first()
-            .map(|chapter| (&chapter.title, &chapter.audio_url))
-    );
-    assert!(book.chapters.len() >= 10);
-    assert!(book.chapters.iter().all(|chapter| {
-        chapter
-            .audio_url
-            .starts_with("https://etc.usf.edu/lit2go/audio/mp3/")
-            && chapter.audio_url.ends_with(".mp3")
-    }));
-    let first = reqwest::Client::new()
-        .head(&book.chapters[0].audio_url)
-        .send()
-        .await
-        .unwrap();
-    assert!(first.status().is_success(), "{}", first.status());
-}
-
-/// The video sources with their own Search pill (M46.35), against the real services:
-/// `cargo test -p raygun-ext-host -- --ignored video_pills_live --nocapture`.
-#[tokio::test]
-#[ignore = "needs network access to YouTube and PeerTube"]
-async fn video_pills_live_search_and_play() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
-    let host = ExtensionHost::start(HostConfig::default()).unwrap();
-    host.load(discover_installed(&dir)).await;
-    for (provider, query) in [
-        ("dev.raygun.youtube/videos", "nasa launch"),
-        ("dev.raygun.peertube/videos", "nasa"),
-    ] {
-        let info = host
-            .listed_providers("video.source")
-            .await
-            .into_iter()
-            .find(|info| info.id == provider)
-            .unwrap();
-        println!("{provider}: pill {:?}", info.search_pill);
-        assert!(info.search_pill.is_some());
-        let page = host.manga_search(provider, query, 1).await.unwrap();
-        println!(
-            "  {} results, more {}; first {:?}",
-            page.items.len(),
-            page.has_next_page,
-            page.items.first().map(|item| &item.title)
-        );
-        assert!(!page.items.is_empty(), "{provider}");
-        // A video (YouTube also lists channels and playlists, M46.45).
-        let first = &page
-            .items
-            .iter()
-            .find(|item| !item.id.contains(':'))
-            .unwrap()
-            .id;
-        let servers = host.video_servers(provider, first).await.unwrap();
-        let links: Vec<String> = servers
-            .iter()
-            .flat_map(|server| {
-                server
-                    .videos
-                    .iter()
-                    .flatten()
-                    .map(|video| video.url.clone())
-            })
-            .collect();
-        println!("  links {:?}", links.iter().take(2).collect::<Vec<_>>());
-        assert!(!links.is_empty(), "{provider}");
-    }
-
-    // The app asks for a title's details and episodes at once (M46.45: this once never ended).
-    for (provider, query) in [
-        ("dev.raygun.youtube/videos", "nasa launch"),
-        ("dev.raygun.peertube/videos", "nasa"),
-    ] {
-        let page = host.manga_search(provider, query, 1).await.unwrap();
-        let id = &page
-            .items
-            .iter()
-            .find(|item| !item.id.contains(':'))
-            .unwrap()
-            .id;
-        let both = tokio::time::timeout(
-            std::time::Duration::from_secs(20),
-            futures_util::future::join(
-                host.manga_details(provider, id),
-                host.video_episodes(provider, id),
-            ),
-        )
-        .await;
-        let (details, episodes) = both.expect("details and episodes together answer");
-        println!(
-            "  together {provider}: {:?}, {} episodes",
-            details.map(|details| details.title),
-            episodes.map(|episodes| episodes.len()).unwrap_or(0)
-        );
-    }
-
-    // YouTube's channels and playlists open as a series of their videos; videos have comments
-    // (M46.45).
-    let youtube = "dev.raygun.youtube/videos";
-    let page = host.manga_search(youtube, "nasa", 1).await.unwrap();
-    let playlists = host
-        .manga_search(youtube, "nasa playlist", 1)
-        .await
-        .unwrap();
-    for (prefix, page) in [("channel:", &page), ("playlist:", &playlists)] {
-        let Some(found) = page.items.iter().find(|item| item.id.starts_with(prefix)) else {
-            println!("  no {prefix} result for nasa");
-            continue;
-        };
-        let details = host.manga_details(youtube, &found.id).await.unwrap();
-        let episodes = host.video_episodes(youtube, &found.id).await.unwrap();
-        println!(
-            "  {prefix} {:?}: {:?}, {} videos, first {:?}",
-            found.id,
-            details.title,
-            episodes.len(),
-            episodes.first().map(|episode| &episode.name)
-        );
-        assert!(!episodes.is_empty(), "{prefix}");
-    }
-    assert!(
-        page.items
-            .iter()
-            .any(|item| item.id.starts_with("channel:"))
-    );
-    let comments = host
-        .video_comments(youtube, "dQw4w9WgXcQ", None)
-        .await
-        .unwrap();
-    println!(
-        "  comments {}, next {}, first {:?}",
-        comments.comments.len(),
-        comments.next.is_some(),
-        comments
-            .comments
-            .first()
-            .map(|comment| (&comment.author, &comment.likes))
-    );
-    assert!(!comments.comments.is_empty());
-    let more = host
-        .video_comments(youtube, "dQw4w9WgXcQ", comments.next.as_deref())
-        .await
-        .unwrap();
-    assert!(!more.comments.is_empty());
-}
-
-/// LRCLIB's real service: `cargo test -p raygun-ext-host -- --ignored lrclib_live`.
-#[tokio::test]
-#[ignore = "needs network access to lrclib.net"]
-async fn lrclib_live_returns_synced_lyrics() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
-    let host = ExtensionHost::start(HostConfig::default()).unwrap();
-    host.load(discover_installed(&dir)).await;
-    let query = raygun_model::TrackQuery {
-        title: "What a Wonderful World".into(),
-        artist: Some("Louis Armstrong".into()),
-        album: None,
-        duration_ms: Some(139_000),
-    };
-    let lyrics = host
-        .lyrics(&query)
-        .await
-        .unwrap()
-        .expect("LRCLIB has this song");
-    println!(
-        "{} synced lines, first: {:?}",
-        lyrics.synced.len(),
-        lyrics.synced.first()
-    );
-    assert!(!lyrics.synced.is_empty());
-}
-
-/// KuGou's real lyric service, read as KRC with its translations and romanizations (M46.48):
-/// `cargo test -p raygun-ext-host -- --ignored kugou_live --nocapture`.
-#[tokio::test]
-#[ignore = "needs network access to kugou.com"]
-async fn kugou_live_has_translations_and_romanizations() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
-    let host = ExtensionHost::start(HostConfig::default()).unwrap();
-    host.load(discover_installed(&dir)).await;
-    for (title, artist, duration_ms, wanted) in [
-        (
-            "Shape of You",
-            "Ed Sheeran",
-            233_000,
-            ("zh-Hans", LyricsTranslationKind::Translation),
-        ),
-        (
-            "夜に駆ける",
-            "YOASOBI",
-            261_000,
-            ("ja-Latn", LyricsTranslationKind::Romanization),
-        ),
-    ] {
-        let query = raygun_model::TrackQuery {
-            title: title.into(),
-            artist: Some(artist.into()),
-            album: None,
-            duration_ms: Some(duration_ms),
-        };
-        let answers = host.all_lyrics(&query).await.unwrap();
-        let kugou = answers
-            .iter()
-            .find(|lyrics| lyrics.provider_name == "KuGou")
-            .expect("KuGou has this song");
-        println!(
-            "{title}: {} lines, first {:?}",
-            kugou.synced.len(),
-            kugou.synced.first().map(|line| &line.text)
-        );
-        for translation in &kugou.translations {
-            let first = translation.lines.iter().find(|line| !line.is_empty());
-            println!(
-                "  {} {:?}: {first:?}",
-                translation.language, translation.kind
-            );
-            assert_eq!(translation.lines.len(), kugou.synced.len());
-        }
-        assert!(
-            kugou
-                .translations
-                .iter()
-                .any(|translation| (translation.language.as_str(), translation.kind) == wanted),
-            "{title} has a {wanted:?}"
-        );
-        // The credits and the line naming the song are left out.
-        assert!(
-            !kugou.synced[0].text.contains(artist),
-            "{:?}",
-            kugou.synced[0]
-        );
-    }
-}
-
-/// YouTube Music's real search, without a key: `cargo test -p raygun-ext-host -- --ignored youtube_live`.
-#[tokio::test]
-#[ignore = "needs network access to music.youtube.com"]
-async fn youtube_live_searches_without_a_key() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
-    let host = ExtensionHost::start(HostConfig::default()).unwrap();
-    host.load(discover_installed(&dir)).await;
-    let results = host.search_music("daft punk get lucky", 10).await;
-    let youtube = results
-        .iter()
-        .find(|result| result.provider.extension_id == "dev.raygun.youtube")
-        .expect("the YouTube extension searched");
-    assert_eq!(youtube.error, None);
-    for track in youtube.tracks.iter().take(5) {
-        println!(
-            "{} · {:?} · {:?} · {:?}",
-            track.title, track.artist, track.album, track.duration_ms
-        );
-    }
-    let first = &youtube.tracks[0];
-    assert!(first.title.contains("Get Lucky"));
-    assert!(
-        first
-            .artist
-            .as_deref()
-            .unwrap_or_default()
-            .contains("Daft Punk")
-    );
-    assert!(first.duration_ms.is_some());
-    assert!(matches!(
-        first.source,
-        Some(raygun_model::MediaSource::YouTube { .. })
-    ));
-}
-
-/// YouTube's own audio files for a few known songs (M46.51), for playing and for downloading
-/// (M4A), each checked by fetching its first MB as a player does:
-/// `cargo test -p raygun-ext-host -- --ignored youtube_streams_live --nocapture`.
-#[tokio::test]
-#[ignore = "needs network access to youtube.com"]
-async fn youtube_streams_live_play_and_download() {
-    use crate::host::StreamUse;
-    use raygun_resolver::QualityTarget;
-
-    const STREAMS: &str = "dev.raygun.youtube/stream";
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
-    let host = ExtensionHost::start(HostConfig::default()).unwrap();
-    host.load(discover_installed(&dir)).await;
-    let client = reqwest::Client::new();
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as i64;
-    let songs = [
-        ("Daft Punk", "Get Lucky"),
-        ("Adele", "Hello"),
-        ("Queen", "Bohemian Rhapsody"),
-    ];
-    for (artist, title) in songs {
-        let query = raygun_model::TrackQuery {
-            title: title.into(),
-            artist: Some(artist.into()),
-            album: None,
-            duration_ms: None,
-        };
-        let answers = host.stream_candidates(&query, 10, QualityTarget::Any).await;
-        let youtube = answers
-            .iter()
-            .find(|answer| answer.provider.id == STREAMS)
-            .expect("YouTube offered streams");
-        let candidates = youtube.result.as_ref().expect("YouTube searched");
-        let audio = candidates
-            .iter()
-            .find(|candidate| candidate.source.is_none())
-            .expect("an audio file to resolve");
-        assert!(audio.id.starts_with("audio:"), "{}", audio.id);
-        assert!(
-            candidates
-                .iter()
-                .any(|candidate| matches!(candidate.source, Some(MediaSource::YouTube { .. }))),
-            "the embed stays the fallback"
-        );
-        let video_id = audio.id.trim_start_matches("audio:").to_owned();
-        let uses = [
-            (audio.id.clone(), StreamUse::default()),
-            (
-                video_id,
-                StreamUse {
-                    quality: QualityTarget::Kbps(128),
-                    decodable: true,
-                },
-            ),
-        ];
-        for (id, using) in uses {
-            let resolved = host
-                .resolve_stream(STREAMS, &id, using)
-                .await
-                .unwrap_or_else(|error| panic!("{title}: {error}"));
-            let MediaSource::Url { url, headers } = &resolved.source else {
-                panic!("{title}: not a file: {:?}", resolved.source);
-            };
-            assert!(
-                resolved.expires_at.is_some_and(|at| at > now),
-                "{title}: {:?}",
-                resolved.expires_at
-            );
-            let mut request = client
-                .get(url)
-                .header(reqwest::header::RANGE, "bytes=0-1048575");
-            for (name, value) in headers {
-                request = request.header(name.as_str(), value.as_str());
-            }
-            let response = request.send().await.unwrap();
-            assert_eq!(
-                response.status(),
-                reqwest::StatusCode::PARTIAL_CONTENT,
-                "{title}"
-            );
-            let content_type = response
-                .headers()
-                .get(reqwest::header::CONTENT_TYPE)
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or_default()
-                .to_owned();
-            assert!(
-                content_type.starts_with("audio/"),
-                "{title}: {content_type}"
-            );
-            if using.decodable {
-                assert!(
-                    content_type.starts_with("audio/mp4"),
-                    "{title}: {content_type}"
-                );
-            }
-            let bytes = response.bytes().await.unwrap();
-            assert_eq!(bytes.len(), 1_048_576, "{title}");
-            println!(
-                "{artist} - {title} ({id}): {content_type}, first MB in hand, until {:?}",
-                resolved.expires_at
-            );
-        }
-    }
-}
-
 /// `cargo test -p raygun-ext-host -- --ignored gutenberg`.
 #[tokio::test]
 #[ignore = "needs network access to gutenberg.org"]
@@ -2285,7 +1876,7 @@ async fn shosetsu_official_scripts_work() {
 
     let temp = tempfile::TempDir::new().unwrap();
     let wanted =
-        std::env::var("SHOSETSU_SCRIPTS").unwrap_or_else(|_| "shosetsu.en.novelfull".into());
+        std::env::var("SHOSETSU_SCRIPTS").unwrap_or_else(|_| "shosetsu.ja.syosetsu".into());
     for id in wanted.split(',') {
         let entry = index
             .extensions
@@ -2919,36 +2510,6 @@ async fn user_marks_decide_which_providers_are_adult_without_a_reload() {
     // Search's "No 18+" follows the marks too.
     let without = crate::without_adult_sources(true, host.providers("lyrics")).await;
     assert_eq!(ids(without).len(), 2);
-}
-
-/// `cargo test -p raygun-ext-host -- --ignored mangadex_filters`.
-#[tokio::test]
-#[ignore = "needs network access to api.mangadex.org"]
-async fn mangadex_filters_live() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
-    let host = ExtensionHost::start(HostConfig::default()).unwrap();
-    host.load(discover_installed(&dir)).await;
-    let provider = "dev.raygun.mangadex/mangadex";
-    let raw = host.call(provider, "filters", json!({})).await;
-    println!(
-        "raw: {:?}",
-        raw.as_ref()
-            .map(|value| value.to_string().chars().take(300).collect::<String>())
-    );
-    let filters = host.manga_filters(provider).await.unwrap();
-    println!("{} filters", filters.len());
-    assert!(filters.len() >= 4, "sort, status, demographic and tags");
-    let mut chosen = std::collections::BTreeMap::new();
-    chosen.insert(
-        "status".to_owned(),
-        raygun_model::FilterValue::Select("completed".into()),
-    );
-    let listing = host
-        .manga_search_filtered(provider, "", 1, &chosen)
-        .await
-        .unwrap();
-    println!("{} completed titles", listing.items.len());
-    assert!(!listing.items.is_empty());
 }
 
 #[tokio::test]

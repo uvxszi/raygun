@@ -1,21 +1,27 @@
 // Internet Archive audio search: finds audio items with the advanced-search API, reads each hit's
-// file list in parallel and returns its MP3s as directly playable tracks. Films are in `films.ts`.
+// file list in parallel and returns its MP3s as directly playable tracks. Only netlabel releases
+// and Musopen's recordings that carry a public-domain mark or a Creative Commons licence are
+// searched or played. Films are in `films.ts`.
 import { defineProvider, fetchJson, registerProvider } from '@raygun/sdk';
 import type { Track } from '@raygun/sdk';
 
 import { films } from './films';
 
 const API = 'https://archive.org';
+/** A public-domain mark or dedication, or a Creative Commons licence. */
+const OPEN_LICENCE = /creativecommons\.org|publicdomain/i;
+/** The Great 78 Project's transfers, whose rights are disputed. */
+const LEFT_OUT = ['78rpm', 'georgeblood'];
 /**
- * The audio songs come from: netlabel releases whose licence is Creative Commons or a
- * public-domain mark, and Musopen's recordings, which Musopen released without copyright. Open
- * community uploads are left out (their licences are self-declared, and commercial recordings
- * marked CC0 turn up among them), and so are the Great 78 Project's transfers.
+ * The search terms for the audio songs come from: netlabel releases and Musopen's recordings
+ * under that rule. Open community uploads are left out (their licences are self-declared, and
+ * commercial recordings marked CC0 turn up among them), and so is the Great 78 Project.
  */
 const OPEN_AUDIO = [
   'mediatype:audio',
-  '((collection:netlabels AND (licenseurl:*creativecommons.org* OR licenseurl:*publicdomain*)) OR collection:musopen)',
-  '-collection:(78rpm OR georgeblood)',
+  'collection:(netlabels OR musopen)',
+  '(licenseurl:*creativecommons.org* OR licenseurl:*publicdomain*)',
+  `-collection:(${LEFT_OUT.join(' OR ')})`,
 ].join(' AND ');
 
 type SearchDoc = { identifier: string; title?: string | string[]; creator?: string | string[] };
@@ -33,7 +39,12 @@ type ItemFile = {
 };
 type ItemMetadata = {
   files?: ItemFile[];
-  metadata?: { title?: string | string[]; creator?: string | string[] };
+  metadata?: {
+    title?: string | string[];
+    creator?: string | string[];
+    licenseurl?: string;
+    collection?: string | string[];
+  };
 };
 
 // Lucene syntax characters would turn a user's query into a malformed or different search.
@@ -125,6 +136,10 @@ const itemTracks = async (
 ): Promise<ItemTrack[]> => {
   const id = doc.identifier;
   const item = await fetchJson<ItemMetadata>(`${API}/metadata/${encodeURIComponent(id)}`);
+  // The search index can lag behind an item's own record; the record decides.
+  const collections = [item.metadata?.collection ?? []].flat();
+  if (!OPEN_LICENCE.test(item.metadata?.licenseurl ?? '')) return [];
+  if (collections.some((name) => LEFT_OUT.includes(name))) return [];
   const files = (item.files ?? []).filter(isPlayable);
   // Items often carry the same recording at several bitrates; one format, so one file per title.
   const format = pickFormat(files, targetKbps);

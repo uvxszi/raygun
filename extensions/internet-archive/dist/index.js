@@ -1,4 +1,4 @@
-// dev.raygun.internet-archive 1.4.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.internet-archive 1.5.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -19,17 +19,21 @@
   var ROWS = 30;
   var COLLECTIONS = [
     { value: "feature_films", label: "Feature films" },
-    { value: "animationandcartoons", label: "Animation and cartoons" },
     { value: "silent_films", label: "Silent films" },
     { value: "Film_Noir", label: "Film noir" },
     { value: "SciFi_Horror", label: "Sci-fi and horror" },
     { value: "Comedy_Films", label: "Comedy films" },
-    { value: "classic_tv", label: "Classic TV" },
-    { value: "prelinger", label: "Prelinger Archives" }
+    { value: "classic_cartoons", label: "Classic cartoons" },
+    { value: "animationandcartoons", label: "Animation" },
+    { value: "prelinger", label: "Prelinger Archives" },
+    { value: "classic_tv", label: "Classic TV" }
   ];
   var PUBLIC_DOMAIN_BEFORE = (/* @__PURE__ */ new Date()).getUTCFullYear() - 95;
+  var MARKS_BELIEVED_UNTIL = 1977;
+  var MARK = /publicdomain\/mark|licenses\/publicdomain/i;
   var PUBLIC_DOMAIN_MARK = "(licenseurl:*publicdomain\\/mark* OR licenseurl:*licenses\\/publicdomain*)";
-  var PUBLIC_DOMAIN = `(year:[1800 TO ${PUBLIC_DOMAIN_BEFORE - 1}] OR (${PUBLIC_DOMAIN_MARK} AND year:[1800 TO 1977]))`;
+  var PUBLIC_DOMAIN = `(year:[1800 TO ${PUBLIC_DOMAIN_BEFORE - 1}] OR (${PUBLIC_DOMAIN_MARK} AND year:[1800 TO ${MARKS_BELIEVED_UNTIL}]))`;
+  var PRELINGER = "licenseurl:*publicdomain*";
   var SORTS = [
     { value: "downloads desc", label: "Most viewed" },
     { value: "addeddate desc", label: "Recently added" },
@@ -65,15 +69,33 @@
       hasNextPage: page * ROWS < (result.response?.numFound ?? 0)
     };
   };
-  var inCollection = (collection) => `collection:(${collection}) AND mediatype:(movies) AND ${collection === "prelinger" ? "licenseurl:*publicdomain*" : PUBLIC_DOMAIN}`;
+  var inCollection = (collection) => `collection:(${collection}) AND mediatype:(movies) AND ${collection === "prelinger" ? PRELINGER : PUBLIC_DOMAIN}`;
   var items = /* @__PURE__ */ new Map();
-  var metadata = (identifier) => {
+  var fetchItem = (identifier) => {
     let item = items.get(identifier);
     if (!item) {
       item = fetchJson(`${API}/metadata/${encodeURIComponent(identifier)}`);
       item.catch(() => items.delete(identifier));
       items.set(identifier, item);
       if (items.size > 20) items.delete(items.keys().next().value);
+    }
+    return item;
+  };
+  var isOpen = (item) => {
+    const licence = item.metadata?.licenseurl ?? "";
+    const collections = [item.metadata?.collection ?? []].flat();
+    if (collections.includes("prelinger") && /publicdomain/i.test(licence)) return true;
+    const year = Number.parseInt((item.metadata?.year ?? item.metadata?.date ?? "").slice(0, 4), 10);
+    if (!Number.isFinite(year)) return false;
+    return year < PUBLIC_DOMAIN_BEFORE || MARK.test(licence) && year <= MARKS_BELIEVED_UNTIL;
+  };
+  var metadata = async (identifier) => {
+    const item = await fetchItem(identifier);
+    if (!item.metadata) throw new Error("The Internet Archive has no such item");
+    if (!isOpen(item)) {
+      throw new Error(
+        "The Internet Archive doesn't list this item as public domain or openly licensed, so Raygun doesn't play it"
+      );
     }
     return item;
   };
@@ -177,10 +199,13 @@
 
   // src/index.ts
   var API2 = "https://archive.org";
+  var OPEN_LICENCE = /creativecommons\.org|publicdomain/i;
+  var LEFT_OUT = ["78rpm", "georgeblood"];
   var OPEN_AUDIO = [
     "mediatype:audio",
-    "((collection:netlabels AND (licenseurl:*creativecommons.org* OR licenseurl:*publicdomain*)) OR collection:musopen)",
-    "-collection:(78rpm OR georgeblood)"
+    "collection:(netlabels OR musopen)",
+    "(licenseurl:*creativecommons.org* OR licenseurl:*publicdomain*)",
+    `-collection:(${LEFT_OUT.join(" OR ")})`
   ].join(" AND ");
   var escapeQuery2 = (query) => query.replace(/[+\-!(){}[\]^"~*?:\\/&|]/g, " ").trim();
   var firstString2 = (value) => (Array.isArray(value) ? value[0] : value) ?? null;
@@ -234,6 +259,9 @@
   var itemTracks = async (doc, max, targetKbps) => {
     const id = doc.identifier;
     const item = await fetchJson(`${API2}/metadata/${encodeURIComponent(id)}`);
+    const collections = [item.metadata?.collection ?? []].flat();
+    if (!OPEN_LICENCE.test(item.metadata?.licenseurl ?? "")) return [];
+    if (collections.some((name) => LEFT_OUT.includes(name))) return [];
     const files = (item.files ?? []).filter(isPlayable2);
     const format = pickFormat(files, targetKbps);
     const preferred = format === null ? files : files.filter((file) => file.format === format);

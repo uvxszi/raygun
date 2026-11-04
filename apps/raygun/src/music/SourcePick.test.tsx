@@ -34,11 +34,11 @@ const PICK: OnlineTrack = {
 };
 
 const PROVIDER = {
-  id: 'dev.raygun.deezer/search',
-  extensionId: 'dev.raygun.deezer',
+  id: 'dev.example.tunes/search',
+  extensionId: 'dev.example.tunes',
   enabled: true,
   kind: 'music.metadata',
-  name: 'Deezer',
+  name: 'Tunes',
 };
 
 describe('Choosing a source', () => {
@@ -87,7 +87,7 @@ describe('Choosing a source', () => {
     await user.click(within(confirm).getByRole('button', { name: 'Use this source' }));
     expect(commands.trackUseSource).toHaveBeenCalledWith(SONG, PICK, {
       assign: true,
-      sourceName: 'Deezer',
+      sourceName: 'Tunes',
       title: true,
       artist: true,
       album: true,

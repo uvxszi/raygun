@@ -8,6 +8,7 @@ import { Artwork } from '../library/Artwork';
 import { menuHandler, useSourcePlaylistMenuItems } from '../music/cardMenus';
 import { SourceIssue } from '../shell/SourceIssue';
 import { Asking } from './MusicFinds';
+import { NoSources } from './NoSources';
 import { usePlaylistFinds } from './useMusicFinds';
 import { SourceTag } from '../shell/SourceTag';
 
@@ -75,7 +76,8 @@ export const PlaylistFinds: FC<{ query: string }> = ({ query }) => {
         playlists.isFetching ? (
           <Asking progress={playlists.progress} />
         ) : (
-          <p className="text-muted text-sm">{t('search.playlists.none', { query })}</p>
+          // Playlists come only from sources that have them; none may be installed.
+          <NoSources label={t('search.playlists.none', { query })} />
         )
       ) : (
         <>

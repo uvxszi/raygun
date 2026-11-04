@@ -23,6 +23,19 @@ export const useExtension = (id: string) => {
 };
 
 /**
+ * Whether a loaded extension provides `kind` (`music.charts`, `podcast.directory`…): what a
+ * screen needs a source for, so it can say there's none yet. `undefined` while the list loads.
+ */
+export const useHasProvider = (kind: string): boolean | undefined => {
+  const extensions = useExtensions();
+  return extensions.data?.some(
+    (extension) =>
+      extension.status === 'loaded' &&
+      extension.providers.some((provider) => provider.kind === kind),
+  );
+};
+
+/**
  * Follows extension reloads from Rust (installs, settings changes, and in dev builds every
  * `raygun-ext dev` push): refreshes the list, catalog states and search results. Mount once.
  */

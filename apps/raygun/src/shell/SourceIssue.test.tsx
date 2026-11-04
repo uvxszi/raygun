@@ -32,16 +32,16 @@ describe('Source issues', () => {
     commands.musicChart.mockResolvedValue({
       status: 'error',
       error:
-        'Deezer wants a browser check, which Raygun can’t do\napi.deezer.com answered HTTP 403 with a browser check',
+        'Tunes wants a browser check, which Raygun can’t do\napi.tunes.example answered HTTP 403 with a browser check',
     });
     await AppShellWrapper.mount('/music/chart?provider=x&id=top');
 
     const issue = await screen.findByTestId('source-issue');
     expect(
-      within(issue).getByText('Deezer wants a browser check, which Raygun can’t do'),
+      within(issue).getByText('Tunes wants a browser check, which Raygun can’t do'),
     ).toBeVisible();
     const details = within(issue).getByText(
-      'api.deezer.com answered HTTP 403 with a browser check',
+      'api.tunes.example answered HTTP 403 with a browser check',
     );
     expect(details).not.toBeVisible();
     await user.click(within(issue).getByRole('button', { name: 'More info' }));

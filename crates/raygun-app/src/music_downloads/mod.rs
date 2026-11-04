@@ -2694,13 +2694,13 @@ mod tests {
         assert_eq!(shown.provider.as_deref(), Some("Picked"));
         assert_eq!((shown.fraction, shown.eta_ms), (None, None));
 
-        live.source = Some("Audius".into());
+        live.source = Some("Indie Tracks".into());
         live.total = Some(4_000_000);
         live.speed.update(0, start);
         live.done = 1_000_000;
         live.speed.update(1_000_000, start + Duration::from_secs(1));
         let shown = live.apply(item.clone());
-        assert_eq!(shown.provider.as_deref(), Some("Audius"));
+        assert_eq!(shown.provider.as_deref(), Some("Indie Tracks"));
         assert_eq!(shown.fraction, Some(0.25));
         assert_eq!(shown.bytes_per_second, Some(1_000_000.0));
         assert_eq!(shown.eta_ms, Some(3_000.0));
@@ -2749,8 +2749,8 @@ mod tests {
     #[test]
     fn streams_are_named_by_their_site() {
         assert_eq!(
-            source_name("https://discoveryprovider3.audius.co/v1/tracks/x/stream"),
-            "audius.co"
+            source_name("https://api.indie.example/v1/tracks/x/stream"),
+            "indie.example"
         );
         assert_eq!(
             source_name("https://archive.org/download/a/b.mp3"),
@@ -2808,11 +2808,11 @@ mod tests {
             ..Report::default()
         };
         report.note(
-            "Audius",
+            "Indie Tracks",
             &StreamError::Error("The server answered 403 Forbidden".into()),
         );
         report.note(
-            "Audius",
+            "Indie Tracks",
             &StreamError::Error("The server answered 404 Not Found".into()),
         );
         report.note(
@@ -2822,12 +2822,12 @@ mod tests {
         let message = report.message(false);
         assert_eq!(
             message.summary,
-            "Couldn't download it from Audius or YouTube."
+            "Couldn't download it from Indie Tracks or YouTube."
         );
         assert_eq!(
             message.detail.as_deref(),
             Some(
-                "Audius: The server answered 403 Forbidden\nAudius: The server answered 404 Not \
+                "Indie Tracks: The server answered 403 Forbidden\nIndie Tracks: The server answered 404 Not \
                  Found\nYouTube: YouTube didn't give a stream for it\nSearch: No playable source \
                  found for \u{201c}Swim\u{201d}"
             )
@@ -2847,14 +2847,14 @@ mod tests {
 
         // Different songs by that name, and nothing else.
         let report = Report {
-            loose: vec![("Audius".into(), "Swim (cover)".into())],
+            loose: vec![("Indie Tracks".into(), "Swim (cover)".into())],
             ..Report::default()
         };
         let message = report.message(false);
         assert_eq!(message.summary, "No source has this exact song.");
         assert_eq!(
             message.detail.as_deref(),
-            Some("Audius offered \u{201c}Swim (cover)\u{201d}")
+            Some("Indie Tracks offered \u{201c}Swim (cover)\u{201d}")
         );
 
         // A stream in pieces that couldn't be captured (M46.49).
@@ -2873,17 +2873,17 @@ mod tests {
         // The network: it goes back to the queue while tries are left.
         let mut report = Report::default();
         report.note(
-            "Audius",
+            "Indie Tracks",
             &StreamError::Transient("The download stalled".into()),
         );
         assert!(report.transient);
         assert_eq!(
             report.message(true).summary,
-            "Couldn't download it from Audius. Trying again soon."
+            "Couldn't download it from Indie Tracks. Trying again soon."
         );
         assert_eq!(
             report.message(false).summary,
-            "Couldn't download it from Audius."
+            "Couldn't download it from Indie Tracks."
         );
 
         // Nothing anywhere.

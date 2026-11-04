@@ -280,5 +280,5 @@ Android music players (ViMusic forks, Kotlin, GPL-3.0). What they draw on:
     - ANDROID_MUSIC: wants a sign-in. TVHTML5: wants the player JavaScript's signature timestamp.
     - Without visitor data every client got "Sign in to confirm you're not a bot".
   - googlevideo sends a request without `Range` at about playback speed and cut it off at 99 %; any range (`bytes=0-` too) arrives at full speed (6 MB in 0.3 s).
-  - Raygun (M46.51) does what Grayjay does: the YouTube extension's `music.stream` `resolve` asks VISIONOS → ANDROID_VR → IOS → ANDROID with visitor data, picks Opus to play or M4A to read (`decodable`), checks two bytes, and keeps the embed as the fallback. Nothing is deciphered and no token is made. NewPipeExtractor (GPL-3.0) or Piped/Invidious instances would work too, but run YouTube's JavaScript or a third party's server, and aren't needed while a client gives plain addresses.
+  - Raygun no longer ships a YouTube extension (v1.2.0). The app still follows the `audio:<video>` candidates of an installed one's `music.stream` provider (`resolver::YOUTUBE_STREAMS`), and keeps the embed as the fallback.
 - **Discord:** Kizzy (`modules/kizzy`), with a personal account token. Raygun doesn't (M46.36).

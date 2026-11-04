@@ -10,7 +10,7 @@ use crate::CallError;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Trouble {
     pub kind: IssueKind,
-    /// "mangadex.org answered HTTP 403 with a browser check".
+    /// "comics.example answered HTTP 403 with a browser check".
     pub detail: String,
 }
 
@@ -111,8 +111,8 @@ mod tests {
     fn error(failure: Failure) -> CallError {
         into_error(
             failure,
-            "MangaDex",
-            "dev.raygun.mangadex/mangadex",
+            "Example Comics",
+            "dev.example.comics/comics",
             "search",
         )
     }
@@ -130,19 +130,19 @@ mod tests {
             message: "TypeError: cannot read property 'data' of undefined".into(),
             trouble: Some(Trouble {
                 kind: IssueKind::BotCheck,
-                detail: "mangadex.org answered HTTP 403 with a browser check".into(),
+                detail: "comics.example answered HTTP 403 with a browser check".into(),
             }),
             answered: false,
         };
         let error = error(checked);
         assert_eq!(
             error.to_string(),
-            "MangaDex wants a browser check, which Raygun can't do\nmangadex.org answered HTTP 403 with a browser check\nTypeError: cannot read property 'data' of undefined"
+            "Example Comics wants a browser check, which Raygun can't do\ncomics.example answered HTTP 403 with a browser check\nTypeError: cannot read property 'data' of undefined"
         );
         // Even when the script reported the status it saw.
         assert_eq!(
             kind(Failure {
-                message: "MangaDex answered HTTP 403".into(),
+                message: "Example Comics answered HTTP 403".into(),
                 trouble: Some(Trouble {
                     kind: IssueKind::BotCheck,
                     detail: "x".into()
@@ -177,18 +177,18 @@ mod tests {
     #[test]
     fn statuses_the_script_names_are_read() {
         assert_eq!(
-            kind(Failure::said("MangaDex answered HTTP 503")),
+            kind(Failure::said("Example Comics answered HTTP 503")),
             Some(IssueKind::ServerError)
         );
         assert_eq!(
             kind(Failure::said(
-                "HTTP 429 from https://api.mangadex.org/manga"
+                "HTTP 429 from https://api.comics.example/manga"
             )),
             Some(IssueKind::RateLimited)
         );
         assert_eq!(
-            error(Failure::said("MangaDex answered HTTP 404")).to_string(),
-            "Not found on MangaDex\nMangaDex answered HTTP 404"
+            error(Failure::said("Example Comics answered HTTP 404")).to_string(),
+            "Not found on Example Comics\nExample Comics answered HTTP 404"
         );
     }
 
@@ -197,7 +197,7 @@ mod tests {
         assert_eq!(
             error(Failure::said("This chapter has no pages")),
             CallError::Said {
-                name: "MangaDex".into(),
+                name: "Example Comics".into(),
                 message: "This chapter has no pages".into(),
             }
         );
@@ -226,7 +226,7 @@ mod tests {
             Some(IssueKind::Dns)
         );
         assert!(matches!(
-            error(Failure::said("provider mangadex has no method filters")),
+            error(Failure::said("provider comics has no method filters")),
             CallError::MissingMethod { .. }
         ));
     }

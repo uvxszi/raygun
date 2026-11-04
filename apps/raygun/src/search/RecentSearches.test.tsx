@@ -15,11 +15,11 @@ const KEPT = [
   { query: 'frieren', kind: 'manga', searchedAt: 1 },
 ];
 
-const DEEZER = {
-  id: 'dev.raygun.deezer/catalogue',
-  extensionId: 'dev.raygun.deezer',
+const TUNES = {
+  id: 'dev.example.tunes/catalogue',
+  extensionId: 'dev.example.tunes',
   kind: 'music.metadata',
-  name: 'Deezer',
+  name: 'Tunes',
 };
 
 const song = (title: string): OnlineTrack => ({
@@ -78,7 +78,7 @@ describe('Recent searches', () => {
       ok({
         library: [],
         top: [],
-        providers: [{ provider: DEEZER, tracks: [song('Get Lucky')], error: null }],
+        providers: [{ provider: TUNES, tracks: [song('Get Lucky')], error: null }],
       }),
     );
     await AppShellWrapper.mount('/browse?tab=search&type=music&view=songs');

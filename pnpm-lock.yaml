@@ -294,31 +294,13 @@ importers:
         specifier: ^5.0.5
         version: 5.0.5(@types/node@24.19.2)(jsdom@30.1.3)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.27.7)(jiti@2.7.0))
 
-  extensions/apple-charts:
-    devDependencies:
-      '@raygun/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-
   extensions/archive-comics:
     devDependencies:
       '@raygun/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
 
-  extensions/audius:
-    devDependencies:
-      '@raygun/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-
   extensions/blender-movies:
-    devDependencies:
-      '@raygun/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-
-  extensions/deezer:
     devDependencies:
       '@raygun/sdk':
         specifier: workspace:*
@@ -336,49 +318,13 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
 
-  extensions/kugou:
-    devDependencies:
-      '@raygun/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-
   extensions/librivox:
     devDependencies:
       '@raygun/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
 
-  extensions/listenbrainz:
-    devDependencies:
-      '@raygun/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-
-  extensions/lit2go:
-    devDependencies:
-      '@raygun/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-
   extensions/loyalbooks:
-    devDependencies:
-      '@raygun/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-
-  extensions/lrclib:
-    devDependencies:
-      '@raygun/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-
-  extensions/mangadex:
-    devDependencies:
-      '@raygun/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-
-  extensions/mangaplus-creators:
     devDependencies:
       '@raygun/sdk':
         specifier: workspace:*
@@ -396,49 +342,13 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
 
-  extensions/naver-webtoon:
-    devDependencies:
-      '@raygun/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-
-  extensions/peertube:
-    devDependencies:
-      '@raygun/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-
   extensions/peppercarrot:
     devDependencies:
       '@raygun/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
 
-  extensions/podcast-directory:
-    devDependencies:
-      '@raygun/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-
-  extensions/radio-browser:
-    devDependencies:
-      '@raygun/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-
   extensions/standard-ebooks:
-    devDependencies:
-      '@raygun/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-
-  extensions/tapas:
-    devDependencies:
-      '@raygun/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-
-  extensions/webtoons:
     devDependencies:
       '@raygun/sdk':
         specifier: workspace:*
@@ -457,12 +367,6 @@ importers:
         version: link:../../packages/sdk
 
   extensions/xkcd:
-    devDependencies:
-      '@raygun/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-
-  extensions/youtube:
     devDependencies:
       '@raygun/sdk':
         specifier: workspace:*

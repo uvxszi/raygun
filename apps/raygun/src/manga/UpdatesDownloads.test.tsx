@@ -10,7 +10,7 @@ vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).b
 
 const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 const { commands } = bindingsMock;
-const SOURCE = 'dev.raygun.mangadex/mangadex';
+const SOURCE = 'dev.example.comics/comics';
 const DAY = 24 * 60 * 60 * 1000;
 
 const chapter = (
@@ -238,7 +238,7 @@ describe('Manga updates and downloads', () => {
               id: 'dz',
               extensionId: 'dz',
               kind: 'music.metadata',
-              name: 'Deezer',
+              name: 'Tunes',
               searchPill: null,
             },
             id: 'a1',
@@ -333,7 +333,7 @@ describe('Manga updates and downloads', () => {
       id: 't1',
       hiddenNsfw: false,
       sourceId: SOURCE,
-      sourceName: 'MangaDex',
+      sourceName: 'Comic Shelf',
       remoteId: 'm1',
       title: 'Frieren',
       coverUrl: null,

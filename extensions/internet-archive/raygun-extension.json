@@ -1,11 +1,11 @@
 {
   "id": "dev.raygun.internet-archive",
   "name": "Internet Archive",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "apiVersion": 1,
   "runtime": "js",
   "entry": "dist/index.js",
-  "description": "Public domain and Creative Commons: netlabel and Musopen recordings, and public-domain films, from the Internet Archive.",
+  "description": "Public domain and Creative Commons: netlabel and Musopen recordings, and films in the public domain by age or by a mark that holds up, from the Internet Archive.",
   "author": "Raygun",
   "provides": ["music.metadata", "music.stream", "video.source"],
   "permissions": { "net": ["archive.org", "*.archive.org"] },

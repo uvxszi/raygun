@@ -578,11 +578,11 @@ async fn open_sources_live_internet_archive() {
             let kept = collections(&item);
             println!("  {identifier}: {licence} {kept:?}");
             assert!(
-                kept.iter().any(|name| name == "musopen")
-                    || (kept.iter().any(|name| name == "netlabels")
-                        && (licence.contains("creativecommons.org")
-                            || licence.contains("publicdomain"))),
-                "{identifier} isn't openly licensed"
+                kept.iter()
+                    .any(|name| name == "musopen" || name == "netlabels")
+                    && (licence.contains("creativecommons.org")
+                        || licence.contains("publicdomain")),
+                "{identifier} isn't an openly licensed netlabel or Musopen recording"
             );
             assert!(
                 !kept

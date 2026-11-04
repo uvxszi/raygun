@@ -13,11 +13,11 @@ vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).b
 const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 const { commands } = bindingsMock;
 
-const DEEZER = {
-  id: 'dev.raygun.deezer/catalogue',
-  extensionId: 'dev.raygun.deezer',
+const TUNES = {
+  id: 'dev.example.tunes/catalogue',
+  extensionId: 'dev.example.tunes',
   kind: 'music.metadata',
-  name: 'Deezer',
+  name: 'Tunes',
 };
 
 const song = (title: string, artist: string, album: string | null = null): OnlineTrack => ({
@@ -32,7 +32,7 @@ const song = (title: string, artist: string, album: string | null = null): Onlin
 });
 
 const ALBUM: MusicAlbum = {
-  provider: DEEZER,
+  provider: TUNES,
   id: '6575789',
   title: 'Random Access Memories',
   artist: 'Daft Punk',
@@ -110,7 +110,7 @@ describe('Menus', () => {
         top: [],
         providers: [
           {
-            provider: DEEZER,
+            provider: TUNES,
             tracks: [song('Get Lucky', 'Daft Punk, Pharrell Williams', 'Random Access Memories')],
             error: null,
           },
@@ -215,7 +215,7 @@ describe('Menus', () => {
     const user = userEvent.setup();
     commands.onlineSearch.mockResolvedValue(ok({ library: [], top: [], providers: [] }));
     commands.musicSearchArtists.mockResolvedValue(
-      ok([{ provider: DEEZER, id: '27', name: 'Daft Punk', imageUrl: null }]),
+      ok([{ provider: TUNES, id: '27', name: 'Daft Punk', imageUrl: null }]),
     );
     await AppShellWrapper.mount('/browse?tab=search&type=music&view=artists&q=daft');
     await user.click(await screen.findByRole('button', { name: 'More for Daft Punk' }));
@@ -251,7 +251,7 @@ describe('Menus', () => {
       ok({
         library: [],
         top: [],
-        providers: [{ provider: DEEZER, tracks: [song('Get Lucky', 'Daft Punk')], error: null }],
+        providers: [{ provider: TUNES, tracks: [song('Get Lucky', 'Daft Punk')], error: null }],
       }),
     );
     await AppShellWrapper.mount('/browse?tab=search&type=music&view=songs&q=get+lucky');
@@ -278,7 +278,7 @@ describe('Menus', () => {
       subtitle: 'Daft Punk',
       artworkUrl: null,
       to: '/music/album',
-      search: { provider: DEEZER.id, id: ALBUM.id },
+      search: { provider: TUNES.id, id: ALBUM.id },
       playedAt: 1,
     };
     commands.recentContexts.mockResolvedValue(ok([album]));
@@ -291,7 +291,7 @@ describe('Menus', () => {
     expect(commands.hiddenItemSet).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'album',
-        key: `/music/album?id=${ALBUM.id}&provider=${DEEZER.id}`,
+        key: `/music/album?id=${ALBUM.id}&provider=${TUNES.id}`,
       }),
       true,
     );

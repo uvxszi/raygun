@@ -45,16 +45,6 @@ fn built_in() -> Vec<ExtensionSource> {
         ExtensionSource::built_in(&[
             (
                 "raygun-extension.json",
-                include_str!("../../../extensions/podcast-directory/raygun-extension.json"),
-            ),
-            (
-                "dist/index.js",
-                include_str!("../../../extensions/podcast-directory/dist/index.js"),
-            ),
-        ]),
-        ExtensionSource::built_in(&[
-            (
-                "raygun-extension.json",
                 include_str!("../../../extensions/internet-archive/raygun-extension.json"),
             ),
             (
@@ -106,36 +96,6 @@ fn built_in() -> Vec<ExtensionSource> {
         ExtensionSource::built_in(&[
             (
                 "raygun-extension.json",
-                include_str!("../../../extensions/deezer/raygun-extension.json"),
-            ),
-            (
-                "dist/index.js",
-                include_str!("../../../extensions/deezer/dist/index.js"),
-            ),
-        ]),
-        ExtensionSource::built_in(&[
-            (
-                "raygun-extension.json",
-                include_str!("../../../extensions/apple-charts/raygun-extension.json"),
-            ),
-            (
-                "dist/index.js",
-                include_str!("../../../extensions/apple-charts/dist/index.js"),
-            ),
-        ]),
-        ExtensionSource::built_in(&[
-            (
-                "raygun-extension.json",
-                include_str!("../../../extensions/listenbrainz/raygun-extension.json"),
-            ),
-            (
-                "dist/index.js",
-                include_str!("../../../extensions/listenbrainz/dist/index.js"),
-            ),
-        ]),
-        ExtensionSource::built_in(&[
-            (
-                "raygun-extension.json",
                 include_str!("../../../extensions/librivox/raygun-extension.json"),
             ),
             (
@@ -152,88 +112,6 @@ fn built_in() -> Vec<ExtensionSource> {
             (
                 "dist/index.js",
                 include_str!("../../../extensions/loyalbooks/dist/index.js"),
-            ),
-        ]),
-        // Lit2Go's readings, which list their chapters themselves (M46.48).
-        ExtensionSource::built_in(&[
-            (
-                "raygun-extension.json",
-                include_str!("../../../extensions/lit2go/raygun-extension.json"),
-            ),
-            (
-                "dist/index.js",
-                include_str!("../../../extensions/lit2go/dist/index.js"),
-            ),
-        ]),
-        ExtensionSource::built_in(&[
-            (
-                "raygun-extension.json",
-                include_str!("../../../extensions/audius/raygun-extension.json"),
-            ),
-            (
-                "dist/index.js",
-                include_str!("../../../extensions/audius/dist/index.js"),
-            ),
-        ]),
-        ExtensionSource::built_in(&[
-            (
-                "raygun-extension.json",
-                include_str!("../../../extensions/lrclib/raygun-extension.json"),
-            ),
-            (
-                "dist/index.js",
-                include_str!("../../../extensions/lrclib/dist/index.js"),
-            ),
-        ]),
-        ExtensionSource::built_in(&[
-            (
-                "raygun-extension.json",
-                include_str!("../../../extensions/mangadex/raygun-extension.json"),
-            ),
-            (
-                "dist/index.js",
-                include_str!("../../../extensions/mangadex/dist/index.js"),
-            ),
-        ]),
-        // Official free comics and openly licensed or public-domain ones.
-        ExtensionSource::built_in(&[
-            (
-                "raygun-extension.json",
-                include_str!("../../../extensions/webtoons/raygun-extension.json"),
-            ),
-            (
-                "dist/index.js",
-                include_str!("../../../extensions/webtoons/dist/index.js"),
-            ),
-        ]),
-        ExtensionSource::built_in(&[
-            (
-                "raygun-extension.json",
-                include_str!("../../../extensions/tapas/raygun-extension.json"),
-            ),
-            (
-                "dist/index.js",
-                include_str!("../../../extensions/tapas/dist/index.js"),
-            ),
-        ]),
-        ExtensionSource::built_in(&[
-            (
-                "raygun-extension.json",
-                include_str!("../../../extensions/mangaplus-creators/raygun-extension.json"),
-            ),
-            (
-                "dist/index.js",
-                include_str!("../../../extensions/mangaplus-creators/dist/index.js"),
-            ),
-        ]),
-        ExtensionSource::built_in(&[
-            (
-                "raygun-extension.json",
-                include_str!("../../../extensions/naver-webtoon/raygun-extension.json"),
-            ),
-            (
-                "dist/index.js",
-                include_str!("../../../extensions/naver-webtoon/dist/index.js"),
             ),
         ]),
         ExtensionSource::built_in(&[
@@ -1391,32 +1269,21 @@ pub fn suggested_repo_urls() -> Vec<&'static str> {
     SUGGESTED_REPOS.iter().map(|(url, _, _)| *url).collect()
 }
 
-/// Raygun's repository, Paraline: Raygun's extensions, community sources and fixed copies of
-/// novel sources, in one index. Every new install starts with it.
+/// Raygun's repository, Paraline: public-domain and openly licensed sources in one index. Every
+/// new install starts with it.
 const PARALINE_URL: &str =
     "https://raw.githubusercontent.com/uvxszi/paraline-raygun/main/index.json";
 const PARALINE_NAME: &str = "Paraline";
 /// Paraline's row, under a fixed id like the other seeds, so every device's copy is one row.
 const PARALINE_ID: &str = "0192a000-0000-7000-8000-000000000002";
 
-/// Repositories offered with one tap: Raygun's own and the ecosystems Raygun can run.
-const SUGGESTED_REPOS: [(&str, &str, &str); 3] = [
-    (
-        PARALINE_URL,
-        PARALINE_NAME,
-        "Raygun's extensions, community sources and fixed copies of novel sources.",
-    ),
-    (
-        "https://gitlab.com/shosetsuorg/extensions/-/raw/dev/index.json",
-        raygun_ext_host::repo::SHOSETSU_REPO_NAME,
-        "Novel sources made for the Shosetsu app.",
-    ),
-    (
-        "https://cdn.jsdelivr.net/gh/NuclearPlayer/plugin-registry@master/plugins.json",
-        "Nuclear plugins",
-        "Music plugins made for the Nuclear player, converted when installed.",
-    ),
-];
+/// Repositories offered with one tap: Raygun's own only. Other repositories (Shosetsu's, Nuclear's
+/// registry, Miru's and anyone's) are added by their address, and ones already added stay.
+const SUGGESTED_REPOS: [(&str, &str, &str); 1] = [(
+    PARALINE_URL,
+    PARALINE_NAME,
+    "Public-domain and openly licensed books, audiobooks, films, comics and music.",
+)];
 
 /// The indexes Paraline replaced, still published for Raygun 1.0.0: Raygun's own
 /// (`repo/`, whose packages Paraline lists) and Paraline Raygun's novel and community ones. A
@@ -1741,9 +1608,9 @@ mod tests {
 
     #[test]
     fn album_covers_need_the_title_and_artist() {
-        let mut right = album("deezer", "Discovery", "Daft Punk", None);
+        let mut right = album("tunes", "Discovery", "Daft Punk", None);
         right.artwork_url = Some("https://example.com/a.jpg".into());
-        let mut wrong = album("deezer", "Discovery", "Someone Else", None);
+        let mut wrong = album("tunes", "Discovery", "Someone Else", None);
         wrong.artwork_url = Some("https://example.com/b.jpg".into());
         let covers = album_covers(vec![right, wrong], "Discovery", Some("Daft Punk"));
         assert_eq!(covers.len(), 1);
@@ -1777,11 +1644,11 @@ mod tests {
 
     #[test]
     fn releases_keep_the_artist_once_each_newest_first() {
-        let mut deezer = album("deezer", "Discovery", "Daft Punk", None);
-        deezer.artwork_url = Some("https://example.com/d.jpg".into());
-        deezer.kind = Some(raygun_model::ReleaseKind::Album);
+        let mut tunes = album("tunes", "Discovery", "Daft Punk", None);
+        tunes.artwork_url = Some("https://example.com/d.jpg".into());
+        tunes.kind = Some(raygun_model::ReleaseKind::Album);
         let mut deluxe = album(
-            "deezer",
+            "tunes",
             "Homework (25th Anniversary Edition)",
             "Daft Punk",
             Some(2022),
@@ -1791,14 +1658,14 @@ mod tests {
             deluxe,
             album("mb", "Homework", "Daft Punk", Some(1997)),
             album("mb", "Discovery", "Daft Punk", Some(2001)),
-            deezer,
+            tunes,
             album("mb", "Something Else", "Another Band", Some(2020)),
         ];
         let releases = releases_of(found, "Daft Punk");
         let titles: Vec<_> = releases.iter().map(|a| a.title.as_str()).collect();
         assert_eq!(titles, ["Discovery", "Homework"]);
         // The copy with artwork wins and keeps the other's year.
-        assert_eq!(releases[0].provider.id, "deezer");
+        assert_eq!(releases[0].provider.id, "tunes");
         assert_eq!(releases[0].year, Some(2001));
         assert_eq!(releases[0].kind, Some(raygun_model::ReleaseKind::Album));
         // The plain title stands for its editions, with the first year.
@@ -1912,10 +1779,13 @@ mod tests {
 
     #[test]
     fn paraline_replaces_the_indexes_it_took_over() {
+        // Paraline is the only suggestion; Shosetsu's and Nuclear's are added by address.
         let names: Vec<_> = SUGGESTED_REPOS.iter().map(|(_, name, _)| *name).collect();
-        assert_eq!(
-            names,
-            ["Paraline", "Shosetsu extensions", "Nuclear plugins"]
+        assert_eq!(names, ["Paraline"]);
+        assert!(
+            SUGGESTED_REPOS
+                .iter()
+                .all(|(url, _, _)| !url.contains("shosetsuorg") && !url.contains("NuclearPlayer"))
         );
         for (url, _, _) in SUGGESTED_REPOS {
             assert!(!RETIRED_REPOS.iter().any(|retired| same_url(url, retired)));
