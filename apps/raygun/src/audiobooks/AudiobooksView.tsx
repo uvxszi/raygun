@@ -3,6 +3,7 @@ import { BookAudio } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { menuHandler, useBookMenuItems } from '../music/cardMenus';
 import { PodcastArt } from '../podcasts/PodcastArt';
 import { EmptyState } from '../shell/EmptyState';
 import { useAudiobooks } from './useAudiobooks';
@@ -11,6 +12,7 @@ import { useAudiobooks } from './useAudiobooks';
 export const AudiobooksView: FC = () => {
   const { t } = useTranslation();
   const books = useAudiobooks();
+  const menu = useBookMenuItems();
   if (!books.data) return null;
   if (books.data.length === 0) {
     return (
@@ -34,6 +36,15 @@ export const AudiobooksView: FC = () => {
             <Link
               to="/audiobook"
               search={{ id: book.id }}
+              onContextMenu={menuHandler(() =>
+                menu({
+                  title: book.title,
+                  author: book.author,
+                  artworkUrl: book.artworkUrl,
+                  id: book.id,
+                  kept: true,
+                }),
+              )}
               data-testid="audiobook-card"
               className="hover:bg-surface flex flex-col gap-1.5 rounded-xl p-2"
             >

@@ -22,3 +22,25 @@ export const swipeAction = (
   if (offset.y > SWIPE_DOWN_DISTANCE || velocity.y > SWIPE_DOWN_VELOCITY) return 'close';
   return null;
 };
+
+/** Dragged down this far (px) or this fast (px/s), the full player closes. */
+const DISMISS_DISTANCE = 120;
+const DISMISS_VELOCITY = 500;
+
+/** Whether a drag of the full player let go here closes it. */
+export const sheetDismissed = (offset: { y: number }, velocity: { y: number }) =>
+  offset.y > DISMISS_DISTANCE || velocity.y > DISMISS_VELOCITY;
+
+/** A press on the player's handle moving less than this (px) ... */
+const TAP_SLOP = 8;
+/** ... and let go sooner than this (ms) is a tap: it closes the player. */
+const TAP_TIME_MS = 400;
+
+/**
+ * Whether a press on the full player's handle was a tap rather than a drag: a short drag that
+ * snaps back moved too far, a long press held too long.
+ */
+export const isHandleTap = (
+  from: { x: number; y: number; at: number },
+  to: { x: number; y: number; at: number },
+) => Math.hypot(to.x - from.x, to.y - from.y) < TAP_SLOP && to.at - from.at < TAP_TIME_MS;

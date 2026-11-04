@@ -964,7 +964,11 @@ mod tests {
             None,
             "a resolution isn't 1920x1080"
         );
-        assert_eq!(episode_of("Sleep 2"), None, "\"ep\" inside a word isn't a marker");
+        assert_eq!(
+            episode_of("Sleep 2"),
+            None,
+            "\"ep\" inside a word isn't a marker"
+        );
         assert_eq!(
             episode_of("Ça Commence – Épisode 7"),
             Some((None, 7.0)),

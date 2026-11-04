@@ -164,7 +164,7 @@ Research of 2026-11-01. It compares `reference/shosetsu` (with `shosetsu-extensi
   - The navigation is Library · Updates · Browse · More.
   - Browse lists extensions; one opens its Catalogue (listings, search, filters), and Global Search sits in Browse's top bar.
   - The Library holds only saved ("bookmarked") novels. Its only link out is the empty-state button "Go to Browse".
-- **Raygun's rule (from the user, 2026-11-01):** the Library carries no discovery at all, not even empty-state links to browsing; finding content belongs to Search.
+- **Raygun's rule (2026-11-01):** the Library carries no discovery at all, not even empty-state links to browsing; finding content belongs to Search.
   - Library empty states should point to Search (with `type=novel`).
   - Novel discovery (global search, plus per-source search and filters once 8.1 lands) should be reachable from the Search tab.
 

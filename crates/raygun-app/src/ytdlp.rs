@@ -270,8 +270,15 @@ impl YtDlpService {
     // ---- Songs (only YouTube has them) ----
 
     /// Saves a YouTube video's sound as `<dir>/track.<ext>` (M4A where YouTube has it) for the
-    /// song downloads; the file's name comes back.
-    pub async fn fetch_song(&self, video_id: &str, dir: &Path) -> Result<String, String> {
+    /// song downloads; the file's name comes back. `progress` hears the bytes saved and the size
+    /// when yt-dlp knows it; `cancel` stops yt-dlp (what it saved stays for the next go).
+    pub async fn fetch_song(
+        &self,
+        video_id: &str,
+        dir: &Path,
+        cancel: Arc<Notify>,
+        progress: impl Fn(u64, Option<u64>) + Send + Sync + 'static,
+    ) -> Result<String, String> {
         let program = self.ready().await?;
         let url = watch_url(video_id);
         let mut command = command(&program);
@@ -280,6 +287,11 @@ impl YtDlpService {
                 "--no-playlist",
                 "--no-warnings",
                 "--newline",
+                "--progress",
+                "--progress-template",
+                &format!(
+                    "download:{PROGRESS} %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s"
+                ),
                 "-f",
                 "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/best[ext=m4a]",
                 "-o",
@@ -288,8 +300,11 @@ impl YtDlpService {
             .args(["--print", &format!("after_move:{FILE} %(filepath)s")])
             .arg("--")
             .arg(&url);
-        let never = Arc::new(Notify::new());
-        let run = run(command, never, |_| {});
+        let run = run(command, cancel, move |numbers| {
+            if let Some((done, total)) = progress_bytes(numbers) {
+                progress(done, total);
+            }
+        });
         let path = tokio::time::timeout(SONG_TIMEOUT, run)
             .await
             .map_err(|_| "yt-dlp took too long".to_owned())??;
@@ -450,8 +465,18 @@ impl YtDlpService {
             .arg(url);
         let service = self.clone();
         let job = id.to_owned();
-        run(command, cancel, move |progress| {
-            service.update(&job, |job| job.info.progress = Some(progress));
+        run(command, cancel, move |numbers| {
+            let Some(progress) = progress_share(numbers) else {
+                return;
+            };
+            // yt-dlp reports every block: the list hears each whole percent.
+            let shown = service
+                .with_job(&job, |job| job.info.progress)
+                .flatten()
+                .map(|shown| (shown * 100.0) as u32);
+            if shown != Some((progress * 100.0) as u32) {
+                service.update(&job, |job| job.info.progress = Some(progress));
+            }
         })
         .await
     }
@@ -529,12 +554,12 @@ impl YtDlpService {
     }
 }
 
-/// Runs yt-dlp, reporting progress (0 to 1) as it reads, until it ends or `cancel` fires; the
-/// saved file's path comes back.
+/// Runs yt-dlp, handing each progress line's numbers to `progress` as it reads, until it ends or
+/// `cancel` fires; the saved file's path comes back.
 async fn run(
     mut command: tokio::process::Command,
     cancel: Arc<Notify>,
-    progress: impl Fn(f64) + Send + Sync + 'static,
+    progress: impl Fn(&str) + Send + Sync + 'static,
 ) -> Result<PathBuf, String> {
     let mut child = command
         .spawn()
@@ -554,9 +579,7 @@ async fn run(
                     *saved.lock().expect("yt-dlp output poisoned") =
                         Some(PathBuf::from(path.trim()));
                 } else if let Some(numbers) = line.strip_prefix(PROGRESS) {
-                    if let Some(share) = progress_share(numbers) {
-                        progress(share);
-                    }
+                    progress(numbers);
                 } else if line.starts_with("ERROR:") {
                     errors
                         .lock()
@@ -700,6 +723,20 @@ fn progress_share(numbers: &str) -> Option<f64> {
     let done = parts.next().flatten()?;
     let total = parts.next().flatten().or_else(|| parts.next().flatten())?;
     (total > 0.0).then(|| (done / total).clamp(0.0, 1.0))
+}
+
+/// The bytes a progress line says were saved, and the size (exact, else yt-dlp's estimate).
+fn progress_bytes(numbers: &str) -> Option<(u64, Option<u64>)> {
+    let mut parts = numbers
+        .split_whitespace()
+        .map(|part| part.parse::<f64>().ok());
+    let done = parts.next().flatten()?;
+    let total = parts
+        .next()
+        .flatten()
+        .or_else(|| parts.next().flatten())
+        .filter(|total| *total > 0.0);
+    Some((done.max(0.0) as u64, total.map(|total| total as u64)))
 }
 
 fn shown_path(path: &Path) -> String {
@@ -859,5 +896,9 @@ mod tests {
         assert_eq!(progress_share("50 200 NA"), Some(0.25));
         assert_eq!(progress_share("50 NA 100"), Some(0.5));
         assert_eq!(progress_share("50 NA NA"), None);
+        assert_eq!(progress_bytes("50 200 NA"), Some((50, Some(200))));
+        assert_eq!(progress_bytes("50 NA 100.5"), Some((50, Some(100))));
+        assert_eq!(progress_bytes("50 NA NA"), Some((50, None)));
+        assert_eq!(progress_bytes("NA NA NA"), None);
     }
 }

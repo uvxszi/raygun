@@ -13,17 +13,36 @@ import {
   Search,
   TextSelect,
 } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { FC } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 
+import { Artwork } from '../library/Artwork';
+import { useCloseOnBack } from '../player/useCloseOnBack';
 import { menuFromEvent, useContextMenuStore } from './contextMenuStore';
 import type { MenuItem } from './contextMenuStore';
 import { toggleWindowFullscreen } from './useWindowFullscreen';
 
+/** A touch screen: menus come up from the bottom as a sheet, with rows a finger can hit. */
+const coarsePointer = () => window.matchMedia?.('(pointer: coarse)').matches ?? false;
+
 const copy = (text: string) => void navigator.clipboard?.writeText(text).catch(() => undefined);
+
+/** An address only this app can open: its own pages, or its proxy on this device. */
+const internalAddress = (address: string) => {
+  try {
+    const url = new URL(address);
+    return (
+      url.origin === window.location.origin ||
+      ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) ||
+      !/^https?:$/.test(url.protocol)
+    );
+  } catch {
+    return true;
+  }
+};
 
 const editable = (target: EventTarget | null): HTMLInputElement | HTMLTextAreaElement | null => {
   if (target instanceof HTMLTextAreaElement) return target;
@@ -130,20 +149,22 @@ const spotItems = (
       });
     }
   }
+  // Links out of the app; Raygun's own pages (album, artist…) have addresses only it can open.
   const link = target?.closest('a[href]');
-  if (link instanceof HTMLAnchorElement && /^https?:/.test(link.href)) {
+  if (link instanceof HTMLAnchorElement && !internalAddress(link.href)) {
     if (items.length) items.push({ kind: 'separator' });
-    items.push({ label: t('menu.copyLink'), icon: LinkIcon, onSelect: () => copy(link.href) });
-    if (new URL(link.href).origin !== window.location.origin) {
-      items.push({
+    items.push(
+      { label: t('menu.copyLink'), icon: LinkIcon, onSelect: () => copy(link.href) },
+      {
         label: t('menu.openLink'),
         icon: ExternalLink,
         onSelect: () => window.open(link.href, '_blank', 'noopener'),
-      });
-    }
+      },
+    );
   }
+  // Covers come through Raygun's own image proxy (loopback): their addresses mean nothing elsewhere.
   const image = target instanceof HTMLImageElement ? target : null;
-  if (image?.src) {
+  if (image?.src && !internalAddress(image.src)) {
     if (items.length) items.push({ kind: 'separator' });
     items.push({
       label: t('menu.copyImageAddress'),
@@ -176,8 +197,11 @@ export const ContextMenuHost: FC = () => {
 
   useEffect(() => {
     const onContextMenu = (event: MouseEvent) => {
-      // Our menu's own right clicks do nothing.
-      if (menu.current?.contains(event.target as Node)) {
+      // Our menu's own right clicks (and long presses on the sheet's backdrop) do nothing.
+      if (
+        menu.current?.contains(event.target as Node) ||
+        (event.target as Element | null)?.closest?.('[data-menu-backdrop]')
+      ) {
         event.preventDefault();
         return;
       }
@@ -194,7 +218,7 @@ export const ContextMenuHost: FC = () => {
       );
       // On a touch screen a long press on something shows only its own options: Back, Forward,
       // Reload and full screen are what the page's own buttons do there.
-      const touch = window.matchMedia?.('(pointer: coarse)').matches ?? false;
+      const touch = coarsePointer();
       const page: MenuItem[] =
         touch && own.length > 0
           ? []
@@ -232,6 +256,10 @@ export const ContextMenuHost: FC = () => {
     return () => window.removeEventListener('contextmenu', onContextMenu);
   }, [navigate, router, show, t]);
 
+  // On a touch screen the menu is a sheet from the bottom, and Back closes it.
+  const sheet = useMemo(() => open !== null && coarsePointer(), [open]);
+  useCloseOnBack(sheet, close);
+
   // Kept on screen: flipped up or left when it would run off the edge.
   useLayoutEffect(() => {
     if (!open || !menu.current) return;
@@ -245,6 +273,8 @@ export const ContextMenuHost: FC = () => {
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {
+      // The sheet's backdrop closes it on its click, so the tap doesn't land on the page.
+      if (sheet) return;
       if (!menu.current?.contains(event.target as Node)) close();
     };
     const gone = () => close();
@@ -262,7 +292,7 @@ export const ContextMenuHost: FC = () => {
       window.removeEventListener('resize', gone);
       document.removeEventListener('scroll', scrolled, true);
     };
-  }, [open, close]);
+  }, [open, close, sheet]);
 
   if (!open) return null;
   const choosable = open.items
@@ -285,13 +315,14 @@ export const ContextMenuHost: FC = () => {
     if (next) setActive(next.index);
   };
 
-  return createPortal(
+  const panel = (
     <div
       ref={menu}
       role="menu"
       aria-label={t('menu.title')}
       tabIndex={-1}
       data-testid="context-menu"
+      data-sheet={sheet ? '' : undefined}
       onKeyDown={(event) => {
         if (event.key === 'Escape') close();
         else if (event.key === 'ArrowDown') step(1);
@@ -300,14 +331,18 @@ export const ContextMenuHost: FC = () => {
         else return;
         event.preventDefault();
       }}
-      style={{ left: place?.left ?? open.x, top: place?.top ?? open.y }}
-      className="bg-surface motion-pop fixed z-[90] flex max-h-[80vh] min-w-56 flex-col overflow-y-auto rounded-xl p-1.5 shadow-2xl ring-1 shadow-black/40 ring-white/10 outline-none"
+      style={sheet ? undefined : { left: place?.left ?? open.x, top: place?.top ?? open.y }}
+      className={
+        sheet
+          ? 'bg-surface motion-rise flex max-h-[80dvh] w-full max-w-md flex-col overflow-y-auto overscroll-contain rounded-t-3xl px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] outline-none'
+          : 'bg-surface motion-pop fixed z-[90] flex max-h-[80vh] min-w-56 flex-col overflow-y-auto rounded-xl p-1.5 shadow-2xl ring-1 shadow-black/40 ring-white/10 outline-none'
+      }
     >
       {confirming ? (
         <div
           role="alertdialog"
           aria-label={confirming.confirm}
-          className="flex max-w-72 flex-col gap-3 p-2"
+          className={`flex flex-col gap-3 p-2 ${sheet ? '' : 'max-w-72'}`}
         >
           <p className="text-sm">{confirming.confirm}</p>
           <div className="flex justify-end gap-2">
@@ -315,14 +350,14 @@ export const ContextMenuHost: FC = () => {
               type="button"
               autoFocus
               onClick={close}
-              className="hover:bg-background rounded-full px-3 py-1.5 text-sm"
+              className={`hover:bg-background rounded-full px-3 text-sm ${sheet ? 'py-2.5' : 'py-1.5'}`}
             >
               {t('collections.cancel')}
             </button>
             <button
               type="button"
               onClick={() => pick(confirming)}
-              className="bg-primary text-background rounded-full px-4 py-1.5 text-sm font-semibold"
+              className={`bg-primary text-background rounded-full px-4 text-sm font-semibold ${sheet ? 'py-2.5' : 'py-1.5'}`}
             >
               {confirming.label}
             </button>
@@ -334,7 +369,23 @@ export const ContextMenuHost: FC = () => {
             return <div key={index} role="separator" className="bg-foreground/10 mx-2 my-1 h-px" />;
           }
           if (item.kind === 'heading') {
-            return (
+            return sheet ? (
+              <div key={index} className="flex min-w-0 items-center gap-3 px-2 pt-2 pb-3">
+                {item.artworkUrl !== undefined && (
+                  <Artwork
+                    url={item.artworkUrl}
+                    className="size-12 shrink-0 rounded-md"
+                    iconSize={20}
+                  />
+                )}
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate font-semibold">{item.label}</span>
+                  {item.subtitle && (
+                    <span className="text-muted truncate text-sm">{item.subtitle}</span>
+                  )}
+                </span>
+              </div>
+            ) : (
               <div
                 key={index}
                 className="text-muted truncate px-3 pt-1.5 pb-1 text-xs font-semibold"
@@ -352,26 +403,46 @@ export const ContextMenuHost: FC = () => {
               disabled={item.disabled}
               onMouseEnter={() => setActive(index)}
               onClick={() => pick(item)}
-              className={`flex items-center gap-3 rounded-lg px-3 py-1.5 text-left text-sm disabled:opacity-40 ${
-                index === active ? 'bg-primary/15 text-foreground' : ''
-              } ${item.danger ? 'text-primary' : ''}`}
+              className={`flex items-center gap-3 rounded-lg px-3 text-left disabled:opacity-40 ${
+                sheet ? 'min-h-12 text-[0.9375rem]' : 'py-1.5 text-sm'
+              } ${index === active ? 'bg-primary/15 text-foreground' : ''} ${
+                item.danger ? 'text-primary' : ''
+              }`}
             >
-              <span className="grid size-4 shrink-0 place-items-center">
+              <span className={`grid shrink-0 place-items-center ${sheet ? 'size-5' : 'size-4'}`}>
                 {Icon && (
                   <Icon
                     aria-hidden
-                    size={15}
+                    size={sheet ? 19 : 15}
                     className={index === active ? 'text-primary' : 'text-muted'}
                   />
                 )}
               </span>
               <span className="min-w-0 flex-1 truncate">{item.label}</span>
-              {item.hint && <span className="text-muted shrink-0 pl-4 text-xs">{item.hint}</span>}
+              {item.hint && !sheet && (
+                <span className="text-muted shrink-0 pl-4 text-xs">{item.hint}</span>
+              )}
             </button>
           );
         })
       )}
-    </div>,
+    </div>
+  );
+
+  return createPortal(
+    sheet ? (
+      <div
+        data-menu-backdrop=""
+        className="motion-fade fixed inset-0 z-[90] flex items-end justify-center bg-black/60"
+        onClick={(event) => {
+          if (event.target === event.currentTarget) close();
+        }}
+      >
+        {panel}
+      </div>
+    ) : (
+      panel
+    ),
     document.body,
   );
 };

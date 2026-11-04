@@ -168,6 +168,7 @@ describe('Manga', () => {
       titleId: 't1',
       title: 'Frieren',
       readerMode: 'webtoon',
+      ownReaderMode: null,
       chapter: chapter(chapterId, chapterId === 'c1' ? 'Chapter 1' : 'Chapter 2'),
       pages: ['http://img/1', 'http://img/2', 'http://img/3'].map((url) => `${url}-${chapterId}`),
       previousChapterId: chapterId === 'c2' ? 'c1' : null,
@@ -184,10 +185,13 @@ describe('Manga', () => {
     expect(screen.queryByTestId('bottom-tabs')).not.toBeInTheDocument();
     expect(within(reader).getByTestId('page-indicator')).toHaveTextContent('Page 1 of 3');
 
-    observer.notify?.([{ isIntersecting: true, target: images[2] as Element }]);
+    // The page crossing the reading line is the current one.
+    const slots = within(reader).getAllByTestId('webtoon-page');
+    observer.notify?.([{ isIntersecting: true, target: slots[2] as Element }]);
     expect(await within(reader).findByText('Page 3 of 3')).toBeInTheDocument();
     await vi.waitFor(() => expect(commands.mangaSetProgress).toHaveBeenCalledWith('c1', 2, 3));
 
+    // Chapters replace each other in history: Back leaves the reader.
     await user.click(within(reader).getByRole('button', { name: 'Next chapter' }));
     expect(await within(reader).findByText('Chapter 2')).toBeInTheDocument();
     expect(commands.mangaChapter).toHaveBeenLastCalledWith('t1', 'c2');
@@ -200,6 +204,7 @@ describe('Manga', () => {
       titleId: 't1',
       title: 'Frieren',
       readerMode: 'pagedRtl',
+      ownReaderMode: 'pagedRtl',
       chapter: chapter(chapterId, chapterId === 'c1' ? 'Chapter 1' : 'Chapter 2'),
       pages: [1, 2, 3, 4, 5].map((n) => `http://img/${chapterId}-${n}`),
       previousChapterId: null,
@@ -255,6 +260,7 @@ describe('Manga', () => {
         titleId: 't1',
         title: 'Frieren',
         readerMode: 'webtoon',
+        ownReaderMode: null,
         chapter: chapter('c1', 'Chapter 1'),
         pages: ['http://img/1', 'http://img/2'],
         previousChapterId: null,
@@ -266,12 +272,23 @@ describe('Manga', () => {
     await within(reader).findAllByTestId('manga-page');
     expect(within(reader).queryByTestId('paged-reader')).not.toBeInTheDocument();
 
-    // The top bar's (the page bar has one too, M46.7).
+    // The top bar's (the page bar has one too, M46.7). A title without its own mode follows
+    // the default.
     await user.click(within(reader).getAllByRole('button', { name: 'Reading mode' })[0]!);
     const modes = await screen.findByRole('dialog', { name: 'Reading mode' });
-    expect(within(modes).getByRole('radio', { name: 'Vertical strip' })).toBeChecked();
+    expect(within(modes).getByRole('radio', { name: 'Default (Vertical strip)' })).toBeChecked();
     await user.click(within(modes).getByRole('radio', { name: 'Paged, left to right' }));
     expect(commands.mangaSetReaderMode).toHaveBeenCalledWith('t1', 'pagedLtr');
     expect(within(reader).getByTestId('paged-reader')).toBeInTheDocument();
+
+    // Back to the default.
+    await user.click(within(reader).getAllByRole('button', { name: 'Reading mode' })[0]!);
+    await user.click(
+      within(await screen.findByRole('dialog', { name: 'Reading mode' })).getByRole('radio', {
+        name: 'Default (Vertical strip)',
+      }),
+    );
+    expect(commands.mangaSetReaderMode).toHaveBeenLastCalledWith('t1', null);
+    expect(within(reader).queryByTestId('paged-reader')).not.toBeInTheDocument();
   });
 });

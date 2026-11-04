@@ -2,7 +2,7 @@
 
 Every user-facing feature of the reference apps in `reference/`, grouped by area. Each row gives its source and where Raygun stands. It was built on 2026-11-01 from the apps' screens and settings strings (Mihon/aniyomi `moko-resources`, CloudStream fragments, Nuclear views, RiPlay screens, Shosetsu views).
 
-Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's accounts · ✖ won't do (reason given)
+Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs third-party accounts · ✖ won't do (reason given)
 
 **Full gap lists:** this table keeps one row per feature family. The per-app research (2026-11-01) in `docs/research/` lists every screen, setting and behaviour the reference apps have that Raygun lacks, with file paths: `mihon.md`, `aniyomi.md`, `cloudstream.md`, `stremio.md`, `shosetsu.md`, `music.md`. The milestones M44–M54 in `docs/ROADMAP.md` work through them.
 
@@ -72,7 +72,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Sleep timer | RiPlay | 🔜 M52 |
 | Blacklist (artists/tracks) | RiPlay | 🔜 M52 |
 | Listening stats, "Rewind" yearly recap | RiPlay | 🔜 M52 |
-| Audiobooks (free public-domain books, chapters in order, resume) | — (asked) | ✅ M46.22 (LibriVox via the Internet Archive) |
+| Audiobooks (free public-domain books, chapters in order, resume) | — | ✅ M46.22 (LibriVox via the Internet Archive) |
 | Plugins from other players | Nuclear | ✅ M46.23 (metadata, streams, lyrics, dashboards as charts, discovery as radios; QuietPlay and Musike have none) |
 | Local files of every kind (songs, comics, books, videos from folders) | Mihon (local source), Kodi, VLC | ✅ M46.27 (Local Files) |
 | Save cover art as an image | Musicolet, Poweramp | ✅ M46.26 (PNG, JPEG or WebP, largest size) |
@@ -136,7 +136,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Downloads queue | Mihon | ✅ M28 |
 | CBZ, Wi-Fi only, delete after reading, download ahead, auto-download new chapters, concurrency | Mihon | ✅ M46.1 (downloads also saved as CBZ or images to Downloads or a picked folder; retries with backoff and Retry-After; resumed chapters) / 🔜 M49 (the rest) |
 | Export titles as CBZ, PDF, image folders, EPUB, text or video files, waiting for downloads first | (none of the reference apps) | ✅ M46.1 |
-| Websites the user adds, in a built-in browser with an ad, tracker, popup and redirect blocker | CloudStream (WebView), browsers | ✅ M46.3 |
+| Websites added by address, in a built-in browser with an ad, tracker, popup and redirect blocker | CloudStream (WebView), browsers | ✅ M46.3 |
 | Video on desktop: HLS and DASH with headers, subtitles, tracks and quality, sessions, keys, full screen, mpv/VLC for other codecs | Stremio desktop, CloudStream | ✅ M46.4 |
 | Desktop: exports to user folders, page copy and Show in folder, read-aloud, websites browser with blocker | (desktop apps) | ✅ M46.6 |
 | Trailers in their own full-window player | Stremio, CloudStream | ✅ M46.4 |
@@ -159,7 +159,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs the user's 
 | Local source (CBZ/folders) | Mihon | ✅ M46 (CBZ/ZIP with ComicInfo; folders and RAR ✖, Android's picker gives files) |
 | AI upscaling | mihon_img_upscale | 🔜 M56 |
 | OCR + translation overlay, auto-translate downloads | TachiyomiAT | 🔜 M57, M58 |
-| WebView (open in browser, Cloudflare) | Mihon | 🔜 M55 |
+| WebView (open in browser, Cloudflare) | Mihon | 🔜 M55 (no bot-check solving, M46.11) |
 
 ## Novels (Shosetsu, LNReader)
 | Feature | From | Status |

@@ -1,5 +1,6 @@
 import type {
   StremioAddon,
+  StremioCatalogInfo,
   StremioCatalogRow,
   StremioMeta,
   StremioStream,
@@ -38,6 +39,21 @@ const ROW: StremioCatalogRow = {
   error: null,
 };
 
+const catalog = (extra: Partial<StremioCatalogInfo> = {}): StremioCatalogInfo => ({
+  addonId: 'cinemeta',
+  addonName: 'Cinemeta',
+  kind: 'series',
+  catalogId: 'top',
+  name: 'Popular',
+  extras: [{ name: 'genre', required: false, options: ['Drama', 'Crime'] }],
+  board: true,
+  searchable: true,
+  discoverable: true,
+  pages: true,
+  failing: false,
+  ...extra,
+});
+
 const episode = (season: number, number: number, extra: Partial<StremioVideo> = {}) => ({
   id: `tt0903747:${season}:${number}`,
   title: `Episode ${number}`,
@@ -75,6 +91,9 @@ const SERIES: StremioMeta = {
   watched: false,
   downloaded: false,
   addonName: 'Cinemeta',
+  addonId: 'cinemeta',
+  videoId: 'tt0903747',
+  live: false,
   inLibrary: false,
   titleId: null,
 };
@@ -83,6 +102,7 @@ const MOVIE: StremioMeta = {
   ...SERIES,
   kind: 'movie',
   id: 'tt0133093',
+  videoId: 'tt0133093',
   name: 'The Matrix',
   releaseInfo: '1999',
   videos: [],
@@ -97,6 +117,10 @@ const stream = (kind: StremioStream['kind'], name: string, target: string): Stre
   headers: {},
   subtitles: [],
   bingeGroup: null,
+  filename: null,
+  size: null,
+  videoHash: null,
+  notWebReady: false,
 });
 
 const ADDON: StremioAddon = {
@@ -111,6 +135,28 @@ const ADDON: StremioAddon = {
   catalogs: 4,
   adult: false,
   error: null,
+  enabled: true,
+  provides: [
+    { resource: 'catalog', kind: 'movie', count: 2 },
+    { resource: 'catalog', kind: 'series', count: 1 },
+    { resource: 'meta', kind: 'series', count: 1 },
+  ],
+  p2p: false,
+  configureUrl: null,
+  needsSetup: false,
+  failing: false,
+};
+
+const SUBTITLES: StremioAddon = {
+  ...ADDON,
+  id: 'subs',
+  url: 'https://opensubtitles-v3.strem.io/manifest.json',
+  name: 'OpenSubtitles v3',
+  description: null,
+  resources: ['subtitles'],
+  catalogs: 0,
+  provides: [{ resource: 'subtitles', kind: null, count: 1 }],
+  failing: true,
 };
 
 describe('Stremio addons in Watch', () => {
@@ -120,7 +166,8 @@ describe('Stremio addons in Watch', () => {
 
   it('shows catalog rows, opens a series and plays an episode stream', async () => {
     const user = userEvent.setup();
-    commands.stremioHome.mockResolvedValue(ok([ROW]));
+    commands.stremioCatalogs.mockResolvedValue(ok([catalog()]));
+    commands.stremioCatalog.mockResolvedValue(ok(ROW));
     commands.stremioMeta.mockResolvedValue(ok(SERIES));
     commands.stremioStreams.mockResolvedValue(
       ok([
@@ -128,10 +175,11 @@ describe('Stremio addons in Watch', () => {
           addonId: 'local',
           addonName: 'Local streams',
           streams: [
-            stream('torrent', 'Torrent 1080p', 'abc'),
+            stream('torrent', 'Torrent 1080p', 'magnet:?xt=urn:btih:abc'),
             stream('direct', 'HLS 720p', 'https://cdn.example/e2.m3u8'),
           ],
           error: null,
+          failing: false,
         },
       ]),
     );
@@ -145,7 +193,9 @@ describe('Stremio addons in Watch', () => {
     await screen.findByTestId('stremio-addon-page');
 
     const row = await screen.findByRole('region', { name: 'Popular · Series' });
-    await user.click(within(row).getByRole('link', { name: 'Breaking Bad' }));
+    // The row asks for its first page with nothing chosen.
+    expect(commands.stremioCatalog).toHaveBeenCalledWith('cinemeta', 'series', 'top', [], 0);
+    await user.click(await within(row).findByRole('link', { name: 'Breaking Bad' }));
     const page = await screen.findByTestId('watch-title-page');
     expect(commands.stremioMeta).toHaveBeenCalledWith('series', 'tt0903747');
     expect(within(page).getByText('2008–2013 · 49 min · ★ 9.5')).toBeInTheDocument();
@@ -173,9 +223,19 @@ describe('Stremio addons in Watch', () => {
       target: within(second).getByRole('button', { name: /^Episode 2/ }),
     });
     const picker = await screen.findByRole('dialog', { name: 'Streams' });
-    expect(commands.stremioStreams).toHaveBeenCalledWith('series', 'tt0903747:1:2');
-    expect(within(picker).getByRole('button', { name: /Torrent 1080p/ })).toBeDisabled();
-    expect(within(picker).getByText("Torrent streams aren't supported")).toBeInTheDocument();
+    // Streams are asked for with the series, whose details say which ids its episodes go by.
+    expect(commands.stremioStreams).toHaveBeenCalledWith('series', 'tt0903747', 'tt0903747:1:2');
+    // Torrents are folded away with how many there are, and what they need.
+    expect(
+      within(picker).queryByRole('button', { name: /^Torrent 1080p/ }),
+    ).not.toBeInTheDocument();
+    await user.click(
+      await within(picker).findByRole('button', { name: '1 torrent: needs a torrent app' }),
+    );
+    expect(within(picker).getByText('Torrent 1080p')).toBeInTheDocument();
+    expect(within(picker).getByText('Needs a torrent app')).toBeInTheDocument();
+    await user.click(within(picker).getByRole('button', { name: 'More for Torrent 1080p' }));
+    expect(screen.getByRole('menuitem', { name: 'Copy magnet link' })).toBeInTheDocument();
 
     await user.click(within(picker).getByRole('button', { name: /^HLS 720p/ }));
     expect(commands.stremioPlay).toHaveBeenCalledWith(
@@ -240,43 +300,132 @@ describe('Stremio addons in Watch', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('browses a catalog by genre and page', async () => {
+  it('plays a movie a catalog lists by another id by the id its details give', async () => {
     const user = userEvent.setup();
+    // A TMDB addon's movie: its page goes by TMDB's id, its streams by IMDb's.
+    commands.stremioMeta.mockResolvedValue(
+      ok({ ...MOVIE, id: 'tmdb:603', videoId: 'tt0133093', addonName: 'TMDB' }),
+    );
+    commands.stremioStreams.mockResolvedValue(
+      ok([
+        {
+          addonId: 'links',
+          addonName: 'Links',
+          streams: [stream('title', 'The Matrix Reloaded', 'movie/tt0234215')],
+          error: null,
+          failing: false,
+        },
+      ]),
+    );
+    await AppShellWrapper.mount('/watch/title?type=movie&id=tmdb%3A603');
+    const page = await screen.findByTestId('watch-title-page');
+    expect(commands.stremioMeta).toHaveBeenCalledWith('movie', 'tmdb:603');
+
+    await user.click(within(page).getByRole('button', { name: 'Play' }));
+    expect(commands.stremioWatch).toHaveBeenCalledWith('movie', 'tmdb:603', null);
+    await user.click(within(page).getByRole('button', { name: 'Mark watched' }));
+    expect(commands.stremioSetWatched).toHaveBeenLastCalledWith(
+      'movie',
+      'tt0133093',
+      'The Matrix',
+      '1999',
+      null,
+      true,
+    );
+
+    // A stream that is another title opens its page.
+    await user.click(within(page).getByRole('button', { name: 'Choose a source' }));
+    const picker = await screen.findByRole('dialog', { name: 'Streams' });
+    expect(commands.stremioStreams).toHaveBeenCalledWith('movie', 'tmdb:603', 'tt0133093');
+    await user.click(await within(picker).findByRole('button', { name: /^The Matrix Reloaded/ }));
+    await vi.waitFor(() =>
+      expect(commands.stremioMeta).toHaveBeenLastCalledWith('movie', 'tt0234215'),
+    );
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('browses Discover by type, catalog, choice and page', async () => {
+    const user = userEvent.setup();
+    commands.stremioCatalogs.mockResolvedValue(
+      ok([
+        catalog(),
+        catalog({ kind: 'movie', catalogId: 'top', name: 'Popular' }),
+        catalog({
+          addonId: 'tmdb',
+          addonName: 'TMDB',
+          kind: 'movie',
+          catalogId: 'tmdb.year',
+          name: 'Year',
+          board: false,
+          extras: [{ name: 'genre', required: true, options: ['2026', '2025'] }],
+        }),
+        // Search-only catalogs aren't browsed.
+        catalog({ catalogId: 'search', name: 'Search', board: false, discoverable: false }),
+      ]),
+    );
     commands.stremioCatalog.mockResolvedValue(ok(ROW));
     await AppShellWrapper.mount('/watch/catalog?addon=cinemeta&type=series&catalog=top');
     const page = await screen.findByTestId('watch-catalog-page');
-    expect(await within(page).findByRole('heading', { name: 'Popular · Series' })).toBeVisible();
-    expect(commands.stremioCatalog).toHaveBeenCalledWith('cinemeta', 'series', 'top', null, 0);
+    expect(await within(page).findByRole('link', { name: 'Breaking Bad' })).toBeVisible();
+    expect(commands.stremioCatalog).toHaveBeenCalledWith('cinemeta', 'series', 'top', [], 0);
+    // Movies first, as Stremio orders types.
+    const types = within(page).getByRole('group', { name: 'Types' });
+    expect(
+      within(types)
+        .getAllByRole('button')
+        .map((button) => button.textContent),
+    ).toEqual(['Movies', 'Series']);
 
     commands.stremioCatalog.mockResolvedValue(
-      ok({ ...ROW, items: [{ ...ROW.items[0], id: 'tt2', name: 'Better Call Saul' }] }),
+      ok({ ...ROW, items: [{ ...ROW.items[0]!, id: 'tt2', name: 'Better Call Saul' }] }),
     );
     await user.click(within(page).getByRole('button', { name: 'More' }));
     expect(await within(page).findByRole('link', { name: 'Better Call Saul' })).toBeVisible();
-    expect(commands.stremioCatalog).toHaveBeenLastCalledWith('cinemeta', 'series', 'top', null, 1);
+    expect(commands.stremioCatalog).toHaveBeenLastCalledWith('cinemeta', 'series', 'top', [], 1);
 
-    await user.click(within(page).getByRole('tab', { name: 'Crime' }));
+    const genres = within(page).getByRole('group', { name: 'Genres' });
+    await user.click(within(genres).getByRole('button', { name: 'Crime' }));
     await vi.waitFor(() =>
       expect(commands.stremioCatalog).toHaveBeenLastCalledWith(
         'cinemeta',
         'series',
         'top',
-        'Crime',
+        [{ name: 'genre', value: 'Crime' }],
         0,
       ),
     );
+
+    // A catalog that needs a choice starts on its first one, with no "All".
+    await user.click(within(types).getByRole('button', { name: 'Movies' }));
+    const catalogs = await within(page).findByRole('group', { name: 'Catalogs' });
+    await user.click(within(catalogs).getByRole('button', { name: /^Year/ }));
+    await vi.waitFor(() =>
+      expect(commands.stremioCatalog).toHaveBeenLastCalledWith(
+        'tmdb',
+        'movie',
+        'tmdb.year',
+        [{ name: 'genre', value: '2026' }],
+        0,
+      ),
+    );
+    const years = within(page).getByRole('group', { name: 'Genres' });
+    expect(within(years).queryByRole('button', { name: 'All' })).not.toBeInTheDocument();
+    expect(within(years).getByRole('button', { name: '2026' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   });
 
-  it('manages addons: suggestions, by address, and removal', async () => {
+  it('manages addons: what they provide, adding after a look, order, off and removal', async () => {
     const user = userEvent.setup();
-    commands.stremioAddons.mockResolvedValue(ok([ADDON]));
+    commands.stremioAddons.mockResolvedValue(ok([ADDON, SUBTITLES]));
     commands.stremioSuggestions.mockResolvedValue(
       ok([
         { url: ADDON.url, name: 'Cinemeta', description: 'Catalogs', added: true },
         {
-          url: 'https://opensubtitles-v3.strem.io/manifest.json',
-          name: 'OpenSubtitles v3',
-          description: 'Subtitles',
+          url: 'https://watchhub.strem.io/manifest.json',
+          name: 'WatchHub',
+          description: 'Streams',
           added: false,
         },
       ]),
@@ -287,38 +436,103 @@ describe('Stremio addons in Watch', () => {
     const page = await screen.findByTestId('watch-addons-page');
 
     const installed = await within(page).findByRole('listitem', { name: 'Cinemeta' });
-    expect(within(installed).getByText('Provides: catalogs, details')).toBeInTheDocument();
+    const provides = within(installed).getByRole('list', { name: 'What Cinemeta provides' });
+    expect(
+      within(provides)
+        .getAllByRole('listitem')
+        .map((chip) => chip.textContent),
+    ).toEqual(['Movie catalogs · 2', 'Series catalog', 'Series details']);
+    const subtitles = within(page).getByRole('listitem', { name: 'OpenSubtitles v3' });
+    expect(within(subtitles).getByText("Didn't answer lately")).toBeInTheDocument();
     expect(within(page).queryByRole('button', { name: 'Add Cinemeta' })).not.toBeInTheDocument();
 
-    await user.click(within(page).getByRole('button', { name: 'Add OpenSubtitles v3' }));
-    expect(commands.stremioAdd).toHaveBeenCalledWith(
-      'https://opensubtitles-v3.strem.io/manifest.json',
-    );
+    await user.click(within(page).getByRole('button', { name: 'Add WatchHub' }));
+    expect(commands.stremioAdd).toHaveBeenCalledWith('https://watchhub.strem.io/manifest.json');
 
-    commands.stremioAdd.mockResolvedValue({ status: 'error', error: 'The addon answered 404' });
+    // By address: a look at what it provides first, then Add.
+    commands.stremioPreview.mockResolvedValue({
+      status: 'error',
+      error: 'The addon has nothing here (404)',
+    });
     await user.click(within(page).getByRole('button', { name: 'Add an addon by its address' }));
     const sheet = await screen.findByRole('dialog', { name: 'Add an addon by its address' });
-    await user.type(
-      within(sheet).getByRole('textbox', { name: 'Add an addon by its address' }),
-      'addon.example',
+    const field = within(sheet).getByRole('textbox', { name: 'Add an addon by its address' });
+    await user.type(field, 'addon.example');
+    await user.click(within(sheet).getByRole('button', { name: 'Look up' }));
+    expect(commands.stremioPreview).toHaveBeenLastCalledWith('addon.example');
+    expect(await within(sheet).findByRole('alert')).toHaveTextContent(
+      'The addon has nothing here (404)',
     );
-    await user.click(within(sheet).getByRole('button', { name: 'Add' }));
-    expect(commands.stremioAdd).toHaveBeenLastCalledWith('addon.example');
-    expect(await within(sheet).findByRole('alert')).toHaveTextContent('The addon answered 404');
-    await user.click(within(sheet).getByRole('button', { name: 'Close' }));
 
-    await user.click(within(installed).getByRole('button', { name: 'Remove Cinemeta' }));
+    const tmdb: StremioAddon = {
+      ...ADDON,
+      id: '',
+      url: 'https://tmdb.example/manifest.json',
+      name: 'TMDB',
+      provides: [{ resource: 'catalog', kind: 'movie', count: 12 }],
+      configureUrl: 'https://tmdb.example/configure',
+    };
+    commands.stremioPreview.mockResolvedValue(ok(tmdb));
+    await user.clear(field);
+    await user.type(field, 'tmdb.example');
+    await user.click(within(sheet).getByRole('button', { name: 'Look up' }));
+    const card = await within(sheet).findByRole('group', { name: 'TMDB' });
+    expect(within(card).getByText('Movie catalogs · 12')).toBeInTheDocument();
+    await user.click(within(card).getByRole('button', { name: 'Set up' }));
+    expect(commands.stremioConfigure).toHaveBeenCalledWith('https://tmdb.example/manifest.json');
+    await user.click(within(card).getByRole('button', { name: 'Add' }));
+    expect(commands.stremioAdd).toHaveBeenLastCalledWith('https://tmdb.example/manifest.json');
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Add an addon by its address' })).toBeNull(),
+    );
+
+    // An addon that must be set up first can't be added as it is.
+    commands.stremioPreview.mockResolvedValue(ok({ ...tmdb, needsSetup: true }));
+    await user.click(within(page).getByRole('button', { name: 'Add an addon by its address' }));
+    const again = await screen.findByRole('dialog', { name: 'Add an addon by its address' });
+    await user.type(
+      within(again).getByRole('textbox', { name: 'Add an addon by its address' }),
+      'tmdb.example',
+    );
+    await user.click(within(again).getByRole('button', { name: 'Look up' }));
+    const setup = await within(again).findByRole('group', { name: 'TMDB' });
+    expect(within(setup).getByText('Needs setting up on its website first')).toBeInTheDocument();
+    expect(within(setup).queryByRole('button', { name: 'Add' })).not.toBeInTheDocument();
+    await user.click(within(again).getByRole('button', { name: 'Close' }));
+
+    // Order is the order details are asked in.
+    await user.click(within(installed).getByRole('button', { name: 'More for Cinemeta' }));
+    expect(screen.queryByRole('menuitem', { name: 'Move up' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('menuitem', { name: 'Move down' }));
+    expect(commands.stremioSetOrder).toHaveBeenCalledWith(['subs', 'cinemeta']);
+
+    await user.click(within(installed).getByRole('button', { name: 'More for Cinemeta' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Turn off' }));
+    expect(commands.stremioSetEnabled).toHaveBeenCalledWith('cinemeta', false);
+
+    await user.click(within(installed).getByRole('button', { name: 'More for Cinemeta' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Remove Cinemeta' }));
     expect(commands.stremioRemove).toHaveBeenCalledWith('cinemeta');
   });
 
-  it('searches movies and series from Search', async () => {
+  it('searches movies and series from Search, each addon as it answers', async () => {
     const user = userEvent.setup();
-    commands.stremioSearch.mockResolvedValue(ok([{ ...ROW, name: 'Search' }]));
+    commands.stremioCatalogs.mockResolvedValue(
+      ok([catalog({ catalogId: 'search', name: 'Search', board: false })]),
+    );
+    commands.stremioSearchCatalog.mockResolvedValue(ok({ ...ROW, name: 'Search' }));
     await AppShellWrapper.mount('/search?type=video');
     await user.type(await screen.findByRole('searchbox', { name: 'Search' }), 'breaking');
     const results = await screen.findByTestId('video-results');
-    expect(commands.stremioSearch).toHaveBeenCalledWith('breaking');
-    expect(within(results).getByRole('region', { name: 'Series' })).toBeInTheDocument();
+    await vi.waitFor(() =>
+      expect(commands.stremioSearchCatalog).toHaveBeenCalledWith(
+        'cinemeta',
+        'series',
+        'search',
+        'breaking',
+      ),
+    );
+    expect(await within(results).findByRole('region', { name: 'Series' })).toBeInTheDocument();
     expect(within(results).getByRole('link', { name: 'Breaking Bad' })).toBeVisible();
     expect(within(results).queryByRole('link', { name: /See all/ })).not.toBeInTheDocument();
   });

@@ -32,6 +32,7 @@ import { findInCache } from '../shell/queryMemory';
 import { SourceIssue } from '../shell/SourceIssue';
 import { episodeLabel, isGenericName, showsSeasons } from '../watch/episodeLabel';
 import { nextEpisode, releasedAt } from '../watch/nextEpisode';
+import { LoadMore } from '../shell/LoadMore';
 
 /** "S1 E2 · Pilot", or the title alone when it isn't numbered; `showSeason` from `showsSeasons`. */
 const videoLabel = (video: StremioVideo, showSeason: boolean) =>
@@ -65,6 +66,9 @@ const useSeasons = (videos: StremioVideo[]) =>
     return { seasons, first: continueAt(videos)?.season ?? seasons[0] ?? 0 };
   }, [videos]);
 
+/** Episodes drawn at a time: a long season (a thousand anime episodes) is drawn as it's scrolled. */
+const EPISODE_CHUNK = 60;
+
 const Episodes: FC<{
   meta: StremioMeta;
   downloads: Map<string, VideoDownloadItem>;
@@ -74,12 +78,15 @@ const Episodes: FC<{
   const { seasons, first } = useSeasons(meta.videos);
   const [season, setSeason] = useState<number | null>(null);
   const shown = season ?? first;
+  const [drawn, setDrawn] = useState({ season: shown, count: EPISODE_CHUNK });
   const setWatched = useSetWatched();
   const numbered = seasons.length > 1 || meta.videos.some((video) => video.season !== null);
   const videos = numbered
     ? meta.videos.filter((video) => (video.season ?? 0) === shown)
     : meta.videos;
   const showSeason = showsSeasons(meta.name, meta.videos);
+  // A newly picked season is drawn from its top again.
+  const count = drawn.season === shown ? drawn.count : EPISODE_CHUNK;
 
   return (
     <section aria-labelledby="watch-episodes" className="flex flex-col gap-3">
@@ -107,7 +114,7 @@ const Episodes: FC<{
         </div>
       )}
       <ul className="flex flex-col gap-3">
-        {videos.map((video) => {
+        {videos.slice(0, count).map((video) => {
           const label = videoLabel(video, showSeason);
           const target = {
             kind: meta.kind,
@@ -184,6 +191,12 @@ const Episodes: FC<{
           );
         })}
       </ul>
+      <LoadMore
+        hasNextPage={count < videos.length}
+        fetching={false}
+        onLoad={() => setDrawn({ season: shown, count: count + EPISODE_CHUNK * 2 })}
+        label={t('search.more')}
+      />
     </section>
   );
 };
@@ -206,7 +219,7 @@ export const WatchTitlePage: FC = () => {
     if (intent !== 'watch') {
       setPicking({ target, intent });
     } else if (meta.data) {
-      const movie = target.videoId === meta.data.id;
+      const movie = meta.data.videos.length === 0;
       watch.mutate({
         kind: meta.data.kind,
         id: meta.data.id,
@@ -273,7 +286,7 @@ export const WatchTitlePage: FC = () => {
   const ownTarget: StreamTarget = {
     kind: view.kind,
     metaId: view.id,
-    videoId: view.id,
+    videoId: view.videoId,
     title: view.name,
     subtitle: view.releaseInfo,
     poster: view.background ?? view.poster,
@@ -311,6 +324,10 @@ export const WatchTitlePage: FC = () => {
         headers: {},
         subtitles: [],
         bingeGroup: null,
+        filename: null,
+        size: null,
+        videoHash: null,
+        notWebReady: false,
       },
     });
 
@@ -385,14 +402,15 @@ export const WatchTitlePage: FC = () => {
           {view.inLibrary && view.titleId && (
             <TitleListActions medium="video" titleId={view.titleId} title={view.name} pill />
           )}
-          {!hasEpisodes && (
+          {/* A live channel is neither watched to the end nor saved. */}
+          {!hasEpisodes && !view.live && (
             <button
               type="button"
               aria-pressed={view.watched}
               onClick={() =>
                 setWatched.mutate({
                   kind: view.kind,
-                  videoId: view.id,
+                  videoId: view.videoId,
                   title: view.name,
                   subtitle: view.releaseInfo,
                   poster: ownTarget.poster,
@@ -405,10 +423,10 @@ export const WatchTitlePage: FC = () => {
               {t(view.watched ? 'watch.watched' : 'watch.markWatchedShort')}
             </button>
           )}
-          {!hasEpisodes && (
+          {!hasEpisodes && !view.live && (
             <span className="bg-surface/80 rounded-full">
               <VideoDownloadControl
-                item={downloads.get(stremioKey(view.kind, view.id))}
+                item={downloads.get(stremioKey(view.kind, view.videoId))}
                 downloaded={view.downloaded}
                 name={view.name}
                 onDownload={() => pick(ownTarget, 'download')}
@@ -427,7 +445,7 @@ export const WatchTitlePage: FC = () => {
             </button>
           )}
         </div>
-        {!hasEpisodes && (
+        {!hasEpisodes && !view.live && (
           <div className="mt-3">
             <Progress position={view.positionMs} duration={view.durationMs} />
           </div>

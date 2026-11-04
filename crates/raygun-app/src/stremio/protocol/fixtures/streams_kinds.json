@@ -1,0 +1,38 @@
+{
+  "streams": [
+    {
+      "name": "Pluto TV",
+      "title": "CSI en Español",
+      "url": "https://ipv4.pluto.tv/api/tn/video/playout/v2/stitch/hls/channel/604928d54a4f730007ff76bc/master.m3u8?appName=web&deviceType=web",
+      "behaviorHints": {
+        "notWebReady": true,
+        "bingeGroup": "pluto-hls",
+        "filename": "csi.m3u8",
+        "videoSize": 1234567,
+        "proxyHeaders": {
+          "request": { "Referer": "https://site.example/", "Host": "evil", "User-Agent": "UA", "X-Token": 5, "Range": "bytes=0-", "Bad Name": "x", "Cookie": "a=b\r\nInjected: 1" }
+        }
+      },
+      "subtitles": [{ "id": "1", "url": "https://cdn.example/en.vtt", "lang": "eng" }, null]
+    },
+    { "ytId": "abc123", "name": "Trailer" },
+    { "externalUrl": "https://www.netflix.com/title/1", "name": "Netflix" },
+    {
+      "name": "Torrent\n1080p",
+      "title": "Movie.1999.1080p.mkv",
+      "infoHash": "5D640678EAE57C72C0D096904FD7D7405ECE6653",
+      "fileIdx": 1,
+      "sources": ["tracker:udp://tracker.example:80/announce", "dht:5d640678eae57c72c0d096904fd7d7405ece6653"],
+      "behaviorHints": { "filename": "Movie 1999.mkv" }
+    },
+    { "url": "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567", "name": "Magnet" },
+    { "nzbUrl": "https://usenet.example/x.nzb", "servers": ["nntps://news.example"], "name": "Usenet" },
+    { "rarUrls": [["https://cdn.example/a.rar", 100]], "name": "Archive" },
+    { "url": "ftp://files.example/movie.mp4", "name": "FTP" },
+    { "externalUrl": "stremio:///detail/movie/tt1623205", "name": "Oz the Great and Powerful" },
+    { "externalUrl": "stremio:///detail/series/kitsu%3A1/kitsu%3A1%3A1", "name": "Cowboy Bebop" },
+    { "playerFrameUrl": "https://player.example/embed/1", "name": "Embed" },
+    { "infoHash": "not-a-hash", "name": "Broken torrent" },
+    { "name": "Nothing playable" }
+  ]
+}

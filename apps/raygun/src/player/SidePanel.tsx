@@ -1,44 +1,36 @@
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
-import type { DragEndEvent } from '@dnd-kit/core';
-import {
-  SortableContext,
-  arrayMove,
-  useSortable,
-  verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import type { QueueItem } from '@raygun/bindings';
 import { ListMusic, Maximize2, X } from 'lucide-react';
 import { useState } from 'react';
 import type { FC, KeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { fromQueueItem, useAddToPlaylist, useCreatePlaylist } from '../collections/useCollections';
 import { Artwork } from '../library/Artwork';
+import { songCover } from '../library/coverTargets';
 import { ArtistLinks } from '../music/ArtistLinks';
 import { TrackTagChips } from '../music/TrackTagChips';
 import { Marquee } from '../shell/Marquee';
-import { useIsDesktop } from '../shell/useIsDesktop';
-import { useWideScreen, useWindowWidth } from '../shell/useWideScreen';
 import { ResizeHandle } from '../shell/ResizeHandle';
+import { useIsDesktop } from '../shell/useIsDesktop';
 import { usePanelSizes } from '../shell/usePanelSizes';
-import { FavoriteButton } from './FavoriteButton';
+import { useWindowWidth } from '../shell/useWideScreen';
 import { CaptionsView } from './CaptionsView';
+import { FavoriteButton } from './FavoriteButton';
 import { LyricsView } from './LyricsView';
+import { MediaArt, VideoToggle } from './MediaArt';
 import { ArtistCard, CreditsCard } from './PlayerCards';
-import { useSpokenItem } from './spoken';
-import { SpokenByline } from './SpokenByline';
+import { usePlayerWide } from './playerLayout';
 import type { PlayerPanel } from './playerUiStore';
 import { usePlayerUiStore } from './playerUiStore';
-import { sendControl, sourceNote, useNowPlaying } from './usePlayback';
-import { MediaArt, VideoToggle } from './MediaArt';
-import { songCover } from '../library/coverTargets';
+import { QueueActions, QueueList } from './QueueList';
+import { useSpokenItem } from './spoken';
+import { SpokenByline } from './SpokenByline';
+import { sendControl, useCurrentItem, useSourceNote, useUpNext } from './usePlayback';
 
 const TABS: PlayerPanel[] = ['nowPlaying', 'queue'];
 
-/** Songs "Next in queue" can show (M46.24), and one row's height in px for dragging. */
+/** Songs "Next in queue" can show (M46.24), and one row's height in rem for dragging. */
 const NEXT_UP_MAX = 10;
-const NEXT_UP_ROW = 52;
+const NEXT_UP_ROW_REM = 3.25;
 
 /**
  * The panel at the right of the page on wide windows (M46.7), like Spotify's: what plays (the
@@ -49,10 +41,10 @@ export const SidePanel: FC = () => {
   const { t } = useTranslation();
   const panel = usePlayerUiStore((state) => state.panel);
   const setPanel = usePlayerUiStore((state) => state.setPanel);
-  const wide = useWideScreen();
+  const wide = usePlayerWide();
   const desktop = useIsDesktop();
   const windowWidth = useWindowWidth();
-  const { item } = useNowPlaying();
+  const item = useCurrentItem();
   const { panels, save } = usePanelSizes();
   const [dragging, setDragging] = useState<number | null>(null);
   // Desktop keeps the panel at every window size, narrower when the window is (M46.9).
@@ -120,9 +112,18 @@ export const SidePanel: FC = () => {
             <X aria-hidden size={18} />
           </button>
         </header>
-        <div role="tabpanel" className="no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto">
-          {panel === 'nowPlaying' ? <NowPlaying item={item} /> : <Queue item={item} />}
-        </div>
+        {panel === 'nowPlaying' ? (
+          <div
+            role="tabpanel"
+            className="no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto"
+          >
+            <NowPlaying item={item} />
+          </div>
+        ) : (
+          <div role="tabpanel" className="flex min-h-0 flex-1 flex-col">
+            <Queue item={item} />
+          </div>
+        )}
       </aside>
     </>
   );
@@ -130,11 +131,11 @@ export const SidePanel: FC = () => {
 
 const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
   const { t } = useTranslation();
-  const { state, upNext } = useNowPlaying();
+  const upNext = useUpNext();
   const sheetOpen = usePlayerUiStore((store) => store.sheetOpen);
   const openSheet = usePlayerUiStore((store) => store.openSheet);
   const setPanel = usePlayerUiStore((store) => store.setPanel);
-  const note = sourceNote(state, item);
+  const note = useSourceNote(item);
   // Podcasts and audiobooks show their show or book and captions, not artists and lyrics (M46.32).
   const spoken = useSpokenItem(item);
   const { panels, save } = usePanelSizes();
@@ -155,8 +156,9 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
         iconSize={72}
       />
       <div className="flex items-center gap-1">
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="title-gap flex min-w-0 flex-1 flex-col">
           <Marquee testId="side-panel-title" text={item.title} className="text-xl font-bold" />
+          {/* Only the names lead to their pages; the space around them doesn't. */}
           {spoken ? (
             <SpokenByline spoken={spoken} className="text-muted block truncate text-sm" />
           ) : (
@@ -201,9 +203,9 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
           </button>
         </header>
         {spoken ? (
-          <CaptionsView spoken={spoken} state={state} variant="panel" />
+          <CaptionsView spoken={spoken} variant="panel" />
         ) : (
-          <LyricsView item={item} state={state} variant="panel" />
+          <LyricsView item={item} variant="panel" />
         )}
       </section>
       <section aria-label={t('player.panel.nextUp')} className="bg-background/50 rounded-xl p-3">
@@ -222,7 +224,7 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
           <ul data-testid="next-up-list" className="flex flex-col">
             {shown.map((next) => (
               <li key={next.id}>
-                <QueueRow item={next} />
+                <NextRow item={next} />
               </li>
             ))}
           </ul>
@@ -263,9 +265,13 @@ const RowsHandle: FC<{
   const start = (event: ReactPointerEvent) => {
     event.preventDefault();
     const from = event.clientY;
+    // A row is as tall as the interface size makes it.
+    const rowPx =
+      NEXT_UP_ROW_REM *
+      (Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
     let latest = rows;
     const move = (moved: PointerEvent) => {
-      latest = clamp(rows + Math.round((moved.clientY - from) / NEXT_UP_ROW));
+      latest = clamp(rows + Math.round((moved.clientY - from) / rowPx));
       onPreview(latest);
     };
     const up = () => {
@@ -311,118 +317,8 @@ const RowsHandle: FC<{
   );
 };
 
-/** A queued item that drags into another place (M46.8). */
-const SortableQueueRow: FC<{ item: QueueItem }> = ({ item }) => {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: item.id,
-  });
-  return (
-    <li
-      ref={setNodeRef}
-      style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={isDragging ? 'relative z-10 opacity-80' : ''}
-      {...attributes}
-      {...listeners}
-      // A list item that drags, not a second button around the row's own.
-      role="listitem"
-    >
-      <QueueRow item={item} />
-    </li>
-  );
-};
-
-const Queue: FC<{ item: QueueItem }> = ({ item }) => {
-  const { t } = useTranslation();
-  const { upNext } = useNowPlaying();
-  const createPlaylist = useCreatePlaylist();
-  const addToPlaylist = useAddToPlaylist();
-  const [saved, setSaved] = useState<string | null>(null);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
-  const clear = async () => {
-    for (const next of upNext) {
-      await sendControl({ type: 'remove', itemId: next.id });
-    }
-  };
-  // Dropped before the item now after it, or at the end.
-  const onDragEnd = ({ active, over }: DragEndEvent) => {
-    if (!over || active.id === over.id) return;
-    const ids = upNext.map((next) => next.id);
-    const moved = arrayMove(ids, ids.indexOf(String(active.id)), ids.indexOf(String(over.id)));
-    const at = moved.indexOf(String(active.id));
-    void sendControl({
-      type: 'move',
-      itemId: String(active.id),
-      beforeItemId: moved[at + 1] ?? null,
-    });
-  };
-  // The whole queue, playing song first, as a new playlist (M46.8).
-  const saveQueue = () => {
-    const name = t('player.queueSavedName', { date: new Date().toLocaleString() });
-    createPlaylist.mutate(name, {
-      onSuccess: (playlist) =>
-        addToPlaylist.mutate(
-          { id: playlist.id, tracks: [item, ...upNext].map(fromQueueItem) },
-          { onSuccess: () => setSaved(name) },
-        ),
-    });
-  };
-
-  return (
-    <div className="flex flex-col px-2 pb-3">
-      <h3 className="text-muted px-2 pt-3 pb-1 text-xs font-semibold tracking-wide uppercase">
-        {t('player.nowPlayingHeading')}
-      </h3>
-      <QueueRow item={item} current />
-      <div className="flex items-center justify-between px-2 pt-4 pb-1">
-        <h3 className="text-muted text-xs font-semibold tracking-wide uppercase">
-          {t('player.upNext')}
-        </h3>
-        <span className="flex items-center">
-          <button
-            type="button"
-            disabled={createPlaylist.isPending || addToPlaylist.isPending}
-            onClick={saveQueue}
-            className="text-muted hover:text-foreground rounded-full px-2 py-0.5 text-sm"
-          >
-            {t('player.saveQueue')}
-          </button>
-          {upNext.length > 0 && (
-            <button
-              type="button"
-              onClick={() => void clear()}
-              className="text-muted hover:text-foreground rounded-full px-2 py-0.5 text-sm"
-            >
-              {t('player.clearQueue')}
-            </button>
-          )}
-        </span>
-      </div>
-      {saved && (
-        <p role="status" className="text-primary px-2 pb-1 text-xs">
-          {t('player.queueSaved', { name: saved })}
-        </p>
-      )}
-      {upNext.length === 0 ? (
-        <p className="text-muted px-2 py-2 text-sm">{t('player.queueEmpty')}</p>
-      ) : (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-          <SortableContext
-            items={upNext.map((next) => next.id)}
-            strategy={verticalListSortingStrategy}
-          >
-            <ul data-testid="queue-panel-list" className="flex flex-col">
-              {upNext.map((next) => (
-                <SortableQueueRow key={next.id} item={next} />
-              ))}
-            </ul>
-          </SortableContext>
-        </DndContext>
-      )}
-    </div>
-  );
-};
-
-const QueueRow: FC<{ item: QueueItem; current?: boolean }> = ({ item, current = false }) => {
+/** A song in "Next in queue": plays on a tap; its artist is plain text. */
+const NextRow: FC<{ item: QueueItem; current?: boolean }> = ({ item, current = false }) => {
   const { t } = useTranslation();
   return (
     <div className="group hover:bg-background/40 flex items-center gap-1 rounded-lg pr-1">
@@ -439,11 +335,15 @@ const QueueRow: FC<{ item: QueueItem; current?: boolean }> = ({ item, current = 
           className="size-10 shrink-0 rounded-md"
           iconSize={18}
         />
-        <span className="flex min-w-0 flex-col">
-          <span className={`truncate text-sm font-medium ${current ? 'text-primary' : ''}`}>
+        <span className="title-gap flex min-w-0 flex-col">
+          <span
+            className={`truncate text-sm leading-tight font-medium ${current ? 'text-primary' : ''}`}
+          >
             {item.title}
           </span>
-          {item.artist && <span className="text-muted truncate text-xs">{item.artist}</span>}
+          {item.artist && (
+            <span className="text-muted truncate text-xs leading-tight">{item.artist}</span>
+          )}
         </span>
       </button>
       {!current && (
@@ -451,11 +351,39 @@ const QueueRow: FC<{ item: QueueItem; current?: boolean }> = ({ item, current = 
           type="button"
           aria-label={t('player.removeFromQueue', { title: item.title })}
           onClick={() => void sendControl({ type: 'remove', itemId: item.id })}
-          className="text-muted hover:text-foreground grid size-8 shrink-0 place-items-center rounded-full opacity-0 group-hover:opacity-100 focus:opacity-100"
+          className="text-muted hover:text-foreground grid size-8 shrink-0 place-items-center rounded-full pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-visible:opacity-100"
         >
           <X aria-hidden size={16} />
         </button>
       )}
+    </div>
+  );
+};
+
+/** The queue tab: the song playing, then what's next, which moves, goes and saves. */
+const Queue: FC<{ item: QueueItem }> = ({ item }) => {
+  const { t } = useTranslation();
+  const upNext = useUpNext();
+  return (
+    <div className="flex min-h-0 flex-1 flex-col px-2 pb-2">
+      <h3 className="text-muted px-2 pt-3 pb-1 text-xs font-semibold tracking-wide uppercase">
+        {t('player.nowPlayingHeading')}
+      </h3>
+      <NextRow item={item} current />
+      <div className="flex flex-wrap items-center justify-between gap-x-2 px-2 pt-4 pb-1">
+        <h3 className="text-muted text-xs font-semibold tracking-wide uppercase">
+          {t('player.upNext')}
+          {upNext.length > 0 && (
+            <span className="ml-1.5 font-normal normal-case">
+              {t('player.queueCount', { count: upNext.length })}
+            </span>
+          )}
+        </h3>
+      </div>
+      <div className="px-1 pb-1">
+        <QueueActions items={upNext} current={item} />
+      </div>
+      <QueueList items={upNext} variant="panel" />
     </div>
   );
 };

@@ -731,9 +731,10 @@ impl VideoSessions {
             Origin::Source { title_id } => {
                 self.resolve_source(generation, &title_id, &episode).await
             }
-            Origin::Stremio { kind, .. } => {
+            Origin::Stremio { kind, id } => {
                 let target = StremioPlayTarget {
                     kind,
+                    meta_id: Some(id),
                     video_id: episode.remote_id.clone(),
                     title,
                     subtitle: Some(episode.label.clone()),
@@ -1195,6 +1196,10 @@ impl VideoSessions {
     }
 
     async fn remember(&self, key: &str, remembered: &Remembered) {
+        // Incognito (M47): nothing watched is remembered, its source neither.
+        if crate::privacy::incognito(&self.app) {
+            return;
+        }
         let Ok(text) = serde_json::to_string(remembered) else {
             return;
         };
@@ -1264,9 +1269,10 @@ impl VideoSessions {
                 let stremio = self.app.state::<std::sync::Arc<StremioService>>();
                 let meta = stremio.meta(kind, id).await?;
                 let episodes = if meta.videos.is_empty() {
+                    // A movie or channel plays by its own video id (TMDB's details may give IMDb's).
                     vec![Episode {
-                        remote_id: meta.id.clone(),
-                        key: crate::stremio::content_key(kind, &meta.id),
+                        remote_id: meta.video_id.clone(),
+                        key: crate::stremio::content_key(kind, &meta.video_id),
                         label: meta.name.clone(),
                         unit_id: None,
                         released: None,
@@ -1301,7 +1307,7 @@ impl VideoSessions {
                             downloaded: video.downloaded,
                             number: video.episode.filter(|number| *number >= 1),
                             special: video_match::is_special(video.season.map(f64::from), seasons),
-                            numbers: stremio.episode_numbers(&video.id),
+                            numbers: stremio.episode_numbers(kind, &video.id),
                         })
                         .collect()
                 };
@@ -1564,6 +1570,9 @@ mod tests {
                 in_library: false,
                 title_id: None,
                 addon_name: String::new(),
+                addon_id: String::new(),
+                video_id: "kitsu:8671".into(),
+                live: false,
             };
         assert!(!shows_seasons(&meta(
             "Attack on Titan Season 2",

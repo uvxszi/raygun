@@ -105,6 +105,9 @@ const SERIES: StremioMeta = {
   watched: false,
   downloaded: false,
   addonName: 'Cinemeta',
+  addonId: 'cinemeta',
+  videoId: 'tt0903747',
+  live: false,
   inLibrary: true,
   titleId: 'title-bb',
 };
@@ -251,9 +254,12 @@ describe('Video library', () => {
       target: 'https://cdn.example/e2.m3u8',
       headers: {},
       subtitles: [],
+      bingeGroup: null,
     };
     commands.stremioStreams.mockResolvedValue(
-      ok([{ addonId: 'local', addonName: 'Local', streams: [direct], error: null }]),
+      ok([
+        { addonId: 'local', addonName: 'Local', streams: [direct], error: null, failing: false },
+      ]),
     );
     commands.videoDownloads.mockResolvedValue(
       ok({
