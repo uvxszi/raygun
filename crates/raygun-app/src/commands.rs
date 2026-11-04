@@ -2464,13 +2464,14 @@ pub async fn manga_set_progress(
     manga.set_progress(&chapter_id, page, total).await
 }
 
-/// Remembers how a title is read (webtoon strip or paged, left or right to left).
+/// Remembers how a title is read (webtoon strip or paged, left or right to left); `null` follows
+/// the reader's default mode again.
 #[tauri::command]
 #[specta::specta]
 pub async fn manga_set_reader_mode(
     manga: tauri::State<'_, MangaService>,
     title_id: String,
-    mode: ReaderMode,
+    mode: Option<ReaderMode>,
 ) -> Result<(), String> {
     manga.set_reader_mode(&title_id, mode).await
 }
@@ -2760,6 +2761,23 @@ pub async fn novel_import_epub(
     contents: String,
 ) -> Result<ImportedBook, String> {
     let (source_id, novel_id) = novels.import_epub(&contents).await?;
+    Ok(ImportedBook {
+        source_id,
+        novel_id,
+    })
+}
+
+/// Imports an uploaded EPUB (sent with `upload_*` in slices) into the novel library; returns its
+/// source and id.
+#[tauri::command]
+#[specta::specta]
+pub async fn novel_import_epub_upload(
+    novels: tauri::State<'_, NovelService>,
+    uploads: tauri::State<'_, crate::uploads::Uploads>,
+    upload_id: String,
+) -> Result<ImportedBook, String> {
+    let file = uploads.take(&upload_id)?;
+    let (source_id, novel_id) = novels.import_epub_file(file).await?;
     Ok(ImportedBook {
         source_id,
         novel_id,
@@ -3194,6 +3212,34 @@ pub async fn library_mark_read(
     crate::library_actions::set_read(catalog_for(&app, &medium)?, &title_ids, read).await
 }
 
+/// Marks chapters of a title read or unread together (a selection in its chapter list).
+#[tauri::command]
+#[specta::specta]
+pub async fn library_set_chapters_read(
+    app: tauri::AppHandle,
+    medium: String,
+    chapter_ids: Vec<String>,
+    read: bool,
+) -> Result<(), String> {
+    catalog_for(&app, &medium)?
+        .set_units_read(&chapter_ids, read)
+        .await
+}
+
+/// Marks every chapter before one read (in reading order); returns how many were marked.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_mark_previous_read(
+    app: tauri::AppHandle,
+    medium: String,
+    title_id: String,
+    chapter_id: String,
+) -> Result<u32, String> {
+    catalog_for(&app, &medium)?
+        .mark_previous_read(&title_id, &chapter_id)
+        .await
+}
+
 /// Takes titles out of the library and/or deletes their downloads.
 #[tauri::command]
 #[specta::specta]
@@ -3280,7 +3326,7 @@ pub async fn library_set_category_display(
         .await
 }
 
-/// Updates one category's titles (manga and video libraries).
+/// Updates one category's titles (comics, books and videos).
 #[tauri::command]
 #[specta::specta]
 pub async fn library_update_category(
@@ -3289,9 +3335,6 @@ pub async fn library_update_category(
     medium: String,
     category_id: String,
 ) -> Result<raygun_model::MangaUpdateStatus, String> {
-    if medium == "novel" {
-        return Err("Novels aren't updated yet".into());
-    }
     let only =
         crate::library_actions::category_titles(catalog_for(&app, &medium)?, &category_id).await?;
     Ok(manga.start_update_of(true, Some(only)).await)

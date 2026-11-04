@@ -4,6 +4,7 @@ import type {
   LibraryTabs,
   NovelFont,
   NovelReaderPrefs,
+  NovelTheme,
   NovelWidth,
 } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
@@ -357,6 +358,28 @@ const ReaderSettings: FC = () => {
           checked={prefs.indent ?? false}
           disabled={busy}
           onChange={(indent) => set({ indent })}
+        />
+        <PrefSwitch
+          title={t('settings.justify')}
+          checked={prefs.justify ?? false}
+          disabled={busy}
+          onChange={(justify) => set({ justify })}
+        />
+        <PrefChoice<NovelTheme>
+          title={t('novel.theme')}
+          value={prefs.theme ?? 'app'}
+          disabled={busy}
+          options={(['app', 'light', 'sepia', 'dark', 'black'] as const).map((value) => ({
+            value,
+            label: t(`novel.themes.${value}`),
+          }))}
+          onChange={(theme) => set({ theme })}
+        />
+        <PrefSwitch
+          title={t('reader.display.keepScreenOn')}
+          checked={prefs.keepScreenOn ?? true}
+          disabled={busy}
+          onChange={(keepScreenOn) => set({ keepScreenOn })}
         />
         <PrefSwitch
           title={t('settings.paged')}

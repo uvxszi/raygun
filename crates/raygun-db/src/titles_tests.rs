@@ -58,7 +58,10 @@ async fn refreshing_a_title_keeps_the_users_choices() {
         Some(5),
         "refresh never touches user_* columns"
     );
-    assert_eq!(stored.reader_mode, "webtoon");
+    assert_eq!(
+        stored.reader_mode, "",
+        "the reader's default until one is picked"
+    );
     set_reader_mode(&db, &id, "pagedRtl").await.unwrap();
     upsert_title(&db, &renamed, 10).await.unwrap();
     assert_eq!(
@@ -177,6 +180,41 @@ async fn the_library_counts_unread_chapters() {
     assert_eq!(library(&db, "manga").await.unwrap()[1].unread, 2);
     set_in_library(&db, &berserk, None).await.unwrap();
     assert_eq!(library(&db, "manga").await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn chapters_are_marked_together() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp).await;
+    let id = upsert_title(&db, &manga("m1", "Frieren"), 1).await.unwrap();
+    set_in_library(&db, &id, Some(1)).await.unwrap();
+    sync_units(
+        &db,
+        &id,
+        &[chapter("c3", 3.0), chapter("c2", 2.0), chapter("c1", 1.0)],
+        "chapter",
+        1,
+    )
+    .await
+    .unwrap();
+    let ids: Vec<String> = units(&db, &id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|unit| unit.id)
+        .collect();
+    set_progress(&db, &ids[0], 4, Some(20), 2).await.unwrap();
+    set_units_completed(&db, &ids[..2], true, 7).await.unwrap();
+    assert_eq!(library(&db, "manga").await.unwrap()[0].unread, 1);
+    let marked = units(&db, &id).await.unwrap();
+    assert_eq!(marked[0].completed_at, Some(7));
+    assert_eq!(marked[0].position, Some(4), "marking read keeps the page");
+
+    set_units_completed(&db, &ids, false, 8).await.unwrap();
+    let cleared = units(&db, &id).await.unwrap();
+    assert!(cleared.iter().all(|unit| unit.completed_at.is_none()));
+    assert_eq!(cleared[0].position, Some(0), "marking unread starts over");
+    set_units_completed(&db, &[], true, 9).await.unwrap();
 }
 
 #[tokio::test]

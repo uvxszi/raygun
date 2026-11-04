@@ -617,8 +617,17 @@ export const commands = {
 	/**  The page reached in a chapter; reaching the last page marks it read. */
 	mangaSetProgress: (chapterId: string, page: number, total: number) => typedError<null, string>(__TAURI_INVOKE("manga_set_progress", { chapterId, page, total })),
 	mangaSetRead: (chapterId: string, read: boolean) => typedError<null, string>(__TAURI_INVOKE("manga_set_read", { chapterId, read })),
-	/**  Remembers how a title is read (webtoon strip or paged, left or right to left). */
-	mangaSetReaderMode: (titleId: string, mode: ReaderMode) => typedError<null, string>(__TAURI_INVOKE("manga_set_reader_mode", { titleId, mode })),
+	/**
+	 *  Remembers how a title is read (webtoon strip or paged, left or right to left); `null` follows
+	 *  the reader's default mode again.
+	 */
+	mangaSetReaderMode: (titleId: string, mode: 
+/**  One continuous vertical strip. */
+"webtoon" | 
+/**  One page at a time, left to right. */
+"pagedLtr" | 
+/**  One page at a time, right to left (most manga). */
+"pagedRtl" | null) => typedError<null, string>(__TAURI_INVOKE("manga_set_reader_mode", { titleId, mode })),
 	/**  Chapters library updates found, newest first. */
 	mangaUpdates: () => typedError<MangaUpdateItem[], string>(__TAURI_INVOKE("manga_updates")),
 	/**
@@ -658,6 +667,11 @@ export const commands = {
 	novelSetRead: (chapterId: string, read: boolean) => typedError<null, string>(__TAURI_INVOKE("novel_set_read", { chapterId, read })),
 	/**  Imports an EPUB (its contents as base64) into the novel library; returns its source and id. */
 	novelImportEpub: (contents: string) => typedError<ImportedBook, string>(__TAURI_INVOKE("novel_import_epub", { contents })),
+	/**
+	 *  Imports an uploaded EPUB (sent with `upload_*` in slices) into the novel library; returns its
+	 *  source and id.
+	 */
+	novelImportEpubUpload: (uploadId: string) => typedError<ImportedBook, string>(__TAURI_INVOKE("novel_import_epub_upload", { uploadId })),
 	/**  Whether the device can read text aloud. */
 	ttsAvailable: () => typedError<boolean, string>(__TAURI_INVOKE("tts_available")),
 	/**
@@ -731,6 +745,10 @@ export const commands = {
 	librarySetPinned: (medium: string, titleIds: string[], pinned: boolean) => typedError<null, string>(__TAURI_INVOKE("library_set_pinned", { medium, titleIds, pinned })),
 	/**  Marks every released chapter or episode of titles read (or all unread). */
 	libraryMarkRead: (medium: string, titleIds: string[], read: boolean) => typedError<null, string>(__TAURI_INVOKE("library_mark_read", { medium, titleIds, read })),
+	/**  Marks chapters of a title read or unread together (a selection in its chapter list). */
+	librarySetChaptersRead: (medium: string, chapterIds: string[], read: boolean) => typedError<null, string>(__TAURI_INVOKE("library_set_chapters_read", { medium, chapterIds, read })),
+	/**  Marks every chapter before one read (in reading order); returns how many were marked. */
+	libraryMarkPreviousRead: (medium: string, titleId: string, chapterId: string) => typedError<number, string>(__TAURI_INVOKE("library_mark_previous_read", { medium, titleId, chapterId })),
 	/**  Takes titles out of the library and/or deletes their downloads. */
 	libraryRemove: (medium: string, titleIds: string[], fromLibrary: boolean, deleteDownloads: boolean) => typedError<null, string>(__TAURI_INVOKE("library_remove", { medium, titleIds, fromLibrary, deleteDownloads })),
 	/**  Adds titles to some categories and takes them out of others. */
@@ -751,7 +769,7 @@ export const commands = {
 	sort: string,
 	descending: boolean,
 } | null) => typedError<null, string>(__TAURI_INVOKE("library_set_category_display", { medium, categoryId, display })),
-	/**  Updates one category's titles (manga and video libraries). */
+	/**  Updates one category's titles (comics, books and videos). */
 	libraryUpdateCategory: (medium: string, categoryId: string) => typedError<MangaUpdateStatus, string>(__TAURI_INVOKE("library_update_category", { medium, categoryId })),
 	/**  Starts sending a file picked in the app; returns the upload's id. */
 	uploadBegin: () => typedError<string, string>(__TAURI_INVOKE("upload_begin")),
@@ -2347,7 +2365,10 @@ export type MangaChapterInfo = {
 export type MangaChapterPages = {
 	titleId: string,
 	title: string,
+	/**  How the chapter is read: the title's own mode, else the reader's default. */
 	readerMode: ReaderMode,
+	/**  The title's own mode; `None` follows the default. */
+	ownReaderMode: ReaderMode | null,
 	chapter: MangaChapterInfo,
 	/**  Through the local image proxy, in reading order. */
 	pages: string[],
@@ -2438,6 +2459,18 @@ export type MangaReaderPrefs = {
 	barFullscreen?: boolean,
 	/**  Pages loaded ahead of the one being read, 1–10. */
 	preloadPages?: number,
+	/**  How titles without a reading mode of their own are read. */
+	defaultMode?: ReaderMode,
+	tapZones?: TapZones,
+	invertTaps?: TapInvert,
+	/**  A double tap zooms; single taps then wait a moment to tell the two apart. */
+	doubleTapZoom?: boolean,
+	/**  The page number stays on screen while the controls are hidden. */
+	pageNumber?: boolean,
+	/**  The screen doesn't turn off while a chapter is open. */
+	keepScreenOn?: boolean,
+	/**  Next and previous chapter skip other uploads of the same chapter number. */
+	skipDuplicates?: boolean,
 };
 
 export type MangaSource = MangaSource_Serialize | MangaSource_Deserialize;
@@ -2491,6 +2524,8 @@ export type MangaUpdateEvent = MangaUpdateStatus;
 
 /**  A chapter a library update found. */
 export type MangaUpdateItem = {
+	/**  `manga` or `novel`: which reader opens it. */
+	medium: string,
 	titleId: string,
 	sourceId: string,
 	remoteId: string,
@@ -2510,6 +2545,8 @@ export type MangaUpdateStatus = {
 	failed: number,
 	/**  Unix ms of the last finished run. */
 	lastRunAt: number | null,
+	/**  The titles this session's last update couldn't check, and why. */
+	failures?: UpdateFailure[],
 };
 
 export type MatchedSong = {
@@ -2822,7 +2859,15 @@ export type NovelReaderPrefs = {
 	ttsRate?: number,
 	/**  The first line of each paragraph starts further in, as in printed books (M46.10). */
 	indent?: boolean,
+	theme?: NovelTheme,
+	/**  Lines run to both edges, words hyphenated. */
+	justify?: boolean,
+	/**  The screen doesn't turn off while a chapter is open. */
+	keepScreenOn?: boolean,
 };
+
+/**  The novel reader's page colours: the app's, or a page of its own. */
+export type NovelTheme = "app" | "light" | "sepia" | "dark" | "black";
 
 export type NovelWidth = "narrow" | "wide";
 
@@ -3955,6 +4000,24 @@ export type TapAction = "seek" | "playPause" |
 /**  The previous episode on the left, the next on the right. */
 "switchEpisode" | "off";
 
+/**  How the tap zones are mirrored. */
+export type TapInvert = "none" | "horizontal" | "vertical" | "both";
+
+/**  Where taps turn pages in the manga reader (Mihon's navigation layouts). */
+export type TapZones = 
+/**  The sides in the paged modes, the L shape in the vertical strip. */
+"auto" | 
+/**  The top and the left of the middle go back; the right of the middle and the bottom on. */
+"lShaped" | 
+/**  The top shows the controls; the left third goes back, the rest on. */
+"kindle" | 
+/**  Both sides go on; the bottom of the middle goes back. */
+"edge" | 
+/**  The left third and the right third, as the reading direction has them. */
+"sides" | 
+/**  Taps only show and hide the controls. */
+"off";
+
 export type TestSourceFailure = {
 	url: string,
 	error: string,
@@ -4120,6 +4183,18 @@ export type TtsState =
 export type TtsUpdate = {
 	state: TtsState,
 	paragraph: number,
+};
+
+/**  A library title an update couldn't check. */
+export type UpdateFailure = {
+	/**  `manga`, `novel` or `video`: which page opens it. */
+	medium: string,
+	sourceId: string,
+	remoteId: string,
+	title: string,
+	sourceName: string,
+	/**  The source's error, for "More info". */
+	message: string,
 };
 
 /**  Where an update stands (M46.47). */
