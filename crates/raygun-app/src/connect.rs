@@ -41,6 +41,8 @@ const HELLO_TIMEOUT: Duration = Duration::from_secs(75);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
 /// Tries to follow a device again after its events stop, before giving up on it.
 const RECONNECTS: u32 = 3;
+/// A connection to its events that lasted this long worked: the next drop counts from one again.
+const STEADY: Duration = Duration::from_secs(30);
 
 /// This device as others see it.
 #[derive(Debug, Clone)]
@@ -683,9 +685,14 @@ impl ConnectService {
             let Some(strong) = service.upgrade() else {
                 return;
             };
+            let since = Instant::now();
             let ended = strong.events(&device, generation).await;
             if matches!(ended, Err(Failure::Unpaired)) {
                 break;
+            }
+            // Only drops in a row end the session, not a few over an evening of Wi-Fi.
+            if since.elapsed() >= STEADY {
+                tries = 0;
             }
             tries += 1;
             if tries > RECONNECTS {

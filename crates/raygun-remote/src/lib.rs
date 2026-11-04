@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use axum::Json;
 use axum::Router;
-use axum::extract::{Query, State};
+use axum::extract::{DefaultBodyLimit, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Response};
@@ -39,6 +39,8 @@ const EVENT_INTERVAL: Duration = Duration::from_secs(1);
 const CONNECT_INTERVAL: Duration = Duration::from_millis(300);
 /// Longest name a device asking to play here may give.
 const MAX_ASKER_NAME: usize = 40;
+/// Largest Connect command: a queue of some 30,000 songs.
+const MAX_COMMAND_BYTES: usize = 16 * 1024 * 1024;
 const KEEP_ALIVE: Duration = Duration::from_secs(15);
 
 const PAGE: &str = include_str!("remote.html");
@@ -122,7 +124,11 @@ pub fn router<B: Backend>(backend: B, access: Access) -> Router {
         .route("/api/device", get(device::<B>))
         .route("/api/connect/hello", post(hello::<B>))
         .route("/api/connect/events", get(connect_events::<B>))
-        .route("/api/connect/command", post(connect_command::<B>))
+        // A whole queue moves in one command: a long one is past axum's 2 MB default.
+        .route(
+            "/api/connect/command",
+            post(connect_command::<B>).layer(DefaultBodyLimit::max(MAX_COMMAND_BYTES)),
+        )
         .with_state(Arc::new(Shared {
             backend,
             access,

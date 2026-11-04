@@ -5,6 +5,8 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useBackLayer } from './backLayers';
+
 export type OverflowItem = {
   label: string;
   icon?: LucideIcon;
@@ -24,21 +26,16 @@ export const OverflowMenu: FC<{ items: OverflowItem[]; label?: string }> = ({ it
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
+  // Back and Escape close it before anything under it.
+  useBackLayer(open, () => setOpen(false));
 
   useEffect(() => {
     if (!open) return;
     const close = (event: Event) => {
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
     };
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
     document.addEventListener('pointerdown', close);
-    document.addEventListener('keydown', escape);
-    return () => {
-      document.removeEventListener('pointerdown', close);
-      document.removeEventListener('keydown', escape);
-    };
+    return () => document.removeEventListener('pointerdown', close);
   }, [open]);
 
   const select = (item: OverflowItem) => {

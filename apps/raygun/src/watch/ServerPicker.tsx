@@ -3,6 +3,7 @@ import { Copy, Download, ExternalLink, LoaderCircle, Play, Star, X } from 'lucid
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useBackLayer } from '../shell/backLayers';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { useDownloadSourceVideo } from './useVideoLibrary';
 import { useVideoLinks, useVideoServers, useVideoSourcePlay } from './useVideoSources';
@@ -188,6 +189,7 @@ export const ServerPicker: FC<{
   onClose: () => void;
 }> = ({ target, intent = 'play', onClose }) => {
   const { t } = useTranslation();
+  useBackLayer(true, onClose);
   const servers = useVideoServers(target.sourceId, target.remoteId);
   const play = useVideoSourcePlay();
   const download = useDownloadSourceVideo();

@@ -60,6 +60,7 @@ import type { TrackOption } from './trackPicking';
 import { useVideoPlayerStore } from './videoPlayerStore';
 import { sourceName, sourceNote, sourcesChecked } from './waiting';
 import type { WaitingNote } from './waiting';
+import { useBackLayer } from '../shell/backLayers';
 import { useAppActive } from '../shell/deviceState';
 
 type PanelKind =
@@ -180,6 +181,9 @@ const PlayerScreen: FC = () => {
     if (fullscreen) void setWindowFullscreen(false);
     state.close();
   };
+  // Back closes the player once its panels are closed; it takes Escape itself (panel, full
+  // screen, then the player).
+  useBackLayer(true, close, { escape: false });
 
   // A session asks for its episodes and sources once the player shows (the Android player does
   // the same, as updates sent before it existed are lost there).

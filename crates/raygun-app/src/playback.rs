@@ -292,11 +292,11 @@ impl PlaybackService {
                         start_ms,
                     );
                     effects.extend(core.set_context(context));
+                    if !play {
+                        paused_load(core, &mut effects);
+                    }
                     effects
                 });
-                if !play {
-                    self.run(|core| core.pause());
-                }
             }
             ConnectCommand::Enqueue { items, play_now } => {
                 self.run(|core| core.enqueue(items, play_now));
@@ -605,13 +605,13 @@ impl PlaybackService {
             match result {
                 Ok(pick) => {
                     let position = inner.core.state().position_ms;
-                    let Some((start_ms, autoplay)) =
-                        inner.tracker.resolved(load_id, pick.clone(), position)
+                    let Some(start_ms) = inner.tracker.resolved(load_id, pick.clone(), position)
                     else {
                         return;
                     };
-                    // Paused while it was being found (M46.16): it loads, and waits.
-                    let autoplay = autoplay && !inner.core.held();
+                    // Paused while it was being found (M46.16), it loads and waits; played
+                    // meanwhile (a song reopened paused), it starts.
+                    let autoplay = inner.core.plays_when_found();
                     let Some(item) = inner.core.current_item().cloned() else {
                         return;
                     };
@@ -710,7 +710,7 @@ impl PlaybackService {
                     // A downloaded song plays its saved copy (M46.10).
                     let item =
                         crate::music_downloads::offline_item(&self.app, &item).unwrap_or(item);
-                    match inner.tracker.begin(load_id, &item, start_ms, autoplay) {
+                    match inner.tracker.begin(load_id, &item, start_ms) {
                         LoadPlan::Direct => {
                             let source = item.source.clone();
                             self.load_into(
@@ -738,8 +738,12 @@ impl PlaybackService {
                     }
                 }
                 Effect::Engine(command) => {
-                    let engine = inner.active.unwrap_or(Engine::Webview);
-                    outbox.engine.push((engine, command));
+                    // With no engine holding the current item (its stream is still being found),
+                    // a play or seek would only wake what the last song left behind: a stopped
+                    // YouTube video would start again unseen. Volume and speed go with each load.
+                    if let Some(engine) = inner.active {
+                        outbox.engine.push((engine, command));
+                    }
                 }
                 Effect::StateChanged => {
                     outbox.state = Some(inner.core.state());
@@ -923,6 +927,17 @@ impl PlaybackService {
     }
 }
 
+/// Makes the load in `effects` wait paused (a queue moved over from a paused device): it loads
+/// without starting, rather than start and then pause.
+fn paused_load(core: &mut PlaybackCore, effects: &mut Vec<Effect>) {
+    effects.extend(core.pause());
+    for effect in effects.iter_mut() {
+        if let Effect::Load { autoplay, .. } = effect {
+            *autoplay = false;
+        }
+    }
+}
+
 /// How often the queue is saved for reopening (M46.16).
 const SAVE_EVERY: Duration = Duration::from_secs(5);
 
@@ -1068,6 +1083,34 @@ mod tests {
             },
             quarter
         ));
+    }
+
+    #[test]
+    fn a_queue_moved_over_paused_loads_without_starting() {
+        let mut core = PlaybackCore::new(1);
+        let item = QueueItemInput {
+            title: "Song".into(),
+            artist: Some("Artist".into()),
+            album: None,
+            duration_ms: Some(180_000),
+            artwork_url: None,
+            media_kind: raygun_model::MediaKind::Audio,
+            source: MediaSource::Url {
+                url: "https://example.com/a.mp3".into(),
+                headers: BTreeMap::new(),
+            },
+        };
+        let mut effects = core.replace_at(vec![item], Some(0), false, 42_000.0);
+        paused_load(&mut core, &mut effects);
+        let load = effects.iter().find_map(|effect| match effect {
+            Effect::Load {
+                autoplay, start_ms, ..
+            } => Some((*autoplay, *start_ms)),
+            _ => None,
+        });
+        assert_eq!(load, Some((false, 42_000.0)), "loaded paused, where it was");
+        assert_eq!(core.state().status, raygun_model::PlaybackStatus::Paused);
+        assert!(!core.plays_when_found(), "a stream found later waits too");
     }
 
     #[test]

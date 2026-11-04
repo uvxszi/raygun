@@ -73,6 +73,25 @@ describe('Song tables', () => {
     delete (window as { matchMedia?: unknown }).matchMedia;
   });
 
+  it('keeps no hidden Save button in the rows of a touch screen, where nothing hovers', async () => {
+    // A phone: a finger, and a narrow window.
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes('coarse'),
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    await AppShellWrapper.mount('/library?view=favorites');
+    const rows = await screen.findAllByTestId('track-table-row');
+    for (const row of rows) {
+      expect(
+        within(row).queryByRole('button', { name: 'Save to Favorites or a playlist' }),
+      ).not.toBeInTheDocument();
+    }
+    // The duration and the row's menu stay.
+    expect(within(rows[0] as HTMLElement).getByText('3:00')).toBeInTheDocument();
+  });
+
   it('resizes a column live from the divider on its left, and with the arrow keys', async () => {
     setWide();
     await AppShellWrapper.mount('/library?view=favorites');

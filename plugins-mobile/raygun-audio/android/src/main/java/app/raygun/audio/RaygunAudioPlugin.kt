@@ -248,11 +248,11 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     private var recoveries = 0
 
     /** Waits for the song's end trim while it plays. */
-    private val endWatch = Runnable { controller?.let { checkEnd(it) } }
+    private val endWatch = Runnable { enginePlayer()?.let { checkEnd(it) } }
 
     private val progressTicker = object : Runnable {
         override fun run() {
-            controller?.let {
+            enginePlayer()?.let {
                 reportProgress(it)
                 watch()
             }
@@ -260,14 +260,16 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    // The controller's events say when the session's player changed; what it is now is read from
+    // the deck itself (enginePlayer), which the session shows whenever a load is current.
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            val player = controller ?: return
-            if (isPlaying) {
+            val player = enginePlayer() ?: return
+            if (isPlaying && loadId != null) {
                 main.removeCallbacks(progressTicker)
                 main.post(progressTicker)
                 scheduleEnd(player)
-            } else {
+            } else if (!isPlaying) {
                 main.removeCallbacks(progressTicker)
                 main.removeCallbacks(endWatch)
                 reportProgress(player)
@@ -275,7 +277,7 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
-            val player = controller ?: return
+            val player = enginePlayer() ?: return
             when (playbackState) {
                 Player.STATE_READY -> reportProgress(player)
                 Player.STATE_ENDED -> {
@@ -294,7 +296,7 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
                     Player.EVENT_PLAYBACK_SUPPRESSION_REASON_CHANGED,
                 )
             ) {
-                reportStatus(player)
+                reportStatus()
             }
         }
 
@@ -304,12 +306,22 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     /**
+     * The player the engine's commands drive: the service's current deck, directly. Never through
+     * the media session: while a stream is found the session shows [MirrorPlayer], which offers
+     * none of the commands a load needs (the controller drops them) and hands play and pause to
+     * Rust as if the listener had pressed them. Raygun's own commands also skip the session's
+     * routing of system controls ([RaygunSessionPlayer]).
+     */
+    private fun enginePlayer(): Player? = RaygunPlaybackService.instance?.deck?.player ?: controller
+
+    /**
      * Tells Rust what the player does, from all of its state rather than one change: a song that
      * gets ready while paused (from the notification, a headset, a denied audio focus) or while
      * another app holds the focus says "paused", so Rust's player never shows playing over silence.
      */
-    private fun reportStatus(player: Player) {
+    private fun reportStatus() {
         if (quiet) return
+        val player = enginePlayer() ?: return
         val state = player.playbackState
         // The pause at an end trim isn't the listener's.
         if (state == Player.STATE_IDLE || state == Player.STATE_ENDED || endReported) return
@@ -340,6 +352,9 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         val now = android.os.SystemClock.elapsedRealtime()
         val position = player.currentPosition
         if (position != stuckPosition) {
+            // Moving again: a later stall starts over, rather than counting every hiccup in a
+            // song towards pausing it.
+            if (stuckPosition >= 0) recoveries = 0
             stuckPosition = position
             stuckSince = now
             return
@@ -380,9 +395,11 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun load(invoke: Invoke) {
         val args = invoke.parseArgs(LoadArgs::class.java)
-        withController { player ->
+        withController { controller ->
+            val service = RaygunPlaybackService.instance
             val fadeMs = (args.fadeMs ?: 0.0).toLong()
-            val crossfading = fadeMs > 0 && player.isPlaying
+            // A fade from the song playing here, or from the webview's YouTube player.
+            val crossfading = fadeMs > 0 && service != null
             loadId = args.loadId
             endMs = args.endMs
             endReported = false
@@ -391,6 +408,11 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
             stuckPosition = -1L
             quiet = true
             main.removeCallbacks(endWatch)
+            // The session shows the deck before anything goes into it: notification and headset
+            // buttons are about this song from now on, and the mirror lets go of the audio focus
+            // before the deck asks for it.
+            syncSession()
+            val player: Player = service?.deck?.player ?: controller
             val metadata = MediaMetadata.Builder()
                 .setTitle(args.title)
                 .setArtist(args.artist)
@@ -403,7 +425,6 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
                 .build()
             val startMs = (args.startMs ?: 0.0).toLong()
             val gainDb = args.gainDb ?: 0.0
-            val service = RaygunPlaybackService.instance
             player.volume = (args.volume ?: 1.0).toFloat()
             if (service != null && crossfading) {
                 // The next song starts on the other player while this one fades out (M46.12).
@@ -416,8 +437,13 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
             }
             service?.deck?.processor?.onMeasured = measured(args.loadId)
             quiet = false
-            syncSession()
-            reportStatus(player)
+            if (enginePlayer()?.currentMediaItem == null) {
+                // Nothing took the song: say so now, so the next stream gets its turn, rather
+                // than leave Rust waiting for its start timeout.
+                report("error", JSONObject().put("message", "The player didn't take this song"))
+                return@withController
+            }
+            reportStatus()
         }
         invoke.resolve()
     }
@@ -467,7 +493,7 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun setEnd(invoke: Invoke) {
         val args = invoke.parseArgs(EndArgs::class.java)
-        withController {
+        withEngine {
             endMs = args.endMs
             endReported = false
             scheduleEnd(it)
@@ -520,20 +546,26 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
 
     @Command
     fun play(invoke: Invoke) {
-        withController { it.play() }
+        withEngine {
+            it.play()
+            reportStatus()
+        }
         invoke.resolve()
     }
 
     @Command
     fun pause(invoke: Invoke) {
-        withController { it.pause() }
+        withEngine {
+            it.pause()
+            reportStatus()
+        }
         invoke.resolve()
     }
 
     @Command
     fun seek(invoke: Invoke) {
         val args = invoke.parseArgs(SeekArgs::class.java)
-        withController {
+        withEngine {
             it.seekTo((args.positionMs ?: 0.0).toLong())
             endReported = false
             scheduleEnd(it)
@@ -544,7 +576,7 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun setVolume(invoke: Invoke) {
         val args = invoke.parseArgs(VolumeArgs::class.java)
-        withController { it.volume = (args.volume ?: 1.0).toFloat() }
+        withEngine { it.volume = (args.volume ?: 1.0).toFloat() }
         invoke.resolve()
     }
 
@@ -553,13 +585,13 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     fun setRate(invoke: Invoke) {
         val args = invoke.parseArgs(RateArgs::class.java)
         val rate = (args.rate ?: 1.0).coerceIn(0.5, 2.0).toFloat()
-        withController { it.setPlaybackSpeed(rate) }
+        withEngine { it.setPlaybackSpeed(rate) }
         invoke.resolve()
     }
 
     @Command
     fun stop(invoke: Invoke) {
-        withController {
+        withEngine {
             loadId = null
             main.removeCallbacks(progressTicker)
             main.removeCallbacks(endWatch)
@@ -1300,6 +1332,11 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         val controller = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
         controller.isAppearanceLightStatusBars = lightBackground
         controller.isAppearanceLightNavigationBars = lightBackground
+    }
+
+    /** Runs [action] on the deck ([enginePlayer]) once the controller has started the service. */
+    private fun withEngine(action: (Player) -> Unit) {
+        withController { action(enginePlayer() ?: it) }
     }
 
     /** Runs [action] on the main thread once the controller is connected to the service. */

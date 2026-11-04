@@ -400,6 +400,32 @@ async fn another_raygun_plays_here_once_this_device_allows_it() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(answer["error"], "Unknown command");
+
+    // A long queue moves in one command: past axum's 2 MB default, still taken.
+    let item = json!({
+        "title": "A song with a fairly long title, as many have",
+        "artist": "Someone",
+        "album": "An album",
+        "durationMs": 180_000,
+        "artworkUrl": "https://example.com/covers/0123456789abcdef0123456789abcdef.jpg",
+        "mediaKind": "audio",
+        "source": { "kind": "lookup", "title": "A song", "artist": "Someone" },
+    });
+    let long = json!({
+        "type": "replace",
+        "items": vec![item; 12_000],
+        "startIndex": 0,
+        "shuffle": false,
+        "startMs": 0.0,
+        "play": true,
+    });
+    assert!(long.to_string().len() > 2 * 1024 * 1024);
+    let (status, _) = send(
+        &setup.app,
+        post_json("/api/connect/command", Some(&token), long),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "a long queue is taken");
 }
 
 #[tokio::test]

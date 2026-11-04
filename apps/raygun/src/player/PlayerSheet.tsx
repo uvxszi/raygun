@@ -27,6 +27,7 @@ import { fromQueueItem } from '../collections/useCollections';
 import { PlayingOn } from '../connect/PlayingOn';
 import { ArtistLinks } from '../music/ArtistLinks';
 import { useTrackMenuItems } from '../music/useTrackMenu';
+import { useBackLayer } from '../shell/backLayers';
 import { useContextMenuStore } from '../shell/contextMenuStore';
 import { Marquee } from '../shell/Marquee';
 import { ResizeHandle } from '../shell/ResizeHandle';
@@ -61,7 +62,6 @@ import {
   RepeatButton,
   ShuffleButton,
 } from './transport';
-import { useCloseOnBack } from './useCloseOnBack';
 import { useCoverFit } from './useCoverFit';
 import { useCurrentItem, usePlayerSelect, useSourceNote, useUpNext } from './usePlayback';
 
@@ -106,26 +106,20 @@ export const PlayerSheet: FC = () => {
   const href = useRouterState({ select: (router) => router.location.href });
   const openedAt = useRef(href);
 
-  useCloseOnBack(sheetOpen, closeSheet);
+  // Back and Escape close the innermost thing first: a popover or menu, then the lyrics or the
+  // queue (the cover again), then the player. Side by side, the lyrics are the player's own view.
+  useBackLayer(sheetOpen, closeSheet);
+  const subView =
+    sheetOpen &&
+    item !== undefined &&
+    (layout === 'sideBySide' ? view === 'queue' : view !== 'artwork');
+  useBackLayer(subView, () => setView('artwork'));
 
   useEffect(() => {
     // Following a link from the player (an artist, a credit) shows that page instead.
     if (sheetOpen && href !== openedAt.current) closeSheet();
     openedAt.current = href;
   }, [href, sheetOpen, closeSheet]);
-
-  useEffect(() => {
-    if (!sheetOpen) {
-      return;
-    }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        closeSheet();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [sheetOpen, closeSheet]);
 
   const handleDragEnd = (_event: PointerEvent, info: PanInfo) => {
     if (sheetDismissed(info.offset, info.velocity)) {
@@ -161,7 +155,9 @@ export const PlayerSheet: FC = () => {
           dragElastic={{ top: 0, bottom: 0.7 }}
           onDragEnd={handleDragEnd}
           style={sizes}
-          className="bg-background fixed inset-x-0 top-[var(--app-bar,0px)] bottom-0 isolate z-50 flex flex-col overflow-hidden pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]"
+          // Below the status bar and the camera's cutout: the handle and the header's buttons
+          // start under the top inset, never in it.
+          className="bg-background fixed inset-x-0 top-[var(--app-bar,0px)] bottom-0 isolate z-50 flex flex-col overflow-hidden pt-[calc(0.75rem+env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]"
         >
           {prefs.background && item?.artworkUrl && !isVideo && (
             // Its own layer, painted once: the controls changing over it don't blur it again.
@@ -398,7 +394,7 @@ const Stacked: FC<LayoutParts> = ({ item, spoken, view, setView, onScrub }) => {
           </div>
           {item && (
             <div className="flex w-full min-w-0 items-center justify-center gap-2">
-              <PlayingFrom className="max-w-[45%]" />
+              <PlayingFrom className={PILL_WIDTH} />
               <UpNextPill next={upNext[0]} onOpen={() => setView('queue')} />
             </div>
           )}
@@ -672,6 +668,12 @@ const MoreButton: FC<{ item: QueueItem; spoken: SpokenItem | null }> = ({ item, 
   );
 };
 
+/**
+ * The widest the pills under the cover get: two fit side by side, and a long name slides by
+ * (Marquee) instead of stretching them.
+ */
+const PILL_WIDTH = 'max-w-[min(15rem,calc(50%-0.25rem))]';
+
 /** A pill under the cover (M46.14): "Up next" and the song after this one; opens the queue. */
 const UpNextPill: FC<{ next: QueueItem | undefined; onOpen: () => void }> = ({ next, onOpen }) => {
   const { t } = useTranslation();
@@ -680,11 +682,11 @@ const UpNextPill: FC<{ next: QueueItem | undefined; onOpen: () => void }> = ({ n
       type="button"
       aria-label={t('player.upNextView')}
       onClick={onOpen}
-      className="bg-surface/80 hover:bg-surface flex max-w-full min-w-0 items-center gap-2 rounded-full px-4 py-1.5 text-sm shadow-sm"
+      className={`bg-surface/80 hover:bg-surface flex min-w-0 items-center gap-2 rounded-full px-4 py-1.5 text-sm shadow-sm ${PILL_WIDTH}`}
     >
       <ListMusic aria-hidden size={16} className="shrink-0" />
       <span className="shrink-0 font-semibold">{t('player.upNextView')}</span>
-      {next && <span className="text-muted truncate">{next.title}</span>}
+      {next && <Marquee testId="up-next-title" text={next.title} className="text-muted min-w-0" />}
     </button>
   );
 };

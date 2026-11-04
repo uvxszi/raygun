@@ -18,6 +18,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { episodeReveal, songReveal, useRevealStore } from '../music/reveal';
+import { Marquee } from '../shell/Marquee';
 import { usePlayerUiStore } from './playerUiStore';
 import { useCurrentItem, useQueueSelect } from './usePlayback';
 import { useSpokenItem } from './spoken';
@@ -115,7 +116,8 @@ export const PlayingFrom: FC<{ variant?: 'pill' | 'row' | 'icon'; className?: st
       className={`bg-surface/80 hover:bg-surface flex min-w-0 items-center gap-2 rounded-full px-4 py-1.5 text-sm shadow-sm ${className}`}
     >
       <Icon aria-hidden size={16} className="shrink-0" />
-      <span className="truncate font-semibold">{context.name}</span>
+      {/* A long name slides by, as long song titles do, rather than stretch the pill. */}
+      <Marquee testId="playing-from-name" text={context.name} className="min-w-0 font-semibold" />
     </button>
   );
 };

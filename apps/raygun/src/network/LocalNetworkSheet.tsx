@@ -5,6 +5,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
+import { useBackLayer } from '../shell/backLayers';
 
 /**
  * What reaching the local network is for: an addon there, devices there reaching the remote, or
@@ -26,6 +27,7 @@ type LocalNetworkSheetProps = {
  */
 export const LocalNetworkSheet: FC<LocalNetworkSheetProps> = ({ reason, onGranted, onClose }) => {
   const { t } = useTranslation();
+  useBackLayer(true, onClose);
   const request = useMutation({
     mutationFn: () => unwrapResult(commands.localNetworkRequest()),
     onSuccess: (access) => {

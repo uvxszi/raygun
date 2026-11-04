@@ -15,6 +15,7 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useBackLayer } from '../shell/backLayers';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import type { OverflowItem } from '../shell/OverflowMenu';
 import { useIsDesktop } from '../shell/useIsDesktop';
@@ -268,6 +269,7 @@ export const StreamPicker: FC<{
   onClose: () => void;
 }> = ({ target, intent = 'play', onClose }) => {
   const { t } = useTranslation();
+  useBackLayer(true, onClose);
   const navigate = useNavigate();
   const groups = useStremioStreams(target.kind, target.metaId, target.videoId);
   const play = useStremioPlay();

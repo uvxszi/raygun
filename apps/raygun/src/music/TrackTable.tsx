@@ -960,11 +960,15 @@ export const TrackTable: FC<TrackTableProps> = ({
                             actions(track, index)
                           ) : (
                             <>
-                              <SaveButton
-                                track={track.input}
-                                compact
-                                className="opacity-0 group-hover:opacity-100 focus:opacity-100"
-                              />
+                              {/* Shown on hover: a touch screen has none, so the row's menu
+                                  saves there instead of a button no one can see. */}
+                              {!touch && (
+                                <SaveButton
+                                  track={track.input}
+                                  compact
+                                  className="opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                />
+                              )}
                               {!wide && track.durationMs ? (
                                 <span className="text-muted pr-1 text-xs tabular-nums">
                                   {formatTime(track.durationMs)}
