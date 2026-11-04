@@ -134,8 +134,6 @@ pub struct Settings {
     pub start_screen: StartScreen,
     /// Navigation bar labels: on every tab, or on the selected one only.
     pub nav_labels: NavLabels,
-    /// Covers per row in library and browse grids; 0 fits them to the screen.
-    pub grid_columns: u32,
     /// Titles over covers (compact, as in Mihon) or under them (comfortable).
     pub cover_style: CoverStyle,
     /// The unread count on library covers.
@@ -172,8 +170,9 @@ pub struct Settings {
     pub layout: LayoutPrefs,
     /// The accent when `accent` is `Custom`: `#rrggbb` (M46.7).
     pub accent_color: String,
-    /// Smallest cover width in px when covers per row is automatic; 0 picks it by screen (M46.7).
-    pub cover_width: u32,
+    /// Covers in library and browse grids, in percent more (or less) than the screen's own size
+    /// (M46.48): as many as fit across at that size.
+    pub cover_size: i32,
     /// How manga pages fit the reader (M46.7).
     pub manga_reader: MangaReaderPrefs,
     /// How the full music player is laid out (M46.7).
@@ -194,7 +193,8 @@ pub struct Settings {
     pub auto_load: AutoLoadPrefs,
     /// Who draws the desktop window's top edge (M46.9).
     pub window_frame: WindowFrame,
-    /// The desktop app's zoom in percent (M46.9): 50 to 200, in steps of 10.
+    /// Interface size in percent of the size the screen gives (M46.48): 50 to 200. The desktop
+    /// app zooms its window; phones scale their text and spacing.
     pub zoom: u32,
     /// Charts and song tags (M46.9).
     pub discovery: DiscoveryPrefs,
@@ -816,7 +816,7 @@ pub struct SpokenItem {
     pub author: Option<String>,
 }
 
-/// Zoom levels the desktop app offers, in percent (M46.9).
+/// Interface sizes offered, in percent of the screen's (M46.9, M46.48).
 pub const ZOOM_LEVELS: std::ops::RangeInclusive<u32> = 50..=200;
 
 /// Next pages load as a list's end comes near (M46.8), at most one per `cooldown_ms`, so sources
@@ -1192,8 +1192,8 @@ impl<'de> Deserialize<'de> for PlayerViewPrefs {
     }
 }
 
-/// Cover widths offered, in px (0: by screen).
-pub const COVER_WIDTHS: [u32; 10] = [0, 90, 100, 110, 120, 140, 160, 180, 200, 240];
+/// Cover sizes offered, in percent more or less than the screen's own (M46.48).
+pub const COVER_SIZES: std::ops::RangeInclusive<i32> = -50..=100;
 
 /// How a page fits the screen in the paged reader modes (M46.7).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -1245,12 +1245,12 @@ pub enum TapInvert {
 #[serde(default, rename_all = "camelCase")]
 pub struct MangaReaderPrefs {
     pub paged_scale: PagedScale,
-    /// The webtoon column in percent of the window's width; 0 is the screen's width on phones and
-    /// at most 768 px on wide windows.
-    pub webtoon_width: u32,
-    /// The page bar's width in percent of the window's; 0 is the full width on phones and 70 %
-    /// on wide windows.
-    pub bar_width: u32,
+    /// The webtoon column, in percent more or less than the screen's own (M46.48): the screen's
+    /// width on phones, at most 768 px on wide windows; never wider than the window.
+    pub webtoon_size: i32,
+    /// The page bar, in percent more or less than the screen's own: the full width on phones,
+    /// 70 % on wide windows; never wider than the window.
+    pub bar_size: i32,
     /// The page bar's buttons beside the page slider.
     pub bar_chapters: bool,
     pub bar_zoom: bool,
@@ -1276,8 +1276,8 @@ impl Default for MangaReaderPrefs {
     fn default() -> Self {
         Self {
             paged_scale: PagedScale::FitScreen,
-            webtoon_width: 0,
-            bar_width: 0,
+            webtoon_size: 0,
+            bar_size: 0,
             bar_chapters: true,
             bar_zoom: true,
             bar_mode: true,
@@ -1296,17 +1296,14 @@ impl Default for MangaReaderPrefs {
 
 impl MangaReaderPrefs {
     pub fn validate(&self) -> Result<(), String> {
-        let percent = |value: u32, low: u32| {
-            value == 0 || ((low..=100).contains(&value) && value.is_multiple_of(5))
-        };
-        if !percent(self.webtoon_width, 30) {
+        if !READER_SIZES.contains(&self.webtoon_size) {
             return Err(format!(
-                "{}% isn't an offered webtoon width",
-                self.webtoon_width
+                "{}% isn't an offered webtoon size",
+                self.webtoon_size
             ));
         }
-        if !percent(self.bar_width, 40) {
-            return Err(format!("{}% isn't an offered bar width", self.bar_width));
+        if !READER_SIZES.contains(&self.bar_size) {
+            return Err(format!("{}% isn't an offered page bar size", self.bar_size));
         }
         if !(1..=10).contains(&self.preload_pages) {
             return Err("Load between 1 and 10 pages ahead".into());
@@ -1314,6 +1311,9 @@ impl MangaReaderPrefs {
         Ok(())
     }
 }
+
+/// The manga reader's column and page bar sizes, in percent more or less than the screen's.
+pub const READER_SIZES: std::ops::RangeInclusive<i32> = -70..=100;
 
 /// Whether `color` is a `#rrggbb` colour.
 fn is_hex_color(color: &str) -> bool {
@@ -1410,8 +1410,9 @@ pub enum NovelTheme {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct NovelReaderPrefs {
-    /// CSS pixels, 14–30.
-    pub font_size: u32,
+    /// Text size in CSS pixels more or less than the screen's own (M46.48), −6 to 12.
+    #[serde(default)]
+    pub text_size: i32,
     /// Line height in tenths, 12–22 (1.2–2.2).
     pub line_spacing: u32,
     pub font: NovelFont,
@@ -1434,6 +1435,9 @@ pub struct NovelReaderPrefs {
     pub keep_screen_on: bool,
 }
 
+/// Novel text sizes offered, in CSS pixels more or less than the screen's own (M46.48).
+pub const NOVEL_TEXT_SIZES: std::ops::RangeInclusive<i32> = -6..=12;
+
 fn normal_rate() -> u32 {
     10
 }
@@ -1445,7 +1449,7 @@ fn screen_kept_on() -> bool {
 impl Default for NovelReaderPrefs {
     fn default() -> Self {
         Self {
-            font_size: 18,
+            text_size: 0,
             line_spacing: 16,
             font: NovelFont::Serif,
             width: NovelWidth::Narrow,
@@ -1812,7 +1816,6 @@ impl Default for Settings {
             accent: Accent::Red,
             start_screen: StartScreen::Home,
             nav_labels: NavLabels::Always,
-            grid_columns: 0,
             cover_style: CoverStyle::Compact,
             unread_badges: true,
             download_badges: true,
@@ -1830,7 +1833,7 @@ impl Default for Settings {
             websites: WebsitePrefs::default(),
             layout: LayoutPrefs::default(),
             accent_color: "#e5484d".into(),
-            cover_width: 0,
+            cover_size: 0,
             manga_reader: MangaReaderPrefs::default(),
             player_view: PlayerViewPrefs::default(),
             scrollbars: ScrollbarStyle::Thin,
@@ -1871,7 +1874,6 @@ impl Settings {
             SettingChange::Accent(accent) => self.accent = accent,
             SettingChange::StartScreen(screen) => self.start_screen = screen,
             SettingChange::NavLabels(labels) => self.nav_labels = labels,
-            SettingChange::GridColumns(columns) => self.grid_columns = columns,
             SettingChange::CoverStyle(style) => self.cover_style = style,
             SettingChange::UnreadBadges(show) => self.unread_badges = show,
             SettingChange::DownloadBadges(show) => self.download_badges = show,
@@ -1889,7 +1891,7 @@ impl Settings {
             SettingChange::Websites(prefs) => self.websites = prefs,
             SettingChange::Layout(prefs) => self.layout = prefs.normalized(),
             SettingChange::AccentColor(color) => self.accent_color = color.to_ascii_lowercase(),
-            SettingChange::CoverWidth(width) => self.cover_width = width,
+            SettingChange::CoverSize(percent) => self.cover_size = percent,
             SettingChange::MangaReader(prefs) => self.manga_reader = prefs,
             SettingChange::PlayerView(prefs) => self.player_view = prefs,
             SettingChange::Scrollbars(style) => self.scrollbars = style,
@@ -1949,7 +1951,6 @@ pub enum SettingChange {
     Accent(Accent),
     StartScreen(StartScreen),
     NavLabels(NavLabels),
-    GridColumns(u32),
     CoverStyle(CoverStyle),
     UnreadBadges(bool),
     DownloadBadges(bool),
@@ -1968,7 +1969,7 @@ pub enum SettingChange {
     Websites(WebsitePrefs),
     Layout(LayoutPrefs),
     AccentColor(String),
-    CoverWidth(u32),
+    CoverSize(i32),
     MangaReader(MangaReaderPrefs),
     PlayerView(PlayerViewPrefs),
     Scrollbars(ScrollbarStyle),
@@ -2008,7 +2009,6 @@ impl SettingChange {
             Self::Accent(_) => "accent",
             Self::StartScreen(_) => "startScreen",
             Self::NavLabels(_) => "navLabels",
-            Self::GridColumns(_) => "gridColumns",
             Self::CoverStyle(_) => "coverStyle",
             Self::UnreadBadges(_) => "unreadBadges",
             Self::DownloadBadges(_) => "downloadBadges",
@@ -2026,7 +2026,7 @@ impl SettingChange {
             Self::Websites(_) => "websites",
             Self::Layout(_) => "layout",
             Self::AccentColor(_) => "accentColor",
-            Self::CoverWidth(_) => "coverWidth",
+            Self::CoverSize(_) => "coverSize",
             Self::MangaReader(_) => "mangaReader",
             Self::PlayerView(_) => "playerView",
             Self::Scrollbars(_) => "scrollbars",
@@ -2076,6 +2076,7 @@ impl SettingChange {
             | Self::KeepMusicPlaying(_)
             | Self::ResumeOnStart(_)
             | Self::AudioQuality(_)
+            | Self::LibraryDisplay(_)
             | Self::Privacy(_) => Ok(()),
             Self::LyricsCache(prefs) if prefs.forget_after_days > 3650 => {
                 Err("Lyrics can be kept for at most ten years".into())
@@ -2110,7 +2111,7 @@ impl SettingChange {
                 }
             }
             Self::Zoom(percent) => {
-                if ZOOM_LEVELS.contains(percent) && percent % 10 == 0 {
+                if ZOOM_LEVELS.contains(percent) {
                     Ok(())
                 } else {
                     Err(format!("{percent}% isn't an offered zoom"))
@@ -2121,13 +2122,6 @@ impl SettingChange {
                     Ok(())
                 } else {
                     Err(format!("{seconds} s isn't an offered prompt time"))
-                }
-            }
-            Self::GridColumns(columns) => {
-                if GRID_COLUMNS.contains(columns) {
-                    Ok(())
-                } else {
-                    Err(format!("{columns} covers per row isn't offered"))
                 }
             }
             Self::WatchedPercent(percent) => {
@@ -2174,11 +2168,11 @@ impl SettingChange {
                     Err(format!("{color} isn't a colour like #e5484d"))
                 }
             }
-            Self::CoverWidth(width) => {
-                if COVER_WIDTHS.contains(width) {
+            Self::CoverSize(percent) => {
+                if COVER_SIZES.contains(percent) {
                     Ok(())
                 } else {
-                    Err(format!("{width} px isn't an offered cover size"))
+                    Err(format!("{percent}% isn't an offered cover size"))
                 }
             }
             Self::Save(prefs) => {
@@ -2186,16 +2180,6 @@ impl SettingChange {
                     Err("Pick a folder first".into())
                 } else {
                     Ok(())
-                }
-            }
-            Self::LibraryDisplay(prefs) => {
-                if GRID_COLUMNS.contains(&prefs.columns_landscape) {
-                    Ok(())
-                } else {
-                    Err(format!(
-                        "{} covers per row isn't offered",
-                        prefs.columns_landscape
-                    ))
                 }
             }
             Self::SubtitleLanguage(tag) if tag.is_empty() => Ok(()),
@@ -2208,10 +2192,10 @@ impl SettingChange {
                 }
             }
             Self::NovelReader(prefs) => {
-                if !(14..=30).contains(&prefs.font_size) {
+                if !NOVEL_TEXT_SIZES.contains(&prefs.text_size) {
                     Err(format!(
-                        "{} px is outside the font sizes offered",
-                        prefs.font_size
+                        "{} px is outside the text sizes offered",
+                        prefs.text_size
                     ))
                 } else if !(12..=22).contains(&prefs.line_spacing) {
                     Err("That line spacing isn't offered".into())
@@ -5005,9 +4989,6 @@ pub struct PageRef {
 #[serde(default, rename_all = "camelCase")]
 pub struct LibraryDisplayPrefs {
     pub mode: LibraryDisplayMode,
-    /// Covers per row in landscape; 0 fits them to the screen. (`Settings::grid_columns` is the
-    /// portrait value.)
-    pub columns_landscape: u32,
     pub tabs: LibraryTabs,
     /// The number of titles on each tab.
     pub show_counts: bool,
@@ -5025,7 +5006,6 @@ impl Default for LibraryDisplayPrefs {
     fn default() -> Self {
         Self {
             mode: LibraryDisplayMode::CompactGrid,
-            columns_landscape: 0,
             tabs: LibraryTabs::Categories,
             show_counts: true,
             per_category: false,
@@ -5035,9 +5015,6 @@ impl Default for LibraryDisplayPrefs {
         }
     }
 }
-
-/// Covers per row offered (0 fits them to the screen).
-pub const GRID_COLUMNS: [u32; 8] = [0, 2, 3, 4, 5, 6, 7, 8];
 
 /// How a title is read (M27).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]

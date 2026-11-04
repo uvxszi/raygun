@@ -76,11 +76,14 @@ describe('Settings sections', () => {
       ]),
     );
     await AppShellWrapper.mount('/settings/library');
-    await choose(user, /^Covers per row \(portrait\)/, '4');
-    await choose(user, /^Covers in Browse/, /^Comfortable/);
+    // Covers are the screen's size, made smaller by a quarter (M46.48).
+    const size = await screen.findByRole('spinbutton', { name: 'Cover size' });
+    await user.clear(size);
+    await user.type(size, '-25{Enter}');
+    await choose(user, /^Covers in Browse/, 'Title under the cover');
     await choose(user, /^Layout/, 'List');
     await user.click(screen.getByRole('switch', { name: 'Downloaded badges' }));
-    expect(commands.settingsUpdate).toHaveBeenCalledWith({ key: 'gridColumns', value: 4 });
+    expect(commands.settingsUpdate).toHaveBeenCalledWith({ key: 'coverSize', value: -25 });
     expect(commands.settingsUpdate).toHaveBeenCalledWith({
       key: 'coverStyle',
       value: 'comfortable',
@@ -103,7 +106,7 @@ describe('Settings sections', () => {
   it('saves the player settings', async () => {
     const user = userEvent.setup();
     await AppShellWrapper.mount('/settings/player');
-    await user.click(await screen.findByRole('switch', { name: 'Resume where you left off' }));
+    await user.click(await screen.findByRole('switch', { name: 'Resume videos' }));
     expect(commands.settingsUpdate).toHaveBeenCalledWith({ key: 'resumeVideos', value: false });
 
     await user.click(screen.getByRole('link', { name: /^Gestures/ }));
@@ -144,7 +147,7 @@ describe('Settings sections', () => {
     const user = userEvent.setup();
     await AppShellWrapper.mount('/settings/reader');
     await choose(user, /^Typeface/, 'Sans serif');
-    await user.click(screen.getByRole('switch', { name: 'Turn pages' }));
+    await user.click(screen.getByRole('switch', { name: 'Turn pages instead of scrolling' }));
     expect(commands.settingsUpdate).toHaveBeenCalledWith({
       key: 'novelReader',
       value: expect.objectContaining({ font: 'sans' }),

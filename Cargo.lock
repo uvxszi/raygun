@@ -4974,9 +4974,12 @@ name = "raygun-ext-host"
 version = "1.0.0"
 dependencies = [
  "axum",
+ "chrono",
  "cookie_store",
  "ego-tree",
+ "encoding_rs",
  "futures-util",
+ "html5ever 0.35.0",
  "mlua",
  "raygun-model",
  "raygun-net",
@@ -5684,6 +5687,7 @@ dependencies = [
  "ego-tree",
  "getopts",
  "html5ever 0.35.0",
+ "indexmap 2.14.2",
  "precomputed-hash",
  "selectors 0.31.0",
  "tendril 0.4.3",

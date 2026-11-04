@@ -35,7 +35,10 @@ describe('Backup card', () => {
     expect(commands.backupRestore).toHaveBeenCalledWith(NAME);
     expect(await within(card).findByText('Restored. 3 items changed.')).toBeInTheDocument();
 
+    // Deleting asks first, as restoring does.
     await user.click(within(row).getByRole('button', { name: /Delete the backup from/ }));
+    expect(commands.backupDelete).not.toHaveBeenCalled();
+    await user.click(within(row).getByRole('button', { name: 'Delete' }));
     expect(commands.backupDelete).toHaveBeenCalledWith(NAME);
   });
 

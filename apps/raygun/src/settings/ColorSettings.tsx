@@ -39,7 +39,11 @@ export const ColorSettings: FC = () => {
   return (
     <PrefGroup title={t('settings.colors.title')}>
       {COLOR_KEYS.map((key) => (
-        <li key={key} className="flex items-center gap-3 px-1 py-2.5">
+        <li
+          key={key}
+          data-pref={t(`settings.colors.${key}`)}
+          className="flex items-center gap-3 px-1 py-2.5"
+        >
           <label className="relative flex min-w-0 flex-1 cursor-pointer items-center gap-3">
             <span
               aria-hidden

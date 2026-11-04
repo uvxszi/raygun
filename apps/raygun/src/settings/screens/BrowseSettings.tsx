@@ -1,0 +1,203 @@
+import { useQueryClient } from '@tanstack/react-query';
+import { EyeOff, Package, Puzzle } from 'lucide-react';
+import type { FC } from 'react';
+import { useTranslation } from 'react-i18next';
+
+import { useExtensions } from '../../extensions/useExtensions';
+import { autoRegion } from '../../music/useDiscovery';
+import { WebsiteSettings } from '../../websites/WebsiteSettings';
+import { PrefChoice, PrefGroup, PrefLink, PrefSlider, PrefSwitch, PrefText } from '../prefs';
+import { useSettings, useUpdateSetting } from '../useSettings';
+
+/** A User-Agent must be printable ASCII (what an HTTP header can carry), up to 512 characters. */
+const isHeaderText = (text: string) =>
+  text.length <= 512 &&
+  [...text].every((char) => char.charCodeAt(0) >= 32 && char.charCodeAt(0) < 127);
+
+/** Countries offered for charts (M46.9); Apple's charts cover these. */
+const CHART_REGIONS = [
+  'us',
+  'gb',
+  'ca',
+  'au',
+  'ie',
+  'nz',
+  'de',
+  'fr',
+  'es',
+  'it',
+  'nl',
+  'be',
+  'se',
+  'no',
+  'dk',
+  'fi',
+  'pl',
+  'pt',
+  'at',
+  'ch',
+  'br',
+  'mx',
+  'ar',
+  'cl',
+  'co',
+  'jp',
+  'kr',
+  'tw',
+  'hk',
+  'sg',
+  'in',
+  'id',
+  'ph',
+  'th',
+  'vn',
+  'my',
+  'za',
+  'ng',
+  'eg',
+  'sa',
+  'ae',
+  'tr',
+  'ua',
+  'il',
+];
+
+const countryName = (code: string) => {
+  try {
+    return (
+      new Intl.DisplayNames([navigator.language], { type: 'region' }).of(code.toUpperCase()) ?? code
+    );
+  } catch {
+    return code.toUpperCase();
+  }
+};
+
+/** Settings → Browse: what's shown, sources and how they're asked, charts, and websites. */
+export const BrowseSettings: FC = () => {
+  const { t } = useTranslation();
+  const data = useSettings().data;
+  const update = useUpdateSetting();
+  const queryClient = useQueryClient();
+  const extensions = useExtensions();
+  const failed = extensions.data?.filter((extension) => extension.status === 'failed').length ?? 0;
+  if (!data) return null;
+  // Sources, listings, searches and the library all depend on these.
+  const refreshAll = { onSuccess: () => void queryClient.invalidateQueries() };
+  const discovery = {
+    region: data.discovery?.region ?? '',
+    tagSongs: data.discovery?.tagSongs ?? true,
+  };
+  const autoLoad = {
+    enabled: data.autoLoad?.enabled ?? true,
+    cooldownMs: data.autoLoad?.cooldownMs ?? 1500,
+  };
+
+  return (
+    <>
+      <PrefGroup title={t('settings.content')}>
+        <PrefSwitch
+          title={t('settings.showNsfw')}
+          checked={data.showNsfw}
+          onChange={(value) => update.mutate({ key: 'showNsfw', value }, refreshAll)}
+        />
+        <PrefSwitch
+          title={t('settings.explicitMusic')}
+          checked={data.explicitMusic}
+          onChange={(value) => update.mutate({ key: 'explicitMusic', value }, refreshAll)}
+        />
+        {/* Don't show this artist and Not interested, to show again. */}
+        <PrefLink
+          icon={EyeOff}
+          to="/settings/hidden"
+          title={t('hidden.title')}
+          summary={
+            data.hidden.artists.length + data.hidden.items.length === 0
+              ? t('hidden.none')
+              : [
+                  t('hidden.summaryArtists', { count: data.hidden.artists.length }),
+                  t('hidden.summaryItems', { count: data.hidden.items.length }),
+                ].join(' · ')
+          }
+        />
+      </PrefGroup>
+      <PrefGroup title={t('settings.sources')}>
+        <PrefLink
+          icon={Puzzle}
+          to="/browse"
+          search={{ tab: 'extensions' }}
+          title={t('settings.extensions')}
+          summary={
+            <span data-testid="extensions-card">
+              <span className="block truncate">
+                {extensions.data
+                  ? extensions.data.map((extension) => extension.name).join(', ') ||
+                    t('extensions.noneInstalled')
+                  : ''}
+              </span>
+              {failed > 0 && (
+                <span role="alert" className="text-primary block">
+                  {t('settings.extensionsFailed', { count: failed })}
+                </span>
+              )}
+            </span>
+          }
+        />
+        <PrefLink icon={Package} to="/extensions/repos" title={t('browse.repos')} />
+        <PrefLink icon={Puzzle} to="/watch/addons" title={t('watch.addons')} />
+        <PrefSwitch
+          title={t('sources.failingLast')}
+          checked={data.failingSourcesLast ?? true}
+          onChange={(value) => update.mutate({ key: 'failingSourcesLast', value })}
+        />
+        <PrefSwitch
+          title={t('settings.autoLoad.title')}
+          checked={autoLoad.enabled}
+          onChange={(enabled) =>
+            update.mutate({ key: 'autoLoad', value: { ...autoLoad, enabled } })
+          }
+        />
+        <PrefSlider
+          title={t('settings.autoLoad.cooldown')}
+          value={autoLoad.cooldownMs}
+          min={0}
+          max={10_000}
+          step={500}
+          format={(value) => t('settings.autoLoad.seconds', { n: value / 1000 })}
+          disabled={!autoLoad.enabled}
+          onChange={(cooldownMs) =>
+            update.mutate({ key: 'autoLoad', value: { ...autoLoad, cooldownMs } })
+          }
+        />
+        <PrefText
+          title={t('sources.userAgent')}
+          summary={t('sources.userAgentHint')}
+          value={data.userAgent ?? ''}
+          placeholder={t('sources.userAgentDefault')}
+          check={(text) => (isHeaderText(text) ? null : t('sources.userAgentInvalid'))}
+          onChange={(value) => update.mutate({ key: 'userAgent', value })}
+        />
+      </PrefGroup>
+      <PrefGroup title={t('discover.charts')}>
+        <PrefChoice<string>
+          title={t('discover.region')}
+          value={discovery.region}
+          options={[
+            { value: '', label: t('discover.regionAuto', { region: countryName(autoRegion()) }) },
+            ...CHART_REGIONS.map((code) => ({ value: code, label: countryName(code) })),
+          ]}
+          onChange={(region) =>
+            update.mutate({ key: 'discovery', value: { ...discovery, region } })
+          }
+        />
+        <PrefSwitch
+          title={t('discover.tagSongsTitle')}
+          checked={discovery.tagSongs}
+          onChange={(tagSongs) =>
+            update.mutate({ key: 'discovery', value: { ...discovery, tagSongs } })
+          }
+        />
+      </PrefGroup>
+      <WebsiteSettings />
+    </>
+  );
+};

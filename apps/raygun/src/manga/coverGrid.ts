@@ -1,16 +1,13 @@
 import type { CSSProperties } from 'react';
 
 /**
- * Cover grids (M46.7): a fixed number of columns when Settings says so, else as many covers as fit
- * at the chosen width. "By screen" is three across a phone (6.5 rem) and 8 rem from 768 px, set by
- * {@link COVER_GRID_CLASS} on the grid.
+ * Cover grids (M46.7; sized by the screen since M46.48): as many covers as fit across, each the
+ * screen's own width (6.5 rem on phones, 8 rem from 768 px, set by {@link COVER_GRID_CLASS}; rem
+ * follows the screen too) made `coverSize` percent bigger or smaller (Settings → Library).
  */
-export const coverGridStyle = (columns: number, coverWidth: number): CSSProperties => ({
-  gridTemplateColumns:
-    columns > 0
-      ? `repeat(${columns}, minmax(0, 1fr))`
-      : `repeat(auto-fill, minmax(${coverWidth > 0 ? `${coverWidth}px` : 'var(--cover-width)'}, 1fr))`,
+export const coverGridStyle = (coverSize: number): CSSProperties => ({
+  gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, calc(var(--cover-width) * ${1 + coverSize / 100})), 1fr))`,
 });
 
-/** The automatic cover width, by screen. */
+/** The screen's own cover width. */
 export const COVER_GRID_CLASS = 'grid gap-2 [--cover-width:6.5rem] md:[--cover-width:8rem]';

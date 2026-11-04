@@ -95,11 +95,11 @@ describe('Incognito (M47)', () => {
     expect(commands.incognitoSetEnabled).toHaveBeenLastCalledWith(false);
   });
 
-  it('is in Settings → Data → Privacy, with staying on after a restart', async () => {
+  it('is in Settings → Privacy, with staying on after a restart', async () => {
     const user = userEvent.setup();
     const saved = withSettings(DEFAULT_SETTINGS);
-    await AppShellWrapper.mount('/settings/data');
-    const privacy = await screen.findByRole('region', { name: 'Privacy' });
+    await AppShellWrapper.mount('/settings/privacy');
+    const privacy = await screen.findByTestId('settings-privacy-page');
     await user.click(within(privacy).getByRole('switch', { name: 'Incognito' }));
     expect(commands.incognitoSetEnabled).toHaveBeenCalledWith(true);
     await vi.waitFor(() =>

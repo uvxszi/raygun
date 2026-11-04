@@ -4,14 +4,29 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { SourceIssue } from '../shell/SourceIssue';
+import { PrefAction, PrefGroup } from '../settings/prefs';
+import { Problem } from '../settings/Problem';
 import { useAppUpdate, useAppUpdateActions } from './useAppUpdate';
-
-const BUTTON =
-  'flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-50';
 
 /** What the main button does for this copy: install it, or open the release page. */
 const selfUpdates = (update: AppUpdate) => update.assetName !== null;
+
+/** "Checked 5 minutes ago", in the reader's language. */
+const useCheckedWhen = () => {
+  const { t, i18n } = useTranslation();
+  const relative = new Intl.RelativeTimeFormat(i18n.language, { numeric: 'auto' });
+  return (at: number | null | undefined) => {
+    if (!at) return null;
+    const minutes = Math.round((at - Date.now()) / 60_000);
+    const when =
+      Math.abs(minutes) < 60
+        ? relative.format(minutes, 'minute')
+        : Math.abs(minutes) < 48 * 60
+          ? relative.format(Math.round(minutes / 60), 'hour')
+          : relative.format(Math.round(minutes / 1440), 'day');
+    return t('updater.checked', { when });
+  };
+};
 
 /**
  * About → Updates (M46.47): this version, the newest release with its notes, and Update, which
@@ -22,114 +37,120 @@ export const AppUpdateCard: FC = () => {
   const { t } = useTranslation();
   const update = useAppUpdate();
   const { check, install, openPage } = useAppUpdateActions();
+  const checkedWhen = useCheckedWhen();
   const [notesOpen, setNotesOpen] = useState(false);
   const info = update.data;
   if (!info) return null;
   const busy =
     info.state === 'checking' || info.state === 'downloading' || info.state === 'installing';
-  const error = check.error ?? install.error ?? openPage.error;
+  const failure = check.error
+    ? { title: t('updater.checkFailed'), detail: check.error.message }
+    : install.error
+      ? { title: t('updater.installFailed'), detail: install.error.message }
+      : openPage.error
+        ? { title: t('updater.openFailed'), detail: openPage.error.message }
+        : info.state === 'failed' && info.message
+          ? { title: t('updater.failed'), detail: info.message }
+          : null;
+  const status =
+    info.available && info.latest
+      ? t('updater.available', { latest: info.latest, current: info.current })
+      : info.latest
+        ? t('updater.newest', { current: info.current })
+        : t('updater.notChecked', { current: info.current });
+
   return (
-    <section
-      data-testid="app-update"
-      aria-label={t('updater.title')}
-      className="bg-surface flex flex-col gap-3 rounded-xl px-5 py-4 text-sm"
-    >
-      <h2 className="text-muted">{t('updater.title')}</h2>
-      <p data-testid="update-status">
-        {info.available && info.latest
-          ? t('updater.available', { latest: info.latest, current: info.current })
-          : info.latest
-            ? t('updater.newest', { current: info.current })
-            : t('updater.notChecked', { current: info.current })}
-      </p>
-      {info.state === 'downloading' && (
-        <div
-          role="progressbar"
-          aria-label={t('updater.downloading')}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.round((info.progress ?? 0) * 100)}
-          className="bg-background h-1.5 overflow-hidden rounded-full"
-        >
-          <div
-            className="bg-primary h-full transition-[width]"
-            style={{ width: `${(info.progress ?? 0) * 100}%` }}
-          />
-        </div>
-      )}
-      {info.state === 'idle' && info.message && (
-        <p data-testid="update-note" className="text-muted text-xs">
-          {info.message}
-        </p>
-      )}
-      {info.state === 'installing' && <p className="text-muted">{t('updater.installing')}</p>}
-      {info.state === 'needsPermission' && (
-        <p className="text-muted">{t('updater.needsPermission')}</p>
-      )}
-      {info.available && info.installKind === 'portable' && (
-        <p className="text-muted text-xs">{t('updater.portableHint')}</p>
-      )}
-      <div className="flex flex-wrap gap-2">
+    <div data-testid="app-update">
+      <PrefGroup title={t('updater.title')}>
+        <li className="flex flex-col gap-0.5 px-1 py-3">
+          <span data-testid="update-status" className="font-medium">
+            {status}
+          </span>
+          {info.state === 'idle' && info.message ? (
+            <span data-testid="update-note" className="text-muted text-sm">
+              {info.message}
+            </span>
+          ) : (
+            checkedWhen(info.checkedAt) && (
+              <span className="text-muted text-sm">{checkedWhen(info.checkedAt)}</span>
+            )
+          )}
+        </li>
+        {info.state === 'downloading' && (
+          <li className="px-1 pb-2">
+            <div
+              role="progressbar"
+              aria-label={t('updater.downloading')}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round((info.progress ?? 0) * 100)}
+              className="bg-surface h-1.5 overflow-hidden rounded-full"
+            >
+              <div
+                className="bg-primary h-full origin-left transition-transform"
+                style={{ transform: `scaleX(${info.progress ?? 0})` }}
+              />
+            </div>
+          </li>
+        )}
+        {info.state === 'installing' && (
+          <li className="text-muted px-1 py-2 text-sm">{t('updater.installing')}</li>
+        )}
+        {info.state === 'needsPermission' && (
+          <li className="text-muted px-1 py-2 text-sm">{t('updater.needsPermission')}</li>
+        )}
+        {info.available && info.installKind === 'portable' && (
+          <li className="text-muted px-1 py-2 text-sm">{t('updater.portableHint')}</li>
+        )}
         {info.available ? (
-          <button
-            type="button"
+          <PrefAction
+            icon={selfUpdates(info) ? Download : ExternalLink}
+            title={
+              selfUpdates(info)
+                ? info.state === 'needsPermission'
+                  ? t('updater.tryAgain')
+                  : t('updater.install', { latest: info.latest })
+                : t('updater.openRelease', { latest: info.latest })
+            }
             disabled={busy || install.isPending}
             onClick={() => install.mutate()}
-            className={`${BUTTON} bg-primary text-background`}
-          >
-            {selfUpdates(info) ? (
-              <Download aria-hidden size={15} />
-            ) : (
-              <ExternalLink aria-hidden size={15} />
-            )}
-            {selfUpdates(info)
-              ? info.state === 'needsPermission'
-                ? t('updater.tryAgain')
-                : t('updater.install', { latest: info.latest })
-              : t('updater.openRelease', { latest: info.latest })}
-          </button>
+          />
         ) : (
-          <button
-            type="button"
+          <PrefAction
+            icon={RefreshCw}
+            title={t('updater.check')}
             disabled={busy || check.isPending}
             onClick={() => check.mutate()}
-            className={`${BUTTON} bg-background`}
-          >
-            <RefreshCw aria-hidden size={15} className={check.isPending ? 'animate-spin' : ''} />
-            {t('updater.check')}
-          </button>
+          />
         )}
-        <button
-          type="button"
+        {info.available && info.notes && (
+          <li className="flex flex-col gap-1 px-1 py-2">
+            <button
+              type="button"
+              aria-expanded={notesOpen}
+              onClick={() => setNotesOpen(!notesOpen)}
+              className="text-primary w-fit text-sm font-semibold"
+            >
+              {t(notesOpen ? 'updater.hideNotes' : 'updater.showNotes')}
+            </button>
+            {notesOpen && (
+              <pre className="selectable text-muted max-h-64 overflow-y-auto font-sans text-sm whitespace-pre-wrap">
+                {info.notes}
+              </pre>
+            )}
+          </li>
+        )}
+        {failure && (
+          <li className="px-1 py-2">
+            <Problem title={failure.title} detail={failure.detail} />
+          </li>
+        )}
+        <PrefAction
+          icon={FolderGit2}
+          title={t('updater.repo')}
           onClick={() => openPage.mutate(info.repoUrl)}
-          className={`${BUTTON} bg-background`}
-        >
-          <FolderGit2 aria-hidden size={15} />
-          {t('updater.repo')}
-        </button>
-      </div>
-      {info.available && info.notes && (
-        <div className="flex flex-col gap-1">
-          <button
-            type="button"
-            aria-expanded={notesOpen}
-            onClick={() => setNotesOpen(!notesOpen)}
-            className="text-primary w-fit text-xs font-semibold"
-          >
-            {t(notesOpen ? 'updater.hideNotes' : 'updater.showNotes')}
-          </button>
-          {notesOpen && (
-            <pre className="text-muted max-h-64 overflow-y-auto font-sans text-xs whitespace-pre-wrap">
-              {info.notes}
-            </pre>
-          )}
-        </div>
-      )}
-      {(error || (info.state === 'failed' && info.message)) && (
-        <SourceIssue compact source="GitHub">
-          {error?.message ?? info.message}
-        </SourceIssue>
-      )}
-    </section>
+        />
+      </PrefGroup>
+    </div>
   );
 };

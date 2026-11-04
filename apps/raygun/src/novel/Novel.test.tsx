@@ -327,19 +327,24 @@ describe('Novels', () => {
 
     await user.click(within(reader).getByRole('button', { name: 'Text settings' }));
     const panel = within(reader).getByRole('dialog', { name: 'Text settings' });
-    await user.click(within(panel).getByRole('button', { name: 'More: Font size' }));
+    // Text size is what's added to the screen's own (M46.48): typed, or on the slider.
+    const size = within(panel).getByRole('spinbutton', { name: 'Font size' });
+    await user.clear(size);
+    await user.type(size, '2{Enter}');
     expect(commands.settingsUpdate).toHaveBeenLastCalledWith({
       key: 'novelReader',
-      value: { ...DEFAULT_SETTINGS.novelReader, fontSize: 20 },
+      value: { ...DEFAULT_SETTINGS.novelReader, textSize: 2 },
     });
     await vi.waitFor(() =>
-      // The size, times the wide-window scale (`calc(20px * var(--reader-scale, 1))`).
-      expect(within(reader).getByRole('article').getAttribute('style')).toContain('20px'),
+      // The screen's size plus 2 px, times the wide-window scale.
+      expect(within(reader).getByRole('article').getAttribute('style')).toContain(
+        'calc((1.125rem + 2px)',
+      ),
     );
     await user.click(within(panel).getByRole('button', { name: 'Sans' }));
     expect(commands.settingsUpdate).toHaveBeenLastCalledWith({
       key: 'novelReader',
-      value: { ...DEFAULT_SETTINGS.novelReader, fontSize: 20, font: 'sans' },
+      value: { ...DEFAULT_SETTINGS.novelReader, textSize: 2, font: 'sans' },
     });
   });
 

@@ -80,11 +80,30 @@ function Listing(name, increments, func)
     return { __kind = "listing", name = name, increments = increments, func = func }
 end
 
--- Filters: tables the app reads back for their ids and default values.
+-- Filters: tables the app reads back for their ids and default values. Like kotlin-lib's
+-- `Filter`s they have a `state` (the default the app starts from), read and set through
+-- `getState`/`setState`.
+local filterDefaults = {
+    text = "", password = "", switch = false, checkbox = false, tristate = 0, dropdown = 0,
+    radio = 0,
+}
+local filterMethods = {
+    setState = function(self, value) self.state = value end,
+    getState = function(self)
+        if self.state ~= nil then return self.state end
+        return filterDefaults[self.kind]
+    end,
+    getId = function(self) return self.id end,
+    getName = function(self) return self.name end,
+    getChoices = function(self) return self.choices end,
+    getFilters = function(self) return self.filters end,
+}
+local filterMeta = { __index = filterMethods }
+
 local function makeFilter(kind, id, name, extra)
     local object = { __kind = "filter", kind = kind, id = id, name = name }
     for key, value in pairs(extra or {}) do object[key] = value end
-    return object
+    return setmetatable(object, filterMeta)
 end
 
 function TextFilter(id, name) return makeFilter("text", id, name) end
@@ -109,15 +128,82 @@ function Reverse(list)
     return list
 end
 
-local function unsupported(name)
-    return function() error(name .. " isn't supported in Raygun", 2) end
+-- OkHttp's client, as scripts build their own (`HttpClientBuilder():addInterceptor(i):build()`):
+-- `client:newCall(request):execute()` runs the interceptors around `Request`. Other client
+-- settings (timeouts, redirects, caches) are accepted and left as Raygun sets them.
+local newClient
+
+local function clientBuilder(interceptors)
+    local builder = { _interceptors = interceptors }
+    return setmetatable(builder, {
+        __index = function(_, key)
+            if key == "addInterceptor" or key == "addNetworkInterceptor" then
+                return function(self, interceptor)
+                    self._interceptors[#self._interceptors + 1] = interceptor
+                    return self
+                end
+            elseif key == "build" then
+                return function(self) return newClient(self._interceptors) end
+            end
+            return function(self) return self end
+        end,
+    })
 end
 
-HttpClient = unsupported("HttpClient")
-HttpClientBuilder = unsupported("HttpClientBuilder")
-CookieJar = unsupported("CookieJar")
-CookieBuilder = unsupported("CookieBuilder")
-Interceptor = unsupported("Interceptor")
+newClient = function(interceptors)
+    local client = { _interceptors = interceptors }
+    function client.newCall(self, request)
+        local call = {}
+        function call.request() return request end
+        function call.cancel() end
+        function call.execute()
+            local function proceed(index, current)
+                local interceptor = self._interceptors[index]
+                if not interceptor then return Request(current) end
+                local chain = {}
+                function chain.request() return current end
+                function chain.call() return call end
+                function chain.proceed(_, nextRequest) return proceed(index + 1, nextRequest) end
+                return interceptor.intercept(chain)
+            end
+            return proceed(1, request)
+        end
+        return call
+    end
+    function client.newBuilder(self)
+        local copy = {}
+        for index, interceptor in ipairs(self._interceptors) do copy[index] = interceptor end
+        return clientBuilder(copy)
+    end
+    function client.cookieJar() return CookieJar() end
+    function client.interceptors(self) return self._interceptors end
+    return client
+end
+
+function HttpClient() return newClient({}) end
+function HttpClientBuilder() return clientBuilder({}) end
+
+function Interceptor(block)
+    return { intercept = block }
+end
+
+-- The script's own cookie jar; `CookieJar(save, load)` makes a custom one, which only that script
+-- reads (Raygun's requests keep using the script's jar).
+function CookieJar(saveFromResponse, loadForRequest)
+    if type(saveFromResponse) == "function" then
+        return { saveFromResponse = saveFromResponse, loadForRequest = loadForRequest }
+    end
+    return _CookieJar()
+end
+
+function DefaultCacheControl()
+    return setmetatable({}, {
+        __index = function(_, key)
+            if key == "build" then return function() return DEFAULT_CACHE_CONTROL() end end
+            return function(self) return self end
+        end,
+    })
+end
 
 function GET(url, headers, cache)
     return _GET(url, headers or DEFAULT_HEADERS(), cache or DEFAULT_CACHE_CONTROL())
