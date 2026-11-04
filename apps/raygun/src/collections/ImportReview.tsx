@@ -51,6 +51,8 @@ type Row = {
   skipped: boolean;
   /** The candidate picked in the sources list; the first one until the user picks. */
   chosen?: string;
+  /** The two screenshot rows this song was joined from (title, then artist read as a song). */
+  parts?: ImportedSong[];
 };
 
 const pendingOf = (song: ImportedSong): MatchedSong => ({
@@ -105,7 +107,8 @@ const ReviewRow: FC<{
   already: string | null;
   onChange: (row: Row, rematch: boolean) => void;
   onMove: (from: number, to: number) => void;
-}> = ({ row, index, count, already, onChange, onMove }) => {
+  onSplit: (row: Row) => void;
+}> = ({ row, index, count, already, onChange, onMove, onSplit }) => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -164,6 +167,27 @@ const ReviewRow: FC<{
             </span>
           )}
         </span>
+        {row.parts && (
+          <span className="flex shrink-0 items-center gap-1 text-xs">
+            <span
+              title={t('import.joinedFrom', {
+                first: row.parts[0]?.title,
+                second: row.parts[1]?.title,
+              })}
+              className="bg-background text-muted rounded-full px-2 py-0.5"
+            >
+              {t('import.joined')}
+            </span>
+            <button
+              type="button"
+              aria-label={t('import.splitBack', { title: row.song.title })}
+              onClick={() => onSplit(row)}
+              className="text-muted hover:text-foreground rounded-full px-1.5 py-0.5 underline"
+            >
+              {t('import.split')}
+            </button>
+          </span>
+        )}
         {candidates.length > 1 && (
           <button
             type="button"
@@ -286,9 +310,10 @@ export const ImportReview: FC<{ list: ImportedList; onClose: () => void }> = ({
   // Where the songs go (M46.45): 'new', 'favorites' or a playlist's id.
   const [destination, setDestination] = useState('new');
   const playlists = usePlaylists();
-  const [rows, setRows] = useState<Row[]>(() =>
-    list.songs.map((song, id) => ({ id, song, skipped: false })),
-  );
+  const [rows, setRows] = useState<Row[]>(() => {
+    const joined = new Map(list.joined.map((join) => [join.index, join.parts]));
+    return list.songs.map((song, id) => ({ id, song, skipped: false, parts: joined.get(id) }));
+  });
   const [adding, setAdding] = useState({ title: '', artist: '' });
   const nextId = useRef(list.songs.length);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
@@ -327,6 +352,15 @@ export const ImportReview: FC<{ list: ImportedList; onClose: () => void }> = ({
               chosen: rematch ? undefined : next.chosen,
             }
           : row,
+      ),
+    );
+  // Undoing a join puts back the rows as they were read, each matched on its own.
+  const split = (joined: Row) =>
+    setRows((current) =>
+      current.flatMap((row) =>
+        row.id === joined.id && row.parts
+          ? row.parts.map((song) => ({ id: nextId.current++, song, skipped: row.skipped }))
+          : [row],
       ),
     );
   const move = (from: number, to: number) =>
@@ -446,6 +480,7 @@ export const ImportReview: FC<{ list: ImportedList; onClose: () => void }> = ({
                 already={!row.skipped && isAlready(row) ? destinationName : null}
                 onChange={change}
                 onMove={move}
+                onSplit={split}
               />
             ))}
           </ul>

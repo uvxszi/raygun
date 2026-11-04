@@ -2,6 +2,8 @@
 //! CSV exports (Exportify's columns, or any with title and artist columns), pasted lines
 //! ("Artist - Title"), and the text lines of a screenshot of a song list.
 
+use std::collections::HashSet;
+
 use raygun_model::ImportedSong;
 
 /// What a Spotify link points at.
@@ -318,10 +320,56 @@ const CHROME: &[&str] = &[
     "#",
 ];
 
+/// A row read from a screenshot with where its lines sit, so rows split in two can be joined.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScreenRow {
+    pub song: ImportedSong,
+    /// The title line's top, left edge and height.
+    pub top: f32,
+    pub x: f32,
+    pub height: f32,
+    /// The artist line's left edge, top and height, when the row has one.
+    pub artist_line: Option<(f32, f32, f32)>,
+    /// The title line read as an artist line ("E " badge and "• album" dropped).
+    pub as_artist: String,
+    /// The title line carries an artist line's marks: an "E " badge or "Artist • Album".
+    pub marked: bool,
+}
+
+/// An artist line's text without its marks, and whether it had any: the explicit badge ("E ")
+/// before the name, and what follows " • " or " · " (the album, a play count).
+fn artist_text(text: &str) -> (String, bool) {
+    let text = text.trim();
+    let badge = text.strip_prefix("E ").or_else(|| text.strip_prefix("🅴 "));
+    let plain = badge.unwrap_or(text);
+    let name = plain.split(" • ").next().unwrap_or(plain);
+    let name = name.split(" · ").next().unwrap_or(name).trim();
+    (
+        name.to_owned(),
+        badge.is_some() || name.len() < plain.trim().len(),
+    )
+}
+
 /// Songs in a screenshot of a song list (Spotify, YouTube Music, Apple Music…): the list's text
 /// column (the most common left edge), lines grouped into rows by the gaps between them, each
 /// row's first line its title and the next its artist ("E " badges and "• album" dropped).
-pub fn screenshot_rows(mut lines: Vec<TextLine>) -> Vec<ImportedSong> {
+#[cfg(test)]
+pub fn screenshot_rows(lines: Vec<TextLine>) -> Vec<ImportedSong> {
+    let mut songs: Vec<ImportedSong> = Vec::new();
+    for row in screenshot_layout(lines) {
+        if !songs
+            .iter()
+            .any(|known| known.title == row.song.title && known.artist == row.song.artist)
+        {
+            songs.push(row.song);
+        }
+    }
+    songs
+}
+
+/// The rows of a screenshot of a song list, top to bottom, repeats included (see
+/// `screenshot_rows`).
+pub fn screenshot_layout(mut lines: Vec<TextLine>) -> Vec<ScreenRow> {
     lines.retain(|line| {
         let text = line.text.trim();
         let lower = text.to_lowercase();
@@ -345,9 +393,10 @@ pub fn screenshot_rows(mut lines: Vec<TextLine>) -> Vec<ImportedSong> {
                 .count()
         })
         .unwrap_or(0.0);
+    // An artist line may start further right, after an explicit badge read as a picture.
     let body: Vec<&TextLine> = lines
         .iter()
-        .filter(|line| (line.x - column).abs() <= 20.0)
+        .filter(|line| line.x >= column - 20.0 && line.x <= column + 48.0)
         .collect();
     let mut heights: Vec<f32> = body.iter().map(|line| line.height).collect();
     heights.sort_by(f32::total_cmp);
@@ -355,42 +404,182 @@ pub fn screenshot_rows(mut lines: Vec<TextLine>) -> Vec<ImportedSong> {
     let mut rows: Vec<Vec<&TextLine>> = Vec::new();
     for line in body {
         match rows.last_mut() {
+            // A line under a row belongs to it when it's close, and no taller than the line
+            // above (an artist or album line is never bigger than its title).
             Some(row)
                 if row.len() < 3
-                    && line.y - row.last().map_or(line.y, |last| last.y) <= 2.2 * typical =>
+                    && row.last().is_some_and(|last| {
+                        line.y - last.y <= 2.2 * typical && line.height <= last.height * 1.2
+                    }) =>
             {
                 row.push(line);
             }
             _ => rows.push(vec![line]),
         }
     }
-    let mut songs: Vec<ImportedSong> = Vec::new();
-    for row in rows {
-        let title = strip_list_marks(&row[0].text);
-        if title.is_empty() {
+    rows.into_iter()
+        .filter_map(|row| {
+            let first = row[0];
+            let title = strip_list_marks(&first.text);
+            if title.is_empty() {
+                return None;
+            }
+            let artist = row
+                .get(1)
+                .map(|line| artist_text(&line.text).0)
+                .filter(|artist| !artist.is_empty());
+            let (as_artist, marked) = artist_text(&first.text);
+            Some(ScreenRow {
+                song: ImportedSong {
+                    title,
+                    artist,
+                    album: None,
+                    duration_ms: None,
+                    artwork_url: None,
+                },
+                top: first.y,
+                x: first.x,
+                height: first.height,
+                artist_line: row.get(1).map(|line| (line.x, line.y, line.height)),
+                as_artist,
+                marked,
+            })
+        })
+        .collect()
+}
+
+/// How sure Raygun is that a row is an artist line split off from the row before.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SplitCall {
+    /// Join them.
+    Join,
+    /// Ask the sources which reading they know better.
+    Unsure,
+}
+
+fn median(mut values: Vec<f32>) -> Option<f32> {
+    values.sort_by(f32::total_cmp);
+    values.get(values.len() / 2).copied()
+}
+
+/// Rows that are probably an artist line read as a song of its own: `(i, call)` says row `i + 1`
+/// is the artist of row `i`. Only a row without an artist under a row without one can be; then
+/// the evidence is an artist line's marks, a name known as an artist (`known_artists`,
+/// normalized), a smaller line than the title above, the indent other rows' artist lines have,
+/// and sitting closer to the row above than rows sit to each other.
+pub fn split_rows(rows: &[ScreenRow], known_artists: &HashSet<String>) -> Vec<(usize, SplitCall)> {
+    // How the list's whole rows look: their titles' and artists' heights, the artist line's
+    // indent and its distance below the title.
+    let whole: Vec<(&ScreenRow, (f32, f32, f32))> = rows
+        .iter()
+        .filter_map(|row| row.artist_line.map(|line| (row, line)))
+        .collect();
+    let title_height = median(whole.iter().map(|(row, _)| row.height).collect());
+    let artist_height = median(whole.iter().map(|(_, (_, _, height))| *height).collect());
+    let indent = median(whole.iter().map(|(row, (x, _, _))| x - row.x).collect());
+    let offset = median(whole.iter().map(|(row, (_, y, _))| y - row.top).collect());
+
+    let mut calls = Vec::new();
+    let mut at = 0;
+    while at + 1 < rows.len() {
+        let (above, below) = (&rows[at], &rows[at + 1]);
+        if above.song.artist.is_some() || below.song.artist.is_some() || below.as_artist.is_empty()
+        {
+            at += 1;
             continue;
         }
-        let artist = row.get(1).map(|line| {
-            let text = line.text.trim();
-            let text = text
-                .strip_prefix("E ")
-                .or_else(|| text.strip_prefix("🅴 "))
-                .unwrap_or(text);
-            let text = text.split(" • ").next().unwrap_or(text);
-            text.split(" · ").next().unwrap_or(text).trim().to_owned()
-        });
-        let song = ImportedSong {
-            title,
-            artist: artist.filter(|artist| !artist.is_empty()),
-            album: None,
-            duration_ms: None,
-            artwork_url: None,
-        };
-        if !songs
-            .iter()
-            .any(|known| known.title == song.title && known.artist == song.artist)
+        let mut points = 0;
+        if below.marked {
+            points += 3;
+        }
+        if known_artists.contains(&raygun_resolver::normalize(&below.as_artist)) {
+            points += 3;
+        }
+        // Size: an artist line is smaller than its title.
+        if below.height <= above.height * 0.85 {
+            points += 2;
+        } else if below.height >= above.height * 1.1 {
+            points -= 2;
+        }
+        if let (Some(title), Some(artist)) = (title_height, artist_height)
+            && artist < title * 0.9
+            && (below.height - artist).abs() < (below.height - title).abs()
         {
-            songs.push(song);
+            points += 1;
+        }
+        // Indent: as other rows' artist lines, or to the right of the title.
+        let shift = below.x - above.x;
+        match indent {
+            Some(indent) if indent.abs() > 4.0 => {
+                if (shift - indent).abs() <= 4.0 {
+                    points += 1;
+                }
+            }
+            _ if shift > 6.0 => points += 1,
+            _ => {}
+        }
+        // Gap: about where whole rows have their artist line, or closer to the row above than
+        // the rows around are to them.
+        let gap = below.top - above.top;
+        let around: Vec<f32> = [
+            at.checked_sub(1).map(|before| above.top - rows[before].top),
+            rows.get(at + 2).map(|after| after.top - below.top),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        match offset.filter(|offset| *offset > 0.0) {
+            Some(offset) if gap <= offset * 1.5 => points += 2,
+            Some(offset) if gap > offset * 2.5 => points -= 1,
+            Some(_) => {}
+            None if around.is_empty() => {}
+            None if around.iter().all(|other| *other > gap * 1.25) => points += 2,
+            None if around.iter().any(|other| *other < gap * 0.8) => points -= 1,
+            None => {}
+        }
+        if points >= 4 {
+            calls.push((at, SplitCall::Join));
+            at += 2;
+        } else if points >= 1 {
+            calls.push((at, SplitCall::Unsure));
+            at += 2;
+        } else {
+            at += 1;
+        }
+    }
+    calls
+}
+
+/// Whether the sources know "title by artist" better than the two rows as songs of their own:
+/// the best match's points for the joined reading, and for each row alone.
+pub fn joined_reading_wins(joined: Option<i32>, title: Option<i32>, artist: Option<i32>) -> bool {
+    let Some(joined) = joined.filter(|points| *points >= raygun_resolver::MIN_SCORE) else {
+        return false;
+    };
+    let apart = (title.unwrap_or(0) + artist.unwrap_or(0)) / 2;
+    // The row read as a song wins when it is a song the sources know as well.
+    joined >= apart && artist.is_none_or(|alone| joined > alone)
+}
+
+/// The songs of a screenshot's rows with the rows at `joins` joined to the row under them; a
+/// joined song carries the two songs it was made of.
+pub fn join_rows(
+    rows: Vec<ScreenRow>,
+    joins: &[usize],
+) -> Vec<(ImportedSong, Option<Vec<ImportedSong>>)> {
+    let mut songs = Vec::with_capacity(rows.len());
+    let mut rows = rows.into_iter().enumerate().peekable();
+    while let Some((at, row)) = rows.next() {
+        if joins.contains(&at)
+            && let Some((_, below)) = rows.next_if(|(next, _)| *next == at + 1)
+        {
+            let song = ImportedSong {
+                artist: Some(below.as_artist.clone()),
+                ..row.song.clone()
+            };
+            songs.push((song, Some(vec![row.song, below.song])));
+        } else {
+            songs.push((row.song, None));
         }
     }
     songs
@@ -541,5 +730,149 @@ mod tests {
                 ("Nicole Kidman", Some("Lily Allen")),
             ]
         );
+    }
+
+    fn line(y: f32, x: f32, height: f32, text: &str) -> TextLine {
+        TextLine {
+            x,
+            y,
+            height,
+            text: text.into(),
+        }
+    }
+
+    /// The songs after joining every split the layout calls, sure or not.
+    fn joined(lines: Vec<TextLine>, known: &[&str]) -> Vec<(String, Option<String>, bool)> {
+        let rows = screenshot_layout(lines);
+        let known: HashSet<String> = known
+            .iter()
+            .map(|name| raygun_resolver::normalize(name))
+            .collect();
+        let joins: Vec<usize> = split_rows(&rows, &known)
+            .into_iter()
+            .map(|(at, _)| at)
+            .collect();
+        join_rows(rows, &joins)
+            .into_iter()
+            .map(|(song, parts)| (song.title, song.artist, parts.is_some()))
+            .collect()
+    }
+
+    fn song(title: &str, artist: Option<&str>, joined: bool) -> (String, Option<String>, bool) {
+        (title.into(), artist.map(str::to_owned), joined)
+    }
+
+    #[test]
+    fn spotify_rows_split_by_small_line_heights_are_joined() {
+        // Windows' OCR of Spotify's phone app giving short line heights, so every artist line
+        // lands past the row gap, in the order OCR returns them (by block, not by line). The top
+        // line is the artist of a song scrolled out of the picture.
+        let lines = vec![
+            line(533.0, 113.0, 15.0, "Charli xcx"),
+            line(600.0, 113.0, 20.0, "Espresso"),
+            line(740.0, 113.0, 20.0, "Birds of a Feather"),
+            line(880.0, 113.0, 20.0, "APT."),
+            line(653.0, 113.0, 15.0, "Sabrina Carpenter"),
+            line(793.0, 141.0, 15.0, "E Billie Eilish"),
+            line(933.0, 113.0, 15.0, "ROSÉ, Bruno Mars"),
+            line(610.0, 980.0, 15.0, "2:55"),
+            line(612.0, 59.0, 18.0, "1"),
+        ];
+        let rows = screenshot_layout(lines.clone());
+        assert_eq!(rows.len(), 7, "every line is a row of its own");
+        assert_eq!(
+            split_rows(&rows, &HashSet::new()),
+            vec![
+                (1, SplitCall::Join),
+                (3, SplitCall::Join),
+                (5, SplitCall::Join)
+            ]
+        );
+        assert_eq!(
+            joined(lines, &[]),
+            vec![
+                song("Charli xcx", None, false),
+                song("Espresso", Some("Sabrina Carpenter"), true),
+                song("Birds of a Feather", Some("Billie Eilish"), true),
+                song("APT.", Some("ROSÉ, Bruno Mars"), true),
+            ]
+        );
+    }
+
+    #[test]
+    fn apple_music_rows_split_in_a_whole_list_are_joined() {
+        // Apple Music's playlist view: most rows read whole, one artist line read further down.
+        let lines = vec![
+            line(400.0, 180.0, 29.0, "Loser"),
+            line(452.0, 180.0, 21.0, "Tame Impala"),
+            line(540.0, 180.0, 29.0, "Housewife"),
+            line(610.0, 180.0, 21.0, "Tate McRae"),
+            line(680.0, 180.0, 29.0, "Nicole Kidman"),
+            line(732.0, 180.0, 21.0, "Lily Allen"),
+        ];
+        assert_eq!(
+            joined(lines, &[]),
+            vec![
+                song("Loser", Some("Tame Impala"), false),
+                song("Housewife", Some("Tate McRae"), true),
+                song("Nicole Kidman", Some("Lily Allen"), false),
+            ]
+        );
+    }
+
+    #[test]
+    fn unsure_splits_wait_for_the_sources_unless_the_artist_is_known() {
+        // A line as tall as the title under it: only the gap says it's an artist line.
+        let lines = vec![
+            line(400.0, 180.0, 29.0, "Loser"),
+            line(452.0, 180.0, 21.0, "Tame Impala"),
+            line(540.0, 180.0, 29.0, "Let It Happen"),
+            line(610.0, 180.0, 28.0, "Tame Impala"),
+            line(680.0, 180.0, 29.0, "Housewife"),
+            line(732.0, 180.0, 21.0, "Tate McRae"),
+        ];
+        let rows = screenshot_layout(lines);
+        assert_eq!(
+            split_rows(&rows, &HashSet::new()),
+            vec![(1, SplitCall::Unsure)]
+        );
+        let known = HashSet::from([raygun_resolver::normalize("Tame Impala")]);
+        assert_eq!(split_rows(&rows, &known), vec![(1, SplitCall::Join)]);
+    }
+
+    #[test]
+    fn title_only_lists_stay_apart() {
+        // An album's songs: titles alone, alike in size and spacing.
+        let lines = vec![
+            line(400.0, 113.0, 29.0, "Speak to Me"),
+            line(500.0, 113.0, 29.0, "Breathe (In the Air)"),
+            line(600.0, 113.0, 29.0, "On the Run"),
+            line(700.0, 113.0, 29.0, "Time"),
+        ];
+        assert!(split_rows(&screenshot_layout(lines), &HashSet::new()).is_empty());
+    }
+
+    #[test]
+    fn a_taller_line_starts_the_next_row() {
+        // Tight spacing: the next title is close enough to group, but taller than an artist.
+        let songs = screenshot_rows(vec![
+            line(400.0, 113.0, 29.0, "Loser"),
+            line(440.0, 113.0, 21.0, "Tame Impala"),
+            line(480.0, 113.0, 29.0, "Housewife"),
+            line(520.0, 113.0, 21.0, "Tate McRae"),
+        ]);
+        assert_eq!(songs.len(), 2);
+        assert_eq!(songs[1].artist.as_deref(), Some("Tate McRae"));
+    }
+
+    #[test]
+    fn the_sources_pick_the_reading_they_know() {
+        // "Espresso" by Sabrina Carpenter beats two songs named "Espresso" and "Sabrina Carpenter".
+        assert!(joined_reading_wins(Some(78), Some(40), None));
+        assert!(joined_reading_wins(Some(78), Some(40), Some(25)));
+        // A real song under it ("Nicole Kidman" by Lily Allen) isn't anyone's artist.
+        assert!(!joined_reading_wins(None, Some(40), Some(40)));
+        assert!(!joined_reading_wins(Some(38), Some(40), Some(40)));
+        assert!(!joined_reading_wins(Some(20), None, None));
     }
 }

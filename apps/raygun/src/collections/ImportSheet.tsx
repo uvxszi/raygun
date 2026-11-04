@@ -36,6 +36,8 @@ export const ImportSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
   const [list, setList] = useState<ImportedList | null>(null);
   // Chosen screenshots wait in order (M46.40) until Read.
   const [shots, setShots] = useState<File[]>([]);
+  // An artist line read as a song of its own is joined back to the song above it.
+  const [joinSplit, setJoinSplit] = useState(true);
   const files = useRef<HTMLInputElement>(null);
   const reader = useQuery({
     queryKey: ['import', 'reader'],
@@ -51,7 +53,7 @@ export const ImportSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
       if (input.way === 'text') return unwrapResult(commands.importReadText(text, null));
       const ids = [];
       for (const file of input.files ?? []) ids.push(await uploadFile(file));
-      return unwrapResult(commands.importReadScreenshots(ids));
+      return unwrapResult(commands.importReadScreenshots(ids, joinSplit));
     },
     onSuccess: setList,
   });
@@ -168,6 +170,16 @@ export const ImportSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
               {shots.length > 0 && (
                 <>
                   <ScreenshotQueue files={shots} onChange={setShots} disabled={read.isPending} />
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={joinSplit}
+                      disabled={read.isPending}
+                      onChange={() => setJoinSplit(!joinSplit)}
+                      className="accent-primary"
+                    />
+                    {t('import.joinSplit')}
+                  </label>
                   <button
                     type="button"
                     disabled={read.isPending || reader.data !== true}
