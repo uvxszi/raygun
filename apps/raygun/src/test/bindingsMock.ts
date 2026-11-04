@@ -598,6 +598,7 @@ export const bindingsMock = {
     videoDownloadsSetPaused: vi.fn(),
     videoSourceWatch: vi.fn(),
     stremioWatch: vi.fn(),
+    videoSourceOrder: vi.fn(),
     videoSetPlayerLabels: vi.fn(),
     stremioAddons: vi.fn(),
     stremioSuggestions: vi.fn(),
@@ -1156,6 +1157,21 @@ export const seedBindings = () => {
   commands.videoDownloadsSetPaused.mockResolvedValue(ok(null));
   commands.videoSourceWatch.mockResolvedValue(ok(null));
   commands.stremioWatch.mockResolvedValue(ok(null));
+  // The order given, nothing played before.
+  commands.videoSourceOrder.mockImplementation(
+    (_group: string, _title: string | null, sources: { links: unknown[] }[]) =>
+      Promise.resolve(
+        ok(
+          sources.map((source, index) => ({
+            index,
+            worked: false,
+            failing: false,
+            workedLink: null,
+            links: source.links.map((_link, place) => place),
+          })),
+        ),
+      ),
+  );
   commands.videoSetPlayerLabels.mockResolvedValue(undefined);
   commands.stremioAddons.mockResolvedValue(ok([]));
   commands.stremioSuggestions.mockResolvedValue(ok([]));

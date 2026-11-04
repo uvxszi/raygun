@@ -349,17 +349,20 @@ pub(crate) fn link_request(
     }
 }
 
-/// "S1 E2 · Name", "E2 · Name", the name alone, or a movie's year.
+/// "S1 E2 · Name", "E2 · Name", the name alone, or a movie's year; never the title again (many
+/// sources name episodes "Title - 03").
 fn episode_subtitle(row: &TitleRow, unit: &UnitRow, single: bool) -> Option<String> {
     let season = season(unit);
     if single && season.is_none() {
         return row.fields.year.map(|year| year.to_string());
     }
-    Some(video_match::episode_label(
+    Some(video_match::episode_label_in(
+        &row.fields.title,
         season,
         unit.fields.number,
         &unit.fields.name,
     ))
+    .filter(|label| !label.is_empty())
 }
 
 /// A video episode's season, kept as its volume.

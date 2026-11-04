@@ -108,7 +108,7 @@ const UpdatesPopover: FC<{ anchor: HTMLElement; onClose: () => void }> = ({ anch
       key: `e-${item.episodeId}`,
       picture: <MangaCover url={item.coverUrl} video className="w-full rounded" />,
       title: item.title,
-      detail: episodeLabel(item),
+      detail: episodeLabel(item, true, item.title),
       at: item.foundAt ?? item.date ?? 0,
       link: videoTitleLink(item.sourceId, item.remoteId),
     })),

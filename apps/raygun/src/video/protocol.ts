@@ -67,7 +67,13 @@ export type EpisodeItem = {
   current: boolean;
 };
 
-export type SourceLink = { label: string; current: boolean; failed: boolean };
+export type SourceLink = {
+  label: string;
+  current: boolean;
+  failed: boolean;
+  /** It played last time for this title. */
+  worked?: boolean;
+};
 
 export type SourceGroup = {
   name: string;
@@ -76,6 +82,8 @@ export type SourceGroup = {
   links: SourceLink[];
   /** It failed lately and hasn't worked since (M46.17): tried last. */
   unreliable?: boolean;
+  /** It played last time for this title: tried first. */
+  worked?: boolean;
 };
 
 export type PlayerUpdate =
@@ -91,7 +99,8 @@ export type PlayerUpdate =
       hasPrevious: boolean;
       autoplay?: boolean;
     }
-  | { type: 'sources'; groups: SourceGroup[] }
+  /** `playingFrom`: the source the video plays from, once it has played a while. */
+  | { type: 'sources'; groups: SourceGroup[]; playingFrom?: string | null }
   | { type: 'chapters'; id: string; items: VideoChapter[] };
 
 export type ReportState = 'progress' | 'ended' | 'error' | 'switched' | 'closed';

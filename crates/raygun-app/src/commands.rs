@@ -4593,6 +4593,20 @@ pub async fn stremio_watch(
     sessions.start(origin, video_id).await
 }
 
+/// A source picker's servers or addons in the order a session tries them for a title (`group`:
+/// `title:<id>` or `stremio:<kind>:<id>`; `title` the show's name), with what played last time
+/// marked (M46.49).
+#[tauri::command]
+#[specta::specta]
+pub async fn video_source_order(
+    sessions: Sessions<'_>,
+    group: String,
+    title: Option<String>,
+    sources: Vec<crate::video_session::SourceCandidate>,
+) -> Result<Vec<crate::video_session::SourceRank>, String> {
+    Ok(sessions.source_order(&group, title, sources).await)
+}
+
 /// A report from the webview's video player (desktop, M46.4), in the Android player's JSON.
 #[tauri::command]
 #[specta::specta]

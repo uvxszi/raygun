@@ -2131,7 +2131,9 @@
     "edgeDepressed": "Depressed",
     "bold": "Bold",
     "italic": "Italic",
-    "unreliable": "didn't work lately"
+    "unreliable": "didn't work lately",
+    "workedLastTime": "worked last time",
+    "playingFrom": "Playing from {{n}}"
   },
   "export": {
     "title": "Export",

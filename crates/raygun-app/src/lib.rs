@@ -474,6 +474,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::video_downloads_set_paused,
             commands::video_source_watch,
             commands::stremio_watch,
+            commands::video_source_order,
             commands::video_set_player_labels,
             commands::video_player_report,
             commands::video_player_external,

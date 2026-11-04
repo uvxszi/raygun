@@ -1412,7 +1412,7 @@ impl StremioService {
                     label: if label.is_empty() {
                         group.addon_name.clone()
                     } else {
-                        label
+                        video_session::link_label(&target.title, label)
                     },
                     tag: binge_group,
                     failed: blocked,

@@ -197,46 +197,27 @@ impl Group {
     }
 }
 
-/// How long a server or addon that failed stays at the end of the list (M46.17).
-const FAILING_FOR_MS: i64 = 3 * 24 * 60 * 60 * 1000;
+mod memory;
+
+use memory::WORKED_AFTER_MS;
+pub use memory::{
+    Ranking, Remembered, SourceCandidate, SourceHealth, SourceRank, order_groups, order_links,
+    rank_candidates,
+};
+
 const HEALTH_KEY: &str = "video.sourceHealth";
+/// How long a session waits for a source that worked before to answer, before it plays
+/// another one that has.
+const PATIENCE_MS: i64 = 8_000;
 
-/// How servers and addons did lately, by name (M46.17): when each was last tried and last failed.
-/// One that failed since it was last tried goes to the end of the list for three days, so known
-/// good sources are tried first.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SourceHealth {
-    pub sources: std::collections::HashMap<String, (i64, i64)>,
-}
-
-impl SourceHealth {
-    /// The names that failed lately and haven't worked since.
-    pub fn failing(&self, now: i64) -> HashSet<String> {
-        self.sources
-            .iter()
-            .filter(|(_, (tried, failed))| *failed >= *tried && now - *failed < FAILING_FOR_MS)
-            .map(|(name, _)| name.clone())
-            .collect()
-    }
-
-    fn tried(&mut self, name: &str, now: i64) {
-        self.sources.entry(name.to_owned()).or_default().0 = now;
-    }
-
-    fn failed(&mut self, name: &str, now: i64) {
-        self.sources.entry(name.to_owned()).or_default().1 = now;
-    }
-}
-
-/// The source played last for a title, to try first next time.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Remembered {
-    /// The server's (video sources) or addon's (Stremio) name.
-    pub group: String,
-    /// Stremio's `bingeGroup` of the stream.
-    pub tag: Option<String>,
+/// The link loaded last, until it has played long enough to count as working.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Watching {
+    at: (usize, usize),
+    /// Where it started playing.
+    from: i64,
+    /// It played [`WORKED_AFTER_MS`].
+    confirmed: bool,
 }
 
 struct Session {
@@ -252,12 +233,19 @@ struct Session {
     tried: HashSet<(usize, usize)>,
     /// Where the next link starts (a fallback or a source switch keeps the position).
     start_at: Option<i64>,
-    remembered: Option<Remembered>,
+    /// What played last for the title or show, and its links that failed.
+    memory: Remembered,
     /// Where the show's source is remembered across its entries ("Title" and "Title II" are one
     /// show's seasons on anime sites and Kitsu).
     show_memory: Option<String>,
-    /// Servers and addons that failed lately (M46.17): tried last, and marked.
-    failing: HashSet<String>,
+    /// How servers and addons did lately (M46.17): those that worked first, failing ones last.
+    health: SourceHealth,
+    /// Addresses that failed in this session: never tried again, whichever source lists them.
+    dead_urls: HashSet<String>,
+    /// The link loaded, until it counts as working.
+    watching: Option<Watching>,
+    /// When the current episode's links started resolving, Unix ms.
+    resolving_since: i64,
     /// Resolving finished; with nothing playing, the session has run out of links.
     settled: bool,
 }
@@ -285,30 +273,64 @@ impl Session {
             .find(|&previous| released(&self.episodes[previous], now))
     }
 
-    /// The first untried link, in group order: what plays next. Links whose names say they're
-    /// another episode come after every other one.
-    fn next_candidate(&self) -> Option<(usize, usize)> {
-        let untried = |mismatch: bool| {
-            self.groups
-                .iter()
-                .enumerate()
-                .filter(|(_, group)| group.state == GroupState::Ready)
-                .flat_map(|(group_index, group)| {
-                    group
-                        .links
-                        .iter()
-                        .enumerate()
-                        .map(move |(link_index, link)| (group_index, link_index, link))
-                })
-                .find(|(group, link, entry)| {
-                    entry.failed.is_none()
-                        && entry.mismatch == mismatch
-                        && !self.tried.contains(&(*group, *link))
-                })
-                .map(|(group, link, _)| (group, link))
-        };
-        untried(false).or_else(|| untried(true))
+    fn ranking(&self, now: i64) -> Ranking<'_> {
+        Ranking::new(&self.memory, &self.health, now)
     }
+
+    /// The best untried link: what played last time, the same release, sources that worked,
+    /// untried ones, then those that failed lately; links whose names say they're another episode
+    /// after every other one, and ties in list order. While a source that could hold a better one
+    /// is still resolving, nothing (for a few seconds: [`PATIENCE_MS`]).
+    fn next_candidate(&self, now: i64) -> Option<(usize, usize)> {
+        let ranking = self.ranking(now);
+        let best = self
+            .groups
+            .iter()
+            .enumerate()
+            .filter(|(_, group)| group.state == GroupState::Ready)
+            .flat_map(|(group_index, group)| {
+                group
+                    .links
+                    .iter()
+                    .enumerate()
+                    .map(move |(link_index, link)| (group_index, link_index, group, link))
+            })
+            .filter(|(group_index, link_index, _, link)| {
+                link.failed.is_none()
+                    && !self.dead_urls.contains(&link.request.url)
+                    && !self.tried.contains(&(*group_index, *link_index))
+            })
+            .min_by_key(|(group_index, link_index, group, link)| {
+                (
+                    ranking.link_key(&group.name, link),
+                    *group_index,
+                    *link_index,
+                )
+            })
+            .map(|(group_index, link_index, group, link)| {
+                (group_index, link_index, ranking.link_key(&group.name, link))
+            })?;
+        let patient = now - self.resolving_since < PATIENCE_MS;
+        let better_pending = self.groups.iter().any(|group| {
+            group.state == GroupState::Resolving && ranking.group_key(&group.name) < best.2
+        });
+        (!(patient && better_pending)).then_some((best.0, best.1))
+    }
+}
+
+/// The player's loading line: the title, and the episode's label when it adds something.
+fn title_and_label(title: &str, label: &str) -> String {
+    if video_match::adds_to_title(title, label) {
+        format!("{title}\n{label}")
+    } else {
+        title.to_owned()
+    }
+}
+
+/// A link's label without the title it may repeat ("Show Name 1080p" → "1080p").
+pub fn link_label(title: &str, label: String) -> String {
+    let short = video_match::without_title(&label, title);
+    if short.is_empty() { label } else { short }
 }
 
 fn released(episode: &Episode, now: i64) -> bool {
@@ -344,31 +366,6 @@ pub fn mark_mismatches(groups: &mut [Group], numbers: &[video_match::EpisodeNumb
             link.mismatch = video_match::names_other_episode(&link.label, numbers);
         }
         group.links.sort_by_key(|link| link.mismatch);
-    }
-}
-
-/// Puts the remembered source first (its group, and within Stremio the links of the same
-/// `bingeGroup` first) and the sources that failed lately last (M46.17).
-pub fn order_groups(
-    groups: &mut [Group],
-    remembered: Option<&Remembered>,
-    failing: &HashSet<String>,
-) {
-    groups.sort_by_key(|group| {
-        (
-            failing.contains(&group.name),
-            remembered.is_none_or(|remembered| group.name != remembered.group),
-        )
-    });
-    let Some(remembered) = remembered else {
-        return;
-    };
-    if let Some(tag) = &remembered.tag {
-        for group in groups.iter_mut() {
-            group
-                .links
-                .sort_by_key(|link| (link.mismatch, link.tag.as_ref() != Some(tag)));
-        }
     }
 }
 
@@ -427,14 +424,15 @@ impl VideoSessions {
             }
         };
         let show_memory = show_memory_key(&scope, &title);
-        let remembered = match self.recall(&origin.memory_key()).await {
-            Some(remembered) => Some(remembered),
+        let memory = match self.recall(&origin.memory_key()).await {
+            Some(memory) => Some(memory),
             None => match &show_memory {
                 Some(key) => self.recall(key).await,
                 None => None,
             },
-        };
-        let failing = self.health().await.failing(now_ms());
+        }
+        .unwrap_or_default();
+        let health = self.health().await;
         let generation = self.generations.fetch_add(1, Ordering::SeqCst) + 1;
         let label = episodes[index].label.clone();
         *self.session.lock().expect("session poisoned") = Some(Session {
@@ -448,11 +446,19 @@ impl VideoSessions {
             current: None,
             tried: HashSet::new(),
             start_at: None,
-            remembered,
+            memory,
             show_memory,
-            failing,
+            health,
+            dead_urls: HashSet::new(),
+            watching: None,
+            resolving_since: now,
             settled: false,
         });
+        let label = if video_match::adds_to_title(&title, &label) {
+            label
+        } else {
+            String::new()
+        };
         let shell = crate::video::session_shell(&self.app, &title, &label).await;
         crate::video::open_player(&self.app, &shell)?;
         self.push_episodes().await;
@@ -498,8 +504,61 @@ impl VideoSessions {
                     self.end();
                 }
             }
+            "progress" | "ended" => self.on_progress(key, position, state == "ended").await,
             _ => {}
         }
+    }
+
+    /// The link loaded last has played [`WORKED_AFTER_MS`] (or to its end): it's the one this
+    /// title starts from next time, and its source counts as working.
+    async fn on_progress(&self, key: &str, position: i64, ended: bool) {
+        let worked = {
+            let mut guard = self.session.lock().expect("session poisoned");
+            let Some(session) = guard.as_mut() else {
+                return;
+            };
+            if session.episode().key != key {
+                return;
+            }
+            let Some(watching) = session.watching.as_mut() else {
+                return;
+            };
+            let played = position - watching.from >= WORKED_AFTER_MS;
+            if watching.confirmed || session.current != Some(watching.at) || !(played || ended) {
+                return;
+            }
+            watching.confirmed = true;
+            let (group, link) = watching.at;
+            let Some(entry) = session
+                .groups
+                .get(group)
+                .filter(|entry| entry.id != "download")
+            else {
+                return;
+            };
+            let Some(chosen) = entry.links.get(link) else {
+                return;
+            };
+            let now = now_ms();
+            let name = entry.name.clone();
+            let chosen = chosen.clone();
+            session.memory.worked(&name, &chosen, now);
+            session.health.worked(&name, now);
+            let memory: Vec<String> = [
+                Some(session.origin.memory_key()),
+                session.show_memory.clone(),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            (session.memory.clone(), name, now, memory)
+        };
+        let (memory, name, now, keys) = worked;
+        for key in &keys {
+            self.remember(key, &memory).await;
+        }
+        self.note_health(|health| health.worked(&name, now)).await;
+        self.push_sources().await;
     }
 
     async fn on_request(&self, report: &Value, position: i64) {
@@ -572,8 +631,10 @@ impl VideoSessions {
             session.current = None;
             session.tried.clear();
             session.start_at = None;
+            session.watching = None;
+            session.resolving_since = now_ms();
             session.settled = false;
-            format!("{}\n{}", session.title, session.episode().label)
+            title_and_label(&session.title, &session.episode().label)
         };
         let _ = crate::video::update_player(
             &self.app,
@@ -599,15 +660,18 @@ impl VideoSessions {
             }
             session.tried.insert((group, link));
             session.current = Some((group, link));
+            session.watching = None;
             session.start_at = (position > 0).then_some(position);
             session.generation
         };
         self.play(generation, group, link).await;
     }
 
-    /// The playing link failed: the next one plays from the same spot.
+    /// The playing link failed: the next best one plays from the same spot at once. Its address
+    /// isn't tried again in this session; unless it had played a while (a dropped connection),
+    /// the title keeps it as dead and its source as failing.
     async fn fall_back(&self, key: &str, position: i64, error: String) {
-        let mut failed_group = None;
+        let mut failed = None;
         let generation = {
             let mut guard = self.session.lock().expect("session poisoned");
             let Some(session) = guard.as_mut() else {
@@ -616,17 +680,36 @@ impl VideoSessions {
             if session.episode().key != key {
                 return;
             }
+            let watching = session.watching.take();
             if let Some((group, link)) = session.current.take() {
-                if let Some(entry) = session.groups.get(group) {
-                    failed_group = Some(entry.name.clone());
-                    session.failing.insert(entry.name.clone());
-                }
+                let played = watching
+                    .is_some_and(|watching| watching.at == (group, link) && watching.confirmed);
+                let now = now_ms();
                 if let Some(entry) = session
                     .groups
                     .get_mut(group)
                     .and_then(|entry| entry.links.get_mut(link))
                 {
                     entry.failed = Some(error);
+                    session.dead_urls.insert(entry.request.url.clone());
+                }
+                if let Some(entry) = session.groups.get(group)
+                    && let Some(chosen) = entry.links.get(link)
+                    && !played
+                    && entry.id != "download"
+                {
+                    let name = entry.name.clone();
+                    let chosen = chosen.clone();
+                    session.memory.failed(&name, &chosen, now);
+                    session.health.failed(&name, now);
+                    let keys: Vec<String> = [
+                        Some(session.origin.memory_key()),
+                        session.show_memory.clone(),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .collect();
+                    failed = Some((name, now, session.memory.clone(), keys));
                 }
             }
             if position > 0 {
@@ -634,12 +717,63 @@ impl VideoSessions {
             }
             session.generation
         };
-        if let Some(name) = failed_group {
-            self.note_health(|health| health.failed(&name, now_ms()))
-                .await;
+        if let Some((name, now, memory, keys)) = failed {
+            self.note_health(|health| health.failed(&name, now)).await;
+            for key in &keys {
+                self.remember(key, &memory).await;
+            }
         }
         self.push_sources().await;
         self.try_play(generation).await;
+    }
+
+    /// A picker's sources in the order a session tries them for the title `group` names
+    /// (`Origin::group_key`), with what played last time marked. `title` is the show's name, for
+    /// what its other seasons played; a stored title's own name is used when it has one.
+    pub async fn source_order(
+        &self,
+        group: &str,
+        title: Option<String>,
+        sources: Vec<SourceCandidate>,
+    ) -> Vec<SourceRank> {
+        let health = self.health().await;
+        let Some(origin) = Origin::from_group(group) else {
+            return rank_candidates(
+                &sources,
+                &Ranking::new(&Remembered::default(), &health, now_ms()),
+            );
+        };
+        let show = match &origin {
+            Origin::Source { title_id } => titles::title(&self.db(), title_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|row| (format!("source:{}", row.fields.source_id), row.fields.title)),
+            Origin::Stremio { .. } => title.map(|title| ("stremio".to_owned(), title)),
+        };
+        let show_title = show.as_ref().map(|(_, title)| title.clone());
+        let memory = match self.recall(&origin.memory_key()).await {
+            Some(memory) => Some(memory),
+            None => match show.and_then(|(scope, title)| show_memory_key(&scope, &title)) {
+                Some(key) => self.recall(&key).await,
+                None => None,
+            },
+        }
+        .unwrap_or_default();
+        // Sessions keep links by their labels without the title.
+        let sources: Vec<SourceCandidate> = match show_title {
+            Some(show_title) => sources
+                .into_iter()
+                .map(|mut source| {
+                    for link in &mut source.links {
+                        link.label = link_label(&show_title, std::mem::take(&mut link.label));
+                    }
+                    source
+                })
+                .collect(),
+            None => sources,
+        };
+        rank_candidates(&sources, &Ranking::new(&memory, &health, now_ms()))
     }
 
     async fn health(&self) -> SourceHealth {
@@ -665,6 +799,13 @@ impl VideoSessions {
         let app = self.app.clone();
         tauri::async_runtime::spawn(async move {
             let sessions = app.state::<VideoSessions>();
+            // A source that worked before gets a few seconds to answer before another plays;
+            // then the session takes what it has.
+            let patience = app.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(PATIENCE_MS as u64)).await;
+                patience.state::<VideoSessions>().try_play(generation).await;
+            });
             sessions.resolve(generation).await;
             let finished = {
                 let mut guard = sessions.session.lock().expect("session poisoned");
@@ -729,8 +870,9 @@ impl VideoSessions {
                     kind,
                     meta_id: Some(id),
                     video_id: episode.remote_id.clone(),
+                    subtitle: video_match::adds_to_title(&title, &episode.label)
+                        .then(|| episode.label.clone()),
                     title,
-                    subtitle: Some(episode.label.clone()),
                     poster,
                 };
                 let language = crate::video::subtitle_language(&db).await;
@@ -793,12 +935,15 @@ impl VideoSessions {
             links
                 .into_iter()
                 .map(|link| Link {
-                    label: link.label.clone().unwrap_or_else(|| {
-                        link.quality.map_or_else(
-                            || self.label("video", "Video"),
-                            |height| format!("{height}p"),
-                        )
-                    }),
+                    label: link_label(
+                        &row.fields.title,
+                        link.label.clone().unwrap_or_else(|| {
+                            link.quality.map_or_else(
+                                || self.label("video", "Video"),
+                                |height| format!("{height}p"),
+                            )
+                        }),
+                    ),
                     tag: None,
                     mismatch: false,
                     // Torrents (Miru) need a torrent app: listed, never played.
@@ -853,7 +998,7 @@ impl VideoSessions {
             else {
                 return;
             };
-            order_groups(&mut groups, session.remembered.as_ref(), &session.failing);
+            order_groups(&mut groups, &session.ranking(now_ms()));
             session.groups = groups;
             session.tried.clear();
             session.current = None;
@@ -877,6 +1022,9 @@ impl VideoSessions {
                     Err(error) => (Vec::new(), Some(error)),
                 };
                 *group = Group::finished(group.id.clone(), group.name.clone(), links, error);
+                // Its place in the list stays (indices are in use); its links are ordered.
+                let ranking = Ranking::new(&session.memory, &session.health, now_ms());
+                order_links(group, &ranking);
             }
         }
         self.push_sources().await;
@@ -901,7 +1049,7 @@ impl VideoSessions {
             if session.current.is_some() {
                 return;
             }
-            match session.next_candidate() {
+            match session.next_candidate(now_ms()) {
                 Some(candidate) => {
                     session.tried.insert(candidate);
                     session.current = Some(candidate);
@@ -936,7 +1084,7 @@ impl VideoSessions {
         }
     }
 
-    /// Loads a link into the player and remembers its source for the title.
+    /// Loads a link into the player; it's remembered for the title once it plays a while.
     async fn play(&self, generation: u64, group: usize, link: usize) {
         let prepared = {
             let guard = self.session.lock().expect("session poisoned");
@@ -972,27 +1120,9 @@ impl VideoSessions {
                     anilist_id: ids.anilist,
                 });
             }
-            let remembered = Remembered {
-                group: entry.name.clone(),
-                tag: chosen.tag.clone(),
-            };
-            let memory: Vec<String> = [
-                Some(session.origin.memory_key()),
-                session.show_memory.clone(),
-            ]
-            .into_iter()
-            .flatten()
-            .collect();
-            (
-                request,
-                resume,
-                session.start_at,
-                memory,
-                remembered,
-                entry.id == "download",
-            )
+            (request, resume, session.start_at)
         };
-        let (request, resume, start_at, memory, remembered, downloaded) = prepared;
+        let (request, resume, start_at) = prepared;
         // A YouTube link plays in YouTube's embed: the player that opened for it closes.
         if let Some(video_id) = request.url.strip_prefix(crate::video::YOUTUBE_LINK) {
             let _ = crate::video::update_player(&self.app, &json!({ "type": "close" }));
@@ -1019,25 +1149,25 @@ impl VideoSessions {
                     &self.app,
                     &json!({ "type": "load", "request": payload }),
                 );
-                self.push_episodes().await;
-                if !downloaded {
-                    for key in &memory {
-                        self.remember(key, &remembered).await;
-                    }
-                    let name = remembered.group.clone();
-                    self.note_health(|health| health.tried(&name, now_ms()))
-                        .await;
-                    // It plays: no longer one that "didn't work lately".
-                    let cleared = self
-                        .session
-                        .lock()
-                        .expect("session poisoned")
-                        .as_mut()
-                        .is_some_and(|session| session.failing.remove(&name));
-                    if cleared {
-                        self.push_sources().await;
-                    }
+                // It counts as working once it has played a while (`on_progress`).
+                let from = payload
+                    .get("startMs")
+                    .and_then(Value::as_i64)
+                    .unwrap_or_else(|| start_at.unwrap_or(0));
+                if let Some(session) = self
+                    .session
+                    .lock()
+                    .expect("session poisoned")
+                    .as_mut()
+                    .filter(|session| session.current == Some((group, link)))
+                {
+                    session.watching = Some(Watching {
+                        at: (group, link),
+                        from,
+                        confirmed: false,
+                    });
                 }
+                self.push_episodes().await;
             }
             Err(error) => {
                 tracing::warn!(%error, "a link couldn't be prepared");
@@ -1113,8 +1243,9 @@ impl VideoSessions {
         let episode = &episodes[next];
         let entry = VideoEntry {
             key: episode.key.clone(),
+            subtitle: video_match::adds_to_title(&title, &episode.label)
+                .then(|| episode.label.clone()),
             title,
-            subtitle: Some(episode.label.clone()),
             poster,
             request: serde_json::to_string(&EpisodeRef {
                 origin,
@@ -1185,8 +1316,16 @@ impl VideoSessions {
             let Some(session) = guard.as_ref() else {
                 return;
             };
+            let ranking = session.ranking(now_ms());
+            // "Playing from <source>" once the current link has played a while.
+            let playing_from = session
+                .watching
+                .filter(|watching| watching.confirmed && session.current == Some(watching.at))
+                .and_then(|watching| session.groups.get(watching.at.0))
+                .map(|group| group.name.clone());
             json!({
                 "type": "sources",
+                "playingFrom": playing_from,
                 "groups": session.groups.iter().enumerate().map(|(group_index, group)| {
                     let (state, error) = match &group.state {
                         GroupState::Resolving => ("resolving", None),
@@ -1198,11 +1337,15 @@ impl VideoSessions {
                         "name": group.name,
                         "state": state,
                         "error": error,
-                        "unreliable": session.failing.contains(&group.name),
+                        "unreliable": ranking.is_failing(&group.name),
+                        "worked": ranking.played_last(&group.name),
                         "links": group.links.iter().enumerate().map(|(link_index, link)| json!({
                             "label": link.label,
                             "current": session.current == Some((group_index, link_index)),
-                            "failed": link.failed.is_some(),
+                            "failed": link.failed.is_some()
+                                || session.dead_urls.contains(&link.request.url),
+                            "worked": ranking.played_last(&group.name)
+                                && session.memory.label.as_deref() == Some(link.label.as_str()),
                         })).collect::<Vec<_>>(),
                     })
                 }).collect::<Vec<_>>(),
@@ -1338,11 +1481,14 @@ impl VideoSessions {
                         .map(|video| Episode {
                             remote_id: video.id.clone(),
                             key: crate::stremio::content_key(kind, &video.id),
-                            label: video_match::episode_label(
+                            label: Some(video_match::episode_label_in(
+                                &meta.name,
                                 video.season.filter(|_| show_seasons).map(f64::from),
                                 video.episode.map(f64::from),
                                 &video.title,
-                            ),
+                            ))
+                            .filter(|label| !label.is_empty())
+                            .unwrap_or_else(|| video.title.clone()),
                             unit_id: None,
                             released: video
                                 .released
@@ -1424,7 +1570,8 @@ fn next_entry(
         VideoEntry {
             key: episode.key.clone(),
             title: session.title.clone(),
-            subtitle: Some(episode.label.clone()),
+            subtitle: video_match::adds_to_title(&session.title, &episode.label)
+                .then(|| episode.label.clone()),
             poster,
             request: serde_json::to_string(&EpisodeRef {
                 origin: session.origin.clone(),
@@ -1466,6 +1613,7 @@ enum Target {
 
 #[cfg(test)]
 mod tests {
+    use super::memory::{LinkCandidate, Standing};
     use super::*;
 
     fn link(label: &str, tag: Option<&str>) -> Link {
@@ -1529,9 +1677,12 @@ mod tests {
             current: None,
             tried: HashSet::new(),
             start_at: None,
-            remembered: None,
+            memory: Remembered::default(),
             show_memory: None,
-            failing: HashSet::new(),
+            health: SourceHealth::default(),
+            dead_urls: HashSet::new(),
+            watching: None,
+            resolving_since: 0,
             settled: false,
         }
     }
@@ -1635,13 +1786,13 @@ mod tests {
         assert!(groups[1].links[1].mismatch);
         let mut state = session(groups, vec![episode("e1", None)]);
         assert_eq!(
-            state.next_candidate(),
+            state.next_candidate(NOW),
             Some((1, 0)),
             "the right episode first"
         );
         state.tried.insert((1, 0));
         assert_eq!(
-            state.next_candidate(),
+            state.next_candidate(NOW),
             Some((0, 0)),
             "then the rest, in group order"
         );
@@ -1723,55 +1874,278 @@ mod tests {
         )));
     }
 
-    #[test]
-    fn the_remembered_source_and_binge_group_come_first() {
-        let mut groups = vec![
-            Group::finished("a".into(), "Alpha".into(), vec![link("a1", None)], None),
-            Group::finished(
-                "b".into(),
-                "Beta".into(),
-                vec![link("b1", Some("x")), link("b2", Some("release"))],
-                None,
-            ),
-        ];
-        order_groups(
-            &mut groups,
-            Some(&Remembered {
-                group: "Beta".into(),
-                tag: Some("release".into()),
-            }),
-            &HashSet::new(),
-        );
-        assert_eq!(groups[0].name, "Beta");
-        assert_eq!(groups[0].links[0].label, "b2");
-        order_groups(&mut groups, None, &HashSet::new());
-        assert_eq!(groups[0].name, "Beta", "nothing remembered keeps the order");
+    /// Far enough from 0 that nothing waits for a resolving source.
+    const NOW: i64 = 10 * 24 * 60 * 60 * 1000;
 
-        // One that failed lately goes last, even the remembered one (M46.17).
-        order_groups(
-            &mut groups,
-            Some(&Remembered {
-                group: "Beta".into(),
-                tag: None,
-            }),
-            &HashSet::from(["Beta".to_owned()]),
-        );
-        assert_eq!(groups[0].name, "Alpha");
+    fn worked_memory(group: &str, label: &str, tag: Option<&str>) -> Remembered {
+        let mut memory = Remembered::default();
+        memory.worked(group, &link(label, tag), NOW - 1_000);
+        memory
+    }
+
+    fn names(groups: &[Group]) -> Vec<&str> {
+        groups.iter().map(|group| group.name.as_str()).collect()
     }
 
     #[test]
-    fn sources_that_failed_since_they_were_tried_count_as_failing_for_a_while() {
+    fn the_link_that_played_comes_first_then_its_release_then_what_worked() {
+        let mut groups = vec![
+            Group::finished("a".into(), "Alpha".into(), vec![link("a1", None)], None),
+            Group::finished("w".into(), "Worked".into(), vec![link("w1", None)], None),
+            Group::finished(
+                "c".into(),
+                "Charlie".into(),
+                vec![link("c1", Some("x")), link("c2", Some("release"))],
+                None,
+            ),
+            Group::finished(
+                "b".into(),
+                "Beta".into(),
+                vec![link("480p", None), link("Beta 1080p", None)],
+                None,
+            ),
+        ];
+        let memory = worked_memory("Beta", "Beta 1080p", Some("release"));
         let mut health = SourceHealth::default();
-        health.tried("Good", 1_000);
-        health.tried("Bad", 1_000);
+        health.worked("Worked", NOW - 1_000);
+        order_groups(&mut groups, &Ranking::new(&memory, &health, NOW));
+        assert_eq!(names(&groups), ["Beta", "Charlie", "Worked", "Alpha"]);
+        assert_eq!(groups[0].links[0].label, "Beta 1080p", "the very link");
+        assert_eq!(groups[1].links[0].label, "c2", "the same bingeGroup");
+
+        // Nothing remembered keeps the order.
+        let mut fresh = groups.clone();
+        let empty = Remembered::default();
+        let none = SourceHealth::default();
+        order_groups(&mut fresh, &Ranking::new(&empty, &none, NOW));
+        assert_eq!(names(&fresh), names(&groups));
+    }
+
+    #[test]
+    fn the_same_quality_on_the_server_that_played_comes_next_across_episodes() {
+        // The next episode's links have other labels; 1080p on the same server is next best.
+        let memory = worked_memory("Vidstream", "1080p · Episode 3", None);
+        let health = SourceHealth::default();
+        let ranking = Ranking::new(&memory, &health, NOW);
+        let mut groups = vec![
+            Group::finished("o".into(), "Other".into(), vec![link("1080p", None)], None),
+            Group::finished(
+                "v".into(),
+                "Vidstream".into(),
+                vec![
+                    link("720p · Episode 4", None),
+                    link("1080p · Episode 4", None),
+                ],
+                None,
+            ),
+        ];
+        order_groups(&mut groups, &ranking);
+        assert_eq!(groups[0].name, "Vidstream");
+        assert_eq!(groups[0].links[0].label, "1080p · Episode 4");
+        assert_eq!(
+            ranking.link_standing("Vidstream", "1080p · Episode 4", None),
+            Standing::SameRelease
+        );
+        assert_eq!(
+            ranking.link_standing("Vidstream", "720p · Episode 4", None),
+            Standing::Worked
+        );
+    }
+
+    #[test]
+    fn sources_that_failed_lately_go_last_even_the_remembered_one() {
+        let memory = worked_memory("Beta", "b1", None);
+        let mut health = SourceHealth::default();
+        health.worked("Beta", NOW - 5_000);
+        health.failed("Beta", NOW - 1_000);
+        let mut groups = vec![
+            Group::finished("b".into(), "Beta".into(), vec![link("b1", None)], None),
+            Group::finished("a".into(), "Alpha".into(), vec![link("a1", None)], None),
+        ];
+        order_groups(&mut groups, &Ranking::new(&memory, &health, NOW));
+        assert_eq!(names(&groups), ["Alpha", "Beta"]);
+
+        // Working again clears it.
+        health.worked("Beta", NOW);
+        order_groups(&mut groups, &Ranking::new(&memory, &health, NOW));
+        assert_eq!(names(&groups), ["Beta", "Alpha"]);
+    }
+
+    #[test]
+    fn a_dead_link_goes_last_and_working_again_brings_it_back() {
+        let mut memory = worked_memory("Alpha", "a1", None);
+        memory.failed("Alpha", &link("a1", None), NOW);
+        let health = SourceHealth::default();
+        let ranking = Ranking::new(&memory, &health, NOW);
+        assert_eq!(
+            ranking.link_standing("Alpha", "a1", None),
+            Standing::Failing
+        );
+        assert_eq!(ranking.link_standing("Alpha", "a2", None), Standing::Worked);
+        // Forgotten after three days.
+        let later = Ranking::new(&memory, &health, NOW + memory::FAILING_FOR_MS);
+        assert_eq!(
+            later.link_standing("Alpha", "a1", None),
+            Standing::LastPlayed
+        );
+        memory.worked("Alpha", &link("a1", None), NOW + 1);
+        assert!(memory.dead.is_empty());
+    }
+
+    #[test]
+    fn source_memory_fades_and_stays_bounded() {
+        let mut health = SourceHealth::default();
+        health.worked("Often", 0);
+        health.worked("Often", 1);
+        health.worked("Once", 1);
+        assert!(health.score("Often", 2) > health.score("Once", 2));
+        let week = 7 * 24 * 60 * 60 * 1000;
+        assert!(
+            (health.score("Once", 1 + week) - 0.5).abs() < 0.01,
+            "halves in a week"
+        );
+        for index in 0..400 {
+            health.failed(&format!("source {index}"), 10 + index);
+        }
+        assert_eq!(health.sources.len(), 300);
+        assert!(health.sources.contains_key("source 399"));
+        health.failed("Late", 61 * 24 * 60 * 60 * 1000);
+        assert_eq!(health.sources.len(), 1, "two months later only the new one");
+
+        let mut memory = Remembered::default();
+        for index in 0..40 {
+            memory.failed("Alpha", &link(&format!("l{index}"), None), index);
+        }
+        assert_eq!(memory.dead.len(), 24);
+        assert_eq!(memory.dead[0].label, "l39", "newest first");
+    }
+
+    #[test]
+    fn the_old_health_format_still_reads() {
+        let health: SourceHealth =
+            serde_json::from_str(r#"{"sources":{"Bad":[1000,2000],"New":{"failed":5}}}"#).unwrap();
+        assert_eq!(health.sources["Bad"].failed, 2_000);
+        assert_eq!(health.sources["New"].failed, 5);
+        let memory: Remembered = serde_json::from_str(r#"{"group":"Beta","tag":null}"#).unwrap();
+        assert_eq!(memory.group, "Beta");
+        let ranking = Ranking::new(&memory, &health, NOW);
+        assert!(!ranking.played_last("Beta"), "only loaded, never confirmed");
+        assert_eq!(ranking.group_standing("Beta"), Standing::LastPlayed);
+    }
+
+    #[test]
+    fn sources_that_failed_since_they_worked_count_as_failing_for_a_while() {
+        let mut health = SourceHealth::default();
+        health.worked("Good", 1_000);
+        health.worked("Bad", 1_000);
         health.failed("Bad", 2_000);
         health.failed("Fixed", 1_000);
-        health.tried("Fixed", 3_000);
-        assert_eq!(health.failing(5_000), HashSet::from(["Bad".to_owned()]));
+        health.worked("Fixed", 3_000);
+        health.failed("Never worked", 1_000);
+        assert_eq!(
+            health.failing(5_000),
+            HashSet::from(["Bad".to_owned(), "Never worked".to_owned()])
+        );
         assert!(
-            health.failing(2_000 + FAILING_FOR_MS).is_empty(),
+            health.failing(2_000 + memory::FAILING_FOR_MS).is_empty(),
             "forgotten after three days"
         );
+    }
+
+    #[test]
+    fn a_session_plays_what_worked_and_never_retries_a_dead_address() {
+        let mut memory = Remembered::default();
+        memory.worked("Beta", &link("b1", None), NOW - 1_000);
+        let mut state = session(
+            vec![
+                Group::finished("a".into(), "Alpha".into(), vec![link("a1", None)], None),
+                Group::finished(
+                    "b".into(),
+                    "Beta".into(),
+                    vec![link("b0", None), link("b1", None)],
+                    None,
+                ),
+                // Another addon listing the same address as Beta's b1.
+                Group::finished("c".into(), "Copy".into(), vec![link("b1", None)], None),
+            ],
+            vec![episode("e1", None)],
+        );
+        state.memory = memory;
+        assert_eq!(
+            state.next_candidate(NOW),
+            Some((1, 1)),
+            "the link that played"
+        );
+        state.tried.insert((1, 1));
+        state.dead_urls.insert("https://cdn.example/b1".into());
+        assert_eq!(
+            state.next_candidate(NOW),
+            Some((1, 0)),
+            "then its source's other link, never the same address elsewhere"
+        );
+        state.tried.insert((1, 0));
+        assert_eq!(state.next_candidate(NOW), Some((0, 0)));
+        state.tried.insert((0, 0));
+        assert_eq!(state.next_candidate(NOW), None);
+    }
+
+    #[test]
+    fn a_session_waits_a_little_for_the_source_that_worked() {
+        let mut state = session(
+            vec![
+                Group::finished("a".into(), "Alpha".into(), vec![link("a1", None)], None),
+                Group::resolving("b".into(), "Beta".into()),
+            ],
+            vec![episode("e1", None)],
+        );
+        state.memory = worked_memory("Beta", "b1", None);
+        state.resolving_since = NOW;
+        assert_eq!(
+            state.next_candidate(NOW + 1_000),
+            None,
+            "Beta is still answering"
+        );
+        assert_eq!(
+            state.next_candidate(NOW + PATIENCE_MS),
+            Some((0, 0)),
+            "not for long"
+        );
+        // An untried source resolving isn't worth waiting for.
+        state.memory = Remembered::default();
+        assert_eq!(state.next_candidate(NOW + 1_000), Some((0, 0)));
+    }
+
+    #[test]
+    fn a_picker_lists_sources_in_play_order_with_the_one_that_worked() {
+        let memory = worked_memory("Beta", "Beta 1080p", None);
+        let mut health = SourceHealth::default();
+        health.failed("Gamma", NOW - 1_000);
+        let ranking = Ranking::new(&memory, &health, NOW);
+        let candidate = |name: &str, labels: &[&str]| SourceCandidate {
+            name: name.into(),
+            links: labels
+                .iter()
+                .map(|label| LinkCandidate {
+                    label: (*label).into(),
+                    tag: None,
+                })
+                .collect(),
+        };
+        let ranks = rank_candidates(
+            &[
+                candidate("Gamma", &["g"]),
+                candidate("Alpha", &[]),
+                candidate("Beta", &["Beta 480p", "Beta 1080p"]),
+            ],
+            &ranking,
+        );
+        let order: Vec<u32> = ranks.iter().map(|rank| rank.index).collect();
+        assert_eq!(order, [2, 1, 0]);
+        assert!(ranks[0].worked);
+        assert_eq!(ranks[0].worked_link, Some(1), "Beta 1080p");
+        assert_eq!(ranks[0].links, [1, 0]);
+        assert!(ranks[2].failing);
+        assert!(!ranks[1].worked);
     }
 
     #[test]
@@ -1793,11 +2167,11 @@ mod tests {
             vec![episode("e1", None)],
         );
         assert_eq!(state.groups[2].state, GroupState::Empty);
-        assert_eq!(state.next_candidate(), Some((1, 1)));
+        assert_eq!(state.next_candidate(NOW), Some((1, 1)));
         state.tried.insert((1, 1));
-        assert_eq!(state.next_candidate(), Some((3, 0)));
+        assert_eq!(state.next_candidate(NOW), Some((3, 0)));
         state.tried.insert((3, 0));
-        assert_eq!(state.next_candidate(), None);
+        assert_eq!(state.next_candidate(NOW), None);
     }
 
     #[test]
