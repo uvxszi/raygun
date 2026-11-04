@@ -1404,6 +1404,17 @@ impl PodcastService {
             .contains(episode_id)
     }
 
+    /// Whether an episode's download runs or waits its turn in this run, and wasn't cancelled:
+    /// a record left "downloading" by a run that ended isn't.
+    pub fn download_active(&self, episode_id: &str) -> bool {
+        self.is_downloading(episode_id)
+            && !self
+                .cancelled
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .contains(episode_id)
+    }
+
     /// Stops a download that's waiting or under way; what it fetched is deleted (M46.48). One
     /// nothing runs (a record left behind) is just forgotten.
     pub async fn cancel_download(&self, episode_id: &str) -> Result<(), String> {
@@ -1412,14 +1423,18 @@ impl PodcastService {
 
     /// Deletes a downloaded episode, or stops its download (which then leaves nothing behind).
     pub async fn remove_download(&self, episode_id: &str) -> Result<(), String> {
+        let db = self.db();
         if self.is_downloading(episode_id) {
             self.cancelled
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
                 .insert(episode_id.to_owned());
+            // Said now, not when the job notices: its notification and row go at once.
+            if let Ok(Some(episode)) = store::episode(&db, episode_id).await {
+                self.changed(&episode.podcast_id);
+            }
             return Ok(());
         }
-        let db = self.db();
         if let Some(path) = store::download(&db, episode_id)
             .await
             .map_err(to_message)?
