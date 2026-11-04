@@ -3,6 +3,7 @@ import { ChevronRight } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { issueSummary } from '../lib/issue';
 import { useSettings } from '../settings/useSettings';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { useExtensions } from './useExtensions';
@@ -53,8 +54,8 @@ export const InstalledTab: FC = () => {
                   <span className="text-muted text-xs">{t('extensions.nsfwHidden')}</span>
                 )}
                 {extension.status === 'failed' ? (
-                  <span role="alert" className="text-primary truncate text-xs">
-                    {t('extensions.failed', { message: extension.error ?? '' })}
+                  <span role="alert" className="text-muted truncate text-xs">
+                    {issueSummary(extension.error ?? t('issue.title'), t, extension.name)}
                   </span>
                 ) : (
                   extension.description && (

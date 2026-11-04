@@ -199,7 +199,9 @@ describe('Music discovery', () => {
       'Chill on ListenBrainz',
     ]);
     expect(commands.musicTagSources).toHaveBeenCalledWith('Chill', expect.anything());
-    expect(within(page).getByTestId('source-issue')).toHaveTextContent('Issue with Audius');
+    expect(within(page).getByTestId('source-issue')).toHaveTextContent(
+      'Audius is having problems — try later',
+    );
 
     await user.click(
       within(rows[0] as HTMLElement).getByRole('button', { name: 'Play Weightless' }),

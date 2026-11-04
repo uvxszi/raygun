@@ -5,6 +5,7 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { issueSummary } from '../lib/issue';
 import { Popover } from '../shell/Popover';
 import { chooseDownloadSource } from './sourcePickerStore';
 import { downloadSongs, useSongDownloadActions, useSongDownloadFor } from './useSongDownloads';
@@ -143,7 +144,9 @@ export const DownloadSongButton: FC<{
                 ? t('songs.button.removeHint', { title: found.title })
                 : busy
                   ? t('songs.button.cancelHint')
-                  : (found.error ?? t('songs.state.failed'))}
+                  : found.error
+                    ? issueSummary(found.error, t)
+                    : t('songs.state.failed')}
             </p>
             {remove.isError && (
               <p role="alert" className="text-primary text-sm wrap-anywhere">

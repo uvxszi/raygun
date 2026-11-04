@@ -288,11 +288,11 @@ impl PodcastService {
                         });
                     }
                 }
-                Err(error) => errors.push(format!("{}: {error}", provider.name)),
+                Err(error) => errors.push(raygun_net::issue::named(&provider.name, &error)),
             }
         }
         if found.books.is_empty() && !errors.is_empty() {
-            return Err(errors.join("; "));
+            return Err(raygun_net::issue::joined(&errors));
         }
         Ok(found)
     }
@@ -533,11 +533,11 @@ impl PodcastService {
                         });
                     }
                 }
-                Err(error) => errors.push(format!("{}: {error}", provider.name)),
+                Err(error) => errors.push(raygun_net::issue::named(&provider.name, &error)),
             }
         }
         if results.is_empty() && !errors.is_empty() {
-            return Err(errors.join("; "));
+            return Err(raygun_net::issue::joined(&errors));
         }
         let db = self.db();
         for result in &mut results {

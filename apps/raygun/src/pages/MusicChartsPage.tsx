@@ -3,6 +3,7 @@ import { LoaderCircle } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { issueSummary } from '../lib/issue';
 import { ChartRow } from '../music/ChartRow';
 import { chartKey, useMusicCharts } from '../music/useDiscovery';
 import { TopBar } from '../shell/TopBar';
@@ -39,7 +40,9 @@ export const MusicChartsPage: FC = () => {
       )}
       {charts.data && charts.data.errors.length > 0 && (
         <p className="text-muted text-sm wrap-anywhere">
-          {t('discover.chartsFailed', { errors: charts.data.errors.join('; ') })}
+          {t('discover.chartsFailed', {
+            errors: charts.data.errors.map((error) => issueSummary(error, t)).join('; '),
+          })}
         </p>
       )}
       {charts.isSuccess && all.length === 0 && (

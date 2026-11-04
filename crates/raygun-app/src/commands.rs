@@ -618,9 +618,10 @@ pub async fn online_search(
     durations: tauri::State<'_, Arc<crate::durations::DurationService>>,
     query: String,
 ) -> Result<SearchResults, String> {
-    let (local, providers) = futures_util::future::join(
+    // M46.48: the answer doesn't wait on the slowest sources; asking again brings their songs.
+    let (local, (providers, pending)) = futures_util::future::join(
         library.search(&query, SEARCH_LIBRARY_LIMIT),
-        extensions.search(&query),
+        extensions.search_now(&query),
     )
     .await;
     let library = local.unwrap_or_else(|message| {
@@ -640,6 +641,7 @@ pub async fn online_search(
         library,
         top: crate::search::merge_top(&providers),
         providers,
+        pending,
     })
 }
 

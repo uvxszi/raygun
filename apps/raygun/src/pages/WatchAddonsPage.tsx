@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { issueSummary } from '../lib/issue';
 import { useLocalNetworkGate } from '../network/useLocalNetworkGate';
 import { Sheet } from '../shell/Sheet';
 import { TopBarAction } from '../shell/TopBar';
@@ -44,8 +45,8 @@ const AddonItem: FC<{ addon: StremioAddon }> = ({ addon }) => {
           {addon.version && <span className="text-muted text-xs"> {addon.version}</span>}
         </span>
         {addon.error ? (
-          <span className="text-primary text-xs wrap-anywhere">
-            {t('watch.addonFailed', { message: addon.error })}
+          <span title={addon.error} className="text-muted text-xs wrap-anywhere">
+            {issueSummary(addon.error, t, addon.name)}
           </span>
         ) : (
           <>

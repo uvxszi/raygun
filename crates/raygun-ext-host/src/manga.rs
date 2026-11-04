@@ -139,21 +139,47 @@ impl ExtensionHost {
         Ok(parse_listing(&value))
     }
 
+    /// A source's first page of results for a search row (M46.48): its popular titles when
+    /// `query` is blank. Rows take turns among catalogue searches (good sources first; a slow
+    /// one makes way after a moment) and give up after [`crate::CATALOG_SEARCH_TIMEOUT`].
+    /// Dropping the future stops the call.
+    pub async fn catalog_search_row(
+        &self,
+        provider: &str,
+        query: &str,
+    ) -> Result<MangaListing, crate::CallError> {
+        let standing = self.health().standing(provider);
+        let mut turn = Some(self.catalog_turns().wait(standing).await);
+        let (method, args) = if query.is_empty() {
+            ("popular", serde_json::json!({ "page": 1 }))
+        } else {
+            ("search", serde_json::json!({ "query": query, "page": 1 }))
+        };
+        let started = std::time::Instant::now();
+        let mut call =
+            std::pin::pin!(self.call_within(provider, method, args, crate::CATALOG_SEARCH_TIMEOUT));
+        let answer = tokio::select! {
+            answer = &mut call => answer,
+            () = tokio::time::sleep(crate::fanout::HOLD) => {
+                turn.take();
+                call.await
+            }
+        };
+        drop(turn);
+        self.health()
+            .record(provider, answer.as_ref().map(|_| ()), started.elapsed());
+        Ok(parse_listing(&answer?))
+    }
+
     /// The filters a source offers for its search; none when it declares none. A source that has
     /// filters but couldn't list them (a network error) is an error, so the app can ask again.
     pub async fn manga_filters(&self, provider: &str) -> Result<Vec<SourceFilter>, String> {
         match self.call(provider, "filters", serde_json::json!({})).await {
             Ok(value) => Ok(parse_filters(&value)),
+            Err(error) if error.is_missing() => Ok(Vec::new()),
             Err(error) => {
-                let message = error.to_string();
-                if message.contains("has no method filters")
-                    || message.contains("isn't a novel source call")
-                {
-                    Ok(Vec::new())
-                } else {
-                    tracing::warn!(%provider, %message, "source filters failed");
-                    Err(message)
-                }
+                tracing::warn!(%provider, %error, "source filters failed");
+                Err(error.to_string())
             }
         }
     }
@@ -163,7 +189,14 @@ impl ExtensionHost {
             .call(provider, "details", serde_json::json!({ "id": id }))
             .await
             .map_err(|error| error.to_string())?;
-        parse_details(&value, id).ok_or_else(|| "The source sent no title".to_owned())
+        parse_details(&value, id).ok_or_else(|| {
+            raygun_net::Issue::new(
+                raygun_net::IssueKind::SiteChanged,
+                self.provider_name(provider),
+                "its answer had no title",
+            )
+            .to_string()
+        })
     }
 
     pub async fn manga_chapters(
@@ -193,7 +226,10 @@ impl ExtensionHost {
             .map_err(|error| error.to_string())?;
         let pages = parse_pages(&value);
         if pages.is_empty() {
-            return Err("This chapter has no pages".into());
+            return Err(format!(
+                "{} has no pages for this chapter",
+                self.provider_name(provider)
+            ));
         }
         Ok(pages)
     }

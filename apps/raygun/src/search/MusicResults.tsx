@@ -38,8 +38,8 @@ const ProviderResults: FC<ProviderResultsProps> = ({ result, ambiguous, limit })
         />
       </h3>
       {result.error ? (
-        <SourceIssue source={result.provider.name}>
-          {t('search.providerFailed', { message: result.error })}
+        <SourceIssue compact source={result.provider.name}>
+          {result.error}
         </SourceIssue>
       ) : result.tracks.length === 0 ? (
         <p className="text-muted text-sm">{t('search.providerEmpty')}</p>
@@ -139,6 +139,8 @@ export const MusicResults: FC<{
   // Songs already seen show while the sources are asked (M46.47).
   const seen = useSeenSongs(query);
   const results = search.data?.providers ?? [];
+  const failed = results.filter((result) => result.error);
+  const pending = search.data?.pending?.length ?? 0;
   const library = search.data?.library ?? [];
   const top = search.data?.top ?? [];
   const names = results.map((result) => result.provider.name);
@@ -229,6 +231,16 @@ export const MusicResults: FC<{
           {search.isPending && seen.length > 0 && (
             <BestSongs query={query} top={seen} results={[]} />
           )}
+          {/* Slow sources answer on the next ask (M46.48), a moment later. */}
+          {pending > 0 && (
+            <p role="status" className="text-muted flex items-center gap-2 text-xs">
+              <LoaderCircle aria-hidden size={12} className="animate-spin" />
+              {t('search.sourcesAnswered', {
+                done: results.length,
+                total: results.length + pending,
+              })}
+            </p>
+          )}
           {nothingFound ? (
             <p className="text-muted text-sm">{t('search.noResults', { query })}</p>
           ) : grouped ? (
@@ -249,13 +261,14 @@ export const MusicResults: FC<{
                 top={top}
                 results={results.filter((result) => !result.error)}
               />
-              {results
-                .filter((result) => result.error)
-                .map((result) => (
-                  <p key={result.provider.id} className="text-muted text-xs wrap-anywhere">
-                    {result.provider.name}: {t('search.providerFailed', { message: result.error })}
-                  </p>
-                ))}
+              {/* A quiet mark: what each one met shows when grouped by source. */}
+              {failed.length > 0 && (
+                <p className="text-muted text-xs wrap-anywhere">
+                  {t('search.someFailed', {
+                    sources: failed.map((result) => result.provider.name).join(', '),
+                  })}
+                </p>
+              )}
             </>
           )}
         </>

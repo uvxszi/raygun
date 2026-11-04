@@ -3130,6 +3130,8 @@ export type SearchResults_Deserialize = {
 	/**  Tracks merged across providers, best first; empty unless two or more providers found some. */
 	top: OnlineTrack[],
 	providers: ProviderSearchResult_Deserialize[],
+	/**  Sources still searching (M46.48): searching again soon brings their songs. */
+	pending?: ProviderInfo_Deserialize[],
 };
 
 /**  Everything a search found (M18). */
@@ -3139,6 +3141,8 @@ export type SearchResults_Serialize = {
 	/**  Tracks merged across providers, best first; empty unless two or more providers found some. */
 	top: OnlineTrack[],
 	providers: ProviderSearchResult_Serialize[],
+	/**  Sources still searching (M46.48): searching again soon brings their songs. */
+	pending?: ProviderInfo_Serialize[],
 };
 
 /**

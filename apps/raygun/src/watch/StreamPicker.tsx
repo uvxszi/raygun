@@ -105,9 +105,9 @@ export const StreamPicker: FC<{
                 {group.addonName}
               </h3>
               {group.error && (
-                <p className="text-muted text-sm wrap-anywhere">
-                  {t('watch.streamsFailed', { message: group.error })}
-                </p>
+                <SourceIssue compact source={group.addonName}>
+                  {group.error}
+                </SourceIssue>
               )}
               <ul className="flex flex-col gap-2">
                 {group.streams.map((stream, index) => (

@@ -57,13 +57,19 @@
     apiVersion: 1,
     log: Object.freeze(log),
     http: Object.freeze({
+      // The native answers with an object ({ status, url, headers, body } or { error }), so a
+      // big page is never escaped into JSON and parsed back.
       fetch: async (url, init = {}) => {
         const options = {
           method: init.method ?? 'GET',
           headers: init.headers ?? {},
           body: init.body ?? null,
         };
-        return toResponse(unwrap(await native.fetch(String(url), JSON.stringify(options))));
+        const raw = await native.fetch(String(url), JSON.stringify(options));
+        if (raw.error !== undefined) {
+          throw new Error(raw.error);
+        }
+        return toResponse(raw);
       },
     }),
     html: Object.freeze({

@@ -1,28 +1,38 @@
 //! The extension host: loads extensions and routes provider calls to them.
 //!
-//! All extensions live on one dedicated thread running a current-thread tokio runtime and a
-//! `LocalSet`. Requests arrive over a channel and each runs as a local task, so one extension
-//! waiting on the network doesn't block another. Calls into the *same* extension are serialized
-//! by its runtime lock (a provider can still run its own requests in parallel with `Promise.all`).
+//! Extensions live on a few dedicated threads, the lanes, each running a current-thread tokio
+//! runtime and a `LocalSet`; an extension stays on its lane (a QuickJS runtime can't move between
+//! threads). Requests arrive over a lane's channel and each runs as a local task, so one extension
+//! waiting on the network doesn't block another, and one busy running script (a long loop, a big
+//! page to parse) holds up only the extensions on its lane; their requests go on regardless, on
+//! the network runtime (`js.rs`). Calls into the *same* extension take turns at its runtime lock
+//! between awaits (a provider can still run its own requests in parallel with `Promise.all`).
+//! What's loaded, and which lane has it, is known on this side, so listing extensions and
+//! providers never waits on a lane.
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::{Arc, PoisonError, RwLock};
 use std::time::Duration;
 
+use futures_util::FutureExt;
 use raygun_model::{
     ArtistEvent, ExtensionInfo, ExtensionOrigin, ExtensionSetting, ExtensionStatus, LyricLine,
     Lyrics, MediaSource, MusicAlbum, MusicAlbumDetail, MusicArtist, MusicChart, MusicPlaylist,
     MusicPlaylistDetail, OnlineTrack, ProviderInfo, ProviderSearchResult, SettingKind,
     SettingValue, TrackQuery,
 };
+use raygun_net::{Issue, IssueKind};
 use raygun_resolver::Candidate;
 use serde::Deserialize;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::content::ContentFilter;
 use crate::cookies::CookieJar;
+use crate::failure::{self, Failure};
+use crate::fanout::{self, Asked, Health, Memo, Patience, Plan, Turns};
 use crate::js::{JsExtension, Limits};
 use crate::manifest::{self, MANIFEST_FILE, Manifest, Runtime};
 use crate::shosetsu::ShosetsuExtension;
@@ -40,6 +50,18 @@ pub const MUSIC_RECOMMEND: &str = "music.recommend";
 /// How long a search or a stream lookup waits for one source (M46.17); background work (charts,
 /// tags, downloads) keeps the longer call limit.
 pub const INTERACTIVE_TIMEOUT: Duration = Duration::from_secs(12);
+/// Sources a fan-out asks at once (searches, lookups, lyrics...); the rest wait their turn, and
+/// a slow one makes way after a moment (`fanout::HOLD`). Requests are bounded per site and in
+/// all as well (`js.rs`).
+pub const FAN_OUT_CONCURRENCY: usize = 16;
+/// A catalogue source's search or listing someone waits on (comics, books, videos): longer than
+/// a music API's, shorter than the call limit, so a hanging site doesn't hold its row for long.
+pub const CATALOG_SEARCH_TIMEOUT: Duration = Duration::from_secs(15);
+/// Catalogue searches running at once across every source; more wait, good sources first.
+const CATALOG_SEARCHES: usize = 6;
+/// A music search someone waits on: once a source answered with songs, the slower ones get this
+/// much longer before the answer goes out; their songs come with asking again.
+const SEARCH_SETTLE: Duration = Duration::from_millis(2500);
 
 /// Longest tag name kept from a provider.
 const MAX_TAG_CHARS: usize = 60;
@@ -71,6 +93,8 @@ pub struct HostConfig {
     pub call_timeout: Duration,
     /// The NSFW switch (M35), shared with the app.
     pub content: ContentFilter,
+    /// Threads extensions run on; 0 picks by the device's cores.
+    pub lanes: usize,
 }
 
 impl Default for HostConfig {
@@ -80,8 +104,17 @@ impl Default for HostConfig {
             limits: Limits::default(),
             call_timeout: Duration::from_secs(30),
             content: ContentFilter::default(),
+            lanes: 0,
         }
     }
+}
+
+/// Lanes when the config leaves it open: one per core, two to four.
+fn default_lanes() -> usize {
+    std::thread::available_parallelism()
+        .map(std::num::NonZero::get)
+        .unwrap_or(2)
+        .clamp(2, 4)
 }
 
 /// An extension's files: compiled in, or a folder under `extensions/`.
@@ -156,25 +189,81 @@ pub fn discover_installed(dir: &Path) -> Vec<ExtensionSource> {
     dirs.into_iter().map(ExtensionSource::installed).collect()
 }
 
+/// Why a provider call failed. Its text is one short sentence naming the source and what went
+/// wrong, then (on the next lines) the raw details, for "More info".
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
 pub enum CallError {
-    #[error("no provider {0}")]
+    /// No such provider: not installed, or its extension didn't load.
+    #[error("That source isn't installed\nno provider {0}")]
     UnknownProvider(String),
-    #[error("{0} did not answer in time")]
-    Timeout(String),
+    /// The provider doesn't have the call; asks for optional calls pass over it quietly.
+    #[error("{name} can't do that\nprovider {provider} has no method {method}")]
+    MissingMethod {
+        name: String,
+        provider: String,
+        method: String,
+    },
+    /// No answer in the time allowed.
+    #[error("{name} didn't answer in time\nno answer within {} seconds", .after.as_secs())]
+    Timeout { name: String, after: Duration },
+    /// The call failed; the issue says why.
     #[error("{0}")]
-    Script(String),
-    #[error("the extension host has stopped")]
+    Failed(Issue),
+    /// The source's own words for what went wrong.
+    #[error("{}", said(.name, .message))]
+    Said { name: String, message: String },
+    /// Not asked: the source failed again and again lately and sits out a while. Its last
+    /// failure stands in for the answer.
+    #[error("{last}\nnot asked for a while after failing {failures} times in a row")]
+    Resting { last: Box<CallError>, failures: u32 },
+    /// Nobody waits for the answer any more.
+    #[error("Stopped")]
+    Cancelled,
+    #[error("Sources stopped working — restart Raygun\nthe extension host has stopped")]
     HostStopped,
 }
 
+impl CallError {
+    /// What kind of failure it is, when the network or the site tells.
+    pub fn kind(&self) -> Option<IssueKind> {
+        match self {
+            Self::Timeout { .. } => Some(IssueKind::Timeout),
+            Self::Failed(issue) => Some(issue.kind),
+            Self::Resting { last, .. } => last.kind(),
+            _ => None,
+        }
+    }
+
+    /// Whether the provider just doesn't have the call.
+    pub fn is_missing(&self) -> bool {
+        matches!(self, Self::MissingMethod { .. })
+    }
+
+    /// The raw details: what the script threw, what its requests met.
+    pub fn detail(&self) -> String {
+        match self {
+            Self::Failed(issue) => issue.detail.clone(),
+            Self::Said { message, .. } => message.clone(),
+            Self::Resting { last, .. } => last.detail(),
+            other => other.to_string(),
+        }
+    }
+}
+
+/// A source's own message, with its name unless the message names it already.
+fn said(name: &str, message: &str) -> String {
+    if message.to_lowercase().contains(&name.to_lowercase()) {
+        message.to_owned()
+    } else {
+        format!("{name}: {message}")
+    }
+}
+
+/// What a lane is asked to do.
 enum Request {
+    /// Replaces the lane's extensions with these.
     Load {
-        sources: Vec<ExtensionSource>,
-        settings: UserSettings,
-        reply: oneshot::Sender<Vec<ExtensionInfo>>,
-    },
-    List {
+        items: Vec<LoadItem>,
         reply: oneshot::Sender<Vec<ExtensionInfo>>,
     },
     Call {
@@ -185,27 +274,99 @@ enum Request {
     },
 }
 
-/// Handle to the host thread; cheap to clone and usable from any thread or runtime.
+/// An extension for a lane to load.
+struct LoadItem {
+    source: ExtensionSource,
+    manifest: Manifest,
+    settings: BTreeMap<String, serde_json::Value>,
+}
+
+/// Handle to the host; cheap to clone and usable from any thread or runtime.
 #[derive(Clone)]
 pub struct ExtensionHost {
-    requests: mpsc::UnboundedSender<Request>,
+    shared: Arc<HostShared>,
+}
+
+struct HostShared {
+    lanes: Vec<mpsc::UnboundedSender<Request>>,
+    directory: RwLock<Directory>,
     content: ContentFilter,
+    health: Health,
+    memo: Memo,
+    catalog_turns: Arc<Turns>,
+}
+
+/// What's loaded, as of the last load.
+#[derive(Default)]
+struct Directory {
+    /// Every extension, failed ones included, by name.
+    infos: Vec<ExtensionInfo>,
+    /// The lane each loaded extension runs on.
+    lanes: HashMap<String, usize>,
+    /// Providers' names, by id.
+    names: HashMap<String, String>,
+}
+
+/// How long background asks (charts, tags) give one source.
+const BACKGROUND_TIMEOUT: Duration = Duration::from_secs(30);
+
+fn plan(timeout: Duration) -> Plan {
+    Plan {
+        concurrency: FAN_OUT_CONCURRENCY,
+        timeout,
+        skip_resting: true,
+    }
 }
 
 impl ExtensionHost {
     pub fn start(config: HostConfig) -> std::io::Result<Self> {
-        let (requests, receiver) = mpsc::unbounded_channel();
-        let content = config.content.clone();
-        std::thread::Builder::new()
-            .name("raygun-ext".to_owned())
-            .spawn(move || run(config, receiver))?;
-        Ok(Self { requests, content })
+        let count = if config.lanes == 0 {
+            default_lanes()
+        } else {
+            config.lanes
+        };
+        let mut lanes = Vec::with_capacity(count);
+        for index in 0..count {
+            let (requests, receiver) = mpsc::unbounded_channel();
+            let config = config.clone();
+            std::thread::Builder::new()
+                .name(format!("raygun-ext-{index}"))
+                .spawn(move || run_lane(config, receiver))?;
+            lanes.push(requests);
+        }
+        Ok(Self {
+            shared: Arc::new(HostShared {
+                lanes,
+                directory: RwLock::new(Directory::default()),
+                content: config.content.clone(),
+                health: Health::default(),
+                memo: Memo::default(),
+                catalog_turns: Turns::new(CATALOG_SEARCHES),
+            }),
+        })
     }
 
     /// The NSFW switch: off hides providers of `nsfw`-rated extensions and tells extensions to
     /// filter their results.
     pub fn content(&self) -> &ContentFilter {
-        &self.content
+        &self.shared.content
+    }
+
+    /// What sources' calls did lately: fan-outs ask the good ones first and rest failing ones.
+    pub fn health(&self) -> &Health {
+        &self.shared.health
+    }
+
+    /// Turns for catalogue searches someone waits on (comics, books, videos).
+    pub(crate) fn catalog_turns(&self) -> &Arc<Turns> {
+        &self.shared.catalog_turns
+    }
+
+    fn directory(&self) -> std::sync::RwLockReadGuard<'_, Directory> {
+        self.shared
+            .directory
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Replaces every loaded extension with `sources`. An installed extension overrides a
@@ -214,25 +375,102 @@ impl ExtensionHost {
         self.load_with_settings(sources, UserSettings::new()).await
     }
 
-    /// Like [`Self::load`], with the user's setting values (invalid ones are ignored).
+    /// Like [`Self::load`], with the user's setting values (invalid ones are ignored). Lanes
+    /// load their share at the same time; an extension keeps its lane across loads, and a new
+    /// one goes to the lane with the fewest.
     pub async fn load_with_settings(
         &self,
         sources: Vec<ExtensionSource>,
-        settings: UserSettings,
+        mut settings: UserSettings,
     ) -> Vec<ExtensionInfo> {
-        self.ask(|reply| Request::Load {
-            sources,
-            settings,
-            reply,
-        })
-        .await
-        .unwrap_or_default()
+        let (chosen, mut infos) = choose(sources);
+        let previous = self.directory().lanes.clone();
+        let count = self.shared.lanes.len();
+        let mut batches: Vec<Vec<LoadItem>> = (0..count).map(|_| Vec::new()).collect();
+        let mut fresh = Vec::new();
+        for (id, (source, manifest)) in chosen {
+            let item = LoadItem {
+                settings: settings.remove(&id).unwrap_or_default(),
+                source,
+                manifest,
+            };
+            match previous.get(&id) {
+                Some(&lane) if lane < count => batches[lane].push(item),
+                _ => fresh.push(item),
+            }
+        }
+        for item in fresh {
+            let lane = (0..count)
+                .min_by_key(|lane| batches[*lane].len())
+                .unwrap_or_default();
+            batches[lane].push(item);
+        }
+        let placed: HashMap<String, usize> = batches
+            .iter()
+            .enumerate()
+            .flat_map(|(lane, items)| {
+                items
+                    .iter()
+                    .map(move |item| (item.manifest.id.clone(), lane))
+            })
+            .collect();
+        let loads = batches
+            .into_iter()
+            .enumerate()
+            .map(|(lane, items)| async move {
+                let (reply, answer) = oneshot::channel();
+                if self.shared.lanes[lane]
+                    .send(Request::Load { items, reply })
+                    .is_err()
+                {
+                    return Vec::new();
+                }
+                answer.await.unwrap_or_default()
+            });
+        for loaded in futures_util::future::join_all(loads).await {
+            infos.extend(loaded);
+        }
+        infos.sort_by_key(|info| info.name.to_lowercase());
+        let lanes = infos
+            .iter()
+            .filter(|info| info.status == ExtensionStatus::Loaded)
+            .filter_map(|info| Some((info.id.clone(), *placed.get(&info.id)?)))
+            .collect();
+        let names = infos
+            .iter()
+            .flat_map(|info| &info.providers)
+            .map(|provider| (provider.id.clone(), provider.name.clone()))
+            .collect();
+        let previous = std::mem::replace(
+            &mut *self
+                .shared
+                .directory
+                .write()
+                .unwrap_or_else(PoisonError::into_inner),
+            Directory {
+                infos: infos.clone(),
+                lanes,
+                names,
+            },
+        );
+        // An extension that changed (an update, other settings) starts with a clean record.
+        for info in &infos {
+            let same = previous.infos.iter().any(|old| {
+                old.id == info.id && old.version == info.version && old.settings == info.settings
+            });
+            if !same {
+                for provider in &info.providers {
+                    self.shared.health.forget(&provider.id);
+                }
+            }
+        }
+        // Answers kept from the extensions replaced don't hold any more.
+        self.shared.memo.clear();
+        infos
     }
 
     pub async fn list(&self) -> Vec<ExtensionInfo> {
-        self.ask(|reply| Request::List { reply })
-            .await
-            .unwrap_or_default()
+        self.directory().infos.clone()
     }
 
     /// Providers of `kind` that searches and lookups use: not the disabled ones, and those of
@@ -241,7 +479,7 @@ impl ExtensionHost {
         self.listed_providers(kind)
             .await
             .into_iter()
-            .filter(|provider| !self.content.is_disabled(&provider.id))
+            .filter(|provider| !self.shared.content.is_disabled(&provider.id))
             .collect()
     }
 
@@ -249,20 +487,30 @@ impl ExtensionHost {
     /// M46.8); NSFW-rated extensions' only while NSFW content is shown (music: while explicit
     /// music is, M46.36).
     pub async fn listed_providers(&self, kind: &str) -> Vec<ProviderInfo> {
-        let allowed = self.content.allows("nsfw", kind);
-        self.list()
-            .await
-            .into_iter()
+        let allowed = self.shared.content.allows("nsfw", kind);
+        self.directory()
+            .infos
+            .iter()
             .filter(|extension| allowed || extension.content_rating != "nsfw")
-            .flat_map(|extension| extension.providers)
+            .flat_map(|extension| &extension.providers)
             .filter(|provider| provider.kind == kind)
+            .cloned()
             .collect()
+    }
+
+    /// A provider's name for people (`<extension>/<provider>` id), for messages.
+    pub fn provider_name(&self, provider: &str) -> String {
+        self.directory()
+            .names
+            .get(provider)
+            .cloned()
+            .unwrap_or_else(|| "The source".to_owned())
     }
 
     /// A provider's songs, without explicit ones while Explicit music is off (M46.36).
     fn tracks(&self, value: serde_json::Value) -> Vec<OnlineTrack> {
         let mut tracks = parse_tracks(value);
-        if !self.content.show_explicit_music() {
+        if !self.shared.content.show_explicit_music() {
             tracks.retain(|track| !track.explicit);
         }
         tracks
@@ -277,66 +525,156 @@ impl ExtensionHost {
         method: &str,
         args: serde_json::Value,
     ) -> Result<serde_json::Value, CallError> {
-        tokio::time::timeout(INTERACTIVE_TIMEOUT, self.call(provider, method, args))
+        self.call_within(provider, method, args, INTERACTIVE_TIMEOUT)
             .await
-            .unwrap_or_else(|_| Err(CallError::Timeout(provider.to_owned())))
     }
 
+    /// Like [`Self::call`], giving up after `limit`; the extension stops working on it then.
+    pub async fn call_within(
+        &self,
+        provider: &str,
+        method: &str,
+        args: serde_json::Value,
+        limit: Duration,
+    ) -> Result<serde_json::Value, CallError> {
+        match tokio::time::timeout(limit, self.call(provider, method, args)).await {
+            Ok(answer) => answer,
+            Err(_) => Err(CallError::Timeout {
+                name: self.provider_name(provider),
+                after: limit,
+            }),
+        }
+    }
+
+    /// Like [`Self::call_within`], shared with identical asks running now, and answered from a
+    /// recent success for a moment (`fanout::MEMO_TTL`). The call goes on when its asker stops
+    /// waiting, so asking again picks up its answer: searches answer with what came in time
+    /// and the rest comes on asking again.
+    pub async fn call_memo(
+        &self,
+        provider: &str,
+        method: &str,
+        args: serde_json::Value,
+        limit: Duration,
+    ) -> Result<serde_json::Value, CallError> {
+        let key = format!("{provider}\n{method}\n{args}");
+        // Weak, so a kept call never keeps the host alive.
+        let host = Arc::downgrade(&self.shared);
+        let (provider, method) = (provider.to_owned(), method.to_owned());
+        let answer = self.shared.memo.answer(key, move || {
+            async move {
+                let Some(shared) = host.upgrade() else {
+                    return Err(CallError::HostStopped);
+                };
+                ExtensionHost { shared }
+                    .call_within(&provider, &method, args, limit)
+                    .await
+            }
+            .boxed()
+        });
+        answer.await
+    }
+
+    /// Calls `method` on a provider (its full `<extension>/<provider>` id), JSON in and out,
+    /// within the host's call limit. Dropping the future stops the call.
     pub async fn call(
         &self,
         provider: &str,
         method: &str,
         args: serde_json::Value,
     ) -> Result<serde_json::Value, CallError> {
-        let (provider, method) = (provider.to_owned(), method.to_owned());
-        self.ask(|reply| Request::Call {
-            provider,
-            method,
-            args,
-            reply,
-        })
-        .await
-        .unwrap_or(Err(CallError::HostStopped))
+        let unknown = || CallError::UnknownProvider(provider.to_owned());
+        let (extension_id, _) = provider.split_once('/').ok_or_else(unknown)?;
+        let lane = self
+            .directory()
+            .lanes
+            .get(extension_id)
+            .copied()
+            .ok_or_else(unknown)?;
+        let (reply, answer) = oneshot::channel();
+        self.shared.lanes[lane]
+            .send(Request::Call {
+                provider: provider.to_owned(),
+                method: method.to_owned(),
+                args,
+                reply,
+            })
+            .map_err(|_| CallError::HostStopped)?;
+        answer.await.unwrap_or(Err(CallError::HostStopped))
     }
 
-    /// Asks every `music.metadata` provider at once; each answers with tracks or an error.
+    /// Asks every `music.metadata` provider, a few at a time; each answers with tracks or an
+    /// error, the good sources first.
     pub async fn search_music(&self, query: &str, limit: u32) -> Vec<ProviderSearchResult> {
         let providers = self.providers(MUSIC_METADATA).await;
-        let args = serde_json::json!({ "query": query, "limit": limit });
-        let searches = providers.into_iter().map(|provider| {
-            let args = args.clone();
-            async move {
-                let started = std::time::Instant::now();
-                match self.call_interactive(&provider.id, "search", args).await {
-                    Ok(value) => {
-                        let tracks = self.tracks(value);
-                        tracing::info!(
-                            provider = %provider.id,
-                            tracks = tracks.len(),
-                            elapsed_ms = started.elapsed().as_millis(),
-                            "search answered"
-                        );
-                        ProviderSearchResult {
-                            tracks,
-                            provider,
-                            error: None,
-                        }
-                    }
-                    Err(error) => {
-                        tracing::warn!(provider = %provider.id, %error, "search failed");
-                        ProviderSearchResult {
-                            provider,
-                            tracks: Vec::new(),
-                            error: Some(error.to_string()),
-                        }
-                    }
-                }
-            }
-        });
-        futures_util::future::join_all(searches).await
+        fanout::collect(self.search_asks(providers, query, limit, false))
+            .await
+            .into_iter()
+            .map(search_result)
+            .collect()
     }
 
-    /// Asks every `music.stream` provider at once for candidates for `query`.
+    /// A music search someone waits on: the sources' songs that came in time, and the sources
+    /// still searching. It never waits long on the slowest once others answered; those calls go
+    /// on, and asking again (soon) brings their songs.
+    pub async fn search_music_now(
+        &self,
+        query: &str,
+        limit: u32,
+    ) -> (Vec<ProviderSearchResult>, Vec<ProviderInfo>) {
+        let providers = self.providers(MUSIC_METADATA).await;
+        let (answers, _) = fanout::gather(
+            self.search_asks(providers.clone(), query, limit, true),
+            Patience {
+                total: INTERACTIVE_TIMEOUT,
+                settle: SEARCH_SETTLE,
+            },
+            |answer| answer.as_ref().is_ok_and(|tracks| !tracks.is_empty()),
+        )
+        .await;
+        let pending = providers
+            .into_iter()
+            .filter(|provider| !answers.iter().any(|asked| asked.provider.id == provider.id))
+            .collect();
+        (answers.into_iter().map(search_result).collect(), pending)
+    }
+
+    fn search_asks<'a>(
+        &'a self,
+        providers: Vec<ProviderInfo>,
+        query: &str,
+        limit: u32,
+        memo: bool,
+    ) -> impl futures_util::Stream<Item = Asked<Vec<OnlineTrack>>> + 'a {
+        let args = serde_json::json!({ "query": query, "limit": limit });
+        fanout::fan_out(
+            &self.shared.health,
+            providers,
+            plan(INTERACTIVE_TIMEOUT),
+            move |provider| {
+                let args = args.clone();
+                async move {
+                    let started = std::time::Instant::now();
+                    let value = if memo {
+                        self.call_memo(&provider.id, "search", args, INTERACTIVE_TIMEOUT)
+                            .await
+                    } else {
+                        self.call_interactive(&provider.id, "search", args).await
+                    }?;
+                    let tracks = self.tracks(value);
+                    tracing::info!(
+                        provider = %provider.id,
+                        tracks = tracks.len(),
+                        elapsed_ms = started.elapsed().as_millis(),
+                        "search answered"
+                    );
+                    Ok(tracks)
+                }
+            },
+        )
+    }
+
+    /// Asks every `music.stream` provider for candidates for `query`, a few at a time.
     pub async fn stream_candidates(
         &self,
         query: &TrackQuery,
@@ -356,18 +694,27 @@ impl ExtensionHost {
         if quality != raygun_resolver::QualityTarget::Any {
             args["targetKbps"] = serde_json::json!(quality.kbps());
         }
-        let requests = providers.into_iter().map(|provider| {
-            let args = args.clone();
-            async move {
-                let result = self
-                    .call_interactive(&provider.id, "candidates", args)
-                    .await
-                    .map(|value| parse_candidates(&provider, value))
-                    .map_err(|error| error.to_string());
-                ProviderCandidates { provider, result }
-            }
-        });
-        futures_util::future::join_all(requests).await
+        let asks = fanout::fan_out(
+            &self.shared.health,
+            providers,
+            plan(INTERACTIVE_TIMEOUT),
+            |provider| {
+                let args = args.clone();
+                async move {
+                    self.call_interactive(&provider.id, "candidates", args)
+                        .await
+                        .map(|value| parse_candidates(&provider, value))
+                }
+            },
+        );
+        fanout::collect(asks)
+            .await
+            .into_iter()
+            .map(|asked| ProviderCandidates {
+                provider: asked.provider,
+                result: asked.answer.map_err(|error| error.to_string()),
+            })
+            .collect()
     }
 
     /// Lyrics for `query` from every `lyrics` provider at once: synced lyrics beat plain ones,
@@ -389,21 +736,23 @@ impl ExtensionHost {
             "album": query.album,
             "durationMs": query.duration_ms,
         });
-        let requests = providers.into_iter().map(|provider| {
-            let args = args.clone();
-            async move {
-                let answer = self.call(&provider.id, "lyrics", args).await;
-                (provider, answer)
-            }
-        });
-        let answers = futures_util::future::join_all(requests).await;
+        let asks = fanout::fan_out(
+            &self.shared.health,
+            providers,
+            plan(INTERACTIVE_TIMEOUT),
+            |provider| {
+                let args = args.clone();
+                async move { self.call_interactive(&provider.id, "lyrics", args).await }
+            },
+        );
         let mut found: Vec<Lyrics> = Vec::new();
         let mut errors = Vec::new();
-        for (provider, answer) in answers {
-            match answer {
-                Ok(value) => found.extend(parse_lyrics(&provider, &value)),
+        for asked in fanout::collect(asks).await {
+            match asked.answer {
+                Ok(value) => found.extend(parse_lyrics(&asked.provider, &value)),
+                Err(error) if error.is_missing() => {}
                 Err(error) => {
-                    tracing::warn!(provider = %provider.id, %error, "lyrics provider failed");
+                    tracing::warn!(provider = %asked.provider.id, %error, "lyrics provider failed");
                     errors.push(error.to_string());
                 }
             }
@@ -416,26 +765,37 @@ impl ExtensionHost {
         Ok(found)
     }
 
-    /// Every `music.charts` provider's charts at once (M46.9); each answers with charts or an
-    /// error. Charts' `tag`s are as the provider wrote them.
+    /// Every `music.charts` provider's charts (M46.9), a few at a time; each answers with charts
+    /// or an error. Charts' `tag`s are as the provider wrote them.
     pub async fn music_charts(
         &self,
         region: Option<&str>,
     ) -> Vec<(ProviderInfo, Result<Vec<MusicChart>, String>)> {
         let providers = self.providers(MUSIC_CHARTS).await;
         let args = serde_json::json!({ "region": region });
-        let requests = providers.into_iter().map(|provider| {
-            let args = args.clone();
-            async move {
-                let answer = self
-                    .call(&provider.id, "charts", args)
-                    .await
-                    .map(|value| parse_charts(&provider, &value))
-                    .map_err(|error| error.to_string());
-                (provider, answer)
-            }
-        });
-        futures_util::future::join_all(requests).await
+        let asks = fanout::fan_out(
+            &self.shared.health,
+            providers,
+            plan(BACKGROUND_TIMEOUT),
+            |provider| {
+                let args = args.clone();
+                async move {
+                    self.call(&provider.id, "charts", args)
+                        .await
+                        .map(|value| parse_charts(&provider, &value))
+                }
+            },
+        );
+        fanout::collect(asks)
+            .await
+            .into_iter()
+            .map(|asked| {
+                (
+                    asked.provider,
+                    asked.answer.map_err(|error| error.to_string()),
+                )
+            })
+            .collect()
     }
 
     /// Artists named like `query` from every `music.metadata` provider that searches artists
@@ -514,25 +874,28 @@ impl ExtensionHost {
         }
         let providers = self.providers(MUSIC_METADATA).await;
         let args = serde_json::json!({ "query": query, "limit": limit, "featured": featured });
-        let requests = providers.into_iter().map(|provider| {
-            let args = args.clone();
-            async move {
-                match self
-                    .call_interactive(&provider.id, "searchPlaylists", args)
-                    .await
-                {
-                    Ok(value) => Some((provider, value)),
-                    Err(error) => {
-                        log_unless_missing(&provider, "searchPlaylists", &error);
-                        None
-                    }
+        let asks = fanout::fan_out(
+            &self.shared.health,
+            providers,
+            plan(INTERACTIVE_TIMEOUT),
+            |provider| {
+                let args = args.clone();
+                async move {
+                    self.call_interactive(&provider.id, "searchPlaylists", args)
+                        .await
                 }
-            }
-        });
-        futures_util::future::join_all(requests)
+            },
+        );
+        fanout::collect(asks)
             .await
             .into_iter()
-            .flatten()
+            .filter_map(|asked| match asked.answer {
+                Ok(value) => Some((asked.provider, value)),
+                Err(error) => {
+                    log_unless_missing(&asked.provider, "searchPlaylists", &error);
+                    None
+                }
+            })
             .flat_map(|(provider, value)| {
                 value
                     .get("playlists")
@@ -580,18 +943,22 @@ impl ExtensionHost {
             .collect()
     }
 
+    /// The `music.metadata` provider `provider_id`, if it's one searches may use.
+    async fn metadata_provider(&self, provider_id: &str) -> Result<ProviderInfo, CallError> {
+        self.providers(MUSIC_METADATA)
+            .await
+            .into_iter()
+            .find(|provider| provider.id == provider_id)
+            .ok_or_else(|| CallError::UnknownProvider(provider_id.to_owned()))
+    }
+
     /// A playlist's songs from the provider that has it (M46.39).
     pub async fn music_playlist(
         &self,
         provider_id: &str,
         playlist_id: &str,
     ) -> Result<MusicPlaylistDetail, CallError> {
-        let provider = self
-            .providers(MUSIC_METADATA)
-            .await
-            .into_iter()
-            .find(|provider| provider.id == provider_id)
-            .ok_or_else(|| CallError::Script("That source isn't available".to_owned()))?;
+        let provider = self.metadata_provider(provider_id).await?;
         let value = self
             .call(
                 provider_id,
@@ -602,7 +969,7 @@ impl ExtensionHost {
         let playlist = value
             .get("playlist")
             .and_then(|playlist| parse_playlist(&provider, playlist))
-            .ok_or_else(|| CallError::Script("The source gave no playlist".to_owned()))?;
+            .ok_or_else(|| site_changed(&provider, "its answer had no playlist"))?;
         Ok(MusicPlaylistDetail {
             playlist,
             tracks: self.tracks(value),
@@ -615,27 +982,22 @@ impl ExtensionHost {
         provider_id: &str,
         album_id: &str,
     ) -> Result<MusicAlbumDetail, CallError> {
-        let provider = self
-            .providers(MUSIC_METADATA)
-            .await
-            .into_iter()
-            .find(|provider| provider.id == provider_id)
-            .ok_or_else(|| CallError::Script("That source isn't available".to_owned()))?;
+        let provider = self.metadata_provider(provider_id).await?;
         let value = self
             .call(provider_id, "album", serde_json::json!({ "id": album_id }))
             .await?;
         let album = value
             .get("album")
             .and_then(|album| parse_album(&provider, album))
-            .ok_or_else(|| CallError::Script("The source gave no album".to_owned()))?;
+            .ok_or_else(|| site_changed(&provider, "its answer had no album"))?;
         Ok(MusicAlbumDetail {
             album,
             tracks: self.tracks(value),
         })
     }
 
-    /// Asks every `music.metadata` provider that has `method` at once; answers from providers
-    /// without it, or that failed, are dropped (failures are logged).
+    /// Asks every `music.metadata` provider that has `method`, a few at a time; answers from
+    /// providers without it, or that failed, are dropped (failures are logged).
     async fn ask_metadata(
         &self,
         method: &str,
@@ -648,31 +1010,31 @@ impl ExtensionHost {
         }
         let providers = self.providers(MUSIC_METADATA).await;
         let args = serde_json::json!({ "query": query, "limit": limit });
-        let requests = providers.into_iter().map(|provider| {
-            let args = args.clone();
-            async move {
-                match self.call_interactive(&provider.id, method, args).await {
-                    Ok(value) => Some((provider, value)),
-                    Err(error) => {
-                        let message = error.to_string();
-                        if !message.contains("has no method") {
-                            tracing::warn!(provider = %provider.id, %message, "{method} failed");
-                        }
-                        None
-                    }
-                }
-            }
-        });
-        futures_util::future::join_all(requests)
+        let asks = fanout::fan_out(
+            &self.shared.health,
+            providers,
+            plan(INTERACTIVE_TIMEOUT),
+            |provider| {
+                let args = args.clone();
+                async move { self.call_interactive(&provider.id, method, args).await }
+            },
+        );
+        fanout::collect(asks)
             .await
             .into_iter()
-            .flatten()
+            .filter_map(|asked| match asked.answer {
+                Ok(value) => Some((asked.provider, value)),
+                Err(error) => {
+                    log_unless_missing(&asked.provider, method, &error);
+                    None
+                }
+            })
             .collect()
     }
 
     /// Songs for a genre or a mood from every `music.charts` provider that has `tagSongs`
-    /// (M46.19), at once. Providers without the call are left out; each other answers with
-    /// `(row name, songs)` or an error. `aliases` are the vocabulary's other spellings.
+    /// (M46.19), a few at a time. Providers without the call are left out; each other answers
+    /// with `(row name, songs)` or an error. `aliases` are the vocabulary's other spellings.
     pub async fn music_tag_songs(
         &self,
         tag: &str,
@@ -692,39 +1054,72 @@ impl ExtensionHost {
             "region": region,
             "limit": limit,
         });
-        let requests = providers.into_iter().map(|provider| {
-            let args = args.clone();
-            async move {
-                match self.call_interactive(&provider.id, "tagSongs", args).await {
-                    Ok(value) => {
-                        let name = value
-                            .get("name")
-                            .and_then(serde_json::Value::as_str)
-                            .map(|name| name.trim().to_owned())
-                            .filter(|name| !name.is_empty());
-                        Some((provider, Ok((name, self.tracks(value)))))
-                    }
-                    Err(error) => {
-                        let message = error.to_string();
-                        (!message.contains("has no method")).then_some((provider, Err(message)))
-                    }
-                }
-            }
-        });
-        futures_util::future::join_all(requests)
+        let asks = fanout::fan_out(
+            &self.shared.health,
+            providers,
+            plan(INTERACTIVE_TIMEOUT),
+            |provider| {
+                let args = args.clone();
+                async move { self.call_interactive(&provider.id, "tagSongs", args).await }
+            },
+        );
+        fanout::collect(asks)
             .await
             .into_iter()
-            .flatten()
+            .filter_map(|asked| match asked.answer {
+                Ok(value) => {
+                    let name = value
+                        .get("name")
+                        .and_then(serde_json::Value::as_str)
+                        .map(|name| name.trim().to_owned())
+                        .filter(|name| !name.is_empty());
+                    Some((asked.provider, Ok((name, self.tracks(value)))))
+                }
+                Err(error) if error.is_missing() => None,
+                Err(error) => Some((asked.provider, Err(error.to_string()))),
+            })
             .collect()
+    }
+
+    /// Providers of `kind` to ask one after another until one knows: the good ones first, and
+    /// none that sits out after failing again and again.
+    async fn in_turn(&self, kind: &str) -> Vec<ProviderInfo> {
+        let health = &self.shared.health;
+        health
+            .order(self.providers(kind).await)
+            .into_iter()
+            .filter(|provider| health.resting(&provider.id).is_none())
+            .collect()
+    }
+
+    /// A call of a provider asked in turn, noted in its health.
+    async fn ask_in_turn(
+        &self,
+        provider: &ProviderInfo,
+        method: &str,
+        args: serde_json::Value,
+        limit: Duration,
+    ) -> Result<serde_json::Value, CallError> {
+        let started = std::time::Instant::now();
+        let answer = self.call_within(&provider.id, method, args, limit).await;
+        self.shared
+            .health
+            .record(&provider.id, answer.as_ref().map(|_| ()), started.elapsed());
+        answer
     }
 
     /// Artists like `artist` from the first `music.recommend` provider that knows some (M46.20),
     /// the closest first.
     pub async fn similar_artists(&self, artist: &str, limit: u32) -> Vec<String> {
         let args = serde_json::json!({ "artist": artist, "limit": limit });
-        for provider in self.providers(MUSIC_RECOMMEND).await {
+        for provider in self.in_turn(MUSIC_RECOMMEND).await {
             match self
-                .call(&provider.id, "similarArtists", args.clone())
+                .ask_in_turn(
+                    &provider,
+                    "similarArtists",
+                    args.clone(),
+                    BACKGROUND_TIMEOUT,
+                )
                 .await
             {
                 Ok(value) => {
@@ -754,8 +1149,11 @@ impl ExtensionHost {
         method: &str,
         args: serde_json::Value,
     ) -> Vec<OnlineTrack> {
-        for provider in self.providers(MUSIC_RECOMMEND).await {
-            match self.call(&provider.id, method, args.clone()).await {
+        for provider in self.in_turn(MUSIC_RECOMMEND).await {
+            match self
+                .ask_in_turn(&provider, method, args.clone(), BACKGROUND_TIMEOUT)
+                .await
+            {
                 Ok(value) => {
                     let tracks = self.tracks(value);
                     if !tracks.is_empty() {
@@ -782,8 +1180,8 @@ impl ExtensionHost {
             .map(|value| self.tracks(value))
     }
 
-    /// Every `music.tags` provider's genres for a song at once (M46.9): `(name, weight)` pairs as
-    /// each wrote them, weights between 0 and 1 (1 when a provider gives none).
+    /// Every `music.tags` provider's genres for a song (M46.9), a few at a time: `(name, weight)`
+    /// pairs as each wrote them, weights between 0 and 1 (1 when a provider gives none).
     pub async fn music_tags(
         &self,
         query: &TrackQuery,
@@ -795,25 +1193,41 @@ impl ExtensionHost {
             "album": query.album,
             "durationMs": query.duration_ms,
         });
-        let requests = providers.into_iter().map(|provider| {
-            let args = args.clone();
-            async move {
-                let answer = self
-                    .call(&provider.id, "tags", args)
-                    .await
-                    .map(|value| parse_tags(&value))
-                    .map_err(|error| error.to_string());
-                (provider, answer)
-            }
-        });
-        futures_util::future::join_all(requests).await
+        let asks = fanout::fan_out(
+            &self.shared.health,
+            providers,
+            plan(BACKGROUND_TIMEOUT),
+            |provider| {
+                let args = args.clone();
+                async move {
+                    self.call(&provider.id, "tags", args)
+                        .await
+                        .map(|value| parse_tags(&value))
+                }
+            },
+        );
+        fanout::collect(asks)
+            .await
+            .into_iter()
+            .map(|asked| {
+                (
+                    asked.provider,
+                    asked.answer.map_err(|error| error.to_string()),
+                )
+            })
+            .collect()
     }
 
     /// What the first `music.info` provider that knows the artist says about them (M46.14).
     pub async fn artist_info(&self, name: &str) -> Option<raygun_model::ArtistInfo> {
-        for provider in self.providers(MUSIC_INFO).await {
+        for provider in self.in_turn(MUSIC_INFO).await {
             let answer = self
-                .call(&provider.id, "artist", serde_json::json!({ "name": name }))
+                .ask_in_turn(
+                    &provider,
+                    "artist",
+                    serde_json::json!({ "name": name }),
+                    INTERACTIVE_TIMEOUT,
+                )
                 .await;
             match answer {
                 Ok(value) => {
@@ -837,8 +1251,11 @@ impl ExtensionHost {
             "album": query.album,
             "durationMs": query.duration_ms,
         });
-        for provider in self.providers(MUSIC_INFO).await {
-            match self.call(&provider.id, "credits", args.clone()).await {
+        for provider in self.in_turn(MUSIC_INFO).await {
+            match self
+                .ask_in_turn(&provider, "credits", args.clone(), INTERACTIVE_TIMEOUT)
+                .await
+            {
                 Ok(value) => {
                     if let Some(credits) = parse_credits(&value, &provider.name) {
                         return Some(credits);
@@ -868,23 +1285,77 @@ impl ExtensionHost {
             .cloned()
             .and_then(|source| serde_json::from_value::<MediaSource>(source).ok())
             .filter(allowed_source)
-            .ok_or_else(|| CallError::Script("resolve returned no playable source".to_owned()))?;
+            .ok_or_else(|| {
+                CallError::Failed(Issue::new(
+                    IssueKind::NotFound,
+                    self.provider_name(provider_id),
+                    "it gave no playable stream",
+                ))
+            })?;
         let expires_at = value.get("expiresAt").and_then(serde_json::Value::as_f64);
         Ok(ResolvedStream {
             source,
             expires_at: expires_at.filter(|ms| ms.is_finite()).map(|ms| ms as i64),
         })
     }
+}
 
-    async fn ask<T>(&self, request: impl FnOnce(oneshot::Sender<T>) -> Request) -> Option<T> {
-        let (reply, answer) = oneshot::channel();
-        self.requests.send(request(reply)).ok()?;
-        answer.await.ok()
+/// One source's songs, or why it had none.
+fn search_result(asked: Asked<Vec<OnlineTrack>>) -> ProviderSearchResult {
+    match asked.answer {
+        Ok(tracks) => ProviderSearchResult {
+            provider: asked.provider,
+            tracks,
+            error: None,
+        },
+        Err(error) => {
+            tracing::warn!(provider = %asked.provider.id, %error, "search failed");
+            ProviderSearchResult {
+                provider: asked.provider,
+                tracks: Vec::new(),
+                error: Some(error.to_string()),
+            }
+        }
     }
 }
 
-struct Loaded {
-    extension: Rc<Extension>,
+/// A provider's answer that lacks what it should hold: the site (or its API) changed.
+fn site_changed(provider: &ProviderInfo, detail: &str) -> CallError {
+    CallError::Failed(Issue::new(IssueKind::SiteChanged, &provider.name, detail))
+}
+
+/// Every source's manifest read, installed copies chosen over built-in ones with the same id;
+/// sources whose manifest can't be read come back as failed extensions.
+fn choose(
+    sources: Vec<ExtensionSource>,
+) -> (
+    BTreeMap<String, (ExtensionSource, Manifest)>,
+    Vec<ExtensionInfo>,
+) {
+    let mut chosen: BTreeMap<String, (ExtensionSource, Manifest)> = BTreeMap::new();
+    let mut infos = Vec::new();
+    for source in sources {
+        let manifest = source
+            .read(MANIFEST_FILE)
+            .and_then(|text| Manifest::parse(&text).map_err(|error| error.to_string()));
+        match manifest {
+            Ok(manifest) => {
+                let replace = chosen.get(&manifest.id).is_none_or(|(existing, _)| {
+                    source.origin == ExtensionOrigin::Installed
+                        || existing.origin == ExtensionOrigin::BuiltIn
+                });
+                if replace {
+                    chosen.insert(manifest.id.clone(), (source, manifest));
+                }
+            }
+            Err(error) => {
+                let label = source.label();
+                tracing::warn!(extension = %label, %error, "extension manifest rejected");
+                infos.push(failed_info(&label, &label, "", source.origin, error));
+            }
+        }
+    }
+    (chosen, infos)
 }
 
 /// A loaded extension: JavaScript, or a Shosetsu script (M32).
@@ -931,37 +1402,39 @@ impl Extension {
         local_id: &str,
         method: &str,
         args: &serde_json::Value,
-    ) -> Result<serde_json::Value, String> {
+    ) -> Result<serde_json::Value, Failure> {
         match self {
             Self::Js(extension) => extension.call(local_id, method, args).await,
-            Self::Shosetsu(extension) => extension.call(local_id, method, args).await,
+            Self::Shosetsu(extension) => extension
+                .call(local_id, method, args)
+                .await
+                .map_err(Failure::said),
         }
     }
 }
 
-struct HostState {
+/// One lane: the extensions on it.
+struct LaneState {
     config: HostConfig,
-    loaded: RefCell<BTreeMap<String, Loaded>>,
-    infos: RefCell<Vec<ExtensionInfo>>,
+    loaded: RefCell<BTreeMap<String, Rc<Extension>>>,
 }
 
-fn run(config: HostConfig, mut receiver: mpsc::UnboundedReceiver<Request>) {
+fn run_lane(config: HostConfig, mut receiver: mpsc::UnboundedReceiver<Request>) {
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
     {
         Ok(runtime) => runtime,
         Err(error) => {
-            tracing::error!(%error, "extension host could not start");
+            tracing::error!(%error, "an extension lane could not start");
             return;
         }
     };
     let local = tokio::task::LocalSet::new();
     local.block_on(&runtime, async move {
-        let state = Rc::new(HostState {
+        let state = Rc::new(LaneState {
             config,
             loaded: RefCell::new(BTreeMap::new()),
-            infos: RefCell::new(Vec::new()),
         });
         while let Some(request) = receiver.recv().await {
             let state = state.clone();
@@ -970,80 +1443,55 @@ fn run(config: HostConfig, mut receiver: mpsc::UnboundedReceiver<Request>) {
     });
 }
 
-impl HostState {
+impl LaneState {
     async fn handle(&self, request: Request) {
         match request {
-            Request::Load {
-                sources,
-                settings,
-                reply,
-            } => {
-                let infos = self.load(sources, settings).await;
+            Request::Load { items, reply } => {
+                let infos = self.load(items).await;
                 let _ = reply.send(infos);
-            }
-            Request::List { reply } => {
-                let _ = reply.send(self.infos.borrow().clone());
             }
             Request::Call {
                 provider,
                 method,
                 args,
-                reply,
+                mut reply,
             } => {
-                let _ = reply.send(self.call(&provider, &method, &args).await);
+                // The caller gone (a search left or given up) stops the call, and with it the
+                // extension's requests once none of its calls is left.
+                tokio::select! {
+                    answer = self.call(&provider, &method, &args) => {
+                        let _ = reply.send(answer);
+                    }
+                    () = reply.closed() => {
+                        tracing::debug!(%provider, %method, "call stopped: nobody waits for it");
+                    }
+                }
             }
         }
     }
 
-    async fn load(
-        &self,
-        sources: Vec<ExtensionSource>,
-        mut settings: UserSettings,
-    ) -> Vec<ExtensionInfo> {
-        // Parse every manifest first, so installed copies can override built-in ones.
-        let mut chosen: BTreeMap<String, (ExtensionSource, Manifest)> = BTreeMap::new();
-        let mut infos = Vec::new();
-        for source in sources {
-            let manifest = source
-                .read(MANIFEST_FILE)
-                .and_then(|text| Manifest::parse(&text).map_err(|error| error.to_string()));
-            match manifest {
-                Ok(manifest) => {
-                    let replace = chosen.get(&manifest.id).is_none_or(|(existing, _)| {
-                        source.origin == ExtensionOrigin::Installed
-                            || existing.origin == ExtensionOrigin::BuiltIn
-                    });
-                    if replace {
-                        chosen.insert(manifest.id.clone(), (source, manifest));
-                    }
-                }
-                Err(error) => {
-                    let label = source.label();
-                    tracing::warn!(extension = %label, %error, "extension manifest rejected");
-                    infos.push(failed_info(&label, &label, "", source.origin, error));
-                }
-            }
-        }
-
+    async fn load(&self, items: Vec<LoadItem>) -> Vec<ExtensionInfo> {
+        // The old ones go first, so two sets of runtimes never take memory at once.
         self.loaded.borrow_mut().clear();
-        for (id, (source, manifest)) in chosen {
+        let mut infos = Vec::new();
+        for LoadItem {
+            source,
+            manifest,
+            settings,
+        } in items
+        {
+            let id = manifest.id.clone();
             let origin = source.origin;
             let (name, version) = (manifest.name.clone(), manifest.version.to_string());
             // A conversion that fails still says which converter made it, so a newer one is
             // offered (M46.9.1).
             let compatibility = manifest.nuclear.as_ref().and_then(compat_report);
-            let user_settings = settings.remove(&id).unwrap_or_default();
-            match self.load_one(source, manifest, user_settings).await {
+            match self.load_one(source, manifest, settings).await {
                 Ok(extension) => {
                     let info = loaded_info(&extension, origin);
                     tracing::info!(extension = %id, providers = info.providers.len(), "extension loaded");
                     infos.push(info);
-                    self.loaded.borrow_mut().insert(
-                        id,
-                        Loaded {
-                            extension: Rc::new(extension),
-                        },
-                    );
+                    self.loaded.borrow_mut().insert(id, Rc::new(extension));
                 }
                 Err(error) => {
                     tracing::warn!(extension = %id, %error, "extension failed to load");
@@ -1054,8 +1502,6 @@ impl HostState {
                 }
             }
         }
-        infos.sort_by_key(|info| info.name.to_lowercase());
-        *self.infos.borrow_mut() = infos.clone();
         infos
     }
 
@@ -1108,15 +1554,14 @@ impl HostState {
             .loaded
             .borrow()
             .get(extension_id)
-            .map(|loaded| loaded.extension.clone())
+            .cloned()
             .ok_or_else(unknown)?;
-        if !extension
+        let name = extension
             .providers()
-            .iter()
-            .any(|registered| registered.id == provider)
-        {
-            return Err(unknown());
-        }
+            .into_iter()
+            .find(|registered| registered.id == provider)
+            .map(|registered| registered.name)
+            .ok_or_else(unknown)?;
         // Shosetsu scripts block on each request and may page through long chapter lists.
         let timeout = match extension.as_ref() {
             Extension::Js(_) => self.config.call_timeout,
@@ -1125,10 +1570,14 @@ impl HostState {
                 .call_timeout
                 .max(crate::shosetsu::runtime::CALL_BUDGET + Duration::from_secs(5)),
         };
-        tokio::time::timeout(timeout, extension.call(local_id, method, args))
-            .await
-            .map_err(|_| CallError::Timeout(provider.to_owned()))?
-            .map_err(CallError::Script)
+        match tokio::time::timeout(timeout, extension.call(local_id, method, args)).await {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(failure)) => Err(failure::into_error(failure, &name, provider, method)),
+            Err(_) => Err(CallError::Timeout {
+                name,
+                after: timeout,
+            }),
+        }
     }
 }
 
@@ -1213,6 +1662,7 @@ fn compat_report(nuclear: &serde_json::Value) -> Option<raygun_model::CompatRepo
     })
 }
 
+/// An extension that didn't load; its error says so first, then why (for More info).
 fn failed_info(
     id: &str,
     name: &str,
@@ -1228,7 +1678,10 @@ fn failed_info(
         content_rating: "safe".to_owned(),
         origin,
         status: ExtensionStatus::Failed,
-        error: Some(error),
+        error: Some(raygun_net::issue::message(
+            &format!("{name} couldn't start"),
+            &error,
+        )),
         provides: Vec::new(),
         net: Vec::new(),
         providers: Vec::new(),
@@ -1345,7 +1798,7 @@ fn parse_tracks(value: serde_json::Value) -> Vec<OnlineTrack> {
     };
     tracks
         .iter()
-        .filter_map(|track| serde_json::from_value::<RawTrack>(track.clone()).ok())
+        .filter_map(|track| RawTrack::deserialize(track).ok())
         .filter(|track| !track.title.trim().is_empty())
         .map(|track| OnlineTrack {
             external_id: track.id.map(|id| match id {
@@ -1383,9 +1836,8 @@ struct RawChart {
 
 /// Logs a failed optional call, unless the provider just doesn't have it.
 fn log_unless_missing(provider: &ProviderInfo, method: &str, error: &CallError) {
-    let message = error.to_string();
-    if !message.contains("has no method") {
-        tracing::warn!(provider = %provider.id, %message, "{method} failed");
+    if !error.is_missing() {
+        tracing::warn!(provider = %provider.id, %error, "{method} failed");
     }
 }
 
@@ -1478,7 +1930,7 @@ fn parse_charts(provider: &ProviderInfo, value: &serde_json::Value) -> Vec<Music
     };
     charts
         .iter()
-        .filter_map(|chart| serde_json::from_value::<RawChart>(chart.clone()).ok())
+        .filter_map(|chart| RawChart::deserialize(chart).ok())
         .filter_map(|chart| {
             let id = match chart.id {
                 serde_json::Value::String(id) => id,
@@ -1551,7 +2003,7 @@ fn parse_lyrics(provider: &ProviderInfo, value: &serde_json::Value) -> Option<Ly
         .map(|lines| {
             lines
                 .iter()
-                .filter_map(|line| serde_json::from_value::<RawLine>(line.clone()).ok())
+                .filter_map(|line| RawLine::deserialize(line).ok())
                 .filter(|line| line.time_ms.is_finite() && line.time_ms >= 0.0)
                 .map(|line| LyricLine {
                     time_ms: line.time_ms.min(f64::from(u32::MAX)) as u32,
@@ -1616,7 +2068,7 @@ fn parse_candidates(provider: &ProviderInfo, value: serde_json::Value) -> Vec<Ca
     };
     candidates
         .iter()
-        .filter_map(|candidate| serde_json::from_value::<RawCandidate>(candidate.clone()).ok())
+        .filter_map(|candidate| RawCandidate::deserialize(candidate).ok())
         .filter(|candidate| candidate.source.as_ref().is_none_or(allowed_source))
         .filter(|candidate| !candidate.title.trim().is_empty())
         .map(|candidate| Candidate {

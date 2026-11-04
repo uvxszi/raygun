@@ -260,9 +260,7 @@ export const BrowseTab: FC = () => {
       {listings?.map((listing) => (
         <section key={listing.repo.id} data-testid="repo-catalog" className="flex flex-col gap-2">
           <h2 className="text-primary px-1 text-sm font-semibold">{listing.repo.name}</h2>
-          {listing.error && (
-            <SourceIssue>{t('extensions.repoFailed', { message: listing.error })}</SourceIssue>
-          )}
+          {listing.error && <SourceIssue source={listing.repo.name}>{listing.error}</SourceIssue>}
           {!listing.error && listing.entries.length === 0 && (
             <p className="text-muted text-sm">{t('extensions.repoEmpty')}</p>
           )}

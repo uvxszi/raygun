@@ -3,6 +3,7 @@
 
 pub mod cover_cache;
 pub mod images;
+pub mod issue;
 pub mod local_network;
 pub mod manifest;
 pub mod page_cache;
@@ -11,6 +12,7 @@ mod proxy;
 use std::sync::{Arc, RwLock};
 
 pub use cover_cache::CoverCache;
+pub use issue::{Issue, IssueKind};
 pub use page_cache::PageCache;
 pub use proxy::{
     ImageLinks, MediaLinks, ProxyStorage, StaticFiles, StreamProxy, artwork_url,

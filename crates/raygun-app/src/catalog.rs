@@ -3,7 +3,8 @@
 //! medium's service wraps a `Catalog` and adds what reading it takes (pages or text).
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use raygun_db::titles::{self, TitleFields, TitleRow, UnitFields, UnitRow};
 use raygun_ext_host::manga::MangaList;
@@ -15,13 +16,11 @@ use raygun_model::{
 };
 use raygun_net::ImageLinks;
 use tauri::{AppHandle, Manager};
+use tokio::sync::Notify;
 
 use crate::extensions::ExtensionService;
 use crate::startup::AppDb;
 
-/// Sources searched at the same time (M46.7): each runs a script and makes requests, so a search
-/// over many sources goes a few at a time instead of all at once.
-const SEARCH_CONCURRENCY: usize = 4;
 /// How long a title (details and chapters) may take before its page says the source failed.
 const TITLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
@@ -32,6 +31,102 @@ pub struct Catalog {
     kind: &'static str,
     /// The provider capability: `manga.source`, `novel.source` or `video.source`.
     capability: &'static str,
+    /// The search running per source, so a newer query stops an older one.
+    searches: RowSearches,
+}
+
+/// The search running per source for a search row (M46.48). A search for another query stops
+/// the one running (the query changed, or the page was left for one that searches the source);
+/// searches for the same query share it.
+#[derive(Default)]
+struct RowSearches(Mutex<HashMap<String, RowSearch>>);
+
+/// A source's search for a row: its query, how many ask it, and how to stop it.
+struct RowSearch {
+    query: String,
+    askers: usize,
+    stop: Arc<Stop>,
+}
+
+/// Stops a search that a newer one replaced.
+#[derive(Default)]
+struct Stop {
+    stopped: AtomicBool,
+    notify: Notify,
+}
+
+/// A search noted as running; dropping it ends the note.
+struct RowGuard<'a> {
+    searches: &'a RowSearches,
+    source_id: &'a str,
+    stop: Arc<Stop>,
+}
+
+impl RowSearches {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, RowSearch>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Notes a search of `source_id` for `query` until the guard drops.
+    fn begin<'a>(&'a self, source_id: &'a str, query: &str) -> RowGuard<'a> {
+        let mut searches = self.lock();
+        if let Some(running) = searches.get_mut(source_id) {
+            if running.query == query {
+                running.askers += 1;
+                return RowGuard {
+                    searches: self,
+                    source_id,
+                    stop: running.stop.clone(),
+                };
+            }
+            running.stop.fire();
+        }
+        let stop = Arc::new(Stop::default());
+        searches.insert(
+            source_id.to_owned(),
+            RowSearch {
+                query: query.to_owned(),
+                askers: 1,
+                stop: stop.clone(),
+            },
+        );
+        RowGuard {
+            searches: self,
+            source_id,
+            stop,
+        }
+    }
+}
+
+impl Drop for RowGuard<'_> {
+    fn drop(&mut self) {
+        let mut searches = self.searches.lock();
+        if let Some(running) = searches.get_mut(self.source_id)
+            && Arc::ptr_eq(&running.stop, &self.stop)
+        {
+            running.askers -= 1;
+            if running.askers == 0 {
+                searches.remove(self.source_id);
+            }
+        }
+    }
+}
+
+impl Stop {
+    fn fire(&self) {
+        self.stopped.store(true, Ordering::SeqCst);
+        self.notify.notify_waiters();
+    }
+
+    async fn stopped(&self) {
+        loop {
+            let notified = self.notify.notified();
+            if self.stopped.load(Ordering::SeqCst) {
+                return;
+            }
+            notified.await;
+        }
+    }
 }
 
 /// A chapter with its neighbours in reading order.
@@ -60,6 +155,7 @@ impl Catalog {
             images,
             kind,
             capability,
+            searches: RowSearches::default(),
         }
     }
 
@@ -171,10 +267,12 @@ impl Catalog {
         self.listing_page(source_id, listing).await
     }
 
-    /// The first page of every source's results for `query`, a few sources at a time (Mihon's
-    /// global search; never all at once, M46.7), or only of the ones in `only` (Search's source
-    /// chips, M46.4) when it isn't empty. A blank query gives each source's popular titles. A
-    /// source that fails reports its error and the others still show.
+    /// The first page of every source's results for `query` (Mihon's global search), or only of
+    /// the ones in `only` (Search's source chips, M46.4) when it isn't empty. A blank query gives
+    /// each source's popular titles. Sources take turns, a few at a time and the good ones first
+    /// (M46.48: the host's catalogue turns), none for longer than
+    /// [`raygun_ext_host::CATALOG_SEARCH_TIMEOUT`]. A source that fails reports why and the
+    /// others still show.
     pub async fn global_search(
         &self,
         query: &str,
@@ -188,20 +286,7 @@ impl Catalog {
             sources.retain(|source| only.contains(&source.id));
         }
         let searches = sources.into_iter().map(|source| async move {
-            let result = {
-                let extensions = self.extensions();
-                let (_ready, host) = extensions.ready().await;
-                if query.is_empty() {
-                    host.manga_list(&source.id, MangaList::Popular, 1).await
-                } else {
-                    host.manga_search(&source.id, query, 1).await
-                }
-            };
-            let page = match result {
-                Ok(listing) => self.listing_page(&source.id, listing).await,
-                Err(error) => Err(error),
-            };
-            match page {
+            match self.search_row(&source.id, query).await {
                 Ok(page) => SourceSearchResult {
                     source,
                     items: page.items,
@@ -216,10 +301,29 @@ impl Catalog {
                 },
             }
         });
-        let mut results = crate::stremio::at_most(SEARCH_CONCURRENCY, searches).await;
+        let mut results = futures_util::future::join_all(searches).await;
         // Sources with results first, then empty ones, then failures.
         results.sort_by_key(|result| (result.error.is_some(), result.items.is_empty()));
         Ok(results)
+    }
+
+    /// A source's first page for a search row. A newer search of the source for another query
+    /// stops this one (the query changed, or the page was left for one that searches it), and
+    /// with it the source's requests.
+    async fn search_row(&self, source_id: &str, query: &str) -> Result<MangaListingPage, String> {
+        let running = self.searches.begin(source_id, query);
+        let listing = {
+            let extensions = self.extensions();
+            let (_ready, host) = extensions.ready().await;
+            tokio::select! {
+                listing = host.catalog_search_row(source_id, query) => {
+                    listing.map_err(|error| error.to_string())
+                }
+                () = running.stop.stopped() => Err("Stopped for a newer search".to_owned()),
+            }
+        };
+        drop(running);
+        self.listing_page(source_id, listing?).await
     }
 
     /// A stored title, fetched first when `refresh` is set or it never was; fetching stores it,
@@ -823,6 +927,32 @@ mod tests {
         let done = chapter_info(&unit("c", Some(1.0), 0, Some(19), true), &none);
         assert_eq!((done.read, done.last_page), (true, None));
         assert_eq!(done.download, None);
+    }
+
+    #[tokio::test]
+    async fn a_newer_search_of_a_source_stops_the_older_one() {
+        let searches = RowSearches::default();
+        let first = searches.begin("src", "frie");
+        let same = searches.begin("src", "frie");
+        assert!(
+            Arc::ptr_eq(&first.stop, &same.stop),
+            "one query, one search"
+        );
+        let elsewhere = searches.begin("other", "frie");
+        let newer = searches.begin("src", "frieren");
+        // The older search hears it at once; the other source's and the newer one go on.
+        tokio::time::timeout(std::time::Duration::from_secs(1), first.stop.stopped())
+            .await
+            .expect("stopped");
+        assert!(!elsewhere.stop.stopped.load(Ordering::SeqCst));
+        assert!(!newer.stop.stopped.load(Ordering::SeqCst));
+        // The older ones ending leaves the newer one noted; it ending clears the source.
+        drop((first, same));
+        assert_eq!(searches.lock()["src"].query, "frieren");
+        drop(newer);
+        assert!(!searches.lock().contains_key("src"));
+        drop(elsewhere);
+        assert!(searches.lock().is_empty());
     }
 
     #[test]

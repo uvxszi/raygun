@@ -157,7 +157,9 @@ describe('Importing songs', () => {
     const sheet = await screen.findByRole('dialog', { name: 'Import songs' });
     await user.type(within(sheet).getByRole('textbox'), 'https://open.spotify.com/playlist/x');
     await user.click(within(sheet).getByRole('button', { name: 'Read songs' }));
-    expect(await within(sheet).findByTestId('source-issue')).toHaveTextContent('Issue with source');
+    expect(await within(sheet).findByTestId('source-issue')).toHaveTextContent(
+      'Spotify has no such list; it may be private or removed',
+    );
 
     await user.click(within(sheet).getByRole('tab', { name: 'Text or CSV' }));
     await user.type(

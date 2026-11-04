@@ -304,6 +304,17 @@ impl ExtensionService {
         self.host.search_music(query, SEARCH_LIMIT).await
     }
 
+    /// A search someone waits on (M46.48): what the sources found in time, and the sources still
+    /// searching, whose songs come with asking again (their calls go on meanwhile).
+    pub async fn search_now(&self, query: &str) -> (Vec<ProviderSearchResult>, Vec<ProviderInfo>) {
+        let query = query.trim();
+        if query.is_empty() {
+            return (Vec::new(), Vec::new());
+        }
+        let _ready = self.loading.read().await;
+        self.host.search_music_now(query, SEARCH_LIMIT).await
+    }
+
     /// Stream candidates for a track from every `music.stream` provider (M14), aiming for
     /// `quality` (M46.18).
     pub async fn stream_candidates(

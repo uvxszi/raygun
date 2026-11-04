@@ -95,9 +95,8 @@ describe('Ranked search across sources', () => {
         'A Learning TaleRoyal Road',
       ]),
     );
-    expect(
-      within(ranked).getByText(/Couldn't search Broken Site \(HTTP 403\)/),
-    ).toBeInTheDocument();
+    // A quiet mark naming the source; what it met shows in All sources.
+    expect(within(ranked).getByText("Couldn't search Broken Site")).toBeInTheDocument();
 
     // Relevant is the default chip (M46.35); All sources groups by source, the failing one last.
     expect(screen.getByRole('button', { name: 'Relevant' })).toHaveAttribute(

@@ -5,6 +5,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
+import { issueSummary } from '../lib/issue';
 import { EmptyState } from '../shell/EmptyState';
 import { formatBytes } from '../watch/episodeLabel';
 import { SaveSongsSheet } from './SaveSongsSheet';
@@ -73,9 +74,12 @@ const Row: FC<{ item: SongDownload; onSave: () => void }> = ({ item, onSave }) =
           {line(item)}
         </span>
         {item.error && item.state !== 'done' && (
-          <span className="text-muted flex items-start gap-1 text-xs wrap-anywhere">
+          <span
+            title={item.error}
+            className="text-muted flex items-start gap-1 text-xs wrap-anywhere"
+          >
             <CircleAlert aria-hidden size={12} className="mt-0.5 shrink-0" />
-            {item.error}
+            {issueSummary(item.error, t)}
           </span>
         )}
         {share !== null && (

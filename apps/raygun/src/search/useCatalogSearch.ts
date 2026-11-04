@@ -3,12 +3,17 @@ import type { FilterValue, SourceSearchResult } from '@raygun/bindings';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 
 import { unwrapResult } from '../lib/commandResult';
+import { isStopped } from '../lib/issue';
 import type { Medium } from '../manga/medium';
 
 const STALE_MS = 5 * 60_000;
 
-/** Source requests Search keeps in flight at once (M46.7); the rest wait their turn. */
-const MAX_IN_FLIGHT = 3;
+/**
+ * Source requests Search keeps in flight at once (M46.7); the rest wait their turn. Rust takes
+ * them a few at a time, good sources first, and a slow one makes way (M46.48), so a few hanging
+ * sources don't hold up the rows behind them.
+ */
+const MAX_IN_FLIGHT = 8;
 let inFlight = 0;
 const waiting: (() => void)[] = [];
 
@@ -33,8 +38,12 @@ export const sourceSearchOptions = (medium: Medium, sourceId: string, query: str
     const results = await queued(() =>
       unwrapResult(commands.catalogGlobalSearch(medium, query.trim(), [sourceId])),
     );
-    return results.find((result) => result.source.id === sourceId) ?? null;
+    const result = results.find((found) => found.source.id === sourceId) ?? null;
+    // Stopped for a newer search (M46.48): no answer to keep; coming back to it asks again.
+    if (result?.error && isStopped(result.error)) throw new Error(result.error);
+    return result;
   },
+  retry: (failures: number, error: Error) => !isStopped(error) && failures < 3,
   staleTime: STALE_MS,
 });
 

@@ -120,7 +120,7 @@ describe('Song downloads', () => {
     expect(await within(list).findByText('Queued')).toBeInTheDocument();
     expect(row('Coming in')).toHaveTextContent('45%');
     expect(row('Saved song')).toHaveTextContent('On this device · MP3 · Internet Archive');
-    expect(row('Broken')).toHaveTextContent('The server answered 404');
+    expect(row('Broken')).toHaveTextContent('Not found on the server');
 
     await user.click(within(row('Only on YouTube')).getByRole('button', { name: 'Record' }));
     expect(commands.songDownloadRecord).toHaveBeenCalledWith('3');

@@ -5,6 +5,7 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Carousel } from '../shell/Carousel';
+import { SourceIssue } from '../shell/SourceIssue';
 
 const ASPECT: Record<string, string> = {
   landscape: 'aspect-video',
@@ -88,9 +89,9 @@ export const StremioRow: FC<{ row: StremioCatalogRow; browse?: boolean }> = ({
         )}
       </div>
       {row.error ? (
-        <p className="text-muted text-sm wrap-anywhere">
-          {t('watch.catalogFailed', { message: row.error })}
-        </p>
+        <SourceIssue compact source={row.addonName}>
+          {row.error}
+        </SourceIssue>
       ) : row.items.length === 0 ? (
         <p className="text-muted text-sm">{t('watch.catalogEmpty')}</p>
       ) : (

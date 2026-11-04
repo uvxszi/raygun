@@ -25,6 +25,7 @@ import {
 } from './useCatalogSearch';
 import type { FilterValues } from './useCatalogSearch';
 import { LoadMore } from '../shell/LoadMore';
+import { isStopped } from '../lib/issue';
 import { useSettings } from '../settings/useSettings';
 import { SourceIssue } from '../shell/SourceIssue';
 
@@ -71,7 +72,7 @@ export const SourceRow: FC<{
       </div>
       {result.error ? (
         <SourceIssue compact source={result.source.name}>
-          {t('search.providerFailed', { message: result.error })}
+          {result.error}
         </SourceIssue>
       ) : result.items.length === 0 ? (
         <p className="text-muted text-xs">{t('search.providerEmpty')}</p>
@@ -130,7 +131,7 @@ export const LazySourceRow: FC<{
           <h3 className="text-muted text-sm font-medium">{source.name}</h3>
           {search.error ? (
             <SourceIssue compact source={source.name} onRetry={() => void search.refetch()}>
-              {t('search.providerFailed', { message: search.error.message })}
+              {search.error.message}
             </SourceIssue>
           ) : search.isSuccess ? (
             <p className="text-muted text-xs">{t('search.providerEmpty')}</p>
@@ -151,6 +152,8 @@ const useHealthReport = (
 ) => {
   const { failed, worked } = useSourceHealth();
   useEffect(() => {
+    // A search stopped for a newer one says nothing about the source.
+    if (isStopped(error) || isStopped(data?.error)) return;
     if (error || data?.error) failed(id);
     else if (data) worked(id);
   }, [id, error, data, failed, worked]);
@@ -207,7 +210,7 @@ export const RankedResults: FC<{
   useEffect(() => {
     searches.forEach((search, index) => {
       const id = sources[index]?.id;
-      if (!id) return;
+      if (!id || isStopped(search.error) || isStopped(search.data?.error)) return;
       if (search.isError || search.data?.error) failed(id);
       else if (search.isSuccess) worked(id);
     });
@@ -236,10 +239,11 @@ export const RankedResults: FC<{
           }))}
         />
       )}
+      {/* A quiet mark: what each one met shows in All sources. */}
       {errors.length > 0 && (
         <p className="text-muted text-xs wrap-anywhere">
           {t('search.someFailed', {
-            sources: errors.map((result) => `${result.source.name} (${result.error})`).join(', '),
+            sources: errors.map((result) => result.source.name).join(', '),
           })}
         </p>
       )}

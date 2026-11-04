@@ -3081,6 +3081,10 @@ pub struct SearchResults {
     /// Tracks merged across providers, best first; empty unless two or more providers found some.
     pub top: Vec<OnlineTrack>,
     pub providers: Vec<ProviderSearchResult>,
+    /// Sources still searching (M46.48): searching again soon brings their songs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[specta(optional)]
+    pub pending: Vec<ProviderInfo>,
 }
 
 // ---- Favorites, playlists, history (M18) ----
