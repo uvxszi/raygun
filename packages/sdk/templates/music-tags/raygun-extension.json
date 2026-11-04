@@ -1,0 +1,13 @@
+{
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Song genres from the open MusicBrainz database.",
+  "website": "https://musicbrainz.org",
+  "provides": ["music.tags"],
+  "permissions": { "net": ["musicbrainz.org"] },
+  "contentRating": "safe"
+}

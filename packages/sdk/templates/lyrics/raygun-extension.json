@@ -1,0 +1,13 @@
+{
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Words of public-domain songs and hymns from Wikisource.",
+  "website": "https://en.wikisource.org",
+  "provides": ["lyrics"],
+  "permissions": { "net": ["en.wikisource.org"] },
+  "contentRating": "safe"
+}

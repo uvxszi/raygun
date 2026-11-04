@@ -1091,32 +1091,8 @@ impl ExtensionHost {
     pub async fn artist_events(&self, name: &str, limit: u32) -> Vec<ArtistEvent> {
         let answers = self.ask_metadata("artistEvents", name, limit).await;
         answers
-            .into_iter()
-            .flat_map(|(provider, value)| {
-                value
-                    .get("events")
-                    .and_then(serde_json::Value::as_array)
-                    .cloned()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(move |event| {
-                        let text = |key: &str| {
-                            event
-                                .get(key)
-                                .and_then(serde_json::Value::as_str)
-                                .map(str::trim)
-                                .filter(|text| !text.is_empty())
-                                .map(str::to_owned)
-                        };
-                        Some(ArtistEvent {
-                            name: text("name")?,
-                            date: text("date")?,
-                            place: text("place"),
-                            url: web_url(event.get("url")),
-                            source: provider.name.clone(),
-                        })
-                    })
-            })
+            .iter()
+            .flat_map(|(provider, value)| events_in(provider, value))
             .collect()
     }
 
@@ -1300,15 +1276,7 @@ impl ExtensionHost {
                 .await
             {
                 Ok(value) => {
-                    let names: Vec<String> = value
-                        .get("artists")
-                        .and_then(serde_json::Value::as_array)
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|artist| artist.get("name")?.as_str())
-                        .map(|name| name.trim().to_owned())
-                        .filter(|name| !name.is_empty())
-                        .collect();
+                    let names = artist_names(&value);
                     if !names.is_empty() {
                         return names;
                     }
@@ -1950,7 +1918,7 @@ fn link_field(value: &serde_json::Value, key: &str) -> Option<String> {
     text_field(value, key, 2048).filter(|url| is_web_url(url))
 }
 
-fn parse_artist_info(
+pub(crate) fn parse_artist_info(
     value: &serde_json::Value,
     provider: &str,
 ) -> Option<raygun_model::ArtistInfo> {
@@ -1981,7 +1949,10 @@ fn parse_artist_info(
     })
 }
 
-fn parse_credits(value: &serde_json::Value, provider: &str) -> Option<raygun_model::SongCredits> {
+pub(crate) fn parse_credits(
+    value: &serde_json::Value,
+    provider: &str,
+) -> Option<raygun_model::SongCredits> {
     let groups = value.get("credits")?.as_array()?;
     let credits: Vec<raygun_model::CreditGroup> = groups
         .iter()
@@ -2036,7 +2007,7 @@ fn is_web_url(url: &str) -> bool {
 
 /// Reads `{ tracks: [...] }` leniently: malformed entries are skipped, not fatal. Extensions may
 /// only hand out web streams and YouTube ids, never local files.
-fn parse_tracks(value: serde_json::Value) -> Vec<OnlineTrack> {
+pub(crate) fn parse_tracks(value: serde_json::Value) -> Vec<OnlineTrack> {
     let Some(tracks) = value.get("tracks").and_then(serde_json::Value::as_array) else {
         return Vec::new();
     };
@@ -2102,7 +2073,7 @@ fn web_url(value: Option<&serde_json::Value>) -> Option<String> {
 }
 
 /// The artists in a provider's `{ artists: [{ id, name, imageUrl? }] }` answer.
-fn artists_in(provider: &ProviderInfo, value: &serde_json::Value) -> Vec<MusicArtist> {
+pub(crate) fn artists_in(provider: &ProviderInfo, value: &serde_json::Value) -> Vec<MusicArtist> {
     value
         .get("artists")
         .and_then(serde_json::Value::as_array)
@@ -2121,9 +2092,53 @@ fn artists_in(provider: &ProviderInfo, value: &serde_json::Value) -> Vec<MusicAr
         .collect()
 }
 
+/// The names in a `similarArtists` answer, `{ artists: [{ name }] }` (M46.20).
+pub(crate) fn artist_names(value: &serde_json::Value) -> Vec<String> {
+    value
+        .get("artists")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|artist| artist.get("name")?.as_str())
+        .map(|name| name.trim().to_owned())
+        .filter(|name| !name.is_empty())
+        .collect()
+}
+
+/// The events in a provider's `{ events: [{ name, date, place?, url? }] }` answer (M46.42).
+pub(crate) fn events_in(provider: &ProviderInfo, value: &serde_json::Value) -> Vec<ArtistEvent> {
+    value
+        .get("events")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|event| {
+            let text = |key: &str| {
+                event
+                    .get(key)
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty())
+                    .map(str::to_owned)
+            };
+            Some(ArtistEvent {
+                name: text("name")?,
+                date: text("date")?,
+                place: text("place"),
+                url: web_url(event.get("url")),
+                source: provider.name.clone(),
+            })
+        })
+        .collect()
+}
+
 /// The albums listed under `key` in a provider's answer (`albums`, or `releases` for an
 /// artist's discography).
-fn albums_in(provider: &ProviderInfo, value: &serde_json::Value, key: &str) -> Vec<MusicAlbum> {
+pub(crate) fn albums_in(
+    provider: &ProviderInfo,
+    value: &serde_json::Value,
+    key: &str,
+) -> Vec<MusicAlbum> {
     value
         .get(key)
         .and_then(serde_json::Value::as_array)
@@ -2135,7 +2150,7 @@ fn albums_in(provider: &ProviderInfo, value: &serde_json::Value, key: &str) -> V
 
 /// The playlists in a provider's `{ playlists: [...] }` answer; only the services' own when
 /// `featured`.
-fn playlists_in(
+pub(crate) fn playlists_in(
     provider: &ProviderInfo,
     value: &serde_json::Value,
     featured: bool,
@@ -2151,7 +2166,10 @@ fn playlists_in(
 }
 
 /// Reads `{ id, title, author?, artworkUrl?, trackCount?, featured? }` (M46.39).
-fn parse_playlist(provider: &ProviderInfo, playlist: &serde_json::Value) -> Option<MusicPlaylist> {
+pub(crate) fn parse_playlist(
+    provider: &ProviderInfo,
+    playlist: &serde_json::Value,
+) -> Option<MusicPlaylist> {
     let title = playlist.get("title")?.as_str()?.trim().to_owned();
     if title.is_empty() {
         return None;
@@ -2179,7 +2197,10 @@ fn parse_playlist(provider: &ProviderInfo, playlist: &serde_json::Value) -> Opti
 }
 
 /// Reads `{ id, title, artist?, year?, artworkUrl?, trackCount? }`.
-fn parse_album(provider: &ProviderInfo, album: &serde_json::Value) -> Option<MusicAlbum> {
+pub(crate) fn parse_album(
+    provider: &ProviderInfo,
+    album: &serde_json::Value,
+) -> Option<MusicAlbum> {
     let title = album.get("title")?.as_str()?.trim().to_owned();
     if title.is_empty() {
         return None;
@@ -2212,7 +2233,7 @@ fn parse_album(provider: &ProviderInfo, album: &serde_json::Value) -> Option<Mus
 
 /// Reads `{ charts: [{ id, name, description?, artworkUrl?, tag? }] }`, dropping charts without an
 /// id or a name.
-fn parse_charts(provider: &ProviderInfo, value: &serde_json::Value) -> Vec<MusicChart> {
+pub(crate) fn parse_charts(provider: &ProviderInfo, value: &serde_json::Value) -> Vec<MusicChart> {
     let Some(charts) = value.get("charts").and_then(serde_json::Value::as_array) else {
         return Vec::new();
     };
@@ -2257,7 +2278,7 @@ fn parse_charts(provider: &ProviderInfo, value: &serde_json::Value) -> Vec<Music
 
 /// Reads `{ tags: [{ name, weight? }] }`: names trimmed and at most `MAX_TAG_CHARS` long,
 /// weights clamped to 0-1.
-fn parse_tags(value: &serde_json::Value) -> Vec<(String, f64)> {
+pub(crate) fn parse_tags(value: &serde_json::Value) -> Vec<(String, f64)> {
     let Some(tags) = value.get("tags").and_then(serde_json::Value::as_array) else {
         return Vec::new();
     };
@@ -2294,7 +2315,7 @@ const MAX_TRANSLATED_LINE_CHARS: usize = 1_000;
 /// plain text counts as "no lyrics". A translation's `lines[i]` belongs to `synced[i]` as the
 /// provider gave it (M46.48), or to the plain text's i-th line; it follows its line through the
 /// sorting.
-fn parse_lyrics(provider: &ProviderInfo, value: &serde_json::Value) -> Option<Lyrics> {
+pub(crate) fn parse_lyrics(provider: &ProviderInfo, value: &serde_json::Value) -> Option<Lyrics> {
     if value.is_null() {
         return None;
     }
@@ -2410,7 +2431,7 @@ fn parse_translation(
 }
 
 /// Sources an extension may hand out: web streams and YouTube ids, never local files or lookups.
-fn allowed_source(source: &MediaSource) -> bool {
+pub(crate) fn allowed_source(source: &MediaSource) -> bool {
     match source {
         MediaSource::Url { url, .. } => is_web_url(url),
         MediaSource::YouTube { .. } => true,
@@ -2437,7 +2458,10 @@ struct RawCandidate {
 
 /// Reads `{ candidates: [...] }` like [`parse_tracks`]: malformed entries are skipped, and a
 /// candidate whose inline source isn't allowed is dropped (it would never play).
-fn parse_candidates(provider: &ProviderInfo, value: serde_json::Value) -> Vec<Candidate> {
+pub(crate) fn parse_candidates(
+    provider: &ProviderInfo,
+    value: serde_json::Value,
+) -> Vec<Candidate> {
     let Some(candidates) = value
         .get("candidates")
         .and_then(serde_json::Value::as_array)

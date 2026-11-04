@@ -1,0 +1,13 @@
+{
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Public-domain books from Project Gutenberg, split into chapters.",
+  "website": "https://www.gutenberg.org",
+  "provides": ["novel.source"],
+  "permissions": { "net": ["www.gutenberg.org"] },
+  "contentRating": "safe"
+}

@@ -1,0 +1,145 @@
+{
+  "music.metadata": {
+    "label": "Song search, with artists, albums, playlists and events",
+    "required": ["search"],
+    "optional": [
+      "searchArtists",
+      "searchAlbums",
+      "album",
+      "artistReleases",
+      "artistEvents",
+      "searchPlaylists",
+      "playlist"
+    ],
+    "args": {
+      "search": { "query": "", "limit": 30 },
+      "searchArtists": { "query": "", "limit": 30 },
+      "searchAlbums": { "query": "", "limit": 30 },
+      "album": { "id": "" },
+      "artistReleases": { "query": "", "limit": 50 },
+      "artistEvents": { "query": "", "limit": 20 },
+      "searchPlaylists": { "query": "", "limit": 30, "featured": false },
+      "playlist": { "id": "" }
+    }
+  },
+  "music.stream": {
+    "label": "Streams for songs found elsewhere",
+    "required": ["candidates"],
+    "optional": ["resolve"],
+    "args": {
+      "candidates": { "title": "", "artist": null, "album": null, "durationMs": null, "limit": 10 },
+      "resolve": { "id": "", "decodable": false }
+    }
+  },
+  "lyrics": {
+    "label": "Lyrics for the playing song",
+    "required": ["lyrics"],
+    "optional": [],
+    "args": {
+      "lyrics": { "title": "", "artist": null, "album": null, "durationMs": null }
+    }
+  },
+  "music.charts": {
+    "label": "Charts, and songs for genres and moods",
+    "required": ["charts", "chart"],
+    "optional": ["tagSongs"],
+    "args": {
+      "charts": { "region": null },
+      "chart": { "id": "", "region": null, "limit": 50 },
+      "tagSongs": { "tag": "", "aliases": [], "kind": "genre", "region": null, "limit": 20 }
+    }
+  },
+  "music.tags": {
+    "label": "Genres of a song",
+    "required": ["tags"],
+    "optional": [],
+    "args": {
+      "tags": { "title": "", "artist": null, "album": null, "durationMs": null }
+    }
+  },
+  "music.info": {
+    "label": "Artist facts and song credits",
+    "required": [],
+    "optional": ["artist", "credits"],
+    "args": {
+      "artist": { "name": "" },
+      "credits": { "title": "", "artist": null, "album": null, "durationMs": null }
+    }
+  },
+  "music.recommend": {
+    "label": "Similar artists, top songs, new releases and radios",
+    "required": [],
+    "optional": ["similarArtists", "topTracks", "newReleases", "radio"],
+    "args": {
+      "similarArtists": { "artist": "", "limit": 10 },
+      "topTracks": { "artist": "", "limit": 10 },
+      "newReleases": { "artist": "", "days": 28, "limit": 6 },
+      "radio": { "artist": "", "title": null, "limit": 40 }
+    }
+  },
+  "manga.source": {
+    "label": "Comics: lists, search, chapters and pages",
+    "required": ["popular", "search", "details", "chapters", "pages"],
+    "optional": ["latest", "filters"],
+    "args": {
+      "popular": { "page": 1 },
+      "latest": { "page": 1 },
+      "search": { "query": "", "page": 1 },
+      "filters": {},
+      "details": { "id": "" },
+      "chapters": { "id": "" },
+      "pages": { "chapterId": "" }
+    }
+  },
+  "novel.source": {
+    "label": "Books: lists, search, chapters and their text",
+    "required": ["popular", "search", "details", "chapters", "passage"],
+    "optional": ["latest", "filters"],
+    "args": {
+      "popular": { "page": 1 },
+      "latest": { "page": 1 },
+      "search": { "query": "", "page": 1 },
+      "filters": {},
+      "details": { "id": "" },
+      "chapters": { "id": "" },
+      "passage": { "chapterId": "" }
+    }
+  },
+  "video.source": {
+    "label": "Films and series: lists, search, episodes and videos",
+    "required": ["popular", "search", "details", "episodes", "servers", "videos"],
+    "optional": ["latest", "filters", "comments"],
+    "args": {
+      "popular": { "page": 1 },
+      "latest": { "page": 1 },
+      "search": { "query": "", "page": 1 },
+      "filters": {},
+      "details": { "id": "" },
+      "episodes": { "id": "" },
+      "servers": { "episodeId": "" },
+      "videos": { "serverId": "" },
+      "comments": { "id": "", "page": null }
+    }
+  },
+  "podcast.directory": {
+    "label": "Podcasts to find and follow",
+    "required": ["search"],
+    "optional": ["top"],
+    "args": {
+      "search": { "query": "", "limit": 30 },
+      "top": { "limit": 30 }
+    }
+  },
+  "audiobook.directory": {
+    "label": "Audiobooks to find, with their chapters",
+    "required": ["search", "popular"],
+    "optional": ["latest", "subject", "chapters"],
+    "args": {
+      "search": { "query": "", "page": 1 },
+      "popular": { "page": 1 },
+      "latest": { "page": 1 },
+      "subject": { "subject": "", "page": 1 },
+      "chapters": { "id": "" }
+    }
+  }
+}

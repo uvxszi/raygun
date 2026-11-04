@@ -14,7 +14,7 @@
     "raygun-ext": "./bin/raygun-ext.mjs"
   },
   "scripts": {
-    "lint": "eslint src lib bin test",
+    "lint": "eslint src lib bin test templates",
     "type-check": "tsc",
     "test": "vitest --run"
   },

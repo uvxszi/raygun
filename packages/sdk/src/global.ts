@@ -15,6 +15,10 @@ declare global {
     /* eslint-enable @typescript-eslint/no-explicit-any */
   }
   var console: Console;
+
+  // QuickJS's own base64, declared as lib.dom does: text of bytes 0-255 to base64 and back.
+  function atob(data: string): string;
+  function btoa(data: string): string;
 }
 
 export {};
