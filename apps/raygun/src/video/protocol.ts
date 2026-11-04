@@ -97,7 +97,12 @@ export type PlayerUpdate =
 export type ReportState = 'progress' | 'ended' | 'error' | 'switched' | 'closed';
 
 /** Where the video is, for a report. */
-export type Position = { positionMs: number; durationMs: number | null };
+export type Position = {
+  positionMs: number;
+  durationMs: number | null;
+  /** The video loops: Rust doesn't count its watched point as finishing it. */
+  looping?: boolean;
+};
 
 /** Progress and what happened: saved for resuming; `error` makes a session try the next link. */
 export const sendReport = (id: string, state: ReportState, at: Position, error?: string) => {
@@ -109,6 +114,7 @@ export const sendReport = (id: string, state: ReportState, at: Position, error?:
       positionMs: Math.max(0, Math.round(at.positionMs)),
       durationMs: at.durationMs && at.durationMs > 0 ? Math.round(at.durationMs) : null,
       error: error ?? null,
+      looping: at.looping ?? false,
     }),
   );
 };

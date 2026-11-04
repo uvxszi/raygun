@@ -212,6 +212,11 @@ class VideoPlayerActivity : AppCompatActivity() {
     private var promptMs = DEFAULT_PROMPT_MS
     private var nextCancelled = false
     private var nextRequested = false
+    /**
+     * Loop this video (⋮ More): Media3 repeats the item with the same decoders and buffers, and
+     * the next round is buffered ahead from memory or [VideoCache]. Kept for this player only.
+     */
+    internal var looping = false
     internal var episodes = JSONArray()
     internal var sources = JSONArray()
     internal val several: Boolean get() = episodes.length() > 1
@@ -502,6 +507,7 @@ class VideoPlayerActivity : AppCompatActivity() {
             reason: Int,
         ) {
             if (reason == Player.DISCONTINUITY_REASON_SEEK) seekedAt = SystemClock.elapsedRealtime()
+            if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION && looping) wrapped()
         }
 
         override fun onRenderedFirstFrame() {
@@ -762,7 +768,8 @@ class VideoPlayerActivity : AppCompatActivity() {
                     .build(),
             )
             .build()
-        return DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http)).createMediaSource(item)
+        val data = VideoCache.wrap(this, Uri.parse(request.optString("url")), DefaultDataSource.Factory(this, http))
+        return DefaultMediaSourceFactory(data).createMediaSource(item)
     }
 
     /** Prepares the same video again from `positionMs` (another decoder, an added subtitle file, a retry). */
@@ -1314,6 +1321,29 @@ class VideoPlayerActivity : AppCompatActivity() {
         }
     }
 
+    /** Loop this video on or off; the next-episode prompt waits while it loops. */
+    internal fun toggleLoop() {
+        looping = !looping
+        player.repeatMode = if (looping) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        updateNextPrompt()
+        showHint(if (looping) label("loopOn", "Looping this video") else label("loopOff", "Loop off"))
+    }
+
+    /** Back at the start of a looping video: its intro may be skipped again, and a sleep timer
+     * set for the end stops it here. */
+    private fun wrapped() {
+        autoSkipped.clear()
+        cancelledCountdowns.clear()
+        countdownChapter = -1
+        report("progress")
+        if (sleepAtEnd) {
+            sleepAtEnd = false
+            player.pause()
+            controls.setNote(null)
+            showHint(label("sleepEnded", "Sleep timer ended"))
+        }
+    }
+
     /** The sleep timer: after `durationMs`, at this episode's end, or off. */
     internal fun setSleep(durationMs: Long?, atEnd: Boolean) {
         sleepAt = durationMs?.let { SystemClock.elapsedRealtime() + it } ?: 0L
@@ -1462,7 +1492,7 @@ class VideoPlayerActivity : AppCompatActivity() {
      * autoplay. Over credits (an ending chapter that runs to the end) it shows from their start.
      */
     private fun updateNextPrompt() {
-        if (!session || !hasNext || nextCancelled || nextRequested || isInPip()) {
+        if (!session || !hasNext || nextCancelled || nextRequested || looping || isInPip()) {
             nextPrompt.visibility = View.GONE
             return
         }
@@ -1722,6 +1752,7 @@ class VideoPlayerActivity : AppCompatActivity() {
             .put("positionMs", player.currentPosition.coerceAtLeast(0))
             .put("durationMs", duration ?: JSONObject.NULL)
             .put("error", error ?: JSONObject.NULL)
+            .put("looping", looping)
         NativeBridge.video(json.toString())
     }
 
