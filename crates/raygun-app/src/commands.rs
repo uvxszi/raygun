@@ -1292,6 +1292,42 @@ pub fn app_open_page(
     updates.open_page(&url)
 }
 
+/// Opens an https link from release notes in the system's browser.
+#[tauri::command]
+#[specta::specta]
+pub fn app_open_link(
+    updates: tauri::State<'_, Arc<crate::updates::UpdateService>>,
+    url: String,
+) -> Result<(), String> {
+    updates.open_link(&url)
+}
+
+/// This version's notes on its first start after an update, until `app_whats_new_seen`.
+#[tauri::command]
+#[specta::specta]
+pub async fn app_whats_new(
+    updates: tauri::State<'_, Arc<crate::updates::UpdateService>>,
+) -> Result<Option<raygun_model::ReleaseNotes>, String> {
+    Ok(updates.whats_new().await)
+}
+
+/// The "What's new" sheet was shown for this version.
+#[tauri::command]
+#[specta::specta]
+pub async fn app_whats_new_seen(
+    updates: tauri::State<'_, Arc<crate::updates::UpdateService>>,
+) -> Result<(), String> {
+    updates.whats_new_seen().await;
+    Ok(())
+}
+
+/// The notes bundled with this version and the ones before it, newest first.
+#[tauri::command]
+#[specta::specta]
+pub fn app_release_notes() -> Vec<raygun_model::ReleaseNotes> {
+    crate::updates::bundled_notes()
+}
+
 /// yt-dlp and FFmpeg on this device (M46.47).
 #[tauri::command]
 #[specta::specta]

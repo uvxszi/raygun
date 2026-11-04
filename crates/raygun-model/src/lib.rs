@@ -74,6 +74,14 @@ pub struct AppUpdate {
     pub message: Option<String>,
 }
 
+/// One version's release notes (Markdown), bundled from `docs/releases` or read from GitHub.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseNotes {
+    pub version: String,
+    pub notes: String,
+}
+
 /// How the data folder was chosen (ARCHITECTURE §3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

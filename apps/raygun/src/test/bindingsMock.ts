@@ -342,6 +342,10 @@ export const bindingsMock = {
     appUpdate: vi.fn(),
     appUpdateInstall: vi.fn(),
     appOpenPage: vi.fn(),
+    appOpenLink: vi.fn(),
+    appWhatsNew: vi.fn(),
+    appWhatsNewSeen: vi.fn(),
+    appReleaseNotes: vi.fn(),
     connectLink: vi.fn(),
     devicesSetSharing: vi.fn(),
     captionsUseFeed: vi.fn(),
@@ -876,6 +880,10 @@ export const seedBindings = () => {
   commands.appUpdate.mockResolvedValue(ok(NO_UPDATE));
   commands.appUpdateInstall.mockResolvedValue(ok(NO_UPDATE));
   commands.appOpenPage.mockResolvedValue(ok(null));
+  commands.appOpenLink.mockResolvedValue(ok(null));
+  commands.appWhatsNew.mockResolvedValue(ok(null));
+  commands.appWhatsNewSeen.mockResolvedValue(ok(null));
+  commands.appReleaseNotes.mockResolvedValue([]);
   commands.connectLink.mockResolvedValue(ok([]));
   commands.devicesSetSharing.mockResolvedValue(ok(null));
   commands.captionsUseFeed.mockResolvedValue(ok(null));

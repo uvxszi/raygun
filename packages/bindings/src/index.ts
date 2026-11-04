@@ -688,6 +688,17 @@ export const commands = {
 	appUpdateInstall: () => typedError<AppUpdate, string>(__TAURI_INVOKE("app_update_install")),
 	/**  Opens Raygun's release page or repository in the system's browser (M46.47). */
 	appOpenPage: (url: string) => typedError<null, string>(__TAURI_INVOKE("app_open_page", { url })),
+	/**  Opens an https link from release notes in the system's browser. */
+	appOpenLink: (url: string) => typedError<null, string>(__TAURI_INVOKE("app_open_link", { url })),
+	/**  This version's notes on its first start after an update, until `app_whats_new_seen`. */
+	appWhatsNew: () => typedError<{
+	version: string,
+	notes: string,
+} | null, string>(__TAURI_INVOKE("app_whats_new")),
+	/**  The "What's new" sheet was shown for this version. */
+	appWhatsNewSeen: () => typedError<null, string>(__TAURI_INVOKE("app_whats_new_seen")),
+	/**  The notes bundled with this version and the ones before it, newest first. */
+	appReleaseNotes: () => __TAURI_INVOKE<ReleaseNotes[]>("app_release_notes"),
 	/**  Forgets a song's kept lyrics, transcription and own lyrics (M46.46: Delete saved lyrics). */
 	lyricsForget: (query: TrackQuery) => typedError<null, string>(__TAURI_INVOKE("lyrics_forget", { query })),
 	/**  How many songs have lyrics and transcriptions kept (M46.46). */
@@ -3792,6 +3803,12 @@ export type RecentSearch = {
 
 /**  A release's kind (M46.36), as MusicBrainz and Deezer name them. */
 export type ReleaseKind = "album" | "single" | "ep" | "compilation" | "live" | "other";
+
+/**  One version's release notes (Markdown), bundled from `docs/releases` or read from GitHub. */
+export type ReleaseNotes = {
+	version: string,
+	notes: string,
+};
 
 export type RemoteDevice = {
 	id: string,
