@@ -110,11 +110,34 @@ describe('Settings sections', () => {
     await choose(user, /^Double-tap to skip/, '30 seconds');
     expect(commands.settingsUpdate).toHaveBeenCalledWith({ key: 'seekSeconds', value: 30 });
 
+    // Subtitles start, by default, when the audio is in another language than yours.
     await AppShellWrapper.mount('/settings/player/subtitles');
-    await user.click(await screen.findByRole('switch', { name: 'Turn on subtitles' }));
+    expect(await screen.findByRole('button', { name: /^Turn on subtitles/ })).toHaveTextContent(
+      'When the audio is in another language',
+    );
+    expect(screen.getByRole('button', { name: /^Subtitle language/ })).toHaveTextContent(
+      'Your languages',
+    );
+    await choose(user, /^Turn on subtitles/, 'Always');
+    expect(commands.settingsUpdate).toHaveBeenCalledWith({
+      key: 'videoPlayer',
+      value: expect.objectContaining({ subtitleMode: 'always' }),
+    });
     await choose(user, /^Subtitle language/, 'Deutsch');
-    expect(commands.settingsUpdate).toHaveBeenCalledWith({ key: 'autoSubtitles', value: true });
     expect(commands.settingsUpdate).toHaveBeenCalledWith({ key: 'subtitleLanguage', value: 'de' });
+  });
+
+  it("plays audio in your languages unless the video's own track is chosen", async () => {
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/settings/player/audio');
+    expect(await screen.findByRole('button', { name: /^Audio language/ })).toHaveTextContent(
+      'Your languages',
+    );
+    await choose(user, /^Audio language/, "The video's own");
+    expect(commands.settingsUpdate).toHaveBeenCalledWith({
+      key: 'videoPlayer',
+      value: expect.objectContaining({ audioLanguage: 'original' }),
+    });
   });
 
   it('saves the novel reader settings', async () => {

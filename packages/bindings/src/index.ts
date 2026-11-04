@@ -807,9 +807,15 @@ export const commands = {
 	watchedPercent: number,
 	/**  Seconds a double tap or the skip buttons jump in the video player. */
 	seekSeconds: number,
-	/**  Subtitles turn on by themselves when a video has them in the subtitle language. */
+	/**
+	 *  Subtitles turn on by themselves when a video has them in the subtitle language. Read only
+	 *  while `VideoPlayerPrefs::subtitle_mode` is unset (on: always, off: for other languages).
+	 */
 	autoSubtitles: boolean,
-	/**  Subtitles' language as a BCP 47 tag; empty follows the app's language. */
+	/**
+	 *  Subtitles' language as a BCP 47 tag; empty follows the device's languages, then the
+	 *  app's (the player knows the device's).
+	 */
 	subtitleLanguage: string,
 	/**  The next episode plays by itself at the end of one (M44). */
 	autoplayNext: boolean,
@@ -3341,9 +3347,15 @@ export type Settings = {
 	watchedPercent: number,
 	/**  Seconds a double tap or the skip buttons jump in the video player. */
 	seekSeconds: number,
-	/**  Subtitles turn on by themselves when a video has them in the subtitle language. */
+	/**
+	 *  Subtitles turn on by themselves when a video has them in the subtitle language. Read only
+	 *  while `VideoPlayerPrefs::subtitle_mode` is unset (on: always, off: for other languages).
+	 */
 	autoSubtitles: boolean,
-	/**  Subtitles' language as a BCP 47 tag; empty follows the app's language. */
+	/**
+	 *  Subtitles' language as a BCP 47 tag; empty follows the device's languages, then the
+	 *  app's (the player knows the device's).
+	 */
 	subtitleLanguage: string,
 	/**  The next episode plays by itself at the end of one (M44). */
 	autoplayNext: boolean,
@@ -3820,6 +3832,18 @@ export type SubtitleEdge = "none" | "outline" | "shadow" | "raised" | "depressed
 
 export type SubtitleFont = "default" | "sans" | "serif" | "mono";
 
+/**
+ *  When the video player turns subtitles on by itself, in the first subtitle language a video
+ *  has (mpv's `subs-with-matching-audio`).
+ */
+export type SubtitleMode = 
+/**  When the audio isn't in one of the subtitle languages; forced subtitles otherwise. */
+"foreign" | 
+/**  Whenever the video has subtitles in one of them. */
+"always" | 
+/**  Only when turned on in the player. */
+"never";
+
 /**  How subtitles look in the video player (M45). */
 export type SubtitleStyle = {
 	/**  Percent of the normal size, 50–200. */
@@ -4268,8 +4292,17 @@ export type VideoPlayerPrefs = {
 	subtitlePreferWords?: string,
 	/**  Comma-separated words that keep a subtitle track from being picked ("Signs, Songs"). */
 	subtitleSkipWords?: string,
+	/**
+	 *  When subtitles turn on by themselves. Unset follows `Settings::auto_subtitles`, the
+	 *  older switch: on is `Always`, off is `Foreign`.
+	 */
+	subtitleMode?: SubtitleMode | null,
 	subtitleStyle?: SubtitleStyle,
-	/**  Empty plays the video's own default track. */
+	/**
+	 *  The audio track's language: empty follows the device's languages, then the app's;
+	 *  `ORIGINAL_AUDIO` plays the video's own default track; else a BCP 47 tag. Without a
+	 *  match, the track marked default (or original) plays, else the first.
+	 */
 	audioLanguage?: string,
 	audioFallback?: string,
 	/**  Leaving the app while a video plays keeps it in a small window. */
