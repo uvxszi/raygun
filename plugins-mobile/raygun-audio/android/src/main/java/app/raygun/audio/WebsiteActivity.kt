@@ -18,7 +18,10 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.provider.DocumentsContract
+import android.text.format.Formatter
 import android.webkit.CookieManager
+import android.webkit.URLUtil
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
@@ -34,6 +37,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -59,6 +63,10 @@ internal object WebProcess {
  * A plain WebView with no bridge to Raygun, plus a blocker: listed ad and tracker domains,
  * popups to other sites, and script-driven jumps to other sites (held, with a notice to go). On pause and close it
  * reports where it was and whether its blocker is on, in a broadcast the plugin passes to Rust.
+ *
+ * Nothing leaves for another app on its own: downloads open a sheet here (Download/Raygun or a
+ * picked folder) and go to Raygun's downloads in the same broadcast, with the page's cookies,
+ * User-Agent and Referer; links to apps are held. Only "Open in another browser" hands a page over.
  */
 class WebsiteActivity : AppCompatActivity() {
     companion object {
@@ -79,6 +87,28 @@ class WebsiteActivity : AppCompatActivity() {
     private lateinit var fullScreen: FrameLayout
     private lateinit var notice: TextView
     private var customView: View? = null
+    /** The download sheet while it's shown, and the download it's about. */
+    private var sheet: View? = null
+    private var offered: JSONObject? = null
+
+    /** The folder picker for "Choose folder…"; its grant is the app's, so Raygun's process can write there. */
+    private val pickFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
+        val download = offered ?: return@registerForActivityResult
+        offered = null
+        if (tree == null) return@registerForActivityResult
+        runCatching {
+            contentResolver.takePersistableUriPermission(
+                tree,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+        }
+        val name = runCatching {
+            val folder = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+            contentResolver.query(folder, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)
+                ?.use { if (it.moveToFirst()) it.getString(0) else null }
+        }.getOrNull() ?: tree.lastPathSegment ?: "Folder"
+        startDownload(download, JSONObject().put("kind", "folder").put("uri", tree.toString()).put("name", name))
+    }
     private var customCallback: WebChromeClient.CustomViewCallback? = null
 
     private var siteId = ""
@@ -111,6 +141,7 @@ class WebsiteActivity : AppCompatActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
+                    sheet != null -> closeSheet()
                     customView != null -> webView.webChromeClient?.onHideCustomView()
                     webView.canGoBack() -> webView.goBack()
                     else -> finish()
@@ -119,6 +150,7 @@ class WebsiteActivity : AppCompatActivity() {
         })
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState)
+            offered = savedInstanceState.getString("offered")?.let { runCatching { JSONObject(it) }.getOrNull() }
         } else {
             webView.loadUrl(request.optString("url").ifBlank { home })
         }
@@ -223,7 +255,9 @@ class WebsiteActivity : AppCompatActivity() {
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
         webView.webViewClient = Client()
         webView.webChromeClient = Chrome()
-        webView.setDownloadListener { url, _, _, _, _ -> openOutside(Uri.parse(url)) }
+        webView.setDownloadListener { url, userAgent, disposition, mime, length ->
+            offerDownload(url, userAgent, disposition, mime, length)
+        }
     }
 
     private fun applyAgent() {
@@ -307,6 +341,132 @@ class WebsiteActivity : AppCompatActivity() {
         menu.show()
     }
 
+    /**
+     * A download the page started (a link to a file, or a response sent as an attachment): the
+     * sheet asks where it goes. `blob:` addresses only the page can read, so those aren't saved.
+     */
+    private fun offerDownload(url: String, userAgent: String?, disposition: String?, mime: String?, length: Long) {
+        val scheme = Uri.parse(url).scheme?.lowercase()
+        if (scheme != "http" && scheme != "https" && scheme != "data") {
+            showNotice("This download can't be saved from here")
+            return
+        }
+        val type = mime?.substringBefore(';')?.trim()?.takeIf { it.isNotEmpty() && it != "application/octet-stream" }
+        val name = URLUtil.guessFileName(url, disposition, type)
+        val download = JSONObject()
+            .put("url", url)
+            .put("userAgent", userAgent?.takeIf { it.isNotBlank() } ?: webView.settings.userAgentString)
+            .put("referer", webView.url ?: home)
+            .put("contentDisposition", disposition)
+            .put("name", name)
+            .put("mime", type)
+            .put("size", if (length > 0) length.toDouble() else JSONObject.NULL)
+        if (scheme != "data") {
+            CookieManager.getInstance().getCookie(url)?.takeIf { it.isNotBlank() }?.let { download.put("cookies", it) }
+        }
+        showSheet(download, name, type, length)
+    }
+
+    private fun showSheet(download: JSONObject, name: String, type: String?, length: Long) {
+        closeSheet()
+        val root = window.decorView.findViewById<ViewGroup>(android.R.id.content).getChildAt(0) as? FrameLayout ?: return
+        val scrim = FrameLayout(this).apply {
+            setBackgroundColor(SCRIM)
+            isClickable = true
+            setOnClickListener { closeSheet() }
+        }
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(PANEL, dp(20).toFloat())
+            setPadding(dp(20), dp(20), dp(20), dp(16))
+            isClickable = true
+        }
+        panel.addView(label(13f).apply {
+            text = "Download file"
+            alpha = 0.7f
+        })
+        panel.addView(label(17f, bold = true).apply {
+            text = name
+            maxLines = 3
+            setPadding(0, dp(6), 0, dp(4))
+        })
+        val details = listOfNotNull(
+            length.takeIf { it > 0 }?.let { Formatter.formatShortFileSize(this, it) },
+            type,
+        ).joinToString(" · ")
+        if (details.isNotEmpty()) panel.addView(label(14f).apply { text = details })
+        Uri.parse(webView.url ?: home).host?.let { host ->
+            panel.addView(label(13f).apply {
+                text = "From $host"
+                alpha = 0.7f
+            })
+        }
+        val choice = { text: String, filled: Boolean, action: () -> Unit ->
+            pill(text, filled) { action() }.apply {
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
+                    topMargin = dp(10)
+                }
+                if (!filled) background = rounded(0x22FFFFFF, dp(24).toFloat())
+            }
+        }
+        panel.addView(choice("Download to Download/Raygun", true) {
+            closeSheet()
+            startDownload(download, JSONObject().put("kind", "downloads"))
+        }.apply { (layoutParams as LinearLayout.LayoutParams).topMargin = dp(18) })
+        panel.addView(choice("Choose folder…", false) {
+            closeSheet()
+            offered = download
+            runCatching { pickFolder.launch(null) }.onFailure {
+                offered = null
+                showNotice("No folder picker on this phone")
+            }
+        })
+        panel.addView(choice(getString(android.R.string.cancel), false) { closeSheet() })
+        scrim.addView(
+            panel,
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                gravity = Gravity.BOTTOM
+                setMargins(dp(8), 0, dp(8), dp(8))
+            },
+        )
+        root.addView(scrim, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        sheet = scrim
+    }
+
+    private fun closeSheet() {
+        val shown = sheet ?: return
+        (shown.parent as? ViewGroup)?.removeView(shown)
+        sheet = null
+    }
+
+    /** Hands the download to Raygun, which downloads it and shows it in its notifications. */
+    private fun startDownload(download: JSONObject, destination: JSONObject) {
+        download.put("destination", destination)
+        val json = JSONObject().put("download", download).toString()
+        sendBroadcast(Intent(ACTION_REPORT).setPackage(packageName).putExtra(EXTRA_REPORT, json))
+        showNotice("Downloading ${download.optString("name")}")
+    }
+
+    /**
+     * A link to another app. An `intent:` link's web fallback opens here; anything else stays,
+     * with a notice: only the menu's "Open in another browser" leaves.
+     */
+    private fun holdAppLink(view: WebView, uri: Uri) {
+        if (uri.scheme.equals("intent", ignoreCase = true)) {
+            val fallback = runCatching {
+                Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME).getStringExtra("browser_fallback_url")
+            }.getOrNull()
+            val scheme = fallback?.let { Uri.parse(it).scheme?.lowercase() }
+            if (fallback != null && (scheme == "https" || scheme == "http")) {
+                view.loadUrl(fallback)
+                return
+            }
+        }
+        blockedPopups += 1
+        updateShield()
+        showNotice("Link to another app held")
+    }
+
     private fun openOutside(uri: Uri) {
         runCatching {
             startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW, uri), "Open with"))
@@ -328,10 +488,8 @@ class WebsiteActivity : AppCompatActivity() {
             val uri = request.url
             val scheme = uri.scheme?.lowercase()
             if (scheme != "http" && scheme != "https") {
-                // Links to apps: only from a tap, and only through Android's chooser.
-                if (request.hasGesture()) openOutside(uri) else blockedPopups += 1
-                updateShield()
-                return true
+                if (scheme != "about" && scheme != "data" && scheme != "blob") holdAppLink(view, uri)
+                return scheme != "about"
             }
             // Leaving for another site: a tap doesn't prove much (the browser counts any navigation
             // within seconds of a tap as tapped, which is how tap-to-redirect ads work), so it's held
@@ -446,6 +604,8 @@ class WebsiteActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         webView.saveState(outState)
+        // A download waiting for the folder picker survives the activity being remade.
+        offered?.let { outState.putString("offered", it.toString()) }
     }
 
     override fun onPause() {

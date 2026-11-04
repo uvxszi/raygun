@@ -77,6 +77,7 @@ mod video_library;
 mod video_quality;
 mod video_session;
 mod video_sources;
+mod website_downloads;
 mod websites;
 mod ytdlp;
 
@@ -435,6 +436,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::website_blocklist_status,
             commands::website_blocklist_update,
             commands::website_clear_data,
+            website_downloads::website_downloads,
+            website_downloads::website_download_cancel,
+            website_downloads::website_download_retry,
+            website_downloads::website_download_remove,
+            website_downloads::website_download_open,
+            website_downloads::website_download_reveal,
             commands::catalog_filters,
             commands::catalog_search,
             commands::catalog_global_search,
@@ -521,6 +528,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::SongDownloadProgressEvent,
             events::SongCaptureEvent,
             events::YtDlpEvent,
+            events::WebsiteDownloadsEvent,
             events::AppUpdateEvent,
             events::OpenRouteEvent,
             events::PermissionPromptEvent,

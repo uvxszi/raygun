@@ -233,6 +233,8 @@ pub struct OutputRequest<'a> {
     pub path: &'a [String],
     pub name: &'a str,
     pub mime: &'a str,
+    /// Keeps a file already there: a taken name becomes `name (1)`… instead of replacing it.
+    pub unique: bool,
 }
 
 /// A file made outside the app: its URI, and a descriptor the caller now owns and must close
@@ -241,6 +243,9 @@ pub struct OutputRequest<'a> {
 pub struct OutputFile {
     pub uri: String,
     pub fd: i32,
+    /// The name it was made under.
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 /// A file under a picked folder (M46.27).
@@ -487,6 +492,39 @@ impl<R: Runtime> NativeAudio<R> {
                 "captureStop",
                 serde_json::json!({ "session": session }),
             )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    /// Opens a saved file (a MediaStore, document or `file:` URI) in the app Android picks.
+    #[cfg(target_os = "android")]
+    pub fn open_file(&self, uri: &str, mime: &str) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>(
+                "openFile",
+                serde_json::json!({ "uri": uri, "mime": mime }),
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    /// Shows the folder of a saved file: the system's downloads, or the picked folder.
+    #[cfg(target_os = "android")]
+    pub fn show_file_folder(&self, uri: &str) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>(
+                "showFileFolder",
+                serde_json::json!({ "uri": uri }),
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    /// Deletes a saved file. Blocking.
+    #[cfg(target_os = "android")]
+    pub fn delete_file(&self, uri: &str) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>("deleteFile", serde_json::json!({ "uri": uri }))
             .map(|_| ())
             .map_err(|error| error.to_string())
     }

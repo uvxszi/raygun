@@ -50,6 +50,8 @@ struct Site {
     popup: Mutex<Option<Url>>,
     popup_item: Mutex<Option<MenuItem<Wry>>>,
     list: Blocklist,
+    /// The webview's User-Agent once read (Windows), for downloads.
+    user_agent: Mutex<Option<String>>,
 }
 
 impl Site {
@@ -143,6 +145,7 @@ pub fn open(
         popup: Mutex::new(None),
         popup_item: Mutex::new(None),
         list: Blocklist::load(&request.blocklist),
+        user_agent: Mutex::new(None),
     });
     let menu = menu(app, &label, &site).map_err(|error| error.to_string())?;
     let report = Arc::new(report);
@@ -152,7 +155,9 @@ pub fn open(
     let on_popup = (site.clone(), app.clone(), label.clone());
     let on_load = site.clone();
     let on_title = site.clone();
-    let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url.clone()))
+    #[cfg(not(windows))]
+    let on_download = (site.clone(), app.clone(), label.clone());
+    let builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url.clone()))
         .title(url.host_str().unwrap_or("Raygun"))
         .inner_size(1280.0, 860.0)
         .min_inner_size(480.0, 360.0)
@@ -163,7 +168,9 @@ pub fn open(
             if matches!(url.scheme(), "http" | "https") {
                 *on_navigation.url.lock().expect("site poisoned") = url.clone();
             }
-            true
+            // Links to other apps (mailto:, intent:, app schemes) never leave the window: only
+            // "Open in your browser" hands anything to another program.
+            matches!(url.scheme(), "http" | "https" | "about" | "blob" | "data")
         })
         .on_new_window(move |url, _features| {
             let (site, app, label) = &on_popup;
@@ -196,9 +203,32 @@ pub fn open(
         .on_document_title_changed(move |window, title| {
             *on_title.title.lock().expect("site poisoned") = title;
             on_title.show_title(&window);
-        })
-        .build()
-        .map_err(|error| error.to_string())?;
+        });
+    // Downloads are Raygun's (Windows: `DownloadStarting`, in `install_downloads`).
+    #[cfg(not(windows))]
+    let builder = builder.on_download(move |_webview, event| {
+        let tauri::webview::DownloadEvent::Requested { url, destination } = event else {
+            return true;
+        };
+        let (site, app, label) = &on_download;
+        if url.scheme() == "blob" {
+            // Only the page can read it: the webview saves it, into Downloads/Raygun.
+            if let Some(path) = blob_destination(app, destination) {
+                *destination = path;
+            }
+            return true;
+        }
+        let hint = destination
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned());
+        crate::website_downloads::desktop::offer(
+            app.clone(),
+            label.clone(),
+            site.download_request(url.to_string(), hint, None, None, None),
+        );
+        false
+    });
+    let window = builder.build().map_err(|error| error.to_string())?;
 
     let on_menu = site.clone();
     let prefix = format!("{label}:");
@@ -228,7 +258,140 @@ pub fn open(
         _ => {}
     });
     #[cfg(windows)]
+    install_downloads(&window, site.clone());
+    #[cfg(windows)]
     install_blocker(&window, site);
+    Ok(())
+}
+
+impl Site {
+    /// A download from this window, before its place is picked.
+    fn download_request(
+        &self,
+        url: String,
+        name: Option<String>,
+        mime: Option<String>,
+        size: Option<f64>,
+        disposition: Option<String>,
+    ) -> crate::website_downloads::FileRequest {
+        crate::website_downloads::FileRequest {
+            url,
+            user_agent: Some(
+                self.user_agent
+                    .lock()
+                    .expect("site poisoned")
+                    .clone()
+                    .unwrap_or_else(raygun_net::user_agent),
+            ),
+            referer: Some(self.url.lock().expect("site poisoned").to_string()),
+            cookies: None,
+            content_disposition: disposition,
+            name,
+            mime,
+            size,
+            destination: crate::website_downloads::Destination::Downloads,
+        }
+    }
+}
+
+/// Where a `blob:` download the webview saves itself goes: Downloads/Raygun, under a free name.
+fn blob_destination(app: &AppHandle, suggested: &Path) -> Option<PathBuf> {
+    let name = suggested.file_name()?.to_string_lossy().into_owned();
+    let dir = app
+        .try_state::<Arc<crate::export::ExportService>>()?
+        .outputs()
+        .folder(&crate::export::Place::Downloads);
+    std::fs::create_dir_all(&dir).ok()?;
+    let name = crate::website_downloads::names::unique_name(
+        &crate::export::names::safe_name(&name),
+        |candidate| dir.join(candidate).exists(),
+    );
+    Some(dir.join(name))
+}
+
+/// Takes the window's downloads (WebView2's `DownloadStarting`): each is cancelled in the webview
+/// and offered to Raygun's downloads, except `blob:` ones, which only the page can read.
+#[cfg(windows)]
+fn install_downloads(window: &WebviewWindow, site: Arc<Site>) {
+    let app = window.app_handle().clone();
+    let label = window.label().to_owned();
+    let started = window.with_webview(move |platform| {
+        // SAFETY: as in `install_blocker`: on the UI thread, with its controller.
+        if let Err(error) = unsafe { add_downloads(&platform.controller(), site, app, label) } {
+            tracing::warn!(%error, "the browser's downloads didn't start");
+        }
+    });
+    if let Err(error) = started {
+        tracing::warn!(%error, "the browser's downloads didn't start");
+    }
+}
+
+#[cfg(windows)]
+unsafe fn add_downloads(
+    controller: &webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller,
+    site: Arc<Site>,
+    app: AppHandle,
+    label: String,
+) -> windows::core::Result<()> {
+    use webview2_com::DownloadStartingEventHandler;
+    use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2_4, ICoreWebView2Settings2};
+    use windows::core::{HSTRING, Interface, PWSTR};
+
+    unsafe {
+        let webview = controller.CoreWebView2()?;
+        // The page's User-Agent, for the download's requests.
+        if let Ok(settings) = webview.Settings()?.cast::<ICoreWebView2Settings2>() {
+            let mut agent = PWSTR::null();
+            if settings.UserAgent(&mut agent).is_ok() {
+                let agent = webview2_com::take_pwstr(agent);
+                if !agent.is_empty() {
+                    *site.user_agent.lock().expect("site poisoned") = Some(agent);
+                }
+            }
+        }
+        let handler = DownloadStartingEventHandler::create(Box::new(move |_sender, args| {
+            let Some(args) = args else {
+                return Ok(());
+            };
+            let operation = args.DownloadOperation()?;
+            let read = |get: &dyn Fn(*mut PWSTR) -> windows::core::Result<()>| {
+                let mut value = PWSTR::null();
+                get(&mut value)
+                    .ok()
+                    .map(|()| webview2_com::take_pwstr(value))
+                    .filter(|value| !value.is_empty())
+            };
+            let uri = read(&|value| operation.Uri(value)).unwrap_or_default();
+            let mut suggested = PWSTR::null();
+            args.ResultFilePath(&mut suggested)?;
+            let suggested = PathBuf::from(webview2_com::take_pwstr(suggested));
+            if uri.starts_with("blob:") {
+                if let Some(path) = blob_destination(&app, &suggested) {
+                    args.SetResultFilePath(&HSTRING::from(path.as_os_str()))?;
+                }
+                return Ok(());
+            }
+            args.SetCancel(true)?;
+            let disposition = read(&|value| operation.ContentDisposition(value));
+            let mime = read(&|value| operation.MimeType(value));
+            let mut total = 0i64;
+            let size = operation
+                .TotalBytesToReceive(&mut total)
+                .ok()
+                .filter(|()| total > 0)
+                .map(|()| total as f64);
+            let hint = suggested
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned());
+            let request = site.download_request(uri, hint, mime, size, disposition);
+            crate::website_downloads::desktop::offer(app.clone(), label.clone(), request);
+            Ok(())
+        }));
+        let mut token = 0i64;
+        webview
+            .cast::<ICoreWebView2_4>()?
+            .add_DownloadStarting(&handler, &mut token)?;
+    }
     Ok(())
 }
 

@@ -18,10 +18,12 @@ import { Tabs } from '../shell/Tabs';
 import { VideoDownloadsList } from '../watch/VideoDownloadsList';
 import { useVideoDownloads } from '../watch/useVideoLibrary';
 import { PageHeader } from './PageHeader';
+import { FileDownloadsList } from '../websites/FileDownloads';
+import { useFileDownloads } from '../websites/useFileDownloads';
 import { YtDlpJobs } from '../youtube/YtDlpJobs';
 import { useYtDlpJobs } from '../youtube/useYtDlp';
 
-export type DownloadsTab = 'all' | 'music' | 'chapters' | 'videos' | 'exports';
+export type DownloadsTab = 'all' | 'music' | 'chapters' | 'videos' | 'files' | 'exports';
 
 /** How much room downloads take on this device, with the way to Storage. */
 const StorageLine: FC = () => {
@@ -82,13 +84,15 @@ const AllDownloads: FC = () => {
   const videos = useVideoDownloads();
   const exports = useExportJobs();
   const youtube = useYtDlpJobs();
-  const answered = [songs, chapters, videos, exports, youtube].every(
+  const files = useFileDownloads();
+  const answered = [songs, chapters, videos, exports, youtube, files].every(
     (query) => query.data !== undefined || query.isError,
   );
   const shown = {
     music: (songs.data?.length ?? 0) > 0,
     chapters: (chapters.data?.items.length ?? 0) > 0,
     videos: (videos.data?.items.length ?? 0) > 0,
+    files: (files.data ?? []).some((file) => file.state !== 'cancelled'),
     exports: (exports.data?.length ?? 0) + (youtube.data?.length ?? 0) > 0,
   };
   const nothing = Object.values(shown).every((has) => !has);
@@ -113,6 +117,11 @@ const AllDownloads: FC = () => {
           <VideoDownloadsList />
         </Section>
       )}
+      {shown.files && (
+        <Section tab="files" title={t('downloads.files.tab')}>
+          <FileDownloadsList compact />
+        </Section>
+      )}
       {shown.exports && (
         <Section tab="exports" title={t('export.tab')}>
           <YtDlpJobs />
@@ -123,7 +132,7 @@ const AllDownloads: FC = () => {
   );
 };
 
-/** Downloads (More → Downloads): songs, the chapter queue, saved videos and exports, in tabs. */
+/** Downloads (More → Downloads): songs, the chapter queue, saved videos, files from websites and exports, in tabs. */
 export const DownloadsPage: FC = () => {
   const { t } = useTranslation();
   // All first (M46.37): every kind of download on one page, each with its own list.
@@ -157,6 +166,12 @@ export const DownloadsPage: FC = () => {
             search: { tab: 'videos' },
           },
           {
+            id: 'files',
+            label: t('downloads.files.tab'),
+            to: '/downloads',
+            search: { tab: 'files' },
+          },
+          {
             id: 'exports',
             label: t('export.tab'),
             to: '/downloads',
@@ -168,6 +183,7 @@ export const DownloadsPage: FC = () => {
       {tab === 'music' && <SongDownloadsList />}
       {tab === 'chapters' && <ChapterDownloads />}
       {tab === 'videos' && <VideoDownloadsList />}
+      {tab === 'files' && <FileDownloadsList />}
       {tab === 'exports' && (
         <>
           <YtDlpJobs />

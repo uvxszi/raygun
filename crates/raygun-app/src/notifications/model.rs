@@ -17,6 +17,8 @@ pub enum Kind {
     Models,
     Update,
     YtDlp,
+    /// Files saved from websites.
+    Files,
     /// The extension install queue, as one download: its batch.
     Extensions,
 }
@@ -33,6 +35,7 @@ impl Kind {
             Kind::Models => "models",
             Kind::Update => "update",
             Kind::YtDlp => "ytdlp",
+            Kind::Files => "files",
             Kind::Extensions => "extensions",
         }
     }
@@ -48,6 +51,7 @@ impl Kind {
             "models" => Kind::Models,
             "update" => Kind::Update,
             "ytdlp" => Kind::YtDlp,
+            "files" => Kind::Files,
             "extensions" => Kind::Extensions,
             _ => return None,
         })
@@ -65,6 +69,7 @@ impl Kind {
             Kind::Videos => "/downloads?tab=videos",
             Kind::Chapters => "/downloads?tab=chapters",
             Kind::Exports | Kind::YtDlp => "/downloads?tab=exports",
+            Kind::Files => "/downloads?tab=files",
             Kind::Podcasts => "/library?media=audio",
             Kind::Models => "/settings/ai",
             Kind::Update => "/about",
@@ -85,6 +90,7 @@ impl Kind {
             Kind::Models => ("model", "models"),
             Kind::Update => ("update", "updates"),
             Kind::YtDlp => ("YouTube download", "YouTube downloads"),
+            Kind::Files => ("file", "files"),
         };
         format!("{count} {}", if count == 1 { one } else { many })
     }

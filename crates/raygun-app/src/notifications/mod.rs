@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use raygun_model::{
     AiModelProgress, AiModelState, DownloadState, ExportState, PermissionReason, SongDownloadState,
-    UpdateState, YtDlpState,
+    UpdateState, WebsiteDownloadState, YtDlpState,
 };
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
@@ -30,7 +30,7 @@ use tokio::sync::Notify;
 use crate::events::{
     AiModelEvent, AppUpdateEvent, ExportEvent, ExtensionInstallsEvent, MangaDownloadsEvent,
     OpenRouteEvent, PodcastsChangedEvent, SongDownloadProgressEvent, SongDownloadsEvent,
-    VideoDownloadsEvent, YtDlpEvent,
+    VideoDownloadsEvent, WebsiteDownloadsEvent, YtDlpEvent,
 };
 use model::{Abilities, Download, Kind, Phase, Plan, Tracker, Unit};
 
@@ -40,7 +40,7 @@ const TICK: Duration = Duration::from_secs(1);
 /// A podcast download that hasn't moved for this long isn't running (the app stopped under it).
 const PODCAST_STALE: Duration = Duration::from_secs(120);
 
-const ALL_KINDS: [Kind; 9] = [
+const ALL_KINDS: [Kind; 10] = [
     Kind::Songs,
     Kind::Videos,
     Kind::Chapters,
@@ -49,6 +49,7 @@ const ALL_KINDS: [Kind; 9] = [
     Kind::Models,
     Kind::Update,
     Kind::YtDlp,
+    Kind::Files,
     Kind::Extensions,
 ];
 
@@ -119,6 +120,8 @@ impl DownloadNotices {
         AppUpdateEvent::listen(app, move |_| notices.touch(Kind::Update));
         let notices = self.clone();
         YtDlpEvent::listen(app, move |_| notices.touch(Kind::YtDlp));
+        let notices = self.clone();
+        WebsiteDownloadsEvent::listen(app, move |_| notices.touch(Kind::Files));
         let notices = self.clone();
         ExtensionInstallsEvent::listen(app, move |_| notices.touch(Kind::Extensions));
         let notices = self.clone();
@@ -223,6 +226,7 @@ impl DownloadNotices {
             Kind::Models => self.models_now(),
             Kind::Update => update(&self.app),
             Kind::YtDlp => ytdlp(&self.app),
+            Kind::Files => files(&self.app),
             Kind::Extensions => {
                 state::<Arc<crate::extension_installs::ExtensionInstalls>>(&self.app)
                     .ok()
@@ -405,6 +409,13 @@ async fn act_on(app: &AppHandle, kind: Kind, id: &str, action: &str) -> Result<(
         (Kind::Extensions, "retry") => {
             state::<Arc<crate::extension_installs::ExtensionInstalls>>(app)?.retry_failed();
             Ok(())
+        }
+        (Kind::Files, "cancel") => {
+            state::<Arc<crate::website_downloads::WebsiteDownloadService>>(app)?.cancel(id);
+            Ok(())
+        }
+        (Kind::Files, "retry") => {
+            state::<Arc<crate::website_downloads::WebsiteDownloadService>>(app)?.retry(id)
         }
         (Kind::YtDlp, "cancel") => {
             state::<Arc<crate::ytdlp::YtDlpService>>(app)?.cancel(id);
@@ -841,6 +852,46 @@ fn ytdlp(app: &AppHandle) -> Vec<Download> {
                     ..Abilities::default()
                 },
                 route: Kind::YtDlp.route().to_owned(),
+            })
+        })
+        .collect()
+}
+
+/// Files saved from websites.
+fn files(app: &AppHandle) -> Vec<Download> {
+    let Ok(service) = state::<Arc<crate::website_downloads::WebsiteDownloadService>>(app) else {
+        return Vec::new();
+    };
+    service
+        .list()
+        .into_iter()
+        .filter_map(|file| {
+            let phase = match file.state {
+                WebsiteDownloadState::Queued => Phase::Queued,
+                WebsiteDownloadState::Downloading => Phase::Running,
+                WebsiteDownloadState::Done => Phase::Done,
+                WebsiteDownloadState::Failed => Phase::Failed,
+                WebsiteDownloadState::Cancelled => return None,
+            };
+            Some(Download {
+                kind: Kind::Files,
+                id: file.id,
+                title: file.name,
+                subtitle: file.site,
+                phase,
+                done: file.done_bytes,
+                total: file.total_bytes,
+                unit: Unit::Bytes,
+                bytes: None,
+                left_ms: None,
+                speed: file.bytes_per_second,
+                error: file.error,
+                abilities: Abilities {
+                    cancel: true,
+                    retry: file.state == WebsiteDownloadState::Failed,
+                    ..Abilities::default()
+                },
+                route: Kind::Files.route().to_owned(),
             })
         })
         .collect()

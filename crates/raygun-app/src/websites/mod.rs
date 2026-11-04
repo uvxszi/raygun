@@ -438,6 +438,14 @@ pub fn install(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(json) = reports.recv().await {
+            // A download the browser's sheet sent here (`{"download": …}`).
+            if let Ok(serde_json::Value::Object(mut fields)) =
+                serde_json::from_str::<serde_json::Value>(&json)
+                && let Some(download) = fields.remove("download")
+            {
+                crate::website_downloads::take_request(&app, download);
+                continue;
+            }
             let Ok(report) = serde_json::from_str::<Report>(&json) else {
                 tracing::warn!(%json, "unreadable browser report");
                 continue;

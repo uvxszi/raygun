@@ -143,6 +143,13 @@ class OutputArgs {
     var path: Array<String> = emptyArray()
     var name: String = ""
     var mime: String = "application/octet-stream"
+    var unique: Boolean = false
+}
+
+@InvokeArg
+class FileArgs {
+    var uri: String = ""
+    var mime: String = "*/*"
 }
 
 @InvokeArg
@@ -182,6 +189,8 @@ class PathArgs {
 class UrlArgs {
     lateinit var url: String
 }
+
+private const val DocumentsContractDir = android.provider.DocumentsContract.Document.MIME_TYPE_DIR
 
 private const val PROGRESS_INTERVAL_MS = 500L
 /** Playing this long without the position moving is silence, not playback. */
@@ -1094,8 +1103,8 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         val args = invoke.parseArgs(OutputArgs::class.java)
         thread(name = "raygun-output") {
             try {
-                val output = storage.create(args.place, args.tree, args.path.toList(), args.name, args.mime)
-                invoke.resolve(JSObject().put("uri", output.uri.toString()).put("fd", output.fd))
+                val output = storage.create(args.place, args.tree, args.path.toList(), args.name, args.mime, args.unique)
+                invoke.resolve(JSObject().put("uri", output.uri.toString()).put("fd", output.fd).put("name", output.name))
             } catch (error: Exception) {
                 invoke.reject(error.message ?: "Couldn't make the file")
             }
@@ -1111,6 +1120,57 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
                 invoke.resolve()
             } catch (error: Exception) {
                 invoke.reject(error.message ?: "Couldn't finish the file")
+            }
+        }
+    }
+
+    /** Opens a file saved from a website (M47) in the app Android picks. */
+    @Command
+    fun openFile(invoke: Invoke) {
+        val args = invoke.parseArgs(FileArgs::class.java)
+        activity.runOnUiThread {
+            try {
+                activity.startActivity(storage.view(Uri.parse(args.uri), args.mime))
+                invoke.resolve()
+            } catch (error: android.content.ActivityNotFoundException) {
+                invoke.reject("No app on this phone opens this kind of file")
+            } catch (error: Exception) {
+                invoke.reject(error.message ?: "The file didn't open")
+            }
+        }
+    }
+
+    /** Shows the folder of a saved file. */
+    @Command
+    fun showFileFolder(invoke: Invoke) {
+        val args = invoke.parseArgs(FileArgs::class.java)
+        activity.runOnUiThread {
+            try {
+                activity.startActivity(storage.folderOf(Uri.parse(args.uri)))
+                invoke.resolve()
+            } catch (error: Exception) {
+                // Some phones have no downloads screen: the Files app's own.
+                runCatching {
+                    activity.startActivity(
+                        Intent(Intent.ACTION_VIEW)
+                            .setType(DocumentsContractDir)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                    invoke.resolve()
+                }.onFailure { invoke.reject("No app on this phone shows folders") }
+            }
+        }
+    }
+
+    @Command
+    fun deleteFile(invoke: Invoke) {
+        val args = invoke.parseArgs(FileArgs::class.java)
+        thread(name = "raygun-output") {
+            try {
+                storage.delete(Uri.parse(args.uri))
+                invoke.resolve()
+            } catch (error: Exception) {
+                invoke.reject(error.message ?: "The file couldn't be deleted")
             }
         }
     }
@@ -1185,6 +1245,8 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     override fun load(webView: WebView) {
+        // The browser's process may outlive this one: its reports and downloads find a listener.
+        listenToWebsites()
         takeOpenExtras(activity.intent)
         DeviceState.start(activity)
     }

@@ -86,6 +86,7 @@ type EventPayloads = {
   speechCommandEvent: SpeechCommand;
   appUpdateEvent: AppUpdate;
   ytDlpEvent: string;
+  websiteDownloadsEvent: string;
 };
 type EventName = keyof EventPayloads;
 type Listener = (event: { payload: unknown }) => void;
@@ -605,6 +606,12 @@ export const bindingsMock = {
     websiteBlocklistStatus: vi.fn(),
     websiteBlocklistUpdate: vi.fn(),
     websiteClearData: vi.fn(),
+    websiteDownloads: vi.fn(),
+    websiteDownloadCancel: vi.fn(),
+    websiteDownloadRetry: vi.fn(),
+    websiteDownloadRemove: vi.fn(),
+    websiteDownloadOpen: vi.fn(),
+    websiteDownloadReveal: vi.fn(),
     videoHistory: vi.fn(),
     videoSources: vi.fn(),
     videoBrowse: vi.fn(),
@@ -704,6 +711,7 @@ export const bindingsMock = {
     speechCommandEvent: makeEvent('speechCommandEvent'),
     appUpdateEvent: makeEvent('appUpdateEvent'),
     ytDlpEvent: makeEvent('ytDlpEvent'),
+    websiteDownloadsEvent: makeEvent('websiteDownloadsEvent'),
   },
 };
 
@@ -1173,6 +1181,8 @@ export const seedBindings = () => {
   commands.storageUsage.mockResolvedValue(ok([]));
   commands.storageClear.mockResolvedValue(ok([]));
   commands.websiteList.mockResolvedValue(ok([]));
+  commands.websiteDownloads.mockResolvedValue([]);
+  commands.websiteDownloadCancel.mockResolvedValue(null);
   for (const command of [
     commands.websiteEdit,
     commands.websiteRemove,
@@ -1180,6 +1190,10 @@ export const seedBindings = () => {
     commands.websiteSetBlockAds,
     commands.websiteOpen,
     commands.websiteClearData,
+    commands.websiteDownloadRetry,
+    commands.websiteDownloadRemove,
+    commands.websiteDownloadOpen,
+    commands.websiteDownloadReveal,
   ]) {
     command.mockResolvedValue(ok(null));
   }

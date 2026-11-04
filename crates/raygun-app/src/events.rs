@@ -61,6 +61,10 @@ pub struct AppUpdateEvent(pub raygun_model::AppUpdate);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct YtDlpEvent(pub String);
 
+/// Files saved from websites changed; carries the download's id (empty when the list did).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct WebsiteDownloadsEvent(pub String);
+
 /// The song downloads changed; carries the download's id when one did (else empty) (M46.10).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SongDownloadsEvent(pub String);
