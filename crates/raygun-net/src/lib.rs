@@ -55,6 +55,18 @@ pub fn with_user_agent<'a>(
     }
 }
 
+/// Whether a stream must be asked for with a `Range` (M46.51): YouTube's media servers send a
+/// request without one at playback speed and cut it off before the end, while one with a range,
+/// `bytes=0-` included, comes at full speed.
+pub fn wants_range(url: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+    (host == "googlevideo.com" || host.ends_with(".googlevideo.com"))
+        && url.path().starts_with("/videoplayback")
+}
+
 /// HTTP client shared by the whole app.
 ///
 /// TLS is rustls on the `ring` provider. Desktop verifies certificates with the system, which
@@ -137,5 +149,18 @@ mod tests {
         );
         set_user_agent("");
         assert_eq!(user_agent(), DEFAULT_USER_AGENT);
+    }
+
+    #[test]
+    fn youtube_streams_are_asked_for_by_range() {
+        assert!(wants_range(
+            "https://rr3---sn-a5mekn6d.googlevideo.com/videoplayback?expire=1&itag=251"
+        ));
+        assert!(!wants_range("https://audius.co/v1/tracks/1/stream"));
+        assert!(!wants_range("https://notgooglevideo.com/videoplayback"));
+        assert!(!wants_range(
+            "https://manifest.googlevideo.com/api/manifest/hls_variant/x"
+        ));
+        assert!(!wants_range("not an address"));
     }
 }

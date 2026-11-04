@@ -146,9 +146,9 @@ object DownloadNotices {
                 Log.w("RaygunAudio", "downloads couldn't run in the foreground", error)
                 foreground = false
             }
-        } else {
-            RaygunDownloadService.finish()
-            // A paused queue keeps its notification, now one that can be swiped away.
+        } else if (!RaygunDownloadService.finish()) {
+            // No service stood with it (it couldn't start). A paused or waiting queue keeps its
+            // notification, now one that can be swiped away; else it goes.
             summary?.let { notify(context, NotificationManagerCompat.from(context), SUMMARY_ID, it) }
                 ?: NotificationManagerCompat.from(context).cancel(SUMMARY_ID)
         }
@@ -295,9 +295,26 @@ class RaygunDownloadService : Service() {
             .setProgress(0, 0, true)
             .build()
 
+    /**
+     * Stops standing in the foreground. With nothing left to show, the notification goes with the
+     * service (`REMOVE`): Android lets go of a foreground notification a moment after
+     * `stopForeground`, and ignores an app's cancel until then, which left the last "Downloading"
+     * on screen for good. A summary that still shows (a paused or waiting queue) stays (`DETACH`)
+     * and is posted again as it is now: the service may have stood with an older one, or with
+     * the placeholder when it started after the downloads had already ended.
+     */
     private fun finishNow() {
-        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_DETACH)
+        val keep = DownloadNotices.summary
+        ServiceCompat.stopForeground(
+            this,
+            if (keep != null) ServiceCompat.STOP_FOREGROUND_DETACH else ServiceCompat.STOP_FOREGROUND_REMOVE,
+        )
         stopSelf()
+        if (keep != null) {
+            NotificationManagerCompat.from(this).let {
+                if (it.areNotificationsEnabled()) runCatching { it.notify(DownloadNotices.SUMMARY_ID, keep) }
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -318,8 +335,11 @@ class RaygunDownloadService : Service() {
             }
         }
 
-        fun finish() {
-            running?.finishNow()
+        /** Stops the service if it runs; false when none did. */
+        fun finish(): Boolean {
+            val service = running ?: return false
+            service.finishNow()
+            return true
         }
     }
 }

@@ -134,6 +134,19 @@ export type ResolvedStream = {
   expiresAt?: number | null;
 };
 
+/** The candidate whose stream the app wants now. */
+export type ResolveArgs = {
+  /** The candidate's `id`. */
+  id: string;
+  /** As in {@link StreamQuery} (M46.51): the bitrate to aim for, `null` for the best. */
+  targetKbps?: number | null;
+  /**
+   * Raygun reads the stream itself (a download, captions), not only plays it (M46.51): a provider
+   * with several formats of it picks one Raygun decodes (M4A or MP3 over Opus).
+   */
+  decodable?: boolean;
+};
+
 /**
  * Streams for tracks found elsewhere. The app asks every `music.stream` provider at once, scores
  * the candidates against the track and plays the best, falling back to the next on failure.
@@ -144,7 +157,7 @@ export type MusicStreamProvider = {
   name?: string;
   candidates(query: StreamQuery): Promise<{ candidates: StreamCandidate[] }>;
   /** Only needed when candidates come without a `source`. */
-  resolve?(args: { id: string }): Promise<ResolvedStream>;
+  resolve?(args: ResolveArgs): Promise<ResolvedStream>;
 };
 
 export type LyricsQuery = {

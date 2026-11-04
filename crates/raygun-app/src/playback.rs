@@ -497,6 +497,47 @@ impl PlaybackService {
         self.send(outbox);
     }
 
+    /// A YouTube song's video shown or hidden (M46.51). YouTube songs play as their audio file,
+    /// and in YouTube's embed while the video shows: showing it moves the song playing now there,
+    /// from where it is. Hiding it leaves the song where it plays; the next one plays its file.
+    pub fn set_video(&self, shown: bool) {
+        let mut outbox = Outbox::default();
+        {
+            let mut inner = self.lock();
+            if !inner.tracker.set_video(shown) || !shown {
+                return;
+            }
+            let Some(item) = inner.core.current_item().cloned() else {
+                return;
+            };
+            let load_id = inner.core.load_id();
+            let in_embed = matches!(
+                inner.tracker.playing(load_id),
+                Some(MediaSource::YouTube { .. })
+            );
+            if !matches!(item.source, MediaSource::YouTube { .. }) || in_embed {
+                return;
+            }
+            let position_ms = inner.core.state().position_ms;
+            // It plays on if it played (a paused song stays paused there).
+            let autoplay = inner.core.plays_when_found();
+            if inner.tracker.begin(load_id, &item, position_ms) == LoadPlan::Direct {
+                let source = item.source.clone();
+                self.load_into(
+                    &mut inner,
+                    &mut outbox,
+                    load_id,
+                    &item,
+                    &source,
+                    position_ms,
+                    autoplay,
+                    0.0,
+                );
+            }
+        }
+        self.send(outbox);
+    }
+
     /// A song's edit changed (M46.12): if it's the one playing, its gain and end change now.
     pub fn song_edited(&self, key: &str) {
         let mut outbox = Outbox::default();

@@ -71,7 +71,7 @@ describe('YouTube addresses (M46.47)', () => {
     expect(within(job).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
   });
 
-  it('offers no downloads on a phone, and still plays', async () => {
+  it('downloads the sound as a song on a phone, and still plays', async () => {
     const user = userEvent.setup();
     await AppShellWrapper.mount(`/browse?tab=search&q=${encodeURIComponent(ADDRESS)}`);
 
@@ -79,6 +79,18 @@ describe('YouTube addresses (M46.47)', () => {
     await vi.waitFor(() => expect(commands.ytdlpStatus).toHaveBeenCalled());
     expect(within(card).queryByText(/yt-dlp|FFmpeg/)).not.toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: 'Download video' })).not.toBeInTheDocument();
+    expect(within(card).queryByText(/needs Raygun on a computer/)).not.toBeInTheDocument();
+    await user.click(await within(card).findByRole('button', { name: 'Download' }));
+    expect(commands.songsDownload).toHaveBeenCalledWith([
+      {
+        title: 'Never Gonna Give You Up',
+        artist: 'Rick Astley',
+        album: null,
+        durationMs: null,
+        artworkUrl: LINK.thumbnailUrl,
+        source: { kind: 'youTube', videoId: 'dQw4w9WgXcQ' },
+      },
+    ]);
     await user.click(within(card).getByRole('button', { name: 'Play as music' }));
     expect(commands.playbackReplace).toHaveBeenCalled();
   });

@@ -1,3 +1,4 @@
+import { commands } from '@raygun/bindings';
 import { create } from 'zustand';
 
 /** The side panel beside the page on wide windows (M46.4, M46.7): what plays, or the queue. */
@@ -83,6 +84,10 @@ export const usePlayerUiStore = create<PlayerUiState>((set) => ({
     savePanel(panel);
     set({ panel });
   },
-  setVideoShown: (videoShown) => set({ videoShown }),
+  setVideoShown: (videoShown) => {
+    set({ videoShown });
+    // YouTube songs play as their audio file; the embed, which has the video, while it shows.
+    void Promise.resolve(commands.playbackSetVideo(videoShown)).catch(() => undefined);
+  },
   setUnmutedVolume: (unmutedVolume) => set({ unmutedVolume }),
 }));

@@ -107,6 +107,43 @@ async fn forwards_range_requests() {
     assert_eq!(response.bytes().await.unwrap().as_ref(), b"2345");
 }
 
+#[test]
+fn youtube_streams_go_by_range_and_whole_files_come_back_whole() {
+    const YOUTUBE: &str = "https://rr1---sn-x.googlevideo.com/videoplayback?itag=251";
+    let none = HeaderMap::new();
+    let mut asked = HeaderMap::new();
+    asked.insert(header::RANGE, HeaderValue::from_static("bytes=100-"));
+
+    // A player asking for the whole file: YouTube's server gets `bytes=0-`, the player a 200.
+    let (range, added) = upstream_range(YOUTUBE, &none);
+    assert_eq!(
+        range.as_ref().map(|range| range.as_bytes()),
+        Some(&b"bytes=0-"[..])
+    );
+    assert!(added);
+    assert_eq!(
+        client_status(reqwest::StatusCode::PARTIAL_CONTENT, added),
+        200
+    );
+    assert_eq!(client_status(reqwest::StatusCode::FORBIDDEN, added), 403);
+    // Its own range goes as it is, and its answer too.
+    let (range, added) = upstream_range(YOUTUBE, &asked);
+    assert_eq!(
+        range.as_ref().map(|range| range.as_bytes()),
+        Some(&b"bytes=100-"[..])
+    );
+    assert!(!added);
+    assert_eq!(
+        client_status(reqwest::StatusCode::PARTIAL_CONTENT, added),
+        206
+    );
+    // Other hosts get no range they didn't ask for.
+    assert_eq!(
+        upstream_range("https://audius.co/stream", &none),
+        (None, false)
+    );
+}
+
 #[tokio::test]
 async fn serves_local_files_with_ranges() {
     let temp = tempfile::TempDir::new().unwrap();

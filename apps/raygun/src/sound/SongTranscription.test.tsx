@@ -100,12 +100,12 @@ describe('song transcription', () => {
       ok(
         captions({
           error:
-            'Only YouTube has this song, and its player gives no sound to hear: download the song first',
+            "Couldn't read YouTube's stream of this song\nYouTube's stream: YouTube didn't give a stream for it",
         }),
       ),
     );
     renderWithProviders(<Harness />);
-    expect(await screen.findByText(/Only YouTube has this song/)).toBeInTheDocument();
+    expect(await screen.findByText(/Couldn't read YouTube's stream/)).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole('button', { name: /try again/i }));
     expect(commands.lyricsTranscribe).toHaveBeenCalledWith(SONG);
   });

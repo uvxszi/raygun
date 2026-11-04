@@ -51,6 +51,11 @@ export const commands = {
 	/**  Unix ms; set when it's remembered. */
 	playedAt?: number | null,
 } | null) => __TAURI_INVOKE<void>("playback_arm_context", { context }),
+	/**
+	 *  Shows or hides YouTube songs' videos (M46.51): they play as their audio file, and in YouTube's
+	 *  embed while the video shows (the song playing now moves there).
+	 */
+	playbackSetVideo: (shown: boolean) => __TAURI_INVOKE<void>("playback_set_video", { shown }),
 	/**  Adds items to the queue; with `play_now` the first one starts immediately. */
 	playbackEnqueue: (items: QueueItemInput[], playNow: boolean) => __TAURI_INVOKE<void>("playback_enqueue", { items, playNow }),
 	/**
@@ -654,9 +659,9 @@ export const commands = {
 	/**  Keys of every song in Favorites or a playlist, to mark them in lists (M46.45). */
 	collectionsSavedKeys: () => typedError<string[], string>(__TAURI_INVOKE("collections_saved_keys")),
 	/**
-	 *  Downloads a song from a picked source (M46.47: Choose a source on a failed or YouTube-only
-	 *  download), first in the queue; the others are tried after it if it fails. `source` is the
-	 *  source's name, shown while it downloads and in what went wrong.
+	 *  Downloads a song from a picked source (M46.47: Choose a source on a failed download), first
+	 *  in the queue; the others are tried after it if it fails. `source` is the source's name, shown
+	 *  while it downloads and in what went wrong.
 	 */
 	songDownloadUseSource: (id: string, track: OnlineTrack, source: string | null) => typedError<null, string>(__TAURI_INVOKE("song_download_use_source", { id, track, source })),
 	/**
@@ -5653,7 +5658,10 @@ export type YtDlpKind = "audio" | "video";
 
 export type YtDlpState = "queued" | "downloading" | "done" | "failed" | "cancelled";
 
-/**  yt-dlp on this device (M46.47): YouTube downloads on desktop, and songs only YouTube has. */
+/**
+ *  yt-dlp on this device (M46.47): YouTube downloads on desktop, and songs YouTube's own audio
+ *  files didn't give.
+ */
 export type YtDlpStatus = {
 	/**  Desktop only: phones have no yt-dlp. */
 	supported: boolean,

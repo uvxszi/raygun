@@ -100,6 +100,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::playback_get_state,
             commands::playback_get_queue,
             commands::playback_arm_context,
+            commands::playback_set_video,
             commands::playback_enqueue,
             commands::playback_queue_tracks,
             commands::playback_control,

@@ -98,11 +98,13 @@ impl DownloadNotices {
         let notices = self.clone();
         SongDownloadProgressEvent::listen(app, move |event| {
             let song = event.payload.0;
-            notices
-                .songs
-                .lock()
-                .expect("songs poisoned")
-                .insert(song.id.clone(), song);
+            {
+                let mut songs = notices.songs.lock().expect("songs poisoned");
+                if !takes_report(songs.get(&song.id).map(|known| known.state), song.state) {
+                    return;
+                }
+                songs.insert(song.id.clone(), song);
+            }
             notices.touch(Kind::Songs);
         });
         let notices = self.clone();
@@ -185,7 +187,14 @@ impl DownloadNotices {
                 let list = self.collect(kind, &tracker, &mut memory).await;
                 lists.insert(kind, list);
             }
-            let downloads: Vec<Download> = lists.values().flatten().cloned().collect();
+            // Read at every turn: battery saver can come and go between two lists.
+            let held = crate::device_state::downloads_held();
+            let downloads: Vec<Download> = lists
+                .values()
+                .flatten()
+                .cloned()
+                .map(|download| hold(download, held))
+                .collect();
             let update = tracker.update(crate::catalog::now_ms() as f64, &downloads);
             if update.plan != shown || update.finished.is_some() {
                 platform::show(&self.app, &update.plan, update.finished.as_ref()).await;
@@ -234,11 +243,11 @@ impl DownloadNotices {
     /// The songs, from the last list and the progress since; the list is read again only when
     /// it changed, not for progress.
     async fn songs_now(&self) -> Vec<Download> {
+        let service = state::<Arc<crate::music_downloads::SongDownloadService>>(&self.app).ok();
         if self
             .songs_changed
             .swap(false, std::sync::atomic::Ordering::SeqCst)
-            && let Ok(service) =
-                state::<Arc<crate::music_downloads::SongDownloadService>>(&self.app)
+            && let Some(service) = &service
             && let Ok(list) = service.list().await
         {
             let mut songs = self.songs.lock().expect("songs poisoned");
@@ -252,7 +261,7 @@ impl DownloadNotices {
             .values()
             .cloned()
             .collect();
-        songs(list)
+        songs(list, service.is_some_and(|service| service.paused()))
     }
 
     fn models_now(&self) -> Vec<Download> {
@@ -331,6 +340,10 @@ async fn act_on(app: &AppHandle, kind: Kind, id: &str, action: &str) -> Result<(
     use crate::video_downloads::VideoDownloadService;
 
     match (kind, action) {
+        (Kind::Songs, "pause" | "resume") => {
+            state::<Arc<SongDownloadService>>(app)?.set_paused(action == "pause");
+            Ok(())
+        }
         (Kind::Songs, "cancel") => state::<Arc<SongDownloadService>>(app)?.remove(id).await,
         (Kind::Songs, "retry") => state::<Arc<SongDownloadService>>(app)?.retry(id).await,
         (Kind::Videos, "pause" | "resume") => {
@@ -420,28 +433,61 @@ struct Memory {
     episodes: HashMap<String, (String, String, String)>,
 }
 
-fn songs(list: Vec<raygun_model::SongDownload>) -> Vec<Download> {
+/// Whether a song's progress report is taken, given what's known of it: a late report from a
+/// download that already ended doesn't bring it back as running (it would show as downloading
+/// for good); starting it again is read from the list.
+fn takes_report(known: Option<SongDownloadState>, report: SongDownloadState) -> bool {
+    let ended = |state| matches!(state, SongDownloadState::Done | SongDownloadState::Failed);
+    !known.is_some_and(ended) || ended(report)
+}
+
+/// A waiting download whose queue battery saver holds shows as held, not as about to start.
+fn hold(mut download: Download, held: bool) -> Download {
+    if held && download.phase == Phase::Queued && download.kind.waits_in_battery_saver() {
+        download.phase = Phase::Held;
+    }
+    download
+}
+
+/// The songs as notifications see them; `paused` when the song queue is.
+fn songs(list: Vec<raygun_model::SongDownload>, paused: bool) -> Vec<Download> {
     list.into_iter()
         .map(|song| {
             let phase = match song.state {
+                SongDownloadState::Queued | SongDownloadState::Downloading if paused => {
+                    Phase::Paused
+                }
                 SongDownloadState::Queued => Phase::Queued,
                 SongDownloadState::Downloading => Phase::Running,
                 SongDownloadState::Done => Phase::Done,
                 SongDownloadState::Failed => Phase::Failed,
             };
             // A capture (M46.49) counts the share of the song it holds.
-            let captured = (phase == Phase::Running
-                && song.kind == Some(raygun_model::SongDownloadKind::Capture))
-            .then_some(song.fraction)
-            .flatten();
+            let capture = song.kind == Some(raygun_model::SongDownloadKind::Capture);
+            let captured = (phase == Phase::Running && capture)
+                .then_some(song.fraction)
+                .flatten();
             let (done, total, unit) = match captured {
                 Some(share) => (share, Some(1.0), Unit::Fraction),
                 None => (song.done_bytes, song.total_bytes, Unit::Bytes),
             };
+            // Before any of it arrives: what it's doing, rather than a bar alone.
+            let doing = (phase == Phase::Running && done <= 0.0 && captured.is_none()).then(|| {
+                match (&song.provider, capture) {
+                    (Some(source), true) => format!("Capturing from {source}"),
+                    (None, true) => "Capturing".to_owned(),
+                    (Some(source), false) => format!("From {source}"),
+                    (None, false) => "Finding a source".to_owned(),
+                }
+            });
+            let subtitle = match (song.artist, doing) {
+                (Some(artist), Some(doing)) => Some(format!("{artist} · {doing}")),
+                (artist, doing) => artist.or(doing),
+            };
             Download {
                 kind: Kind::Songs,
                 title: song.title,
-                subtitle: song.artist,
+                subtitle,
                 phase,
                 done,
                 total,
@@ -451,7 +497,7 @@ fn songs(list: Vec<raygun_model::SongDownload>) -> Vec<Download> {
                 speed: song.bytes_per_second,
                 error: song.error,
                 abilities: Abilities {
-                    pause: false,
+                    pause: true,
                     cancel: true,
                     retry: song.state == SongDownloadState::Failed,
                 },

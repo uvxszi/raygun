@@ -1,5 +1,5 @@
-//! yt-dlp (M46.47): YouTube videos and their sound saved on desktop, and songs only YouTube has
-//! saved as files instead of recorded as they play.
+//! yt-dlp (M46.47): YouTube videos and their sound saved on desktop, and the songs whose YouTube
+//! audio file couldn't be downloaded (M46.51) saved as files.
 //!
 //! yt-dlp is looked for in `<data root>/tools/`, then on the PATH. When it's missing it is fetched
 //! from its GitHub releases the first time it's needed and checked against the release's
@@ -269,7 +269,7 @@ impl YtDlpService {
         Ok(bytes.to_vec())
     }
 
-    // ---- Songs (only YouTube has them) ----
+    // ---- Songs ----
 
     /// Saves a YouTube video's sound as `<dir>/track.<ext>` (M4A where YouTube has it) for the
     /// song downloads; the file's name comes back. `progress` hears the bytes saved and the size

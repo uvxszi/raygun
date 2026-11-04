@@ -237,7 +237,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     );
     updates.start();
     app.manage(updates);
-    // yt-dlp (M46.47): YouTube downloads on desktop and songs only YouTube has.
+    // yt-dlp (M46.47): YouTube downloads on desktop, and songs YouTube's own files didn't give.
     app.manage(crate::ytdlp::YtDlpService::new(
         app.handle().clone(),
         paths.root(),
