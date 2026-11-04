@@ -263,6 +263,7 @@ describe('Menus', () => {
     expect(within(menu).getByText('Daft Punk')).toBeInTheDocument();
     expect(within(menu).queryByRole('menuitem', { name: /^Back/ })).not.toBeInTheDocument();
     // A tap beside it closes it.
+    fireEvent.pointerDown(menu.parentElement as HTMLElement);
     fireEvent.click(menu.parentElement as HTMLElement);
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
