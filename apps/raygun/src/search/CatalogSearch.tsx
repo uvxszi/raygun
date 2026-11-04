@@ -23,10 +23,11 @@ import { rankResults, titleScore } from './rankResults';
 import type { RankedCard } from './rankResults';
 import { videoTitleScore } from '../watch/videoMatch';
 import { useSeenTitles } from './seenBefore';
-import { failingLast, useSourceHealth } from './sourceHealth';
+import { answeredFirst, failingLast, useSourceHealth } from './sourceHealth';
 import {
   sourceSearchOptions,
   useFilteredSearch,
+  useSourceAnswers,
   useSourceFilters,
   useSourceSearch,
 } from './useCatalogSearch';
@@ -496,6 +497,14 @@ export const CatalogSearch: FC<{
     failures,
     failingAtEnd,
   );
+  // By source, the rows that answered with titles lead, then those with none, then failures;
+  // a row still asking keeps its place.
+  const answers = useSourceAnswers(
+    medium,
+    searched.map((source) => source.id),
+    query,
+  );
+  const rows = answeredFirst(searched, (source) => answers(source.id));
   // Finding a source by name shows every match; otherwise the list folds after a dozen.
   const needle = finding.trim();
   const shown = needle
@@ -587,7 +596,7 @@ export const CatalogSearch: FC<{
             )}
           </div>
           {grouped || searched.length === 1 ? (
-            searched.map((source) => (
+            rows.map((source) => (
               <LazySourceRow
                 key={`${source.id}:${query.trim()}`}
                 source={source}

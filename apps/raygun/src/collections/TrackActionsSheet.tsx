@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { TrackTagChips } from '../music/TrackTagChips';
 import { useTrackMenuItems } from '../music/useTrackMenu';
-import { useCloseOnBack } from '../player/useCloseOnBack';
+import { useBackLayer } from '../shell/backLayers';
 import { Popover } from '../shell/Popover';
 import { TextField } from '../shell/TextField';
 import { useWideScreen } from '../shell/useWideScreen';
@@ -169,12 +169,14 @@ export const TrackActionsSheet: FC = () => {
   const close = useTrackActionsStore((state) => state.close);
   const stableClose = useCallback(() => close(), [close]);
   const wide = useWideScreen();
-  useCloseOnBack(track !== null, stableClose);
+  const popover = anchor !== null && wide && anchor.isConnected;
+  // The popover is a back layer of its own; the sheet is one here.
+  useBackLayer(track !== null && !popover, stableClose);
 
   if (!track) {
     return null;
   }
-  if (anchor && wide && anchor.isConnected) {
+  if (anchor && popover) {
     return (
       <Popover anchor={anchor} label={track.title} onClose={stableClose} width={300}>
         <div className="flex flex-col gap-2 p-1">

@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useBackLayer } from '../shell/backLayers';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { inRankOrder, serverLinkLabel, useSourceOrder } from './useSourceOrder';
 import { useDownloadSourceVideo } from './useVideoLibrary';
@@ -207,6 +208,7 @@ export const ServerPicker: FC<{
   onClose: () => void;
 }> = ({ target, intent = 'play', onClose }) => {
   const { t } = useTranslation();
+  useBackLayer(true, onClose);
   const servers = useVideoServers(target.sourceId, target.remoteId);
   const video = t('watch.video');
   const candidates = useMemo(

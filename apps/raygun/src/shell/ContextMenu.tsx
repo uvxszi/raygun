@@ -20,7 +20,7 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 
 import { Artwork } from '../library/Artwork';
-import { useCloseOnBack } from '../player/useCloseOnBack';
+import { backPastLayers, useBackLayer } from './backLayers';
 import { menuFromEvent, useContextMenuStore } from './contextMenuStore';
 import type { MenuItem } from './contextMenuStore';
 import { useIsDesktop } from './useIsDesktop';
@@ -235,7 +235,8 @@ export const ContextMenuHost: FC = () => {
                 label: t('menu.back'),
                 icon: ArrowLeft,
                 hint: 'Alt+←',
-                onSelect: () => router.history.back(),
+                // The menu's own entry goes along with the page's (backLayers).
+                onSelect: () => backPastLayers(() => router.history.back()),
               },
               {
                 label: t('menu.forward'),
@@ -268,9 +269,9 @@ export const ContextMenuHost: FC = () => {
     return () => window.removeEventListener('contextmenu', onContextMenu);
   }, [navigate, router, show, t, desktop]);
 
-  // On a touch screen the menu is a sheet from the bottom, and Back closes it.
+  // On a touch screen the menu is a sheet from the bottom. Back and Escape close it first.
   const sheet = useMemo(() => open !== null && coarsePointer(), [open]);
-  useCloseOnBack(sheet, close);
+  useBackLayer(open !== null, close);
 
   // Kept on screen: flipped up or left when it would run off the edge.
   useLayoutEffect(() => {
@@ -413,8 +414,7 @@ export const ContextMenuHost: FC = () => {
       data-testid="context-menu"
       data-sheet={sheet ? '' : undefined}
       onKeyDown={(event) => {
-        if (event.key === 'Escape') close();
-        else if (event.key === 'ArrowDown') step(1);
+        if (event.key === 'ArrowDown') step(1);
         else if (event.key === 'ArrowUp') step(-1);
         else if (event.key === 'Enter' && active >= 0) pick(open.items[active] as MenuItem);
         else return;

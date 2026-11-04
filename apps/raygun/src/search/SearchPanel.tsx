@@ -12,7 +12,8 @@ import { useMangaSources } from '../manga/useManga';
 import { RecentSearches } from './RecentSearches';
 import { kindOf, useRememberSearch } from './useRecentSearches';
 import { useSearchStream } from './searchStream';
-import { failingLast, useSourceHealth } from './sourceHealth';
+import { answeredFirst, failingLast, useSourceHealth } from './sourceHealth';
+import { useSourceAnswers } from './useCatalogSearch';
 import { pill, SEARCH_TYPES, VIDEO_VIEWS, viewIn } from './searchTypes';
 import type { MusicView, SearchType, SearchView, VideoView } from './searchTypes';
 import { VideoResults } from './VideoResults';
@@ -71,6 +72,13 @@ const VideoSearch: FC<{
     failures,
     failingAtEnd,
   );
+  // The pills' rows: those with titles first, then those with none, then failures.
+  const answers = useSourceAnswers(
+    'video',
+    pills.map((source) => source.id),
+    query,
+  );
+  const pillRows = answeredFirst(pills, (source) => answers(source.id));
   return (
     <div className="flex flex-col gap-5">
       <div role="group" aria-label={t('search.video.kind')} className="flex gap-2">
@@ -104,7 +112,7 @@ const VideoSearch: FC<{
               />
             </Section>
           )}
-          {pills.map((source) => (
+          {pillRows.map((source) => (
             <LazySourceRow
               key={`${source.id}:${query.trim()}`}
               source={source}

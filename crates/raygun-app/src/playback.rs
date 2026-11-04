@@ -643,13 +643,13 @@ impl PlaybackService {
             match result {
                 Ok(pick) => {
                     let position = inner.core.state().position_ms;
-                    let Some((start_ms, autoplay)) =
-                        inner.tracker.resolved(load_id, pick.clone(), position)
+                    let Some(start_ms) = inner.tracker.resolved(load_id, pick.clone(), position)
                     else {
                         return;
                     };
-                    // Paused while it was being found (M46.16): it loads, and waits.
-                    let autoplay = autoplay && !inner.core.held();
+                    // Paused while it was being found (M46.16), it loads and waits; played
+                    // meanwhile (a song reopened paused), it starts.
+                    let autoplay = inner.core.plays_when_found();
                     let Some(item) = inner.core.current_item().cloned() else {
                         return;
                     };
@@ -748,7 +748,7 @@ impl PlaybackService {
                     // A downloaded song plays its saved copy (M46.10).
                     let item =
                         crate::music_downloads::offline_item(&self.app, &item).unwrap_or(item);
-                    match inner.tracker.begin(load_id, &item, start_ms, autoplay) {
+                    match inner.tracker.begin(load_id, &item, start_ms) {
                         LoadPlan::Direct => {
                             let source = item.source.clone();
                             self.load_into(
@@ -776,8 +776,12 @@ impl PlaybackService {
                     }
                 }
                 Effect::Engine(command) => {
-                    let engine = inner.active.unwrap_or(Engine::Webview);
-                    outbox.engine.push((engine, command));
+                    // With no engine holding the current item (its stream is still being found),
+                    // a play or seek would only wake what the last song left behind: a stopped
+                    // YouTube video would start again unseen. Volume and speed go with each load.
+                    if let Some(engine) = inner.active {
+                        outbox.engine.push((engine, command));
+                    }
                 }
                 Effect::StateChanged => {
                     outbox.state = Some(inner.core.state());

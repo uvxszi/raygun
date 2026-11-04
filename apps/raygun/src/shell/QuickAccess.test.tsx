@@ -3,6 +3,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper, makeItem } from './AppShell.test-wrapper';
+import { resetBackLayers } from './backLayers';
 import { useQuickAccessStore } from './quickAccessStore';
 import { bindingsMock, DEFAULT_SETTINGS } from '../test/bindingsMock';
 
@@ -124,14 +125,15 @@ describe('Phones (no side panel, quick access)', () => {
   });
 
   it('closes on Back', async () => {
+    // A phone: the drawer has a history entry of its own (shell/backLayers).
+    resetBackLayers(true);
     setScreen(393, 851);
     withSettings(DEFAULT_SETTINGS);
     await AppShellWrapper.mount('/browse');
     await userEvent.click(await screen.findByTestId('quick-access-button'));
     expect(drawer()).toBeInTheDocument();
-    act(() => {
-      window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
-    });
+    await waitFor(() => expect(window.history.state).toHaveProperty('raygunLayer'));
+    act(() => window.history.back());
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: 'Quick access' })).not.toBeInTheDocument(),
     );

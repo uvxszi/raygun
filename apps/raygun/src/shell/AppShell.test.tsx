@@ -2,6 +2,11 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper, makeItem } from './AppShell.test-wrapper';
+import { resetBackLayers } from './backLayers';
+
+/** The full player's own history entry (a phone's Back takes it off first). */
+const layerEntry = () =>
+  expect.objectContaining({ raygunLayer: expect.objectContaining({ id: expect.any(Number) }) });
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -93,10 +98,12 @@ describe('AppShell', () => {
   });
 
   it('closes the player sheet with the system Back button and keeps the page', async () => {
+    resetBackLayers(true);
     await AppShellWrapper.mount('/library');
     AppShellWrapper.playing([makeItem('Intro')], 0);
     await AppShellWrapper.miniPlayer.open();
     await AppShellWrapper.playerSheet.element;
+    await waitFor(() => expect(window.history.state).toEqual(layerEntry()));
 
     window.history.back();
 
@@ -105,16 +112,17 @@ describe('AppShell', () => {
   });
 
   it('removes its history entry when closed with the button', async () => {
+    resetBackLayers(true);
     await AppShellWrapper.mount();
     AppShellWrapper.playing([makeItem('Intro')], 0);
     await AppShellWrapper.miniPlayer.open();
     await AppShellWrapper.playerSheet.element;
-    expect(window.history.state).toEqual({ raygunSheet: true });
+    await waitFor(() => expect(window.history.state).toEqual(layerEntry()));
 
     await AppShellWrapper.playerSheet.close();
     await AppShellWrapper.playerSheet.waitUntilClosed();
 
-    await waitFor(() => expect(window.history.state).not.toEqual({ raygunSheet: true }));
+    await waitFor(() => expect(window.history.state).not.toEqual(layerEntry()));
   });
 
   it('closes the player sheet with Escape', async () => {

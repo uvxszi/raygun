@@ -8,6 +8,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
+import { useBackLayer } from '../shell/backLayers';
 import { PERMISSIONS_KEY } from './usePermissions';
 
 const ICONS: Partial<Record<PermissionKind, LucideIcon>> = {
@@ -40,6 +41,8 @@ export const PermissionSheet: FC<PermissionSheetProps> = ({ prompt, onDone }) =>
       onDone();
     }
   };
+  // Back is "Not now", and closes this before anything under it.
+  useBackLayer(true, () => void answer(false));
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
       <div

@@ -7,7 +7,6 @@ import { useTranslation } from 'react-i18next';
 
 import { COLLECTIONS, usePlaylists } from '../collections/useCollections';
 import { unwrapResult } from '../lib/commandResult';
-import { useCloseOnBack } from '../player/useCloseOnBack';
 import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
 import { showToast } from '../shell/toastStore';
@@ -135,7 +134,7 @@ export const MenuSheets: FC = () => {
   const adding = useMenuSheetsStore((state) => state.adding);
   const editing = useMenuSheetsStore((state) => state.editing);
   const close = useMenuSheetsStore((state) => state.close);
-  useCloseOnBack(adding !== null || editing !== null, close);
+  // Each is a Sheet: Back and Escape close it (shell/backLayers).
   if (adding) return <AddSongsSheet songs={adding} onClose={close} />;
   if (editing) return <EditDetailsSheet details={editing} onClose={close} />;
   return null;

@@ -7,8 +7,8 @@ import type { FC } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
-import { useCloseOnBack } from '../player/useCloseOnBack';
 import { usePlayerUiStore } from '../player/playerUiStore';
+import { useBackLayer } from './backLayers';
 import { useQuickAccessShown, useQuickAccessStore } from './quickAccessStore';
 import { RailPins } from './RailPins';
 import { useRail } from './useRail';
@@ -75,7 +75,8 @@ export const QuickAccessDrawer: FC<{ blocked: boolean }> = ({ blocked }) => {
   const close = useCallback(() => setOpen(false), [setOpen]);
   const openDrawer = useCallback(() => setOpen(true), [setOpen]);
   useEdgePull(shown && !blocked && !playerOpen && !open, openDrawer);
-  useCloseOnBack(visible, close);
+  // Back and Escape close it before anything under it.
+  useBackLayer(visible, close);
 
   // Opening a pin is a new page: the drawer goes.
   const href = useRouterState({ select: (state) => state.location.href });
@@ -89,14 +90,6 @@ export const QuickAccessDrawer: FC<{ blocked: boolean }> = ({ blocked }) => {
   useEffect(() => {
     if (!shown || blocked) close();
   }, [shown, blocked, close]);
-  useEffect(() => {
-    if (!visible) return;
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close();
-    };
-    document.addEventListener('keydown', escape);
-    return () => document.removeEventListener('keydown', escape);
-  }, [visible, close]);
 
   const onDragEnd = (_event: unknown, info: PanInfo) => {
     if (info.offset.x > 80 || info.velocity.x > 400) close();

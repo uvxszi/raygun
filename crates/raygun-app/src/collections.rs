@@ -1610,7 +1610,7 @@ mod tests {
         let item = played(&collections::playlist_items(&db, &id).await.unwrap()[0].track);
         assert_eq!(item.source, stream);
         assert_eq!(
-            crate::resolution::Tracker::default().begin(1, &item, 0.0, true),
+            crate::resolution::Tracker::default().begin(1, &item, 0.0),
             crate::resolution::LoadPlan::Direct
         );
         let remembered = streams::candidates(&db, "artst|sogn").await.unwrap();

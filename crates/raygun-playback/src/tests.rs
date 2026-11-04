@@ -901,6 +901,84 @@ fn a_pause_holds_even_before_the_engine_answers() {
     assert!(!core.held());
 }
 
+/// What an engine reports for a load: started, it buffers then plays; loaded paused, it says
+/// paused (the native engine reports the player's whole state).
+fn engine_answers(core: &mut PlaybackCore, autoplay: bool) {
+    if autoplay {
+        report(core, EngineEvent::Buffering);
+        report(core, EngineEvent::Playing);
+    } else {
+        report(core, EngineEvent::Paused);
+    }
+}
+
+#[test]
+fn play_pressed_while_a_stream_is_found_plays_it_once_found() {
+    // Reopened paused: its stream is found in the background, to load without playing.
+    let mut core = PlaybackCore::new(3);
+    let effects = core.restore(
+        vec![input("a"), input("b")],
+        vec![0, 1],
+        0,
+        42_000.0,
+        false,
+        RepeatMode::Off,
+    );
+    let asked = effects.iter().find_map(|effect| match effect {
+        Effect::Load { autoplay, .. } => Some(*autoplay),
+        _ => None,
+    });
+    assert_eq!(asked, Some(false));
+    assert!(!core.plays_when_found());
+
+    // Play comes before the stream does. Loading it as the load first asked (paused) made the
+    // engine report paused, and the press came back as a pause.
+    core.play();
+    assert_eq!(core.state().status, PlaybackStatus::Loading);
+    let starts = core.plays_when_found();
+    assert!(starts);
+    engine_answers(&mut core, starts);
+    assert_eq!(core.state().status, PlaybackStatus::Playing);
+
+    // A song paused while its stream is found loads paused, and stays so.
+    core.next();
+    core.pause();
+    let starts = core.plays_when_found();
+    assert!(!starts);
+    engine_answers(&mut core, starts);
+    assert_eq!(core.state().status, PlaybackStatus::Paused);
+    assert!(core.held());
+
+    // Nothing current, nothing to start.
+    core.clear();
+    assert!(!core.plays_when_found());
+}
+
+#[test]
+fn play_and_pause_echoed_back_by_the_system_change_nothing() {
+    // A media session that passes the engine's own commands back as the listener's (the play a
+    // load sends, the pause it sends when it loads paused) must not move the player.
+    let mut core = core_with(&["a"]);
+    core.play();
+    report(&mut core, EngineEvent::Buffering);
+    let status = core.state().status;
+    let effects = core.play();
+    assert_eq!(
+        core.state().status,
+        status,
+        "a play while loading keeps loading"
+    );
+    assert!(!effects.contains(&Effect::StateChanged));
+    report(&mut core, EngineEvent::Playing);
+    assert!(
+        core.play()
+            .iter()
+            .all(|effect| *effect == Effect::Engine(EngineCommand::Play))
+    );
+    assert_eq!(core.state().status, PlaybackStatus::Playing);
+    assert!(!core.held());
+}
+
 #[test]
 fn a_saved_queue_comes_back_paused_where_it_was() {
     let mut core = PlaybackCore::new(3);

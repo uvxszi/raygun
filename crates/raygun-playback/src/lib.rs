@@ -228,6 +228,14 @@ impl PlaybackCore {
         self.held
     }
 
+    /// Whether a stream found now for the current load starts at once. It follows the player as
+    /// it stands, not what the load asked for when its search began: a song reopened paused and
+    /// played while its stream is found starts once found (loaded paused, the engine would report
+    /// paused and turn the press into a pause), and one paused meanwhile waits.
+    pub fn plays_when_found(&self) -> bool {
+        self.cursor.is_some() && !self.held
+    }
+
     /// How long songs fade into the next (M46.12); 0 turns crossfading off.
     pub fn set_crossfade(&mut self, crossfade_ms: f64) {
         self.crossfade_ms = if crossfade_ms.is_finite() {
