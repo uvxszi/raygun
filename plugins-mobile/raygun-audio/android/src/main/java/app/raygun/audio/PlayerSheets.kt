@@ -168,6 +168,17 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
     fun subtitles() {
         val tracks = host.tracks.list(C.TRACK_TYPE_TEXT)
         val sheet = PlayerSheet(host, label("subtitles", "Subtitles"))
+        // Delay and style come first: they are what is changed most while watching.
+        val delay = host.state.subtitleDelayMs
+        val shown = String.format(Locale.ROOT, "%+.1f", delay / 1000.0)
+        sheet.stepper(label("delay", "Delay"), "$shown s", listOf(
+            "−1" to { host.setSubtitleDelay(delay - 1000); subtitles() },
+            "−0.1" to { host.setSubtitleDelay(delay - 100); subtitles() },
+            "+0.1" to { host.setSubtitleDelay(delay + 100); subtitles() },
+            "+1" to { host.setSubtitleDelay(delay + 1000); subtitles() },
+            "0" to { host.setSubtitleDelay(0); subtitles() },
+        ))
+        sheet.row(label("style", "Style")) { style() }
         val off = host.tracks.textOff()
         sheet.row(label("off", "Off"), selected = off) {
             host.tracks.select(C.TRACK_TYPE_TEXT, null)
@@ -208,16 +219,6 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             }
         }
 
-        val delay = host.state.subtitleDelayMs
-        val shown = String.format(Locale.ROOT, "%+.1f", delay / 1000.0)
-        sheet.stepper(label("delay", "Delay"), "$shown s", listOf(
-            "−1" to { host.setSubtitleDelay(delay - 1000); subtitles() },
-            "−0.1" to { host.setSubtitleDelay(delay - 100); subtitles() },
-            "+0.1" to { host.setSubtitleDelay(delay + 100); subtitles() },
-            "+1" to { host.setSubtitleDelay(delay + 1000); subtitles() },
-            "0" to { host.setSubtitleDelay(0); subtitles() },
-        ))
-        sheet.row(label("style", "Style")) { style() }
         sheet.show()
     }
 

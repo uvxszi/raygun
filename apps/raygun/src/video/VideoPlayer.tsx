@@ -1281,6 +1281,33 @@ const VideoStage: FC<StageProps> = ({
       )}
       {panel === 'subtitles' && (
         <PlayerPanel title={t('videoPlayer.subtitles')} onClose={() => setPanel(null)}>
+          <PanelHeading>{t('videoPlayer.delay')}</PanelHeading>
+          <div className="flex items-center gap-2 px-3 py-1">
+            <button
+              type="button"
+              onClick={() => changeDelay(delayMs - 100)}
+              className="rounded-lg bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20"
+            >
+              −0.1 s
+            </button>
+            <DelayField delayMs={delayMs} onChange={changeDelay} />
+            <button
+              type="button"
+              onClick={() => changeDelay(delayMs + 100)}
+              className="rounded-lg bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20"
+            >
+              +0.1 s
+            </button>
+            <button
+              type="button"
+              disabled={delayMs === 0}
+              onClick={() => changeDelay(0)}
+              className="rounded-lg px-2 py-1.5 text-sm hover:bg-white/10 disabled:opacity-40"
+            >
+              {t('videoPlayer.reset')}
+            </button>
+          </div>
+          <PanelHeading>{t('videoPlayer.subtitles')}</PanelHeading>
           <PanelOption
             label={t('videoPlayer.off')}
             selected={subtitleKey === null}
@@ -1343,32 +1370,6 @@ const VideoStage: FC<StageProps> = ({
             onStarted={() => selectSubtitle('ai')}
             onClose={onClose}
           />
-          <PanelHeading>{t('videoPlayer.delay')}</PanelHeading>
-          <div className="flex items-center gap-2 px-3 py-1">
-            <button
-              type="button"
-              onClick={() => changeDelay(delayMs - 100)}
-              className="rounded-lg bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20"
-            >
-              −0.1 s
-            </button>
-            <DelayField delayMs={delayMs} onChange={changeDelay} />
-            <button
-              type="button"
-              onClick={() => changeDelay(delayMs + 100)}
-              className="rounded-lg bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20"
-            >
-              +0.1 s
-            </button>
-            <button
-              type="button"
-              disabled={delayMs === 0}
-              onClick={() => changeDelay(0)}
-              className="rounded-lg px-2 py-1.5 text-sm hover:bg-white/10 disabled:opacity-40"
-            >
-              {t('videoPlayer.reset')}
-            </button>
-          </div>
           {subtitleKey && (
             <>
               <PanelHeading>{t('cueEdit.title')}</PanelHeading>
