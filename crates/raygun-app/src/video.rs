@@ -11,8 +11,8 @@
 
 use raygun_db::video::{self as store, VideoEntry};
 use raygun_model::{
-    AnimeEpisode, ContinueWatching, PlaybackControl, SettingChange, VideoPlayerPrefs, VideoRequest,
-    VideoSubtitle,
+    Accent, AnimeEpisode, ContinueWatching, SettingChange, Settings, SubtitleMode,
+    VideoPlayerPrefs, VideoRequest, VideoSubtitle,
 };
 use raygun_net::ImageLinks;
 use serde_json::{Map, Value, json};
@@ -21,7 +21,6 @@ use tauri_specta::Event;
 
 use crate::catalog::now_ms;
 use crate::events::{SettingsChangedEvent, WatchChangedEvent};
-use crate::playback::PlaybackService;
 use crate::startup::AppDb;
 use crate::video_session::{EpisodeRef, VideoSessions};
 
@@ -31,14 +30,49 @@ struct PlayerPrefs {
     /// Past this share a video counts as watched.
     watched_share: f64,
     seek_ms: u32,
-    /// The subtitle language to turn on by itself; `Some("")` follows the device's language.
-    auto_subtitles: Option<String>,
+    /// The app's language, unless it follows the device (the player knows the device's).
+    app_language: String,
+    /// The first subtitle language; empty follows the device's languages, then the app's.
+    subtitle_language: String,
+    /// When subtitles turn on by themselves.
+    subtitle_mode: SubtitleMode,
     /// The next episode plays by itself (M44).
     autoplay: bool,
     /// When the next-episode prompt shows, before the end.
     next_prompt_ms: u32,
+    /// Music may play on beside a video: the player then leaves the audio focus alone.
+    keep_music_playing: bool,
+    /// The accent, as the player draws it (`#rrggbb`).
+    accent: String,
     /// Controls, gestures, tracks and tools (M45).
     video_player: VideoPlayerPrefs,
+}
+
+/// When subtitles turn on by themselves: the player's setting, else the older switch.
+fn subtitle_mode(settings: &Settings) -> SubtitleMode {
+    settings
+        .video_player
+        .subtitle_mode
+        .unwrap_or(if settings.auto_subtitles {
+            SubtitleMode::Always
+        } else {
+            SubtitleMode::Foreign
+        })
+}
+
+/// The accent the player draws with, as the app shows it on dark backgrounds (`styles.css`).
+fn accent_color(settings: &Settings) -> String {
+    match settings.accent {
+        Accent::Red => "#ff6a65",
+        Accent::Orange => "#ffa242",
+        Accent::Green => "#5edb81",
+        Accent::Teal => "#47d6cf",
+        Accent::Blue => "#65adff",
+        Accent::Purple => "#bb91ff",
+        Accent::Pink => "#ff81ba",
+        Accent::Custom => settings.accent_color.as_str(),
+    }
+    .to_owned()
 }
 
 /// Where a title's player memory is kept, after its group.
@@ -60,7 +94,6 @@ const STATE_KEYS: [&str; 8] = [
 
 async fn player_prefs(db: &raygun_db::Db) -> PlayerPrefs {
     let settings = crate::settings::load(db).await.unwrap_or_default();
-    // The app's language, unless it follows the device (the player knows the device's).
     let app_language = match settings.language.as_str() {
         raygun_model::SYSTEM_LANGUAGE => String::new(),
         tag => tag.to_owned(),
@@ -69,17 +102,31 @@ async fn player_prefs(db: &raygun_db::Db) -> PlayerPrefs {
         resume: settings.resume_videos,
         watched_share: f64::from(settings.watched_percent) / 100.0,
         seek_ms: settings.seek_seconds * 1000,
+        app_language,
+        subtitle_language: settings.subtitle_language.clone(),
+        subtitle_mode: subtitle_mode(&settings),
         autoplay: settings.autoplay_next,
         next_prompt_ms: settings.next_prompt_seconds * 1000,
+        keep_music_playing: settings.keep_music_playing,
+        accent: accent_color(&settings),
         video_player: settings.video_player.clone(),
-        auto_subtitles: settings.auto_subtitles.then(|| {
-            if settings.subtitle_language.is_empty() {
-                app_language
-            } else {
-                settings.subtitle_language.clone()
-            }
-        }),
     }
+}
+
+/// `payload` with what every request to the player carries besides the video: the seek step,
+/// languages, accent and User-Agent.
+fn with_shared_fields(mut payload: Value, prefs: &PlayerPrefs) -> Value {
+    if let Value::Object(fields) = &mut payload {
+        fields.insert("seekStepMs".into(), json!(prefs.seek_ms));
+        fields.insert("appLanguage".into(), json!(prefs.app_language));
+        fields.insert("subtitleLanguage".into(), json!(prefs.subtitle_language));
+        fields.insert("subtitleMode".into(), json!(prefs.subtitle_mode));
+        fields.insert("keepMusicPlaying".into(), json!(prefs.keep_music_playing));
+        fields.insert("accent".into(), json!(prefs.accent));
+        // What sources were asked with: some links only play for the same User-Agent.
+        fields.insert("userAgent".into(), json!(raygun_net::user_agent()));
+    }
+    payload
 }
 
 /// A report from the player.
@@ -217,10 +264,9 @@ pub async fn prepare(
         player.aniskip && !(player.aniskip_unless_chapters && !request.chapters.is_empty())
     });
     let settings = player_settings(&db, &prefs).await;
-    // Music and video don't play over each other.
-    app.state::<PlaybackService>()
-        .control(PlaybackControl::Pause);
-    Ok(serde_json::json!({
+    // Music and video don't play over each other, unless the settings say they may.
+    crate::playback::other_media_started(app).await;
+    let payload = serde_json::json!({
         "group": group,
         "titleState": title_state,
         "chapters": request.chapters,
@@ -236,9 +282,11 @@ pub async fn prepare(
         "format": format,
         "subtitles": subtitles,
         "startMs": start_ms,
-        "seekStepMs": prefs.seek_ms,
-        "autoSubtitleLanguage": prefs.auto_subtitles,
-    }))
+        // Anime are taken as spoken in Japanese when the stream doesn't say, so subtitles in
+        // the viewer's languages turn on.
+        "spokenLanguage": request.anime.as_ref().map(|_| "ja"),
+    });
+    Ok(with_shared_fields(payload, &prefs))
 }
 
 /// What opens the player for a session before any video is known (M44): it shows the title and
@@ -247,20 +295,17 @@ pub async fn session_shell(app: &AppHandle, title: &str, subtitle: &str) -> serd
     let db = app.state::<AppDb>().0.clone();
     let prefs = player_prefs(&db).await;
     let settings = player_settings(&db, &prefs).await;
-    app.state::<PlaybackService>()
-        .control(PlaybackControl::Pause);
-    serde_json::json!({
+    let shell = serde_json::json!({
         "session": true,
         "prefs": settings,
         "id": "",
         "title": title,
         "subtitle": subtitle,
-        "seekStepMs": prefs.seek_ms,
-        "autoSubtitleLanguage": prefs.auto_subtitles,
         "autoplay": prefs.autoplay,
         "nextPromptMs": prefs.next_prompt_ms,
         "labels": app.state::<VideoSessions>().labels(),
-    })
+    });
+    with_shared_fields(shell, &prefs)
 }
 
 /// The player's settings as it reads them, with the brightness to restore when it's remembered.
@@ -786,6 +831,55 @@ mod tests {
     }
 
     #[test]
+    fn subtitles_follow_the_older_switch_until_chosen() {
+        let mut settings = Settings::default();
+        assert_eq!(subtitle_mode(&settings), SubtitleMode::Foreign);
+        settings.auto_subtitles = true;
+        assert_eq!(subtitle_mode(&settings), SubtitleMode::Always);
+        settings.video_player.subtitle_mode = Some(SubtitleMode::Never);
+        assert_eq!(subtitle_mode(&settings), SubtitleMode::Never);
+    }
+
+    #[test]
+    fn every_request_says_the_languages_accent_and_user_agent() {
+        let prefs = PlayerPrefs {
+            resume: true,
+            watched_share: 0.9,
+            seek_ms: 10_000,
+            app_language: "pt-BR".into(),
+            subtitle_language: String::new(),
+            subtitle_mode: SubtitleMode::Always,
+            autoplay: true,
+            next_prompt_ms: 10_000,
+            keep_music_playing: true,
+            accent: "#65adff".into(),
+            video_player: VideoPlayerPrefs::default(),
+        };
+        let payload = with_shared_fields(json!({ "id": "url:a" }), &prefs);
+        assert_eq!(payload["id"], "url:a");
+        assert_eq!(payload["seekStepMs"], 10_000);
+        assert_eq!(payload["appLanguage"], "pt-BR");
+        assert_eq!(payload["subtitleLanguage"], "");
+        assert_eq!(payload["subtitleMode"], "always");
+        assert_eq!(payload["keepMusicPlaying"], true);
+        assert_eq!(payload["accent"], "#65adff");
+        assert!(
+            payload["userAgent"]
+                .as_str()
+                .is_some_and(|agent| !agent.is_empty())
+        );
+    }
+
+    #[test]
+    fn the_player_draws_with_the_apps_accent() {
+        let mut settings = Settings::default();
+        assert_eq!(accent_color(&settings), "#ff6a65");
+        settings.accent = Accent::Custom;
+        settings.accent_color = "#123456".into();
+        assert_eq!(accent_color(&settings), "#123456");
+    }
+
+    #[test]
     fn player_changes_merge_into_the_settings() {
         let mut saved = serde_json::to_value(VideoPlayerPrefs::default()).unwrap();
         merge_prefs(
@@ -793,6 +887,7 @@ mod tests {
             &object(json!({
                 "defaultSpeed": 150,
                 "showRemaining": true,
+                "subtitleMode": "never",
                 "subtitleStyle": { "size": 120, "unknown": 1 },
                 "notASetting": true
             })),
@@ -800,6 +895,7 @@ mod tests {
         let prefs: VideoPlayerPrefs = serde_json::from_value(saved).unwrap();
         assert_eq!(prefs.default_speed, 150);
         assert!(prefs.show_remaining);
+        assert_eq!(prefs.subtitle_mode, Some(SubtitleMode::Never));
         assert_eq!(prefs.subtitle_style.size, 120);
         assert_eq!(
             prefs.subtitle_style.text_color,

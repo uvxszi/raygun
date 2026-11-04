@@ -148,9 +148,11 @@ pub struct Settings {
     pub watched_percent: u32,
     /// Seconds a double tap or the skip buttons jump in the video player.
     pub seek_seconds: u32,
-    /// Subtitles turn on by themselves when a video has them in the subtitle language.
+    /// Subtitles turn on by themselves when a video has them in the subtitle language. Read only
+    /// while `VideoPlayerPrefs::subtitle_mode` is unset (on: always, off: for other languages).
     pub auto_subtitles: bool,
-    /// Subtitles' language as a BCP 47 tag; empty follows the app's language.
+    /// Subtitles' language as a BCP 47 tag; empty follows the device's languages, then the
+    /// app's (the player knows the device's).
     pub subtitle_language: String,
     /// The next episode plays by itself at the end of one (M44).
     pub autoplay_next: bool,
@@ -1293,6 +1295,23 @@ pub enum SubtitleFont {
     Mono,
 }
 
+/// When the video player turns subtitles on by itself, in the first subtitle language a video
+/// has (mpv's `subs-with-matching-audio`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SubtitleMode {
+    /// When the audio isn't in one of the subtitle languages; forced subtitles otherwise.
+    #[default]
+    Foreign,
+    /// Whenever the video has subtitles in one of them.
+    Always,
+    /// Only when turned on in the player.
+    Never,
+}
+
+/// `VideoPlayerPrefs::audio_language` for the video's own track (the one marked default).
+pub const ORIGINAL_AUDIO: &str = "original";
+
 /// How subtitles look in the video player (M45).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(default, rename_all = "camelCase")]
@@ -1386,8 +1405,13 @@ pub struct VideoPlayerPrefs {
     pub subtitle_prefer_words: String,
     /// Comma-separated words that keep a subtitle track from being picked ("Signs, Songs").
     pub subtitle_skip_words: String,
+    /// When subtitles turn on by themselves. Unset follows `Settings::auto_subtitles`, the
+    /// older switch: on is `Always`, off is `Foreign`.
+    pub subtitle_mode: Option<SubtitleMode>,
     pub subtitle_style: SubtitleStyle,
-    /// Empty plays the video's own default track.
+    /// The audio track's language: empty follows the device's languages, then the app's;
+    /// `ORIGINAL_AUDIO` plays the video's own default track; else a BCP 47 tag. Without a
+    /// match, the track marked default (or original) plays, else the first.
     pub audio_language: String,
     pub audio_fallback: String,
 
@@ -1439,6 +1463,7 @@ impl Default for VideoPlayerPrefs {
             subtitle_fallback: String::new(),
             subtitle_prefer_words: String::new(),
             subtitle_skip_words: String::new(),
+            subtitle_mode: None,
             subtitle_style: SubtitleStyle::default(),
             audio_language: String::new(),
             audio_fallback: String::new(),
