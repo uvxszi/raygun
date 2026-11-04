@@ -243,7 +243,12 @@ internal class PlayerCast(private val host: VideoPlayerActivity) {
             if (address.isNotEmpty()) {
                 sheet.dismiss()
                 host.showHint(label("castConnecting", "Connecting…"))
-                host.request("castAdd", JSONObject().put("address", address))
+                host.request(
+                    "castAdd",
+                    JSONObject()
+                        .put("address", address)
+                        .put("subtitle", host.chosenSubtitleIndex() ?: JSONObject.NULL),
+                )
             }
         }
         field.setOnEditorActionListener { _, action, _ ->

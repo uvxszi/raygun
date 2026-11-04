@@ -1031,10 +1031,18 @@ pub async fn on_request(app: &AppHandle, action: &str, raw: &Value) {
             cast.devices_changed();
             Ok(())
         }
-        "castAdd" => cast
-            .add(raw["address"].as_str().unwrap_or_default())
-            .await
-            .map(drop),
+        // A TV added from the player plays the video at once, as one picked from the list.
+        "castAdd" => match cast.add(raw["address"].as_str().unwrap_or_default()).await {
+            Ok(device) => {
+                cast.start(
+                    &device.id,
+                    raw["positionMs"].as_f64().unwrap_or(0.0),
+                    raw["subtitle"].as_u64().map(|index| index as usize),
+                )
+                .await
+            }
+            Err(error) => Err(error),
+        },
         "castStart" => {
             cast.start(
                 raw["device"].as_str().unwrap_or_default(),
