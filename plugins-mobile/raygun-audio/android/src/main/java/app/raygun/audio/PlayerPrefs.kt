@@ -68,10 +68,10 @@ internal class PlayerPrefs(json: JSONObject) {
     /** The brightness to start at, when remembered. */
     val brightness: Float? = if (json.has("brightness")) json.optDouble("brightness").toFloat() else null
 
-    val brightnessGesture: Boolean = json.optBoolean("brightnessGesture", true)
-    val volumeGesture: Boolean = json.optBoolean("volumeGesture", true)
+    var brightnessGesture: Boolean = json.optBoolean("brightnessGesture", true)
+    var volumeGesture: Boolean = json.optBoolean("volumeGesture", true)
     val swapSides: Boolean = json.optBoolean("swapSides", false)
-    val seekGesture: Boolean = json.optBoolean("seekGesture", true)
+    var seekGesture: Boolean = json.optBoolean("seekGesture", true)
     val doubleTapLeft: String = json.optString("doubleTapLeft", "seek")
     val doubleTapCenter: String = json.optString("doubleTapCenter", "playPause")
     val doubleTapRight: String = json.optString("doubleTapRight", "seek")
@@ -89,7 +89,7 @@ internal class PlayerPrefs(json: JSONObject) {
     val preferWords: List<String> = words(json.optString("subtitlePreferWords"))
     val skipWords: List<String> = words(json.optString("subtitleSkipWords"))
     var style: SubtitleLook = SubtitleLook.from(json.optJSONObject("subtitleStyle"))
-    val audioLanguage: String = json.optString("audioLanguage")
+    var audioLanguage: String = json.optString("audioLanguage")
     val audioFallback: String = json.optString("audioFallback")
 
     val pipOnLeave: Boolean = json.optBoolean("pipOnLeave", true)
@@ -102,9 +102,11 @@ internal class PlayerPrefs(json: JSONObject) {
     val showEmptySources: Boolean = json.optBoolean("showEmptySources", true)
 
     /** The largest picture height automatic quality may use ("1080p" → 1080); null for the highest. */
-    val maxHeight: Int? = json.optString("preferredResolution", "1080p").let { value ->
+    val maxHeight: Int? get() = preferredResolution.let { value ->
         if (value == "highest") null else value.removeSuffix("p").toIntOrNull() ?: 1080
     }
+    /** `VideoResolution` in raygun-model: "highest" or a height such as "1080p". */
+    var preferredResolution: String = json.optString("preferredResolution", "1080p")
 
     private companion object {
         fun words(text: String): List<String> =

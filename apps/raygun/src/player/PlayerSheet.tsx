@@ -41,6 +41,7 @@ import { FavoriteButton } from './FavoriteButton';
 import { hasVideo } from './hasVideo';
 import { LyricsView } from './LyricsView';
 import { MediaArt, VideoToggle } from './MediaArt';
+import { MusicSettingsButton } from './MusicSettingsButton';
 import { PlaybackExtras } from './PlaybackExtras';
 import { PlayerCards } from './PlayerCards';
 import type { SheetLayout } from './playerLayout';
@@ -229,6 +230,7 @@ export const PlayerSheet: FC = () => {
                 >
                   <SlidersHorizontal aria-hidden size={20} />
                 </button>
+                <MusicSettingsButton className="size-[min(2.75rem,11cqw)]" />
               </>
             }
           />

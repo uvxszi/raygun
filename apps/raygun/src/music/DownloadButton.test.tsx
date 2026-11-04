@@ -224,7 +224,7 @@ describe('Downloads beside the Plus (M46.18)', () => {
 
   it('sets the audio quality for streaming, mobile data and downloads', async () => {
     const user = userEvent.setup();
-    await AppShellWrapper.mount('/settings/player');
+    await AppShellWrapper.mount('/settings/music');
     const mobile = await screen.findByRole('button', { name: /Mobile data/ });
     expect(mobile).toHaveTextContent('Normal');
     await user.click(mobile);

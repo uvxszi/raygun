@@ -461,5 +461,16 @@ describe('The manga reader', () => {
       ]);
       expect(saved()?.tapZones).toBe('custom');
     });
+
+    it('opens every reader setting from the Display sheet', async () => {
+      const user = userEvent.setup();
+      commands.mangaChapter.mockResolvedValue(ok(chapter('pagedLtr', 3)));
+      await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
+      const reader = await screen.findByTestId('manga-reader');
+      await user.click(await within(reader).findByRole('button', { name: 'Display' }));
+      const sheet = await screen.findByRole('dialog', { name: 'Display' });
+      await user.click(within(sheet).getByRole('link', { name: 'All reader settings' }));
+      expect(await screen.findByTestId('settings-reader-page')).toBeInTheDocument();
+    });
   });
 });

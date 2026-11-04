@@ -60,6 +60,7 @@ import { applyLoop, loopAround, wentRound } from './videoLoop';
 import { choiceOf, languageOf, languagePrefs, pickAudio, pickSubtitles } from './trackPicking';
 import type { TrackOption } from './trackPicking';
 import { useVideoPlayerStore } from './videoPlayerStore';
+import { VideoSettingsPanel } from './VideoSettingsPanel';
 import { sourceName, sourceNote, sourcesChecked } from './waiting';
 import type { WaitingNote } from './waiting';
 import { useBackLayer } from '../shell/backLayers';
@@ -75,7 +76,8 @@ type PanelKind =
   | 'aspect'
   | 'players'
   | 'keys'
-  | 'more';
+  | 'more'
+  | 'settings';
 
 const VOLUME_KEY = 'raygun.video.volume';
 /** The other player last picked (M46.33). */
@@ -1437,8 +1439,13 @@ const VideoStage: FC<StageProps> = ({
               showHint(t(looping ? 'videoPlayer.loopOff' : 'videoPlayer.loopOn'));
             }}
           />
+          <PanelOption
+            label={t('videoPlayer.playerSettings')}
+            onSelect={() => setPanel('settings')}
+          />
         </PlayerPanel>
       )}
+      {panel === 'settings' && <VideoSettingsPanel onClose={() => setPanel(null)} />}
       {panel === 'aspect' && (
         <PlayerPanel title={t('videoPlayer.aspect')} onClose={() => setPanel(null)}>
           {ASPECTS.map((option) => (

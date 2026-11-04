@@ -7,6 +7,7 @@ import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
 import androidx.media3.common.text.Cue
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -168,13 +169,24 @@ internal class PlayerTracks(private val host: VideoPlayerActivity) {
         // Media3 takes the smallest above it. A picture counts by its long side against a 16:9
         // one's (1920×800 is 1080p, as `video_quality::picture_height` in raygun-app counts it).
         // The Quality sheet's overrides go past this.
+        limitSize(builder, maxHeight)
+        host.player.trackSelectionParameters = builder.build()
+    }
+
+    /** A new preferred resolution, for automatic quality from now on. */
+    fun limit(maxHeight: Int?) {
+        val builder = host.player.trackSelectionParameters.buildUpon()
+        limitSize(builder, maxHeight)
+        host.player.trackSelectionParameters = builder.build()
+    }
+
+    private fun limitSize(builder: TrackSelectionParameters.Builder, maxHeight: Int?) {
         if (maxHeight == null) {
             builder.clearVideoSizeConstraints()
         } else {
             val longSide = (maxHeight * 16 + 8) / 9
             builder.setMaxVideoSize(longSide, longSide)
         }
-        host.player.trackSelectionParameters = builder.build()
     }
 
     /** Chooses tracks once a video's are known. */
