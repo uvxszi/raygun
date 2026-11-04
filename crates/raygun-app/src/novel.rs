@@ -99,6 +99,25 @@ impl NovelService {
         self.import_epub_bytes(bytes).await
     }
 
+    /// Imports an uploaded EPUB file (sent in slices, so a big book never crosses IPC whole); the
+    /// file is deleted afterwards.
+    pub async fn import_epub_file(&self, file: PathBuf) -> Result<(String, String), String> {
+        let bytes = tauri::async_runtime::spawn_blocking(move || {
+            let result = match std::fs::metadata(&file) {
+                Ok(meta) if meta.len() > epub::MAX_FILE_BYTES as u64 => {
+                    Err("This book is larger than 64 MB".to_owned())
+                }
+                Ok(_) => std::fs::read(&file).map_err(|_| "The file couldn't be read".to_owned()),
+                Err(_) => Err("The file couldn't be read".to_owned()),
+            };
+            let _ = std::fs::remove_file(&file);
+            result
+        })
+        .await
+        .map_err(to_message)??;
+        self.import_epub_bytes(bytes).await
+    }
+
     /// Imports an EPUB's bytes (an upload, or a file in a Local Files folder, M46.27).
     pub async fn import_epub_bytes(&self, bytes: Vec<u8>) -> Result<(String, String), String> {
         if bytes.len() > epub::MAX_FILE_BYTES {
@@ -227,7 +246,11 @@ impl NovelService {
 
     /// One chapter's text, with its neighbours in reading order.
     pub async fn chapter(&self, title_id: &str, unit_id: &str) -> Result<NovelChapter, String> {
-        let context = self.catalog.chapter_context(title_id, unit_id).await?;
+        // Another translation of the chapter just read isn't the next one.
+        let context = self
+            .catalog
+            .chapter_context(title_id, unit_id, true)
+            .await?;
         let downloads = self.downloads();
         let blocks = if context.title.fields.source_id == LOCAL_EPUB {
             self.book_chapter(

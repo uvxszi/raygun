@@ -56,6 +56,27 @@ pub struct HistoryRow {
     pub played_at: i64,
 }
 
+/// A live favorite or playlist item as the app compares songs (M46.48): where it is, its key and
+/// the names it was saved with.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SavedRef {
+    pub id: String,
+    /// The playlist holding it; `None` for a favorite.
+    pub playlist_id: Option<String>,
+    pub track_key: String,
+    pub title: String,
+    pub artist: Option<String>,
+    pub added_at: i64,
+    /// Its stream, a MediaSource as JSON, when it has one.
+    pub source: Option<String>,
+}
+
+impl SavedRef {
+    pub fn is_favorite(&self) -> bool {
+        self.playlist_id.is_none()
+    }
+}
+
 /// Items read per playlist for its cover.
 const COVER_ITEMS: i64 = 12;
 /// Below this gap between neighbours, a move renumbers the playlist first.
@@ -213,6 +234,98 @@ pub async fn saved_keys(db: &Db) -> Result<Vec<String>, DbError> {
     Ok(rows.iter().map(|row| row.get("track_key")).collect())
 }
 
+/// Every live favorite and every live item of a live playlist, oldest first (M46.48: the app
+/// finds a song's saved copies among them, whatever names they were saved with).
+pub async fn saved_refs(db: &Db) -> Result<Vec<SavedRef>, DbError> {
+    let rows = sqlx::query(
+        "SELECT id, NULL AS playlist_id, track_key, title, artist, added_at, source
+         FROM music_favorite WHERE deleted = 0
+         UNION ALL
+         SELECT item.id, item.playlist_id, item.track_key, item.title, item.artist, item.added_at,
+             item.source
+         FROM music_playlist_item AS item
+         JOIN music_playlist AS playlist ON playlist.id = item.playlist_id AND playlist.deleted = 0
+         WHERE item.deleted = 0
+         ORDER BY added_at, id",
+    )
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows
+        .iter()
+        .map(|row| SavedRef {
+            id: row.get("id"),
+            playlist_id: row.get("playlist_id"),
+            track_key: row.get("track_key"),
+            title: row.get("title"),
+            artist: row.get("artist"),
+            added_at: row.get("added_at"),
+            source: row.get("source"),
+        })
+        .collect())
+}
+
+/// Tombstones favorites and playlist items by id, as one write (M46.48: every saved copy of a
+/// song, whatever key it was saved under).
+pub async fn remove_saved(
+    db: &Db,
+    favorite_ids: &[String],
+    item_ids: &[String],
+) -> Result<(), DbError> {
+    if favorite_ids.is_empty() && item_ids.is_empty() {
+        return Ok(());
+    }
+    let (mut transaction, stamp) = begin(db).await?;
+    for (table, ids) in [
+        ("music_favorite", favorite_ids),
+        ("music_playlist_item", item_ids),
+    ] {
+        for id in ids {
+            // The table name is one of the constants above.
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "UPDATE {table} SET deleted = 1, updated_at_hlc = ?2, origin_device = ?3
+                 WHERE id = ?1 AND deleted = 0"
+            )))
+            .bind(id)
+            .bind(stamp.hlc)
+            .bind(&stamp.device)
+            .execute(&mut *transaction)
+            .await?;
+        }
+    }
+    finish(transaction, stamp).await
+}
+
+/// Gives rows their key again, by id (M46.48: a key that no longer matched the row's names).
+pub async fn set_keys(
+    db: &Db,
+    favorites: &[(String, String)],
+    items: &[(String, String)],
+) -> Result<(), DbError> {
+    if favorites.is_empty() && items.is_empty() {
+        return Ok(());
+    }
+    let (mut transaction, stamp) = begin(db).await?;
+    for (table, changes) in [
+        ("music_favorite", favorites),
+        ("music_playlist_item", items),
+    ] {
+        for (id, key) in changes {
+            // The table name is one of the constants above.
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "UPDATE {table} SET track_key = ?2, updated_at_hlc = ?3, origin_device = ?4
+                 WHERE id = ?1 AND deleted = 0"
+            )))
+            .bind(id)
+            .bind(key)
+            .bind(stamp.hlc)
+            .bind(&stamp.device)
+            .execute(&mut *transaction)
+            .await?;
+        }
+    }
+    finish(transaction, stamp).await
+}
+
 /// Live favorites as `(id, track key, place)`, in the user's order.
 async fn favorite_places(db: &Db) -> Result<Vec<(String, String, f64)>, DbError> {
     let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
@@ -269,42 +382,73 @@ pub async fn set_favorites_order(db: &Db, track_keys: &[String]) -> Result<(), D
 
 // ---- Playlists ----
 
-/// Live playlists, alphabetically.
+const PLAYLIST_COLUMNS: &str = "p.id, p.name, p.created_at,
+     (SELECT COUNT(*) FROM music_playlist_item i
+      WHERE i.playlist_id = p.id AND i.deleted = 0) AS item_count";
+
+/// Live playlists, alphabetically. Their cover items come in one query for all of them.
 pub async fn playlists(db: &Db) -> Result<Vec<PlaylistRow>, DbError> {
-    let rows = sqlx::query(
-        "SELECT p.id, p.name, p.created_at,
-             (SELECT COUNT(*) FROM music_playlist_item i
-              WHERE i.playlist_id = p.id AND i.deleted = 0) AS item_count
-         FROM music_playlist p WHERE p.deleted = 0
-         ORDER BY p.name COLLATE NOCASE, p.id",
-    )
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT {PLAYLIST_COLUMNS} FROM music_playlist p WHERE p.deleted = 0
+         ORDER BY p.name COLLATE NOCASE, p.id"
+    )))
     .fetch_all(db.pool())
     .await?;
-    let mut playlists = Vec::with_capacity(rows.len());
-    for row in rows {
-        let id: String = row.get("id");
-        let first_items = items_query(db, &id, Some(COVER_ITEMS))
-            .await?
-            .into_iter()
-            .map(|item| item.track)
-            .collect();
-        playlists.push(PlaylistRow {
-            name: row.get("name"),
-            created_at: row.get("created_at"),
-            item_count: row.get("item_count"),
-            first_items,
-            id,
-        });
+    let mut first: std::collections::HashMap<String, Vec<TrackFields>> =
+        std::collections::HashMap::new();
+    for item in sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT playlist_id, {TRACK_COLUMNS} FROM (
+             SELECT *, ROW_NUMBER() OVER (PARTITION BY playlist_id ORDER BY position, id) AS place
+             FROM music_playlist_item WHERE deleted = 0
+         ) WHERE place <= ?1 ORDER BY playlist_id, place"
+    )))
+    .bind(COVER_ITEMS)
+    .fetch_all(db.pool())
+    .await?
+    {
+        first
+            .entry(item.get("playlist_id"))
+            .or_default()
+            .push(track_fields(&item));
     }
-    Ok(playlists)
+    Ok(rows
+        .iter()
+        .map(|row| {
+            let id: String = row.get("id");
+            PlaylistRow {
+                name: row.get("name"),
+                created_at: row.get("created_at"),
+                item_count: row.get("item_count"),
+                first_items: first.remove(&id).unwrap_or_default(),
+                id,
+            }
+        })
+        .collect())
 }
 
 /// A live playlist by id.
 pub async fn playlist(db: &Db, id: &str) -> Result<Option<PlaylistRow>, DbError> {
-    Ok(playlists(db)
+    let Some(row) = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT {PLAYLIST_COLUMNS} FROM music_playlist p WHERE p.id = ?1 AND p.deleted = 0"
+    )))
+    .bind(id)
+    .fetch_optional(db.pool())
+    .await?
+    else {
+        return Ok(None);
+    };
+    let first_items = items_query(db, id, Some(COVER_ITEMS))
         .await?
         .into_iter()
-        .find(|playlist| playlist.id == id))
+        .map(|item| item.track)
+        .collect();
+    Ok(Some(PlaylistRow {
+        id: row.get("id"),
+        name: row.get("name"),
+        created_at: row.get("created_at"),
+        item_count: row.get("item_count"),
+        first_items,
+    }))
 }
 
 /// Creates an empty playlist and returns its id.
@@ -786,6 +930,53 @@ pub async fn set_track_source(
     Ok(changed)
 }
 
+/// [`set_track_source`] for rows named by id (M46.48: every saved copy of a song, also those
+/// saved under another artist credit or shown with the user's names). Returns how many changed.
+pub async fn set_track_source_of(
+    db: &Db,
+    favorite_ids: &[String],
+    item_ids: &[String],
+    found: &TrackFields,
+    picked: bool,
+) -> Result<u64, DbError> {
+    if favorite_ids.is_empty() && item_ids.is_empty() {
+        return Ok(0);
+    }
+    let length = if picked {
+        "COALESCE(?3, duration_ms)"
+    } else {
+        "COALESCE(duration_ms, ?3)"
+    };
+    let (mut transaction, stamp) = begin(db).await?;
+    let mut changed = 0;
+    for (table, ids) in [
+        ("music_favorite", favorite_ids),
+        ("music_playlist_item", item_ids),
+    ] {
+        for id in ids {
+            // The table name is one of the constants above.
+            changed += sqlx::query(sqlx::AssertSqlSafe(format!(
+                "UPDATE {table} SET source = ?1, album = COALESCE(album, ?2),
+                     duration_ms = {length}, artwork_url = COALESCE(artwork_url, ?4),
+                     updated_at_hlc = ?5, origin_device = ?6
+                 WHERE id = ?7 AND deleted = 0"
+            )))
+            .bind(&found.source)
+            .bind(&found.album)
+            .bind(found.duration_ms)
+            .bind(&found.artwork_url)
+            .bind(stamp.hlc)
+            .bind(&stamp.device)
+            .bind(id)
+            .execute(&mut *transaction)
+            .await?
+            .rows_affected();
+        }
+    }
+    finish(transaction, stamp).await?;
+    Ok(changed)
+}
+
 /// Marks songs that no source had (M46.31).
 pub async fn mark_unavailable(db: &Db, keys: &[String], now_ms: i64) -> Result<(), DbError> {
     for key in keys {
@@ -809,14 +1000,39 @@ pub async fn clear_unavailable(db: &Db, key: &str) -> Result<(), DbError> {
     Ok(())
 }
 
+/// Marks songs that came in through Import songs (M46.48: picking a source for one offers the
+/// source's names by default).
+pub async fn mark_imported(db: &Db, keys: &[String], now_ms: i64) -> Result<(), DbError> {
+    for key in keys {
+        sqlx::query(
+            "INSERT INTO local_track_imported (track_key, imported_at) VALUES (?, ?)
+             ON CONFLICT (track_key) DO NOTHING",
+        )
+        .bind(key)
+        .bind(now_ms)
+        .execute(db.pool())
+        .await?;
+    }
+    Ok(())
+}
+
+/// Which of `keys` came in through Import songs.
+pub async fn imported(db: &Db, keys: &[String]) -> Result<Vec<String>, DbError> {
+    marked(db, "local_track_imported", keys).await
+}
+
 /// Which of `keys` are marked unavailable.
 pub async fn unavailable(db: &Db, keys: &[String]) -> Result<Vec<String>, DbError> {
+    marked(db, "local_track_unavailable", keys).await
+}
+
+/// Which of `keys` a device-local mark table holds; `table` is one of the constants above.
+async fn marked(db: &Db, table: &'static str, keys: &[String]) -> Result<Vec<String>, DbError> {
     let mut found = Vec::new();
     for chunk in keys.chunks(500) {
         let marks = vec!["?"; chunk.len()].join(",");
-        let sql =
-            format!("SELECT track_key FROM local_track_unavailable WHERE track_key IN ({marks})");
-        // Only placeholders are formatted in; the keys are bound.
+        let sql = format!("SELECT track_key FROM {table} WHERE track_key IN ({marks})");
+        // Only the table constant and placeholders are formatted in; the keys are bound.
         let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
         for key in chunk {
             query = query.bind(key);

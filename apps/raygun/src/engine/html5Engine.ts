@@ -117,6 +117,8 @@ export class Html5Engine {
       [
         'playing',
         () => {
+          // A context still asleep would play it without a sound.
+          this.backend.resume();
           this.scheduleEnd(deck);
           this.emitFrom(deck, { type: 'playing' });
         },
@@ -266,9 +268,14 @@ export class Html5Engine {
       if (error instanceof DOMException && error.name === 'AbortError') {
         return;
       }
-      if (loadId !== null && loadId === deck.loadId) {
-        this.emitFrom(deck, { type: 'error', message: String(error) });
+      if (loadId === null || loadId !== deck.loadId) return;
+      // The webview wants a tap before it plays: the song is fine, and waits paused, so the
+      // player shows Play instead of a Pause that does nothing (and doesn't skip the song).
+      if (error instanceof DOMException && error.name === 'NotAllowedError') {
+        this.emitFrom(deck, { type: 'paused' });
+        return;
       }
+      this.emitFrom(deck, { type: 'error', message: String(error) });
     });
   }
 

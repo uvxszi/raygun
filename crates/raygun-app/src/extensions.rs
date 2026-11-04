@@ -164,6 +164,77 @@ fn built_in() -> Vec<ExtensionSource> {
                 include_str!("../../../extensions/mangadex/dist/index.js"),
             ),
         ]),
+        // Official free comics and openly licensed or public-domain ones.
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/webtoons/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/webtoons/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/tapas/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/tapas/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/mangaplus-creators/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/mangaplus-creators/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/naver-webtoon/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/naver-webtoon/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/archive-comics/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/archive-comics/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/peppercarrot/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/peppercarrot/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/xkcd/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/xkcd/dist/index.js"),
+            ),
+        ]),
         ExtensionSource::built_in(&[
             (
                 "raygun-extension.json",
@@ -224,6 +295,8 @@ impl ExtensionService {
             indexes: Mutex::new(HashMap::new()),
             info_cache: Mutex::new(InfoCache::default()),
         });
+        // Before anything lists repositories: one quick query when there's nothing to move.
+        tauri::async_runtime::block_on(service.replace_retired_repos());
         // Take the lock now, before any command can run, and load in the background.
         let guard = service
             .loading
@@ -315,6 +388,23 @@ impl ExtensionService {
         self.host.search_music(query, SEARCH_LIMIT).await
     }
 
+    /// [`Self::search`] for Search itself: each source's answer goes to `report` as it comes,
+    /// with how many sources were asked; the answers come back in that order.
+    pub async fn search_as_answered(
+        &self,
+        query: &str,
+        report: impl Fn(&ProviderSearchResult, usize),
+    ) -> Vec<ProviderSearchResult> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Vec::new();
+        }
+        let _ready = self.loading.read().await;
+        self.host
+            .search_music_as_answered(query, SEARCH_LIMIT, report)
+            .await
+    }
+
     /// Stream candidates for a track from every `music.stream` provider (M14), aiming for
     /// `quality` (M46.18).
     pub async fn stream_candidates(
@@ -345,16 +435,30 @@ impl ExtensionService {
         self.host.all_lyrics(query).await
     }
 
-    /// Artists for a search, from every source that searches artists (M46.9).
-    pub async fn search_artists(&self, query: &str) -> Vec<raygun_model::MusicArtist> {
+    /// Artists for a search, from every source that searches artists (M46.9); each source's go
+    /// to `report` as they come, with how many sources were asked.
+    pub async fn search_artists(
+        &self,
+        query: &str,
+        report: impl Fn(&ProviderInfo, &[raygun_model::MusicArtist], usize),
+    ) -> Vec<raygun_model::MusicArtist> {
         let _ready = self.loading.read().await;
-        self.host.search_artists(query, SEARCH_LIMIT).await
+        self.host
+            .search_artists_as_answered(query, SEARCH_LIMIT, report)
+            .await
     }
 
-    /// Albums for a search, from every source that searches albums (M46.9).
-    pub async fn search_albums(&self, query: &str) -> Vec<raygun_model::MusicAlbum> {
+    /// Albums for a search, from every source that searches albums (M46.9); each source's go to
+    /// `report` as they come, with how many sources were asked.
+    pub async fn search_albums(
+        &self,
+        query: &str,
+        report: impl Fn(&ProviderInfo, &[raygun_model::MusicAlbum], usize),
+    ) -> Vec<raygun_model::MusicAlbum> {
         let _ready = self.loading.read().await;
-        self.host.search_albums(query, SEARCH_LIMIT).await
+        self.host
+            .search_albums_as_answered(query, SEARCH_LIMIT, report)
+            .await
     }
 
     /// An artist's discography (M46.36): every source's releases credited to them, one of each
@@ -477,15 +581,17 @@ impl ExtensionService {
         events
     }
 
-    /// Playlists for a search from every source that searches them (M46.39).
+    /// Playlists for a search from every source that searches them (M46.39); each source's go
+    /// to `report` as they come, with how many sources were asked.
     pub async fn search_playlists(
         &self,
         query: &str,
         featured: bool,
+        report: impl Fn(&ProviderInfo, &[raygun_model::MusicPlaylist], usize),
     ) -> Vec<raygun_model::MusicPlaylist> {
         let _ready = self.loading.read().await;
         self.host
-            .search_playlists(query, featured, SEARCH_LIMIT)
+            .search_playlists_as_answered(query, featured, SEARCH_LIMIT, report)
             .await
     }
 
@@ -695,14 +801,33 @@ impl ExtensionService {
         Ok(rows.into_iter().map(to_repo).collect())
     }
 
-    /// Adds a repository after checking that its index can be read.
+    /// Adds a repository after checking that its index can be read; an index Paraline replaced
+    /// adds Paraline.
     pub async fn add_repo(&self, url: &str) -> Result<Vec<ExtensionRepo>, String> {
         let url = repo::check_index_url(url).map_err(|error| error.to_string())?;
+        let url = current_repo_url(url);
         let index = self.fetch_index(url.as_str(), true).await?;
-        store::add_repo(self.db(), url.as_str(), &index.name)
+        store::add_repo(self.db(), url.as_str(), &repo_name(&index, url.as_str()))
             .await
             .map_err(|error| error.to_string())?;
         self.repos().await
+    }
+
+    /// Folds the repositories Paraline replaced into it, keeping installed extensions matched
+    /// for updates: the catalogue finds them by id in Paraline's index.
+    async fn replace_retired_repos(&self) {
+        let paraline = store::RepoRow {
+            id: PARALINE_ID.to_owned(),
+            url: PARALINE_URL.to_owned(),
+            name: PARALINE_NAME.to_owned(),
+        };
+        match store::replace_repos(self.db(), &RETIRED_REPOS, &paraline).await {
+            Ok(true) => tracing::info!("replaced repositories moved to Paraline"),
+            Ok(false) => {}
+            Err(error) => {
+                tracing::warn!(%error, "could not move replaced repositories to Paraline")
+            }
+        }
     }
 
     pub async fn remove_repo(&self, id: &str) -> Result<Vec<ExtensionRepo>, String> {
@@ -727,10 +852,28 @@ impl ExtensionService {
             .collect())
     }
 
-    pub async fn catalog(&self, refresh: bool) -> Result<Vec<RepoCatalog>, String> {
-        let repos = self.repos().await?;
-        let local: HashMap<String, Installed> = self
-            .list()
+    /// What a repository holds, read from its index without adding it, so the extensions it
+    /// brings can be shown before it's added.
+    pub async fn preview_repo(&self, url: &str) -> Result<RepoCatalog, String> {
+        let url = repo::check_index_url(url).map_err(|error| error.to_string())?;
+        let index = self.fetch_index(url.as_str(), false).await?;
+        let local = self.installed_versions().await;
+        let repo = ExtensionRepo {
+            id: String::new(),
+            url: url.to_string(),
+            name: repo_name(&index, url.as_str()),
+        };
+        let entries = self.entries_of(&repo, &index, &local);
+        Ok(RepoCatalog {
+            repo,
+            entries,
+            error: None,
+        })
+    }
+
+    /// The extensions on this device by id, for marking a repository's entries.
+    async fn installed_versions(&self) -> HashMap<String, Installed> {
+        self.list()
             .await
             .into_iter()
             .map(|info| {
@@ -742,38 +885,48 @@ impl ExtensionService {
                 };
                 (info.id, installed)
             })
-            .collect();
+            .collect()
+    }
+
+    /// A repository index's entries as the catalog lists them: NSFW-rated ones only while NSFW
+    /// content is shown, icons through the cover cache.
+    fn entries_of(
+        &self,
+        repo: &ExtensionRepo,
+        index: &RepoIndex,
+        local: &HashMap<String, Installed>,
+    ) -> Vec<CatalogEntry> {
+        let show_nsfw = self.host.content().show_nsfw();
+        let index_url: Option<reqwest::Url> = repo.url.parse().ok();
+        let images = self.app.state::<raygun_net::ImageLinks>();
+        index
+            .extensions
+            .iter()
+            .filter(|entry| show_nsfw || entry.content_rating != "nsfw")
+            .map(|entry| CatalogEntry {
+                icon: index_url
+                    .as_ref()
+                    .and_then(|base| repo::icon_url(base, entry))
+                    .map(|url| images.cover(url.as_str(), &Default::default())),
+                ..catalog_entry(&repo.id, entry, local.get(&entry.id))
+            })
+            .collect()
+    }
+
+    pub async fn catalog(&self, refresh: bool) -> Result<Vec<RepoCatalog>, String> {
+        let repos = self.repos().await?;
+        let local = self.installed_versions().await;
         let listings = repos.into_iter().map(|repo| {
             let local = &local;
             async move {
                 match self.fetch_index(&repo.url, refresh).await {
                     Ok(index) => {
-                        if !index.name.is_empty() && index.name != repo.name {
-                            let _ = store::rename_repo(self.db(), &repo.id, &index.name).await;
+                        let name = repo_name(&index, &repo.url);
+                        if name != repo.name {
+                            let _ = store::rename_repo(self.db(), &repo.id, &name).await;
                         }
-                        let repo = ExtensionRepo {
-                            name: if index.name.is_empty() {
-                                repo.name
-                            } else {
-                                index.name.clone()
-                            },
-                            ..repo
-                        };
-                        let show_nsfw = self.host.content().show_nsfw();
-                        let index_url: Option<reqwest::Url> = repo.url.parse().ok();
-                        let images = self.app.state::<raygun_net::ImageLinks>();
-                        let entries = index
-                            .extensions
-                            .iter()
-                            .filter(|entry| show_nsfw || entry.content_rating != "nsfw")
-                            .map(|entry| CatalogEntry {
-                                icon: index_url
-                                    .as_ref()
-                                    .and_then(|base| repo::icon_url(base, entry))
-                                    .map(|url| images.cover(url.as_str(), &Default::default())),
-                                ..catalog_entry(&repo.id, entry, local.get(&entry.id))
-                            })
-                            .collect();
+                        let repo = ExtensionRepo { name, ..repo };
+                        let entries = self.entries_of(&repo, &index, local);
                         RepoCatalog {
                             repo,
                             entries,
@@ -1062,34 +1215,67 @@ pub fn suggested_repo_urls() -> Vec<&'static str> {
     SUGGESTED_REPOS.iter().map(|(url, _, _)| *url).collect()
 }
 
+/// Raygun's repository, Paraline: Raygun's extensions, community sources and fixed copies of
+/// novel sources, in one index. Every new install starts with it.
+const PARALINE_URL: &str =
+    "https://raw.githubusercontent.com/uvxszi/paraline-raygun/main/index.json";
+const PARALINE_NAME: &str = "Paraline";
+/// Paraline's row, under a fixed id like the other seeds, so every device's copy is one row.
+const PARALINE_ID: &str = "0192a000-0000-7000-8000-000000000002";
+
 /// Repositories offered with one tap: Raygun's own and the ecosystems Raygun can run.
-const SUGGESTED_REPOS: [(&str, &str, &str); 5] = [
+const SUGGESTED_REPOS: [(&str, &str, &str); 3] = [
     (
-        "https://raw.githubusercontent.com/uvxszi/raygun/main/repo/index.json",
-        "Raygun Extensions",
-        "Raygun's official extensions: music, manga, novels, lyrics and more.",
-    ),
-    (
-        "https://raw.githubusercontent.com/uvxszi/paraline-raygun/main/shosetsu/index.json",
-        "Paraline Raygun",
-        "Fixed copies of novel sources whose sites changed (Syosetsu, Wattpad); they install as updates.",
-    ),
-    (
-        "https://raw.githubusercontent.com/uvxszi/paraline-raygun/main/raygun/index.json",
-        "Paraline Raygun sources",
-        "Community sources for Raygun: Openverse's openly licensed music, and more as they come.",
+        PARALINE_URL,
+        PARALINE_NAME,
+        "Raygun's extensions, community sources and fixed copies of novel sources.",
     ),
     (
         "https://gitlab.com/shosetsuorg/extensions/-/raw/dev/index.json",
-        "Shosetsu extensions",
-        "Hundreds of light-novel sources made for Shosetsu, run by Raygun's Shosetsu runtime.",
+        raygun_ext_host::repo::SHOSETSU_REPO_NAME,
+        "Novel sources made for the Shosetsu app.",
     ),
     (
         "https://cdn.jsdelivr.net/gh/NuclearPlayer/plugin-registry@master/plugins.json",
         "Nuclear plugins",
-        "Music plugins from the Nuclear player, converted when installed.",
+        "Music plugins made for the Nuclear player, converted when installed.",
     ),
 ];
+
+/// The indexes Paraline replaced, still published for Raygun 1.0.0: Raygun's own
+/// (`repo/`, whose packages Paraline lists) and Paraline Raygun's novel and community ones. A
+/// device that lists one gets Paraline instead, on start and when one is added again.
+const RETIRED_REPOS: [&str; 3] = [
+    "https://raw.githubusercontent.com/uvxszi/raygun/main/repo/index.json",
+    "https://raw.githubusercontent.com/uvxszi/paraline-raygun/main/shosetsu/index.json",
+    "https://raw.githubusercontent.com/uvxszi/paraline-raygun/main/raygun/index.json",
+];
+
+/// The repository to add for an address: Paraline for one it replaced, else the address itself.
+fn current_repo_url(url: reqwest::Url) -> reqwest::Url {
+    if RETIRED_REPOS
+        .iter()
+        .any(|retired| same_url(url.as_str(), retired))
+    {
+        PARALINE_URL.parse().expect("Paraline's address is valid")
+    } else {
+        url
+    }
+}
+
+/// What to call a repository: its index's own name; for an index without one (Shosetsu's), the
+/// suggested name of its address, else a name from the address (`repo::default_name`).
+fn repo_name(index: &RepoIndex, url: &str) -> String {
+    if !index.name.is_empty() {
+        return index.name.clone();
+    }
+    SUGGESTED_REPOS
+        .iter()
+        .find(|(suggested, _, _)| same_url(url, suggested))
+        .map(|(_, name, _)| (*name).to_owned())
+        .or_else(|| url.parse().ok().map(|url| repo::default_name(&url)))
+        .unwrap_or_else(|| url.to_owned())
+}
 
 /// Whether two repository URLs point at the same index (case and a trailing slash aside).
 fn same_url(a: &str, b: &str) -> bool {
@@ -1503,6 +1689,47 @@ mod tests {
                 .iter()
                 .all(|(url, _, _)| url.starts_with("https://"))
         );
+    }
+
+    #[test]
+    fn paraline_replaces_the_indexes_it_took_over() {
+        let names: Vec<_> = SUGGESTED_REPOS.iter().map(|(_, name, _)| *name).collect();
+        assert_eq!(
+            names,
+            ["Paraline", "Shosetsu extensions", "Nuclear plugins"]
+        );
+        for (url, _, _) in SUGGESTED_REPOS {
+            assert!(!RETIRED_REPOS.iter().any(|retired| same_url(url, retired)));
+        }
+        for retired in RETIRED_REPOS {
+            for spelling in [retired.to_owned(), format!("{}/", retired.to_uppercase())] {
+                let url = repo::check_index_url(&spelling).unwrap();
+                assert_eq!(current_repo_url(url).as_str(), PARALINE_URL, "{spelling}");
+            }
+        }
+        let other = repo::check_index_url("https://example.org/index.json").unwrap();
+        assert_eq!(current_repo_url(other.clone()), other);
+    }
+
+    #[test]
+    fn repositories_without_a_name_are_named_by_their_address() {
+        let index = |name: &str| RepoIndex {
+            format_version: 1,
+            name: name.to_owned(),
+            extensions: Vec::new(),
+            libraries: Vec::new(),
+        };
+        let shosetsu = "https://gitlab.com/shosetsuorg/extensions/-/raw/dev/index.json";
+        assert_eq!(repo_name(&index(""), shosetsu), "Shosetsu extensions");
+        // Another Shosetsu repository isn't presented as Shosetsu's.
+        assert_eq!(
+            repo_name(
+                &index(""),
+                "https://raw.githubusercontent.com/someone/novel-sources/main/index.json"
+            ),
+            "novel-sources"
+        );
+        assert_eq!(repo_name(&index("Paraline"), PARALINE_URL), "Paraline");
     }
 
     #[test]

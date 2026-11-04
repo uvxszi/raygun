@@ -336,6 +336,47 @@ impl DetailService {
             .is_empty()
     }
 
+    /// The title and artist a song stored under `key` shows with the user's details, when they
+    /// differ from its own (M46.48: saved songs are found by the names screens show).
+    pub fn shown_names(
+        &self,
+        key: &str,
+        title: &str,
+        artist: Option<&str>,
+    ) -> Option<(String, Option<String>)> {
+        if self.is_empty() {
+            return None;
+        }
+        let (mut shown_title, mut shown_artist) = (title.to_owned(), artist.map(str::to_owned));
+        let (mut album, mut artwork) = (None, None);
+        self.apply(
+            key,
+            &mut shown_title,
+            &mut shown_artist,
+            &mut album,
+            &mut artwork,
+        );
+        (shown_title != title || shown_artist.as_deref() != artist)
+            .then_some((shown_title, shown_artist))
+    }
+
+    /// The key of the song the user gave these names to (Edit details, Find a source), when
+    /// they're an edit's names rather than a song's own (M46.48).
+    pub fn original_song_key(&self, title: &str, artist: Option<&str>) -> Option<String> {
+        if self.is_empty() {
+            return None;
+        }
+        let query = raygun_model::TrackQuery {
+            title: title.to_owned(),
+            artist: artist.map(str::to_owned),
+            album: None,
+            duration_ms: None,
+        };
+        let shown = track_key(&query);
+        let (_, key) = self.key_of(&DetailTarget::Song { query });
+        (key != shown).then_some(key)
+    }
+
     pub fn apply_saved(&self, track: &mut SavedTrack) {
         if self.is_empty() {
             return;

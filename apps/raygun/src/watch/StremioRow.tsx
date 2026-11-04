@@ -1,10 +1,13 @@
-import type { StremioCatalogRow, StremioItem } from '@raygun/bindings';
+import type { StremioCatalogInfo, StremioCatalogRow, StremioItem } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import { ChevronRight, Clapperboard } from 'lucide-react';
 import { useState } from 'react';
-import type { FC } from 'react';
+import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Carousel } from '../shell/Carousel';
+import { SourceIssue } from '../shell/SourceIssue';
+import { useInView } from '../shell/useInView';
+import { useStremioRow } from './useStremio';
 
 const ASPECT: Record<string, string> = {
   landscape: 'aspect-video',
@@ -46,11 +49,11 @@ export const StremioCard: FC<{ item: StremioItem; className?: string }> = ({
   <Link
     to="/watch/title"
     search={{ type: item.kind, id: item.id }}
-    aria-label={item.name}
+    aria-label={item.name || item.id}
     className={`flex flex-col gap-1 ${className}`}
   >
     <StremioPoster url={item.poster} shape={item.posterShape} />
-    <span className="line-clamp-2 text-sm font-medium">{item.name}</span>
+    {item.name && <span className="line-clamp-2 text-sm font-medium">{item.name}</span>}
     {(item.releaseInfo || item.rating) && (
       <span className="text-muted line-clamp-1 text-xs">
         {[item.releaseInfo, item.rating && `★ ${item.rating}`].filter(Boolean).join(' · ')}
@@ -59,52 +62,115 @@ export const StremioCard: FC<{ item: StremioItem; className?: string }> = ({
   </Link>
 );
 
-/** One catalog's first page as a sideways row; `browse` leads to the whole catalog. */
-export const StremioRow: FC<{ row: StremioCatalogRow; browse?: boolean }> = ({
-  row,
-  browse = true,
-}) => {
+/** A row's heading: what it lists, which addon, and a way to all of it. */
+const RowHeading: FC<{
+  title: string;
+  addonName: string;
+  all?: { addon: string; type: string; catalog: string } | null;
+}> = ({ title, addonName, all }) => {
+  const { t } = useTranslation();
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <h2 className="min-w-0 font-semibold">
+        <span className="line-clamp-1">{title}</span>
+        <span className="text-muted block text-xs font-normal">{addonName}</span>
+      </h2>
+      {all && (
+        <Link
+          to="/watch/catalog"
+          search={all}
+          aria-label={t('watch.seeAllOf', { name: title })}
+          className="text-primary flex shrink-0 items-center gap-0.5 text-sm"
+        >
+          {t('search.seeAll')}
+          <ChevronRight aria-hidden size={16} />
+        </Link>
+      )}
+    </div>
+  );
+};
+
+const Cards: FC<{ items: StremioItem[] }> = ({ items }) => (
+  <Carousel className="-mx-4 gap-3 px-4 lg:mx-0 lg:px-0">
+    {items.slice(0, 20).map((item) => (
+      <li
+        key={item.id}
+        className={item.posterShape === 'landscape' ? 'w-48 shrink-0' : 'w-28 shrink-0'}
+      >
+        <StremioCard item={item} />
+      </li>
+    ))}
+  </Carousel>
+);
+
+/** Placeholder cards while a row loads, the size of the real ones. */
+const Placeholder: FC = () => (
+  <ul aria-hidden className="-mx-4 flex gap-3 overflow-hidden px-4 lg:mx-0 lg:px-0">
+    {Array.from({ length: 6 }, (_, index) => (
+      <li key={index} className="bg-surface aspect-[2/3] w-28 shrink-0 rounded-lg" />
+    ))}
+  </ul>
+);
+
+const rowTitle = (name: string, kind: string) => `${name} · ${kind}`;
+
+/** Search results from one addon's search catalog, whose own name says nothing: named by kind. */
+export const StremioRow: FC<{ row: StremioCatalogRow }> = ({ row }) => {
   const { t } = useTranslation();
   const kind = t(`watch.kind.${row.kind}`, { defaultValue: row.kind });
-  // Search results come from each addon's search catalog, whose own name says nothing.
-  const title = browse ? `${row.name} · ${kind}` : kind;
   return (
-    <section aria-label={title} className="flex flex-col gap-2">
-      <div className="flex items-baseline justify-between gap-2">
-        <h2 className="min-w-0 font-semibold">
-          <span className="line-clamp-1">{title}</span>
-          <span className="text-muted block text-xs font-normal">{row.addonName}</span>
-        </h2>
-        {browse && (
-          <Link
-            to="/watch/catalog"
-            search={{ addon: row.addonId, type: row.kind, catalog: row.catalogId }}
-            aria-label={t('watch.seeAllOf', { name: title })}
-            className="text-primary flex shrink-0 items-center gap-0.5 text-sm"
-          >
-            {t('search.seeAll')}
-            <ChevronRight aria-hidden size={16} />
-          </Link>
-        )}
-      </div>
-      {row.error ? (
-        <p className="text-muted text-sm wrap-anywhere">
-          {t('watch.catalogFailed', { message: row.error })}
-        </p>
-      ) : row.items.length === 0 ? (
+    <section aria-label={kind} className="flex flex-col gap-2">
+      <RowHeading title={kind} addonName={row.addonName} />
+      <Cards items={row.items} />
+    </section>
+  );
+};
+
+/**
+ * A catalog as a row (Stremio's board): its first page is asked for once the row comes near the
+ * window. On the board (`quiet`) a row with nothing, or whose addon failed, shows nothing at all;
+ * on an addon's own page it says so.
+ */
+export const StremioCatalogRowView: FC<{ catalog: StremioCatalogInfo; quiet?: boolean }> = ({
+  catalog,
+  quiet = false,
+}) => {
+  const { t } = useTranslation();
+  const [ref, seen] = useInView<HTMLElement>();
+  const page = useStremioRow(catalog, seen);
+  const kind = t(`watch.kind.${catalog.kind}`, { defaultValue: catalog.kind });
+  const title = rowTitle(catalog.name, kind);
+  const items = page.data?.items ?? [];
+  if (quiet && (page.isError || (page.data && items.length === 0))) return null;
+  let body: ReactNode;
+  if (page.isError) {
+    body = (
+      <SourceIssue compact source={catalog.addonName} onRetry={() => void page.refetch()}>
+        {page.error.message}
+      </SourceIssue>
+    );
+  } else if (page.data) {
+    body =
+      items.length === 0 ? (
         <p className="text-muted text-sm">{t('watch.catalogEmpty')}</p>
       ) : (
-        <Carousel className="-mx-4 gap-3 px-4 lg:mx-0 lg:px-0">
-          {row.items.slice(0, 20).map((item) => (
-            <li
-              key={item.id}
-              className={item.posterShape === 'landscape' ? 'w-48 shrink-0' : 'w-28 shrink-0'}
-            >
-              <StremioCard item={item} />
-            </li>
-          ))}
-        </Carousel>
-      )}
+        <Cards items={items} />
+      );
+  } else {
+    body = <Placeholder />;
+  }
+  return (
+    <section ref={ref} aria-label={title} className="flex flex-col gap-2">
+      <RowHeading
+        title={title}
+        addonName={catalog.addonName}
+        all={
+          items.length > 0
+            ? { addon: catalog.addonId, type: catalog.kind, catalog: catalog.catalogId }
+            : null
+        }
+      />
+      {body}
     </section>
   );
 };

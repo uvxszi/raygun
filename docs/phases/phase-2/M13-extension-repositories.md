@@ -3,7 +3,7 @@
 **Relevant docs:** ARCHITECTURE §7.1 (manifest, `index.json` repositories), §5/§10 (sync-ready tables), M11 (host) and M12 (SDK, CLI).
 
 ## Goal
-From the app, a user can:
+The app can:
 - add repositories;
 - browse their extensions, and install one after seeing what it may access;
 - update and uninstall extensions;

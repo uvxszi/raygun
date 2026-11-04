@@ -239,12 +239,21 @@ describe('Html5Engine', () => {
     const { media, reports, engine, load } = setup();
     media.play.mockRejectedValueOnce(new DOMException('interrupted', 'AbortError'));
     load();
-    media.play.mockRejectedValueOnce(new DOMException('blocked', 'NotAllowedError'));
+    media.play.mockRejectedValueOnce(new DOMException('no source', 'NotSupportedError'));
 
     engine.handle({ type: 'play' });
     await vi.waitFor(() => expect(reports.at(-1)?.event.type).toBe('error'));
 
     expect(reports.filter((report) => report.event.type === 'error')).toHaveLength(1);
+  });
+
+  it('waits paused when the webview wants a tap first, instead of failing the song', async () => {
+    const { media, reports, load } = setup();
+    media.play.mockRejectedValueOnce(new DOMException('blocked', 'NotAllowedError'));
+    load();
+
+    await vi.waitFor(() => expect(reports.at(-1)?.event.type).toBe('paused'));
+    expect(reports.some((report) => report.event.type === 'error')).toBe(false);
   });
 
   it('keeps the speed for the sources that follow', () => {

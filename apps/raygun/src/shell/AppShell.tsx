@@ -8,6 +8,7 @@ import type { CSSProperties, FC } from 'react';
 import { TrackActionsSheet } from '../collections/TrackActionsSheet';
 import { SongEditSheet } from '../sound/SongEditSheet';
 import { CoverSheet } from '../music/CoverSheet';
+import { MenuSheets } from '../music/MenuSheets';
 import { SourcePickerSheet } from '../music/SourcePickerSheet';
 import { CollectionSheets } from '../collections/CollectionSheetsHost';
 import { RecordingWindow } from '../music/RecordingWindow';
@@ -24,6 +25,7 @@ import { SidePanel } from '../player/SidePanel';
 import { usePlaybackKeys } from '../player/usePlaybackKeys';
 import { useMediaSession } from '../engine/useMediaSession';
 import { usePlaybackSync } from '../player/usePlayback';
+import { useIncognitoSync } from '../privacy/useIncognito';
 import { useApplyColors, useApplyFeel, useApplyTheme } from '../settings/useApplyTheme';
 import { useSettings, useSettingsEvents } from '../settings/useSettings';
 import { VideoPlayer } from '../video/VideoPlayer';
@@ -36,6 +38,7 @@ import { setAppZoom, setWindowDecorations, useWindowState } from './appWindow';
 import { BottomTabs } from './BottomTabs';
 import { ConnectPrompt } from '../connect/ConnectPrompt';
 import { ContextMenuHost } from './ContextMenu';
+import { ToastHost } from './Toast';
 import { HoverLabel } from './HoverLabel';
 import { useHorizontalWheel } from './useHorizontalWheel';
 import { NAV_TABS } from './navTabs';
@@ -101,8 +104,9 @@ export const AppShell: FC = () => {
   const { fullscreen } = useWindowState();
   useApplyWindow(desktop, settings.data?.windowFrame, settings.data?.zoom);
   useEngineHost();
-  // The sidebar is the desktop's (M46.29).
-  useRailStamps(desktop);
+  // The sidebar is the desktop's (M46.29); incognito (M47) leaves its stamps alone.
+  const incognito = useIncognitoSync();
+  useRailStamps(desktop && incognito === false);
   useSpeechHost();
   useFullscreenKey();
   useHorizontalWheel();
@@ -176,7 +180,9 @@ export const AppShell: FC = () => {
         <VideoPlayer />
         <YouTubeOverlay />
         <HoverLabel />
+        <MenuSheets />
         <ContextMenuHost />
+        <ToastHost />
         <ConnectPrompt />
         {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
         {/* Keeps scrolled content from showing through the transparent status bar on phones. */}

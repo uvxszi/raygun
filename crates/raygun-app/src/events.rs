@@ -57,6 +57,12 @@ pub struct YtDlpEvent(pub String);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SongDownloadsEvent(pub String);
 
+/// One song download as it is now: sent when its state or source changes, and while it downloads
+/// or is recorded, at most four times a second and only when what it shows moved on (its percent,
+/// or 100 KB without a known size). Not sent for removals (`SongDownloadsEvent` is).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct SongDownloadProgressEvent(pub raygun_model::SongDownload);
+
 /// An import matched another song in the background; carries the playlist's id (M46.31).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct ImportEvent(pub String);
@@ -90,6 +96,10 @@ pub struct TtsEvent(pub raygun_model::TtsUpdate);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct ExtensionsChangedEvent(pub Vec<raygun_model::ExtensionInfo>);
 
+/// One source answered a music search that's still waiting for others; one event per source.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct SearchProgressEvent(pub raygun_model::SearchProgress);
+
 /// A model download's progress (M34).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct AiModelEvent(pub raygun_model::AiModelProgress);
@@ -111,6 +121,10 @@ pub struct ExportEvent(pub Option<raygun_model::ExportJob>);
 /// A setting changed outside the Settings screens (in the video player, M45); carries its key.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SettingsChangedEvent(pub String);
+
+/// Incognito was turned on or off (M47).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct IncognitoEvent(pub raygun_model::IncognitoStatus);
 
 /// Watching progress changed (the player closed or finished something); carries the content key
 /// (M38).

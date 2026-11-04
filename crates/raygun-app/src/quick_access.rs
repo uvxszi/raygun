@@ -97,8 +97,11 @@ pub fn page_pin(
     }
 }
 
-/// Pins what was added to the library, unless quick access is set not to.
+/// Pins what was added to the library, unless quick access is set not to or incognito is on (M47).
 pub async fn add(app: &AppHandle, pin: QuickPin) {
+    if crate::privacy::incognito(app) {
+        return;
+    }
     change(app, |rail| {
         if !rail.auto_add
             || rail

@@ -49,7 +49,8 @@ import { unwrapResult } from '../lib/commandResult';
 import { Artwork } from '../library/Artwork';
 import { formatTime } from '../player/formatTime';
 import { Sheet } from '../shell/Sheet';
-import { useWideScreen } from '../shell/useWideScreen';
+import { TextField } from '../shell/TextField';
+import { useCoarsePointer, useWideScreen } from '../shell/useWideScreen';
 import { ArtistLinks } from './ArtistLinks';
 import {
   COLUMN_TRACKS,
@@ -206,6 +207,7 @@ export const TrackTable: FC<TrackTableProps> = ({
   // Songs whose source sent no length get the one Raygun learned (M46.26).
   const tracks = useTrackLengths(givenTracks);
   const wide = useWideScreen();
+  const touch = useCoarsePointer();
   const menu = useTrackMenu();
   const playingMatch = usePlayingMatch();
   const { view, set } = useTableView(kind);
@@ -500,19 +502,20 @@ export const TrackTable: FC<TrackTableProps> = ({
             <ListChecks aria-hidden size={18} />
           </button>
           {filtering || filter ? (
-            <label className="bg-surface flex items-center gap-2 rounded-full px-3 py-1.5">
-              <Search aria-hidden size={14} className="text-muted" />
-              <input
-                autoFocus
-                type="search"
-                value={filter}
-                onChange={(event) => setFilter(event.target.value)}
-                onBlur={() => setFiltering(false)}
-                aria-label={t('tracks.filter')}
-                placeholder={t('tracks.filter')}
-                className="placeholder:text-muted w-40 bg-transparent text-sm outline-none"
-              />
-            </label>
+            <TextField
+              autoFocus
+              type="search"
+              value={filter}
+              onChange={setFilter}
+              onBlur={() => setFiltering(false)}
+              icon={Search}
+              iconSize={14}
+              autoComplete="off"
+              aria-label={t('tracks.filter')}
+              placeholder={t('tracks.filter')}
+              className="bg-surface rounded-full py-0.5 pr-0.5 pl-3"
+              inputClassName="w-40 py-1 text-sm"
+            />
           ) : (
             <button
               type="button"
@@ -741,7 +744,11 @@ export const TrackTable: FC<TrackTableProps> = ({
                         role="row"
                         aria-selected={isSelected}
                         data-testid="track-table-row"
-                        onClick={(event) => pick(event, index)}
+                        onClick={(event) => {
+                          // A finger's tap anywhere plays the song; once some are picked, it picks.
+                          if (touch && !wide && selected.size === 0) onPlay(shown, index);
+                          else pick(event, index);
+                        }}
                         onDoubleClick={() => onPlay(shown, index)}
                         onKeyDown={(event) => {
                           if (event.key === 'Enter') onPlay(shown, index);
@@ -806,7 +813,7 @@ export const TrackTable: FC<TrackTableProps> = ({
                             />
                           )}
                           <div
-                            className={`flex min-w-0 flex-1 ${compact ? 'items-baseline gap-2' : 'flex-col'}`}
+                            className={`flex min-w-0 flex-1 ${compact ? 'items-baseline gap-2' : 'flex-col gap-1.5'}`}
                           >
                             <button
                               type="button"
@@ -843,6 +850,7 @@ export const TrackTable: FC<TrackTableProps> = ({
                             )}
                             <ArtistLinks
                               credit={track.artist}
+                              row
                               className="text-muted block truncate text-xs"
                             />
                           </div>

@@ -19,6 +19,29 @@ const RESTART_THRESHOLD_MS: f64 = 3_000.0;
 /// After this many failed items in a row playback stops instead of trying the rest of the queue
 /// (a long list of search results could otherwise fail through dozens of items, M14).
 const MAX_SKIPPED_ERRORS: usize = 3;
+/// The position standing still this long (ms) while the engine says it plays is a stall.
+pub const STALL_MS: f64 = 3_000.0;
+/// An engine that has the stream but hasn't started this long (ms) after is held back.
+pub const READY_STALL_MS: f64 = 3_000.0;
+/// The position moving less than this (ms) isn't moving.
+const MOVED_MS: f64 = 150.0;
+
+/// What the watchdog knows of the current load ([`PlaybackCore::watchdog`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+struct Watch {
+    /// The engine reported `Playing` for this load.
+    started: bool,
+    /// The engine's latest report about the stream was progress: it has it, ready to play (a
+    /// buffering report says it's still waiting for it).
+    ready: bool,
+    /// Where the position was when the current stretch began, and when (the caller's clock).
+    position_ms: f64,
+    since_ms: Option<f64>,
+    /// Nudges in this stretch.
+    nudges: u8,
+    /// A nudge's own pause is on its way: the "paused" that follows isn't the listener's.
+    nudging: bool,
+}
 
 /// Work the caller must do after an operation.
 #[derive(Debug, Clone, PartialEq)]
@@ -71,6 +94,7 @@ pub struct PlaybackCore {
     /// The user paused (M46.16): nothing plays until they play again, whatever an engine or a
     /// stream found late does.
     held: bool,
+    watch: Watch,
 }
 
 impl PlaybackCore {
@@ -97,6 +121,102 @@ impl PlaybackCore {
             crossfade_ms: 0.0,
             end_ms: None,
             held: false,
+            watch: Watch::default(),
+        }
+    }
+
+    /// Whether the engine has started the current load (reported it plays) since it was given.
+    pub fn started(&self) -> bool {
+        self.watch.started
+    }
+
+    /// Run about every second with a monotonic clock (ms). It catches an engine that doesn't
+    /// play when the state says it does:
+    /// - one that says it plays while the position stands still for [`STALL_MS`] is nudged (a
+    ///   seek to where it is, then play), and the state says buffering until it moves again;
+    /// - one that has the stream but hasn't started [`READY_STALL_MS`] later is nudged (pause,
+    ///   then play: a player held back, say by audio focus, asks again), and if that doesn't start
+    ///   it either, the state says paused, so the listener's next Play starts it (a webview that
+    ///   wanted a tap first gets one).
+    ///
+    /// One still waiting for its stream is left to the service's start timeout; nothing that
+    /// played and is buffering again is touched.
+    pub fn watchdog(&mut self, now_ms: f64) -> Vec<Effect> {
+        if self.cursor.is_none() || self.held {
+            self.watch.since_ms = None;
+            return Vec::new();
+        }
+        match self.status {
+            PlaybackStatus::Playing => self.watch_playing(now_ms),
+            PlaybackStatus::Loading | PlaybackStatus::Buffering if !self.watch.started => {
+                self.watch_start(now_ms)
+            }
+            _ => {
+                self.watch.since_ms = None;
+                Vec::new()
+            }
+        }
+    }
+
+    fn watch_playing(&mut self, now_ms: f64) -> Vec<Effect> {
+        let watch = &mut self.watch;
+        let moved = (self.position_ms - watch.position_ms).abs() > MOVED_MS;
+        match watch.since_ms {
+            Some(since) if !moved => {
+                if now_ms - since < STALL_MS {
+                    return Vec::new();
+                }
+            }
+            _ => {
+                watch.position_ms = self.position_ms;
+                watch.since_ms = Some(now_ms);
+                return Vec::new();
+            }
+        }
+        // It says it plays and doesn't: it's told again, and the state stops saying it plays.
+        watch.since_ms = None;
+        let mut effects = vec![
+            Effect::Engine(EngineCommand::Seek {
+                position_ms: self.position_ms,
+            }),
+            Effect::Engine(EngineCommand::Play),
+        ];
+        effects.extend(self.set_status(PlaybackStatus::Buffering));
+        effects
+    }
+
+    fn watch_start(&mut self, now_ms: f64) -> Vec<Effect> {
+        let watch = &mut self.watch;
+        if !watch.ready {
+            watch.since_ms = None;
+            return Vec::new();
+        }
+        let Some(since) = watch.since_ms else {
+            watch.since_ms = Some(now_ms);
+            return Vec::new();
+        };
+        if now_ms - since < READY_STALL_MS {
+            return Vec::new();
+        }
+        watch.since_ms = Some(now_ms);
+        match watch.nudges {
+            0 => {
+                watch.nudges = 1;
+                watch.nudging = true;
+                vec![
+                    Effect::Engine(EngineCommand::Pause),
+                    Effect::Engine(EngineCommand::Play),
+                ]
+            }
+            1 => {
+                watch.nudges = 2;
+                watch.nudging = false;
+                self.held = true;
+                let mut effects = vec![Effect::Engine(EngineCommand::Pause)];
+                effects.extend(self.set_status(PlaybackStatus::Paused));
+                effects
+            }
+            _ => Vec::new(),
         }
     }
 
@@ -212,6 +332,20 @@ impl PlaybackCore {
         self.order.insert(to, index);
         self.cursor = current.map(|current| self.position_in_order(current));
         vec![Effect::QueueChanged]
+    }
+
+    /// Changes queued items in place (a song given a source or names, M46.48): `update` says
+    /// whether it changed an item. The current item keeps what it loaded until its next load.
+    pub fn update_items(&mut self, mut update: impl FnMut(&mut QueueItem) -> bool) -> Vec<Effect> {
+        let mut changed = false;
+        for item in &mut self.items {
+            changed |= update(item);
+        }
+        if changed {
+            vec![Effect::QueueChanged]
+        } else {
+            Vec::new()
+        }
     }
 
     /// The id of the latest `Effect::Load`; engine reports and async resolutions must match it.
@@ -359,6 +493,9 @@ impl PlaybackCore {
 
     pub fn play(&mut self) -> Vec<Effect> {
         self.held = false;
+        // A new try: the watchdog waits for it as for a new load.
+        self.watch.since_ms = None;
+        self.watch.nudges = 0;
         match self.cursor {
             None if !self.items.is_empty() => self.load_at(0, 0.0, true),
             None => Vec::new(),
@@ -441,6 +578,7 @@ impl PlaybackCore {
         }
         let upper = self.duration_ms.unwrap_or(f64::MAX);
         self.position_ms = position_ms.clamp(0.0, upper);
+        self.watch.since_ms = None;
         vec![
             Effect::Engine(EngineCommand::Seek {
                 position_ms: self.position_ms,
@@ -539,6 +677,40 @@ impl PlaybackCore {
         effects
     }
 
+    /// Removes everything after the current item in play order (Up next's Clear) in one change,
+    /// so a long queue doesn't empty one item and one queue broadcast at a time. The current
+    /// item and those before it stay. With nothing current there's nothing to keep.
+    pub fn clear_upcoming(&mut self) -> Vec<Effect> {
+        let Some(cursor) = self.cursor else {
+            return if self.items.is_empty() {
+                Vec::new()
+            } else {
+                self.clear()
+            };
+        };
+        if cursor + 1 >= self.order.len() {
+            return Vec::new();
+        }
+        let mut kept = vec![true; self.items.len()];
+        for index in self.order.split_off(cursor + 1) {
+            kept[index] = false;
+        }
+        // Where each kept item ends up once the others are gone.
+        let mut moved_to = vec![0; kept.len()];
+        let mut items = Vec::with_capacity(self.order.len());
+        for (index, item) in std::mem::take(&mut self.items).into_iter().enumerate() {
+            if kept[index] {
+                moved_to[index] = items.len();
+                items.push(item);
+            }
+        }
+        self.items = items;
+        for entry in &mut self.order {
+            *entry = moved_to[*entry];
+        }
+        vec![Effect::QueueChanged]
+    }
+
     /// Applies an engine report. Reports for anything but the latest load are ignored.
     pub fn report(&mut self, report: EngineReport) -> Vec<Effect> {
         if report.load_id != self.load_id || self.cursor.is_none() {
@@ -553,6 +725,7 @@ impl PlaybackCore {
                 if duration_ms.is_some() {
                     self.duration_ms = duration_ms;
                 }
+                self.watch.ready = true;
                 let mut effects = vec![Effect::StateChanged];
                 effects.extend(self.crossfade_if_due());
                 effects
@@ -560,6 +733,8 @@ impl PlaybackCore {
             EngineEvent::Playing => {
                 self.consecutive_errors = 0;
                 self.error = None;
+                self.watch.started = true;
+                self.watch.nudging = false;
                 if self.held {
                     // It started after the user paused: pause it again.
                     let mut effects = vec![Effect::Engine(EngineCommand::Pause)];
@@ -568,9 +743,17 @@ impl PlaybackCore {
                 }
                 self.set_status(PlaybackStatus::Playing)
             }
+            // The watchdog's own pause, on its way to playing again.
+            EngineEvent::Paused if self.watch.nudging => Vec::new(),
             EngineEvent::Paused => self.set_status(PlaybackStatus::Paused),
-            EngineEvent::Buffering if self.held => Vec::new(),
-            EngineEvent::Buffering => self.set_status(PlaybackStatus::Buffering),
+            EngineEvent::Buffering if self.held => {
+                self.watch.ready = false;
+                Vec::new()
+            }
+            EngineEvent::Buffering => {
+                self.watch.ready = false;
+                self.set_status(PlaybackStatus::Buffering)
+            }
             EngineEvent::Ended => self.on_ended(),
             EngineEvent::Error { message } => self.on_error(message),
             // The service stores it; the queue doesn't change.
@@ -679,6 +862,7 @@ impl PlaybackCore {
         };
         self.position_ms = start_ms;
         self.source_label = None;
+        self.watch = Watch::default();
         let item = self.items[self.order[cursor]].clone();
         self.duration_ms = item.duration_ms.map(f64::from);
         self.end_ms = None;

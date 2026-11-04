@@ -20,6 +20,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 
+import { buildMenu } from '../music/mediaMenu';
 import type { MenuItem } from '../shell/contextMenuStore';
 
 const copy = (text: string) => void navigator.clipboard?.writeText(text).catch(() => undefined);
@@ -44,7 +45,10 @@ type EpisodeActions = {
   onQueued?: (next: boolean) => void;
 };
 
-/** An episode's right-click options (M46.16). */
+/**
+ * An episode's right-click options (M46.16), in the order every media menu keeps: play it, play
+ * it next or last; mark it played; go to the show; download it; copy its names; its notes.
+ */
 export const episodeMenu = (
   episode: PodcastEpisode,
   t: TFunction,
@@ -54,121 +58,131 @@ export const episodeMenu = (
   const state = episode.download?.state;
   const queue = (next: boolean) =>
     void commands.podcastQueue(episode.id, next).then(() => actions.onQueued?.(next));
-  const items: MenuItem[] = [
-    { kind: 'heading', label: episode.title },
-    {
-      label: t(started ? 'podcasts.menu.resume' : 'menu.play'),
-      icon: Play,
-      onSelect: actions.play,
+  return buildMenu({
+    heading: {
+      label: episode.title,
+      subtitle: episode.podcastTitle,
+      artworkUrl: episode.artworkUrl,
     },
-    { label: t('menu.playNext'), icon: ListPlus, onSelect: () => queue(true) },
-    { label: t('menu.addToQueue'), icon: ListEnd, onSelect: () => queue(false) },
-    { kind: 'separator' },
-    {
-      label: t(
-        actions.chapter
-          ? episode.played
-            ? 'audiobooks.markUnfinished'
-            : 'audiobooks.markFinished'
-          : episode.played
-            ? 'podcasts.markUnplayed'
-            : 'podcasts.markPlayed',
-      ),
-      icon: Check,
-      onSelect: () => actions.setPlayed(!episode.played),
-    },
-  ];
-  if (actions.setEarlierPlayed) {
-    items.push({
-      label: t(actions.chapter ? 'audiobooks.markEarlier' : 'podcasts.menu.markOlder'),
-      icon: CheckCheck,
-      onSelect: actions.setEarlierPlayed,
-    });
-  }
-  if (started && actions.startOver) {
-    items.push({
-      label: t('podcasts.menu.startOver'),
-      icon: RotateCcw,
-      onSelect: actions.startOver,
-    });
-  }
-  items.push(
-    state === 'done'
-      ? { label: t('podcasts.removeDownload'), icon: Trash2, onSelect: actions.removeDownload }
-      : (state === 'downloading' || state === 'queued') && actions.cancelDownload
-        ? { label: t('podcasts.cancelDownload'), icon: CircleX, onSelect: actions.cancelDownload }
-        : { label: t('podcasts.download'), icon: Download, onSelect: actions.download },
-  );
-  if (actions.toggleNotes && episode.description) {
-    items.push({
-      label: t(actions.notesShown ? 'podcasts.menu.hideNotes' : 'podcasts.menu.showNotes'),
-      icon: NotebookText,
-      onSelect: actions.toggleNotes,
-    });
-  }
-  items.push({ kind: 'separator' });
-  if (actions.openPodcast) {
-    items.push({
-      label: t('podcasts.menu.goToShow', { name: episode.podcastTitle }),
-      icon: ListVideo,
-      onSelect: actions.openPodcast,
-    });
-  }
-  items.push(
-    {
-      label: t(actions.chapter ? 'audiobooks.copyChapter' : 'podcasts.menu.copyTitle'),
-      icon: Copy,
-      onSelect: () => copy(episode.title),
-    },
-    {
-      label: t(actions.chapter ? 'audiobooks.copyBook' : 'podcasts.menu.copyShow'),
-      icon: Copy,
-      onSelect: () => copy(episode.podcastTitle),
-    },
-  );
-  return items;
+    play: [
+      {
+        label: t(started ? 'podcasts.menu.resume' : 'menu.play'),
+        icon: Play,
+        onSelect: actions.play,
+      },
+      { label: t('menu.playNext'), icon: ListPlus, onSelect: () => queue(true) },
+      { label: t('menu.addToQueue'), icon: ListEnd, onSelect: () => queue(false) },
+    ],
+    save: [
+      {
+        label: t(
+          actions.chapter
+            ? episode.played
+              ? 'audiobooks.markUnfinished'
+              : 'audiobooks.markFinished'
+            : episode.played
+              ? 'podcasts.markUnplayed'
+              : 'podcasts.markPlayed',
+        ),
+        icon: Check,
+        onSelect: () => actions.setPlayed(!episode.played),
+      },
+      actions.setEarlierPlayed && {
+        label: t(actions.chapter ? 'audiobooks.markEarlier' : 'podcasts.menu.markOlder'),
+        icon: CheckCheck,
+        onSelect: actions.setEarlierPlayed,
+      },
+      started &&
+        actions.startOver && {
+          label: t('podcasts.menu.startOver'),
+          icon: RotateCcw,
+          onSelect: actions.startOver,
+        },
+    ],
+    goTo: [
+      actions.openPodcast && {
+        label: t('podcasts.menu.goToShow', { name: episode.podcastTitle }),
+        icon: ListVideo,
+        onSelect: actions.openPodcast,
+      },
+    ],
+    keep: [
+      state === 'done'
+        ? { label: t('podcasts.removeDownload'), icon: Trash2, onSelect: actions.removeDownload }
+        : (state === 'downloading' || state === 'queued') && actions.cancelDownload
+          ? { label: t('podcasts.cancelDownload'), icon: CircleX, onSelect: actions.cancelDownload }
+          : { label: t('podcasts.download'), icon: Download, onSelect: actions.download },
+    ],
+    share: [
+      {
+        label: t(actions.chapter ? 'audiobooks.copyChapter' : 'podcasts.menu.copyTitle'),
+        icon: Copy,
+        onSelect: () => copy(episode.title),
+      },
+      {
+        label: t(actions.chapter ? 'audiobooks.copyBook' : 'podcasts.menu.copyShow'),
+        icon: Copy,
+        onSelect: () => copy(episode.podcastTitle),
+      },
+    ],
+    edit: [
+      actions.toggleNotes &&
+        episode.description && {
+          label: t(actions.notesShown ? 'podcasts.menu.hideNotes' : 'podcasts.menu.showNotes'),
+          icon: NotebookText,
+          onSelect: actions.toggleNotes,
+        },
+    ],
+  });
 };
 
 type ShowActions = {
   open: () => void;
   refresh?: () => void;
   setSubscribed?: (subscribed: boolean) => void;
+  /** Pin to the sidebar (desktop), for a show with a page. */
+  pin?: MenuItem[];
+  /** Not interested, in Home's rows. */
+  hide?: MenuItem[];
 };
 
-/** A show's right-click options (M46.16). */
+/** A show's right-click options (M46.16), in the order every media menu keeps. */
 export const showMenu = (
-  show: { title: string; feedUrl: string; subscribed: boolean },
+  show: { title: string; author?: string | null; feedUrl: string; subscribed: boolean },
   t: TFunction,
   actions: ShowActions,
 ): MenuItem[] => {
-  const items: MenuItem[] = [
-    { kind: 'heading', label: show.title },
-    { label: t('menu.open'), icon: Rss, onSelect: actions.open },
-  ];
-  if (actions.refresh) {
-    items.push({ label: t('podcasts.menu.refresh'), icon: RefreshCw, onSelect: actions.refresh });
-  }
-  if (actions.setSubscribed) {
-    const setSubscribed = actions.setSubscribed;
-    items.push(
-      show.subscribed
-        ? {
-            label: t('podcasts.menu.unfollow'),
-            icon: UserMinus,
-            danger: true,
-            onSelect: () => setSubscribed(false),
-          }
-        : {
-            label: t('podcasts.menu.follow'),
-            icon: UserPlus,
-            onSelect: () => setSubscribed(true),
-          },
-    );
-  }
-  items.push(
-    { kind: 'separator' },
-    { label: t('podcasts.menu.copyName'), icon: Copy, onSelect: () => copy(show.title) },
-    { label: t('podcasts.menu.copyFeed'), icon: Copy, onSelect: () => copy(show.feedUrl) },
-  );
-  return items;
+  const setSubscribed = actions.setSubscribed;
+  return buildMenu({
+    heading: { label: show.title, subtitle: show.author ?? null },
+    play: [{ label: t('menu.open'), icon: Rss, onSelect: actions.open }],
+    save: [
+      setSubscribed &&
+        (show.subscribed
+          ? {
+              label: t('podcasts.menu.unfollow'),
+              icon: UserMinus,
+              danger: true,
+              onSelect: () => setSubscribed(false),
+            }
+          : {
+              label: t('podcasts.menu.follow'),
+              icon: UserPlus,
+              onSelect: () => setSubscribed(true),
+            }),
+    ],
+    keep: actions.pin ?? [],
+    share: [
+      { label: t('podcasts.menu.copyName'), icon: Copy, onSelect: () => copy(show.title) },
+      { label: t('podcasts.menu.copyFeed'), icon: Copy, onSelect: () => copy(show.feedUrl) },
+    ],
+    edit: [
+      actions.refresh && {
+        label: t('podcasts.menu.refresh'),
+        icon: RefreshCw,
+        onSelect: actions.refresh,
+      },
+    ],
+    hide: actions.hide ?? [],
+  });
 };

@@ -1,6 +1,6 @@
 import type { AudiobookResult } from '@raygun/bindings';
 import { LoaderCircle } from 'lucide-react';
-import type { FC } from 'react';
+import type { FC, MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { formatLength, runtimeMs } from '../podcasts/formatLength';
@@ -16,7 +16,9 @@ export const BookCard: FC<{
   onOpen: (book: AudiobookResult) => void;
   /** In a grid, the card takes its cell's width. */
   grid?: boolean;
-}> = ({ book, onOpen, grid = false }) => {
+  /** Its right-click and long-press menu. */
+  onMenu?: (event: MouseEvent) => void;
+}> = ({ book, onOpen, grid = false, onMenu }) => {
   const { t } = useTranslation();
   const length = runtimeMs(book.runtime);
   return (
@@ -24,6 +26,7 @@ export const BookCard: FC<{
       <button
         type="button"
         onClick={() => onOpen(book)}
+        onContextMenu={onMenu}
         data-testid="book-card"
         title={[book.title, book.author, book.edition].filter(Boolean).join(' · ')}
         className="hover:bg-surface flex w-full flex-col gap-1.5 rounded-xl p-2 text-left"

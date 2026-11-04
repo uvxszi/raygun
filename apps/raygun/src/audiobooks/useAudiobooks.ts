@@ -96,9 +96,10 @@ const useLateBooks = (list: BookList, query: string) => {
 
 /**
  * Every audiobook source's books at once, a page at a time: popular, newest, a search (ranked by
- * title and author) or a genre (`query`: "Mystery", "Science fiction"…).
+ * title and author) or a genre (`query`: "Mystery", "Science fiction"…). `enabled` holds the
+ * request (Home's row asks once it comes near); what's cached shows either way.
  */
-export const useBookDirectory = (list: BookList, query = '') => {
+export const useBookDirectory = (list: BookList, query = '', enabled = true) => {
   useLateBooks(list, query);
   return useInfiniteQuery({
     queryKey: [...BOOKS, 'directory', list, query],
@@ -106,7 +107,7 @@ export const useBookDirectory = (list: BookList, query = '') => {
       unwrapResult(commands.audiobookDirectory(list, query.trim(), pageParam)),
     initialPageParam: 1,
     getNextPageParam: (last, pages) => (last.hasMore ? pages.length + 1 : undefined),
-    enabled: (list !== 'search' && list !== 'subject') || query.trim() !== '',
+    enabled: enabled && ((list !== 'search' && list !== 'subject') || query.trim() !== ''),
     staleTime: 10 * 60_000,
   });
 };

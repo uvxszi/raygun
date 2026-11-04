@@ -1089,6 +1089,10 @@ impl PodcastService {
         let Some(episode_id) = follow.episode_id.clone() else {
             return;
         };
+        // Incognito (M47): where it was and what was finished aren't saved.
+        if crate::privacy::incognito(&self.app) {
+            return;
+        }
         let position = state.position_ms;
         let duration = state.duration_ms.unwrap_or(0.0);
         let near_end = duration > 0.0 && position >= duration * PLAYED_SHARE;

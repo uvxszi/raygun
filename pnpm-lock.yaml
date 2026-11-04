@@ -297,6 +297,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
 
+  extensions/archive-comics:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
   extensions/audius:
     devDependencies:
       '@raygun/sdk':
@@ -363,13 +369,31 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
 
+  extensions/mangaplus-creators:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
   extensions/musicbrainz:
     devDependencies:
       '@raygun/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
 
+  extensions/naver-webtoon:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
   extensions/peertube:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
+  extensions/peppercarrot:
     devDependencies:
       '@raygun/sdk':
         specifier: workspace:*
@@ -382,6 +406,24 @@ importers:
         version: link:../../packages/sdk
 
   extensions/radio-browser:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
+  extensions/tapas:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
+  extensions/webtoons:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
+  extensions/xkcd:
     devDependencies:
       '@raygun/sdk':
         specifier: workspace:*

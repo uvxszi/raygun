@@ -1,0 +1,16 @@
+{
+  "id": "dev.raygun.xkcd",
+  "name": "xkcd",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Every xkcd comic by Randall Munroe, from the first to today's, each a chapter of its own (CC BY-NC 2.5).",
+  "author": "Raygun",
+  "website": "https://xkcd.com",
+  "provides": ["manga.source"],
+  "permissions": {
+    "net": ["xkcd.com"]
+  },
+  "contentRating": "safe"
+}

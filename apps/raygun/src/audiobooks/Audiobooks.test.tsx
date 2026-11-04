@@ -101,10 +101,17 @@ describe('Audiobooks', () => {
     expect(card).toHaveTextContent('Chapter 4 of 37');
   });
 
-  it('says where to find books when there are none', async () => {
+  it('says where to find books when there are none: Search → Audio → Audiobooks', async () => {
+    const user = userEvent.setup();
     await AppShellWrapper.mount('/library?view=audiobooks');
     expect(await screen.findByText('No audiobooks yet')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Find audiobooks' })).toBeInTheDocument();
+    await user.click(screen.getByRole('link', { name: 'Find audiobooks' }));
+    expect(await screen.findByTestId('audiobook-search')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Audio' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: 'Audiobooks' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   });
 
   it('resumes a book at the first chapter not finished, and adds it to the library', async () => {
@@ -151,18 +158,16 @@ describe('Audiobooks', () => {
     );
     commands.audiobookOpen.mockResolvedValue(ok('b1'));
     commands.audiobook.mockResolvedValue(ok(book(false, [chapter('c1', 'Chapter 1')])));
+    // Old links land on Search's Audiobooks pill: popular books until something is typed.
     await AppShellWrapper.mount('/audiobooks');
-    const browse = await screen.findByTestId('audiobooks-browse');
+    const browse = await screen.findByTestId('audiobook-search');
     expect(
       await within(within(browse).getByRole('region', { name: 'Popular' })).findByText(
         'Persuasion',
       ),
     ).toBeInTheDocument();
-    await user.type(
-      within(browse).getByRole('textbox', { name: 'Search audiobooks' }),
-      'emma{Enter}',
-    );
-    const results = await within(browse).findByRole('region', { name: 'Books found' });
+    await user.type(screen.getByRole('searchbox', { name: 'Search' }), 'emma{Enter}');
+    const results = await screen.findByRole('region', { name: 'Books found' });
     await user.click(await within(results).findByText('Emma'));
     expect(commands.audiobookOpen).toHaveBeenCalledWith('https://librivox.org/rss/4');
     expect(await screen.findByTestId('audiobook-page')).toBeInTheDocument();
@@ -180,7 +185,7 @@ describe('Audiobooks', () => {
       }),
     );
     await AppShellWrapper.mount('/audiobooks');
-    const browse = await screen.findByTestId('audiobooks-browse');
+    const browse = await screen.findByTestId('audiobook-search');
     await user.click(within(browse).getByRole('button', { name: 'Science fiction' }));
     expect(commands.audiobookDirectory).toHaveBeenCalledWith('subject', 'Science fiction', 1);
     const genre = await within(browse).findByRole('region', { name: 'Science fiction' });

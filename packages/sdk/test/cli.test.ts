@@ -14,6 +14,7 @@ import {
   init,
   manifestProblems,
   pack,
+  packAll,
 } from '../lib/cli.mjs';
 
 const SDK_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -30,9 +31,9 @@ afterEach(async () => {
 });
 
 /** A new extension from the template, able to resolve `@raygun/sdk` like an installed one. */
-const createExtension = async (name = 'ext') => {
+const createExtension = async (name = 'ext', id = 'dev.example.test') => {
   const dir = join(work, name);
-  await init(dir, { id: 'dev.example.test', name: 'Test Source' });
+  await init(dir, { id, name: 'Test Source' });
   await mkdir(join(dir, 'node_modules', '@raygun'), { recursive: true });
   await symlink(SDK_DIR, join(dir, 'node_modules', '@raygun', 'sdk'), 'junction');
   return dir;
@@ -194,6 +195,46 @@ describe('repositories', () => {
     });
     const written = JSON.parse(await readFile(join(repo, 'index.json'), 'utf8'));
     expect(written).toEqual(index);
-    expect(written.name).toBe('Raygun Extensions');
+    // A new repository is named after its folder, or as asked, and keeps its name.
+    expect(written.name).toBe('repo');
+    expect((await pack(dir, repo, { name: 'Example sources' })).index.name).toBe('Example sources');
+    expect((await pack(dir, repo)).index.name).toBe('Example sources');
+  });
+
+  it('packs every extension in a folder, scripts or not, and indexes them once', async () => {
+    await createExtension('extensions/alpha', 'dev.example.alpha');
+    await createExtension('extensions/beta', 'dev.example.beta');
+    // Not an extension: no manifest.
+    await mkdir(join(work, 'extensions', 'notes'), { recursive: true });
+    const repo = join(work, 'repo');
+
+    const { packed, index } = await packAll(join(work, 'extensions'), repo);
+    expect(packed.map((result) => result.manifest.id)).toEqual([
+      'dev.example.alpha',
+      'dev.example.beta',
+    ]);
+    expect(packed.every((result) => !result.kept)).toBe(true);
+    expect(index.extensions.map((entry: { id: string }) => entry.id)).toEqual([
+      'dev.example.alpha',
+      'dev.example.beta',
+    ]);
+    expect(JSON.parse(await readFile(join(repo, 'index.json'), 'utf8'))).toEqual(index);
+
+    // A manifest laid out another way is the same package; changed code under a published
+    // version keeps the published one.
+    const alphaPackage = join(repo, 'packages', 'dev.example.alpha-0.1.0.zip');
+    const published = await readFile(alphaPackage);
+    const manifestPath = join(work, 'extensions', 'alpha', MANIFEST_FILE);
+    await writeFile(manifestPath, JSON.stringify(JSON.parse(await readFile(manifestPath, 'utf8'))));
+    const source = join(work, 'extensions', 'beta', 'src/index.ts');
+    await writeFile(source, `${await readFile(source, 'utf8')}\nconsole.log('changed');\n`);
+    const again = await packAll(join(work, 'extensions'), repo);
+    expect(again.packed.map((result) => result.kept)).toEqual([false, true]);
+    expect(await readFile(alphaPackage)).toEqual(published);
+    expect(again.index).toEqual(index);
+  });
+
+  it('refuses a folder without extensions', async () => {
+    await expect(packAll(work, join(work, 'repo'))).rejects.toThrow('has no extensions');
   });
 });

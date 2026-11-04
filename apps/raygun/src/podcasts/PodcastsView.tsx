@@ -8,6 +8,7 @@ import { AudioViewChips } from '../library/AudioViewChips';
 import { LibraryTop } from '../library/LibraryTop';
 import { EmptyState } from '../shell/EmptyState';
 import { Sheet } from '../shell/Sheet';
+import { SHEET_FIELD, SHEET_INPUT, TextField } from '../shell/TextField';
 import { TopBarAction } from '../shell/TopBar';
 
 import { EpisodeItem } from './EpisodeItem';
@@ -195,7 +196,7 @@ export const PodcastsView: FC = () => {
       {addingFeed && (
         <Sheet title={t('podcasts.openFeed')} onClose={() => setAddingFeed(false)}>
           <form onSubmit={onAddFeed} className="flex flex-col gap-3 text-sm">
-            <input
+            <TextField
               type="url"
               inputMode="url"
               autoCapitalize="off"
@@ -203,10 +204,11 @@ export const PodcastsView: FC = () => {
               spellCheck={false}
               autoFocus
               value={feedUrl}
-              onChange={(event) => setFeedUrl(event.target.value)}
+              onChange={setFeedUrl}
               placeholder={t('podcasts.feedPlaceholder')}
               aria-label={t('podcasts.feedUrl')}
-              className="bg-background placeholder:text-muted rounded-xl px-4 py-3 outline-none"
+              className={SHEET_FIELD}
+              inputClassName={SHEET_INPUT}
             />
             {openFeed.error && <SourceIssue>{openFeed.error.message}</SourceIssue>}
             <button

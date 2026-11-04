@@ -42,7 +42,7 @@
 - **Commands:** `tts_available`, `tts_speak(paragraphs, first, rate)`, `tts_stop`.
 - **Reader:**
   - A play button in the footer reads aloud from the paragraph on screen, highlights the paragraph being read and keeps it in view.
-  - **Choosing where it starts** (asked for during the milestone): hold any paragraph to read aloud from there. While reading, tap a paragraph to jump to it. A toolbar offers previous paragraph, read this paragraph again, next paragraph and stop.
+  - **Choosing where it starts** (added during the milestone): hold any paragraph to read aloud from there. While reading, tap a paragraph to jump to it. A toolbar offers previous paragraph, read this paragraph again, next paragraph and stop.
   - **Speed:** 0.6×–2× in steps of 0.2, in the text settings.
   - At the end of a chapter it goes on to the next one and keeps reading. Stop or leaving the reader stops speech.
 

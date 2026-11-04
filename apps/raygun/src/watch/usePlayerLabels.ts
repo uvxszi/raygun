@@ -6,11 +6,13 @@ import { useTranslation } from 'react-i18next';
 export const usePlayerLabels = () => {
   const { t, i18n } = useTranslation();
   useEffect(() => {
-    // Every `videoPlayer.*` word, with `{n}` where the player puts a number or name.
-    const words = t('videoPlayer', { returnObjects: true, n: '{n}', seconds: '{n}' }) as Record<
-      string,
-      string
-    >;
+    // Every `videoPlayer.*` word, with `{n}` (and `{of}`) where the player puts a number or name.
+    const words = t('videoPlayer', {
+      returnObjects: true,
+      n: '{n}',
+      seconds: '{n}',
+      of: '{of}',
+    }) as Record<string, string>;
     void commands.videoSetPlayerLabels({ ...words, video: t('watch.video') });
   }, [t, i18n.language]);
 };
