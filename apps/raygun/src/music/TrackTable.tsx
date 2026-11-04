@@ -40,7 +40,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FC, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { commands } from '@raygun/bindings';
@@ -68,6 +68,7 @@ import {
 import { useTagsFor } from './useDiscovery';
 import { downloadSongs, useDownloadedKeys, useDownloadingKeys } from './useSongDownloads';
 import type { TableReorder, TableTrack, TableView, TrackTableKind } from './tableView';
+import { useSortRequest } from './sortRequest';
 import { useSourcePickerStore } from './sourcePickerStore';
 import { useTrackLengths } from './useTrackLengths';
 import { useUnavailable } from './useUnavailable';
@@ -237,6 +238,14 @@ export const TrackTable: FC<TrackTableProps> = ({
   const lastPicked = useRef<number | null>(null);
   const [sortAnchor, setSortAnchor] = useState<HTMLElement | null>(null);
   const [columnsAnchor, setColumnsAnchor] = useState<HTMLElement | null>(null);
+  // A menu's Sort (a Favorites or Downloaded tile) opens Sort by here once.
+  const sortButton = useRef<HTMLButtonElement>(null);
+  const sortWanted = useSortRequest((state) => state.kind === kind);
+  useEffect(() => {
+    if (!sortWanted || !sortButton.current) return;
+    useSortRequest.getState().clear();
+    setSortAnchor(sortButton.current);
+  }, [sortWanted]);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   // Rows move only by their grip, so a short drag is enough; the keyboard works too.
   const rowSensors = useSensors(
@@ -587,6 +596,7 @@ export const TrackTable: FC<TrackTableProps> = ({
             </button>
           )}
           <button
+            ref={sortButton}
             type="button"
             aria-haspopup="dialog"
             aria-expanded={sortAnchor !== null}

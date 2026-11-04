@@ -2747,8 +2747,8 @@
   "rail": {
     "library": "Your library",
     "resize": "Drag to resize the side rail",
-    "pin": "Pin to sidebar",
-    "unpin": "Unpin from sidebar",
+    "pin": "Pin to Quick access",
+    "unpin": "Unpin from Quick access",
     "moveUp": "Move up",
     "moveDown": "Move down",
     "order": "Sort the sidebar",

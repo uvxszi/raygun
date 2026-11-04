@@ -238,7 +238,7 @@ describe('Websites', () => {
       await user.click(
         await within(page).findByRole('button', { name: 'Internet Archive options' }),
       );
-      await user.click(screen.getByRole('menuitem', { name: 'Pin to sidebar' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Pin to Quick access' }));
       await vi.waitFor(() =>
         expect(current.rail.pins).toEqual([
           expect.objectContaining({

@@ -63,7 +63,7 @@ describe('The sidebar (M46.29)', () => {
 
     // Right-click a pin: unpin it.
     fireEvent.contextMenu(within(rail()).getByRole('link', { name: /Road trip/ }));
-    await user.click(await screen.findByRole('menuitem', { name: 'Unpin from sidebar' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Unpin from Quick access' }));
     await vi.waitFor(() =>
       expect(saved().rail.pins.map((pin) => pin.kind)).toEqual([
         'favorites',
@@ -122,12 +122,82 @@ describe('The sidebar (M46.29)', () => {
       }),
     );
     await AppShellWrapper.mount('/podcast?id=show-1');
-    await user.click(await screen.findByRole('button', { name: 'Pin to sidebar' }));
+    await user.click(await screen.findByRole('button', { name: 'Pin to Quick access' }));
     await vi.waitFor(() =>
       expect(saved().rail.pins).toEqual([
         expect.objectContaining({ kind: 'podcast', to: '/podcast', search: { id: 'show-1' } }),
       ]),
     );
     expect(within(rail()).getByRole('link', { name: /The Show/ })).toBeInTheDocument();
+  });
+
+  it('gives the fixed blocks their menu and pins one again after an unpin', async () => {
+    const user = userEvent.setup();
+    const saved = withSettings(DEFAULT_SETTINGS);
+    await AppShellWrapper.mount('/library?view=all');
+    await vi.waitFor(() => expect(names()).toContain('Favorites'));
+
+    // Its pin's menu has the block's own items; unpin it.
+    fireEvent.contextMenu(within(rail()).getByRole('link', { name: /Favorites/ }));
+    expect(await screen.findByRole('menuitem', { name: 'Shuffle' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Download all' })).toBeInTheDocument();
+    await user.click(screen.getByRole('menuitem', { name: 'Unpin from Quick access' }));
+    await vi.waitFor(() =>
+      expect(saved().rail.pins.map((pin) => pin.kind)).not.toContain('favorites'),
+    );
+    await vi.waitFor(() => expect(names()).not.toContain('Favorites'));
+
+    // The Library's tile pins it again.
+    fireEvent.contextMenu(await screen.findByRole('link', { name: /^Favorites.*tracks?$/ }));
+    for (const name of ['Play', 'Shuffle', 'Play next', 'Add to queue', 'Open', 'Sort by']) {
+      expect(await screen.findByRole('menuitem', { name })).toBeInTheDocument();
+    }
+    await user.click(screen.getByRole('menuitem', { name: 'Pin to Quick access' }));
+    await vi.waitFor(() => expect(saved().rail.pins.map((pin) => pin.kind)).toContain('favorites'));
+    expect(saved().rail.seeded).toBe(true);
+    await vi.waitFor(() => expect(names()).toContain('Favorites'));
+  });
+
+  it('checks downloads and scans local folders from their tiles', async () => {
+    const user = userEvent.setup();
+    withSettings({ ...DEFAULT_SETTINGS, rail: { pins: [], order: 'custom', seeded: true } });
+    commands.songDownloadsCheck.mockResolvedValue(ok({ checked: 2, problems: 0 }));
+    commands.localFoldersRescan.mockResolvedValue(ok(null));
+    await AppShellWrapper.mount('/library?view=all');
+
+    fireEvent.contextMenu(await screen.findByRole('link', { name: /^Downloaded.*tracks?$/ }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Check downloads' }));
+    await vi.waitFor(() => expect(commands.songDownloadsCheck).toHaveBeenCalledWith(null));
+    expect(await screen.findByText('All 2 downloads are fine')).toBeInTheDocument();
+
+    fireEvent.contextMenu(screen.getByRole('link', { name: /^Local files.*items?$/ }));
+    expect(await screen.findByRole('menuitem', { name: 'Add a folder' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Play' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('menuitem', { name: 'Scan the folders again' }));
+    await vi.waitFor(() => expect(commands.localFoldersRescan).toHaveBeenCalledWith(null));
+  });
+
+  it('opens Favorites with Sort by open from the menu', async () => {
+    const user = userEvent.setup();
+    withSettings({ ...DEFAULT_SETTINGS, rail: { pins: [], order: 'custom', seeded: true } });
+    commands.favoritesList.mockResolvedValue(
+      ok([
+        {
+          trackKey: 'k1',
+          title: 'Intro',
+          artist: 'Raygun',
+          album: null,
+          durationMs: 1000,
+          artworkUrl: null,
+          source: null,
+          addedAt: 1,
+        },
+      ] as never),
+    );
+    await AppShellWrapper.mount('/library?view=all');
+    fireEvent.contextMenu(await screen.findByRole('link', { name: /^Favorites.*tracks?$/ }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Sort by' }));
+    expect(await screen.findByTestId('favorites-view')).toBeInTheDocument();
+    expect(await screen.findByRole('radiogroup', { name: 'Sort by' })).toBeInTheDocument();
   });
 });

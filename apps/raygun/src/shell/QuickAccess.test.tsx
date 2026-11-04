@@ -124,6 +124,27 @@ describe('Phones (no side panel, quick access)', () => {
     );
   });
 
+  it('holds a fixed pin for its menu, and pins it again from its tile', async () => {
+    setScreen(393, 851);
+    const user = userEvent.setup();
+    const saved = withSettings(DEFAULT_SETTINGS);
+    await AppShellWrapper.mount('/library?view=all');
+    await user.click(await screen.findByTestId('quick-access-button'));
+    await waitFor(() => expect(pinNames()).toContain('Downloaded'));
+
+    fireEvent.contextMenu(within(drawer()).getByRole('link', { name: /Downloaded/ }));
+    expect(await screen.findByRole('menuitem', { name: 'Check downloads' })).toBeInTheDocument();
+    await user.click(screen.getByRole('menuitem', { name: 'Unpin from Quick access' }));
+    await waitFor(() =>
+      expect(saved().rail.pins.map((pin) => pin.kind)).not.toContain('downloaded'),
+    );
+
+    await user.click(screen.getByTestId('quick-access-backdrop'));
+    fireEvent.contextMenu(await screen.findByRole('link', { name: /^Downloaded.*tracks?$/ }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Pin to Quick access' }));
+    await waitFor(() => expect(saved().rail.pins.map((pin) => pin.kind)).toContain('downloaded'));
+  });
+
   it('closes on Back', async () => {
     // A phone: the drawer has a history entry of its own (shell/backLayers).
     resetBackLayers(true);
