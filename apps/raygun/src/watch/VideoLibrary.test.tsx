@@ -178,7 +178,7 @@ describe('Video library', () => {
 
     await user.click(within(library).getByRole('button', { name: 'More options' }));
     const menu = within(library).getByRole('menu');
-    for (const name of ['Updates', 'Downloads', 'History', 'Local files', 'Edit categories']) {
+    for (const name of ['Updates', 'Downloads', 'History', 'Local files', 'Edit folders']) {
       expect(within(menu).getByRole('menuitem', { name })).toBeInTheDocument();
     }
     // The library is what you have: finding more happens in Search.
@@ -274,8 +274,8 @@ describe('Video library', () => {
 
     const saved = within(page).getByRole('button', { name: 'In library' });
     expect(saved).toHaveAttribute('aria-pressed', 'true');
-    // A library title can be put in categories.
-    expect(within(page).getByRole('button', { name: 'Add to categories' })).toBeInTheDocument();
+    // A library title can be put in folders.
+    expect(within(page).getByRole('button', { name: 'Add to folders' })).toBeInTheDocument();
     expect(
       await within(page).findByRole('button', {
         name: 'Delete the download of S1 E1',

@@ -307,6 +307,66 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn each_medium_keeps_its_own_groups_and_folders() {
+        let temp = TempDir::new().unwrap();
+        let db = Db::open(&temp.path().join("raygun.db")).await.unwrap();
+        let comics = create(&db, "manga", "Shonen").await.unwrap();
+        let books = create(&db, "novel", "Classics").await.unwrap();
+        let folder = create(&db, "video", "Anime").await.unwrap();
+        let later = create(&db, "video", "Later").await.unwrap();
+        let names = |list: Vec<Category>| list.into_iter().map(|c| c.name).collect::<Vec<_>>();
+        assert_eq!(names(list(&db, "manga").await.unwrap()), ["Shonen"]);
+        assert_eq!(names(list(&db, "novel").await.unwrap()), ["Classics"]);
+        assert_eq!(names(list(&db, "video").await.unwrap()), ["Anime", "Later"]);
+        // Positions count per medium: the first folder is first though comics came before.
+        assert_eq!(list(&db, "video").await.unwrap()[0].position, 0);
+
+        // A bulk add puts many titles into a folder at once; reordering one medium leaves the
+        // others alone.
+        change_titles(
+            &db,
+            &["v1".to_owned(), "v2".to_owned()],
+            &[folder.clone(), later.clone()],
+            &[],
+        )
+        .await
+        .unwrap();
+        change_titles(&db, &["m1".to_owned()], std::slice::from_ref(&comics), &[])
+            .await
+            .unwrap();
+        reorder(&db, "video", &[later.clone(), folder.clone()])
+            .await
+            .unwrap();
+        assert_eq!(names(list(&db, "video").await.unwrap()), ["Later", "Anime"]);
+        assert_eq!(names(list(&db, "manga").await.unwrap()), ["Shonen"]);
+
+        let videos = memberships(&db, "video").await.unwrap();
+        assert_eq!(videos["v1"], [later.clone(), folder.clone()]);
+        assert_eq!(videos["v2"], [later.clone(), folder.clone()]);
+        assert!(!videos.contains_key("m1"), "comics' groups aren't folders");
+        assert_eq!(memberships(&db, "manga").await.unwrap()["m1"], [comics]);
+        assert!(memberships(&db, "novel").await.unwrap().is_empty());
+
+        // Adding again changes nothing; deleting a folder tombstones its memberships only.
+        change_titles(&db, &["v1".to_owned()], std::slice::from_ref(&folder), &[])
+            .await
+            .unwrap();
+        delete(&db, &folder).await.unwrap();
+        let videos = memberships(&db, "video").await.unwrap();
+        assert_eq!(videos["v1"], std::slice::from_ref(&later));
+        let tombstones: i64 = sqlx::query(
+            "SELECT COUNT(*) AS n FROM title_category WHERE category_id = ?1 AND deleted = 1",
+        )
+        .bind(&folder)
+        .fetch_one(db.pool())
+        .await
+        .unwrap()
+        .get("n");
+        assert_eq!(tombstones, 2, "synced rows are tombstoned, not deleted");
+        assert_eq!(list(&db, "novel").await.unwrap()[0].id, books);
+    }
+
+    #[tokio::test]
     async fn bulk_changes_and_a_categorys_own_display() {
         let temp = TempDir::new().unwrap();
         let db = Db::open(&temp.path().join("raygun.db")).await.unwrap();

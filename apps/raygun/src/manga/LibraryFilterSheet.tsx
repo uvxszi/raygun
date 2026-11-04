@@ -18,6 +18,7 @@ import {
 } from './libraryFilters';
 import type { LibraryFilter, LibrarySort, TriState } from './libraryFilters';
 import type { Medium } from './medium';
+import { groupWords } from './groupWords';
 
 /** Words that read differently for videos ("Unwatched", "Last watched", "Latest episode"). */
 const VIDEO_WORDS = new Set([
@@ -338,7 +339,7 @@ export const LibraryFilterSheet: FC<{
                 onClick={() => onDisplay({ ...display, tabs: value })}
                 className={`rounded-full px-3 py-1.5 ${display.tabs === value ? 'bg-primary/20 text-primary font-semibold' : 'bg-background'}`}
               >
-                {t(`library.display.tabModes.${value}`)}
+                {t(`library.display.tabModes.${value}`, groupWords(medium))}
               </button>
             ))}
           </Section>
@@ -371,7 +372,7 @@ export const LibraryFilterSheet: FC<{
               onChange={(localBadge) => onDisplay({ ...display, localBadge })}
             />
             <Switch
-              label={t('library.display.perCategory')}
+              label={t('library.display.perCategory', groupWords(medium))}
               checked={display.perCategory}
               onChange={(perCategory) => onDisplay({ ...display, perCategory })}
             />

@@ -23,8 +23,10 @@ import { useTranslation } from 'react-i18next';
 
 import { ExportSheet } from '../export/ExportSheet';
 import { Sheet } from '../shell/Sheet';
+import { showToast } from '../shell/toastStore';
 import { LISTS, listKey } from './libraryDisplay';
 import type { Medium } from './medium';
+import { groupWords } from './groupWords';
 import {
   useChangeCategories,
   useDownloadNext,
@@ -115,10 +117,10 @@ const CategoriesSheet: FC<{
     change.mutate({ ids, add, remove }, { onSuccess: onDone });
   };
   return (
-    <Sheet title={t('library.select.categories')} onClose={onClose}>
+    <Sheet title={t('library.select.categories', groupWords(medium))} onClose={onClose}>
       <div className="flex flex-col gap-1 text-sm">
         {categories.length === 0 && (
-          <p className="text-muted">{t('library.select.noCategories')}</p>
+          <p className="text-muted">{t('library.select.noCategories', groupWords(medium))}</p>
         )}
         {categories.map((category) => {
           const state = states[category.id];
@@ -153,7 +155,7 @@ const CategoriesSheet: FC<{
             search={{ medium }}
             className="text-primary rounded-full px-3 py-2 font-medium"
           >
-            {t('library.categories.edit')}
+            {t('library.categories.edit', groupWords(medium))}
           </Link>
           {categories.length > 0 && (
             <button
@@ -216,11 +218,13 @@ export const ListSheet: FC<{
   );
 };
 
-/** Download the next chapters of the selection (Mihon's menu). */
-const DownloadSheet: FC<{ onPick: (amount: number | null) => void; onClose: () => void }> = ({
-  onPick,
-  onClose,
-}) => {
+/** Download the next chapters or episodes of the selection (Mihon's menu). */
+export const DownloadSheet: FC<{
+  onPick: (amount: number | null) => void;
+  onClose: () => void;
+  /** Episodes rather than chapters. */
+  video?: boolean;
+}> = ({ onPick, onClose, video = false }) => {
   const { t } = useTranslation();
   return (
     <Sheet title={t('library.select.download')} onClose={onClose}>
@@ -232,7 +236,9 @@ const DownloadSheet: FC<{ onPick: (amount: number | null) => void; onClose: () =
             onClick={() => onPick(amount)}
             className="hover:bg-background rounded-xl px-3 py-3 text-left"
           >
-            {t('library.select.downloadNext', { count: amount })}
+            {t(video ? 'library.select.downloadNextEpisodes' : 'library.select.downloadNext', {
+              count: amount,
+            })}
           </button>
         ))}
         <button
@@ -240,7 +246,7 @@ const DownloadSheet: FC<{ onPick: (amount: number | null) => void; onClose: () =
           onClick={() => onPick(null)}
           className="hover:bg-background rounded-xl px-3 py-3 text-left"
         >
-          {t('library.select.downloadUnread')}
+          {t(video ? 'library.select.downloadUnwatched' : 'library.select.downloadUnread')}
         </button>
       </div>
     </Sheet>
@@ -338,7 +344,7 @@ export const SelectionActions: FC<{
   const allPinned = selected.every((entry) => entry.pinned);
   const lists = new Set(selected.map((entry) => entry.list ?? null));
   const currentList = lists.size === 1 ? ([...lists][0] ?? null) : 'mixed';
-  const canDownload = medium !== 'video' && !selected.some((entry) => entry.local);
+  const canDownload = !selected.some((entry) => entry.local);
   const video = medium === 'video';
   const finish = { onSuccess: onDone };
   const error =
@@ -365,7 +371,9 @@ export const SelectionActions: FC<{
         data-testid="selection-actions"
         className="bg-surface sticky bottom-2 z-30 mt-auto flex w-full justify-around no-scrollbar overflow-x-auto rounded-2xl p-1 shadow-xl"
       >
-        {action(t('library.select.categories'), FolderCog, () => setPanel('categories'))}
+        {action(t('library.select.categories', groupWords(medium)), FolderCog, () =>
+          setPanel('categories'),
+        )}
         {action(t('library.lists.title'), Bookmark, () => setPanel('list'))}
         {action(
           t(allFavorite ? 'library.select.unfavorite' : 'library.select.favorite'),
@@ -419,9 +427,18 @@ export const SelectionActions: FC<{
       )}
       {panel === 'download' && (
         <DownloadSheet
+          video={video}
           onPick={(amount) => {
             setPanel(null);
-            download.mutate({ ids, amount }, finish);
+            download.mutate(
+              { ids, amount },
+              {
+                onSuccess: (queued) => {
+                  onDone();
+                  showToast(t('search.select.queued', { count: queued }));
+                },
+              },
+            );
           }}
           onClose={() => setPanel(null)}
         />

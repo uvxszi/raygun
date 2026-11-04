@@ -4853,6 +4853,35 @@ pub struct TitleMarks {
     pub pinned: bool,
 }
 
+/// A title picked from a source's search or listing for a bulk action (a search selection):
+/// it may never have been opened. Stremio titles have source `stremio` and remote id
+/// `<type>:<id>`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteTitleRef {
+    pub source_id: String,
+    pub remote_id: String,
+    /// Its name as listed, for saying which one failed.
+    pub title: String,
+}
+
+/// What a bulk action did: the titles' library ids, how many chapters or episodes it queued,
+/// and the titles it couldn't do.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkResult {
+    pub title_ids: Vec<String>,
+    pub queued: u32,
+    pub failed: Vec<BulkFailure>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkFailure {
+    pub title: String,
+    pub message: String,
+}
+
 /// A library title another one may duplicate (same name, another source; M46).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
