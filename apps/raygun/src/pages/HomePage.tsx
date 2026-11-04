@@ -45,6 +45,7 @@ import { useIsDesktop } from '../shell/useIsDesktop';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { UpdateBanner } from '../updates/UpdateBanner';
 import { ContinueWatchingRow } from '../watch/ContinueWatchingRow';
+import { ContinueListening } from '../podcasts/ContinueListening';
 import { useContinueWatching } from '../watch/useWatch';
 import { Carousel } from '../shell/Carousel';
 
@@ -371,6 +372,7 @@ const MadeForYouRow: FC = () => {
 const HOME_SECTIONS: Record<string, FC> = {
   continueWatching: () => <ContinueWatchingRow />,
   continueReading: () => <ContinueReading />,
+  continueListening: () => <ContinueListening />,
   madeForYou: () => <MadeForYouRow />,
   yourMusic: () => <YourMusic />,
   recentlyPlayed: () => <RecentlyPlayed />,

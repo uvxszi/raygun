@@ -75,6 +75,35 @@ const searchable = () => {
   return popularBooks;
 };
 
+/** The site's genre pages (`/genre/<name>`), matched however a genre is written. */
+const GENRES = [
+  'Adventure',
+  'Children',
+  'Comedy',
+  'Fairy_tales',
+  'Fantasy',
+  'Fiction',
+  'Historical_Fiction',
+  'History',
+  'Humor',
+  'Literature',
+  'Mystery',
+  'Non-fiction',
+  'Philosophy',
+  'Poetry',
+  'Religion',
+  'Romance',
+  'Science_fiction',
+  'Short_stories',
+  'Teen_Young_adult',
+];
+
+/** The site's page for a genre, or `null` when it has none (it answers those with an error). */
+const genrePage = (subject: string) => {
+  const name = subject.trim().replace(/\s+/g, '_');
+  return GENRES.find((genre) => genre.toLowerCase() === name.toLowerCase()) ?? null;
+};
+
 const simple = (text: string) =>
   text
     .toLowerCase()
@@ -106,7 +135,7 @@ registerProvider(
     },
     async subject({ subject, page }) {
       // Genres are pages of their own: Fiction, Mystery, Children, Fantasy…
-      const name = subject.trim().replace(/\s+/g, '_');
+      const name = genrePage(subject);
       if (!name) return { books: [], hasMore: false };
       return listing(`/genre/${encodeURIComponent(name)}`, page);
     },

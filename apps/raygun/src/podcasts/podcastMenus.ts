@@ -3,6 +3,8 @@ import type { PodcastEpisode } from '@raygun/bindings';
 import type { TFunction } from 'i18next';
 import {
   Check,
+  CheckCheck,
+  CircleX,
   Copy,
   Download,
   ListEnd,
@@ -11,6 +13,7 @@ import {
   NotebookText,
   Play,
   RefreshCw,
+  RotateCcw,
   Rss,
   Trash2,
   UserMinus,
@@ -22,9 +25,16 @@ import type { MenuItem } from '../shell/contextMenuStore';
 const copy = (text: string) => void navigator.clipboard?.writeText(text).catch(() => undefined);
 
 type EpisodeActions = {
+  /** A book's chapter: finished rather than played, earlier chapters rather than older ones. */
+  chapter?: boolean;
   play: () => void;
   setPlayed: (played: boolean) => void;
+  /** Marks the episodes before this one played (M46.48). */
+  setEarlierPlayed?: () => void;
+  /** Forgets where listening stopped (M46.48); only for started episodes. */
+  startOver?: () => void;
   download: () => void;
+  cancelDownload?: () => void;
   removeDownload: () => void;
   toggleNotes?: () => void;
   notesShown?: boolean;
@@ -41,7 +51,7 @@ export const episodeMenu = (
   actions: EpisodeActions,
 ): MenuItem[] => {
   const started = !episode.played && (episode.positionMs ?? 0) > 0;
-  const downloaded = episode.download?.state === 'done';
+  const state = episode.download?.state;
   const queue = (next: boolean) =>
     void commands.podcastQueue(episode.id, next).then(() => actions.onQueued?.(next));
   const items: MenuItem[] = [
@@ -55,19 +65,40 @@ export const episodeMenu = (
     { label: t('menu.addToQueue'), icon: ListEnd, onSelect: () => queue(false) },
     { kind: 'separator' },
     {
-      label: t(episode.played ? 'podcasts.markUnplayed' : 'podcasts.markPlayed'),
+      label: t(
+        actions.chapter
+          ? episode.played
+            ? 'audiobooks.markUnfinished'
+            : 'audiobooks.markFinished'
+          : episode.played
+            ? 'podcasts.markUnplayed'
+            : 'podcasts.markPlayed',
+      ),
       icon: Check,
       onSelect: () => actions.setPlayed(!episode.played),
     },
-    downloaded
-      ? { label: t('podcasts.removeDownload'), icon: Trash2, onSelect: actions.removeDownload }
-      : {
-          label: t('podcasts.download'),
-          icon: Download,
-          disabled: episode.download?.state === 'downloading',
-          onSelect: actions.download,
-        },
   ];
+  if (actions.setEarlierPlayed) {
+    items.push({
+      label: t(actions.chapter ? 'audiobooks.markEarlier' : 'podcasts.menu.markOlder'),
+      icon: CheckCheck,
+      onSelect: actions.setEarlierPlayed,
+    });
+  }
+  if (started && actions.startOver) {
+    items.push({
+      label: t('podcasts.menu.startOver'),
+      icon: RotateCcw,
+      onSelect: actions.startOver,
+    });
+  }
+  items.push(
+    state === 'done'
+      ? { label: t('podcasts.removeDownload'), icon: Trash2, onSelect: actions.removeDownload }
+      : (state === 'downloading' || state === 'queued') && actions.cancelDownload
+        ? { label: t('podcasts.cancelDownload'), icon: CircleX, onSelect: actions.cancelDownload }
+        : { label: t('podcasts.download'), icon: Download, onSelect: actions.download },
+  );
   if (actions.toggleNotes && episode.description) {
     items.push({
       label: t(actions.notesShown ? 'podcasts.menu.hideNotes' : 'podcasts.menu.showNotes'),
@@ -84,9 +115,13 @@ export const episodeMenu = (
     });
   }
   items.push(
-    { label: t('podcasts.menu.copyTitle'), icon: Copy, onSelect: () => copy(episode.title) },
     {
-      label: t('podcasts.menu.copyShow'),
+      label: t(actions.chapter ? 'audiobooks.copyChapter' : 'podcasts.menu.copyTitle'),
+      icon: Copy,
+      onSelect: () => copy(episode.title),
+    },
+    {
+      label: t(actions.chapter ? 'audiobooks.copyBook' : 'podcasts.menu.copyShow'),
       icon: Copy,
       onSelect: () => copy(episode.podcastTitle),
     },

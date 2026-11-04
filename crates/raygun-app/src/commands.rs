@@ -1134,7 +1134,9 @@ pub async fn audiobook_play(
     podcasts.play_audiobook(&id, chapter_id.as_deref()).await
 }
 
-/// A page of books from the audiobook directories (M46.22).
+/// A page of books from every audiobook source at once (M46.22): `popular`, `latest`, `search`
+/// or `subject`; searches rank by title and author and a book two sources share shows once
+/// (M46.48).
 #[tauri::command]
 #[specta::specta]
 pub async fn audiobook_directory(
@@ -1144,6 +1146,24 @@ pub async fn audiobook_directory(
     page: u32,
 ) -> Result<raygun_model::AudiobookPage, String> {
     podcasts.audiobook_directory(&list, &query, page).await
+}
+
+/// Downloads every chapter of a book not downloaded yet, two at a time; returns how many were
+/// queued (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn audiobook_download(podcasts: Podcasts<'_>, id: String) -> Result<u32, String> {
+    podcasts.download_all(&id).await
+}
+
+/// Episodes and books started and not finished, the last listened first (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_continue_listening(
+    podcasts: Podcasts<'_>,
+    limit: u32,
+) -> Result<Vec<raygun_model::ListeningItem>, String> {
+    podcasts.continue_listening(limit).await
 }
 
 /// An episode's or chapter's captions, with where transcribing stands (M46.32).
@@ -2846,7 +2866,62 @@ pub async fn podcast_set_played(
     podcasts.set_played(&episode_id, played).await
 }
 
-/// Downloads an episode in the background; progress arrives as `PodcastsChangedEvent`s.
+/// Marks every episode of a show (or chapter of a book) played or unplayed (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_set_all_played(
+    podcasts: Podcasts<'_>,
+    id: String,
+    played: bool,
+) -> Result<(), String> {
+    podcasts.set_all_played(&id, played).await
+}
+
+/// Marks the episodes before this one played: older ones, or a book's earlier chapters (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_set_earlier_played(
+    podcasts: Podcasts<'_>,
+    episode_id: String,
+) -> Result<u32, String> {
+    podcasts.set_earlier_played(&episode_id).await
+}
+
+/// Forgets where listening stopped, without marking it played (M46.48: Continue listening).
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_forget_position(
+    podcasts: Podcasts<'_>,
+    episode_id: String,
+) -> Result<(), String> {
+    podcasts.forget_position(&episode_id).await
+}
+
+/// How a show's or book's episodes list, kept for it; `None` goes back to the kind's own
+/// (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_set_episode_order(
+    podcasts: Podcasts<'_>,
+    id: String,
+    order: Option<raygun_model::EpisodeOrder>,
+) -> Result<(), String> {
+    podcasts.set_episode_order(&id, order).await
+}
+
+/// The speed a show's or book's episodes play at; `None` leaves the player's (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_set_speed(
+    podcasts: Podcasts<'_>,
+    id: String,
+    speed: Option<f64>,
+) -> Result<(), String> {
+    podcasts.set_speed(&id, speed).await
+}
+
+/// Downloads an episode in the background, two at a time; progress arrives as
+/// `PodcastsChangedEvent`s.
 #[tauri::command]
 #[specta::specta]
 pub async fn podcast_download(podcasts: Podcasts<'_>, episode_id: String) -> Result<(), String> {
@@ -2860,6 +2935,38 @@ pub async fn podcast_remove_download(
     episode_id: String,
 ) -> Result<(), String> {
     podcasts.remove_download(&episode_id).await
+}
+
+/// Deletes every downloaded episode of a show or chapter of a book (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_remove_downloads(podcasts: Podcasts<'_>, id: String) -> Result<(), String> {
+    podcasts.remove_downloads(&id).await
+}
+
+/// Stops a download that's waiting or under way (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_cancel_download(
+    podcasts: Podcasts<'_>,
+    episode_id: String,
+) -> Result<(), String> {
+    podcasts.cancel_download(&episode_id).await
+}
+
+/// Opens a show's or book's website, or a link from its notes, in Raygun's browser (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_open_page(websites: Websites<'_>, url: String) -> Result<(), String> {
+    let url = url.trim();
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("That isn't a web address".into());
+    }
+    websites
+        .inner()
+        .clone()
+        .open_page(&format!("{}podcasts", crate::websites::PAGE_PREFIX), url)
+        .await
 }
 
 // ---- Watch (M38) ----

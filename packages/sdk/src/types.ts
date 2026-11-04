@@ -513,12 +513,15 @@ export type MusicRecommendProvider = {
   }): Promise<{ tracks: Track[] }>;
 };
 
-/** A book an audiobook directory lists (M46.22); `feedUrl` is its chapter feed (RSS). */
+/**
+ * A book an audiobook directory lists (M46.22); `feedUrl` is its chapter feed (RSS). A book
+ * without a feed is opened by its `id` through the provider's `chapters` (M46.48).
+ */
 export type Audiobook = {
   id: string;
   title: string;
   author?: string | null;
-  feedUrl: string;
+  feedUrl?: string | null;
   /** http(s) only. */
   artworkUrl?: string | null;
   /** Its length as the source writes it ("13:06:44"). */
@@ -529,9 +532,35 @@ export type Audiobook = {
 
 export type AudiobookPage = { books: Audiobook[]; hasMore: boolean };
 
+/** One chapter of a book a source lists itself (M46.48). */
+export type AudiobookChapter = {
+  /** Stable within the book; the audio address when left out. */
+  id?: string | null;
+  title: string;
+  /** http(s) only. */
+  audioUrl: string;
+  /** "audio/mpeg"… */
+  audioType?: string | null;
+  durationMs?: number | null;
+  description?: string | null;
+};
+
+/** A book with its chapters in order, for books without a feed (M46.48). */
+export type AudiobookDetails = {
+  title: string;
+  author?: string | null;
+  description?: string | null;
+  artworkUrl?: string | null;
+  /** The book's page on the source's site. */
+  link?: string | null;
+  chapters: AudiobookChapter[];
+};
+
 /**
  * Audiobooks to find (M46.22): searches and lists, a page at a time (from 1). The app reads each
- * book's chapter feed itself.
+ * book's chapter feed itself; sources whose books have no feed list a book's chapters with
+ * `chapters` (M46.48). `subject` is a genre by its English name ("Mystery", "Science fiction",
+ * "Children", "Poetry"…), which each source matches to its own.
  */
 export type AudiobookDirectoryProvider = {
   kind: 'audiobook.directory';
@@ -541,6 +570,7 @@ export type AudiobookDirectoryProvider = {
   popular(args: { page: number }): Promise<AudiobookPage>;
   latest?(args: { page: number }): Promise<AudiobookPage>;
   subject?(args: { subject: string; page: number }): Promise<AudiobookPage>;
+  chapters?(args: { id: string }): Promise<AudiobookDetails>;
 };
 
 export type Provider =

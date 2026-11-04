@@ -46,7 +46,7 @@ async fn refreshing_keeps_subscription_and_progress() {
     );
     set_subscribed(&db, &id, Some(5)).await.unwrap();
     let a = episodes(&db, &id).await.unwrap()[1].id.clone();
-    set_position(&db, &a, 60_000).await.unwrap();
+    set_position(&db, &a, 60_000, 7).await.unwrap();
 
     // The feed renames the show and one episode, and adds a third.
     let again = upsert_podcast(&db, &show("Show (renamed)"), 2)
@@ -91,7 +91,7 @@ async fn subscriptions_count_unplayed_and_list_latest() {
     set_subscribed(&db, &id, Some(5)).await.unwrap();
 
     let b = episodes(&db, &id).await.unwrap()[0].id.clone();
-    set_position(&db, &b, 1_000).await.unwrap();
+    set_position(&db, &b, 1_000, 8).await.unwrap();
     set_played(&db, &b, Some(9)).await.unwrap();
     let played = episode(&db, &b).await.unwrap().unwrap();
     assert_eq!(
@@ -202,5 +202,118 @@ async fn books_keep_their_chapter_order_and_stay_out_of_podcast_lists() {
                 .iter()
                 .all(|row| row.podcast_id != id)
         }
+    );
+}
+
+#[tokio::test]
+async fn each_show_keeps_its_order_and_speed() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp).await;
+    let id = upsert_podcast(&db, &show("Show"), 1).await.unwrap();
+    let row = podcast(&db, &id).await.unwrap().unwrap();
+    assert_eq!((row.episode_order, row.speed), (None, None));
+
+    set_episode_order(&db, &id, Some(r#"{"sort":"title"}"#))
+        .await
+        .unwrap();
+    set_speed(&db, &id, Some(1.5)).await.unwrap();
+    sync_episodes(&db, &id, &[item("a", 100)], 1).await.unwrap();
+    let row = podcast(&db, &id).await.unwrap().unwrap();
+    assert_eq!(row.episode_order.as_deref(), Some(r#"{"sort":"title"}"#));
+    assert_eq!(row.speed, Some(1.5));
+    assert_eq!(
+        episodes(&db, &id).await.unwrap()[0].podcast_speed,
+        Some(1.5),
+        "episodes carry their show's speed"
+    );
+
+    // A refresh keeps both.
+    upsert_podcast(&db, &show("Show"), 2).await.unwrap();
+    let row = podcast(&db, &id).await.unwrap().unwrap();
+    assert_eq!(row.speed, Some(1.5));
+    set_episode_order(&db, &id, None).await.unwrap();
+    set_speed(&db, &id, None).await.unwrap();
+    let row = podcast(&db, &id).await.unwrap().unwrap();
+    assert_eq!((row.episode_order, row.speed), (None, None));
+}
+
+#[tokio::test]
+async fn continue_listening_lists_what_was_started_latest_first() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp).await;
+    let id = upsert_podcast(&db, &show("Show"), 1).await.unwrap();
+    sync_episodes(
+        &db,
+        &id,
+        &[item("a", 100), item("b", 200), item("c", 300)],
+        1,
+    )
+    .await
+    .unwrap();
+    let list = episodes(&db, &id).await.unwrap();
+    let (c, b, a) = (&list[0].id, &list[1].id, &list[2].id);
+    set_position(&db, a, 5_000, 10).await.unwrap();
+    set_position(&db, b, 7_000, 20).await.unwrap();
+    set_position(&db, c, 9_000, 30).await.unwrap();
+    set_played(&db, c, Some(40)).await.unwrap();
+    let started: Vec<String> = episodes_in_progress(&db, 10)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| row.fields.guid)
+        .collect();
+    assert_eq!(started, ["b", "a"], "played ones leave; the latest first");
+    assert_eq!(
+        episode(&db, c).await.unwrap().unwrap().listened_at,
+        Some(40)
+    );
+    clear_position(&db, b).await.unwrap();
+    assert_eq!(episodes_in_progress(&db, 10).await.unwrap().len(), 1);
+
+    let book = upsert_podcast(
+        &db,
+        &PodcastFields {
+            feed_url: "https://librivox.org/rss/1".into(),
+            kind: "audiobook".into(),
+            ..show("Book")
+        },
+        1,
+    )
+    .await
+    .unwrap();
+    sync_episodes(&db, &book, &[item("c1", 0), item("c2", 0)], 1)
+        .await
+        .unwrap();
+    assert!(books_in_progress(&db, 10).await.unwrap().is_empty());
+    let chapters = episodes(&db, &book).await.unwrap();
+    set_played_many(&db, &[chapters[0].id.clone()], Some(50))
+        .await
+        .unwrap();
+    let books = books_in_progress(&db, 10).await.unwrap();
+    assert_eq!(books.len(), 1);
+    assert_eq!((books[0].chapters, books[0].finished), (2, 1));
+    assert_eq!(books[0].total_ms, 3_600_000);
+    assert_eq!(books[0].listened_ms, 1_800_000);
+    assert_eq!(books[0].listened_at, Some(50));
+    set_played_many(
+        &db,
+        &chapters
+            .iter()
+            .map(|row| row.id.clone())
+            .collect::<Vec<_>>(),
+        Some(60),
+    )
+    .await
+    .unwrap();
+    assert!(
+        books_in_progress(&db, 10).await.unwrap().is_empty(),
+        "finished books leave"
+    );
+
+    set_subscribed(&db, &book, Some(1)).await.unwrap();
+    assert_eq!(
+        library_artwork(&db).await.unwrap(),
+        ["https://img.example/show.jpg"],
+        "books in the library keep their covers; shows not followed don't"
     );
 }

@@ -4074,11 +4074,12 @@ pub const LAYOUT_AUDIO_VIEWS: [(&str, bool); 9] = [
     ("artists", true),
     ("tracks", true),
 ];
-pub const LAYOUT_HOME_SECTIONS: [(&str, bool); 18] = [
+pub const LAYOUT_HOME_SECTIONS: [(&str, bool); 19] = [
     // "Nothing to pick up yet" (M46.37): shown while nothing is under way; closing it hides it.
     ("getStarted", true),
     ("continueWatching", true),
     ("continueReading", true),
+    ("continueListening", true),
     ("madeForYou", true),
     ("yourMusic", true),
     ("recentlyPlayed", true),
@@ -4858,9 +4859,44 @@ pub struct PodcastSummary {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum EpisodeDownloadState {
+    /// Waiting for another download to finish (M46.48: two at a time).
+    Queued,
     Downloading,
     Done,
     Failed,
+}
+
+/// What a show's or book's episodes are sorted by (M46.48).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum EpisodeSort {
+    /// Release date.
+    Date,
+    /// Episode number, or a book's chapter order.
+    Number,
+    Title,
+    Duration,
+    /// Started ones, then the rest not played, then the played.
+    Unplayed,
+}
+
+/// Which episodes show (M46.48); several at once must all hold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum EpisodeFilter {
+    Unplayed,
+    Started,
+    Downloaded,
+}
+
+/// How a show's or book's episodes list, kept per show (M46.48).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct EpisodeOrder {
+    pub sort: EpisodeSort,
+    /// Newest, highest, longest or last first.
+    pub descending: bool,
+    pub filters: Vec<EpisodeFilter>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
@@ -4889,6 +4925,8 @@ pub struct PodcastEpisode {
     pub artwork_url: Option<String>,
     pub video: bool,
     pub download: Option<EpisodeDownload>,
+    /// The episode's number (`itunes:episode`), or a chapter's place in its book (M46.48).
+    pub number: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
@@ -4902,26 +4940,49 @@ pub struct PodcastView {
     pub artwork_url: Option<String>,
     pub link: Option<String>,
     pub subscribed: bool,
-    /// Newest first.
+    /// As `order` lists them (M46.48; newest first unless changed).
     pub episodes: Vec<PodcastEpisode>,
+    pub order: EpisodeOrder,
+    /// `order` isn't the kind's own (M46.48).
+    pub custom_order: bool,
+    /// Every episode, shown or filtered out.
+    pub episode_count: u32,
+    /// The speed its episodes play at, when it has its own (M46.48).
+    pub speed: Option<f64>,
 }
 
 // ---- Audiobooks (M46.22) ----
 
 /// A book in the library, with how far it was listened.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AudiobookSummary {
     pub id: String,
     pub title: String,
     pub author: Option<String>,
+    /// Which recording, when a source has several ("Version 2"), M46.48.
+    pub edition: Option<String>,
     pub artwork_url: Option<String>,
     pub chapters: u32,
     /// Chapters listened to the end.
     pub finished: u32,
+    /// Its length and how much of it was listened, when the feed gives lengths (M46.48).
+    pub total_ms: f64,
+    pub listened_ms: f64,
 }
 
-/// A book with its chapters in order.
+/// Where a book goes on from (M46.48): the chapter being listened, or the next one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BookResume {
+    pub chapter_id: String,
+    /// Its place in the book, from 1.
+    pub number: u32,
+    pub title: String,
+    pub position_ms: f64,
+}
+
+/// A book with its chapters.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AudiobookView {
@@ -4929,11 +4990,49 @@ pub struct AudiobookView {
     pub feed_url: String,
     pub title: String,
     pub author: Option<String>,
+    /// Which recording, when a source has several ("Version 2"), M46.48.
+    pub edition: Option<String>,
     pub description: Option<String>,
     pub artwork_url: Option<String>,
     pub link: Option<String>,
     pub in_library: bool,
+    /// As `order` lists them (M46.48; in chapter order unless changed).
     pub chapters: Vec<PodcastEpisode>,
+    pub order: EpisodeOrder,
+    pub custom_order: bool,
+    /// Every chapter, shown or filtered out, how many were finished, and how many are downloaded
+    /// or on their way.
+    pub chapter_count: u32,
+    pub finished: u32,
+    pub downloaded: u32,
+    pub downloading: u32,
+    pub total_ms: f64,
+    pub listened_ms: f64,
+    /// `None` once every chapter is finished (or there are none).
+    pub resume: Option<BookResume>,
+    pub speed: Option<f64>,
+}
+
+/// An episode or a book to go on with, for Home's Continue listening (M46.48).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ListeningItem {
+    pub kind: SpokenKind,
+    pub podcast_id: String,
+    pub episode_id: String,
+    /// The episode's or the chapter's title.
+    pub title: String,
+    /// The show's or the book's.
+    pub show: String,
+    pub author: Option<String>,
+    pub artwork_url: Option<String>,
+    pub position_ms: f64,
+    pub duration_ms: Option<f64>,
+    /// A book's: the chapter's place and how many there are.
+    pub chapter: Option<u32>,
+    pub chapters: Option<u32>,
+    /// Unix ms.
+    pub listened_at: Option<f64>,
 }
 
 /// A book an audiobook directory found.
@@ -4942,6 +5041,8 @@ pub struct AudiobookView {
 pub struct AudiobookResult {
     pub title: String,
     pub author: Option<String>,
+    /// Which recording, when a source has several ("Version 2"), M46.48.
+    pub edition: Option<String>,
     pub feed_url: String,
     pub artwork_url: Option<String>,
     pub runtime: Option<String>,

@@ -29,7 +29,7 @@ export const useAudiobooks = () => {
   });
 };
 
-/** One book with its chapters in order. */
+/** One book with its chapters, as its order lists them. */
 export const useAudiobook = (id: string) => {
   useAudiobookEvents();
   return useQuery({
@@ -64,15 +64,49 @@ export const useKeepAudiobook = () => {
   });
 };
 
-export type BookList = 'popular' | 'latest' | 'search';
+/** Downloads every chapter not downloaded yet, two at a time (M46.48). */
+export const useDownloadAudiobook = () => {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => unwrapResult(commands.audiobookDownload(id)),
+    onSettled: () => void client.invalidateQueries({ queryKey: BOOKS }),
+  });
+};
 
-/** A directory's books, a page at a time: popular, newest, or a search. */
-export const useBookDirectory = (list: BookList, query = '') =>
-  useInfiniteQuery({
+export type BookList = 'popular' | 'latest' | 'search' | 'subject';
+
+/**
+ * Asks a directory list again when a source answered after it showed (M46.48): its late books
+ * are kept ready in Rust by then.
+ */
+const useLateBooks = (list: BookList, query: string) => {
+  const client = useQueryClient();
+  useEffect(() => {
+    const unlisten = events.audiobooksFoundEvent.listen(({ payload }) => {
+      const [foundList, foundQuery] = payload;
+      if (foundList === list && foundQuery === query.trim()) {
+        void client.invalidateQueries({ queryKey: [...BOOKS, 'directory', list, query] });
+      }
+    });
+    return () => {
+      void unlisten.then((stop) => stop());
+    };
+  }, [client, list, query]);
+};
+
+/**
+ * Every audiobook source's books at once, a page at a time: popular, newest, a search (ranked by
+ * title and author) or a genre (`query`: "Mystery", "Science fiction"…).
+ */
+export const useBookDirectory = (list: BookList, query = '') => {
+  useLateBooks(list, query);
+  return useInfiniteQuery({
     queryKey: [...BOOKS, 'directory', list, query],
-    queryFn: ({ pageParam }) => unwrapResult(commands.audiobookDirectory(list, query, pageParam)),
+    queryFn: ({ pageParam }) =>
+      unwrapResult(commands.audiobookDirectory(list, query.trim(), pageParam)),
     initialPageParam: 1,
     getNextPageParam: (last, pages) => (last.hasMore ? pages.length + 1 : undefined),
-    enabled: list !== 'search' || query.trim() !== '',
+    enabled: (list !== 'search' && list !== 'subject') || query.trim() !== '',
     staleTime: 10 * 60_000,
   });
+};

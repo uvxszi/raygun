@@ -1486,6 +1486,10 @@ async fn librivox_live_finds_books_with_feeds() {
     let provider = "dev.raygun.librivox/books";
     for (list, query) in [
         ("search", "pride and prejudice"),
+        // M46.48: authors, titles LibriVox files without their article, and genres.
+        ("search", "jane austen"),
+        ("search", "the count of monte cristo"),
+        ("subject", "Mystery"),
         ("popular", ""),
         ("latest", ""),
     ] {
@@ -1520,6 +1524,7 @@ async fn loyalbooks_live_lists_and_finds_books_with_feeds() {
         ("popular", ""),
         ("search", "sherlock holmes"),
         ("subject", "Mystery"),
+        ("subject", "Science fiction"),
     ] {
         let page = host.audiobooks(provider, list, query, 1).await.unwrap();
         println!(
@@ -1540,6 +1545,65 @@ async fn loyalbooks_live_lists_and_finds_books_with_feeds() {
                 && book.feed_url.ends_with("/feed")
         }));
     }
+}
+
+/// Lit2Go (M46.48) against the site: its books list their chapters themselves. `cargo test -p
+/// raygun-ext-host -- --ignored lit2go_live --nocapture`.
+#[tokio::test]
+#[ignore = "needs network access to etc.usf.edu"]
+async fn lit2go_live_lists_books_and_their_chapters() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(discover_installed(&dir)).await;
+    let provider = "dev.raygun.lit2go/books";
+    for (list, query) in [
+        ("popular", ""),
+        ("search", "sherlock holmes"),
+        ("subject", "Mystery"),
+    ] {
+        let page = host.audiobooks(provider, list, query, 1).await.unwrap();
+        println!(
+            "{list}: {} books, more {}; first {:?}",
+            page.books.len(),
+            page.has_more,
+            page.books
+                .first()
+                .map(|book| (&book.title, &book.author, &book.feed_url))
+        );
+        assert!(!page.books.is_empty(), "{list}");
+        assert!(page.books.iter().all(|book| {
+            crate::audiobook::parse_listed_key(&book.feed_url)
+                .is_some_and(|(listed_by, _)| listed_by == provider)
+        }));
+    }
+    let found = host
+        .audiobooks(provider, "search", "adventures of sherlock holmes", 1)
+        .await
+        .unwrap();
+    let (_, id) = crate::audiobook::parse_listed_key(&found.books[0].feed_url).unwrap();
+    let book = host.audiobook_details(provider, id).await.unwrap();
+    println!(
+        "{} by {:?}: {} chapters, first {:?}",
+        book.title,
+        book.author,
+        book.chapters.len(),
+        book.chapters
+            .first()
+            .map(|chapter| (&chapter.title, &chapter.audio_url))
+    );
+    assert!(book.chapters.len() >= 10);
+    assert!(book.chapters.iter().all(|chapter| {
+        chapter
+            .audio_url
+            .starts_with("https://etc.usf.edu/lit2go/audio/mp3/")
+            && chapter.audio_url.ends_with(".mp3")
+    }));
+    let first = reqwest::Client::new()
+        .head(&book.chapters[0].audio_url)
+        .send()
+        .await
+        .unwrap();
+    assert!(first.status().is_success(), "{}", first.status());
 }
 
 /// The video sources with their own Search pill (M46.35), against the real services:

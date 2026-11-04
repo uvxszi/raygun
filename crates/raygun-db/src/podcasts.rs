@@ -20,16 +20,20 @@ pub struct PodcastFields {
     pub kind: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PodcastRow {
     pub id: String,
     pub fields: PodcastFields,
     pub subscribed_at: Option<i64>,
     pub refreshed_at: Option<i64>,
+    /// How its episodes list, as JSON (M46.48); `None` for the kind's own order.
+    pub episode_order: Option<String>,
+    /// The speed its episodes play at (M46.48); `None` leaves the player's.
+    pub speed: Option<f64>,
 }
 
 /// A subscription with its episode counts.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Subscription {
     pub podcast: PodcastRow,
     pub episodes: i64,
@@ -55,7 +59,7 @@ pub struct EpisodeFields {
     pub transcript: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct EpisodeRow {
     pub id: String,
     pub podcast_id: String,
@@ -63,12 +67,16 @@ pub struct EpisodeRow {
     pub position_ms: i64,
     pub played_at: Option<i64>,
     pub found_at: i64,
+    /// When listening last moved it on (M46.48).
+    pub listened_at: Option<i64>,
     /// From the podcast, for lists that mix podcasts.
     pub podcast_title: String,
     pub podcast_author: Option<String>,
     pub podcast_artwork: Option<String>,
     /// `podcast` or `audiobook`.
     pub podcast_kind: String,
+    /// The show's own speed (M46.48).
+    pub podcast_speed: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,12 +92,14 @@ pub struct EpisodeDownload {
 
 const PODCAST_COLUMNS: &str = "p.id, p.feed_url, p.remote_title, p.remote_author, \
      p.remote_description, p.remote_artwork, p.remote_link, p.remote_kind, p.user_subscribed_at, \
-     p.state_refreshed_at";
+     p.state_refreshed_at, p.user_episode_order, p.user_speed";
 
 const EPISODE_COLUMNS: &str = "e.id, e.podcast_id, e.guid, e.remote_title, e.remote_description, \
      e.remote_audio_url, e.remote_audio_type, e.remote_duration_ms, e.remote_published_at, \
-     e.remote_artwork, e.remote_number, e.remote_transcript, e.user_position_ms, e.user_played_at, e.state_found_at, \
-     p.remote_title AS podcast_title, p.remote_author AS podcast_author,      p.remote_artwork AS podcast_artwork, p.remote_kind AS podcast_kind";
+     e.remote_artwork, e.remote_number, e.remote_transcript, e.user_position_ms, e.user_played_at, \
+     e.state_found_at, e.user_listened_at, p.remote_title AS podcast_title, \
+     p.remote_author AS podcast_author, p.remote_artwork AS podcast_artwork, \
+     p.remote_kind AS podcast_kind, p.user_speed AS podcast_speed";
 
 fn podcast_row(row: &SqliteRow) -> PodcastRow {
     PodcastRow {
@@ -105,6 +115,8 @@ fn podcast_row(row: &SqliteRow) -> PodcastRow {
         },
         subscribed_at: row.get("user_subscribed_at"),
         refreshed_at: row.get("state_refreshed_at"),
+        episode_order: row.get("user_episode_order"),
+        speed: row.get("user_speed"),
     }
 }
 
@@ -127,10 +139,12 @@ fn episode_row(row: &SqliteRow) -> EpisodeRow {
         position_ms: row.get("user_position_ms"),
         played_at: row.get("user_played_at"),
         found_at: row.get("state_found_at"),
+        listened_at: row.get("user_listened_at"),
         podcast_title: row.get("podcast_title"),
         podcast_author: row.get("podcast_author"),
         podcast_artwork: row.get("podcast_artwork"),
         podcast_kind: row.get("podcast_kind"),
+        podcast_speed: row.get("podcast_speed"),
     }
 }
 
@@ -246,27 +260,59 @@ pub async fn sync_episodes(
 
 /// Subscribes (`Some(now)`) or unsubscribes (`None`).
 pub async fn set_subscribed(db: &Db, podcast_id: &str, at: Option<i64>) -> Result<(), DbError> {
-    update_podcast(db, podcast_id, "user_subscribed_at", at).await
+    update_podcast(db, podcast_id, "user_subscribed_at", Value::Integer(at)).await
+}
+
+/// How a show's or book's episodes list (M46.48): JSON, or `None` for the kind's own order.
+pub async fn set_episode_order(
+    db: &Db,
+    podcast_id: &str,
+    order: Option<&str>,
+) -> Result<(), DbError> {
+    update_podcast(
+        db,
+        podcast_id,
+        "user_episode_order",
+        Value::Text(order.map(str::to_owned)),
+    )
+    .await
+}
+
+/// The speed a show's or book's episodes play at (M46.48); `None` leaves the player's.
+pub async fn set_speed(db: &Db, podcast_id: &str, speed: Option<f64>) -> Result<(), DbError> {
+    update_podcast(db, podcast_id, "user_speed", Value::Real(speed)).await
+}
+
+/// A value for one of the podcast's own columns.
+enum Value {
+    Integer(Option<i64>),
+    Text(Option<String>),
+    Real(Option<f64>),
 }
 
 async fn update_podcast(
     db: &Db,
     podcast_id: &str,
     column: &'static str,
-    value: Option<i64>,
+    value: Value,
 ) -> Result<(), DbError> {
     let stamp = db.tick();
     let mut transaction = db.pool().begin().await?;
-    sqlx::query(AssertSqlSafe(format!(
+    let sql = format!(
         "UPDATE podcast SET {column} = ?2, updated_at_hlc = ?3, origin_device = ?4
          WHERE id = ?1 AND deleted = 0"
-    )))
-    .bind(podcast_id)
-    .bind(value)
-    .bind(stamp as i64)
-    .bind(db.device_id().to_string())
-    .execute(&mut *transaction)
-    .await?;
+    );
+    let query = sqlx::query(AssertSqlSafe(sql)).bind(podcast_id);
+    let query = match value {
+        Value::Integer(value) => query.bind(value),
+        Value::Text(value) => query.bind(value),
+        Value::Real(value) => query.bind(value),
+    };
+    query
+        .bind(stamp as i64)
+        .bind(db.device_id().to_string())
+        .execute(&mut *transaction)
+        .await?;
     persist_hlc(&mut *transaction, stamp).await?;
     transaction.commit().await?;
     Ok(())
@@ -336,23 +382,43 @@ pub async fn episodes(db: &Db, podcast_id: &str) -> Result<Vec<EpisodeRow>, DbEr
     Ok(rows.iter().map(episode_row).collect())
 }
 
-/// A book in the library with how far it was listened (M46.22).
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A book with how far it was listened (M46.22).
+#[derive(Debug, Clone, PartialEq)]
 pub struct BookRow {
     pub podcast: PodcastRow,
     pub chapters: i64,
     pub finished: i64,
-    /// When a chapter was last finished (unix ms).
+    /// When listening last moved it on (unix ms).
     pub listened_at: Option<i64>,
+    /// Its length, and how much of it was listened (M46.48).
+    pub total_ms: i64,
+    pub listened_ms: i64,
+}
+
+/// What a book's chapters add up to, for `BookRow`.
+const BOOK_PROGRESS: &str = "COUNT(e.id) AS chapters,
+     COALESCE(SUM(e.user_played_at IS NOT NULL), 0) AS finished,
+     MAX(COALESCE(e.user_listened_at, e.user_played_at)) AS listened,
+     COALESCE(SUM(e.remote_duration_ms), 0) AS total_ms,
+     COALESCE(SUM(CASE WHEN e.user_played_at IS NOT NULL THEN COALESCE(e.remote_duration_ms, 0)
+         ELSE MIN(e.user_position_ms, COALESCE(e.remote_duration_ms, e.user_position_ms)) END), 0)
+         AS listened_ms";
+
+fn book_row(row: &SqliteRow) -> BookRow {
+    BookRow {
+        podcast: podcast_row(row),
+        chapters: row.get("chapters"),
+        finished: row.get("finished"),
+        listened_at: row.get("listened"),
+        total_ms: row.get("total_ms"),
+        listened_ms: row.get("listened_ms"),
+    }
 }
 
 /// The audiobooks in the library, the last listened first.
 pub async fn audiobooks(db: &Db) -> Result<Vec<BookRow>, DbError> {
     let rows = sqlx::query(AssertSqlSafe(format!(
-        "SELECT {PODCAST_COLUMNS},
-             COUNT(e.id) AS chapters,
-             COALESCE(SUM(e.user_played_at IS NOT NULL), 0) AS finished,
-             MAX(e.user_played_at) AS listened
+        "SELECT {PODCAST_COLUMNS}, {BOOK_PROGRESS}
          FROM podcast p
          LEFT JOIN podcast_episode e ON e.podcast_id = p.id AND e.deleted = 0
          WHERE p.user_subscribed_at IS NOT NULL AND p.deleted = 0 AND p.remote_kind = 'audiobook'
@@ -361,15 +427,53 @@ pub async fn audiobooks(db: &Db) -> Result<Vec<BookRow>, DbError> {
     )))
     .fetch_all(db.pool())
     .await?;
-    Ok(rows
-        .iter()
-        .map(|row| BookRow {
-            podcast: podcast_row(row),
-            chapters: row.get("chapters"),
-            finished: row.get("finished"),
-            listened_at: row.get("listened"),
-        })
-        .collect())
+    Ok(rows.iter().map(book_row).collect())
+}
+
+/// Books started and not finished, in the library or not, the last listened first (M46.48).
+pub async fn books_in_progress(db: &Db, limit: u32) -> Result<Vec<BookRow>, DbError> {
+    let rows = sqlx::query(AssertSqlSafe(format!(
+        "SELECT {PODCAST_COLUMNS}, {BOOK_PROGRESS}
+         FROM podcast p
+         JOIN podcast_episode e ON e.podcast_id = p.id AND e.deleted = 0
+         WHERE p.deleted = 0 AND p.remote_kind = 'audiobook'
+         GROUP BY p.id
+         HAVING finished < chapters AND (finished > 0 OR SUM(e.user_position_ms > 0) > 0)
+         ORDER BY listened IS NULL, listened DESC
+         LIMIT ?1"
+    )))
+    .bind(i64::from(limit))
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows.iter().map(book_row).collect())
+}
+
+/// Podcast episodes started and not finished, the last listened first (M46.48).
+pub async fn episodes_in_progress(db: &Db, limit: u32) -> Result<Vec<EpisodeRow>, DbError> {
+    let rows = sqlx::query(AssertSqlSafe(format!(
+        "SELECT {EPISODE_COLUMNS} FROM podcast_episode e JOIN podcast p ON p.id = e.podcast_id
+         WHERE e.deleted = 0 AND p.deleted = 0 AND p.remote_kind = 'podcast'
+             AND e.user_played_at IS NULL AND e.user_position_ms > 0
+         ORDER BY e.user_listened_at IS NULL, e.user_listened_at DESC
+         LIMIT ?1"
+    )))
+    .bind(i64::from(limit))
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows.iter().map(episode_row).collect())
+}
+
+/// The artwork of every followed show and every book in the library (M46.2: kept covers).
+pub async fn library_artwork(db: &Db) -> Result<Vec<String>, DbError> {
+    Ok(sqlx::query(
+        "SELECT remote_artwork FROM podcast
+         WHERE user_subscribed_at IS NOT NULL AND deleted = 0 AND remote_artwork IS NOT NULL",
+    )
+    .fetch_all(db.pool())
+    .await?
+    .iter()
+    .map(|row| row.get("remote_artwork"))
+    .collect())
 }
 
 /// The newest episodes across subscriptions.
@@ -409,18 +513,25 @@ pub async fn episode_by_audio(db: &Db, audio_url: &str) -> Result<Option<String>
     .map(|row| row.get("id")))
 }
 
-/// Where listening stopped. Unchanged positions write nothing.
-pub async fn set_position(db: &Db, episode_id: &str, position_ms: i64) -> Result<(), DbError> {
+/// Where listening stopped, at `now_ms`. Unchanged positions write nothing.
+pub async fn set_position(
+    db: &Db,
+    episode_id: &str,
+    position_ms: i64,
+    now_ms: i64,
+) -> Result<(), DbError> {
     let stamp = db.tick();
     let mut transaction = db.pool().begin().await?;
     let changed = sqlx::query(
-        "UPDATE podcast_episode SET user_position_ms = ?2, updated_at_hlc = ?3, origin_device = ?4
+        "UPDATE podcast_episode SET user_position_ms = ?2, user_listened_at = ?5,
+             updated_at_hlc = ?3, origin_device = ?4
          WHERE id = ?1 AND deleted = 0 AND user_position_ms != ?2",
     )
     .bind(episode_id)
     .bind(position_ms.max(0))
     .bind(stamp as i64)
     .bind(db.device_id().to_string())
+    .bind(now_ms)
     .execute(&mut *transaction)
     .await?
     .rows_affected();
@@ -433,16 +544,50 @@ pub async fn set_position(db: &Db, episode_id: &str, position_ms: i64) -> Result
 
 /// Marks an episode played (`Some(now)`, which also rewinds it) or unplayed (`None`).
 pub async fn set_played(db: &Db, episode_id: &str, at: Option<i64>) -> Result<(), DbError> {
+    set_played_many(db, &[episode_id.to_owned()], at).await
+}
+
+/// Marks episodes played (`Some(now)`, which also rewinds them) or unplayed (`None`) at once.
+pub async fn set_played_many(
+    db: &Db,
+    episode_ids: &[String],
+    at: Option<i64>,
+) -> Result<(), DbError> {
+    if episode_ids.is_empty() {
+        return Ok(());
+    }
+    let stamp = db.tick();
+    let device = db.device_id().to_string();
+    let mut transaction = db.pool().begin().await?;
+    for episode_id in episode_ids {
+        sqlx::query(
+            "UPDATE podcast_episode SET user_played_at = ?2,
+                 user_position_ms = CASE WHEN ?2 IS NULL THEN user_position_ms ELSE 0 END,
+                 user_listened_at = COALESCE(?2, user_listened_at),
+                 updated_at_hlc = ?3, origin_device = ?4
+             WHERE id = ?1 AND deleted = 0",
+        )
+        .bind(episode_id)
+        .bind(at)
+        .bind(stamp as i64)
+        .bind(&device)
+        .execute(&mut *transaction)
+        .await?;
+    }
+    persist_hlc(&mut *transaction, stamp).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+/// Forgets where listening stopped in an episode, without marking it played (M46.48).
+pub async fn clear_position(db: &Db, episode_id: &str) -> Result<(), DbError> {
     let stamp = db.tick();
     let mut transaction = db.pool().begin().await?;
     sqlx::query(
-        "UPDATE podcast_episode SET user_played_at = ?2,
-             user_position_ms = CASE WHEN ?2 IS NULL THEN user_position_ms ELSE 0 END,
-             updated_at_hlc = ?3, origin_device = ?4
+        "UPDATE podcast_episode SET user_position_ms = 0, updated_at_hlc = ?2, origin_device = ?3
          WHERE id = ?1 AND deleted = 0",
     )
     .bind(episode_id)
-    .bind(at)
     .bind(stamp as i64)
     .bind(db.device_id().to_string())
     .execute(&mut *transaction)

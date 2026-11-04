@@ -49,6 +49,7 @@ type EventPayloads = {
   ttsEvent: TtsUpdate;
   aiModelEvent: AiModelProgress;
   podcastsChangedEvent: string;
+  audiobooksFoundEvent: [string, string];
   watchChangedEvent: string;
   videoDownloadsEvent: string;
   songDownloadsEvent: string;
@@ -265,6 +266,8 @@ export const bindingsMock = {
     audiobookOpen: vi.fn(),
     audiobookPlay: vi.fn(),
     audiobookDirectory: vi.fn(),
+    audiobookDownload: vi.fn(),
+    podcastContinueListening: vi.fn(),
     musicTagVocabulary: vi.fn(),
     songsDownload: vi.fn(),
     musicSearchArtists: vi.fn(),
@@ -456,8 +459,16 @@ export const bindingsMock = {
     podcastTop: vi.fn(),
     podcastPlay: vi.fn(),
     podcastSetPlayed: vi.fn(),
+    podcastSetAllPlayed: vi.fn(),
+    podcastSetEarlierPlayed: vi.fn(),
+    podcastForgetPosition: vi.fn(),
+    podcastSetEpisodeOrder: vi.fn(),
+    podcastSetSpeed: vi.fn(),
     podcastDownload: vi.fn(),
     podcastRemoveDownload: vi.fn(),
+    podcastRemoveDownloads: vi.fn(),
+    podcastCancelDownload: vi.fn(),
+    podcastOpenPage: vi.fn(),
     videoPlay: vi.fn(),
     videoPlayLink: vi.fn(),
     videoContinueWatching: vi.fn(),
@@ -563,6 +574,7 @@ export const bindingsMock = {
     ttsEvent: makeEvent('ttsEvent'),
     aiModelEvent: makeEvent('aiModelEvent'),
     podcastsChangedEvent: makeEvent('podcastsChangedEvent'),
+    audiobooksFoundEvent: makeEvent('audiobooksFoundEvent'),
     watchChangedEvent: makeEvent('watchChangedEvent'),
     videoDownloadsEvent: makeEvent('videoDownloadsEvent'),
     songDownloadsEvent: makeEvent('songDownloadsEvent'),
@@ -687,6 +699,8 @@ export const seedBindings = () => {
   commands.audiobooks.mockResolvedValue(ok([]));
   commands.audiobookDirectory.mockResolvedValue(ok({ books: [], hasMore: false }));
   commands.audiobookPlay.mockResolvedValue(ok(null));
+  commands.audiobookDownload.mockResolvedValue(ok(0));
+  commands.podcastContinueListening.mockResolvedValue(ok([]));
   commands.musicTagVocabulary.mockResolvedValue([]);
   commands.songsDownload.mockResolvedValue(ok(null));
   commands.musicSearchArtists.mockResolvedValue(ok([]));
@@ -891,8 +905,16 @@ export const seedBindings = () => {
   commands.podcastSetSubscribed.mockResolvedValue(ok(null));
   commands.podcastPlay.mockResolvedValue(ok(null));
   commands.podcastSetPlayed.mockResolvedValue(ok(null));
+  commands.podcastSetAllPlayed.mockResolvedValue(ok(null));
+  commands.podcastSetEarlierPlayed.mockResolvedValue(ok(0));
+  commands.podcastForgetPosition.mockResolvedValue(ok(null));
+  commands.podcastSetEpisodeOrder.mockResolvedValue(ok(null));
+  commands.podcastSetSpeed.mockResolvedValue(ok(null));
   commands.podcastDownload.mockResolvedValue(ok(null));
   commands.podcastRemoveDownload.mockResolvedValue(ok(null));
+  commands.podcastRemoveDownloads.mockResolvedValue(ok(null));
+  commands.podcastCancelDownload.mockResolvedValue(ok(null));
+  commands.podcastOpenPage.mockResolvedValue(ok(null));
   commands.videoPlay.mockResolvedValue(ok(null));
   commands.videoPlayLink.mockResolvedValue(ok(null));
   commands.videoContinueWatching.mockResolvedValue(ok([]));

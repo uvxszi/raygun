@@ -1,15 +1,41 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useSearch } from '@tanstack/react-router';
-import { Check, LoaderCircle, Play, Plus, RotateCcw } from 'lucide-react';
-import { useState } from 'react';
+import {
+  Check,
+  CheckCheck,
+  Download,
+  Globe,
+  LoaderCircle,
+  Play,
+  Plus,
+  RotateCcw,
+  Trash2,
+} from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { useKeepAudiobook, useAudiobook, usePlayAudiobook } from '../audiobooks/useAudiobooks';
+import {
+  useAudiobook,
+  useDownloadAudiobook,
+  useKeepAudiobook,
+  usePlayAudiobook,
+} from '../audiobooks/useAudiobooks';
 import { EpisodeItem } from '../podcasts/EpisodeItem';
+import { EpisodeList } from '../podcasts/EpisodeList';
+import { EpisodeOrderButton } from '../podcasts/EpisodeOrderButton';
 import { formatLength } from '../podcasts/formatLength';
 import { PodcastArt } from '../podcasts/PodcastArt';
+import { ShowNotes } from '../podcasts/ShowNotes';
+import { ShowSpeedButton } from '../podcasts/ShowSpeedButton';
+import {
+  useForgetPosition,
+  useOpenPodcastPage,
+  useRemoveDownloads,
+  useSetAllPlayed,
+  useSetEpisodeOrder,
+} from '../podcasts/usePodcasts';
 import { SourceIssue } from '../shell/SourceIssue';
+import { OverflowMenu } from '../shell/OverflowMenu';
 import { TopBar } from '../shell/TopBar';
 import { PinButton } from '../shell/PinButton';
 import { useSearchMode } from '../shell/useSearchMode';
@@ -18,8 +44,9 @@ import { usePlayContext } from '../music/playContext';
 import { findInCache } from '../shell/queryMemory';
 
 /**
- * An audiobook (M46.22): Resume where you left off or start over, add it to the library, and its
- * chapters in order, each with its progress and download.
+ * An audiobook (M46.22): Resume where listening goes on or start over, add it to the library or
+ * download it, its speed, and its chapters, each with its progress and download, sorted and
+ * filtered its own way (M46.48).
  */
 export const AudiobookPage: FC = () => {
   const { t } = useTranslation();
@@ -28,7 +55,12 @@ export const AudiobookPage: FC = () => {
   const book = useAudiobook(id);
   const play = usePlayAudiobook();
   const keep = useKeepAudiobook();
-  const [expanded, setExpanded] = useState(false);
+  const download = useDownloadAudiobook();
+  const removeDownloads = useRemoveDownloads();
+  const setAll = useSetAllPlayed();
+  const setOrder = useSetEpisodeOrder();
+  const openPage = useOpenPodcastPage();
+  const forget = useForgetPosition();
   const client = useQueryClient();
   const view = book.data;
   // A feed without its own picture shows the one the directory listed it with (M46.45).
@@ -68,9 +100,24 @@ export const AudiobookPage: FC = () => {
       </section>
     );
   }
-  const total = view.chapters.reduce((sum, chapter) => sum + (chapter.durationMs ?? 0), 0);
-  const next = view.chapters.find((chapter) => !chapter.played);
-  const started = view.chapters.some((chapter) => chapter.played || (chapter.positionMs ?? 0) > 0);
+  const resume = view.resume;
+  const started = view.finished > 0 || (resume?.positionMs ?? 0) > 0;
+  const firstChapter = view.chapters.find((chapter) => chapter.number === 1) ?? view.chapters[0];
+  const totalMs = view.totalMs ?? 0;
+  const listenedMs = view.listenedMs ?? 0;
+  const left = Math.max(0, totalMs - listenedMs);
+  const share = totalMs > 0 ? Math.min(1, listenedMs / totalMs) : 0;
+  const shown = view.chapters.filter((chapter) => matchesSearch(find.query, [chapter.title]));
+  const filtered = view.order.filters.length > 0 || find.query.trim() !== '';
+  const allDownloaded = view.chapterCount > 0 && view.downloaded === view.chapterCount;
+  const error =
+    play.error ??
+    keep.error ??
+    download.error ??
+    removeDownloads.error ??
+    setAll.error ??
+    setOrder.error ??
+    openPage.error;
 
   return (
     <section data-testid="audiobook-page" className="flex flex-col gap-5">
@@ -83,6 +130,12 @@ export const AudiobookPage: FC = () => {
         actions={
           <>
             {find.action}
+            <EpisodeOrderButton
+              order={view.order}
+              custom={view.customOrder}
+              book
+              onChange={(order) => setOrder.mutate({ id: view.id, order })}
+            />
             <PinButton
               target={{
                 kind: 'audiobook',
@@ -91,7 +144,35 @@ export const AudiobookPage: FC = () => {
                 name: view.title,
                 artworkUrl: artworkUrl ?? null,
               }}
-            />{' '}
+            />
+            <OverflowMenu
+              items={[
+                {
+                  label: t('audiobooks.markAllFinished'),
+                  icon: CheckCheck,
+                  onSelect: () => setAll.mutate({ id: view.id, played: true }),
+                },
+                {
+                  label: t('audiobooks.markAllUnfinished'),
+                  icon: Check,
+                  onSelect: () => setAll.mutate({ id: view.id, played: false }),
+                },
+                {
+                  label: t('podcasts.removeDownloads'),
+                  icon: Trash2,
+                  onSelect: () => removeDownloads.mutate(view.id),
+                },
+                ...(view.link
+                  ? [
+                      {
+                        label: t('audiobooks.openPage'),
+                        icon: Globe,
+                        onSelect: () => view.link && openPage.mutate(view.link),
+                      },
+                    ]
+                  : []),
+              ]}
+            />
           </>
         }
       />
@@ -107,31 +188,59 @@ export const AudiobookPage: FC = () => {
           {view.author && <p className="text-muted text-sm">{view.author}</p>}
           <p className="text-muted text-xs">
             {[
-              t('audiobooks.chapters', { count: view.chapters.length }),
-              total > 0 ? formatLength(total, t) : null,
+              view.edition,
+              t('audiobooks.chapters', { count: view.chapterCount }),
+              totalMs > 0 ? formatLength(totalMs, t) : null,
+              started && totalMs > 0 && left > 0
+                ? t('podcasts.left', { time: formatLength(left, t) })
+                : null,
             ]
               .filter(Boolean)
               .join(' · ')}
           </p>
+          {started && (
+            <span
+              aria-hidden
+              className="bg-foreground/10 block h-1 w-48 overflow-hidden rounded-full"
+            >
+              <span
+                className="bg-primary block h-full origin-left"
+                style={{ transform: `scaleX(${share})` }}
+              />
+            </span>
+          )}
         </div>
       </header>
       <div className="flex flex-wrap gap-3">
         <button
           type="button"
-          disabled={view.chapters.length === 0 || play.isPending}
-          onClick={() => play.mutate({ id: view.id, chapterId: null })}
+          disabled={view.chapterCount === 0 || play.isPending}
+          onClick={() =>
+            play.mutate({
+              id: view.id,
+              chapterId: resume ? null : (firstChapter?.id ?? null),
+            })
+          }
           className="bg-primary text-background flex items-center gap-2 rounded-full px-6 py-2.5 font-semibold disabled:opacity-50"
         >
           <Play aria-hidden size={18} fill="currentColor" />
-          {started && next
-            ? t('audiobooks.resume', { chapter: view.chapters.indexOf(next) + 1 })
-            : t('audiobooks.play')}
+          {!resume && view.chapterCount > 0
+            ? t('audiobooks.playAgain')
+            : started && resume
+              ? t('audiobooks.resume', { chapter: resume.number })
+              : t('audiobooks.play')}
         </button>
-        {started && (
+        {started && resume && firstChapter && (
           <button
             type="button"
-            disabled={play.isPending}
-            onClick={() => play.mutate({ id: view.id, chapterId: view.chapters[0]?.id ?? null })}
+            disabled={play.isPending || forget.isPending}
+            // The book's very start: the first chapter's own place is forgotten first.
+            onClick={() =>
+              void forget
+                .mutateAsync(firstChapter.id)
+                .catch(() => undefined)
+                .then(() => play.mutate({ id: view.id, chapterId: firstChapter.id }))
+            }
             className="bg-surface flex items-center gap-2 rounded-full px-5 py-2.5"
           >
             <RotateCcw aria-hidden size={16} />
@@ -148,36 +257,66 @@ export const AudiobookPage: FC = () => {
           {view.inLibrary ? <Check aria-hidden size={16} /> : <Plus aria-hidden size={16} />}
           {t(view.inLibrary ? 'audiobooks.inLibrary' : 'audiobooks.add')}
         </button>
-      </div>
-      {(play.error ?? keep.error) && (
-        <SourceIssue>{(play.error ?? keep.error)?.message}</SourceIssue>
-      )}
-      {view.description && (
         <button
           type="button"
-          onClick={() => setExpanded(!expanded)}
-          aria-expanded={expanded}
-          className={`text-muted text-left text-sm whitespace-pre-line wrap-anywhere ${expanded ? '' : 'line-clamp-3'}`}
+          disabled={allDownloaded || view.downloading > 0 || download.isPending}
+          onClick={() => download.mutate(view.id)}
+          className="bg-surface flex items-center gap-2 rounded-full px-5 py-2.5 disabled:opacity-60"
         >
-          {view.description}
+          {view.downloading > 0 ? (
+            <LoaderCircle aria-hidden size={16} className="animate-spin" />
+          ) : allDownloaded ? (
+            <Check aria-hidden size={16} />
+          ) : (
+            <Download aria-hidden size={16} />
+          )}
+          {view.downloading > 0
+            ? t('audiobooks.downloadingBook', {
+                done: view.downloaded,
+                count: view.chapterCount,
+              })
+            : allDownloaded
+              ? t('audiobooks.downloadedBook')
+              : t('audiobooks.downloadBook')}
         </button>
-      )}
+        <ShowSpeedButton id={view.id} speed={view.speed} />
+      </div>
+      {error && <SourceIssue>{error.message}</SourceIssue>}
+      {view.description && <ShowNotes text={view.description} clamp />}
       <section aria-labelledby="audiobook-chapters" className="flex flex-col gap-2">
         <h2 id="audiobook-chapters" className="font-semibold">
-          {t('audiobooks.chapters', { count: view.chapters.length })}
+          {filtered && shown.length !== view.chapterCount
+            ? t('audiobooks.chaptersShown', { shown: shown.length, count: view.chapterCount })
+            : t('audiobooks.chapters', { count: view.chapterCount })}
         </h2>
-        <ul className="bg-surface flex flex-col gap-4 rounded-xl px-4 py-3">
-          {view.chapters
-            .filter((chapter) => matchesSearch(find.query, [chapter.title]))
-            .map((chapter) => (
+        {shown.length === 0 ? (
+          <div className="flex flex-col items-start gap-2">
+            <p className="text-muted text-sm">{t('audiobooks.noneShown')}</p>
+            {view.order.filters.length > 0 && (
+              <button
+                type="button"
+                onClick={() =>
+                  setOrder.mutate({ id: view.id, order: { ...view.order, filters: [] } })
+                }
+                className="bg-surface rounded-full px-4 py-1.5 text-sm"
+              >
+                {t('audiobooks.showAll')}
+              </button>
+            )}
+          </div>
+        ) : (
+          <EpisodeList episodes={shown}>
+            {(chapter) => (
               <EpisodeItem
                 key={chapter.id}
                 episode={chapter}
+                chapter
                 tapToPlay
                 onPlay={() => play.mutate({ id: view.id, chapterId: chapter.id })}
               />
-            ))}
-        </ul>
+            )}
+          </EpisodeList>
+        )}
       </section>
     </section>
   );
