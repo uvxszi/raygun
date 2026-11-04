@@ -1,81 +1,90 @@
-import type { PlaybackState, QueueItem, RepeatMode } from '@raygun/bindings';
+import type { QueueItem, SpokenItem } from '@raygun/bindings';
 import {
-  ChevronDown,
+  BookOpen,
+  EllipsisVertical,
   ImageIcon,
   ListMusic,
-  ListPlus,
-  Pause,
-  Play,
-  Repeat,
-  Repeat1,
-  Shuffle,
-  SkipBack,
-  SkipForward,
+  MicVocal,
+  Podcast,
   SlidersHorizontal,
+  Subtitles,
 } from 'lucide-react';
-import { useRouterState } from '@tanstack/react-router';
+import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { AnimatePresence, motion, useDragControls } from 'motion/react';
-import type { PanInfo } from 'motion/react';
+import type { DragControls, PanInfo } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
-import type { CSSProperties, FC, ReactNode, SyntheticEvent } from 'react';
+import type {
+  CSSProperties,
+  FC,
+  MouseEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useTrackActionsStore } from '../collections/trackActionsStore';
 import { fromQueueItem } from '../collections/useCollections';
-import { Artwork } from '../library/Artwork';
+import { PlayingOn } from '../connect/PlayingOn';
 import { ArtistLinks } from '../music/ArtistLinks';
+import { useTrackMenuItems } from '../music/useTrackMenu';
+import { useContextMenuStore } from '../shell/contextMenuStore';
 import { Marquee } from '../shell/Marquee';
 import { ResizeHandle } from '../shell/ResizeHandle';
 import { Sheet } from '../shell/Sheet';
+import { SourceIssue } from '../shell/SourceIssue';
 import { usePanelSizes } from '../shell/usePanelSizes';
-import { useSideRail, useWideScreen } from '../shell/useWideScreen';
-import { FavoriteButton } from './FavoriteButton';
-import { formatTime } from './formatTime';
+import { SoundButton } from '../sound/SoundButton';
 import { CaptionsView } from './CaptionsView';
+import { FavoriteButton } from './FavoriteButton';
+import { hasVideo } from './hasVideo';
 import { LyricsView } from './LyricsView';
+import { MediaArt, VideoToggle } from './MediaArt';
+import { PlaybackExtras } from './PlaybackExtras';
+import { PlayerCards } from './PlayerCards';
+import type { SheetLayout } from './playerLayout';
+import { usePlayerWide, useSheetLayout } from './playerLayout';
 import type { SheetView } from './playerUiStore';
 import { usePlayerUiStore } from './playerUiStore';
 import { usePlayerView } from './playerView';
-import { useSpokenItem } from './spoken';
-import { SpokenByline } from './SpokenByline';
-import type { PlayerView } from './playerView';
-import { SoundButton } from '../sound/SoundButton';
-import { PlaybackExtras } from './PlaybackExtras';
-import { PlayerCards } from './PlayerCards';
-import { PlayingOn } from '../connect/PlayingOn';
+import { IncognitoBadge } from '../privacy/IncognitoBadge';
 import { PlayerViewSettings } from './PlayerViewSettings';
+import { QueueActions, QueueList } from './QueueList';
+import { SeekBar } from './SeekBar';
+import { spokenName, useSpokenItem } from './spoken';
+import { SpokenByline } from './SpokenByline';
+import { isHandleTap, sheetDismissed } from './swipe';
+import {
+  NextButton,
+  PlayPauseButton,
+  PreviousButton,
+  RepeatButton,
+  ShuffleButton,
+} from './transport';
 import { useCloseOnBack } from './useCloseOnBack';
-import { onSeekKey } from './seekKeys';
-import { useLivePosition } from './useLivePosition';
-import { hasVideo } from './hasVideo';
-import { MediaArt, VideoToggle } from './MediaArt';
-import { isActive, sendControl, sourceNote, useNowPlaying } from './usePlayback';
-import { SourceIssue } from '../shell/SourceIssue';
-import { songCover } from '../library/coverTargets';
+import { useCoverFit } from './useCoverFit';
+import { useCurrentItem, usePlayerSelect, useSourceNote, useUpNext } from './usePlayback';
 
-const DISMISS_DISTANCE = 120;
-const DISMISS_VELOCITY = 500;
-
-const NEXT_REPEAT: Record<RepeatMode, RepeatMode> = { off: 'all', all: 'one', one: 'off' };
-
-/** Lists scroll by touch without dragging the sheet down. */
-const keepDrag = (event: SyntheticEvent) => event.stopPropagation();
-
-/** The player's column: the chosen share of the window, or a width that suits the screen. */
-const columnWidth = (view: PlayerView, sideBySide: boolean) => ({
-  style: view.width > 0 ? ({ maxWidth: `${view.width}%` } as CSSProperties) : undefined,
-  className:
-    view.width > 0 ? '' : sideBySide ? 'max-w-[90rem]' : 'max-w-md md:max-w-2xl lg:max-w-4xl',
-});
+/** The sheet's sides keep clear of a phone's cutout and its navigation bar when on its side. */
+const GUTTER =
+  'pl-[max(1.5rem,env(safe-area-inset-left))] pr-[max(1.5rem,env(safe-area-inset-right))] lg:pl-[max(2.5rem,env(safe-area-inset-left))] lg:pr-[max(2.5rem,env(safe-area-inset-right))]';
 
 /**
- * Full-screen player. Drag it down (or press Escape / the close button) to dismiss.
+ * Full-screen player. Its handle closes it on a tap, or as it's dragged down; so do Back and
+ * Escape.
  *
- * Side by side (wide windows by default), the artwork and controls sit on the left and the lyrics
- * or queue fill the right (M46.7). Stacked (phones), it scrolls as Spotify's does (M46.14): the
- * cover with an "Up next" pill under it and the controls high on the screen, then cards for the
- * lyrics, the artist and the credits; the lyrics and the queue open full screen above the controls.
- * Stacked, it drags from its header, so the rest can scroll. Settings → Player arranges it.
+ * Every size follows the room it has, at any window size, zoom, text size and orientation; the
+ * player's settings move them from there (`--cover-scale`, `--player-width-scale`, lyrics'
+ * `--lyrics-offset`). Three arrangements (`useSheetLayout`):
+ * - side by side (wide windows): the cover and controls on the left, the lyrics or queue on the
+ *   right (M46.7);
+ * - stacked (phones): one column that scrolls as Spotify's does (M46.14), the cover as large as
+ *   the controls under it leave room for, an "Up next" pill, then cards for the lyrics, the artist
+ *   and the credits; the lyrics and the queue open full screen above smaller controls;
+ * - on its side (a phone in landscape, a short window): the cover, lyrics or queue beside the
+ *   controls.
+ *
+ * It follows the song and the view, not the playhead: only the seek bar and the lyric lines move
+ * as a song plays.
  */
 export const PlayerSheet: FC = () => {
   const { t } = useTranslation();
@@ -83,16 +92,10 @@ export const PlayerSheet: FC = () => {
   const closeSheet = usePlayerUiStore((state) => state.closeSheet);
   const view = usePlayerUiStore((state) => state.sheetView);
   const setView = usePlayerUiStore((state) => state.setSheetView);
-  const { state, item, upNext } = useNowPlaying();
-  const spoken = useSpokenItem(item ?? undefined);
-  const { view: layout } = usePlayerView();
-  const { panels, save: savePanels } = usePanelSizes();
-  const [split, setSplit] = useState<number | null>(null);
-  const splitRow = useRef<HTMLDivElement>(null);
-  const wide = useWideScreen();
-  const large = useSideRail();
-  const sideBySide =
-    wide && (layout.layout === 'sideBySide' || (layout.layout === 'auto' && large));
+  const item = useCurrentItem();
+  const spoken = useSpokenItem(item);
+  const { view: prefs } = usePlayerView();
+  const layout = useSheetLayout(prefs.layout);
   const videoShown = usePlayerUiStore((state) => state.videoShown);
   // A YouTube song shows its video only once asked for (M46.8).
   const isVideo = hasVideo(item) && videoShown;
@@ -124,59 +127,17 @@ export const PlayerSheet: FC = () => {
   }, [sheetOpen, closeSheet]);
 
   const handleDragEnd = (_event: PointerEvent, info: PanInfo) => {
-    if (info.offset.y > DISMISS_DISTANCE || info.velocity.y > DISMISS_VELOCITY) {
+    if (sheetDismissed(info.offset, info.velocity)) {
       closeSheet();
     }
   };
 
-  /** A header button that shows `target` in the main area, or the artwork again. */
-  const viewButton = (target: SheetView, label: string, icon: ReactNode) => {
-    const shown = view === target;
-    return (
-      <button
-        type="button"
-        aria-label={shown ? t('player.showArtwork') : label}
-        aria-pressed={shown}
-        onClick={() => setView(shown ? 'artwork' : target)}
-        className={`grid size-11 place-items-center rounded-full ${shown ? 'text-primary' : 'text-muted hover:text-foreground'}`}
-      >
-        {shown ? <ImageIcon aria-hidden size={22} /> : icon}
-      </button>
-    );
-  };
-
-  const width = columnWidth(layout, sideBySide);
-  const media = item ? (
-    <MediaArt
-      item={item}
-      active={sheetOpen}
-      videoClassName={`mx-auto aspect-video w-full rounded-2xl bg-black ${
-        // A short window keeps the video small enough for the controls, at 16:9.
-        sideBySide
-          ? 'max-w-[min(100%,calc((100dvh-22rem)*16/9))]'
-          : 'max-w-[min(100%,calc((100dvh-28rem)*16/9))]'
-      }`}
-      artworkClassName={`mx-auto aspect-square w-full rounded-2xl shadow-xl ${
-        sideBySide ? 'max-w-[min(100%,calc(100dvh-22rem))]' : 'max-w-[min(100%,calc(100dvh-28rem))]'
-      }`}
-      iconSize={96}
-    />
-  ) : (
-    <Artwork url={null} className="aspect-square w-full max-w-xs rounded-2xl" iconSize={96} />
-  );
-  // Podcasts and audiobooks show captions here (M46.32).
-  const lyrics = !item ? null : spoken ? (
-    <CaptionsView
-      spoken={spoken}
-      state={state}
-      size={layout.lyricsSize}
-      align={layout.lyricsAlign}
-    />
-  ) : (
-    <LyricsView item={item} state={state} size={layout.lyricsSize} align={layout.lyricsAlign} />
-  );
-  const textLabel = spoken ? t('captions.title') : t('player.lyrics');
-  const queue = <UpNextList items={upNext} />;
+  const sizes = {
+    '--cover-scale': 1 + prefs.coverOffset / 100,
+    '--player-width-scale': 1 + prefs.widthOffset / 100,
+  } as CSSProperties;
+  const onScrub = setScrubbing;
+  const parts: LayoutParts = { item, spoken, view, setView, onScrub, isVideo };
 
   return (
     <AnimatePresence>
@@ -187,21 +148,26 @@ export const PlayerSheet: FC = () => {
           aria-modal="true"
           aria-label={t('player.nowPlaying')}
           data-testid="player-sheet"
-          data-layout={sideBySide ? 'sideBySide' : 'stacked'}
+          data-layout={layout}
           initial={{ y: '100%' }}
           animate={{ y: 0 }}
           exit={{ y: '100%' }}
           transition={{ type: 'spring', damping: 32, stiffness: 320 }}
           drag="y"
           dragControls={dragControls}
-          dragListener={sideBySide && !scrubbing}
+          dragListener={layout === 'sideBySide' && !scrubbing}
           dragConstraints={{ top: 0, bottom: 0 }}
           dragElastic={{ top: 0, bottom: 0.7 }}
           onDragEnd={handleDragEnd}
-          className="bg-background fixed inset-x-0 top-[var(--app-bar,0px)] bottom-0 isolate z-50 flex flex-col overflow-hidden px-6 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] lg:px-10"
+          style={sizes}
+          className="bg-background fixed inset-x-0 top-[var(--app-bar,0px)] bottom-0 isolate z-50 flex flex-col overflow-hidden pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]"
         >
-          {layout.background && item?.artworkUrl && !isVideo && (
-            <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
+          {prefs.background && item?.artworkUrl && !isVideo && (
+            // Its own layer, painted once: the controls changing over it don't blur it again.
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 -z-10 transform-gpu overflow-hidden [contain:strict]"
+            >
               <img
                 src={item.artworkUrl}
                 alt=""
@@ -210,158 +176,77 @@ export const PlayerSheet: FC = () => {
               <div className="from-background/30 via-background/60 to-background absolute inset-0 bg-gradient-to-b" />
             </div>
           )}
-          <div
-            data-testid="player-sheet-header"
-            onPointerDown={sideBySide ? undefined : (event) => dragControls.start(event)}
-            className={`flex items-center justify-between ${sideBySide ? '' : 'touch-none'}`}
-          >
-            <button
-              type="button"
-              aria-label={t('player.closePlayer')}
-              onClick={closeSheet}
-              className="text-muted hover:text-foreground grid size-11 place-items-center rounded-full"
-            >
-              <ChevronDown aria-hidden size={28} />
-            </button>
-            <span aria-hidden className="bg-muted/40 h-1.5 w-10 rounded-full" />
-            <div className="flex items-center">
-              <PlaybackExtras state={state} className="h-11" />
-              <SoundButton className="size-11" />
-              <VideoToggle item={item} className="size-11" />
-              {item &&
-                !sideBySide &&
-                view !== 'artwork' &&
-                viewButton(view, '', <ImageIcon aria-hidden size={22} />)}
-              <button
-                type="button"
-                aria-label={t('player.view.open')}
-                aria-haspopup="dialog"
-                aria-expanded={layoutAnchor !== null}
-                onClick={(event) => setLayoutAnchor(layoutAnchor ? null : event.currentTarget)}
-                className="text-muted hover:text-foreground grid size-11 place-items-center rounded-full"
-              >
-                <SlidersHorizontal aria-hidden size={20} />
-              </button>
-            </div>
-          </div>
-
-          <PlayingOn className="mx-auto mt-1 w-fit max-w-full rounded-full" />
-          <div
-            style={width.style}
-            className={`mx-auto flex min-h-0 w-full flex-1 ${width.className}`}
-          >
-            {sideBySide ? (
-              <div ref={splitRow} className="flex min-h-0 flex-1 gap-4 py-4 xl:gap-8">
-                <div
-                  style={
-                    (split ?? panels.playerSplit)
-                      ? { width: `${split ?? panels.playerSplit}%` }
-                      : undefined
-                  }
-                  className={`flex min-h-0 shrink-0 flex-col justify-center gap-6 ${
-                    (split ?? panels.playerSplit)
-                      ? ''
-                      : isVideo
-                        ? 'w-[min(58%,60rem)]'
-                        : 'w-[min(42%,34rem)]'
-                  }`}
-                >
-                  <div className="flex justify-center">{media}</div>
-                  <Controls
-                    state={state}
-                    item={item}
-                    onScrub={setScrubbing}
-                    note={sourceNote(state, item)}
-                  />
-                </div>
-                <ResizeHandle
-                  label={t('player.view.resizeSplit')}
-                  value={split ?? (panels.playerSplit || (isVideo ? 58 : 42))}
-                  min={30}
-                  max={70}
-                  direction={1}
-                  scale={() => 100 / Math.max(1, splitRow.current?.clientWidth ?? 1000)}
-                  onPreview={setSplit}
-                  onCommit={(playerSplit) => {
-                    setSplit(null);
-                    savePanels({ playerSplit });
-                  }}
-                />
-                <section
-                  aria-label={view === 'queue' ? t('player.upNextView') : textLabel}
-                  className="flex min-h-0 min-w-0 flex-1 flex-col"
-                >
-                  <div role="tablist" className="flex gap-1 pb-2">
-                    {(['lyrics', 'queue'] as const).map((tab) => {
-                      const current = tab === 'queue' ? view === 'queue' : view !== 'queue';
-                      return (
-                        <button
-                          key={tab}
-                          type="button"
-                          role="tab"
-                          aria-selected={current}
-                          onClick={() => setView(tab)}
-                          className={`rounded-full px-4 py-1.5 text-sm font-medium ${
-                            current
-                              ? 'bg-surface text-foreground'
-                              : 'text-muted hover:text-foreground'
-                          }`}
-                        >
-                          {tab === 'queue' ? t('player.upNextView') : textLabel}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div onPointerDownCapture={keepDrag} className="flex min-h-0 flex-1 flex-col">
-                    {view === 'queue' ? queue : lyrics}
-                  </div>
-                </section>
-              </div>
-            ) : view === 'artwork' ? (
-              <div
-                data-testid="player-scroll"
-                className="no-scrollbar -mx-6 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-6 lg:-mx-10 lg:px-10"
-              >
-                <div className="flex shrink-0 flex-col items-center gap-4 pt-4">
-                  {media}
-                  {item && <UpNextPill next={upNext[0]} onOpen={() => setView('queue')} />}
-                </div>
-                <div className="shrink-0 pt-5">
-                  <Controls
-                    state={state}
-                    item={item}
-                    onScrub={setScrubbing}
-                    note={sourceNote(state, item)}
-                  />
-                </div>
-                {item && (
-                  <PlayerCards
-                    item={item}
-                    state={state}
-                    spoken={spoken}
-                    onLyrics={() => setView('lyrics')}
-                  />
+          <SheetHeader
+            layout={layout}
+            dragControls={dragControls}
+            onClose={closeSheet}
+            actions={
+              <>
+                <IncognitoBadge className="mr-1" />
+                {item && layout === 'landscape' && (
+                  <>
+                    <ViewToggle
+                      target="lyrics"
+                      view={view}
+                      onView={setView}
+                      label={spoken ? t('captions.title') : t('player.lyrics')}
+                      icon={
+                        spoken ? (
+                          <Subtitles aria-hidden size={20} />
+                        ) : (
+                          <MicVocal aria-hidden size={20} />
+                        )
+                      }
+                    />
+                    <ViewToggle
+                      target="queue"
+                      view={view}
+                      onView={setView}
+                      label={t('player.upNextView')}
+                      icon={<ListMusic aria-hidden size={20} />}
+                    />
+                  </>
                 )}
-              </div>
-            ) : (
-              <div className="flex min-h-0 flex-1 flex-col gap-5 pt-4">
-                <div className="flex min-h-0 flex-1 flex-col items-center justify-center">
-                  {view === 'lyrics' ? lyrics : queue}
-                </div>
-                <Controls
-                  state={state}
-                  item={item}
-                  onScrub={setScrubbing}
-                  note={sourceNote(state, item)}
-                />
-              </div>
-            )}
-          </div>
+                {item && layout === 'stacked' && view !== 'artwork' && (
+                  <button
+                    type="button"
+                    aria-label={t('player.showArtwork')}
+                    aria-pressed
+                    onClick={() => setView('artwork')}
+                    className="text-primary grid size-[min(2.75rem,11cqw)] place-items-center rounded-full"
+                  >
+                    <ImageIcon aria-hidden size={22} />
+                  </button>
+                )}
+                <PlaybackExtras className="h-[min(2.75rem,11cqw)]" />
+                <SoundButton className="size-[min(2.75rem,11cqw)]" />
+                <VideoToggle item={item} className="size-[min(2.75rem,11cqw)]" />
+                <button
+                  type="button"
+                  aria-label={t('player.view.open')}
+                  aria-haspopup="dialog"
+                  aria-expanded={layoutAnchor !== null}
+                  onClick={(event) => setLayoutAnchor(layoutAnchor ? null : event.currentTarget)}
+                  className="text-muted hover:text-foreground grid size-[min(2.75rem,11cqw)] place-items-center rounded-full"
+                >
+                  <SlidersHorizontal aria-hidden size={20} />
+                </button>
+              </>
+            }
+          />
+          <PlayingOn className="mx-auto mt-1 w-fit max-w-full rounded-full" />
+          {layout === 'sideBySide' ? (
+            <SideBySide {...parts} />
+          ) : layout === 'landscape' ? (
+            <Landscape {...parts} />
+          ) : (
+            <Stacked {...parts} />
+          )}
           {layoutAnchor && (
             <Sheet
               title={t('player.view.title')}
               anchor={layoutAnchor}
-              popoverWidth={340}
+              popoverWidth={360}
               onClose={() => setLayoutAnchor(null)}
             >
               <PlayerViewSettings title="" />
@@ -373,53 +258,319 @@ export const PlayerSheet: FC = () => {
   );
 };
 
-type ControlsProps = {
-  state: PlaybackState | undefined;
+type LayoutParts = {
   item: QueueItem | undefined;
-  note: ReturnType<typeof sourceNote>;
-  /** Whether the seek slider is being dragged (the sheet doesn't drag meanwhile). */
+  spoken: SpokenItem | null;
+  view: SheetView;
+  setView: (view: SheetView) => void;
   onScrub: (scrubbing: boolean) => void;
+  isVideo: boolean;
 };
 
-/** Title, seek bar and buttons: the same in both layouts, and never moved by the views. */
-const Controls: FC<ControlsProps> = ({ state, item, note, onScrub }) => {
+/**
+ * The top of the sheet. Its handle spans it and is at least 44 px tall: a tap closes the player
+ * (as do Enter and Space), a drag down closes it too, and a drag that snaps back changes nothing.
+ * The buttons sit on top of it at the right.
+ */
+const SheetHeader: FC<{
+  layout: SheetLayout;
+  dragControls: DragControls;
+  onClose: () => void;
+  actions: ReactNode;
+}> = ({ layout, dragControls, onClose, actions }) => {
   const { t } = useTranslation();
-  const spoken = useSpokenItem(item ?? undefined);
-  const openTrackActions = useTrackActionsStore((store) => store.open);
-  const [scrubMs, setScrubMs] = useState<number | null>(null);
-  const livePositionMs = useLivePosition(state);
-  const durationMs = state?.durationMs ?? 0;
-  const positionMs = scrubMs ?? livePositionMs;
-  const repeat = state?.repeat ?? 'off';
-  const scrub = (value: number | null) => {
-    setScrubMs(value);
-    onScrub(value !== null);
+  const pressed = useRef<{ x: number; y: number; at: number } | null>(null);
+  const onPointerDown = (event: ReactPointerEvent) => {
+    pressed.current = { x: event.clientX, y: event.clientY, at: event.timeStamp };
+    // Side by side the whole sheet drags; otherwise the handle drags it.
+    if (layout !== 'sideBySide') dragControls.start(event);
   };
-  const commitScrub = () => {
-    if (scrubMs !== null) {
-      void sendControl({ type: 'seek', positionMs: scrubMs });
-      scrub(null);
+  const onPointerUp = (event: ReactPointerEvent) => {
+    const from = pressed.current;
+    pressed.current = null;
+    if (from && isHandleTap(from, { x: event.clientX, y: event.clientY, at: event.timeStamp })) {
+      onClose();
     }
   };
+  return (
+    <div
+      data-testid="player-sheet-header"
+      className={`@container relative flex min-h-11 shrink-0 items-center justify-end ${GUTTER}`}
+    >
+      <button
+        type="button"
+        aria-label={t('player.closePlayer')}
+        title={t('player.closePlayer')}
+        onPointerDown={onPointerDown}
+        onPointerUp={onPointerUp}
+        onPointerCancel={() => {
+          pressed.current = null;
+        }}
+        onClick={(event) => {
+          // Keys (Enter, Space) click with no pointer; pointer taps close on release above.
+          if (event.detail === 0) onClose();
+        }}
+        className="group absolute inset-x-0 -top-3 bottom-0 cursor-pointer touch-none focus-visible:outline-none"
+      >
+        <span
+          aria-hidden
+          className="bg-muted/50 group-hover:bg-muted group-focus-visible:bg-primary absolute top-1.5 left-1/2 h-1.5 w-12 -translate-x-1/2 rounded-full transition-colors"
+        />
+      </button>
+      <div className="relative flex min-w-0 items-center">{actions}</div>
+    </div>
+  );
+};
+
+/** A header button showing `target` instead of the cover, or the cover again. */
+const ViewToggle: FC<{
+  target: SheetView;
+  view: SheetView;
+  onView: (view: SheetView) => void;
+  label: string;
+  icon: ReactNode;
+}> = ({ target, view, onView, label, icon }) => {
+  const shown = view === target;
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={shown}
+      onClick={() => onView(shown ? 'artwork' : target)}
+      className={`grid size-[min(2.75rem,11cqw)] place-items-center rounded-full ${
+        shown ? 'text-primary' : 'text-muted hover:text-foreground'
+      }`}
+    >
+      {icon}
+    </button>
+  );
+};
+
+/** The cover or the video, sized by `fill` (its own column) or by the room the controls leave. */
+const Media: FC<{ item: QueueItem | undefined; fill?: boolean }> = ({ item, fill = false }) => {
+  const sheetOpen = usePlayerUiStore((state) => state.sheetOpen);
+  if (!item) return null;
+  return (
+    <MediaArt
+      item={item}
+      active={sheetOpen}
+      videoClassName={`mx-auto rounded-2xl bg-black ${fill ? 'player-video-fill' : 'player-video'}`}
+      artworkClassName={`mx-auto rounded-2xl shadow-xl ${fill ? 'player-cover-fill' : 'player-cover'}`}
+      iconSize={96}
+    />
+  );
+};
+
+/** Lyrics, or captions for podcasts and audiobooks (M46.32). */
+const TextView: FC<{ item: QueueItem; spoken: SpokenItem | null }> = ({ item, spoken }) =>
+  spoken ? <CaptionsView spoken={spoken} /> : <LyricsView item={item} />;
+
+const Stacked: FC<LayoutParts> = ({ item, spoken, view, setView, onScrub }) => {
+  const upNext = useUpNext();
+  const { containerRef, contentRef, coverRef } = useCoverFit();
+  if (view !== 'artwork' && item) {
+    return (
+      <div
+        className={`player-column flex min-h-0 w-full flex-1 flex-col gap-4 pt-3 [--player-column-base:44rem] ${GUTTER}`}
+      >
+        <div className="flex min-h-0 flex-1 flex-col">
+          {view === 'lyrics' ? (
+            <TextView item={item} spoken={spoken} />
+          ) : (
+            <QueuePane item={item} items={upNext} />
+          )}
+        </div>
+        <Controls item={item} spoken={spoken} onScrub={onScrub} compact />
+      </div>
+    );
+  }
+  return (
+    <div
+      ref={containerRef}
+      data-testid="player-scroll"
+      className={`no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain ${GUTTER}`}
+    >
+      <div className="player-column flex flex-col [--player-column-base:44rem]">
+        <div ref={contentRef} className="flex shrink-0 flex-col items-center gap-4 pt-4">
+          <div ref={coverRef} className="flex w-full justify-center">
+            <Media item={item} />
+          </div>
+          {item && <UpNextPill next={upNext[0]} onOpen={() => setView('queue')} />}
+          <Controls item={item} spoken={spoken} onScrub={onScrub} />
+        </div>
+        {item && <PlayerCards item={item} spoken={spoken} onLyrics={() => setView('lyrics')} />}
+      </div>
+    </div>
+  );
+};
+
+const Landscape: FC<LayoutParts> = ({ item, spoken, view, onScrub }) => {
+  const upNext = useUpNext();
+  return (
+    <div className={`flex min-h-0 flex-1 gap-[min(2rem,4vw)] pt-2 ${GUTTER}`}>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center [container-type:size]">
+        {view === 'artwork' || !item ? (
+          <Media item={item} fill />
+        ) : view === 'lyrics' ? (
+          <TextView item={item} spoken={spoken} />
+        ) : (
+          <QueuePane item={item} items={upNext} />
+        )}
+      </div>
+      <div className="no-scrollbar flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+        <div className="my-auto py-2">
+          <Controls item={item} spoken={spoken} onScrub={onScrub} compact={view !== 'artwork'} />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SideBySide: FC<LayoutParts> = ({ item, spoken, view, setView, onScrub, isVideo }) => {
+  const { t } = useTranslation();
+  const upNext = useUpNext();
+  const { panels, save: savePanels } = usePanelSizes();
+  const [split, setSplit] = useState<number | null>(null);
+  const splitRow = useRef<HTMLDivElement>(null);
+  const { containerRef, contentRef, coverRef } = useCoverFit();
+  const share = split ?? panels.playerSplit;
+  const textLabel = spoken ? t('captions.title') : t('player.lyrics');
+  return (
+    <div
+      className={`player-column flex min-h-0 w-full flex-1 [--player-column-base:96rem] ${GUTTER}`}
+    >
+      <div ref={splitRow} className="flex min-h-0 flex-1 gap-4 py-4 xl:gap-8">
+        <div
+          ref={containerRef}
+          style={share ? { width: `${share}%` } : undefined}
+          className={`no-scrollbar flex min-h-0 shrink-0 flex-col overflow-y-auto ${
+            share ? '' : isVideo ? 'w-[min(58%,60rem)]' : 'w-[min(42%,34rem)]'
+          }`}
+        >
+          <div ref={contentRef} className="my-auto flex flex-col gap-6">
+            <div ref={coverRef} className="flex justify-center">
+              <Media item={item} />
+            </div>
+            <Controls item={item} spoken={spoken} onScrub={onScrub} />
+          </div>
+        </div>
+        <ResizeHandle
+          label={t('player.view.resizeSplit')}
+          value={split ?? (panels.playerSplit || (isVideo ? 58 : 42))}
+          min={30}
+          max={70}
+          direction={1}
+          scale={() => 100 / Math.max(1, splitRow.current?.clientWidth ?? 1000)}
+          onPreview={setSplit}
+          onCommit={(playerSplit) => {
+            setSplit(null);
+            savePanels({ playerSplit });
+          }}
+        />
+        <section
+          aria-label={view === 'queue' ? t('player.upNextView') : textLabel}
+          className="flex min-h-0 min-w-0 flex-1 flex-col"
+        >
+          <div role="tablist" className="flex gap-1 pb-2">
+            {(['lyrics', 'queue'] as const).map((tab) => {
+              const current = tab === 'queue' ? view === 'queue' : view !== 'queue';
+              return (
+                <button
+                  key={tab}
+                  type="button"
+                  role="tab"
+                  aria-selected={current}
+                  onClick={() => setView(tab)}
+                  className={`rounded-full px-4 py-1.5 text-sm font-medium ${
+                    current ? 'bg-surface text-foreground' : 'text-muted hover:text-foreground'
+                  }`}
+                >
+                  {tab === 'queue' ? t('player.upNextView') : textLabel}
+                </button>
+              );
+            })}
+          </div>
+          {/* Lists scroll by touch without dragging the sheet down. */}
+          <div
+            onPointerDownCapture={(event) => event.stopPropagation()}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            {item &&
+              (view === 'queue' ? (
+                <QueuePane item={item} items={upNext} />
+              ) : (
+                <TextView item={item} spoken={spoken} />
+              ))}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+};
+
+type ControlsProps = {
+  item: QueueItem | undefined;
+  spoken: SpokenItem | null;
+  /** Whether the seek slider is being dragged (the sheet doesn't drag meanwhile). */
+  onScrub: (scrubbing: boolean) => void;
+  /** Smaller, under the lyrics or the queue, so they get the room. */
+  compact?: boolean;
+};
+
+/**
+ * Title, seek bar and buttons: the same in every layout. Sizes follow its own width (a
+ * container), so five buttons always fit in a row, whatever the interface size.
+ */
+const Controls: FC<ControlsProps> = ({ item, spoken, onScrub, compact = false }) => {
+  const { t } = useTranslation();
+  const note = useSourceNote(item);
+  const error = usePlayerSelect((state) => (state?.status === 'error' ? state.error : null));
+  const wide = usePlayerWide();
 
   return (
-    <div className="mx-auto flex w-full max-w-xl shrink-0 flex-col gap-5">
+    <div
+      className={`@container mx-auto flex w-full max-w-xl shrink-0 flex-col ${
+        compact ? 'gap-[min(0.75rem,2svh)]' : 'gap-[min(1.25rem,3svh)]'
+      }`}
+    >
       <div className="flex w-full items-center gap-1">
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="title-gap flex min-w-0 flex-1 flex-col">
           <Marquee
             testId="sheet-title"
             text={item?.title ?? t('player.nothingPlaying')}
-            className="w-full text-2xl font-bold"
+            className={`w-full font-bold ${compact ? 'text-lg' : 'text-2xl'}`}
           />
+          {/* On a phone the names are text (the menu goes to them); with a pointer, only the
+              names themselves are links, kept apart from the title. */}
           {spoken ? (
-            <SpokenByline spoken={spoken} className="text-muted block w-full truncate text-lg" />
+            wide ? (
+              <SpokenByline
+                spoken={spoken}
+                className={`text-muted block w-full truncate ${compact ? 'text-sm' : 'text-lg'}`}
+              />
+            ) : (
+              <span
+                data-testid="spoken-byline"
+                className={`text-muted block w-full truncate ${compact ? 'text-sm' : 'text-lg'}`}
+              >
+                {spokenName(spoken)}
+              </span>
+            )
           ) : (
-            item?.artist && (
+            item?.artist &&
+            (wide ? (
               <ArtistLinks
                 credit={item.artist}
-                className="text-muted block w-full truncate text-lg"
+                className={`text-muted block w-full truncate ${compact ? 'text-sm' : 'text-lg'}`}
               />
-            )
+            ) : (
+              <span
+                data-testid="sheet-artist"
+                className={`text-muted block w-full truncate ${compact ? 'text-sm' : 'text-lg'}`}
+              >
+                {item.artist}
+              </span>
+            ))
           )}
           {note && (
             <p data-testid="sheet-source-note" className="text-muted text-xs">
@@ -428,99 +579,90 @@ const Controls: FC<ControlsProps> = ({ state, item, note, onScrub }) => {
                 : t('player.via', { source: note.source })}
             </p>
           )}
-          {state?.status === 'error' && state.error && <SourceIssue>{state.error}</SourceIssue>}
+          {error && <SourceIssue>{error}</SourceIssue>}
         </div>
         {item && !spoken && <FavoriteButton item={item} download />}
-        {item && !spoken ? (
-          <button
-            type="button"
-            aria-label={t('player.addToPlaylist')}
-            aria-haspopup="dialog"
-            onClick={(event) =>
-              openTrackActions(fromQueueItem(item), { anchor: event.currentTarget })
-            }
-            className="text-muted hover:text-foreground grid size-11 shrink-0 place-items-center rounded-full"
-          >
-            <ListPlus aria-hidden size={22} />
-          </button>
-        ) : (
-          <span className="size-11 shrink-0" />
-        )}
+        {item && <MoreButton item={item} spoken={spoken} />}
       </div>
 
-      <div className="flex w-full flex-col gap-1">
-        <input
-          type="range"
-          aria-label={t('player.seek')}
-          min={0}
-          max={Math.max(durationMs, 1)}
-          step={250}
-          value={Math.min(positionMs, Math.max(durationMs, 1))}
-          disabled={!item || durationMs <= 0}
-          onChange={(event) => scrub(Number(event.target.value))}
-          onKeyDown={onSeekKey(positionMs, durationMs, scrub)}
-          onPointerUp={commitScrub}
-          onKeyUp={commitScrub}
-          onPointerDownCapture={keepDrag}
-          className="accent-primary w-full"
-        />
-        <div className="text-muted flex justify-between text-xs tabular-nums">
-          <span data-testid="position">{formatTime(positionMs)}</span>
-          <span data-testid="duration">{formatTime(durationMs)}</span>
-        </div>
-      </div>
+      <SeekBar variant="sheet" onScrub={onScrub} />
 
       <div className="flex w-full items-center justify-between">
-        <button
-          type="button"
-          aria-label={t('player.shuffle')}
-          aria-pressed={state?.shuffle ?? false}
-          onClick={() => void sendControl({ type: 'setShuffle', enabled: !state?.shuffle })}
-          className={`grid size-11 place-items-center rounded-full ${state?.shuffle ? 'text-primary' : 'text-muted hover:text-foreground'}`}
-        >
-          <Shuffle aria-hidden size={22} />
-        </button>
-        <button
-          type="button"
-          disabled={!item}
-          aria-label={t('player.previous')}
-          onClick={() => void sendControl({ type: 'previous' })}
-          className="grid size-12 place-items-center rounded-full disabled:opacity-40"
-        >
-          <SkipBack aria-hidden size={32} />
-        </button>
-        <button
-          type="button"
-          disabled={!item}
-          aria-label={isActive(state) ? t('player.pause') : t('player.play')}
-          onClick={() => void sendControl({ type: 'toggle' })}
-          className="bg-primary text-background grid size-18 place-items-center rounded-3xl shadow-lg shadow-black/20 disabled:opacity-40"
-        >
-          {isActive(state) ? (
-            <Pause aria-hidden size={32} fill="currentColor" />
-          ) : (
-            <Play aria-hidden size={32} fill="currentColor" />
-          )}
-        </button>
-        <button
-          type="button"
-          disabled={!item}
-          aria-label={t('player.next')}
-          onClick={() => void sendControl({ type: 'next' })}
-          className="grid size-12 place-items-center rounded-full disabled:opacity-40"
-        >
-          <SkipForward aria-hidden size={32} />
-        </button>
-        <button
-          type="button"
-          aria-label={t(`player.repeat.${repeat}`)}
-          onClick={() => void sendControl({ type: 'setRepeat', mode: NEXT_REPEAT[repeat] })}
-          className={`grid size-11 place-items-center rounded-full ${repeat === 'off' ? 'text-muted hover:text-foreground' : 'text-primary'}`}
-        >
-          {repeat === 'one' ? <Repeat1 aria-hidden size={22} /> : <Repeat aria-hidden size={22} />}
-        </button>
+        <ShuffleButton
+          className={compact ? 'size-[min(2.5rem,12cqw)]' : 'size-[min(2.75rem,13cqw)]'}
+          iconSize={compact ? 20 : 22}
+        />
+        <PreviousButton
+          className={compact ? 'size-[min(2.75rem,13cqw)]' : 'size-[min(3rem,15cqw)]'}
+          iconSize={compact ? 26 : 32}
+        />
+        <PlayPauseButton
+          className={`bg-primary text-background shadow-lg shadow-black/20 ${
+            compact
+              ? 'size-[min(3.5rem,17cqw)] rounded-2xl'
+              : 'size-[min(4.5rem,21cqw)] rounded-3xl'
+          }`}
+          iconSize={compact ? 26 : 32}
+        />
+        <NextButton
+          className={compact ? 'size-[min(2.75rem,13cqw)]' : 'size-[min(3rem,15cqw)]'}
+          iconSize={compact ? 26 : 32}
+        />
+        <RepeatButton
+          className={compact ? 'size-[min(2.5rem,12cqw)]' : 'size-[min(2.75rem,13cqw)]'}
+          iconSize={compact ? 20 : 22}
+        />
       </div>
     </div>
+  );
+};
+
+/**
+ * The song's other options: on a phone the actions sheet (playlists, play next, download, go to
+ * the album or the artist...), with a pointer its menu beside the button; for a chapter or an
+ * episode, the book or the show.
+ */
+const MoreButton: FC<{ item: QueueItem; spoken: SpokenItem | null }> = ({ item, spoken }) => {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const wide = usePlayerWide();
+  const menuItems = useTrackMenuItems();
+  const openTrackActions = useTrackActionsStore((store) => store.open);
+  const open = (event: MouseEvent<HTMLButtonElement>) => {
+    const button = event.currentTarget;
+    const box = button.getBoundingClientRect();
+    const at = { x: box.left, y: box.bottom + 4 };
+    if (spoken) {
+      const book = spoken.kind === 'audiobook';
+      useContextMenuStore.getState().show(at.x, at.y, [
+        { kind: 'heading', label: item.title },
+        {
+          label: t(book ? 'captions.goToBook' : 'captions.goToShow'),
+          icon: book ? BookOpen : Podcast,
+          onSelect: () =>
+            void navigate({
+              to: book ? '/audiobook' : '/podcast',
+              search: { id: spoken.podcastId },
+            }),
+        },
+      ]);
+      return;
+    }
+    const track = fromQueueItem(item);
+    if (wide) useContextMenuStore.getState().show(at.x, at.y, menuItems(track, {}, at));
+    else openTrackActions(track, { anchor: button });
+  };
+  return (
+    <button
+      type="button"
+      aria-label={t('player.moreOptions')}
+      title={t('player.moreOptions')}
+      aria-haspopup="menu"
+      onClick={open}
+      className="text-muted hover:text-foreground grid size-11 shrink-0 place-items-center rounded-full"
+    >
+      <EllipsisVertical aria-hidden size={22} />
+    </button>
   );
 };
 
@@ -541,46 +683,26 @@ const UpNextPill: FC<{ next: QueueItem | undefined; onOpen: () => void }> = ({ n
   );
 };
 
-/** What plays after the current item, filling the space it's given and scrolling in it. */
-const UpNextList: FC<{ items: QueueItem[] }> = ({ items }) => {
+/** What plays after the current item: its actions, then the list filling the space it has. */
+const QueuePane: FC<{ item: QueueItem; items: QueueItem[] }> = ({ item, items }) => {
   const { t } = useTranslation();
   return (
     <section
       aria-label={t('player.upNext')}
-      className="flex min-h-0 w-full flex-1 flex-col gap-1 self-stretch overflow-y-auto pr-2"
+      className="flex min-h-0 w-full flex-1 flex-col gap-1 self-stretch"
     >
-      <h2 className="text-muted text-xs font-semibold tracking-wide uppercase">
-        {t('player.upNext')}
-      </h2>
-      {items.length === 0 ? (
-        <p className="text-muted py-2 text-sm">{t('player.queueEmpty')}</p>
-      ) : (
-        <ul data-testid="up-next" className="flex flex-col">
-          {items.map((next) => (
-            <li key={next.id}>
-              <button
-                type="button"
-                aria-label={next.title}
-                onClick={() => void sendControl({ type: 'playItem', itemId: next.id })}
-                className="hover:bg-surface/60 flex w-full items-center gap-3 rounded-lg p-1.5 text-left"
-              >
-                <Artwork
-                  url={next.artworkUrl}
-                  fallback={songCover(next)}
-                  className="size-12 shrink-0 rounded-md"
-                  iconSize={20}
-                />
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate font-medium">{next.title}</span>
-                  {next.artist && (
-                    <span className="text-muted truncate text-sm">{next.artist}</span>
-                  )}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      <div className="flex flex-wrap items-center justify-between gap-x-2">
+        <h2 className="text-muted text-xs font-semibold tracking-wide uppercase">
+          {t('player.upNext')}
+          {items.length > 0 && (
+            <span className="ml-1.5 font-normal normal-case">
+              {t('player.queueCount', { count: items.length })}
+            </span>
+          )}
+        </h2>
+        <QueueActions items={items} current={item} />
+      </div>
+      <QueueList items={items} variant="sheet" />
     </section>
   );
 };

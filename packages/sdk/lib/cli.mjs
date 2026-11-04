@@ -6,8 +6,9 @@ import { createHash } from 'node:crypto';
 import { watch } from 'node:fs';
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 
 import * as esbuild from 'esbuild';
 import { unzipSync, zipSync } from 'fflate';
@@ -311,7 +312,6 @@ export const init = async (dir, { id, name }) => {
 // ---- Repositories (M13) ----
 
 export const INDEX_FILE = 'index.json';
-const DEFAULT_REPO_NAME = 'Raygun Extensions';
 // Zip timestamps are local DOS times; a local-time date gives the same bytes on every machine.
 const PACKAGE_TIME = new Date(2000, 0, 1);
 
@@ -339,26 +339,65 @@ export const compareVersions = (a, b) => {
 };
 
 /**
- * Builds an extension and adds its package to a repository folder, then rewrites the index.
- * Packages are reproducible: the same sources give the same bytes (and checksum).
+ * Whether a published package holds the same files as a new one: the same code, and a manifest
+ * with the same contents (its whitespace aside).
+ * @param {Uint8Array} published
+ * @param {Record<string, Uint8Array>} files
+ */
+const samePackage = (published, files) => {
+  let unpacked;
+  try {
+    unpacked = unzipSync(published);
+  } catch {
+    return false;
+  }
+  const names = Object.keys(files);
+  if (Object.keys(unpacked).sort().join('\n') !== [...names].sort().join('\n')) return false;
+  return names.every((name) => {
+    const before = unpacked[name];
+    const after = files[name];
+    if (!before || !after) return false;
+    if (name !== MANIFEST_FILE) return Buffer.from(before).equals(Buffer.from(after));
+    try {
+      const decode = (/** @type {Uint8Array} */ bytes) =>
+        JSON.parse(new TextDecoder().decode(bytes));
+      return isDeepStrictEqual(decode(before), decode(after));
+    } catch {
+      return false;
+    }
+  });
+};
+
+/**
+ * Builds an extension and adds its package to a repository folder, leaving the index alone.
+ * `kept` is set when this version was already published with other contents.
  * @param {string} dir
  * @param {string} repoDir
  */
-export const pack = async (dir, repoDir) => {
+const packPackage = async (dir, repoDir) => {
   const { manifest, outfile } = await build(dir);
-  /** @type {import('fflate').Zippable} */
+  /** @type {Record<string, Uint8Array>} */
   const files = {
-    [MANIFEST_FILE]: [await readFile(join(dir, MANIFEST_FILE)), { mtime: PACKAGE_TIME }],
-    [manifest.entry]: [await readFile(outfile), { mtime: PACKAGE_TIME }],
+    [MANIFEST_FILE]: await readFile(join(dir, MANIFEST_FILE)),
+    [manifest.entry]: await readFile(outfile),
   };
-  const archive = zipSync(files, { level: 9, mtime: PACKAGE_TIME });
+  /** @type {import('fflate').Zippable} */
+  const zippable = Object.fromEntries(
+    Object.entries(files).map(([name, bytes]) => [name, [bytes, { mtime: PACKAGE_TIME }]]),
+  );
+  const archive = zipSync(zippable, { level: 9, mtime: PACKAGE_TIME });
   const name = `${manifest.id}-${manifest.version}.zip`;
   const target = join(repoDir, 'packages', name);
   await mkdir(join(repoDir, 'packages'), { recursive: true });
   // A published version never changes: installs check its checksum. Changed code needs a new
-  // version, so an existing package with other bytes is kept and the author warned.
+  // version, so an existing package with other contents is kept and the author warned. One that
+  // differs only in how its manifest is laid out is the same package.
   const published = await readFile(target).catch(() => null);
-  if (published && !Buffer.from(published).equals(Buffer.from(archive))) {
+  const kept =
+    published !== null &&
+    !Buffer.from(published).equals(Buffer.from(archive)) &&
+    !samePackage(published, files);
+  if (kept) {
     console.warn(
       `${manifest.id} ${manifest.version} is already published with other contents; ` +
         'kept it. Bump the version to publish the changes.',
@@ -366,16 +405,59 @@ export const pack = async (dir, repoDir) => {
   } else if (!published) {
     await writeFile(target, archive);
   }
-  const index = await writeIndex(repoDir);
-  return { manifest, package: `packages/${name}`, bytes: archive.length, index };
+  return { manifest, package: `packages/${name}`, bytes: archive.length, kept };
+};
+
+/** @typedef {{ name?: string }} IndexOptions */
+
+/**
+ * Builds an extension and adds its package to a repository folder, then rewrites the index.
+ * Packages are reproducible: the same sources give the same bytes (and checksum).
+ * @param {string} dir
+ * @param {string} repoDir
+ * @param {IndexOptions} [options]
+ */
+export const pack = async (dir, repoDir, options = {}) => {
+  const packed = await packPackage(dir, repoDir);
+  const index = await writeIndex(repoDir, options);
+  return { ...packed, index };
+};
+
+/**
+ * Packs every extension in a folder (each subfolder with a manifest) into a repository folder,
+ * one at a time, then rewrites the index once. A new extension is published with the rest; it
+ * needs no script of its own.
+ * @param {string} parentDir
+ * @param {string} repoDir
+ * @param {IndexOptions} [options]
+ */
+export const packAll = async (parentDir, repoDir, options = {}) => {
+  const folders = (await readdir(parentDir, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+    .map((entry) => join(parentDir, entry.name))
+    .sort();
+  const packed = [];
+  for (const dir of folders) {
+    const hasManifest = await readFile(join(dir, MANIFEST_FILE)).then(
+      () => true,
+      () => false,
+    );
+    if (hasManifest) packed.push(await packPackage(dir, repoDir));
+  }
+  if (packed.length === 0) throw new Error(`${parentDir} has no extensions`);
+  const index = await writeIndex(repoDir, options);
+  return { packed, index };
 };
 
 /**
  * Rewrites `index.json` from the packages in a repository folder, listing the newest version of
- * each extension. Older packages stay on disk for anyone who linked them.
+ * each extension. Older packages stay on disk for anyone who linked them. The index is named
+ * `options.name` when given; otherwise it keeps its name, and a new one is named after its
+ * folder rather than as someone else's repository.
  * @param {string} repoDir
+ * @param {IndexOptions} [options]
  */
-export const writeIndex = async (repoDir) => {
+export const writeIndex = async (repoDir, options = {}) => {
   const indexPath = join(repoDir, INDEX_FILE);
   const existing = await readFile(indexPath, 'utf8')
     .then((text) => JSON.parse(text))
@@ -420,7 +502,7 @@ export const writeIndex = async (repoDir) => {
 
   const index = {
     formatVersion: 1,
-    name: existing?.name ?? DEFAULT_REPO_NAME,
+    name: options.name ?? existing?.name ?? basename(resolve(repoDir)),
     extensions: [...newest.values()].sort((a, b) => a.id.localeCompare(b.id)),
   };
   await writeFile(

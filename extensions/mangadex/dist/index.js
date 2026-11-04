@@ -1,4 +1,4 @@
-// dev.raygun.mangadex 1.2.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.mangadex 1.3.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -12,8 +12,10 @@
   var HEADERS = { "User-Agent": "Raygun/1.0 (+https://github.com/uvxszi/raygun)" };
   var COVERS = "https://uploads.mangadex.org/covers";
   var PAGE_SIZE = 24;
+  var MAX_RESULTS = 1e4;
   var FEED_PAGE = 500;
   var MAX_FEED_PAGES = 10;
+  var LATEST_CHAPTERS = 100;
   var RATINGS = {
     safe: ["safe"],
     "safe and suggestive": ["safe", "suggestive"],
@@ -26,11 +28,53 @@
     hiatus: "hiatus",
     cancelled: "cancelled"
   };
-  var language = () => (raygun.settings.get("language") ?? "en").trim().toLowerCase() || "en";
+  var DEMOGRAPHICS = {
+    shounen: "Shounen",
+    shoujo: "Shoujo",
+    seinen: "Seinen",
+    josei: "Josei"
+  };
+  var LANGUAGES = {
+    English: "en",
+    "Spanish (Latin America)": "es-la",
+    "Spanish (Spain)": "es",
+    "Portuguese (Brazil)": "pt-br",
+    "Portuguese (Portugal)": "pt",
+    French: "fr",
+    German: "de",
+    Italian: "it",
+    Russian: "ru",
+    Ukrainian: "uk",
+    Polish: "pl",
+    Czech: "cs",
+    Hungarian: "hu",
+    Romanian: "ro",
+    Turkish: "tr",
+    Arabic: "ar",
+    Persian: "fa",
+    Hebrew: "he",
+    Indonesian: "id",
+    Malay: "ms",
+    Filipino: "tl",
+    Vietnamese: "vi",
+    Thai: "th",
+    Japanese: "ja",
+    Korean: "ko",
+    "Chinese (Simplified)": "zh",
+    "Chinese (Traditional)": "zh-hk"
+  };
+  var language = () => {
+    const chosen = (raygun.settings.get("language") ?? "").trim();
+    if (LANGUAGES[chosen]) return LANGUAGES[chosen];
+    const code = chosen.toLowerCase();
+    return /^[a-z]{2}(-[a-z]{2})?$/.test(code) ? code : "en";
+  };
   var ratings = () => {
-    const chosen = RATINGS[raygun.settings.get("contentRating") ?? ""] ?? RATINGS["safe and suggestive"];
+    const choice = (raygun.settings.get("contentRating") ?? "").trim().toLowerCase();
+    const chosen = RATINGS[choice] ?? RATINGS["safe and suggestive"];
     return raygun.content.showNsfw() ? chosen : chosen.filter((rating) => !ADULT.includes(rating));
   };
+  var ratingParams = (list) => list.map((rating) => ["contentRating[]", rating]);
   var isAdult = (record) => ADULT.includes(record.attributes.contentRating ?? "");
   var query = (params) => params.map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`).join("&");
   var get = async (path, params) => {
@@ -39,6 +83,7 @@
     });
     if (response.status === 429)
       throw new Error("MangaDex is rate limiting requests; try again shortly");
+    if (response.status === 404) throw new Error("MangaDex no longer has this title or chapter");
     if (!response.ok) throw new Error(`MangaDex answered HTTP ${response.status}`);
     return response.json();
   };
@@ -47,10 +92,12 @@
     return values[preferred] ?? values.en ?? Object.values(values)[0] ?? null;
   };
   var titleOf = (record) => {
+    const main = record.attributes.title ?? {};
+    const alternatives = record.attributes.altTitles ?? [];
+    const inLanguage = (code) => main[code] ?? alternatives.find((title2) => title2[code])?.[code];
     const lang = language();
-    const direct = localized(record.attributes.title, lang);
-    const alt = record.attributes.altTitles?.find((title) => title[lang] ?? title.en);
-    return (alt?.[lang] ?? direct ?? alt?.en ?? "Untitled").trim();
+    const title = inLanguage(lang) ?? (lang === "en" ? void 0 : inLanguage("en")) ?? Object.values(main)[0];
+    return title?.trim() || "Untitled";
   };
   var coverOf = (record) => {
     const file = record.relationships.find((relation) => relation.type === "cover_art")?.attributes?.fileName;
@@ -65,6 +112,7 @@
   });
   var listMangas = async (order, page, extra = []) => {
     const offset = (Math.max(page, 1) - 1) * PAGE_SIZE;
+    if (offset + PAGE_SIZE > MAX_RESULTS) return { items: [], hasNextPage: false };
     const result = await get("/manga", [
       ["limit", PAGE_SIZE],
       ["offset", offset],
@@ -72,13 +120,86 @@
       ["availableTranslatedLanguage[]", language()],
       ["hasAvailableChapters", "true"],
       [`order[${order[0]}]`, order[1]],
-      ...ratings().map((rating) => ["contentRating[]", rating]),
+      ...ratingParams(ratings()),
       ...extra
     ]);
+    const next = offset + result.data.length;
     return {
       items: result.data.map(summary),
-      hasNextPage: offset + result.data.length < result.total
+      hasNextPage: next < result.total && next + PAGE_SIZE <= MAX_RESULTS
     };
+  };
+  var latestShown = /* @__PURE__ */ new Map();
+  var latest = async (page) => {
+    const at = Math.max(page, 1);
+    const offset = (at - 1) * LATEST_CHAPTERS;
+    if (offset + LATEST_CHAPTERS > MAX_RESULTS) return { items: [], hasNextPage: false };
+    const lang = language();
+    const allowed = ratings();
+    const feed = await get("/chapter", [
+      ["limit", LATEST_CHAPTERS],
+      ["offset", offset],
+      ["translatedLanguage[]", lang],
+      ["order[readableAt]", "desc"],
+      ["includeFutureUpdates", "0"],
+      ["includeExternalUrl", "0"],
+      ["includeEmptyPages", "0"],
+      ...ratingParams(allowed)
+    ]);
+    const key = `${lang}|${allowed.join(",")}`;
+    if (at === 1) {
+      for (const shown of [...latestShown.keys()]) {
+        if (shown.startsWith(`${key}|`)) latestShown.delete(shown);
+      }
+    }
+    const earlier = /* @__PURE__ */ new Set();
+    for (let before = 1; before < at; before += 1) {
+      for (const id of latestShown.get(`${key}|${before}`) ?? []) earlier.add(id);
+    }
+    const ids = [
+      ...new Set(
+        feed.data.flatMap(
+          (chapter) => chapter.relationships.filter((relation) => relation.type === "manga").map((relation) => relation.id)
+        )
+      )
+    ].filter((id) => !earlier.has(id));
+    latestShown.set(`${key}|${at}`, ids);
+    const next = offset + feed.data.length;
+    const hasNextPage = next < feed.total && next + LATEST_CHAPTERS <= MAX_RESULTS;
+    if (ids.length === 0) return { items: [], hasNextPage };
+    const series = await get("/manga", [
+      ["limit", ids.length],
+      ...ids.map((id) => ["ids[]", id]),
+      ["includes[]", "cover_art"],
+      ...ratingParams(allowed)
+    ]);
+    const byId = new Map(series.data.map((record) => [record.id, record]));
+    return {
+      items: ids.flatMap((id) => {
+        const record = byId.get(id);
+        return record ? [summary(record)] : [];
+      }),
+      hasNextPage
+    };
+  };
+  var completion = async (record) => {
+    const { lastChapter, lastVolume } = record.attributes;
+    if (!lastChapter && !lastVolume) return "completed";
+    try {
+      const aggregate = await get(`/manga/${record.id}/aggregate`, [
+        ["translatedLanguage[]", language()]
+      ]);
+      const volumes = Object.values(aggregate.volumes ?? {});
+      const chapters2 = new Set(
+        volumes.flatMap(
+          (volume) => Object.values(volume.chapters ?? {}).map((chapter) => chapter.chapter)
+        )
+      );
+      const reached = lastChapter ? chapters2.has(lastChapter) : volumes.some((volume) => volume.volume === lastVolume);
+      return reached ? "completed" : "publishingFinished";
+    } catch {
+      return "completed";
+    }
   };
   var details = async (id) => {
     const { data } = await get(`/manga/${id}`, [
@@ -86,7 +207,13 @@
       ["includes[]", "author"],
       ["includes[]", "artist"]
     ]);
-    const names = (type) => data.relationships.filter((relation) => relation.type === type).map((relation) => relation.attributes?.name).filter((name) => Boolean(name));
+    const names = (type) => [
+      ...new Set(
+        data.relationships.filter((relation) => relation.type === type).map((relation) => relation.attributes?.name?.trim()).filter((name) => Boolean(name))
+      )
+    ];
+    const status = STATUSES[data.attributes.status ?? ""] ?? "unknown";
+    const demographic = DEMOGRAPHICS[data.attributes.publicationDemographic ?? ""];
     return {
       id: data.id,
       title: titleOf(data),
@@ -96,11 +223,12 @@
       artists: names("artist"),
       description: localized(data.attributes.description, language())?.trim() || null,
       genres: [
+        ...demographic ? [demographic] : [],
         ...(data.attributes.tags ?? []).filter((tag) => tag.attributes.group === "genre" || tag.attributes.group === "theme").map((tag) => localized(tag.attributes.name, "en")).filter((name) => Boolean(name)),
         // The app hides titles with an adult genre while NSFW content is off.
         ...isAdult(data) ? [data.attributes.contentRating === "erotica" ? "Erotica" : "Pornographic"] : []
       ],
-      status: STATUSES[data.attributes.status ?? ""] ?? "unknown",
+      status: status === "completed" ? await completion(data) : status,
       url: `https://mangadex.org/title/${data.id}`
     };
   };
@@ -114,7 +242,11 @@
         ["order[volume]", "desc"],
         ["order[chapter]", "desc"],
         ["includes[]", "scanlation_group"],
-        ...RATINGS.everything.map((rating) => ["contentRating[]", rating])
+        // Chapters a group holds back until later, hosted elsewhere or without pages can't be read.
+        ["includeFuturePublishAt", "0"],
+        ["includeExternalUrl", "0"],
+        ["includeEmptyPages", "0"],
+        ...ratingParams(RATINGS.everything)
       ]);
       for (const record of result.data) {
         if (record.attributes.externalUrl || record.attributes.pages === 0) continue;
@@ -153,20 +285,31 @@
     title: ["title", "asc"]
   };
   var tagCache = null;
-  var tagFilter = async () => {
-    if (tagCache) return tagCache;
-    const result = await get("/manga/tag", []);
-    const groupOrder = ["genre", "theme", "format", "content"];
-    const options = result.data.map((tag) => ({
-      value: tag.id,
-      label: localized(tag.attributes.name, "en") ?? tag.id,
-      group: tag.attributes.group
-    })).filter((tag) => tag.group !== "content" || raygun.content.showNsfw()).sort(
-      (a, b) => groupOrder.indexOf(a.group) - groupOrder.indexOf(b.group) || a.label.localeCompare(b.label)
-    ).map(({ value, label }) => ({ value, label }));
-    tagCache = { kind: "tags", key: "tags", label: "Tags", options };
+  var tags = () => {
+    if (!tagCache) {
+      const groupOrder = ["genre", "theme", "format", "content"];
+      tagCache = get("/manga/tag", []).then(
+        (result) => result.data.map((tag) => ({
+          value: tag.id,
+          label: localized(tag.attributes.name, "en") ?? tag.id,
+          group: tag.attributes.group
+        })).sort(
+          (a, b) => groupOrder.indexOf(a.group) - groupOrder.indexOf(b.group) || a.label.localeCompare(b.label)
+        )
+      );
+      tagCache.catch(() => {
+        tagCache = null;
+      });
+    }
     return tagCache;
   };
+  var tagFilter = async () => ({
+    kind: "tags",
+    key: "tags",
+    label: "Tags",
+    // Content tags (gore, sexual violence) are adult-leaning; leave them out unless NSFW is on.
+    options: (await tags()).filter((tag) => tag.group !== "content" || raygun.content.showNsfw()).map(({ value, label }) => ({ value, label }))
+  });
   var filters = async () => [
     {
       kind: "select",
@@ -208,6 +351,19 @@
         { value: "josei", label: "Josei" }
       ]
     },
+    {
+      kind: "select",
+      key: "origin",
+      label: "Original language",
+      default: "any",
+      options: [
+        { value: "any", label: "Any" },
+        { value: "ja", label: "Japanese (manga)" },
+        { value: "ko", label: "Korean (manhwa)" },
+        { value: "zh", label: "Chinese (manhua)" },
+        { value: "en", label: "English" }
+      ]
+    },
     await tagFilter()
   ];
   var search = (text, page, chosen = {}) => {
@@ -219,12 +375,17 @@
     if (typeof demographic === "string" && demographic !== "any") {
       extra.push(["publicationDemographic[]", demographic]);
     }
-    const tags = chosen.tags;
-    if (tags && typeof tags === "object") {
-      for (const id of tags.include) extra.push(["includedTags[]", id]);
-      for (const id of tags.exclude) extra.push(["excludedTags[]", id]);
+    const origin = chosen.origin;
+    if (typeof origin === "string" && origin !== "any") {
+      extra.push(["originalLanguage[]", origin]);
+      if (origin === "zh") extra.push(["originalLanguage[]", "zh-hk"]);
     }
-    const sort = typeof chosen.sort === "string" ? chosen.sort : "";
+    const chosenTags = chosen.tags;
+    if (chosenTags && typeof chosenTags === "object") {
+      for (const id of chosenTags.include) extra.push(["includedTags[]", id]);
+      for (const id of chosenTags.exclude) extra.push(["excludedTags[]", id]);
+    }
+    const sort = typeof chosen.sort === "string" && (text.trim() || chosen.sort !== "relevance") ? chosen.sort : "";
     return listMangas(SORTS[sort] ?? SORTS[text.trim() ? "relevance" : "popular"], page, extra);
   };
   registerProvider(
@@ -233,7 +394,7 @@
       id: "mangadex",
       name: "MangaDex",
       popular: ({ page }) => listMangas(["followedCount", "desc"], page),
-      latest: ({ page }) => listMangas(["latestUploadedChapter", "desc"], page),
+      latest: ({ page }) => latest(page),
       search: ({ query: text, page, filters: chosen }) => search(text, page, chosen),
       filters,
       details: ({ id }) => details(id),

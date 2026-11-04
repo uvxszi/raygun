@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useLayout } from '../layout/useLayout';
 import { OpenLinkSheet } from '../pages/OpenLinkSheet';
+import { useIncognitoItem } from '../privacy/useIncognito';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import type { OverflowItem } from '../shell/OverflowMenu';
 import { Tabs } from '../shell/Tabs';
@@ -37,6 +38,7 @@ export const LibraryTop: FC<{
   const { t } = useTranslation();
   const [opening, setOpening] = useState(false);
   const layout = useLayout();
+  const incognitoItem = useIncognitoItem();
   // The user's tabs in their order (M46.5); one opened from elsewhere shows while it's open.
   const tabs = layout.libraryMedia
     .filter((item) => item.visible || item.id === media)
@@ -56,6 +58,7 @@ export const LibraryTop: FC<{
               items={[
                 ...menu,
                 { label: t('library.openTitle'), icon: Link2, onSelect: () => setOpening(true) },
+                incognitoItem,
                 {
                   label: t('layout.editLibraryTabs'),
                   icon: LayoutList,

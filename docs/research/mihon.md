@@ -14,7 +14,7 @@ What Mihon (plus TachiyomiAT and mihon_img_upscale) does that Raygun lacks or ha
 
 ## How Mihon separates discovery from the Library
 
-This bears directly on the user's "no browsing in the Library" ask.
+This bears directly on Raygun's rule of no browsing in the Library.
 
 - **Library tab** (`UI/library/LibraryTab.kt`, `P/library/components/*`): only saved entries, by category tab. Its toolbar has:
   - filter, search, update library or category, open random entry;
@@ -25,7 +25,7 @@ This bears directly on the user's "no browsing in the Library" ask.
   - So the Library's only path to new content is through search.
 - **Browse tab** holds discovery: Sources, Extensions and Migrate. Global search (`P/browse/GlobalSearchScreen.kt`) is reached from Browse and from that library-search row.
 - **More** holds the rest: Downloaded only and Incognito switches, Download queue, Categories, Statistics, Data and storage, Settings, About, Help.
-- **Raygun today:** library menus and empty states link to Browse ("Browse sources", and "Browse"/"Addons" in the Videos menu). The video ones were removed after the user's feedback; check the manga and novel empty states and Home too.
+- **Raygun today:** library menus and empty states link to Browse ("Browse sources", and "Browse"/"Addons" in the Videos menu). The video ones were removed (M43 follow-up); check the manga and novel empty states and Home too.
 
 ---
 
@@ -263,4 +263,4 @@ Most library, update, download, history and selection gaps apply to novels and s
 14. **Title extras:** cover dialog (save, share, custom cover), notes, share, tap author/genre to search, missing-chapter indicators. M.
 15. **Privacy and data:** app lock, secure screen, statistics, backup options, automatic backups, storage usage. M.
 
-Also: the parity table overclaims M27 (spreads and vertical paged mode were out of scope), and Mihon's Library has no path to sources except search ("Search globally"), which matches the user's ask.
+Also: the parity table overclaims M27 (spreads and vertical paged mode were out of scope), and Mihon's Library has no path to sources except search ("Search globally"), which matches Raygun's rule.

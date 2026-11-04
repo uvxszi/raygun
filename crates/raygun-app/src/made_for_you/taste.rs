@@ -353,9 +353,13 @@ impl Taste {
             top_song,
             peak_hour: peak,
             songs_known: self.songs.len() as u32,
+            top_artists: self.top_artists(TOP_ARTISTS),
         }
     }
 }
+
+/// Artists in Home's Your top artists, at most (a few more are kept for hidden ones).
+const TOP_ARTISTS: usize = 24;
 
 /// A mix of `tracks`: its artwork is the first four different covers, and its artists the first
 /// three different main artists.

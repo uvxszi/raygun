@@ -97,7 +97,7 @@ describe('Exports', () => {
 
     const sheet = await screen.findByRole('dialog', { name: 'Export' });
     expect(await within(sheet).findByRole('status')).toHaveTextContent(
-      '3 chapters, 3 file(s). 1 chapter downloads first',
+      '3 chapters · 3 files. 1 chapter downloads first',
     );
     expect(lastRequest()).toEqual({
       medium: 'manga',
@@ -126,7 +126,7 @@ describe('Exports', () => {
     expect(within(sheet).getByRole('button', { name: 'Export' })).toBeDisabled();
     await user.click(within(sheet).getByRole('radio', { name: 'PDF' }));
     await vi.waitFor(() => expect(lastRequest().format).toBe('pdf'));
-    expect(await within(sheet).findByRole('status')).toHaveTextContent('1 file(s)');
+    expect(await within(sheet).findByRole('status')).toHaveTextContent('1 file.');
 
     await user.click(within(sheet).getByRole('button', { name: 'Export' }));
     expect(commands.exportStart).toHaveBeenCalledWith({
@@ -237,6 +237,7 @@ describe('Exports', () => {
       titleId: 't1',
       title: 'Frieren',
       readerMode: 'pagedLtr',
+      ownReaderMode: 'pagedLtr',
       chapter: chapter('c1', 'Chapter 1'),
       pages: ['http://127.0.0.1:1/image/a', 'http://127.0.0.1:1/image/b'],
       previousChapterId: null,

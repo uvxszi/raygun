@@ -4,6 +4,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ChapterUpdates } from '../manga/ChapterUpdates';
+import { UpdateFailures } from '../manga/UpdateFailures';
 import { useMangaLiveEvents, useMangaUpdateStatus, useUpdateLibrary } from '../manga/useManga';
 import { Tabs } from '../shell/Tabs';
 import { TopBarAction } from '../shell/TopBar';
@@ -89,6 +90,7 @@ export const UpdatesPage: FC = () => {
           )}
         </div>
       )}
+      {finished && <UpdateFailures failures={finished.failures ?? []} />}
       {tab === 'all' && (
         <>
           <h2 className="text-lg font-semibold">{t('updates.chapters')}</h2>

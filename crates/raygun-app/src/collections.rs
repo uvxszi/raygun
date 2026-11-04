@@ -368,7 +368,7 @@ impl CollectionsService {
             .await
             .map(|settings| settings.privacy.recently_played)
             .unwrap_or(true);
-        if !keep {
+        if !keep || crate::privacy::incognito(&self.app) {
             return Ok(());
         }
         context.played_at = now_ms() as f64;
@@ -383,8 +383,11 @@ impl CollectionsService {
     }
 
     /// Writes a play to history in the background; failures only log. Nothing is written while
-    /// listening history is off (M46.41).
+    /// listening history is off (M46.41) or incognito is on (M47).
     pub fn record_play(&self, item: QueueItem) {
+        if crate::privacy::incognito(&self.app) {
+            return;
+        }
         let app = self.app.clone();
         tauri::async_runtime::spawn(async move {
             let service = app.state::<CollectionsService>();

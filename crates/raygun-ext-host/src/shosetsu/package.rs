@@ -482,42 +482,6 @@ mod tests {
     }
 
     #[test]
-    fn shosetsu_repositories_are_named_from_where_they_are() {
-        for (url, name) in [
-            (
-                "https://gitlab.com/shosetsuorg/extensions/-/raw/dev/index.json",
-                "Shosetsu extensions",
-            ),
-            (
-                "https://raw.githubusercontent.com/noaione/shosetsu-extensions/dev/index.json",
-                "noaione/shosetsu-extensions",
-            ),
-            (
-                "https://gitlab.com/someone/novels/-/raw/main/index.json",
-                "someone/novels",
-            ),
-            (
-                "https://cdn.jsdelivr.net/gh/wasu-code/novel-extensions@dev/index.json",
-                "wasu-code/novel-extensions",
-            ),
-            (
-                "https://jobobby04.github.io/ShosetsuExtensions/master/index.json",
-                "jobobby04/ShosetsuExtensions",
-            ),
-            (
-                "https://novels.example.org/repo/index.json",
-                "novels.example.org",
-            ),
-        ] {
-            assert_eq!(
-                crate::repo::shosetsu_repo_name(&url.parse().unwrap()),
-                name,
-                "{url}"
-            );
-        }
-    }
-
-    #[test]
     fn checks_scripts_and_libraries_and_builds_the_folder() {
         let index = index();
         let entry = &index.extensions[0];

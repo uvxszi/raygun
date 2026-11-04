@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
 import { Artwork } from '../library/Artwork';
+import { menuHandler, useSourcePlaylistMenuItems } from '../music/cardMenus';
 import { SourceIssue } from '../shell/SourceIssue';
 import { titleScore } from './rankResults';
 
@@ -34,6 +35,7 @@ export const PlaylistFinds: FC<{ query: string }> = ({ query }) => {
   const { t } = useTranslation();
   const [featured, setFeatured] = useState(false);
   const playlists = usePlaylistFinds(query, featured);
+  const menu = useSourcePlaylistMenuItems();
   const chip = (on: boolean) =>
     `shrink-0 rounded-full px-3 py-1 text-sm ${on ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`;
   return (
@@ -67,6 +69,7 @@ export const PlaylistFinds: FC<{ query: string }> = ({ query }) => {
               <Link
                 to="/music/playlist"
                 search={{ provider: playlist.provider.id, id: playlist.id }}
+                onContextMenu={menuHandler(() => menu(playlist))}
                 className="hover:bg-surface flex flex-col gap-1.5 rounded-xl p-2"
               >
                 <Artwork

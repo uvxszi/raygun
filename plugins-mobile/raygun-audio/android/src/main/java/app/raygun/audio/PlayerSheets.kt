@@ -51,16 +51,41 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             host.request("autoplay", JSONObject().put("on", host.autoplay))
             episodes()
         }
-        for (index in 0 until episodes.length()) {
-            val episode = episodes.optJSONObject(index) ?: continue
-            val marks = buildString {
-                if (episode.optBoolean("watched")) append("✓ ")
-                if (episode.optBoolean("downloaded")) append("⤓ ")
-            }.trim()
-            val current = episode.optBoolean("current")
-            sheet.row(episode.optString("label"), marks.ifBlank { null }, current) {
+        // Long series (hundreds of episodes) make their rows as they scroll by, from the current one.
+        val current = (0 until episodes.length()).firstOrNull { episodes.optJSONObject(it)?.optBoolean("current") == true } ?: 0
+        val watched = label("watched", "Watched")
+        val downloaded = label("downloaded", "Downloaded")
+        sheet.list(episodes.length(), current, { index ->
+            val episode = episodes.optJSONObject(index) ?: JSONObject()
+            val marks = listOfNotNull(
+                watched.takeIf { episode.optBoolean("watched") },
+                downloaded.takeIf { episode.optBoolean("downloaded") },
+            ).joinToString(" · ")
+            Triple(episode.optString("label"), marks.ifBlank { null }, episode.optBoolean("current"))
+        }) { index ->
+            sheet.dismiss()
+            if (episodes.optJSONObject(index)?.optBoolean("current") != true) {
+                host.request("episode", JSONObject().put("index", index))
+            }
+        }
+        sheet.show()
+    }
+
+    /** The video's qualities (HLS and DASH variants): automatic, or one held. */
+    fun quality() {
+        val tracks = host.tracks.qualities()
+        val sheet = PlayerSheet(host, label("quality", "Quality"))
+        val auto = host.tracks.qualityAuto()
+        // Every variant of an automatic choice counts as selected; this is the one playing.
+        val playing = host.player.videoFormat?.height?.takeIf { it > 0 }?.let { "${it}p" }
+        sheet.row(label("qualityAuto", "Automatic"), playing?.takeIf { auto }, auto) {
+            host.tracks.selectQuality(null)
+            sheet.dismiss()
+        }
+        tracks.forEach { track ->
+            sheet.row(host.tracks.qualityName(track), selected = !auto && track.selected) {
+                host.tracks.selectQuality(track)
                 sheet.dismiss()
-                if (!current) host.request("episode", JSONObject().put("index", index))
             }
         }
         sheet.show()
@@ -80,8 +105,9 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                 if (hidden) continue
                 val detail = when (state) {
                     "resolving" -> label("resolving", "finding links…")
+                    // Why, in the source's own words, kept short.
                     "failed" -> label("failed", "failed") +
-                        server.optString("error").let { if (it.isBlank()) "" else ": $it" }
+                        (server.text("error")?.let { ": ${it.take(120)}" } ?: "")
                     else -> label("empty", "no videos")
                 }
                 sheet.row(server.optString("name"), detail, onClick = null)
@@ -101,10 +127,7 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                 val failed = entry.optBoolean("failed")
                 sheet.row(entry.optString("label"), if (failed) label("failed", "failed") else null, current) {
                     sheet.dismiss()
-                    if (!current) {
-                        host.showLoading(label("findingSource", "Finding a source…"))
-                        host.request("source", JSONObject().put("group", group).put("link", link))
-                    }
+                    if (!current) host.chooseSource(group, link)
                 }
                 shown += 1
             }
@@ -164,7 +187,7 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             subtitles()
         }
         host.sidecars.forEachIndexed { index, sidecar ->
-            val name = sidecar.label?.takeIf { !sameLanguage(it, sidecar.language) }
+            val name = sidecar.label?.takeIf { !Languages.onlyNames(it, sidecar.language) }
                 ?: languageName(sidecar.language)
                 ?: sidecar.label
                 ?: label("track", "Track {n}", (index + 1).toString())
@@ -250,8 +273,8 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         val slider = SeekBar(host).apply {
             max = (400 - 25) / 5
             progress = ((current * 100 - 25) / 5).toInt().coerceIn(0, max)
-            progressTintList = ColorStateList.valueOf(ACCENT)
-            thumbTintList = ColorStateList.valueOf(ACCENT)
+            progressTintList = ColorStateList.valueOf(playerAccent)
+            thumbTintList = ColorStateList.valueOf(playerAccent)
             setPadding(host.dp(28), host.dp(12), host.dp(28), host.dp(12))
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(bar: SeekBar, progress: Int, fromUser: Boolean) {
@@ -310,6 +333,14 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
 
     fun more() {
         val sheet = PlayerSheet(host, label("more", "More"))
+        if (host.tracks.qualities().size > 1) {
+            val quality = if (host.tracks.qualityAuto()) {
+                label("qualityAuto", "Automatic")
+            } else {
+                host.player.videoFormat?.height?.takeIf { it > 0 }?.let { "${it}p" }
+            }
+            sheet.row(label("quality", "Quality"), quality) { quality() }
+        }
         sheet.row(label("sleepTimer", "Sleep timer"), host.sleepNote() ?: label("off", "Off")) { sleep() }
         sheet.row(label("screenshot", "Screenshot")) { screenshot() }
         sheet.row(label("openElsewhere", "Open in another app")) {

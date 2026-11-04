@@ -41,7 +41,7 @@ export const OnlineTrackRow: FC<OnlineTrackRowProps> = ({ track, onPlay, source 
           className="size-10 shrink-0 rounded"
           iconSize={18}
         />
-        <span className="flex min-w-0 flex-1 flex-col">
+        <span className="flex min-w-0 flex-1 flex-col gap-1.5">
           <span
             className={`flex min-w-0 items-center gap-1.5 text-sm font-medium ${playing ? 'text-primary' : ''}`}
           >
@@ -51,7 +51,7 @@ export const OnlineTrackRow: FC<OnlineTrackRowProps> = ({ track, onPlay, source 
             {track.explicit && <ExplicitMark />}
           </span>
           <span className="text-muted block truncate text-xs">
-            <ArtistLinks credit={track.artist} nested />
+            <ArtistLinks credit={track.artist} nested row />
             {track.album && <> · {track.album}</>}
             {source && <span className="text-primary/80"> · {source}</span>}
           </span>
