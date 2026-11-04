@@ -20,6 +20,7 @@ import { TopBar, TopBarAction } from '../shell/TopBar';
 import { DetailEditForm } from '../music/DetailEditForm';
 import { PinButton } from '../shell/PinButton';
 import { SourceIssue } from '../shell/SourceIssue';
+import { joinCount, useSongsLength } from '../music/collectionLength';
 import { usePlayContext } from '../music/playContext';
 import { findInCache } from '../shell/queryMemory';
 
@@ -34,6 +35,7 @@ export const MusicAlbumPage: FC = () => {
     staleTime: 30 * 60_000,
   });
   const tracks = album.data?.tracks ?? [];
+  const length = useSongsLength(tracks);
   const client = useQueryClient();
   // The album as the search, chart or discography showed it (M46.40), until its songs come.
   const known = useMemo(
@@ -145,7 +147,9 @@ export const MusicAlbumPage: FC = () => {
           <p className="text-muted flex flex-wrap items-center gap-1 text-sm">
             {info?.artist && <ArtistLinks credit={info.artist} />}
             {info?.year && <span>· {info.year}</span>}
-            {tracks.length > 0 && <span>· {t('discover.songs', { count: tracks.length })}</span>}
+            {tracks.length > 0 && (
+              <span>· {joinCount(t('discover.songs', { count: tracks.length }), length)}</span>
+            )}
             {info && <span>· {info.provider.name}</span>}
           </p>
         </div>

@@ -1263,6 +1263,10 @@
       "dismiss": "Dismiss"
     }
   },
+  "collectionLength": {
+    "about": "about {{length}}",
+    "atLeast": "{{length}}+"
+  },
   "collections": {
     "moreActions": "More for {{title}}",
     "favorite": "Add to favorites",

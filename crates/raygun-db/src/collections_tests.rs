@@ -90,6 +90,8 @@ async fn playlists_append_move_and_remove_items() {
     let listed = playlist(&db, &id).await.unwrap().unwrap();
     assert_eq!(listed.name, "Road trip");
     assert_eq!(listed.item_count, 2);
+    // The live items' lengths, summed.
+    assert_eq!((listed.known_ms, listed.known_count), (360_000, 2));
     assert_eq!(listed.first_items.len(), 2);
 }
 
