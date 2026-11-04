@@ -9,6 +9,14 @@ import { useBookDirectory } from '../audiobooks/useAudiobooks';
 import { TrackRow } from '../library/TrackRow';
 import { Artwork } from '../library/Artwork';
 import { playFromLibrary } from '../library/useLibrary';
+import { fromOnlineTrack } from '../collections/useCollections';
+import {
+  menuHandler,
+  useAlbumMenuItems,
+  useArtistMenuItems,
+  usePodcastMenuItems,
+} from '../music/cardMenus';
+import { useTrackMenuItems } from '../music/useTrackMenu';
 import { PodcastArt } from '../podcasts/PodcastArt';
 import { PodcastResultList } from '../podcasts/PodcastResultList';
 import { useOpenFeed, usePodcastSearch } from '../podcasts/usePodcasts';
@@ -79,6 +87,10 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
   const podcasts = usePodcastSearch(query);
   const books = useBookDirectory('search', query.trim());
   const bookList = books.data?.pages[0]?.books ?? [];
+  const trackMenu = useTrackMenuItems();
+  const artistMenu = useArtistMenuItems();
+  const albumMenu = useAlbumMenuItems();
+  const podcastMenu = usePodcastMenuItems();
 
   // Songs already seen (Home, charts, earlier searches) show until the sources answer (M46.47).
   const seen = useSeenSongs(query);
@@ -196,6 +208,28 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
             type="button"
             data-testid="top-result"
             onClick={openTop}
+            // A book's page has its actions; the others have menus of their own.
+            onContextMenu={
+              top.kind === 'book'
+                ? undefined
+                : (event) =>
+                    menuHandler(() =>
+                      top.kind === 'song'
+                        ? trackMenu(
+                            fromOnlineTrack(top.track),
+                            { onPlay: openTop },
+                            { x: event.clientX, y: event.clientY },
+                          )
+                        : top.kind === 'artist'
+                          ? artistMenu({ name: top.name, imageUrl: top.imageUrl }, { goTo: true })
+                          : podcastMenu({
+                              title: top.podcast.title,
+                              author: top.podcast.author,
+                              feedUrl: top.podcast.feedUrl,
+                              artworkUrl: top.podcast.artworkUrl,
+                            }),
+                    )(event)
+            }
             className="bg-surface hover:bg-surface/70 group relative flex max-w-md items-center gap-4 rounded-2xl p-4 text-left"
           >
             {top.kind === 'song' && (
@@ -273,6 +307,9 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
                 <Link
                   to="/artist"
                   search={{ name: found.name }}
+                  onContextMenu={menuHandler(() =>
+                    artistMenu({ name: found.name, imageUrl: found.imageUrl }),
+                  )}
                   className="hover:bg-surface flex flex-col items-center gap-2 rounded-xl p-2 text-center"
                 >
                   {found.imageUrl ? (
@@ -297,6 +334,7 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
                 <AlbumTile
                   album={album}
                   detail={[album.year, album.artist].filter(Boolean).join(' · ')}
+                  onMenu={menuHandler(() => albumMenu(album))}
                 />
               </li>
             ))}

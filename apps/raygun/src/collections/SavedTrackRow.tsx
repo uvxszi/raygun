@@ -47,7 +47,7 @@ export const SavedTrackRow: FC<SavedTrackRowProps> = ({
           className="size-10 shrink-0 rounded"
           iconSize={18}
         />
-        <span className="flex min-w-0 flex-1 flex-col">
+        <span className="flex min-w-0 flex-1 flex-col gap-1.5">
           <span
             className={`flex min-w-0 items-center gap-1.5 text-sm font-medium ${playing ? 'text-primary' : ''}`}
           >
@@ -56,7 +56,7 @@ export const SavedTrackRow: FC<SavedTrackRowProps> = ({
             <SongMarks title={track.title} artist={track.artist} />
           </span>
           <span className="text-muted block truncate text-xs">
-            <ArtistLinks credit={track.artist} nested />
+            <ArtistLinks credit={track.artist} nested row />
             {track.album && <> · {track.album}</>}
           </span>
         </span>

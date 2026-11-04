@@ -33,6 +33,7 @@ import { VideoTitlePage } from './pages/VideoTitlePage';
 import { isSearchType, isSearchView, searchLink } from './search/searchTypes';
 import type { SearchType, SearchView } from './search/searchTypes';
 import { DevicesPage } from './pages/DevicesPage';
+import { HiddenPage } from './pages/HiddenPage';
 import { ExtensionDetailPage } from './pages/ExtensionDetailPage';
 import { MusicArtistPage } from './pages/MusicArtistPage';
 import { HomePage } from './pages/HomePage';
@@ -338,6 +339,11 @@ const routeTree = rootRoute.addChildren([
     path: '/settings/devices',
     component: DevicesPage,
   }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/settings/hidden',
+    component: HiddenPage,
+  }),
   createRoute({ getParentRoute: () => rootRoute, path: '/settings/ai', component: AiPage }),
   // Watch was a tab until M42.1; what it held now lives in Library → Videos and Browse.
   createRoute({
@@ -407,11 +413,13 @@ const routeTree = rootRoute.addChildren([
     component: WatchCatalogPage,
     validateSearch: (
       search: Record<string, unknown>,
-    ): { addon: string; type: string; catalog: string; genre?: string } => ({
-      addon: text(search.addon),
-      type: text(search.type),
-      catalog: text(search.catalog),
+    ): { addon?: string; type?: string; catalog?: string; genre?: string; extra?: string } => ({
+      ...(text(search.addon) ? { addon: text(search.addon) } : {}),
+      ...(text(search.type) ? { type: text(search.type) } : {}),
+      ...(text(search.catalog) ? { catalog: text(search.catalog) } : {}),
       ...(text(search.genre) ? { genre: text(search.genre) } : {}),
+      // Discover's other choices (a year...), as a query string.
+      ...(text(search.extra) ? { extra: text(search.extra) } : {}),
     }),
   }),
   createRoute({

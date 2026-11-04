@@ -129,6 +129,16 @@ export const ReposTab: FC = () => {
   const toAdd = (suggested.data ?? []).filter((repo) => !repo.added);
   // What each suggestion holds, read from its index.
   const previews = useQueries({ queries: toAdd.map((repo) => previewOptions(repo.url)) });
+  // Removing takes a second tap, so a stray one can't drop a repository.
+  const [removing, setRemoving] = useState<string | null>(null);
+  const onRemove = (id: string) => {
+    if (removing !== id) {
+      setRemoving(id);
+      return;
+    }
+    setRemoving(null);
+    removeRepo.mutate(id);
+  };
 
   return (
     <div data-testid="repos-tab" className="flex flex-col gap-4 text-sm">
@@ -152,19 +162,32 @@ export const ReposTab: FC = () => {
                   </SourceIssue>
                 )}
               </span>
-              <button
-                type="button"
-                onClick={() => removeRepo.mutate(repo.id)}
-                aria-label={t('extensions.removeRepo', { name: repo.name })}
-                className="text-muted p-2"
-              >
-                <Trash2 aria-hidden size={18} />
-              </button>
+              {removing === repo.id ? (
+                <button
+                  type="button"
+                  // Focus moves here from the button it replaced; leaving it cancels.
+                  autoFocus
+                  onClick={() => onRemove(repo.id)}
+                  onBlur={() => setRemoving(null)}
+                  className="text-primary rounded-full px-3 py-1.5 text-sm font-semibold whitespace-nowrap"
+                >
+                  {t('extensions.removeRepoConfirm')}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onRemove(repo.id)}
+                  aria-label={t('extensions.removeRepo', { name: repo.name })}
+                  className="text-muted p-2"
+                >
+                  <Trash2 aria-hidden size={18} />
+                </button>
+              )}
             </li>
           );
         })}
       </ul>
-      {repos.data?.length === 0 && <p className="text-muted">{t('extensions.noRepos')}</p>}
+      {repos.data?.length === 0 && <p className="text-muted">{t('extensions.noReposYet')}</p>}
       {suggested.data && toAdd.length > 0 && (
         <section aria-labelledby="suggested-repos" className="flex flex-col gap-2">
           <h2 id="suggested-repos" className="text-muted font-medium">

@@ -35,6 +35,8 @@ export const CategoriesPage: FC = () => {
   const [name, setName] = useState('');
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
+  // Deleting asks first, in the row: the category's titles lose it.
+  const [deleting, setDeleting] = useState<string | null>(null);
   const list = categories.data ?? [];
 
   const onCreate = (event: FormEvent) => {
@@ -83,7 +85,6 @@ export const CategoriesPage: FC = () => {
           </>
         }
       />
-      <p className="text-muted text-sm">{t('library.categories.hint')}</p>
       {list.length === 0 && categories.data && (
         <p className="text-sm">{t('library.categories.empty')}</p>
       )}
@@ -142,14 +143,37 @@ export const CategoriesPage: FC = () => {
                   >
                     <Pencil aria-hidden size={16} />
                   </button>
-                  <button
-                    type="button"
-                    aria-label={t('library.categories.delete', { name: item.name })}
-                    onClick={() => remove.mutate(item.id)}
-                    className={ICON}
-                  >
-                    <Trash2 aria-hidden size={16} />
-                  </button>
+                  {deleting === item.id ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          remove.mutate(item.id, { onSettled: () => setDeleting(null) })
+                        }
+                        disabled={remove.isPending}
+                        className="bg-primary text-background rounded-full px-3 py-1.5 text-xs font-semibold"
+                      >
+                        {t('library.categories.confirmDelete')}
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={t('library.categories.cancel')}
+                        onClick={() => setDeleting(null)}
+                        className={ICON}
+                      >
+                        <X aria-hidden size={16} />
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      aria-label={t('library.categories.delete', { name: item.name })}
+                      onClick={() => setDeleting(item.id)}
+                      className={ICON}
+                    >
+                      <Trash2 aria-hidden size={16} />
+                    </button>
+                  )}
                 </>
               )}
             </li>

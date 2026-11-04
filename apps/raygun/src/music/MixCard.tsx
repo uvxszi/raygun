@@ -1,13 +1,16 @@
 import type { MixSummary } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
-import type { FC } from 'react';
+import type { FC, MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { PlaylistCover } from '../collections/PlaylistCover';
 import { mixDescription, mixTitle } from './useMadeForYou';
 
 /** A mix as a card: its covers, name and what's in it; it opens the mix (M46.20). */
-export const MixCard: FC<{ mix: MixSummary }> = ({ mix }) => {
+export const MixCard: FC<{ mix: MixSummary; onMenu?: (event: MouseEvent) => void }> = ({
+  mix,
+  onMenu,
+}) => {
   const { t } = useTranslation();
   const title = mixTitle(t, mix);
   return (
@@ -16,6 +19,7 @@ export const MixCard: FC<{ mix: MixSummary }> = ({ mix }) => {
         to="/music/mix"
         search={{ id: mix.id }}
         data-testid="mix-card"
+        onContextMenu={onMenu}
         className="hover:bg-surface flex flex-col gap-2 rounded-xl p-2"
       >
         <span className="relative block">

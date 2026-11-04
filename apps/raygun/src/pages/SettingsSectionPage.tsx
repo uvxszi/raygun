@@ -4,11 +4,12 @@ import type {
   LibraryTabs,
   NovelFont,
   NovelReaderPrefs,
+  NovelTheme,
   NovelWidth,
 } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
-import { Bot, LayoutList, Package, Puzzle, Smartphone, Tag } from 'lucide-react';
+import { Bot, EyeOff, LayoutList, Package, Puzzle, Smartphone, Tag } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -368,6 +369,28 @@ const ReaderSettings: FC = () => {
           onChange={(indent) => set({ indent })}
         />
         <PrefSwitch
+          title={t('settings.justify')}
+          checked={prefs.justify ?? false}
+          disabled={busy}
+          onChange={(justify) => set({ justify })}
+        />
+        <PrefChoice<NovelTheme>
+          title={t('novel.theme')}
+          value={prefs.theme ?? 'app'}
+          disabled={busy}
+          options={(['app', 'light', 'sepia', 'dark', 'black'] as const).map((value) => ({
+            value,
+            label: t(`novel.themes.${value}`),
+          }))}
+          onChange={(theme) => set({ theme })}
+        />
+        <PrefSwitch
+          title={t('reader.display.keepScreenOn')}
+          checked={prefs.keepScreenOn ?? true}
+          disabled={busy}
+          onChange={(keepScreenOn) => set({ keepScreenOn })}
+        />
+        <PrefSwitch
           title={t('settings.paged')}
           summary={t('settings.pagedHint')}
           checked={prefs.paged}
@@ -598,6 +621,20 @@ const BrowseSettings: FC = () => {
               // Music searches, charts, mixes and sources depend on it (M46.36).
               { onSuccess: () => void queryClient.invalidateQueries() },
             )
+          }
+        />
+        {/* Don't show this artist and Not interested, to show again. */}
+        <PrefLink
+          icon={EyeOff}
+          to="/settings/hidden"
+          title={t('hidden.title')}
+          summary={
+            data.hidden.artists.length + data.hidden.items.length === 0
+              ? t('hidden.none')
+              : [
+                  t('hidden.summaryArtists', { count: data.hidden.artists.length }),
+                  t('hidden.summaryItems', { count: data.hidden.items.length }),
+                ].join(' · ')
           }
         />
       </PrefGroup>

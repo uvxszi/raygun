@@ -1,5 +1,5 @@
 import { commands } from '@raygun/bindings';
-import type { PlaybackState, QueueItem, SpokenItem } from '@raygun/bindings';
+import type { QueueItem, SpokenItem } from '@raygun/bindings';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { ExternalLink, Maximize2, UserRound } from 'lucide-react';
 import { useId, useState } from 'react';
@@ -11,7 +11,9 @@ import { Sheet } from '../shell/Sheet';
 import { CaptionsView } from './CaptionsView';
 import { currentLine, trackQueryFor, useLyricsFor } from './lyricsQuery';
 import { artistFacts, shownCredits, useArtistInfo, useSongCredits } from './musicInfo';
-import { useLivePosition } from './useLivePosition';
+import { useLyricsLook } from './playerView';
+import { useLiveValue } from './useLivePosition';
+import { usePlayerTiming } from './usePlayback';
 
 /** Lines of lyrics the card shows. */
 const PREVIEW_LINES = 5;
@@ -24,7 +26,6 @@ const CARD = 'flex w-full shrink-0 flex-col gap-3 overflow-hidden rounded-2xl te
 
 type PlayerCardsProps = {
   item: QueueItem;
-  state: PlaybackState | undefined;
   /** A podcast episode or a book's chapter: captions instead of lyrics, artist and credits. */
   spoken?: SpokenItem | null;
   /** Shows the lyrics full screen. */
@@ -35,13 +36,13 @@ type PlayerCardsProps = {
  * What sits under the phone's player (M46.14), as in Spotify: the lyrics, the artist and who made
  * the song. Each card opens more: the lyrics full screen, the artist's page, all the credits.
  */
-export const PlayerCards: FC<PlayerCardsProps> = ({ item, state, spoken, onLyrics }) => (
-  <div data-testid="player-cards" className="mx-auto flex w-full max-w-xl flex-col gap-4 pt-8">
+export const PlayerCards: FC<PlayerCardsProps> = ({ item, spoken, onLyrics }) => (
+  <div data-testid="player-cards" className="flex w-full flex-col gap-4 pt-8">
     {spoken ? (
-      <CaptionsCard spoken={spoken} state={state} onOpen={onLyrics} />
+      <CaptionsCard spoken={spoken} onOpen={onLyrics} />
     ) : (
       <>
-        <LyricsCard item={item} state={state} onOpen={onLyrics} />
+        <LyricsCard item={item} onOpen={onLyrics} />
         <ArtistCard credit={item.artist} />
         <CreditsCard item={item} />
       </>
@@ -52,9 +53,8 @@ export const PlayerCards: FC<PlayerCardsProps> = ({ item, state, spoken, onLyric
 /** Captions for spoken items (M46.32), slim until there are lines. */
 const CaptionsCard: FC<{
   spoken: SpokenItem;
-  state: PlaybackState | undefined;
   onOpen: () => void;
-}> = ({ spoken, state, onOpen }) => {
+}> = ({ spoken, onOpen }) => {
   const { t } = useTranslation();
   const heading = useId();
   return (
@@ -76,22 +76,21 @@ const CaptionsCard: FC<{
           <Maximize2 aria-hidden size={16} />
         </button>
       </header>
-      <CaptionsView spoken={spoken} state={state} variant="panel" />
+      <CaptionsView spoken={spoken} variant="panel" />
     </section>
   );
 };
 
-const LyricsCard: FC<{ item: QueueItem; state: PlaybackState | undefined; onOpen: () => void }> = ({
-  item,
-  state,
-  onOpen,
-}) => {
+const LyricsCard: FC<{ item: QueueItem; onOpen: () => void }> = ({ item, onOpen }) => {
   const { t } = useTranslation();
   const heading = useId();
   const lyrics = useLyricsFor(trackQueryFor(item));
-  const positionMs = useLivePosition(state);
+  const { style } = useLyricsLook();
   const synced = lyrics.data?.synced ?? [];
-  const current = currentLine(synced, positionMs, lyrics.data?.offsetMs ?? 0);
+  const offsetMs = lyrics.data?.offsetMs ?? 0;
+  // Follows the playhead, re-rendering only as a line starts.
+  const timing = usePlayerTiming();
+  const current = useLiveValue(timing, (position) => currentLine(synced, position, offsetMs));
   // Synced lyrics show from the line playing; plain ones from the top.
   const start = Math.max(0, current);
   const lines =
@@ -141,7 +140,8 @@ const LyricsCard: FC<{ item: QueueItem; state: PlaybackState | undefined; onOpen
       aria-labelledby={heading}
       data-testid="lyrics-card"
       onClick={onOpen}
-      className={`${CARD} from-primary/40 via-primary/20 to-surface bg-gradient-to-br p-4`}
+      style={style}
+      className={`${CARD} from-primary/40 via-primary/20 to-surface @container bg-gradient-to-br p-4`}
     >
       <span className="flex w-full items-center justify-between">
         <span id={heading} className="font-bold">
@@ -149,11 +149,12 @@ const LyricsCard: FC<{ item: QueueItem; state: PlaybackState | undefined; onOpen
         </span>
         <Maximize2 aria-hidden size={18} className="text-muted" />
       </span>
-      <span className="flex flex-col gap-1.5 text-xl leading-snug font-bold">
+      <span className="flex flex-col gap-[0.4em] leading-snug font-bold">
         {lines.map((line) => (
           <span
             key={line.key}
-            className={`line-clamp-2 transition-colors ${
+            data-variant="panel"
+            className={`lyric-text line-clamp-2 transition-colors ${
               line.playing || synced.length === 0 ? 'text-foreground' : 'text-foreground/45'
             }`}
           >

@@ -105,12 +105,14 @@ pub async fn upsert_title(db: &Db, fields: &TitleFields, now_ms: i64) -> Result<
             .await?
             .map(|row| row.get("id"));
     let id = existing.unwrap_or_else(|| Uuid::now_v7().to_string());
+    // A new title has no reading mode of its own: it follows the reader's default.
     sqlx::query(
         "INSERT INTO title (id, kind, source_id, remote_id, remote_title, remote_cover,
              remote_authors, remote_artists, remote_description, remote_genres, remote_status,
              remote_url, state_refreshed_at, updated_at_hlc, origin_device, deleted,
-             remote_cover_headers, remote_media_type, remote_year)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 0, ?16, ?17, ?18)
+             remote_cover_headers, remote_media_type, remote_year, user_reader_mode)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 0, ?16, ?17, ?18,
+             '')
          ON CONFLICT (id) DO UPDATE SET
              remote_title = excluded.remote_title, remote_cover = excluded.remote_cover,
              remote_cover_headers = excluded.remote_cover_headers,
@@ -293,7 +295,7 @@ pub async fn mark_stale(db: &Db, id: &str) -> Result<(), DbError> {
     Ok(())
 }
 
-/// Remembers how the user reads a title.
+/// Remembers how the user reads a title (an empty mode follows the reader's default).
 pub async fn set_reader_mode(db: &Db, id: &str, mode: &str) -> Result<(), DbError> {
     let stamp = db.tick();
     let mut transaction = db.pool().begin().await?;
@@ -648,24 +650,40 @@ pub async fn set_completed(
     completed: bool,
     now_ms: i64,
 ) -> Result<(), DbError> {
+    set_units_completed(db, &[unit_id.to_owned()], completed, now_ms).await
+}
+
+/// Marks units read or unread outright, in one write (a selection in the chapter list).
+pub async fn set_units_completed(
+    db: &Db,
+    unit_ids: &[String],
+    completed: bool,
+    now_ms: i64,
+) -> Result<(), DbError> {
+    if unit_ids.is_empty() {
+        return Ok(());
+    }
     let stamp = db.tick();
+    let device = db.device_id().to_string();
     let mut transaction = db.pool().begin().await?;
-    sqlx::query(
-        "INSERT INTO unit_progress (unit_id, position, total, completed_at, updated_at_hlc,
-             origin_device, deleted)
-         VALUES (?1, 0, NULL, ?2, ?3, ?4, 0)
-         ON CONFLICT (unit_id) DO UPDATE SET
-             completed_at = excluded.completed_at,
-             position = CASE WHEN excluded.completed_at IS NULL THEN 0 ELSE position END,
-             updated_at_hlc = excluded.updated_at_hlc, origin_device = excluded.origin_device,
-             deleted = 0",
-    )
-    .bind(unit_id)
-    .bind(completed.then_some(now_ms))
-    .bind(stamp as i64)
-    .bind(db.device_id().to_string())
-    .execute(&mut *transaction)
-    .await?;
+    for unit_id in unit_ids {
+        sqlx::query(
+            "INSERT INTO unit_progress (unit_id, position, total, completed_at, updated_at_hlc,
+                 origin_device, deleted)
+             VALUES (?1, 0, NULL, ?2, ?3, ?4, 0)
+             ON CONFLICT (unit_id) DO UPDATE SET
+                 completed_at = excluded.completed_at,
+                 position = CASE WHEN excluded.completed_at IS NULL THEN 0 ELSE position END,
+                 updated_at_hlc = excluded.updated_at_hlc, origin_device = excluded.origin_device,
+                 deleted = 0",
+        )
+        .bind(unit_id)
+        .bind(completed.then_some(now_ms))
+        .bind(stamp as i64)
+        .bind(&device)
+        .execute(&mut *transaction)
+        .await?;
+    }
     persist_hlc(&mut *transaction, stamp).await?;
     transaction.commit().await?;
     Ok(())

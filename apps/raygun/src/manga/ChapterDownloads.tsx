@@ -1,5 +1,5 @@
 import type { MangaDownloadItem } from '@raygun/bindings';
-import { CircleAlert, Download, Pause, Play, RotateCw, X } from 'lucide-react';
+import { Download, Pause, Play, RotateCw, X } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -66,12 +66,7 @@ const DownloadRow: FC<{ item: MangaDownloadItem }> = ({ item }) => {
           />
         </div>
       )}
-      {state === 'failed' && error && (
-        <p className="text-primary flex items-start gap-1.5 text-xs wrap-anywhere">
-          <CircleAlert aria-hidden size={14} className="mt-px shrink-0" />
-          {error}
-        </p>
-      )}
+      {state === 'failed' && error && <SourceIssue compact>{error}</SourceIssue>}
     </li>
   );
 };
@@ -85,7 +80,18 @@ export const ChapterDownloads: FC = () => {
 
   return (
     <div data-testid="chapter-downloads" className="flex flex-col gap-4">
-      {downloads.error && <SourceIssue>{downloads.error.message}</SourceIssue>}
+      {downloads.error && (
+        <p role="alert" className="text-muted flex flex-wrap items-center gap-2 text-sm">
+          {t('manga.queueFailed')}
+          <button
+            type="button"
+            onClick={() => void downloads.refetch()}
+            className="text-primary font-semibold"
+          >
+            {t('issue.retry')}
+          </button>
+        </p>
+      )}
       {queue && (
         <>
           <div className="flex flex-wrap items-center gap-3">

@@ -224,8 +224,25 @@ describe('Search by type', () => {
       hasMore: false,
       error: null,
     });
-    commands.stremioSearch.mockResolvedValue(
-      ok([row('movie', 'Sintel'), row('series', 'Big Buck Series')]),
+    // Each addon's search catalog is asked on its own.
+    const searchCatalog = (kind: string) => ({
+      addonId: 'cinemeta',
+      addonName: 'Cinemeta',
+      kind,
+      catalogId: 'top',
+      name: 'Popular',
+      extras: [],
+      board: true,
+      searchable: true,
+      discoverable: true,
+      pages: true,
+      failing: false,
+    });
+    commands.stremioCatalogs.mockResolvedValue(
+      ok([searchCatalog('movie'), searchCatalog('series')]),
+    );
+    commands.stremioSearchCatalog.mockImplementation(async (_addon, kind) =>
+      ok(kind === 'movie' ? row('movie', 'Sintel') : row('series', 'Big Buck Series')),
     );
     await AppShellWrapper.mount('/browse?tab=search&type=video&q=b');
     const results = await screen.findByTestId('video-results');

@@ -74,7 +74,9 @@ describe('Right-click menu', () => {
 
   it('offers removing a downloaded song, going to its album, and one set of copy items (M46.36)', async () => {
     const user = userEvent.setup();
-    commands.songDownloadedKeys.mockResolvedValue(['daft punk|get lucky']);
+    commands.songDownloads.mockResolvedValue(
+      ok([{ id: 'dl-1', trackKey: 'daft punk|get lucky', state: 'done' }]) as never,
+    );
     commands.songDownloadFor.mockResolvedValue(ok({ id: 'dl-1' }) as never);
     commands.songDownloadRemove.mockResolvedValue(ok(null));
     commands.musicFindAlbum.mockResolvedValue(
@@ -115,8 +117,8 @@ describe('Right-click menu', () => {
     );
     await AppShellWrapper.mount('/browse?tab=search&type=music&q=get+lucky');
     const row = await screen.findByTestId('online-track-row');
-    // The downloaded marks load once per app, not per row.
-    await vi.waitFor(() => expect(commands.songDownloadedKeys).toHaveBeenCalled());
+    // The downloaded marks come from the one list of downloads, not a request per row.
+    await vi.waitFor(() => expect(commands.songDownloads).toHaveBeenCalledTimes(1));
 
     fireEvent.contextMenu(row, { clientX: 40, clientY: 40 });
     const menu = await screen.findByRole('menu');

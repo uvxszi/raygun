@@ -7,10 +7,11 @@ import { EmptyState } from '../shell/EmptyState';
 import { DownloadButton } from './DownloadButton';
 import { groupByDay, useDayLabel } from './groupByDay';
 import { MangaCover } from './MangaCover';
+import { ROUTES } from './medium';
 import { useMangaUpdates } from './useManga';
 import { SourceIssue } from '../shell/SourceIssue';
 
-/** Updates → Chapters: chapters that library updates found, by day. */
+/** Updates → Chapters: comic and book chapters that library updates found, by day. */
 export const ChapterUpdates: FC = () => {
   const { t } = useTranslation();
   const updates = useMangaUpdates();
@@ -18,7 +19,9 @@ export const ChapterUpdates: FC = () => {
 
   return (
     <div data-testid="chapter-updates" className="flex flex-col gap-4">
-      {updates.error && <SourceIssue>{updates.error.message}</SourceIssue>}
+      {updates.error && (
+        <SourceIssue onRetry={() => void updates.refetch()}>{updates.error.message}</SourceIssue>
+      )}
       {updates.data?.length === 0 && (
         <EmptyState icon={BellDot} title={t('manga.noUpdates')} body={t('manga.noUpdatesHint')} />
       )}
@@ -30,7 +33,8 @@ export const ChapterUpdates: FC = () => {
               {group.items.map((item) => (
                 <li key={item.chapter.id} className="flex items-center gap-3">
                   <Link
-                    to="/manga/read"
+                    // Books from sources are updated too; they open in the novel reader.
+                    to={item.medium === 'novel' ? ROUTES.novel.read : ROUTES.manga.read}
                     search={{ title: item.titleId, chapter: item.chapter.id }}
                     data-testid="update-row"
                     className={`flex min-w-0 flex-1 items-center gap-3 py-2 ${item.chapter.read ? 'opacity-50' : ''}`}
