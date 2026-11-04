@@ -293,6 +293,19 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(|error| error.to_string())
     }
 
+    /// Keeps the app running in the foreground while a TV plays from it (Play on TV), with a quiet
+    /// notification saying so; `on: false` stops it.
+    #[cfg(target_os = "android")]
+    pub fn cast_keep_alive(&self, on: bool, title: &str, text: &str) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>(
+                "setCastKeepAlive",
+                serde_json::json!({ "on": on, "title": title, "text": text }),
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
     /// Hides the status and navigation bars (a swipe from an edge shows them for a moment), or
     /// shows them again: the readers' full screen.
     #[cfg(target_os = "android")]

@@ -8,12 +8,14 @@ pub mod local_network;
 pub mod manifest;
 pub mod page_cache;
 mod proxy;
+pub mod subtitles;
 
 use std::sync::{Arc, RwLock};
 
 pub use cover_cache::CoverCache;
 pub use issue::{Issue, IssueKind};
 pub use page_cache::PageCache;
+pub use proxy::lan::{LanLinks, LanRoute, SubtitleFormat};
 pub use proxy::{
     ImageLinks, MediaLinks, ProxyStorage, StaticFiles, StreamProxy, artwork_url,
     image_token as proxy_image_token,

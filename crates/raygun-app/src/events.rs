@@ -165,6 +165,10 @@ pub struct WatchChangedEvent(pub String);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct VideoPlayerEvent(pub raygun_model::VideoPlayerMessage);
 
+/// What plays on a TV changed (Play on TV); `None` once nothing does.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct CastStatusEvent(pub Option<raygun_model::CastStatus>);
+
 /// What the webview's speech engine should do (read-aloud on desktop, M46.6).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SpeechCommandEvent(pub raygun_model::SpeechCommand);

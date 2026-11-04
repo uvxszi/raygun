@@ -296,6 +296,11 @@ pub async fn prepare(
         // Anime are taken as spoken in Japanese when the stream doesn't say, so subtitles in
         // the viewer's languages turn on.
         "spokenLanguage": request.anime.as_ref().map(|_| "ja"),
+        // For a TV's screen while it plays there (Play on TV): the source's address.
+        "poster": request
+            .poster
+            .as_deref()
+            .map(|poster| app.state::<raygun_net::ImageLinks>().original(poster)),
     });
     Ok(with_shared_fields(payload, &prefs))
 }
@@ -552,8 +557,31 @@ fn subtitle_format(url: &str) -> Option<String> {
         .then_some(extension)
 }
 
+/// What the player opens with. While a TV is connected (Play on TV) the video plays there instead,
+/// and the player shows the TV's status (`cast`).
+fn with_cast(app: &AppHandle, payload: &Value) -> Value {
+    let mut payload = payload.clone();
+    if let Some(cast) = app.try_state::<std::sync::Arc<crate::cast::CastService>>()
+        && let Some(status) = cast.follow(&payload)
+    {
+        payload["cast"] = json!(status);
+    }
+    payload
+}
+
+/// A video loaded into the player goes to the TV while one is connected (Play on TV).
+fn follow_load(app: &AppHandle, update: &Value) {
+    if update.get("type").and_then(Value::as_str) == Some("load")
+        && let Some(request) = update.get("request")
+        && let Some(cast) = app.try_state::<std::sync::Arc<crate::cast::CastService>>()
+    {
+        cast.follow(request);
+    }
+}
+
 #[cfg(target_os = "android")]
 pub fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), String> {
+    let payload = &with_cast(app, payload);
     let started = app.clone();
     tauri::async_runtime::spawn(
         async move { crate::playback::other_media_started(&started).await },
@@ -566,6 +594,7 @@ pub fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), S
 
 #[cfg(not(target_os = "android"))]
 pub fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), String> {
+    let payload = &with_cast(app, payload);
     let started = app.clone();
     tauri::async_runtime::spawn(
         async move { crate::playback::other_media_started(&started).await },
@@ -576,6 +605,7 @@ pub fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), S
 /// Sends an update to the open player (M44); nothing happens when none is open.
 #[cfg(target_os = "android")]
 pub fn update_player(app: &AppHandle, update: &serde_json::Value) -> Result<(), String> {
+    follow_load(app, update);
     let player = app
         .try_state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
         .ok_or_else(|| "The video player isn't available".to_owned())?;
@@ -584,6 +614,7 @@ pub fn update_player(app: &AppHandle, update: &serde_json::Value) -> Result<(), 
 
 #[cfg(not(target_os = "android"))]
 pub fn update_player(app: &AppHandle, update: &serde_json::Value) -> Result<(), String> {
+    follow_load(app, update);
     crate::video_desktop::update(app, update)
 }
 
@@ -630,7 +661,21 @@ async fn handle_report(app: &AppHandle, json: &str) {
             "state" | "prefs" | "seekStep" | "openSettings" | "brightness" | "duration" => {
                 player_request(app, action, &raw).await;
             }
+            _ if action.starts_with("cast") => crate::cast::on_request(app, action, &raw).await,
             _ => app.state::<VideoSessions>().on_report(&raw).await,
+        }
+        return;
+    }
+    // While a TV plays (Play on TV) its position is the one saved: the player's own reports are
+    // about a paused copy. Its closing still ends a session.
+    let from_cast = raw.get("cast").and_then(Value::as_bool) == Some(true);
+    if !from_cast
+        && app
+            .try_state::<std::sync::Arc<crate::cast::CastService>>()
+            .is_some_and(|cast| cast.connected())
+    {
+        if raw.get("state").and_then(Value::as_str) == Some("closed") {
+            app.state::<VideoSessions>().on_report(&raw).await;
         }
         return;
     }

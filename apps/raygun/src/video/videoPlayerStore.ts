@@ -1,5 +1,5 @@
-import { events } from '@raygun/bindings';
-import type { SubtitleMode, VideoChapter } from '@raygun/bindings';
+import { commands, events } from '@raygun/bindings';
+import type { CastStatus, SubtitleMode, VideoChapter } from '@raygun/bindings';
 import { useEffect } from 'react';
 import { create } from 'zustand';
 
@@ -49,6 +49,9 @@ type VideoPlayerState = {
   pickedSource: boolean;
   /** Loop this video (More): on until the player closes, across a session's episodes. */
   looping: boolean;
+  /** What plays on a TV (Play on TV): while there is one, the player is its remote. Kept when
+   * the player closes, as the TV plays on. */
+  cast: CastStatus | null;
   openWith: (request: PlayerRequest) => void;
   apply: (update: PlayerUpdate) => void;
   setNotice: (notice: Notice | null) => void;
@@ -115,6 +118,7 @@ const CLOSED = {
 /** The webview's video player (desktop, M46.4), driven by Rust's `videoPlayerEvent`s. */
 export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
   ...CLOSED,
+  cast: null,
   openWith: (request) =>
     set((state) => {
       // A new opening starts clean, except for a session's episodes sent just before. The load
@@ -182,6 +186,11 @@ export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
 /** Feeds Rust's messages to the store. Mount once, in the app shell. */
 export const useVideoPlayerEvents = () => {
   useEffect(() => {
+    // What plays on a TV, also after the webview reloads.
+    void commands.castStatus().then((cast) => useVideoPlayerStore.setState({ cast }));
+    const unlistenCast = events.castStatusEvent.listen(({ payload }) =>
+      useVideoPlayerStore.setState({ cast: payload }),
+    );
     const unlisten = events.videoPlayerEvent.listen(({ payload }) => {
       let message: unknown;
       try {
@@ -195,6 +204,7 @@ export const useVideoPlayerEvents = () => {
     });
     return () => {
       void unlisten.then((stop) => stop());
+      void unlistenCast.then((stop) => stop());
     };
   }, []);
 };

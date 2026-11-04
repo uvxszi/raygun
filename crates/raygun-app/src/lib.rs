@@ -10,6 +10,7 @@ mod backup;
 mod browser_check;
 mod caches;
 mod captions;
+mod cast;
 mod catalog;
 mod collections;
 mod comics;
@@ -512,6 +513,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::video_player_report,
             commands::video_player_external,
             commands::video_external_players,
+            commands::cast_devices,
+            commands::cast_add_device,
+            commands::cast_start,
+            commands::cast_control,
+            commands::cast_disconnect,
+            commands::cast_status,
             commands::video_find_subtitles,
             commands::youtube_embed_url,
             commands::tts_report,
@@ -555,6 +562,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::IncognitoEvent,
             events::ExportEvent,
             events::VideoPlayerEvent,
+            events::CastStatusEvent,
             events::YouTubeVideoEvent,
             events::SpeechCommandEvent,
             events::ConnectEvent,

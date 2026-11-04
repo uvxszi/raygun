@@ -74,6 +74,13 @@ class MulticastArgs {
 }
 
 @InvokeArg
+class CastKeepAliveArgs {
+    var on: Boolean = false
+    var title: String = ""
+    var text: String = ""
+}
+
+@InvokeArg
 class SystemBarsArgs {
     var hidden: Boolean = false
 }
@@ -874,6 +881,16 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         } else {
             multicastLock?.release()
         }
+        invoke.resolve()
+    }
+
+    // ---- Play on TV: Raygun keeps running while a TV plays from it ----
+
+    @Command
+    fun setCastKeepAlive(invoke: Invoke) {
+        val args = invoke.parseArgs(CastKeepAliveArgs::class.java)
+        val context = activity.applicationContext
+        if (args.on) CastKeepAliveService.start(context, args.title, args.text) else CastKeepAliveService.stop(context)
         invoke.resolve()
     }
 
