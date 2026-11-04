@@ -5,6 +5,10 @@
 //! needs no code) and as a Connect device with a token, so either can play on the other. Linking
 //! turns on sharing on both (the remote server Connect talks to, and the sync server).
 //!
+//! The device being linked shows a QR code (a [`LinkInvite`]: its address and a one-time code);
+//! the other scans it and asks there, so devices that don't find each other on the network link
+//! too.
+//!
 //! Linked devices keep themselves in sync: a change here (the sync log grows) is sent to them
 //! within seconds, and they all sync every few minutes anyway. A sync session runs both ways, so
 //! the device that changed is also how the others hear of it.
@@ -43,6 +47,56 @@ pub struct LinkCard {
     /// A token for its remote server, minted for the device it links with.
     #[serde(default)]
     pub token: Option<String>,
+}
+
+/// What a link QR code says: where the device that shows it listens, a one-time code from its
+/// remote server's pairing, and its name. As text: `raygun:link?at=<host:port>&code=<code>&name=<name>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkInvite {
+    pub address: String,
+    pub code: String,
+    pub name: String,
+}
+
+/// The scheme and path of a link QR code's text.
+const INVITE_PREFIX: &str = "raygun:link";
+
+impl LinkInvite {
+    pub fn to_text(&self) -> String {
+        let query = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("at", &self.address)
+            .append_pair("code", &self.code)
+            .append_pair("name", &self.name)
+            .finish();
+        format!("{INVITE_PREFIX}?{query}")
+    }
+
+    /// Reads a scanned or pasted code; anything else is refused in words.
+    pub fn parse(text: &str) -> Result<Self, String> {
+        const NOT_ONE: &str = "That isn't a Raygun link code. Open Devices on the other device and scan the code it shows.";
+        let query = text
+            .trim()
+            .strip_prefix(INVITE_PREFIX)
+            .and_then(|rest| rest.strip_prefix('?'))
+            .ok_or(NOT_ONE)?;
+        let mut invite = Self {
+            address: String::new(),
+            code: String::new(),
+            name: String::new(),
+        };
+        for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
+            match key.as_ref() {
+                "at" => invite.address = value.trim().to_owned(),
+                "code" => invite.code = value.trim().to_owned(),
+                "name" => invite.name = value.trim().chars().take(40).collect(),
+                _ => {}
+            }
+        }
+        if invite.address.is_empty() || invite.code.is_empty() {
+            return Err(NOT_ONE.into());
+        }
+        Ok(invite)
+    }
 }
 
 /// Turns sharing on or off: the remote server Connect reaches, and the sync server.
@@ -135,4 +189,31 @@ pub fn start_auto_sync(app: AppHandle) {
             seen = raygun_db::sync::latest_seq(&db).await.unwrap_or(seen);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn link_codes_read_back_and_other_text_is_refused() {
+        let invite = LinkInvite {
+            address: "192.168.1.20:8820".into(),
+            code: "abcd234567".into(),
+            name: "Living room & kitchen".into(),
+        };
+        let text = invite.to_text();
+        assert!(text.starts_with("raygun:link?at=192.168.1.20%3A8820&code=abcd234567"));
+        assert_eq!(LinkInvite::parse(&format!("  {text}\n")).unwrap(), invite);
+
+        for other in [
+            "",
+            "https://example.com/?at=1.2.3.4:8820&code=x",
+            "raygun:link?at=192.168.1.20:8820",
+            "raygun:link?code=abc",
+            "raygun:linked?at=1.2.3.4&code=x",
+        ] {
+            assert!(LinkInvite::parse(other).is_err(), "{other}");
+        }
+    }
 }

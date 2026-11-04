@@ -2,7 +2,7 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from 
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import type { PlaylistSummary, RailOrder, RailPin } from '@raygun/bindings';
+import type { PlaylistSummary, RailOrder, RailPin, Website } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import {
   ArrowDown,
@@ -31,7 +31,9 @@ import { usePlaylists } from '../collections/useCollections';
 import { usePlaylistMenuItems } from '../collections/usePlaylistMenu';
 import type { MenuItem } from './contextMenuStore';
 import { Artwork } from '../library/Artwork';
+import { useOpenWebsite, useWebsites } from '../websites/useWebsites';
 import { openContextMenu } from './contextMenuStore';
+import { LetterAvatar } from './LetterAvatar';
 import { Popover } from './Popover';
 import { useRail } from './useRail';
 
@@ -58,8 +60,10 @@ export const PinArt: FC<{
   pin: Pick<RailPin, 'kind' | 'artworkUrl'>;
   /** A playlist pin's playlist: its cover now, not the one it had when pinned (M46.45). */
   playlist?: PlaylistSummary;
+  /** A website pin's site: its icon. */
+  website?: Website;
   className: string;
-}> = ({ pin, playlist, className }) => {
+}> = ({ pin, playlist, website, className }) => {
   const fixed: Record<string, { colour: string; icon: ReactNode }> = {
     favorites: {
       colour: 'from-primary/80 to-primary/30 bg-gradient-to-br text-background',
@@ -81,6 +85,13 @@ export const PinArt: FC<{
         className={`grid shrink-0 place-items-center rounded-md ${special.colour} ${className}`}
       >
         {special.icon}
+      </span>
+    );
+  }
+  if (pin.kind === 'website') {
+    return (
+      <span className={`grid shrink-0 place-items-center ${className}`}>
+        <LetterAvatar name={website?.name ?? ''} logo={website?.icon} />
       </span>
     );
   }
@@ -116,12 +127,22 @@ const SortablePin: FC<{
   pin: RailPin;
   name: string;
   playlist?: PlaylistSummary;
+  website?: Website;
   narrow: boolean;
   onMenu: (event: React.MouseEvent) => void;
-}> = ({ pin, name, playlist, narrow, onMenu }) => {
+  /** A website pin opens its site in the built-in browser instead of a page. */
+  onOpenSite: (id: string) => void;
+}> = ({ pin, name, playlist, website, narrow, onMenu, onOpenSite }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: pinKey(pin),
   });
+  const look = `text-muted hover:bg-background hover:text-foreground flex items-center gap-3 rounded-xl ${narrow ? 'justify-center p-1.5' : 'px-2 py-1.5'}`;
+  const content = (
+    <>
+      <PinArt pin={pin} playlist={playlist} website={website} className="size-10" />
+      {!narrow && <span className="text-foreground truncate text-sm">{name}</span>}
+    </>
+  );
   return (
     <li
       ref={setNodeRef}
@@ -131,16 +152,27 @@ const SortablePin: FC<{
       {...listeners}
       role="listitem"
     >
-      <Link
-        to={pin.to}
-        search={pin.search as never}
-        aria-label={narrow ? name : undefined}
-        onContextMenu={onMenu}
-        className={`text-muted hover:bg-background hover:text-foreground flex items-center gap-3 rounded-xl ${narrow ? 'justify-center p-1.5' : 'px-2 py-1.5'}`}
-      >
-        <PinArt pin={pin} playlist={playlist} className="size-10" />
-        {!narrow && <span className="text-foreground truncate text-sm">{name}</span>}
-      </Link>
+      {pin.kind === 'website' && pin.search.site ? (
+        <button
+          type="button"
+          aria-label={narrow ? name : undefined}
+          onClick={() => onOpenSite(pin.search.site ?? '')}
+          onContextMenu={onMenu}
+          className={`${look} w-full text-left`}
+        >
+          {content}
+        </button>
+      ) : (
+        <Link
+          to={pin.to}
+          search={pin.search as never}
+          aria-label={narrow ? name : undefined}
+          onContextMenu={onMenu}
+          className={look}
+        >
+          {content}
+        </Link>
+      )}
     </li>
   );
 };
@@ -154,6 +186,8 @@ export const RailPins: FC<{ narrow: boolean; shown: boolean }> = ({ narrow, show
   const rail = useRail();
   const playlists = usePlaylists();
   const playlistMenuItems = usePlaylistMenuItems();
+  const websites = useWebsites();
+  const openSite = useOpenWebsite();
   const [sortAnchor, setSortAnchor] = useState<HTMLButtonElement | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
@@ -181,6 +215,18 @@ export const RailPins: FC<{ narrow: boolean; shown: boolean }> = ({ narrow, show
     if (gone.length > 0) rail.drop(gone);
   }, [playlists.data, rail, shown]);
 
+  // Pins of sites removed here or on another device go too.
+  useEffect(() => {
+    if (!shown || !websites.data || !rail.prefs.seeded) return;
+    const ids = new Set(websites.data.map((site) => site.id));
+    const gone = rail.prefs.pins.filter(
+      (pin) => pin.kind === 'website' && !ids.has(pin.search.site ?? ''),
+    );
+    if (gone.length > 0) rail.drop(gone);
+  }, [websites.data, rail, shown]);
+  const siteOf = (pin: RailPin) =>
+    pin.kind === 'website' ? websites.data?.find((site) => site.id === pin.search.site) : undefined;
+
   const nameOf = (pin: RailPin) => {
     if (pin.kind === 'favorites') return t('collections.favorites');
     if (pin.kind === 'downloaded') return t('library.view.downloaded');
@@ -188,7 +234,7 @@ export const RailPins: FC<{ narrow: boolean; shown: boolean }> = ({ narrow, show
     if (pin.kind === 'playlist') {
       return playlists.data?.find((list) => list.id === pin.search.id)?.name ?? pin.name;
     }
-    return pin.name;
+    return siteOf(pin)?.name ?? pin.name;
   };
 
   const pins = rail.pins;
@@ -299,8 +345,10 @@ export const RailPins: FC<{ narrow: boolean; shown: boolean }> = ({ narrow, show
                     ? playlists.data?.find((list) => list.id === pin.search.id)
                     : undefined
                 }
+                website={siteOf(pin)}
                 narrow={narrow}
                 onMenu={menu(pin, index)}
+                onOpenSite={(id) => openSite.mutate(id)}
               />
             ))}
           </ul>

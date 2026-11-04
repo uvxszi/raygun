@@ -2240,14 +2240,15 @@ pub async fn devices_set_sharing(app: tauri::AppHandle, on: bool) -> Result<(), 
     crate::device_link::set_sharing(&app, on).await
 }
 
-/// Adds a device by its address (`192.168.1.20:8820`).
+/// Links with the device whose link QR code was scanned (or its text pasted): the usual
+/// question is asked there, with the code's one-time code.
 #[tauri::command]
 #[specta::specta]
-pub async fn connect_add(
+pub async fn connect_link_code(
     connect: tauri::State<'_, Arc<crate::connect::ConnectService>>,
-    address: String,
-) -> Result<raygun_model::ConnectDevice, String> {
-    connect.add(&address).await
+    text: String,
+) -> Result<Vec<raygun_model::ConnectDevice>, String> {
+    connect.inner().link_code(&text).await
 }
 
 /// Plays on another device: asks it the first time, then moves the queue there.
@@ -2590,7 +2591,7 @@ pub async fn mcp_new_token(mcp: tauri::State<'_, McpService>) -> Result<McpStatu
     mcp.new_token().await
 }
 
-/// The LAN remote's switch, address, pairing code and paired devices.
+/// The linking server's switch, address and open link code (M46.47).
 #[tauri::command]
 #[specta::specta]
 pub async fn remote_status(
@@ -2599,7 +2600,7 @@ pub async fn remote_status(
     remote.status().await
 }
 
-/// Turns the LAN remote on (opening a pairing code) or off.
+/// Turns the linking server on or off (`devices_set_sharing` does it with sync).
 #[tauri::command]
 #[specta::specta]
 pub async fn remote_set_enabled(
@@ -2609,23 +2610,13 @@ pub async fn remote_set_enabled(
     remote.set_enabled(enabled).await
 }
 
-/// Opens a new pairing code, replacing the previous one.
+/// Opens a new one-time code for this device's link QR code, replacing the previous one.
 #[tauri::command]
 #[specta::specta]
 pub async fn remote_new_code(
     remote: tauri::State<'_, RemoteService>,
 ) -> Result<RemoteStatus, String> {
     remote.new_code().await
-}
-
-/// Removes a paired device; it loses access at once.
-#[tauri::command]
-#[specta::specta]
-pub async fn remote_forget_device(
-    remote: tauri::State<'_, RemoteService>,
-    id: String,
-) -> Result<RemoteStatus, String> {
-    remote.forget(&id).await
 }
 
 /// Device sync's switch, identity, open pairing, peers and log.

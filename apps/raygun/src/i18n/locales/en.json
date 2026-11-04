@@ -111,7 +111,8 @@
       "music": "Audio",
       "manga": "Comics",
       "novel": "Books",
-      "video": "Videos"
+      "video": "Videos",
+      "websites": "Websites"
     },
     "filter": {
       "search": "Search the library",
@@ -540,7 +541,7 @@
       },
       "connections": {
         "title": "Connections",
-        "summary": "Devices, remote control, AI and assistants"
+        "summary": "Devices, AI and assistants"
       },
       "sound": {
         "title": "Sound",
@@ -1305,20 +1306,6 @@
     "hint": "Clients send the token as “Authorization: Bearer …”. Only apps on this device can connect. A new token disconnects existing clients.",
     "problem": "The MCP server isn't running"
   },
-  "remote": {
-    "title": "Remote control",
-    "description": "Control playback from a phone or computer on the same Wi-Fi, in its browser.",
-    "qrAlt": "QR code to pair a device",
-    "scan": "Scan with the other device's camera, or open this address in its browser:",
-    "codeUsed": "The pairing code was used. Make a new one to pair another device.",
-    "newCode": "New pairing code",
-    "devices": "Paired devices",
-    "noDevices": "No devices yet.",
-    "pairedOn": "Paired {{date}}",
-    "forget": "Remove {{name}}",
-    "hint": "Only paired devices can control Raygun. Traffic on your Wi-Fi isn't encrypted, so pair only on networks you trust.",
-    "problem": "The browser remote isn't working"
-  },
   "permissions": {
     "kind": {
       "notifications": "Notifications",
@@ -1326,7 +1313,8 @@
       "media": "Songs and videos on this phone",
       "folders": "Picked folders",
       "localNetwork": "Local network",
-      "installApps": "Install updates"
+      "installApps": "Install updates",
+      "camera": "Camera, to scan link codes"
     },
     "state": {
       "granted": "Allowed",
@@ -1362,12 +1350,12 @@
     "title": "Local network access",
     "why": {
       "addon": "This addon is on your network. Android asks before an app connects to devices on your Wi-Fi, so it will ask Raygun's permission to reach \"nearby devices\".",
-      "remote": "Phones and computers on your Wi-Fi connect to the remote. Android asks before an app lets devices on your network in, so it will ask Raygun's permission to reach \"nearby devices\".",
+      "remote": "Your other devices on this Wi-Fi link with this one and play on it. Android asks before an app lets devices on your network in, so it will ask Raygun's permission to reach \"nearby devices\".",
       "connect": "Your other device is on your Wi-Fi. Android asks before an app connects to devices on your network, so it will ask Raygun's permission to reach \"nearby devices\"."
     },
     "denied": {
       "addon": "Allow local network access to reach addons on your network.",
-      "remote": "Allow local network access so devices on your network can reach the remote.",
+      "remote": "Allow local network access so your other devices can reach this one.",
       "connect": "Allow local network access to play on your other devices."
     },
     "settingsHint": "Android won't ask again. In Raygun's app settings, open Permissions, then Nearby devices, and choose Allow.",
@@ -1381,7 +1369,6 @@
     "description": "Keep settings, favorites, playlists and history the same on your devices, over your own network.",
     "off": "Off",
     "syncProblem": "Sync isn't working",
-    "moreWays": "Other ways to connect",
     "noPeersShort": "On, no devices paired yet",
     "manage": "Manage",
     "thisDevice": "This device",
@@ -1390,23 +1377,8 @@
     "renameFailed": "Couldn't rename this device",
     "rename": "Rename",
     "save": "Save",
-    "key": "This device's key: {{fingerprint}}",
-    "pairTitle": "Show a code for another device",
     "pairExplain": "Show a pairing code here, then paste its text on the other device under Join a device.",
-    "pairHint": "On the other device: Devices → Link with a code, then paste this. It works once, for 10 minutes.",
-    "qrAlt": "QR code with the pairing text",
-    "showCode": "Show pairing code",
-    "newCode": "New pairing code",
-    "codeFailed": "Couldn't show a code",
-    "copyText": "Copy text",
-    "copied": "Copied",
-    "joinTitle": "Use a code from another device",
     "joinHint": "Paste the pairing text the other device shows.",
-    "pairingText": "Pairing text",
-    "pairingTextHint": "raygun-pair:…",
-    "join": "Link",
-    "joinFailed": "Couldn't link with that code",
-    "joined": "Linked. Syncing now.",
     "paired": "Paired devices",
     "noPeers": "No devices yet. Pair one with a code from either device.",
     "syncAll": "Sync all",
@@ -2310,6 +2282,7 @@
     "name": "Name",
     "namePlaceholder": "Name (optional)",
     "empty": "No websites yet",
+    "find": "Find a website",
     "open": "Open {{name}}",
     "menu": "{{name}} options",
     "startOver": "Start from its home page",
@@ -3423,7 +3396,6 @@
     "neverSynced": "Not synced yet",
     "syncWith": "Sync with {{name}} now",
     "manage": "Manage devices",
-    "remote": "Control Raygun from another device",
     "playingOn": "Playing on {{name}}",
     "playingThere": "Playing there; this device controls it",
     "selectDevice": "Select a device",
@@ -3436,18 +3408,13 @@
       "playing": "Playing",
       "asking": "Waiting for {{name}} to allow it…",
       "ready": "Ready",
-      "asksFirst": "Asks on that device the first time",
+      "notLinked": "Not linked: link it in Devices",
       "away": "Not seen on the network"
     },
-    "noDevices": "No other devices yet. Turn on “Let your devices find this one” on your other device too, or add it by its address.",
-    "add": "Add a device by address",
-    "addressLabel": "Address of the other device",
-    "addButton": "Add",
-    "cancel": "Cancel",
+    "noDevices": "No linked devices yet. Link one in Devices.",
     "forget": "Forget {{name}}",
     "allowHere": "Let your devices find this one",
     "allowHereHint": "Your other Raygun devices can play on this one. The first time, this device asks you.",
-    "allowHereAddress": "Other devices find this one on your network, or at {{address}}.",
     "sync": "Device sync",
     "ask": {
       "title": "Link a device",
@@ -3765,7 +3732,6 @@
     "nearby": "On this network",
     "noneNearby": "No other Raygun on this network yet. Turn on the switch on your other device too.",
     "turnOnToFind": "Turn on the switch above to find your other devices.",
-    "turnOnFirst": "Turn on “Let your devices find this one” first",
     "link": "Link",
     "linkFailed": "Couldn't link with {{name}}",
     "waiting": "Allow it on {{name}}…",
@@ -3786,15 +3752,23 @@
     "away": "not around",
     "thatDevice": "that device",
     "syncOnly": "syncs only",
-    "address": "Address of a device",
-    "addressHint": "192.168.1.20:8820",
-    "add": "Add",
-    "addTitle": "Add a device by address",
-    "addFailed": "Couldn't add that device",
-    "withCode": "Link with a code",
-    "withCodeHint": "For devices that can't find each other: show a code on one and type it on the other. This links syncing only.",
-    "browserTitle": "Control from a web browser",
-    "browserHint": "Scan the code with any phone on this network to control playback from its browser.",
-    "browserOff": "Turn on \"Let your devices find this one\" above to control playback from a browser."
+    "byCode": "Link by QR code",
+    "showCode": "Show this device’s link code",
+    "scanCode": "Scan a link code",
+    "qrAlt": "QR code to link with this device",
+    "scanOnOther": "Scan it with your other device: Devices → Scan a link code",
+    "codeOnce": "Works once, for 10 minutes",
+    "copyCode": "Copy as text",
+    "copied": "Copied",
+    "codeUsed": "This code was used. Make a new one to link another device.",
+    "codeFailed": "Couldn’t make a link code",
+    "newCode": "New code",
+    "cameraView": "Camera",
+    "noCamera": "No camera here. Paste the code’s text instead.",
+    "cameraBlocked": "Raygun can’t use the camera. Allow it, or paste the code’s text.",
+    "allowCamera": "Allow the camera",
+    "scanAgain": "Scan again",
+    "pasteCode": "Paste a link code",
+    "notACode": "That isn’t a Raygun link code."
   }
 }

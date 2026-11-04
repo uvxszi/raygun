@@ -139,8 +139,11 @@ export const commands = {
 	 *  linked ones say when they last synced (M46.47).
 	 */
 	connectDevices: () => typedError<ConnectDevice[], string>(__TAURI_INVOKE("connect_devices")),
-	/**  Adds a device by its address (`192.168.1.20:8820`). */
-	connectAdd: (address: string) => typedError<ConnectDevice, string>(__TAURI_INVOKE("connect_add", { address })),
+	/**
+	 *  Links with the device whose link QR code was scanned (or its text pasted): the usual
+	 *  question is asked there, with the code's one-time code.
+	 */
+	connectLinkCode: (text: string) => typedError<ConnectDevice[], string>(__TAURI_INVOKE("connect_link_code", { text })),
 	/**  Plays on another device: asks it the first time, then moves the queue there. */
 	connectTo: (id: string) => typedError<ConnectStatus, string>(__TAURI_INVOKE("connect_to", { id })),
 	/**  Stops playing on another device; with `play_here` its queue comes back to this one. */
@@ -721,14 +724,12 @@ export const commands = {
 	mcpSetEnabled: (enabled: boolean) => typedError<McpStatus, string>(__TAURI_INVOKE("mcp_set_enabled", { enabled })),
 	/**  Issues a new MCP token; clients with the old one must be given the new one. */
 	mcpNewToken: () => typedError<McpStatus, string>(__TAURI_INVOKE("mcp_new_token")),
-	/**  The LAN remote's switch, address, pairing code and paired devices. */
+	/**  The linking server's switch, address and open link code (M46.47). */
 	remoteStatus: () => typedError<RemoteStatus, string>(__TAURI_INVOKE("remote_status")),
-	/**  Turns the LAN remote on (opening a pairing code) or off. */
+	/**  Turns the linking server on or off (`devices_set_sharing` does it with sync). */
 	remoteSetEnabled: (enabled: boolean) => typedError<RemoteStatus, string>(__TAURI_INVOKE("remote_set_enabled", { enabled })),
-	/**  Opens a new pairing code, replacing the previous one. */
+	/**  Opens a new one-time code for this device's link QR code, replacing the previous one. */
 	remoteNewCode: () => typedError<RemoteStatus, string>(__TAURI_INVOKE("remote_new_code")),
-	/**  Removes a paired device; it loses access at once. */
-	remoteForgetDevice: (id: string) => typedError<RemoteStatus, string>(__TAURI_INVOKE("remote_forget_device", { id })),
 	/**  Device sync's switch, identity, open pairing, peers and log. */
 	syncStatus: () => typedError<SyncStatus, string>(__TAURI_INVOKE("sync_status")),
 	syncSetEnabled: (enabled: boolean) => typedError<SyncStatus, string>(__TAURI_INVOKE("sync_set_enabled", { enabled })),
@@ -3412,7 +3413,9 @@ export type PermissionKind =
 /**  Android 17's local network access. */
 "localNetwork" | 
 /**  Installing Raygun's own updates. */
-"installApps";
+"installApps" | 
+/**  The camera, to scan another device's link QR code. */
+"camera";
 
 /**  A question to show once: the permission and why it's needed now. */
 export type PermissionPrompt = {
@@ -3733,7 +3736,7 @@ export type RailOrder = "custom" |
 export type RailPin = {
 	/**
 	 *  `favorites`, `downloaded`, `localFiles`, `playlist`, `album`, `artist`, `podcast`,
-	 *  `audiobook`, `manga`, `novel`, `video`, `mix`.
+	 *  `audiobook`, `manga`, `novel`, `video`, `mix`, `website` (opens the site).
 	 */
 	kind: string,
 	/**  The page it opens: a route and its search parameters. */
@@ -3793,23 +3796,20 @@ export type RecentSearch = {
 /**  A release's kind (M46.36), as MusicBrainz and Deezer name them. */
 export type ReleaseKind = "album" | "single" | "ep" | "compilation" | "live" | "other";
 
-export type RemoteDevice = {
-	id: string,
-	name: string,
-	/**  Unix ms. */
-	pairedAt: number | null,
-};
-
-/**  The LAN remote's switch, address, open pairing code and paired devices. */
+/**  The server's switch, its address, and the open link code (M46.47). */
 export type RemoteStatus = {
 	enabled: boolean,
 	/**  `http://<LAN IP>:<port>` while it runs. */
 	url: string | null,
-	/**  The address with the open pairing code, while a code is open. */
-	pairUrl: string | null,
-	/**  `pair_url` as a QR code (SVG markup). */
-	pairQrSvg: string | null,
-	devices: RemoteDevice[],
+	/**
+	 *  What this device's link QR code says (`raygun:link?at=…&code=…&name=…`), while a
+	 *  one-time code is open.
+	 */
+	linkText: string | null,
+	/**  `link_text` as a QR code (SVG markup). */
+	linkQrSvg: string | null,
+	/**  Unix ms when the open code stops working. */
+	linkExpiresAt: number | null,
 	error: string | null,
 };
 

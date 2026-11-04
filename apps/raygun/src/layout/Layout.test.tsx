@@ -140,7 +140,8 @@ describe('Customizable layout', () => {
       within(tabs)
         .getAllByRole('link')
         .map((link) => link.textContent),
-    ).toEqual(['Videos', 'Audio', 'Books']);
+      // A tab added later (Websites) joins after the one it follows by default.
+    ).toEqual(['Videos', 'Websites', 'Audio', 'Books']);
   });
 
   it('arranges Home and More', async () => {

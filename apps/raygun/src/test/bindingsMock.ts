@@ -426,7 +426,7 @@ export const bindingsMock = {
     podcastQueue: vi.fn(),
     connectStatus: vi.fn(),
     connectDevices: vi.fn(),
-    connectAdd: vi.fn(),
+    connectLinkCode: vi.fn(),
     connectTo: vi.fn(),
     connectDisconnect: vi.fn(),
     connectForget: vi.fn(),
@@ -453,7 +453,6 @@ export const bindingsMock = {
     remoteStatus: vi.fn(),
     remoteSetEnabled: vi.fn(),
     remoteNewCode: vi.fn(),
-    remoteForgetDevice: vi.fn(),
     syncStatus: vi.fn(),
     syncSetEnabled: vi.fn(),
     syncOpenPairing: vi.fn(),
@@ -948,7 +947,7 @@ export const seedBindings = () => {
   commands.podcastQueue.mockResolvedValue({ status: 'ok', data: null });
   commands.connectStatus.mockResolvedValue(CONNECT_IDLE);
   commands.connectDevices.mockResolvedValue(ok([]));
-  commands.connectAdd.mockResolvedValue({ status: 'error', error: 'not mocked' });
+  commands.connectLinkCode.mockResolvedValue({ status: 'error', error: 'not mocked' });
   commands.connectTo.mockResolvedValue(ok(CONNECT_IDLE));
   commands.connectDisconnect.mockResolvedValue(ok(CONNECT_IDLE));
   commands.connectForget.mockResolvedValue(ok([]));
@@ -983,15 +982,14 @@ export const seedBindings = () => {
   const remoteOff = {
     enabled: false,
     url: null,
-    pairUrl: null,
-    pairQrSvg: null,
-    devices: [],
+    linkText: null,
+    linkQrSvg: null,
+    linkExpiresAt: null,
     error: null,
   };
   commands.remoteStatus.mockResolvedValue(ok(remoteOff));
   commands.remoteSetEnabled.mockResolvedValue(ok(remoteOff));
   commands.remoteNewCode.mockResolvedValue(ok(remoteOff));
-  commands.remoteForgetDevice.mockResolvedValue(ok(remoteOff));
   const syncOff = {
     enabled: false,
     deviceName: 'Android phone',

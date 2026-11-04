@@ -51,9 +51,9 @@ describe('Devices', () => {
       ok({
         enabled: true,
         url: 'http://10.0.2.15:8820',
-        pairUrl: null,
-        pairQrSvg: null,
-        devices: [],
+        linkText: null,
+        linkQrSvg: null,
+        linkExpiresAt: null,
         error: null,
       }),
     );
@@ -88,42 +88,83 @@ describe('Devices', () => {
     expect(commands.connectTo).toHaveBeenCalledWith('pc');
   });
 
-  it('shows a pairing code and joins with pasted text', async () => {
+  it("shows this device's link QR code, made fresh each time", async () => {
     const user = userEvent.setup();
-    const text = 'raygun-pair:192.168.1.20:8830:abcd2345:dev-phone:' + '07'.repeat(32);
-    commands.syncStatus.mockResolvedValue(ok(ON));
-    commands.syncOpenPairing.mockResolvedValue(
-      ok({
-        ...ON,
-        pairingText: text,
-        pairingQrSvg: '<svg xmlns="http://www.w3.org/2000/svg"></svg>',
-      }),
+    const text = 'raygun:link?at=10.0.2.15%3A8820&code=abcd234567&name=Android+phone';
+    commands.localNetworkAccess.mockResolvedValue(
+      ok({ needed: false, granted: true, blocked: false }),
     );
-    commands.syncJoin.mockResolvedValue(ok({ ...ON, peers: [LAPTOP] }));
+    const shown = {
+      enabled: true,
+      url: 'http://10.0.2.15:8820',
+      linkText: text,
+      linkQrSvg: '<svg xmlns="http://www.w3.org/2000/svg"></svg>',
+      linkExpiresAt: 600_000,
+      error: null,
+    };
+    commands.devicesSetSharing.mockResolvedValue(ok(null));
+    commands.remoteNewCode.mockResolvedValue(ok(shown));
+    commands.remoteStatus.mockResolvedValue(ok(shown));
     await AppShellWrapper.mount('/settings/devices');
     const page = await screen.findByTestId('devices-page');
 
-    // Where devices don't find each other: a code shown on one, pasted on the other.
-    await user.click(await within(page).findByRole('button', { name: 'Link with a code' }));
-    const sheet = await screen.findByTestId('link-with-code');
-    await user.click(within(sheet).getByRole('button', { name: 'Show pairing code' }));
-    expect(await within(sheet).findByTestId('pairing-text')).toHaveTextContent(text);
-    expect(
-      within(sheet).getByRole('img', { name: 'QR code with the pairing text' }),
-    ).toBeInTheDocument();
-    await user.click(within(sheet).getByRole('button', { name: 'Copy text' }));
-    expect(await navigator.clipboard.readText()).toBe(text);
-
-    await user.type(
-      within(sheet).getByLabelText('Pairing text'),
-      'raygun-pair:10.0.2.2:8835:x:y:z',
+    await user.click(
+      await within(page).findByRole('button', { name: 'Show this device’s link code' }),
     );
+    const sheet = await screen.findByTestId('show-link-code');
+    expect(
+      await within(sheet).findByRole('img', { name: 'QR code to link with this device' }),
+    ).toBeInTheDocument();
+    // Opening it lets the other device reach this one.
+    expect(commands.devicesSetSharing).toHaveBeenCalledWith(true);
+    expect(commands.remoteNewCode).toHaveBeenCalledTimes(1);
+    await user.click(within(sheet).getByRole('button', { name: 'Copy as text' }));
+    expect(await navigator.clipboard.readText()).toBe(text);
+    await user.click(within(sheet).getByRole('button', { name: 'New code' }));
+    await vi.waitFor(() => expect(commands.remoteNewCode).toHaveBeenCalledTimes(2));
+  });
+
+  it('links by a pasted link code where there is no camera, and says what went wrong', async () => {
+    const user = userEvent.setup();
+    commands.localNetworkAccess.mockResolvedValue(
+      ok({ needed: false, granted: true, blocked: false }),
+    );
+    commands.connectLinkCode.mockResolvedValueOnce({
+      status: 'error',
+      error: 'That QR code expired or was used. Show a new one on the other device.',
+    });
+    await AppShellWrapper.mount('/settings/devices');
+    const page = await screen.findByTestId('devices-page');
+
+    await user.click(await within(page).findByRole('button', { name: 'Scan a link code' }));
+    const sheet = await screen.findByTestId('scan-link-code');
+    expect(await within(sheet).findByText(/No camera here/)).toBeInTheDocument();
+    const field = within(sheet).getByRole('textbox', { name: 'Paste a link code' });
+
+    await user.type(field, 'hello');
     await user.click(within(sheet).getByRole('button', { name: 'Link' }));
-    expect(commands.syncJoin).toHaveBeenCalledWith('raygun-pair:10.0.2.2:8835:x:y:z');
-    // A device linked by code syncs only, and is listed with the others.
-    const linked = await within(page).findByTestId('linked-device');
-    expect(linked).toHaveTextContent('Laptop');
-    expect(linked).toHaveTextContent('syncs only');
+    expect(within(sheet).getByText('That isn’t a Raygun link code.')).toBeInTheDocument();
+    expect(commands.connectLinkCode).not.toHaveBeenCalled();
+
+    const text = 'raygun:link?at=10.0.2.2%3A8820&code=abcd234567&name=Living+room+PC';
+    await user.clear(field);
+    await user.type(field, text);
+    await user.click(within(sheet).getByRole('button', { name: 'Link' }));
+    expect(commands.connectLinkCode).toHaveBeenCalledWith(text);
+    expect(await within(sheet).findByText("Couldn't link with Living room PC")).toBeInTheDocument();
+    expect(within(sheet).getByText(/expired or was used/)).toBeInTheDocument();
+
+    commands.connectLinkCode.mockResolvedValueOnce(ok([]));
+    await user.click(within(sheet).getByRole('button', { name: 'Link' }));
+    await vi.waitFor(() => expect(screen.queryByTestId('scan-link-code')).not.toBeInTheDocument());
+  });
+
+  it('has no way to type a device address or control from a browser', async () => {
+    await AppShellWrapper.mount('/settings/devices');
+    const page = await screen.findByTestId('devices-page');
+    await within(page).findByTestId('linked-devices');
+    expect(within(page).queryByText(/by address/)).not.toBeInTheDocument();
+    expect(within(page).queryByText(/web browser/)).not.toBeInTheDocument();
   });
 
   it('syncs, removes a device and changes what syncs', async () => {

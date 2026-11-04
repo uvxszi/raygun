@@ -19,9 +19,9 @@ const LAN_ADDON = 'http://192.168.1.20:7000/manifest.json';
 const REMOTE_ON: RemoteStatus = {
   enabled: true,
   url: 'http://192.168.1.20:8820',
-  pairUrl: 'http://192.168.1.20:8820/#pair=abcd234567',
-  pairQrSvg: '<svg xmlns="http://www.w3.org/2000/svg"></svg>',
-  devices: [],
+  linkText: 'raygun:link?at=192.168.1.20%3A8820&code=abcd234567&name=Pixel',
+  linkQrSvg: '<svg xmlns="http://www.w3.org/2000/svg"></svg>',
+  linkExpiresAt: 600_000,
   error: null,
 };
 
@@ -149,18 +149,17 @@ describe('Local network access (Android 17)', () => {
     commands.localNetworkRequest.mockResolvedValueOnce(ok(DENIED));
     await AppShellWrapper.mount('/settings/devices');
     const devices = await screen.findByTestId('linked-devices');
-    const card = await screen.findByTestId('remote-card');
 
     await user.click(
       await within(devices).findByRole('switch', { name: 'Let your devices find this one' }),
     );
     expect(commands.localNetworkAccess).toHaveBeenCalledWith(null);
     const sheet = await screen.findByRole('dialog', { name: 'Local network access' });
-    expect(within(sheet).getByText(/Phones and computers on your Wi-Fi/)).toBeInTheDocument();
+    expect(within(sheet).getByText(/Your other devices on this Wi-Fi/)).toBeInTheDocument();
 
     await user.click(within(sheet).getByRole('button', { name: 'Continue' }));
     expect(await within(sheet).findByRole('alert')).toHaveTextContent(
-      'Allow local network access so devices on your network can reach the remote.',
+      'Allow local network access so your other devices can reach this one.',
     );
     expect(commands.devicesSetSharing).not.toHaveBeenCalled();
 
@@ -168,7 +167,6 @@ describe('Local network access (Android 17)', () => {
     commands.remoteStatus.mockResolvedValue(ok(REMOTE_ON));
     await user.click(within(sheet).getByRole('button', { name: 'Continue' }));
     expect(commands.devicesSetSharing).toHaveBeenCalledWith(true);
-    expect(await within(card).findByTestId('remote-qr')).toBeInTheDocument();
   });
 
   it('stops sharing without asking', async () => {

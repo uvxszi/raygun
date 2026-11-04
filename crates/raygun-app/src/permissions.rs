@@ -166,6 +166,7 @@ pub fn kind_name(kind: PermissionKind) -> &'static str {
         PermissionKind::Folders => "folders",
         PermissionKind::LocalNetwork => "localNetwork",
         PermissionKind::InstallApps => "installApps",
+        PermissionKind::Camera => "camera",
     }
 }
 
@@ -415,6 +416,7 @@ mod tests {
             PermissionKind::Folders,
             PermissionKind::LocalNetwork,
             PermissionKind::InstallApps,
+            PermissionKind::Camera,
         ] {
             assert_eq!(
                 serde_json::to_value(kind).unwrap(),
