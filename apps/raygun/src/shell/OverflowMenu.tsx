@@ -5,6 +5,9 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { openMenuAt } from './contextMenuStore';
+import type { MenuItem } from './contextMenuStore';
+
 export type OverflowItem = {
   label: string;
   icon?: LucideIcon;
@@ -13,6 +16,9 @@ export type OverflowItem = {
   to?: string;
   search?: Record<string, unknown>;
 };
+
+/** A touch screen: the menu is the shell's menu sheet, full width with rows a finger can hit. */
+const coarsePointer = () => window.matchMedia?.('(pointer: coarse)').matches ?? false;
 
 /**
  * The top bar's ⋮ menu: actions that don't earn an icon of their own. In a list, `label` names
@@ -58,7 +64,18 @@ export const OverflowMenu: FC<{ items: OverflowItem[]; label?: string }> = ({ it
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        onClick={() => setOpen(!open)}
+        onClick={(event) => {
+          if (coarsePointer()) {
+            const menu: MenuItem[] = items.map((item) => ({
+              label: item.label,
+              icon: item.icon,
+              onSelect: () => select(item),
+            }));
+            openMenuAt(event.currentTarget, menu);
+            return;
+          }
+          setOpen(!open);
+        }}
         className="hover:bg-surface grid size-11 place-items-center rounded-full"
       >
         <EllipsisVertical aria-hidden size={22} />
