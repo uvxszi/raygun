@@ -122,7 +122,8 @@ describe('Manga', () => {
     const page = await screen.findByTestId('manga-title-page');
 
     expect(await within(page).findByRole('heading', { name: 'Frieren' })).toBeInTheDocument();
-    expect(within(page).getByText('Yamada, Abe · Ongoing · MangaDex')).toBeInTheDocument();
+    expect(within(page).getByText('Yamada, Abe · Ongoing')).toBeInTheDocument();
+    expect(within(page).getByTestId('source-tag')).toHaveTextContent('MangaDex');
     // The floating button picks up where reading stopped.
     expect(within(page).getByRole('button', { name: /Continue: Chapter 2/ })).toBeInTheDocument();
     expect(within(page).getAllByTestId('chapter-row')).toHaveLength(2);

@@ -36,7 +36,7 @@ describe('Sound settings', () => {
 
   it('picks a preset, moves a band, and turns on the effects', async () => {
     const user = userEvent.setup();
-    await AppShellWrapper.mount('/settings/sound');
+    await AppShellWrapper.mount('/settings/music');
     const equalizer = await screen.findByTestId('equalizer');
 
     await user.click(within(equalizer).getByRole('button', { name: 'Rock' }));
@@ -70,7 +70,7 @@ describe('Sound settings', () => {
   });
 
   it('sets the crossfade in seconds', async () => {
-    await AppShellWrapper.mount('/settings/sound');
+    await AppShellWrapper.mount('/settings/music');
     const crossfade = await screen.findByRole('slider', { name: /^Crossfade/ });
     fireEvent.change(crossfade, { target: { value: '6' } });
     fireEvent.pointerUp(crossfade);

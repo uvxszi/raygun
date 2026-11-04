@@ -200,8 +200,8 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
         facts={[
           [...new Set([...view.authors, ...view.artists])].join(', '),
           t(`manga.status.${view.status}`),
-          view.sourceName,
         ]}
+        source={view.sourceName}
       >
         <div className="flex gap-2">
           <button

@@ -195,6 +195,7 @@ export const DEFAULT_SETTINGS: Settings = {
   zoom: 100,
   discovery: { region: '', tagSongs: true },
   failingSourcesLast: true,
+  browseStartTab: 'discover',
   searchFilter: { noAdult: false, noExplicit: false },
   manualBrowserChecks: false,
   userAgent: '',
@@ -283,6 +284,9 @@ export const bindingsMock = {
     importMatch: vi.fn(),
     trackDurations: vi.fn(),
     coverSave: vi.fn(),
+    coverVersions: vi.fn(),
+    coverShare: vi.fn(),
+    coverCopy: vi.fn(),
     detailEdit: vi.fn(),
     trackAssignSource: vi.fn(),
     trackUseSource: vi.fn(),
@@ -572,6 +576,8 @@ export const bindingsMock = {
     libraryRemove: vi.fn(),
     libraryChangeCategories: vi.fn(),
     libraryDownloadNext: vi.fn(),
+    libraryAddTitles: vi.fn(),
+    libraryDownloadTitles: vi.fn(),
     libraryContinue: vi.fn(),
     libraryDuplicates: vi.fn(),
     libraryMigrate: vi.fn(),
@@ -622,6 +628,9 @@ export const bindingsMock = {
     videoDownloads: vi.fn(),
     videoSourceDownload: vi.fn(),
     stremioDownload: vi.fn(),
+    videoDownloadEpisodes: vi.fn(),
+    videoDownloadSubtitleDefaults: vi.fn(),
+    videoDownloadsSetDeviceLanguage: vi.fn(),
     videoDownloadRetry: vi.fn(),
     videoDownloadRemove: vi.fn(),
     videoDownloadPlay: vi.fn(),
@@ -827,6 +836,9 @@ export const seedBindings = () => {
   commands.importMatch.mockResolvedValue(ok([]));
   commands.trackDurations.mockResolvedValue(ok([]));
   commands.coverSave.mockResolvedValue(ok('Pictures/Raygun/Cover.png'));
+  commands.coverVersions.mockImplementation(async (url: string) => [url]);
+  commands.coverShare.mockResolvedValue(ok(null));
+  commands.coverCopy.mockResolvedValue(ok(null));
   commands.detailEdit.mockResolvedValue(
     ok({ title: null, artist: null, album: null, artworkUrl: null }),
   );
@@ -1150,6 +1162,8 @@ export const seedBindings = () => {
     command.mockResolvedValue(ok(null));
   }
   commands.libraryDownloadNext.mockResolvedValue(ok(0));
+  commands.libraryAddTitles.mockResolvedValue(ok({ titleIds: [], queued: 0, failed: [] }));
+  commands.libraryDownloadTitles.mockResolvedValue(ok({ titleIds: [], queued: 0, failed: [] }));
   commands.libraryContinue.mockResolvedValue(ok(null));
   commands.libraryDuplicates.mockResolvedValue(ok([]));
   commands.libraryMigrate.mockResolvedValue(ok('migrated-title'));
@@ -1204,6 +1218,9 @@ export const seedBindings = () => {
   commands.videoDownloads.mockResolvedValue(ok({ paused: false, items: [] }));
   commands.videoSourceDownload.mockResolvedValue(ok(null));
   commands.stremioDownload.mockResolvedValue(ok(null));
+  commands.videoDownloadEpisodes.mockResolvedValue(ok(0));
+  commands.videoDownloadSubtitleDefaults.mockResolvedValue(ok([]));
+  commands.videoDownloadsSetDeviceLanguage.mockResolvedValue(ok(null));
   commands.videoDownloadRetry.mockResolvedValue(ok(null));
   commands.videoDownloadRemove.mockResolvedValue(ok(null));
   commands.videoDownloadPlay.mockResolvedValue(ok(null));

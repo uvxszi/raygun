@@ -77,6 +77,8 @@ struct Planned {
     titles: Vec<Chosen>,
     /// Chapters to download first.
     missing: Vec<String>,
+    /// Episodes to download first.
+    videos: Vec<video::Missing>,
     files: u32,
     problem: Option<String>,
 }
@@ -294,6 +296,7 @@ impl ExportService {
         Ok(Planned {
             titles,
             missing,
+            videos: Vec::new(),
             files,
             problem,
         })
@@ -308,7 +311,7 @@ impl ExportService {
                 .iter()
                 .map(|chosen| chosen.units.len() as u32)
                 .sum(),
-            missing: planned.missing.len() as u32,
+            missing: (planned.missing.len() + planned.videos.len()) as u32,
             files: planned.files,
             problem: planned.problem,
         })
@@ -337,13 +340,13 @@ impl ExportService {
             medium: request.medium.clone(),
             format: request.format,
             destination: request.destination,
-            state: if planned.missing.is_empty() {
+            state: if planned.missing.is_empty() && planned.videos.is_empty() {
                 ExportState::Writing
             } else {
                 ExportState::Downloading
             },
             downloaded: 0,
-            to_download: planned.missing.len() as u32,
+            to_download: (planned.missing.len() + planned.videos.len()) as u32,
             written: 0,
             to_write,
             files: Vec::new(),
@@ -367,16 +370,7 @@ impl ExportService {
         let service = self.clone();
         let id = job.id.clone();
         tauri::async_runtime::spawn(async move {
-            let result = service
-                .run(
-                    &id,
-                    &request,
-                    planned.titles,
-                    planned.missing,
-                    place,
-                    &cancel,
-                )
-                .await;
+            let result = service.run(&id, &request, planned, place, &cancel).await;
             service.update(&id, |job| match result {
                 Ok(()) if cancel.load(Ordering::SeqCst) => job.state = ExportState::Cancelled,
                 Ok(()) => job.state = ExportState::Done,
@@ -395,11 +389,21 @@ impl ExportService {
         Ok(job)
     }
 
+    /// Cancels a job: it reads Cancelled at once (its notification goes), and the running work
+    /// stops at its next check.
     pub fn cancel(&self, id: &str) {
-        let jobs = self.jobs.lock().expect("export jobs poisoned");
-        if let Some(job) = jobs.iter().find(|job| job.job.id == id) {
-            job.cancel.store(true, Ordering::SeqCst);
-        }
+        let job = {
+            let mut jobs = self.jobs.lock().expect("export jobs poisoned");
+            let Some(entry) = jobs.iter_mut().find(|job| job.job.id == id) else {
+                return;
+            };
+            entry.cancel.store(true, Ordering::SeqCst);
+            if !cancel_job(&mut entry.job) {
+                return;
+            }
+            entry.job.clone()
+        };
+        self.emit(&job);
     }
 
     /// Removes a finished job from the list.
@@ -441,7 +445,7 @@ impl ExportService {
             let Some(entry) = jobs.iter_mut().find(|job| job.job.id == id) else {
                 return;
             };
-            change(&mut entry.job);
+            change_job(&mut entry.job, entry.cancel.load(Ordering::SeqCst), change);
             entry.job.clone()
         };
         self.emit(&job);
@@ -451,12 +455,17 @@ impl ExportService {
         &self,
         id: &str,
         request: &ExportRequest,
-        titles: Vec<Chosen>,
-        missing: Vec<String>,
+        planned: Planned,
         place: Place,
         cancel: &AtomicBool,
     ) -> Result<(), String> {
-        let failed = self.wait_for_downloads(id, &missing, cancel).await?;
+        let titles = planned.titles;
+        let failed = if request.medium == "video" {
+            video::wait_for_downloads(self, id, &planned.videos, cancel).await?
+        } else {
+            self.wait_for_downloads(id, &planned.missing, cancel)
+                .await?
+        };
         self.update(id, |job| {
             job.state = ExportState::Writing;
             job.failed_chapters = failed.len() as u32;
@@ -848,6 +857,25 @@ impl ExportService {
 
 fn is_running(job: &ExportJob) -> bool {
     matches!(job.state, ExportState::Downloading | ExportState::Writing)
+}
+
+/// Marks a running job cancelled. False when it had finished already.
+fn cancel_job(job: &mut ExportJob) -> bool {
+    if !is_running(job) {
+        return false;
+    }
+    job.state = ExportState::Cancelled;
+    job.message = None;
+    true
+}
+
+/// Applies a change to a job; a cancelled one stays cancelled, whatever its work reports after.
+fn change_job(job: &mut ExportJob, cancelled: bool, change: impl FnOnce(&mut ExportJob)) {
+    change(job);
+    if cancelled && job.state != ExportState::Failed {
+        job.state = ExportState::Cancelled;
+        job.message = None;
+    }
 }
 
 fn mime_for(format: ExportFormat) -> &'static str {

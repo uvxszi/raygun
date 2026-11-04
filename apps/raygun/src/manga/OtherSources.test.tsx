@@ -147,7 +147,7 @@ describe('Find in other sources', () => {
     expect(commands.libraryMigrate).toHaveBeenCalledWith('manga', 'stored-here', BIG.id, 'big');
   });
 
-  it('adds a match to a category and to favorites', async () => {
+  it('adds a match to a group and to favorites', async () => {
     const user = userEvent.setup();
     commands.libraryCategories.mockResolvedValue(ok([{ id: 'k1', name: 'Weekly', display: null }]));
     const section = await mount();
@@ -155,18 +155,17 @@ describe('Find in other sources', () => {
     const menu = () =>
       within(section).getByRole('button', { name: 'More for the copy from Small Scans' });
     await user.click(menu());
-    await user.click(await screen.findByRole('menuitem', { name: 'Add to category' }));
-    const sheet = await screen.findByRole('dialog', { name: 'Add to category' });
-    await user.click(within(sheet).getByRole('button', { name: 'Weekly' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Add to group' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Add to group' });
+    await user.click(within(sheet).getByRole('checkbox', { name: 'Weekly' }));
+    await user.click(within(sheet).getByRole('button', { name: 'Add to group' }));
     await vi.waitFor(() =>
-      expect(commands.libraryChangeCategories).toHaveBeenCalledWith(
+      expect(commands.libraryAddTitles).toHaveBeenCalledWith(
         'manga',
-        ['stored-small'],
+        [{ sourceId: SMALL.id, remoteId: 'small', title: 'Frieren' }],
         ['k1'],
-        [],
       ),
     );
-    expect(commands.mangaSetInLibrary).toHaveBeenCalledWith('stored-small', true);
     await user.click(menu());
     await user.click(await screen.findByRole('menuitem', { name: 'Favorite' }));
     await vi.waitFor(() =>

@@ -33,6 +33,7 @@ import { useWakeLock } from '../manga/reader/useWakeLock';
 import { WebtoonView } from '../manga/reader/WebtoonView';
 import { READER_MODES, sizedFrom, useReaderDisplay, ZOOM_STEP } from '../manga/readerDisplay';
 import { ReaderDisplaySettings } from '../manga/ReaderDisplaySettings';
+import { ReaderSettingsLink } from '../manga/ReaderSettingsLink';
 import { MANGA, saveProgress, useMangaChapter } from '../manga/useManga';
 import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
@@ -644,6 +645,7 @@ export const MangaReaderPage: FC = () => {
               </div>
             )}
             <ReaderDisplaySettings />
+            <ReaderSettingsLink />
           </div>
         </Sheet>
       )}

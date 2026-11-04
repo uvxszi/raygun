@@ -34,6 +34,8 @@ let stepping = false;
 let pending: ReturnType<typeof setTimeout> | null = null;
 let installed = false;
 const watchers = new Set<() => void>();
+/** Waiting for closed layers' entries to leave history (`afterLayersClose`). */
+const waiting: (() => void)[] = [];
 
 const markOf = (state: unknown): Mark | null => {
   if (typeof state !== 'object' || state === null) return null;
@@ -82,6 +84,14 @@ const reconcile = () => {
   if (kept < entries.length) {
     stepping = true;
     window.history.go(kept - entries.length);
+    return;
+  }
+  if (waiting.length > 0) {
+    // History is the page's again: what waited runs (a page opened from a menu lands on top of
+    // the page, not under a closed menu's entry that a moment later takes it back). New layers'
+    // entries follow on the next pass.
+    for (const run of waiting.splice(0)) run();
+    schedule();
     return;
   }
   for (const layer of layers.slice(kept)) {
@@ -196,6 +206,21 @@ export const closeTopLayer = () => {
 };
 
 /**
+ * Runs `run` once the layers just closed have taken their history entries along (at once where
+ * layers keep none). A menu item that opens a page waits for this: navigating while the menu's
+ * entry is still being dropped would land the page under that entry, and dropping it would then
+ * take the page away again.
+ */
+export const afterLayersClose = (run: () => void) => {
+  if (!withEntries) {
+    run();
+    return;
+  }
+  waiting.push(run);
+  schedule();
+};
+
+/**
  * Goes back a page from under any open layers (a menu's Back): they close, and their entries go
  * along with the page's.
  */
@@ -293,6 +318,7 @@ export const resetBackLayers = (entriesMode = false) => {
   layers.length = 0;
   entries = [];
   stepping = false;
+  waiting.length = 0;
   if (pending) clearTimeout(pending);
   pending = null;
   announce();

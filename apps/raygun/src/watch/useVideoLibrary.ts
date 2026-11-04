@@ -1,5 +1,10 @@
 import { commands, events } from '@raygun/bindings';
-import type { StremioPlayRequest, VideoDownloadItem, VideoSourcePlay } from '@raygun/bindings';
+import type {
+  StremioPlayRequest,
+  VideoDownloadItem,
+  VideoSourcePlay,
+  VideoSubtitle,
+} from '@raygun/bindings';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
@@ -107,9 +112,11 @@ const useDownloadMutation = <Variables>(run: (variables: Variables) => Promise<u
   });
 };
 
+/** Downloads a link; `subtitles` are the tracks ticked (none given: the source's remembered choice). */
 export const useDownloadSourceVideo = () =>
-  useDownloadMutation((request: VideoSourcePlay) =>
-    unwrapResult(commands.videoSourceDownload(request)),
+  useDownloadMutation(
+    ({ subtitles = null, ...request }: VideoSourcePlay & { subtitles?: string[] | null }) =>
+      unwrapResult(commands.videoSourceDownload(request, subtitles)),
   );
 
 /** Downloads a direct stream, with subtitles in the subtitle language first. */
@@ -117,10 +124,35 @@ export const useDownloadStremio = () => {
   const { i18n } = useTranslation();
   const subtitleLanguage = useSettings().data?.subtitleLanguage || i18n.language;
   return useDownloadMutation(
-    ({ request, titleId }: { request: StremioPlayRequest; titleId: string | null }) =>
-      unwrapResult(commands.stremioDownload(request, subtitleLanguage, titleId)),
+    ({
+      request,
+      titleId,
+      subtitles = null,
+    }: {
+      request: StremioPlayRequest;
+      titleId: string | null;
+      subtitles?: string[] | null;
+    }) => unwrapResult(commands.stremioDownload(request, subtitleLanguage, titleId, subtitles)),
   );
 };
+
+/**
+ * Downloads several episodes at once without picking links (`group`: `title:<id>` or
+ * `stremio:<type>:<id>`; ids at the source). Resolves to how many were queued.
+ */
+export const useDownloadEpisodes = () =>
+  useDownloadMutation(({ group, episodeIds }: { group: string; episodeIds: string[] }) =>
+    unwrapResult(commands.videoDownloadEpisodes(group, episodeIds)),
+  );
+
+/** The subtitle tracks ticked at first when downloading from `source`. */
+export const useSubtitleDefaults = (source: string, tracks: VideoSubtitle[]) =>
+  useQuery({
+    queryKey: ['video', 'subtitleDefaults', source, tracks.map((track) => track.url)],
+    queryFn: () => unwrapResult(commands.videoDownloadSubtitleDefaults(source, tracks)),
+    enabled: tracks.length > 0,
+    staleTime: 0,
+  });
 
 export const useRetryVideoDownload = () =>
   useDownloadMutation((id: string) => unwrapResult(commands.videoDownloadRetry(id)));

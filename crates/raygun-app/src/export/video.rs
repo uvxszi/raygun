@@ -2,7 +2,9 @@
 //! (segments, keys and init maps saved beside a playlist) is joined into one file: MPEG-TS
 //! segments into a `.ts`, fragmented MP4 (an `#EXT-X-MAP` init section) into an `.mp4`, with
 //! AES-128 segments decrypted by their saved keys. A stream whose audio is a separate rendition
-//! would need remuxing, so it's refused. Saved subtitle tracks go beside the video.
+//! would need remuxing, so it's refused. Saved subtitle tracks go beside the video. Episodes that
+//! aren't downloaded yet are queued first (finding their links on their own) and the export waits
+//! for them.
 
 use std::fs::File;
 use std::io::{Read, Write};
@@ -12,14 +14,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use aes::cipher::BlockDecryptMut;
 use aes::cipher::KeyIvInit;
 use aes::cipher::block_padding::Pkcs7;
-use raygun_db::titles::{self, TitleRow, UnitFields, UnitRow};
+use std::collections::{HashMap, HashSet};
+
+use raygun_db::titles::{self, TitleRow, UnitRow};
 use raygun_db::video_downloads::{self as store, VideoDownloadRow};
-use raygun_model::{ExportRequest, VideoSubtitle};
+use raygun_model::{ExportRequest, ExportScope, VideoSubtitle};
 use tauri::{AppHandle, Manager};
 
 use super::{Chosen, ExportService, Place, Planned, names, output};
-use crate::catalog::to_message;
+use crate::catalog::{now_ms, to_message};
 use crate::startup::{AppDb, AppPaths};
+use crate::video_downloads::VideoDownloadService;
 
 type Decryptor = cbc::Decryptor<aes::Aes128>;
 
@@ -199,72 +204,136 @@ fn downloads_dir(app: &AppHandle) -> PathBuf {
     app.state::<AppPaths>().0.downloads().join(FOLDER)
 }
 
-/// The episode a download is, as an export unit: its id is the download's.
-fn as_unit(row: &VideoDownloadRow) -> UnitRow {
-    UnitRow {
-        id: row.id.clone(),
-        title_id: row.download.title_id.clone().unwrap_or_default(),
-        fields: UnitFields {
-            remote_id: row.id.clone(),
-            name: row
-                .download
-                .subtitle
-                .clone()
-                .unwrap_or_else(|| row.download.title.clone()),
-            number: None,
-            volume: None,
-            scanlator: None,
-            date: None,
+/// An episode an export downloads first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Missing {
+    pub unit_id: String,
+    /// Its progress key, which its download goes by.
+    pub key: String,
+    /// The title's player group (`Origin::group_key`).
+    pub group: String,
+    /// Its id at the source.
+    pub remote_id: String,
+}
+
+/// A title's player group: `stremio:<type>:<id>` for Stremio titles, else `title:<id>`.
+fn group_of(title: &TitleRow) -> String {
+    match crate::video_library::stremio_id(title) {
+        Some((kind, id)) => format!("stremio:{kind}:{id}"),
+        None => format!("title:{}", title.id),
+    }
+}
+
+/// Scopes may name episodes by their stored id or their id at the source (Stremio's pages know
+/// only those): both become stored ids.
+fn stored_ids(scope: &ExportScope, units: &[&UnitRow]) -> ExportScope {
+    let stored = |id: &String| {
+        units
+            .iter()
+            .find(|unit| unit.id == *id)
+            .or_else(|| units.iter().find(|unit| unit.fields.remote_id == *id))
+            .map_or_else(|| id.clone(), |unit| unit.id.clone())
+    };
+    match scope {
+        ExportScope::Range { from, to } => ExportScope::Range {
+            from: stored(from),
+            to: stored(to),
         },
-        source_order: 0,
-        position: None,
-        total: None,
-        completed_at: None,
-        progress_at: None,
+        ExportScope::Chosen { ids } => ExportScope::Chosen {
+            ids: ids.iter().map(stored).collect(),
+        },
+        other => other.clone(),
     }
 }
 
-/// Finished downloads of `title_id`.
-async fn finished(app: &AppHandle, title_id: &str) -> Result<Vec<VideoDownloadRow>, String> {
-    let db = app.state::<AppDb>().inner().0.clone();
-    Ok(store::all(&db)
-        .await
-        .map_err(to_message)?
+/// The episodes a scope takes, in watching order: episodes not out yet are left out unless
+/// they're downloaded (`downloaded` holds stored ids).
+pub(super) fn pick_episodes<'a>(
+    ordered: Vec<&'a UnitRow>,
+    scope: &ExportScope,
+    downloaded: &HashSet<String>,
+    now: i64,
+) -> Vec<&'a UnitRow> {
+    let scope = stored_ids(scope, &ordered);
+    super::pick(ordered, &scope, downloaded, false)
         .into_iter()
-        .filter(|row| row.state == "done" && row.download.title_id.as_deref() == Some(title_id))
-        .collect())
+        .filter(|unit| downloaded.contains(&unit.id) || unit.fields.date.is_none_or(|at| at <= now))
+        .collect()
 }
 
-/// Why a download can't be written as one file, if so.
-fn problem(app: &AppHandle, row: &VideoDownloadRow) -> Option<String> {
-    let file = row.file.as_deref()?;
-    if !file.ends_with(".m3u8") {
-        return None;
-    }
-    let playlist = std::fs::read_to_string(downloads_dir(app).join(&row.id).join(file)).ok()?;
-    Join::parse(&playlist).err()
-}
-
-/// Videos export their finished downloads; nothing is fetched first (each needs a link picked).
+/// The episodes a request exports, and those it downloads first.
 pub(super) async fn plan(app: &AppHandle, request: &ExportRequest) -> Result<Planned, String> {
     let db = app.state::<AppDb>().inner().0.clone();
+    let now = now_ms();
     let mut chosen = Vec::new();
+    let mut missing = Vec::new();
     let mut problems = Vec::new();
     for title_id in &request.title_ids {
         let title = titles::title(&db, title_id)
             .await
             .map_err(to_message)?
             .ok_or_else(|| "A title is no longer stored".to_owned())?;
-        let rows = finished(app, title_id).await?;
-        problems.extend(rows.iter().filter_map(|row| problem(app, row)));
+        if title.fields.source_id == crate::local_files::LOCAL_VIDEO {
+            problems.push("These videos are already files on this device".to_owned());
+            continue;
+        }
+        let units = titles::units(&db, title_id).await.map_err(to_message)?;
+        let keys: HashMap<&str, String> = units
+            .iter()
+            .map(|unit| {
+                (
+                    unit.id.as_str(),
+                    crate::video_library::unit_key(&title, &unit.fields.remote_id),
+                )
+            })
+            .collect();
+        let states = store::states_for_keys(&db, &keys.values().cloned().collect::<Vec<_>>())
+            .await
+            .map_err(to_message)?;
+        let downloaded: HashSet<String> = keys
+            .iter()
+            .filter(|(_, key)| states.get(*key).map(String::as_str) == Some(store::DONE))
+            .map(|(id, _)| (*id).to_owned())
+            .collect();
+        let picked: Vec<UnitRow> = pick_episodes(
+            crate::video_sources::watching_order(&units),
+            &request.scope,
+            &downloaded,
+            now,
+        )
+        .into_iter()
+        .cloned()
+        .collect();
+        let group = group_of(&title);
+        for unit in &picked {
+            let key = keys[unit.id.as_str()].clone();
+            if downloaded.contains(&unit.id) {
+                if let Ok(Some(row)) = store::done_for_key(&db, &key).await {
+                    problems.extend(problem(app, &row));
+                }
+            } else {
+                missing.push(Missing {
+                    unit_id: unit.id.clone(),
+                    key,
+                    group: group.clone(),
+                    remote_id: unit.fields.remote_id.clone(),
+                });
+            }
+        }
         chosen.push(Chosen {
             title,
-            units: rows.iter().map(as_unit).collect(),
+            units: picked,
         });
     }
     let files: u32 = chosen.iter().map(|title| title.units.len() as u32).sum();
     let problem = if files == 0 {
-        Some("Download episodes first: only downloaded ones can be saved".to_owned())
+        Some(problems.first().cloned().unwrap_or_else(|| {
+            if request.scope == ExportScope::Downloaded {
+                "No episodes are downloaded yet".to_owned()
+            } else {
+                "There are no episodes to export".to_owned()
+            }
+        }))
     } else if request.destination == raygun_model::ExportDestination::Share && files != 1 {
         Some("Sharing sends one file: export a single episode".to_owned())
     } else {
@@ -273,9 +342,80 @@ pub(super) async fn plan(app: &AppHandle, request: &ExportRequest) -> Result<Pla
     Ok(Planned {
         titles: chosen,
         missing: Vec::new(),
+        videos: missing,
         files,
         problem,
     })
+}
+
+/// Queues `missing` (each finds its link on its own) and waits until each is downloaded or
+/// failed. Returns the stored ids of the failed ones.
+pub(super) async fn wait_for_downloads(
+    service: &ExportService,
+    job: &str,
+    missing: &[Missing],
+    cancel: &AtomicBool,
+) -> Result<HashSet<String>, String> {
+    if missing.is_empty() {
+        return Ok(HashSet::new());
+    }
+    let app = service.app.clone();
+    let downloads = app
+        .state::<std::sync::Arc<VideoDownloadService>>()
+        .inner()
+        .clone();
+    let mut groups: Vec<(&str, Vec<String>)> = Vec::new();
+    for episode in missing {
+        match groups.iter_mut().find(|(group, _)| *group == episode.group) {
+            Some((_, ids)) => ids.push(episode.remote_id.clone()),
+            None => groups.push((&episode.group, vec![episode.remote_id.clone()])),
+        }
+    }
+    for (group, ids) in &groups {
+        downloads.enqueue_episodes(group, ids).await?;
+    }
+    let db = app.state::<AppDb>().inner().0.clone();
+    let keys: Vec<String> = missing.iter().map(|episode| episode.key.clone()).collect();
+    loop {
+        if cancel.load(Ordering::SeqCst) {
+            return Err("Cancelled".into());
+        }
+        let states = store::states_for_keys(&db, &keys)
+            .await
+            .map_err(to_message)?;
+        let (done, failed) = settled(missing, &states);
+        let paused = downloads.is_paused();
+        service.update(job, |job| {
+            job.downloaded = done as u32;
+            job.message = paused.then(|| "Downloads are paused".to_owned());
+        });
+        if done + failed.len() >= missing.len() {
+            return Ok(failed);
+        }
+        tokio::time::sleep(super::WAIT_STEP).await;
+    }
+}
+
+/// How many of `missing` are downloaded, and which failed (or left the queue), by their download
+/// states.
+pub(super) fn settled(
+    missing: &[Missing],
+    states: &HashMap<String, String>,
+) -> (usize, HashSet<String>) {
+    let done = missing
+        .iter()
+        .filter(|episode| states.get(&episode.key).map(String::as_str) == Some(store::DONE))
+        .count();
+    let failed = missing
+        .iter()
+        .filter(|episode| {
+            states
+                .get(&episode.key)
+                .is_none_or(|state| state == store::FAILED)
+        })
+        .map(|episode| episode.unit_id.clone())
+        .collect();
+    (done, failed)
 }
 
 /// Writes each episode as one video file, its subtitles beside it.
@@ -294,15 +434,26 @@ pub(super) async fn write(
         if cancel.load(Ordering::SeqCst) {
             return Err("Cancelled".into());
         }
-        let row = store::get(&db, &unit.id)
+        let key = crate::video_library::unit_key(title, &unit.fields.remote_id);
+        let row = store::done_for_key(&db, &key)
             .await
             .map_err(to_message)?
-            .ok_or("A download is gone")?;
+            .ok_or_else(|| format!("{} isn't downloaded", unit.fields.name))?;
         let files = write_row(service, &app, &row, title, place, cancel).await?;
         saved.extend(files);
         service.update(job, |job| job.written += 1);
     }
     Ok(saved)
+}
+
+/// Why a download can't be written as one file, if so.
+fn problem(app: &AppHandle, row: &VideoDownloadRow) -> Option<String> {
+    let file = row.file.as_deref()?;
+    if !file.ends_with(".m3u8") {
+        return None;
+    }
+    let playlist = std::fs::read_to_string(downloads_dir(app).join(&row.id).join(file)).ok()?;
+    Join::parse(&playlist).err()
 }
 
 async fn write_row(
@@ -329,8 +480,13 @@ async fn write_row(
         serde_json::from_str(&row.local_subtitles).unwrap_or_default();
     let outputs = service.outputs.clone();
     let place = place.clone();
+    // Cancelling reaches the blocking writer through its own flag.
     let cancel_flag = std::sync::Arc::new(AtomicBool::new(cancel.load(Ordering::SeqCst)));
-    tauri::async_runtime::spawn_blocking(move || {
+    let finished = std::sync::Arc::new(AtomicBool::new(false));
+    let (writer_cancel, writer_finished) = (cancel_flag.clone(), finished.clone());
+    let writer = tauri::async_runtime::spawn_blocking(move || {
+        let cancel_flag = writer_cancel;
+        let _finished = Finished(writer_finished);
         let mut saved = Vec::new();
         if file.ends_with(".m3u8") {
             let playlist = std::fs::read_to_string(dir.join(&file)).map_err(to_message)?;
@@ -387,9 +543,26 @@ async fn write_row(
             );
         }
         Ok::<_, String>(saved)
-    })
-    .await
-    .map_err(to_message)?
+    });
+    let watcher = async {
+        while !finished.load(Ordering::SeqCst) {
+            if cancel.load(Ordering::SeqCst) {
+                cancel_flag.store(true, Ordering::SeqCst);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+    };
+    let (result, ()) = tokio::join!(writer, watcher);
+    result.map_err(to_message)?
+}
+
+/// Sets its flag when dropped: the blocking writer finished, however it ended.
+struct Finished(std::sync::Arc<AtomicBool>);
+
+impl Drop for Finished {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
 }
 
 /// Saves a video that just finished downloading outside the app, when Settings → Downloads asks
@@ -443,7 +616,112 @@ pub fn save_finished(app: &AppHandle, download_id: &str) {
 
 #[cfg(test)]
 mod tests {
+    use raygun_db::titles::UnitFields;
+
     use super::*;
+
+    fn episode(id: &str, season: &str, number: f64, date: Option<i64>) -> UnitRow {
+        UnitRow {
+            id: id.into(),
+            title_id: "t".into(),
+            fields: UnitFields {
+                remote_id: format!("remote-{id}"),
+                name: format!("Episode {number}"),
+                number: Some(number),
+                volume: Some(season.into()),
+                scanlator: None,
+                date,
+            },
+            source_order: 0,
+            position: None,
+            total: None,
+            completed_at: None,
+            progress_at: None,
+        }
+    }
+
+    fn ids(units: Vec<&UnitRow>) -> Vec<&str> {
+        units.into_iter().map(|unit| unit.id.as_str()).collect()
+    }
+
+    #[test]
+    fn export_scopes_pick_episodes_in_watching_order() {
+        let units = [
+            episode("a", "1", 1.0, None),
+            episode("b", "1", 2.0, None),
+            episode("c", "2", 1.0, None),
+            episode("d", "2", 2.0, Some(10_000)),
+        ];
+        let ordered = || units.iter().collect::<Vec<_>>();
+        let downloaded: HashSet<String> = ["b".to_owned()].into();
+        assert_eq!(
+            ids(pick_episodes(ordered(), &ExportScope::All, &downloaded, 5)),
+            vec!["a", "b", "c"],
+            "an episode not out yet is left out"
+        );
+        assert_eq!(
+            ids(pick_episodes(
+                ordered(),
+                &ExportScope::All,
+                &downloaded,
+                20_000
+            )),
+            vec!["a", "b", "c", "d"]
+        );
+        assert_eq!(
+            ids(pick_episodes(
+                ordered(),
+                &ExportScope::Downloaded,
+                &downloaded,
+                5
+            )),
+            vec!["b"]
+        );
+        // From episode X to Y, named by stored or source ids, either way round.
+        let range = ExportScope::Range {
+            from: "remote-c".into(),
+            to: "b".into(),
+        };
+        assert_eq!(
+            ids(pick_episodes(ordered(), &range, &downloaded, 5)),
+            vec!["b", "c"]
+        );
+        // A season or ticked episodes come as a list.
+        let chosen = ExportScope::Chosen {
+            ids: vec!["remote-a".into(), "c".into(), "gone".into()],
+        };
+        assert_eq!(
+            ids(pick_episodes(ordered(), &chosen, &downloaded, 5)),
+            vec!["a", "c"]
+        );
+    }
+
+    #[test]
+    fn an_export_waits_until_each_episode_is_downloaded_or_failed() {
+        let missing: Vec<Missing> = ["a", "b", "c"]
+            .iter()
+            .map(|id| Missing {
+                unit_id: (*id).into(),
+                key: format!("source:s:{id}"),
+                group: "title:t".into(),
+                remote_id: (*id).into(),
+            })
+            .collect();
+        let mut states = HashMap::from([
+            ("source:s:a".to_owned(), store::DONE.to_owned()),
+            ("source:s:b".to_owned(), store::DOWNLOADING.to_owned()),
+            ("source:s:c".to_owned(), store::QUEUED.to_owned()),
+        ]);
+        let (done, failed) = settled(&missing, &states);
+        assert_eq!((done, failed.len()), (1, 0));
+        states.insert("source:s:b".into(), store::FAILED.into());
+        // A download taken off the queue counts as failed: the export goes on without it.
+        states.remove("source:s:c");
+        let (done, failed) = settled(&missing, &states);
+        assert_eq!(done, 1);
+        assert_eq!(failed, HashSet::from(["b".to_owned(), "c".to_owned()]));
+        assert!(done + failed.len() >= missing.len());
+    }
 
     #[test]
     fn saved_playlists_join_with_their_keys() {

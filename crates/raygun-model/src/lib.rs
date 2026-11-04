@@ -216,6 +216,10 @@ pub struct Settings {
     pub lyrics_translation: LyricsTranslationPrefs,
     /// Sources that didn't answer lately go to the end of Browse and Search (M46.9).
     pub failing_sources_last: bool,
+    /// The Browse tab opened without one in the address: a `LAYOUT_BROWSE_TABS` id, Browse all
+    /// (`discover`) by default; a hidden choice falls back to the first shown tab.
+    #[serde(default = "browse_start_tab")]
+    pub browse_start_tab: String,
     /// Search's own switches: no 18+ sources or titles, no explicit songs; both off by default.
     pub search_filter: SearchFilterPrefs,
     /// Sources that meet a browser check offer to open their site so it can be passed by hand
@@ -2028,6 +2032,7 @@ impl Default for Settings {
             lyrics_cache: LyricsCachePrefs::default(),
             lyrics_translation: LyricsTranslationPrefs::default(),
             failing_sources_last: true,
+            browse_start_tab: browse_start_tab(),
             search_filter: SearchFilterPrefs::default(),
             manual_browser_checks: false,
             user_agent: String::new(),
@@ -2082,6 +2087,7 @@ impl Settings {
             SettingChange::WindowFrame(frame) => self.window_frame = frame,
             SettingChange::Zoom(percent) => self.zoom = percent,
             SettingChange::FailingSourcesLast(on) => self.failing_sources_last = on,
+            SettingChange::BrowseStartTab(tab) => self.browse_start_tab = tab,
             SettingChange::SearchFilter(prefs) => self.search_filter = prefs,
             SettingChange::ManualBrowserChecks(on) => self.manual_browser_checks = on,
             SettingChange::UserAgent(agent) => self.user_agent = agent.trim().to_owned(),
@@ -2170,6 +2176,7 @@ pub enum SettingChange {
     Zoom(u32),
     Discovery(DiscoveryPrefs),
     FailingSourcesLast(bool),
+    BrowseStartTab(String),
     SearchFilter(SearchFilterPrefs),
     ManualBrowserChecks(bool),
     UserAgent(String),
@@ -2230,6 +2237,7 @@ impl SettingChange {
             Self::Zoom(_) => "zoom",
             Self::Discovery(_) => "discovery",
             Self::FailingSourcesLast(_) => "failingSourcesLast",
+            Self::BrowseStartTab(_) => "browseStartTab",
             Self::SearchFilter(_) => "searchFilter",
             Self::ManualBrowserChecks(_) => "manualBrowserChecks",
             Self::UserAgent(_) => "userAgent",
@@ -2278,6 +2286,7 @@ impl SettingChange {
                 Err("Lyrics can be kept for at most ten years".into())
             }
             Self::LyricsCache(_) => Ok(()),
+            Self::BrowseStartTab(tab) => browse_tab_known(tab),
             Self::LyricsTranslation(prefs) => {
                 let language = prefs.language.trim();
                 if !language.is_empty() {
@@ -3925,6 +3934,19 @@ pub struct PlaylistSummary {
     pub artwork_urls: Vec<String>,
     /// The cover the user picked (M46.45), shown instead of the artworks.
     pub cover_url: Option<String>,
+    /// How long the items with a known length play together.
+    #[serde(default)]
+    #[specta(optional)]
+    pub length: Option<CollectionLength>,
+}
+
+/// The summed length of a collection's items whose length is known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectionLength {
+    pub known_secs: u32,
+    /// How many items have a known length (the rest add an unknown amount).
+    pub known_count: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
@@ -4840,6 +4862,35 @@ pub struct TitleMarks {
     pub pinned: bool,
 }
 
+/// A title picked from a source's search or listing for a bulk action (a search selection):
+/// it may never have been opened. Stremio titles have source `stremio` and remote id
+/// `<type>:<id>`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteTitleRef {
+    pub source_id: String,
+    pub remote_id: String,
+    /// Its name as listed, for saying which one failed.
+    pub title: String,
+}
+
+/// What a bulk action did: the titles' library ids, how many chapters or episodes it queued,
+/// and the titles it couldn't do.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkResult {
+    pub title_ids: Vec<String>,
+    pub queued: u32,
+    pub failed: Vec<BulkFailure>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkFailure {
+    pub title: String,
+    pub message: String,
+}
+
 /// A library title another one may duplicate (same name, another source; M46).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -5040,6 +5091,20 @@ pub const LAYOUT_BROWSE_TABS: [(&str, bool); 4] = [
     ("sources", true),
     ("extensions", true),
 ];
+/// Browse all, the tab Browse opens on unless `Settings::browse_start_tab` names another.
+fn browse_start_tab() -> String {
+    "discover".into()
+}
+
+/// A Browse start tab must be one of `LAYOUT_BROWSE_TABS`.
+fn browse_tab_known(tab: &str) -> Result<(), String> {
+    if LAYOUT_BROWSE_TABS.iter().any(|(id, _)| *id == tab) {
+        Ok(())
+    } else {
+        Err(format!("{tab:?} isn't a Browse tab"))
+    }
+}
+
 pub const LAYOUT_BROWSE_SECTIONS: [(&str, bool); 4] = [
     ("video", true),
     ("manga", true),
@@ -6174,6 +6239,14 @@ pub struct ContinueWatching {
     /// Unix ms.
     pub updated_at: f64,
     pub watched: bool,
+    /// The title it belongs to, for its page: a video source's id (or `stremio`, then
+    /// `remote_id` is `<type>:<id>`). None for a link played on its own.
+    #[serde(default)]
+    #[specta(optional)]
+    pub source_id: Option<String>,
+    #[serde(default)]
+    #[specta(optional)]
+    pub remote_id: Option<String>,
 }
 
 // ---- Search across sources and source filters (M40) ----

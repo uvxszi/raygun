@@ -703,6 +703,39 @@
         return filter;
       };
 
+      /** Names from the first of `keys` a detail gives: a string, a list, or `{ name }`s. */
+      const names = (detail, keys) => {
+        for (const key of keys) {
+          const value = detail[key];
+          const list = (Array.isArray(value) ? value : [value])
+            .map((entry) => str(entry && typeof entry === 'object' ? entry.name : entry).trim())
+            .filter((name) => name && name !== info.name);
+          if (list.length > 0) return list;
+        }
+        return [];
+      };
+      /**
+       * Who made it, when the detail says: authors and artists for comics and books; for videos a
+       * studio or director (Raygun's directors) and the cast.
+       */
+      const people = (detail) =>
+        kind === 'video.source'
+          ? {
+              cast: names(detail, ['cast', 'actors', 'actor']),
+              directors: names(detail, [
+                'studio',
+                'studios',
+                'director',
+                'directors',
+                'author',
+                'authors',
+              ]),
+            }
+          : {
+              authors: names(detail, ['author', 'authors', 'writer']),
+              artists: names(detail, ['artist', 'artists', 'illustrator']),
+            };
+
       const provider = {
         kind,
         id: 'source',
@@ -735,6 +768,9 @@
             coverHeaders: headersOf(detail.headers, defaultHeaders),
             description: detail.desc ? str(detail.desc) : null,
             url: page,
+            // Miru's detail has no people of its own; scripts that add them name them like this.
+            // The source's name never stands in for them.
+            ...people(detail),
           };
         },
         // Which of Miru's methods the script has (for reports and surveys).

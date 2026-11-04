@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { describeLength, joinCount, playlistLengthSummary } from '../music/collectionLength';
 import { Sheet } from '../shell/Sheet';
 import { TextField } from '../shell/TextField';
 import { useCollectionSheets } from './collectionSheets';
@@ -52,7 +53,7 @@ export const NewPlaylistForm: FC<{ onDone: () => void }> = ({ onDone }) => {
 };
 
 export const PlaylistsView: FC = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const playlists = usePlaylists();
   const [creating, setCreating] = useState(false);
   const openMerge = useCollectionSheets((state) => state.openMerge);
@@ -106,7 +107,14 @@ export const PlaylistsView: FC = () => {
               <span className="flex min-w-0 flex-col">
                 <span className="truncate text-sm font-medium">{playlist.name}</span>
                 <span className="text-muted text-xs">
-                  {t('library.trackCount', { count: playlist.itemCount })}
+                  {joinCount(
+                    t('library.trackCount', { count: playlist.itemCount }),
+                    describeLength(
+                      playlistLengthSummary(playlist.length ?? undefined, playlist.itemCount),
+                      t,
+                      i18n.language,
+                    ),
+                  )}
                 </span>
               </span>
             </Link>

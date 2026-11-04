@@ -15,4 +15,10 @@ export const usePlayerLabels = () => {
     }) as Record<string, string>;
     void commands.videoSetPlayerLabels({ ...words, video: t('watch.video') });
   }, [t, i18n.language]);
+  useEffect(() => {
+    // The device's language: the subtitles downloads keep at first.
+    if (typeof navigator !== 'undefined' && navigator.language) {
+      void commands.videoDownloadsSetDeviceLanguage(navigator.language);
+    }
+  }, []);
 };

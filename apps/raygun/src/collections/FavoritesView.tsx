@@ -1,10 +1,12 @@
 import { commands } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
 import { Heart } from 'lucide-react';
+import type { SavedTrack } from '@raygun/bindings';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
+import { joinCount, useSongsLength } from '../music/collectionLength';
 import { usePlayContext } from '../music/playContext';
 import { savedRow } from '../music/tableView';
 import { TrackTable } from '../music/TrackTable';
@@ -12,11 +14,14 @@ import { EmptyState } from '../shell/EmptyState';
 import { PlayButtons } from './PlayButtons';
 import { COLLECTIONS, playCollection, useFavorites, useReorderFavorites } from './useCollections';
 
+const NO_SONGS: SavedTrack[] = [];
+
 export const FavoritesView: FC = () => {
   const { t } = useTranslation();
   const favorites = useFavorites();
   const reorder = useReorderFavorites();
   const client = useQueryClient();
+  const length = useSongsLength(favorites.data ?? NO_SONGS);
   usePlayContext({
     kind: 'favorites',
     name: t('collections.favorites'),
@@ -40,6 +45,9 @@ export const FavoritesView: FC = () => {
   const rows = favorites.data.map((track) => savedRow(track, track.trackKey));
   return (
     <div data-testid="favorites-view" className="flex flex-col gap-3">
+      <p className="text-muted text-xs">
+        {joinCount(t('library.trackCount', { count: rows.length }), length)}
+      </p>
       <TrackTable
         kind="favorites"
         tracks={rows}

@@ -21,17 +21,17 @@ import { titleScore } from '../search/rankResults';
 import { sourceSearchOptions } from '../search/useCatalogSearch';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { openContextMenu } from '../shell/contextMenuStore';
+import { GroupPickSheet } from '../select/GroupPickSheet';
 import { MenuButton } from '../shell/MenuButton';
 import { collectFromCache } from '../shell/queryMemory';
-import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
 import { videoTitleScore } from '../watch/videoMatch';
+import { groupWords } from './groupWords';
 import { MangaCover } from './MangaCover';
 import { createLimiter, formatNumber, mangaSize, videoSize } from './matchSize';
 import type { MatchSize } from './matchSize';
 import { catalogCommands, ROUTES } from './medium';
 import type { Medium } from './medium';
-import { useCategories } from './useCategories';
 import { useMangaSources } from './useManga';
 
 /** A match is at least this close to the title (search's own scale, 100 = the same). */
@@ -364,7 +364,7 @@ const Match: FC<{
       onSelect: () => add.mutate(),
     },
     {
-      label: t('otherSources.addToCategory'),
+      label: t('library.categories.addTo', groupWords(medium)),
       icon: FolderPlus,
       onSelect: () => setPicking(true),
     },
@@ -427,9 +427,17 @@ const Match: FC<{
         </SourceIssue>
       )}
       {picking && (
-        <CategorySheet
+        <GroupPickSheet
           medium={medium}
-          card={card}
+          titles={[
+            {
+              kind: 'title',
+              medium,
+              sourceId: card.sourceId,
+              remoteId: card.id,
+              title: card.title,
+            },
+          ]}
           onDone={() => {
             setAdded(true);
             setPicking(false);
@@ -438,56 +446,5 @@ const Match: FC<{
         />
       )}
     </div>
-  );
-};
-
-/** Puts a match into a category (adding it to the library first). */
-const CategorySheet: FC<{
-  medium: Medium;
-  card: MangaCard;
-  onDone: () => void;
-  onClose: () => void;
-}> = ({ medium, card, onDone, onClose }) => {
-  const { t } = useTranslation();
-  const client = useQueryClient();
-  const categories = useCategories(medium);
-  const put = useMutation({
-    mutationFn: async (categoryId: string) => {
-      const id = await addToLibrary(client, medium, card);
-      await unwrapResult(commands.libraryChangeCategories(medium, [id], [categoryId], []));
-    },
-    onSuccess: () => {
-      void refreshLibrary(client, medium);
-      onDone();
-    },
-  });
-  return (
-    <Sheet title={t('otherSources.addToCategory')} onClose={onClose}>
-      <div className="flex flex-col gap-1 text-sm">
-        {categories.data?.length === 0 && (
-          <p className="text-muted">{t('library.categories.noneYet')}</p>
-        )}
-        {categories.data?.map((category) => (
-          <button
-            key={category.id}
-            type="button"
-            disabled={put.isPending}
-            onClick={() => put.mutate(category.id)}
-            className="hover:bg-background flex items-center gap-3 rounded-xl px-3 py-3 text-left disabled:opacity-60"
-          >
-            <FolderPlus aria-hidden size={16} className="text-primary shrink-0" />
-            {category.name}
-          </button>
-        ))}
-        {put.error && <SourceIssue compact>{put.error.message}</SourceIssue>}
-        <Link
-          to="/library/categories"
-          search={{ medium }}
-          className="text-primary mt-2 w-fit rounded-full px-3 py-2 font-medium"
-        >
-          {t('library.categories.edit')}
-        </Link>
-      </div>
-    </Sheet>
   );
 };

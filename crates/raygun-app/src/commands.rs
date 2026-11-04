@@ -1914,6 +1914,29 @@ pub async fn cover_save(
     crate::export::covers::save(&app, &url, &title, format, destination).await
 }
 
+/// Links to the larger versions of a cover, poster or backdrop that its host serves, largest
+/// first, the cover itself last: the cover viewer shows the first that loads.
+#[tauri::command]
+#[specta::specta]
+pub fn cover_versions(app: tauri::AppHandle, url: String) -> Vec<String> {
+    crate::export::covers::shown_versions(&app, &url)
+}
+
+/// Opens the share sheet for a cover at its largest size (desktop: saves it to Pictures and shows
+/// it in its folder).
+#[tauri::command]
+#[specta::specta]
+pub async fn cover_share(app: tauri::AppHandle, url: String, title: String) -> Result<(), String> {
+    crate::export::covers::share(&app, &url, &title, false).await
+}
+
+/// Puts a cover at its largest size on the clipboard.
+#[tauri::command]
+#[specta::specta]
+pub async fn cover_copy(app: tauri::AppHandle, url: String, title: String) -> Result<(), String> {
+    crate::export::covers::share(&app, &url, &title, true).await
+}
+
 /// Song lengths Raygun knows for `tracks`, in their order; the rest are looked up in the
 /// background and arrive as `TrackDurationsEvent`s (M46.26).
 #[tauri::command]
@@ -3825,11 +3848,44 @@ pub async fn library_download_next(
     title_ids: Vec<String>,
     amount: Option<u32>,
 ) -> Result<u32, String> {
-    if medium == "video" {
-        return Err("Episodes are downloaded from their title page".into());
-    }
     let catalog = catalog_for(&app, &medium)?;
+    if medium == "video" {
+        let (queued, failed) =
+            crate::library_actions::download_episodes(&app, catalog, &title_ids, amount).await;
+        return match failed.into_iter().next() {
+            Some(failure) if queued == 0 => Err(failure.message),
+            _ => Ok(queued),
+        };
+    }
     crate::library_actions::download_next(&app, catalog, &title_ids, amount).await
+}
+
+/// Adds titles picked from search or a source's page to the library (fetching the ones never
+/// opened) and puts them into `category_ids` (groups for comics and books, folders for videos).
+#[tauri::command]
+#[specta::specta]
+pub async fn library_add_titles(
+    app: tauri::AppHandle,
+    medium: String,
+    titles: Vec<raygun_model::RemoteTitleRef>,
+    category_ids: Vec<String>,
+) -> Result<raygun_model::BulkResult, String> {
+    let catalog = catalog_for(&app, &medium)?;
+    Ok(crate::library_actions::add_titles(&app, catalog, &titles, &category_ids).await)
+}
+
+/// Downloads the next `amount` chapters or episodes (all unread ones without an amount) of
+/// titles picked from search or a source's page, through the normal download queues.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_download_titles(
+    app: tauri::AppHandle,
+    medium: String,
+    titles: Vec<raygun_model::RemoteTitleRef>,
+    amount: Option<u32>,
+) -> Result<raygun_model::BulkResult, String> {
+    let catalog = catalog_for(&app, &medium)?;
+    Ok(crate::library_actions::download_titles(&app, catalog, &titles, amount).await)
 }
 
 /// The chapter or episode a title continues at.
@@ -4979,20 +5035,35 @@ pub async fn video_downloads(
     downloads.list().await
 }
 
-/// Downloads a link of a stored episode.
+/// Downloads a link of a stored episode, with the subtitle tracks ticked (`subtitles`, their
+/// addresses; `None` keeps the source's remembered choice).
 #[tauri::command]
 #[specta::specta]
 pub async fn video_source_download(
     sources: VideoSources<'_>,
     downloads: VideoDownloadsState<'_>,
+    db: tauri::State<'_, AppDb>,
     request: raygun_model::VideoSourcePlay,
+    subtitles: Option<Vec<String>>,
 ) -> Result<(), String> {
     let title_id = request.title_id.clone();
+    let source = raygun_db::titles::title(&db.0, &title_id)
+        .await
+        .map_err(crate::catalog::to_message)?
+        .map(|row| row.fields.source_id)
+        .unwrap_or_default();
+    let shown = request.link.subtitles.clone();
     let video = sources.request(request).await?;
-    downloads.enqueue(video, Some(title_id)).await
+    let pick = crate::video_downloads::SubtitlePick {
+        source,
+        shown,
+        chosen: subtitles,
+    };
+    downloads.enqueue(video, Some(title_id), pick).await
 }
 
-/// Downloads a direct stream of a movie or episode, with subtitles (`language` first).
+/// Downloads a direct stream of a movie or episode, with the subtitle tracks ticked among the
+/// stream's (`subtitles`), and the subtitle addons' in the languages picked before.
 #[tauri::command]
 #[specta::specta]
 pub async fn stremio_download(
@@ -5001,9 +5072,52 @@ pub async fn stremio_download(
     request: raygun_model::StremioPlayRequest,
     language: String,
     title_id: Option<String>,
+    subtitles: Option<Vec<String>>,
 ) -> Result<(), String> {
+    let shown = request.stream.subtitles.clone();
     let video = stremio.request(&request, &language).await?;
-    downloads.enqueue(video, title_id).await
+    let pick = crate::video_downloads::SubtitlePick {
+        source: crate::video_downloads::auto::STREMIO_SUBTITLES.into(),
+        shown,
+        chosen: subtitles,
+    };
+    downloads.enqueue(video, title_id, pick).await
+}
+
+/// Downloads episodes of a title without picking links: `group` is the title's player group
+/// (`title:<id>` or `stremio:<type>:<id>`), `episode_ids` the episodes' ids at the source. Each
+/// finds its best link when its turn comes. Returns how many were queued.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_download_episodes(
+    downloads: VideoDownloadsState<'_>,
+    group: String,
+    episode_ids: Vec<String>,
+) -> Result<u32, String> {
+    downloads.enqueue_episodes(&group, &episode_ids).await
+}
+
+/// The subtitle tracks ticked at first when downloading from `source` (a video source's id, or
+/// `stremio`): the languages picked there before, and the device's unless it was left out.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_download_subtitle_defaults(
+    downloads: VideoDownloadsState<'_>,
+    source: String,
+    tracks: Vec<raygun_model::VideoSubtitle>,
+) -> Result<Vec<String>, String> {
+    Ok(downloads.subtitle_defaults(&source, &tracks).await)
+}
+
+/// The device's language, for the subtitles downloads keep.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_downloads_set_device_language(
+    downloads: VideoDownloadsState<'_>,
+    language: String,
+) -> Result<(), String> {
+    downloads.set_device_language(&language).await;
+    Ok(())
 }
 
 /// Tries a failed download again, keeping what it saved.

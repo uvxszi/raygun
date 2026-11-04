@@ -60,6 +60,7 @@ import { applyLoop, loopAround, wentRound } from './videoLoop';
 import { choiceOf, languageOf, languagePrefs, pickAudio, pickSubtitles } from './trackPicking';
 import type { TrackOption } from './trackPicking';
 import { useVideoPlayerStore } from './videoPlayerStore';
+import { VideoSettingsPanel } from './VideoSettingsPanel';
 import { sourceName, sourceNote, sourcesChecked } from './waiting';
 import type { WaitingNote } from './waiting';
 import { useBackLayer } from '../shell/backLayers';
@@ -75,7 +76,8 @@ type PanelKind =
   | 'aspect'
   | 'players'
   | 'keys'
-  | 'more';
+  | 'more'
+  | 'settings';
 
 const VOLUME_KEY = 'raygun.video.volume';
 /** The other player last picked (M46.33). */
@@ -1279,6 +1281,33 @@ const VideoStage: FC<StageProps> = ({
       )}
       {panel === 'subtitles' && (
         <PlayerPanel title={t('videoPlayer.subtitles')} onClose={() => setPanel(null)}>
+          <PanelHeading>{t('videoPlayer.delay')}</PanelHeading>
+          <div className="flex items-center gap-2 px-3 py-1">
+            <button
+              type="button"
+              onClick={() => changeDelay(delayMs - 100)}
+              className="rounded-lg bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20"
+            >
+              −0.1 s
+            </button>
+            <DelayField delayMs={delayMs} onChange={changeDelay} />
+            <button
+              type="button"
+              onClick={() => changeDelay(delayMs + 100)}
+              className="rounded-lg bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20"
+            >
+              +0.1 s
+            </button>
+            <button
+              type="button"
+              disabled={delayMs === 0}
+              onClick={() => changeDelay(0)}
+              className="rounded-lg px-2 py-1.5 text-sm hover:bg-white/10 disabled:opacity-40"
+            >
+              {t('videoPlayer.reset')}
+            </button>
+          </div>
+          <PanelHeading>{t('videoPlayer.subtitles')}</PanelHeading>
           <PanelOption
             label={t('videoPlayer.off')}
             selected={subtitleKey === null}
@@ -1341,32 +1370,6 @@ const VideoStage: FC<StageProps> = ({
             onStarted={() => selectSubtitle('ai')}
             onClose={onClose}
           />
-          <PanelHeading>{t('videoPlayer.delay')}</PanelHeading>
-          <div className="flex items-center gap-2 px-3 py-1">
-            <button
-              type="button"
-              onClick={() => changeDelay(delayMs - 100)}
-              className="rounded-lg bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20"
-            >
-              −0.1 s
-            </button>
-            <DelayField delayMs={delayMs} onChange={changeDelay} />
-            <button
-              type="button"
-              onClick={() => changeDelay(delayMs + 100)}
-              className="rounded-lg bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20"
-            >
-              +0.1 s
-            </button>
-            <button
-              type="button"
-              disabled={delayMs === 0}
-              onClick={() => changeDelay(0)}
-              className="rounded-lg px-2 py-1.5 text-sm hover:bg-white/10 disabled:opacity-40"
-            >
-              {t('videoPlayer.reset')}
-            </button>
-          </div>
           {subtitleKey && (
             <>
               <PanelHeading>{t('cueEdit.title')}</PanelHeading>
@@ -1437,8 +1440,13 @@ const VideoStage: FC<StageProps> = ({
               showHint(t(looping ? 'videoPlayer.loopOff' : 'videoPlayer.loopOn'));
             }}
           />
+          <PanelOption
+            label={t('videoPlayer.playerSettings')}
+            onSelect={() => setPanel('settings')}
+          />
         </PlayerPanel>
       )}
+      {panel === 'settings' && <VideoSettingsPanel onClose={() => setPanel(null)} />}
       {panel === 'aspect' && (
         <PlayerPanel title={t('videoPlayer.aspect')} onClose={() => setPanel(null)}>
           {ASPECTS.map((option) => (

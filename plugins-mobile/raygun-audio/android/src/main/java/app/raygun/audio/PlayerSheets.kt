@@ -28,7 +28,11 @@ private val BACKGROUNDS = listOf(
 )
 private val EDGES = listOf("none", "outline", "shadow", "raised", "depressed")
 private val SLEEP_MINUTES = listOf(15, 30, 45, 60, 90)
-private val INTRO_SECONDS = listOf(0, 30, 60, 75, 85, 90, 100, 110, 120, 150, 180)
+/** These match `SUBTITLE_MODES`, `VideoResolution::ALL` and `SEEK_SECONDS` in Settings. */
+private val SUBTITLE_MODES = listOf("foreign", "always", "never")
+private val RESOLUTIONS = listOf("highest", "2160p", "1440p", "1080p", "720p", "480p", "360p")
+private val SEEK_SECONDS = listOf(5, 10, 15, 30, 60)
+private val INTRO_SECONDS =listOf(0, 30, 60, 75, 85, 90, 100, 110, 120, 150, 180)
 
 /** The player's sheets (M45): what the top bar, the chips and ⋮ More open. */
 internal class PlayerSheets(private val host: VideoPlayerActivity) {
@@ -164,6 +168,17 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
     fun subtitles() {
         val tracks = host.tracks.list(C.TRACK_TYPE_TEXT)
         val sheet = PlayerSheet(host, label("subtitles", "Subtitles"))
+        // Delay and style come first: they are what is changed most while watching.
+        val delay = host.state.subtitleDelayMs
+        val shown = String.format(Locale.ROOT, "%+.1f", delay / 1000.0)
+        sheet.stepper(label("delay", "Delay"), "$shown s", listOf(
+            "−1" to { host.setSubtitleDelay(delay - 1000); subtitles() },
+            "−0.1" to { host.setSubtitleDelay(delay - 100); subtitles() },
+            "+0.1" to { host.setSubtitleDelay(delay + 100); subtitles() },
+            "+1" to { host.setSubtitleDelay(delay + 1000); subtitles() },
+            "0" to { host.setSubtitleDelay(0); subtitles() },
+        ))
+        sheet.row(label("style", "Style")) { style() }
         val off = host.tracks.textOff()
         sheet.row(label("off", "Off"), selected = off) {
             host.tracks.select(C.TRACK_TYPE_TEXT, null)
@@ -204,16 +219,6 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             }
         }
 
-        val delay = host.state.subtitleDelayMs
-        val shown = String.format(Locale.ROOT, "%+.1f", delay / 1000.0)
-        sheet.stepper(label("delay", "Delay"), "$shown s", listOf(
-            "−1" to { host.setSubtitleDelay(delay - 1000); subtitles() },
-            "−0.1" to { host.setSubtitleDelay(delay - 100); subtitles() },
-            "+0.1" to { host.setSubtitleDelay(delay + 100); subtitles() },
-            "+1" to { host.setSubtitleDelay(delay + 1000); subtitles() },
-            "0" to { host.setSubtitleDelay(0); subtitles() },
-        ))
-        sheet.row(label("style", "Style")) { style() }
         sheet.show()
     }
 
@@ -378,7 +383,91 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             sheet.dismiss()
             host.enterPip()
         }
+        sheet.row(label("playerSettings", "Player settings")) { settings() }
         sheet.show()
+    }
+
+    /**
+     * Settings → Video player's most used rows, changed without leaving the video; "More settings"
+     * opens the rest in the app while the video waits paused in its small window.
+     */
+    fun settings() {
+        val prefs = host.prefs
+        val sheet = PlayerSheet(host, label("playerSettings", "Player settings"))
+
+        sheet.header(label("subtitlesWhen", "Subtitles"))
+        val mode = SUBTITLE_MODES.indexOf(host.currentSubtitleMode).coerceAtLeast(0)
+        sheet.chips(SUBTITLE_MODES.map { modeName(it) }, mode) { picked ->
+            host.setSubtitleMode(SUBTITLE_MODES[picked])
+            settings()
+        }
+        sheet.row(label("style", "Style")) { style() }
+
+        // Yours, the video's own, then the languages this video has.
+        sheet.header(label("audioLanguage", "Audio language"))
+        val spoken = host.tracks.list(C.TRACK_TYPE_AUDIO).mapNotNull { it.language }.distinct()
+        val audio = listOf("", ORIGINAL_AUDIO) + (spoken + listOfNotNull(Languages.code(prefs.audioLanguage)))
+            .filter { it.isNotBlank() && it != ORIGINAL_AUDIO }
+            .distinct()
+        val audioNames = audio.map { code ->
+            when (code) {
+                "" -> label("audioYours", "Your language")
+                ORIGINAL_AUDIO -> label("audioOriginal", "Original")
+                else -> languageName(code) ?: code
+            }
+        }
+        val audioPicked = audio.indexOf(Languages.code(prefs.audioLanguage) ?: prefs.audioLanguage)
+        sheet.chips(audioNames, audioPicked) { picked ->
+            host.setAudioLanguage(audio[picked])
+            settings()
+        }
+
+        sheet.header(label("resolution", "Resolution"))
+        sheet.chips(
+            RESOLUTIONS.map { if (it == "highest") label("resolutionHighest", "Highest") else it },
+            RESOLUTIONS.indexOf(prefs.preferredResolution),
+        ) { picked ->
+            host.setResolution(RESOLUTIONS[picked])
+            settings()
+        }
+
+        sheet.header(label("gestures", "Gestures"))
+        sheet.row(label("brightnessSwipe", "Swipe for brightness"), selected = prefs.brightnessGesture) {
+            prefs.brightnessGesture = !prefs.brightnessGesture
+            host.savePrefs(JSONObject().put("brightnessGesture", prefs.brightnessGesture))
+            settings()
+        }
+        sheet.row(label("volumeSwipe", "Swipe for volume"), selected = prefs.volumeGesture) {
+            prefs.volumeGesture = !prefs.volumeGesture
+            host.savePrefs(JSONObject().put("volumeGesture", prefs.volumeGesture))
+            settings()
+        }
+        sheet.row(label("seekSwipe", "Swipe to seek"), selected = prefs.seekGesture) {
+            prefs.seekGesture = !prefs.seekGesture
+            host.savePrefs(JSONObject().put("seekGesture", prefs.seekGesture))
+            settings()
+        }
+
+        sheet.header(label("seekStep", "Seek step"))
+        val step = (host.seekStepMs / 1000).toInt()
+        sheet.chips(SEEK_SECONDS.map { label("seconds", "{n} s", it.toString()) }, SEEK_SECONDS.indexOf(step)) { picked ->
+            host.setSeekStep(SEEK_SECONDS[picked])
+            settings()
+        }
+
+        if (host.canPip) {
+            sheet.row(label("moreSettings", "More settings")) {
+                sheet.dismiss()
+                host.openAppSettings()
+            }
+        }
+        sheet.show()
+    }
+
+    private fun modeName(mode: String) = when (mode) {
+        "always" -> label("subtitlesAlways", "Always")
+        "never" -> label("subtitlesNever", "Never")
+        else -> label("subtitlesForeign", "Other languages")
     }
 
     private fun sleep() {

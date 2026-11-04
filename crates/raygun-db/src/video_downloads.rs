@@ -187,14 +187,16 @@ pub async fn states_for_keys(
         .collect())
 }
 
-pub async fn set_downloading(db: &Db, id: &str) -> Result<(), DbError> {
-    sqlx::query(
-        "UPDATE local_video_download SET state = 'downloading', error = NULL WHERE id = ?1",
+/// Starts a queued download. False when it was removed (or taken) meanwhile.
+pub async fn set_downloading(db: &Db, id: &str) -> Result<bool, DbError> {
+    let result = sqlx::query(
+        "UPDATE local_video_download SET state = 'downloading', error = NULL
+         WHERE id = ?1 AND state = 'queued'",
     )
     .bind(id)
     .execute(db.pool())
     .await?;
-    Ok(())
+    Ok(result.rows_affected() == 1)
 }
 
 /// Records how far a download got: bytes for a file, segments for HLS.
@@ -237,6 +239,29 @@ pub async fn set_done(
     .bind(file)
     .bind(local_subtitles)
     .bind(now_ms)
+    .execute(db.pool())
+    .await?;
+    Ok(())
+}
+
+/// Records the link an episode queued without one was saved from.
+pub async fn set_link(
+    db: &Db,
+    id: &str,
+    url: &str,
+    headers: &str,
+    format: Option<&str>,
+    subtitles: &str,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "UPDATE local_video_download SET url = ?2, headers = ?3, format = ?4, subtitles = ?5
+         WHERE id = ?1",
+    )
+    .bind(id)
+    .bind(url)
+    .bind(headers)
+    .bind(format)
+    .bind(subtitles)
     .execute(db.pool())
     .await?;
     Ok(())
@@ -325,7 +350,11 @@ mod tests {
         );
         assert_eq!(next_queued(&db).await.unwrap().unwrap().id, first);
 
-        set_downloading(&db, &first).await.unwrap();
+        assert!(set_downloading(&db, &first).await.unwrap());
+        assert!(
+            !set_downloading(&db, &first).await.unwrap(),
+            "a running download isn't started twice"
+        );
         set_progress(&db, &first, 50, Some(100), 0, None)
             .await
             .unwrap();
@@ -365,5 +394,9 @@ mod tests {
         assert_eq!(states["url:a"], DONE);
         remove(&db, &first).await.unwrap();
         assert_eq!(all(&db).await.unwrap().len(), 1);
+        // A worker finishing a removed download writes nothing back.
+        set_done(&db, &first, "video.mp4", "[]", 11).await.unwrap();
+        assert!(get(&db, &first).await.unwrap().is_none());
+        assert!(!set_downloading(&db, &first).await.unwrap());
     }
 }

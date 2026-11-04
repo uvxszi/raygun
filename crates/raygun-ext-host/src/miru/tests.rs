@@ -430,7 +430,8 @@ const VIDEO: &str = r#"
     return [{ title: JSON.stringify({ kw, page, filter }), url: 'found' }];
   }
   async detail(url) {
-    return { title: `Show ${url}`, cover: 'http://img.example/c.jpg', desc: 'About it', episodes: [
+    return { title: `Show ${url}`, cover: 'http://img.example/c.jpg', desc: 'About it',
+      studio: ['video test', 'Studio Ghibli'], cast: [{ name: 'Ann' }, 'Bob'], episodes: [
       { title: 'Line 1', urls: [{ name: 'Episode 1', url: 'l1e1' }, { name: 'Episode 2', url: 'l1e2' }] },
       { title: 'Line 2', urls: [{ name: 'Episode 1', url: 'l2e1' }, { name: 'Episode 2', url: 'l2e2' }, { name: 'Episode 3', url: 'l2e3' }] },
     ] };
@@ -542,6 +543,10 @@ async fn video_sources_list_search_and_play() {
     let details = host.manga_details(provider, "show-1a").await.unwrap();
     assert_eq!(details.title, "Show show-1a");
     assert_eq!(details.description.as_deref(), Some("About it"));
+    // The studio is who made it (Raygun's directors), the cast as given; the source's own name
+    // is never one of them.
+    assert_eq!(details.artists, ["Studio Ghibli"]);
+    assert_eq!(details.authors, ["Ann", "Bob"]);
     // Lines that list the same episodes become each episode's servers.
     let episodes = host.video_episodes(provider, "show-1a").await.unwrap();
     let names: Vec<(&str, Option<f64>)> = episodes

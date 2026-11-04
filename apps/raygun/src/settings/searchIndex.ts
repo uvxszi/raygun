@@ -4,6 +4,8 @@
  * `only` marks rows a platform doesn't show.
  */
 import type { PlatformOnly } from '../shell/useIsDesktop';
+import { playerPagePath } from './playerOptions';
+import type { PlayerSettingsPage } from './playerOptions';
 
 export type IndexedSetting = {
   /** The row's title key; the row is found by that title. */
@@ -24,7 +26,7 @@ const on =
 const onlyOn = (only: PlatformOnly, rows: IndexedSetting[]): IndexedSetting[] =>
   rows.map((row) => ({ ...row, only }));
 
-const player = (page: string) => `/settings/player/${page}`;
+const player = (page: PlayerSettingsPage) => playerPagePath(page);
 
 export const SETTINGS_INDEX: IndexedSetting[] = [
   ...on('appearance')(
@@ -46,20 +48,26 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.colors.muted',
   ),
 
-  ...on('player', 'settings.audioQuality.title')(
+  ...on('music', 'settings.audioQuality.title')(
     'settings.audioQuality.streaming',
     'settings.audioQuality.cellular',
     'settings.audioQuality.download',
   ),
-  ...on('player')('settings.resumeOnStart', 'settings.keepMusicPlaying'),
-  ...on('player', 'player.view.musicTitle')(
+  ...on('music')('settings.resumeOnStart', 'settings.keepMusicPlaying'),
+  ...on('music', 'player.view.musicTitle')(
     'player.view.layout',
     'player.view.width',
     'player.view.lyricsSize',
     'player.view.lyricsAlign',
     'player.view.background',
   ),
-  ...on('player', 'settings.videoPlayback')(
+  { title: 'settings.nextUpRows', at: 'music', group: 'settings.musicQueue', only: 'desktop' },
+  ...on('music', 'sound.equalizer')('sound.equalizer'),
+  ...on('music', 'sound.effects')('sound.bassBoost', 'sound.reverb', 'sound.balance', 'sound.mono'),
+  ...on('music', 'sound.volume')('sound.normalize', 'sound.level'),
+  ...on('music')('sound.crossfade'),
+
+  ...on('video', 'settings.videoPlayback')(
     'settings.videoQuality',
     'settings.resumeVideos',
     'settings.watchedPercent',
@@ -149,11 +157,6 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.player.section.advanced.title',
   )('settings.player.titleTrailers'),
 
-  ...on('sound', 'sound.equalizer')('sound.equalizer'),
-  ...on('sound', 'sound.effects')('sound.bassBoost', 'sound.reverb', 'sound.balance', 'sound.mono'),
-  ...on('sound', 'sound.volume')('sound.normalize', 'sound.level'),
-  ...on('sound')('sound.crossfade'),
-
   ...on('library')(
     'library.display.mode',
     'settings.coverWidth',
@@ -202,7 +205,11 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.speechRate',
   ),
 
-  ...on('browse', 'settings.content')('settings.showNsfw', 'settings.explicitMusic'),
+  ...on('browse', 'settings.content')(
+    'settings.browseStartTab',
+    'settings.showNsfw',
+    'settings.explicitMusic',
+  ),
   ...on('browse', 'settings.sources')(
     'settings.extensions',
     'browse.repos',

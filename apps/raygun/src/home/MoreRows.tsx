@@ -20,6 +20,9 @@ import { useSourceHealth } from '../search/sourceHealth';
 import { sourceSearchOptions } from '../search/useCatalogSearch';
 import { useInView } from '../shell/useInView';
 import { HomeCarousel, HomeSection, RowSkeleton } from './HomeSection';
+import { CARD_MENU_CLASS, CardPlayButton } from '../manga/CardPlayButton';
+import { usePlayTitle } from '../manga/titleMenu';
+import { MenuButton } from '../shell/MenuButton';
 
 /** Tiles in Home's genre and decade rows. */
 const TILES = 16;
@@ -223,6 +226,7 @@ export const PopularTitlesSection: FC<{ id: string; medium: Medium }> = ({ id, m
   const failures = useSourceHealth((state) => state.failures);
   const hidden = useHidden();
   const menu = useTitleMenuItems();
+  const play = usePlayTitle();
   const picked = (sources.data ?? [])
     .filter((source) => source.enabled && !source.searchPill && !(source.id in failures))
     .slice(0, HOME_SOURCES);
@@ -281,7 +285,21 @@ export const PopularTitlesSection: FC<{ id: string; medium: Medium }> = ({ id, m
                     onContextMenu={menuHandler(() => menu(title, { notInterested: true }))}
                     className="flex flex-col gap-1.5"
                   >
-                    <MangaCover url={item.coverUrl} video={video} className="w-full rounded-xl" />
+                    <span className="relative">
+                      <MangaCover url={item.coverUrl} video={video} className="w-full rounded-xl" />
+                      {video && (
+                        <CardPlayButton
+                          label={t('menu.playTitle', { name: item.title })}
+                          onPlay={() => play(title)}
+                        />
+                      )}
+                      <MenuButton
+                        label={t('menu.options', { name: item.title })}
+                        items={() => menu(title, { notInterested: true })}
+                        className={CARD_MENU_CLASS}
+                        iconSize={16}
+                      />
+                    </span>
                     <span className="line-clamp-2 text-sm font-medium">{item.title}</span>
                   </Link>
                 </li>

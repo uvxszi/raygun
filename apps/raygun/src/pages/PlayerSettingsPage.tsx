@@ -24,6 +24,7 @@ import {
   SUBTITLE_MODES,
   TAP_ACTIONS,
   TEXT_COLORS,
+  VIDEO_SETTINGS_PATH,
   withDefaults,
 } from '../settings/playerOptions';
 import type { PlayerPrefs, PlayerSettingsPage as Page } from '../settings/playerOptions';
@@ -682,39 +683,43 @@ const AdvancedScreen: FC<ScreenProps> = ({ prefs, set, busy, phone }) => {
   );
 };
 
-/** Settings → Player → one of its screens (`/settings/player/<page>`). */
+/** One of Settings → Video player's screens, on its page or in the desktop player's panel. */
+export const PlayerPageScreen: FC<{ page: Page }> = ({ page }) => {
+  const { settings, prefs, set, busy } = usePlayerPrefs();
+  const phone = useIsPhone();
+  if (!prefs || !settings) return null;
+  const props = { prefs, set, busy, phone };
+  return (
+    <>
+      {page === 'controls' && <ControlsScreen {...props} />}
+      {page === 'gestures' && <GesturesScreen {...props} seekSeconds={settings.seekSeconds} />}
+      {page === 'subtitles' && (
+        <SubtitlesScreen
+          {...props}
+          autoSubtitles={settings.autoSubtitles}
+          subtitleLanguage={settings.subtitleLanguage}
+        />
+      )}
+      {page === 'audio' && <AudioScreen {...props} />}
+      {page === 'skip' && <SkipScreen {...props} />}
+      {page === 'pip' && <PipScreen {...props} />}
+      {page === 'advanced' && <AdvancedScreen {...props} />}
+    </>
+  );
+};
+
+/** Settings → Video player → one of its screens (`/settings/video/<page>`). */
 export const PlayerSettingsPage: FC = () => {
   const { t } = useTranslation();
   const { page } = useParams({ strict: false });
-  const { settings, prefs, set, busy } = usePlayerPrefs();
   const current: Page = isPlayerPage(page) ? page : 'controls';
-  const phone = useIsPhone();
-  const props = prefs ? { prefs, set, busy, phone } : null;
   const title = t(`settings.player.section.${current}.title`);
   const reset = useResetToDefaults(title, pageReset(current));
   useFoundPref();
   return (
     <section data-testid={`player-settings-${current}`} className="flex max-w-2xl flex-col">
-      <TopBar back fallback="/settings/player" title={title} actions={reset.menu} />
-      {props && settings && (
-        <>
-          {current === 'controls' && <ControlsScreen {...props} />}
-          {current === 'gestures' && (
-            <GesturesScreen {...props} seekSeconds={settings.seekSeconds} />
-          )}
-          {current === 'subtitles' && (
-            <SubtitlesScreen
-              {...props}
-              autoSubtitles={settings.autoSubtitles}
-              subtitleLanguage={settings.subtitleLanguage}
-            />
-          )}
-          {current === 'audio' && <AudioScreen {...props} />}
-          {current === 'skip' && <SkipScreen {...props} />}
-          {current === 'pip' && <PipScreen {...props} />}
-          {current === 'advanced' && <AdvancedScreen {...props} />}
-        </>
-      )}
+      <TopBar back fallback={VIDEO_SETTINGS_PATH} title={title} actions={reset.menu} />
+      <PlayerPageScreen page={current} />
       <SettingsSaveIssue />
       {reset.sheet}
     </section>

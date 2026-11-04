@@ -6,8 +6,12 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use raygun_db::titles::{self, ProgressCopy, TitleMark, UnitRow};
-use raygun_model::{CategoryDisplay, LibraryDuplicate, LibraryList, TitleMarks};
+use futures_util::future::join_all;
+use raygun_db::titles::{self, ProgressCopy, TitleMark, TitleRow, UnitRow};
+use raygun_model::{
+    BulkFailure, BulkResult, CategoryDisplay, LibraryDuplicate, LibraryList, RemoteTitleRef,
+    TitleMarks,
+};
 use raygun_resolver::video_match;
 use tauri::{AppHandle, Manager};
 
@@ -15,7 +19,16 @@ use crate::catalog::{
     Catalog, LOCAL_SOURCE_PREFIX, continue_from, now_ms, reading_order, to_message,
 };
 use crate::manga_downloads::MangaDownloadService;
+use crate::stremio::StremioService;
 use crate::video_downloads::VideoDownloadService;
+use crate::video_library::STREMIO_SOURCE;
+use crate::video_sources::VideoSourceService;
+
+/// Titles of a selection fetched at once: sources are slow and many, but one search's picks
+/// shouldn't hit one source with dozens of requests together.
+const BULK_CONCURRENCY: usize = 4;
+/// Why a Stremio title isn't downloaded in bulk: its streams come from addons, picked per video.
+const STREMIO_DOWNLOADS: &str = "Videos from addons are downloaded from their title page";
 
 /// A title's list, favorite and pin.
 pub async fn marks(catalog: &Catalog, title_id: &str) -> Result<TitleMarks, String> {
@@ -171,18 +184,252 @@ pub async fn download_next(
         }
         let units = titles::units(&db, id).await.map_err(to_message)?;
         let saved = downloads.for_title(id).await;
-        let unread = reading_order(&units).into_iter().filter(|unit| {
-            unit.completed_at.is_none()
-                && unit.fields.date.is_none_or(|date| date <= now)
-                && !saved.contains_key(&unit.id)
-        });
-        let take = amount.map_or(usize::MAX, |amount| amount as usize);
-        queued.extend(unread.take(take).map(|unit| unit.id.clone()));
+        queued.extend(
+            units_to_queue(&units, |unit| saved.contains_key(&unit.id), amount, now)
+                .into_iter()
+                .map(|unit| unit.id.clone()),
+        );
     }
     if !queued.is_empty() {
         downloads.enqueue(&queued).await?;
     }
     Ok(queued.len() as u32)
+}
+
+/// The chapters or episodes a download of the next `amount` (all when `None`) takes, in reading
+/// order: not read or watched, released, and not saved already.
+pub fn units_to_queue(
+    units: &[UnitRow],
+    saved: impl Fn(&UnitRow) -> bool,
+    amount: Option<u32>,
+    now: i64,
+) -> Vec<&UnitRow> {
+    let take = amount.map_or(usize::MAX, |amount| amount as usize);
+    reading_order(units)
+        .into_iter()
+        .filter(|unit| {
+            unit.completed_at.is_none()
+                && unit.fields.date.is_none_or(|date| date <= now)
+                && !saved(unit)
+        })
+        .take(take)
+        .collect()
+}
+
+/// Splits bulk outcomes into the titles done and the ones that failed.
+fn gather(outcomes: Vec<Result<String, BulkFailure>>) -> BulkResult {
+    let mut result = BulkResult::default();
+    for outcome in outcomes {
+        match outcome {
+            Ok(id) => result.title_ids.push(id),
+            Err(failure) => result.failed.push(failure),
+        }
+    }
+    result
+}
+
+/// One picked title added to the library; returns its id.
+async fn add_one(
+    app: &AppHandle,
+    catalog: &Catalog,
+    title: &RemoteTitleRef,
+) -> Result<String, BulkFailure> {
+    let video = catalog.kind() == crate::video_library::KIND;
+    let added = async {
+        if video && title.source_id == STREMIO_SOURCE {
+            let (kind, id) = title
+                .remote_id
+                .split_once(':')
+                .ok_or_else(|| "This title's address is unknown".to_owned())?;
+            app.state::<Arc<StremioService>>()
+                .set_in_library(kind, id, true)
+                .await?;
+            return titles::find_title(&catalog.db(), STREMIO_SOURCE, &title.remote_id)
+                .await
+                .map_err(to_message)?
+                .map(|row| row.id)
+                .ok_or_else(|| "The title went missing".to_owned());
+        }
+        let row = catalog
+            .title_row(&title.source_id, &title.remote_id, false)
+            .await?;
+        if row.in_library_at.is_none() {
+            if video {
+                app.state::<VideoSourceService>()
+                    .set_in_library(&row.id, true)
+                    .await?;
+            } else {
+                catalog.set_in_library(&row.id, true).await?;
+            }
+        }
+        Ok::<_, String>(row.id)
+    };
+    added.await.map_err(|message| BulkFailure {
+        title: title.title.clone(),
+        message,
+    })
+}
+
+/// One picked title stored (fetched when it never was), for downloading; returns its id.
+async fn fetch_one(catalog: &Catalog, title: &RemoteTitleRef) -> Result<String, BulkFailure> {
+    if title.source_id == STREMIO_SOURCE {
+        return Err(BulkFailure {
+            title: title.title.clone(),
+            message: STREMIO_DOWNLOADS.into(),
+        });
+    }
+    catalog
+        .title_row(&title.source_id, &title.remote_id, false)
+        .await
+        .map(|row| row.id)
+        .map_err(|message| BulkFailure {
+            title: title.title.clone(),
+            message,
+        })
+}
+
+/// Adds titles picked from search or a source to the library (fetching the ones never opened)
+/// and puts them into `category_ids`. Titles that fail are reported; the others are added.
+pub async fn add_titles(
+    app: &AppHandle,
+    catalog: &Catalog,
+    picked: &[RemoteTitleRef],
+    category_ids: &[String],
+) -> BulkResult {
+    let db = catalog.db();
+    let mut outcomes = Vec::with_capacity(picked.len());
+    for chunk in picked.chunks(BULK_CONCURRENCY) {
+        outcomes.extend(join_all(chunk.iter().map(|title| add_one(app, catalog, title))).await);
+    }
+    let mut result = gather(outcomes);
+    if !category_ids.is_empty()
+        && !result.title_ids.is_empty()
+        && let Err(error) =
+            raygun_db::categories::change_titles(&db, &result.title_ids, category_ids, &[]).await
+    {
+        result.failed.push(BulkFailure {
+            title: String::new(),
+            message: to_message(error),
+        });
+    }
+    result
+}
+
+/// Downloads the next `amount` chapters or episodes (all unread or unwatched ones when `None`)
+/// of titles picked from search or a source, fetching the ones never opened. They join the
+/// normal download queues; nothing is added to the library.
+pub async fn download_titles(
+    app: &AppHandle,
+    catalog: &Catalog,
+    picked: &[RemoteTitleRef],
+    amount: Option<u32>,
+) -> BulkResult {
+    let video = catalog.kind() == crate::video_library::KIND;
+    let mut outcomes = Vec::with_capacity(picked.len());
+    for chunk in picked.chunks(BULK_CONCURRENCY) {
+        outcomes.extend(join_all(chunk.iter().map(|title| fetch_one(catalog, title))).await);
+    }
+    let mut result = gather(outcomes);
+    if video {
+        let (queued, failed) = download_episodes(app, catalog, &result.title_ids, amount).await;
+        result.queued = queued;
+        result.failed.extend(failed);
+    } else {
+        match download_next(app, catalog, &result.title_ids, amount).await {
+            Ok(queued) => result.queued = queued,
+            Err(message) => result.failed.push(BulkFailure {
+                title: String::new(),
+                message,
+            }),
+        }
+    }
+    result
+}
+
+/// Queues the next `amount` unwatched episodes of video titles that are out (all when `None`), in
+/// watching order, without links: each finds its best link when its turn comes (as a playback
+/// session ranks them), so nothing waits on sources here. Episodes already queued or saved are
+/// skipped; each title that fails says why once. Local Files videos are on the device already.
+pub async fn download_episodes(
+    app: &AppHandle,
+    catalog: &Catalog,
+    ids: &[String],
+    amount: Option<u32>,
+) -> (u32, Vec<BulkFailure>) {
+    let db = catalog.db();
+    let downloads = app.state::<Arc<VideoDownloadService>>();
+    let now = now_ms();
+    let mut queued = 0;
+    let mut failed = Vec::new();
+    for id in ids {
+        let Ok(Some(row)) = titles::title(&db, id).await else {
+            continue;
+        };
+        if row.fields.source_id.starts_with(LOCAL_SOURCE_PREFIX) {
+            continue;
+        }
+        let units = titles::units(&db, id).await.unwrap_or_default();
+        let keys: Vec<String> = units
+            .iter()
+            .map(|unit| crate::video_library::unit_key(&row, &unit.fields.remote_id))
+            .collect();
+        let states = raygun_db::video_downloads::states_for_keys(&db, &keys)
+            .await
+            .unwrap_or_default();
+        let next: Vec<String> = episodes_to_queue(
+            &units,
+            |unit| {
+                let key = crate::video_library::unit_key(&row, &unit.fields.remote_id);
+                states
+                    .get(&key)
+                    .is_some_and(|state| state != raygun_db::video_downloads::FAILED)
+            },
+            amount,
+            now,
+        )
+        .into_iter()
+        .map(|unit| unit.fields.remote_id.clone())
+        .collect();
+        if next.is_empty() {
+            continue;
+        }
+        // One title that can't be read doesn't stop the others.
+        match downloads.enqueue_episodes(&video_group(&row), &next).await {
+            Ok(count) => queued += count,
+            Err(message) => failed.push(BulkFailure {
+                title: row.fields.title.clone(),
+                message,
+            }),
+        }
+    }
+    (queued, failed)
+}
+
+/// [`units_to_queue`] for episodes: in watching order (seasons, then numbers).
+pub fn episodes_to_queue(
+    units: &[UnitRow],
+    saved: impl Fn(&UnitRow) -> bool,
+    amount: Option<u32>,
+    now: i64,
+) -> Vec<&UnitRow> {
+    let take = amount.map_or(usize::MAX, |amount| amount as usize);
+    crate::video_sources::watching_order(units)
+        .into_iter()
+        .filter(|unit| {
+            unit.completed_at.is_none()
+                && unit.fields.date.is_none_or(|date| date <= now)
+                && !saved(unit)
+        })
+        .take(take)
+        .collect()
+}
+
+/// A stored video title's player group: `stremio:<type>:<id>` or `title:<id>`.
+fn video_group(row: &TitleRow) -> String {
+    match crate::video_library::stremio_id(row) {
+        Some((kind, id)) => format!("stremio:{kind}:{id}"),
+        None => format!("title:{}", row.id),
+    }
 }
 
 /// Where a title continues: the chapter or episode its Continue opens.
@@ -306,13 +553,13 @@ fn has_progress(unit: &UnitRow) -> bool {
 /// What a migration carries onto the new title's units (Mihon's migrate): a unit with the same
 /// number (and season, for videos) takes its progress; one numbered at or below the furthest
 /// finished one of its season counts as read; unnumbered units match by name. Units with
-/// progress of their own keep it.
-pub fn migrated_progress(
-    from: &[UnitRow],
+/// progress of their own keep it. Each copy comes with the unit it was taken from, if one.
+pub fn migrated_progress<'a>(
+    from: &'a [UnitRow],
     to: &[UnitRow],
     video: bool,
     now: i64,
-) -> Vec<ProgressCopy> {
+) -> Vec<(ProgressCopy, Option<&'a UnitRow>)> {
     let season_of = |unit: &UnitRow| {
         if video {
             crate::video_sources::season(unit)
@@ -341,12 +588,15 @@ pub fn migrated_progress(
                     }
             });
             if let Some(old) = matched {
-                return Some(ProgressCopy {
-                    unit_id: unit.id.clone(),
-                    position: old.position.unwrap_or(0),
-                    total: old.total,
-                    completed_at: old.completed_at,
-                });
+                return Some((
+                    ProgressCopy {
+                        unit_id: unit.id.clone(),
+                        position: old.position.unwrap_or(0),
+                        total: old.total,
+                        completed_at: old.completed_at,
+                    },
+                    Some(*old),
+                ));
             }
             let number = unit.fields.number.filter(|number| *number > 0.0)?;
             let furthest = started
@@ -354,11 +604,16 @@ pub fn migrated_progress(
                 .filter(|old| old.completed_at.is_some() && same(season_of(old), season))
                 .filter_map(|old| old.fields.number)
                 .fold(f64::NEG_INFINITY, f64::max);
-            (number <= furthest).then(|| ProgressCopy {
-                unit_id: unit.id.clone(),
-                position: 0,
-                total: None,
-                completed_at: Some(now),
+            (number <= furthest).then(|| {
+                (
+                    ProgressCopy {
+                        unit_id: unit.id.clone(),
+                        position: 0,
+                        total: None,
+                        completed_at: Some(now),
+                    },
+                    None,
+                )
             })
         })
         .collect()
@@ -385,15 +640,17 @@ pub async fn migrate_rows(
         .await
         .map_err(to_message)?
         .ok_or_else(|| "The other source's title couldn't be stored".to_owned())?;
-    let copies = migrated_progress(
-        &titles::units(db, from_id).await.map_err(to_message)?,
-        &titles::units(db, to_id).await.map_err(to_message)?,
-        kind == crate::video_library::KIND,
-        now,
-    );
+    let video = kind == crate::video_library::KIND;
+    let from_units = titles::units(db, from_id).await.map_err(to_message)?;
+    let to_units = titles::units(db, to_id).await.map_err(to_message)?;
+    let carried = migrated_progress(&from_units, &to_units, video, now);
+    let copies: Vec<ProgressCopy> = carried.iter().map(|(copy, _)| copy.clone()).collect();
     titles::merge_progress(db, &copies)
         .await
         .map_err(to_message)?;
+    if video {
+        move_watch_positions(db, &from, &to, &to_units, &carried).await?;
+    }
     let target = [to_id.to_owned()];
     for mark in [
         from.list.clone().map(|list| TitleMark::List(Some(list))),
@@ -445,6 +702,67 @@ pub async fn migrate_rows(
     titles::set_in_library(db, from_id, None)
         .await
         .map_err(to_message)
+}
+
+/// Moves partly watched episodes' saved positions (the video progress store, which Continue
+/// watching and the title page read) onto the new title's episodes, as session references so
+/// resuming opens the new source. The old entries go, keeping their time, so Continue watching
+/// shows the new one where the old one was.
+async fn move_watch_positions(
+    db: &raygun_db::Db,
+    from: &TitleRow,
+    to: &TitleRow,
+    to_units: &[UnitRow],
+    carried: &[(ProgressCopy, Option<&UnitRow>)],
+) -> Result<(), String> {
+    use raygun_db::video as progress_store;
+    for (copy, old) in carried {
+        let Some(old) = old.filter(|_| copy.completed_at.is_none()) else {
+            continue;
+        };
+        let old_key = crate::video_library::unit_key(from, &old.fields.remote_id);
+        let Some(saved) = progress_store::progress(db, &old_key)
+            .await
+            .map_err(to_message)?
+            .filter(|saved| saved.watched_at.is_none() && saved.position_ms > 0)
+        else {
+            continue;
+        };
+        let Some(unit) = to_units.iter().find(|unit| unit.id == copy.unit_id) else {
+            continue;
+        };
+        let request = serde_json::to_string(&crate::video_session::EpisodeRef {
+            origin: crate::video_session::Origin::Source {
+                title_id: to.id.clone(),
+            },
+            episode: unit.fields.remote_id.clone(),
+        })
+        .map_err(to_message)?;
+        let entry = progress_store::VideoEntry {
+            key: crate::video_library::unit_key(to, &unit.fields.remote_id),
+            title: to.fields.title.clone(),
+            subtitle: saved.entry.subtitle.clone(),
+            poster: to.fields.cover.clone(),
+            request,
+        };
+        progress_store::started(db, &entry, saved.updated_at)
+            .await
+            .map_err(to_message)?;
+        progress_store::set_progress(
+            db,
+            &entry.key,
+            saved.position_ms,
+            saved.duration_ms,
+            false,
+            saved.updated_at,
+        )
+        .await
+        .map_err(to_message)?;
+        progress_store::remove(db, &old_key)
+            .await
+            .map_err(to_message)?;
+    }
+    Ok(())
 }
 
 /// "Use this source instead": stores the other source's title (fetching it when new), moves the
@@ -636,6 +954,94 @@ mod tests {
         assert_eq!(left.favorite_at, None);
     }
 
+    #[tokio::test]
+    async fn migrating_a_video_moves_a_partly_watched_position() {
+        use raygun_db::video as progress_store;
+        let temp = TempDir::new().unwrap();
+        let db = raygun_db::Db::open(&temp.path().join("raygun.db"))
+            .await
+            .unwrap();
+        let video = |source: &str, remote: &str| TitleFields {
+            kind: "video".into(),
+            ..fields(source, remote)
+        };
+        let episode = |remote: &str, number: f64| UnitFields {
+            volume: Some("1".into()),
+            ..chapter(remote, Some(number))
+        };
+        let old = titles::upsert_title(&db, &video("a", "1"), 1)
+            .await
+            .unwrap();
+        titles::sync_units(
+            &db,
+            &old,
+            &[episode("a1", 1.0), episode("a2", 2.0)],
+            "video",
+            1,
+        )
+        .await
+        .unwrap();
+        let new = titles::upsert_title(&db, &video("b", "9"), 1)
+            .await
+            .unwrap();
+        titles::sync_units(
+            &db,
+            &new,
+            &[episode("b1", 1.0), episode("b2", 2.0)],
+            "video",
+            1,
+        )
+        .await
+        .unwrap();
+        let old_units = titles::units(&db, &old).await.unwrap();
+        let second = old_units
+            .iter()
+            .find(|unit| unit.fields.remote_id == "a2")
+            .unwrap();
+        titles::set_watch_progress(&db, &second.id, 600_000, Some(1_400_000), false, 70)
+            .await
+            .unwrap();
+        let old_key = crate::video_sources::content_key("a", "a2");
+        let entry = progress_store::VideoEntry {
+            key: old_key.clone(),
+            title: "Frieren".into(),
+            subtitle: Some("E2".into()),
+            poster: None,
+            request: "{}".into(),
+        };
+        progress_store::started(&db, &entry, 70).await.unwrap();
+        progress_store::set_progress(&db, &old_key, 600_000, Some(1_400_000), false, 70)
+            .await
+            .unwrap();
+        titles::set_in_library(&db, &old, Some(10)).await.unwrap();
+
+        migrate_rows(&db, "video", &old, &new, 100).await.unwrap();
+
+        let moved = progress_store::progress(&db, &crate::video_sources::content_key("b", "b2"))
+            .await
+            .unwrap()
+            .expect("the position follows to the new source");
+        assert_eq!(moved.position_ms, 600_000);
+        assert_eq!(moved.duration_ms, Some(1_400_000));
+        assert_eq!(moved.updated_at, 70, "keeps its place in Continue watching");
+        let resume: crate::video_session::EpisodeRef =
+            serde_json::from_str(&moved.entry.request).unwrap();
+        assert_eq!(resume.episode, "b2");
+        assert_eq!(
+            resume.origin,
+            crate::video_session::Origin::Source {
+                title_id: new.clone()
+            }
+        );
+        assert!(
+            progress_store::progress(&db, &old_key)
+                .await
+                .unwrap()
+                .is_none(),
+            "the old entry leaves Continue watching"
+        );
+    }
+
     #[test]
     fn video_progress_moves_within_its_season() {
         let unit = |id: &str, season: Option<&str>, number: f64, done: bool| UnitRow {
@@ -668,11 +1074,100 @@ mod tests {
         assert_eq!(
             copies
                 .iter()
-                .map(|copy| copy.unit_id.as_str())
+                .map(|(copy, _)| copy.unit_id.as_str())
                 .collect::<Vec<_>>(),
             ["n1"],
             "another season's episode 1 isn't this one"
         );
+    }
+
+    fn unit(id: &str, number: f64, completed: bool, date: Option<i64>) -> UnitRow {
+        UnitRow {
+            id: id.into(),
+            title_id: "t".into(),
+            fields: raygun_db::titles::UnitFields {
+                remote_id: format!("r{id}"),
+                name: id.into(),
+                number: Some(number),
+                volume: None,
+                scanlator: None,
+                date,
+            },
+            source_order: 0,
+            position: None,
+            total: None,
+            completed_at: completed.then_some(1),
+            progress_at: None,
+        }
+    }
+
+    #[test]
+    fn bulk_downloads_take_the_next_unread_released_unsaved_units_in_order() {
+        // Listed newest first, as sources do.
+        let units = vec![
+            unit("e5", 5.0, false, Some(2_000)),
+            unit("e4", 4.0, false, None),
+            unit("e3", 3.0, false, None),
+            unit("e2", 2.0, false, None),
+            unit("e1", 1.0, true, None),
+        ];
+        let ids = |picked: Vec<&UnitRow>| picked.iter().map(|u| u.id.clone()).collect::<Vec<_>>();
+        let saved = |unit: &UnitRow| unit.id == "e3";
+        assert_eq!(
+            ids(units_to_queue(&units, saved, Some(2), 1_000)),
+            ["e2", "e4"]
+        );
+        assert_eq!(
+            ids(units_to_queue(&units, saved, None, 1_000)),
+            ["e2", "e4"],
+            "read, saved and unreleased ones stay out"
+        );
+        assert_eq!(
+            ids(units_to_queue(&units, |_| false, None, 3_000)),
+            ["e2", "e3", "e4", "e5"]
+        );
+        assert!(units_to_queue(&units, |_| false, Some(0), 3_000).is_empty());
+    }
+
+    #[test]
+    fn bulk_episode_downloads_take_the_next_unwatched_ones_in_watching_order() {
+        // Listed newest first, as sources do.
+        let units = vec![
+            unit("e4", 4.0, false, Some(2_000)),
+            unit("e3", 3.0, false, None),
+            unit("e2", 2.0, false, None),
+            unit("e1", 1.0, true, None),
+        ];
+        let ids = |picked: Vec<&UnitRow>| picked.iter().map(|u| u.id.clone()).collect::<Vec<_>>();
+        assert_eq!(
+            ids(episodes_to_queue(&units, |_| false, Some(1), 1_000)),
+            ["e2"]
+        );
+        assert_eq!(
+            ids(episodes_to_queue(
+                &units,
+                |unit| unit.id == "e2",
+                None,
+                3_000
+            )),
+            ["e3", "e4"],
+            "watched and queued ones stay out; released ones join"
+        );
+    }
+
+    #[test]
+    fn bulk_outcomes_split_into_done_and_failed() {
+        let result = gather(vec![
+            Ok("a".into()),
+            Err(BulkFailure {
+                title: "B".into(),
+                message: "The source didn't answer in time".into(),
+            }),
+            Ok("c".into()),
+        ]);
+        assert_eq!(result.title_ids, ["a", "c"]);
+        assert_eq!(result.failed.len(), 1);
+        assert_eq!(result.queued, 0);
     }
 
     #[test]

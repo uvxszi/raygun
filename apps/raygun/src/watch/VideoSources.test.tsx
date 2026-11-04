@@ -143,7 +143,9 @@ describe('Video sources in Watch', () => {
 
     const page = await screen.findByTestId('video-title-page');
     expect(commands.videoTitle).toHaveBeenCalledWith(SOURCE.id, 'serial', false);
-    expect(within(page).getByText('Series · 1936 · Archive Films')).toBeInTheDocument();
+    // Who made it leads the facts; the source is a tag of its own.
+    expect(within(page).getByText('Frederick Stephani · Series · 1936')).toBeInTheDocument();
+    expect(within(page).getByTestId('source-tag')).toHaveTextContent('Archive Films');
     // Season 1 opens first: it has an unwatched episode.
     expect(within(page).getByRole('tab', { name: 'Season 1' })).toHaveAttribute(
       'aria-selected',
@@ -208,7 +210,7 @@ describe('Video sources in Watch', () => {
     );
     await AppShellWrapper.mount(`/watch/video?source=${encodeURIComponent(SOURCE.id)}&id=chaplin`);
     const page = await screen.findByTestId('video-title-page');
-    expect(within(page).getByText('Movie · 1938 · Archive Films')).toBeInTheDocument();
+    expect(within(page).getByText('Frederick Stephani · Movie · 1938')).toBeInTheDocument();
 
     // Play watches through a session; choosing a link is the top bar's Choose a source.
     await user.click(within(page).getByRole('button', { name: 'Play' }));
@@ -249,7 +251,7 @@ describe('Video sources in Watch', () => {
 
   it('turns autoplay off, sets the next-episode prompt and names the player in the app language', async () => {
     const user = userEvent.setup();
-    await AppShellWrapper.mount('/settings/player');
+    await AppShellWrapper.mount('/settings/video');
     await user.click(
       await screen.findByRole('switch', { name: /Play the next episode automatically/ }),
     );
@@ -267,7 +269,7 @@ describe('Video sources in Watch', () => {
 
   it('sets the video resolution, 1080p unless changed', async () => {
     const user = userEvent.setup();
-    await AppShellWrapper.mount('/settings/player');
+    await AppShellWrapper.mount('/settings/video');
     const row = await screen.findByRole('button', { name: /Video resolution/ });
     expect(row).toHaveTextContent('1080p');
     await user.click(row);
