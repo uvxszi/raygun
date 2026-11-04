@@ -59,8 +59,18 @@ export const usePlayerUiStore = create<PlayerUiState>((set) => ({
   unmutedVolume: 1,
   lyricsSelectable: false,
   setLyricsSelectable: (lyricsSelectable) => set({ lyricsSelectable }),
-  openSheet: (options) =>
-    set((state) => ({ sheetOpen: true, sheetView: options?.view ?? state.sheetView })),
+  openSheet: (options) => {
+    // A field left focused (a search) keeps the phone's keyboard up, which squeezes the player.
+    const focused = document.activeElement;
+    if (
+      focused instanceof HTMLInputElement ||
+      focused instanceof HTMLTextAreaElement ||
+      (focused instanceof HTMLElement && focused.isContentEditable)
+    ) {
+      focused.blur();
+    }
+    set((state) => ({ sheetOpen: true, sheetView: options?.view ?? state.sheetView }));
+  },
   closeSheet: () => set({ sheetOpen: false }),
   setSheetView: (sheetView) => set({ sheetView }),
   togglePanel: (panel) =>

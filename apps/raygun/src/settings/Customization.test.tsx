@@ -177,20 +177,17 @@ describe('Customization', () => {
       })[0]!,
     );
     const sheet = await AppShellWrapper.playerSheet.element;
-    const button = within(sheet).getByRole('button', { name: 'Add to playlist' });
-
-    await user.click(button);
+    // The player's More options opens the song's menu beside it; Add to playlist pops up there.
+    await user.click(within(sheet).getByRole('button', { name: 'More options' }));
+    const menu = await screen.findByTestId('context-menu');
+    expect(within(menu).getByRole('menuitem', { name: 'Go to Raygun' })).toBeInTheDocument();
+    await user.click(within(menu).getByRole('menuitem', { name: 'Add to playlist' }));
     const popover = await screen.findByTestId('popover');
     expect(popover).toHaveAccessibleName('Intro');
     expect(popover).not.toHaveAttribute('aria-modal');
     expect(within(popover).getByText('Add to playlist')).toBeInTheDocument();
 
-    // The same button closes it…
-    await user.click(button);
-    expect(screen.queryByTestId('popover')).not.toBeInTheDocument();
-    // …and so does a click anywhere else.
-    await user.click(button);
-    expect(await screen.findByTestId('popover')).toBeInTheDocument();
+    // A click anywhere else closes it.
     await user.click(within(sheet).getByTestId('sheet-title'));
     expect(screen.queryByTestId('popover')).not.toBeInTheDocument();
   });

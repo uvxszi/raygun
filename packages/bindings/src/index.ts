@@ -2749,6 +2749,8 @@ export type PlaySelection = { kind: "album"; artist: string; album: string } | {
 
 /**  A user or client request to the player. */
 export type PlaybackControl = { type: "play" } | { type: "pause" } | { type: "toggle" } | { type: "next" } | { type: "previous" } | { type: "seek"; positionMs: number | null } | { type: "setVolume"; volume: number | null } | { type: "setRepeat"; mode: RepeatMode } | { type: "setShuffle"; enabled: boolean } | { type: "playItem"; itemId: string } | { type: "remove"; itemId: string } | { type: "clear" } | 
+/**  Removes everything after the current item in play order, keeping it playing. */
+{ type: "clearUpcoming" } | 
 /**  Moves a queued item before another in the play order, or to the end (M46.8). */
 { type: "move"; itemId: string; beforeItemId: string | null } | 
 /**  Playback speed, one of `PLAYBACK_RATES` (M46.8). */
@@ -2796,13 +2798,21 @@ export type PlayerOrientation =
 /**  Landscape for wide videos, portrait for tall ones. */
 "video" | "portrait" | "reversePortrait" | "sensorPortrait" | "landscape" | "reverseLandscape" | "sensorLandscape";
 
-/**  The full music player's layout (M46.7). One stored row; missing fields keep their defaults. */
+/**
+ *  The full music player's layout (M46.7). One stored row; missing fields keep their defaults.
+ * 
+ *  Sizes start from the screen: the cover is as large as fits beside the controls, the column as
+ *  wide as the window suits, lyrics as large as their column. Each offset moves away from that
+ *  size, so the player stays right on any window, zoom or orientation.
+ */
 export type PlayerViewPrefs = {
 	layout?: PlayerLayout,
-	/**  The player's width in percent of the window's (40-100, steps of 5); 0 picks it by screen. */
-	width?: number,
-	/**  Lyrics text size in px (14-48, even); 0 picks it by screen. */
-	lyricsSize?: number,
+	/**  The cover, in percent larger or smaller than what fits ([`PLAYER_PERCENT_OFFSETS`]). */
+	coverOffset?: number,
+	/**  The player's width, in percent wider or narrower than the screen's ([`PLAYER_PERCENT_OFFSETS`]). */
+	widthOffset?: number,
+	/**  Lyrics text, in px (at 100 % zoom) larger or smaller than by screen ([`LYRICS_OFFSETS`]). */
+	lyricsOffset?: number,
 	lyricsAlign?: TextAlign,
 	/**  The artwork, blurred, behind the player. */
 	background?: boolean,
