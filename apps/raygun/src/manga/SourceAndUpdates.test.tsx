@@ -74,7 +74,8 @@ describe('A source’s page and library updates', () => {
     await AppShellWrapper.mount(`/manga/source?id=${encodeURIComponent(SOURCE)}`);
     const page = await screen.findByTestId('manga-source-page');
     const issue = await within(page).findByTestId('source-issue');
-    expect(issue).toHaveTextContent('Issue with MangaDex');
+    // A server error reads as the source having problems (lib/issue.ts).
+    expect(issue).toHaveTextContent('MangaDex is having problems');
     await user.click(within(issue).getByRole('button', { name: 'Try again' }));
     expect(await within(page).findByText('Popular one')).toBeInTheDocument();
   });
@@ -109,7 +110,7 @@ describe('A source’s page and library updates', () => {
       within(failures).getByRole('link', { name: 'Frankenstein' }).getAttribute('href'),
     ).toMatch(/^\/novel\/title\?source=dev\.raygun\.gutenberg%2Fgutenberg&id=/);
     expect(within(failures).getByTestId('source-issue')).toHaveTextContent(
-      'Issue with Project Gutenberg',
+      'Project Gutenberg is having problems',
     );
   });
 });

@@ -20,6 +20,10 @@ const episode = (number: number, positionMs: number) => ({
 });
 
 describe('live invalidation', () => {
+  beforeEach(() => {
+    AppShellWrapper.seedCore();
+  });
+
   it('moves Home on to the episode the player saved', async () => {
     commands.videoContinueWatching.mockResolvedValue(ok([episode(1, 4_000)]));
     await AppShellWrapper.mount('/');
