@@ -7,6 +7,7 @@ import type { CSSProperties, FC } from 'react';
 
 import { TrackActionsSheet } from '../collections/TrackActionsSheet';
 import { SongEditSheet } from '../sound/SongEditSheet';
+import { useTranscribedLyricsSync } from '../sound/useSongTranscription';
 import { CoverSheet } from '../music/CoverSheet';
 import { MenuSheets } from '../music/MenuSheets';
 import { SourcePickerSheet } from '../music/SourcePickerSheet';
@@ -126,6 +127,7 @@ export const AppShell: FC = () => {
   const incognito = useIncognitoSync();
   useRailStamps(desktop && incognito === false);
   useSpeechHost();
+  useTranscribedLyricsSync();
   useFullscreenKey();
   useHorizontalWheel();
   useMediaSession();

@@ -1,17 +1,17 @@
 import { commands } from '@raygun/bindings';
 import type { Lyrics, TrackQuery } from '@raygun/bindings';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { AudioLines, Library, LoaderCircle } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
-import { trackKey } from '../music/trackKey';
-import { useCaptions } from '../player/spoken';
 import { SourceIssue } from '../shell/SourceIssue';
 import { lyricsSourceName } from './lyricsSource';
 import type { FullSongEdit } from './soundPrefs';
+import { TranscriptionStatus } from './TranscriptionStatus';
+import { useSongTranscription } from './useSongTranscription';
 
 /**
  * Where a song's lyrics come from (M46.36): every lyrics source's version to pick from, or the
@@ -87,49 +87,30 @@ export const LyricsSources: FC<{
 };
 
 /**
- * Hears the song's words with AI (M46.36): its downloaded copy, or a stream a source has. When
- * it's done the words are the song's synced lyrics.
+ * Hears the song's words with AI (M46.36): its downloaded copy, or a stream a source has. Songs
+ * wait in one line in Rust; once this one is heard to the end its words are its synced lyrics
+ * (shown everywhere by `useTranscribedLyricsSync`).
  */
 const HearWords: FC<{ song: TrackQuery }> = ({ song }) => {
   const { t } = useTranslation();
-  const client = useQueryClient();
-  const key = `song:${trackKey(song.title, song.artist)}`;
-  const captions = useCaptions(key);
-  const start = useMutation({
-    mutationFn: () => unwrapResult(commands.lyricsTranscribe(song)),
-    onSettled: () => client.invalidateQueries({ queryKey: ['captions', key] }),
-  });
-  const running = captions.data?.running ?? false;
-  // When the job ends its words are the song's lyrics: show them.
-  useEffect(() => {
-    if (!running && captions.data?.cues.length) {
-      void client.invalidateQueries({ queryKey: ['lyrics'] });
-      void client.invalidateQueries({ queryKey: ['songEdit'] });
-    }
-  }, [running, captions.data?.cues.length, client]);
-  if (captions.data && !captions.data.canTranscribe) {
+  const transcription = useSongTranscription(song);
+  if (!transcription.canTranscribe) {
     return <span className="text-muted self-center text-xs">{t('lyricsEdit.hearSetUp')}</span>;
   }
   return (
     <>
       <button
         type="button"
-        disabled={running || start.isPending}
-        onClick={() => start.mutate()}
+        disabled={transcription.busy}
+        onClick={transcription.start}
         className="bg-background hover:bg-surface flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm disabled:opacity-60"
       >
-        {running ? (
-          <LoaderCircle aria-hidden size={15} className="animate-spin" />
-        ) : (
-          <AudioLines aria-hidden size={15} />
-        )}
-        {running
-          ? t('lyricsEdit.hearing', { n: captions.data?.cues.length ?? 0 })
-          : t('lyricsEdit.hear')}
+        <AudioLines aria-hidden size={15} />
+        {t('lyricsEdit.hear')}
       </button>
-      {(start.error ?? captions.data?.error) && (
-        <SourceIssue>{start.error?.message ?? captions.data?.error}</SourceIssue>
-      )}
+      <div className="w-full empty:hidden">
+        <TranscriptionStatus transcription={transcription} />
+      </div>
     </>
   );
 };
