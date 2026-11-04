@@ -3,12 +3,14 @@ import type {
   MangaChapterPages,
   MangaReaderPrefs,
   ReaderMode,
+  SettingChange,
+  TapCell,
 } from '@raygun/bindings';
 import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../../shell/AppShell.test-wrapper';
-import { bindingsMock, DEFAULT_SETTINGS } from '../../test/bindingsMock';
+import { ANDROID_INFO, bindingsMock, DEFAULT_SETTINGS } from '../../test/bindingsMock';
 
 vi.mock('@raygun/bindings', async () => (await import('../../test/bindingsMock')).bindingsMock);
 
@@ -169,11 +171,7 @@ describe('The manga reader', () => {
     expect(page.style.transform).toBe('scale(2)');
     fireEvent.touchEnd(reader, { touches: [finger(50)] });
     expect(page.style.transform).toBe('');
-    expect(
-      within(within(reader).getByTestId('reader-bar')).getByRole('button', {
-        name: 'Back to the fit',
-      }),
-    ).toHaveTextContent('200%');
+    expect(within(reader).getByTestId('manga-page').style.width).toBe('200%');
   });
 
   it('shows a chapter without pages as such', async () => {
@@ -181,5 +179,287 @@ describe('The manga reader', () => {
     await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
     expect(await screen.findByText('This chapter has no pages.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
+
+  it('keeps one reading mode button and no zoom buttons on phones', async () => {
+    commands.mangaChapter.mockResolvedValue(ok(chapter('pagedLtr', 3)));
+    await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('manga-reader');
+    const bar = await within(reader).findByTestId('reader-bar');
+    expect(within(reader).getAllByRole('button', { name: 'Reading mode' })).toHaveLength(1);
+    expect(within(bar).queryByRole('button', { name: 'Reading mode' })).not.toBeInTheDocument();
+    expect(within(bar).queryByRole('button', { name: 'Zoom in' })).not.toBeInTheDocument();
+    expect(within(bar).queryByRole('button', { name: /full screen/i })).not.toBeInTheDocument();
+    expect(within(bar).getByTestId('reader-progress')).toBeInTheDocument();
+  });
+
+  it('hides the progress when it is turned off', async () => {
+    withReader({ barProgress: false });
+    commands.mangaChapter.mockResolvedValue(ok(chapter('pagedLtr', 3)));
+    await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('manga-reader');
+    await within(reader).findByTestId('reader-bar');
+    await vi.waitFor(() =>
+      expect(
+        within(reader).queryByRole('slider', { name: 'Jump to page' }),
+      ).not.toBeInTheDocument(),
+    );
+    // The page count stays.
+    expect(within(reader).getByTestId('page-number')).toHaveTextContent('1 / 3');
+  });
+
+  it('keeps the zoom and mode buttons on desktop', async () => {
+    commands.appInfo.mockResolvedValue({ ...ANDROID_INFO, platform: 'windows' });
+    commands.mangaChapter.mockResolvedValue(ok(chapter('pagedLtr', 3)));
+    await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('manga-reader');
+    const bar = await within(reader).findByTestId('reader-bar');
+    expect(await within(bar).findByRole('button', { name: 'Zoom in' })).toBeInTheDocument();
+    expect(within(bar).getByRole('button', { name: 'Reading mode' })).toBeInTheDocument();
+  });
+
+  it('fits the strip and the page to the container width exactly', async () => {
+    commands.mangaChapter.mockResolvedValue(ok(chapter('webtoon', 3)));
+    await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('manga-reader');
+    const strip = await within(reader).findByTestId('webtoon-strip');
+    // A share of what holds it (never the viewport's 100vw), with nothing added beside it.
+    expect(strip.style.width).toBe('min(100%, 48rem)');
+    expect(strip.className).not.toMatch(/\b(p|px|pl|pr|m|ml|mr)-\d/);
+    expect(strip.style.transform).toBe('');
+    for (const page of within(reader).getAllByTestId('manga-page')) {
+      expect(page).toHaveClass('w-full');
+    }
+    // The reader cancels the page area's padding and draws no scrollbar there (styles.css).
+    expect(reader).toHaveAttribute('data-edge-reader');
+    expect(reader).toHaveClass('-mx-4');
+    expect(screen.getByTestId('page-content')).toHaveClass('px-4');
+  });
+
+  it('fits a paged page to the width exactly', async () => {
+    withReader({ pagedScale: 'fitWidth' });
+    commands.mangaChapter.mockResolvedValue(ok(chapter('pagedLtr', 3)));
+    await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('manga-reader');
+    const paged = await within(reader).findByTestId('paged-reader');
+    await vi.waitFor(() => expect(paged).toHaveAttribute('data-scale', 'fitWidth'));
+    expect(within(paged).getByTestId('manga-page').style.width).toBe('100%');
+    expect(paged).toHaveClass('w-full');
+  });
+
+  describe('double taps', () => {
+    const mountStrip = async () => {
+      commands.mangaChapter.mockResolvedValue(ok(chapter('webtoon', 3)));
+      await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
+      const reader = await screen.findByTestId('manga-reader');
+      const strip = await within(reader).findByTestId('webtoon-strip');
+      const main = screen.getByTestId('page-content');
+      const scrolled = { left: 0, top: 0 };
+      Object.defineProperty(main, 'scrollLeft', {
+        configurable: true,
+        get: () => scrolled.left,
+        set: (value: number) => (scrolled.left = value),
+      });
+      Object.defineProperty(main, 'scrollTop', {
+        configurable: true,
+        get: () => scrolled.top,
+        set: (value: number) => (scrolled.top = value),
+      });
+      main.scrollBy = vi.fn();
+      vi.spyOn(strip, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 400, 2000));
+      const doubleTap = (clientX: number, clientY: number) => {
+        fireEvent.click(strip, { clientX, clientY });
+        fireEvent.click(strip, { clientX, clientY });
+      };
+      return { strip, main, scrolled, doubleTap };
+    };
+
+    it('zooms in about twice, anchored at the point tapped, then back to the fit', async () => {
+      const { strip, main, scrolled, doubleTap } = await mountStrip();
+      doubleTap(100, 200);
+      expect(strip.style.width.replace(/ /g, '')).toBe('calc(min(100%,48rem)*2)');
+      // The tapped point stays under the finger: it moved from (100, 200) to (200, 400).
+      expect(scrolled).toEqual({ left: 100, top: 200 });
+
+      doubleTap(150, 300);
+      expect(strip.style.width).toBe('min(100%, 48rem)');
+      // Neither tap of a double tap scrolls or turns anything.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(main.scrollBy).not.toHaveBeenCalled();
+    });
+
+    it('goes back to the fit when zoomed by other means', async () => {
+      const user = userEvent.setup();
+      const { strip, doubleTap } = await mountStrip();
+      await user.keyboard('{Control>}={/Control}');
+      expect(strip.style.width.replace(/ /g, '')).toBe('calc(min(100%,48rem)*1.1)');
+      doubleTap(100, 200);
+      expect(strip.style.width).toBe('min(100%, 48rem)');
+    });
+
+    it('treats taps far apart as two taps', async () => {
+      const { strip } = await mountStrip();
+      fireEvent.click(strip, { clientX: 20, clientY: 20 });
+      fireEvent.click(strip, { clientX: 380, clientY: 700 });
+      expect(strip.style.width).toBe('min(100%, 48rem)');
+    });
+  });
+
+  it('shows only the page actions on a long press or right click', async () => {
+    commands.mangaChapter.mockResolvedValue(ok(chapter('pagedLtr', 3)));
+    await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('manga-reader');
+    const page = await within(reader).findByTestId('manga-page');
+    expect(fireEvent.contextMenu(page)).toBe(false);
+    expect(await screen.findByRole('dialog', { name: 'Page 1' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /Back|Reload/ })).not.toBeInTheDocument();
+    // Around the page too: nothing of the shell's.
+    expect(fireEvent.contextMenu(within(reader).getByTestId('paged-reader'))).toBe(false);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(reader).toHaveClass('select-none');
+    expect(page).toHaveAttribute('draggable', 'false');
+  });
+
+  it('hides the system bars while reading and shows them with the menu', async () => {
+    const user = userEvent.setup();
+    withReader({ doubleTapZoom: false });
+    commands.mangaChapter.mockResolvedValue(ok(chapter('pagedLtr', 3)));
+    await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('manga-reader');
+    const paged = await within(reader).findByTestId('paged-reader');
+    expect(commands.readerSystemBars).not.toHaveBeenCalled();
+    await user.click(paged);
+    await vi.waitFor(() => expect(commands.readerSystemBars).toHaveBeenLastCalledWith(true));
+    await user.click(paged);
+    await vi.waitFor(() => expect(commands.readerSystemBars).toHaveBeenLastCalledWith(false));
+  });
+
+  describe('custom tap zones', () => {
+    const grid = (cells: Record<number, TapCell>) =>
+      Array.from({ length: 9 }, (_, index) => cells[index] ?? 'menu') as unknown as NonNullable<
+        MangaReaderPrefs['tapGridPaged']
+      >;
+    const tapAt = (target: HTMLElement, clientX: number, clientY: number) =>
+      fireEvent.click(target, { clientX, clientY });
+    const rect = (element: HTMLElement) =>
+      vi.spyOn(element, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 300, 900));
+    const saved = () =>
+      commands.settingsUpdate.mock.calls
+        .map(([change]) => change as SettingChange)
+        .filter((change) => change.key === 'mangaReader')
+        .map((change) => change.value as MangaReaderPrefs)
+        .at(-1);
+
+    it('turns pages and jumps in the paged modes', async () => {
+      withReader({
+        doubleTapZoom: false,
+        tapZones: 'custom',
+        tapGridPaged: grid({
+          0: 'firstPage',
+          2: 'lastPage',
+          3: 'previous',
+          5: 'next',
+          8: 'nothing',
+        }),
+      });
+      commands.mangaChapter.mockResolvedValue(ok(chapter('pagedLtr', 5)));
+      await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
+      const reader = await screen.findByTestId('manga-reader');
+      const indicator = await within(reader).findByTestId('page-indicator');
+      const paged = within(reader).getByTestId('paged-reader');
+      rect(paged);
+
+      tapAt(paged, 250, 450);
+      expect(indicator).toHaveTextContent('Page 2 of 5');
+      tapAt(paged, 250, 50);
+      expect(indicator).toHaveTextContent('Page 5 of 5');
+      tapAt(paged, 50, 450);
+      expect(indicator).toHaveTextContent('Page 4 of 5');
+      tapAt(paged, 50, 50);
+      expect(indicator).toHaveTextContent('Page 1 of 5');
+      // Nothing does nothing: the bars stay.
+      tapAt(paged, 250, 850);
+      expect(within(reader).getByTestId('reader-bar')).toBeInTheDocument();
+    });
+
+    it('scrolls the strip a screen and moves between chapters', async () => {
+      withReader({
+        doubleTapZoom: false,
+        tapZones: 'custom',
+        invertTaps: 'vertical',
+        tapGridWebtoon: grid({ 0: 'next', 6: 'previous', 2: 'nextChapter' }),
+      });
+      commands.mangaChapter.mockResolvedValue(
+        ok({ ...chapter('webtoon', 3), nextChapterId: 'c2' }),
+      );
+      await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
+      const reader = await screen.findByTestId('manga-reader');
+      const strip = await within(reader).findByTestId('webtoon-strip');
+      const main = screen.getByTestId('page-content');
+      Object.defineProperty(main, 'clientHeight', { configurable: true, value: 900 });
+      main.scrollBy = vi.fn();
+      rect(main);
+
+      // Mirrored top to bottom: the bottom left is the top left's Next, a screen less an overlap.
+      tapAt(strip, 50, 850);
+      expect(main.scrollBy).toHaveBeenLastCalledWith({ top: 765 });
+      tapAt(strip, 50, 50);
+      expect(main.scrollBy).toHaveBeenLastCalledWith({ top: -765 });
+      commands.mangaChapter.mockResolvedValue(
+        ok({ ...chapter('webtoon', 3), chapter: info('c2') }),
+      );
+      tapAt(strip, 250, 850);
+      await vi.waitFor(() => expect(commands.mangaChapter).toHaveBeenLastCalledWith('t1', 'c2'));
+    });
+
+    it('edits each grid in the Display sheet', async () => {
+      const user = userEvent.setup();
+      withReader({ tapZones: 'custom' });
+      commands.mangaChapter.mockResolvedValue(ok(chapter('pagedLtr', 3)));
+      await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
+      const reader = await screen.findByTestId('manga-reader');
+      await user.click(await within(reader).findByRole('button', { name: 'Display' }));
+      const sheet = await screen.findByRole('dialog', { name: 'Display' });
+      const editor = await within(sheet).findByTestId('tap-grid-editor');
+      const preview = within(editor).getByRole('group', { name: 'Tap zones for Pages' });
+      expect(within(preview).getAllByRole('button')).toHaveLength(9);
+
+      await user.click(within(preview).getByRole('button', { name: 'Row 1, column 3: Right' }));
+      await user.click(within(editor).getByRole('radio', { name: 'Last page' }));
+      expect(saved()?.tapGridPaged?.[2]).toBe('lastPage');
+      // The strip's grid is kept as it was.
+      expect(saved()?.tapGridWebtoon?.[0]).toBe('previous');
+
+      // Presets and Reset start the grid over; the strip has its own.
+      await user.click(within(editor).getByRole('button', { name: 'Kindle' }));
+      expect(saved()?.tapGridPaged).toEqual([
+        'menu',
+        'menu',
+        'menu',
+        'previous',
+        'next',
+        'next',
+        'previous',
+        'next',
+        'next',
+      ]);
+      await user.click(within(editor).getByRole('button', { name: 'Webtoon' }));
+      expect(within(editor).getByRole('group', { name: 'Tap zones for Webtoon' })).toBeVisible();
+      await user.click(within(editor).getByRole('button', { name: 'Off' }));
+      expect(saved()?.tapGridWebtoon).toEqual(Array(9).fill('menu'));
+      await user.click(within(editor).getByRole('button', { name: 'Reset' }));
+      expect(saved()?.tapGridWebtoon).toEqual([
+        'previous',
+        'previous',
+        'previous',
+        'previous',
+        'menu',
+        'next',
+        'next',
+        'next',
+        'next',
+      ]);
+      expect(saved()?.tapZones).toBe('custom');
+    });
   });
 });

@@ -1,96 +1,113 @@
 // The tap zone layouts are adapted from Mihon (Apache-2.0),
 // app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/navigation/*.kt and ViewerNavigation.kt.
 
-import type { ReaderMode, TapInvert, TapZones } from '@raygun/bindings';
+import type { MangaReaderPrefs, ReaderMode, TapCell, TapInvert, TapZones } from '@raygun/bindings';
 
-/** What a tap does: show or hide the controls, or turn the page. */
-export type TapAction = 'menu' | 'forward' | 'back';
+/** What a tap does: show or hide the controls, turn or scroll, jump, or nothing. */
+export type TapAction =
+  | 'menu'
+  | 'forward'
+  | 'back'
+  | 'firstPage'
+  | 'lastPage'
+  | 'previousChapter'
+  | 'nextChapter'
+  | 'nothing';
 
-/** Previous and next whatever the direction; left and right follow it (right to left books). */
-type RegionKind = 'previous' | 'next' | 'left' | 'right';
+/** Nine cells, row by row from the top left (`TapGrid` in raygun-model). */
+export type TapGridCells = readonly TapCell[];
+/** The stored form: exactly nine cells. */
+export type TapGrid = NonNullable<MangaReaderPrefs['tapGridPaged']>;
+export const toGrid = (cells: TapGridCells) => [...cells] as unknown as TapGrid;
 
-/** A part of the screen, in fractions of its width and height. */
-type Region = { left: number; top: number; right: number; bottom: number; kind: RegionKind };
+type Preset = Exclude<TapZones, 'auto' | 'custom'>;
 
-type Layout = Exclude<TapZones, 'auto' | 'off'>;
+const [M, P, N, L, R] = ['menu', 'previous', 'next', 'left', 'right'] as const;
 
-const LAYOUTS: Record<Layout, Region[]> = {
-  // +---+---+---+
-  // | P | P | P |
-  // | P | M | N |
-  // | N | N | N |
-  lShaped: [
-    { left: 0, top: 0.33, right: 0.33, bottom: 0.66, kind: 'previous' },
-    { left: 0, top: 0, right: 1, bottom: 0.33, kind: 'previous' },
-    { left: 0.66, top: 0.33, right: 1, bottom: 0.66, kind: 'next' },
-    { left: 0, top: 0.66, right: 1, bottom: 1, kind: 'next' },
-  ],
-  // | M | M | M |
-  // | P | N | N |
-  // | P | N | N |
-  kindle: [
-    { left: 0.33, top: 0.33, right: 1, bottom: 1, kind: 'next' },
-    { left: 0, top: 0.33, right: 0.33, bottom: 1, kind: 'previous' },
-  ],
-  // | N | N | N |
-  // | N | M | N |
-  // | N | P | N |
-  edge: [
-    { left: 0, top: 0, right: 0.33, bottom: 1, kind: 'next' },
-    { left: 0.33, top: 0.66, right: 0.66, bottom: 1, kind: 'previous' },
-    { left: 0.66, top: 0, right: 1, bottom: 1, kind: 'next' },
-  ],
-  // | L | M | R |
-  sides: [
-    { left: 0, top: 0, right: 0.33, bottom: 1, kind: 'left' },
-    { left: 0.66, top: 0, right: 1, bottom: 1, kind: 'right' },
-  ],
+export const TAP_PRESETS: Record<Preset, TapGridCells> = {
+  // Top row and the middle's left go back; the middle's right and the bottom row go on.
+  lShaped: [P, P, P, P, M, N, N, N, N],
+  // The top shows the controls; the left third goes back, the rest on.
+  kindle: [M, M, M, P, N, N, P, N, N],
+  // Both sides go on; the bottom of the middle goes back.
+  edge: [N, M, N, N, M, N, N, P, N],
+  // The left and right thirds, as the reading direction has them.
+  sides: [L, M, R, L, M, R, L, M, R],
+  off: [M, M, M, M, M, M, M, M, M],
 };
 
-export const TAP_ZONES: TapZones[] = ['auto', 'lShaped', 'kindle', 'edge', 'sides', 'off'];
+/** The presets in the order the grid editor offers them. */
+export const TAP_PRESET_NAMES: Preset[] = ['lShaped', 'kindle', 'edge', 'sides', 'off'];
+
+export const TAP_ZONES: TapZones[] = [
+  'auto',
+  'lShaped',
+  'kindle',
+  'edge',
+  'sides',
+  'off',
+  'custom',
+];
 export const TAP_INVERTS: TapInvert[] = ['none', 'horizontal', 'vertical', 'both'];
+export const TAP_CELLS: TapCell[] = [
+  'menu',
+  'previous',
+  'next',
+  'left',
+  'right',
+  'firstPage',
+  'lastPage',
+  'previousChapter',
+  'nextChapter',
+  'nothing',
+];
 
-/** The layout a mode uses: Auto is the sides for pages and the L shape for the strip (Mihon's). */
-export const resolveZones = (zones: TapZones, mode: ReaderMode): Layout | 'off' => {
-  if (zones !== 'auto') return zones;
-  return mode === 'webtoon' ? 'lShaped' : 'sides';
+/** Which of the two custom grids a mode uses. */
+export type GridKind = 'paged' | 'webtoon';
+export const gridKind = (mode: ReaderMode): GridKind => (mode === 'webtoon' ? 'webtoon' : 'paged');
+
+/** Each kind's own default: the sides for pages and the L shape for the strip (Mihon's). */
+export const DEFAULT_GRIDS: Record<GridKind, TapGridCells> = {
+  paged: TAP_PRESETS.sides,
+  webtoon: TAP_PRESETS.lShaped,
 };
 
-const mirrored = (region: Region, invert: TapInvert): Region => {
+type GridPrefs = Pick<MangaReaderPrefs, 'tapZones' | 'tapGridPaged' | 'tapGridWebtoon'>;
+
+/** The grid a kind of reading uses with these settings. */
+export const gridOf = (prefs: GridPrefs, kind: GridKind): TapGridCells => {
+  const zones = prefs.tapZones ?? 'auto';
+  if (zones === 'auto') return DEFAULT_GRIDS[kind];
+  if (zones !== 'custom') return TAP_PRESETS[zones];
+  const own = kind === 'webtoon' ? prefs.tapGridWebtoon : prefs.tapGridPaged;
+  return own && own.length === 9 ? own : DEFAULT_GRIDS[kind];
+};
+
+const third = (fraction: number) => Math.min(2, Math.max(0, Math.floor(fraction * 3)));
+
+/** The cell (0–8) a tap at (`x`, `y`) falls in, both fractions of the area, mirrored as set. */
+export const cellAt = (invert: TapInvert, x: number, y: number) => {
+  const column = third(x);
+  const row = third(y);
   const horizontal = invert === 'horizontal' || invert === 'both';
   const vertical = invert === 'vertical' || invert === 'both';
-  return {
-    kind: region.kind,
-    left: horizontal ? 1 - region.right : region.left,
-    right: horizontal ? 1 - region.left : region.right,
-    top: vertical ? 1 - region.bottom : region.top,
-    bottom: vertical ? 1 - region.top : region.bottom,
-  };
-};
-
-/** The zones of a layout, mirrored as set, for drawing them. */
-export const zoneRegions = (zones: TapZones, mode: ReaderMode, invert: TapInvert): Region[] => {
-  const layout = resolveZones(zones, mode);
-  return layout === 'off' ? [] : LAYOUTS[layout].map((region) => mirrored(region, invert));
+  return (vertical ? 2 - row : row) * 3 + (horizontal ? 2 - column : column);
 };
 
 /**
- * What a tap at (`x`, `y`) does, both fractions of the reading area. Right to left books swap
- * what the left and right sides do.
+ * What a tap at (`x`, `y`) does, both fractions of the reading area. Right to left books swap what
+ * Left and Right do.
  */
 export const tapAction = (
-  zones: TapZones,
+  grid: TapGridCells,
   invert: TapInvert,
   mode: ReaderMode,
   x: number,
   y: number,
 ): TapAction => {
-  const region = zoneRegions(zones, mode, invert).find(
-    (zone) => x >= zone.left && x < zone.right && y >= zone.top && y < zone.bottom,
-  );
-  if (!region) return 'menu';
+  const cell = grid[cellAt(invert, x, y)] ?? 'menu';
   const rtl = mode === 'pagedRtl';
-  switch (region.kind) {
+  switch (cell) {
     case 'previous':
       return 'back';
     case 'next':
@@ -99,5 +116,7 @@ export const tapAction = (
       return rtl ? 'forward' : 'back';
     case 'right':
       return rtl ? 'back' : 'forward';
+    default:
+      return cell;
   }
 };

@@ -84,6 +84,19 @@
 :root[data-scrollbars='hidden'] ::-webkit-scrollbar {
   display: none;
 }
+/* The comics reader on touch screens: a styled scrollbar isn't an overlay in Android's WebView, so
+   the page area's would take 10 px from the reader and fit to width would end short of the
+   screen's right edge. Its scrollers show none; fingers scroll them. */
+@media (pointer: coarse) {
+  main:has(> [data-edge-reader]),
+  [data-edge-reader] [data-reader-scroll] {
+    scrollbar-width: none;
+  }
+  main:has(> [data-edge-reader])::-webkit-scrollbar,
+  [data-edge-reader] [data-reader-scroll]::-webkit-scrollbar {
+    display: none;
+  }
+}
 
 /* Animations (M46.7, Settings → Appearance): buttons answer hover and press, popovers and panels
    come in. `data-motion` on the root is the level in effect (settings/useApplyTheme, from

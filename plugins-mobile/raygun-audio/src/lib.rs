@@ -288,6 +288,19 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(|error| error.to_string())
     }
 
+    /// Hides the status and navigation bars (a swipe from an edge shows them for a moment), or
+    /// shows them again: the readers' full screen.
+    #[cfg(target_os = "android")]
+    pub fn system_bars(&self, hidden: bool) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>(
+                "setSystemBars",
+                serde_json::json!({ "hidden": hidden }),
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
     /// The outputs sound can go to (M46.43) and the one picked, if any: `{outputs, chosen}`.
     #[cfg(target_os = "android")]
     pub fn audio_outputs(&self) -> Result<serde_json::Value, String> {

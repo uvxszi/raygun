@@ -1285,7 +1285,47 @@ pub enum TapZones {
     Sides,
     /// Taps only show and hide the controls.
     Off,
+    /// Each mode's own 3×3 grid (`MangaReaderPrefs::tap_grid_paged`, `tap_grid_webtoon`).
+    Custom,
 }
+
+/// What a tap on one cell of the reader's 3×3 tap grid does.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TapCell {
+    /// Shows or hides the reader's bars.
+    #[default]
+    Menu,
+    /// The page before (paged) or a screen up (webtoon).
+    Previous,
+    /// The next page (paged) or a screen down (webtoon).
+    Next,
+    /// Toward the left: previous left to right, next right to left.
+    Left,
+    /// Toward the right: next left to right, previous right to left.
+    Right,
+    FirstPage,
+    LastPage,
+    PreviousChapter,
+    NextChapter,
+    /// The tap does nothing.
+    Nothing,
+}
+
+/// A 3×3 tap grid, row by row from the top left.
+pub type TapGrid = [TapCell; 9];
+
+/// The left and right thirds, as the reading direction has them (Mihon's paged default).
+pub const TAP_GRID_SIDES: TapGrid = {
+    use TapCell::{Left as L, Menu as M, Right as R};
+    [L, M, R, L, M, R, L, M, R]
+};
+
+/// The L shape: the top and the left of the middle go back, the rest on (Mihon's webtoon default).
+pub const TAP_GRID_L_SHAPED: TapGrid = {
+    use TapCell::{Menu as M, Next as N, Previous as P};
+    [P, P, P, P, M, N, N, N, N]
+};
 
 /// How the tap zones are mirrored.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -1309,6 +1349,8 @@ pub struct MangaReaderPrefs {
     /// The page bar, in percent more or less than the screen's own: the full width on phones,
     /// 70 % on wide windows; never wider than the window.
     pub bar_size: i32,
+    /// The page bar's page slider and page count.
+    pub bar_progress: bool,
     /// The page bar's buttons beside the page slider.
     pub bar_chapters: bool,
     pub bar_zoom: bool,
@@ -1319,6 +1361,10 @@ pub struct MangaReaderPrefs {
     /// How titles without a reading mode of their own are read.
     pub default_mode: ReaderMode,
     pub tap_zones: TapZones,
+    /// The paged modes' grid when `tap_zones` is `Custom`.
+    pub tap_grid_paged: TapGrid,
+    /// The vertical strip's grid when `tap_zones` is `Custom`.
+    pub tap_grid_webtoon: TapGrid,
     pub invert_taps: TapInvert,
     /// A double tap zooms; single taps then wait a moment to tell the two apart.
     pub double_tap_zoom: bool,
@@ -1326,6 +1372,9 @@ pub struct MangaReaderPrefs {
     pub page_number: bool,
     /// The screen doesn't turn off while a chapter is open.
     pub keep_screen_on: bool,
+    /// Android's status and navigation bars are hidden while reading, and shown with the
+    /// reader's own bars.
+    pub full_screen: bool,
     /// Next and previous chapter skip other uploads of the same chapter number.
     pub skip_duplicates: bool,
 }
@@ -1336,6 +1385,7 @@ impl Default for MangaReaderPrefs {
             paged_scale: PagedScale::FitScreen,
             webtoon_size: 0,
             bar_size: 0,
+            bar_progress: true,
             bar_chapters: true,
             bar_zoom: true,
             bar_mode: true,
@@ -1343,10 +1393,13 @@ impl Default for MangaReaderPrefs {
             preload_pages: 3,
             default_mode: ReaderMode::Webtoon,
             tap_zones: TapZones::Auto,
+            tap_grid_paged: TAP_GRID_SIDES,
+            tap_grid_webtoon: TAP_GRID_L_SHAPED,
             invert_taps: TapInvert::None,
             double_tap_zoom: true,
             page_number: true,
             keep_screen_on: true,
+            full_screen: true,
             skip_duplicates: true,
         }
     }

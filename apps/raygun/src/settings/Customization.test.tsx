@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 
 import { coverGridStyle } from '../manga/coverGrid';
 import { AppShellWrapper, makeItem } from '../shell/AppShell.test-wrapper';
-import { bindingsMock, DEFAULT_SETTINGS, emitEvent } from '../test/bindingsMock';
+import { ANDROID_INFO, bindingsMock, DEFAULT_SETTINGS, emitEvent } from '../test/bindingsMock';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -104,6 +104,8 @@ describe('Customization', () => {
 
   it('fits pages, zooms them and arranges the page bar', async () => {
     const user = userEvent.setup();
+    // The page bar's zoom buttons are desktop's; phones pinch.
+    commands.appInfo.mockResolvedValue({ ...ANDROID_INFO, platform: 'windows' });
     commands.mangaChapter.mockResolvedValue(ok(chapterPages('pagedLtr')));
     await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
     const reader = await screen.findByTestId('manga-reader');
@@ -112,7 +114,7 @@ describe('Customization', () => {
 
     // The page bar zooms; Ctrl+0 goes back to the fit.
     const bar = within(reader).getByTestId('reader-bar');
-    await user.click(within(bar).getByRole('button', { name: 'Zoom in' }));
+    await user.click(await within(bar).findByRole('button', { name: 'Zoom in' }));
     expect(within(bar).getByRole('button', { name: 'Back to the fit' })).toHaveTextContent('110%');
     const page = within(reader).getByTestId('manga-page');
     expect(page.style.width).toBe('110%');

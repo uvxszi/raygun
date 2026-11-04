@@ -30,6 +30,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import app.tauri.PermissionState
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
@@ -69,6 +71,11 @@ class LoadArgs {
 @InvokeArg
 class MulticastArgs {
     var hold: Boolean = false
+}
+
+@InvokeArg
+class SystemBarsArgs {
+    var hidden: Boolean = false
 }
 
 @InvokeArg
@@ -1306,6 +1313,17 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         applySystemBars()
     }
 
+    // ---- Full screen readers: the status and navigation bars hidden, back on a swipe ----
+
+    private var barsHidden = false
+
+    @Command
+    fun setSystemBars(invoke: Invoke) {
+        barsHidden = invoke.parseArgs(SystemBarsArgs::class.java).hidden
+        main.post { applySystemBars() }
+        invoke.resolve()
+    }
+
     private fun applySystemBars() {
         val night = (activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
@@ -1317,6 +1335,13 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         val controller = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
         controller.isAppearanceLightStatusBars = lightBackground
         controller.isAppearanceLightNavigationBars = lightBackground
+        // Immersive sticky: a swipe from an edge shows the bars for a moment over the page.
+        if (barsHidden) {
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
     }
 
     /** Runs [action] on the main thread once the controller is connected to the service. */
