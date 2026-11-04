@@ -14,7 +14,8 @@ const scrollParent = (element: HTMLElement) => {
 /**
  * Keeps the video dock over the returned element while `active`. Follows it every frame, so the
  * video tracks the sheet's slide-in animation and drags, and is cut to what its scrolling
- * container shows (the side panel scrolls, M46.8).
+ * container shows (the side panel scrolls, M46.8). Each frame only reads where things are; the
+ * dock moves only when that changed, so a still video costs no layout.
  */
 export const useVideoSurface = (active: boolean) => {
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -23,19 +24,29 @@ export const useVideoSurface = (active: boolean) => {
       return;
     }
     let frame = 0;
+    // Found once the surface is there: walking up computed styles every frame is costly.
+    let container: HTMLElement | null | undefined;
+    let placed = '';
     const follow = () => {
       const surface = surfaceRef.current;
       if (!surface) {
-        hideVideo();
+        if (placed !== 'hidden') hideVideo();
+        placed = 'hidden';
       } else {
+        if (container === undefined) container = scrollParent(surface);
         const box = surface.getBoundingClientRect();
-        const container = scrollParent(surface)?.getBoundingClientRect();
-        const top = Math.max(box.top, container?.top ?? box.top);
-        const bottom = Math.min(box.bottom, container?.bottom ?? box.bottom);
-        if (bottom <= top) {
-          hideVideo();
-        } else {
-          showVideoAt(box, { top: top - box.top, bottom: box.bottom - bottom });
+        const bounds = container?.getBoundingClientRect();
+        const top = Math.max(box.top, bounds?.top ?? box.top);
+        const bottom = Math.min(box.bottom, bounds?.bottom ?? box.bottom);
+        const clip = { top: top - box.top, bottom: box.bottom - bottom };
+        const next =
+          bottom <= top
+            ? 'hidden'
+            : [box.left, box.top, box.width, box.height, clip.top, clip.bottom].join(' ');
+        if (next !== placed) {
+          if (next === 'hidden') hideVideo();
+          else showVideoAt(box, clip);
+          placed = next;
         }
       }
       frame = requestAnimationFrame(follow);

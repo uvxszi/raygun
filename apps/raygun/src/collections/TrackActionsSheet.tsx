@@ -8,6 +8,7 @@ import { TrackTagChips } from '../music/TrackTagChips';
 import { useTrackMenuItems } from '../music/useTrackMenu';
 import { useCloseOnBack } from '../player/useCloseOnBack';
 import { Popover } from '../shell/Popover';
+import { TextField } from '../shell/TextField';
 import { useWideScreen } from '../shell/useWideScreen';
 import { useTrackActionsStore } from './trackActionsStore';
 import {
@@ -45,14 +46,15 @@ const PlaylistPicker: FC<{ track: TrackInput; onDone: () => void }> = ({ track, 
       </h3>
       {naming ? (
         <form onSubmit={submit} className="flex items-center gap-2 px-2">
-          <input
+          <TextField
             // Tapping "New playlist" asked for this field; focusing it saves a tap.
             autoFocus
             value={name}
-            onChange={(event) => setName(event.target.value)}
+            onChange={setName}
             aria-label={t('collections.playlistName')}
             placeholder={t('collections.playlistName')}
-            className="bg-background min-w-0 flex-1 rounded-lg px-3 py-2 text-sm outline-none"
+            className="bg-background flex-1 rounded-lg pr-0.5 pl-3"
+            inputClassName="py-2 text-sm"
           />
           <button
             type="submit"

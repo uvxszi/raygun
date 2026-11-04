@@ -4,7 +4,7 @@
 
 ## Goal
 - **A Watch tab worth opening:** movie and series catalogs, title pages with seasons and episodes, and streams and subtitles, all from Stremio addons.
-- **The addons:** Raygun suggests Cinemeta and OpenSubtitles, and the user can add any addon by URL. Search gains a Videos type.
+- **The addons:** Raygun suggests Cinemeta and OpenSubtitles, and any addon can be added by URL. Search gains a Videos type.
 
 ## Design
 - **Protocol** (`raygun-app::stremio::protocol`, pure and tested): the HTTP addon transport, with types modeled on stremio-core's (MIT).

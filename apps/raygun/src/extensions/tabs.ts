@@ -1,6 +1,7 @@
-export type ExtensionTab = 'installed' | 'browse' | 'repos';
+/** Browse → Extensions' pills: every repository's extensions, then by whether they're here. */
+export type ExtensionList = 'all' | 'installed' | 'notInstalled' | 'updates';
 
-export const EXTENSION_TABS: ExtensionTab[] = ['installed', 'browse', 'repos'];
+export const EXTENSION_LISTS: ExtensionList[] = ['all', 'installed', 'notInstalled', 'updates'];
 
-export const isExtensionTab = (value: unknown): value is ExtensionTab =>
-  typeof value === 'string' && (EXTENSION_TABS as string[]).includes(value);
+export const isExtensionList = (value: unknown): value is ExtensionList =>
+  typeof value === 'string' && (EXTENSION_LISTS as string[]).includes(value);

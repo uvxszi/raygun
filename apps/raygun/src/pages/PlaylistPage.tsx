@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { TopBar } from '../shell/TopBar';
 import { PinButton } from '../shell/PinButton';
 import { Sheet } from '../shell/Sheet';
+import { TextField } from '../shell/TextField';
 import { DetailEditForm } from '../music/DetailEditForm';
 
 import { PlayButtons } from '../collections/PlayButtons';
@@ -101,11 +102,12 @@ const PlaylistSettings: FC<{
   return (
     <div data-testid="playlist-edit" className="flex flex-col gap-3">
       <form onSubmit={submit} className="flex items-center gap-2">
-        <input
+        <TextField
           value={name}
-          onChange={(event) => setName(event.target.value)}
+          onChange={setName}
           aria-label={t('collections.playlistName')}
-          className="bg-background min-w-0 flex-1 rounded-lg px-3 py-2 text-sm outline-none"
+          className="bg-background flex-1 rounded-lg pr-0.5 pl-3"
+          inputClassName="py-2 text-sm"
         />
         <button
           type="submit"

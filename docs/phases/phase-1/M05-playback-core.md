@@ -40,4 +40,4 @@ Rust owns the queue and the canonical player state. A webview `<audio>` engine e
   - Auto-advance on end, next, pause/resume, seek, repeat-off end-of-queue and previous all worked, and up-next updated correctly.
 - Bug found and fixed on device: "up next" showed the playing item after an auto-advance. The queue snapshot no longer carries its own cursor; the UI derives position from `currentItemId`. A regression test was added.
 - Polish: "previous" after the queue ended now replays the last item (unit-tested).
-- 🖥 Deferred at the user's request (Android only for now).
+- 🖥 Deferred: Android only for now.

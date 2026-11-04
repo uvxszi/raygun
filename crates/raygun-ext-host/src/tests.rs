@@ -1138,6 +1138,77 @@ async fn artists_and_albums_come_from_sources_that_search_them() {
     assert!(host.search_albums("  ", 10).await.is_empty());
 }
 
+#[tokio::test]
+async fn watched_searches_report_each_source_as_it_answers() {
+    let host = test_host();
+    let full = r#"
+        raygun.providers.register({
+          kind: 'music.metadata', id: 'full', name: 'Full',
+          search: async ({ query }) => ({ tracks: [{ title: query, artist: 'A' }] }),
+          searchArtists: async ({ query }) => ({ artists: [{ id: 1, name: query }] }),
+          searchPlaylists: async ({ featured }) => ({ playlists: [
+            { id: 'p1', title: 'Mine' }, { id: 'p2', title: 'Theirs', featured: true },
+          ].filter((playlist) => !featured || playlist.featured) }),
+        });
+    "#;
+    let broken = "raygun.providers.register({ kind: 'music.metadata', id: 'songs', name: 'Broken', search: async () => { throw new Error('offline'); } });";
+    host.load(vec![
+        extension("dev.raygun.full", full),
+        extension("dev.raygun.broken", broken),
+    ])
+    .await;
+
+    let reported = std::cell::RefCell::new(Vec::new());
+    let songs = host
+        .search_music_as_answered("song", 10, |result, total| {
+            reported.borrow_mut().push((
+                result.provider.name.clone(),
+                result.error.is_some(),
+                total,
+            ));
+        })
+        .await;
+    let mut reported = reported.into_inner();
+    reported.sort();
+    assert_eq!(
+        reported,
+        [
+            ("Broken".to_owned(), true, 2),
+            ("Full".to_owned(), false, 2)
+        ]
+    );
+    assert_eq!(songs.len(), 2, "every answer comes back, failures too");
+
+    // Sources without the call answer with nothing, so the count still reaches the total.
+    let answered = std::cell::RefCell::new(Vec::new());
+    let artists = host
+        .search_artists_as_answered("Daft Punk", 10, |provider, artists, total| {
+            answered
+                .borrow_mut()
+                .push((provider.name.clone(), artists.len(), total));
+        })
+        .await;
+    let mut answered = answered.into_inner();
+    answered.sort();
+    assert_eq!(
+        answered,
+        [("Broken".to_owned(), 0, 2), ("Full".to_owned(), 1, 2)]
+    );
+    assert_eq!(artists.len(), 1);
+    assert_eq!(artists[0].name, "Daft Punk");
+
+    let featured = host
+        .search_playlists_as_answered("mix", true, 10, |_, _, _| {})
+        .await;
+    assert_eq!(featured.len(), 1);
+    assert_eq!(featured[0].title, "Theirs");
+    assert!(
+        host.search_artists_as_answered("  ", 10, |_, _, _| panic!("nothing to ask"))
+            .await
+            .is_empty()
+    );
+}
+
 /// The chart and tag extensions against their real services:
 #[tokio::test]
 async fn artist_info_and_credits_come_from_music_info_providers() {

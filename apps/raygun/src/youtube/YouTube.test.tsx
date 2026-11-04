@@ -84,6 +84,47 @@ describe('YouTube addresses (M46.47)', () => {
     expect(commands.playbackReplace).toHaveBeenCalled();
   });
 
+  it('tries a failed download again, with what went wrong under More info', async () => {
+    const user = userEvent.setup();
+    commands.appInfo.mockResolvedValue({ ...ANDROID_INFO, platform: 'windows' });
+    commands.ytdlpStatus.mockResolvedValue(
+      ok({ supported: true, version: '2026.10.1', ffmpeg: true, installing: false, message: null }),
+    );
+    const failed = {
+      id: 'job',
+      url: LINK.url,
+      title: 'Never Gonna Give You Up',
+      kind: 'audio' as const,
+      state: 'failed' as const,
+      progress: null,
+      file: null,
+      message: '[youtube] dQw4w9WgXcQ: Video unavailable',
+    };
+    commands.ytdlpJobs.mockResolvedValue([failed]);
+    await AppShellWrapper.mount('/downloads?tab=exports');
+    const job = await screen.findByTestId('ytdlp-job');
+    const issue = within(job).getByTestId('source-issue');
+    expect(issue).toHaveTextContent("Couldn't download from YouTube");
+    expect(within(issue).getByText(/Video unavailable/)).not.toBeVisible();
+
+    commands.ytdlpDownload.mockResolvedValue(ok('job-2'));
+    await user.click(within(job).getByRole('button', { name: 'Try again' }));
+    expect(commands.ytdlpDownload).toHaveBeenCalledWith(
+      LINK.url,
+      'Never Gonna Give You Up',
+      'audio',
+    );
+    // The failed one leaves the list for the new one.
+    await vi.waitFor(() => expect(commands.ytdlpCancel).toHaveBeenCalledWith('job'));
+
+    // A job's event reads the jobs again, not yt-dlp's status.
+    commands.ytdlpStatus.mockClear();
+    commands.ytdlpJobs.mockClear();
+    emitEvent('ytDlpEvent', 'job-2');
+    await vi.waitFor(() => expect(commands.ytdlpJobs).toHaveBeenCalled());
+    expect(commands.ytdlpStatus).not.toHaveBeenCalled();
+  });
+
   it('leaves ordinary searches alone', async () => {
     await AppShellWrapper.mount('/browse?tab=search&q=daft%20punk');
     await screen.findByTestId('search-page');

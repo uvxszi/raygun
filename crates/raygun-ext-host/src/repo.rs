@@ -178,9 +178,65 @@ fn from_shosetsu(index: ShosetsuIndex) -> RepoIndex {
         .collect();
     RepoIndex {
         format_version: INDEX_FORMAT,
-        name: "Shosetsu extensions".to_owned(),
+        // A Shosetsu index doesn't name itself: the app names it after its address
+        // (`default_name`), so only Shosetsu's own repository reads as Shosetsu's.
+        name: String::new(),
         extensions,
         libraries: index.libraries,
+    }
+}
+
+/// The name of the official Shosetsu repository.
+pub const SHOSETSU_REPO_NAME: &str = "Shosetsu extensions";
+
+/// A name for a repository whose index gives none (Shosetsu's): Shosetsu's own repository by its
+/// name; one a hosting service serves by its project's name (`raw.githubusercontent.com/<owner>/
+/// <project>/…`, jsDelivr's `gh/<owner>/<project>@<ref>/…`, `gitlab.com/<group>/<project>/-/raw/…`,
+/// `<owner>.github.io/<project>/…`); anything else by its host, and a local index by its folder.
+pub fn default_name(url: &Url) -> String {
+    let segments: Vec<&str> = url
+        .path_segments()
+        .map(|segments| segments.filter(|part| !part.is_empty()).collect())
+        .unwrap_or_default();
+    if url.scheme() == "file" {
+        return url
+            .to_file_path()
+            .ok()
+            .and_then(|path| Some(path.parent()?.file_name()?.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| "Local repository".to_owned());
+    }
+    let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+    let part = |index: usize| segments.get(index).map(|part| (*part).to_owned());
+    let (owner, project) = match host.as_str() {
+        "raw.githubusercontent.com" | "github.com" | "codeberg.org" => (part(0), part(1)),
+        // Groups nest; the project is the last part before GitLab's `-`.
+        "gitlab.com" => match segments.iter().position(|part| *part == "-") {
+            Some(end) if end >= 2 => (part(0), part(end - 1)),
+            _ => (part(0), None),
+        },
+        "cdn.jsdelivr.net" if segments.first() == Some(&"gh") => (
+            part(1),
+            part(2).map(|project| project.split('@').next().unwrap_or_default().to_owned()),
+        ),
+        _ => match ["github.io", "gitlab.io"]
+            .iter()
+            .find_map(|pages| host.strip_suffix(pages)?.strip_suffix('.'))
+        {
+            // A project's pages; a user's own site (`<owner>.github.io/index.json`) has none.
+            Some(owner) => (
+                Some(owner.to_owned()),
+                part(0).filter(|_| segments.len() > 1),
+            ),
+            None => (None, None),
+        },
+    };
+    if owner.is_some_and(|owner| owner.eq_ignore_ascii_case("shosetsuorg")) {
+        return SHOSETSU_REPO_NAME.to_owned();
+    }
+    match (project.filter(|project| !project.is_empty()), url.port()) {
+        (Some(project), _) => project,
+        (None, Some(port)) => format!("{host}:{port}"),
+        (None, None) => host,
     }
 }
 
@@ -361,6 +417,11 @@ pub fn index_beside(url: &Url) -> Option<Url> {
 
 /// Parses an index, dropping entries this Raygun can't use (other API versions, malformed
 /// fields) rather than rejecting the whole repository.
+///
+/// A Raygun index may list packages of every format, so one repository can hold Raygun
+/// extensions, Nuclear plugins and Shosetsu scripts (as Paraline does): a `shosetsu` entry's
+/// package is its script, and the libraries scripts need are the index's `libraries`, found at
+/// `lib/<name>.lua` beside it, as in a Shosetsu repository.
 pub fn parse_index(json: &str) -> Result<RepoIndex, RepoError> {
     if let Ok(registry) = serde_json::from_str::<NuclearRegistry>(json) {
         return Ok(from_nuclear(registry));
@@ -389,6 +450,17 @@ pub fn parse_index(json: &str) -> Result<RepoIndex, RepoError> {
         }
         usable
     });
+    // A script installs as a novel source that may reach any public website, whatever the index
+    // says; the catalogue shows that.
+    for entry in &mut index.extensions {
+        if entry.format == PackageFormat::Shosetsu {
+            entry.provides = vec!["novel.source".to_owned()];
+            entry.permissions = RepoPermissions {
+                net: vec!["*".to_owned()],
+                webview: false,
+            };
+        }
+    }
     Ok(index)
 }
 
@@ -422,12 +494,15 @@ pub fn icon_url(index_url: &Url, entry: &RepoEntry) -> Option<Url> {
     matches!(url.scheme(), "http" | "https").then_some(url)
 }
 
-/// Where an entry's package is, resolved against the index URL; http(s) only.
+/// Where an entry's package is, resolved against the index URL: http(s), or a file when the
+/// index is one on this computer (desktop, M46.28). A web index never reaches local files.
 pub fn package_url(index_url: &Url, entry: &RepoEntry) -> Result<Url, RepoError> {
     let url = index_url
         .join(&entry.package)
         .map_err(|error| RepoError::Url(error.to_string()))?;
-    if matches!(url.scheme(), "http" | "https") {
+    let local =
+        cfg!(not(target_os = "android")) && index_url.scheme() == "file" && url.scheme() == "file";
+    if matches!(url.scheme(), "http" | "https") || local {
         Ok(url)
     } else {
         Err(RepoError::Url(format!("package URL {url} is not http(s)")))

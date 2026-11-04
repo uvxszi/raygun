@@ -3,7 +3,7 @@
 **Relevant docs:** ARCHITECTURE §5 (sync-ready tables), §10 (device sync), M18 (synced collections), M19/M20 (device-local secrets, pairing codes).
 
 ## Goal
-Two of the user's devices on the same network keep settings, favorites, playlists and history in step, with no server or account. They pair once with a code. After that they recognise each other by key, the channel is encrypted, and conflicting edits resolve the same way on both sides. Settings → Devices shows paired devices, what syncs and a log, and can undo the last sync.
+Two devices on the same network keep settings, favorites, playlists and history in step, with no server or account. They pair once with a code. After that they recognise each other by key, the channel is encrypted, and conflicting edits resolve the same way on both sides. Settings → Devices shows paired devices, what syncs and a log, and can undo the last sync.
 
 ## Design
 
@@ -92,11 +92,11 @@ It's a dev tool, not shipped.
   - **End to end over loopback:** pair and sync both ways; a conflict resolving the same on both devices; a third device getting changes through a second; a forged key in the pairing text refused before the code is sent; wrong codes, lockout and expiry; an unpaired stranger and a removed device refused; kinds turned on later sent in full; a 1,500-row sync split into batches.
 - **Vitest (app 101):** the Devices page (switch, pairing code and QR, copy, join, peers with Sync now and Remove, what-syncs toggles, log and undo) and the refresh after a sync event.
 - 📱 **On the emulator: partly.** Device sync turned on and listened on 8830, and the Devices page rendered. Two PC peers paired and synced with each other over loopback using the test peer.
-  - Pairing the emulator with the PC peer was stopped partway, when sync was put on hold. The attempts failed for two reasons: the keyboard capitalized the typed pairing text (fixed: the prefix is read case-insensitively and the field no longer auto-capitalizes), and my own adb input mistakes.
+  - Pairing the emulator with the PC peer was stopped partway, when sync was put on hold. The attempts failed for two reasons: the keyboard capitalized the typed pairing text (fixed: the prefix is read case-insensitively and the field no longer auto-capitalizes), and mistyped `adb` input.
   - Phone ↔ PC sync is still to be checked when sync work resumes (M22).
 
 ## Decisions and notes
 - **Echoes:** a merged row remembers the peer it came from (`from_peer` in the change log) and isn't sent back there; third devices still get it.
 - **Kinds per peer:** each side records the kinds it last sent to a peer, and resends everything when that set grows. Turning a kind on can then reach the device that holds the rows.
 - **The test peer listens on loopback by default.** An emulator reaches it as 10.0.2.2, and a loopback listener raises no firewall prompt.
-- **Status:** sync is on hold by the user's call. The feature ships off by default.
+- **Status:** sync is on hold after this milestone. The feature ships off by default.

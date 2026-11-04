@@ -143,6 +143,10 @@ describe('Search', () => {
   it('says when no search sources are installed', async () => {
     answer([]);
     await AppShellWrapper.mount('/search?type=music&view=songs&q=zzzz');
-    expect(await screen.findByText('No search sources are installed.')).toBeInTheDocument();
+    expect(await screen.findByText('No music sources yet.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Find extensions' })).toHaveAttribute(
+      'href',
+      expect.stringContaining('list=all'),
+    );
   });
 });

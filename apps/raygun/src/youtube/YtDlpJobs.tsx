@@ -1,8 +1,9 @@
 import type { YtDlpJob } from '@raygun/bindings';
-import { FolderOpen, Music, Video, X } from 'lucide-react';
+import { FolderOpen, Music, RotateCw, Video, X } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { SourceIssue } from '../shell/SourceIssue';
 import { useYtDlpActions, useYtDlpJobs } from './useYtDlp';
 
 const running = (job: YtDlpJob) => job.state === 'queued' || job.state === 'downloading';
@@ -10,7 +11,7 @@ const running = (job: YtDlpJob) => job.state === 'queued' || job.state === 'down
 /** One yt-dlp download (M46.47): its state and progress, Cancel, then Show in folder. */
 export const YtDlpJobCard: FC<{ job: YtDlpJob }> = ({ job }) => {
   const { t } = useTranslation();
-  const { cancel, reveal } = useYtDlpActions();
+  const { cancel, reveal, download } = useYtDlpActions();
   const Icon = job.kind === 'audio' ? Music : Video;
   const share = job.progress ?? 0;
   const status =
@@ -41,9 +42,27 @@ export const YtDlpJobCard: FC<{ job: YtDlpJob }> = ({ job }) => {
             {t('youtube.showFile')}
           </button>
         )}
+        {(job.state === 'failed' || job.state === 'cancelled') && (
+          <button
+            type="button"
+            disabled={download.isPending}
+            onClick={() =>
+              // A new job takes its place in the list.
+              download.mutate(
+                { url: job.url, title: job.title, kind: job.kind },
+                { onSuccess: () => cancel.mutate(job.id) },
+              )
+            }
+            className="text-primary flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold disabled:opacity-50"
+          >
+            <RotateCw aria-hidden size={14} />
+            {t('youtube.tryAgain')}
+          </button>
+        )}
         {running(job) ? (
           <button
             type="button"
+            aria-label={t('export.cancelOne', { name: job.title })}
             onClick={() => cancel.mutate(job.id)}
             className="text-primary shrink-0 rounded-full px-3 py-1 text-xs font-semibold"
           >
@@ -70,18 +89,28 @@ export const YtDlpJobCard: FC<{ job: YtDlpJob }> = ({ job }) => {
           className="bg-background h-1.5 overflow-hidden rounded-full"
         >
           <div
-            className="bg-primary h-full transition-[width]"
-            style={{ width: `${share * 100}%` }}
+            className="bg-primary h-full origin-left transition-transform"
+            style={{ transform: `scaleX(${Math.min(1, share)})` }}
           />
         </div>
       )}
       {job.file && <p className="text-muted text-xs wrap-anywhere">{job.file}</p>}
-      {job.message && (
-        <p role={job.state === 'failed' ? 'alert' : undefined} className="text-muted text-xs">
-          {job.message}
-        </p>
+      {job.message &&
+        (job.state === 'failed' ? (
+          <SourceIssue compact title={t('youtube.failed')}>
+            {job.message}
+          </SourceIssue>
+        ) : (
+          <p className="text-muted text-xs">{job.message}</p>
+        ))}
+      {(reveal.error ?? download.error) && (
+        <SourceIssue
+          compact
+          title={t(reveal.error ? 'youtube.revealFailed' : 'youtube.downloadFailed')}
+        >
+          {(reveal.error ?? download.error)?.message}
+        </SourceIssue>
       )}
-      {reveal.error && <p className="text-primary text-xs">{reveal.error.message}</p>}
     </li>
   );
 };
