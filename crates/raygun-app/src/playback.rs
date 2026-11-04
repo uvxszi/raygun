@@ -276,6 +276,8 @@ impl PlaybackService {
     /// itself plays elsewhere.
     pub fn apply(&self, command: ConnectCommand) {
         match command {
+            // A whole player moved here (Connect's transfer): its order and repeat as they were,
+            // loaded paused, then started, so it starts once at the right place.
             ConnectCommand::Replace {
                 items,
                 start_index,
@@ -283,6 +285,35 @@ impl PlaybackService {
                 start_ms,
                 play,
                 context,
+                order: Some(order),
+                repeat,
+            } => {
+                self.run(|core| {
+                    let repeat = repeat.unwrap_or(core.state().repeat);
+                    let mut effects = core.restore(
+                        items,
+                        order.into_iter().map(|index| index as usize).collect(),
+                        start_index.unwrap_or(0) as usize,
+                        start_ms,
+                        shuffle,
+                        repeat,
+                    );
+                    effects.extend(core.set_context(context));
+                    effects
+                });
+                if play {
+                    self.control_here(PlaybackControl::Play);
+                }
+            }
+            ConnectCommand::Replace {
+                items,
+                start_index,
+                shuffle,
+                start_ms,
+                play,
+                context,
+                order: None,
+                repeat,
             } => {
                 self.run(|core| {
                     let mut effects = core.replace_at(
@@ -292,11 +323,14 @@ impl PlaybackService {
                         start_ms,
                     );
                     effects.extend(core.set_context(context));
+                    if let Some(mode) = repeat {
+                        effects.extend(core.set_repeat(mode));
+                    }
+                    if !play {
+                        effects.extend(core.pause());
+                    }
                     effects
                 });
-                if !play {
-                    self.run(|core| core.pause());
-                }
             }
             ConnectCommand::Enqueue { items, play_now } => {
                 self.run(|core| core.enqueue(items, play_now));
@@ -353,6 +387,8 @@ impl PlaybackService {
                 start_ms: 0.0,
                 play: true,
                 context,
+                order: None,
+                repeat: None,
             });
         }
         self.run(|core| {
@@ -374,6 +410,8 @@ impl PlaybackService {
                 start_ms,
                 play: true,
                 context,
+                order: None,
+                repeat: None,
             });
         }
         self.run(|core| {

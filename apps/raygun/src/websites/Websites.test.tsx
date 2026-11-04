@@ -1,9 +1,9 @@
-import type { Website } from '@raygun/bindings';
+import type { SettingChange, Settings, Website } from '@raygun/bindings';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
-import { DEFAULT_SETTINGS, bindingsMock } from '../test/bindingsMock';
+import { ANDROID_INFO, DEFAULT_SETTINGS, bindingsMock } from '../test/bindingsMock';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -163,5 +163,98 @@ describe('Websites', () => {
     expect(commands.websiteBlocklistUpdate).toHaveBeenCalled();
     await user.click(within(group).getByRole('button', { name: 'Clear website data' }));
     expect(await within(group).findByRole('status')).toHaveTextContent('were cleared');
+  });
+
+  it('lists saved sites in Library → Websites to open, edit and remove', async () => {
+    const user = userEvent.setup();
+    commands.websiteList.mockResolvedValue(ok([]));
+    await AppShellWrapper.mount('/library?media=websites');
+    const page = await screen.findByTestId('library-websites');
+    expect(await within(page).findByText('No websites yet')).toBeInTheDocument();
+    expect(screen.getByTestId('library-media-websites')).toHaveAttribute('aria-current', 'page');
+
+    commands.websiteList.mockResolvedValue(ok([SITE]));
+    commands.websiteAdd.mockResolvedValue(ok(SITE));
+    await user.click(within(page).getByRole('button', { name: 'Add website' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Add website' });
+    await user.type(within(sheet).getByRole('textbox', { name: 'Address' }), 'archive.org');
+    await user.click(within(sheet).getByRole('button', { name: 'Add' }));
+    expect(commands.websiteAdd).toHaveBeenCalledWith(null, 'archive.org');
+
+    await user.click(await within(page).findByRole('button', { name: 'Open Internet Archive' }));
+    expect(commands.websiteOpen).toHaveBeenCalledWith('w1');
+    await user.click(within(page).getByRole('button', { name: 'Internet Archive options' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Remove' }));
+    const ask = await screen.findByRole('dialog', { name: 'Remove Internet Archive?' });
+    await user.click(within(ask).getByRole('button', { name: 'Remove' }));
+    expect(commands.websiteRemove).toHaveBeenCalledWith('w1');
+  });
+
+  it('shows saved sites in Library → All, each opening the site', async () => {
+    const user = userEvent.setup();
+    commands.websiteList.mockResolvedValue(ok([SITE]));
+    await AppShellWrapper.mount('/library?media=all');
+    const row = await screen.findByRole('region', { name: 'Websites' });
+    await user.click(within(row).getByRole('button', { name: 'Open Internet Archive' }));
+    expect(commands.websiteOpen).toHaveBeenCalledWith('w1');
+  });
+
+  it('opens the site a quick access pin names', async () => {
+    commands.websiteList.mockResolvedValue(ok([SITE]));
+    await AppShellWrapper.mount('/library?media=websites&site=w1');
+    await vi.waitFor(() => expect(commands.websiteOpen).toHaveBeenCalledWith('w1'));
+    expect(commands.websiteOpen).toHaveBeenCalledTimes(1);
+  });
+
+  describe('on a computer', () => {
+    afterEach(() => {
+      delete (window as { matchMedia?: unknown }).matchMedia;
+    });
+
+    beforeEach(() => {
+      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: true,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }));
+      commands.appInfo.mockResolvedValue({ ...ANDROID_INFO, platform: 'windows' });
+    });
+
+    it('pins a site to quick access, and the pin opens it', async () => {
+      const user = userEvent.setup();
+      let current: Settings = {
+        ...DEFAULT_SETTINGS,
+        rail: { ...DEFAULT_SETTINGS.rail, seeded: true },
+      };
+      commands.settingsGet.mockImplementation(async () => ok(current));
+      commands.settingsUpdate.mockImplementation(async (change: SettingChange) => {
+        current = { ...current, [change.key]: change.value };
+        return ok(current);
+      });
+      commands.websiteList.mockResolvedValue(ok([SITE]));
+      await AppShellWrapper.mount('/library?media=websites');
+      const page = await screen.findByTestId('library-websites');
+      await user.click(
+        await within(page).findByRole('button', { name: 'Internet Archive options' }),
+      );
+      await user.click(screen.getByRole('menuitem', { name: 'Pin to sidebar' }));
+      await vi.waitFor(() =>
+        expect(current.rail.pins).toEqual([
+          expect.objectContaining({
+            kind: 'website',
+            to: '/library',
+            search: { media: 'websites', site: 'w1' },
+          }),
+        ]),
+      );
+
+      const pin = await within(screen.getByTestId('rail-pins')).findByRole('button', {
+        name: /Internet Archive/,
+      });
+      commands.websiteOpen.mockClear();
+      await user.click(pin);
+      expect(commands.websiteOpen).toHaveBeenCalledWith('w1');
+    });
   });
 });

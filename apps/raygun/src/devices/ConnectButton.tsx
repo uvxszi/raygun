@@ -2,13 +2,12 @@ import type { ConnectDevice } from '@raygun/bindings';
 import { commands } from '@raygun/bindings';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Laptop, LoaderCircle, MonitorSpeaker, Plus, QrCode, Smartphone, X } from 'lucide-react';
+import { Laptop, LoaderCircle, MonitorSpeaker, QrCode, Smartphone, Volume2, X } from 'lucide-react';
 import { useState } from 'react';
-import type { FC, FormEvent } from 'react';
+import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import {
-  useAddDevice,
   useConnectDevices,
   useConnectStatus,
   useConnectTo,
@@ -21,7 +20,6 @@ import { useLocalNetworkGate } from '../network/useLocalNetworkGate';
 import { Problem } from '../settings/Problem';
 import { useRemoteStatus } from '../settings/remoteQueries';
 import { Sheet } from '../shell/Sheet';
-import { TextField } from '../shell/TextField';
 import { AudioOutputs } from './AudioOutputs';
 import { useSyncStatus } from './useDeviceSync';
 
@@ -41,8 +39,8 @@ const DeviceIcon: FC<{ kind: string; className?: string; size?: number }> = ({
 
 /**
  * Spotify's Connect button (M46.13), beside the song in the player bar. Its sheet plays on another
- * Raygun device (M46.15): this device, the others found on the network or added by address, and
- * the switch that lets others play on this one; then device sync and the browser remote.
+ * Raygun device (M46.15): this device and your linked devices (tapping one moves playback there
+ * at once, tapping this one brings it back), and the switch that lets others find this one.
  */
 export const ConnectButton: FC<{ className?: string }> = ({ className = '' }) => {
   const { t } = useTranslation();
@@ -91,8 +89,8 @@ const ConnectSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
   const disconnect = useDisconnect();
   const forget = useForgetDevice();
   const network = useLocalNetworkGate('connect');
-  const [adding, setAdding] = useState(false);
-  const others = devices.data ?? [];
+  // Linked devices first; ones only heard on the network say they need linking.
+  const others = [...(devices.data ?? [])].sort((a, b) => Number(b.paired) - Number(a.paired));
   const error = connectTo.error?.message ?? disconnect.error?.message ?? status?.error;
   const errorTitle = connectTo.error
     ? t('connect.playFailed', {
@@ -108,7 +106,7 @@ const ConnectSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
     if (session?.deviceId === device.id) return t('connect.status.playing');
     if (status?.asking === device.id) return t('connect.status.asking', { name: device.name });
     if (!device.found) return t('connect.status.away');
-    return device.paired ? t('connect.status.ready') : t('connect.status.asksFirst');
+    return device.paired ? t('connect.status.ready') : t('connect.status.notLinked');
   };
 
   return (
@@ -174,10 +172,14 @@ const ConnectSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
                 onClick={() => play(device)}
                 className={`${ROW} hover:bg-background min-w-0 flex-1 text-left disabled:cursor-default`}
               >
-                <DeviceIcon
-                  kind={device.kind}
-                  className={active ? 'text-primary' : device.found ? '' : 'text-muted'}
-                />
+                {active ? (
+                  <Volume2 aria-hidden size={20} className="text-primary" />
+                ) : (
+                  <DeviceIcon
+                    kind={device.kind}
+                    className={device.found && device.paired ? '' : 'text-muted'}
+                  />
+                )}
                 <span className="min-w-0 flex-1">
                   <span
                     className={`block truncate text-sm font-medium ${active ? 'text-primary' : ''}`}
@@ -208,20 +210,8 @@ const ConnectSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
         <p className="text-muted px-2 py-1 text-sm">{t('connect.noDevices')}</p>
       )}
       {error && <Problem title={errorTitle} detail={error} className="mx-2" />}
-      {adding ? (
-        <AddDevice onDone={() => setAdding(false)} />
-      ) : (
-        <button
-          type="button"
-          onClick={() => setAdding(true)}
-          className={`${ROW} hover:bg-background text-muted text-left text-sm`}
-        >
-          <Plus aria-hidden size={18} />
-          {t('connect.add')}
-        </button>
-      )}
       <AllowHere />
-      {/* Pairing, syncing and the browser remote are one place (M46.43). */}
+      {/* Linking and syncing are one place (M46.43). */}
       <Link
         to="/settings/devices"
         onClick={onClose}
@@ -232,55 +222,6 @@ const ConnectSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
       </Link>
       {network.sheet}
     </div>
-  );
-};
-
-/** Adds a device by the address it shows, where mDNS doesn't reach (guest Wi-Fi, an emulator). */
-const AddDevice: FC<{ onDone: () => void }> = ({ onDone }) => {
-  const { t } = useTranslation();
-  const [address, setAddress] = useState('');
-  const add = useAddDevice();
-  const network = useLocalNetworkGate('connect');
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    const text = address.trim();
-    if (!text) return;
-    const url = /^https?:\/\//.test(text) ? text : `http://${text}`;
-    void network.guard(url, () => add.mutate(text, { onSuccess: onDone }));
-  };
-  return (
-    <form onSubmit={submit} className="flex flex-col gap-2 px-2 py-2">
-      <label className="flex flex-col gap-1 text-xs">
-        <span className="text-muted">{t('connect.addressLabel')}</span>
-        <TextField
-          autoFocus
-          inputMode="url"
-          autoCapitalize="off"
-          autoCorrect="off"
-          spellCheck={false}
-          value={address}
-          placeholder="192.168.1.20:8820"
-          onChange={setAddress}
-          aria-label={t('connect.addressLabel')}
-          className="bg-background rounded-lg pr-0.5 pl-3"
-          inputClassName="py-2 text-sm"
-        />
-      </label>
-      {add.error && <Problem title={t('link.addFailed')} detail={add.error.message} />}
-      <div className="flex justify-end gap-2">
-        <button type="button" onClick={onDone} className="rounded-full px-3 py-1.5 text-sm">
-          {t('connect.cancel')}
-        </button>
-        <button
-          type="submit"
-          disabled={add.isPending || address.trim() === ''}
-          className="bg-primary text-background rounded-full px-4 py-1.5 text-sm font-semibold disabled:opacity-50"
-        >
-          {t('connect.addButton')}
-        </button>
-      </div>
-      {network.sheet}
-    </form>
   );
 };
 
@@ -303,7 +244,6 @@ const AllowHere: FC = () => {
   });
   const network = useLocalNetworkGate('remote');
   const enabled = (remote.data?.enabled ?? false) && (sync.data?.enabled ?? false);
-  const address = remote.data?.url?.replace(/^https?:\/\//, '');
   return (
     <div className="flex flex-col gap-1 px-2 py-2">
       <div className="flex items-center justify-between gap-3">
@@ -328,9 +268,6 @@ const AllowHere: FC = () => {
           />
         </button>
       </div>
-      {enabled && address && (
-        <p className="text-muted text-xs">{t('connect.allowHereAddress', { address })}</p>
-      )}
       {(setEnabled.error ?? remote.data?.error) && (
         <Problem
           title={t('link.shareFailed')}

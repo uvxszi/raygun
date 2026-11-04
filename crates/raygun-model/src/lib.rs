@@ -290,7 +290,7 @@ impl Default for RailPrefs {
 #[serde(rename_all = "camelCase")]
 pub struct RailPin {
     /// `favorites`, `downloaded`, `localFiles`, `playlist`, `album`, `artist`, `podcast`,
-    /// `audiobook`, `manga`, `novel`, `video`, `mix`.
+    /// `audiobook`, `manga`, `novel`, `video`, `mix`, `website` (opens the site).
     pub kind: String,
     /// The page it opens: a route and its search parameters.
     pub to: String,
@@ -3795,29 +3795,22 @@ pub struct McpStatus {
     pub error: Option<String>,
 }
 
-// ---- LAN remote (M20) ----
+// ---- The server other devices link with and play through (M20, M46.15) ----
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RemoteDevice {
-    pub id: String,
-    pub name: String,
-    /// Unix ms.
-    pub paired_at: f64,
-}
-
-/// The LAN remote's switch, address, open pairing code and paired devices.
+/// The server's switch, its address, and the open link code (M46.47).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteStatus {
     pub enabled: bool,
     /// `http://<LAN IP>:<port>` while it runs.
     pub url: Option<String>,
-    /// The address with the open pairing code, while a code is open.
-    pub pair_url: Option<String>,
-    /// `pair_url` as a QR code (SVG markup).
-    pub pair_qr_svg: Option<String>,
-    pub devices: Vec<RemoteDevice>,
+    /// What this device's link QR code says (`raygun:link?at=…&code=…&name=…`), while a
+    /// one-time code is open.
+    pub link_text: Option<String>,
+    /// `link_text` as a QR code (SVG markup).
+    pub link_qr_svg: Option<String>,
+    /// Unix ms when the open code stops working.
+    pub link_expires_at: Option<f64>,
     pub error: Option<String>,
 }
 
@@ -3856,6 +3849,13 @@ pub enum ConnectCommand {
         /// Where the queue was played from (`QueueSnapshot::context`).
         #[serde(default)]
         context: Option<PlayContext>,
+        /// The play order (indexes into `items`) when a whole player moves (Connect's transfer):
+        /// kept as it was, shuffled or not, instead of shuffled again.
+        #[serde(default)]
+        order: Option<Vec<u32>>,
+        /// The repeat mode that goes with a moved player.
+        #[serde(default)]
+        repeat: Option<RepeatMode>,
     },
     #[serde(rename_all = "camelCase")]
     Enqueue {
@@ -4777,13 +4777,15 @@ pub const LAYOUT_TABS: [(&str, bool); 13] = [
     ("downloads", false),
     ("settings", false),
 ];
-pub const LAYOUT_LIBRARY_MEDIA: [(&str, bool); 5] = [
+pub const LAYOUT_LIBRARY_MEDIA: [(&str, bool); 6] = [
     // Every kind at once (M46.37), first so the Library opens on it.
     ("all", true),
     ("music", true),
     ("manga", true),
     ("novel", true),
     ("video", true),
+    // Sites added by address (M46.3).
+    ("websites", true),
 ];
 pub const LAYOUT_AUDIO_VIEWS: [(&str, bool); 9] = [
     ("all", true),
@@ -6313,6 +6315,8 @@ pub enum PermissionKind {
     LocalNetwork,
     /// Installing Raygun's own updates.
     InstallApps,
+    /// The camera, to scan another device's link QR code.
+    Camera,
 }
 
 /// Where a permission stands.

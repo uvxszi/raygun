@@ -1,26 +1,21 @@
-//! The LAN remote (M20): its switch, pairing and paired devices, and what a paired browser can
-//! see and do. The server itself lives in `raygun-remote`.
+//! The server other Raygun devices link with and play through (M20, M46.15, M46.47): its switch,
+//! the one-time code a link QR code carries, the tokens linked devices hold, and what Connect
+//! does here. The server itself lives in `raygun-remote`.
 
 use std::sync::{Arc, Mutex};
 
-use raygun_model::{ConnectCommand, QueueSnapshot, RemoteDevice, RemoteStatus};
+use raygun_model::{ConnectCommand, QueueSnapshot, RemoteStatus};
 use raygun_remote::{Access, Backend, PairedDevice, Pairing, Running};
 use serde_json::{Value, json};
 use tauri::{AppHandle, Manager};
 
-use crate::collections::{CollectionsService, portable_url};
 use crate::connect::ConnectService;
-use crate::extensions::ExtensionService;
-use crate::library::LibraryService;
 use crate::local_network::{LocalNetwork, REMOTE_DENIED};
-use crate::mcp::{parse_control, track_arg};
 use crate::playback::PlaybackService;
 use crate::startup::AppDb;
 
 const ENABLED_KEY: &str = "remote_enabled";
 const DEVICES_KEY: &str = "remote_devices";
-const SEARCH_LIBRARY_LIMIT: u32 = 8;
-const SEARCH_TRACKS_PER_PROVIDER: usize = 8;
 
 pub struct RemoteService {
     app: AppHandle,
@@ -74,31 +69,36 @@ impl RemoteService {
         if url.is_some() && error.is_none() && !self.local_network().allowed().await {
             error = Some(REMOTE_DENIED.to_owned());
         }
-        let pairing = self.pairing.lock().expect("pairing poisoned");
-        let pair_url = url
-            .as_ref()
-            .zip(pairing.current_code(now_ms()))
-            .map(|(url, code)| format!("{url}/#pair={code}"));
+        let now = now_ms();
+        let open = {
+            let pairing = self.pairing.lock().expect("pairing poisoned");
+            pairing
+                .current_code(now)
+                .map(str::to_owned)
+                .zip(pairing.code_expires_at(now))
+        };
+        // The QR code names the address other devices reach: only with a LAN address.
+        let address = url.as_ref().and(self.address());
+        let link = address.zip(open).map(|(address, (code, expires))| {
+            let invite = crate::device_link::LinkInvite {
+                address,
+                code,
+                name: self.app.state::<Arc<ConnectService>>().me().name,
+            };
+            (invite.to_text(), expires)
+        });
         Ok(RemoteStatus {
             enabled,
-            pair_qr_svg: pair_url.as_deref().and_then(qr_svg),
-            pair_url,
+            link_qr_svg: link.as_ref().and_then(|(text, _)| qr_svg(text)),
+            link_expires_at: link.as_ref().map(|(_, expires)| *expires as f64),
+            link_text: link.map(|(text, _)| text),
             url,
-            devices: pairing
-                .devices()
-                .iter()
-                .map(|device| RemoteDevice {
-                    id: device.id.clone(),
-                    name: device.name.clone(),
-                    paired_at: device.paired_at as f64,
-                })
-                .collect(),
             error,
         })
     }
 
-    /// Turning the remote on opens a pairing code right away, so the QR code shows. On Android 17
-    /// it needs local network access first, or no other device could reach it.
+    /// Turning the server on. On Android 17 it needs local network access first, or no other
+    /// device could reach it.
     pub async fn set_enabled(&self, enabled: bool) -> Result<RemoteStatus, String> {
         if enabled && !self.local_network().allowed().await {
             return Err(REMOTE_DENIED.into());
@@ -114,10 +114,6 @@ impl RemoteService {
             if self.lock().running.is_none() {
                 self.run().await;
             }
-            self.pairing
-                .lock()
-                .expect("pairing poisoned")
-                .new_code(now_ms());
         } else {
             let mut state = self.lock();
             if let Some(running) = state.running.take() {
@@ -130,7 +126,13 @@ impl RemoteService {
         self.status().await
     }
 
+    /// Opens a new one-time code for this device's link QR code (the server starts first),
+    /// replacing the one before.
     pub async fn new_code(&self) -> Result<RemoteStatus, String> {
+        self.ensure_running().await?;
+        if let Some(error) = self.lock().error.clone() {
+            return Err(error);
+        }
         self.pairing
             .lock()
             .expect("pairing poisoned")
@@ -183,7 +185,7 @@ impl RemoteService {
         Some((device.id, device.token))
     }
 
-    /// Removes a paired device; its browser loses access at once.
+    /// Takes back a linked device's token; it loses access at once.
     pub async fn forget(&self, id: &str) -> Result<RemoteStatus, String> {
         let devices = {
             let mut pairing = self.pairing.lock().expect("pairing poisoned");
@@ -211,7 +213,7 @@ impl RemoteService {
                 tauri::async_runtime::spawn(async move {
                     let db = &app.state::<AppDb>().inner().0;
                     if let Err(message) = save_devices(db, &devices).await {
-                        tracing::warn!(%message, "failed to save paired remote devices");
+                        tracing::warn!(%message, "failed to save linked devices' tokens");
                     }
                 });
             },
@@ -228,7 +230,7 @@ impl RemoteService {
         let mut state = self.lock();
         match result {
             Ok(running) => {
-                tracing::info!(port = running.port, "remote listening on the local network");
+                tracing::info!(port = running.port, "listening for linked devices");
                 // Other Raygun devices hear of this one, to play on it (M46.15).
                 state.advertised = raygun_remote::lan_ip().and_then(|ip| {
                     raygun_remote::discovery::advertise(&me.id, &me.name, me.kind, ip, running.port)
@@ -265,7 +267,7 @@ async fn save_devices(db: &raygun_db::Db, devices: &[PairedDevice]) -> Result<()
         .map_err(to_message)
 }
 
-/// The pairing address as a QR code.
+/// A link code as a QR code.
 pub(crate) fn qr_svg(text: &str) -> Option<String> {
     let code = qrcode::QrCode::new(text.as_bytes()).ok()?;
     Some(
@@ -278,118 +280,12 @@ pub(crate) fn qr_svg(text: &str) -> Option<String> {
     )
 }
 
-/// What a paired browser sees and does.
+/// What linked devices see and do here.
 struct RemoteBackend {
     app: AppHandle,
 }
 
 impl Backend for RemoteBackend {
-    fn snapshot(&self) -> Value {
-        let playback = self.app.state::<PlaybackService>();
-        let state = playback.state();
-        let queue = playback.queue();
-        let current = state
-            .current_item_id
-            .as_ref()
-            .and_then(|id| queue.items.iter().find(|item| &item.id == id));
-        json!({
-            "playback": {
-                "status": state.status,
-                "positionMs": state.position_ms.round(),
-                "durationMs": state.duration_ms.map(f64::round),
-                "volume": state.volume,
-                "shuffle": state.shuffle,
-                "repeat": state.repeat,
-                "source": state.source_label,
-                "error": state.error,
-                "current": current.map(|item| json!({
-                    "id": item.id,
-                    "title": item.title,
-                    "artist": item.artist,
-                    "album": item.album,
-                    "artworkUrl": remote_artwork(item.artwork_url.as_deref()),
-                })),
-            },
-            "queue": queue.order.iter()
-                .filter_map(|index| queue.items.get(*index as usize))
-                .map(|item| json!({
-                    "id": item.id,
-                    "title": item.title,
-                    "artist": item.artist,
-                    "current": state.current_item_id.as_ref() == Some(&item.id),
-                }))
-                .collect::<Vec<_>>(),
-        })
-    }
-
-    fn control(&self, command: &Value) -> Result<(), String> {
-        let control = parse_control(command)?;
-        self.app.state::<PlaybackService>().control(control);
-        Ok(())
-    }
-
-    async fn search(&self, query: &str) -> Result<Value, String> {
-        let library = self.app.state::<LibraryService>();
-        let extensions = self.app.state::<Arc<ExtensionService>>();
-        let (local, providers) = futures_util::future::join(
-            library.search(query, SEARCH_LIBRARY_LIMIT),
-            extensions.search(query),
-        )
-        .await;
-        let top = crate::search::merge_top(&providers);
-        let online = |track: &raygun_model::OnlineTrack| {
-            json!({
-                "title": track.title,
-                "artist": track.artist,
-                "album": track.album,
-                "durationMs": track.duration_ms,
-                "artworkUrl": remote_artwork(track.artwork_url.as_deref()),
-            })
-        };
-        let mut groups = Vec::new();
-        let local = local.unwrap_or_default();
-        if !local.is_empty() {
-            groups.push(json!({
-                "name": "Your library",
-                "tracks": local.iter().map(|track| json!({
-                    "title": track.title,
-                    "artist": track.artist,
-                    "album": track.album,
-                    "durationMs": track.duration_ms,
-                    "artworkUrl": null,
-                })).collect::<Vec<_>>(),
-            }));
-        }
-        if !top.is_empty() {
-            groups.push(json!({
-                "name": "Top results",
-                "tracks": top.iter().map(online).collect::<Vec<_>>(),
-            }));
-        }
-        for result in &providers {
-            groups.push(json!({
-                "name": result.provider.name,
-                "error": result.error,
-                "tracks": result.tracks.iter().take(SEARCH_TRACKS_PER_PROVIDER)
-                    .map(online).collect::<Vec<_>>(),
-            }));
-        }
-        Ok(json!({ "groups": groups }))
-    }
-
-    async fn play(&self, track: &Value) -> Result<(), String> {
-        let track = track_arg(track)?;
-        let item = self
-            .app
-            .state::<CollectionsService>()
-            .queue_item_for(track)
-            .await?;
-        self.app
-            .state::<PlaybackService>()
-            .enqueue(vec![item], true);
-        Ok(())
-    }
-
     fn device(&self) -> Value {
         let me = self.app.state::<Arc<ConnectService>>().me();
         json!({ "id": me.id, "name": me.name, "kind": me.kind })
@@ -419,6 +315,14 @@ impl Backend for RemoteBackend {
     fn connect_command(&self, command: &Value) -> Result<(), String> {
         let command: ConnectCommand =
             serde_json::from_value(command.clone()).map_err(|_| "Unknown command".to_owned())?;
+        // Playing here from another device makes this the active one: if this device was
+        // playing elsewhere, that ends.
+        if crate::connect::starts_playback(&command) {
+            self.app
+                .state::<Arc<ConnectService>>()
+                .inner()
+                .playing_here();
+        }
         let images = self.app.state::<raygun_net::ImageLinks>();
         self.app
             .state::<PlaybackService>()
@@ -441,12 +345,6 @@ impl Backend for RemoteBackend {
     }
 }
 
-/// Artwork a browser elsewhere on the network can load: the local artwork server only listens on
-/// this device.
-fn remote_artwork(url: Option<&str>) -> Option<&str> {
-    url.filter(|url| portable_url(url))
-}
-
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -463,19 +361,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_qr_code_is_svg_and_artwork_must_be_reachable() {
-        let svg = qr_svg("http://192.168.1.20:8820/#pair=abcd234567").unwrap();
+    fn the_qr_code_is_svg() {
+        let svg = qr_svg("raygun:link?at=192.168.1.20%3A8820&code=abcd234567&name=PC").unwrap();
         assert!(svg.contains("<svg"));
         assert!(svg.contains("#000000"));
-
-        assert_eq!(
-            remote_artwork(Some("https://coverartarchive.org/a.jpg")),
-            Some("https://coverartarchive.org/a.jpg")
-        );
-        assert_eq!(
-            remote_artwork(Some("http://127.0.0.1:40371/art/a.png")),
-            None
-        );
-        assert_eq!(remote_artwork(None), None);
     }
 }
