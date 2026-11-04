@@ -1,6 +1,8 @@
 import type { PlaybackState } from '@raygun/bindings';
 import { useSyncExternalStore } from 'react';
 
+import { isAppActive, onAppActiveChange } from '../shell/deviceState';
+
 /** How often the position moves between reports. */
 const TICK_MS = 250;
 /**
@@ -43,27 +45,50 @@ export const positionAt = (state: PlaybackState | undefined, now: number) => {
   return duration !== null && duration > 0 ? Math.min(position, duration) : position;
 };
 
-// One timer for every live position on screen: it runs only while something that plays listens.
+// One timer for every live position on screen: it runs only while something that plays listens
+// and Raygun is on screen (shell/deviceState); back on screen, positions catch up at once.
 const listeners = new Set<() => void>();
 let timer: ReturnType<typeof setInterval> | null = null;
 let tickAt = 0;
+let stopFollowing: (() => void) | null = null;
 
 const tick = () => {
   tickAt = performance.now();
   for (const listener of [...listeners]) listener();
 };
 
+const startTimer = () => {
+  if (timer !== null || listeners.size === 0 || !isAppActive()) return;
+  tickAt = performance.now();
+  timer = setInterval(tick, TICK_MS);
+};
+
+const stopTimer = () => {
+  if (timer === null) return;
+  clearInterval(timer);
+  timer = null;
+};
+
+/** Whether the shared timer runs now (tests). */
+export const ticking = () => timer !== null;
+
 const subscribeTicks = (listener: () => void) => {
   listeners.add(listener);
-  if (timer === null) {
-    tickAt = performance.now();
-    timer = setInterval(tick, TICK_MS);
-  }
+  stopFollowing ??= onAppActiveChange((active) => {
+    if (active) {
+      tick();
+      startTimer();
+    } else {
+      stopTimer();
+    }
+  });
+  startTimer();
   return () => {
     listeners.delete(listener);
-    if (listeners.size === 0 && timer !== null) {
-      clearInterval(timer);
-      timer = null;
+    if (listeners.size === 0) {
+      stopTimer();
+      stopFollowing?.();
+      stopFollowing = null;
     }
   };
 };

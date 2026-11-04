@@ -1014,6 +1014,8 @@ export const commands = {
 	keepMusicPlaying: boolean,
 	/**  Opening Raygun shows what played last, paused where it was (M46.16). */
 	resumeOnStart: boolean,
+	/**  Downloads keep going while battery saver is on; off, they wait for it to end. */
+	downloadsInBatterySaver: boolean,
 	/**  How good songs sound against the data they use, streaming and downloading. */
 	audioQuality: AudioQualityPrefs,
 	/**  What the desktop sidebar shows and in what order (M46.29). */
@@ -1125,6 +1127,10 @@ export const commands = {
 	 *  allowed.
 	 */
 	localNetworkOpenSettings: () => typedError<null, string>(__TAURI_INVOKE("local_network_open_settings")),
+	/**  The device's state now. */
+	deviceState: () => __TAURI_INVOKE<DeviceState>("device_state"),
+	/**  The webview's visibility (`document.visibilityState`): a hidden page counts as background. */
+	deviceSetVisible: (visible: boolean) => __TAURI_INVOKE<void>("device_set_visible", { visible }),
 	/**  Every permission Raygun uses on this device, and where it stands. */
 	permissionsList: () => typedError<AppPermission[], string>(__TAURI_INVOKE("permissions_list")),
 	/**
@@ -1228,6 +1234,7 @@ export const events = {
 	captionsEvent: makeEvent<CaptionsEvent>("captions-event"),
 	connectEvent: makeEvent<ConnectEvent>("connect-event"),
 	connectRequestEvent: makeEvent<ConnectRequestEvent>("connect-request-event"),
+	deviceStateEvent: makeEvent<DeviceStateEvent>("device-state-event"),
 	engineCommandEvent: makeEvent<EngineCommandEvent>("engine-command-event"),
 	exportEvent: makeEvent<ExportEvent>("export-event"),
 	extensionsChangedEvent: makeEvent<ExtensionsChangedEvent_Deserialize>("extensions-changed-event"),
@@ -1902,6 +1909,19 @@ export type DetailEdit = {
 export type DetailTarget = { kind: "song"; query: TrackQuery } | { kind: "album"; artist: string | null; album: string } | { kind: "artist"; name: string } | 
 /**  Only its cover is the user's (its name is renamed with the playlist). */
 { kind: "playlist"; id: string };
+
+/**  The device's state as the UI sees it. */
+export type DeviceState = {
+	/**  Raygun is on screen (an activity started on Android; the webview visible). */
+	foreground: boolean,
+	/**  Battery saver is on. */
+	powerSave: boolean,
+	/**  The system's animation settings. */
+	motion: SystemMotion,
+};
+
+/**  The device's state changed. */
+export type DeviceStateEvent = DeviceState;
 
 /**  Charts and song tags (M46.9). */
 export type DiscoveryPrefs = {
@@ -3862,7 +3882,7 @@ export type SearchResults_Serialize = {
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -3985,6 +4005,8 @@ export type Settings = {
 	keepMusicPlaying: boolean,
 	/**  Opening Raygun shows what played last, paused where it was (M46.16). */
 	resumeOnStart: boolean,
+	/**  Downloads keep going while battery saver is on; off, they wait for it to end. */
+	downloadsInBatterySaver: boolean,
 	/**  How good songs sound against the data they use, streaming and downloading. */
 	audioQuality: AudioQualityPrefs,
 	/**  What the desktop sidebar shows and in what order (M46.29). */
@@ -4585,6 +4607,18 @@ export type SyncStatus = {
 	log: SyncSessionInfo[],
 	error: string | null,
 };
+
+/**  How much the system lets things move. */
+export type SystemMotion = 
+/**  The system's animations run at their usual speed (or faster). */
+"full" | 
+/**
+ *  Animations are slowed down or cut short by the system (a scale below 1, a transition scale
+ *  of 0): only small, short changes.
+ */
+"reduced" | 
+/**  Remove animations, or an animator scale of 0: nothing moves. */
+"off";
 
 /**  A tag across the user's saved songs, with how many have it (M46.9). */
 export type TagCount = {

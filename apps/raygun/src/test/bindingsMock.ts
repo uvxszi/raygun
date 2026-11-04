@@ -4,6 +4,7 @@ import type {
   AppUpdate,
   ConnectRequest,
   ConnectStatus,
+  DeviceState,
   EngineCommand,
   ExportJob,
   ExtensionInfo,
@@ -46,6 +47,7 @@ type EventPayloads = {
   connectEvent: ConnectStatus;
   connectRequestEvent: ConnectRequest;
   permissionPromptEvent: PermissionPrompt;
+  deviceStateEvent: DeviceState;
   openRouteEvent: string;
   engineCommandEvent: EngineCommand;
   playbackStateEvent: PlaybackState;
@@ -192,6 +194,7 @@ export const DEFAULT_SETTINGS: Settings = {
   userAgent: '',
   keepMusicPlaying: false,
   resumeOnStart: true,
+  downloadsInBatterySaver: false,
   audioQuality: { streaming: 'high', cellular: 'normal', download: 'veryHigh' },
   rail: { pins: [], order: 'custom', seeded: false },
   transcription: {
@@ -609,6 +612,8 @@ export const bindingsMock = {
     localNetworkAccess: vi.fn(),
     localNetworkRequest: vi.fn(),
     localNetworkOpenSettings: vi.fn(),
+    deviceState: vi.fn(),
+    deviceSetVisible: vi.fn(),
     permissionsList: vi.fn(),
     permissionRequest: vi.fn(),
     permissionOpenSettings: vi.fn(),
@@ -624,6 +629,7 @@ export const bindingsMock = {
     connectEvent: makeEvent('connectEvent'),
     connectRequestEvent: makeEvent('connectRequestEvent'),
     permissionPromptEvent: makeEvent('permissionPromptEvent'),
+    deviceStateEvent: makeEvent('deviceStateEvent'),
     openRouteEvent: makeEvent('openRouteEvent'),
     engineCommandEvent: makeEvent('engineCommandEvent'),
     playbackStateEvent: makeEvent('playbackStateEvent'),
@@ -1172,6 +1178,8 @@ export const seedBindings = () => {
   commands.localNetworkAccess.mockResolvedValue(ok(open));
   commands.localNetworkRequest.mockResolvedValue(ok(open));
   commands.localNetworkOpenSettings.mockResolvedValue(ok(null));
+  commands.deviceState.mockResolvedValue({ foreground: true, powerSave: false, motion: 'full' });
+  commands.deviceSetVisible.mockResolvedValue(null);
   // Desktop's answer: notifications, allowed.
   const permissions = [{ kind: 'notifications', state: 'granted', count: null }];
   commands.permissionsList.mockResolvedValue(ok(permissions));

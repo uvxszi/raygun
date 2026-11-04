@@ -70,6 +70,7 @@ const DEFAULT_SETTINGS: Settings = {
   failingSourcesLast: true,
   userAgent: '',
   keepMusicPlaying: false,
+  downloadsInBatterySaver: false,
   resumeOnStart: true,
   audioQuality: { streaming: 'high', cellular: 'normal', download: 'veryHigh' },
   rail: { pins: [], order: 'custom', seeded: false },

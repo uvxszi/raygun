@@ -117,6 +117,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
           folderName: current.save.folderName ?? null,
         },
       },
+      { key: 'downloadsInBatterySaver', value: defaults.downloadsInBatterySaver },
     ],
   },
   {

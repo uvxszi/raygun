@@ -72,7 +72,17 @@ internal class LoadingRing(context: Context) : View(context) {
         canvas.drawOval(bounds, track)
         val now = (System.nanoTime() - started) / 1_000_000
         val target = progress
-        if (target == null) {
+        if (!DeviceState.animatorsEnabled()) {
+            // Animations are off (Remove animations, a scale of 0): a still arc, and the fill
+            // at its value at once.
+            if (target == null) {
+                canvas.drawArc(bounds, -90f, MAX_SWEEP * 0.75f, false, arc)
+            } else {
+                shown = target
+                canvas.drawArc(bounds, -90f, 360f * shown.coerceAtLeast(0.02f), false, arc)
+                drawPercent(canvas)
+            }
+        } else if (target == null) {
             val cycle = now / ARC_PERIOD_MS
             val phase = (now % ARC_PERIOD_MS).toFloat() / ARC_PERIOD_MS
             val head = if (phase < 0.5f) ease(phase * 2) else 1f
@@ -86,9 +96,7 @@ internal class LoadingRing(context: Context) : View(context) {
             val step = if (lastFrame == 0L) 1f else min(1f, (now - lastFrame) / 160f)
             shown += (target - shown) * step
             canvas.drawArc(bounds, -90f, 360f * shown.coerceAtLeast(0.02f), false, arc)
-            label.textSize = height * 0.26f
-            val baseline = height / 2f - (label.descent() + label.ascent()) / 2
-            canvas.drawText(String.format(Locale.ROOT, "%d%%", (shown * 100).roundToInt()), width / 2f, baseline, label)
+            drawPercent(canvas)
             if (kotlin.math.abs(target - shown) > 0.002f) postInvalidateOnAnimation()
         }
         lastFrame = now
@@ -99,6 +107,12 @@ internal class LoadingRing(context: Context) : View(context) {
         // A ring shown again starts its frames afresh.
         lastFrame = 0L
         if (visibility == VISIBLE) invalidate()
+    }
+
+    private fun drawPercent(canvas: Canvas) {
+        label.textSize = height * 0.26f
+        val baseline = height / 2f - (label.descent() + label.ascent()) / 2
+        canvas.drawText(String.format(Locale.ROOT, "%d%%", (shown * 100).roundToInt()), width / 2f, baseline, label)
     }
 
     private fun ease(value: Float): Float = ((1 - cos(PI * value)) / 2).toFloat()

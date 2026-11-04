@@ -24,6 +24,7 @@ static VIDEO_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 static WEBSITE_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 static NOTIFICATION_ACTION_HANDLER: Later = Later::new();
 static OPEN_HANDLER: Later = Later::new();
+static DEVICE_STATE_HANDLER: Later = Later::new();
 
 /// A receiver for messages that can come before it's installed (a notification tapped to start
 /// the app): those wait for it.
@@ -92,6 +93,19 @@ pub fn set_open_handler(handler: impl Fn(String) + Send + Sync + 'static) {
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn deliver_open(route: String) {
     OPEN_HANDLER.deliver(route);
+}
+
+/// Installs the receiver for the device's state (`{"foreground", "powerSave", "animatorScale",
+/// "transitionScale", "windowScale", "animatorsEnabled"}` JSON): sent when Raygun comes and goes
+/// from the screen, battery saver changes, or the system's animation settings change. Called on
+/// the Android main thread. Only the first call wins; reports from before it wait for it.
+pub fn set_device_state_handler(handler: impl Fn(String) + Send + Sync + 'static) {
+    DEVICE_STATE_HANDLER.set(Box::new(handler));
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn deliver_device_state(json: String) {
+    DEVICE_STATE_HANDLER.deliver(json);
 }
 
 /// Installs the receiver for the built-in browser's reports (`{"id", "url", "blockAds"}` JSON,
@@ -280,6 +294,14 @@ impl<R: Runtime> NativeAudio<R> {
                 serde_json::json!({ "id": id }),
             )
             .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    /// The device's state as `set_device_state_handler` reports it, asked once at start.
+    #[cfg(target_os = "android")]
+    pub fn device_state(&self) -> Result<serde_json::Value, String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>("deviceState", ())
             .map_err(|error| error.to_string())
     }
 

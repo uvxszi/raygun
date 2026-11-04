@@ -82,6 +82,8 @@ impl MangaDownloadService {
                 woken.await;
                 continue;
             }
+            // Battery saver holds the next download (unless allowed); one under way finishes.
+            crate::device_state::wait_for_downloads().await;
             match manga_downloads::next_queued(&self.db()).await {
                 Ok(Some(row)) => self.download(row).await,
                 Ok(None) => woken.await,

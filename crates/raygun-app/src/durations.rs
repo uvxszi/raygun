@@ -224,7 +224,7 @@ impl DurationService {
                     .lock()
                     .unwrap_or_else(|p| p.into_inner())
                     .remove(&key);
-                tokio::time::sleep(LOOKUP_GAP).await;
+                crate::device_state::rest(LOOKUP_GAP).await;
             }
         });
     }

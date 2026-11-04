@@ -116,7 +116,8 @@ pub fn start_auto_sync(app: AppHandle) {
         let mut seen = raygun_db::sync::latest_seq(&db).await.unwrap_or(0);
         let mut last_round = tokio::time::Instant::now();
         loop {
-            tokio::time::sleep(WATCH_EVERY).await;
+            // Every 8 s on screen or while playing; slower in the background or battery saver.
+            crate::device_state::rest(WATCH_EVERY).await;
             let sync = app.state::<SyncService>();
             if !sync.has_linked().await {
                 continue;

@@ -111,7 +111,7 @@ impl UpdateService {
                     }
                     let _ = raygun_db::set_local_value(&db, LAST_CHECK_KEY, &now.to_string()).await;
                 }
-                tokio::time::sleep(Duration::from_secs(60 * 60)).await;
+                crate::device_state::rest(Duration::from_secs(60 * 60)).await;
             }
         });
     }

@@ -1,7 +1,7 @@
 import { commands } from '@raygun/bindings';
 import type { StartScreen, WindowFrame } from '@raygun/bindings';
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
-import { MotionConfig } from 'motion/react';
+import { MotionConfig, MotionGlobalConfig } from 'motion/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, FC } from 'react';
 
@@ -19,6 +19,7 @@ import { useLibraryScanSync } from '../library/useLibrary';
 import { useExtensionsSync } from '../extensions/useExtensions';
 import { MiniPlayer } from '../player/MiniPlayer';
 import { PlayerSheet } from '../player/PlayerSheet';
+import { usePlayerUiStore } from '../player/playerUiStore';
 import { ShortcutsSheet } from '../player/ShortcutsSheet';
 import { SidePanel } from '../player/SidePanel';
 import { usePlaybackKeys } from '../player/usePlaybackKeys';
@@ -49,6 +50,22 @@ import { SideRail } from './SideRail';
 import { useIsDesktop } from './useIsDesktop';
 import { useLiveInvalidation } from './useLiveInvalidation';
 import { useRailStamps } from './useRail';
+import { movesFreely, useDeviceStateSync } from './deviceState';
+
+/**
+ * With motion off, motion's animations (the player sheet, the bar's swipe) jump to their end at
+ * once, so nothing waits on one; the value from before comes back after.
+ */
+const useSkipAnimations = (skip: boolean) => {
+  useEffect(() => {
+    if (!skip) return;
+    const before = MotionGlobalConfig.skipAnimations;
+    MotionGlobalConfig.skipAnimations = true;
+    return () => {
+      MotionGlobalConfig.skipAnimations = before;
+    };
+  }, [skip]);
+};
 
 /** Engines start listening right after the shell mounts; the last queue comes back then. */
 const RESTORE_DELAY_MS = 600;
@@ -91,7 +108,9 @@ const useApplyWindow = (desktop: boolean, frame?: WindowFrame) => {
 export const AppShell: FC = () => {
   const settings = useSettings();
   useApplyTheme(settings.data?.theme, settings.data?.accent, settings.data?.accentColor);
-  useApplyFeel(settings.data?.scrollbars, settings.data?.motion);
+  useDeviceStateSync();
+  const motion = useApplyFeel(settings.data?.scrollbars, settings.data?.motion);
+  useSkipAnimations(motion === 'off');
   useApplyColors(settings.data?.colors);
   useStartScreen(settings.data?.startScreen);
   useSettingsEvents();
@@ -109,6 +128,7 @@ export const AppShell: FC = () => {
   useFullscreenKey();
   useHorizontalWheel();
   useMediaSession();
+  const sheetOpen = usePlayerUiStore((store) => store.sheetOpen);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const openShortcuts = useCallback(() => setShortcutsOpen(true), []);
   usePlaybackSync();
@@ -139,7 +159,7 @@ export const AppShell: FC = () => {
   usePlaybackKeys(openShortcuts, !immersive);
 
   return (
-    <MotionConfig reducedMotion={settings.data?.motion === 'off' ? 'always' : 'user'}>
+    <MotionConfig reducedMotion={movesFreely(motion) ? 'never' : 'always'}>
       <div
         className="flex h-full flex-col"
         // Full-window screens (the full player) start below the desktop bar (M46.9).
@@ -152,7 +172,8 @@ export const AppShell: FC = () => {
             immersive={immersive}
           />
         )}
-        <div className="flex min-h-0 flex-1">
+        {/* Under the full player nothing animates (styles.css `[data-covered]`). */}
+        <div className="flex min-h-0 flex-1" data-covered={sheetOpen ? '' : undefined}>
           <SideRail />
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="flex min-h-0 flex-1">

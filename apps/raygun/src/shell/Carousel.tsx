@@ -2,6 +2,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { scrollMotion } from './deviceState';
 
 /** A page is most of the row, so the last card of one page shows again at the start of the next. */
 const PAGE = 0.85;
@@ -61,7 +62,7 @@ export const Carousel: FC<CarouselProps> = ({ children, className = '', testId }
 
   const page = (direction: 1 | -1) => {
     const row = list.current;
-    row?.scrollBy({ left: direction * row.clientWidth * PAGE, behavior: 'smooth' });
+    row?.scrollBy({ left: direction * row.clientWidth * PAGE, behavior: scrollMotion() });
   };
 
   const button = (direction: 1 | -1) => (

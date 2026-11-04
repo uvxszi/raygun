@@ -1,6 +1,8 @@
 import type { Accent, CustomColors, MotionLevel, ScrollbarStyle, Theme } from '@raygun/bindings';
 import { useEffect } from 'react';
 
+import { useAppActive, useEffectiveMotion } from '../shell/deviceState';
+
 const HEX = /^#[0-9a-f]{6}$/i;
 
 /**
@@ -58,15 +60,26 @@ export const useApplyColors = (colors: Partial<CustomColors> | undefined) => {
   }, [background, surface, foreground, muted]);
 };
 
-/** Puts the scrollbar style and the animation level on the page (M46.7; styles.css). */
+/**
+ * Puts the scrollbar style, the animation level in effect and whether Raygun is on screen on the
+ * page (M46.7; styles.css): `data-motion` is the setting lowered by the system's animation
+ * settings, battery saver and reduced motion (`lively`, `calm`, `reduced` or `off`), and
+ * `data-active="false"` pauses every CSS animation while Raygun is in the background.
+ */
 export const useApplyFeel = (
   scrollbars: ScrollbarStyle | undefined = 'thin',
   motion: MotionLevel | undefined = 'lively',
 ) => {
+  const effective = useEffectiveMotion(motion);
+  const active = useAppActive();
   useEffect(() => {
     document.documentElement.dataset.scrollbars = scrollbars;
   }, [scrollbars]);
   useEffect(() => {
-    document.documentElement.dataset.motion = motion;
-  }, [motion]);
+    document.documentElement.dataset.motion = effective;
+  }, [effective]);
+  useEffect(() => {
+    document.documentElement.dataset.active = String(active);
+  }, [active]);
+  return effective;
 };

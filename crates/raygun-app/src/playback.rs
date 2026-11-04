@@ -126,7 +126,8 @@ impl PlaybackService {
     pub fn start_saving(app: AppHandle) {
         tauri::async_runtime::spawn(async move {
             loop {
-                tokio::time::sleep(SAVE_EVERY).await;
+                // Slower while idle in the background; at once when Raygun leaves the screen.
+                crate::device_state::rest(SAVE_EVERY).await;
                 let playback = app.state::<PlaybackService>();
                 // Nothing is saved before the last queue is back, or it would be overwritten.
                 if !playback.restored.load(Ordering::SeqCst) {
@@ -164,6 +165,8 @@ impl PlaybackService {
             let mut every = tokio::time::interval(WATCH_EVERY);
             every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
+                // Nothing to watch while nothing plays or loads: no wake-ups meanwhile.
+                crate::device_state::wait_until_busy().await;
                 every.tick().await;
                 let playback = app.state::<PlaybackService>();
                 let outbox = {
@@ -724,6 +727,12 @@ impl PlaybackService {
             log_emit(QueueEvent(queue).emit(&self.app));
         }
         if let Some(state) = outbox.state {
+            crate::device_state::set_busy(matches!(
+                state.status,
+                raygun_model::PlaybackStatus::Loading
+                    | raygun_model::PlaybackStatus::Buffering
+                    | raygun_model::PlaybackStatus::Playing
+            ));
             if let Some(podcasts) = self
                 .app
                 .try_state::<std::sync::Arc<crate::podcasts::PodcastService>>()

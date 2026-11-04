@@ -60,6 +60,7 @@ import type { TrackOption } from './trackPicking';
 import { useVideoPlayerStore } from './videoPlayerStore';
 import { sourceName, sourceNote, sourcesChecked } from './waiting';
 import type { WaitingNote } from './waiting';
+import { useAppActive } from '../shell/deviceState';
 
 type PanelKind =
   | 'episodes'
@@ -717,15 +718,17 @@ const VideoStage: FC<StageProps> = ({
   const onReportTick = useEffectEvent(() =>
     sendReport(id, 'progress', positionOf(videoRef.current)),
   );
+  // Out of sight the time shown needn't move: a slow tick still skips intros.
+  const onScreen = useAppActive();
   useEffect(() => {
     if (!playing) return;
-    const fast = window.setInterval(() => onTick(), 100);
+    const fast = window.setInterval(() => onTick(), onScreen ? 100 : 1000);
     const reports = window.setInterval(() => onReportTick(), REPORT_INTERVAL_MS);
     return () => {
       window.clearInterval(fast);
       window.clearInterval(reports);
     };
-  }, [playing]);
+  }, [playing, onScreen]);
 
   // Another episode is on its way: this one stops here.
   useEffect(() => {

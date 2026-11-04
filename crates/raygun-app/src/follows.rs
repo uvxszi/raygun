@@ -301,7 +301,7 @@ impl ArtistFollows {
             tokio::time::sleep(Duration::from_secs(90)).await;
             loop {
                 service.check_due(false).await;
-                tokio::time::sleep(LOOP_EVERY).await;
+                crate::device_state::rest(LOOP_EVERY).await;
             }
         });
     }

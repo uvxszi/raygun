@@ -154,6 +154,7 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.chapterFormat',
     'songs.songFormat',
     'settings.pagesPerTitle',
+    'settings.downloadsInBatterySaver',
   ),
 
   ...on('reader', 'reader.display.mangaTitle')(

@@ -22,6 +22,49 @@ import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 
+/**
+ * The locks a player holds while it plays: a song from a file (or the proxy's `/local/` route)
+ * needs only the CPU; a stream also keeps Wi-Fi awake. Nothing is held while paused or stopped.
+ */
+@UnstableApi
+private class WakeFollower(private val player: ExoPlayer) : Player.Listener {
+    private var mode = C.WAKE_MODE_NONE
+
+    override fun onEvents(player: Player, events: Player.Events) {
+        if (events.containsAny(
+                Player.EVENT_PLAY_WHEN_READY_CHANGED,
+                Player.EVENT_MEDIA_ITEM_TRANSITION,
+                Player.EVENT_PLAYBACK_STATE_CHANGED,
+            )
+        ) {
+            apply()
+        }
+    }
+
+    fun apply() {
+        val active = player.playWhenReady &&
+            player.playbackState != Player.STATE_IDLE &&
+            player.playbackState != Player.STATE_ENDED
+        val uri = player.currentMediaItem?.localConfiguration?.uri
+        val wanted = when {
+            !active || uri == null -> C.WAKE_MODE_NONE
+            isLocal(uri) -> C.WAKE_MODE_LOCAL
+            else -> C.WAKE_MODE_NETWORK
+        }
+        if (wanted != mode) {
+            mode = wanted
+            player.setWakeMode(wanted)
+        }
+    }
+
+    private fun isLocal(uri: android.net.Uri): Boolean = when (uri.scheme) {
+        "file", "content", "android.resource" -> true
+        "http" -> (uri.host == "127.0.0.1" || uri.host == "localhost") &&
+            uri.path.orEmpty().startsWith("/local/")
+        else -> false
+    }
+}
+
 /** Puts a [SoundProcessor] in the player's audio sink. */
 @UnstableApi
 private class SoundRenderersFactory(context: Context, private val processor: SoundProcessor) :
@@ -111,8 +154,9 @@ class RaygunPlaybackService : MediaSessionService() {
             val player = ExoPlayer.Builder(this, SoundRenderersFactory(this, processor))
                 .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ index == 0)
                 .setHandleAudioBecomingNoisy(true)
-                .setWakeMode(C.WAKE_MODE_NETWORK)
                 .build()
+            // Wake and Wi-Fi locks follow what plays (WakeFollower), not a fixed mode.
+            player.addListener(WakeFollower(player))
             // The output picked in Devices (M46.43), for players made after it.
             RaygunSound.output?.let { player.setPreferredAudioDevice(it) }
             decks.add(Deck(player, processor))

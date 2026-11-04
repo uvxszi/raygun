@@ -843,6 +843,7 @@
     "browseCovers": "Covers in Browse",
     "saveGroup": "Save outside the app",
     "saveLocation": "Save downloads to",
+    "downloadsInBatterySaver": "Download in battery saver",
     "saveLocationHint": "Raygun keeps its own copy for reading; finished chapters and episodes are also saved here.",
     "saveLocations": {
       "app": "Only in the app",

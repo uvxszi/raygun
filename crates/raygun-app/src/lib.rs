@@ -17,6 +17,7 @@ mod connect;
 mod cover_fallback;
 mod details;
 mod device_link;
+mod device_state;
 mod device_sync;
 mod discovery;
 mod durations;
@@ -437,6 +438,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::local_network_access,
             commands::local_network_request,
             commands::local_network_open_settings,
+            device_state::device_state,
+            device_state::device_set_visible,
             permissions::permissions_list,
             permissions::permission_request,
             permissions::permission_open_settings,
@@ -496,6 +499,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::AppUpdateEvent,
             events::OpenRouteEvent,
             events::PermissionPromptEvent,
+            device_state::DeviceStateEvent,
             events::MadeForYouEvent,
             events::TrackDurationsEvent,
             events::LocalFilesEvent,

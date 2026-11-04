@@ -839,6 +839,15 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
     }
 
+    /** See DeviceState. */
+    @Command
+    fun deviceState(invoke: Invoke) {
+        main.post {
+            DeviceState.start(activity)
+            invoke.resolve(JSObject(DeviceState.snapshot().toString()))
+        }
+    }
+
     @Command
     fun networkKind(invoke: Invoke) {
         val connectivity = activity.applicationContext.getSystemService(ConnectivityManager::class.java)
@@ -1078,6 +1087,7 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
 
     override fun load(webView: WebView) {
         takeOpenExtras(activity.intent)
+        DeviceState.start(activity)
     }
 
     override fun onNewIntent(intent: Intent) {
