@@ -124,6 +124,69 @@ const SHOSETSU_LIB_MAJOR: u64 = 1;
 /// The name a Shosetsu index gets: its file names no repository.
 pub const SHOSETSU_INDEX_NAME: &str = "Shosetsu extensions";
 
+/// Where the index may be for an address that isn't one: Shosetsu repositories are shared by
+/// their folder (Shosetsu adds `index.json` itself), or as their page on GitHub or GitLab, whose
+/// raw files sit elsewhere. Tried in order; an address ending in `.json` has none.
+pub fn shosetsu_index_candidates(url: &Url) -> Vec<Url> {
+    if url.path().ends_with(".json") {
+        return Vec::new();
+    }
+    let parts: Vec<&str> = url
+        .path_segments()
+        .map(|segments| segments.filter(|part| !part.is_empty()).collect())
+        .unwrap_or_default();
+    let raw = |text: String| Url::parse(&text).ok();
+    let mut candidates = Vec::new();
+    match url.host_str() {
+        // github.com/<owner>/<repo>[/tree/<branch>/<folder…>]
+        Some("github.com" | "www.github.com") if parts.len() >= 2 => {
+            let (owner, repository) = (parts[0], parts[1]);
+            let (branches, folder): (Vec<&str>, String) = match parts.get(2..) {
+                Some(["tree" | "blob", branch, rest @ ..]) => (vec![*branch], rest.join("/")),
+                _ => (vec!["main", "master", "dev"], String::new()),
+            };
+            for branch in branches {
+                let folder = if folder.is_empty() {
+                    String::new()
+                } else {
+                    format!("{folder}/")
+                };
+                candidates.extend(raw(format!(
+                    "https://raw.githubusercontent.com/{owner}/{repository}/{branch}/{folder}index.json"
+                )));
+            }
+        }
+        // gitlab.com/<group…>/<project>[/-/tree/<branch>/<folder…>]
+        Some("gitlab.com") if parts.len() >= 2 && !parts.contains(&"raw") => {
+            let split = parts.iter().position(|part| *part == "-");
+            let project = parts[..split.unwrap_or(parts.len())].join("/");
+            let (branches, folder): (Vec<&str>, String) =
+                match split.and_then(|at| parts.get(at + 1..)) {
+                    Some(["tree" | "blob", branch, rest @ ..]) => (vec![*branch], rest.join("/")),
+                    _ => (vec!["main", "master", "dev"], String::new()),
+                };
+            for branch in branches {
+                let folder = if folder.is_empty() {
+                    String::new()
+                } else {
+                    format!("{folder}/")
+                };
+                candidates.extend(raw(format!(
+                    "https://gitlab.com/{project}/-/raw/{branch}/{folder}index.json"
+                )));
+            }
+        }
+        _ => {
+            let mut folder = url.clone();
+            if !folder.path().ends_with('/') {
+                folder.set_path(&format!("{}/", folder.path()));
+            }
+            candidates.extend(folder.join("index.json").ok());
+        }
+    }
+    candidates
+}
+
 /// A name for a Shosetsu repository from where it is: `owner/repository` for the code hosts
 /// people publish them on, else the host. Shosetsu's own keeps [`SHOSETSU_INDEX_NAME`].
 pub fn shosetsu_repo_name(index_url: &Url) -> String {
@@ -197,10 +260,12 @@ fn from_shosetsu(index: ShosetsuIndex) -> RepoIndex {
                 .is_ok_and(|version| version.major == SHOSETSU_LIB_MAJOR);
             // Only a SHA-256 can be checked; anything else (none, an MD5) is checked by what the
             // file is when it's installed (`shosetsu::package::verify_script`).
-            let sha256 = (script.md5.len() == 64
-                && script.md5.bytes().all(|b| b.is_ascii_hexdigit()))
-            .then(|| script.md5.to_ascii_lowercase())
-            .unwrap_or_default();
+            let sha256 =
+                if script.md5.len() == 64 && script.md5.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    script.md5.to_ascii_lowercase()
+                } else {
+                    String::new()
+                };
             let id = format!(
                 "shosetsu.{}.{}",
                 id_label(&script.lang),

@@ -233,7 +233,7 @@ pub fn package(
         "entry": "index.lua",
         "provides": ["novel.source"],
         "permissions": { "net": ["*"] },
-        "contentRating": "suggestive",
+        "contentRating": entry.content_rating,
         "description": entry.description,
         "author": header(&script)
             .and_then(|header| header.get("author").and_then(|author| author.as_str().map(str::to_owned))),
@@ -339,17 +339,29 @@ mod tests {
             .to_string(),
         )
         .unwrap();
-        let ids: Vec<&str> = index.extensions.iter().map(|entry| entry.id.as_str()).collect();
+        let ids: Vec<&str> = index
+            .extensions
+            .iter()
+            .map(|entry| entry.id.as_str())
+            .collect();
         assert_eq!(ids, ["shosetsu.en.ayatranslation", "shosetsu.en.sky"]);
         assert!(index.extensions.iter().all(|entry| entry.sha256.is_empty()));
-        let libraries: Vec<&str> = index.libraries.iter().map(|library| library.name.as_str()).collect();
+        let libraries: Vec<&str> = index
+            .libraries
+            .iter()
+            .map(|library| library.name.as_str())
+            .collect();
         assert_eq!(libraries, ["Madara", "dkjson"], "unsafe names are left out");
 
         let entry = &index.extensions[0];
         let script = "-- {\"id\":5,\"ver\":\"1.0.2\",\"libVer\":\"1.0.0\"}\nreturn {}\n";
         assert!(verify_script(script.as_bytes(), entry).is_ok());
         let bom = [b"\xEF\xBB\xBF".as_slice(), script.as_bytes()].concat();
-        assert_eq!(verify_script(&bom, entry).unwrap(), script, "a byte-order mark is dropped");
+        assert_eq!(
+            verify_script(&bom, entry).unwrap(),
+            script,
+            "a byte-order mark is dropped"
+        );
         assert!(
             verify_script(b"-- {\"id\":5}\nreturn {", entry).is_err(),
             "cut off: doesn't compile"
@@ -384,22 +396,33 @@ mod tests {
         let community_url: Url = "https://raw.example/community/index.json".parse().unwrap();
         let official_url: Url = "https://raw.example/official/index.json".parse().unwrap();
         let sources = [
-            LibrarySource { index_url: &community_url, index: &community },
-            LibrarySource { index_url: &official_url, index: &official },
+            LibrarySource {
+                index_url: &community_url,
+                index: &community,
+            },
+            LibrarySource {
+                index_url: &official_url,
+                index: &official,
+            },
         ];
         let script = "-- {\"id\":8,\"ver\":\"1.0.0\",\"libVer\":\"1.0.0\",\"dep\":[\"Madara>=2.0.0\"]}\n\
                       local ok = pcall(function() return Require(\"optional\") end)\n\
                       return Require(\"Madara\")\n";
         let fetched = std::sync::Mutex::new(Vec::new());
-        let package = assemble(&community.extensions[0], script.as_bytes(), &sources, |url| {
-            fetched.lock().unwrap().push(url.to_string());
-            let code = if url.path().ends_with("Madara.lua") {
-                "local json = Require(\"dkjson\")\nreturn {}"
-            } else {
-                "return {}"
-            };
-            async move { Ok(code.as_bytes().to_vec()) }
-        })
+        let package = assemble(
+            &community.extensions[0],
+            script.as_bytes(),
+            &sources,
+            |url| {
+                fetched.lock().unwrap().push(url.to_string());
+                let code = if url.path().ends_with("Madara.lua") {
+                    "local json = Require(\"dkjson\")\nreturn {}"
+                } else {
+                    "return {}"
+                };
+                async move { Ok(code.as_bytes().to_vec()) }
+            },
+        )
         .await
         .unwrap();
         assert_eq!(package.manifest.id, "shosetsu.en.fan");
@@ -415,25 +438,82 @@ mod tests {
         );
         // A declared library nobody has stops the install, saying which.
         let needs = "-- {\"id\":8,\"ver\":\"1.0.0\",\"libVer\":\"1.0.0\",\"dep\":[\"Missing>=1.0.0\"]}\nreturn {}";
-        let error = assemble(&community.extensions[0], needs.as_bytes(), &sources, |_| async {
-            Ok(Vec::new())
-        })
+        let error = assemble(
+            &community.extensions[0],
+            needs.as_bytes(),
+            &sources,
+            |_| async { Ok(Vec::new()) },
+        )
         .await
         .unwrap_err();
         assert!(error.contains("needs the library Missing"), "{error}");
     }
 
     #[test]
+    fn repository_pages_and_folders_lead_to_the_index() {
+        let candidates = |url: &str| -> Vec<String> {
+            crate::repo::shosetsu_index_candidates(&url.parse().unwrap())
+                .into_iter()
+                .map(String::from)
+                .collect()
+        };
+        assert_eq!(
+            candidates("https://raw.githubusercontent.com/noaione/shosetsu-extensions/dev"),
+            ["https://raw.githubusercontent.com/noaione/shosetsu-extensions/dev/index.json"]
+        );
+        assert_eq!(
+            candidates("https://gitlab.com/shosetsuorg/extensions/-/raw/dev/"),
+            ["https://gitlab.com/shosetsuorg/extensions/-/raw/dev/index.json"]
+        );
+        assert_eq!(
+            candidates("https://github.com/jobobby04/ShosetsuExtensions/tree/master"),
+            ["https://raw.githubusercontent.com/jobobby04/ShosetsuExtensions/master/index.json"]
+        );
+        assert_eq!(
+            candidates("https://github.com/someone/novels").len(),
+            3,
+            "main, master and dev"
+        );
+        assert_eq!(
+            candidates("https://gitlab.com/group/sub/novels/-/tree/dev/repo"),
+            ["https://gitlab.com/group/sub/novels/-/raw/dev/repo/index.json"]
+        );
+        assert!(candidates("https://example.org/repo/index.json").is_empty());
+    }
+
+    #[test]
     fn shosetsu_repositories_are_named_from_where_they_are() {
         for (url, name) in [
-            ("https://gitlab.com/shosetsuorg/extensions/-/raw/dev/index.json", "Shosetsu extensions"),
-            ("https://raw.githubusercontent.com/noaione/shosetsu-extensions/dev/index.json", "noaione/shosetsu-extensions"),
-            ("https://gitlab.com/someone/novels/-/raw/main/index.json", "someone/novels"),
-            ("https://cdn.jsdelivr.net/gh/wasu-code/novel-extensions@dev/index.json", "wasu-code/novel-extensions"),
-            ("https://jobobby04.github.io/ShosetsuExtensions/master/index.json", "jobobby04/ShosetsuExtensions"),
-            ("https://novels.example.org/repo/index.json", "novels.example.org"),
+            (
+                "https://gitlab.com/shosetsuorg/extensions/-/raw/dev/index.json",
+                "Shosetsu extensions",
+            ),
+            (
+                "https://raw.githubusercontent.com/noaione/shosetsu-extensions/dev/index.json",
+                "noaione/shosetsu-extensions",
+            ),
+            (
+                "https://gitlab.com/someone/novels/-/raw/main/index.json",
+                "someone/novels",
+            ),
+            (
+                "https://cdn.jsdelivr.net/gh/wasu-code/novel-extensions@dev/index.json",
+                "wasu-code/novel-extensions",
+            ),
+            (
+                "https://jobobby04.github.io/ShosetsuExtensions/master/index.json",
+                "jobobby04/ShosetsuExtensions",
+            ),
+            (
+                "https://novels.example.org/repo/index.json",
+                "novels.example.org",
+            ),
         ] {
-            assert_eq!(crate::repo::shosetsu_repo_name(&url.parse().unwrap()), name, "{url}");
+            assert_eq!(
+                crate::repo::shosetsu_repo_name(&url.parse().unwrap()),
+                name,
+                "{url}"
+            );
         }
     }
 

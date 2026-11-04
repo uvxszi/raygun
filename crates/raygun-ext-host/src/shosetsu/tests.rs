@@ -230,6 +230,14 @@ return helper
 "#;
 
 async fn load(code: &str, files: &[(&str, &str)]) -> Result<ShosetsuExtension, String> {
+    load_set(code, files, std::collections::BTreeMap::new()).await
+}
+
+async fn load_set(
+    code: &str,
+    files: &[(&str, &str)],
+    settings: std::collections::BTreeMap<String, serde_json::Value>,
+) -> Result<ShosetsuExtension, String> {
     let manifest = Manifest::parse(
         &json!({
             "id": "shosetsu.en.test", "name": "Test Source", "version": "1.0.0", "apiVersion": 1,
@@ -245,10 +253,62 @@ async fn load(code: &str, files: &[(&str, &str)]) -> Result<ShosetsuExtension, S
         manifest,
         ExtensionSource::built_in(&all),
         crate::cookies::CookieJar::in_memory(),
+        settings,
         true,
         std::time::Duration::from_secs(2),
     )
     .await
+}
+
+/// A script's settings model shows as extension settings, and the stored values reach it.
+#[tokio::test(flavor = "multi_thread")]
+async fn script_settings_are_extension_settings() {
+    let code = r#"-- {"id":9003,"ver":"1.0.0","libVer":"1.0.0"}
+local settings = {}
+return {
+    id = 9003, name = "Settings", baseURL = "https://example.org",
+    settings = {
+        DropdownFilter(1, "Language", { "English", "Español" }),
+        SwitchFilter(2, "Hide notes"),
+        TextFilter(3, "Token"),
+    },
+    updateSetting = function(id, value) settings[id] = value end,
+    listings = { Listing("All", false, function()
+        return { Novel { title = tostring(settings[1]) .. " " .. tostring(settings[2])
+            .. " [" .. tostring(settings[3]) .. "]", link = "/x" } }
+    end) },
+    getPassage = function() return "" end,
+    parseNovel = function() return NovelInfo {} end,
+}"#;
+    let mut stored = std::collections::BTreeMap::new();
+    stored.insert("1".to_owned(), json!("Español"));
+    stored.insert("2".to_owned(), json!(true));
+    stored.insert("9".to_owned(), json!("gone"));
+    let extension = load_set(code, &[], stored).await.unwrap();
+    let keys: Vec<&str> = extension
+        .manifest()
+        .settings
+        .iter()
+        .map(|setting| setting.key.as_str())
+        .collect();
+    assert_eq!(keys, ["1", "2", "3"]);
+    assert_eq!(
+        extension.manifest().settings[0].options,
+        ["English", "Español"]
+    );
+    assert_eq!(
+        extension.user_settings().keys().collect::<Vec<_>>(),
+        ["1", "2"],
+        "a value for a setting the script no longer has is dropped"
+    );
+    let listing = extension
+        .call("novel", "popular", &json!({ "page": 1 }))
+        .await
+        .unwrap();
+    assert_eq!(
+        listing["items"][0]["title"], "1 true []",
+        "the index, the flag, the default"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -370,6 +430,61 @@ fn lua53_escapes_become_lua52_ones() {
         "an escaped backslash stays as it is"
     );
     assert_eq!(super::runtime::lua52_for_tests("plain"), "plain");
+    // LuaJ reads an unknown escape as the letter (Lua 5.1's rule); Lua 5.2 refuses it.
+    assert_eq!(
+        super::runtime::lua52_for_tests(r#"s:match("^([^\s]+)") -- "\s" [[\s]]"#),
+        r#"s:match("^([^s]+)") -- "\s" [[\s]]"#,
+        "comments and long strings stay as they are"
+    );
+    assert_eq!(
+        super::runtime::lua52_for_tests(r#"a = [==[ "\q" ]==] .. '\q\'\n\065'"#),
+        r#"a = [==[ "\q" ]==] .. 'q\'\n\065'"#
+    );
+    let lua = mlua::Lua::new();
+    let text: String = lua
+        .load(super::runtime::lua52_for_tests(r#"return "a\sb\%c""#))
+        .eval()
+        .unwrap();
+    assert_eq!(text, "asb%c");
+}
+
+/// kotlin-lib's filters have a `state`: scripts set defaults with `setState`.
+#[tokio::test(flavor = "multi_thread")]
+async fn filter_states_are_the_defaults() {
+    let code = r#"-- {"id":9004,"ver":"1.0.0","libVer":"1.0.0"}
+local order = DropdownFilter(2, "Order", { "Newest", "Oldest", "Rating" })
+order:setState(2)
+local adult = CheckboxFilter(3, "Adult")
+adult:setState(true)
+return {
+    id = 9004, name = "States", baseURL = "https://example.org",
+    searchFilters = { order, adult, TextFilter(4, "Author") },
+    listings = { Listing("All", false, function(data)
+        return { Novel { title = tostring(data[2]) .. " " .. tostring(data[3]) .. " "
+            .. tostring(order:getState()) .. " " .. tostring(TextFilter(9, "x"):getState() == ""), link = "/x" } }
+    end) },
+    getPassage = function() return "" end,
+    parseNovel = function() return NovelInfo {} end,
+}"#;
+    let extension = load(code, &[]).await.unwrap();
+    let listing = extension
+        .call("novel", "popular", &json!({ "page": 1 }))
+        .await
+        .unwrap();
+    assert_eq!(listing["items"][0]["title"], "2 true 2 true");
+    let filters = extension
+        .call("novel", "filters", &json!({}))
+        .await
+        .unwrap();
+    let parsed = crate::manga::parse_filters(&filters);
+    assert!(matches!(
+        &parsed[0],
+        raygun_model::SourceFilter::Select { default: Some(default), .. } if default == "2"
+    ));
+    assert!(matches!(
+        &parsed[1],
+        raygun_model::SourceFilter::Toggle { default: true, .. }
+    ));
 }
 
 /// A script using what kotlin-lib gives beyond the basics: listings picked by name, filters, an
@@ -482,7 +597,12 @@ async fn shosetsu_calls_follow_the_app() {
     assert_eq!(again["items"], json!([]));
     assert_eq!(again["hasNextPage"], false);
     let latest = call("latest", json!({ "page": 1 })).await.unwrap();
-    assert!(latest["items"][0]["title"].as_str().unwrap().starts_with("latest "));
+    assert!(
+        latest["items"][0]["title"]
+            .as_str()
+            .unwrap()
+            .starts_with("latest ")
+    );
 
     // The filters as the app shows them.
     let filters = call("filters", json!({})).await.unwrap();
@@ -507,16 +627,21 @@ async fn shosetsu_calls_follow_the_app() {
         "g10": { "include": ["11"], "exclude": [] },
         "20": { "include": [], "exclude": ["20"] },
     });
-    let filtered = call("search", json!({ "query": "", "page": 1, "filters": chosen }))
-        .await
-        .unwrap();
+    let filtered = call(
+        "search",
+        json!({ "query": "", "page": 1, "filters": chosen }),
+    )
+    .await
+    .unwrap();
     assert_eq!(
         filtered["items"][0]["title"],
         "latest order=1 action=false drama=true mature=2 author= query=nil page=1"
     );
 
     // A search through the script's own client: the interceptor's header and query, dkjson.
-    let found = call("search", json!({ "query": "elf", "page": 1 })).await.unwrap();
+    let found = call("search", json!({ "query": "elf", "page": 1 }))
+        .await
+        .unwrap();
     assert_eq!(
         found["items"][0]["title"],
         "yes 1 Über order=0 action=false drama=false mature=0 author= query=elf page=1"
@@ -527,11 +652,16 @@ async fn shosetsu_calls_follow_the_app() {
     assert_eq!(details["title"], "Привет");
     assert_eq!(details["description"], "abc123 1970-01-02");
     let chapters = call("chapters", json!({ "id": "/n" })).await.unwrap();
-    assert_eq!(chapters["chapters"][1]["id"], "one", "unnumbered: the list reversed");
+    assert_eq!(
+        chapters["chapters"][1]["id"], "one",
+        "unnumbered: the list reversed"
+    );
     assert_eq!(chapters["chapters"][1]["dateUpload"], 1_714_521_600_000_i64);
 
     // A string chapter: a paragraph per line, as Shosetsu shows it.
-    let passage = call("passage", json!({ "chapterId": "one" })).await.unwrap();
+    let passage = call("passage", json!({ "chapterId": "one" }))
+        .await
+        .unwrap();
     assert_eq!(
         crate::novel::parse_passage(&passage),
         [
@@ -541,7 +671,9 @@ async fn shosetsu_calls_follow_the_app() {
         ]
     );
     // Text-only loading, whichever loader a script reaches for.
-    let probe = call("passage", json!({ "chapterId": "probe" })).await.unwrap();
+    let probe = call("passage", json!({ "chapterId": "probe" }))
+        .await
+        .unwrap();
     let probe = probe["html"].as_str().unwrap();
     assert!(probe.contains("nil") && probe.contains("mode"), "{probe}");
 

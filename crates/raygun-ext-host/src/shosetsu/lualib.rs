@@ -58,6 +58,29 @@ pub fn load_chunk(lua: &Lua, code: &str, name: &str) -> mlua::Result<Function> {
     Ok(function)
 }
 
+/// `string.lower` and `string.upper` as LuaJ has them: through Java's `toLowerCase` and
+/// `toUpperCase`, so Cyrillic and accented letters change case too (C Lua's change ASCII only).
+/// Text that isn't UTF-8 changes in its ASCII letters, as before.
+pub fn install_string_case(lua: &Lua, globals: &Table) -> mlua::Result<()> {
+    let string: Table = globals.get("string")?;
+    for (name, upper) in [("lower", false), ("upper", true)] {
+        string.set(
+            name,
+            lua.create_function(move |lua, text: mlua::String| {
+                let bytes = text.as_bytes();
+                let changed = match std::str::from_utf8(&bytes) {
+                    Ok(text) if upper => text.to_uppercase().into_bytes(),
+                    Ok(text) => text.to_lowercase().into_bytes(),
+                    Err(_) if upper => bytes.to_ascii_uppercase(),
+                    Err(_) => bytes.to_ascii_lowercase(),
+                };
+                lua.create_string(changed)
+            })?,
+        )?;
+    }
+    Ok(())
+}
+
 /// `os`: the clock only.
 pub fn install_os(lua: &Lua, globals: &Table) -> mlua::Result<()> {
     let os = lua.create_table()?;
@@ -103,7 +126,11 @@ fn time_of(table: &Table) -> mlua::Result<Option<i64>> {
             }),
         }
     };
-    let (year, month, day) = (field("year", None)?, field("month", None)?, field("day", None)?);
+    let (year, month, day) = (
+        field("year", None)?,
+        field("month", None)?,
+        field("day", None)?,
+    );
     let (hour, minute, second) = (
         field("hour", Some(12))?,
         field("min", Some(0))?,
@@ -389,14 +416,39 @@ mod tests {
     }
 
     #[test]
+    fn letters_change_case_as_in_luaj() {
+        let lua = Lua::new();
+        install_string_case(&lua, &lua.globals()).unwrap();
+        let (lower, upper, method): (String, String, bool) = lua
+            .load(r#"return string.lower("ЗАВЕРШЕНО Ü"), ("straße"):upper(), ("ABC"):lower() == "abc""#)
+            .eval()
+            .unwrap();
+        assert_eq!(
+            (lower.as_str(), upper.as_str(), method),
+            ("завершено ü", "STRASSE", true)
+        );
+        let raw: mlua::String = lua.load(r#"return ("A\255"):lower()"#).eval().unwrap();
+        assert_eq!(&*raw.as_bytes(), b"a\xFF", "bytes that aren't UTF-8 stay");
+    }
+
+    #[test]
     fn compiled_chunks_are_reused() {
         let lua = Lua::new();
         let code = "return 40 + 2";
-        let first: i64 = load_chunk(&lua, code, "lib(answer)").unwrap().call(()).unwrap();
-        let second: i64 = load_chunk(&lua, code, "lib(answer)").unwrap().call(()).unwrap();
+        let first: i64 = load_chunk(&lua, code, "lib(answer)")
+            .unwrap()
+            .call(())
+            .unwrap();
+        let second: i64 = load_chunk(&lua, code, "lib(answer)")
+            .unwrap()
+            .call(())
+            .unwrap();
         assert_eq!((first, second), (42, 42));
         let other = Lua::new();
-        let third: i64 = load_chunk(&other, code, "lib(answer)").unwrap().call(()).unwrap();
+        let third: i64 = load_chunk(&other, code, "lib(answer)")
+            .unwrap()
+            .call(())
+            .unwrap();
         assert_eq!(third, 42);
     }
 }

@@ -10,7 +10,7 @@
 
 use std::fmt;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use mlua::{AnyUserData, Lua, MetaMethod, Table, UserData, UserDataMethods, Value};
@@ -27,6 +27,23 @@ const TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_REDIRECTS: usize = 10;
 /// How much of an error page is looked at for a bot check.
 const SNIFF_BYTES: usize = 64 * 1024;
+/// The User-Agent the Shosetsu app sends with every script request (its default setting), which
+/// replaces any a script sets: scripts' selectors are written against the pages sites send it.
+pub const SHOSETSU_USER_AGENT: &str = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.7727.50 Mobile Safari/537.36";
+/// Shosetsu's "site protection": the least time between two requests to one host.
+const HOST_SPACING: Duration = Duration::from_millis(300);
+/// The longest `Retry-After` waited for before asking once more, as Shosetsu does.
+const MAX_RETRY_AFTER: Duration = Duration::from_secs(10);
+
+/// The User-Agent for script requests: the one chosen in Raygun's settings, else Shosetsu's.
+fn user_agent() -> String {
+    let chosen = raygun_net::user_agent();
+    if chosen == raygun_net::DEFAULT_USER_AGENT {
+        SHOSETSU_USER_AGENT.to_owned()
+    } else {
+        chosen
+    }
+}
 
 /// Resolves names, keeping only public addresses.
 struct PublicResolver;
@@ -50,16 +67,34 @@ impl Resolve for PublicResolver {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FetchError {
     /// A bot check (Cloudflare's challenge, a captcha) answered in the site's place.
-    BrowserCheck { host: String, status: u16 },
+    BrowserCheck {
+        host: String,
+        status: u16,
+    },
     /// The site answered with an error status.
-    Status { status: u16, url: String },
-    Timeout { host: String },
+    Status {
+        status: u16,
+        url: String,
+    },
+    Timeout {
+        host: String,
+    },
     /// No answer at all: the name doesn't resolve, the connection or TLS failed.
-    Unreachable { host: String, detail: String },
-    TooLarge { url: String },
+    Unreachable {
+        host: String,
+        detail: String,
+    },
+    TooLarge {
+        url: String,
+    },
     /// This machine or the local network, which scripts may not reach.
-    NotPublic { url: String },
-    BadUrl { url: String, detail: String },
+    NotPublic {
+        url: String,
+    },
+    BadUrl {
+        url: String,
+        detail: String,
+    },
 }
 
 impl fmt::Display for FetchError {
@@ -82,12 +117,13 @@ impl std::error::Error for FetchError {}
 
 /// Runs a script's requests: its own small runtime, since the script waits for each answer.
 pub struct Fetcher {
-    client: reqwest::Client,
-    runtime: tokio::runtime::Runtime,
+    client: OnceLock<(reqwest::Client, tokio::runtime::Runtime)>,
     policy: NetPolicy,
     cookies: Arc<CookieJar>,
     /// The host of the last bot check seen since [`Fetcher::start_call`].
     challenged: Mutex<Option<String>>,
+    /// When each host was last asked, for [`HOST_SPACING`].
+    asked: Mutex<std::collections::HashMap<String, std::time::Instant>>,
 }
 
 impl Fetcher {
@@ -98,8 +134,26 @@ impl Fetcher {
         if loopback {
             patterns.push(HostPattern::Exact("127.0.0.1".into()));
         }
-        let policy = NetPolicy::new(patterns);
-        let redirect_policy = policy.clone();
+        Ok(Self {
+            client: OnceLock::new(),
+            policy: NetPolicy::new(patterns),
+            cookies,
+            challenged: Mutex::new(None),
+            asked: Mutex::new(std::collections::HashMap::new()),
+        })
+    }
+
+    /// The client and the runtime it runs on, made at the first request: most scripts loaded at
+    /// start never make one before they're let go.
+    fn client(&self) -> Result<&(reqwest::Client, tokio::runtime::Runtime), FetchError> {
+        if let Some(made) = self.client.get() {
+            return Ok(made);
+        }
+        let failed = |error: String| FetchError::Unreachable {
+            host: "the network".into(),
+            detail: error,
+        };
+        let redirect_policy = self.policy.clone();
         let redirects = reqwest::redirect::Policy::custom(move |attempt| {
             if attempt.previous().len() >= MAX_REDIRECTS {
                 attempt.error("too many redirects")
@@ -112,21 +166,34 @@ impl Fetcher {
         let client = raygun_net::client_builder()
             .dns_resolver(Arc::new(PublicResolver))
             .redirect(redirects)
-            .cookie_provider(cookies.clone())
+            .cookie_provider(self.cookies.clone())
             .timeout(TIMEOUT)
             .build()
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| failed(error.to_string()))?;
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .map_err(|error| error.to_string())?;
-        Ok(Self {
-            client,
-            runtime,
-            policy,
-            cookies,
-            challenged: Mutex::new(None),
-        })
+            .map_err(|error| failed(error.to_string()))?;
+        Ok(self.client.get_or_init(|| (client, runtime)))
+    }
+
+    /// Waits until the host was last asked at least [`HOST_SPACING`] ago.
+    fn space(&self, host: &str) {
+        let wait = self.asked.lock().ok().and_then(|mut asked| {
+            let now = std::time::Instant::now();
+            let wait = asked
+                .get(host)
+                .map(|last| HOST_SPACING.saturating_sub(now.duration_since(*last)))
+                .filter(|wait| !wait.is_zero());
+            if asked.len() > 256 {
+                asked.clear();
+            }
+            asked.insert(host.to_owned(), now + wait.unwrap_or_default());
+            wait
+        });
+        if let Some(wait) = wait {
+            std::thread::sleep(wait);
+        }
     }
 
     /// Forgets the bot checks seen so far: a new call starts.
@@ -141,6 +208,9 @@ impl Fetcher {
         self.challenged.lock().ok()?.clone()
     }
 
+    /// Sends a script's request, as Shosetsu's client does: Shosetsu's User-Agent (or the one
+    /// chosen in settings) in place of the script's, requests to one host spaced out, and one more
+    /// try after a short `Retry-After` (a 429 or 503).
     pub fn execute(&self, request: &LuaRequest) -> Result<LuaResponse, FetchError> {
         let url = reqwest::Url::parse(&request.url).map_err(|error| FetchError::BadUrl {
             url: request.url.clone(),
@@ -157,17 +227,46 @@ impl Fetcher {
                 url: url.to_string(),
                 detail: format!("unknown method {}", request.method),
             })?;
-        let mut builder = self.client.request(method, url.clone());
-        let mut has_agent = false;
+        let agent = user_agent();
+        let mut retried = false;
+        loop {
+            self.space(&host);
+            let response = self.send(request, method.clone(), &url, &host, &agent)?;
+            let wait = matches!(response.status, 429 | 503)
+                .then(|| header(&response.headers, "retry-after"))
+                .flatten()
+                .and_then(|seconds| seconds.trim().parse::<u64>().ok())
+                .map(Duration::from_secs)
+                .filter(|wait| *wait <= MAX_RETRY_AFTER);
+            match wait {
+                Some(wait) if !retried => {
+                    retried = true;
+                    std::thread::sleep(wait);
+                }
+                _ => return Ok(response),
+            }
+        }
+    }
+
+    fn send(
+        &self,
+        request: &LuaRequest,
+        method: reqwest::Method,
+        url: &reqwest::Url,
+        host: &str,
+        agent: &str,
+    ) -> Result<LuaResponse, FetchError> {
+        let (client, runtime) = self.client()?;
+        let mut builder = client.request(method, url.clone());
         let mut has_type = false;
         for (name, value) in &request.headers {
-            has_agent |= name.eq_ignore_ascii_case("user-agent");
+            if name.eq_ignore_ascii_case("user-agent") {
+                continue;
+            }
             has_type |= name.eq_ignore_ascii_case("content-type");
             builder = builder.header(name, value);
         }
-        if !has_agent {
-            builder = builder.header("User-Agent", raygun_net::user_agent());
-        }
+        builder = builder.header("User-Agent", agent);
         if let Some(body) = &request.body {
             if !has_type && !body.content_type.is_empty() {
                 builder = builder.header("Content-Type", &body.content_type);
@@ -178,8 +277,12 @@ impl Fetcher {
         if std::env::var_os("SHOSETSU_TRACE").is_some() {
             eprintln!("  > {} {url}", request.method);
         }
-        let response = self.runtime.block_on(async {
-            let response = builder.send().await.map_err(|error| describe(&host, &error))?;
+        let host = host.to_owned();
+        let response = runtime.block_on(async {
+            let response = builder
+                .send()
+                .await
+                .map_err(|error| describe(&host, &error))?;
             let status = response.status().as_u16();
             let final_url = response.url().to_string();
             let headers: Vec<(String, String)> = response
@@ -299,6 +402,11 @@ pub fn bot_check(status: u16, headers: &[(String, String)], body: &[u8]) -> bool
     {
         return true;
     }
+    // Anubis answers its proof-of-work page with a 200.
+    let start = &body[..body.len().min(SNIFF_BYTES)];
+    if contains(start, b"anubis_challenge") || contains(start, b".within.website/x/cmd/anubis") {
+        return true;
+    }
     if !matches!(status, 401 | 403 | 429 | 503) {
         return false;
     }
@@ -332,6 +440,12 @@ pub fn bot_check(status: u16, headers: &[(String, String)], body: &[u8]) -> bool
         .iter()
         .any(|marker| page.contains(marker));
     cloudflare || others
+}
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
 }
 
 /// The charset a `Content-Type` names.
@@ -636,7 +750,10 @@ impl UserData for LuaRequest {
         methods.add_method("body", |_, this, ()| Ok(this.body.clone()));
         methods.add_method("newBuilder", |_, this, ()| Ok(RequestBuilder(this.clone())));
         methods.add_meta_method(MetaMethod::ToString, |_, this, ()| {
-            Ok(format!("Request{{method={}, url={}}}", this.method, this.url))
+            Ok(format!(
+                "Request{{method={}, url={}}}",
+                this.method, this.url
+            ))
         });
     }
 }
@@ -758,9 +875,12 @@ impl UserData for LuaResponse {
         methods.add_method("headers", |_, this, ()| {
             Ok(LuaHeaders(this.headers.clone()))
         });
-        methods.add_method("header", |_, this, (name, fallback): (String, Option<String>)| {
-            Ok(header(&this.headers, &name).map(str::to_owned).or(fallback))
-        });
+        methods.add_method(
+            "header",
+            |_, this, (name, fallback): (String, Option<String>)| {
+                Ok(header(&this.headers, &name).map(str::to_owned).or(fallback))
+            },
+        );
         methods.add_method("request", |_, this, ()| Ok(this.request.clone()));
         methods.add_method("close", |_, _, ()| Ok(()));
     }
@@ -889,7 +1009,9 @@ impl UserData for UrlBuilder {
                     Some(url) => url
                         .set_scheme(&scheme)
                         .map_err(|()| mlua::Error::runtime(format!("bad scheme {scheme}")))?,
-                    None => builder.0 = Some(parse_url(&format!("{scheme}://placeholder.invalid/"))?),
+                    None => {
+                        builder.0 = Some(parse_url(&format!("{scheme}://placeholder.invalid/"))?)
+                    }
                 }
             }
             Ok(this)
@@ -897,9 +1019,9 @@ impl UserData for UrlBuilder {
         methods.add_function("host", |_, (this, host): (AnyUserData, String)| {
             {
                 let mut builder = this.borrow_mut::<UrlBuilder>()?;
-                let url = builder
-                    .0
-                    .get_or_insert_with(|| url::Url::parse("https://placeholder.invalid/").expect("a valid URL"));
+                let url = builder.0.get_or_insert_with(|| {
+                    url::Url::parse("https://placeholder.invalid/").expect("a valid URL")
+                });
                 url.set_host(Some(&host))
                     .map_err(|error| mlua::Error::runtime(format!("bad host {host}: {error}")))?;
             }
@@ -933,19 +1055,22 @@ impl UserData for UrlBuilder {
                 Ok(this)
             });
         }
-        methods.add_function("addPathSegments", |_, (this, segments): (AnyUserData, String)| {
-            edit(&this, |url| {
-                let mut path = url
-                    .path_segments_mut()
-                    .map_err(|()| mlua::Error::runtime("this URL has no path"))?;
-                path.pop_if_empty();
-                for segment in segments.split('/').filter(|segment| !segment.is_empty()) {
-                    path.push(segment);
-                }
-                Ok(())
-            })?;
-            Ok(this)
-        });
+        methods.add_function(
+            "addPathSegments",
+            |_, (this, segments): (AnyUserData, String)| {
+                edit(&this, |url| {
+                    let mut path = url
+                        .path_segments_mut()
+                        .map_err(|()| mlua::Error::runtime("this URL has no path"))?;
+                    path.pop_if_empty();
+                    for segment in segments.split('/').filter(|segment| !segment.is_empty()) {
+                        path.push(segment);
+                    }
+                    Ok(())
+                })?;
+                Ok(this)
+            },
+        );
         methods.add_function("encodedPath", |_, (this, path): (AnyUserData, String)| {
             edit(&this, |url| {
                 url.set_path(&path);
@@ -1034,13 +1159,16 @@ impl UserData for UrlBuilder {
             });
         }
         for name in ["fragment", "encodedFragment"] {
-            methods.add_function(name, |_, (this, fragment): (AnyUserData, Option<String>)| {
-                edit(&this, |url| {
-                    url.set_fragment(fragment.as_deref());
-                    Ok(())
-                })?;
-                Ok(this)
-            });
+            methods.add_function(
+                name,
+                |_, (this, fragment): (AnyUserData, Option<String>)| {
+                    edit(&this, |url| {
+                        url.set_fragment(fragment.as_deref());
+                        Ok(())
+                    })?;
+                    Ok(this)
+                },
+            );
         }
         methods.add_method("build", |_, this, ()| {
             this.0
@@ -1080,9 +1208,10 @@ impl UserData for CookieBuilder {
             });
         }
         for flag in ["secure", "httpOnly", "expiresAt"] {
-            methods.add_function(flag, |_, (this, _): (AnyUserData, mlua::Variadic<Value>)| {
-                Ok(this)
-            });
+            methods.add_function(
+                flag,
+                |_, (this, _): (AnyUserData, mlua::Variadic<Value>)| Ok(this),
+            );
         }
         methods.add_method("build", |_, this, ()| Ok(this.0.clone()));
     }
@@ -1092,7 +1221,9 @@ impl UserData for CookieList {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("size", |_, this, ()| Ok(this.0.len()));
         methods.add_method("isEmpty", |_, this, ()| Ok(this.0.is_empty()));
-        methods.add_method("get", |_, this, index: usize| Ok(this.0.get(index).cloned()));
+        methods.add_method("get", |_, this, index: usize| {
+            Ok(this.0.get(index).cloned())
+        });
         methods.add_meta_method(MetaMethod::Len, |_, this, ()| Ok(this.0.len()));
     }
 }
@@ -1121,7 +1252,8 @@ impl UserData for LuaCookieJar {
                 let url = parse_url(&url_text(&url)?)?;
                 let mut lines = Vec::new();
                 let mut add = |cookie: &LuaCookie| {
-                    let mut line = format!("{}={}; Path={}", cookie.name, cookie.value, cookie.path);
+                    let mut line =
+                        format!("{}={}; Path={}", cookie.name, cookie.value, cookie.path);
                     if !cookie.domain.is_empty() {
                         line.push_str(&format!("; Domain={}", cookie.domain));
                     }
@@ -1211,7 +1343,11 @@ fn document(fetcher: &Fetcher, request: &LuaRequest) -> mlua::Result<LuaNode> {
         return Err(mlua::Error::external(error));
     }
     let base = reqwest::Url::parse(&response.request.url).ok();
-    let text = decode(&response.body, header(&response.headers, "content-type"), true);
+    let text = decode(
+        &response.body,
+        header(&response.headers, "content-type"),
+        true,
+    );
     Ok(parse_document(&text, base))
 }
 
@@ -1392,13 +1528,22 @@ mod tests {
     fn bodies_decode_as_okhttp_does() {
         // windows-1251 "Привет", as Russian sites send it.
         let cp1251 = [0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2];
-        assert_eq!(decode(&cp1251, Some("text/html; charset=windows-1251"), false), "Привет");
+        assert_eq!(
+            decode(&cp1251, Some("text/html; charset=windows-1251"), false),
+            "Привет"
+        );
         // Shift_JIS "日本", named with quotes.
         let sjis = [0x93, 0xFA, 0x96, 0x7B];
-        assert_eq!(decode(&sjis, Some("text/html;charset=\"Shift_JIS\""), false), "日本");
+        assert_eq!(
+            decode(&sjis, Some("text/html;charset=\"Shift_JIS\""), false),
+            "日本"
+        );
         // A byte-order mark wins over the header.
         let bom = [0xEF, 0xBB, 0xBF, b'h', b'i'];
-        assert_eq!(decode(&bom, Some("text/html; charset=iso-8859-1"), false), "hi");
+        assert_eq!(
+            decode(&bom, Some("text/html; charset=iso-8859-1"), false),
+            "hi"
+        );
         assert_eq!(decode("ok ✓".as_bytes(), None, false), "ok ✓");
         // A page's own meta charset, for documents whose header names none.
         let mut page = b"<html><head><meta charset=\"windows-1251\"></head><body>".to_vec();
@@ -1418,22 +1563,40 @@ mod tests {
             b""
         ));
         assert!(!bot_check(403, &cloudflare, b"<h1>Forbidden</h1>"));
-        assert!(!bot_check(200, &cloudflare, challenge), "a page about challenges");
+        assert!(
+            !bot_check(200, &cloudflare, challenge),
+            "a page about challenges"
+        );
         assert!(!bot_check(404, &[], b"not found"));
         assert!(bot_check(
             403,
             &[("server".into(), "ddos-guard".into())],
             b""
         ));
+        assert!(
+            bot_check(
+                200,
+                &[],
+                b"<script id=\"anubis_challenge\" type=\"application/json\">{}</script>"
+            ),
+            "Anubis's page answers 200"
+        );
     }
 
     #[test]
     fn cookies_parse_from_set_cookie_lines() {
         let url = url::Url::parse("https://www.example.org/a").unwrap();
-        let cookie = parse_cookie(&url, "PHPSESSID=abc_123; Path=/; Domain=.example.org; HttpOnly")
-            .unwrap();
+        let cookie = parse_cookie(
+            &url,
+            "PHPSESSID=abc_123; Path=/; Domain=.example.org; HttpOnly",
+        )
+        .unwrap();
         assert_eq!(
-            (cookie.name.as_str(), cookie.value.as_str(), cookie.domain.as_str()),
+            (
+                cookie.name.as_str(),
+                cookie.value.as_str(),
+                cookie.domain.as_str()
+            ),
             ("PHPSESSID", "abc_123", "example.org")
         );
         assert!(parse_cookie(&url, "garbage").is_none());

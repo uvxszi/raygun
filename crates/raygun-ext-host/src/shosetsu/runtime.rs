@@ -11,8 +11,8 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
-use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::Arc;
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use mlua::{Function, HookTriggers, Lua, LuaOptions, StdLib, Table, Value, VmState};
@@ -26,7 +26,7 @@ use super::http::Fetcher;
 use super::lualib;
 use crate::cookies::CookieJar;
 use crate::host::ExtensionSource;
-use crate::manifest::Manifest;
+use crate::manifest::{Manifest, SettingDef};
 use crate::novel::NOVEL_SOURCE;
 
 const PRELUDE: &str = include_str!("prelude.lua");
@@ -38,17 +38,39 @@ pub const CALL_BUDGET: Duration = Duration::from_secs(80);
 const PARSE_REUSE: Duration = Duration::from_secs(60);
 /// How long a script's state stays loaded after its last call.
 const IDLE: Duration = Duration::from_secs(5 * 60);
+/// How long it stays after loading when no call comes: the app loads every installed script at
+/// start, and most aren't used right away.
+const IDLE_AFTER_LOAD: Duration = Duration::from_secs(30);
 /// The provider's local id.
 pub const PROVIDER: &str = "novel";
 
 /// Names that tell which listing is the popular one, and which the latest (lower case).
-const POPULAR_NAMES: [&str; 12] = [
-    "popular", "top", "rank", "trend", "hot", "most", "best", "rating", "популяр", "рейтинг",
-    "人気", "ranking",
+const POPULAR_NAMES: [&str; 11] = [
+    "popular",
+    "top",
+    "rank",
+    "trend",
+    "hot",
+    "best",
+    "rating",
+    "views",
+    "популяр",
+    "рейтинг",
+    "人気",
 ];
 const LATEST_NAMES: [&str; 12] = [
-    "latest", "new", "recent", "update", "release", "последн", "новые", "обновлен", "最新",
-    "récent", "nuevo", "últim",
+    "latest",
+    "new",
+    "recent",
+    "update",
+    "release",
+    "последн",
+    "новые",
+    "обновлен",
+    "最新",
+    "récent",
+    "nuevo",
+    "últim",
 ];
 
 struct Job {
@@ -58,9 +80,11 @@ struct Job {
 }
 
 pub struct ShosetsuExtension {
+    /// Its manifest, with the script's own settings (its `settings` model) as the settings.
     manifest: Manifest,
     jobs: mpsc::Sender<Job>,
-    no_settings: BTreeMap<String, serde_json::Value>,
+    /// The stored values of those settings that still fit them.
+    user_settings: BTreeMap<String, serde_json::Value>,
     /// The site the script reads (its `baseURL`), for "Open the website" (M46.11).
     website: Option<String>,
 }
@@ -72,26 +96,37 @@ struct Setup {
     entry: String,
     source: ExtensionSource,
     cookies: Arc<CookieJar>,
+    /// The user's values for the script's settings, by setting id.
+    settings: BTreeMap<String, serde_json::Value>,
     loopback: bool,
     budget: Duration,
 }
 
+/// What a loaded script tells the app about itself.
+struct Loaded {
+    website: Option<String>,
+    settings: Vec<SettingDef>,
+}
+
 impl ShosetsuExtension {
-    /// Starts the script's thread and waits for the script to load.
+    /// Starts the script's thread and waits for the script to load. `settings` are the user's
+    /// values for the script's settings.
     pub async fn load(
         manifest: Manifest,
         source: ExtensionSource,
         cookies: Arc<CookieJar>,
+        settings: BTreeMap<String, serde_json::Value>,
     ) -> Result<Self, String> {
-        Self::load_with(manifest, source, cookies, false, CALL_BUDGET).await
+        Self::load_with(manifest, source, cookies, settings, false, CALL_BUDGET).await
     }
 
     /// Like [`Self::load`]; `loopback` lets the script reach 127.0.0.1 (tests only), and
     /// `budget` is the time one call may take.
     pub async fn load_with(
-        manifest: Manifest,
+        mut manifest: Manifest,
         source: ExtensionSource,
         cookies: Arc<CookieJar>,
+        settings: BTreeMap<String, serde_json::Value>,
         loopback: bool,
         budget: Duration,
     ) -> Result<Self, String> {
@@ -103,6 +138,7 @@ impl ShosetsuExtension {
             entry: manifest.entry.clone(),
             source,
             cookies,
+            settings: settings.clone(),
             loopback,
             budget,
         };
@@ -110,14 +146,19 @@ impl ShosetsuExtension {
             .name(format!("shosetsu {}", manifest.id))
             .spawn(move || work(&setup, &inbox, ready))
             .map_err(|error| error.to_string())?;
-        let website = loaded
+        let loaded = loaded
             .await
             .map_err(|_| "the script stopped while loading".to_owned())??;
+        manifest.settings = loaded.settings;
+        let user_settings = settings
+            .into_iter()
+            .filter(|(key, value)| manifest.check_setting(key, value).is_ok())
+            .collect();
         Ok(Self {
             manifest,
             jobs,
-            no_settings: BTreeMap::new(),
-            website,
+            user_settings,
+            website: loaded.website,
         })
     }
 
@@ -130,7 +171,7 @@ impl ShosetsuExtension {
     }
 
     pub fn user_settings(&self) -> &BTreeMap<String, serde_json::Value> {
-        &self.no_settings
+        &self.user_settings
     }
 
     pub fn providers(&self) -> Vec<ProviderInfo> {
@@ -170,11 +211,14 @@ impl ShosetsuExtension {
 fn work(
     setup: &Setup,
     inbox: &mpsc::Receiver<Job>,
-    ready: oneshot::Sender<Result<Option<String>, String>>,
+    ready: oneshot::Sender<Result<Loaded, String>>,
 ) {
     let mut script = match Script::load(setup) {
         Ok(script) => {
-            let _ = ready.send(Ok(script.website.clone()));
+            let _ = ready.send(Ok(Loaded {
+                website: script.website.clone(),
+                settings: script.settings.clone(),
+            }));
             Some(script)
         }
         Err(error) => {
@@ -182,15 +226,22 @@ fn work(
             return;
         }
     };
+    let mut idle = IDLE_AFTER_LOAD;
     loop {
-        let job = match inbox.recv_timeout(IDLE) {
-            Ok(job) => job,
+        let job = match inbox.recv_timeout(idle) {
+            Ok(job) => {
+                idle = IDLE;
+                job
+            }
             Err(RecvTimeoutError::Timeout) => {
                 if script.take().is_some() {
                     tracing::debug!(script = %setup.label, "idle: the script's state is let go");
                 }
                 match inbox.recv() {
-                    Ok(job) => job,
+                    Ok(job) => {
+                        idle = IDLE;
+                        job
+                    }
                     Err(_) => return,
                 }
             }
@@ -225,6 +276,8 @@ struct Script {
     /// the same ends the paging (sites that ignore the page number repeat their first page).
     last_pages: RefCell<HashMap<String, Vec<String>>>,
     website: Option<String>,
+    /// The script's settings, as the app shows them.
+    settings: Vec<SettingDef>,
 }
 
 /// The first line of a Lua error, without its position and traceback.
@@ -287,6 +340,8 @@ impl Script {
             .ok()
             .flatten()
             .filter(|url| url.starts_with("https://") || url.starts_with("http://"));
+        let settings =
+            apply_settings(&lua, &table, &setup.settings).map_err(|error| describe(&error))?;
         Ok(Self {
             lua,
             source: table,
@@ -297,6 +352,7 @@ impl Script {
             parsed: RefCell::new(HashMap::new()),
             last_pages: RefCell::new(HashMap::new()),
             website,
+            settings,
         })
     }
 
@@ -327,6 +383,9 @@ impl Script {
                 .parse(&text("id"))
                 .map(|novel| json!({ "chapters": novel["chapters"].clone() })),
             "passage" => self.passage(&text("chapterId")),
+            // How much memory the state holds (for the load-cost survey).
+            #[cfg(test)]
+            "memory" => Ok(json!(self.lua.used_memory())),
             other => return Err(format!("{other} isn't a novel source call")),
         };
         result.map_err(|error| {
@@ -366,7 +425,11 @@ impl Script {
             Pick::Popular => popular,
             Pick::Latest => find(&LATEST_NAMES)
                 .filter(|latest| *latest != popular || names.len() == 1)
-                .unwrap_or_else(|| (0..names.len()).find(|index| *index != popular).unwrap_or(0)),
+                .unwrap_or_else(|| {
+                    (0..names.len())
+                        .find(|index| *index != popular)
+                        .unwrap_or(0)
+                }),
         };
         index + 1
     }
@@ -470,11 +533,7 @@ impl Script {
 
     /// The script's filters for the app, and a listing picker when it has several listings.
     fn filters(&self) -> mlua::Result<serde_json::Value> {
-        let names: Vec<String> = self
-            .listings()?
-            .into_iter()
-            .map(|(name, _)| name)
-            .collect();
+        let names: Vec<String> = self.listings()?.into_iter().map(|(name, _)| name).collect();
         let mut out = Vec::new();
         let shown = self.pick(&names, Pick::Popular);
         filters::describe(&self.filter_specs(), &names, shown, &mut out);
@@ -645,9 +704,50 @@ fn install(
         })?,
     )?;
     lualib::install_os(lua, &globals)?;
+    lualib::install_string_case(lua, &globals)?;
     super::dom::install(lua, &globals)?;
     super::http::install(lua, &globals, fetcher)?;
     lua.load(PRELUDE).set_name("prelude").exec()
+}
+
+/// The script's settings model as extension settings, after handing the script the user's values
+/// (else the defaults) through its `updateSetting`, as Shosetsu does.
+fn apply_settings(
+    lua: &Lua,
+    table: &Table,
+    stored: &BTreeMap<String, serde_json::Value>,
+) -> mlua::Result<Vec<SettingDef>> {
+    let specs = table
+        .get::<Table>("settings")
+        .map(|model| filters::read(&model))
+        .unwrap_or_default();
+    let mut defs = Vec::new();
+    filters::settings(&specs, &mut defs);
+    let Some(update) = table.get::<Option<Function>>("updateSetting")? else {
+        return Ok(defs);
+    };
+    for def in &defs {
+        let value = stored
+            .get(&def.key)
+            .filter(|value| def.accepts(value))
+            .or(def.default.as_ref());
+        let Some((id, value)) =
+            value.and_then(|value| filters::setting_value(&specs, &def.key, value))
+        else {
+            continue;
+        };
+        let value = match value {
+            serde_json::Value::Bool(flag) => Value::Boolean(flag),
+            serde_json::Value::Number(number) => Value::Integer(number.as_i64().unwrap_or(0)),
+            serde_json::Value::String(text) => Value::String(lua.create_string(text)?),
+            _ => continue,
+        };
+        // A setting the script can't take leaves it as it was, rather than not loading.
+        if let Err(error) = update.call::<()>((id, value)) {
+            tracing::warn!(%error, setting = %def.key, "a Shosetsu script refused a setting");
+        }
+    }
+    Ok(defs)
 }
 
 /// The filters chosen for a call, as a key for its pages.
@@ -673,44 +773,139 @@ fn lines_as_html(text: &str) -> String {
         .collect()
 }
 
-/// LuaJ, which Shosetsu runs, accepts Lua 5.3's `\u{XXXX}` string escapes; Lua 5.2 doesn't.
-/// They become the decimal escapes of their UTF-8 bytes.
+/// LuaJ, which Shosetsu runs, reads string escapes more loosely than Lua 5.2: it accepts Lua
+/// 5.3's `\u{XXXX}`, and an unknown escape such as `"\s"` stands for the letter itself (Lua 5.1's
+/// rule), where Lua 5.2 refuses to compile. Short strings are rewritten to mean the same in 5.2:
+/// `\u{…}` becomes the decimal escapes of its UTF-8 bytes, and an unknown escape loses its
+/// backslash. Long strings and comments are left alone.
 pub(crate) fn lua52(code: &str) -> std::borrow::Cow<'_, str> {
-    if !code.contains("\\u{") {
+    if !code.contains('\\') {
         return code.into();
     }
     let chars: Vec<char> = code.chars().collect();
     let mut out = String::with_capacity(code.len());
     let mut index = 0;
+    let mut changed = false;
+    // `[[`, `[=[`…: the closing bracket's level, when one opens at `at`.
+    let long_bracket = |at: usize| -> Option<(usize, usize)> {
+        if chars.get(at) != Some(&'[') {
+            return None;
+        }
+        let level = chars[at + 1..].iter().take_while(|c| **c == '=').count();
+        (chars.get(at + 1 + level) == Some(&'[')).then_some((level, at + 2 + level))
+    };
+    let close_of = |from: usize, level: usize| -> usize {
+        let mut at = from;
+        while at < chars.len() {
+            if chars[at] == ']'
+                && chars[at + 1..]
+                    .iter()
+                    .take(level)
+                    .filter(|c| **c == '=')
+                    .count()
+                    == level
+                && chars.get(at + 1 + level) == Some(&']')
+            {
+                return at + 2 + level;
+            }
+            at += 1;
+        }
+        chars.len()
+    };
     while index < chars.len() {
-        // An odd run of backslashes ending here starts an escape; an even one is escaped itself.
-        let escape_start = chars[index] == '\\'
-            && chars[..index]
-                .iter()
-                .rev()
-                .take_while(|c| **c == '\\')
-                .count()
-                % 2
-                == 0;
-        if escape_start
-            && chars.get(index + 1) == Some(&'u')
-            && chars.get(index + 2) == Some(&'{')
-            && let Some(close) = chars[index + 3..].iter().position(|c| *c == '}')
-        {
-            let hex: String = chars[index + 3..index + 3 + close].iter().collect();
-            if let Some(decoded) = u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
+        let c = chars[index];
+        if c == '-' && chars.get(index + 1) == Some(&'-') {
+            // A comment: long, or to the end of the line.
+            let end = match long_bracket(index + 2) {
+                Some((level, body)) => close_of(body, level),
+                None => chars[index..]
+                    .iter()
+                    .position(|c| *c == '\n')
+                    .map_or(chars.len(), |end| index + end),
+            };
+            out.extend(&chars[index..end]);
+            index = end;
+            continue;
+        }
+        if let Some((level, body)) = long_bracket(index) {
+            let end = close_of(body, level);
+            out.extend(&chars[index..end]);
+            index = end;
+            continue;
+        }
+        if c != '"' && c != '\'' {
+            out.push(c);
+            index += 1;
+            continue;
+        }
+        // A short string: copied with its escapes made Lua 5.2's.
+        out.push(c);
+        index += 1;
+        while index < chars.len() {
+            let inner = chars[index];
+            if inner == c || inner == '\n' {
+                out.push(inner);
+                index += 1;
+                break;
+            }
+            if inner != '\\' {
+                out.push(inner);
+                index += 1;
+                continue;
+            }
+            let Some(&next) = chars.get(index + 1) else {
+                out.push(inner);
+                index += 1;
+                break;
+            };
+            if next == 'u'
+                && chars.get(index + 2) == Some(&'{')
+                && let Some(close) = chars[index + 3..].iter().position(|c| *c == '}')
+                && let Some(decoded) = u32::from_str_radix(
+                    &chars[index + 3..index + 3 + close]
+                        .iter()
+                        .collect::<String>(),
+                    16,
+                )
+                .ok()
+                .and_then(char::from_u32)
+            {
                 let mut buffer = [0u8; 4];
                 for byte in decoded.encode_utf8(&mut buffer).bytes() {
                     out.push_str(&format!("\\{byte}"));
                 }
-                index += 3 + close + 1;
+                index += 4 + close;
+                changed = true;
                 continue;
             }
+            let known = matches!(
+                next,
+                'a' | 'b'
+                    | 'f'
+                    | 'n'
+                    | 'r'
+                    | 't'
+                    | 'v'
+                    | '\\'
+                    | '"'
+                    | '\''
+                    | '\n'
+                    | '\r'
+                    | 'x'
+                    | 'z'
+            ) || next.is_ascii_digit();
+            if !known {
+                changed = true;
+                out.push(next);
+                index += 2;
+                continue;
+            }
+            out.push(inner);
+            out.push(next);
+            index += 2;
         }
-        out.push(chars[index]);
-        index += 1;
     }
-    out.into()
+    if changed { out.into() } else { code.into() }
 }
 
 /// A whole Lua number (LuaJ hands out integers as floats).
@@ -824,7 +1019,10 @@ fn chapters(value: &Value) -> Vec<serde_json::Value> {
     } else {
         chapters.reverse();
     }
-    chapters.into_iter().map(|(_, _, chapter)| chapter).collect()
+    chapters
+        .into_iter()
+        .map(|(_, _, chapter)| chapter)
+        .collect()
 }
 
 /// When a chapter came out, in Unix ms, from the dates scripts give: Unix seconds or ms, or a
@@ -855,9 +1053,19 @@ fn release(value: &Value) -> Option<i64> {
             return Some(Utc.from_utc_datetime(&moment).timestamp_millis());
         }
     }
-    let date_text = text.split_whitespace().take(3).collect::<Vec<_>>().join(" ");
+    let date_text = text
+        .split_whitespace()
+        .take(3)
+        .collect::<Vec<_>>()
+        .join(" ");
     for format in [
-        "%Y-%m-%d", "%Y/%m/%d", "%d.%m.%Y", "%d/%m/%Y", "%B %d, %Y", "%b %d, %Y", "%d %B %Y",
+        "%Y-%m-%d",
+        "%Y/%m/%d",
+        "%d.%m.%Y",
+        "%d/%m/%Y",
+        "%B %d, %Y",
+        "%b %d, %Y",
+        "%d %B %Y",
         "%d %b %Y",
     ] {
         let candidate = if format.contains(' ') {

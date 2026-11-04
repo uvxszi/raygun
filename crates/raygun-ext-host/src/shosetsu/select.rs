@@ -377,13 +377,21 @@ fn is_block(tag: &str) -> bool {
     )
 }
 
+/// Whether a text node is a `<script>` or `<style>` element's content: Jsoup keeps those as data,
+/// not text, so `text()` and `wholeText()` leave them out.
+pub fn is_data(text: NodeRef<'_, Node>) -> bool {
+    text.parent()
+        .and_then(|parent| parent.value().as_element().map(|element| element.name()))
+        .is_some_and(|name| matches!(name, "script" | "style"))
+}
+
 /// Jsoup's `text()`: all descendant text, whitespace collapsed, blocks and `<br>` separated.
 pub fn element_text(node: NodeRef<'_, Node>) -> String {
     let mut raw = String::new();
     for edge in node.traverse() {
         match edge {
             ego_tree::iter::Edge::Open(child) => match child.value() {
-                Node::Text(text) => raw.push_str(text),
+                Node::Text(text) if !is_data(child) => raw.push_str(text),
                 Node::Element(element) if is_block(element.name()) => raw.push(' '),
                 _ => {}
             },
@@ -456,7 +464,8 @@ impl Parser {
             } else if nested && self.peek() == Some(')') || self.peek().is_none() {
                 break;
             } else {
-                return Err(format!("unexpected {:?} in selector", self.peek()));
+                let found: String = self.chars[self.position..].iter().collect();
+                return Err(format!("unexpected {found:?} in selector"));
             }
         }
         Ok(Selector { alternatives })
@@ -651,7 +660,8 @@ impl Parser {
                     _ => "!=",
                 })
             }
-            other => return Err(format!("unexpected {other:?} in attribute selector")),
+            Some(other) => return Err(format!("unexpected {other:?} in attribute selector")),
+            None => return Err("unclosed attribute selector".into()),
         };
         let op = match op {
             None => AttrOp::Exists,
@@ -904,14 +914,58 @@ mod tests {
 
     #[test]
     fn text_follows_jsoup() {
-        let html = Html::parse_fragment("<div>  Hello<br>world <p>para</p>tail </div>");
+        let html = Html::parse_fragment(
+            "<div>  Hello<br>world <p>para</p><script>ads.push(1)</script><style>p{}</style>tail </div>",
+        );
         let div = Selector::parse("div")
             .unwrap()
             .select_first(html.tree.root())
             .unwrap();
         let div = html.tree.get(div).unwrap();
-        assert_eq!(element_text(div), "Hello world para tail");
+        assert_eq!(
+            element_text(div),
+            "Hello world para tail",
+            "scripts and styles are data, not text"
+        );
         assert_eq!(own_text(div), "Hello world tail");
+    }
+
+    #[test]
+    fn jsoup_attribute_forms() {
+        let html = Html::parse_document(
+            r#"<img class="Cover" src="/a.PNG"><img src="/b.gif" data-lazy="x"><a href="/c/12">c</a>"#,
+        );
+        assert_eq!(
+            Selector::parse("img[src~=(?i)\\.png$]")
+                .unwrap()
+                .select(html.tree.root())
+                .len(),
+            1,
+            "~= is a regular expression in Jsoup"
+        );
+        assert_eq!(
+            Selector::parse("a[href~=/c/[0-9]+$]")
+                .unwrap()
+                .select(html.tree.root())
+                .len(),
+            1,
+            "brackets inside the expression"
+        );
+        assert_eq!(
+            Selector::parse("[^data-]")
+                .unwrap()
+                .select(html.tree.root())
+                .len(),
+            1
+        );
+        assert_eq!(
+            Selector::parse("img.cover")
+                .unwrap()
+                .select(html.tree.root())
+                .len(),
+            1,
+            "classes match whatever their case"
+        );
     }
 
     #[test]

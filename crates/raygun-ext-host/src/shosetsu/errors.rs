@@ -5,8 +5,8 @@
 use super::http::FetchError;
 
 /// Lua errors that mean a page no longer looks the way the script expects: a selector found
-/// nothing, a field is missing.
-const PAGE_CHANGED: [&str; 14] = [
+/// nothing, a field is missing, a selector built from the page's text doesn't parse.
+const PAGE_CHANGED: [&str; 16] = [
     "attempt to index",
     "attempt to call",
     "attempt to perform arithmetic",
@@ -21,15 +21,12 @@ const PAGE_CHANGED: [&str; 14] = [
     "string expected, got",
     "number expected, got",
     "invalid url",
-];
-
-/// Errors from parts of Shosetsu's API Raygun doesn't have.
-const UNSUPPORTED: [&str; 4] = [
-    "isn't supported in raygun",
-    "unsupported pseudo-class",
     "in selector",
     "attribute selector",
 ];
+
+/// Errors from parts of Shosetsu's API Raygun doesn't have.
+const UNSUPPORTED: [&str; 2] = ["isn't supported in raygun", "unsupported pseudo-class"];
 
 /// The first line of an error, without Lua's `[string "ext(...)"]:12:` position.
 pub fn first_line(text: &str) -> String {
@@ -106,7 +103,9 @@ pub fn fetch_message(name: &str, error: &FetchError) -> String {
         FetchError::Unreachable { .. } => format!("{name} didn't answer"),
         FetchError::TooLarge { .. } => format!("{name} sent a page too large to read"),
         FetchError::NotPublic { .. } => {
-            format!("{name} tried to reach this device or the local network, which sources may not do")
+            format!(
+                "{name} tried to reach this device or the local network, which sources may not do"
+            )
         }
         FetchError::BadUrl { .. } => format!("{name} changed its site"),
     };
@@ -122,12 +121,21 @@ pub fn describe(name: &str, error: &mlua::Error, challenged: Option<&str>) -> St
     if let mlua::Error::MemoryError(_) = error {
         return format!("{name} sent more than Raygun can hold (not enough memory)");
     }
+    // Lua that LuaJ took and Lua 5.2 doesn't, most likely.
+    if let mlua::Error::SyntaxError { message, .. } = error {
+        return format!(
+            "Raygun can't run part of {name} yet ({})",
+            first_line(message)
+        );
+    }
     let detail = match error {
         mlua::Error::CallbackError { cause, .. } => first_line(&cause.to_string()),
         other => first_line(&other.to_string()),
     };
     if let Some(host) = challenged {
-        return format!("{name} wants a browser check that Raygun can't do. Try again later ({host}: {detail})");
+        return format!(
+            "{name} wants a browser check that Raygun can't do. Try again later ({host}: {detail})"
+        );
     }
     let lower = detail.to_ascii_lowercase();
     if lower.contains("not enough memory") {
@@ -169,10 +177,15 @@ mod tests {
             "boom"
         );
         assert_eq!(first_line("plain message"), "plain message");
-        assert_eq!(first_line("[string \"x\"]: not a position"), "[string \"x\"]: not a position");
+        assert_eq!(
+            first_line("[string \"x\"]: not a position"),
+            "[string \"x\"]: not a position"
+        );
     }
 
     #[test]
+    // mlua's own errors hold their causes this way.
+    #[allow(clippy::arc_with_non_send_sync)]
     fn failures_read_as_what_happened() {
         let lua_error = |text: &str| mlua::Error::runtime(text.to_owned());
         let wrapped = |fetch: FetchError| mlua::Error::CallbackError {
@@ -183,13 +196,17 @@ mod tests {
             host: "www.royalroad.com".into(),
             status: 403,
         });
-        assert!(describe("Royal Road", &check, None).starts_with("Royal Road wants a browser check"));
+        assert!(
+            describe("Royal Road", &check, None).starts_with("Royal Road wants a browser check")
+        );
         let gone = wrapped(FetchError::Unreachable {
             host: "novelnb.com".into(),
             detail: "No such host is known. (os error 11001)".into(),
         });
         assert!(describe("NovelNB", &gone, None).starts_with("NovelNB's site can't be found"));
-        let slow = wrapped(FetchError::Timeout { host: "x.org".into() });
+        let slow = wrapped(FetchError::Timeout {
+            host: "x.org".into(),
+        });
         assert!(describe("X", &slow, None).starts_with("X didn't answer in time"));
         let changed = lua_error(
             "[string \"ext(x)\"]:12: attempt to index a nil value\nstack traceback:\n\tx",
@@ -205,12 +222,20 @@ mod tests {
                 .starts_with("Foxaholic wants a browser check")
         );
         assert_eq!(
-            describe("NOVA", &lua_error("[string \"ext(nova)\"]:110: CAPTCHA detectado."), None),
+            describe(
+                "NOVA",
+                &lua_error("[string \"ext(nova)\"]:110: CAPTCHA detectado."),
+                None
+            ),
             "NOVA: CAPTCHA detectado."
         );
         assert!(
-            describe("Kemono", &mlua::Error::MemoryError("not enough memory".into()), None)
-                .contains("more than Raygun can hold")
+            describe(
+                "Kemono",
+                &mlua::Error::MemoryError("not enough memory".into()),
+                None
+            )
+            .contains("more than Raygun can hold")
         );
         assert!(
             describe("Y", &lua_error("Missing Library: Madara"), None)

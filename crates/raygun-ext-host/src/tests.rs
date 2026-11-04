@@ -1924,7 +1924,10 @@ async fn shosetsu_probe() {
     let infos = host.load(discover_installed(temp.path())).await;
     eprintln!("loaded: {:?} {:?}", infos[0].status, infos[0].error);
     let provider = format!("{}/novel", entry.id);
-    for step in std::env::var("PROBE").unwrap_or_else(|_| "popular".into()).split(',') {
+    for step in std::env::var("PROBE")
+        .unwrap_or_else(|_| "popular".into())
+        .split(',')
+    {
         let (method, argument) = step.split_once(':').unwrap_or((step, ""));
         let args = match method {
             "popular" | "latest" => json!({ "page": argument.parse::<u32>().unwrap_or(1) }),
@@ -1940,6 +1943,85 @@ async fn shosetsu_probe() {
             Err(error) => format!("ERROR {error}"),
         };
         eprintln!("{}", text.chars().take(3000).collect::<String>());
+    }
+}
+
+/// `SHOSETSU_DIR=<checkout of Shosetsu's repository> cargo test -p raygun-ext-host -- --ignored
+/// shosetsu_load_costs --nocapture`: installs every script of a checkout into one folder and
+/// loads them all as the app does at start, reporting the time it takes and each state's memory.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "reads a checkout of a Shosetsu repository"]
+async fn shosetsu_load_costs() {
+    use crate::shosetsu::package::{self as shosetsu_package, LibrarySource};
+    let dir = std::env::var("SHOSETSU_DIR").expect("SHOSETSU_DIR");
+    let index_url = reqwest::Url::parse("https://example.invalid/repo/index.json").unwrap();
+    let base = index_url.join(".").unwrap();
+    let index = crate::repo::parse_index(
+        &std::fs::read_to_string(std::path::Path::new(&dir).join("index.json")).unwrap(),
+    )
+    .unwrap();
+    let client = raygun_net::http_client().unwrap();
+    let temp = tempfile::TempDir::new().unwrap();
+    for entry in &index.extensions {
+        let Ok(bytes) = survey_download(
+            &client,
+            Some(&dir),
+            &base,
+            crate::repo::package_url(&index_url, entry).unwrap(),
+        )
+        .await
+        else {
+            continue;
+        };
+        let sources = [LibrarySource {
+            index_url: &index_url,
+            index: &index,
+        }];
+        let package = shosetsu_package::assemble(entry, &bytes, &sources, |url| {
+            let (client, dir, base) = (client.clone(), dir.clone(), base.clone());
+            async move { survey_download(&client, Some(&dir), &base, url).await }
+        })
+        .await;
+        if let Ok(package) = package {
+            crate::package::install(temp.path(), &package).unwrap();
+        }
+    }
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    let started = std::time::Instant::now();
+    let infos = host.load(discover_installed(temp.path())).await;
+    let took = started.elapsed();
+    let loaded: Vec<_> = infos
+        .iter()
+        .filter(|info| info.status == ExtensionStatus::Loaded)
+        .collect();
+    let mut total = 0u64;
+    let mut largest = (0u64, String::new());
+    for info in &loaded {
+        let used = host
+            .call(&format!("{}/novel", info.id), "memory", json!({}))
+            .await
+            .ok()
+            .and_then(|value| value.as_u64())
+            .unwrap_or_default();
+        total += used;
+        if used > largest.0 {
+            largest = (used, info.id.clone());
+        }
+    }
+    eprintln!(
+        "{} of {} scripts loaded in {took:?}; {} KiB of Lua state in all ({} KiB each on average, largest {} KiB: {})",
+        loaded.len(),
+        infos.len(),
+        total / 1024,
+        total / 1024 / loaded.len().max(1) as u64,
+        largest.0 / 1024,
+        largest.1
+    );
+    for info in infos
+        .iter()
+        .filter(|info| info.status != ExtensionStatus::Loaded)
+    {
+        eprintln!("  not loaded: {} {:?}", info.id, info.error);
     }
 }
 
@@ -2085,10 +2167,9 @@ async fn survey_download(
 async fn shosetsu_survey() {
     use crate::shosetsu::package::{self as shosetsu_package, LibrarySource};
     use futures_util::StreamExt;
-    let index_url = reqwest::Url::parse(
-        &std::env::var("SHOSETSU_INDEX")
-            .unwrap_or_else(|_| "https://gitlab.com/shosetsuorg/extensions/-/raw/dev/index.json".into()),
-    )
+    let index_url = reqwest::Url::parse(&std::env::var("SHOSETSU_INDEX").unwrap_or_else(|_| {
+        "https://gitlab.com/shosetsuorg/extensions/-/raw/dev/index.json".into()
+    }))
     .unwrap();
     let client = raygun_net::http_client().unwrap();
     let local = std::env::var("SHOSETSU_DIR").ok();
@@ -2151,8 +2232,12 @@ async fn shosetsu_survey() {
                 });
             }
             let package = shosetsu_package::assemble(entry, &bytes, &sources, |url| {
-                let from_libs = libs_base.make_relative(&url).is_some_and(|path| !path.starts_with(".."))
-                    && base.make_relative(&url).is_none_or(|path| path.starts_with(".."));
+                let from_libs = libs_base
+                    .make_relative(&url)
+                    .is_some_and(|path| !path.starts_with(".."))
+                    && base
+                        .make_relative(&url)
+                        .is_none_or(|path| path.starts_with(".."));
                 let (dir, root) = if from_libs {
                     (libs_dir.clone(), libs_base.clone())
                 } else {

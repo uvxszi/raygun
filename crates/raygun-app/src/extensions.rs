@@ -689,20 +689,19 @@ impl ExtensionService {
         let mut url = repo::check_index_url(url).map_err(|error| error.to_string())?;
         let index = match self.fetch_index(url.as_str(), true).await {
             Ok(index) => index,
-            // Shosetsu repositories are shared by their folder; the index is `index.json` in it.
-            Err(error) if !url.path().ends_with(".json") => {
-                let mut folder = url.clone();
-                if !folder.path().ends_with('/') {
-                    folder.set_path(&format!("{}/", folder.path()));
+            // Shosetsu repositories are shared by their folder or their GitHub/GitLab page.
+            Err(error) => {
+                let mut found = None;
+                for candidate in repo::shosetsu_index_candidates(&url) {
+                    if let Ok(index) = self.fetch_index(candidate.as_str(), true).await {
+                        found = Some((candidate, index));
+                        break;
+                    }
                 }
-                let Ok(inside) = folder.join("index.json") else {
-                    return Err(error);
-                };
-                let index = self.fetch_index(inside.as_str(), true).await.map_err(|_| error)?;
+                let (inside, index) = found.ok_or(error)?;
                 url = inside;
                 index
             }
-            Err(error) => return Err(error),
         };
         store::add_repo(self.db(), url.as_str(), &index.name)
             .await
@@ -814,7 +813,10 @@ impl ExtensionService {
             index.name = SUGGESTED_REPOS
                 .iter()
                 .find(|(known, _, _)| same_url(known, url))
-                .map_or_else(|| repo::shosetsu_repo_name(&parsed), |(_, name, _)| (*name).to_owned());
+                .map_or_else(
+                    || repo::shosetsu_repo_name(&parsed),
+                    |(_, name, _)| (*name).to_owned(),
+                );
         }
         self.indexes
             .lock()
@@ -947,10 +949,15 @@ impl ExtensionService {
             }
             PackageFormat::Shosetsu => {
                 // The libraries it needs, and theirs: from its own repository, else (as Shosetsu
-                // shares every repository's libraries) from the other Shosetsu ones added.
+                // shares every repository's libraries) from the other Shosetsu ones added, which
+                // are only asked when its own lacks one.
+                let needs_others =
+                    shosetsu::package::dependencies(&String::from_utf8_lossy(&bytes))
+                        .iter()
+                        .any(|name| !index.libraries.iter().any(|library| library.name == *name));
                 let mut others: Vec<(reqwest::Url, RepoIndex)> = Vec::new();
                 for other in self.repos().await? {
-                    if other.id == repo.id {
+                    if !needs_others || other.id == repo.id {
                         continue;
                     }
                     if let (Ok(url), Ok(index)) = (
@@ -969,7 +976,8 @@ impl ExtensionService {
                     shosetsu::package::LibrarySource { index_url, index }
                 }));
                 shosetsu::package::assemble(entry, &bytes, &sources, |url| async move {
-                    self.download_patiently(url.as_str(), MAX_PACKAGE_BYTES).await
+                    self.download_patiently(url.as_str(), MAX_PACKAGE_BYTES)
+                        .await
                 })
                 .await?
             }

@@ -91,7 +91,7 @@ fn whole_text(node: NodeRef<'_, Node>) -> String {
     let mut text = String::new();
     for descendant in node.descendants() {
         match descendant.value() {
-            Node::Text(part) => text.push_str(part),
+            Node::Text(part) if !super::select::is_data(descendant) => text.push_str(part),
             Node::Element(element) if element.name() == "br" => text.push('\n'),
             _ => {}
         }
@@ -105,14 +105,7 @@ fn data_of(node: NodeRef<'_, Node>) -> String {
     for descendant in node.descendants() {
         match descendant.value() {
             Node::Comment(comment) => data.push_str(comment),
-            Node::Text(part)
-                if descendant
-                    .parent()
-                    .and_then(|parent| parent.value().as_element().map(|element| element.name()))
-                    .is_some_and(|name| matches!(name, "script" | "style")) =>
-            {
-                data.push_str(part)
-            }
+            Node::Text(part) if super::select::is_data(descendant) => data.push_str(part),
             _ => {}
         }
     }
@@ -229,6 +222,8 @@ impl LuaNode {
 
     pub fn outer_html(&self) -> String {
         self.with(|node| match node.value() {
+            // Jsoup escapes a text node's HTML, so it reads back as the same text.
+            Node::Text(text) if !super::select::is_data(node) => escape_text(text),
             Node::Text(text) => text.to_string(),
             _ => ElementRef::wrap(node).map_or_else(
                 || {
@@ -302,7 +297,9 @@ impl LuaNode {
             .split_whitespace()
             .map(str::to_owned)
             .collect();
-        let present = classes.iter().any(|existing| existing.eq_ignore_ascii_case(class));
+        let present = classes
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(class));
         match (add, present) {
             (Some(true) | None, false) => classes.push(class.to_owned()),
             (Some(false) | None, true) => {
@@ -313,11 +310,19 @@ impl LuaNode {
         self.set_attr("class", &classes.join(" "));
     }
 
-    /// Jsoup's `text(value)`: the element's children become this one text.
+    /// Jsoup's `text(value)`: the element's children become this one text; a text node's own
+    /// text changes.
     fn set_text(&self, text: &str) {
+        let value = Node::Text(scraper::node::Text { text: text.into() });
+        if self.with(|node| node.value().is_text()) {
+            if let Some(mut node) = self.doc.html.borrow_mut().tree.get_mut(self.id) {
+                *node.value() = value;
+            }
+            return;
+        }
         self.empty();
         if let Some(mut node) = self.doc.html.borrow_mut().tree.get_mut(self.id) {
-            node.append(Node::Text(scraper::node::Text { text: text.into() }));
+            node.append(value);
         }
     }
 
@@ -424,6 +429,54 @@ impl LuaNode {
         }
     }
 
+    /// Jsoup's `before`/`after` (HTML, or a node, which moves) and `prepend`/`append` (HTML; a
+    /// node given there reads as its HTML, as LuaJ turns it into a string).
+    fn put(&self, content: &Value, place: Place) -> mlua::Result<()> {
+        let html = match content {
+            Value::String(text) => text.to_str()?.to_owned(),
+            Value::Integer(number) => number.to_string(),
+            Value::Number(number) => number.to_string(),
+            Value::UserData(data) => {
+                if let Ok(node) = data.borrow::<LuaNode>() {
+                    let node = node.clone();
+                    let moves = matches!(place, Place::Before | Place::After)
+                        && Rc::ptr_eq(&node.doc, &self.doc);
+                    if !moves {
+                        node.outer_html()
+                    } else {
+                        if node.id == self.id || self.element_ancestors().contains(&node.id) {
+                            return Err(mlua::Error::runtime("a node can't be put beside itself"));
+                        }
+                        let mut doc = self.doc.html.borrow_mut();
+                        if let Some(mut anchor) = doc.tree.get_mut(self.id) {
+                            if place == Place::Before {
+                                anchor.insert_id_before(node.id);
+                            } else {
+                                anchor.insert_id_after(node.id);
+                            }
+                        }
+                        return Ok(());
+                    }
+                } else {
+                    let elements = data.borrow::<LuaElements>()?;
+                    elements
+                        .nodes()
+                        .map(|node| node.outer_html())
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                }
+            }
+            other => {
+                return Err(mlua::Error::runtime(format!(
+                    "expected HTML or a node, got {}",
+                    other.type_name()
+                )));
+            }
+        };
+        self.insert(&html, place);
+        Ok(())
+    }
+
     fn empty(&self) {
         let children: Vec<NodeId> =
             self.with(|node| node.children().map(|child| child.id()).collect());
@@ -485,7 +538,7 @@ impl LuaNode {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Place {
     Before,
     After,
@@ -528,16 +581,19 @@ impl UserData for LuaNode {
             Ok(this.select(&css)?.nodes().last())
         });
         // Jsoup's `text()` reads; `text(value)` replaces the children with that text.
-        methods.add_function("text", |lua, (this, value): (AnyUserData, Option<String>)| {
-            let node = this.borrow::<LuaNode>()?.clone();
-            match value {
-                Some(value) => {
-                    node.set_text(&value);
-                    Ok(Value::UserData(this))
+        methods.add_function(
+            "text",
+            |lua, (this, value): (AnyUserData, Option<String>)| {
+                let node = this.borrow::<LuaNode>()?.clone();
+                match value {
+                    Some(value) => {
+                        node.set_text(&value);
+                        Ok(Value::UserData(this))
+                    }
+                    None => Ok(Value::String(lua.create_string(node.text())?)),
                 }
-                None => Ok(Value::String(lua.create_string(node.text())?)),
-            }
-        });
+            },
+        );
         methods.add_method("ownText", |_, this, ()| {
             Ok(this.with(|node| match node.value() {
                 Node::Text(text) => normalize(text),
@@ -624,16 +680,19 @@ impl UserData for LuaNode {
         methods.add_method("nodeName", |_, this, ()| Ok(this.tag()));
         methods.add_method("normalName", |_, this, ()| Ok(this.tag()));
         // Jsoup's `html()` reads; `html(value)` replaces the children with that HTML.
-        methods.add_function("html", |lua, (this, value): (AnyUserData, Option<String>)| {
-            let node = this.borrow::<LuaNode>()?.clone();
-            match value {
-                Some(value) => {
-                    node.set_html(&value);
-                    Ok(Value::UserData(this))
+        methods.add_function(
+            "html",
+            |lua, (this, value): (AnyUserData, Option<String>)| {
+                let node = this.borrow::<LuaNode>()?.clone();
+                match value {
+                    Some(value) => {
+                        node.set_html(&value);
+                        Ok(Value::UserData(this))
+                    }
+                    None => Ok(Value::String(lua.create_string(node.inner_html())?)),
                 }
-                None => Ok(Value::String(lua.create_string(node.inner_html())?)),
-            }
-        });
+            },
+        );
         methods.add_method("outerHtml", |_, this, ()| Ok(this.outer_html()));
         methods.add_method("appendChild", |_, this, child: AnyUserData| {
             let child = child.borrow::<LuaNode>()?.clone();
@@ -668,22 +727,17 @@ impl UserData for LuaNode {
             this.remove();
             Ok(())
         });
-        methods.add_method("before", |_, this, html: String| {
-            this.insert(&html, Place::Before);
-            Ok(this.clone())
-        });
-        methods.add_method("after", |_, this, html: String| {
-            this.insert(&html, Place::After);
-            Ok(this.clone())
-        });
-        methods.add_method("prepend", |_, this, html: String| {
-            this.insert(&html, Place::Prepend);
-            Ok(this.clone())
-        });
-        methods.add_method("append", |_, this, html: String| {
-            this.insert(&html, Place::Append);
-            Ok(this.clone())
-        });
+        for (name, place) in [
+            ("before", Place::Before),
+            ("after", Place::After),
+            ("prepend", Place::Prepend),
+            ("append", Place::Append),
+        ] {
+            methods.add_method(name, move |_, this, content: Value| {
+                this.put(&content, place)?;
+                Ok(this.clone())
+            });
+        }
         // Jsoup's appendElement/prependElement give back the new element; appendText/prependText
         // add escaped text (M46.9.1: scripts that build pages, e.g. ReadFromNet).
         methods.add_method("appendElement", |_, this, tag: String| {
@@ -871,7 +925,28 @@ impl UserData for LuaElements {
             ("prepend", Place::Prepend),
             ("append", Place::Append),
         ] {
-            methods.add_method(name, move |_, this, html: String| {
+            // Elements take HTML only (a node reads as its HTML, as LuaJ makes it a string).
+            methods.add_method(name, move |_, this, content: Value| {
+                let html = match &content {
+                    Value::UserData(data) => match data.borrow::<LuaNode>() {
+                        Ok(node) => node.outer_html(),
+                        Err(_) => data
+                            .borrow::<LuaElements>()?
+                            .nodes()
+                            .map(|node| node.outer_html())
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    },
+                    Value::String(text) => text.to_str()?.to_owned(),
+                    Value::Integer(number) => number.to_string(),
+                    Value::Number(number) => number.to_string(),
+                    other => {
+                        return Err(mlua::Error::runtime(format!(
+                            "expected HTML, got {}",
+                            other.type_name()
+                        )));
+                    }
+                };
                 for node in this.nodes() {
                     node.insert(&html, place);
                 }
@@ -944,26 +1019,29 @@ impl UserData for LuaElements {
         methods.add_method("hasAttr", |_, this, name: String| {
             Ok(this.nodes().any(|node| node.has_attr(&name)))
         });
-        methods.add_function("html", |lua, (this, value): (AnyUserData, Option<String>)| {
-            let elements = this.borrow::<LuaElements>()?.clone();
-            match value {
-                Some(value) => {
-                    for node in elements.nodes() {
-                        node.set_html(&value);
+        methods.add_function(
+            "html",
+            |lua, (this, value): (AnyUserData, Option<String>)| {
+                let elements = this.borrow::<LuaElements>()?.clone();
+                match value {
+                    Some(value) => {
+                        for node in elements.nodes() {
+                            node.set_html(&value);
+                        }
+                        Ok(Value::UserData(this))
                     }
-                    Ok(Value::UserData(this))
+                    None => Ok(Value::String(
+                        lua.create_string(
+                            elements
+                                .nodes()
+                                .map(|node| node.inner_html())
+                                .collect::<Vec<_>>()
+                                .join("\n"),
+                        )?,
+                    )),
                 }
-                None => Ok(Value::String(
-                    lua.create_string(
-                        elements
-                            .nodes()
-                            .map(|node| node.inner_html())
-                            .collect::<Vec<_>>()
-                            .join("\n"),
-                    )?,
-                )),
-            }
-        });
+            },
+        );
         methods.add_method("outerHtml", |_, this, ()| {
             Ok(this
                 .nodes()

@@ -80,11 +80,30 @@ function Listing(name, increments, func)
     return { __kind = "listing", name = name, increments = increments, func = func }
 end
 
--- Filters: tables the app reads back for their ids and default values.
+-- Filters: tables the app reads back for their ids and default values. Like kotlin-lib's
+-- `Filter`s they have a `state` (the default the app starts from), read and set through
+-- `getState`/`setState`.
+local filterDefaults = {
+    text = "", password = "", switch = false, checkbox = false, tristate = 0, dropdown = 0,
+    radio = 0,
+}
+local filterMethods = {
+    setState = function(self, value) self.state = value end,
+    getState = function(self)
+        if self.state ~= nil then return self.state end
+        return filterDefaults[self.kind]
+    end,
+    getId = function(self) return self.id end,
+    getName = function(self) return self.name end,
+    getChoices = function(self) return self.choices end,
+    getFilters = function(self) return self.filters end,
+}
+local filterMeta = { __index = filterMethods }
+
 local function makeFilter(kind, id, name, extra)
     local object = { __kind = "filter", kind = kind, id = id, name = name }
     for key, value in pairs(extra or {}) do object[key] = value end
-    return object
+    return setmetatable(object, filterMeta)
 end
 
 function TextFilter(id, name) return makeFilter("text", id, name) end

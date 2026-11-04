@@ -16,17 +16,22 @@ pub const LISTING_KEY: &str = "listing";
 /// One of the script's filters.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Spec {
-    /// A text or password field (default "").
-    Text { id: i64 },
-    /// A switch or checkbox (default false).
-    Toggle { id: i64, name: String },
+    /// A text or password field (its `state`: "" unless the script set one).
+    Text {
+        id: i64,
+        name: String,
+        state: String,
+    },
+    /// A switch or checkbox (false unless set).
+    Toggle { id: i64, name: String, state: bool },
     /// Ignored (0), included (1) or excluded (2).
-    TriState { id: i64, name: String },
-    /// A dropdown or radio group: the chosen index (default 0).
+    TriState { id: i64, name: String, state: i64 },
+    /// A dropdown or radio group: the chosen index (0 unless set).
     Choice {
         id: i64,
         name: String,
         choices: Vec<String>,
+        state: usize,
     },
     /// A list or group of filters, under a name.
     Group { name: String, filters: Vec<Spec> },
@@ -59,12 +64,42 @@ fn spec(filter: &Table) -> Spec {
                 .map(|inner| read(&inner))
                 .unwrap_or_default(),
         },
-        ("text" | "password", Some(id)) => Spec::Text { id },
-        ("switch" | "checkbox", Some(id)) => Spec::Toggle { id, name },
-        ("tristate", Some(id)) => Spec::TriState { id, name },
+        ("text" | "password", Some(id)) => Spec::Text {
+            id,
+            name,
+            state: filter
+                .get::<Option<String>>("state")
+                .ok()
+                .flatten()
+                .unwrap_or_default(),
+        },
+        ("switch" | "checkbox", Some(id)) => Spec::Toggle {
+            id,
+            name,
+            state: filter
+                .get::<Option<bool>>("state")
+                .ok()
+                .flatten()
+                .unwrap_or(false),
+        },
+        ("tristate", Some(id)) => Spec::TriState {
+            id,
+            name,
+            state: filter
+                .get::<Option<i64>>("state")
+                .ok()
+                .flatten()
+                .unwrap_or(0),
+        },
         ("dropdown" | "radio", Some(id)) => Spec::Choice {
             id,
             name,
+            state: filter
+                .get::<Option<i64>>("state")
+                .ok()
+                .flatten()
+                .and_then(|state| usize::try_from(state).ok())
+                .unwrap_or(0),
             choices: filter
                 .get::<Table>("choices")
                 .map(|choices| {
@@ -90,7 +125,9 @@ fn chips(filters: &[Spec]) -> Option<Vec<(i64, &str)>> {
     let items: Vec<(i64, &str)> = filters
         .iter()
         .map(|filter| match filter {
-            Spec::Toggle { id, name } | Spec::TriState { id, name } => Some((*id, name.as_str())),
+            Spec::Toggle { id, name, .. } | Spec::TriState { id, name, .. } => {
+                Some((*id, name.as_str()))
+            }
             _ => None,
         })
         .collect::<Option<_>>()?;
@@ -123,14 +160,19 @@ pub fn describe(specs: &[Spec], listings: &[String], shown: usize, out: &mut Vec
 fn choices(specs: &[Spec], out: &mut Vec<Json>) {
     for spec in specs {
         match spec {
-            Spec::Toggle { id, name } => out.push(json!({
-                "key": id.to_string(), "label": name, "kind": "toggle", "default": false,
+            Spec::Toggle { id, name, state } => out.push(json!({
+                "key": id.to_string(), "label": name, "kind": "toggle", "default": state,
             })),
-            Spec::TriState { id, name } => out.push(json!({
+            Spec::TriState { id, name, .. } => out.push(json!({
                 "key": id.to_string(), "label": name, "kind": "tags",
                 "options": [{ "value": id.to_string(), "label": name }],
             })),
-            Spec::Choice { id, name, choices } if !choices.is_empty() => out.push(json!({
+            Spec::Choice {
+                id,
+                name,
+                choices,
+                state,
+            } if !choices.is_empty() => out.push(json!({
                 "key": id.to_string(),
                 "label": name,
                 "kind": "select",
@@ -139,7 +181,7 @@ fn choices(specs: &[Spec], out: &mut Vec<Json>) {
                     .enumerate()
                     .map(|(index, label)| json!({ "value": index.to_string(), "label": label }))
                     .collect::<Vec<_>>(),
-                "default": "0",
+                "default": (if *state < choices.len() { *state } else { 0 }).to_string(),
             })),
             Spec::Group { name, filters } => match chips(filters) {
                 Some(items) => out.push(json!({
@@ -158,13 +200,80 @@ fn choices(specs: &[Spec], out: &mut Vec<Json>) {
     }
 }
 
+/// A script's `settings` (built from the same filters) as extension settings the app's form
+/// shows: a dropdown's options are its labels, a switch is a boolean, a text field text.
+pub fn settings(specs: &[Spec], out: &mut Vec<crate::manifest::SettingDef>) {
+    use crate::manifest::{SettingDef, SettingKind};
+    for spec in specs {
+        let (key, kind, label, options, default) = match spec {
+            Spec::Choice {
+                id,
+                name,
+                choices,
+                state,
+            } if !choices.is_empty() => (
+                id,
+                SettingKind::Select,
+                name,
+                choices.clone(),
+                json!(choices.get(*state).unwrap_or(&choices[0])),
+            ),
+            Spec::Toggle { id, name, state } => {
+                (id, SettingKind::Boolean, name, Vec::new(), json!(state))
+            }
+            Spec::Text { id, name, state } => {
+                (id, SettingKind::Text, name, Vec::new(), json!(state))
+            }
+            Spec::Group { filters, .. } => {
+                settings(filters, out);
+                continue;
+            }
+            _ => continue,
+        };
+        out.push(SettingDef {
+            key: key.to_string(),
+            kind,
+            label: Some(label.clone()).filter(|label| !label.is_empty()),
+            options,
+            default: Some(default),
+        });
+    }
+}
+
+/// A stored setting's value as the script reads it: a dropdown's index, a switch's flag, text.
+pub fn setting_value(specs: &[Spec], key: &str, value: &Json) -> Option<(i64, Json)> {
+    for spec in specs {
+        match spec {
+            Spec::Choice { id, choices, .. } if id.to_string() == key => {
+                let label = value.as_str()?;
+                let index = choices.iter().position(|choice| choice == label)?;
+                return Some((*id, json!(index)));
+            }
+            Spec::Toggle { id, .. } if id.to_string() == key => {
+                return Some((*id, json!(value.as_bool()?)));
+            }
+            Spec::Text { id, .. } if id.to_string() == key => {
+                return Some((*id, json!(value.as_str()?)));
+            }
+            Spec::Group { filters, .. } => {
+                if let Some(found) = setting_value(filters, key, value) {
+                    return Some(found);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Every filter's default, by id: what Shosetsu hands a script before anything is chosen.
 pub fn defaults(specs: &[Spec], data: &Table) -> mlua::Result<()> {
     for spec in specs {
         match spec {
-            Spec::Text { id } => data.set(*id, "")?,
-            Spec::Toggle { id, .. } => data.set(*id, false)?,
-            Spec::TriState { id, .. } | Spec::Choice { id, .. } => data.set(*id, 0)?,
+            Spec::Text { id, state, .. } => data.set(*id, state.as_str())?,
+            Spec::Toggle { id, state, .. } => data.set(*id, *state)?,
+            Spec::TriState { id, state, .. } => data.set(*id, *state)?,
+            Spec::Choice { id, state, .. } => data.set(*id, *state)?,
             Spec::Group { filters, .. } => defaults(filters, data)?,
             Spec::Label => {}
         }
