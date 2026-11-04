@@ -35,6 +35,7 @@ import {
 import { SourceIssue } from '../shell/SourceIssue';
 import { useSearchMode } from '../shell/useSearchMode';
 import { matchesSearch } from '../shell/useListSearch';
+import { describeLength, summarizeLengths } from '../music/collectionLength';
 import { usePlayContext } from '../music/playContext';
 
 const copy = (text: string) => void navigator.clipboard?.writeText(text).catch(() => undefined);
@@ -44,7 +45,7 @@ const copy = (text: string) => void navigator.clipboard?.writeText(text).catch((
  * and filtered its own way (M46.48).
  */
 export const PodcastPage: FC = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const find = useSearchMode(t('podcasts.findEpisode'));
   usePodcastEvents();
   const { id } = useSearch({ from: '/podcast' });
@@ -88,6 +89,16 @@ export const PodcastPage: FC = () => {
     matchesSearch(find.query, [episode.title, episode.description]),
   );
   const filtered = view.order.filters.length > 0 || find.query.trim() !== '';
+  const listedAll = !filtered || shown.length === view.episodeCount;
+  // Every episode's length together, or the shown ones' while a filter is on.
+  const length = describeLength(
+    summarizeLengths(
+      (listedAll ? view.episodes : shown).map((episode) => episode.durationMs),
+      listedAll ? Math.max(view.episodeCount, view.episodes.length) : shown.length,
+    ),
+    t,
+    i18n.language,
+  );
   const downloadedCount = view.downloaded;
   const error =
     refresh.error ??
@@ -205,11 +216,14 @@ export const PodcastPage: FC = () => {
       {view.description && <ShowNotes text={view.description} clamp />}
       {error && <SourceIssue>{error.message}</SourceIssue>}
       <section aria-labelledby="podcast-episodes" className="flex flex-col gap-2">
-        <h2 id="podcast-episodes" className="font-semibold">
-          {filtered && shown.length !== view.episodeCount
-            ? t('podcasts.episodesShown', { shown: shown.length, count: view.episodeCount })
-            : t('podcasts.episodes', { count: view.episodeCount })}
-        </h2>
+        <div className="flex flex-wrap items-baseline gap-x-1.5">
+          <h2 id="podcast-episodes" className="font-semibold">
+            {filtered && shown.length !== view.episodeCount
+              ? t('podcasts.episodesShown', { shown: shown.length, count: view.episodeCount })
+              : t('podcasts.episodes', { count: view.episodeCount })}
+          </h2>
+          {length && <span className="text-muted text-sm">· {length}</span>}
+        </div>
         {view.episodeCount === 0 ? (
           <p className="text-muted text-sm">{t('podcasts.noEpisodes')}</p>
         ) : shown.length === 0 ? (

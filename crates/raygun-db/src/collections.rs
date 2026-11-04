@@ -36,6 +36,9 @@ pub struct PlaylistRow {
     pub name: String,
     pub created_at: i64,
     pub item_count: i64,
+    /// The summed length of the items with a known length, and how many those are.
+    pub known_ms: i64,
+    pub known_count: i64,
     /// The first items, for a cover made of their artwork.
     pub first_items: Vec<TrackFields>,
 }
@@ -384,7 +387,11 @@ pub async fn set_favorites_order(db: &Db, track_keys: &[String]) -> Result<(), D
 
 const PLAYLIST_COLUMNS: &str = "p.id, p.name, p.created_at,
      (SELECT COUNT(*) FROM music_playlist_item i
-      WHERE i.playlist_id = p.id AND i.deleted = 0) AS item_count";
+      WHERE i.playlist_id = p.id AND i.deleted = 0) AS item_count,
+     (SELECT COALESCE(SUM(i.duration_ms), 0) FROM music_playlist_item i
+      WHERE i.playlist_id = p.id AND i.deleted = 0) AS known_ms,
+     (SELECT COUNT(i.duration_ms) FROM music_playlist_item i
+      WHERE i.playlist_id = p.id AND i.deleted = 0) AS known_count";
 
 /// Live playlists, alphabetically. Their cover items come in one query for all of them.
 pub async fn playlists(db: &Db) -> Result<Vec<PlaylistRow>, DbError> {
@@ -419,6 +426,8 @@ pub async fn playlists(db: &Db) -> Result<Vec<PlaylistRow>, DbError> {
                 name: row.get("name"),
                 created_at: row.get("created_at"),
                 item_count: row.get("item_count"),
+                known_ms: row.get("known_ms"),
+                known_count: row.get("known_count"),
                 first_items: first.remove(&id).unwrap_or_default(),
                 id,
             }
@@ -447,6 +456,8 @@ pub async fn playlist(db: &Db, id: &str) -> Result<Option<PlaylistRow>, DbError>
         name: row.get("name"),
         created_at: row.get("created_at"),
         item_count: row.get("item_count"),
+        known_ms: row.get("known_ms"),
+        known_count: row.get("known_count"),
         first_items,
     }))
 }

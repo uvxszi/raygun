@@ -8,6 +8,7 @@ import { TopBar } from '../shell/TopBar';
 import { Artwork } from '../library/Artwork';
 import { TrackRow } from '../library/TrackRow';
 import { playFromLibrary, useAlbumTracks } from '../library/useLibrary';
+import { summarizeLengths, useLengthLabel } from '../music/collectionLength';
 import { usePlayContext } from '../music/playContext';
 
 export const AlbumPage: FC = () => {
@@ -16,6 +17,9 @@ export const AlbumPage: FC = () => {
   const tracks = useAlbumTracks(artist, album);
   const selection = { kind: 'album' as const, artist, album };
   const first = tracks.data?.[0];
+  const length = useLengthLabel(
+    tracks.data ? summarizeLengths(tracks.data.map((track) => track.durationMs)) : null,
+  );
   usePlayContext(
     album
       ? {
@@ -43,7 +47,7 @@ export const AlbumPage: FC = () => {
           <p className="text-muted">{artist}</p>
           {tracks.data && (
             <p className="text-muted text-xs">
-              {[first?.year, t('library.trackCount', { count: tracks.data.length })]
+              {[first?.year, t('library.trackCount', { count: tracks.data.length }), length]
                 .filter(Boolean)
                 .join(' · ')}
             </p>

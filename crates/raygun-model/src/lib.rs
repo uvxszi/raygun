@@ -3925,6 +3925,19 @@ pub struct PlaylistSummary {
     pub artwork_urls: Vec<String>,
     /// The cover the user picked (M46.45), shown instead of the artworks.
     pub cover_url: Option<String>,
+    /// How long the items with a known length play together.
+    #[serde(default)]
+    #[specta(optional)]
+    pub length: Option<CollectionLength>,
+}
+
+/// The summed length of a collection's items whose length is known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectionLength {
+    pub known_secs: u32,
+    /// How many items have a known length (the rest add an unknown amount).
+    pub known_count: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]

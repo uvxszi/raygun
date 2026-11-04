@@ -16,6 +16,7 @@ import {
 import { playResults } from '../search/useOnlineSearch';
 import { SourceIssue } from '../shell/SourceIssue';
 import { TopBar } from '../shell/TopBar';
+import { joinCount, useSongsLength } from '../music/collectionLength';
 import { usePlayContext } from '../music/playContext';
 
 const asOnline = (track: SavedTrack): OnlineTrack => ({
@@ -54,6 +55,7 @@ export const MusicTagPage: FC = () => {
   const kind = vocabulary.data?.find((tag) => tag.name === name)?.kind ?? 'genre';
   const tagCharts = (charts.data?.charts ?? []).filter((chart) => chart.tag === name);
   const list = songs.data ?? [];
+  const length = useSongsLength(list);
   const play = (index: number) => {
     const queue = list.map(asOnline);
     void playResults(queue, queue[index] as OnlineTrack);
@@ -105,6 +107,11 @@ export const MusicTagPage: FC = () => {
       <section aria-label={t('discover.tagSongs', { name })} className="flex flex-col gap-2">
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-semibold">{t('discover.tagSongs', { name })}</h2>
+          {list.length > 0 && (
+            <span className="text-muted text-sm">
+              {joinCount(t('discover.songs', { count: list.length }), length)}
+            </span>
+          )}
           {list.length > 0 && (
             <button
               type="button"

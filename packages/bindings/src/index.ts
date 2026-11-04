@@ -1885,6 +1885,13 @@ export type Collection = { kind: "favorites" } | { kind: "playlist"; id: string 
 /**  Songs downloaded into the app (M46.18). */
 { kind: "downloaded" };
 
+/**  The summed length of a collection's items whose length is known. */
+export type CollectionLength = {
+	knownSecs: number,
+	/**  How many items have a known length (the rest add an unknown amount). */
+	knownCount: number,
+};
+
 export type CollectionPlayRequest = {
 	collection: Collection,
 	/**
@@ -3722,6 +3729,8 @@ export type PlaylistSummary = {
 	artworkUrls: string[],
 	/**  The cover the user picked (M46.45), shown instead of the artworks. */
 	coverUrl: string | null,
+	/**  How long the items with a known length play together. */
+	length?: CollectionLength | null,
 };
 
 export type PodcastEpisode = {
