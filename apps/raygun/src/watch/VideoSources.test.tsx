@@ -249,7 +249,7 @@ describe('Video sources in Watch', () => {
 
   it('turns autoplay off, sets the next-episode prompt and names the player in the app language', async () => {
     const user = userEvent.setup();
-    await AppShellWrapper.mount('/settings/player');
+    await AppShellWrapper.mount('/settings/video');
     await user.click(
       await screen.findByRole('switch', { name: /Play the next episode automatically/ }),
     );
@@ -267,7 +267,7 @@ describe('Video sources in Watch', () => {
 
   it('sets the video resolution, 1080p unless changed', async () => {
     const user = userEvent.setup();
-    await AppShellWrapper.mount('/settings/player');
+    await AppShellWrapper.mount('/settings/video');
     const row = await screen.findByRole('button', { name: /Video resolution/ });
     expect(row).toHaveTextContent('1080p');
     await user.click(row);

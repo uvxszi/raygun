@@ -105,7 +105,7 @@ describe('Settings sections', () => {
 
   it('saves the player settings', async () => {
     const user = userEvent.setup();
-    await AppShellWrapper.mount('/settings/player');
+    await AppShellWrapper.mount('/settings/video');
     await user.click(await screen.findByRole('switch', { name: 'Resume videos' }));
     expect(commands.settingsUpdate).toHaveBeenCalledWith({ key: 'resumeVideos', value: false });
 
@@ -114,7 +114,7 @@ describe('Settings sections', () => {
     expect(commands.settingsUpdate).toHaveBeenCalledWith({ key: 'seekSeconds', value: 30 });
 
     // Subtitles start, by default, when the audio is in another language than yours.
-    await AppShellWrapper.mount('/settings/player/subtitles');
+    await AppShellWrapper.mount('/settings/video/subtitles');
     expect(await screen.findByRole('button', { name: /^Turn on subtitles/ })).toHaveTextContent(
       'When the audio is in another language',
     );
@@ -132,7 +132,7 @@ describe('Settings sections', () => {
 
   it("plays audio in your languages unless the video's own track is chosen", async () => {
     const user = userEvent.setup();
-    await AppShellWrapper.mount('/settings/player/audio');
+    await AppShellWrapper.mount('/settings/video/audio');
     expect(await screen.findByRole('button', { name: /^Audio language/ })).toHaveTextContent(
       'Your languages',
     );

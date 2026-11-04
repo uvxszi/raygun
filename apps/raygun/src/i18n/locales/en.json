@@ -516,9 +516,13 @@
         "title": "Reader",
         "summary": "Novel text, page layout, reading aloud"
       },
-      "player": {
-        "title": "Player",
-        "summary": "Controls, gestures, subtitles, audio, skipping intros"
+      "music": {
+        "title": "Music player",
+        "summary": "Audio quality, equalizer, crossfade, lyrics, queue"
+      },
+      "video": {
+        "title": "Video player",
+        "summary": "Resolution, controls, gestures, subtitles, audio, skipping intros"
       },
       "downloads": {
         "title": "Downloads",
@@ -547,10 +551,6 @@
       "connections": {
         "title": "Connections",
         "summary": "Devices, AI and assistants"
-      },
-      "sound": {
-        "title": "Sound",
-        "summary": "Equalizer, bass, reverb, volume levelling, crossfade"
       },
       "permissions": {
         "title": "Permissions",
@@ -616,6 +616,10 @@
     "speechRateHint": "How fast chapters are read aloud.",
     "videoPlayback": "Video",
     "videoPlayer": "Video player",
+    "musicQueue": "Queue",
+    "nextUpRows": "Songs in Next in queue",
+    "playerSettings": "Player settings",
+    "allReaderSettings": "All reader settings",
     "resumeVideos": "Resume videos",
     "resumeVideosHint": "Off starts every video from the beginning.",
     "watchedPercent": "Counts as watched at",
@@ -2104,6 +2108,22 @@
     "decoderAuto": "Hardware, then software",
     "decoderSoftware": "Software first",
     "statistics": "Statistics",
+    "playerSettings": "Player settings",
+    "moreSettings": "More settings",
+    "subtitlesWhen": "Subtitles",
+    "subtitlesForeign": "Other languages",
+    "subtitlesAlways": "Always",
+    "subtitlesNever": "Never",
+    "audioLanguage": "Audio language",
+    "audioYours": "Your language",
+    "audioOriginal": "Original",
+    "resolution": "Resolution",
+    "resolutionHighest": "Highest",
+    "gestures": "Gestures",
+    "brightnessSwipe": "Swipe for brightness",
+    "volumeSwipe": "Swipe for volume",
+    "seekSwipe": "Swipe to seek",
+    "seekStep": "Seek step",
     "quality": "Quality",
     "qualityAuto": "Automatic",
     "brightness": "Brightness",
