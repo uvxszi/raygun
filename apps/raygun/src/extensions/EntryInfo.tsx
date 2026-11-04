@@ -18,7 +18,7 @@ export const EntryInfo: FC<{ entry: CatalogEntry; repoName: string }> = ({ entry
       <div className="flex flex-col gap-0.5">
         <span className="flex items-center gap-2">
           <span className="text-base font-semibold">{entry.name}</span>
-          {entry.contentRating === 'nsfw' && <AdultMark />}
+          {entry.adult && <AdultMark />}
         </span>
         <span className="text-muted">
           {[entry.version, entry.author, repoName].filter(Boolean).join(' · ')}

@@ -134,6 +134,8 @@ pub struct Settings {
     pub show_nsfw: bool,
     /// Shows songs marked explicit and music sources rated 18+ (M46.36); on by default.
     pub explicit_music: bool,
+    /// Sources, extensions and repositories marked 18+ or not 18+ over their own rating.
+    pub content_overrides: ContentOverrides,
     /// The colour of buttons, tabs and highlights (M42.1).
     pub accent: Accent,
     /// The screen the app opens on.
@@ -426,6 +428,90 @@ pub struct SearchFilterPrefs {
     pub no_adult: bool,
     /// "No explicit": songs marked explicit are left out, and 18+ music sources aren't asked.
     pub no_explicit: bool,
+}
+
+/// A rating the user gives a source, an extension or a repository over its own.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ContentOverride {
+    /// The source's own rating.
+    #[default]
+    Default,
+    Adult,
+    NotAdult,
+}
+
+impl ContentOverride {
+    /// Whether it decides, and which way: `None` leaves it to what comes after.
+    pub fn decides(self) -> Option<bool> {
+        match self {
+            Self::Default => None,
+            Self::Adult => Some(true),
+            Self::NotAdult => Some(false),
+        }
+    }
+}
+
+/// 18+ marks set by the user: per extension id, per repository id, per Stremio addon id.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ContentOverrides {
+    pub extensions: std::collections::BTreeMap<String, ContentOverride>,
+    pub repositories: std::collections::BTreeMap<String, ContentOverride>,
+    pub addons: std::collections::BTreeMap<String, ContentOverride>,
+}
+
+/// Marks kept at most, of each kind.
+pub const CONTENT_OVERRIDES_MAX: usize = 2_000;
+
+impl ContentOverrides {
+    /// Whether an extension counts as 18+: its own mark wins, then its repository's
+    /// (`repository`, when it came from one), then its own rating (`own`).
+    pub fn extension_adult(&self, extension: &str, repository: Option<&str>, own: bool) -> bool {
+        self.extensions
+            .get(extension)
+            .and_then(|mark| mark.decides())
+            .or_else(|| {
+                repository
+                    .and_then(|id| self.repositories.get(id))
+                    .and_then(|mark| mark.decides())
+            })
+            .unwrap_or(own)
+    }
+
+    /// Whether a Stremio addon (by its stored id) counts as 18+.
+    pub fn addon_adult(&self, addon: &str, own: bool) -> bool {
+        self.addons
+            .get(addon)
+            .and_then(|mark| mark.decides())
+            .unwrap_or(own)
+    }
+
+    /// Without the entries that leave the rating to the source.
+    pub fn normalized(mut self) -> Self {
+        for marks in [
+            &mut self.extensions,
+            &mut self.repositories,
+            &mut self.addons,
+        ] {
+            marks.retain(|id, mark| *mark != ContentOverride::Default && !id.trim().is_empty());
+        }
+        self
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        for marks in [&self.extensions, &self.repositories, &self.addons] {
+            if marks.len() > CONTENT_OVERRIDES_MAX {
+                return Err(format!(
+                    "at most {CONTENT_OVERRIDES_MAX} sources of each kind can be marked"
+                ));
+            }
+            if marks.keys().any(|id| id.len() > 500) {
+                return Err("a marked source's id is at most 500 characters".to_owned());
+            }
+        }
+        Ok(())
+    }
 }
 
 /// What's remembered of listening (M46.41); both on by default.
@@ -1993,6 +2079,7 @@ impl Default for Settings {
             novel_reader: NovelReaderPrefs::default(),
             show_nsfw: false,
             explicit_music: true,
+            content_overrides: ContentOverrides::default(),
             accent: Accent::Red,
             start_screen: StartScreen::Home,
             nav_labels: NavLabels::Always,
@@ -2055,6 +2142,9 @@ impl Settings {
             SettingChange::NovelReader(prefs) => self.novel_reader = prefs,
             SettingChange::ShowNsfw(show) => self.show_nsfw = show,
             SettingChange::ExplicitMusic(show) => self.explicit_music = show,
+            SettingChange::ContentOverrides(overrides) => {
+                self.content_overrides = overrides.normalized()
+            }
             SettingChange::Accent(accent) => self.accent = accent,
             SettingChange::StartScreen(screen) => self.start_screen = screen,
             SettingChange::NavLabels(labels) => self.nav_labels = labels,
@@ -2141,6 +2231,7 @@ pub enum SettingChange {
     NovelReader(NovelReaderPrefs),
     ShowNsfw(bool),
     ExplicitMusic(bool),
+    ContentOverrides(ContentOverrides),
     Accent(Accent),
     StartScreen(StartScreen),
     NavLabels(NavLabels),
@@ -2203,6 +2294,7 @@ impl SettingChange {
             Self::NovelReader(_) => "novelReader",
             Self::ShowNsfw(_) => "showNsfw",
             Self::ExplicitMusic(_) => "explicitMusic",
+            Self::ContentOverrides(_) => "contentOverrides",
             Self::Accent(_) => "accent",
             Self::StartScreen(_) => "startScreen",
             Self::NavLabels(_) => "navLabels",
@@ -2298,6 +2390,7 @@ impl SettingChange {
                 Ok(())
             }
             Self::Hidden(prefs) => prefs.validate(),
+            Self::ContentOverrides(overrides) => overrides.validate(),
             Self::Rail(prefs) => prefs.validate(),
             Self::Transcription(prefs) => {
                 if prefs.online_model.trim().len() > 200 {
@@ -2893,7 +2986,8 @@ pub struct ProviderInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub search_pill: Option<String>,
-    /// Its extension is rated `nsfw`: the UI marks it 18+.
+    /// Its extension is rated `nsfw` or marked 18+ (`Settings::content_overrides`): the UI
+    /// marks it 18+.
     #[serde(default)]
     pub adult: bool,
 }
@@ -2917,8 +3011,12 @@ pub struct ExtensionInfo {
     pub name: String,
     pub version: String,
     pub description: Option<String>,
-    /// `safe`, `suggestive` or `nsfw`; providers of `nsfw` ones are hidden while NSFW is off.
+    /// `safe`, `suggestive` or `nsfw`, as the extension says.
     pub content_rating: String,
+    /// Rated `nsfw`, or marked 18+ by the user (`Settings::content_overrides`): its providers
+    /// are hidden while NSFW is off.
+    #[serde(default)]
+    pub adult: bool,
     pub origin: ExtensionOrigin,
     pub status: ExtensionStatus,
     /// Why the extension failed to load, when it did.
@@ -3051,6 +3149,9 @@ pub struct CatalogEntry {
     pub provides: Vec<String>,
     pub net: Vec<String>,
     pub content_rating: String,
+    /// Rated `nsfw`, or marked 18+ by the user (`Settings::content_overrides`).
+    #[serde(default)]
+    pub adult: bool,
     /// The content's language (`en`, `multi`), when the repository says.
     pub lang: Option<String>,
     /// Package size in bytes (packages are capped at 10 MiB).

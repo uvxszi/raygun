@@ -490,6 +490,7 @@ impl ExtensionHost {
                 }
             }
         }
+        self.rate(&mut infos);
         infos
     }
 
@@ -521,7 +522,22 @@ impl ExtensionHost {
                 }
             }
         }
+        self.rate(&mut infos);
         infos
+    }
+
+    /// Marks extensions and their providers 18+ as the user's marks and their ratings say.
+    fn rate(&self, infos: &mut [ExtensionInfo]) {
+        for info in infos {
+            let adult = self
+                .shared
+                .content
+                .extension_adult(&info.id, &info.content_rating);
+            info.adult = adult;
+            for provider in &mut info.providers {
+                provider.adult = adult;
+            }
+        }
     }
 
     /// Providers of `kind` that searches and lookups use: not the disabled ones, and those of
@@ -538,17 +554,28 @@ impl ExtensionHost {
     }
 
     /// Providers of `kind` to list, disabled ones included (the user turns them back on there,
-    /// M46.8); NSFW-rated extensions' only while NSFW content is shown (music: while explicit
-    /// music is, M46.36).
+    /// M46.8); 18+ extensions' (rated `nsfw` or marked so by the user) only while NSFW content
+    /// is shown (music: while explicit music is, M46.36).
     pub async fn listed_providers(&self, kind: &str) -> Vec<ProviderInfo> {
-        let allowed = self.shared.content.allows("nsfw", kind);
+        let content = &self.shared.content;
+        let allowed = content.allows_adult(kind);
         self.directory()
             .infos
             .iter()
-            .filter(|extension| allowed || extension.content_rating != "nsfw")
-            .flat_map(|extension| &extension.providers)
-            .filter(|provider| provider.kind == kind)
-            .cloned()
+            .filter_map(|extension| {
+                let adult = content.extension_adult(&extension.id, &extension.content_rating);
+                (allowed || !adult).then_some((extension, adult))
+            })
+            .flat_map(|(extension, adult)| {
+                extension
+                    .providers
+                    .iter()
+                    .filter(|provider| provider.kind == kind)
+                    .map(move |provider| ProviderInfo {
+                        adult,
+                        ..provider.clone()
+                    })
+            })
             .collect()
     }
 
@@ -1823,6 +1850,7 @@ fn loaded_info(extension: &Extension, origin: ExtensionOrigin) -> ExtensionInfo 
         version: manifest.version.to_string(),
         description: manifest.description.clone(),
         content_rating: manifest.content_rating.as_str().to_owned(),
+        adult: manifest.content_rating.as_str() == "nsfw",
         origin,
         status: ExtensionStatus::Loaded,
         error: None,
@@ -1891,6 +1919,7 @@ fn failed_info(
         version: version.to_owned(),
         description: None,
         content_rating: "safe".to_owned(),
+        adult: false,
         origin,
         status: ExtensionStatus::Failed,
         error: Some(raygun_net::issue::message(

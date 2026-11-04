@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { buildMenu, copyText } from '../music/mediaMenu';
 import type { MenuItem } from '../shell/contextMenuStore';
+import { useContentRating } from './contentRating';
 import {
   useClearExtensionData,
   useOpenExtensionWebsite,
@@ -13,7 +14,7 @@ import {
 
 /**
  * An installed extension's long-press and right-click menu: its page and settings, its website,
- * copying its name, clearing its data, uninstalling (asked first; built-in ones stay).
+ * copying its name, clearing its data, marking it 18+ or not, uninstalling (asked first; built-in ones stay).
  */
 export const useExtensionMenuItems = () => {
   const { t } = useTranslation();
@@ -21,6 +22,7 @@ export const useExtensionMenuItems = () => {
   const openWebsite = useOpenExtensionWebsite();
   const clearData = useClearExtensionData();
   const uninstall = useUninstallExtension();
+  const rating = useContentRating();
   return (extension: ExtensionInfo): MenuItem[] =>
     buildMenu({
       heading: {
@@ -50,6 +52,7 @@ export const useExtensionMenuItems = () => {
           icon: Eraser,
           onSelect: () => clearData.mutate(extension.id),
         },
+        ...rating.menuItems('extensions', extension.id, extension.adult),
       ],
       remove: [
         extension.origin === 'installed' && {

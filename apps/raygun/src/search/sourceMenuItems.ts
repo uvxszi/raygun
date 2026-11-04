@@ -9,13 +9,14 @@ import {
 } from '../extensions/useExtensions';
 import { buildMenu, copyText } from '../music/mediaMenu';
 import type { MenuItem } from '../shell/contextMenuStore';
+import { useContentRating } from '../extensions/contentRating';
 import { useSourceSwitch } from './useSourceSwitch';
 
 type Page = { to: string; search: Record<string, unknown> };
 
 /**
  * A source's long-press and right-click menu in Browse → Sources: open it or its latest, its
- * extension's settings and website, clearing its data, switching it off, copying its name.
+ * extension's settings and website, clearing its data, marking it 18+ or not, switching it off, copying its name.
  */
 export const useSourceMenuItems = ({
   sourceId,
@@ -33,7 +34,9 @@ export const useSourceMenuItems = ({
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { enabled, setEnabled } = useSourceSwitch(sourceId);
-  const website = useExtension(extensionId).data?.website ?? null;
+  const extension = useExtension(extensionId).data;
+  const website = extension?.website ?? null;
+  const rating = useContentRating();
   const openWebsite = useOpenExtensionWebsite();
   const clearData = useClearExtensionData();
   return (): MenuItem[] =>
@@ -71,6 +74,8 @@ export const useSourceMenuItems = ({
           icon: Eraser,
           onSelect: () => clearData.mutate(extensionId),
         },
+        // Marks the whole extension, so its other sources follow.
+        ...rating.menuItems('extensions', extensionId, extension?.adult ?? false),
       ],
       hide: [
         {

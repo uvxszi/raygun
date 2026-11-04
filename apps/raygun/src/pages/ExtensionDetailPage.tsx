@@ -55,7 +55,7 @@ export const ExtensionDetailPage: FC = () => {
         <div className="flex min-w-0 flex-col gap-0.5">
           <h1 className="text-xl font-bold tracking-tight wrap-anywhere">
             {info.name}
-            {info.contentRating === 'nsfw' && <AdultMark className="ml-2" />}
+            {info.adult && <AdultMark className="ml-2" />}
           </h1>
           <p className="text-muted text-sm">
             {[

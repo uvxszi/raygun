@@ -36,6 +36,8 @@ import {
   useStremioSuggestions,
 } from '../watch/useStremio';
 import { PageHeader } from './PageHeader';
+import { useContentRating } from '../extensions/contentRating';
+import { RatingHint } from '../extensions/RatingHint';
 import { useSearchMode } from '../shell/useSearchMode';
 import { matchesSearch } from '../shell/useListSearch';
 
@@ -100,6 +102,7 @@ const AddonItem: FC<{
   const setEnabled = useSetAddonEnabled();
   const configure = useConfigureAddon();
   const error = remove.error ?? setEnabled.error ?? configure.error;
+  const rating = useContentRating();
   const items: OverflowItem[] = [
     ...(onMove && !first
       ? [{ label: t('watch.moveUp'), icon: ArrowUp, onSelect: () => onMove(-1) }]
@@ -115,6 +118,7 @@ const AddonItem: FC<{
     ...(addon.configureUrl
       ? [{ label: t('watch.setUp'), icon: Settings2, onSelect: () => configure.mutate(addon.url) }]
       : []),
+    ...rating.menuItems('addons', addon.id, addon.adult),
     {
       label: t('watch.copyAddress'),
       icon: Copy,
@@ -137,6 +141,7 @@ const AddonItem: FC<{
           {addon.name}
           {addon.adult && <AdultMark className="ml-1.5" />}
           {addon.version && <span className="text-muted text-xs"> {addon.version}</span>}
+          <RatingHint mark={rating.markOf('addons', addon.id)} className="ml-1.5" />
         </span>
         {(!addon.enabled || (addon.failing && !addon.error)) && (
           <span className="text-muted text-xs">

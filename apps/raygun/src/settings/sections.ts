@@ -145,6 +145,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
     reset: resetKeys(
       'showNsfw',
       'explicitMusic',
+      'contentOverrides',
       'failingSourcesLast',
       'browseStartTab',
       'manualBrowserChecks',

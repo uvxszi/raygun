@@ -250,11 +250,23 @@ impl StremioService {
         Ok(at_most(ADDON_CONCURRENCY, loads)
             .await
             .into_iter()
-            .filter(|loaded| show_nsfw || !loaded.manifest().is_some_and(|manifest| manifest.adult))
+            .filter(|loaded| {
+                show_nsfw
+                    || !loaded
+                        .manifest()
+                        .is_some_and(|manifest| self.is_adult(&loaded.row.id, manifest))
+            })
             .collect())
     }
 
-    /// Whether an installed addon (by its stored or its manifest's id) marks itself adult.
+    /// Whether an addon (by its stored id) counts as 18+: the user's mark, else its manifest.
+    fn is_adult(&self, row_id: &str, manifest: &Manifest) -> bool {
+        self.app
+            .state::<Arc<ExtensionService>>()
+            .addon_adult(row_id, manifest.adult)
+    }
+
+    /// Whether an installed addon (by its stored or its manifest's id) counts as 18+.
     fn addon_adult(&self, addon_id: &str) -> bool {
         !addon_id.is_empty()
             && self
@@ -263,7 +275,8 @@ impl StremioService {
                 .expect("manifests poisoned")
                 .iter()
                 .any(|(row_id, (_, _, manifest))| {
-                    (row_id == addon_id || manifest.id == addon_id) && manifest.adult
+                    (row_id == addon_id || manifest.id == addon_id)
+                        && self.is_adult(row_id, manifest)
                 })
     }
 
@@ -365,6 +378,7 @@ impl StremioService {
         let Loaded { row, manifest } = loaded;
         match manifest {
             Ok(manifest) => StremioAddon {
+                adult: self.is_adult(&row.id, &manifest),
                 id: row.id,
                 provides: provides(&manifest),
                 configure_url: (manifest.configurable || manifest.configuration_required)
@@ -381,7 +395,6 @@ impl StremioService {
                     .collect(),
                 types: manifest.types,
                 catalogs: manifest.catalogs.len() as u32,
-                adult: manifest.adult,
                 p2p: manifest.p2p,
                 needs_setup: manifest.configuration_required,
                 enabled: row.enabled,
@@ -620,7 +633,9 @@ impl StremioService {
             .ok_or_else(|| "This addon was removed or turned off".to_owned())?;
         let manifest = addon.manifest().ok_or("This addon has no manifest")?;
         // Search's "No 18+": an adult addon isn't asked.
-        if manifest.adult && crate::search_filter::current(&self.app).await.no_adult {
+        if self.is_adult(&addon.row.id, manifest)
+            && crate::search_filter::current(&self.app).await.no_adult
+        {
             return Ok(StremioCatalogRow {
                 addon_id: addon_id.to_owned(),
                 addon_name: manifest.name.clone(),
@@ -657,7 +672,7 @@ impl StremioService {
         let rows = active
             .iter()
             .filter_map(|addon| Some((addon, addon.manifest()?)))
-            .filter(|(_, manifest)| !(no_adult && manifest.adult))
+            .filter(|(addon, manifest)| !(no_adult && self.is_adult(&addon.row.id, manifest)))
             .flat_map(|(addon, manifest)| {
                 manifest
                     .catalogs

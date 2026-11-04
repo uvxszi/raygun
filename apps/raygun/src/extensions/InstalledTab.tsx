@@ -11,6 +11,8 @@ import { AdultMark } from '../shell/AdultMark';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { ListSearchField } from '../shell/ListSearchField';
 import { matchesSearch } from '../shell/useListSearch';
+import { useContentRating } from './contentRating';
+import { RatingHint } from './RatingHint';
 import { KindChips } from './BrowseTab';
 import { EXTENSION_KINDS, kindsOf } from './catalogFilters';
 import type { ExtensionKind } from './catalogFilters';
@@ -24,6 +26,7 @@ export const InstalledTab: FC = () => {
   const { t } = useTranslation();
   const extensions = useExtensions();
   const showNsfw = useSettings().data?.showNsfw ?? false;
+  const rating = useContentRating();
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState<ExtensionKind | null>(null);
   const menu = useExtensionMenuItems();
@@ -81,9 +84,10 @@ export const InstalledTab: FC = () => {
                         : 'extensions.installedOrigin',
                     )}
                   </span>
-                  {extension.contentRating === 'nsfw' && <AdultMark />}
+                  {extension.adult && <AdultMark />}
+                  <RatingHint mark={rating.markOf('extensions', extension.id)} />
                 </span>
-                {extension.contentRating === 'nsfw' && !showNsfw && (
+                {extension.adult && !showNsfw && (
                   <span className="text-muted text-xs">{t('extensions.nsfwHidden')}</span>
                 )}
                 {extension.status === 'failed' ? (

@@ -20,6 +20,9 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 
 import { BrowseTab as AvailableExtensions } from '../extensions/BrowseTab';
+import { useContentRating } from '../extensions/contentRating';
+import type { RatingItem } from '../extensions/contentRating';
+import { RatingHint } from '../extensions/RatingHint';
 import { updateCount } from '../extensions/catalogFilters';
 import { InstalledTab } from '../extensions/InstalledTab';
 import { InstallProgress } from '../extensions/InstallProgress';
@@ -76,12 +79,19 @@ type SourceRow = {
   source?: { id: string; extensionId: string; enabled: boolean };
   /** Rated for adults: an 18+ tag after the name. */
   adult?: boolean;
+  /** A Stremio addon's stored id: its ⋯ menu marks it 18+ or not. */
+  addonId?: string;
 };
 
 type Page = { to: string; search: Record<string, unknown> };
 
-/** A Stremio addon's long-press menu: open it, manage addons, copy its name. */
-const addonMenu = (row: SourceRow, t: TFunction, go: (page: Page) => void): MenuItem[] =>
+/** A Stremio addon's long-press menu: open it, manage addons, copy its name, mark it 18+ or not. */
+const addonMenu = (
+  row: SourceRow,
+  t: TFunction,
+  go: (page: Page) => void,
+  marks: RatingItem[],
+): MenuItem[] =>
   buildMenu({
     heading: { label: row.name, subtitle: row.detail, artworkUrl: row.logo ?? null },
     play: [
@@ -99,6 +109,7 @@ const addonMenu = (row: SourceRow, t: TFunction, go: (page: Page) => void): Menu
       },
     ],
     share: [{ label: t('menu.copyName'), icon: Copy, onSelect: () => copyText(row.name) }],
+    edit: row.addonId ? marks : [],
   });
 
 const SourceRowLink: FC<{ row: SourceRow; onMenu: (event: MouseEvent) => void }> = ({
@@ -106,6 +117,12 @@ const SourceRowLink: FC<{ row: SourceRow; onMenu: (event: MouseEvent) => void }>
   onMenu,
 }) => {
   const { t } = useTranslation();
+  const rating = useContentRating();
+  const mark = row.source
+    ? rating.markOf('extensions', row.source.extensionId)
+    : row.addonId
+      ? rating.markOf('addons', row.addonId)
+      : 'default';
   return (
     <Link
       to={row.to}
@@ -119,6 +136,7 @@ const SourceRowLink: FC<{ row: SourceRow; onMenu: (event: MouseEvent) => void }>
         <span className="flex min-w-0 items-center gap-1.5">
           <span className="truncate font-medium">{row.name}</span>
           {row.adult && <AdultMark />}
+          <RatingHint mark={mark} />
         </span>
         <span className="text-muted truncate text-xs">
           {row.source?.enabled === false
@@ -167,6 +185,7 @@ const ExtensionSourceRow: FC<{
 
 const SourceSection: FC<{ title: string; rows: SourceRow[] }> = ({ title, rows }) => {
   const { t } = useTranslation();
+  const rating = useContentRating();
   const navigate = useNavigate();
   if (rows.length === 0) return null;
   const go = (page: Page) => void navigate({ to: page.to, search: page.search as never });
@@ -182,7 +201,17 @@ const SourceSection: FC<{ title: string; rows: SourceRow[] }> = ({ title, rows }
               <>
                 <SourceRowLink
                   row={row}
-                  onMenu={(event) => openContextMenu(event, addonMenu(row, t, go))}
+                  onMenu={(event) =>
+                    openContextMenu(
+                      event,
+                      addonMenu(
+                        row,
+                        t,
+                        go,
+                        rating.menuItems('addons', row.addonId ?? '', row.adult),
+                      ),
+                    )
+                  }
                 />
                 <LatestLink row={row} />
               </>
@@ -251,7 +280,7 @@ const SourcesList: FC = () => {
       search: { id: source.id },
       latest: { to: route, search: { id: source.id, mode: 'latest' } },
       source: { id: source.id, extensionId: source.extensionId, enabled: source.enabled },
-      adult: source.adult === true || extensionOf(source)?.contentRating === 'nsfw',
+      adult: source.adult === true || extensionOf(source)?.adult === true,
     }));
 
   const videoRows: SourceRow[] = [
@@ -265,6 +294,7 @@ const SourcesList: FC = () => {
         to: '/watch/addon',
         search: { id: addon.id },
         adult: addon.adult,
+        addonId: addon.id,
       })),
     ...catalogue(video.data, '/watch/source'),
   ];

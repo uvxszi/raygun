@@ -2847,6 +2847,75 @@ async fn nsfw_switch_hides_nsfw_providers_and_reaches_extensions() {
     assert_eq!(call("dev.raygun.safe/p").await.unwrap(), json!(true));
 }
 
+#[tokio::test]
+async fn user_marks_decide_which_providers_are_adult_without_a_reload() {
+    use raygun_model::{ContentOverride, ContentOverrides};
+    let host = test_host();
+    let code =
+        "raygun.providers.register({ kind: 'lyrics', id: 'p', name: 'P', run: async () => null });";
+    let source = |id: &str, rating: &str| {
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                &manifest_json(json!({
+                    "id": id,
+                    "name": id,
+                    "contentRating": rating,
+                    "provides": ["lyrics"],
+                })),
+            ),
+            ("index.js", code),
+        ])
+    };
+    host.load(vec![
+        source("dev.raygun.rated", "nsfw"),
+        source("dev.raygun.unrated", "safe"),
+        source("dev.raygun.other", "safe"),
+    ])
+    .await;
+    let ids = |providers: Vec<raygun_model::ProviderInfo>| {
+        providers.into_iter().map(|p| p.id).collect::<Vec<_>>()
+    };
+    assert_eq!(
+        ids(host.providers("lyrics").await),
+        ["dev.raygun.other/p", "dev.raygun.unrated/p"]
+    );
+
+    // The rated one isn't 18+; the unrated one came from a repository marked 18+.
+    host.content()
+        .set_extension_repositories([("dev.raygun.unrated".to_owned(), "repo".to_owned())].into());
+    host.content().set_overrides(ContentOverrides {
+        extensions: [("dev.raygun.rated".to_owned(), ContentOverride::NotAdult)].into(),
+        repositories: [("repo".to_owned(), ContentOverride::Adult)].into(),
+        addons: Default::default(),
+    });
+    assert_eq!(
+        ids(host.providers("lyrics").await),
+        ["dev.raygun.other/p", "dev.raygun.rated/p"]
+    );
+    let listed = host.list().await;
+    let adult = |id: &str| listed.iter().find(|info| info.id == id).unwrap().adult;
+    assert!(!adult("dev.raygun.rated"));
+    assert!(adult("dev.raygun.unrated"));
+
+    host.content().set_show_nsfw(true);
+    let shown = host.providers("lyrics").await;
+    assert_eq!(shown.len(), 3);
+    assert!(
+        shown
+            .iter()
+            .any(|p| p.id == "dev.raygun.unrated/p" && p.adult)
+    );
+    assert!(
+        shown
+            .iter()
+            .any(|p| p.id == "dev.raygun.rated/p" && !p.adult)
+    );
+    // Search's "No 18+" follows the marks too.
+    let without = crate::without_adult_sources(true, host.providers("lyrics")).await;
+    assert_eq!(ids(without).len(), 2);
+}
+
 /// `cargo test -p raygun-ext-host -- --ignored mangadex_filters`.
 #[tokio::test]
 #[ignore = "needs network access to api.mangadex.org"]

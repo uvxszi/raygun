@@ -317,6 +317,10 @@ impl ExtensionService {
                         .host
                         .content()
                         .set_disabled(&settings.disabled_sources);
+                    loader
+                        .host
+                        .content()
+                        .set_overrides(settings.content_overrides);
                 }
                 Err(error) => tracing::warn!(%error, "could not read the NSFW setting"),
             }
@@ -377,6 +381,41 @@ impl ExtensionService {
         if let Err(error) = ExtensionsChangedEvent(infos).emit(&self.app) {
             tracing::warn!(%error, "could not announce extension changes");
         }
+    }
+
+    /// Puts the user's 18+ marks into effect at once and tells the UI, whose source lists and
+    /// 18+ tags depend on them.
+    pub async fn set_content_overrides(&self, overrides: raygun_model::ContentOverrides) {
+        self.host.content().set_overrides(overrides);
+        let infos = self.list().await;
+        if let Err(error) = ExtensionsChangedEvent(infos).emit(&self.app) {
+            tracing::warn!(%error, "could not announce extension changes");
+        }
+    }
+
+    /// Whether a Stremio addon (by its stored id) that says `own` counts as 18+, the user's
+    /// mark deciding over it.
+    pub fn addon_adult(&self, addon_id: &str, own: bool) -> bool {
+        self.host.content().addon_adult(addon_id, own)
+    }
+
+    /// Tells the content filter which repository each installed extension came from, so a
+    /// repository's mark reaches them.
+    async fn learn_extension_repositories(&self) {
+        let (installs, repos) = match (store::installs(self.db()).await, self.repos().await) {
+            (Ok(installs), Ok(repos)) => (installs, repos),
+            (Err(error), _) => {
+                tracing::warn!(%error, "could not read where extensions came from");
+                return;
+            }
+            (_, Err(error)) => {
+                tracing::warn!(%error, "could not read where extensions came from");
+                return;
+            }
+        };
+        self.host
+            .content()
+            .set_extension_repositories(extension_repositories(&installs, &repos));
     }
 
     pub async fn search(&self, query: &str) -> Vec<ProviderSearchResult> {
@@ -751,6 +790,7 @@ impl ExtensionService {
             .unwrap_or_default();
         *self.loaded_files.lock().unwrap() = files;
 
+        self.learn_extension_repositories().await;
         let mut sources = built_in();
         sources.extend(discover_installed(&self.extensions_dir));
         let settings = self.user_settings().await;
@@ -848,6 +888,7 @@ impl ExtensionService {
         store::remove_repo(self.db(), id)
             .await
             .map_err(|error| error.to_string())?;
+        self.learn_extension_repositories().await;
         self.repos().await
     }
 
@@ -902,26 +943,32 @@ impl ExtensionService {
             .collect()
     }
 
-    /// A repository index's entries as the catalog lists them: NSFW-rated ones only while NSFW
-    /// content is shown, icons through the cover cache.
+    /// A repository index's entries as the catalog lists them: 18+ ones (rated `nsfw`, or marked
+    /// so on the entry or the repository) only while NSFW content is shown, icons through the
+    /// cover cache.
     fn entries_of(
         &self,
         repo: &ExtensionRepo,
         index: &RepoIndex,
         local: &HashMap<String, Installed>,
     ) -> Vec<CatalogEntry> {
-        let show_nsfw = self.host.content().show_nsfw();
+        let content = self.host.content();
+        let show_nsfw = content.show_nsfw();
         let index_url: Option<reqwest::Url> = repo.url.parse().ok();
         let images = self.app.state::<raygun_net::ImageLinks>();
         index
             .extensions
             .iter()
-            .filter(|entry| show_nsfw || entry.content_rating != "nsfw")
-            .map(|entry| CatalogEntry {
+            .filter_map(|entry| {
+                let adult = content.listed_adult(&entry.id, &repo.id, &entry.content_rating);
+                (show_nsfw || !adult).then_some((entry, adult))
+            })
+            .map(|(entry, adult)| CatalogEntry {
                 icon: index_url
                     .as_ref()
                     .and_then(|base| repo::icon_url(base, entry))
                     .map(|url| images.cover(url.as_str(), &Default::default())),
+                adult,
                 ..catalog_entry(&repo.id, entry, local.get(&entry.id))
             })
             .collect()
@@ -1355,6 +1402,22 @@ fn repo_name(index: &RepoIndex, url: &str) -> String {
 }
 
 /// Whether two repository URLs point at the same index (case and a trailing slash aside).
+/// Installed extensions' repositories by id, matched by the address each was installed from.
+fn extension_repositories(
+    installs: &[InstallRow],
+    repos: &[ExtensionRepo],
+) -> HashMap<String, String> {
+    installs
+        .iter()
+        .filter_map(|install| {
+            let repo = repos
+                .iter()
+                .find(|repo| same_url(&repo.url, &install.repo_url))?;
+            Some((install.extension_id.clone(), repo.id.clone()))
+        })
+        .collect()
+}
+
 fn same_url(a: &str, b: &str) -> bool {
     a.trim()
         .trim_end_matches('/')
@@ -1399,6 +1462,7 @@ fn catalog_entry(repo_id: &str, entry: &RepoEntry, local: Option<&Installed>) ->
         provides: entry.provides.clone(),
         net: entry.permissions.net.clone(),
         content_rating: entry.content_rating.clone(),
+        adult: entry.content_rating == "nsfw",
         lang: entry.lang.clone(),
         size: u32::try_from(entry.size).unwrap_or(u32::MAX),
         nuclear: entry.format == PackageFormat::Nuclear,
@@ -1598,6 +1662,31 @@ fn album_covers(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn installed_extensions_belong_to_the_repository_they_came_from() {
+        let install = |id: &str, url: &str| super::InstallRow {
+            extension_id: id.into(),
+            repo_url: url.into(),
+            version: "1.0.0".into(),
+            sha256: String::new(),
+            installed_at: 0,
+        };
+        let repos = [raygun_model::ExtensionRepo {
+            id: "r1".into(),
+            url: "https://example.com/index.json".into(),
+            name: "Example".into(),
+        }];
+        let found = super::extension_repositories(
+            &[
+                install("a", "https://EXAMPLE.com/index.json/"),
+                install("b", "https://gone.example/index.json"),
+            ],
+            &repos,
+        );
+        assert_eq!(found.get("a").map(String::as_str), Some("r1"));
+        assert!(!found.contains_key("b"), "its repository was removed");
+    }
+
     #[test]
     fn album_covers_need_the_title_and_artist() {
         let mut right = album("deezer", "Discovery", "Daft Punk", None);
