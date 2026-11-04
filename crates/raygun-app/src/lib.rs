@@ -25,6 +25,7 @@ mod durations;
 mod epub;
 mod events;
 mod export;
+mod extension_installs;
 mod extensions;
 mod follows;
 mod genres;
@@ -124,7 +125,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::podcast_queue,
             commands::connect_status,
             commands::connect_devices,
-            commands::connect_add,
+            commands::connect_link_code,
             commands::connect_to,
             commands::connect_disconnect,
             commands::connect_forget,
@@ -141,6 +142,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::extension_repo_remove,
             commands::extension_catalog,
             commands::extension_install,
+            commands::extension_installs_enqueue,
+            commands::extension_installs_status,
+            commands::extension_installs_cancel,
+            commands::extension_installs_cancel_all,
+            commands::extension_installs_retry,
+            commands::extension_installs_dismiss,
             commands::extension_uninstall,
             commands::extension_setting_set,
             commands::online_search,
@@ -278,6 +285,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::devices_set_sharing,
             commands::app_update_install,
             commands::app_open_page,
+            commands::app_open_link,
+            commands::app_whats_new,
+            commands::app_whats_new_seen,
+            commands::app_release_notes,
             commands::lyrics_forget,
             commands::lyrics_cache_usage,
             commands::lyrics_cache_clear,
@@ -295,7 +306,6 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::remote_status,
             commands::remote_set_enabled,
             commands::remote_new_code,
-            commands::remote_forget_device,
             commands::sync_status,
             commands::sync_set_enabled,
             commands::sync_open_pairing,
@@ -474,6 +484,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::video_downloads_set_paused,
             commands::video_source_watch,
             commands::stremio_watch,
+            commands::video_source_order,
             commands::video_set_player_labels,
             commands::video_player_report,
             commands::video_player_external,
@@ -489,6 +500,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::QueueEvent,
             events::LibraryScanEvent,
             events::ExtensionsChangedEvent,
+            events::ExtensionInstallsEvent,
             events::SearchProgressEvent,
             events::SyncChangedEvent,
             events::MangaUpdateEvent,
@@ -512,6 +524,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::LocalFilesEvent,
             events::ImportEvent,
             events::CaptionsEvent,
+            events::LyricsTranscribedEvent,
             events::LyricsTranslationEvent,
             events::ArtistReleasesEvent,
             events::SettingsChangedEvent,

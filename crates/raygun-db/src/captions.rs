@@ -53,6 +53,27 @@ pub async fn cues(db: &Db, episode_id: &str) -> Result<Vec<CaptionRow>, DbError>
         .collect())
 }
 
+/// The last caption that starts before `at_ms`: a window starting there may hear its line again.
+pub async fn cue_before(
+    db: &Db,
+    episode_id: &str,
+    at_ms: i64,
+) -> Result<Option<CaptionRow>, DbError> {
+    let row = sqlx::query(
+        "SELECT start_ms, end_ms, text FROM local_episode_caption
+         WHERE episode_id = ? AND start_ms < ? ORDER BY start_ms DESC LIMIT 1",
+    )
+    .bind(episode_id)
+    .bind(at_ms)
+    .fetch_optional(db.pool())
+    .await?;
+    Ok(row.map(|row| CaptionRow {
+        start_ms: row.get("start_ms"),
+        end_ms: row.get("end_ms"),
+        text: row.get("text"),
+    }))
+}
+
 pub async fn progress(db: &Db, episode_id: &str) -> Result<Option<CaptionProgress>, DbError> {
     let row = sqlx::query(
         "SELECT source, ranges, complete FROM local_caption_progress WHERE episode_id = ?",
@@ -257,6 +278,9 @@ mod tests {
             .map(|cue| cue.text)
             .collect();
         assert_eq!(texts, ["Chapter one.", "It was a dark night.", "The end."]);
+        let before = cue_before(&db, "e1", 31_000).await.unwrap().unwrap();
+        assert_eq!(before.text, "It was a dark night.");
+        assert!(cue_before(&db, "e1", 0).await.unwrap().is_none());
         clear(&db, "e1").await.unwrap();
         assert!(super::progress(&db, "e1").await.unwrap().is_none());
     }

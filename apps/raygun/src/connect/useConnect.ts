@@ -62,14 +62,6 @@ export const useConnectTo = () =>
 export const useDisconnect = () =>
   useStatusChange((playHere: boolean) => unwrapResult(commands.connectDisconnect(playHere)));
 
-export const useAddDevice = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (address: string) => unwrapResult(commands.connectAdd(address)),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: DEVICES_KEY }),
-  });
-};
-
 export const useForgetDevice = () => {
   const queryClient = useQueryClient();
   return useMutation({

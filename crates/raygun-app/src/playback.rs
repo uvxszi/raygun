@@ -276,6 +276,8 @@ impl PlaybackService {
     /// itself plays elsewhere.
     pub fn apply(&self, command: ConnectCommand) {
         match command {
+            // A whole player moved here (Connect's transfer): its order and repeat as they were,
+            // loaded paused, then started, so it starts once at the right place.
             ConnectCommand::Replace {
                 items,
                 start_index,
@@ -283,6 +285,35 @@ impl PlaybackService {
                 start_ms,
                 play,
                 context,
+                order: Some(order),
+                repeat,
+            } => {
+                self.run(|core| {
+                    let repeat = repeat.unwrap_or(core.state().repeat);
+                    let mut effects = core.restore(
+                        items,
+                        order.into_iter().map(|index| index as usize).collect(),
+                        start_index.unwrap_or(0) as usize,
+                        start_ms,
+                        shuffle,
+                        repeat,
+                    );
+                    effects.extend(core.set_context(context));
+                    effects
+                });
+                if play {
+                    self.control_here(PlaybackControl::Play);
+                }
+            }
+            ConnectCommand::Replace {
+                items,
+                start_index,
+                shuffle,
+                start_ms,
+                play,
+                context,
+                order: None,
+                repeat,
             } => {
                 self.run(|core| {
                     let mut effects = core.replace_at(
@@ -292,8 +323,11 @@ impl PlaybackService {
                         start_ms,
                     );
                     effects.extend(core.set_context(context));
+                    if let Some(mode) = repeat {
+                        effects.extend(core.set_repeat(mode));
+                    }
                     if !play {
-                        paused_load(core, &mut effects);
+                        effects.extend(core.pause());
                     }
                     effects
                 });
@@ -353,6 +387,8 @@ impl PlaybackService {
                 start_ms: 0.0,
                 play: true,
                 context,
+                order: None,
+                repeat: None,
             });
         }
         self.run(|core| {
@@ -374,6 +410,8 @@ impl PlaybackService {
                 start_ms,
                 play: true,
                 context,
+                order: None,
+                repeat: None,
             });
         }
         self.run(|core| {
@@ -927,17 +965,6 @@ impl PlaybackService {
     }
 }
 
-/// Makes the load in `effects` wait paused (a queue moved over from a paused device): it loads
-/// without starting, rather than start and then pause.
-fn paused_load(core: &mut PlaybackCore, effects: &mut Vec<Effect>) {
-    effects.extend(core.pause());
-    for effect in effects.iter_mut() {
-        if let Effect::Load { autoplay, .. } = effect {
-            *autoplay = false;
-        }
-    }
-}
-
 /// How often the queue is saved for reopening (M46.16).
 const SAVE_EVERY: Duration = Duration::from_secs(5);
 
@@ -1083,34 +1110,6 @@ mod tests {
             },
             quarter
         ));
-    }
-
-    #[test]
-    fn a_queue_moved_over_paused_loads_without_starting() {
-        let mut core = PlaybackCore::new(1);
-        let item = QueueItemInput {
-            title: "Song".into(),
-            artist: Some("Artist".into()),
-            album: None,
-            duration_ms: Some(180_000),
-            artwork_url: None,
-            media_kind: raygun_model::MediaKind::Audio,
-            source: MediaSource::Url {
-                url: "https://example.com/a.mp3".into(),
-                headers: BTreeMap::new(),
-            },
-        };
-        let mut effects = core.replace_at(vec![item], Some(0), false, 42_000.0);
-        paused_load(&mut core, &mut effects);
-        let load = effects.iter().find_map(|effect| match effect {
-            Effect::Load {
-                autoplay, start_ms, ..
-            } => Some((*autoplay, *start_ms)),
-            _ => None,
-        });
-        assert_eq!(load, Some((false, 42_000.0)), "loaded paused, where it was");
-        assert_eq!(core.state().status, raygun_model::PlaybackStatus::Paused);
-        assert!(!core.plays_when_found(), "a stream found later waits too");
     }
 
     #[test]

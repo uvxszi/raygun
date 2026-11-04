@@ -8,6 +8,7 @@ import type {
   EngineCommand,
   ExportJob,
   ExtensionInfo,
+  ExtensionInstallStatus,
   PermissionPrompt,
   IncognitoStatus,
   HiddenItem,
@@ -55,6 +56,7 @@ type EventPayloads = {
   queueEvent: QueueSnapshot;
   libraryScanEvent: LibraryScanProgress;
   extensionsChangedEvent: ExtensionInfo[];
+  extensionInstallsEvent: ExtensionInstallStatus;
   searchProgressEvent: SearchProgress;
   syncChangedEvent: number;
   mangaUpdateEvent: MangaUpdateStatus;
@@ -72,6 +74,7 @@ type EventPayloads = {
   trackDurationsEvent: TrackDuration[];
   importEvent: string;
   captionsEvent: string;
+  lyricsTranscribedEvent: string;
   lyricsTranslationEvent: LyricsTranslationProgress;
   localFilesEvent: string;
   settingsChangedEvent: string;
@@ -243,6 +246,19 @@ export const IDLE_UPDATE: MangaUpdateStatus = {
 
 export const EMPTY_LIBRARY: LibraryStatus = { roots: [], trackCount: 0, scanning: false };
 
+/** The extension install queue before anything was asked. */
+export const NO_INSTALLS: ExtensionInstallStatus = {
+  batch: 0,
+  items: [],
+  total: 0,
+  done: 0,
+  failed: 0,
+  cancelled: 0,
+  running: false,
+  current: null,
+  phase: null,
+};
+
 export const bindingsMock = {
   commands: {
     appInfo: vi.fn(),
@@ -342,6 +358,10 @@ export const bindingsMock = {
     appUpdate: vi.fn(),
     appUpdateInstall: vi.fn(),
     appOpenPage: vi.fn(),
+    appOpenLink: vi.fn(),
+    appWhatsNew: vi.fn(),
+    appWhatsNewSeen: vi.fn(),
+    appReleaseNotes: vi.fn(),
     connectLink: vi.fn(),
     devicesSetSharing: vi.fn(),
     captionsUseFeed: vi.fn(),
@@ -402,6 +422,12 @@ export const bindingsMock = {
     extensionRepoRemove: vi.fn(),
     extensionCatalog: vi.fn(),
     extensionInstall: vi.fn(),
+    extensionInstallsEnqueue: vi.fn(),
+    extensionInstallsStatus: vi.fn(),
+    extensionInstallsCancel: vi.fn(),
+    extensionInstallsCancelAll: vi.fn(),
+    extensionInstallsRetry: vi.fn(),
+    extensionInstallsDismiss: vi.fn(),
     extensionUninstall: vi.fn(),
     extensionSettingSet: vi.fn(),
     onlineSearch: vi.fn(),
@@ -426,7 +452,7 @@ export const bindingsMock = {
     podcastQueue: vi.fn(),
     connectStatus: vi.fn(),
     connectDevices: vi.fn(),
-    connectAdd: vi.fn(),
+    connectLinkCode: vi.fn(),
     connectTo: vi.fn(),
     connectDisconnect: vi.fn(),
     connectForget: vi.fn(),
@@ -453,7 +479,6 @@ export const bindingsMock = {
     remoteStatus: vi.fn(),
     remoteSetEnabled: vi.fn(),
     remoteNewCode: vi.fn(),
-    remoteForgetDevice: vi.fn(),
     syncStatus: vi.fn(),
     syncSetEnabled: vi.fn(),
     syncOpenPairing: vi.fn(),
@@ -598,6 +623,7 @@ export const bindingsMock = {
     videoDownloadsSetPaused: vi.fn(),
     videoSourceWatch: vi.fn(),
     stremioWatch: vi.fn(),
+    videoSourceOrder: vi.fn(),
     videoSetPlayerLabels: vi.fn(),
     stremioAddons: vi.fn(),
     stremioSuggestions: vi.fn(),
@@ -644,6 +670,7 @@ export const bindingsMock = {
     queueEvent: makeEvent('queueEvent'),
     libraryScanEvent: makeEvent('libraryScanEvent'),
     extensionsChangedEvent: makeEvent('extensionsChangedEvent'),
+    extensionInstallsEvent: makeEvent('extensionInstallsEvent'),
     searchProgressEvent: makeEvent('searchProgressEvent'),
     syncChangedEvent: makeEvent('syncChangedEvent'),
     mangaUpdateEvent: makeEvent('mangaUpdateEvent'),
@@ -661,6 +688,7 @@ export const bindingsMock = {
     trackDurationsEvent: makeEvent('trackDurationsEvent'),
     importEvent: makeEvent('importEvent'),
     captionsEvent: makeEvent('captionsEvent'),
+    lyricsTranscribedEvent: makeEvent('lyricsTranscribedEvent'),
     lyricsTranslationEvent: makeEvent('lyricsTranslationEvent'),
     localFilesEvent: makeEvent('localFilesEvent'),
     settingsChangedEvent: makeEvent('settingsChangedEvent'),
@@ -816,6 +844,9 @@ export const seedBindings = () => {
       error: null,
       canTranscribe: false,
       engine: 'off',
+      hasFeed: false,
+      queued: null,
+      durationMs: null,
     }),
   );
   commands.captionsVideoTranscribe.mockResolvedValue(ok(null));
@@ -876,6 +907,10 @@ export const seedBindings = () => {
   commands.appUpdate.mockResolvedValue(ok(NO_UPDATE));
   commands.appUpdateInstall.mockResolvedValue(ok(NO_UPDATE));
   commands.appOpenPage.mockResolvedValue(ok(null));
+  commands.appOpenLink.mockResolvedValue(ok(null));
+  commands.appWhatsNew.mockResolvedValue(ok(null));
+  commands.appWhatsNewSeen.mockResolvedValue(ok(null));
+  commands.appReleaseNotes.mockResolvedValue([]);
   commands.connectLink.mockResolvedValue(ok([]));
   commands.devicesSetSharing.mockResolvedValue(ok(null));
   commands.captionsUseFeed.mockResolvedValue(ok(null));
@@ -921,6 +956,16 @@ export const seedBindings = () => {
   commands.extensionRepoRemove.mockResolvedValue(ok([]));
   commands.extensionCatalog.mockResolvedValue(ok([]));
   commands.extensionInstall.mockResolvedValue(ok([]));
+  for (const name of [
+    'extensionInstallsEnqueue',
+    'extensionInstallsStatus',
+    'extensionInstallsCancel',
+    'extensionInstallsCancelAll',
+    'extensionInstallsRetry',
+    'extensionInstallsDismiss',
+  ] as const) {
+    commands[name].mockResolvedValue(NO_INSTALLS);
+  }
   commands.extensionUninstall.mockResolvedValue(ok([]));
   commands.extensionSettingSet.mockResolvedValue(ok([]));
   commands.onlineSearch.mockResolvedValue(ok({ library: [], top: [], providers: [] }));
@@ -948,7 +993,7 @@ export const seedBindings = () => {
   commands.podcastQueue.mockResolvedValue({ status: 'ok', data: null });
   commands.connectStatus.mockResolvedValue(CONNECT_IDLE);
   commands.connectDevices.mockResolvedValue(ok([]));
-  commands.connectAdd.mockResolvedValue({ status: 'error', error: 'not mocked' });
+  commands.connectLinkCode.mockResolvedValue({ status: 'error', error: 'not mocked' });
   commands.connectTo.mockResolvedValue(ok(CONNECT_IDLE));
   commands.connectDisconnect.mockResolvedValue(ok(CONNECT_IDLE));
   commands.connectForget.mockResolvedValue(ok([]));
@@ -983,15 +1028,14 @@ export const seedBindings = () => {
   const remoteOff = {
     enabled: false,
     url: null,
-    pairUrl: null,
-    pairQrSvg: null,
-    devices: [],
+    linkText: null,
+    linkQrSvg: null,
+    linkExpiresAt: null,
     error: null,
   };
   commands.remoteStatus.mockResolvedValue(ok(remoteOff));
   commands.remoteSetEnabled.mockResolvedValue(ok(remoteOff));
   commands.remoteNewCode.mockResolvedValue(ok(remoteOff));
-  commands.remoteForgetDevice.mockResolvedValue(ok(remoteOff));
   const syncOff = {
     enabled: false,
     deviceName: 'Android phone',
@@ -1156,6 +1200,21 @@ export const seedBindings = () => {
   commands.videoDownloadsSetPaused.mockResolvedValue(ok(null));
   commands.videoSourceWatch.mockResolvedValue(ok(null));
   commands.stremioWatch.mockResolvedValue(ok(null));
+  // The order given, nothing played before.
+  commands.videoSourceOrder.mockImplementation(
+    (_group: string, _title: string | null, sources: { links: unknown[] }[]) =>
+      Promise.resolve(
+        ok(
+          sources.map((source, index) => ({
+            index,
+            worked: false,
+            failing: false,
+            workedLink: null,
+            links: source.links.map((_link, place) => place),
+          })),
+        ),
+      ),
+  );
   commands.videoSetPlayerLabels.mockResolvedValue(undefined);
   commands.stremioAddons.mockResolvedValue(ok([]));
   commands.stremioSuggestions.mockResolvedValue(ok([]));

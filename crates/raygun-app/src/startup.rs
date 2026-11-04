@@ -137,13 +137,15 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         paths.downloads(),
     ));
     app.manage(podcasts.clone());
-    // Captions for podcasts and audiobooks (M46.32).
-    app.manage(crate::captions::CaptionService::new(
+    // Captions for podcasts and audiobooks (M46.32), and songs' words waiting from the last run.
+    let captions = crate::captions::CaptionService::new(
         app.handle().clone(),
         raygun_net::http_client()?,
         paths.downloads(),
         paths.cache(raygun_paths::CacheKind::Captions),
-    ));
+    );
+    app.manage(captions.clone());
+    captions.resume_songs();
     app.manage(crate::local_network::LocalNetwork::new(
         app.handle().clone(),
     ));
@@ -170,10 +172,12 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     crate::playback::PlaybackService::start_saving(app.handle().clone());
     crate::playback::PlaybackService::start_watchdog(app.handle().clone());
 
-    app.manage(crate::extensions::ExtensionService::start(
-        app.handle().clone(),
-        &paths,
-    )?);
+    let extensions = crate::extensions::ExtensionService::start(app.handle().clone(), &paths)?;
+    app.manage(crate::extension_installs::ExtensionInstalls::start_in(
+        app.handle(),
+        extensions.clone(),
+    ));
+    app.manage(extensions);
     app.manage(std::sync::Arc::new(crate::resolver::ResolverService::new(
         app.handle().clone(),
     )));

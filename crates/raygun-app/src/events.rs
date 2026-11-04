@@ -85,6 +85,11 @@ pub struct ImportEvent(pub String);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct CaptionsEvent(pub String);
 
+/// A song's transcription finished and its words are now the song's lyrics; carries its
+/// captions key (`song:<track key>`).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct LyricsTranscribedEvent(pub String);
+
 /// How far a song's lyrics translation on this device is (M46.48), a few times a second.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct LyricsTranslationEvent(pub raygun_model::LyricsTranslationProgress);
@@ -112,6 +117,10 @@ pub struct TtsEvent(pub raygun_model::TtsUpdate);
 /// Extensions were (re)loaded; carries the new list.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct ExtensionsChangedEvent(pub Vec<raygun_model::ExtensionInfo>);
+
+/// The extension install queue changed: an install started, moved on a phase or ended.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct ExtensionInstallsEvent(pub raygun_model::ExtensionInstallStatus);
 
 /// One source answered a music search that's still waiting for others; one event per source.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]

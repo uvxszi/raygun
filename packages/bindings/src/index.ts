@@ -139,8 +139,11 @@ export const commands = {
 	 *  linked ones say when they last synced (M46.47).
 	 */
 	connectDevices: () => typedError<ConnectDevice[], string>(__TAURI_INVOKE("connect_devices")),
-	/**  Adds a device by its address (`192.168.1.20:8820`). */
-	connectAdd: (address: string) => typedError<ConnectDevice, string>(__TAURI_INVOKE("connect_add", { address })),
+	/**
+	 *  Links with the device whose link QR code was scanned (or its text pasted): the usual
+	 *  question is asked there, with the code's one-time code.
+	 */
+	connectLinkCode: (text: string) => typedError<ConnectDevice[], string>(__TAURI_INVOKE("connect_link_code", { text })),
 	/**  Plays on another device: asks it the first time, then moves the queue there. */
 	connectTo: (id: string) => typedError<ConnectStatus, string>(__TAURI_INVOKE("connect_to", { id })),
 	/**  Stops playing on another device; with `play_here` its queue comes back to this one. */
@@ -194,6 +197,17 @@ export const commands = {
 	extensionCatalog: (refresh: boolean) => typedError<RepoCatalog[], string>(__TAURI_INVOKE("extension_catalog", { refresh })),
 	/**  Installs, or updates to, the version a repository lists. */
 	extensionInstall: (repoId: string, extensionId: string) => typedError<ExtensionInfo_Serialize[], string>(__TAURI_INVOKE("extension_install", { repoId, extensionId })),
+	/**  Adds installs to the queue (one, a selection, every update); they run in the background. */
+	extensionInstallsEnqueue: (entries: ExtensionInstallRequest[]) => __TAURI_INVOKE<ExtensionInstallStatus>("extension_installs_enqueue", { entries }),
+	extensionInstallsStatus: () => __TAURI_INVOKE<ExtensionInstallStatus>("extension_installs_status"),
+	/**  Takes one waiting install out of the queue (a running one finishes). */
+	extensionInstallsCancel: (repoId: string, extensionId: string) => __TAURI_INVOKE<ExtensionInstallStatus>("extension_installs_cancel", { repoId, extensionId }),
+	/**  Stops the installs still waiting; the running one finishes. */
+	extensionInstallsCancelAll: () => __TAURI_INVOKE<ExtensionInstallStatus>("extension_installs_cancel_all"),
+	/**  Queues every failed install again. */
+	extensionInstallsRetry: () => __TAURI_INVOKE<ExtensionInstallStatus>("extension_installs_retry"),
+	/**  Forgets a failed install, or every failure when no extension is named. */
+	extensionInstallsDismiss: (repoId: string | null, extensionId: string | null) => __TAURI_INVOKE<ExtensionInstallStatus>("extension_installs_dismiss", { repoId, extensionId }),
 	extensionUninstall: (extensionId: string) => typedError<ExtensionInfo_Serialize[], string>(__TAURI_INVOKE("extension_uninstall", { extensionId })),
 	/**  Saves one of an extension's settings and reloads it. */
 	extensionSettingSet: (extensionId: string, key: string, value: SettingValue) => typedError<ExtensionInfo_Serialize[], string>(__TAURI_INVOKE("extension_setting_set", { extensionId, key, value })),
@@ -688,6 +702,17 @@ export const commands = {
 	appUpdateInstall: () => typedError<AppUpdate, string>(__TAURI_INVOKE("app_update_install")),
 	/**  Opens Raygun's release page or repository in the system's browser (M46.47). */
 	appOpenPage: (url: string) => typedError<null, string>(__TAURI_INVOKE("app_open_page", { url })),
+	/**  Opens an https link from release notes in the system's browser. */
+	appOpenLink: (url: string) => typedError<null, string>(__TAURI_INVOKE("app_open_link", { url })),
+	/**  This version's notes on its first start after an update, until `app_whats_new_seen`. */
+	appWhatsNew: () => typedError<{
+	version: string,
+	notes: string,
+} | null, string>(__TAURI_INVOKE("app_whats_new")),
+	/**  The "What's new" sheet was shown for this version. */
+	appWhatsNewSeen: () => typedError<null, string>(__TAURI_INVOKE("app_whats_new_seen")),
+	/**  The notes bundled with this version and the ones before it, newest first. */
+	appReleaseNotes: () => __TAURI_INVOKE<ReleaseNotes[]>("app_release_notes"),
 	/**  Forgets a song's kept lyrics, transcription and own lyrics (M46.46: Delete saved lyrics). */
 	lyricsForget: (query: TrackQuery) => typedError<null, string>(__TAURI_INVOKE("lyrics_forget", { query })),
 	/**  How many songs have lyrics and transcriptions kept (M46.46). */
@@ -721,14 +746,12 @@ export const commands = {
 	mcpSetEnabled: (enabled: boolean) => typedError<McpStatus, string>(__TAURI_INVOKE("mcp_set_enabled", { enabled })),
 	/**  Issues a new MCP token; clients with the old one must be given the new one. */
 	mcpNewToken: () => typedError<McpStatus, string>(__TAURI_INVOKE("mcp_new_token")),
-	/**  The LAN remote's switch, address, pairing code and paired devices. */
+	/**  The linking server's switch, address and open link code (M46.47). */
 	remoteStatus: () => typedError<RemoteStatus, string>(__TAURI_INVOKE("remote_status")),
-	/**  Turns the LAN remote on (opening a pairing code) or off. */
+	/**  Turns the linking server on or off (`devices_set_sharing` does it with sync). */
 	remoteSetEnabled: (enabled: boolean) => typedError<RemoteStatus, string>(__TAURI_INVOKE("remote_set_enabled", { enabled })),
-	/**  Opens a new pairing code, replacing the previous one. */
+	/**  Opens a new one-time code for this device's link QR code, replacing the previous one. */
 	remoteNewCode: () => typedError<RemoteStatus, string>(__TAURI_INVOKE("remote_new_code")),
-	/**  Removes a paired device; it loses access at once. */
-	remoteForgetDevice: (id: string) => typedError<RemoteStatus, string>(__TAURI_INVOKE("remote_forget_device", { id })),
 	/**  Device sync's switch, identity, open pairing, peers and log. */
 	syncStatus: () => typedError<SyncStatus, string>(__TAURI_INVOKE("sync_status")),
 	syncSetEnabled: (enabled: boolean) => typedError<SyncStatus, string>(__TAURI_INVOKE("sync_set_enabled", { enabled })),
@@ -1258,6 +1281,12 @@ export const commands = {
 	videoSourceWatch: (titleId: string, episodeId: string | null) => typedError<null, string>(__TAURI_INVOKE("video_source_watch", { titleId, episodeId })),
 	/**  Watches a Stremio movie or series from `video_id` (the first unwatched episode when none). */
 	stremioWatch: (kind: string, id: string, videoId: string | null) => typedError<null, string>(__TAURI_INVOKE("stremio_watch", { kind, id, videoId })),
+	/**
+	 *  A source picker's servers or addons in the order a session tries them for a title (`group`:
+	 *  `title:<id>` or `stremio:<kind>:<id>`; `title` the show's name), with what played last time
+	 *  marked (M46.49).
+	 */
+	videoSourceOrder: (group: string, title: string | null, sources: SourceCandidate[]) => typedError<SourceRank[], string>(__TAURI_INVOKE("video_source_order", { group, title, sources })),
 	/**  The video player's words in the app's language (episodes, sources, next episode...). */
 	videoSetPlayerLabels: (labels: { [key in string]: string }) => __TAURI_INVOKE<void>("video_set_player_labels", { labels }),
 	/**  A report from the webview's video player (desktop, M46.4), in the Android player's JSON. */
@@ -1297,11 +1326,13 @@ export const events = {
 	deviceStateEvent: makeEvent<DeviceStateEvent>("device-state-event"),
 	engineCommandEvent: makeEvent<EngineCommandEvent>("engine-command-event"),
 	exportEvent: makeEvent<ExportEvent>("export-event"),
+	extensionInstallsEvent: makeEvent<ExtensionInstallsEvent>("extension-installs-event"),
 	extensionsChangedEvent: makeEvent<ExtensionsChangedEvent_Deserialize>("extensions-changed-event"),
 	importEvent: makeEvent<ImportEvent>("import-event"),
 	incognitoEvent: makeEvent<IncognitoEvent>("incognito-event"),
 	libraryScanEvent: makeEvent<LibraryScanEvent>("library-scan-event"),
 	localFilesEvent: makeEvent<LocalFilesEvent>("local-files-event"),
+	lyricsTranscribedEvent: makeEvent<LyricsTranscribedEvent>("lyrics-transcribed-event"),
 	lyricsTranslationEvent: makeEvent<LyricsTranslationEvent>("lyrics-translation-event"),
 	madeForYouEvent: makeEvent<MadeForYouEvent>("made-for-you-event"),
 	mangaDownloadsEvent: makeEvent<MangaDownloadsEvent>("manga-downloads-event"),
@@ -1749,6 +1780,10 @@ export type Captions = {
 	engine: TranscriptionEngine,
 	/**  The episode's feed has a transcript of its own (M46.36: the listener can go back to it). */
 	hasFeed?: boolean,
+	/**  A song waiting to be heard: its place in line, 1 being next. */
+	queued?: number | null,
+	/**  How long the recording being heard is, when known: with `covered`, how far it got. */
+	durationMs?: number | null,
 };
 
 /**
@@ -2230,6 +2265,62 @@ export type ExtensionInfo_Serialize = {
 	website: string | null,
 };
 
+/**  One install in the queue. */
+export type ExtensionInstall = {
+	repoId: string,
+	extensionId: string,
+	name: string,
+	state: ExtensionInstallState,
+	/**  While it installs. */
+	phase: ExtensionInstallPhase | null,
+	/**  Why it failed. */
+	error: string | null,
+	/**  When it ended (Unix ms). */
+	finishedAt: number | null,
+	/**  The batch it belongs to; failures of earlier batches stay listed until retried. */
+	batch: number,
+};
+
+/**  What the install running now does. */
+export type ExtensionInstallPhase = "downloading" | 
+/**  A Nuclear plugin converts, a Shosetsu script gathers its libraries, a package is checked. */
+"converting" | 
+/**  The files are written. */
+"installing" | 
+/**  The extensions load again with the new ones (once, at the end of a batch). */
+"loading";
+
+/**  An extension to install from a repository, as the catalogue lists it. */
+export type ExtensionInstallRequest = {
+	repoId: string,
+	extensionId: string,
+	name: string,
+};
+
+/**  Where an install in the queue is. */
+export type ExtensionInstallState = "queued" | "installing" | "done" | "failed";
+
+/**  The extension install queue (one at a time, in the order asked). */
+export type ExtensionInstallStatus = {
+	/**  Counts from 1; 0 before the first batch. */
+	batch: number,
+	/**  Installs of this batch still queued or running, then ones that ended. */
+	items: ExtensionInstall[],
+	/**  This batch's installs, cancelled ones left out. */
+	total: number,
+	done: number,
+	failed: number,
+	cancelled: number,
+	/**  Something installs, waits to, or the extensions load again. */
+	running: boolean,
+	/**  The extension installing now, by name. */
+	current: string | null,
+	phase: ExtensionInstallPhase | null,
+};
+
+/**  The extension install queue changed: an install started, moved on a phase or ended. */
+export type ExtensionInstallsEvent = ExtensionInstallStatus;
+
 /**  Where an extension was loaded from. */
 export type ExtensionOrigin = 
 /**  Compiled into the app. */
@@ -2576,6 +2667,16 @@ export type LibraryTrack = {
 	artworkUrl: string | null,
 };
 
+export type LinkCandidate = {
+	/**
+	 *  As sessions label it: a server's link label, or an addon stream's name and description
+	 *  joined by " · ".
+	 */
+	label: string,
+	/**  Stremio's `bingeGroup`. */
+	tag: string | null,
+};
+
 /**  An episode or a book to go on with, for Home's Continue listening (M46.48). */
 export type ListeningItem = {
 	kind: SpokenKind,
@@ -2718,6 +2819,12 @@ export type LyricsClearScope = "all" |
 "notSaved" | "favorites" | 
 /**  Favorites and playlists. */
 "saved" | "downloaded";
+
+/**
+ *  A song's transcription finished and its words are now the song's lyrics; carries its
+ *  captions key (`song:<track key>`).
+ */
+export type LyricsTranscribedEvent = string;
 
 /**  Lyrics in another language, or romanized, line for line (M46.48). */
 export type LyricsTranslation = {
@@ -3412,7 +3519,9 @@ export type PermissionKind =
 /**  Android 17's local network access. */
 "localNetwork" | 
 /**  Installing Raygun's own updates. */
-"installApps";
+"installApps" | 
+/**  The camera, to scan another device's link QR code. */
+"camera";
 
 /**  A question to show once: the permission and why it's needed now. */
 export type PermissionPrompt = {
@@ -3733,7 +3842,7 @@ export type RailOrder = "custom" |
 export type RailPin = {
 	/**
 	 *  `favorites`, `downloaded`, `localFiles`, `playlist`, `album`, `artist`, `podcast`,
-	 *  `audiobook`, `manga`, `novel`, `video`, `mix`.
+	 *  `audiobook`, `manga`, `novel`, `video`, `mix`, `website` (opens the site).
 	 */
 	kind: string,
 	/**  The page it opens: a route and its search parameters. */
@@ -3767,6 +3876,8 @@ export type RailPrefs = {
 	autoAdd?: boolean,
 	/**  Automatic pins kept at most, 1–1000; the oldest go first. Pins made by hand stay. */
 	limit?: number,
+	/**  The phone's quick access drawer shows names beside the pins; off, icons only. */
+	drawerExpanded?: boolean,
 };
 
 /**  How a title is read (M27). */
@@ -3793,23 +3904,26 @@ export type RecentSearch = {
 /**  A release's kind (M46.36), as MusicBrainz and Deezer name them. */
 export type ReleaseKind = "album" | "single" | "ep" | "compilation" | "live" | "other";
 
-export type RemoteDevice = {
-	id: string,
-	name: string,
-	/**  Unix ms. */
-	pairedAt: number | null,
+/**  One version's release notes (Markdown), bundled from `docs/releases` or read from GitHub. */
+export type ReleaseNotes = {
+	version: string,
+	notes: string,
 };
 
-/**  The LAN remote's switch, address, open pairing code and paired devices. */
+/**  The server's switch, its address, and the open link code (M46.47). */
 export type RemoteStatus = {
 	enabled: boolean,
 	/**  `http://<LAN IP>:<port>` while it runs. */
 	url: string | null,
-	/**  The address with the open pairing code, while a code is open. */
-	pairUrl: string | null,
-	/**  `pair_url` as a QR code (SVG markup). */
-	pairQrSvg: string | null,
-	devices: RemoteDevice[],
+	/**
+	 *  What this device's link QR code says (`raygun:link?at=…&code=…&name=…`), while a
+	 *  one-time code is open.
+	 */
+	linkText: string | null,
+	/**  `link_text` as a QR code (SVG markup). */
+	linkQrSvg: string | null,
+	/**  Unix ms when the open code stops working. */
+	linkExpiresAt: number | null,
 	error: string | null,
 };
 
@@ -4342,6 +4456,14 @@ export type SoundPrefs = {
 	crossfadeMs?: number,
 };
 
+/**  A source as a picker shows it, to order (`video_source_order`). */
+export type SourceCandidate = {
+	/**  The server's or addon's name. */
+	name: string,
+	/**  Its links, when known. */
+	links: LinkCandidate[],
+};
+
 /**
  *  What picking a source for a song does (M46.48): with `assign`, every saved copy, the queue
  *  and the resolver's remembered pick take its stream (the download mode only downloads from
@@ -4369,6 +4491,20 @@ export type SourceFilter =
 { kind: "select"; key: string; label: string; options: FilterOption[]; default: string | null } | 
 /**  Tags to include or exclude (three-state chips). */
 { kind: "tags"; key: string; label: string; options: FilterOption[] } | { kind: "toggle"; key: string; label: string; default: boolean };
+
+/**  A source in play order, with how it did. */
+export type SourceRank = {
+	/**  Its place in the list given. */
+	index: number,
+	/**  It played last time for this title. */
+	worked: boolean,
+	/**  It failed lately and hasn't worked since. */
+	failing: boolean,
+	/**  Its link that played last time: its place in the list given. */
+	workedLink: number | null,
+	/**  Its links' places in the list given, in play order. */
+	links: number[],
+};
 
 /**  One source's first page of results in a search across sources. */
 export type SourceSearchResult = SourceSearchResult_Serialize | SourceSearchResult_Deserialize;

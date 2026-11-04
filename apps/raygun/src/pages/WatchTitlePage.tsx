@@ -33,9 +33,13 @@ import { SourceIssue } from '../shell/SourceIssue';
 import { episodeLabel, isGenericName, showsSeasons } from '../watch/episodeLabel';
 import { LoadMore } from '../shell/LoadMore';
 
-/** "S1 E2 · Pilot", or the title alone when it isn't numbered; `showSeason` from `showsSeasons`. */
-const videoLabel = (video: StremioVideo, showSeason: boolean) =>
-  episodeLabel({ season: video.season, number: video.episode, name: video.title }, showSeason);
+/** "S1 E2 · Pilot" without the show's name, or the title alone when it isn't numbered; `showSeason` from `showsSeasons`. */
+const videoLabel = (video: StremioVideo, showSeason: boolean, show: string) =>
+  episodeLabel(
+    { season: video.season, number: video.episode, name: video.title },
+    showSeason,
+    show,
+  );
 
 /** Where watching continues, as Rust decides it (`StremioMeta.continueVideoId`). */
 const continueAt = (videos: StremioVideo[], id: string | null) =>
@@ -110,7 +114,7 @@ const Episodes: FC<{
       )}
       <ul className="flex flex-col gap-3">
         {videos.slice(0, count).map((video) => {
-          const label = videoLabel(video, showSeason);
+          const label = videoLabel(video, showSeason, meta.name);
           const target = {
             kind: meta.kind,
             metaId: meta.id,
@@ -293,7 +297,7 @@ export const WatchTitlePage: FC = () => {
     metaId: view.id,
     videoId: video.id,
     title: view.name,
-    subtitle: videoLabel(video, showSeason),
+    subtitle: videoLabel(video, showSeason, view.name),
     poster: video.thumbnail ?? view.poster,
     titleId: view.titleId,
   });

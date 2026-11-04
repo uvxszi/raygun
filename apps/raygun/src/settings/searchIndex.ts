@@ -207,7 +207,13 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
   ),
   ...on('data', 'developer.title')('developer.add'),
 
-  ...on('devices')('link.sharing', 'devices.deviceName', 'devices.whatSyncs', 'link.withCode'),
+  ...on('devices')(
+    'link.sharing',
+    'devices.deviceName',
+    'devices.whatSyncs',
+    'link.showCode',
+    'link.scanCode',
+  ),
   ...on('ai')('ai.translators', 'ai.transcription.title', 'ai.models', 'mcp.title'),
   ...on('about')('updater.check', 'settings.license'),
 ];

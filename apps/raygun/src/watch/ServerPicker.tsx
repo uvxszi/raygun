@@ -1,10 +1,12 @@
-import type { VideoLinkView, VideoServerView } from '@raygun/bindings';
-import { Copy, Download, ExternalLink, LoaderCircle, Play, Star, X } from 'lucide-react';
+import type { SourceRank, VideoLinkView, VideoServerView } from '@raygun/bindings';
+import { Copy, Download, ExternalLink, History, LoaderCircle, Play, Star, X } from 'lucide-react';
+import { useMemo } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useBackLayer } from '../shell/backLayers';
 import { OverflowMenu } from '../shell/OverflowMenu';
+import { inRankOrder, serverLinkLabel, useSourceOrder } from './useSourceOrder';
 import { useDownloadSourceVideo } from './useVideoLibrary';
 import { useVideoLinks, useVideoServers, useVideoSourcePlay } from './useVideoSources';
 import { SourceIssue } from '../shell/SourceIssue';
@@ -43,11 +45,16 @@ const LinkList: FC<{
   onPlay: PlayLink;
   onDownload: (link: VideoLinkView) => void;
   busy: boolean;
-}> = ({ links, intent, onPlay, onDownload, busy }) => {
+  /** The link that played last time: its place in `links`. */
+  workedLink?: number | null;
+}> = ({ links, intent, onPlay, onDownload, busy, workedLink = null }) => {
   const { t } = useTranslation();
+  const worked = (link: VideoLinkView) => workedLink !== null && links[workedLink] === link;
+  // The link that played last time first, as a session tries it.
+  const shown = [...links.filter(worked), ...links.filter((link) => !worked(link))];
   return (
     <ul className="flex flex-col gap-2">
-      {links.map((link) => (
+      {shown.map((link) => (
         <li key={link.url} className="flex items-stretch gap-2">
           <button
             type="button"
@@ -71,6 +78,12 @@ const LinkList: FC<{
                 <span className="text-muted text-xs">{t('watch.cantDownload')}</span>
               )}
             </span>
+            {worked(link) && (
+              <span className="text-muted flex shrink-0 items-center gap-1 text-xs">
+                <History aria-hidden size={14} />
+                {t('videoPlayer.workedLastTime')}
+              </span>
+            )}
             {link.preferred && (
               <span className="text-primary flex items-center gap-1 text-xs font-semibold">
                 <Star aria-hidden size={14} />
@@ -131,7 +144,8 @@ const ServerItem: FC<{
   onPlay: PlayLink;
   onDownload: (link: VideoLinkView) => void;
   busy: boolean;
-}> = ({ sourceId, server, intent, onPlay, onDownload, busy }) => {
+  rank: SourceRank | null;
+}> = ({ sourceId, server, intent, onPlay, onDownload, busy, rank }) => {
   const { t } = useTranslation();
   const links = useVideoLinks(sourceId, server.id, server.links === null);
   const list = server.links ?? links.data;
@@ -151,6 +165,10 @@ const ServerItem: FC<{
     >
       <h3 className="text-muted flex items-center gap-2 text-xs font-semibold tracking-wide uppercase">
         {server.name}
+        {rank?.worked && !rank.failing && (
+          <span className="normal-case">· {t('videoPlayer.workedLastTime')}</span>
+        )}
+        {rank?.failing && <span className="normal-case">· {t('videoPlayer.unreliable')}</span>}
         {state === 'resolving' && (
           <LoaderCircle
             role="status"
@@ -173,6 +191,7 @@ const ServerItem: FC<{
           onPlay={onPlay}
           onDownload={onDownload}
           busy={busy}
+          workedLink={server.links ? rank?.workedLink : null}
         />
       )}
     </li>
@@ -191,6 +210,20 @@ export const ServerPicker: FC<{
   const { t } = useTranslation();
   useBackLayer(true, onClose);
   const servers = useVideoServers(target.sourceId, target.remoteId);
+  const video = t('watch.video');
+  const candidates = useMemo(
+    () =>
+      (servers.data ?? []).map((server) => ({
+        name: server.name,
+        links: (server.links ?? []).map((link) => ({
+          label: serverLinkLabel(link, video),
+          tag: null,
+        })),
+      })),
+    [servers.data, video],
+  );
+  // The order a session would try them in, what played last time first.
+  const ranks = useSourceOrder(`title:${target.titleId}`, null, candidates);
   const play = useVideoSourcePlay();
   const download = useDownloadSourceVideo();
 
@@ -244,9 +277,10 @@ export const ServerPicker: FC<{
           )}
           {servers.data && servers.data.length > 0 && (
             <ul className="flex flex-col gap-4">
-              {servers.data.map((server) => (
+              {inRankOrder(servers.data, ranks).map(({ item: server, rank }) => (
                 <ServerItem
                   key={server.id}
+                  rank={rank}
                   sourceId={target.sourceId}
                   server={server}
                   intent={intent}

@@ -15,7 +15,7 @@ import { useMenuSheetsStore } from './menuSheetsStore';
 import type { DetailsToEdit, SongsToAdd } from './menuSheetsStore';
 
 const ROW =
-  'hover:bg-background flex h-12 w-full items-center gap-3 rounded-lg px-2 text-left text-sm';
+  'hover:bg-background flex h-12 w-full items-center gap-3 rounded-lg px-2 text-left text-sm pointer-coarse:h-auto pointer-coarse:min-h-[max(3rem,7dvh)] pointer-coarse:gap-4 pointer-coarse:text-[clamp(1rem,4.3vw,1.125rem)] pointer-coarse:[&>svg]:size-[22px]';
 
 /** Adds an album's, a mix's or a playlist's songs to a playlist, or to a new one. */
 const AddSongsSheet: FC<{ songs: SongsToAdd; onClose: () => void }> = ({ songs, onClose }) => {

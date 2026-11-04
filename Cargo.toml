@@ -89,6 +89,26 @@ opt-level = 3
 [profile.dev.package.raygun-ai]
 opt-level = 3
 
+# Decoding songs and episodes for transcription (and downloads' transcoding): unoptimized, a
+# debug build's MP3 or AAC decode took seconds per 30-second window on a phone.
+[profile.dev.package.symphonia-core]
+opt-level = 3
+
+[profile.dev.package.symphonia-bundle-mp3]
+opt-level = 3
+
+[profile.dev.package.symphonia-codec-aac]
+opt-level = 3
+
+[profile.dev.package.symphonia-bundle-flac]
+opt-level = 3
+
+[profile.dev.package.symphonia-codec-vorbis]
+opt-level = 3
+
+[profile.dev.package.symphonia-format-isomp4]
+opt-level = 3
+
 # Panics unwind, never abort (M46.7): on Windows, Lua's errors (Shosetsu scripts, mlua) travel as
 # SEH unwinds through Rust frames, and with `panic = "abort"` any script error ended the whole app.
 # Unwinding also lets a panic stop one worker thread instead of the process.

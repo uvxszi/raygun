@@ -95,9 +95,15 @@ describe('Connect', () => {
     expect(commands.connectDisconnect).toHaveBeenCalledWith(true);
   });
 
-  it('adds a device by its address', async () => {
+  it("says in one line when a device isn't linked, and keeps playing here", async () => {
     const user = userEvent.setup();
-    commands.connectAdd.mockResolvedValue(ok(PC));
+    commands.connectDevices.mockResolvedValue(
+      ok([{ ...PC, id: 'tablet', name: 'Tablet', kind: 'phone', paired: false }]),
+    );
+    commands.connectTo.mockResolvedValueOnce({
+      status: 'error',
+      error: 'Tablet isn’t linked with this device. Link them in Devices first.',
+    });
     await AppShellWrapper.mount();
     AppShellWrapper.playing(QUEUE, 0);
     await AppShellWrapper.miniPlayer.title;
@@ -108,11 +114,11 @@ describe('Connect', () => {
       }),
     );
     const sheet = await screen.findByTestId('connect-sheet');
-    expect(await within(sheet).findByText(/No other devices yet/)).toBeInTheDocument();
-    await user.click(within(sheet).getByRole('button', { name: 'Add a device by address' }));
-    await user.type(within(sheet).getByRole('textbox'), '10.0.2.2:8820');
-    await user.click(within(sheet).getByRole('button', { name: 'Add' }));
-    expect(commands.connectAdd).toHaveBeenCalledWith('10.0.2.2:8820');
+    expect(await within(sheet).findByText('Not linked: link it in Devices')).toBeInTheDocument();
+    await user.click(within(sheet).getByRole('button', { name: 'Play on Tablet' }));
+    expect(await within(sheet).findByText("Couldn't play on Tablet")).toBeInTheDocument();
+    expect(screen.queryByTestId('playing-on')).not.toBeInTheDocument();
+    expect(await AppShellWrapper.miniPlayer.title).toHaveTextContent('Intro');
   });
 
   it('asks before another device first plays here', async () => {

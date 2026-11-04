@@ -31,6 +31,7 @@ export const LAYOUT_ENTRIES: Record<LayoutSurface, readonly (readonly [string, b
     ['manga', true],
     ['novel', true],
     ['video', true],
+    ['websites', true],
   ],
   audioViews: [
     ['all', true],

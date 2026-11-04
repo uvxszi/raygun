@@ -222,6 +222,7 @@ private fun soundConfig(sound: JSONObject): SoundConfig {
         Permission(strings = [Manifest.permission.READ_EXTERNAL_STORAGE], alias = "storage"),
         Permission(strings = [Manifest.permission.ACCESS_LOCAL_NETWORK], alias = "localNetwork"),
         Permission(strings = [Manifest.permission.POST_NOTIFICATIONS], alias = "notifications"),
+        Permission(strings = [Manifest.permission.CAMERA], alias = "camera"),
     ],
 )
 class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
@@ -1229,6 +1230,17 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
             )
         }
         rows.add(Permissions.row("installApps", if (Permissions.canInstall(context)) "granted" else "blocked"))
+        // Scanning another device's link QR code (the WebView's camera needs it granted here).
+        rows.add(
+            Permissions.row(
+                "camera",
+                when (getPermissionState("camera")) {
+                    PermissionState.GRANTED -> "granted"
+                    PermissionState.DENIED -> "blocked"
+                    else -> "denied"
+                },
+            ),
+        )
         return Permissions.list(rows)
     }
 
@@ -1276,6 +1288,11 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
                 startActivityForResult(invoke, Permissions.settingsIntent(context, kind), "permissionPageClosed")
             }
             "installApps" -> startActivityForResult(invoke, Permissions.settingsIntent(context, kind), "permissionPageClosed")
+            "camera" -> if (getPermissionState("camera") != PermissionState.DENIED) {
+                requestPermissionForAlias("camera", invoke, "permissionAnswered")
+            } else {
+                startActivityForResult(invoke, Permissions.settingsIntent(context, kind), "permissionPageClosed")
+            }
             else -> invoke.resolve(permissionRows())
         }
     }

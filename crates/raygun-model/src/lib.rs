@@ -74,6 +74,14 @@ pub struct AppUpdate {
     pub message: Option<String>,
 }
 
+/// One version's release notes (Markdown), bundled from `docs/releases` or read from GitHub.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseNotes {
+    pub version: String,
+    pub notes: String,
+}
+
 /// How the data folder was chosen (ARCHITECTURE §3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -245,6 +253,9 @@ pub struct RailPrefs {
     /// Automatic pins kept at most, 1–1000; the oldest go first. Pins made by hand stay.
     #[serde(default = "auto_pin_limit")]
     pub limit: u32,
+    /// The phone's quick access drawer shows names beside the pins; off, icons only.
+    #[serde(default = "drawer_expanded")]
+    pub drawer_expanded: bool,
 }
 
 fn pin_added() -> bool {
@@ -253,6 +264,10 @@ fn pin_added() -> bool {
 
 fn auto_pin_limit() -> u32 {
     20
+}
+
+fn drawer_expanded() -> bool {
+    true
 }
 
 /// Automatic quick access pins allowed at most (M46.41).
@@ -266,6 +281,7 @@ impl Default for RailPrefs {
             seeded: false,
             auto_add: true,
             limit: auto_pin_limit(),
+            drawer_expanded: drawer_expanded(),
         }
     }
 }
@@ -274,7 +290,7 @@ impl Default for RailPrefs {
 #[serde(rename_all = "camelCase")]
 pub struct RailPin {
     /// `favorites`, `downloaded`, `localFiles`, `playlist`, `album`, `artist`, `podcast`,
-    /// `audiobook`, `manga`, `novel`, `video`, `mix`.
+    /// `audiobook`, `manga`, `novel`, `video`, `mix`, `website` (opens the site).
     pub kind: String,
     /// The page it opens: a route and its search parameters.
     pub to: String,
@@ -831,6 +847,12 @@ pub struct Captions {
     /// The episode's feed has a transcript of its own (M46.36: the listener can go back to it).
     #[serde(default)]
     pub has_feed: bool,
+    /// A song waiting to be heard: its place in line, 1 being next.
+    #[serde(default)]
+    pub queued: Option<u32>,
+    /// How long the recording being heard is, when known: with `covered`, how far it got.
+    #[serde(default)]
+    pub duration_ms: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -2921,6 +2943,76 @@ pub struct RepoCatalog {
     pub error: Option<String>,
 }
 
+/// An extension to install from a repository, as the catalogue lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionInstallRequest {
+    pub repo_id: String,
+    pub extension_id: String,
+    pub name: String,
+}
+
+/// Where an install in the queue is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ExtensionInstallState {
+    Queued,
+    Installing,
+    Done,
+    Failed,
+}
+
+/// What the install running now does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ExtensionInstallPhase {
+    Downloading,
+    /// A Nuclear plugin converts, a Shosetsu script gathers its libraries, a package is checked.
+    Converting,
+    /// The files are written.
+    Installing,
+    /// The extensions load again with the new ones (once, at the end of a batch).
+    Loading,
+}
+
+/// One install in the queue.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionInstall {
+    pub repo_id: String,
+    pub extension_id: String,
+    pub name: String,
+    pub state: ExtensionInstallState,
+    /// While it installs.
+    pub phase: Option<ExtensionInstallPhase>,
+    /// Why it failed.
+    pub error: Option<String>,
+    /// When it ended (Unix ms).
+    pub finished_at: Option<f64>,
+    /// The batch it belongs to; failures of earlier batches stay listed until retried.
+    pub batch: u32,
+}
+
+/// The extension install queue (one at a time, in the order asked).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionInstallStatus {
+    /// Counts from 1; 0 before the first batch.
+    pub batch: u32,
+    /// Installs of this batch still queued or running, then ones that ended.
+    pub items: Vec<ExtensionInstall>,
+    /// This batch's installs, cancelled ones left out.
+    pub total: u32,
+    pub done: u32,
+    pub failed: u32,
+    pub cancelled: u32,
+    /// Something installs, waits to, or the extensions load again.
+    pub running: bool,
+    /// The extension installing now, by name.
+    pub current: Option<String>,
+    pub phase: Option<ExtensionInstallPhase>,
+}
+
 /// A track found by an online provider.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -3773,29 +3865,22 @@ pub struct McpStatus {
     pub error: Option<String>,
 }
 
-// ---- LAN remote (M20) ----
+// ---- The server other devices link with and play through (M20, M46.15) ----
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RemoteDevice {
-    pub id: String,
-    pub name: String,
-    /// Unix ms.
-    pub paired_at: f64,
-}
-
-/// The LAN remote's switch, address, open pairing code and paired devices.
+/// The server's switch, its address, and the open link code (M46.47).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteStatus {
     pub enabled: bool,
     /// `http://<LAN IP>:<port>` while it runs.
     pub url: Option<String>,
-    /// The address with the open pairing code, while a code is open.
-    pub pair_url: Option<String>,
-    /// `pair_url` as a QR code (SVG markup).
-    pub pair_qr_svg: Option<String>,
-    pub devices: Vec<RemoteDevice>,
+    /// What this device's link QR code says (`raygun:link?at=…&code=…&name=…`), while a
+    /// one-time code is open.
+    pub link_text: Option<String>,
+    /// `link_text` as a QR code (SVG markup).
+    pub link_qr_svg: Option<String>,
+    /// Unix ms when the open code stops working.
+    pub link_expires_at: Option<f64>,
     pub error: Option<String>,
 }
 
@@ -3834,6 +3919,13 @@ pub enum ConnectCommand {
         /// Where the queue was played from (`QueueSnapshot::context`).
         #[serde(default)]
         context: Option<PlayContext>,
+        /// The play order (indexes into `items`) when a whole player moves (Connect's transfer):
+        /// kept as it was, shuffled or not, instead of shuffled again.
+        #[serde(default)]
+        order: Option<Vec<u32>>,
+        /// The repeat mode that goes with a moved player.
+        #[serde(default)]
+        repeat: Option<RepeatMode>,
     },
     #[serde(rename_all = "camelCase")]
     Enqueue {
@@ -4755,13 +4847,15 @@ pub const LAYOUT_TABS: [(&str, bool); 13] = [
     ("downloads", false),
     ("settings", false),
 ];
-pub const LAYOUT_LIBRARY_MEDIA: [(&str, bool); 5] = [
+pub const LAYOUT_LIBRARY_MEDIA: [(&str, bool); 6] = [
     // Every kind at once (M46.37), first so the Library opens on it.
     ("all", true),
     ("music", true),
     ("manga", true),
     ("novel", true),
     ("video", true),
+    // Sites added by address (M46.3).
+    ("websites", true),
 ];
 pub const LAYOUT_AUDIO_VIEWS: [(&str, bool); 9] = [
     ("all", true),
@@ -6291,6 +6385,8 @@ pub enum PermissionKind {
     LocalNetwork,
     /// Installing Raygun's own updates.
     InstallApps,
+    /// The camera, to scan another device's link QR code.
+    Camera,
 }
 
 /// Where a permission stands.

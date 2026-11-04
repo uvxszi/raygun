@@ -1821,6 +1821,7 @@ const SessionPanel: FC<SessionPanelProps> = ({ kind, positionMs, onClose }) => {
   const id = useVideoPlayerStore((state) => state.request?.id ?? '');
   const episodes = useVideoPlayerStore((state) => state.episodes);
   const sources = useVideoPlayerStore((state) => state.sources);
+  const playingFrom = useVideoPlayerStore((state) => state.playingFrom);
   const autoplay = useVideoPlayerStore((state) => state.autoplay);
   const prefs = useVideoPlayerStore((state) => state.prefs);
   if (kind === 'episodes') {
@@ -1864,6 +1865,11 @@ const SessionPanel: FC<SessionPanelProps> = ({ kind, positionMs, onClose }) => {
     );
   return (
     <PlayerPanel title={t('videoPlayer.sources')} onClose={onClose} at="top">
+      {playingFrom && (
+        <p className="text-muted px-4 py-2 text-sm">
+          {t('videoPlayer.playingFrom', { n: playingFrom })}
+        </p>
+      )}
       {shown.map(({ group, index }) => (
         <div key={`${index}-${group.name}`} className="flex flex-col">
           <PanelHeading>
@@ -1872,12 +1878,19 @@ const SessionPanel: FC<SessionPanelProps> = ({ kind, positionMs, onClose }) => {
             {group.state === 'failed' && ` · ${t('videoPlayer.failed')}`}
             {group.state === 'empty' && ` · ${t('videoPlayer.empty')}`}
             {group.unreliable && ` · ${t('videoPlayer.unreliable')}`}
+            {group.worked && !group.unreliable && ` · ${t('videoPlayer.workedLastTime')}`}
           </PanelHeading>
           {group.links.map((link, linkIndex) => (
             <PanelOption
               key={`${linkIndex}-${link.label}`}
               label={link.label}
-              hint={link.failed ? t('videoPlayer.failed') : null}
+              hint={
+                link.failed
+                  ? t('videoPlayer.failed')
+                  : link.worked
+                    ? t('videoPlayer.workedLastTime')
+                    : null
+              }
               selected={link.current}
               onSelect={() => {
                 if (link.current) return;
