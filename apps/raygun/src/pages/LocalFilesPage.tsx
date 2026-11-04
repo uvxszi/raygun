@@ -66,7 +66,6 @@ type Actions = ReturnType<typeof useLocalFolderActions>;
 const FolderRow: FC<{ folder: LocalFolder; actions: Actions }> = ({ folder, actions }) => {
   const { t } = useTranslation();
   const { add, remove, rescan, allowAccess } = actions;
-  const mediaGate = useMediaGate();
   const { progress } = folder;
   return (
     <li
@@ -96,7 +95,7 @@ const FolderRow: FC<{ folder: LocalFolder; actions: Actions }> = ({ folder, acti
               <button
                 type="button"
                 disabled={add.isPending}
-                onClick={() => void mediaGate.guard(() => add.mutate())}
+                onClick={() => add.mutate()}
                 className={ROW_BUTTON}
               >
                 {t('localFiles.pickAgain')}
@@ -175,6 +174,7 @@ export const LocalFilesPage: FC = () => {
   const folders = useLocalFolders();
   const actions = useLocalFolderActions();
   const { add, remove, rescan, allowAccess } = actions;
+  const mediaGate = useMediaGate();
   const list = folders.data ?? [];
   const totals = KINDS.map(
     (kind) => [kind, list.reduce((sum, folder) => sum + folder.counts[kind], 0)] as const,
@@ -238,7 +238,11 @@ export const LocalFilesPage: FC = () => {
           <EmptyState
             icon={Folder}
             title={t('localFiles.empty')}
-            action={{ label: t('localFiles.add'), icon: FolderPlus, onClick: () => void mediaGate.guard(() => add.mutate()) }}
+            action={{
+              label: t('localFiles.add'),
+              icon: FolderPlus,
+              onClick: () => void mediaGate.guard(() => add.mutate()),
+            }}
           />
           <ul
             aria-label={t('localFiles.holds')}

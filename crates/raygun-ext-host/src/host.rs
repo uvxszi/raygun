@@ -997,6 +997,14 @@ impl Extension {
         }
     }
 
+    /// Its settings: the manifest's, and for a Miru script those it registered.
+    fn settings(&self) -> Vec<manifest::SettingDef> {
+        match self {
+            Self::Js(extension) => extension.settings(),
+            Self::Shosetsu(extension) => extension.manifest().settings.clone(),
+        }
+    }
+
     fn providers(&self) -> Vec<ProviderInfo> {
         match self {
             Self::Js(extension) => extension.providers(),
@@ -1071,7 +1079,17 @@ impl HostState {
                 let _ = reply.send(infos);
             }
             Request::List { reply } => {
-                let _ = reply.send(self.infos.borrow().clone());
+                let mut infos = self.infos.borrow().clone();
+                // A Miru script registers settings while it sets up, which may end after loading.
+                let loaded = self.loaded.borrow();
+                for info in &mut infos {
+                    if let Some(loaded) = loaded.get(&info.id)
+                        && loaded.extension.manifest().runtime == Runtime::Miru
+                    {
+                        info.settings = settings_info(&loaded.extension);
+                    }
+                }
+                let _ = reply.send(infos);
             }
             Request::Call {
                 provider,
@@ -1208,7 +1226,10 @@ impl HostState {
                 .map_err(|_| "loading timed out".to_owned())?
                 .map(|extension| Extension::Shosetsu(Box::new(extension)));
         }
-        user_settings.retain(|key, value| manifest.check_setting(key, value).is_ok());
+        // A Miru script declares its settings as it runs: its values are checked when listed.
+        if manifest.runtime != Runtime::Miru {
+            user_settings.retain(|key, value| manifest.check_setting(key, value).is_ok());
+        }
         let code = source.read(&manifest.entry)?;
         let storage = KvStore::open(data_dir.map(|dir| dir.join("storage.json")));
         let load = JsExtension::load(
@@ -1262,9 +1283,41 @@ impl HostState {
     }
 }
 
+/// An extension's settings with their values; a stored value that no longer fits (a choice the
+/// extension dropped) reads as the default.
+fn settings_info(extension: &Extension) -> Vec<ExtensionSetting> {
+    let values = extension.user_settings();
+    extension
+        .settings()
+        .iter()
+        .map(|setting| {
+            let default = setting.default.as_ref().and_then(SettingValue::from_json);
+            ExtensionSetting {
+                key: setting.key.clone(),
+                label: setting
+                    .label
+                    .clone()
+                    .unwrap_or_else(|| key_label(&setting.key)),
+                kind: match setting.kind {
+                    manifest::SettingKind::Text => SettingKind::Text,
+                    manifest::SettingKind::Number => SettingKind::Number,
+                    manifest::SettingKind::Boolean => SettingKind::Boolean,
+                    manifest::SettingKind::Select => SettingKind::Select,
+                },
+                options: setting.options.clone(),
+                value: values
+                    .get(&setting.key)
+                    .filter(|value| setting.accepts(value))
+                    .and_then(SettingValue::from_json)
+                    .or_else(|| default.clone()),
+                default,
+            }
+        })
+        .collect()
+}
+
 fn loaded_info(extension: &Extension, origin: ExtensionOrigin) -> ExtensionInfo {
     let manifest = extension.manifest();
-    let values = extension.user_settings();
     ExtensionInfo {
         id: manifest.id.clone(),
         name: manifest.name.clone(),
@@ -1285,32 +1338,7 @@ fn loaded_info(extension: &Extension, origin: ExtensionOrigin) -> ExtensionInfo 
         compatibility: manifest.nuclear.as_ref().and_then(compat_report),
         icon: None,
         website: extension.website(),
-        settings: manifest
-            .settings
-            .iter()
-            .map(|setting| {
-                let default = setting.default.as_ref().and_then(SettingValue::from_json);
-                ExtensionSetting {
-                    key: setting.key.clone(),
-                    label: setting
-                        .label
-                        .clone()
-                        .unwrap_or_else(|| key_label(&setting.key)),
-                    kind: match setting.kind {
-                        manifest::SettingKind::Text => SettingKind::Text,
-                        manifest::SettingKind::Number => SettingKind::Number,
-                        manifest::SettingKind::Boolean => SettingKind::Boolean,
-                        manifest::SettingKind::Select => SettingKind::Select,
-                    },
-                    options: setting.options.clone(),
-                    value: values
-                        .get(&setting.key)
-                        .and_then(SettingValue::from_json)
-                        .or_else(|| default.clone()),
-                    default,
-                }
-            })
-            .collect(),
+        settings: settings_info(extension),
     }
 }
 

@@ -78,9 +78,10 @@ describe('Player bar', () => {
     const sheet = await screen.findByTestId('connect-sheet');
     expect(within(sheet).getByText('Pixel')).toBeInTheDocument();
     // Pairing, syncing and the remote live in one place now (M46.43), a link away.
-    expect(
-      within(sheet).getByRole('link', { name: 'Pair, sync and control from other devices' }),
-    ).toHaveAttribute('href', '/settings/devices');
+    expect(within(sheet).getByRole('link', { name: 'Manage devices' })).toHaveAttribute(
+      'href',
+      '/settings/devices',
+    );
   });
 
   it('opens the miniplayer from the desktop bar', async () => {
@@ -206,10 +207,13 @@ describe('Player bar', () => {
     });
     handle.focus();
     await user.keyboard('{ArrowDown}');
-    expect(commands.settingsUpdate).toHaveBeenLastCalledWith({
-      key: 'panels',
-      value: expect.objectContaining({ nextUpRows: 2 }),
-    });
+    // Settings save one after another, so this one may wait for an earlier save.
+    await vi.waitFor(() =>
+      expect(commands.settingsUpdate).toHaveBeenLastCalledWith({
+        key: 'panels',
+        value: expect.objectContaining({ nextUpRows: 2 }),
+      }),
+    );
 
     // The × after the seek bar closes the player: the queue empties.
     await user.click(

@@ -11,7 +11,6 @@ export type LibraryDisplay = Required<LibraryDisplayPrefs>;
 /** Matches `LibraryDisplayPrefs::default()` in raygun-model. */
 export const LIBRARY_DISPLAY_DEFAULTS: LibraryDisplay = {
   mode: 'compactGrid',
-  columnsLandscape: 0,
   tabs: 'categories',
   showCounts: true,
   perCategory: false,
@@ -34,11 +33,8 @@ export const DISPLAY_MODES: LibraryDisplayMode[] = [
 export const TAB_MODES: LibraryTabs[] = ['categories', 'lists', 'none'];
 /** CloudStream's order: what you're on, then what's done or set aside, then what's next. */
 export const LISTS: LibraryList[] = ['reading', 'completed', 'onHold', 'dropped', 'planned'];
-/** Matches `GRID_COLUMNS` in raygun-model (0 fits covers to the screen). */
-export const GRID_COLUMNS = [0, 2, 3, 4, 5, 6, 7, 8];
-
-/** Matches `COVER_WIDTHS` in raygun-model: cover sizes in px, 0 by screen (M46.7). */
-export const COVER_WIDTHS = [0, 90, 100, 110, 120, 140, 160, 180, 200, 240];
+/** Matches `COVER_SIZES` in raygun-model: percent more or less than the screen's own (M46.48). */
+export const COVER_SIZE = { min: -50, max: 100, step: 5 } as const;
 
 /** Words that read differently for videos ("Watching", "Plan to watch"). */
 export const listKey = (list: LibraryList, video: boolean) =>

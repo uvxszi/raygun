@@ -1,20 +1,23 @@
 import { Link } from '@tanstack/react-router';
-import { Check, ChevronRight } from 'lucide-react';
+import { Check, ChevronRight, RotateCcw } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useId, useState } from 'react';
-import type { FC, FormEvent, ReactNode } from 'react';
+import { useEffect, useEffectEvent, useId, useRef, useState } from 'react';
+import type { ChangeEvent, FC, FormEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Sheet } from '../shell/Sheet';
+import { parseSize, shownSize, signedSize } from './sizes';
+import type { SizeLimits } from './sizes';
 import { SHEET_FIELD, SHEET_INPUT, TextField } from '../shell/TextField';
 
 /**
- * Preference rows (Mihon's): a title, a line saying what it does or what's chosen, and the
- * control. Rows sit in titled groups on a settings screen.
+ * Preference rows (Mihon's): a short title, the chosen value or a second line only where it helps
+ * to decide, and the control. Rows sit in groups with a small label. Each row carries its title in
+ * `data-pref`, which settings search scrolls to.
  */
 export const PrefGroup: FC<{ title?: string; children: ReactNode }> = ({ title, children }) => (
-  <section aria-label={title} className="flex flex-col">
-    {title && <h2 className="text-primary px-1 pt-4 pb-1 text-sm font-semibold">{title}</h2>}
+  <section aria-label={title} className="flex flex-col pt-3 first:pt-0">
+    {title && <h2 className="text-muted px-1 pt-1 pb-0.5 text-xs font-semibold">{title}</h2>}
     <ul className="flex flex-col">{children}</ul>
   </section>
 );
@@ -44,7 +47,7 @@ export const PrefSwitch: FC<{
 }> = ({ title, summary, checked, onChange, disabled }) => {
   const titleId = useId();
   return (
-    <li>
+    <li data-pref={title}>
       <button
         type="button"
         role="switch"
@@ -82,7 +85,7 @@ export const PrefChoice = <T,>({
   disabled,
 }: {
   title: string;
-  /** Shown under the current choice, e.g. what the setting changes. */
+  /** Shown under the current choice, only where the choice needs it. */
   summary?: string;
   value: T;
   options: PrefOption<T>[];
@@ -91,12 +94,10 @@ export const PrefChoice = <T,>({
 }) => {
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   const open = anchor !== null;
-  const setOpen = (shown: boolean) => {
-    if (!shown) setAnchor(null);
-  };
+  const close = () => setAnchor(null);
   const current = options.find((option) => Object.is(option.value, value));
   return (
-    <li>
+    <li data-pref={title}>
       <button
         type="button"
         aria-haspopup="dialog"
@@ -116,7 +117,7 @@ export const PrefChoice = <T,>({
         />
       </button>
       {open && (
-        <Sheet title={title} anchor={anchor} onClose={() => setOpen(false)}>
+        <Sheet title={title} anchor={anchor} onClose={close}>
           <div role="radiogroup" aria-label={title} className="-mx-2 flex flex-col">
             {options.map((option) => {
               const selected = Object.is(option.value, value);
@@ -128,7 +129,7 @@ export const PrefChoice = <T,>({
                   aria-checked={selected}
                   onClick={() => {
                     onChange(option.value);
-                    setOpen(false);
+                    close();
                   }}
                   className="hover:bg-background flex items-center gap-4 rounded-xl px-3 py-3 text-left"
                 >
@@ -152,7 +153,46 @@ export const PrefChoice = <T,>({
   );
 };
 
-/** A number on a slider, its value shown beside the title. */
+/** How long a let-go slider shows its own value while the saved one hasn't come back. */
+const DRAFT_MS = 3000;
+
+/**
+ * A range input that saves once the thumb is let go (pointer, touch or keys: the browser's own
+ * `change`), so dragging doesn't write every step. What it shows meanwhile stays until the saved
+ * value comes back (or a while, when saving failed), so the thumb doesn't jump back.
+ */
+const useSlider = (value: number, onChange: (value: number) => void) => {
+  const input = useRef<HTMLInputElement>(null);
+  // The value the thumb is at, and the saved value it was moved from.
+  const [draft, setDraft] = useState<{ at: number; from: number } | null>(null);
+  const shown = draft && draft.from === value ? draft.at : value;
+  const commit = useEffectEvent((element: HTMLInputElement) => {
+    const next = Number(element.value);
+    if (next !== value) onChange(next);
+    window.setTimeout(() => setDraft(null), DRAFT_MS);
+  });
+  useEffect(() => {
+    const element = input.current;
+    if (!element) return;
+    const onCommit = () => commit(element);
+    element.addEventListener('change', onCommit);
+    return () => element.removeEventListener('change', onCommit);
+  }, []);
+
+  return {
+    shown,
+    props: {
+      ref: input,
+      type: 'range' as const,
+      value: shown,
+      onChange: (event: ChangeEvent<HTMLInputElement>) =>
+        setDraft({ at: Number(event.target.value), from: value }),
+      className: 'accent-primary w-full',
+    },
+  };
+};
+
+/** A number on a slider, its value always shown beside the title. */
 export const PrefSlider: FC<{
   title: string;
   summary?: string;
@@ -165,37 +205,137 @@ export const PrefSlider: FC<{
   disabled?: boolean;
 }> = ({ title, summary, value, min, max, step, format, onChange, disabled }) => {
   const titleId = useId();
-  // Moves with the thumb; saved when let go, so dragging doesn't write every step.
-  const [draft, setDraft] = useState<number | null>(null);
-  const shown = draft ?? value;
-  const commit = () => {
-    if (draft !== null && draft !== value) onChange(draft);
-    setDraft(null);
-  };
+  const slider = useSlider(value, onChange);
   return (
-    <li className="flex flex-col gap-2 px-1 py-3">
+    <li data-pref={title} className="flex flex-col gap-2 px-1 py-3">
       <div className="flex items-baseline gap-3">
         <RowText title={title} summary={summary} titleId={titleId} />
-        <span className="text-primary shrink-0 font-semibold tabular-nums">{format(shown)}</span>
+        <span className="text-primary shrink-0 font-semibold tabular-nums">
+          {format(slider.shown)}
+        </span>
       </div>
       <input
-        type="range"
+        {...slider.props}
         aria-labelledby={titleId}
-        aria-valuetext={format(shown)}
+        aria-valuetext={format(slider.shown)}
         min={min}
         max={max}
         step={step}
-        value={shown}
         disabled={disabled}
-        onChange={(event) => setDraft(Number(event.target.value))}
-        onPointerUp={commit}
-        onKeyUp={commit}
-        onBlur={commit}
-        className="accent-primary w-full"
       />
     </li>
   );
 };
+
+export type SizeFieldProps = SizeLimits & {
+  title: string;
+  /** A second line, only where it helps to decide. */
+  summary?: string;
+  /** The stored value; limits and step are in stored units too. */
+  value: number;
+  /** Shown after the number: "%", "px". */
+  unit: string;
+  onChange: (value: number) => void;
+  disabled?: boolean;
+};
+
+/**
+ * A size (M46.48): the screen gives every size, and this adds to it or takes from it. A slider
+ * and a number to type (kept on the step and within the limits), its unit, and Reset back to the
+ * screen's own size, shown as 0. `PrefSize` is the settings row; this is the control itself, for
+ * panels outside settings lists.
+ */
+export const SizeField: FC<SizeFieldProps> = ({
+  title,
+  summary,
+  value,
+  unit,
+  onChange,
+  disabled,
+  ...limits
+}) => {
+  const { t } = useTranslation();
+  const titleId = useId();
+  const slider = useSlider(value, onChange);
+  const { min, max, step, zero = 0, factor = 1 } = limits;
+  const shown = (stored: number) => shownSize(stored, limits);
+  // The field is the browser's while it's being typed in (its key holds still); Enter or leaving
+  // it saves.
+  const [typingKey, setTypingKey] = useState<number | null>(null);
+  const save = (field: HTMLInputElement) => {
+    setTypingKey(null);
+    const next = parseSize(field.value, limits) ?? value;
+    // What was typed shows as it's kept: on the step, within the limits.
+    field.value = String(shown(next));
+    if (next !== value) onChange(next);
+  };
+
+  return (
+    <div data-testid="size-field" className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span id={titleId} className="font-medium">
+            {title}
+          </span>
+          {summary && <span className="text-muted text-sm">{summary}</span>}
+        </span>
+        <label className="bg-surface focus-within:ring-primary flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 focus-within:ring-2">
+          <input
+            // Remade with each new value, unless it's being typed in.
+            key={typingKey ?? slider.shown}
+            type="number"
+            aria-label={t('settings.sizeValue', { name: title })}
+            defaultValue={shown(slider.shown)}
+            min={shown(min)}
+            max={shown(max)}
+            step={Number((step * factor).toPrecision(6))}
+            disabled={disabled}
+            onFocus={(event) => {
+              setTypingKey(slider.shown);
+              event.currentTarget.select();
+            }}
+            onBlur={(event) => save(event.currentTarget)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') event.currentTarget.blur();
+              if (event.key === 'Escape') {
+                event.currentTarget.value = String(shown(value));
+                event.currentTarget.blur();
+              }
+            }}
+            className="w-14 [appearance:textfield] bg-transparent text-right font-semibold tabular-nums outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          />
+          {unit && <span className="text-muted text-sm">{unit}</span>}
+        </label>
+        <button
+          type="button"
+          aria-label={t('settings.sizeReset', { name: title })}
+          title={t('settings.sizeReset', { name: title })}
+          disabled={disabled || value === zero}
+          onClick={() => onChange(zero)}
+          className="text-muted hover:text-foreground hover:bg-surface grid size-9 shrink-0 place-items-center rounded-full disabled:opacity-30"
+        >
+          <RotateCcw aria-hidden size={16} />
+        </button>
+      </div>
+      <input
+        {...slider.props}
+        aria-labelledby={titleId}
+        aria-valuetext={`${signedSize(slider.shown, limits)} ${unit}`.trim()}
+        min={min}
+        max={max}
+        step={step}
+        disabled={disabled}
+      />
+    </div>
+  );
+};
+
+/** A size as a settings row (see {@link SizeField}). */
+export const PrefSize: FC<SizeFieldProps> = (props) => (
+  <li data-pref={props.title} className="px-1 py-3">
+    <SizeField {...props} />
+  </li>
+);
 
 /** A row that opens another screen. */
 export const PrefLink: FC<{
@@ -203,14 +343,43 @@ export const PrefLink: FC<{
   summary?: ReactNode;
   to: string;
   search?: Record<string, unknown>;
+  hash?: string;
   icon?: LucideIcon;
-}> = ({ title, summary, to, search, icon: Icon }) => (
-  <li>
-    <Link to={to} search={search} className={`${ROW} hover:bg-surface`}>
+}> = ({ title, summary, to, search, hash, icon: Icon }) => (
+  <li data-pref={title}>
+    <Link to={to} search={search} hash={hash} className={`${ROW} hover:bg-surface`}>
       {Icon && <Icon aria-hidden size={22} className="text-primary shrink-0" />}
       <RowText title={title} summary={summary} />
       <ChevronRight aria-hidden size={18} className="text-muted shrink-0" />
     </Link>
+  </li>
+);
+
+/** A row that does something (Create backup, Clear history); `danger` for what removes data. */
+export const PrefAction: FC<{
+  title: string;
+  summary?: ReactNode;
+  icon?: LucideIcon;
+  onClick: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+}> = ({ title, summary, icon: Icon, onClick, disabled, danger }) => (
+  <li data-pref={title}>
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`${ROW} hover:bg-surface disabled:opacity-60`}
+    >
+      {Icon && (
+        <Icon
+          aria-hidden
+          size={22}
+          className={`shrink-0 ${danger ? 'text-primary' : 'text-muted'}`}
+        />
+      )}
+      <RowText title={title} summary={summary} />
+    </button>
   </li>
 );
 
@@ -239,7 +408,7 @@ export const PrefText: FC<{
     setDraft(null);
   };
   return (
-    <li>
+    <li data-pref={title}>
       <button
         type="button"
         aria-haspopup="dialog"
@@ -250,10 +419,9 @@ export const PrefText: FC<{
         <RowText
           title={title}
           summary={
-            <>
-              <span className={value ? 'text-foreground/80' : ''}>{value || placeholder}</span>
-              {summary && <span className="block">{summary}</span>}
-            </>
+            <span className={`block truncate ${value ? 'text-foreground/80' : ''}`}>
+              {value || placeholder}
+            </span>
           }
         />
       </button>
@@ -279,13 +447,24 @@ export const PrefText: FC<{
                 {problem}
               </p>
             )}
-            <button
-              type="submit"
-              disabled={problem !== null}
-              className="bg-primary text-background self-end rounded-full px-5 py-2.5 font-semibold disabled:opacity-50"
-            >
-              {t('settings.save')}
-            </button>
+            <div className="flex justify-end gap-2">
+              {draft !== '' && placeholder && (
+                <button
+                  type="button"
+                  onClick={() => setDraft('')}
+                  className="hover:bg-background rounded-full px-4 py-2.5"
+                >
+                  {t('settings.useDefault')}
+                </button>
+              )}
+              <button
+                type="submit"
+                disabled={problem !== null}
+                className="bg-primary text-background rounded-full px-5 py-2.5 font-semibold disabled:opacity-50"
+              >
+                {t('settings.save')}
+              </button>
+            </div>
           </form>
         </Sheet>
       )}

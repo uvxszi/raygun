@@ -52,9 +52,12 @@ impl SyncService {
         let engine = Arc::new(Engine::new(db.clone(), identity, name, kinds));
         let events = app.clone();
         engine.on_synced(Arc::new(move |_peer, summary| {
-            if summary.changed > 0
-                && let Err(error) = SyncChangedEvent(summary.changed as u32).emit(&events)
-            {
+            if summary.changed == 0 {
+                return;
+            }
+            // Settings that came in take effect at once, as if changed here.
+            crate::settings::apply_stored(&events);
+            if let Err(error) = SyncChangedEvent(summary.changed as u32).emit(&events) {
                 tracing::warn!(%error, "failed to emit sync event");
             }
         }));
@@ -213,6 +216,7 @@ impl SyncService {
             .ok_or_else(|| "No sync to undo".to_owned())?;
         let restored = store::undo(&db, last.id).await.map_err(to_message)?;
         tracing::info!(session = last.id, restored, "sync undone");
+        crate::settings::apply_stored(&self.app);
         if let Err(error) = SyncChangedEvent(restored as u32).emit(&self.app) {
             tracing::warn!(%error, "failed to emit sync event");
         }

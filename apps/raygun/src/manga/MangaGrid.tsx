@@ -70,7 +70,7 @@ export const MangaGrid: FC<{
       style={
         landscape
           ? { gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 13rem), 1fr))' }
-          : coverGridStyle(settings?.gridColumns ?? 0, settings?.coverWidth ?? 0)
+          : coverGridStyle(settings?.coverSize ?? 0)
       }
     >
       {items.map((item) => (

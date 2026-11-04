@@ -698,7 +698,9 @@ impl VideoSessions {
                         )
                     }),
                     tag: None,
-                    failed: None,
+                    // Torrents (Miru) need a torrent app: listed, never played.
+                    failed: (link.format.as_deref() == Some(raygun_ext_host::video::TORRENT))
+                        .then(|| self.label("needsTorrentApp", "Needs a torrent app")),
                     request: video_sources::link_request(&row, unit, single, link),
                 })
                 .collect()
