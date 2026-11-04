@@ -110,6 +110,7 @@ export const AudiobookPage: FC = () => {
   const shown = view.chapters.filter((chapter) => matchesSearch(find.query, [chapter.title]));
   const filtered = view.order.filters.length > 0 || find.query.trim() !== '';
   const allDownloaded = view.chapterCount > 0 && view.downloaded === view.chapterCount;
+  const downloadedCount = view.chapters.filter((chapter) => chapter.download).length;
   const error =
     play.error ??
     keep.error ??
@@ -157,11 +158,16 @@ export const AudiobookPage: FC = () => {
                   icon: Check,
                   onSelect: () => setAll.mutate({ id: view.id, played: false }),
                 },
-                {
-                  label: t('podcasts.removeDownloads'),
-                  icon: Trash2,
-                  onSelect: () => removeDownloads.mutate(view.id),
-                },
+                ...(downloadedCount > 0
+                  ? [
+                      {
+                        label: t('podcasts.removeDownloads'),
+                        icon: Trash2,
+                        confirm: t('podcasts.removeDownloadsConfirm', { count: downloadedCount }),
+                        onSelect: () => removeDownloads.mutate(view.id),
+                      },
+                    ]
+                  : []),
                 ...(view.link
                   ? [
                       {

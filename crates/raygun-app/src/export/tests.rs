@@ -233,3 +233,47 @@ fn epubs_are_well_formed_books() {
     assert!(plain.contains("\n\nLetter 2\n\nHow slowly the time passes\n"));
     assert!(plain.contains("* * *"));
 }
+
+#[test]
+fn a_folder_chosen_for_the_export_wins_over_the_settings_one() {
+    use raygun_model::{
+        ExportDestination, ExportFolder, ExportFormat, ExportRequest, ExportScope, SavePrefs,
+    };
+
+    use super::output::Place;
+    use super::place_for_request;
+
+    let picked = ExportFolder {
+        uri: "content://picked".into(),
+        name: "Picked".into(),
+    };
+    let prefs = SavePrefs {
+        folder_uri: Some("content://settings".into()),
+        folder_name: Some("Comics".into()),
+        ..SavePrefs::default()
+    };
+    let mut request = ExportRequest {
+        medium: "manga".into(),
+        title_ids: vec!["t".into()],
+        scope: ExportScope::All,
+        format: ExportFormat::Cbz,
+        destination: ExportDestination::Folder,
+        folder: Some(picked.clone()),
+    };
+    assert!(matches!(
+        place_for_request(&prefs, &request),
+        Ok(Place::Folder { uri, name }) if uri == "content://picked" && name == "Picked"
+    ));
+    request.folder = None;
+    assert!(matches!(
+        place_for_request(&prefs, &request),
+        Ok(Place::Folder { uri, .. }) if uri == "content://settings"
+    ));
+    assert!(place_for_request(&SavePrefs::default(), &request).is_err());
+    request.destination = ExportDestination::Downloads;
+    request.folder = Some(picked);
+    assert!(matches!(
+        place_for_request(&prefs, &request),
+        Ok(Place::Downloads)
+    ));
+}

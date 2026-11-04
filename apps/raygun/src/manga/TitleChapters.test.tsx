@@ -86,6 +86,8 @@ describe('A title’s chapters', () => {
     const actions = screen.getByTestId('chapter-actions');
     // Only one of them is downloaded: Delete downloads takes just that one.
     await user.click(within(actions).getByRole('button', { name: 'Delete downloads' }));
+    expect(commands.mangaRemoveDownloads).not.toHaveBeenCalled();
+    await user.click(within(actions).getByRole('button', { name: 'Delete 1 download' }));
     expect(commands.mangaRemoveDownloads).toHaveBeenCalledWith(['c2']);
     await vi.waitFor(() => expect(screen.queryByTestId('selection-bar')).not.toBeInTheDocument());
 

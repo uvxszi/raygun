@@ -3,6 +3,7 @@ import { CircleAlert, CircleCheck, Clock, Download } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { ConfirmButton } from '../shell/ConfirmButton';
 import { useDownloadChapters, useRemoveDownloads } from './useManga';
 
 /** Progress as a ring around the button's middle. */
@@ -36,7 +37,7 @@ export const ProgressRing: FC<{ fraction: number }> = ({ fraction }) => {
 
 /**
  * A chapter's download control: download, then queued or a progress ring (tap to cancel), then a
- * check (tap to delete the files); a failed download retries on tap.
+ * check (tap twice to delete the files); a failed download retries on tap.
  */
 export const DownloadButton: FC<{ chapter: MangaChapterInfo }> = ({ chapter }) => {
   const { t } = useTranslation();
@@ -48,15 +49,14 @@ export const DownloadButton: FC<{ chapter: MangaChapterInfo }> = ({ chapter }) =
 
   if (state === 'done') {
     return (
-      <button
-        type="button"
-        aria-label={t('manga.deleteDownload', { name: chapter.name })}
+      <ConfirmButton
+        label={t('manga.deleteDownload', { name: chapter.name })}
+        confirm={t('manga.deleteConfirm')}
+        icon={CircleCheck}
         disabled={busy}
-        onClick={() => remove.mutate([chapter.id])}
-        className={`${base} text-primary`}
-      >
-        <CircleCheck aria-hidden size={18} />
-      </button>
+        onConfirm={() => remove.mutate([chapter.id])}
+        idleClassName="text-primary size-9"
+      />
     );
   }
   if (state === 'queued' || state === 'downloading') {

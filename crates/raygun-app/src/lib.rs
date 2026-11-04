@@ -412,6 +412,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::save_folder_state,
             commands::export_plan,
             commands::export_start,
+            commands::export_pick_folder,
+            commands::export_last_folder,
             commands::export_cancel,
             commands::export_dismiss,
             commands::export_jobs,

@@ -193,6 +193,7 @@ export const trackMenu = (track: TrackInput, options: TrackMenuOptions): MenuIte
         ? {
             label: t('songs.removeDownload'),
             icon: Trash2,
+            confirm: t('songs.removeDownloadQuestion', { title: track.title }),
             onSelect: () => void removeDownload(track, client),
           }
         : {

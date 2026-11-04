@@ -1115,6 +1115,19 @@ export const commands = {
 	exportPlan: (request: ExportRequest) => typedError<ExportPlan, string>(__TAURI_INVOKE("export_plan", { request })),
 	/**  Starts an export in the background; progress comes as `ExportEvent`s. */
 	exportStart: (request: ExportRequest) => typedError<ExportJob, string>(__TAURI_INVOKE("export_start", { request })),
+	/**
+	 *  Shows the system folder picker for one export: the folder chosen is remembered for the export
+	 *  sheet, and Settings → Downloads stays as it was. `None` when the picker was cancelled.
+	 */
+	exportPickFolder: () => typedError<{
+	uri: string,
+	name: string,
+} | null, string>(__TAURI_INVOKE("export_pick_folder")),
+	/**  The folder last chosen in the export sheet, if any. */
+	exportLastFolder: () => typedError<{
+	uri: string,
+	name: string,
+} | null, string>(__TAURI_INVOKE("export_last_folder")),
 	exportCancel: (id: string) => __TAURI_INVOKE<void>("export_cancel", { id }),
 	/**  Takes a finished export off the list. */
 	exportDismiss: (id: string) => __TAURI_INVOKE<void>("export_dismiss", { id }),
@@ -2132,13 +2145,19 @@ export type EpisodeSort =
 export type ExportDestination = 
 /**  `Download/Raygun/`. */
 "downloads" | 
-/**  The folder picked in Settings → Downloads. */
+/**  The request's `folder`, else the folder picked in Settings → Downloads. */
 "folder" | 
 /**  The share sheet (one file). */
 "share";
 
 /**  An export job changed (M46.1); carries the job, or nothing when one was removed from the list. */
 export type ExportEvent = ExportJob | null;
+
+/**  A folder exports can be written to: its tree URI on Android or its path on desktop. */
+export type ExportFolder = {
+	uri: string,
+	name: string,
+};
 
 /**  What an export writes. */
 export type ExportFormat = 
@@ -2199,6 +2218,11 @@ export type ExportRequest = {
 	scope: ExportScope,
 	format: ExportFormat,
 	destination: ExportDestination,
+	/**
+	 *  A folder chosen in the export sheet: with `destination` `folder`, files go there instead
+	 *  of the one set in Settings → Downloads.
+	 */
+	folder: ExportFolder | null,
 };
 
 /**  Which chapters or episodes of each title an export takes. */
@@ -3753,6 +3777,8 @@ export type PodcastView = {
 	customOrder: boolean,
 	/**  Every episode, shown or filtered out. */
 	episodeCount: number,
+	/**  Episodes with a download (finished, under way or failed), shown or filtered out. */
+	downloaded: number,
 	/**  The speed its episodes play at, when it has its own (M46.48). */
 	speed: number | null,
 };
@@ -4338,7 +4364,7 @@ export type SongCredits = {
 export type SongDestination = 
 /**  `Music/Raygun/<artist>/`. */
 "music" | 
-/**  The folder picked in Settings → Downloads. */
+/**  The request's `folder`, else the folder picked in Settings → Downloads. */
 "folder";
 
 /**

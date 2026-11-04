@@ -366,9 +366,12 @@ describe('Manga updates and downloads', () => {
     expect(
       within(page).getByRole('button', { name: 'Downloading Chapter 3, 50%. Cancel' }),
     ).toBeInTheDocument();
+    // Deleting a download takes a second tap.
     await user.click(
       within(page).getByRole('button', { name: 'Delete the download of Chapter 2' }),
     );
+    expect(commands.mangaRemoveDownloads).not.toHaveBeenCalledWith(['c2']);
+    await user.click(within(page).getByRole('button', { name: 'Delete' }));
     expect(commands.mangaRemoveDownloads).toHaveBeenLastCalledWith(['c2']);
 
     // The title's Download menu: the next unread chapters, or every one not on the device yet
