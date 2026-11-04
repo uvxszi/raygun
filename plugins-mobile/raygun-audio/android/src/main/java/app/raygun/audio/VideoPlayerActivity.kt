@@ -214,6 +214,8 @@ class VideoPlayerActivity : AppCompatActivity() {
     private var nextRequested = false
     internal var episodes = JSONArray()
     internal var sources = JSONArray()
+    /** The source playing, once it has played a while. */
+    internal var playingFrom: String? = null
     internal val several: Boolean get() = episodes.length() > 1
     internal val statsShown: Boolean get() = statsHelper != null
 
@@ -634,6 +636,7 @@ class VideoPlayerActivity : AppCompatActivity() {
             }
             "sources" -> {
                 sources = update.optJSONArray("groups") ?: JSONArray()
+                playingFrom = update.text("playingFrom")
                 // What the wait is for, as the sources answer (a failure's reason stays meanwhile).
                 if (loading.finding) {
                     sourcesChecked()?.let { loading.setNote(it) }

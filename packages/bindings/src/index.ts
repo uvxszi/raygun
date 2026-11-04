@@ -1270,6 +1270,12 @@ export const commands = {
 	videoSourceWatch: (titleId: string, episodeId: string | null) => typedError<null, string>(__TAURI_INVOKE("video_source_watch", { titleId, episodeId })),
 	/**  Watches a Stremio movie or series from `video_id` (the first unwatched episode when none). */
 	stremioWatch: (kind: string, id: string, videoId: string | null) => typedError<null, string>(__TAURI_INVOKE("stremio_watch", { kind, id, videoId })),
+	/**
+	 *  A source picker's servers or addons in the order a session tries them for a title (`group`:
+	 *  `title:<id>` or `stremio:<kind>:<id>`; `title` the show's name), with what played last time
+	 *  marked (M46.49).
+	 */
+	videoSourceOrder: (group: string, title: string | null, sources: SourceCandidate[]) => typedError<SourceRank[], string>(__TAURI_INVOKE("video_source_order", { group, title, sources })),
 	/**  The video player's words in the app's language (episodes, sources, next episode...). */
 	videoSetPlayerLabels: (labels: { [key in string]: string }) => __TAURI_INVOKE<void>("video_set_player_labels", { labels }),
 	/**  A report from the webview's video player (desktop, M46.4), in the Android player's JSON. */
@@ -2591,6 +2597,16 @@ export type LibraryTrack = {
 	year: number | null,
 	durationMs: number | null,
 	artworkUrl: string | null,
+};
+
+export type LinkCandidate = {
+	/**
+	 *  As sessions label it: a server's link label, or an addon stream's name and description
+	 *  joined by " · ".
+	 */
+	label: string,
+	/**  Stremio's `bingeGroup`. */
+	tag: string | null,
 };
 
 /**  An episode or a book to go on with, for Home's Continue listening (M46.48). */
@@ -4372,6 +4388,14 @@ export type SoundPrefs = {
 	crossfadeMs?: number,
 };
 
+/**  A source as a picker shows it, to order (`video_source_order`). */
+export type SourceCandidate = {
+	/**  The server's or addon's name. */
+	name: string,
+	/**  Its links, when known. */
+	links: LinkCandidate[],
+};
+
 /**
  *  What picking a source for a song does (M46.48): with `assign`, every saved copy, the queue
  *  and the resolver's remembered pick take its stream (the download mode only downloads from
@@ -4399,6 +4423,20 @@ export type SourceFilter =
 { kind: "select"; key: string; label: string; options: FilterOption[]; default: string | null } | 
 /**  Tags to include or exclude (three-state chips). */
 { kind: "tags"; key: string; label: string; options: FilterOption[] } | { kind: "toggle"; key: string; label: string; default: boolean };
+
+/**  A source in play order, with how it did. */
+export type SourceRank = {
+	/**  Its place in the list given. */
+	index: number,
+	/**  It played last time for this title. */
+	worked: boolean,
+	/**  It failed lately and hasn't worked since. */
+	failing: boolean,
+	/**  Its link that played last time: its place in the list given. */
+	workedLink: number | null,
+	/**  Its links' places in the list given, in play order. */
+	links: number[],
+};
 
 /**  One source's first page of results in a search across sources. */
 export type SourceSearchResult = SourceSearchResult_Serialize | SourceSearchResult_Deserialize;

@@ -40,6 +40,8 @@ type VideoPlayerState = {
   hasNext: boolean;
   hasPrevious: boolean;
   sources: SourceGroup[];
+  /** The source playing, once it has played a while. */
+  playingFrom: string | null;
   chapters: VideoChapter[];
   /** Asks the screen to show Sources (an update said no link worked). */
   showSources: number;
@@ -100,6 +102,7 @@ const CLOSED = {
   hasNext: false,
   hasPrevious: false,
   sources: [],
+  playingFrom: null,
   chapters: [],
   showSources: 0,
   pickedSource: false,
@@ -152,7 +155,7 @@ export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
             autoplay: update.autoplay ?? state.autoplay,
           };
         case 'sources':
-          return { sources: update.groups };
+          return { sources: update.groups, playingFrom: update.playingFrom ?? null };
         case 'chapters': {
           if (update.id !== state.request?.id) return state;
           // AniSkip's, beside any the source gave.

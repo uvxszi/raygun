@@ -280,7 +280,12 @@ pub async fn prepare(
         "id": request.key,
         "url": url,
         "title": request.title,
-        "subtitle": request.subtitle,
+        // Never the title again: "Sintel" under "Sintel" isn't shown, "Show - 03" is "03".
+        "subtitle": request
+            .subtitle
+            .as_deref()
+            .map(|subtitle| raygun_resolver::video_match::without_title(subtitle, &request.title))
+            .filter(|subtitle| !subtitle.is_empty()),
         "headers": headers,
         "format": format,
         "subtitles": subtitles,

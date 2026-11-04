@@ -475,3 +475,76 @@ fn episode_labels_leave_out_names_that_repeat_the_number() {
     assert_eq!(episode_label(Some(2.0), None, "Special"), "Special");
     assert_eq!(episode_label(None, None, "Film"), "Film");
 }
+
+#[test]
+fn episode_names_drop_the_show_title() {
+    // Anime sites name episodes after the show.
+    assert_eq!(
+        without_title("Overlord II Episode 3", "Overlord II"),
+        "Episode 3"
+    );
+    assert_eq!(
+        without_title("Overlord - 03", "Overlord II"),
+        "03",
+        "the season-less name"
+    );
+    assert_eq!(without_title("One Piece 1071", "One Piece"), "1071");
+    assert_eq!(without_title("Episode 3 - Frieren", "Frieren"), "Episode 3");
+    assert_eq!(without_title("03 Frieren", "Frieren"), "03");
+    // Stremio metas whose videos carry the series' name.
+    assert_eq!(without_title("Planet Earth II", "Planet Earth II"), "");
+    assert_eq!(
+        without_title("planet earth ii: Islands", "Planet Earth II"),
+        "Islands"
+    );
+    // A title inside a name, or ending one without a separator, or none, stays.
+    assert_eq!(without_title("Lost in Space", "Space"), "Lost in Space");
+    assert_eq!(without_title("The Lost City", "Lost"), "The Lost City");
+    assert_eq!(without_title("Pilot", "Breaking Bad"), "Pilot");
+    assert_eq!(
+        without_title("Breaking Badlands", "Breaking Bad"),
+        "Breaking Badlands"
+    );
+    // Internet Archive films: the single episode is the film.
+    assert_eq!(
+        without_title(
+            "Night of the Living Dead (1968)",
+            "Night of the Living Dead"
+        ),
+        "1968"
+    );
+    // Link labels.
+    assert_eq!(without_title("Overlord II 1080p", "Overlord II"), "1080p");
+}
+
+#[test]
+fn episode_labels_never_repeat_the_show() {
+    assert_eq!(
+        episode_label_in("Frieren", Some(1.0), Some(3.0), "Frieren 03"),
+        "S1 E3"
+    );
+    assert_eq!(
+        episode_label_in("Frieren", None, Some(3.0), "Frieren - Episode 3"),
+        "Episode 3"
+    );
+    assert_eq!(
+        episode_label_in("Planet Earth II", Some(1.0), Some(1.0), "Planet Earth II"),
+        "S1 E1"
+    );
+    assert_eq!(
+        episode_label_in(
+            "Planet Earth II",
+            Some(1.0),
+            Some(1.0),
+            "Planet Earth II: Islands"
+        ),
+        "S1 E1 · Islands"
+    );
+    assert_eq!(
+        episode_label_in("Sintel", None, None, "Sintel"),
+        "",
+        "a movie"
+    );
+    assert!(!adds_to_title("Sintel", "Sintel"));
+    assert!(adds_to_title("Breaking Bad", "S1 E2 · Pilot"));
+}
