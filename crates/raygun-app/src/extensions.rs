@@ -52,6 +52,37 @@ fn built_in() -> Vec<ExtensionSource> {
                 include_str!("../../../extensions/internet-archive/dist/index.js"),
             ),
         ]),
+        // Public-domain and openly licensed recordings and videos.
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/wikimedia-commons/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/wikimedia-commons/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/nasa/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/nasa/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/blender-movies/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/blender-movies/dist/index.js"),
+            ),
+        ]),
         ExtensionSource::built_in(&[
             (
                 "raygun-extension.json",
@@ -121,6 +152,27 @@ fn built_in() -> Vec<ExtensionSource> {
             (
                 "dist/index.js",
                 include_str!("../../../extensions/gutenberg/dist/index.js"),
+            ),
+        ]),
+        // More public-domain books, in edited editions and proofread transcriptions.
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/standard-ebooks/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/standard-ebooks/dist/index.js"),
+            ),
+        ]),
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                include_str!("../../../extensions/wikisource/raygun-extension.json"),
+            ),
+            (
+                "dist/index.js",
+                include_str!("../../../extensions/wikisource/dist/index.js"),
             ),
         ]),
     ]

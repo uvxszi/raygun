@@ -300,6 +300,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
 
+  extensions/blender-movies:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
   extensions/gutenberg:
     devDependencies:
       '@raygun/sdk':
@@ -330,7 +336,31 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
 
+  extensions/nasa:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
   extensions/peppercarrot:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
+  extensions/standard-ebooks:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
+  extensions/wikimedia-commons:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
+  extensions/wikisource:
     devDependencies:
       '@raygun/sdk':
         specifier: workspace:*

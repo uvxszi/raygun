@@ -1,0 +1,16 @@
+{
+  "id": "dev.raygun.wikisource",
+  "name": "Wikisource",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Public domain and Creative Commons: novels, stories, poems and plays from English Wikisource, proofread by its volunteers.",
+  "author": "Raygun",
+  "website": "https://en.wikisource.org",
+  "provides": ["novel.source"],
+  "permissions": {
+    "net": ["en.wikisource.org"]
+  },
+  "contentRating": "safe"
+}

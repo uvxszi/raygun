@@ -1,0 +1,16 @@
+{
+  "id": "dev.raygun.nasa",
+  "name": "NASA Image and Video Library",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Public domain (NASA media): launches, missions, briefings and science videos from NASA's Image and Video Library, with captions.",
+  "author": "Raygun",
+  "website": "https://images.nasa.gov",
+  "provides": ["video.source"],
+  "permissions": {
+    "net": ["images-api.nasa.gov", "images-assets.nasa.gov"]
+  },
+  "contentRating": "safe"
+}

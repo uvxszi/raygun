@@ -1,11 +1,14 @@
 // Internet Archive films (M42): public-domain film collections as a video source. A title is an
 // archive item; each original video file in it is an episode (most items hold one film), and its
-// MP4 derivatives, with their heights, are the videos of a single server. The public-domain
-// collections list only items that carry a public-domain mark or dedication (their uploads aren't
-// all checked: recent ones include commercial films); animation also lists ones under a Creative
-// Commons licence. A public-domain mark on a work from 1978 on is taken as a mistake (US works
-// since then are protected without a notice or renewal) unless it's the author's own CC0. An item
-// reached another way (a link, an old library entry) is held to the same rule when it opens.
+// MP4 derivatives, with their heights, are the videos of a single server.
+//
+// Uploaders mark their own items, and the collections' uploads aren't all checked (recent ones
+// include commercial films), so a film is listed only when its public-domain status holds up:
+// published more than 95 years ago, or from before 1978 (when US copyright still needed a notice
+// and a renewal) and carrying a public-domain mark. Uploads marked CC0 or with a Creative Commons
+// licence otherwise are left out: commercial films turn up marked that way, CC0 above all.
+// Prelinger Archives' films are in the public domain by Prelinger's own uploads. An item reached
+// another way (a link, an old library entry) is held to the same rule when it opens.
 import { defineProvider, fetchJson } from '@raygun/sdk';
 import type {
   FilterValues,
@@ -41,29 +44,9 @@ type ItemMetadata = {
     creator?: string | string[];
     subject?: string | string[];
     licenseurl?: string;
+    collection?: string | string[];
   };
 };
-
-/**
- * Collections the Archive keeps for public-domain works: feature films and their genre sets, the
- * Prelinger Archives' ephemeral films, Film Chest's vintage cartoons and classic TV.
- */
-const PUBLIC_DOMAIN = [
-  'feature_films',
-  'silent_films',
-  'Film_Noir',
-  'SciFi_Horror',
-  'Comedy_Films',
-  'prelinger',
-  'classic_cartoons',
-  'classic_tv',
-];
-/** The first year whose works a public-domain mark is no longer believed for. */
-const MARKS_BELIEVED_BEFORE = 1978;
-/** The search terms for a believable public-domain mark, or the author's own CC0 dedication. */
-const PUBLIC_DOMAIN_MARK = `(licenseurl:(*zero*) OR (licenseurl:(*publicdomain*) AND -year:[${MARKS_BELIEVED_BEFORE} TO 9999]))`;
-/** The search terms for that, or a Creative Commons licence. */
-const OPEN_MARK = `(${PUBLIC_DOMAIN_MARK} OR (licenseurl:(*creativecommons*) AND -licenseurl:(*publicdomain*)))`;
 
 const COLLECTIONS = [
   { value: 'feature_films', label: 'Feature films' },
@@ -72,11 +55,22 @@ const COLLECTIONS = [
   { value: 'SciFi_Horror', label: 'Sci-fi and horror' },
   { value: 'Comedy_Films', label: 'Comedy films' },
   { value: 'classic_cartoons', label: 'Classic cartoons' },
-  // Animation of any kind, public domain or under an open licence (the Blender films and such).
   { value: 'animationandcartoons', label: 'Animation' },
   { value: 'prelinger', label: 'Prelinger Archives' },
   { value: 'classic_tv', label: 'Classic TV' },
 ];
+/** Works published before this year are in the US public domain: 95 years have passed. */
+const PUBLIC_DOMAIN_BEFORE = new Date().getUTCFullYear() - 95;
+/** The last year whose works needed a notice and a renewal to stay under US copyright. */
+const MARKS_BELIEVED_UNTIL = 1977;
+/** A public-domain mark, in the current form or the one the Archive's uploader used to set. */
+const MARK = /publicdomain\/mark|licenses\/publicdomain/i;
+const PUBLIC_DOMAIN_MARK =
+  '(licenseurl:*publicdomain\\/mark* OR licenseurl:*licenses\\/publicdomain*)';
+/** The search terms for a film in the public domain by age, or marked so and old enough. */
+const PUBLIC_DOMAIN = `(year:[1800 TO ${PUBLIC_DOMAIN_BEFORE - 1}] OR (${PUBLIC_DOMAIN_MARK} AND year:[1800 TO ${MARKS_BELIEVED_UNTIL}]))`;
+/** Prelinger Archives' films carry Prelinger's own public-domain dedication. */
+const PRELINGER = 'licenseurl:*publicdomain*';
 const SORTS = [
   { value: 'downloads desc', label: 'Most viewed' },
   { value: 'addeddate desc', label: 'Recently added' },
@@ -139,7 +133,7 @@ const searchPage = async (q: string, sort: string, page: number): Promise<MangaP
 
 const inCollection = (collection: string) =>
   `collection:(${collection}) AND mediatype:(movies) AND ${
-    PUBLIC_DOMAIN.includes(collection) ? PUBLIC_DOMAIN_MARK : OPEN_MARK
+    collection === 'prelinger' ? PRELINGER : PUBLIC_DOMAIN
   }`;
 
 // Item metadata is read for details, episodes and servers; keep the last few.
@@ -155,18 +149,14 @@ const fetchItem = (identifier: string): Promise<ItemMetadata> => {
   return item;
 };
 
-/** Whether an item is free to watch, by the licence its own record gives (as the search asks). */
+/** Whether an item is free to watch, by its own record, under the rule the search asks for. */
 const isOpen = (item: ItemMetadata) => {
   const licence = item.metadata?.licenseurl ?? '';
-  if (/zero/i.test(licence)) return true;
-  if (/publicdomain/i.test(licence)) {
-    const year = Number.parseInt(
-      (item.metadata?.year ?? item.metadata?.date ?? '').slice(0, 4),
-      10,
-    );
-    return !(year >= MARKS_BELIEVED_BEFORE);
-  }
-  return /creativecommons\.org/i.test(licence);
+  const collections = [item.metadata?.collection ?? []].flat();
+  if (collections.includes('prelinger') && /publicdomain/i.test(licence)) return true;
+  const year = Number.parseInt((item.metadata?.year ?? item.metadata?.date ?? '').slice(0, 4), 10);
+  if (!Number.isFinite(year)) return false;
+  return year < PUBLIC_DOMAIN_BEFORE || (MARK.test(licence) && year <= MARKS_BELIEVED_UNTIL);
 };
 
 /** An item's metadata, for an item that is free to watch only (one reached by a link too). */

@@ -1,4 +1,4 @@
-// dev.raygun.internet-archive 1.4.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.internet-archive 1.5.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -17,19 +17,6 @@
   // src/films.ts
   var API = "https://archive.org";
   var ROWS = 30;
-  var PUBLIC_DOMAIN = [
-    "feature_films",
-    "silent_films",
-    "Film_Noir",
-    "SciFi_Horror",
-    "Comedy_Films",
-    "prelinger",
-    "classic_cartoons",
-    "classic_tv"
-  ];
-  var MARKS_BELIEVED_BEFORE = 1978;
-  var PUBLIC_DOMAIN_MARK = `(licenseurl:(*zero*) OR (licenseurl:(*publicdomain*) AND -year:[${MARKS_BELIEVED_BEFORE} TO 9999]))`;
-  var OPEN_MARK = `(${PUBLIC_DOMAIN_MARK} OR (licenseurl:(*creativecommons*) AND -licenseurl:(*publicdomain*)))`;
   var COLLECTIONS = [
     { value: "feature_films", label: "Feature films" },
     { value: "silent_films", label: "Silent films" },
@@ -37,11 +24,16 @@
     { value: "SciFi_Horror", label: "Sci-fi and horror" },
     { value: "Comedy_Films", label: "Comedy films" },
     { value: "classic_cartoons", label: "Classic cartoons" },
-    // Animation of any kind, public domain or under an open licence (the Blender films and such).
     { value: "animationandcartoons", label: "Animation" },
     { value: "prelinger", label: "Prelinger Archives" },
     { value: "classic_tv", label: "Classic TV" }
   ];
+  var PUBLIC_DOMAIN_BEFORE = (/* @__PURE__ */ new Date()).getUTCFullYear() - 95;
+  var MARKS_BELIEVED_UNTIL = 1977;
+  var MARK = /publicdomain\/mark|licenses\/publicdomain/i;
+  var PUBLIC_DOMAIN_MARK = "(licenseurl:*publicdomain\\/mark* OR licenseurl:*licenses\\/publicdomain*)";
+  var PUBLIC_DOMAIN = `(year:[1800 TO ${PUBLIC_DOMAIN_BEFORE - 1}] OR (${PUBLIC_DOMAIN_MARK} AND year:[1800 TO ${MARKS_BELIEVED_UNTIL}]))`;
+  var PRELINGER = "licenseurl:*publicdomain*";
   var SORTS = [
     { value: "downloads desc", label: "Most viewed" },
     { value: "addeddate desc", label: "Recently added" },
@@ -77,7 +69,7 @@
       hasNextPage: page * ROWS < (result.response?.numFound ?? 0)
     };
   };
-  var inCollection = (collection) => `collection:(${collection}) AND mediatype:(movies) AND ${PUBLIC_DOMAIN.includes(collection) ? PUBLIC_DOMAIN_MARK : OPEN_MARK}`;
+  var inCollection = (collection) => `collection:(${collection}) AND mediatype:(movies) AND ${collection === "prelinger" ? PRELINGER : PUBLIC_DOMAIN}`;
   var items = /* @__PURE__ */ new Map();
   var fetchItem = (identifier) => {
     let item = items.get(identifier);
@@ -91,15 +83,11 @@
   };
   var isOpen = (item) => {
     const licence = item.metadata?.licenseurl ?? "";
-    if (/zero/i.test(licence)) return true;
-    if (/publicdomain/i.test(licence)) {
-      const year = Number.parseInt(
-        (item.metadata?.year ?? item.metadata?.date ?? "").slice(0, 4),
-        10
-      );
-      return !(year >= MARKS_BELIEVED_BEFORE);
-    }
-    return /creativecommons\.org/i.test(licence);
+    const collections = [item.metadata?.collection ?? []].flat();
+    if (collections.includes("prelinger") && /publicdomain/i.test(licence)) return true;
+    const year = Number.parseInt((item.metadata?.year ?? item.metadata?.date ?? "").slice(0, 4), 10);
+    if (!Number.isFinite(year)) return false;
+    return year < PUBLIC_DOMAIN_BEFORE || MARK.test(licence) && year <= MARKS_BELIEVED_UNTIL;
   };
   var metadata = async (identifier) => {
     const item = await fetchItem(identifier);
@@ -212,7 +200,13 @@
   // src/index.ts
   var API2 = "https://archive.org";
   var OPEN_LICENCE = /creativecommons\.org|publicdomain/i;
-  var OPEN = "licenseurl:(*publicdomain* OR *creativecommons*)";
+  var LEFT_OUT = ["78rpm", "georgeblood"];
+  var OPEN_AUDIO = [
+    "mediatype:audio",
+    "collection:(netlabels OR musopen)",
+    "(licenseurl:*creativecommons.org* OR licenseurl:*publicdomain*)",
+    `-collection:(${LEFT_OUT.join(" OR ")})`
+  ].join(" AND ");
   var escapeQuery2 = (query) => query.replace(/[+\-!(){}[\]^"~*?:\\/&|]/g, " ").trim();
   var firstString2 = (value) => (Array.isArray(value) ? value[0] : value) ?? null;
   var parseLength = (length) => {
@@ -258,14 +252,16 @@
     const result = await fetchJson(`${API2}/advancedsearch.php?${params.join("&")}`);
     return result.response?.docs ?? [];
   };
-  var searchItems = (query, rows) => searchDocs(`(title:(${query}) OR creator:(${query})) AND mediatype:audio AND ${OPEN}`, rows);
+  var searchItems = (query, rows) => searchDocs(`(title:(${query}) OR creator:(${query})) AND ${OPEN_AUDIO}`, rows);
   var bareTitle = (title) => title.replace(/\([^)]*\)|\[[^\]]*\]/g, " ").trim() || title;
   var mainArtist = (artist) => artist.split(/\s*(?:&|,|;|\/|\bfeat\.?|\bft\.?|\band\b|\bwith\b|\bx\b)\s*/i)[0]?.trim() || artist;
   var words = (text) => escapeQuery2(text).toLowerCase().split(/\s+/).filter(Boolean);
   var itemTracks = async (doc, max, targetKbps) => {
     const id = doc.identifier;
     const item = await fetchJson(`${API2}/metadata/${encodeURIComponent(id)}`);
+    const collections = [item.metadata?.collection ?? []].flat();
     if (!OPEN_LICENCE.test(item.metadata?.licenseurl ?? "")) return [];
+    if (collections.some((name) => LEFT_OUT.includes(name))) return [];
     const files = (item.files ?? []).filter(isPlayable2);
     const format = pickFormat(files, targetKbps);
     const preferred = format === null ? files : files.filter((file) => file.format === format);
@@ -323,7 +319,7 @@
         `title:(${wantedTitle})`
       ] : [`title:(${wantedTitle})`];
       const lists = await Promise.allSettled(
-        queries.map((query) => searchDocs(`${query} AND mediatype:audio AND ${OPEN}`, 4))
+        queries.map((query) => searchDocs(`${query} AND ${OPEN_AUDIO}`, 4))
       );
       const failures = lists.flatMap((list) => list.status === "rejected" ? [list.reason] : []);
       if (failures.length === lists.length) throw failures[0];

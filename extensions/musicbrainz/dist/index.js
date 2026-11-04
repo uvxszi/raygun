@@ -1,4 +1,4 @@
-// dev.raygun.musicbrainz 1.6.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.musicbrainz 1.6.1. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts

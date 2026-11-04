@@ -699,8 +699,8 @@ async fn explicit_songs_leave_while_explicit_music_is_off() {
     assert_eq!(titles(host.search_music("song", 10).await), ["Clean"]);
 }
 
-/// The licence address the Internet Archive's own record of an item gives (empty without one).
-async fn archive_licence(client: &reqwest::Client, identifier: &str) -> String {
+/// The Internet Archive's own record of an item (its `metadata`).
+async fn archive_record(client: &reqwest::Client, identifier: &str) -> serde_json::Value {
     let body = client
         .get(format!(
             "https://archive.org/metadata/{identifier}/metadata"
@@ -712,7 +712,12 @@ async fn archive_licence(client: &reqwest::Client, identifier: &str) -> String {
         .await
         .unwrap();
     let record: serde_json::Value = serde_json::from_str(&body).unwrap();
-    record["result"]["licenseurl"]
+    record["result"].clone()
+}
+
+/// The licence address the Internet Archive's own record of an item gives (empty without one).
+async fn archive_licence(client: &reqwest::Client, identifier: &str) -> String {
+    archive_record(client, identifier).await["licenseurl"]
         .as_str()
         .unwrap_or_default()
         .to_owned()
@@ -721,6 +726,31 @@ async fn archive_licence(client: &reqwest::Client, identifier: &str) -> String {
 /// A public-domain mark or dedication, or a Creative Commons licence.
 fn open_licence(licence: &str) -> bool {
     licence.contains("creativecommons.org") || licence.contains("publicdomain")
+}
+
+/// Whether a film's record holds up as public domain by the film source's rule: published more
+/// than 95 years ago, or marked public domain and from before 1978; or a Prelinger Archives film
+/// with Prelinger's dedication.
+fn public_domain_film(record: &serde_json::Value) -> bool {
+    let licence = record["licenseurl"].as_str().unwrap_or_default();
+    let prelinger = match &record["collection"] {
+        serde_json::Value::String(one) => one == "prelinger",
+        serde_json::Value::Array(many) => many.iter().any(|name| name == "prelinger"),
+        _ => false,
+    };
+    if prelinger && licence.contains("publicdomain") {
+        return true;
+    }
+    let year = record["year"]
+        .as_str()
+        .or_else(|| record["date"].as_str())
+        .and_then(|text| text.get(..4))
+        .and_then(|year| year.parse::<i32>().ok());
+    let Some(year) = year else {
+        return false;
+    };
+    let marked = licence.contains("publicdomain/mark") || licence.contains("licenses/publicdomain");
+    year < chrono::Datelike::year(&chrono::Utc::now()) - 95 || (marked && year <= 1977)
 }
 
 /// Runs the bundled Internet Archive extension against the real service, checking that every
@@ -744,7 +774,8 @@ async fn internet_archive_extension_finds_playable_tracks() {
     );
 
     let client = raygun_net::http_client().unwrap();
-    for query in ["scott joplin", "jazz", "beethoven"] {
+    // A netlabel artist and two broader searches: netlabel releases and Musopen's recordings.
+    for query in ["kai engel", "ambient", "beethoven"] {
         let results = host.search_music(query, 20).await;
         let result = results
             .iter()
@@ -772,8 +803,8 @@ async fn internet_archive_extension_finds_playable_tracks() {
     }
 }
 
-/// The film source lists, in every collection it offers, only items whose own record carries a
-/// public-domain mark or dedication (animation: or a Creative Commons licence), and plays one:
+/// The film source lists, in every collection it offers, only items whose own record holds up as
+/// public domain (by age, or marked so and from before 1978), and plays one:
 /// `cargo test -p raygun-ext-host -- --ignored internet_archive_films --nocapture`.
 #[tokio::test]
 #[ignore = "needs network access to archive.org"]
@@ -785,25 +816,22 @@ async fn internet_archive_films_live_are_public_domain() {
     let provider = "dev.raygun.internet-archive/films";
     let client = raygun_net::http_client().unwrap();
 
-    // (what was listed, whether only public-domain marks count there, the titles)
+    // (what was listed, the titles)
     let mut lists = vec![
         (
             "popular".to_owned(),
-            true,
             host.manga_list(provider, MangaList::Popular, 1)
                 .await
                 .unwrap(),
         ),
         (
             "latest".to_owned(),
-            true,
             host.manga_list(provider, MangaList::Latest, 1)
                 .await
                 .unwrap(),
         ),
         (
             "search nosferatu".to_owned(),
-            true,
             host.manga_search(provider, "nosferatu", 1).await.unwrap(),
         ),
     ];
@@ -826,31 +854,29 @@ async fn internet_archive_films_live_are_public_domain() {
             .manga_search_filtered(provider, "", 1, &chosen)
             .await
             .unwrap();
-        let only_marks = option.value != "animationandcartoons";
-        lists.push((option.label.clone(), only_marks, listing));
+        lists.push((option.label.clone(), listing));
     }
-    for (label, only_marks, listing) in &lists {
+    for (label, listing) in &lists {
         println!("{label}: {} titles", listing.items.len());
         assert!(!listing.items.is_empty(), "{label}");
         for item in listing.items.iter().take(8) {
-            let licence = archive_licence(&client, &item.id).await;
-            println!("  {} · {licence}", item.title);
-            let free = if *only_marks {
-                licence.contains("publicdomain")
-            } else {
-                open_licence(&licence)
-            };
+            let record = archive_record(&client, &item.id).await;
+            println!(
+                "  {} · {} · {}",
+                item.title, record["year"], record["licenseurl"]
+            );
             assert!(
-                free,
-                "{label}: {} ({}) carries {licence:?}",
-                item.title, item.id
+                public_domain_film(&record),
+                "{label}: {} ({}) doesn't hold up as public domain",
+                item.title,
+                item.id
             );
         }
     }
 
     // A film plays from the Archive's own files (an item without a playable file says so).
     let mut played = false;
-    for film in lists[0].2.items.iter().take(5) {
+    for film in lists[0].1.items.iter().take(5) {
         let Ok(episodes) = host.video_episodes(provider, &film.id).await else {
             continue;
         };
@@ -961,7 +987,8 @@ async fn musicbrainz_song_resolves_through_internet_archive() {
     let host = ExtensionHost::start(HostConfig::default()).unwrap();
     host.load(discover_installed(&dir)).await;
 
-    let results = host.search_music("the entertainer scott joplin", 10).await;
+    // A Creative Commons netlabel release, the kind of recording the extension streams.
+    let results = host.search_music("calls and echoes kai engel", 10).await;
     let musicbrainz = results
         .iter()
         .find(|result| result.provider.extension_id == "dev.raygun.musicbrainz")
@@ -973,18 +1000,12 @@ async fn musicbrainz_song_resolves_through_internet_archive() {
     let song = musicbrainz
         .tracks
         .iter()
-        .find(|track| {
-            track.title == "The Entertainer"
-                && track
-                    .artist
-                    .as_deref()
-                    .is_some_and(|artist| artist.contains("Joplin"))
-        })
-        .expect("a recording of Scott Joplin's The Entertainer ranks among the results");
+        .find(|track| track.artist.as_deref() == Some("Kai Engel"))
+        .expect("Kai Engel's recording ranks among the results");
     assert_eq!(song.source, None, "MusicBrainz has metadata only");
 
     // A second search right away stays within MusicBrainz's one-request-per-second limit.
-    let again = host.search_music("maple leaf rag joplin", 5).await;
+    let again = host.search_music("rain catcher kai engel", 5).await;
     let again = again
         .iter()
         .find(|result| result.provider.extension_id == "dev.raygun.musicbrainz")
@@ -1004,10 +1025,12 @@ async fn musicbrainz_song_resolves_through_internet_archive() {
         album: song.album.clone(),
         duration_ms: song.duration_ms,
     };
+    // The Internet Archive's own candidates: other stream sources may know the song too.
     let candidates: Vec<_> = host
         .stream_candidates(&query, 10, raygun_resolver::QualityTarget::Any)
         .await
         .into_iter()
+        .filter(|answer| answer.provider.extension_id == "dev.raygun.internet-archive")
         .flat_map(|answer| {
             answer
                 .result
@@ -1051,10 +1074,10 @@ async fn internet_archive_streams_match_credited_duets() {
     let host = ExtensionHost::start(HostConfig::default()).unwrap();
     host.load(discover_installed(&dir)).await;
     let query = raygun_model::TrackQuery {
-        title: "The Entertainer (A Rag Time Two Step)".into(),
-        artist: Some("Scott Joplin & Kevin MacLeod".into()),
+        title: "Calls and Echoes (Original Mix)".into(),
+        artist: Some("Kai Engel & Friends".into()),
         album: None,
-        duration_ms: None,
+        duration_ms: Some(248_000),
     };
     let candidates: Vec<_> = host
         .stream_candidates(&query, 10, raygun_resolver::QualityTarget::Any)

@@ -25,6 +25,27 @@
       "size": 3991
     },
     {
+      "id": "dev.raygun.blender-movies",
+      "name": "Blender open movies",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "CC BY and CC BY-SA: Blender Studio's open movies, from Elephants Dream and Big Buck Bunny to Singularity, played from Wikimedia Commons.",
+      "author": "Raygun",
+      "provides": [
+        "video.source"
+      ],
+      "permissions": {
+        "net": [
+          "commons.wikimedia.org"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.blender-movies-1.0.0.zip",
+      "sha256": "d4ffe95a6c3128338c8f161e083414440434e477c1ffc674762a5c98b79fd227",
+      "size": 3836
+    },
+    {
       "id": "dev.raygun.gutenberg",
       "name": "Project Gutenberg",
       "version": "1.0.1",
@@ -49,9 +70,9 @@
     {
       "id": "dev.raygun.internet-archive",
       "name": "Internet Archive",
-      "version": "1.4.0",
+      "version": "1.5.0",
       "apiVersion": 1,
-      "description": "Public-domain and Creative Commons audio and films from the Internet Archive: its public-domain film collections, and items marked public domain or openly licensed.",
+      "description": "Public domain and Creative Commons: netlabel and Musopen recordings, and films in the public domain by age or by a mark that holds up, from the Internet Archive.",
       "author": "Raygun",
       "provides": [
         "music.metadata",
@@ -66,9 +87,9 @@
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.internet-archive-1.4.0.zip",
-      "sha256": "ac39a8dea6ec8ae5bc55b990b49598bdf0d24048d651f76217e49fd5fbdd4525",
-      "size": 5900
+      "package": "packages/dev.raygun.internet-archive-1.5.0.zip",
+      "sha256": "f39d8382b096c5d2afd5eb526b597c4a3d5ab1fd170d12d6a3e1639e9496f8ad",
+      "size": 6030
     },
     {
       "id": "dev.raygun.librivox",
@@ -117,9 +138,9 @@
     {
       "id": "dev.raygun.musicbrainz",
       "name": "MusicBrainz",
-      "version": "1.6.0",
+      "version": "1.6.1",
       "apiVersion": 1,
-      "description": "Song, album and artist details, genres, discographies, artist facts and song credits from the open MusicBrainz database, with artist summaries from Wikipedia. For tagging and finding music; no artwork.",
+      "description": "Metadata under CC0 and CC BY-SA: song, album and artist details, genres, discographies, artist facts and song credits from the open MusicBrainz database, with artist summaries from Wikipedia. For tagging and finding music; no artwork.",
       "author": "Raygun",
       "provides": [
         "music.metadata",
@@ -135,9 +156,31 @@
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.musicbrainz-1.6.0.zip",
-      "sha256": "3e60ddf374c3a2e085d4260612db7dfde78a23c45b38d4792be4626595eee94b",
-      "size": 5007
+      "package": "packages/dev.raygun.musicbrainz-1.6.1.zip",
+      "sha256": "899372a0e46626ad5af4ea696ca79dddc2d2da789cf39fc495ae66aa1a3cfee9",
+      "size": 5027
+    },
+    {
+      "id": "dev.raygun.nasa",
+      "name": "NASA Image and Video Library",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Public domain (NASA media): launches, missions, briefings and science videos from NASA's Image and Video Library, with captions.",
+      "author": "Raygun",
+      "provides": [
+        "video.source"
+      ],
+      "permissions": {
+        "net": [
+          "images-api.nasa.gov",
+          "images-assets.nasa.gov"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.nasa-1.0.0.zip",
+      "sha256": "7be5e6d6536c99f62769c8e301736fbf66247cee57f4c50e052a89340ad20ba1",
+      "size": 3890
     },
     {
       "id": "dev.raygun.peppercarrot",
@@ -159,6 +202,71 @@
       "package": "packages/dev.raygun.peppercarrot-1.0.0.zip",
       "sha256": "37adabe1c25b09a1b8930278327ac88141e7f883d6e4c8587346b9d202f8f51a",
       "size": 3175
+    },
+    {
+      "id": "dev.raygun.standard-ebooks",
+      "name": "Standard Ebooks",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Public domain (CC0): classic books in Standard Ebooks' carefully produced editions, read chapter by chapter.",
+      "author": "Raygun",
+      "provides": [
+        "novel.source"
+      ],
+      "permissions": {
+        "net": [
+          "standardebooks.org"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.standard-ebooks-1.0.0.zip",
+      "sha256": "99fb642fb0af67ff9c7176fae7ecb2421c68cfb0dbf9ad2e87bcc1971e381d24",
+      "size": 3825
+    },
+    {
+      "id": "dev.raygun.wikimedia-commons",
+      "name": "Wikimedia Commons",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Public domain and Creative Commons: recordings and videos from Wikimedia Commons, with subtitles where people wrote them.",
+      "author": "Raygun",
+      "provides": [
+        "music.metadata",
+        "music.stream",
+        "video.source"
+      ],
+      "permissions": {
+        "net": [
+          "commons.wikimedia.org"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.wikimedia-commons-1.0.0.zip",
+      "sha256": "98daf0a2ba1af76ccd6d38077dac81405ae3286fd5af97ea8c1de07bcf968111",
+      "size": 5486
+    },
+    {
+      "id": "dev.raygun.wikisource",
+      "name": "Wikisource",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Public domain and Creative Commons: novels, stories, poems and plays from English Wikisource, proofread by its volunteers.",
+      "author": "Raygun",
+      "provides": [
+        "novel.source"
+      ],
+      "permissions": {
+        "net": [
+          "en.wikisource.org"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.wikisource-1.0.0.zip",
+      "sha256": "bb59b211ffb7616bd87e132d6c4cc6df42330781eda862aabc733a4c4e7b9b9d",
+      "size": 5203
     },
     {
       "id": "dev.raygun.xkcd",

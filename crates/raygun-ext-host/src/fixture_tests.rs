@@ -13,7 +13,7 @@ use serde_json::json;
 
 use crate::{ExtensionHost, ExtensionSource, HostConfig};
 
-fn query_params(uri: &Uri) -> HashMap<String, String> {
+pub(crate) fn query_params(uri: &Uri) -> HashMap<String, String> {
     uri.query()
         .unwrap_or_default()
         .split('&')
@@ -44,7 +44,7 @@ fn percent_decode(text: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-fn json_response(status: StatusCode, body: serde_json::Value) -> Response {
+pub(crate) fn json_response(status: StatusCode, body: serde_json::Value) -> Response {
     (
         status,
         [(header::CONTENT_TYPE, "application/json")],
@@ -54,7 +54,7 @@ fn json_response(status: StatusCode, body: serde_json::Value) -> Response {
 }
 
 /// Serves `app` on a free local port from its own thread.
-fn serve(app: Router) -> SocketAddr {
+pub(crate) fn serve(app: Router) -> SocketAddr {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let address = listener.local_addr().unwrap();
@@ -247,14 +247,13 @@ async fn internet_archive_films_browse_details_episodes_and_videos() {
                 let params = query_params(&uri);
                 assert_eq!(params["rows"], "30");
                 let q = &params["q"];
-                // Public-domain sets list items marked public domain; animation, openly
-                // licensed ones too.
-                let marks = "(licenseurl:(*zero*) OR (licenseurl:(*publicdomain*) AND -year:[1978 TO 9999]))";
-                let wanted = if q.contains("collection:(animationandcartoons)") {
-                    format!("AND ({marks} OR (licenseurl:(*creativecommons*) AND -licenseurl:(*publicdomain*)))")
-                } else {
-                    format!("AND {marks}")
-                };
+                // Every set lists films in the public domain by age, or marked so and from
+                // before 1978.
+                let before = chrono::Datelike::year(&chrono::Utc::now()) - 95;
+                let wanted = format!(
+                    "AND (year:[1800 TO {}] OR ((licenseurl:*publicdomain\\/mark* OR licenseurl:*licenses\\/publicdomain*) AND year:[1800 TO 1977]))",
+                    before - 1
+                );
                 assert!(q.ends_with(&wanted), "{q}");
                 let docs = if q.contains("collection:(Film_Noir)") {
                     json!([{ "identifier": "noir", "title": "Detour" }])
@@ -292,7 +291,7 @@ async fn internet_archive_films_browse_details_episodes_and_videos() {
             get(|| async {
                 json_response(StatusCode::OK, json!({
                     "metadata": {
-                        "title": "Flash Gordon", "collection": "opensource_movies",
+                        "title": "Flash Gordon", "collection": "opensource_movies", "year": "1936",
                         "licenseurl": "http://creativecommons.org/publicdomain/mark/1.0/",
                     },
                     "files": [
@@ -321,6 +320,19 @@ async fn internet_archive_films_browse_details_episodes_and_videos() {
             get(|| async {
                 json_response(StatusCode::OK, json!({
                     "metadata": { "title": "A recent film", "collection": ["feature_films"] },
+                    "files": [{ "name": "film.mp4", "format": "h.264", "source": "original" }],
+                }))
+            }),
+        )
+        // A 2005 film an uploader dedicated to the public domain with CC0.
+        .route(
+            "/metadata/zero",
+            get(|| async {
+                json_response(StatusCode::OK, json!({
+                    "metadata": {
+                        "title": "A 2005 film", "year": "2005", "collection": ["feature_films"],
+                        "licenseurl": "http://creativecommons.org/publicdomain/zero/1.0/",
+                    },
                     "files": [{ "name": "film.mp4", "format": "h.264", "source": "original" }],
                 }))
             }),
@@ -421,4 +433,6 @@ async fn internet_archive_films_browse_details_episodes_and_videos() {
             .is_err()
     );
     assert!(host.manga_details(provider, "marked").await.is_err());
+    // Commercial films turn up dedicated with CC0 by whoever uploaded them.
+    assert!(host.manga_details(provider, "zero").await.is_err());
 }

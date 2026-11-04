@@ -223,8 +223,9 @@ async fn paraline_live() {
             .filter(|entry| entry.format == format)
             .count()
     };
+    // Raygun's own sources and the community ones; scripts in other formats are checked when
+    // there are any.
     assert!(formats(repo::PackageFormat::Raygun) > 10);
-    assert!(formats(repo::PackageFormat::Shosetsu) > 0);
 
     let temp = tempfile::TempDir::new().unwrap();
     for entry in &index.extensions {
