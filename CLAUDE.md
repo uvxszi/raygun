@@ -198,6 +198,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 pnpm format && cargo fmt --all
 pnpm bindings            # regenerate TS bindings after changing commands/types
 cargo test -p raygun-ext-host -- --ignored   # live extension tests (network)
+pnpm trim:target         # drop stale incremental caches and old workspace-crate builds (pnpm dev / android:dev run it first)
 pnpm repo:publish        # pack first-party extensions into repo/ (the official repository; bump versions first)
 ```
 

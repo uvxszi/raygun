@@ -6,9 +6,9 @@
   "license": "AGPL-3.0-only",
   "packageManager": "pnpm@12.16.1",
   "scripts": {
-    "dev": "pnpm --filter @raygun/app tauri dev",
+    "dev": "python tools/trim_target.py && pnpm --filter @raygun/app tauri dev",
     "android:init": "pnpm --filter @raygun/app tauri android init",
-    "android:dev": "pnpm --filter @raygun/app tauri android dev",
+    "android:dev": "python tools/trim_target.py && pnpm --filter @raygun/app tauri android dev",
     "android:build": "pnpm --filter @raygun/app tauri android build",
     "build": "turbo build",
     "lint": "turbo lint",
@@ -19,7 +19,8 @@
     "bindings": "cargo run -p raygun-app --bin export-bindings",
     "build:extensions": "pnpm --filter \"./extensions/*\" build",
     "repo:publish": "node packages/sdk/bin/raygun-ext.mjs pack-all extensions --repo repo",
-    "i18n:import": "node scripts/i18n-import.mjs"
+    "i18n:import": "node scripts/i18n-import.mjs",
+    "trim:target": "python tools/trim_target.py"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
