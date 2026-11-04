@@ -159,6 +159,24 @@ impl Drop for Running {
     }
 }
 
+/// Wakes the runtime's driver once a call ends, finished or dropped.
+///
+/// rquickjs wakes whoever polled its spawned futures last. That is often the call, so once the
+/// call is gone a wakeup meant for the extension's own futures (a request stopped because nobody
+/// waits for it, or one a background promise still runs) would reach a task that no longer
+/// exists, and the driver would sleep through it. Spawning a future into the runtime always wakes
+/// the driver, which then polls everything that is due and takes the wakeups from then on.
+struct WakeDriver(AsyncContext);
+
+impl Drop for WakeDriver {
+    fn drop(&mut self) {
+        let context = self.0.clone();
+        tokio::task::spawn_local(async move {
+            context.with(|ctx| ctx.spawn(async {})).await;
+        });
+    }
+}
+
 pub struct JsExtension {
     shared: Rc<Shared>,
     // Field order matters: the context must drop before its runtime.
@@ -301,6 +319,8 @@ impl JsExtension {
         method: &str,
         args: &serde_json::Value,
     ) -> Result<serde_json::Value, Failure> {
+        // Dropped after `_running`, so the driver runs once the requests were told to stop.
+        let _wake_driver = WakeDriver(self.context.clone());
         let _running = Running::new(&self.shared);
         let started = Instant::now();
         let (provider, method, args) = (provider.to_owned(), method.to_owned(), args.to_string());
