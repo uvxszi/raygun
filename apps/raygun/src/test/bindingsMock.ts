@@ -12,6 +12,7 @@ import type {
   HiddenPrefs,
   LibraryScanProgress,
   LibraryStatus,
+  LyricsTranslationProgress,
   MangaUpdateStatus,
   PlaybackState,
   QueueSnapshot,
@@ -55,6 +56,7 @@ type EventPayloads = {
   ttsEvent: TtsUpdate;
   aiModelEvent: AiModelProgress;
   podcastsChangedEvent: string;
+  audiobooksFoundEvent: [string, string];
   watchChangedEvent: string;
   videoDownloadsEvent: string;
   songDownloadsEvent: string;
@@ -63,6 +65,7 @@ type EventPayloads = {
   trackDurationsEvent: TrackDuration[];
   importEvent: string;
   captionsEvent: string;
+  lyricsTranslationEvent: LyricsTranslationProgress;
   localFilesEvent: string;
   settingsChangedEvent: string;
   incognitoEvent: IncognitoStatus;
@@ -141,11 +144,11 @@ export const DEFAULT_SETTINGS: Settings = {
   privacy: { history: true, recentlyPlayed: true, searchHistory: true },
   hidden: { artists: [], items: [] },
   lyricsCache: { forgetAfterDays: 30, keepFavorites: true, keepDownloaded: true, keepLocal: true },
+  lyricsTranslation: { language: '', automatic: true, romanized: false, localModel: '' },
   preferredVideoQuality: null,
   accent: 'red',
   startScreen: 'home',
   navLabels: 'always',
-  gridColumns: 0,
   coverStyle: 'compact',
   unreadBadges: true,
   downloadBadges: true,
@@ -169,8 +172,8 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   layout: LAYOUT_DEFAULTS,
   accentColor: '#e5484d',
-  coverWidth: 0,
-  mangaReader: { pagedScale: 'fitScreen', webtoonWidth: 0 },
+  coverSize: 0,
+  mangaReader: { pagedScale: 'fitScreen', webtoonSize: 0 },
   playerView: { layout: 'auto', widthOffset: 0 },
   scrollbars: 'thin',
   motion: 'lively',
@@ -210,7 +213,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   mangaUpdateHours: 12,
   novelReader: {
-    fontSize: 18,
+    textSize: 0,
     lineSpacing: 16,
     font: 'serif',
     width: 'narrow',
@@ -283,6 +286,8 @@ export const bindingsMock = {
     audiobookOpen: vi.fn(),
     audiobookPlay: vi.fn(),
     audiobookDirectory: vi.fn(),
+    audiobookDownload: vi.fn(),
+    podcastContinueListening: vi.fn(),
     musicTagVocabulary: vi.fn(),
     songsDownload: vi.fn(),
     musicSearchArtists: vi.fn(),
@@ -311,6 +316,9 @@ export const bindingsMock = {
     lyricsForget: vi.fn(),
     lyricsCacheUsage: vi.fn(),
     lyricsCacheClear: vi.fn(),
+    lyricsTranslate: vi.fn(),
+    lyricsTranslateOptions: vi.fn(),
+    lyricsTranslationPick: vi.fn(),
     songDownloadCancelRecording: vi.fn(),
     songDownloadUseSource: vi.fn(),
     youtubeLink: vi.fn(),
@@ -350,6 +358,8 @@ export const bindingsMock = {
     storageInfo: vi.fn(),
     settingsGet: vi.fn(),
     settingsUpdate: vi.fn(),
+    settingsUpdateMany: vi.fn(),
+    settingsDefaults: vi.fn(),
     playbackGetState: vi.fn(),
     playbackGetQueue: vi.fn(),
     playbackEnqueue: vi.fn(),
@@ -490,8 +500,16 @@ export const bindingsMock = {
     podcastTop: vi.fn(),
     podcastPlay: vi.fn(),
     podcastSetPlayed: vi.fn(),
+    podcastSetAllPlayed: vi.fn(),
+    podcastSetEarlierPlayed: vi.fn(),
+    podcastForgetPosition: vi.fn(),
+    podcastSetEpisodeOrder: vi.fn(),
+    podcastSetSpeed: vi.fn(),
     podcastDownload: vi.fn(),
     podcastRemoveDownload: vi.fn(),
+    podcastRemoveDownloads: vi.fn(),
+    podcastCancelDownload: vi.fn(),
+    podcastOpenPage: vi.fn(),
     videoPlay: vi.fn(),
     videoPlayLink: vi.fn(),
     videoContinueWatching: vi.fn(),
@@ -608,6 +626,7 @@ export const bindingsMock = {
     ttsEvent: makeEvent('ttsEvent'),
     aiModelEvent: makeEvent('aiModelEvent'),
     podcastsChangedEvent: makeEvent('podcastsChangedEvent'),
+    audiobooksFoundEvent: makeEvent('audiobooksFoundEvent'),
     watchChangedEvent: makeEvent('watchChangedEvent'),
     videoDownloadsEvent: makeEvent('videoDownloadsEvent'),
     songDownloadsEvent: makeEvent('songDownloadsEvent'),
@@ -616,6 +635,7 @@ export const bindingsMock = {
     trackDurationsEvent: makeEvent('trackDurationsEvent'),
     importEvent: makeEvent('importEvent'),
     captionsEvent: makeEvent('captionsEvent'),
+    lyricsTranslationEvent: makeEvent('lyricsTranslationEvent'),
     localFilesEvent: makeEvent('localFilesEvent'),
     settingsChangedEvent: makeEvent('settingsChangedEvent'),
     incognitoEvent: makeEvent('incognitoEvent'),
@@ -665,7 +685,24 @@ export const seedBindings = () => {
   commands.ttsSetAvailable.mockResolvedValue(null);
   commands.videoPlayerExternal.mockResolvedValue({ status: 'ok', data: 'mpv' });
   commands.storageInfo.mockResolvedValue(MOBILE_STORAGE);
-  commands.settingsGet.mockResolvedValue({ status: 'ok', data: DEFAULT_SETTINGS });
+  // Saved changes are kept and read back, as Rust keeps them; tests may answer otherwise.
+  let stored: Settings = DEFAULT_SETTINGS;
+  commands.settingsGet.mockImplementation(async () => ({ status: 'ok', data: stored }));
+  const applied = async (changes: { key: string; value: unknown }[]) => {
+    const current = (await commands.settingsGet()) as { data: Settings } | undefined;
+    stored = changes.reduce<Settings>(
+      (next, change) => ({ ...next, [change.key]: change.value }),
+      current?.data ?? DEFAULT_SETTINGS,
+    );
+    return { status: 'ok' as const, data: stored };
+  };
+  commands.settingsUpdate.mockImplementation((change: { key: string; value: unknown }) =>
+    applied([change]),
+  );
+  commands.settingsUpdateMany.mockImplementation((changes: { key: string; value: unknown }[]) =>
+    applied(changes),
+  );
+  commands.settingsDefaults.mockResolvedValue(DEFAULT_SETTINGS);
   commands.playbackGetState.mockResolvedValue(IDLE_STATE);
   commands.playbackGetQueue.mockResolvedValue(EMPTY_QUEUE);
   commands.playbackEnqueue.mockResolvedValue(undefined);
@@ -767,6 +804,8 @@ export const seedBindings = () => {
   commands.audiobooks.mockResolvedValue(ok([]));
   commands.audiobookDirectory.mockResolvedValue(ok({ books: [], hasMore: false }));
   commands.audiobookPlay.mockResolvedValue(ok(null));
+  commands.audiobookDownload.mockResolvedValue(ok(0));
+  commands.podcastContinueListening.mockResolvedValue(ok([]));
   commands.musicTagVocabulary.mockResolvedValue([]);
   commands.songsDownload.mockResolvedValue(ok(null));
   commands.musicSearchArtists.mockResolvedValue(ok([]));
@@ -792,8 +831,10 @@ export const seedBindings = () => {
   commands.lyricsTranscribe.mockResolvedValue(ok('song:|'));
   commands.lyricsTranscribeMany.mockResolvedValue(ok(null));
   commands.lyricsForget.mockResolvedValue(ok(null));
-  commands.lyricsCacheUsage.mockResolvedValue(ok({ songs: 0, transcriptions: 0 }));
+  commands.lyricsCacheUsage.mockResolvedValue(ok({ songs: 0, transcriptions: 0, translations: 0 }));
   commands.lyricsCacheClear.mockResolvedValue(ok(0));
+  commands.lyricsTranslateOptions.mockResolvedValue(ok([]));
+  commands.lyricsTranslationPick.mockResolvedValue(ok(null));
   commands.songDownloadCancelRecording.mockResolvedValue(null);
   commands.songDownloadUseSource.mockResolvedValue(ok(null));
   commands.youtubeLink.mockResolvedValue(ok(null));
@@ -990,8 +1031,16 @@ export const seedBindings = () => {
   commands.podcastSetSubscribed.mockResolvedValue(ok(null));
   commands.podcastPlay.mockResolvedValue(ok(null));
   commands.podcastSetPlayed.mockResolvedValue(ok(null));
+  commands.podcastSetAllPlayed.mockResolvedValue(ok(null));
+  commands.podcastSetEarlierPlayed.mockResolvedValue(ok(0));
+  commands.podcastForgetPosition.mockResolvedValue(ok(null));
+  commands.podcastSetEpisodeOrder.mockResolvedValue(ok(null));
+  commands.podcastSetSpeed.mockResolvedValue(ok(null));
   commands.podcastDownload.mockResolvedValue(ok(null));
   commands.podcastRemoveDownload.mockResolvedValue(ok(null));
+  commands.podcastRemoveDownloads.mockResolvedValue(ok(null));
+  commands.podcastCancelDownload.mockResolvedValue(ok(null));
+  commands.podcastOpenPage.mockResolvedValue(ok(null));
   commands.videoPlay.mockResolvedValue(ok(null));
   commands.videoPlayLink.mockResolvedValue(ok(null));
   commands.videoContinueWatching.mockResolvedValue(ok([]));

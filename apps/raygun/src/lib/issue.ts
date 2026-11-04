@@ -106,7 +106,9 @@ export const readIssue = (raw: string, t: TFunction, source?: string | null): Is
   const kind = issueKind(text);
   if (!kind) {
     // The source's own words, with its name unless they hold it already.
-    const named = !source || text.toLowerCase().includes(source.toLowerCase());
+    const lower = text.toLowerCase();
+    // "This source can't search" says who already.
+    const named = !source || lower.includes(source.toLowerCase()) || lower.includes('source');
     return { summary: named ? text : `${source}: ${text}`, details: null, kind: null };
   }
   const name = source || namedSource(text) || t('issue.someSource');

@@ -20,9 +20,9 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use raygun_model::{
     ArtistEvent, ExtensionInfo, ExtensionOrigin, ExtensionSetting, ExtensionStatus, LyricLine,
-    Lyrics, MediaSource, MusicAlbum, MusicAlbumDetail, MusicArtist, MusicChart, MusicPlaylist,
-    MusicPlaylistDetail, OnlineTrack, ProviderInfo, ProviderSearchResult, SettingKind,
-    SettingValue, TrackQuery,
+    Lyrics, LyricsTranslation, LyricsTranslationKind, LyricsTranslationOrigin, MediaSource,
+    MusicAlbum, MusicAlbumDetail, MusicArtist, MusicChart, MusicPlaylist, MusicPlaylistDetail,
+    OnlineTrack, ProviderInfo, ProviderSearchResult, SettingKind, SettingValue, TrackQuery,
 };
 use raygun_net::{Issue, IssueKind};
 use raygun_resolver::Candidate;
@@ -249,7 +249,9 @@ impl CallError {
 
 /// A source's own message, with its name unless the message names it already.
 fn said(name: &str, message: &str) -> String {
-    if message.to_lowercase().contains(&name.to_lowercase()) {
+    let lower = message.to_lowercase();
+    // "This source can't search" says who already.
+    if lower.contains(&name.to_lowercase()) || lower.contains("source") {
         message.to_owned()
     } else {
         format!("{name}: {message}")
@@ -268,6 +270,10 @@ enum Request {
         method: String,
         args: serde_json::Value,
         reply: oneshot::Sender<Result<serde_json::Value, CallError>>,
+    },
+    /// The settings of the lane's Miru extensions, by extension id, as they are now.
+    Settings {
+        reply: oneshot::Sender<Vec<(String, Vec<ExtensionSetting>)>>,
     },
 }
 
@@ -301,6 +307,8 @@ struct Directory {
     lanes: HashMap<String, usize>,
     /// Providers' names, by id.
     names: HashMap<String, String>,
+    /// Miru extensions, whose settings may change after loading.
+    miru: std::collections::HashSet<String>,
 }
 
 /// How long background asks (charts, tags) give one source.
@@ -400,6 +408,12 @@ impl ExtensionHost {
                 .unwrap_or_default();
             batches[lane].push(item);
         }
+        let miru = batches
+            .iter()
+            .flatten()
+            .filter(|item| item.manifest.runtime == Runtime::Miru)
+            .map(|item| item.manifest.id.clone())
+            .collect();
         let placed: HashMap<String, usize> = batches
             .iter()
             .enumerate()
@@ -446,6 +460,7 @@ impl ExtensionHost {
                 infos: infos.clone(),
                 lanes,
                 names,
+                miru,
             },
         );
         // An extension that changed (an update, other settings) starts with a clean record.
@@ -462,8 +477,35 @@ impl ExtensionHost {
         infos
     }
 
+    /// Every extension, failed ones included, by name. Miru extensions' settings are asked of
+    /// their lanes (a script may register them after loading); everything else is as loaded.
     pub async fn list(&self) -> Vec<ExtensionInfo> {
-        self.directory().infos.clone()
+        let (mut infos, lanes) = {
+            let directory = self.directory();
+            let mut lanes: Vec<usize> = directory
+                .miru
+                .iter()
+                .filter_map(|id| directory.lanes.get(id).copied())
+                .collect();
+            lanes.sort_unstable();
+            lanes.dedup();
+            (directory.infos.clone(), lanes)
+        };
+        for lane in lanes {
+            let (reply, answer) = oneshot::channel();
+            if self.shared.lanes[lane]
+                .send(Request::Settings { reply })
+                .is_err()
+            {
+                continue;
+            }
+            for (id, settings) in answer.await.unwrap_or_default() {
+                if let Some(info) = infos.iter_mut().find(|info| info.id == id) {
+                    info.settings = settings;
+                }
+            }
+        }
+        infos
     }
 
     /// Providers of `kind` that searches and lookups use: not the disabled ones, and those of
@@ -1399,6 +1441,14 @@ impl Extension {
         }
     }
 
+    /// Its settings: the manifest's, and for a Miru script those it registered.
+    fn settings(&self) -> Vec<manifest::SettingDef> {
+        match self {
+            Self::Js(extension) => extension.settings(),
+            Self::Shosetsu(extension) => extension.manifest().settings.clone(),
+        }
+    }
+
     fn providers(&self) -> Vec<ProviderInfo> {
         match self {
             Self::Js(extension) => extension.providers(),
@@ -1470,6 +1520,17 @@ impl LaneState {
                 let infos = self.load(items).await;
                 let _ = reply.send(infos);
             }
+            Request::Settings { reply } => {
+                // A Miru script registers settings while it sets up, which may end after loading.
+                let settings = self
+                    .loaded
+                    .borrow()
+                    .iter()
+                    .filter(|(_, extension)| extension.manifest().runtime == Runtime::Miru)
+                    .map(|(id, extension)| (id.clone(), settings_info(extension)))
+                    .collect();
+                let _ = reply.send(settings);
+            }
             Request::Call {
                 provider,
                 method,
@@ -1493,7 +1554,8 @@ impl LaneState {
     async fn load(&self, items: Vec<LoadItem>) -> Vec<ExtensionInfo> {
         // The old ones go first, so two sets of runtimes never take memory at once.
         self.loaded.borrow_mut().clear();
-        let mut infos = Vec::new();
+        let mut scripts = Vec::new();
+        let mut others = Vec::new();
         for LoadItem {
             source,
             manifest,
@@ -1506,7 +1568,32 @@ impl LaneState {
             // A conversion that fails still says which converter made it, so a newer one is
             // offered (M46.9.1).
             let compatibility = manifest.nuclear.as_ref().and_then(compat_report);
-            match self.load_one(source, manifest, settings).await {
+            let shosetsu = manifest.runtime == Runtime::Shosetsu;
+            let load = async move {
+                let result = self.load_one(source, manifest, settings).await;
+                (id, origin, name, version, compatibility, result)
+            };
+            if shosetsu {
+                scripts.push(load);
+            } else {
+                others.push(load);
+            }
+        }
+        // Shosetsu scripts load on threads of their own, so they all start at once; JavaScript
+        // extensions share the lane and load one after another.
+        let (mut results, rest) =
+            futures_util::future::join(futures_util::future::join_all(scripts), async {
+                let mut done = Vec::new();
+                for load in others {
+                    done.push(load.await);
+                }
+                done
+            })
+            .await;
+        results.extend(rest);
+        let mut infos = Vec::new();
+        for (id, origin, name, version, compatibility, result) in results {
+            match result {
                 Ok(extension) => {
                     let info = loaded_info(&extension, origin);
                     tracing::info!(extension = %id, providers = info.providers.len(), "extension loaded");
@@ -1538,13 +1625,17 @@ impl LaneState {
             .map(|dir| dir.join(&manifest.id));
         let cookies = CookieJar::open(data_dir.as_ref().map(|dir| dir.join("cookies.json")));
         if manifest.runtime == Runtime::Shosetsu {
-            let load = ShosetsuExtension::load(manifest, source, cookies);
+            // A script's settings come from the script itself, so they're checked there.
+            let load = ShosetsuExtension::load(manifest, source, cookies, user_settings);
             return tokio::time::timeout(self.config.call_timeout, load)
                 .await
                 .map_err(|_| "loading timed out".to_owned())?
                 .map(|extension| Extension::Shosetsu(Box::new(extension)));
         }
-        user_settings.retain(|key, value| manifest.check_setting(key, value).is_ok());
+        // A Miru script declares its settings as it runs: its values are checked when listed.
+        if manifest.runtime != Runtime::Miru {
+            user_settings.retain(|key, value| manifest.check_setting(key, value).is_ok());
+        }
         let code = source.read(&manifest.entry)?;
         let storage = KvStore::open(data_dir.map(|dir| dir.join("storage.json")));
         let load = JsExtension::load(
@@ -1601,9 +1692,41 @@ impl LaneState {
     }
 }
 
+/// An extension's settings with their values; a stored value that no longer fits (a choice the
+/// extension dropped) reads as the default.
+fn settings_info(extension: &Extension) -> Vec<ExtensionSetting> {
+    let values = extension.user_settings();
+    extension
+        .settings()
+        .iter()
+        .map(|setting| {
+            let default = setting.default.as_ref().and_then(SettingValue::from_json);
+            ExtensionSetting {
+                key: setting.key.clone(),
+                label: setting
+                    .label
+                    .clone()
+                    .unwrap_or_else(|| key_label(&setting.key)),
+                kind: match setting.kind {
+                    manifest::SettingKind::Text => SettingKind::Text,
+                    manifest::SettingKind::Number => SettingKind::Number,
+                    manifest::SettingKind::Boolean => SettingKind::Boolean,
+                    manifest::SettingKind::Select => SettingKind::Select,
+                },
+                options: setting.options.clone(),
+                value: values
+                    .get(&setting.key)
+                    .filter(|value| setting.accepts(value))
+                    .and_then(SettingValue::from_json)
+                    .or_else(|| default.clone()),
+                default,
+            }
+        })
+        .collect()
+}
+
 fn loaded_info(extension: &Extension, origin: ExtensionOrigin) -> ExtensionInfo {
     let manifest = extension.manifest();
-    let values = extension.user_settings();
     ExtensionInfo {
         id: manifest.id.clone(),
         name: manifest.name.clone(),
@@ -1624,32 +1747,7 @@ fn loaded_info(extension: &Extension, origin: ExtensionOrigin) -> ExtensionInfo 
         compatibility: manifest.nuclear.as_ref().and_then(compat_report),
         icon: None,
         website: extension.website(),
-        settings: manifest
-            .settings
-            .iter()
-            .map(|setting| {
-                let default = setting.default.as_ref().and_then(SettingValue::from_json);
-                ExtensionSetting {
-                    key: setting.key.clone(),
-                    label: setting
-                        .label
-                        .clone()
-                        .unwrap_or_else(|| key_label(&setting.key)),
-                    kind: match setting.kind {
-                        manifest::SettingKind::Text => SettingKind::Text,
-                        manifest::SettingKind::Number => SettingKind::Number,
-                        manifest::SettingKind::Boolean => SettingKind::Boolean,
-                        manifest::SettingKind::Select => SettingKind::Select,
-                    },
-                    options: setting.options.clone(),
-                    value: values
-                        .get(&setting.key)
-                        .and_then(SettingValue::from_json)
-                        .or_else(|| default.clone()),
-                    default,
-                }
-            })
-            .collect(),
+        settings: settings_info(extension),
     }
 }
 
@@ -2060,43 +2158,128 @@ struct RawLine {
     text: String,
 }
 
-/// Reads `{ synced?: [{ timeMs, text }], plain? }`. Lines with bad times are dropped and the rest
-/// sorted; an answer with neither synced lines nor plain text counts as "no lyrics".
+/// Translations a lyrics answer may carry, at most.
+const MAX_LYRICS_TRANSLATIONS: usize = 8;
+/// A translated line longer than this is cut.
+const MAX_TRANSLATED_LINE_CHARS: usize = 1_000;
+
+/// Reads `{ synced?: [{ timeMs, text }], plain?, translations?: [{ language, kind?, lines }] }`.
+/// Lines with bad times are dropped and the rest sorted; an answer with neither synced lines nor
+/// plain text counts as "no lyrics". A translation's `lines[i]` belongs to `synced[i]` as the
+/// provider gave it (M46.48), or to the plain text's i-th line; it follows its line through the
+/// sorting.
 fn parse_lyrics(provider: &ProviderInfo, value: &serde_json::Value) -> Option<Lyrics> {
     if value.is_null() {
         return None;
     }
-    let mut synced: Vec<LyricLine> = value
+    // Each kept line with its place in the provider's list.
+    let mut synced: Vec<(usize, LyricLine)> = value
         .get("synced")
         .and_then(serde_json::Value::as_array)
         .map(|lines| {
             lines
                 .iter()
-                .filter_map(|line| RawLine::deserialize(line).ok())
-                .filter(|line| line.time_ms.is_finite() && line.time_ms >= 0.0)
-                .map(|line| LyricLine {
-                    time_ms: line.time_ms.min(f64::from(u32::MAX)) as u32,
-                    text: line.text.trim().to_owned(),
+                .enumerate()
+                .filter_map(|(index, line)| {
+                    let line = RawLine::deserialize(line).ok()?;
+                    (line.time_ms.is_finite() && line.time_ms >= 0.0).then(|| {
+                        let line = LyricLine {
+                            time_ms: line.time_ms.min(f64::from(u32::MAX)) as u32,
+                            text: line.text.trim().to_owned(),
+                        };
+                        (index, line)
+                    })
                 })
                 .collect()
         })
         .unwrap_or_default();
-    synced.sort_by_key(|line| line.time_ms);
-    let plain = value
-        .get("plain")
-        .and_then(serde_json::Value::as_str)
+    synced.sort_by_key(|(_, line)| line.time_ms);
+    let raw_plain = value.get("plain").and_then(serde_json::Value::as_str);
+    let plain = raw_plain
         .map(str::trim)
         .filter(|text| !text.is_empty())
         .map(str::to_owned);
-    if synced.iter().all(|line| line.text.is_empty()) && plain.is_none() {
+    if synced.iter().all(|(_, line)| line.text.is_empty()) && plain.is_none() {
         return None;
     }
+    // Where each line the translations line up with sat in the provider's list.
+    let places: Vec<usize> = if synced.is_empty() {
+        let leading = raw_plain.map_or(0, |raw| {
+            raw[..raw.len() - raw.trim_start().len()]
+                .matches('\n')
+                .count()
+        });
+        let count = plain.as_deref().map_or(0, |plain| plain.lines().count());
+        (leading..leading + count).collect()
+    } else {
+        synced.iter().map(|(index, _)| *index).collect()
+    };
+    let translations = value
+        .get("translations")
+        .and_then(serde_json::Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|translation| parse_translation(provider, translation, &places))
+                .take(MAX_LYRICS_TRANSLATIONS)
+                .collect()
+        })
+        .unwrap_or_default();
     Some(Lyrics {
         provider_name: provider.name.clone(),
-        synced,
+        synced: synced.into_iter().map(|(_, line)| line).collect(),
         plain,
         offset_ms: 0,
         edited: false,
+        translations,
+    })
+}
+
+/// One of a lyrics answer's translations, its lines picked for `places` (the provider's indices
+/// of the kept lines). `None` when it's malformed or every line is empty.
+fn parse_translation(
+    provider: &ProviderInfo,
+    value: &serde_json::Value,
+    places: &[usize],
+) -> Option<LyricsTranslation> {
+    let language = value.get("language")?.as_str()?.trim();
+    let tag_like = (2..=35).contains(&language.len())
+        && language
+            .split('-')
+            .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_alphanumeric()));
+    if !tag_like {
+        return None;
+    }
+    let kind = match value.get("kind").and_then(serde_json::Value::as_str) {
+        None | Some("translation") => LyricsTranslationKind::Translation,
+        Some("romanization") => LyricsTranslationKind::Romanization,
+        Some(_) => return None,
+    };
+    let given = value.get("lines")?.as_array()?;
+    let lines: Vec<String> = places
+        .iter()
+        .map(|place| {
+            given
+                .get(*place)
+                .and_then(serde_json::Value::as_str)
+                .map(|line| {
+                    line.trim()
+                        .chars()
+                        .take(MAX_TRANSLATED_LINE_CHARS)
+                        .collect()
+                })
+                .unwrap_or_default()
+        })
+        .collect();
+    if lines.iter().all(String::is_empty) {
+        return None;
+    }
+    Some(LyricsTranslation {
+        language: language.to_owned(),
+        kind,
+        origin: LyricsTranslationOrigin::Source,
+        by: provider.name.clone(),
+        translator: String::new(),
+        lines,
     })
 }
 

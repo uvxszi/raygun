@@ -5,7 +5,9 @@ use axum::Router;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Redirect};
 use axum::routing::{get, post};
-use raygun_model::{ExtensionOrigin, ExtensionStatus, MediaSource};
+use raygun_model::{
+    ExtensionOrigin, ExtensionStatus, LyricsTranslationKind, LyricsTranslationOrigin, MediaSource,
+};
 use serde_json::json;
 
 use crate::manifest::{Manifest, ManifestError};
@@ -921,6 +923,90 @@ async fn lyrics_prefer_synced_answers_and_validate_lines() {
 }
 
 #[tokio::test]
+async fn lyrics_translations_follow_their_lines() {
+    let host = test_host();
+    let provider = |id: &str, body: &str| {
+        let manifest = manifest_json(json!({ "id": id, "name": id, "provides": ["lyrics"] }));
+        let code = format!(
+            "raygun.providers.register({{ kind: 'lyrics', id: 'l', name: 'Words', lyrics: async () => ({body}) }});"
+        );
+        ExtensionSource::built_in(&[("raygun-extension.json", &manifest), ("index.js", &code)])
+    };
+    // Out of order and with a bad line: each translation stays with its line.
+    host.load(vec![provider(
+        "dev.raygun.translated",
+        r#"{
+            synced: [
+                { timeMs: 5000, text: 'second' },
+                { timeMs: -1, text: 'bad' },
+                { timeMs: 1000, text: 'first' },
+            ],
+            translations: [
+                { language: 'en', lines: ['zweite', 'schlecht', 'erste'] },
+                { language: 'ja-Latn', kind: 'romanization', lines: ['ni', null, 'ichi'] },
+                { language: 'not a tag', lines: ['x', 'y', 'z'] },
+                { language: 'fr', kind: 'notes', lines: ['x', 'y', 'z'] },
+                { language: 'de', lines: ['', '', ''] },
+            ],
+        }"#,
+    )])
+    .await;
+    let query = raygun_model::TrackQuery {
+        title: "Song".into(),
+        artist: Some("Band".into()),
+        album: None,
+        duration_ms: None,
+    };
+    let lyrics = host.lyrics(&query).await.unwrap().unwrap();
+    let texts: Vec<&str> = lyrics
+        .synced
+        .iter()
+        .map(|line| line.text.as_str())
+        .collect();
+    assert_eq!(texts, ["first", "second"]);
+    let kept: Vec<(&str, LyricsTranslationKind, Vec<&str>)> = lyrics
+        .translations
+        .iter()
+        .map(|translation| {
+            (
+                translation.language.as_str(),
+                translation.kind,
+                translation.lines.iter().map(String::as_str).collect(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        kept,
+        [
+            (
+                "en",
+                LyricsTranslationKind::Translation,
+                vec!["erste", "zweite"]
+            ),
+            (
+                "ja-Latn",
+                LyricsTranslationKind::Romanization,
+                vec!["ichi", "ni"]
+            ),
+        ]
+    );
+    assert!(lyrics.translations.iter().all(|translation| {
+        translation.origin == LyricsTranslationOrigin::Source && translation.by == "Words"
+    }));
+
+    // Plain lyrics: the lines after the ones trimmed away.
+    let host = test_host();
+    host.load(vec![provider(
+        "dev.raygun.plain",
+        r#"{ plain: '\nOne\nTwo\n', translations: [{ language: 'de', lines: ['', 'Eins', 'Zwei'] }] }"#,
+    )])
+    .await;
+    let lyrics = host.lyrics(&query).await.unwrap().unwrap();
+    assert_eq!(lyrics.plain.as_deref(), Some("One\nTwo"));
+    assert_eq!(lyrics.translations[0].lines, ["Eins", "Zwei"]);
+}
+
+#[tokio::test]
 async fn charts_and_tags_come_from_their_providers() {
     let host = test_host();
     let manifest = manifest_json(json!({ "provides": ["music.charts", "music.tags"] }));
@@ -1586,6 +1672,10 @@ async fn librivox_live_finds_books_with_feeds() {
     let provider = "dev.raygun.librivox/books";
     for (list, query) in [
         ("search", "pride and prejudice"),
+        // M46.48: authors, titles LibriVox files without their article, and genres.
+        ("search", "jane austen"),
+        ("search", "the count of monte cristo"),
+        ("subject", "Mystery"),
         ("popular", ""),
         ("latest", ""),
     ] {
@@ -1620,6 +1710,7 @@ async fn loyalbooks_live_lists_and_finds_books_with_feeds() {
         ("popular", ""),
         ("search", "sherlock holmes"),
         ("subject", "Mystery"),
+        ("subject", "Science fiction"),
     ] {
         let page = host.audiobooks(provider, list, query, 1).await.unwrap();
         println!(
@@ -1640,6 +1731,65 @@ async fn loyalbooks_live_lists_and_finds_books_with_feeds() {
                 && book.feed_url.ends_with("/feed")
         }));
     }
+}
+
+/// Lit2Go (M46.48) against the site: its books list their chapters themselves. `cargo test -p
+/// raygun-ext-host -- --ignored lit2go_live --nocapture`.
+#[tokio::test]
+#[ignore = "needs network access to etc.usf.edu"]
+async fn lit2go_live_lists_books_and_their_chapters() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(discover_installed(&dir)).await;
+    let provider = "dev.raygun.lit2go/books";
+    for (list, query) in [
+        ("popular", ""),
+        ("search", "sherlock holmes"),
+        ("subject", "Mystery"),
+    ] {
+        let page = host.audiobooks(provider, list, query, 1).await.unwrap();
+        println!(
+            "{list}: {} books, more {}; first {:?}",
+            page.books.len(),
+            page.has_more,
+            page.books
+                .first()
+                .map(|book| (&book.title, &book.author, &book.feed_url))
+        );
+        assert!(!page.books.is_empty(), "{list}");
+        assert!(page.books.iter().all(|book| {
+            crate::audiobook::parse_listed_key(&book.feed_url)
+                .is_some_and(|(listed_by, _)| listed_by == provider)
+        }));
+    }
+    let found = host
+        .audiobooks(provider, "search", "adventures of sherlock holmes", 1)
+        .await
+        .unwrap();
+    let (_, id) = crate::audiobook::parse_listed_key(&found.books[0].feed_url).unwrap();
+    let book = host.audiobook_details(provider, id).await.unwrap();
+    println!(
+        "{} by {:?}: {} chapters, first {:?}",
+        book.title,
+        book.author,
+        book.chapters.len(),
+        book.chapters
+            .first()
+            .map(|chapter| (&chapter.title, &chapter.audio_url))
+    );
+    assert!(book.chapters.len() >= 10);
+    assert!(book.chapters.iter().all(|chapter| {
+        chapter
+            .audio_url
+            .starts_with("https://etc.usf.edu/lit2go/audio/mp3/")
+            && chapter.audio_url.ends_with(".mp3")
+    }));
+    let first = reqwest::Client::new()
+        .head(&book.chapters[0].audio_url)
+        .send()
+        .await
+        .unwrap();
+    assert!(first.status().is_success(), "{}", first.status());
 }
 
 /// The video sources with their own Search pill (M46.35), against the real services:
@@ -1796,6 +1946,68 @@ async fn lrclib_live_returns_synced_lyrics() {
     assert!(!lyrics.synced.is_empty());
 }
 
+/// KuGou's real lyric service, read as KRC with its translations and romanizations (M46.48):
+/// `cargo test -p raygun-ext-host -- --ignored kugou_live --nocapture`.
+#[tokio::test]
+#[ignore = "needs network access to kugou.com"]
+async fn kugou_live_has_translations_and_romanizations() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    host.load(discover_installed(&dir)).await;
+    for (title, artist, duration_ms, wanted) in [
+        (
+            "Shape of You",
+            "Ed Sheeran",
+            233_000,
+            ("zh-Hans", LyricsTranslationKind::Translation),
+        ),
+        (
+            "夜に駆ける",
+            "YOASOBI",
+            261_000,
+            ("ja-Latn", LyricsTranslationKind::Romanization),
+        ),
+    ] {
+        let query = raygun_model::TrackQuery {
+            title: title.into(),
+            artist: Some(artist.into()),
+            album: None,
+            duration_ms: Some(duration_ms),
+        };
+        let answers = host.all_lyrics(&query).await.unwrap();
+        let kugou = answers
+            .iter()
+            .find(|lyrics| lyrics.provider_name == "KuGou")
+            .expect("KuGou has this song");
+        println!(
+            "{title}: {} lines, first {:?}",
+            kugou.synced.len(),
+            kugou.synced.first().map(|line| &line.text)
+        );
+        for translation in &kugou.translations {
+            let first = translation.lines.iter().find(|line| !line.is_empty());
+            println!(
+                "  {} {:?}: {first:?}",
+                translation.language, translation.kind
+            );
+            assert_eq!(translation.lines.len(), kugou.synced.len());
+        }
+        assert!(
+            kugou
+                .translations
+                .iter()
+                .any(|translation| (translation.language.as_str(), translation.kind) == wanted),
+            "{title} has a {wanted:?}"
+        );
+        // The credits and the line naming the song are left out.
+        assert!(
+            !kugou.synced[0].text.contains(artist),
+            "{:?}",
+            kugou.synced[0]
+        );
+    }
+}
+
 /// YouTube Music's real search, without a key: `cargo test -p raygun-ext-host -- --ignored youtube_live`.
 #[tokio::test]
 #[ignore = "needs network access to music.youtube.com"]
@@ -1903,19 +2115,16 @@ async fn shosetsu_official_scripts_work() {
             .find(|entry| entry.id == id)
             .unwrap();
         let bytes = download(crate::repo::package_url(&index_url, entry).unwrap()).await;
-        let script = shosetsu_package::verify_script(&bytes, entry).unwrap();
-        let mut queue = shosetsu_package::dependencies(&script);
-        let mut libraries: Vec<(String, String)> = Vec::new();
-        while let Some(name) = queue.pop() {
-            if libraries.iter().any(|(known, _)| *known == name) {
-                continue;
-            }
-            let bytes = download(index_url.join(&format!("lib/{name}.lua")).unwrap()).await;
-            let code = shosetsu_package::verify_library(&name, &bytes, &index).unwrap();
-            queue.extend(shosetsu_package::dependencies(&code));
-            libraries.push((name, code));
-        }
-        let package = shosetsu_package::package(entry, script, libraries).unwrap();
+        let sources = [shosetsu_package::LibrarySource {
+            index_url: &index_url,
+            index: &index,
+        }];
+        let package = shosetsu_package::assemble(entry, &bytes, &sources, |url| {
+            let download = download(url);
+            async move { Ok(download.await) }
+        })
+        .await
+        .unwrap();
         crate::package::install(temp.path(), &package).unwrap();
     }
 
@@ -1965,52 +2174,349 @@ async fn shosetsu_official_scripts_work() {
     }
 }
 
-/// `cargo test -p raygun-ext-host -- --ignored shosetsu_survey --nocapture`: every script in
-/// Shosetsu's official repository (or `SHOSETSU_SCRIPTS`), each reporting how far it got: load,
-/// listing, novel, chapters, passage. Prints a table instead of failing, to find runtime gaps.
+/// `SHOSETSU_DIR=<checkout> SHOSETSU_SCRIPTS=<id> PROBE=popular,search:elf,chapters:<id>,…
+/// SHOSETSU_TRACE=1 cargo test -p raygun-ext-host -- --ignored shosetsu_probe --nocapture`: one
+/// script's calls, step by step, with the requests it makes (to see why a script fails).
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs network access to gitlab.com and many novel sites"]
-async fn shosetsu_survey() {
-    use crate::shosetsu::package as shosetsu_package;
-    const INDEX: &str = "https://gitlab.com/shosetsuorg/extensions/-/raw/dev/index.json";
-    let client = raygun_net::http_client().unwrap();
-    // `SHOSETSU_DIR` reads the index and scripts from a checkout instead of GitLab.
-    let local = std::env::var("SHOSETSU_DIR").ok();
-    let download = |url: reqwest::Url| {
-        let client = client.clone();
-        let local = local.clone();
-        async move {
-            if let Some(dir) = local {
-                let path = url
-                    .path()
-                    .split_once("/raw/dev/")
-                    .map(|(_, path)| path.to_owned())
-                    .ok_or("not in the repository")?;
-                return std::fs::read(std::path::Path::new(&dir).join(path))
-                    .map_err(|error| error.to_string());
-            }
-            // Gently: GitLab answers 429 to a burst of raw downloads.
-            tokio::time::sleep(Duration::from_millis(400)).await;
-            let response = client
-                .get(url)
-                .send()
-                .await
-                .and_then(reqwest::Response::error_for_status)
-                .map_err(|error| error.to_string())?;
-            response
-                .bytes()
-                .await
-                .map(|bytes| bytes.to_vec())
-                .map_err(|error| error.to_string())
-        }
-    };
-    let index_url = reqwest::Url::parse(INDEX).unwrap();
+#[ignore = "needs network access to the script's site"]
+async fn shosetsu_probe() {
+    use crate::shosetsu::package::{self as shosetsu_package, LibrarySource};
+    let dir = std::env::var("SHOSETSU_DIR").expect("SHOSETSU_DIR");
+    let id = std::env::var("SHOSETSU_SCRIPTS").expect("SHOSETSU_SCRIPTS");
+    let index_url = reqwest::Url::parse("https://example.invalid/repo/index.json").unwrap();
+    let base = index_url.join(".").unwrap();
     let index = crate::repo::parse_index(
-        &String::from_utf8(download(index_url.clone()).await.unwrap()).unwrap(),
+        &std::fs::read_to_string(std::path::Path::new(&dir).join("index.json")).unwrap(),
     )
     .unwrap();
+    let libs_dir = std::env::var("SHOSETSU_LIBS_DIR").unwrap_or_else(|_| dir.clone());
+    let libs_index = crate::repo::parse_index(
+        &std::fs::read_to_string(std::path::Path::new(&libs_dir).join("index.json")).unwrap(),
+    )
+    .unwrap();
+    let libs_url = reqwest::Url::parse("https://example.invalid/libs/index.json").unwrap();
+    let entry = index
+        .extensions
+        .iter()
+        .find(|entry| entry.id == id)
+        .expect("the script");
+    let client = raygun_net::http_client().unwrap();
+    let bytes = survey_download(
+        &client,
+        Some(&dir),
+        &base,
+        crate::repo::package_url(&index_url, entry).unwrap(),
+    )
+    .await
+    .unwrap();
+    let sources = [
+        LibrarySource {
+            index_url: &index_url,
+            index: &index,
+        },
+        LibrarySource {
+            index_url: &libs_url,
+            index: &libs_index,
+        },
+    ];
+    let package = shosetsu_package::assemble(entry, &bytes, &sources, |url| {
+        let local = if url.path().starts_with("/libs/") {
+            (libs_dir.clone(), libs_url.join(".").unwrap())
+        } else {
+            (dir.clone(), base.clone())
+        };
+        let client = client.clone();
+        async move { survey_download(&client, Some(&local.0), &local.1, url).await }
+    })
+    .await
+    .unwrap();
+    let temp = tempfile::TempDir::new().unwrap();
+    crate::package::install(temp.path(), &package).unwrap();
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    let infos = host.load(discover_installed(temp.path())).await;
+    eprintln!("loaded: {:?} {:?}", infos[0].status, infos[0].error);
+    let provider = format!("{}/novel", entry.id);
+    for step in std::env::var("PROBE")
+        .unwrap_or_else(|_| "popular".into())
+        .split(',')
+    {
+        let (method, argument) = step.split_once(':').unwrap_or((step, ""));
+        let args = match method {
+            "popular" | "latest" => json!({ "page": argument.parse::<u32>().unwrap_or(1) }),
+            "search" => json!({ "query": argument, "page": 1 }),
+            "filters" => json!({}),
+            "passage" => json!({ "chapterId": argument }),
+            _ => json!({ "id": argument }),
+        };
+        eprintln!("== {method} {argument}");
+        let answer = host.call(&provider, method, args).await;
+        let text = match answer {
+            Ok(value) => serde_json::to_string_pretty(&value).unwrap(),
+            Err(error) => format!("ERROR {error}"),
+        };
+        eprintln!("{}", text.chars().take(3000).collect::<String>());
+    }
+}
+
+/// `SHOSETSU_DIR=<checkout of Shosetsu's repository> cargo test -p raygun-ext-host -- --ignored
+/// shosetsu_load_costs --nocapture`: installs every script of a checkout into one folder and
+/// loads them all as the app does at start, reporting the time it takes and each state's memory.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "reads a checkout of a Shosetsu repository"]
+async fn shosetsu_load_costs() {
+    use crate::shosetsu::package::{self as shosetsu_package, LibrarySource};
+    let dir = std::env::var("SHOSETSU_DIR").expect("SHOSETSU_DIR");
+    let index_url = reqwest::Url::parse("https://example.invalid/repo/index.json").unwrap();
+    let base = index_url.join(".").unwrap();
+    let index = crate::repo::parse_index(
+        &std::fs::read_to_string(std::path::Path::new(&dir).join("index.json")).unwrap(),
+    )
+    .unwrap();
+    let client = raygun_net::http_client().unwrap();
+    let temp = tempfile::TempDir::new().unwrap();
+    for entry in &index.extensions {
+        let Ok(bytes) = survey_download(
+            &client,
+            Some(&dir),
+            &base,
+            crate::repo::package_url(&index_url, entry).unwrap(),
+        )
+        .await
+        else {
+            continue;
+        };
+        let sources = [LibrarySource {
+            index_url: &index_url,
+            index: &index,
+        }];
+        let package = shosetsu_package::assemble(entry, &bytes, &sources, |url| {
+            let (client, dir, base) = (client.clone(), dir.clone(), base.clone());
+            async move { survey_download(&client, Some(&dir), &base, url).await }
+        })
+        .await;
+        if let Ok(package) = package {
+            crate::package::install(temp.path(), &package).unwrap();
+        }
+    }
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    let started = std::time::Instant::now();
+    let infos = host.load(discover_installed(temp.path())).await;
+    let took = started.elapsed();
+    let loaded: Vec<_> = infos
+        .iter()
+        .filter(|info| info.status == ExtensionStatus::Loaded)
+        .collect();
+    let mut total = 0u64;
+    let mut largest = (0u64, String::new());
+    for info in &loaded {
+        let used = host
+            .call(&format!("{}/novel", info.id), "memory", json!({}))
+            .await
+            .ok()
+            .and_then(|value| value.as_u64())
+            .unwrap_or_default();
+        total += used;
+        if used > largest.0 {
+            largest = (used, info.id.clone());
+        }
+    }
+    eprintln!(
+        "{} of {} scripts loaded in {took:?}; {} KiB of Lua state in all ({} KiB each on average, largest {} KiB: {})",
+        loaded.len(),
+        infos.len(),
+        total / 1024,
+        total / 1024 / loaded.len().max(1) as u64,
+        largest.0 / 1024,
+        largest.1
+    );
+    for info in infos
+        .iter()
+        .filter(|info| info.status != ExtensionStatus::Loaded)
+    {
+        eprintln!("  not loaded: {} {:?}", info.id, info.error);
+    }
+}
+
+/// One script's run through the survey.
+#[derive(Default)]
+struct SurveyRow {
+    id: String,
+    /// The stage it stopped at (`install`, `load`, `listing`, `novel`, `chapters`, `passage`), or
+    /// `ok` when a chapter's text came back.
+    stage: String,
+    error: String,
+    /// `ok`, `none` (no search), `empty`, or the error.
+    search: String,
+    seconds: f64,
+}
+
+/// Runs one installed script through listing → search → novel → chapters → passage.
+async fn survey_script(dir: std::path::PathBuf, id: String) -> SurveyRow {
+    let started = std::time::Instant::now();
+    let mut row = SurveyRow {
+        id: id.clone(),
+        search: "-".into(),
+        ..SurveyRow::default()
+    };
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    let infos = host.load(discover_installed(&dir)).await;
+    let Some(info) = infos.first() else {
+        row.stage = "load".into();
+        row.error = "nothing loaded".into();
+        return row;
+    };
+    if info.status != ExtensionStatus::Loaded {
+        row.stage = "load".into();
+        row.error = info.error.clone().unwrap_or_default();
+        return row;
+    }
+    let provider = format!("{}/novel", info.id);
+    let fail = |stage: &str, error: String| (stage.to_owned(), error);
+    let result: Result<(), (String, String)> = async {
+        let popular = host
+            .manga_list(&provider, crate::manga::MangaList::Popular, 1)
+            .await
+            .map_err(|error| fail("listing", error))?;
+        let novel = popular
+            .items
+            .first()
+            .ok_or_else(|| fail("listing", "no novels".into()))?
+            .clone();
+        // A word of the first title, as someone would type it.
+        let query = novel
+            .title
+            .split(|c: char| !c.is_alphanumeric())
+            .find(|word| word.chars().count() >= 4)
+            .unwrap_or(&novel.title)
+            .to_owned();
+        row.search = match host.manga_search(&provider, &query, 1).await {
+            Ok(found) if found.items.is_empty() => format!("empty ({query})"),
+            Ok(_) => "ok".into(),
+            Err(error) if error.contains("can't search") => "none".into(),
+            Err(error) => error.chars().take(100).collect(),
+        };
+        host.manga_details(&provider, &novel.id)
+            .await
+            .map_err(|error| fail("novel", error))?;
+        let chapters = host
+            .manga_chapters(&provider, &novel.id)
+            .await
+            .map_err(|error| fail("chapters", error))?;
+        let first = chapters
+            .first()
+            .ok_or_else(|| fail("chapters", "no chapters".into()))?;
+        let passage = host
+            .novel_passage(&provider, &first.id)
+            .await
+            .map_err(|error| fail("passage", error))?;
+        if passage.len() < 2 {
+            return Err(fail("passage", format!("{} blocks", passage.len())));
+        }
+        Ok(())
+    }
+    .await;
+    match result {
+        Ok(()) => row.stage = "ok".into(),
+        Err((stage, error)) => {
+            row.stage = stage;
+            row.error = error;
+        }
+    }
+    row.seconds = started.elapsed().as_secs_f64();
+    row
+}
+
+/// Reads a Shosetsu repository's file: from a checkout when `local` names one (`base` is the
+/// address the checkout stands for), else from the web, gently and again after a 429.
+async fn survey_download(
+    client: &reqwest::Client,
+    local: Option<&str>,
+    base: &reqwest::Url,
+    url: reqwest::Url,
+) -> Result<Vec<u8>, String> {
+    if let Some(dir) = local {
+        let relative = base
+            .make_relative(&url)
+            .ok_or("not in the repository")?
+            .replace("%20", " ");
+        return std::fs::read(std::path::Path::new(dir).join(relative))
+            .map_err(|error| error.to_string());
+    }
+    for attempt in 0..4u64 {
+        // GitLab answers 429 to a burst of raw downloads.
+        tokio::time::sleep(Duration::from_millis(500 + attempt * 4000)).await;
+        let response = client
+            .get(url.clone())
+            .send()
+            .await
+            .map_err(|error| error.to_string())?;
+        if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS && attempt < 3 {
+            continue;
+        }
+        let response = response
+            .error_for_status()
+            .map_err(|error| error.to_string())?;
+        return response
+            .bytes()
+            .await
+            .map(|bytes| bytes.to_vec())
+            .map_err(|error| error.to_string());
+    }
+    Err("rate limited".into())
+}
+
+/// `cargo test -p raygun-ext-host -- --ignored shosetsu_survey --nocapture`: every script in a
+/// Shosetsu repository, each reporting how far it got: install, load, listing, search, novel,
+/// chapters, passage. Prints a table instead of failing, to find runtime gaps.
+/// - `SHOSETSU_INDEX`: the repository's `index.json` (Shosetsu's official one by default);
+/// - `SHOSETSU_DIR`: read the index, scripts and libraries from a checkout of it instead;
+/// - `SHOSETSU_LIBS_DIR`: a checkout of Shosetsu's official repository, for libraries a
+///   community repository relies on without listing them (as when both are added);
+/// - `SHOSETSU_SCRIPTS`: only these ids (comma-separated);
+/// - `SURVEY_JOBS`: scripts checked at once (8); `SURVEY_OUT`: also write the table there.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs network access to the repository and many novel sites"]
+async fn shosetsu_survey() {
+    use crate::shosetsu::package::{self as shosetsu_package, LibrarySource};
+    use futures_util::StreamExt;
+    let index_url = reqwest::Url::parse(&std::env::var("SHOSETSU_INDEX").unwrap_or_else(|_| {
+        "https://gitlab.com/shosetsuorg/extensions/-/raw/dev/index.json".into()
+    }))
+    .unwrap();
+    let client = raygun_net::http_client().unwrap();
+    let local = std::env::var("SHOSETSU_DIR").ok();
+    let base = index_url.join(".").unwrap();
+    let text = String::from_utf8(
+        survey_download(&client, local.as_deref(), &base, index_url.clone())
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let index = match crate::repo::parse_index(&text) {
+        Ok(index) => index,
+        Err(error) => {
+            eprintln!("the index doesn't parse: {error}");
+            return;
+        }
+    };
+    let libs_dir = std::env::var("SHOSETSU_LIBS_DIR").ok();
+    let libs_url =
+        reqwest::Url::parse("https://gitlab.com/shosetsuorg/extensions/-/raw/dev/index.json")
+            .unwrap();
+    let libs_base = libs_url.join(".").unwrap();
+    let libs_index = match &libs_dir {
+        Some(dir) => crate::repo::parse_index(
+            &std::fs::read_to_string(std::path::Path::new(dir).join("index.json")).unwrap(),
+        )
+        .ok(),
+        None => None,
+    };
+    eprintln!("{} usable scripts in {index_url}", index.extensions.len());
     let wanted = std::env::var("SHOSETSU_SCRIPTS").ok();
-    let mut report = Vec::new();
+    let root = tempfile::TempDir::new().unwrap();
+    let mut rows = Vec::new();
+    let mut installed = Vec::new();
+    // Installed one by one (the repository host rate-limits), checked several at a time.
     for entry in &index.extensions {
         if wanted
             .as_deref()
@@ -2018,85 +2524,91 @@ async fn shosetsu_survey() {
         {
             continue;
         }
-        let temp = tempfile::TempDir::new().unwrap();
-        let installed: Result<(), String> = async {
-            let bytes = download(crate::repo::package_url(&index_url, entry).unwrap()).await?;
-            let script = shosetsu_package::verify_script(&bytes, entry)
-                .map_err(|error| error.to_string())?;
-            let mut queue = shosetsu_package::dependencies(&script);
-            let mut libraries: Vec<(String, String)> = Vec::new();
-            while let Some(name) = queue.pop() {
-                if libraries.iter().any(|(known, _)| *known == name) {
-                    continue;
-                }
-                let bytes = download(index_url.join(&format!("lib/{name}.lua")).unwrap()).await?;
-                let code = shosetsu_package::verify_library(&name, &bytes, &index)
-                    .map_err(|error| error.to_string())?;
-                queue.extend(shosetsu_package::dependencies(&code));
-                libraries.push((name, code));
+        let dir = root.path().join(&entry.id);
+        let result: Result<(), String> = async {
+            let bytes = survey_download(
+                &client,
+                local.as_deref(),
+                &base,
+                crate::repo::package_url(&index_url, entry).unwrap(),
+            )
+            .await?;
+            let mut sources = vec![LibrarySource {
+                index_url: &index_url,
+                index: &index,
+            }];
+            if let Some(libs_index) = &libs_index {
+                sources.push(LibrarySource {
+                    index_url: &libs_url,
+                    index: libs_index,
+                });
             }
-            let package = shosetsu_package::package(entry, script, libraries)
-                .map_err(|error| error.to_string())?;
-            crate::package::install(temp.path(), &package)
+            let package = shosetsu_package::assemble(entry, &bytes, &sources, |url| {
+                let from_libs = libs_base
+                    .make_relative(&url)
+                    .is_some_and(|path| !path.starts_with(".."))
+                    && base
+                        .make_relative(&url)
+                        .is_none_or(|path| path.starts_with(".."));
+                let (dir, root) = if from_libs {
+                    (libs_dir.clone(), libs_base.clone())
+                } else {
+                    (local.clone(), base.clone())
+                };
+                let client = client.clone();
+                async move { survey_download(&client, dir.as_deref(), &root, url).await }
+            })
+            .await?;
+            crate::package::install(&dir, &package)
                 .map(|_| ())
                 .map_err(|error| error.to_string())
         }
         .await;
-        if let Err(error) = installed {
-            report.push((entry.id.clone(), "install", error));
-            continue;
-        }
-        let host = ExtensionHost::start(HostConfig::default()).unwrap();
-        let infos = host.load(discover_installed(temp.path())).await;
-        let Some(info) = infos.first() else {
-            report.push((entry.id.clone(), "load", "nothing loaded".into()));
-            continue;
-        };
-        if info.status != ExtensionStatus::Loaded {
-            report.push((entry.id.clone(), "load", format!("{:?}", info.error)));
-            continue;
-        }
-        let provider = format!("{}/novel", info.id);
-        let step = async {
-            let popular = host
-                .manga_list(&provider, crate::manga::MangaList::Popular, 1)
-                .await
-                .map_err(|error| ("listing", error.to_string()))?;
-            let novel = popular
-                .items
-                .first()
-                .ok_or(("listing", "no novels".to_owned()))?
-                .clone();
-            host.manga_details(&provider, &novel.id)
-                .await
-                .map_err(|error| ("novel", error.to_string()))?;
-            let chapters = host
-                .manga_chapters(&provider, &novel.id)
-                .await
-                .map_err(|error| ("chapters", error.to_string()))?;
-            let first = chapters
-                .first()
-                .ok_or(("chapters", "no chapters".to_owned()))?;
-            let passage = host
-                .novel_passage(&provider, &first.id)
-                .await
-                .map_err(|error| ("passage", error.to_string()))?;
-            if passage.len() < 2 {
-                return Err(("passage", format!("{} blocks", passage.len())));
-            }
-            Ok(())
-        }
-        .await;
-        match step {
-            Ok(()) => report.push((entry.id.clone(), "ok", String::new())),
-            Err((stage, error)) => report.push((entry.id.clone(), stage, error)),
+        match result {
+            Ok(()) => installed.push((dir, entry.id.clone())),
+            Err(error) => rows.push(SurveyRow {
+                id: entry.id.clone(),
+                stage: "install".into(),
+                error,
+                search: "-".into(),
+                ..SurveyRow::default()
+            }),
         }
     }
-    let working = report.iter().filter(|(_, stage, _)| *stage == "ok").count();
-    eprintln!("{working} of {} scripts work", report.len());
-    for (id, stage, error) in &report {
-        let line: String = error.chars().take(160).collect();
-        eprintln!("{stage:>8}  {id}  {line}");
+    let jobs = std::env::var("SURVEY_JOBS")
+        .ok()
+        .and_then(|jobs| jobs.parse().ok())
+        .unwrap_or(8);
+    let checked: Vec<SurveyRow> = futures_util::stream::iter(installed)
+        .map(|(dir, id)| survey_script(dir, id))
+        .buffer_unordered(jobs)
+        .collect()
+        .await;
+    rows.extend(checked);
+    rows.sort_by(|a, b| a.id.cmp(&b.id));
+    let working = rows.iter().filter(|row| row.stage == "ok").count();
+    let searching = rows.iter().filter(|row| row.search == "ok").count();
+    let mut table = format!(
+        "{working} of {} scripts read a chapter; {searching} searched\n\n| script | result | search | time | error |\n|---|---|---|---|---|\n",
+        rows.len()
+    );
+    for row in &rows {
+        let error: String = row
+            .error
+            .replace('|', "/")
+            .replace('\n', " ")
+            .chars()
+            .take(220)
+            .collect();
+        let search = row.search.replace('|', "/").replace('\n', " ");
+        table.push_str(&format!(
+            "| {} | {} | {search} | {:.0}s | {error} |\n",
+            row.id, row.stage, row.seconds
+        ));
+    }
+    eprintln!("{table}");
+    if let Ok(path) = std::env::var("SURVEY_OUT") {
+        std::fs::write(path, &table).unwrap();
     }
 }
 

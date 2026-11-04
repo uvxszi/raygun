@@ -66,7 +66,9 @@ impl ExtensionHost {
             .call(provider, "episodes", serde_json::json!({ "id": id }))
             .await
             .map_err(|error| error.to_string())?;
-        Ok(parse_units(&value, "episodes", "Episode"))
+        let mut episodes = parse_units(&value, "episodes", "Episode");
+        fill_from_names(&mut episodes);
+        Ok(episodes)
     }
 
     /// A title's comments, a page at a time (M46.45); a source without them has none.
@@ -132,6 +134,33 @@ fn label(value: Option<&Value>) -> Option<String> {
     text(value).map(|label| label.chars().take(MAX_LABEL).collect())
 }
 
+/// Episodes as a source lists them, made whole: each id once (the first), a number read from the
+/// name when the source gives none ("Episode 12", "第12話"), and seasons read from the names
+/// ("S2 E5", "Season 2 Episode 5") when the source gives none and every name says one, so
+/// seasons numbered from 1 each don't interleave.
+pub fn fill_from_names(episodes: &mut Vec<MangaChapter>) {
+    let mut seen = std::collections::HashSet::new();
+    episodes.retain(|episode| seen.insert(episode.id.clone()));
+    let read: Vec<raygun_resolver::video_match::EpisodeInfo> = episodes
+        .iter()
+        .map(|episode| raygun_resolver::video_match::parse_episode(&episode.name))
+        .collect();
+    for (episode, info) in episodes.iter_mut().zip(&read) {
+        if episode.number.is_none() && !info.weak {
+            episode.number = info.episode.filter(|number| *number >= 0.0);
+        }
+    }
+    let seasons: Option<Vec<u32>> = read.iter().map(|info| info.season).collect();
+    if let Some(seasons) = seasons
+        && episodes.iter().all(|episode| episode.volume.is_none())
+        && read.iter().all(|info| !info.weak && info.episode.is_some())
+    {
+        for (episode, season) in episodes.iter_mut().zip(seasons) {
+            episode.volume = Some(season.to_string());
+        }
+    }
+}
+
 /// A `servers` answer: servers with ids and names, and any videos they came with.
 pub fn parse_servers(value: &Value) -> Vec<VideoServer> {
     value
@@ -166,6 +195,15 @@ pub fn parse_videos(value: &Value) -> Vec<VideoLink> {
     value.get("videos").map(videos_of).unwrap_or_default()
 }
 
+/// The format a link marks as needing a torrent app (Miru's `torrent` videos): a `.torrent`
+/// file's address or a magnet link. Raygun doesn't play these; the app says so.
+pub const TORRENT: &str = "torrent";
+
+/// A torrent's link: a web address or a magnet link.
+fn torrent_link(value: Option<&Value>) -> Option<String> {
+    url(value).or_else(|| text(value).filter(|link| link.starts_with("magnet:?")))
+}
+
 fn videos_of(list: &Value) -> Vec<VideoLink> {
     list.as_array()
         .into_iter()
@@ -176,17 +214,23 @@ fn videos_of(list: &Value) -> Vec<VideoLink> {
                 .and_then(Value::as_u64)
                 .filter(|height| (1..=10_000).contains(height))
                 .map(|height| height as u32);
+            let format = video
+                .get("format")
+                .and_then(Value::as_str)
+                .filter(|format| matches!(*format, "hls" | "dash" | TORRENT))
+                .map(str::to_owned);
+            let link = if format.as_deref() == Some(TORRENT) {
+                torrent_link(video.get("url"))
+            } else {
+                url(video.get("url")).or_else(|| youtube_link(video.get("url")))
+            };
             Some(VideoLink {
-                url: url(video.get("url")).or_else(|| youtube_link(video.get("url")))?,
+                url: link?,
                 label: label(video.get("label"))
                     .or_else(|| quality.map(|height| format!("{height}p"))),
                 quality,
                 headers: headers(video.get("headers")),
-                format: video
-                    .get("format")
-                    .and_then(Value::as_str)
-                    .filter(|format| matches!(*format, "hls" | "dash"))
-                    .map(str::to_owned),
+                format,
                 subtitles: video
                     .get("subtitles")
                     .and_then(Value::as_array)
@@ -265,6 +309,25 @@ mod tests {
         }));
         assert_eq!(links.len(), 1);
         assert_eq!(links[0].url, "youtube:dQw4w9WgXcQ");
+    }
+
+    #[test]
+    fn torrents_stay_marked() {
+        let links = parse_videos(&json!({
+            "videos": [
+                { "url": "https://nyaa.example/download/1.torrent", "format": "torrent" },
+                { "url": "magnet:?xt=urn:btih:abc", "format": "torrent" },
+                { "url": "magnet:?xt=urn:btih:abc" },
+                { "url": "javascript:alert(1)", "format": "torrent" }
+            ]
+        }));
+        assert_eq!(links.len(), 2, "a magnet link is kept only as a torrent");
+        assert!(
+            links
+                .iter()
+                .all(|link| link.format.as_deref() == Some(TORRENT))
+        );
+        assert_eq!(links[1].url, "magnet:?xt=urn:btih:abc");
     }
 
     #[test]
@@ -375,6 +438,51 @@ mod tests {
         assert_eq!(
             (episodes[2].number, episodes[2].volume.as_deref()),
             (None, None)
+        );
+    }
+
+    #[test]
+    fn names_fill_in_numbers_and_seasons() {
+        let parse = |episodes: Value| {
+            let mut episodes = parse_units(&json!({ "episodes": episodes }), "episodes", "Episode");
+            fill_from_names(&mut episodes);
+            episodes
+                .into_iter()
+                .map(|episode| (episode.id, episode.volume, episode.number))
+                .collect::<Vec<_>>()
+        };
+        let seasons = parse(json!([
+            { "id": "a", "name": "S2 E5" },
+            { "id": "b", "name": "Season 1 Episode 3" },
+            { "id": "a", "name": "S2 E5 again" }
+        ]));
+        assert_eq!(
+            seasons,
+            [
+                ("a".into(), Some("2".into()), Some(5.0)),
+                ("b".into(), Some("1".into()), Some(3.0)),
+            ],
+            "each id once, seasons and numbers from the names"
+        );
+        let partly = parse(json!([
+            { "id": "a", "name": "Episode 12" },
+            { "id": "b", "name": "S2 E1" },
+            { "id": "c", "name": "Film 2" }
+        ]));
+        assert_eq!(
+            partly,
+            [
+                ("a".into(), None, Some(12.0)),
+                ("b".into(), None, Some(1.0)),
+                ("c".into(), None, None),
+            ],
+            "no seasons unless every name gives one; a trailing number is only a hint"
+        );
+        let given = parse(json!([{ "id": "a", "name": "Episode 9", "number": 4, "season": 3 }]));
+        assert_eq!(
+            given,
+            [("a".into(), Some("3".into()), Some(4.0))],
+            "the source's own numbers win"
         );
     }
 }

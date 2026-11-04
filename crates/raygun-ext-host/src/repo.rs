@@ -21,13 +21,20 @@ pub struct RepoIndex {
     pub libraries: Vec<RepoLibrary>,
 }
 
-/// A Shosetsu library: `lib/<name>.lua`, with its SHA-256.
+/// A Shosetsu library: `lib/<name>.lua`, with its SHA-256 (which community repositories often
+/// leave out).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepoLibrary {
     pub name: String,
     #[serde(default)]
     pub ver: String,
+    #[serde(default, deserialize_with = "text_or_null")]
     pub hash: String,
+}
+
+/// A string field that may be `null`.
+fn text_or_null<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,8 +79,8 @@ pub struct RepoEntry {
     pub format: PackageFormat,
 }
 
-/// What a package is: a Raygun extension, a Nuclear plugin converted at install (M17), or a
-/// Shosetsu Lua script installed with its libraries (M32).
+/// What a package is: a Raygun extension, a Nuclear plugin converted at install (M17), a
+/// Shosetsu Lua script installed with its libraries (M32), or a Miru script (`crate::miru`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PackageFormat {
@@ -81,14 +88,16 @@ pub enum PackageFormat {
     Raygun,
     Nuclear,
     Shosetsu,
+    Miru,
 }
 
-/// Shosetsu's repository index (`index.json` with `scripts` and `libraries`).
+/// Shosetsu's repository index (`index.json` with `scripts` and `libraries`). Entries are read one
+/// by one, so one malformed script or library doesn't hide the rest of the repository.
 #[derive(Debug, Deserialize)]
 struct ShosetsuIndex {
-    scripts: Vec<ShosetsuScript>,
+    scripts: Vec<serde_json::Value>,
     #[serde(default)]
-    libraries: Vec<RepoLibrary>,
+    libraries: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -100,7 +109,9 @@ struct ShosetsuScript {
     ver: String,
     #[serde(default)]
     lib_ver: String,
-    /// Despite the name, a SHA-256.
+    /// Despite the name, a SHA-256 in Shosetsu's own repository; community repositories leave it
+    /// empty or put an MD5 there. Shosetsu only compares it to spot updates.
+    #[serde(default, deserialize_with = "text_or_null")]
     md5: String,
     #[serde(rename = "type", default)]
     kind: Option<String>,
@@ -110,6 +121,69 @@ struct ShosetsuScript {
 
 /// The kotlin-lib major version Raygun's Shosetsu runtime stands in for.
 const SHOSETSU_LIB_MAJOR: u64 = 1;
+
+/// Where the index may be for an address that isn't one: Shosetsu repositories are shared by
+/// their folder (Shosetsu adds `index.json` itself), or as their page on GitHub or GitLab, whose
+/// raw files sit elsewhere. Tried in order; an address ending in `.json` has none.
+pub fn shosetsu_index_candidates(url: &Url) -> Vec<Url> {
+    if url.path().ends_with(".json") {
+        return Vec::new();
+    }
+    let parts: Vec<&str> = url
+        .path_segments()
+        .map(|segments| segments.filter(|part| !part.is_empty()).collect())
+        .unwrap_or_default();
+    let raw = |text: String| Url::parse(&text).ok();
+    let mut candidates = Vec::new();
+    match url.host_str() {
+        // github.com/<owner>/<repo>[/tree/<branch>/<folder…>]
+        Some("github.com" | "www.github.com") if parts.len() >= 2 => {
+            let (owner, repository) = (parts[0], parts[1]);
+            let (branches, folder): (Vec<&str>, String) = match parts.get(2..) {
+                Some(["tree" | "blob", branch, rest @ ..]) => (vec![*branch], rest.join("/")),
+                _ => (vec!["main", "master", "dev"], String::new()),
+            };
+            for branch in branches {
+                let folder = if folder.is_empty() {
+                    String::new()
+                } else {
+                    format!("{folder}/")
+                };
+                candidates.extend(raw(format!(
+                    "https://raw.githubusercontent.com/{owner}/{repository}/{branch}/{folder}index.json"
+                )));
+            }
+        }
+        // gitlab.com/<group…>/<project>[/-/tree/<branch>/<folder…>]
+        Some("gitlab.com") if parts.len() >= 2 && !parts.contains(&"raw") => {
+            let split = parts.iter().position(|part| *part == "-");
+            let project = parts[..split.unwrap_or(parts.len())].join("/");
+            let (branches, folder): (Vec<&str>, String) =
+                match split.and_then(|at| parts.get(at + 1..)) {
+                    Some(["tree" | "blob", branch, rest @ ..]) => (vec![*branch], rest.join("/")),
+                    _ => (vec!["main", "master", "dev"], String::new()),
+                };
+            for branch in branches {
+                let folder = if folder.is_empty() {
+                    String::new()
+                } else {
+                    format!("{folder}/")
+                };
+                candidates.extend(raw(format!(
+                    "https://gitlab.com/{project}/-/raw/{branch}/{folder}index.json"
+                )));
+            }
+        }
+        _ => {
+            let mut folder = url.clone();
+            if !folder.path().ends_with('/') {
+                folder.set_path(&format!("{}/", folder.path()));
+            }
+            candidates.extend(folder.join("index.json").ok());
+        }
+    }
+    candidates
+}
 
 /// A label for an extension id: lower case, other characters as `-`.
 fn id_label(text: &str) -> String {
@@ -126,14 +200,23 @@ fn from_shosetsu(index: ShosetsuIndex) -> RepoIndex {
         .scripts
         .into_iter()
         .filter_map(|script| {
+            let script: ShosetsuScript = serde_json::from_value(script)
+                .inspect_err(|error| tracing::warn!(%error, "skipping a malformed Shosetsu script"))
+                .ok()?;
             let lua = script
                 .kind
                 .as_deref()
                 .is_none_or(|kind| kind == "LuaScript");
             let lib_ok = semver::Version::parse(&script.lib_ver)
                 .is_ok_and(|version| version.major == SHOSETSU_LIB_MAJOR);
-            let hash_ok =
-                script.md5.len() == 64 && script.md5.bytes().all(|b| b.is_ascii_hexdigit());
+            // Only a SHA-256 can be checked; anything else (none, an MD5) is checked by what the
+            // file is when it's installed (`shosetsu::package::verify_script`).
+            let sha256 =
+                if script.md5.len() == 64 && script.md5.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    script.md5.to_ascii_lowercase()
+                } else {
+                    String::new()
+                };
             let id = format!(
                 "shosetsu.{}.{}",
                 id_label(&script.lang),
@@ -141,7 +224,6 @@ fn from_shosetsu(index: ShosetsuIndex) -> RepoIndex {
             );
             let usable = lua
                 && lib_ok
-                && hash_ok
                 && semver::Version::parse(&script.ver).is_ok()
                 && is_extension_id(&id)
                 && !script.file_name.contains(['/', '\\'])
@@ -169,7 +251,7 @@ fn from_shosetsu(index: ShosetsuIndex) -> RepoIndex {
                 lang: Some(script.lang.clone()),
                 package: format!("src/{}/{}.lua", script.lang, script.file_name),
                 icon: script.image_url.filter(|url| !url.trim().is_empty()),
-                sha256: script.md5.to_ascii_lowercase(),
+                sha256,
                 size: 0,
                 format: PackageFormat::Shosetsu,
             })
@@ -181,7 +263,12 @@ fn from_shosetsu(index: ShosetsuIndex) -> RepoIndex {
         // (`default_name`), so only Shosetsu's own repository reads as Shosetsu's.
         name: String::new(),
         extensions,
-        libraries: index.libraries,
+        libraries: index
+            .libraries
+            .into_iter()
+            .filter_map(|library| serde_json::from_value::<RepoLibrary>(library).ok())
+            .filter(|library| crate::shosetsu::package::is_library_name(&library.name))
+            .collect(),
     }
 }
 
@@ -391,6 +478,29 @@ pub fn check_index_url(url: &str) -> Result<Url, RepoError> {
     }
 }
 
+/// The index in a repository's folder, for an address that names the folder rather than a file
+/// (`https://miru-repo.0n0.dev`, as Miru takes repositories, means its `index.json`).
+pub fn index_beside(url: &Url) -> Option<Url> {
+    if !matches!(url.scheme(), "http" | "https") {
+        return None;
+    }
+    let path = url.path();
+    if path
+        .rsplit('/')
+        .next()
+        .is_some_and(|last| last.contains('.'))
+    {
+        return None;
+    }
+    let mut folder = url.clone();
+    folder.set_query(None);
+    folder.set_fragment(None);
+    if !path.ends_with('/') {
+        folder.set_path(&format!("{path}/"));
+    }
+    folder.join("index.json").ok()
+}
+
 /// Parses an index, dropping entries this Raygun can't use (other API versions, malformed
 /// fields) rather than rejecting the whole repository.
 ///
@@ -404,6 +514,9 @@ pub fn parse_index(json: &str) -> Result<RepoIndex, RepoError> {
     }
     if let Ok(index) = serde_json::from_str::<ShosetsuIndex>(json) {
         return Ok(from_shosetsu(index));
+    }
+    if let Some(index) = crate::miru::index::parse(json) {
+        return Ok(index);
     }
     let mut index: RepoIndex = serde_json::from_str(json).map_err(|error| {
         foreign_format(json).map_or_else(|| RepoError::Index(error.to_string()), RepoError::Foreign)
@@ -453,8 +566,6 @@ fn foreign_format(json: &str) -> Option<String> {
         "This is a CloudStream repository: its plugins are Kotlin code, which Raygun can't run"
     } else if has(first, &["site", "url", "iconUrl", "lang"]) {
         "This is an LNReader plugin list: Raygun can't run LNReader plugins yet"
-    } else if has(first, &["package", "type", "webSite"]) {
-        "This is a Miru extension repository: Raygun can't run Miru extensions yet"
     } else if has(Some(&value), &["resources", "types", "id"]) {
         "This is a Stremio addon, not a repository: add it in Browse → Sources → Addons"
     } else {

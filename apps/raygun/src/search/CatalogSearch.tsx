@@ -18,8 +18,9 @@ import { FailedSources } from './FailedSources';
 import { NoSources } from './NoSources';
 import { SourceMenu } from './SourceMenu';
 import { SourceFiltersPanel } from './SourceFiltersPanel';
-import { rankResults } from './rankResults';
+import { rankResults, titleScore } from './rankResults';
 import type { RankedCard } from './rankResults';
+import { videoTitleScore } from '../watch/videoMatch';
 import { useSeenTitles } from './seenBefore';
 import { failingLast, useSourceHealth } from './sourceHealth';
 import {
@@ -102,7 +103,7 @@ const RowPlaceholder: FC<{ count?: number }> = ({ count = 6 }) => {
       aria-hidden
       data-testid="row-placeholder"
       className={COVER_GRID_CLASS}
-      style={coverGridStyle(settings?.gridColumns ?? 0, settings?.coverWidth ?? 0)}
+      style={coverGridStyle(settings?.coverSize ?? 0)}
     >
       {Array.from({ length: count }, (_, index) => (
         <span key={index} className="bg-surface aspect-[2/3] animate-pulse rounded-lg" />
@@ -212,8 +213,9 @@ export const RankedResults: FC<{
       rankResults(
         results.filter((result) => !result.error),
         query,
+        medium === 'video' ? videoTitleScore : titleScore,
       ),
-    [results, query],
+    [results, query, medium],
   );
   // Titles already seen (Home, sources' pages, the library) show until every source has
   // answered (M46.47), after the answers that came.

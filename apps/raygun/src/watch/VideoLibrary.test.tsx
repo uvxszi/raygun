@@ -276,15 +276,15 @@ describe('Video library', () => {
     expect(within(page).getByRole('button', { name: 'Add to categories' })).toBeInTheDocument();
     expect(
       await within(page).findByRole('button', {
-        name: 'Delete the download of S1 E1 · Episode 1',
+        name: 'Delete the download of S1 E1',
       }),
     ).toBeInTheDocument();
     // Tapping an episode watches it through a session, which plays a download from the device.
-    await user.click(within(page).getByRole('button', { name: /^1\. Episode 1/ }));
+    await user.click(within(page).getByRole('button', { name: /^Episode 1/ }));
     expect(commands.stremioWatch).toHaveBeenCalledWith('series', 'tt0903747', 'tt0903747:1:1');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
-    await user.click(within(page).getByRole('button', { name: 'Download S1 E2 · Episode 2' }));
+    await user.click(within(page).getByRole('button', { name: 'Download S1 E2' }));
     const picker = await screen.findByRole('dialog', { name: 'Choose what to download' });
     await user.click(await within(picker).findByRole('button', { name: /^HLS 720p/ }));
     expect(commands.stremioDownload).toHaveBeenCalledWith(
@@ -293,7 +293,7 @@ describe('Video library', () => {
         metaId: 'tt0903747',
         videoId: 'tt0903747:1:2',
         title: 'Breaking Bad',
-        subtitle: 'S1 E2 · Episode 2',
+        subtitle: 'S1 E2',
         poster: null,
         stream: direct,
       },
@@ -380,7 +380,7 @@ describe('Video library', () => {
 
     const upcoming = await within(page).findByRole('region', { name: 'Upcoming' });
     const card = within(upcoming).getByRole('listitem', {
-      name: 'Breaking Bad · S1 E6 · Episode 6',
+      name: 'Breaking Bad · S1 E6',
     });
     expect(card).toHaveTextContent('Tomorrow');
     expect(within(card).getByRole('link')).toHaveAttribute(
@@ -389,7 +389,7 @@ describe('Video library', () => {
     );
 
     const rows = within(page).getAllByTestId('episode-update-row');
-    expect(rows[0]).toHaveTextContent('S1 E5 · Episode 5');
+    expect(rows[0]).toHaveTextContent('S1 E5');
     expect(within(rows[0]!).getByRole('img', { name: 'Downloaded' })).toBeInTheDocument();
     expect(rows[1]).toHaveClass('opacity-50');
     expect(within(page).getByRole('heading', { name: 'Today' })).toBeInTheDocument();

@@ -26,6 +26,7 @@ use raygun_model::{
     StremioStreamGroup, StremioStreamKind, StremioSuggestion, StremioVideo, TitleRating,
     VideoRequest, VideoSubtitle, YouTubeVideo,
 };
+use raygun_resolver::video_match;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
@@ -909,6 +910,19 @@ impl StremioService {
         Err(errors.join("\n"))
     }
 
+    /// The numberings a stream's name may give a video of a title found lately (see
+    /// [`numberings`]), to tell streams of another episode; none for a video not known.
+    pub fn episode_numbers(&self, kind: &str, video_id: &str) -> Vec<video_match::EpisodeNumber> {
+        let Some(meta) = self.meta_of_video(kind, video_id) else {
+            return Vec::new();
+        };
+        meta.videos
+            .iter()
+            .position(|video| video.id == video_id)
+            .and_then(|index| numberings(&meta).into_iter().nth(index))
+            .unwrap_or_default()
+    }
+
     /// The details found lately for the title of a movie or episode, by its video id (the player
     /// asks by the video alone).
     fn meta_of_video(&self, kind: &str, video_id: &str) -> Option<protocol::Meta> {
@@ -1385,6 +1399,7 @@ impl StremioService {
                     },
                     tag: binge_group,
                     failed: blocked,
+                    mismatch: false,
                     request,
                 });
             }
@@ -1891,6 +1906,66 @@ async fn stored_meta(db: &raygun_db::Db, row: &TitleRow) -> Result<protocol::Met
     })
 }
 
+/// The numberings a stream's name may give each of a title's videos by: its own season and
+/// episode, the IMDb season and episode an anime addon maps it to (`Video::imdb`), and its
+/// number across seasons. A Kitsu entry numbers every episode "season 1" while its name says
+/// which season it is; its own number then goes with that season, or with none when its name
+/// doesn't say.
+pub(crate) fn numberings(meta: &protocol::Meta) -> Vec<Vec<video_match::EpisodeNumber>> {
+    let title = video_match::parse_title(&meta.preview.name);
+    let one_season = meta
+        .videos
+        .iter()
+        .all(|video| video.season.is_none_or(|season| season == 1));
+    let mut across = 0;
+    meta.videos
+        .iter()
+        .map(|video| {
+            let regular = video.season.is_some_and(|season| season >= 1);
+            if regular {
+                across += 1;
+            }
+            let Some(episode) = video.episode else {
+                return Vec::new();
+            };
+            let (imdb_season, imdb_episode) = video
+                .imdb
+                .as_ref()
+                .map_or((None, None), |(_, season, episode)| (*season, *episode));
+            let season = if one_season && title.names_season() {
+                title.season
+            } else if imdb_season.is_some() {
+                // An entry numbered as its IMDb season is (Attack on Titan's first) is that
+                // season; one numbered across seasons (One Piece) isn't any one.
+                imdb_season.filter(|_| imdb_episode == Some(episode))
+            } else {
+                video.season
+            };
+            let mut numbers = vec![video_match::EpisodeNumber { season, episode }];
+            if let (Some(season), Some(episode)) = (imdb_season, imdb_episode) {
+                numbers.push(video_match::EpisodeNumber {
+                    season: Some(season),
+                    episode,
+                });
+            }
+            // Counted over the title's seasons (Cinemeta's); only when it differs: "episode 2 of
+            // any season" would let other seasons' files pass.
+            let absolute = (regular && imdb_season.is_none())
+                .then_some(across)
+                .filter(|absolute| *absolute != episode);
+            if let Some(episode) = absolute {
+                numbers.push(video_match::EpisodeNumber {
+                    season: None,
+                    episode,
+                });
+            }
+            let mut seen = std::collections::HashSet::new();
+            numbers.retain(|number| seen.insert(*number));
+            numbers
+        })
+        .collect()
+}
+
 /// What a session plays for a Stremio movie or episode: the ids and what the player shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StremioPlayTarget {
@@ -2260,6 +2335,64 @@ mod tests {
             failed_at: 2_000,
         };
         assert!(!fixed.failing(5_000));
+    }
+
+    fn number(season: Option<u32>, episode: u32) -> video_match::EpisodeNumber {
+        video_match::EpisodeNumber { season, episode }
+    }
+
+    #[test]
+    fn episodes_are_numbered_as_streams_may_name_them() {
+        let meta = |json: Value| protocol::parse_meta(&json, "series").unwrap();
+        // Cinemeta: every season under one title; numbers across seasons are counted.
+        let cinemeta = meta(serde_json::json!({ "meta": {
+            "id": "tt2560140", "type": "series", "name": "Attack on Titan",
+            "videos": [
+                { "id": "tt2560140:1:1", "season": 1, "episode": 1 },
+                { "id": "tt2560140:1:2", "season": 1, "episode": 2 },
+                { "id": "tt2560140:2:1", "season": 2, "episode": 1 },
+                { "id": "tt2560140:0:1", "season": 0, "episode": 1 }
+            ]
+        }}));
+        assert_eq!(
+            numberings(&cinemeta),
+            vec![
+                vec![number(Some(1), 1)],
+                vec![number(Some(1), 2)],
+                vec![number(Some(2), 1), number(None, 3)],
+                vec![number(Some(0), 1)],
+            ]
+        );
+        // anime-kitsu: one entry per season, numbered from 1, mapped onto IMDb's.
+        let season_two = meta(serde_json::json!({ "meta": {
+            "id": "kitsu:8671", "type": "series", "name": "Attack on Titan Season 2",
+            "videos": [{ "id": "kitsu:8671:1", "season": 1, "episode": 1, "imdb_id": "tt2560140",
+                "imdbSeason": 2, "imdbEpisode": 1, "absoluteEpisode": 26 }]
+        }}));
+        assert_eq!(
+            numberings(&season_two),
+            vec![vec![number(Some(2), 1)]],
+            "its own numbering and IMDb's agree"
+        );
+        let part_two = meta(serde_json::json!({ "meta": {
+            "id": "kitsu:41982", "type": "series", "name": "Attack on Titan Season 3 Part 2",
+            "videos": [{ "id": "kitsu:41982:1", "season": 1, "episode": 1, "imdb_id": "tt2560140",
+                "imdbSeason": 3, "imdbEpisode": 13, "absoluteEpisode": 50 }]
+        }}));
+        assert_eq!(
+            numberings(&part_two),
+            vec![vec![number(Some(3), 1), number(Some(3), 13)]]
+        );
+        // A long entry numbered across IMDb's seasons is no one season.
+        let long = meta(serde_json::json!({ "meta": {
+            "id": "kitsu:12", "type": "series", "name": "One Piece",
+            "videos": [{ "id": "kitsu:12:1071", "season": 1, "episode": 1071, "imdb_id": "tt0388629",
+                "imdbSeason": 21, "imdbEpisode": 179, "absoluteEpisode": 1071 }]
+        }}));
+        assert_eq!(
+            numberings(&long),
+            vec![vec![number(None, 1071), number(Some(21), 179)]]
+        );
     }
 
     #[test]

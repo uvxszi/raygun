@@ -72,6 +72,10 @@ pub struct ImportEvent(pub String);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct CaptionsEvent(pub String);
 
+/// How far a song's lyrics translation on this device is (M46.48), a few times a second.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct LyricsTranslationEvent(pub raygun_model::LyricsTranslationProgress);
+
 /// Followed artists or their release news changed (M46.42).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct ArtistReleasesEvent;
@@ -108,6 +112,11 @@ pub struct AiModelEvent(pub raygun_model::AiModelProgress);
 /// or an empty string when several changed (M37).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct PodcastsChangedEvent(pub String);
+
+/// An audiobook source answered after its list was shown (M46.48): `[list, query]`, so the list
+/// asks again and shows the late books (kept ready by then).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct AudiobooksFoundEvent(pub String, pub String);
 
 /// An export job changed (M46.1); carries the job, or nothing when one was removed from the list.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]

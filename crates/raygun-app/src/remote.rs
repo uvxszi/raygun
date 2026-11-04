@@ -146,6 +146,22 @@ impl RemoteService {
         self.set_enabled(true).await.map(|_| ())
     }
 
+    /// Tells the network this device's name again (after it was renamed), while the server runs.
+    pub fn readvertise(&self) {
+        let me = self.app.state::<Arc<ConnectService>>().me();
+        let mut state = self.lock();
+        let Some(port) = state.running.as_ref().map(|running| running.port) else {
+            return;
+        };
+        // The old name goes first: the new one replaces it under the same instance.
+        state.advertised = None;
+        state.advertised = raygun_remote::lan_ip().and_then(|ip| {
+            raygun_remote::discovery::advertise(&me.id, &me.name, me.kind, ip, port)
+                .map_err(|error| tracing::warn!(%error, "couldn't advertise for Connect"))
+                .ok()
+        });
+    }
+
     /// Where Connect reaches this device: `<lan ip>:<port>`, while the server runs.
     pub fn address(&self) -> Option<String> {
         let port = self.lock().running.as_ref()?.port;
@@ -208,7 +224,7 @@ impl RemoteService {
             access,
         );
         let result = raygun_remote::serve(router).await;
-        let me = self.app.state::<Arc<ConnectService>>().me().clone();
+        let me = self.app.state::<Arc<ConnectService>>().me();
         let mut state = self.lock();
         match result {
             Ok(running) => {
@@ -375,7 +391,7 @@ impl Backend for RemoteBackend {
     }
 
     fn device(&self) -> Value {
-        let me = self.app.state::<Arc<ConnectService>>().me().clone();
+        let me = self.app.state::<Arc<ConnectService>>().me();
         json!({ "id": me.id, "name": me.name, "kind": me.kind })
     }
 

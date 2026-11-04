@@ -34,6 +34,7 @@ mod library_actions;
 mod local_files;
 mod local_network;
 mod lyrics_store;
+mod lyrics_translation;
 mod made_for_you;
 mod manga;
 mod manga_downloads;
@@ -84,6 +85,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::storage_info,
             commands::settings_get,
             commands::settings_update,
+            commands::settings_update_many,
+            commands::settings_defaults,
             commands::recent_contexts,
             commands::recent_contexts_add,
             commands::playback_get_state,
@@ -140,6 +143,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::lyrics_get,
             commands::lyrics_options,
             commands::lyrics_transcribe,
+            commands::lyrics_translate,
+            commands::lyrics_translate_options,
+            commands::lyrics_translation_pick,
             commands::captions_use_feed,
             commands::captions_use_ai,
             commands::stremio_ratings,
@@ -189,6 +195,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::audiobook_open,
             commands::audiobook_play,
             commands::audiobook_directory,
+            commands::audiobook_download,
+            commands::podcast_continue_listening,
             commands::captions,
             commands::captions_transcribe,
             commands::captions_stop,
@@ -338,8 +346,16 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::podcast_top,
             commands::podcast_play,
             commands::podcast_set_played,
+            commands::podcast_set_all_played,
+            commands::podcast_set_earlier_played,
+            commands::podcast_forget_position,
+            commands::podcast_set_episode_order,
+            commands::podcast_set_speed,
             commands::podcast_download,
             commands::podcast_remove_download,
+            commands::podcast_remove_downloads,
+            commands::podcast_cancel_download,
+            commands::podcast_open_page,
             commands::video_play,
             commands::video_play_link,
             commands::video_continue_watching,
@@ -462,6 +478,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::TtsEvent,
             events::AiModelEvent,
             events::PodcastsChangedEvent,
+            events::AudiobooksFoundEvent,
             events::WatchChangedEvent,
             events::VideoDownloadsEvent,
             events::SongDownloadsEvent,
@@ -473,6 +490,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::LocalFilesEvent,
             events::ImportEvent,
             events::CaptionsEvent,
+            events::LyricsTranslationEvent,
             events::ArtistReleasesEvent,
             events::SettingsChangedEvent,
             events::IncognitoEvent,

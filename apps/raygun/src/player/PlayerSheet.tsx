@@ -218,7 +218,7 @@ export const PlayerSheet: FC = () => {
                     <ImageIcon aria-hidden size={22} />
                   </button>
                 )}
-                <PlaybackExtras className="h-[min(2.75rem,11cqw)]" />
+                <PlaybackExtras spoken={spoken} className="h-[min(2.75rem,11cqw)]" />
                 <SoundButton className="size-[min(2.75rem,11cqw)]" />
                 <VideoToggle item={item} className="size-[min(2.75rem,11cqw)]" />
                 <button

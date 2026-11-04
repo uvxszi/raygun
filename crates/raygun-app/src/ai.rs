@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use base64::Engine;
 use raygun_ai::models::{self, ModelInfo};
 use raygun_ai::secrets::{self, Vault};
-use raygun_ai::translate::{self, Provider, ProviderKind};
+use raygun_ai::translate::{self, Provider, ProviderKind, TranslateError};
 use raygun_model::{
     AiModel, AiModelProgress, AiModelState, AiProvider, AiProviderInput, AiProviderKind,
 };
@@ -155,6 +155,50 @@ impl AiService {
             Ok(mut translations) => Ok(translations.remove(0)),
             Err(error) => {
                 tracing::info!(provider = %provider.name, %error, "translator test failed");
+                Err(error.to_string())
+            }
+        }
+    }
+
+    /// Translates a song's lines into `to` with a provider, all in one request (DeepL takes them
+    /// fifty at a time); a model that answers with the wrong number of lines gets one more try.
+    /// Returns the provider's name with the lines (M46.48).
+    pub async fn translate_lyrics(
+        &self,
+        id: &str,
+        lines: &[String],
+        to: &str,
+    ) -> Result<(String, Vec<String>), String> {
+        let provider = self
+            .stored_providers()
+            .await?
+            .into_iter()
+            .find(|provider| provider.id == id)
+            .ok_or_else(|| "This translator was removed in Settings → AI".to_owned())?;
+        let key = self.vault.get(&secret_name(id));
+        let ask = || {
+            translate::translate_as(
+                &self.client,
+                &provider,
+                key.as_deref(),
+                lines,
+                None,
+                to,
+                translate::Content::Lyrics,
+            )
+        };
+        let mut result = ask().await;
+        if matches!(
+            result,
+            Err(TranslateError::CountMismatch { .. } | TranslateError::BadAnswer)
+        ) && provider.kind != ProviderKind::Deepl
+        {
+            result = ask().await;
+        }
+        match result {
+            Ok(translated) => Ok((provider.name.clone(), translated)),
+            Err(error) => {
+                tracing::info!(provider = %provider.name, %error, "lyrics translation failed");
                 Err(error.to_string())
             }
         }

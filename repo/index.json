@@ -120,9 +120,9 @@
     {
       "id": "dev.raygun.kugou",
       "name": "KuGou lyrics",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "apiVersion": 1,
-      "description": "Synced lyrics from KuGou's lyric service, as Kreate and RiMusic use it: strong on Chinese, Japanese and Korean songs, and many others.",
+      "description": "Synced lyrics from KuGou's lyric service, as Kreate and RiMusic use it: strong on Chinese, Japanese and Korean songs, with Chinese translations and romanized lines for many.",
       "author": "Raygun",
       "provides": [
         "lyrics"
@@ -135,16 +135,16 @@
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.kugou-1.0.0.zip",
-      "sha256": "0788d451324249c1823085be56136bc64cde9730a819f308e9cb0a05e03bf2ae",
-      "size": 2506
+      "package": "packages/dev.raygun.kugou-1.1.0.zip",
+      "sha256": "42732d99a78692184ce7601b3fcfc5a4094671f69673e1ca4dfeeb82b4ce10e3",
+      "size": 5480
     },
     {
       "id": "dev.raygun.librivox",
       "name": "LibriVox",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "apiVersion": 1,
-      "description": "Free public-domain audiobooks read by LibriVox volunteers, found through the Internet Archive and played chapter by chapter.",
+      "description": "Free public-domain audiobooks read by LibriVox volunteers: found by title, author or genre through the Internet Archive and LibriVox's own catalogue, and played chapter by chapter.",
       "author": "Raygun",
       "provides": [
         "audiobook.directory"
@@ -157,9 +157,9 @@
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.librivox-1.0.0.zip",
-      "sha256": "489e63428da79c4be9858ad742de357d15cddbb6b1bd82e18b2e00031a739547",
-      "size": 1755
+      "package": "packages/dev.raygun.librivox-1.1.0.zip",
+      "sha256": "de9494f39b22a0df8bc51dcb068845b4c6f85ea2cd9df3a6be4ebed354dd9688",
+      "size": 3151
     },
     {
       "id": "dev.raygun.listenbrainz",

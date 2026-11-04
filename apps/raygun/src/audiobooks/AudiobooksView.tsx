@@ -4,6 +4,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { menuHandler, useBookMenuItems } from '../music/cardMenus';
+import { formatLength } from '../podcasts/formatLength';
 import { PodcastArt } from '../podcasts/PodcastArt';
 import { searchLink } from '../search/searchTypes';
 import { EmptyState } from '../shell/EmptyState';
@@ -31,7 +32,17 @@ export const AudiobooksView: FC = () => {
       className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-7"
     >
       {books.data.map((book) => {
-        const share = book.chapters > 0 ? book.finished / book.chapters : 0;
+        // By listening time when the feed gives lengths, else by chapters.
+        const totalMs = book.totalMs ?? 0;
+        const listenedMs = book.listenedMs ?? 0;
+        const timed = totalMs > 0;
+        const share = timed
+          ? listenedMs / totalMs
+          : book.chapters > 0
+            ? book.finished / book.chapters
+            : 0;
+        const done = book.finished >= book.chapters && book.chapters > 0;
+        const started = book.finished > 0 || listenedMs > 0;
         return (
           <li key={book.id}>
             <Link
@@ -51,21 +62,32 @@ export const AudiobooksView: FC = () => {
             >
               <PodcastArt url={book.artworkUrl} className="w-full rounded-lg shadow-lg" />
               <span className="line-clamp-2 text-sm font-semibold">{book.title}</span>
-              {book.author && (
-                <span className="text-muted -mt-1 truncate text-xs">{book.author}</span>
+              {(book.author ?? book.edition) && (
+                <span className="text-muted -mt-1 truncate text-xs">
+                  {[book.author, book.edition].filter(Boolean).join(' · ')}
+                </span>
               )}
               <span className="text-muted text-xs">
-                {book.finished >= book.chapters && book.chapters > 0
+                {done
                   ? t('audiobooks.finished')
-                  : t('audiobooks.chapterOf', {
-                      chapter: Math.min(book.finished + 1, book.chapters),
-                      count: book.chapters,
-                    })}
+                  : [
+                      t('audiobooks.chapterOf', {
+                        chapter: Math.min(book.finished + 1, book.chapters),
+                        count: book.chapters,
+                      }),
+                      started && timed
+                        ? t('podcasts.left', {
+                            time: formatLength(totalMs - listenedMs, t),
+                          })
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
               </span>
               <span className="bg-foreground/10 h-1 overflow-hidden rounded-full">
                 <span
-                  className="bg-primary block h-full"
-                  style={{ width: `${Math.round(share * 100)}%` }}
+                  className="bg-primary block h-full origin-left"
+                  style={{ transform: `scaleX(${Math.min(1, Math.max(0, share))})` }}
                 />
               </span>
             </Link>

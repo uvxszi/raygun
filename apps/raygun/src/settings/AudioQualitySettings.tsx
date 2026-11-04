@@ -32,26 +32,20 @@ export const AudioQualitySettings: FC = () => {
     <PrefGroup title={t('settings.audioQuality.title')}>
       <PrefChoice<AudioQuality>
         title={t('settings.audioQuality.streaming')}
-        summary={t('settings.audioQuality.streamingHint')}
         value={prefs.streaming}
         options={options}
-        disabled={update.isPending}
         onChange={(streaming) => set({ streaming })}
       />
       <PrefChoice<AudioQuality>
         title={t('settings.audioQuality.cellular')}
-        summary={t('settings.audioQuality.cellularHint')}
         value={prefs.cellular}
         options={options}
-        disabled={update.isPending}
         onChange={(cellular) => set({ cellular })}
       />
       <PrefChoice<AudioQuality>
         title={t('settings.audioQuality.download')}
-        summary={t('settings.audioQuality.downloadHint')}
         value={prefs.download}
         options={options}
-        disabled={update.isPending}
         onChange={(download) => set({ download })}
       />
     </PrefGroup>

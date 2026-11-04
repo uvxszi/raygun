@@ -44,7 +44,8 @@ enum AttrOp {
     Prefix(String),
     Suffix(String),
     Contains(String),
-    Word(String),
+    /// Jsoup's `[attr~=regex]`: the value matches a regular expression (not CSS's word match).
+    Matches(Regex),
     Dash(String),
     NotEquals(String),
 }
@@ -54,6 +55,7 @@ enum Condition {
     Id(String),
     Class(String),
     Attr(String, AttrOp),
+    AttrPrefix(String),
     Has(Box<Selector>),
     Not(Box<Selector>),
     Contains(String),
@@ -92,6 +94,20 @@ impl Selector {
             ));
         }
         Ok(selector)
+    }
+
+    /// Elements with this class (Jsoup's `getElementsByClass`), however it's spelled.
+    pub fn class(name: &str) -> Self {
+        Self {
+            alternatives: vec![Complex {
+                leading: None,
+                compounds: vec![Compound {
+                    tag: None,
+                    conditions: vec![Condition::Class(name.to_owned())],
+                }],
+                combinators: Vec::new(),
+            }],
+        }
     }
 
     /// Elements that match: `scope` itself and those under it, in document order (Jsoup's
@@ -206,7 +222,10 @@ impl Condition {
     ) -> bool {
         match self {
             Self::Id(id) => element.id() == Some(id.as_str()),
-            Self::Class(class) => element.classes().any(|candidate| candidate == class),
+            // Jsoup matches class names whatever their case.
+            Self::Class(class) => element
+                .classes()
+                .any(|candidate| candidate.eq_ignore_ascii_case(class)),
             Self::Attr(name, op) => {
                 let value = element
                     .attrs()
@@ -226,15 +245,16 @@ impl Condition {
                     (AttrOp::Contains(expected), Some(value)) => {
                         !expected.is_empty() && lower(value).contains(&lower(expected))
                     }
-                    (AttrOp::Word(expected), Some(value)) => value
-                        .split_whitespace()
-                        .any(|word| word.eq_ignore_ascii_case(expected)),
+                    (AttrOp::Matches(pattern), Some(value)) => pattern.is_match(value),
                     (AttrOp::Dash(expected), Some(value)) => {
                         value.eq_ignore_ascii_case(expected)
                             || lower(value).starts_with(&format!("{}-", lower(expected)))
                     }
                 }
             }
+            Self::AttrPrefix(prefix) => element
+                .attrs()
+                .any(|(name, _)| name.to_ascii_lowercase().starts_with(prefix.as_str())),
             // Jsoup's :has looks at descendants, or at whatever a relative selector names.
             Self::Has(inner) => {
                 let siblings = inner.alternatives.iter().any(|complex| {
@@ -357,13 +377,21 @@ fn is_block(tag: &str) -> bool {
     )
 }
 
+/// Whether a text node is a `<script>` or `<style>` element's content: Jsoup keeps those as data,
+/// not text, so `text()` and `wholeText()` leave them out.
+pub fn is_data(text: NodeRef<'_, Node>) -> bool {
+    text.parent()
+        .and_then(|parent| parent.value().as_element().map(|element| element.name()))
+        .is_some_and(|name| matches!(name, "script" | "style"))
+}
+
 /// Jsoup's `text()`: all descendant text, whitespace collapsed, blocks and `<br>` separated.
 pub fn element_text(node: NodeRef<'_, Node>) -> String {
     let mut raw = String::new();
     for edge in node.traverse() {
         match edge {
             ego_tree::iter::Edge::Open(child) => match child.value() {
-                Node::Text(text) => raw.push_str(text),
+                Node::Text(text) if !is_data(child) => raw.push_str(text),
                 Node::Element(element) if is_block(element.name()) => raw.push(' '),
                 _ => {}
             },
@@ -436,7 +464,8 @@ impl Parser {
             } else if nested && self.peek() == Some(')') || self.peek().is_none() {
                 break;
             } else {
-                return Err(format!("unexpected {:?} in selector", self.peek()));
+                let found: String = self.chars[self.position..].iter().collect();
+                return Err(format!("unexpected {found:?} in selector"));
             }
         }
         Ok(Selector { alternatives })
@@ -568,8 +597,44 @@ impl Parser {
         value
     }
 
+    /// A regular expression up to the `]` that closes the attribute selector, brackets inside
+    /// it balanced (`[href~=[0-9]+$]`).
+    fn balanced_until_bracket(&mut self) -> String {
+        let mut depth = 0;
+        let mut value = String::new();
+        while let Some(c) = self.peek() {
+            match c {
+                '\\' => {
+                    value.push(c);
+                    self.position += 1;
+                    if let Some(escaped) = self.peek() {
+                        value.push(escaped);
+                        self.position += 1;
+                    }
+                    continue;
+                }
+                '[' => depth += 1,
+                ']' if depth == 0 => break,
+                ']' => depth -= 1,
+                _ => {}
+            }
+            value.push(c);
+            self.position += 1;
+        }
+        value
+    }
+
     fn attribute(&mut self) -> Result<Condition, String> {
         self.skip_whitespace();
+        // Jsoup's `[^data-]`: any attribute whose name starts so.
+        if self.eat('^') {
+            let prefix = self.identifier().to_ascii_lowercase();
+            self.skip_whitespace();
+            if prefix.is_empty() || !self.eat(']') {
+                return Err("bad attribute prefix selector".into());
+            }
+            return Ok(Condition::AttrPrefix(prefix));
+        }
         let name = self.identifier();
         if name.is_empty() {
             return Err("attribute selector without a name".into());
@@ -595,10 +660,15 @@ impl Parser {
                     _ => "!=",
                 })
             }
-            other => return Err(format!("unexpected {other:?} in attribute selector")),
+            Some(other) => return Err(format!("unexpected {other:?} in attribute selector")),
+            None => return Err("unclosed attribute selector".into()),
         };
         let op = match op {
             None => AttrOp::Exists,
+            Some("~=") => {
+                let value = self.balanced_until_bracket();
+                AttrOp::Matches(Regex::new(value.trim()).map_err(|error| error.to_string())?)
+            }
             Some(op) => {
                 let value = self.quoted_or_bare(']');
                 match op {
@@ -606,7 +676,6 @@ impl Parser {
                     "^=" => AttrOp::Prefix(value),
                     "$=" => AttrOp::Suffix(value),
                     "*=" => AttrOp::Contains(value),
-                    "~=" => AttrOp::Word(value),
                     "|=" => AttrOp::Dash(value),
                     _ => AttrOp::NotEquals(value),
                 }
@@ -845,14 +914,58 @@ mod tests {
 
     #[test]
     fn text_follows_jsoup() {
-        let html = Html::parse_fragment("<div>  Hello<br>world <p>para</p>tail </div>");
+        let html = Html::parse_fragment(
+            "<div>  Hello<br>world <p>para</p><script>ads.push(1)</script><style>p{}</style>tail </div>",
+        );
         let div = Selector::parse("div")
             .unwrap()
             .select_first(html.tree.root())
             .unwrap();
         let div = html.tree.get(div).unwrap();
-        assert_eq!(element_text(div), "Hello world para tail");
+        assert_eq!(
+            element_text(div),
+            "Hello world para tail",
+            "scripts and styles are data, not text"
+        );
         assert_eq!(own_text(div), "Hello world tail");
+    }
+
+    #[test]
+    fn jsoup_attribute_forms() {
+        let html = Html::parse_document(
+            r#"<img class="Cover" src="/a.PNG"><img src="/b.gif" data-lazy="x"><a href="/c/12">c</a>"#,
+        );
+        assert_eq!(
+            Selector::parse("img[src~=(?i)\\.png$]")
+                .unwrap()
+                .select(html.tree.root())
+                .len(),
+            1,
+            "~= is a regular expression in Jsoup"
+        );
+        assert_eq!(
+            Selector::parse("a[href~=/c/[0-9]+$]")
+                .unwrap()
+                .select(html.tree.root())
+                .len(),
+            1,
+            "brackets inside the expression"
+        );
+        assert_eq!(
+            Selector::parse("[^data-]")
+                .unwrap()
+                .select(html.tree.root())
+                .len(),
+            1
+        );
+        assert_eq!(
+            Selector::parse("img.cover")
+                .unwrap()
+                .select(html.tree.root())
+                .len(),
+            1,
+            "classes match whatever their case"
+        );
     }
 
     #[test]

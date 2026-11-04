@@ -26,8 +26,12 @@ type ServerState = 'ready' | 'resolving' | 'empty' | 'failed';
 /** Resolved servers first, then the ones still resolving; empty and failed ones last. */
 const ORDER: ServerState[] = ['ready', 'resolving', 'empty', 'failed'];
 
+/** A torrent (Miru sources) needs a torrent app: Raygun lists it but doesn't play it. */
+const isTorrent = (link: VideoLinkView) => link.format === 'torrent';
+
 /** DASH can play but not be saved. */
-const savable = (link: VideoLinkView) => link.format !== 'dash' && !link.url.includes('.mpd');
+const savable = (link: VideoLinkView) =>
+  link.format !== 'dash' && !link.url.includes('.mpd') && !isTorrent(link);
 
 /** Plays a link here, or in another app (`external`). */
 type PlayLink = (link: VideoLinkView, external?: boolean) => void;
@@ -46,20 +50,23 @@ const LinkList: FC<{
         <li key={link.url} className="flex items-stretch gap-2">
           <button
             type="button"
-            disabled={busy || (intent === 'download' && !savable(link))}
+            disabled={busy || isTorrent(link) || (intent === 'download' && !savable(link))}
             onClick={() => (intent === 'download' ? onDownload(link) : onPlay(link))}
             className="bg-background flex min-w-0 flex-1 items-center gap-3 rounded-xl px-4 py-3 text-left disabled:opacity-60"
           >
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
               <span className="text-sm font-medium wrap-anywhere">
-                {link.label ?? t('watch.video')}
+                {link.label ?? (isTorrent(link) ? t('watch.torrent') : t('watch.video'))}
               </span>
+              {isTorrent(link) && (
+                <span className="text-muted text-xs">{t('watch.needsTorrentApp')}</span>
+              )}
               {link.subtitles.length > 0 && (
                 <span className="text-muted text-xs">
                   {t('watch.subtitleCount', { count: link.subtitles.length })}
                 </span>
               )}
-              {intent === 'download' && !savable(link) && (
+              {intent === 'download' && !savable(link) && !isTorrent(link) && (
                 <span className="text-muted text-xs">{t('watch.cantDownload')}</span>
               )}
             </span>
@@ -91,11 +98,15 @@ const LinkList: FC<{
               <OverflowMenu
                 label={t('watch.linkActions', { name: link.label ?? t('watch.video') })}
                 items={[
-                  {
-                    label: t('watch.openElsewhere'),
-                    icon: ExternalLink,
-                    onSelect: () => onPlay(link, true),
-                  },
+                  ...(isTorrent(link)
+                    ? []
+                    : [
+                        {
+                          label: t('watch.openElsewhere'),
+                          icon: ExternalLink,
+                          onSelect: () => onPlay(link, true),
+                        },
+                      ]),
                   {
                     label: t('watch.copyLink'),
                     icon: Copy,

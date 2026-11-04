@@ -111,6 +111,8 @@ pub enum Runtime {
     Js,
     /// A Shosetsu Lua script converted at install (M32).
     Shosetsu,
+    /// A Miru JavaScript extension, run unchanged in Raygun's Miru runtime (`crate::miru`).
+    Miru,
 }
 
 /// A validated manifest.
@@ -179,6 +181,7 @@ impl Manifest {
         let runtime = match raw.runtime.as_str() {
             "js" => Runtime::Js,
             "shosetsu" => Runtime::Shosetsu,
+            "miru" => Runtime::Miru,
             _ => return Err(ManifestError::Runtime(raw.runtime)),
         };
         if !is_safe_entry(&raw.entry, runtime) {
@@ -288,7 +291,7 @@ fn is_label(label: &str, extra: &[u8]) -> bool {
 
 fn is_safe_entry(entry: &str, runtime: Runtime) -> bool {
     let extension = match runtime {
-        Runtime::Js => ".js",
+        Runtime::Js | Runtime::Miru => ".js",
         Runtime::Shosetsu => ".lua",
     };
     entry.ends_with(extension)

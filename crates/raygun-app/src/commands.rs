@@ -90,52 +90,36 @@ pub async fn settings_update(
     db: tauri::State<'_, AppDb>,
     change: SettingChange,
 ) -> Result<Settings, String> {
-    let theme_changed = matches!(change, SettingChange::Theme(_));
-    let nsfw_changed = matches!(
-        change,
-        SettingChange::ShowNsfw(_) | SettingChange::ExplicitMusic(_)
-    );
-    let cache_changed = matches!(change, SettingChange::Cache(_));
-    let sources_changed = matches!(change, SettingChange::DisabledSources(_));
-    let discovery_changed = matches!(change, SettingChange::Discovery(_));
-    let agent_changed = matches!(change, SettingChange::UserAgent(_));
-    let sound_changed = matches!(change, SettingChange::Sound(_));
-    // Incognito (M47): the sidebar doesn't remember pages opened or played from.
-    let change = crate::privacy::without_new_stamps(&app, &db.0, change).await;
-    let settings = settings::update(&db.0, change)
+    settings_update_many(app, db, vec![change]).await
+}
+
+/// Changes several settings together (a screen's Reset to defaults): none is written when one
+/// is refused.
+#[tauri::command]
+#[specta::specta]
+pub async fn settings_update_many(
+    app: tauri::AppHandle,
+    db: tauri::State<'_, AppDb>,
+    changes: Vec<SettingChange>,
+) -> Result<Settings, String> {
+    let mut kept = Vec::with_capacity(changes.len());
+    for change in changes {
+        // Incognito (M47): the sidebar doesn't remember pages opened or played from.
+        kept.push(crate::privacy::without_new_stamps(&app, &db.0, change).await);
+    }
+    let keys: Vec<&'static str> = kept.iter().map(SettingChange::key).collect();
+    let settings = settings::update_many(&db.0, kept)
         .await
         .map_err(|error| error.to_string())?;
-    if discovery_changed {
-        use tauri::Manager;
-        app.state::<Arc<DiscoveryService>>().nudge();
-    }
-    if theme_changed {
-        crate::system_ui::apply_theme(&app, settings.theme);
-    }
-    if agent_changed {
-        raygun_net::set_user_agent(&settings.user_agent);
-    }
-    if sound_changed {
-        use tauri::Manager;
-        app.state::<crate::playback::PlaybackService>()
-            .set_sound(settings.sound.clone());
-    }
-    if nsfw_changed {
-        use tauri::Manager;
-        app.state::<Arc<ExtensionService>>()
-            .set_content(settings.show_nsfw, settings.explicit_music)
-            .await;
-    }
-    if cache_changed {
-        use tauri::Manager;
-        app.state::<crate::caches::Caches>().apply(&settings.cache);
-    }
-    if sources_changed {
-        use tauri::Manager;
-        app.state::<Arc<ExtensionService>>()
-            .set_disabled_sources(&settings.disabled_sources);
-    }
+    settings::apply_live(&app, &settings, Some(&keys)).await;
     Ok(settings)
+}
+
+/// Every setting as a fresh install has it, for resetting a settings screen.
+#[tauri::command]
+#[specta::specta]
+pub fn settings_defaults() -> Settings {
+    Settings::default()
 }
 
 /// Current player state. Afterwards, changes arrive as `PlaybackStateEvent`.
@@ -515,12 +499,14 @@ pub async fn extension_setting_set(
 }
 
 /// Lyrics for a track, or `null` when no provider has any. The song's own lyrics (M46.12) win, and
-/// its lyrics offset comes along.
+/// its lyrics offset comes along, with every translation kept for the song lined up under the
+/// lines (M46.48).
 #[tauri::command]
 #[specta::specta]
 pub async fn lyrics_get(
     lyrics: tauri::State<'_, Arc<crate::lyrics_store::LyricsStore>>,
     sound: tauri::State<'_, Arc<crate::sound::SoundService>>,
+    translations: tauri::State<'_, Arc<crate::lyrics_translation::LyricsTranslations>>,
     query: TrackQuery,
 ) -> Result<Option<Lyrics>, String> {
     // Kept on the device, and asked again with simpler words when none come (M46.46).
@@ -530,7 +516,49 @@ pub async fn lyrics_get(
     } else {
         lyrics.lyrics(&query).await?
     };
-    Ok(sound.lyrics(&query, fetched))
+    let Some(shown) = sound.lyrics_untrimmed(&query, fetched) else {
+        return Ok(None);
+    };
+    let shown = translations.attach(&query, shown).await;
+    Ok(Some(sound.trim(&query, shown)))
+}
+
+/// Translates a song's lyrics into `language` (a BCP 47 tag) with `translator`: `device` (a model
+/// from the AI catalogue, downloaded first) or `ai:<provider id>`. The translation is kept and
+/// comes with the song's lyrics from then on (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn lyrics_translate(
+    translations: tauri::State<'_, Arc<crate::lyrics_translation::LyricsTranslations>>,
+    query: TrackQuery,
+    language: String,
+    translator: String,
+) -> Result<raygun_model::LyricsTranslation, String> {
+    translations.translate(&query, &language, &translator).await
+}
+
+/// Who can translate a song's lyrics into `language`: this device, with what it would download,
+/// then the translators from Settings → AI (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn lyrics_translate_options(
+    translations: tauri::State<'_, Arc<crate::lyrics_translation::LyricsTranslations>>,
+    query: TrackQuery,
+    language: String,
+) -> Result<Vec<raygun_model::LyricsTranslatorOption>, String> {
+    translations.options(&query, &language).await
+}
+
+/// Makes one of a song's kept translations the one that shows first (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn lyrics_translation_pick(
+    translations: tauri::State<'_, Arc<crate::lyrics_translation::LyricsTranslations>>,
+    query: TrackQuery,
+    language: String,
+    translator: String,
+) -> Result<(), String> {
+    translations.pick(&query, &language, &translator).await
 }
 
 /// Forgets a song's kept lyrics, transcription and own lyrics (M46.46: Delete saved lyrics).
@@ -580,9 +608,12 @@ pub async fn lyrics_transcribe_many(
 pub async fn lyrics_options(
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     captions: tauri::State<'_, Arc<crate::captions::CaptionService>>,
+    lyrics: tauri::State<'_, Arc<crate::lyrics_store::LyricsStore>>,
     query: TrackQuery,
 ) -> Result<Vec<Lyrics>, String> {
     let mut options = extensions.all_lyrics(&query).await?;
+    // Their translations follow whichever version is picked (M46.48).
+    lyrics.keep_sources(&query, &options).await;
     // What a transcription heard before stays one of the choices (M46.45).
     if let Some(heard) = captions.song_transcript(&query).await {
         options.push(heard);
@@ -1321,7 +1352,9 @@ pub async fn audiobook_play(
     podcasts.play_audiobook(&id, chapter_id.as_deref()).await
 }
 
-/// A page of books from the audiobook directories (M46.22).
+/// A page of books from every audiobook source at once (M46.22): `popular`, `latest`, `search`
+/// or `subject`; searches rank by title and author and a book two sources share shows once
+/// (M46.48).
 #[tauri::command]
 #[specta::specta]
 pub async fn audiobook_directory(
@@ -1331,6 +1364,24 @@ pub async fn audiobook_directory(
     page: u32,
 ) -> Result<raygun_model::AudiobookPage, String> {
     podcasts.audiobook_directory(&list, &query, page).await
+}
+
+/// Downloads every chapter of a book not downloaded yet, two at a time; returns how many were
+/// queued (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn audiobook_download(podcasts: Podcasts<'_>, id: String) -> Result<u32, String> {
+    podcasts.download_all(&id).await
+}
+
+/// Episodes and books started and not finished, the last listened first (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_continue_listening(
+    podcasts: Podcasts<'_>,
+    limit: u32,
+) -> Result<Vec<raygun_model::ListeningItem>, String> {
+    podcasts.continue_listening(limit).await
 }
 
 /// An episode's or chapter's captions, with where transcribing stands (M46.32).
@@ -2553,9 +2604,15 @@ pub async fn sync_set_kinds(
 #[specta::specta]
 pub async fn sync_set_device_name(
     sync: tauri::State<'_, SyncService>,
+    connect: tauri::State<'_, Arc<crate::connect::ConnectService>>,
+    remote: tauri::State<'_, RemoteService>,
     name: String,
 ) -> Result<SyncStatus, String> {
-    sync.set_device_name(&name).await
+    let status = sync.set_device_name(&name).await?;
+    // One name everywhere: Connect, the network and linked devices see it at once.
+    connect.rename(&status.device_name);
+    remote.readvertise();
+    Ok(status)
 }
 
 /// Undoes the newest sync that changed something on this device.
@@ -3164,7 +3221,62 @@ pub async fn podcast_set_played(
     podcasts.set_played(&episode_id, played).await
 }
 
-/// Downloads an episode in the background; progress arrives as `PodcastsChangedEvent`s.
+/// Marks every episode of a show (or chapter of a book) played or unplayed (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_set_all_played(
+    podcasts: Podcasts<'_>,
+    id: String,
+    played: bool,
+) -> Result<(), String> {
+    podcasts.set_all_played(&id, played).await
+}
+
+/// Marks the episodes before this one played: older ones, or a book's earlier chapters (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_set_earlier_played(
+    podcasts: Podcasts<'_>,
+    episode_id: String,
+) -> Result<u32, String> {
+    podcasts.set_earlier_played(&episode_id).await
+}
+
+/// Forgets where listening stopped, without marking it played (M46.48: Continue listening).
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_forget_position(
+    podcasts: Podcasts<'_>,
+    episode_id: String,
+) -> Result<(), String> {
+    podcasts.forget_position(&episode_id).await
+}
+
+/// How a show's or book's episodes list, kept for it; `None` goes back to the kind's own
+/// (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_set_episode_order(
+    podcasts: Podcasts<'_>,
+    id: String,
+    order: Option<raygun_model::EpisodeOrder>,
+) -> Result<(), String> {
+    podcasts.set_episode_order(&id, order).await
+}
+
+/// The speed a show's or book's episodes play at; `None` leaves the player's (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_set_speed(
+    podcasts: Podcasts<'_>,
+    id: String,
+    speed: Option<f64>,
+) -> Result<(), String> {
+    podcasts.set_speed(&id, speed).await
+}
+
+/// Downloads an episode in the background, two at a time; progress arrives as
+/// `PodcastsChangedEvent`s.
 #[tauri::command]
 #[specta::specta]
 pub async fn podcast_download(podcasts: Podcasts<'_>, episode_id: String) -> Result<(), String> {
@@ -3178,6 +3290,38 @@ pub async fn podcast_remove_download(
     episode_id: String,
 ) -> Result<(), String> {
     podcasts.remove_download(&episode_id).await
+}
+
+/// Deletes every downloaded episode of a show or chapter of a book (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_remove_downloads(podcasts: Podcasts<'_>, id: String) -> Result<(), String> {
+    podcasts.remove_downloads(&id).await
+}
+
+/// Stops a download that's waiting or under way (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_cancel_download(
+    podcasts: Podcasts<'_>,
+    episode_id: String,
+) -> Result<(), String> {
+    podcasts.cancel_download(&episode_id).await
+}
+
+/// Opens a show's or book's website, or a link from its notes, in Raygun's browser (M46.48).
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_open_page(websites: Websites<'_>, url: String) -> Result<(), String> {
+    let url = url.trim();
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("That isn't a web address".into());
+    }
+    websites
+        .inner()
+        .clone()
+        .open_page(&format!("{}podcasts", crate::websites::PAGE_PREFIX), url)
+        .await
 }
 
 // ---- Watch (M38) ----

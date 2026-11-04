@@ -1,5 +1,5 @@
 import { commands, events } from '@raygun/bindings';
-import type { PodcastView } from '@raygun/bindings';
+import type { EpisodeOrder, PodcastView } from '@raygun/bindings';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
@@ -7,6 +7,8 @@ import { unwrapResult } from '../lib/commandResult';
 import { rememberPlay } from '../music/playContext';
 
 const PODCASTS = 'podcasts';
+/** Audiobooks' queries (`audiobooks/useAudiobooks.ts`) change with the same commands. */
+const BOOKS = 'audiobooks';
 const LATEST_LIMIT = 20;
 
 /** Refreshes podcast data when Rust reports changes (refreshes, downloads, finished episodes). */
@@ -57,11 +59,23 @@ export const usePodcastSearch = (query: string) =>
     staleTime: 10 * 60 * 1000,
   });
 
+/** Episodes and books started and not finished, the last listened first (M46.48). */
+export const useContinueListening = (limit: number) =>
+  useQuery({
+    queryKey: [PODCASTS, 'continue', limit],
+    queryFn: () => unwrapResult(commands.podcastContinueListening(limit)),
+  });
+
 const usePodcastMutation = <Args>(run: (args: Args) => Promise<unknown>) => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: run,
-    onSettled: () => queryClient.invalidateQueries({ queryKey: [PODCASTS] }),
+    onSettled: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: [PODCASTS] }),
+        queryClient.invalidateQueries({ queryKey: [BOOKS] }),
+      ]);
+    },
   });
 };
 
@@ -105,8 +119,50 @@ export const useSetPlayed = () =>
     unwrapResult(commands.podcastSetPlayed(id, played)),
   );
 
+/** Every episode of a show (or chapter of a book) played or unplayed (M46.48). */
+export const useSetAllPlayed = () =>
+  usePodcastMutation(({ id, played }: { id: string; played: boolean }) =>
+    unwrapResult(commands.podcastSetAllPlayed(id, played)),
+  );
+
+/** The episodes before this one played: older ones, or a book's earlier chapters (M46.48). */
+export const useSetEarlierPlayed = () =>
+  usePodcastMutation((episodeId: string) =>
+    unwrapResult(commands.podcastSetEarlierPlayed(episodeId)),
+  );
+
+/** Forgets where listening stopped, without marking it played (M46.48). */
+export const useForgetPosition = () =>
+  usePodcastMutation((episodeId: string) =>
+    unwrapResult(commands.podcastForgetPosition(episodeId)),
+  );
+
+/** How a show's or book's episodes list, kept for it; `null` is its kind's own (M46.48). */
+export const useSetEpisodeOrder = () =>
+  usePodcastMutation(({ id, order }: { id: string; order: EpisodeOrder | null }) =>
+    unwrapResult(commands.podcastSetEpisodeOrder(id, order)),
+  );
+
+/** The speed a show's or book's episodes play at; `null` leaves the player's (M46.48). */
+export const useSetShowSpeed = () =>
+  usePodcastMutation(({ id, speed }: { id: string; speed: number | null }) =>
+    unwrapResult(commands.podcastSetSpeed(id, speed)),
+  );
+
 export const useDownloadEpisode = () =>
   usePodcastMutation((id: string) => unwrapResult(commands.podcastDownload(id)));
 
 export const useRemoveEpisodeDownload = () =>
   usePodcastMutation((id: string) => unwrapResult(commands.podcastRemoveDownload(id)));
+
+/** Stops a download that's waiting or under way (M46.48). */
+export const useCancelEpisodeDownload = () =>
+  usePodcastMutation((id: string) => unwrapResult(commands.podcastCancelDownload(id)));
+
+/** Deletes every download of a show or book (M46.48). */
+export const useRemoveDownloads = () =>
+  usePodcastMutation((id: string) => unwrapResult(commands.podcastRemoveDownloads(id)));
+
+/** Opens a show's or book's website, or a link from its notes, in Raygun's browser (M46.48). */
+export const useOpenPodcastPage = () =>
+  useMutation({ mutationFn: (url: string) => unwrapResult(commands.podcastOpenPage(url)) });

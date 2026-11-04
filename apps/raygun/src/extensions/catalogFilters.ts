@@ -115,14 +115,21 @@ export const catalogFacets = (catalog: RepoCatalog[]) => {
 };
 
 /** Extensions that came from another app's format, which a repository may hold. */
-export type RepoFormat = 'nuclear' | 'shosetsu';
+export type RepoFormat = 'nuclear' | 'shosetsu' | 'miru';
 
 const formatOf = (entry: CatalogEntry): RepoFormat | null =>
-  entry.nuclear ? 'nuclear' : entry.id.startsWith('shosetsu.') ? 'shosetsu' : null;
+  entry.nuclear
+    ? 'nuclear'
+    : entry.id.startsWith('shosetsu.')
+      ? 'shosetsu'
+      : entry.id.startsWith('miru.')
+        ? 'miru'
+        : null;
 
 /**
  * What a repository holds: how many extensions of each kind (an extension with several kinds
- * counts in each), and how many are another app's format (Nuclear plugins, Shosetsu scripts).
+ * counts in each), and how many are another app's format (Nuclear plugins, Shosetsu and Miru
+ * scripts).
  */
 export const repoContents = (entries: CatalogEntry[]) => {
   const kinds = new Map<ExtensionKind, number>();
@@ -137,7 +144,7 @@ export const repoContents = (entries: CatalogEntry[]) => {
       kind,
       count: kinds.get(kind) ?? 0,
     })),
-    formats: (['nuclear', 'shosetsu'] as const)
+    formats: (['nuclear', 'shosetsu', 'miru'] as const)
       .filter((format) => formats.has(format))
       .map((format) => ({ format, count: formats.get(format) ?? 0 })),
   };

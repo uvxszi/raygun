@@ -17,8 +17,15 @@ thiserror.workspace = true
 tracing.workspace = true
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "time", "macros", "net"] }
 rquickjs = { version = "0.14", features = ["futures"] }
-scraper = "0.24"
+# `deterministic` keeps attributes in source order when serialized, as Jsoup and Dart's `html`
+# do; Shosetsu and Miru scripts match patterns against that HTML.
+scraper = { version = "0.24", features = ["deterministic"] }
 ego-tree = "0.10"
+# Shosetsu (M32): building and renaming elements in scraper's tree, decoding bodies by charset,
+# and dates for `os.date`/`os.time` and chapter releases.
+html5ever = "0.35"
+encoding_rs = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 regex = "1"
 mlua = { version = "0.10", features = ["lua52", "vendored"] }
 semver = "1"
@@ -32,3 +39,6 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 tempfile = "3"
 axum.workspace = true
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "macros", "test-util"] }
+# KuGou's compressed KRC lyrics for its fixture (M46.48).
+flate2 = "1"
+base64 = "0.22"

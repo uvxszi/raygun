@@ -25,8 +25,8 @@ use crate::content::ContentFilter;
 use crate::cookies::CookieJar;
 use crate::failure::{Failure, Trouble};
 use crate::html;
-use crate::manifest::{Manifest, is_provider_id};
-use crate::permissions::NetPolicy;
+use crate::manifest::{Manifest, Runtime, SettingDef, is_provider_id};
+use crate::permissions::{HostPattern, NetPolicy, is_public_ip};
 use crate::storage::KvStore;
 
 const PRELUDE: &str = include_str!("prelude.js");
@@ -72,6 +72,9 @@ struct Shared {
     client: reqwest::Client,
     storage: RefCell<KvStore>,
     settings: BTreeMap<String, serde_json::Value>,
+    /// Settings the script declared while running (Miru's `registerSetting`), after the
+    /// manifest's own.
+    registered: Rc<RefCell<Vec<SettingDef>>>,
     providers: RefCell<Vec<ProviderInfo>>,
     deadline: Rc<Cell<Instant>>,
     cpu_budget: Duration,
@@ -174,16 +177,23 @@ impl JsExtension {
         limits: &Limits,
         content: ContentFilter,
     ) -> Result<Self, String> {
+        // A Miru script (M46.x) is checked and rewritten as Miru does before anything runs.
+        let miru = match manifest.runtime {
+            Runtime::Miru => Some(crate::miru::runtime::Prepared::new(&code)?),
+            _ => None,
+        };
         let policy = Arc::new(manifest.net.clone());
         let client =
-            extension_client(policy.clone(), cookies).map_err(|error| error.to_string())?;
+            extension_client(policy.clone(), cookies.clone()).map_err(|error| error.to_string())?;
         let deadline = Rc::new(Cell::new(Instant::now() + limits.cpu_budget));
+        let registered = Rc::new(RefCell::new(Vec::new()));
         let shared = Rc::new(Shared {
             manifest,
             policy,
             client,
             storage: RefCell::new(storage),
             settings,
+            registered: registered.clone(),
             providers: RefCell::new(Vec::new()),
             deadline: deadline.clone(),
             cpu_budget: limits.cpu_budget,
@@ -216,8 +226,19 @@ impl JsExtension {
         context
             .with(move |ctx| -> Result<(), String> {
                 install_natives(&ctx, natives).map_err(|error| error.to_string())?;
-                eval_script(&ctx, PRELUDE, "raygun:prelude")?;
-                eval_script(&ctx, &code, &filename)
+                eval_script(&ctx, PRELUDE, "raygun:prelude", true)?;
+                match &miru {
+                    Some(prepared) => crate::miru::runtime::install(
+                        &ctx,
+                        prepared,
+                        crate::miru::runtime::Hooks {
+                            cookies,
+                            settings: registered,
+                        },
+                        &filename,
+                    ),
+                    None => eval_script(&ctx, &code, &filename, true),
+                }
             })
             .await?;
 
@@ -255,6 +276,17 @@ impl JsExtension {
     /// The user's values for this extension's settings (defaults not included).
     pub fn user_settings(&self) -> &BTreeMap<String, serde_json::Value> {
         &self.shared.settings
+    }
+
+    /// The settings it has: the manifest's, then those the script registered (Miru).
+    pub fn settings(&self) -> Vec<SettingDef> {
+        let mut settings = self.shared.manifest.settings.clone();
+        for setting in self.shared.registered.borrow().iter() {
+            if !settings.iter().any(|known| known.key == setting.key) {
+                settings.push(setting.clone());
+            }
+        }
+        settings
     }
 
     pub fn providers(&self) -> Vec<ProviderInfo> {
@@ -318,10 +350,17 @@ fn call_error(label: &str, error: CaughtError<'_>) -> String {
     }
 }
 
-fn eval_script(ctx: &Ctx<'_>, code: &str, filename: &str) -> Result<(), String> {
+/// Evaluates a script in the global scope; `strict` as Raygun's own code runs, sloppy for
+/// scripts written for runtimes that evaluate that way (Miru).
+pub(crate) fn eval_script(
+    ctx: &Ctx<'_>,
+    code: &str,
+    filename: &str,
+    strict: bool,
+) -> Result<(), String> {
     let mut options = rquickjs::context::EvalOptions::default();
     options.global = true;
-    options.strict = true;
+    options.strict = strict;
     options.filename = Some(filename.to_owned());
     ctx.eval_with_options::<(), _>(code, options)
         .catch(ctx)
@@ -334,6 +373,10 @@ fn extension_client(
     policy: Arc<NetPolicy>,
     cookies: Arc<CookieJar>,
 ) -> reqwest::Result<reqwest::Client> {
+    let any_public = policy.patterns().contains(&HostPattern::AnyPublic);
+    let resolver = PublicResolver {
+        policy: policy.clone(),
+    };
     let redirects = reqwest::redirect::Policy::custom(move |attempt| {
         if attempt.previous().len() >= MAX_REDIRECTS {
             attempt.error("too many redirects")
@@ -344,11 +387,38 @@ fn extension_client(
             attempt.error(denied)
         }
     });
-    raygun_net::client_builder()
+    let mut builder = raygun_net::client_builder()
         .redirect(redirects)
         .cookie_provider(cookies)
-        .timeout(REQUEST_TIMEOUT)
-        .build()
+        .timeout(REQUEST_TIMEOUT);
+    if any_public {
+        builder = builder.dns_resolver(Arc::new(resolver));
+    }
+    builder.build()
+}
+
+/// Resolves names for extensions that may reach any public host (`*`: Miru scripts, Nuclear
+/// conversions): addresses on this machine or the local network are dropped, so a public name
+/// can't lead there. Hosts the manifest names itself keep every address.
+struct PublicResolver {
+    policy: Arc<NetPolicy>,
+}
+
+impl reqwest::dns::Resolve for PublicResolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let named = self.policy.names(name.as_str());
+        Box::pin(async move {
+            let host = name.as_str().to_owned();
+            let found = tokio::net::lookup_host((host.as_str(), 0)).await?;
+            let addresses: Vec<std::net::SocketAddr> = found
+                .filter(|address| named || is_public_ip(address.ip()))
+                .collect();
+            if addresses.is_empty() {
+                return Err(format!("{host} doesn't resolve to a public address").into());
+            }
+            Ok(Box::new(addresses.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
 }
 
 fn denied_message(url: &Url) -> String {
@@ -358,11 +428,12 @@ fn denied_message(url: &Url) -> String {
     )
 }
 
-fn ok(value: impl serde::Serialize) -> String {
+/// The JSON envelopes natives answer with: `{ value }` or `{ error }`.
+pub(crate) fn ok(value: impl serde::Serialize) -> String {
     json!({ "value": value }).to_string()
 }
 
-fn err(message: impl std::fmt::Display) -> String {
+pub(crate) fn err(message: impl std::fmt::Display) -> String {
     json!({ "error": message.to_string() }).to_string()
 }
 

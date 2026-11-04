@@ -285,7 +285,7 @@ const WideBar: FC<BarProps> = ({ item }) => {
             <ListMusic aria-hidden size={18} />
           </BarButton>
           <span className="hidden @min-[70rem]:contents">
-            <PlaybackExtras />
+            <PlaybackExtras spoken={spoken} />
             <SoundButton />
           </span>
           <span className="hidden @min-[62rem]:contents">

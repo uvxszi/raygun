@@ -8,4 +8,5 @@ rust-version.workspace = true
 
 [dependencies]
 raygun-model.workspace = true
+regex = "1"
 unicode-normalization = "0.1"

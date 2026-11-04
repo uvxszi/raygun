@@ -15,11 +15,12 @@ use raygun_db::titles;
 use raygun_db::video::{self as store, VideoEntry};
 use raygun_db::video_downloads;
 use raygun_model::{SettingChange, VideoRequest};
+use raygun_resolver::video_match;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tauri::{AppHandle, Manager};
 
-use crate::catalog::{now_ms, reading_order, to_message};
+use crate::catalog::{now_ms, to_message};
 use crate::startup::AppDb;
 use crate::stremio::{StremioPlayTarget, StremioService};
 use crate::video_library;
@@ -46,20 +47,29 @@ impl Origin {
         }
     }
 
-    /// Stremio anime (Kitsu, MyAnimeList or AniList ids, or the `anime` type) can be looked up on
-    /// AniSkip; a MyAnimeList id is used as it is.
-    fn anime(&self) -> Option<Option<u32>> {
+    /// Stremio anime (Kitsu, MyAnimeList, AniList or AniDB ids, or the `anime` type) can be
+    /// looked up on AniSkip. Each season is an entry of its own there, so the entry's own id
+    /// finds its MyAnimeList id; the name is searched only without one.
+    fn anime(&self) -> Option<AnimeIds> {
         let Self::Stremio { kind, id } = self else {
             return None;
         };
-        if let Some(mal) = id.strip_prefix("mal:") {
-            return Some(mal.parse().ok());
-        }
+        let number = |prefix: &str| {
+            id.strip_prefix(prefix)
+                .and_then(|rest| rest.split(':').next())
+                .and_then(|number| number.parse().ok())
+        };
+        let ids = AnimeIds {
+            mal: number("mal:"),
+            kitsu: number("kitsu:"),
+            anilist: number("anilist:"),
+        };
         let anime = kind == "anime"
-            || ["kitsu:", "anilist:", "kitsu-", "mal-"]
+            || ids != AnimeIds::default()
+            || ["kitsu-", "mal-", "anidb:"]
                 .iter()
                 .any(|prefix| id.starts_with(prefix));
-        anime.then_some(None)
+        anime.then_some(ids)
     }
 
     /// The key a title's remembered source is kept under.
@@ -69,6 +79,14 @@ impl Origin {
             Self::Stremio { kind, id } => format!("video.lastSource.stremio:{kind}:{id}"),
         }
     }
+}
+
+/// An anime entry's ids that AniSkip's lookup starts from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct AnimeIds {
+    mal: Option<u32>,
+    kitsu: Option<u32>,
+    anilist: Option<u32>,
 }
 
 /// An episode to play through a session. Saved as the resume request of episodes played this way,
@@ -98,6 +116,12 @@ pub struct Episode {
     pub downloaded: bool,
     /// Its episode number, when it's a whole one (for AniSkip).
     pub number: Option<u32>,
+    /// A special (season 0, or no season among seasons): the next episode never crosses into
+    /// the specials, as in Stremio.
+    pub special: bool,
+    /// The numberings a stream's name may give it by (Stremio: its season and episode, its
+    /// IMDb numbering, its number across seasons), to tell streams of another episode.
+    pub numbers: Vec<video_match::EpisodeNumber>,
 }
 
 /// A playable link.
@@ -108,6 +132,8 @@ pub struct Link {
     pub tag: Option<String>,
     /// Why it can't play, once known.
     pub failed: Option<String>,
+    /// Its name says it's another episode or season ("S01E01" for S2E1): tried after the rest.
+    pub mismatch: bool,
     pub request: VideoRequest,
 }
 
@@ -210,6 +236,9 @@ struct Session {
     /// Where the next link starts (a fallback or a source switch keeps the position).
     start_at: Option<i64>,
     remembered: Option<Remembered>,
+    /// Where the show's source is remembered across its entries ("Title" and "Title II" are one
+    /// show's seasons on anime sites and Kitsu).
+    show_memory: Option<String>,
     /// Servers and addons that failed lately (M46.17): tried last, and marked.
     failing: HashSet<String>,
     /// Resolving finished; with nothing playing, the session has run out of links.
@@ -221,9 +250,16 @@ impl Session {
         &self.episodes[self.index]
     }
 
-    /// The next episode that is out, after `index`.
+    /// The next episode that is out, after `index`; from a regular episode, never a special.
     fn next_after(&self, index: usize, now: i64) -> Option<usize> {
-        (index + 1..self.episodes.len()).find(|&next| released(&self.episodes[next], now))
+        let special = self
+            .episodes
+            .get(index)
+            .is_some_and(|episode| episode.special);
+        (index + 1..self.episodes.len()).find(|&next| {
+            let episode = &self.episodes[next];
+            released(episode, now) && (special || !episode.special)
+        })
     }
 
     fn previous_before(&self, index: usize, now: i64) -> Option<usize> {
@@ -232,28 +268,95 @@ impl Session {
             .find(|&previous| released(&self.episodes[previous], now))
     }
 
-    /// The first untried link, in group order: what plays next.
+    /// The first untried link, in group order: what plays next. Links whose names say they're
+    /// another episode come after every other one.
     fn next_candidate(&self) -> Option<(usize, usize)> {
-        self.groups
-            .iter()
-            .enumerate()
-            .filter(|(_, group)| group.state == GroupState::Ready)
-            .flat_map(|(group_index, group)| {
-                group
-                    .links
-                    .iter()
-                    .enumerate()
-                    .map(move |(link_index, link)| (group_index, link_index, link))
-            })
-            .find(|(group, link, entry)| {
-                entry.failed.is_none() && !self.tried.contains(&(*group, *link))
-            })
-            .map(|(group, link, _)| (group, link))
+        let untried = |mismatch: bool| {
+            self.groups
+                .iter()
+                .enumerate()
+                .filter(|(_, group)| group.state == GroupState::Ready)
+                .flat_map(|(group_index, group)| {
+                    group
+                        .links
+                        .iter()
+                        .enumerate()
+                        .map(move |(link_index, link)| (group_index, link_index, link))
+                })
+                .find(|(group, link, entry)| {
+                    entry.failed.is_none()
+                        && entry.mismatch == mismatch
+                        && !self.tried.contains(&(*group, *link))
+                })
+                .map(|(group, link, _)| (group, link))
+        };
+        untried(false).or_else(|| untried(true))
     }
 }
 
 fn released(episode: &Episode, now: i64) -> bool {
     episode.released.is_none_or(|at| at <= now)
+}
+
+/// Where watching a title continues when no episode is asked for: the first episode out after
+/// the last one watched, else the first one not watched (a gap), else the first; specials only
+/// when the title has nothing else.
+pub fn continue_index(episodes: &[Episode], now: i64) -> usize {
+    let regular: Vec<usize> = (0..episodes.len())
+        .filter(|&index| !episodes[index].special)
+        .collect();
+    let pool = if regular.is_empty() {
+        (0..episodes.len()).collect()
+    } else {
+        regular
+    };
+    let open = |index: &&usize| {
+        let episode = &episodes[**index];
+        !episode.watched && released(episode, now)
+    };
+    let after_last = pool
+        .iter()
+        .rposition(|&index| episodes[index].watched)
+        .map_or(0, |position| position + 1);
+    pool[after_last..]
+        .iter()
+        .find(open)
+        .or_else(|| pool.iter().find(open))
+        .or_else(|| pool.first())
+        .copied()
+        .unwrap_or(0)
+}
+
+/// Whether a Stremio title's episode labels show the season. Kitsu lists each season as an
+/// entry of its own whose episodes are all "season 1" while its name says which season it is
+/// ("Attack on Titan Season 2"); there the season is left out rather than shown wrong.
+pub fn shows_seasons(meta: &raygun_model::StremioMeta) -> bool {
+    let all_first = meta
+        .videos
+        .iter()
+        .all(|video| video.season.is_none_or(|season| season == 1));
+    !(all_first && video_match::parse_title(&meta.name).names_season())
+}
+
+/// Where a show's source is remembered across its entries: the scope (a source, or Stremio)
+/// and the title without its season ("Overlord" for "Overlord II").
+fn show_memory_key(scope: &str, title: &str) -> Option<String> {
+    let key = video_match::parse_title(title).key();
+    (!key.is_empty()).then(|| format!("video.lastSource.show:{scope}:{key}"))
+}
+
+/// Marks the links whose names say they're another episode than `numbers` give, and puts them
+/// last in their group.
+pub fn mark_mismatches(groups: &mut [Group], numbers: &[video_match::EpisodeNumber]) {
+    if numbers.is_empty() {
+        return;
+    }
+    for group in groups {
+        for link in &mut group.links {
+            link.mismatch = video_match::names_other_episode(&link.label, numbers);
+        }
+        group.links.sort_by_key(|link| link.mismatch);
+    }
 }
 
 /// Puts the remembered source first (its group, and within Stremio the links of the same
@@ -276,7 +379,7 @@ pub fn order_groups(
         for group in groups.iter_mut() {
             group
                 .links
-                .sort_by_key(|link| link.tag.as_ref() != Some(tag));
+                .sort_by_key(|link| (link.mismatch, link.tag.as_ref() != Some(tag)));
         }
     }
 }
@@ -322,20 +425,22 @@ impl VideoSessions {
     /// Opens the player on an episode (or the first one not watched yet) and starts finding its
     /// links.
     pub async fn start(&self, origin: Origin, episode: Option<String>) -> Result<(), String> {
-        let (title, poster, episodes) = self.episodes(&origin).await?;
+        let (title, poster, episodes, scope) = self.episodes(&origin).await?;
         if episodes.is_empty() {
             return Err("This title has no episodes".into());
         }
         let now = now_ms();
         let index = episode
             .and_then(|id| episodes.iter().position(|item| item.remote_id == id))
-            .or_else(|| {
-                episodes
-                    .iter()
-                    .position(|item| !item.watched && released(item, now))
-            })
-            .unwrap_or(0);
-        let remembered = self.remembered(&origin).await;
+            .unwrap_or_else(|| continue_index(&episodes, now));
+        let show_memory = show_memory_key(&scope, &title);
+        let remembered = match self.recall(&origin.memory_key()).await {
+            Some(remembered) => Some(remembered),
+            None => match &show_memory {
+                Some(key) => self.recall(key).await,
+                None => None,
+            },
+        };
         let failing = self.health().await.failing(now_ms());
         let generation = self.generations.fetch_add(1, Ordering::SeqCst) + 1;
         let label = episodes[index].label.clone();
@@ -351,6 +456,7 @@ impl VideoSessions {
             tried: HashSet::new(),
             start_at: None,
             remembered,
+            show_memory,
             failing,
             settled: false,
         });
@@ -609,6 +715,7 @@ impl VideoSessions {
                 label: self.label("onDevice", "On this device"),
                 tag: None,
                 failed: None,
+                mismatch: false,
                 request,
             };
             let group = Group::finished(
@@ -637,7 +744,7 @@ impl VideoSessions {
                 let waiting = Group::resolving("addons".into(), self.label("addons", "Addons"));
                 self.set_groups(generation, vec![waiting]).await;
                 let stremio = self.app.state::<std::sync::Arc<StremioService>>();
-                let groups = match stremio.playable(&target, &language).await {
+                let mut groups = match stremio.playable(&target, &language).await {
                     Ok(groups) => groups,
                     Err(error) => vec![Group::finished(
                         "addons".into(),
@@ -646,6 +753,8 @@ impl VideoSessions {
                         Some(error),
                     )],
                 };
+                // Addons that search by name can answer with another season's files.
+                mark_mismatches(&mut groups, &episode.numbers);
                 self.set_groups(generation, groups).await;
             }
         }
@@ -698,7 +807,10 @@ impl VideoSessions {
                         )
                     }),
                     tag: None,
-                    failed: None,
+                    mismatch: false,
+                    // Torrents (Miru) need a torrent app: listed, never played.
+                    failed: (link.format.as_deref() == Some(raygun_ext_host::video::TORRENT))
+                        .then(|| self.label("needsTorrentApp", "Needs a torrent app")),
                     request: video_sources::link_request(&row, unit, single, link),
                 })
                 .collect()
@@ -856,29 +968,38 @@ impl VideoSessions {
                 .group
                 .get_or_insert_with(|| session.origin.group_key());
             if request.anime.is_none()
-                && let Some(mal_id) = session.origin.anime()
+                && let Some(ids) = session.origin.anime()
                 && let Some(episode) = session.episode().number
             {
                 request.anime = Some(raygun_model::AnimeEpisode {
                     title: session.title.clone(),
                     episode,
-                    mal_id,
+                    mal_id: ids.mal,
+                    kitsu_id: ids.kitsu,
+                    anilist_id: ids.anilist,
                 });
             }
             let remembered = Remembered {
                 group: entry.name.clone(),
                 tag: chosen.tag.clone(),
             };
+            let memory: Vec<String> = [
+                Some(session.origin.memory_key()),
+                session.show_memory.clone(),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
             (
                 request,
                 resume,
                 session.start_at,
-                session.origin.clone(),
+                memory,
                 remembered,
                 entry.id == "download",
             )
         };
-        let (request, resume, start_at, origin, remembered, downloaded) = prepared;
+        let (request, resume, start_at, memory, remembered, downloaded) = prepared;
         // A YouTube link plays in YouTube's embed: the player that opened for it closes.
         if let Some(video_id) = request.url.strip_prefix(crate::video::YOUTUBE_LINK) {
             let _ = crate::video::update_player(&self.app, &json!({ "type": "close" }));
@@ -907,7 +1028,9 @@ impl VideoSessions {
                 );
                 self.push_episodes().await;
                 if !downloaded {
-                    self.remember(&origin, &remembered).await;
+                    for key in &memory {
+                        self.remember(key, &remembered).await;
+                    }
                     let name = remembered.group.clone();
                     self.note_health(|health| health.tried(&name, now_ms()))
                         .await;
@@ -945,12 +1068,18 @@ impl VideoSessions {
             };
             session.next_after(index, now_ms()).map(|next| {
                 let episode = &session.episodes[next];
+                // The source's address: a proxy link wouldn't outlive the app.
+                let poster = session.poster.as_deref().map(|poster| {
+                    self.app
+                        .try_state::<raygun_net::ImageLinks>()
+                        .map_or_else(|| poster.to_owned(), |images| images.original(poster))
+                });
                 (
                     VideoEntry {
                         key: episode.key.clone(),
                         title: session.title.clone(),
                         subtitle: Some(episode.label.clone()),
-                        poster: session.poster.clone(),
+                        poster,
                         request: serde_json::to_string(&EpisodeRef {
                             origin: session.origin.clone(),
                             episode: episode.remote_id.clone(),
@@ -1060,15 +1189,15 @@ impl VideoSessions {
             .is_some_and(|session| session.generation == generation)
     }
 
-    async fn remembered(&self, origin: &Origin) -> Option<Remembered> {
-        raygun_db::local_value(&self.db(), &origin.memory_key())
+    async fn recall(&self, key: &str) -> Option<Remembered> {
+        raygun_db::local_value(&self.db(), key)
             .await
             .ok()
             .flatten()
             .and_then(|text| serde_json::from_str(&text).ok())
     }
 
-    async fn remember(&self, origin: &Origin, remembered: &Remembered) {
+    async fn remember(&self, key: &str, remembered: &Remembered) {
         // Incognito (M47): nothing watched is remembered, its source neither.
         if crate::privacy::incognito(&self.app) {
             return;
@@ -1076,18 +1205,17 @@ impl VideoSessions {
         let Ok(text) = serde_json::to_string(remembered) else {
             return;
         };
-        if let Err(error) =
-            raygun_db::set_local_value(&self.db(), &origin.memory_key(), &text).await
-        {
+        if let Err(error) = raygun_db::set_local_value(&self.db(), key, &text).await {
             tracing::warn!(%error, "could not remember the source");
         }
     }
 
-    /// A title's episodes in watching order, with its name and poster.
+    /// A title's episodes in watching order, with its name, poster, and where its show's
+    /// remembered source is kept (the source, or Stremio).
     async fn episodes(
         &self,
         origin: &Origin,
-    ) -> Result<(String, Option<String>, Vec<Episode>), String> {
+    ) -> Result<(String, Option<String>, Vec<Episode>, String), String> {
         let db = self.db();
         match origin {
             Origin::Source { title_id } => {
@@ -1112,7 +1240,8 @@ impl VideoSessions {
                     .iter()
                     .map(|entry| (entry.entry.key.as_str(), entry.watched_at.is_some()))
                     .collect();
-                let episodes = reading_order(&units)
+                // The order the title page lists them in: by season, then number.
+                let episodes = video_sources::watching_order(&units)
                     .into_iter()
                     .map(|unit| {
                         let key = video_library::unit_key(&row, &unit.fields.remote_id);
@@ -1129,11 +1258,14 @@ impl VideoSessions {
                                 .number
                                 .filter(|number| *number >= 1.0 && number.fract() == 0.0)
                                 .map(|number| number as u32),
+                            special: video_sources::is_special(unit, &units),
+                            numbers: Vec::new(),
                             key,
                         }
                     })
                     .collect();
-                Ok((row.fields.title, row.fields.cover, episodes))
+                let scope = format!("source:{}", row.fields.source_id);
+                Ok((row.fields.title, row.fields.cover, episodes, scope))
             }
             Origin::Stremio { kind, id } => {
                 let stremio = self.app.state::<std::sync::Arc<StremioService>>();
@@ -1149,19 +1281,25 @@ impl VideoSessions {
                         watched: meta.watched,
                         downloaded: meta.downloaded,
                         number: None,
+                        special: false,
+                        numbers: Vec::new(),
                     }]
                 } else {
+                    let seasons = meta
+                        .videos
+                        .iter()
+                        .any(|video| video.season.is_some_and(|season| season >= 1));
+                    let show_seasons = shows_seasons(&meta);
                     meta.videos
                         .iter()
                         .map(|video| Episode {
                             remote_id: video.id.clone(),
                             key: crate::stremio::content_key(kind, &video.id),
-                            label: match (video.season, video.episode) {
-                                (Some(season), Some(number)) => {
-                                    format!("S{season} E{number} · {}", video.title)
-                                }
-                                _ => video.title.clone(),
-                            },
+                            label: video_match::episode_label(
+                                video.season.filter(|_| show_seasons).map(f64::from),
+                                video.episode.map(f64::from),
+                                &video.title,
+                            ),
                             unit_id: None,
                             released: video
                                 .released
@@ -1170,10 +1308,12 @@ impl VideoSessions {
                             watched: video.watched,
                             downloaded: video.downloaded,
                             number: video.episode.filter(|number| *number >= 1),
+                            special: video_match::is_special(video.season.map(f64::from), seasons),
+                            numbers: stremio.episode_numbers(kind, &video.id),
                         })
                         .collect()
                 };
-                Ok((meta.name, meta.poster, episodes))
+                Ok((meta.name, meta.poster, episodes, "stremio".into()))
             }
         }
     }
@@ -1201,6 +1341,7 @@ mod tests {
             label: label.into(),
             tag: tag.map(str::to_owned),
             failed: None,
+            mismatch: false,
             request: VideoRequest {
                 key: "k".into(),
                 title: "T".into(),
@@ -1227,6 +1368,17 @@ mod tests {
             watched: false,
             downloaded: false,
             number: None,
+            special: false,
+            numbers: Vec::new(),
+        }
+    }
+
+    /// An episode watched or not, a special or not.
+    fn marked(id: &str, watched: bool, special: bool) -> Episode {
+        Episode {
+            watched,
+            special,
+            ..episode(id, None)
         }
     }
 
@@ -1246,9 +1398,196 @@ mod tests {
             tried: HashSet::new(),
             start_at: None,
             remembered: None,
+            show_memory: None,
             failing: HashSet::new(),
             settled: false,
         }
+    }
+
+    #[test]
+    fn the_next_episode_never_crosses_into_the_specials() {
+        let state = session(
+            Vec::new(),
+            vec![
+                marked("s1e1", false, false),
+                marked("s1e2", false, false),
+                marked("s0e1", false, true),
+                marked("s0e2", false, true),
+            ],
+        );
+        assert_eq!(state.next_after(0, 100), Some(1));
+        assert_eq!(state.next_after(1, 100), None, "the last regular episode");
+        assert_eq!(
+            state.next_after(2, 100),
+            Some(3),
+            "from a special to the next"
+        );
+        assert_eq!(state.previous_before(2, 100), Some(1));
+    }
+
+    #[test]
+    fn watching_continues_after_the_last_episode_watched() {
+        let at = |episodes: Vec<Episode>| continue_index(&episodes, 100);
+        assert_eq!(
+            at(vec![marked("a", false, false), marked("b", false, false)]),
+            0,
+            "nothing watched: the first"
+        );
+        assert_eq!(
+            at(vec![
+                marked("a", true, false),
+                marked("b", false, false),
+                marked("c", true, false),
+                marked("d", false, false),
+            ]),
+            3,
+            "after the last watched, not the gap"
+        );
+        assert_eq!(
+            at(vec![
+                marked("a", true, false),
+                marked("b", false, false),
+                marked("c", true, false),
+                marked("special", false, true),
+            ]),
+            1,
+            "all watched to the end: the gap, never a special"
+        );
+        assert_eq!(
+            at(vec![marked("a", true, false), marked("b", true, false)]),
+            0,
+            "all watched: from the start"
+        );
+        let mut upcoming = vec![marked("a", true, false), marked("b", false, false)];
+        upcoming[1].released = Some(1_000);
+        assert_eq!(at(upcoming), 0, "an episode not out yet isn't next");
+        assert_eq!(
+            at(vec![marked("ova", true, true), marked("ova2", false, true)]),
+            1,
+            "a title of specials only"
+        );
+    }
+
+    #[test]
+    fn links_naming_another_episode_play_last() {
+        let numbers = [
+            video_match::EpisodeNumber {
+                season: Some(2),
+                episode: 1,
+            },
+            video_match::EpisodeNumber {
+                season: None,
+                episode: 26,
+            },
+        ];
+        let mut groups = vec![
+            Group::finished(
+                "a".into(),
+                "Remembered addon".into(),
+                vec![link("Show.S01E01.1080p", None)],
+                None,
+            ),
+            Group::finished(
+                "b".into(),
+                "Other addon".into(),
+                vec![
+                    link("Show Season 1 Pack", None),
+                    link("1080p · Show.S02E01.1080p", None),
+                ],
+                None,
+            ),
+        ];
+        mark_mismatches(&mut groups, &numbers);
+        assert!(groups[0].links[0].mismatch);
+        assert_eq!(groups[1].links[0].label, "1080p · Show.S02E01.1080p");
+        assert!(groups[1].links[1].mismatch);
+        let mut state = session(groups, vec![episode("e1", None)]);
+        assert_eq!(
+            state.next_candidate(),
+            Some((1, 0)),
+            "the right episode first"
+        );
+        state.tried.insert((1, 0));
+        assert_eq!(
+            state.next_candidate(),
+            Some((0, 0)),
+            "then the rest, in group order"
+        );
+    }
+
+    #[test]
+    fn a_shows_source_is_remembered_across_its_seasons() {
+        assert_eq!(
+            show_memory_key("source:site", "Overlord II"),
+            show_memory_key("source:site", "Overlord")
+        );
+        assert_eq!(
+            show_memory_key("stremio", "Attack on Titan Season 2").as_deref(),
+            Some("video.lastSource.show:stremio:attackontitan")
+        );
+        assert_ne!(
+            show_memory_key("source:a", "Overlord"),
+            show_memory_key("source:b", "Overlord")
+        );
+        assert_eq!(show_memory_key("stremio", "!!!"), None);
+    }
+
+    #[test]
+    fn kitsu_entries_leave_their_one_season_out_of_labels() {
+        let video = |season: Option<u32>| raygun_model::StremioVideo {
+            id: "kitsu:8671:1".into(),
+            title: "Beast Titan".into(),
+            season,
+            episode: Some(1),
+            released: None,
+            thumbnail: None,
+            overview: None,
+            position_ms: 0.0,
+            duration_ms: None,
+            watched: false,
+            downloaded: false,
+        };
+        let meta =
+            |name: &str, videos: Vec<raygun_model::StremioVideo>| raygun_model::StremioMeta {
+                kind: "series".into(),
+                id: "kitsu:8671".into(),
+                name: name.into(),
+                poster: None,
+                background: None,
+                logo: None,
+                description: None,
+                genres: Vec::new(),
+                release_info: None,
+                runtime: None,
+                rating: None,
+                ratings: Vec::new(),
+                cast: Vec::new(),
+                director: Vec::new(),
+                trailer_yt_ids: Vec::new(),
+                videos,
+                position_ms: 0.0,
+                duration_ms: None,
+                watched: false,
+                downloaded: false,
+                in_library: false,
+                title_id: None,
+                addon_name: String::new(),
+                addon_id: String::new(),
+                video_id: "kitsu:8671".into(),
+                live: false,
+            };
+        assert!(!shows_seasons(&meta(
+            "Attack on Titan Season 2",
+            vec![video(Some(1))]
+        )));
+        assert!(shows_seasons(&meta(
+            "Attack on Titan",
+            vec![video(Some(1))]
+        )));
+        assert!(shows_seasons(&meta(
+            "Attack on Titan",
+            vec![video(Some(1)), video(Some(2))]
+        )));
     }
 
     #[test]
@@ -1353,9 +1692,31 @@ mod tests {
             kind: kind.into(),
             id: id.into(),
         };
-        assert_eq!(stremio("series", "kitsu:7442").anime(), Some(None));
-        assert_eq!(stremio("anime", "tt2560140").anime(), Some(None));
-        assert_eq!(stremio("series", "mal:16498").anime(), Some(Some(16498)));
+        let ids = |mal, kitsu, anilist| {
+            Some(AnimeIds {
+                mal,
+                kitsu,
+                anilist,
+            })
+        };
+        assert_eq!(
+            stremio("series", "kitsu:8671").anime(),
+            ids(None, Some(8671), None),
+            "each Kitsu entry is one season, with its own MyAnimeList id"
+        );
+        assert_eq!(stremio("anime", "tt2560140").anime(), ids(None, None, None));
+        assert_eq!(
+            stremio("series", "mal:16498").anime(),
+            ids(Some(16498), None, None)
+        );
+        assert_eq!(
+            stremio("series", "anilist:20958").anime(),
+            ids(None, None, Some(20958))
+        );
+        assert_eq!(
+            stremio("series", "anidb:9541").anime(),
+            ids(None, None, None)
+        );
         assert_eq!(stremio("series", "tt0903747").anime(), None);
         let source = Origin::Source {
             title_id: "t1".into(),

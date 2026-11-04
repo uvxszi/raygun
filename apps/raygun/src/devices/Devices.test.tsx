@@ -38,9 +38,8 @@ describe('Devices', () => {
 
   it('lets devices find this one from Settings, then links one and plays there', async () => {
     const user = userEvent.setup();
-    await AppShellWrapper.mount('/settings/connections');
-    expect(await screen.findByTestId('devices-card')).toHaveTextContent('Off');
-    await user.click(screen.getByTestId('devices-card'));
+    await AppShellWrapper.mount('/settings');
+    await user.click(await screen.findByRole('link', { name: 'Devices' }));
 
     const page = await screen.findByTestId('devices-page');
     expect(within(page).getByTestId('device-name')).toHaveTextContent('Android phone');
@@ -104,18 +103,27 @@ describe('Devices', () => {
     await AppShellWrapper.mount('/settings/devices');
     const page = await screen.findByTestId('devices-page');
 
-    await user.click(await within(page).findByRole('button', { name: 'Show pairing code' }));
-    expect(await within(page).findByTestId('pairing-text')).toHaveTextContent(text);
+    // Where devices don't find each other: a code shown on one, pasted on the other.
+    await user.click(await within(page).findByRole('button', { name: 'Link with a code' }));
+    const sheet = await screen.findByTestId('link-with-code');
+    await user.click(within(sheet).getByRole('button', { name: 'Show pairing code' }));
+    expect(await within(sheet).findByTestId('pairing-text')).toHaveTextContent(text);
     expect(
-      within(page).getByRole('img', { name: 'QR code with the pairing text' }),
+      within(sheet).getByRole('img', { name: 'QR code with the pairing text' }),
     ).toBeInTheDocument();
-    await user.click(within(page).getByRole('button', { name: 'Copy text' }));
+    await user.click(within(sheet).getByRole('button', { name: 'Copy text' }));
     expect(await navigator.clipboard.readText()).toBe(text);
 
-    await user.type(within(page).getByLabelText('Pairing text'), 'raygun-pair:10.0.2.2:8835:x:y:z');
-    await user.click(within(page).getByRole('button', { name: 'Pair and sync' }));
+    await user.type(
+      within(sheet).getByLabelText('Pairing text'),
+      'raygun-pair:10.0.2.2:8835:x:y:z',
+    );
+    await user.click(within(sheet).getByRole('button', { name: 'Link' }));
     expect(commands.syncJoin).toHaveBeenCalledWith('raygun-pair:10.0.2.2:8835:x:y:z');
-    expect(await within(page).findByTestId('peer')).toHaveTextContent('Laptop');
+    // A device linked by code syncs only, and is listed with the others.
+    const linked = await within(page).findByTestId('linked-device');
+    expect(linked).toHaveTextContent('Laptop');
+    expect(linked).toHaveTextContent('syncs only');
   });
 
   it('syncs, removes a device and changes what syncs', async () => {
@@ -128,17 +136,25 @@ describe('Devices', () => {
     await AppShellWrapper.mount('/settings/devices');
     const page = await screen.findByTestId('devices-page');
 
-    const peer = await within(page).findByTestId('peer');
-    expect(peer).toHaveTextContent('1111 2222 3333 4444');
-    expect(peer).toHaveTextContent(/Synced Oct 31, 2026/);
-    await user.click(within(peer).getByRole('button', { name: 'Sync with Laptop now' }));
+    const peer = await within(page).findByTestId('linked-device');
+    expect(peer).toHaveTextContent('Laptop');
+    expect(peer).toHaveTextContent(/Synced .* ago/);
+    await user.click(within(peer).getByRole('button', { name: 'Sync now' }));
     expect(commands.syncNow).toHaveBeenCalledWith('dev-laptop');
 
-    await user.click(within(page).getByRole('checkbox', { name: 'History' }));
+    await user.click(within(page).getByRole('switch', { name: 'History' }));
     expect(commands.syncSetKinds).toHaveBeenCalledWith(['settings', 'library']);
-    expect(await within(page).findByRole('checkbox', { name: 'History' })).not.toBeChecked();
+    expect(await within(page).findByRole('switch', { name: 'History' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
 
-    await user.click(within(peer).getByRole('button', { name: 'Remove Laptop' }));
+    // Unlinking asks first.
+    await user.click(within(peer).getByRole('button', { name: 'Unlink Laptop' }));
+    expect(commands.syncRemovePeer).not.toHaveBeenCalled();
+    await user.click(
+      within(await screen.findByTestId('confirm-sheet')).getByRole('button', { name: 'Unlink' }),
+    );
     expect(commands.syncRemovePeer).toHaveBeenCalledWith('dev-laptop');
   });
 

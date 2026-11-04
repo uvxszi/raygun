@@ -13,18 +13,6 @@ import { MangaCover } from './MangaCover';
 import { ROUTES } from './medium';
 import type { Medium } from './medium';
 
-/** Whether the screen is wider than tall, kept current as it turns. */
-const useLandscape = () => {
-  const read = () => typeof window !== 'undefined' && window.innerWidth > window.innerHeight;
-  const [landscape, setLandscape] = useState(read);
-  useEffect(() => {
-    const update = () => setLandscape(read());
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, []);
-  return landscape;
-};
-
 /** Titles drawn at first and added as the end comes near: a library can hold thousands. */
 const ITEMS_AT_ONCE = 120;
 
@@ -241,8 +229,6 @@ export const LibraryItems: FC<{
   footer?: ReactNode;
 }> = ({ entries, medium, mode, display, selected, onToggle, onLongPress, onContinue }) => {
   const settings = useSettings().data;
-  const landscape = useLandscape();
-  const columns = landscape ? display.columnsLandscape : (settings?.gridColumns ?? 0);
   const selecting = selected.size > 0;
   const badges: BadgeChoice = {
     local: display.localBadge,
@@ -297,7 +283,7 @@ export const LibraryItems: FC<{
       data-testid="library-grid"
       data-mode={mode}
       className={COVER_GRID_CLASS}
-      style={coverGridStyle(columns, settings?.coverWidth ?? 0)}
+      style={coverGridStyle(settings?.coverSize ?? 0)}
     >
       {shown}
       {more}

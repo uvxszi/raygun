@@ -15,6 +15,13 @@ export const commands = {
 	/**  Changes one setting and returns the updated settings. */
 	settingsUpdate: (change: SettingChange) => typedError<Settings, string>(__TAURI_INVOKE("settings_update", { change })),
 	/**
+	 *  Changes several settings together (a screen's Reset to defaults): none is written when one
+	 *  is refused.
+	 */
+	settingsUpdateMany: (changes: SettingChange[]) => typedError<Settings, string>(__TAURI_INVOKE("settings_update_many", { changes })),
+	/**  Every setting as a fresh install has it, for resetting a settings screen. */
+	settingsDefaults: () => __TAURI_INVOKE<Settings>("settings_defaults"),
+	/**
 	 *  What was played from lately: albums, playlists, mixes, artists, podcasts, books (M46.37).
 	 *  Hidden artists' pages and tiles marked Not interested are left out.
 	 */
@@ -174,7 +181,8 @@ export const commands = {
 	searchRecentClear: () => typedError<null, string>(__TAURI_INVOKE("search_recent_clear")),
 	/**
 	 *  Lyrics for a track, or `null` when no provider has any. The song's own lyrics (M46.12) win, and
-	 *  its lyrics offset comes along.
+	 *  its lyrics offset comes along, with every translation kept for the song lined up under the
+	 *  lines (M46.48).
 	 */
 	lyricsGet: (query: TrackQuery) => typedError<{
 	providerName: string,
@@ -185,6 +193,8 @@ export const commands = {
 	offsetMs?: number,
 	/**  These are the person's own lyrics, not a source's (M46.12). */
 	edited?: boolean,
+	/**  The lines in other languages or romanized (M46.48), each aligned to these lines. */
+	translations?: LyricsTranslation[],
 } | null, string>(__TAURI_INVOKE("lyrics_get", { query })),
 	/**  Every lyrics source's lyrics for a song (M46.36): the user picks which to keep. */
 	lyricsOptions: (query: TrackQuery) => typedError<Lyrics[], string>(__TAURI_INVOKE("lyrics_options", { query })),
@@ -193,6 +203,19 @@ export const commands = {
 	 *  lyrics (M46.36). Follow it with `captions` on the key it returns (`song:<track key>`).
 	 */
 	lyricsTranscribe: (query: TrackQuery) => typedError<string, string>(__TAURI_INVOKE("lyrics_transcribe", { query })),
+	/**
+	 *  Translates a song's lyrics into `language` (a BCP 47 tag) with `translator`: `device` (a model
+	 *  from the AI catalogue, downloaded first) or `ai:<provider id>`. The translation is kept and
+	 *  comes with the song's lyrics from then on (M46.48).
+	 */
+	lyricsTranslate: (query: TrackQuery, language: string, translator: string) => typedError<LyricsTranslation, string>(__TAURI_INVOKE("lyrics_translate", { query, language, translator })),
+	/**
+	 *  Who can translate a song's lyrics into `language`: this device, with what it would download,
+	 *  then the translators from Settings → AI (M46.48).
+	 */
+	lyricsTranslateOptions: (query: TrackQuery, language: string) => typedError<LyricsTranslatorOption[], string>(__TAURI_INVOKE("lyrics_translate_options", { query, language })),
+	/**  Makes one of a song's kept translations the one that shows first (M46.48). */
+	lyricsTranslationPick: (query: TrackQuery, language: string, translator: string) => typedError<null, string>(__TAURI_INVOKE("lyrics_translation_pick", { query, language, translator })),
 	/**  Goes back to an episode's own transcript from what AI heard (M46.36). */
 	captionsUseFeed: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("captions_use_feed", { episodeId })),
 	/**
@@ -364,8 +387,19 @@ export const commands = {
 	audiobookOpen: (feedUrl: string) => typedError<string, string>(__TAURI_INVOKE("audiobook_open", { feedUrl })),
 	/**  Plays a book from a chapter, or where it was left, with the rest after it (M46.22). */
 	audiobookPlay: (id: string, chapterId: string | null) => typedError<null, string>(__TAURI_INVOKE("audiobook_play", { id, chapterId })),
-	/**  A page of books from the audiobook directories (M46.22). */
+	/**
+	 *  A page of books from every audiobook source at once (M46.22): `popular`, `latest`, `search`
+	 *  or `subject`; searches rank by title and author and a book two sources share shows once
+	 *  (M46.48).
+	 */
 	audiobookDirectory: (list: string, query: string, page: number) => typedError<AudiobookPage, string>(__TAURI_INVOKE("audiobook_directory", { list, query, page })),
+	/**
+	 *  Downloads every chapter of a book not downloaded yet, two at a time; returns how many were
+	 *  queued (M46.48).
+	 */
+	audiobookDownload: (id: string) => typedError<number, string>(__TAURI_INVOKE("audiobook_download", { id })),
+	/**  Episodes and books started and not finished, the last listened first (M46.48). */
+	podcastContinueListening: (limit: number) => typedError<ListeningItem[], string>(__TAURI_INVOKE("podcast_continue_listening", { limit })),
 	/**  An episode's or chapter's captions, with where transcribing stands (M46.32). */
 	captions: (episodeId: string) => typedError<Captions, string>(__TAURI_INVOKE("captions", { episodeId })),
 	/**  Transcribes an episode from `from_ms` with the engine set up in Settings → AI (M46.32). */
@@ -762,9 +796,36 @@ export const commands = {
 	/**  Plays an episode, resuming where listening stopped. */
 	podcastPlay: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("podcast_play", { episodeId })),
 	podcastSetPlayed: (episodeId: string, played: boolean) => typedError<null, string>(__TAURI_INVOKE("podcast_set_played", { episodeId, played })),
-	/**  Downloads an episode in the background; progress arrives as `PodcastsChangedEvent`s. */
+	/**  Marks every episode of a show (or chapter of a book) played or unplayed (M46.48). */
+	podcastSetAllPlayed: (id: string, played: boolean) => typedError<null, string>(__TAURI_INVOKE("podcast_set_all_played", { id, played })),
+	/**  Marks the episodes before this one played: older ones, or a book's earlier chapters (M46.48). */
+	podcastSetEarlierPlayed: (episodeId: string) => typedError<number, string>(__TAURI_INVOKE("podcast_set_earlier_played", { episodeId })),
+	/**  Forgets where listening stopped, without marking it played (M46.48: Continue listening). */
+	podcastForgetPosition: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("podcast_forget_position", { episodeId })),
+	/**
+	 *  How a show's or book's episodes list, kept for it; `None` goes back to the kind's own
+	 *  (M46.48).
+	 */
+	podcastSetEpisodeOrder: (id: string, order: {
+	sort: EpisodeSort,
+	/**  Newest, highest, longest or last first. */
+	descending: boolean,
+	filters: EpisodeFilter[],
+} | null) => typedError<null, string>(__TAURI_INVOKE("podcast_set_episode_order", { id, order })),
+	/**  The speed a show's or book's episodes play at; `None` leaves the player's (M46.48). */
+	podcastSetSpeed: (id: string, speed: number | null) => typedError<null, string>(__TAURI_INVOKE("podcast_set_speed", { id, speed })),
+	/**
+	 *  Downloads an episode in the background, two at a time; progress arrives as
+	 *  `PodcastsChangedEvent`s.
+	 */
 	podcastDownload: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("podcast_download", { episodeId })),
 	podcastRemoveDownload: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("podcast_remove_download", { episodeId })),
+	/**  Deletes every downloaded episode of a show or chapter of a book (M46.48). */
+	podcastRemoveDownloads: (id: string) => typedError<null, string>(__TAURI_INVOKE("podcast_remove_downloads", { id })),
+	/**  Stops a download that's waiting or under way (M46.48). */
+	podcastCancelDownload: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("podcast_cancel_download", { episodeId })),
+	/**  Opens a show's or book's website, or a link from its notes, in Raygun's browser (M46.48). */
+	podcastOpenPage: (url: string) => typedError<null, string>(__TAURI_INVOKE("podcast_open_page", { url })),
 	/**  Plays a video in the player, resuming where it was left. */
 	videoPlay: (request: VideoRequest) => typedError<null, string>(__TAURI_INVOKE("video_play", { request })),
 	/**  Plays a video link (with an optional subtitle file). */
@@ -861,8 +922,6 @@ export const commands = {
 	startScreen: StartScreen,
 	/**  Navigation bar labels: on every tab, or on the selected one only. */
 	navLabels: NavLabels,
-	/**  Covers per row in library and browse grids; 0 fits them to the screen. */
-	gridColumns: number,
 	/**  Titles over covers (compact, as in Mihon) or under them (comfortable). */
 	coverStyle: CoverStyle,
 	/**  The unread count on library covers. */
@@ -903,8 +962,11 @@ export const commands = {
 	layout: LayoutPrefs,
 	/**  The accent when `accent` is `Custom`: `#rrggbb` (M46.7). */
 	accentColor: string,
-	/**  Smallest cover width in px when covers per row is automatic; 0 picks it by screen (M46.7). */
-	coverWidth: number,
+	/**
+	 *  Covers in library and browse grids, in percent more (or less) than the screen's own size
+	 *  (M46.48): as many as fit across at that size.
+	 */
+	coverSize: number,
 	/**  How manga pages fit the reader (M46.7). */
 	mangaReader: MangaReaderPrefs,
 	/**  How the full music player is laid out (M46.7). */
@@ -925,7 +987,10 @@ export const commands = {
 	autoLoad: AutoLoadPrefs,
 	/**  Who draws the desktop window's top edge (M46.9). */
 	windowFrame: WindowFrame,
-	/**  The desktop app's zoom in percent (M46.9): 50 to 200, in steps of 10. */
+	/**
+	 *  Interface size in percent of the size the screen gives (M46.48): 50 to 200. The desktop
+	 *  app zooms its window; phones scale their text and spacing.
+	 */
 	zoom: number,
 	/**  Charts and song tags (M46.9). */
 	discovery: DiscoveryPrefs,
@@ -937,6 +1002,8 @@ export const commands = {
 	hidden: HiddenPrefs,
 	/**  How long lyrics stay kept (M46.46). */
 	lyricsCache: LyricsCachePrefs,
+	/**  Translations under lyrics (M46.48). */
+	lyricsTranslation: LyricsTranslationPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
 	/**  The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default. */
@@ -1139,6 +1206,7 @@ export const events = {
 	aiModelEvent: makeEvent<AiModelEvent>("ai-model-event"),
 	appUpdateEvent: makeEvent<AppUpdateEvent>("app-update-event"),
 	artistReleasesEvent: makeEvent<ArtistReleasesEvent>("artist-releases-event"),
+	audiobooksFoundEvent: makeEvent<AudiobooksFoundEvent>("audiobooks-found-event"),
 	captionsEvent: makeEvent<CaptionsEvent>("captions-event"),
 	connectEvent: makeEvent<ConnectEvent>("connect-event"),
 	connectRequestEvent: makeEvent<ConnectRequestEvent>("connect-request-event"),
@@ -1149,6 +1217,7 @@ export const events = {
 	incognitoEvent: makeEvent<IncognitoEvent>("incognito-event"),
 	libraryScanEvent: makeEvent<LibraryScanEvent>("library-scan-event"),
 	localFilesEvent: makeEvent<LocalFilesEvent>("local-files-event"),
+	lyricsTranslationEvent: makeEvent<LyricsTranslationEvent>("lyrics-translation-event"),
 	madeForYouEvent: makeEvent<MadeForYouEvent>("made-for-you-event"),
 	mangaDownloadsEvent: makeEvent<MangaDownloadsEvent>("manga-downloads-event"),
 	mangaUpdateEvent: makeEvent<MangaUpdateEvent>("manga-update-event"),
@@ -1233,6 +1302,12 @@ export type AnimeEpisode = {
 	title: string,
 	episode: number,
 	malId: number | null,
+	/**
+	 *  The entry's Kitsu or AniList id, whose MyAnimeList id is looked up before searching by
+	 *  name (each season has its own).
+	 */
+	kitsuId?: number | null,
+	anilistId?: number | null,
 };
 
 /**  Build and runtime facts about the running app. */
@@ -1392,6 +1467,8 @@ export type AudiobookPage = {
 export type AudiobookResult = {
 	title: string,
 	author: string | null,
+	/**  Which recording, when a source has several ("Version 2"), M46.48. */
+	edition: string | null,
 	feedUrl: string,
 	artworkUrl: string | null,
 	runtime: string | null,
@@ -1405,24 +1482,53 @@ export type AudiobookSummary = {
 	id: string,
 	title: string,
 	author: string | null,
+	/**  Which recording, when a source has several ("Version 2"), M46.48. */
+	edition: string | null,
 	artworkUrl: string | null,
 	chapters: number,
 	/**  Chapters listened to the end. */
 	finished: number,
+	/**  Its length and how much of it was listened, when the feed gives lengths (M46.48). */
+	totalMs: number | null,
+	listenedMs: number | null,
 };
 
-/**  A book with its chapters in order. */
+/**  A book with its chapters. */
 export type AudiobookView = {
 	id: string,
 	feedUrl: string,
 	title: string,
 	author: string | null,
+	/**  Which recording, when a source has several ("Version 2"), M46.48. */
+	edition: string | null,
 	description: string | null,
 	artworkUrl: string | null,
 	link: string | null,
 	inLibrary: boolean,
+	/**  As `order` lists them (M46.48; in chapter order unless changed). */
 	chapters: PodcastEpisode[],
+	order: EpisodeOrder,
+	customOrder: boolean,
+	/**
+	 *  Every chapter, shown or filtered out, how many were finished, and how many are downloaded
+	 *  or on their way.
+	 */
+	chapterCount: number,
+	finished: number,
+	downloaded: number,
+	downloading: number,
+	totalMs: number | null,
+	listenedMs: number | null,
+	/**  `None` once every chapter is finished (or there are none). */
+	resume: BookResume | null,
+	speed: number | null,
 };
+
+/**
+ *  An audiobook source answered after its list was shown (M46.48): `[list, query]`, so the list
+ *  asks again and shows the late books (kept ready by then).
+ */
+export type AudiobooksFoundEvent = [string, string];
 
 /**
  *  Next pages load as a list's end comes near (M46.8), at most one per `cooldown_ms`, so sources
@@ -1468,6 +1574,15 @@ export type BlocklistStatus = {
 	updatedAt: number | null,
 	source: string | null,
 	error: string | null,
+};
+
+/**  Where a book goes on from (M46.48): the chapter being listened, or the next one. */
+export type BookResume = {
+	chapterId: string,
+	/**  Its place in the book, from 1. */
+	number: number,
+	title: string,
+	positionMs: number | null,
 };
 
 /**  Image cache limits and refreshing. One stored row; missing fields keep their defaults. */
@@ -1812,7 +1927,29 @@ export type EpisodeDownload = {
 	error: string | null,
 };
 
-export type EpisodeDownloadState = "downloading" | "done" | "failed";
+export type EpisodeDownloadState = 
+/**  Waiting for another download to finish (M46.48: two at a time). */
+"queued" | "downloading" | "done" | "failed";
+
+/**  Which episodes show (M46.48); several at once must all hold. */
+export type EpisodeFilter = "unplayed" | "started" | "downloaded";
+
+/**  How a show's or book's episodes list, kept per show (M46.48). */
+export type EpisodeOrder = {
+	sort: EpisodeSort,
+	/**  Newest, highest, longest or last first. */
+	descending: boolean,
+	filters: EpisodeFilter[],
+};
+
+/**  What a show's or book's episodes are sorted by (M46.48). */
+export type EpisodeSort = 
+/**  Release date. */
+"date" | 
+/**  Episode number, or a book's chapter order. */
+"number" | "title" | "duration" | 
+/**  Started ones, then the rest not played, then the played. */
+"unplayed";
 
 /**  Where an export's files go. */
 export type ExportDestination = 
@@ -2223,11 +2360,6 @@ export type LibraryDisplayMode =
  */
 export type LibraryDisplayPrefs = {
 	mode?: LibraryDisplayMode,
-	/**
-	 *  Covers per row in landscape; 0 fits them to the screen. (`Settings::grid_columns` is the
-	 *  portrait value.)
-	 */
-	columnsLandscape?: number,
 	tabs?: LibraryTabs,
 	/**  The number of titles on each tab. */
 	showCounts?: boolean,
@@ -2297,6 +2429,26 @@ export type LibraryTrack = {
 	year: number | null,
 	durationMs: number | null,
 	artworkUrl: string | null,
+};
+
+/**  An episode or a book to go on with, for Home's Continue listening (M46.48). */
+export type ListeningItem = {
+	kind: SpokenKind,
+	podcastId: string,
+	episodeId: string,
+	/**  The episode's or the chapter's title. */
+	title: string,
+	/**  The show's or the book's. */
+	show: string,
+	author: string | null,
+	artworkUrl: string | null,
+	positionMs: number | null,
+	durationMs: number | null,
+	/**  A book's: the chapter's place and how many there are. */
+	chapter: number | null,
+	chapters: number | null,
+	/**  Unix ms. */
+	listenedAt: number | null,
 };
 
 /**  The "Your listening" numbers (QuietPlay's stat cards). */
@@ -2391,6 +2543,8 @@ export type Lyrics = {
 	offsetMs?: number,
 	/**  These are the person's own lyrics, not a source's (M46.12). */
 	edited?: boolean,
+	/**  The lines in other languages or romanized (M46.48), each aligned to these lines. */
+	translations?: LyricsTranslation[],
 };
 
 /**  How long lyrics stay kept on the device (M46.46). */
@@ -2409,6 +2563,8 @@ export type LyricsCachePrefs = {
 export type LyricsCacheUsage = {
 	songs: number,
 	transcriptions: number,
+	/**  Songs with translations made on this device or by AI (M46.48). */
+	translations?: number,
 };
 
 /**  Whose kept lyrics a clear takes (M46.46). */
@@ -2417,6 +2573,85 @@ export type LyricsClearScope = "all" |
 "notSaved" | "favorites" | 
 /**  Favorites and playlists. */
 "saved" | "downloaded";
+
+/**  Lyrics in another language, or romanized, line for line (M46.48). */
+export type LyricsTranslation = {
+	/**
+	 *  BCP 47 tag of what it's written in: a translation's language (`en`, `zh-Hans`); a
+	 *  romanization's is the original's with `-Latn` (`ja-Latn`), or `und-Latn`.
+	 */
+	language: string,
+	kind: LyricsTranslationKind,
+	origin: LyricsTranslationOrigin,
+	/**  Who made it: the source's or the translator's name; empty for this device. */
+	by: string,
+	/**  What made it: `device`, `ai:<provider id>`, or `source:<name>` for a lyrics source. */
+	translator?: string,
+	/**  One per line of the lyrics (`Lyrics::line_texts`); empty where a line has none. */
+	lines: string[],
+};
+
+/**  How far a song's lyrics translation on this device is (M46.48), a few times a second. */
+export type LyricsTranslationEvent = LyricsTranslationProgress;
+
+/**  What lines under the lyrics are (M46.48). */
+export type LyricsTranslationKind = 
+/**  The words in another language. */
+"translation" | 
+/**  The original's sounds in Latin letters (romaji, pinyin, romanized Korean). */
+"romanization";
+
+/**  Who made a translation of lyrics (M46.48). */
+export type LyricsTranslationOrigin = 
+/**  The lyrics' own source. */
+"source" | 
+/**  Another lyrics source's version of the song, matched to these lines. */
+"otherSource" | 
+/**  A translation model on this device. */
+"device" | 
+/**  A translator set up in Settings → AI. */
+"ai";
+
+/**  Translations under lyrics (M46.48). */
+export type LyricsTranslationPrefs = {
+	/**  The language translations show in, a BCP 47 tag; empty follows the app's language. */
+	language?: string,
+	/**
+	 *  Translations in that language show under the lines by themselves: a lyrics source's, or
+	 *  one made before. The lyrics view's Translate menu switches it too.
+	 */
+	automatic?: boolean,
+	/**  Romanized lines show when a source has them. */
+	romanized?: boolean,
+	/**  The AI catalogue model "On this device" translates with; empty picks one by language. */
+	localModel?: string,
+};
+
+/**  A lyrics translation being made (M46.48): lines done out of all of them. */
+export type LyricsTranslationProgress = {
+	/**  The song's track key. */
+	key: string,
+	language: string,
+	translator: string,
+	done: number,
+	total: number,
+};
+
+/**  A translator that can translate a song's lyrics (M46.48), as the Translate menu lists it. */
+export type LyricsTranslatorOption = {
+	/**  `device`, or `ai:<provider id>`. */
+	id: string,
+	/**  The translator's kind; `None` for this device. */
+	kind: AiProviderKind | null,
+	/**  The provider's name; empty for this device. */
+	name: string,
+	/**  The models this device uses for it, from the AI catalogue. */
+	models: string[],
+	/**  What's still to download first, in bytes; 0 when it's ready. */
+	downloadBytes: number | null,
+	/**  It can translate into the language: this device has a model for it, a translator its key. */
+	supported: boolean,
+};
 
 /**  Made for You: today's mixes, and whether new ones are being made. */
 export type MadeForYou = {
@@ -2541,15 +2776,15 @@ export type MangaListingPage = {
 export type MangaReaderPrefs = {
 	pagedScale?: PagedScale,
 	/**
-	 *  The webtoon column in percent of the window's width; 0 is the screen's width on phones and
-	 *  at most 768 px on wide windows.
+	 *  The webtoon column, in percent more or less than the screen's own (M46.48): the screen's
+	 *  width on phones, at most 768 px on wide windows; never wider than the window.
 	 */
-	webtoonWidth?: number,
+	webtoonSize?: number,
 	/**
-	 *  The page bar's width in percent of the window's; 0 is the full width on phones and 70 %
-	 *  on wide windows.
+	 *  The page bar, in percent more or less than the screen's own: the full width on phones,
+	 *  70 % on wide windows; never wider than the window.
 	 */
-	barWidth?: number,
+	barSize?: number,
 	/**  The page bar's buttons beside the page slider. */
 	barChapters?: boolean,
 	barZoom?: boolean,
@@ -2945,8 +3180,8 @@ export type NovelFont = "serif" | "sans";
 
 /**  The novel reader's typography and layout. */
 export type NovelReaderPrefs = {
-	/**  CSS pixels, 14–30. */
-	fontSize: number,
+	/**  Text size in CSS pixels more or less than the screen's own (M46.48), −6 to 12. */
+	textSize?: number,
 	/**  Line height in tenths, 12–22 (1.2–2.2). */
 	lineSpacing: number,
 	font: NovelFont,
@@ -3158,6 +3393,8 @@ export type PodcastEpisode = {
 	artworkUrl: string | null,
 	video: boolean,
 	download: EpisodeDownload | null,
+	/**  The episode's number (`itunes:episode`), or a chapter's place in its book (M46.48). */
+	number: number | null,
 };
 
 /**  A podcast a directory found. */
@@ -3192,8 +3429,15 @@ export type PodcastView = {
 	artworkUrl: string | null,
 	link: string | null,
 	subscribed: boolean,
-	/**  Newest first. */
+	/**  As `order` lists them (M46.48; newest first unless changed). */
 	episodes: PodcastEpisode[],
+	order: EpisodeOrder,
+	/**  `order` isn't the kind's own (M46.48). */
+	customOrder: boolean,
+	/**  Every episode, shown or filtered out. */
+	episodeCount: number,
+	/**  The speed its episodes play at, when it has its own (M46.48). */
+	speed: number | null,
 };
 
 /**
@@ -3536,9 +3780,9 @@ export type SearchResults_Serialize = {
  *  A change to a single setting. The tagged shape (`{ key, value }`) lets the UI send only valid
  *  key/value pairs, and doubles as the format of a stored row.
  */
-export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "gridColumns"; value: number } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
+export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "preferredVideoQuality"; value: number | null } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverWidth"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -3569,8 +3813,6 @@ export type Settings = {
 	startScreen: StartScreen,
 	/**  Navigation bar labels: on every tab, or on the selected one only. */
 	navLabels: NavLabels,
-	/**  Covers per row in library and browse grids; 0 fits them to the screen. */
-	gridColumns: number,
 	/**  Titles over covers (compact, as in Mihon) or under them (comfortable). */
 	coverStyle: CoverStyle,
 	/**  The unread count on library covers. */
@@ -3611,8 +3853,11 @@ export type Settings = {
 	layout: LayoutPrefs,
 	/**  The accent when `accent` is `Custom`: `#rrggbb` (M46.7). */
 	accentColor: string,
-	/**  Smallest cover width in px when covers per row is automatic; 0 picks it by screen (M46.7). */
-	coverWidth: number,
+	/**
+	 *  Covers in library and browse grids, in percent more (or less) than the screen's own size
+	 *  (M46.48): as many as fit across at that size.
+	 */
+	coverSize: number,
 	/**  How manga pages fit the reader (M46.7). */
 	mangaReader: MangaReaderPrefs,
 	/**  How the full music player is laid out (M46.7). */
@@ -3633,7 +3878,10 @@ export type Settings = {
 	autoLoad: AutoLoadPrefs,
 	/**  Who draws the desktop window's top edge (M46.9). */
 	windowFrame: WindowFrame,
-	/**  The desktop app's zoom in percent (M46.9): 50 to 200, in steps of 10. */
+	/**
+	 *  Interface size in percent of the size the screen gives (M46.48): 50 to 200. The desktop
+	 *  app zooms its window; phones scale their text and spacing.
+	 */
 	zoom: number,
 	/**  Charts and song tags (M46.9). */
 	discovery: DiscoveryPrefs,
@@ -3645,6 +3893,8 @@ export type Settings = {
 	hidden: HiddenPrefs,
 	/**  How long lyrics stay kept (M46.46). */
 	lyricsCache: LyricsCachePrefs,
+	/**  Translations under lyrics (M46.48). */
+	lyricsTranslation: LyricsTranslationPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
 	/**  The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default. */

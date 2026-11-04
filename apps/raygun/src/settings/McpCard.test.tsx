@@ -25,7 +25,7 @@ describe('MCP server card', () => {
   it('turns the server on and shows its address and token', async () => {
     const user = userEvent.setup();
     commands.mcpSetEnabled.mockResolvedValue(ok(ON));
-    await AppShellWrapper.mount('/settings/connections');
+    await AppShellWrapper.mount('/settings/ai');
     const card = await screen.findByTestId('mcp-card');
 
     const toggle = await within(card).findByRole('switch', { name: 'MCP server' });
@@ -49,7 +49,7 @@ describe('MCP server card', () => {
     const user = userEvent.setup();
     commands.mcpStatus.mockResolvedValue(ok(ON));
     commands.mcpNewToken.mockResolvedValue(ok({ ...ON, token: 'token-2' }));
-    await AppShellWrapper.mount('/settings/connections');
+    await AppShellWrapper.mount('/settings/ai');
     const card = await screen.findByTestId('mcp-card');
 
     await user.click(await within(card).findByRole('button', { name: 'Show token' }));
@@ -62,9 +62,12 @@ describe('MCP server card', () => {
     commands.mcpStatus.mockResolvedValue(
       ok({ ...ON, url: null, error: 'Couldn’t start: address in use' }),
     );
-    await AppShellWrapper.mount('/settings/connections');
+    await AppShellWrapper.mount('/settings/ai');
     const card = await screen.findByTestId('mcp-card');
-    expect(await within(card).findByRole('alert')).toHaveTextContent('address in use');
+    const problem = await within(card).findByRole('alert');
+    expect(problem).toHaveTextContent("The MCP server isn't running");
+    await userEvent.click(within(problem).getByRole('button', { name: 'More info' }));
+    expect(problem).toHaveTextContent('address in use');
     expect(within(card).getByTestId('mcp-url')).toHaveTextContent('Not running');
   });
 });

@@ -32,7 +32,9 @@ import { unwrapResult } from '../lib/commandResult';
 import { useWakeLock } from '../manga/reader/useWakeLock';
 import {
   DEFAULT_PREFS,
+  LINE_SPACING,
   NOVEL,
+  TEXT_SIZE,
   blockAt,
   novelChapterQuery,
   saveNovelProgress,
@@ -40,6 +42,7 @@ import {
   textOffsets,
   useNovelChapter,
 } from '../novel/useNovel';
+import { SizeField } from '../settings/prefs';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { SourceIssue } from '../shell/SourceIssue';
 
@@ -206,21 +209,21 @@ const PrefsPanel: FC<{ prefs: NovelReaderPrefs; onChange: (prefs: NovelReaderPre
       aria-label={t('novel.textSettings')}
       className="bg-surface fixed inset-x-2 top-16 z-40 mx-auto flex max-w-md flex-col gap-3 rounded-xl p-4 shadow-xl"
     >
-      <Stepper
-        label={t('novel.fontSize')}
-        value={`${prefs.fontSize}`}
-        onLess={() => set({ fontSize: prefs.fontSize - 2 })}
-        onMore={() => set({ fontSize: prefs.fontSize + 2 })}
-        lessDisabled={prefs.fontSize <= 14}
-        moreDisabled={prefs.fontSize >= 30}
+      <SizeField
+        title={t('novel.fontSize')}
+        unit="px"
+        {...TEXT_SIZE}
+        value={prefs.textSize ?? 0}
+        onChange={(textSize) => set({ textSize })}
       />
-      <Stepper
-        label={t('novel.lineSpacing')}
-        value={(prefs.lineSpacing / 10).toFixed(1)}
-        onLess={() => set({ lineSpacing: prefs.lineSpacing - 1 })}
-        onMore={() => set({ lineSpacing: prefs.lineSpacing + 1 })}
-        lessDisabled={prefs.lineSpacing <= 12}
-        moreDisabled={prefs.lineSpacing >= 22}
+      <SizeField
+        title={t('novel.lineSpacing')}
+        unit=""
+        {...LINE_SPACING}
+        zero={DEFAULT_PREFS.lineSpacing}
+        factor={0.1}
+        value={prefs.lineSpacing}
+        onChange={(lineSpacing) => set({ lineSpacing })}
       />
       <div className="flex gap-2">
         <Choice pressed={prefs.font === 'serif'} onClick={() => set({ font: 'serif' })}>
@@ -450,7 +453,7 @@ const ChapterView: FC<{
     refs.current[currentBlock.current]?.scrollIntoView?.({ block: 'start' });
   }, [
     prefs.paged,
-    prefs.fontSize,
+    prefs.textSize,
     prefs.lineSpacing,
     prefs.font,
     prefs.width,
@@ -524,7 +527,7 @@ const ChapterView: FC<{
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     prefs.paged,
-    prefs.fontSize,
+    prefs.textSize,
     prefs.lineSpacing,
     prefs.font,
     prefs.width,
@@ -677,8 +680,9 @@ const ChapterView: FC<{
   };
 
   const textStyle = {
-    // Wide windows sit further away than a phone: text is a fifth larger there (M46.6).
-    fontSize: `calc(${prefs.fontSize}px * var(--reader-scale, 1))`,
+    // The screen's own size (rem follows the screen, M46.48) and the reader's text size on it;
+    // wide windows sit further away than a phone, so text is a fifth larger there (M46.6).
+    fontSize: `calc((1.125rem + ${prefs.textSize ?? 0}px) * var(--reader-scale, 1))`,
     lineHeight: prefs.lineSpacing / 10,
     fontFamily: FONTS[prefs.font],
   };
@@ -776,9 +780,10 @@ export const NovelReaderPage: FC = () => {
   const prefs = settings.data?.novelReader ?? DEFAULT_PREFS;
   // Ctrl+scroll and Ctrl+plus/minus make the text bigger or smaller, as zooming would (M46.7).
   const resize = (delta: number) => {
-    const fontSize = Math.min(30, Math.max(14, prefs.fontSize + delta));
-    if (fontSize !== prefs.fontSize)
-      updateSetting.mutate({ key: 'novelReader', value: { ...prefs, fontSize } });
+    const current = prefs.textSize ?? 0;
+    const textSize = Math.min(TEXT_SIZE.max, Math.max(TEXT_SIZE.min, current + delta));
+    if (textSize !== current)
+      updateSetting.mutate({ key: 'novelReader', value: { ...prefs, textSize } });
   };
   const onZoomWheel = useEffectEvent((event: WheelEvent) => {
     if (!event.ctrlKey) return;
@@ -789,7 +794,7 @@ export const NovelReaderPage: FC = () => {
     if (!event.ctrlKey && !event.metaKey) return;
     if (event.key === '=' || event.key === '+') resize(2);
     else if (event.key === '-') resize(-2);
-    else if (event.key === '0') resize(DEFAULT_PREFS.fontSize - prefs.fontSize);
+    else if (event.key === '0') resize(-(prefs.textSize ?? 0));
     else return;
     event.preventDefault();
   });

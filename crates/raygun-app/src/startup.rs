@@ -197,6 +197,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     let lyrics = crate::lyrics_store::LyricsStore::new(app.handle().clone());
     lyrics.start();
     app.manage(lyrics);
+    // Translations under the lyrics (M46.48).
+    app.manage(crate::lyrics_translation::LyricsTranslations::new(
+        app.handle().clone(),
+    ));
     // Covers from other sources when one's missing or fails (M46.40).
     app.manage(crate::cover_fallback::CoverFallbacks::new(
         app.handle().clone(),

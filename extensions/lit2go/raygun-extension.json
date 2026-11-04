@@ -1,0 +1,16 @@
+{
+  "id": "dev.raygun.lit2go",
+  "name": "Lit2Go",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Free audiobooks of classic stories, novels and poems from the University of South Florida's Lit2Go, by title, author or genre, played chapter by chapter.",
+  "author": "Raygun",
+  "website": "https://etc.usf.edu/lit2go/",
+  "provides": ["audiobook.directory"],
+  "permissions": {
+    "net": ["etc.usf.edu"]
+  },
+  "contentRating": "safe"
+}

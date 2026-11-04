@@ -30,13 +30,21 @@ import {
 } from '../watch/useVideoLibrary';
 import { findInCache } from '../shell/queryMemory';
 import { SourceIssue } from '../shell/SourceIssue';
+import { episodeLabel, isGenericName, showsSeasons } from '../watch/episodeLabel';
+import { nextEpisode, releasedAt } from '../watch/nextEpisode';
 import { LoadMore } from '../shell/LoadMore';
 
-/** "S1 E2 · Pilot", or the title alone when it isn't numbered. */
-const episodeLabel = (video: StremioVideo) =>
-  video.season !== null && video.episode !== null
-    ? `S${video.season} E${video.episode} · ${video.title}`
-    : video.title;
+/** "S1 E2 · Pilot", or the title alone when it isn't numbered; `showSeason` from `showsSeasons`. */
+const videoLabel = (video: StremioVideo, showSeason: boolean) =>
+  episodeLabel({ season: video.season, number: video.episode, name: video.title }, showSeason);
+
+/** Where watching continues: the videos come in watching order, specials last. */
+const continueAt = (videos: StremioVideo[]) =>
+  nextEpisode(videos, (video) => ({
+    watched: video.watched,
+    season: video.season,
+    releasedAt: releasedAt(video.released),
+  }));
 
 const Progress: FC<{ position: number | null; duration: number | null }> = ({
   position,
@@ -51,28 +59,11 @@ const Progress: FC<{ position: number | null; duration: number | null }> = ({
     </span>
   ) : null;
 
-/** Whether an episode is out (no date, or one that can't be read, counts as out). */
-const released = (video: StremioVideo, now: number) => {
-  const at = video.released ? Date.parse(video.released) : Number.NaN;
-  return Number.isNaN(at) || at <= now;
-};
-
-/** The episode to watch next: the first one out and not watched, outside the specials. */
-const nextUp = (videos: StremioVideo[]) => {
-  const now = Date.now();
-  return (
-    videos.find((video) => !video.watched && (video.season ?? 1) > 0 && released(video, now)) ??
-    videos.find((video) => released(video, now)) ??
-    videos[0]
-  );
-};
-
 /** Seasons in order (specials last), and the one to open: where watching left off. */
 const useSeasons = (videos: StremioVideo[]) =>
   useMemo(() => {
     const seasons = [...new Set(videos.map((video) => video.season ?? 0))];
-    const next = nextUp(videos);
-    return { seasons, first: next?.season ?? seasons[0] ?? 0 };
+    return { seasons, first: continueAt(videos)?.season ?? seasons[0] ?? 0 };
   }, [videos]);
 
 /** Episodes drawn at a time: a long season (a thousand anime episodes) is drawn as it's scrolled. */
@@ -93,6 +84,7 @@ const Episodes: FC<{
   const videos = numbered
     ? meta.videos.filter((video) => (video.season ?? 0) === shown)
     : meta.videos;
+  const showSeason = showsSeasons(meta.name, meta.videos);
   // A newly picked season is drawn from its top again.
   const count = drawn.season === shown ? drawn.count : EPISODE_CHUNK;
 
@@ -123,7 +115,7 @@ const Episodes: FC<{
       )}
       <ul className="flex flex-col gap-3">
         {videos.slice(0, count).map((video) => {
-          const label = episodeLabel(video);
+          const label = videoLabel(video, showSeason);
           const target = {
             kind: meta.kind,
             metaId: meta.id,
@@ -155,7 +147,9 @@ const Episodes: FC<{
                   <span
                     className={`line-clamp-2 text-sm font-medium ${video.watched ? 'text-muted' : ''}`}
                   >
-                    {video.episode !== null ? `${video.episode}. ${video.title}` : video.title}
+                    {video.episode !== null && !isGenericName(video.title, null, video.episode)
+                      ? `${video.episode}. ${video.title}`
+                      : video.title}
                   </span>
                   {video.released && (
                     <span className="text-muted text-xs">{video.released.slice(0, 10)}</span>
@@ -298,19 +292,20 @@ export const WatchTitlePage: FC = () => {
     poster: view.background ?? view.poster,
     titleId: view.titleId,
   };
+  const showSeason = showsSeasons(view.name, view.videos);
   const episodeTarget = (video: StremioVideo): StreamTarget => ({
     kind: view.kind,
     metaId: view.id,
     videoId: video.id,
     title: view.name,
-    subtitle: episodeLabel(video),
+    subtitle: videoLabel(video, showSeason),
     poster: video.thumbnail ?? view.poster,
     titleId: view.titleId,
   });
   const hasEpisodes = view.videos.length > 0;
   const trailerId = view.trailerYtIds[0];
-  // The floating button plays the movie, or the first episode out and not yet watched.
-  const nextVideo = hasEpisodes ? nextUp(view.videos) : null;
+  // The floating button plays the movie, or where watching continues.
+  const nextVideo = hasEpisodes ? (continueAt(view.videos) ?? view.videos[0]) : null;
   const resumable = nextVideo ? (nextVideo.positionMs ?? 0) > 0 : (view.positionMs ?? 0) > 0;
   const playLabel = t(resumable ? 'watch.resume' : hasEpisodes ? 'watch.start' : 'watch.play');
   const playNow = () => pick(nextVideo ? episodeTarget(nextVideo) : ownTarget);

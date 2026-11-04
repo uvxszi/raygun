@@ -1,6 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FC, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react';
 
+import { sizedFrom } from '../readerDisplay';
+
 import { ReaderImage } from './ReaderImage';
 
 /** Pages kept loaded above the current one, so scrolling back a little shows them at once. */
@@ -58,8 +60,8 @@ export type WebtoonViewProps = {
   /** A page to scroll to, again whenever `nonce` changes. */
   jump: { page: number; nonce: number } | null;
   zoom: number;
-  /** The column in percent of the window (0: the screen's width, at most 768 px). */
-  width: number;
+  /** The column's size: percent more or less than the screen's own (M46.48). */
+  size: number;
   preload: number;
   chrome: boolean;
   contentRef: RefObject<HTMLElement | null>;
@@ -81,7 +83,7 @@ export const WebtoonView: FC<WebtoonViewProps> = ({
   current,
   jump,
   zoom,
-  width,
+  size,
   preload,
   chrome,
   contentRef,
@@ -194,10 +196,11 @@ export const WebtoonView: FC<WebtoonViewProps> = ({
           contentRef.current = element;
         }}
         data-testid="webtoon-strip"
-        // The column: a share of the window, or the screen's width up to 768 px (M46.7).
+        // The column: the screen's width up to 768 px (M46.7), made bigger or smaller by the
+        // webtoon size (M46.48), then zoomed.
         className="mx-auto flex max-w-none shrink-0 flex-col"
         style={{
-          width: width > 0 ? `${Math.round(width * zoom)}%` : `calc(min(100%, 48rem) * ${zoom})`,
+          width: `calc(${sizedFrom('48rem', size)} * ${zoom})`,
         }}
       >
         {pages.map((url, index) => (
