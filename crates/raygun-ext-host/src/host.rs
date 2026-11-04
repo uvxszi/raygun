@@ -1129,6 +1129,8 @@ impl HostState {
         }
 
         self.loaded.borrow_mut().clear();
+        let mut scripts = Vec::new();
+        let mut others = Vec::new();
         for (id, (source, manifest)) in chosen {
             let origin = source.origin;
             let (name, version) = (manifest.name.clone(), manifest.version.to_string());
@@ -1136,7 +1138,31 @@ impl HostState {
             // offered (M46.9.1).
             let compatibility = manifest.nuclear.as_ref().and_then(compat_report);
             let user_settings = settings.remove(&id).unwrap_or_default();
-            match self.load_one(source, manifest, user_settings).await {
+            let shosetsu = manifest.runtime == Runtime::Shosetsu;
+            let load = async move {
+                let result = self.load_one(source, manifest, user_settings).await;
+                (id, origin, name, version, compatibility, result)
+            };
+            if shosetsu {
+                scripts.push(load);
+            } else {
+                others.push(load);
+            }
+        }
+        // Shosetsu scripts load on threads of their own, so they all start at once; JavaScript
+        // extensions share this thread and load one after another.
+        let (mut results, rest) =
+            futures_util::future::join(futures_util::future::join_all(scripts), async {
+                let mut done = Vec::new();
+                for load in others {
+                    done.push(load.await);
+                }
+                done
+            })
+            .await;
+        results.extend(rest);
+        for (id, origin, name, version, compatibility, result) in results {
+            match result {
                 Ok(extension) => {
                     let info = loaded_info(&extension, origin);
                     tracing::info!(extension = %id, providers = info.providers.len(), "extension loaded");
@@ -1175,7 +1201,8 @@ impl HostState {
             .map(|dir| dir.join(&manifest.id));
         let cookies = CookieJar::open(data_dir.as_ref().map(|dir| dir.join("cookies.json")));
         if manifest.runtime == Runtime::Shosetsu {
-            let load = ShosetsuExtension::load(manifest, source, cookies);
+            // A script's settings come from the script itself, so they're checked there.
+            let load = ShosetsuExtension::load(manifest, source, cookies, user_settings);
             return tokio::time::timeout(self.config.call_timeout, load)
                 .await
                 .map_err(|_| "loading timed out".to_owned())?
