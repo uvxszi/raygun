@@ -389,7 +389,8 @@ impl DiscoveryService {
                         }
                     }
                 }
-                tokio::time::sleep(TAGGER_REST).await;
+                // Slower in battery saver or idle in the background.
+                crate::device_state::rest(TAGGER_REST).await;
             }
         }
     }

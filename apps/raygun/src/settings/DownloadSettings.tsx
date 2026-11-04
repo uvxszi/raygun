@@ -89,6 +89,11 @@ export const DownloadSettings: FC = () => {
         checked={save.pagesPerTitle}
         onChange={(pagesPerTitle) => change({ pagesPerTitle })}
       />
+      <PrefSwitch
+        title={t('settings.downloadsInBatterySaver')}
+        checked={settings.data.downloadsInBatterySaver ?? false}
+        onChange={(value) => update.mutate({ key: 'downloadsInBatterySaver', value })}
+      />
     </PrefGroup>
   );
 };

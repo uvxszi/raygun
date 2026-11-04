@@ -1,17 +1,23 @@
+import { useRef } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { usePauseOffscreen } from '../shell/usePauseOffscreen';
+
 /**
  * Spotify's playing mark (M46.16): bars that bounce while the song plays and rest when it's
- * paused, shown beside the song wherever it's listed.
+ * paused, shown beside the song wherever it's listed. They stand still while scrolled away.
  */
 export const NowPlayingBars: FC<{ playing: boolean; className?: string }> = ({
   playing,
   className = '',
 }) => {
   const { t } = useTranslation();
+  const box = useRef<HTMLSpanElement>(null);
+  usePauseOffscreen(box, playing);
   return (
     <span
+      ref={box}
       role="img"
       aria-label={t(playing ? 'player.nowPlayingMark' : 'player.pausedMark')}
       data-testid="now-playing-bars"

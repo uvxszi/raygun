@@ -32,6 +32,18 @@ object NativeBridge {
     @JvmStatic
     external fun onNotificationAction(json: String)
 
+    /** On screen or not, battery saver and the system's animation settings (DeviceState). */
+    @JvmStatic
+    external fun onDeviceState(json: String)
+
+    fun deviceState(json: String) {
+        try {
+            onDeviceState(json)
+        } catch (error: UnsatisfiedLinkError) {
+            Log.e("RaygunAudio", "Rust engine bridge is not linked", error)
+        }
+    }
+
     /** A tapped notification's screen (`player`, `/downloads?tab=music`). */
     @JvmStatic
     external fun onOpen(route: String)

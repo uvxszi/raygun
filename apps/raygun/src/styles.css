@@ -86,7 +86,10 @@
 }
 
 /* Animations (M46.7, Settings → Appearance): buttons answer hover and press, popovers and panels
-   come in. Calm moves less; Off and the system's reduced motion turn it off. */
+   come in. `data-motion` on the root is the level in effect (settings/useApplyTheme, from
+   shell/deviceState): Lively, Calm (moves less), Reduced (the system's slower animation scales,
+   battery saver or reduced motion: short fades only, nothing that loops) and Off (Settings or the
+   system's Remove animations: nothing moves, nothing waits on an animation). */
 :root {
   --press-scale: 0.9;
   --press-scale-wide: 0.98;
@@ -122,7 +125,7 @@
   transform-origin: bottom;
 }
 @media (prefers-reduced-motion: no-preference) {
-  :root:not([data-motion='off']) .raygun-eq-bar {
+  :root:is([data-motion='lively'], [data-motion='calm']) .raygun-eq-bar {
     animation: raygun-eq 0.9s ease-in-out infinite;
   }
 }
@@ -151,9 +154,14 @@
   }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .marquee-run {
+  :root:is([data-motion='lively'], [data-motion='calm']) .marquee-run {
     animation: raygun-marquee var(--marquee-time) linear infinite alternate;
   }
+}
+:root:not([data-motion='lively'], [data-motion='calm']) .marquee-run {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 @media (prefers-reduced-motion: reduce) {
   .marquee-run {
@@ -161,6 +169,36 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+}
+
+/* Reduced and Off: loading marks stand still (a still icon, a plain placeholder) and smooth
+   scrolling jumps. Off also drops every animation and transition, so nothing that waits for one
+   is left waiting and nothing ends up sped up or cut in half. */
+:root:is([data-motion='reduced'], [data-motion='off'])
+  :is(.animate-spin, .animate-pulse, .animate-ping, .animate-bounce) {
+  animation: none !important;
+}
+:root:is([data-motion='reduced'], [data-motion='off']) {
+  scroll-behavior: auto !important;
+}
+:root[data-motion='off'] *,
+:root[data-motion='off'] *::before,
+:root[data-motion='off'] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+/* Nothing moves where nobody sees it: Raygun in the background, the page under the full player
+   (`data-covered` on the shell's content), or a mark scrolled away (shell/usePauseOffscreen). */
+:root[data-active='false'] *,
+:root[data-active='false'] *::before,
+:root[data-active='false'] *::after,
+[data-covered] *,
+[data-covered] *::before,
+[data-covered] *::after,
+[data-offscreen],
+[data-offscreen] * {
+  animation-play-state: paused !important;
 }
 
 /* The full player's sizes start from the space they have, at any window size, zoom, text size
@@ -217,33 +255,48 @@
 
 @layer base {
   @media (prefers-reduced-motion: no-preference) {
-    :root:not([data-motion='off']) :is(button, a, [role='button'], [role='tab'], summary) {
+    :root:is([data-motion='lively'], [data-motion='calm'])
+      :is(button, a, [role='button'], [role='tab'], summary) {
       transition-property: transform, background-color, color, border-color, opacity, box-shadow;
       transition-duration: var(--motion-time);
       transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
     }
-    :root:not([data-motion='off']) :is(button, a, [role='button']):not(:disabled):active {
+    :root:is([data-motion='lively'], [data-motion='calm'])
+      :is(button, a, [role='button']):not(:disabled):active {
       transform: scale(var(--press-scale-wide));
     }
     /* Icon buttons press deeper and their icon grows under the pointer. */
-    :root:not([data-motion='off']) button:not(:disabled):has(> svg:only-child):active {
+    :root:is([data-motion='lively'], [data-motion='calm'])
+      button:not(:disabled):has(> svg:only-child):active {
       transform: scale(var(--press-scale));
     }
-    :root:not([data-motion='off']) button > svg:only-child {
+    :root:is([data-motion='lively'], [data-motion='calm']) button > svg:only-child {
       transition: transform var(--motion-time) cubic-bezier(0.2, 0.8, 0.2, 1);
     }
-    :root:not([data-motion='off']) button:not(:disabled):hover > svg:only-child {
+    :root:is([data-motion='lively'], [data-motion='calm'])
+      button:not(:disabled):hover
+      > svg:only-child {
       transform: scale(var(--hover-icon-scale));
     }
-    :root:not([data-motion='off']) .motion-pop {
+    :root:is([data-motion='lively'], [data-motion='calm']) .motion-pop {
       animation: raygun-pop-in var(--motion-time) cubic-bezier(0.2, 0.8, 0.2, 1);
     }
-    :root:not([data-motion='off']) .motion-rise {
+    :root:is([data-motion='lively'], [data-motion='calm']) .motion-rise {
       animation: raygun-rise-in calc(var(--motion-time) * 1.4) cubic-bezier(0.2, 0.8, 0.2, 1);
     }
-    :root:not([data-motion='off']) .motion-fade {
+    :root:is([data-motion='lively'], [data-motion='calm']) .motion-fade {
       animation: raygun-fade-in var(--motion-time) ease-out;
     }
+  }
+  /* Reduced: colours still change on hover and press, and panels fade in briefly, without
+     moving. */
+  :root[data-motion='reduced'] :is(button, a, [role='button'], [role='tab'], summary) {
+    transition-property: background-color, color, border-color, opacity;
+    transition-duration: 120ms;
+    transition-timing-function: ease-out;
+  }
+  :root[data-motion='reduced'] :is(.motion-pop, .motion-rise, .motion-fade) {
+    animation: raygun-fade-in 120ms ease-out;
   }
 
   :root[data-theme='light'] {

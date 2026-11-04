@@ -5,14 +5,15 @@ import { formatTime } from '../player/formatTime';
 import { formatBytes } from '../watch/episodeLabel';
 
 /**
- * Spins and pulses only where motion is on (Settings → Appearance → Animations, and the system's
- * reduced motion); they animate transform and opacity only.
+ * Spins and pulses only where things may move (`data-motion` lively or calm: Settings →
+ * Appearance → Animations, lowered by the system's animation settings, battery saver and reduced
+ * motion); elsewhere they stand still. They animate transform and opacity only.
  */
-export const SPIN = 'motion-safe:[:root:not([data-motion=off])_&]:animate-spin';
-export const PULSE = 'motion-safe:[:root:not([data-motion=off])_&]:animate-pulse';
+export const SPIN = '[:root:is([data-motion=lively],[data-motion=calm])_&]:animate-spin';
+export const PULSE = '[:root:is([data-motion=lively],[data-motion=calm])_&]:animate-pulse';
 /** A progress bar's fill glides between reports (a transform, so nothing is laid out again). */
 export const GLIDE =
-  'motion-safe:[:root:not([data-motion=off])_&]:transition-transform motion-safe:[:root:not([data-motion=off])_&]:duration-300 ease-linear';
+  '[:root:is([data-motion=lively],[data-motion=calm])_&]:transition-transform [:root:is([data-motion=lively],[data-motion=calm])_&]:duration-300 ease-linear';
 
 /** On its way: queued, downloading or being recorded. */
 export const isBusy = (item: SongDownload) =>

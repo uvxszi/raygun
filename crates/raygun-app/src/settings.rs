@@ -193,6 +193,11 @@ pub async fn apply_live(app: &tauri::AppHandle, settings: &Settings, changed: Op
         app.state::<std::sync::Arc<crate::extensions::ExtensionService>>()
             .set_disabled_sources(&settings.disabled_sources);
     }
+    if differs("downloadsInBatterySaver", &|before| {
+        before.downloads_in_battery_saver == settings.downloads_in_battery_saver
+    }) {
+        crate::device_state::set_downloads_allowed(settings.downloads_in_battery_saver);
+    }
     if differs("discovery", &|before| {
         before.discovery == settings.discovery
     }) {

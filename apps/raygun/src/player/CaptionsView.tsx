@@ -24,6 +24,7 @@ import { useLyricsLook } from './playerView';
 import { trackQueryFor } from './lyricsQuery';
 import { useLiveValue } from './useLivePosition';
 import { sendControl, useCurrentItem, usePlayerTiming, useReadPosition } from './usePlayback';
+import { scrollMotion } from '../shell/deviceState';
 
 type Variant = 'sheet' | 'panel';
 
@@ -91,7 +92,7 @@ const CaptionLines: FC<{
     if (!box || !line) return;
     box.scrollTo?.({
       top: line.offsetTop - box.clientHeight / 2 + line.clientHeight / 2,
-      behavior: 'smooth',
+      behavior: scrollMotion(),
     });
   }, [current, container]);
 

@@ -356,6 +356,21 @@ describe('Html5Engine', () => {
     expect(toLufs(deck.measured)).toBeCloseTo(-8, 3);
   });
 
+  it('runs its loudness timer only while a song plays', () => {
+    vi.useFakeTimers();
+    const { media, engine, load } = setup();
+    // Idle: no timer wakes the page.
+    expect(engine.metering).toBe(false);
+    load({ measure: true });
+    media.fire('playing');
+    expect(engine.metering).toBe(true);
+
+    engine.handle({ type: 'pause' });
+    vi.advanceTimersByTime(200);
+    expect(engine.metering).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('passes effects to the sound graph and changes the playing song’s gain', () => {
     const { engine, backend, decks, load } = setup();
     load({ gainDb: -2 });

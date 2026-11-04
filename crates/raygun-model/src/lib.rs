@@ -221,6 +221,8 @@ pub struct Settings {
     pub keep_music_playing: bool,
     /// Opening Raygun shows what played last, paused where it was (M46.16).
     pub resume_on_start: bool,
+    /// Downloads keep going while battery saver is on; off, they wait for it to end.
+    pub downloads_in_battery_saver: bool,
     /// How good songs sound against the data they use, streaming and downloading.
     pub audio_quality: AudioQualityPrefs,
     /// What the desktop sidebar shows and in what order (M46.29).
@@ -1891,6 +1893,7 @@ impl Default for Settings {
             sound: SoundPrefs::default(),
             keep_music_playing: false,
             resume_on_start: true,
+            downloads_in_battery_saver: false,
             audio_quality: AudioQualityPrefs::default(),
             rail: RailPrefs::default(),
         }
@@ -1944,6 +1947,7 @@ impl Settings {
             SettingChange::Sound(prefs) => self.sound = prefs,
             SettingChange::KeepMusicPlaying(on) => self.keep_music_playing = on,
             SettingChange::ResumeOnStart(on) => self.resume_on_start = on,
+            SettingChange::DownloadsInBatterySaver(on) => self.downloads_in_battery_saver = on,
             SettingChange::AudioQuality(prefs) => self.audio_quality = prefs,
             SettingChange::Rail(prefs) => self.rail = prefs,
             SettingChange::Privacy(prefs) => self.privacy = prefs,
@@ -2031,6 +2035,7 @@ pub enum SettingChange {
     Sound(SoundPrefs),
     KeepMusicPlaying(bool),
     ResumeOnStart(bool),
+    DownloadsInBatterySaver(bool),
     AudioQuality(AudioQualityPrefs),
     Rail(RailPrefs),
     Transcription(TranscriptionPrefs),
@@ -2090,6 +2095,7 @@ impl SettingChange {
             Self::Sound(_) => "sound",
             Self::KeepMusicPlaying(_) => "keepMusicPlaying",
             Self::ResumeOnStart(_) => "resumeOnStart",
+            Self::DownloadsInBatterySaver(_) => "downloadsInBatterySaver",
             Self::AudioQuality(_) => "audioQuality",
             Self::Rail(_) => "rail",
             Self::Transcription(_) => "transcription",
@@ -2123,6 +2129,7 @@ impl SettingChange {
             | Self::ManualBrowserChecks(_)
             | Self::KeepMusicPlaying(_)
             | Self::ResumeOnStart(_)
+            | Self::DownloadsInBatterySaver(_)
             | Self::AudioQuality(_)
             | Self::LibraryDisplay(_)
             | Self::Privacy(_) => Ok(()),

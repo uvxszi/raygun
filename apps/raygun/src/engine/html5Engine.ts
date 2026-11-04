@@ -81,7 +81,8 @@ export class Html5Engine {
   private normalize = false;
   private target = -14;
   private steps = 0;
-  private readonly meterTimer: ReturnType<typeof setInterval>;
+  /** Measures loudness while a song plays; stopped otherwise, so an idle engine never wakes. */
+  private meterTimer: ReturnType<typeof setInterval> | null = null;
   private readonly cleanups: (() => void)[] = [];
 
   constructor(
@@ -91,7 +92,21 @@ export class Html5Engine {
     private readonly backend: SoundBackend = elementSound(),
   ) {
     this.decks = [this.makeDeck(medias[0]), this.makeDeck(medias[1])];
-    this.meterTimer = setInterval(() => this.measure(), METER_STEP_MS);
+  }
+
+  /** Whether the loudness meter's timer runs (tests). */
+  get metering() {
+    return this.meterTimer !== null;
+  }
+
+  private startMeter() {
+    this.meterTimer ??= setInterval(() => this.measure(), METER_STEP_MS);
+  }
+
+  private stopMeter() {
+    if (this.meterTimer === null) return;
+    clearInterval(this.meterTimer);
+    this.meterTimer = null;
   }
 
   private makeDeck(media: MediaElementLike): Deck {
@@ -119,6 +134,7 @@ export class Html5Engine {
         () => {
           // A context still asleep would play it without a sound.
           this.backend.resume();
+          this.startMeter();
           this.scheduleEnd(deck);
           this.emitFrom(deck, { type: 'playing' });
         },
@@ -201,7 +217,7 @@ export class Html5Engine {
   }
 
   dispose() {
-    clearInterval(this.meterTimer);
+    this.stopMeter();
     for (const deck of this.decks) {
       this.clearEnd(deck);
       if (deck.stopTimer) clearTimeout(deck.stopTimer);
@@ -331,6 +347,11 @@ export class Html5Engine {
   /** Samples the playing deck's loudness, levels it live, and reports it once it's known. */
   private measure() {
     const deck = this.deck;
+    if (this.decks.every((each) => each.media.paused)) {
+      // Nothing plays: the timer starts again with the next song that does.
+      this.stopMeter();
+      return;
+    }
     if (!deck.measure || deck.loadId === null || deck.media.paused) return;
     const power = deck.audio.power();
     if (power === null) return;

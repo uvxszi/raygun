@@ -17,6 +17,7 @@ import { usePlayerUiStore } from './playerUiStore';
 import { useLyricsLook } from './playerView';
 import { useLiveValue } from './useLivePosition';
 import { sendControl, usePlayerTiming } from './usePlayback';
+import { scrollMotion } from '../shell/deviceState';
 
 type Variant = 'sheet' | 'panel';
 
@@ -170,7 +171,7 @@ const SyncedLyrics: FC<{
     if (!box || !line || performance.now() < heldUntil.current) return;
     box.scrollTo?.({
       top: line.offsetTop - box.clientHeight / 2 + line.clientHeight / 2,
-      behavior: 'smooth',
+      behavior: scrollMotion(),
     });
   }, [current, container]);
 

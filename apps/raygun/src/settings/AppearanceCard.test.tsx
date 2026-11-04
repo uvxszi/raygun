@@ -71,6 +71,7 @@ const DEFAULT_SETTINGS: Settings = {
   manualBrowserChecks: false,
   userAgent: '',
   keepMusicPlaying: false,
+  downloadsInBatterySaver: false,
   resumeOnStart: true,
   audioQuality: { streaming: 'high', cellular: 'normal', download: 'veryHigh' },
   rail: { pins: [], order: 'custom', seeded: false },

@@ -31,6 +31,9 @@ pub struct TableSpec {
     pub kind: SyncKind,
 }
 
+/// Setting keys kept to the device they were set on.
+pub const DEVICE_ONLY_SETTINGS: &[&str] = &["manualBrowserChecks"];
+
 const STAMP: [&str; 3] = ["updated_at_hlc", "origin_device", "deleted"];
 
 pub const TABLES: &[TableSpec] = &[
@@ -150,6 +153,10 @@ pub async fn changes_since(
             continue;
         };
         let key: String = entry.get("row_key");
+        // Settings each device turns on for itself, after its own warning, never travel.
+        if spec.kind == SyncKind::Settings && DEVICE_ONLY_SETTINGS.contains(&key.as_str()) {
+            continue;
+        }
         if let Some(row) = read_row(db.pool(), spec, &key).await? {
             rows.push(SyncRow { table: tbl, row });
         }
@@ -192,6 +199,9 @@ pub async fn apply(
         let Some(key) = text_field(&incoming.row, spec.key) else {
             continue;
         };
+        if spec.kind == SyncKind::Settings && DEVICE_ONLY_SETTINGS.contains(&key.as_str()) {
+            continue;
+        }
         applied.received += 1;
         let hlc = incoming
             .row
